@@ -149,6 +149,99 @@ test("malformed comparison roots return structured issues instead of throwing", 
   }
 });
 
+test("bound canonical, target, and result JSON must be non-array objects", () => {
+  const malformedValues = [
+    ["null", null],
+    ["array", []],
+    ["string", "not-an-object"],
+    ["number", 42],
+  ];
+  const bindings = [
+    {
+      label: "canonical_report",
+      select(comparison) {
+        return comparison.canonical_report;
+      },
+    },
+    {
+      label: "runs[0].target",
+      select(comparison) {
+        return comparison.runs[0].target;
+      },
+    },
+    {
+      label: "runs[0].results[0]",
+      select(comparison) {
+        return comparison.runs[0].results[0];
+      },
+    },
+  ];
+
+  for (const bound of bindings) {
+    for (const [valueLabel, value] of malformedValues) {
+      const root = fs.mkdtempSync(
+        path.join(
+          os.tmpdir(),
+          `pm-review-binding-${bound.label.replaceAll(/\W/g, "-")}-${valueLabel}-`
+        )
+      );
+      const comparisonPath = seedComparison(root);
+      const absoluteComparison = path.join(root, comparisonPath);
+      const comparison = JSON.parse(fs.readFileSync(absoluteComparison, "utf8"));
+      const selected = bound.select(comparison);
+      const bytes = Buffer.from(`${JSON.stringify(value)}\n`);
+      fs.writeFileSync(path.join(root, selected.path), bytes);
+      selected.sha256 = crypto.createHash("sha256").update(bytes).digest("hex");
+      fs.writeFileSync(absoluteComparison, `${JSON.stringify(comparison, null, 2)}\n`);
+
+      const result = checkReviewRepeats(root, comparisonPath);
+      assert.equal(result.ok, false, `${bound.label} ${valueLabel}`);
+      assert.match(
+        JSON.stringify(result.issues),
+        new RegExp(
+          `${bound.label.replaceAll("[", "\\[").replaceAll("]", "\\]")} must contain a non-array JSON object`
+        ),
+        `${bound.label} ${valueLabel}`
+      );
+    }
+  }
+});
+
+function seedComparison(root) {
+  const source = seedGit(root);
+  const runs = ["repeat-one", "repeat-two", "repeat-three"].map((runId) =>
+    seedRun(root, runId, source)
+  );
+  const reportPath = ".pm/dev-sessions/feature/review/report.json";
+  const htmlPath = ".pm/dev-sessions/feature/review/report.html";
+  const generated = checkReview({
+    root,
+    targetPath: runs[0].target.path,
+    resultPaths: runs[0].results.map((item) => item.path),
+    reportPath,
+    humanReportPath: htmlPath,
+    writeReport: true,
+    verifyGit: false,
+    verifyFrozenGit: true,
+    verifyBrowser: false,
+  });
+  assert.equal(generated.ok, true, JSON.stringify(generated.issues));
+  renderReviewReport({ root, reportPath, outputPath: htmlPath });
+  const comparisonPath = ".pm/dev-sessions/feature/review/repeat-comparison.json";
+  write(root, comparisonPath, {
+    schema_version: 1,
+    canonical_report: binding(root, reportPath),
+    runs,
+    metrics: {
+      finding_set_agreement: 1,
+      finding_count_stability: 1,
+      severity_agreement: 1,
+      outcome_agreement: 1,
+    },
+  });
+  return comparisonPath;
+}
+
 function snapshotDrafts(root, runs) {
   return runs.flatMap((run) => {
     const roundRoot = path.posix.dirname(run.target.path);

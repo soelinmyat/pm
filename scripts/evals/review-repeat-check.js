@@ -213,7 +213,12 @@ function readBinding(root, binding, label, issues) {
     const file = safeProjectInput(root, binding.path);
     const bytes = fs.readFileSync(file);
     if (digest(bytes) !== binding.sha256) throw new Error("SHA-256 mismatch");
-    return { value: JSON.parse(bytes.toString("utf8")) };
+    const value = JSON.parse(bytes.toString("utf8"));
+    if (!object(value)) {
+      issues.push(`${label} must contain a non-array JSON object`);
+      return null;
+    }
+    return { value };
   } catch (error) {
     issues.push(`${label} ${error.message}`);
     return null;
