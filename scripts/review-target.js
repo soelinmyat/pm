@@ -368,7 +368,6 @@ module.exports = {
   buildReviewTarget,
   changedFileInventory,
   loadProfile,
-  main,
   parseArgs,
   readCommittedBlob,
   resolveTrustedBase,

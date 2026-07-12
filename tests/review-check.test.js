@@ -3,18 +3,14 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
-const { execFileSync } = require("node:child_process");
+const { execFileSync, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
 const { buildCanonicalReport, checkReview, expandFromReport } = require("../scripts/review-check");
 const { renderReviewReport } = require("../scripts/review-report");
-const {
-  buildReviewTarget,
-  changedFileInventory,
-  main: reviewTargetMain,
-} = require("../scripts/review-target");
+const { buildReviewTarget, changedFileInventory } = require("../scripts/review-target");
 const { findingId } = require("../scripts/lib/review-contract");
 const {
   expectedPriorReportPath,
@@ -974,73 +970,71 @@ test("Review publication surfaces unsupported sync warnings and committed EIO fa
   );
   assert.ok(fs.existsSync(path.join(fixture.root, fixture.htmlPath)));
 
-  const stdout = [];
-  const stderr = [];
-  const originalStdout = process.stdout.write;
-  const originalStderr = process.stderr.write;
-  process.stdout.write = (chunk) => {
-    stdout.push(String(chunk));
-    return true;
+  projectWriter.writeProjectJsonAtomic = originalJson;
+  const preload = path.join(fixture.root, ".pm", "durability-preload.cjs");
+  const writerModule = path.join(__dirname, "..", "scripts", "lib", "project-atomic-write.js");
+  fs.writeFileSync(
+    preload,
+    `
+      const writer = require(process.env.PM_TEST_WRITER_MODULE);
+      const original = writer.writeProjectJsonAtomic;
+      writer.writeProjectJsonAtomic = (...args) => {
+        const state = original(...args);
+        if (process.env.PM_TEST_DURABILITY === "unsupported") {
+          return { ...state, directory_synced: false, directory_sync_error: "EPERM" };
+        }
+        const error = new Error("project output committed but directory sync failed (EIO); do not retry this write");
+        error.committed = true;
+        error.directorySyncError = "EIO";
+        throw error;
+      };
+      delete process.env.NODE_OPTIONS;
+    `
+  );
+  const targetScript = path.join(__dirname, "..", "scripts", "review-target.js");
+  const targetArgs = (targetPath, runId) => [
+    targetScript,
+    "--root",
+    fixture.root,
+    "--out",
+    targetPath,
+    "--run-id",
+    runId,
+    "--round",
+    "1",
+    "--mode",
+    "full",
+    "--profile",
+    "codex-workhorse",
+    "--max-workers",
+    "3",
+    "--base",
+    "origin/main",
+  ];
+  const baseEnv = {
+    ...process.env,
+    NODE_OPTIONS: `--require=${preload}`,
+    PM_TEST_WRITER_MODULE: writerModule,
   };
-  process.stderr.write = (chunk) => {
-    stderr.push(String(chunk));
-    return true;
-  };
-  try {
-    projectWriter.writeProjectJsonAtomic = unsupported(originalJson);
-    const warningTarget =
-      ".pm/dev-sessions/example/review/runs/durability-warning/round-1/target.json";
-    const warningStatus = reviewTargetMain([
-      "--root",
-      fixture.root,
-      "--out",
-      warningTarget,
-      "--run-id",
-      "durability-warning",
-      "--round",
-      "1",
-      "--mode",
-      "full",
-      "--profile",
-      "codex-workhorse",
-      "--max-workers",
-      "3",
-      "--base",
-      "origin/main",
-    ]);
-    assert.equal(warningStatus, 0, stderr.join(""));
-    assert.match(stderr.join(""), /unsupported directory sync EPERM/);
-    assert.ok(fs.existsSync(path.join(fixture.root, warningTarget)));
+  const warningTarget =
+    ".pm/dev-sessions/example/review/runs/durability-warning/round-1/target.json";
+  const warning = spawnSync(process.execPath, targetArgs(warningTarget, "durability-warning"), {
+    encoding: "utf8",
+    env: { ...baseEnv, PM_TEST_DURABILITY: "unsupported" },
+  });
+  assert.equal(warning.status, 0, warning.stderr);
+  assert.match(warning.stderr, /unsupported directory sync EPERM/);
+  assert.doesNotThrow(() => JSON.parse(warning.stdout));
+  assert.ok(fs.existsSync(path.join(fixture.root, warningTarget)));
 
-    stderr.length = 0;
-    projectWriter.writeProjectJsonAtomic = genuineFailure(originalJson);
-    const eioTarget = ".pm/dev-sessions/example/review/runs/durability-eio/round-1/target.json";
-    const eioStatus = reviewTargetMain([
-      "--root",
-      fixture.root,
-      "--out",
-      eioTarget,
-      "--run-id",
-      "durability-eio",
-      "--round",
-      "1",
-      "--mode",
-      "full",
-      "--profile",
-      "codex-workhorse",
-      "--max-workers",
-      "3",
-      "--base",
-      "origin/main",
-    ]);
-    assert.equal(eioStatus, 1);
-    assert.match(stderr.join(""), /committed but directory sync failed \(EIO\); do not retry/);
-    assert.ok(fs.existsSync(path.join(fixture.root, eioTarget)));
-  } finally {
-    process.stdout.write = originalStdout;
-    process.stderr.write = originalStderr;
-  }
-  assert.ok(stdout.length > 0);
+  const eioTarget = ".pm/dev-sessions/example/review/runs/durability-eio/round-1/target.json";
+  const eio = spawnSync(process.execPath, targetArgs(eioTarget, "durability-eio"), {
+    encoding: "utf8",
+    env: { ...baseEnv, PM_TEST_DURABILITY: "eio" },
+  });
+  assert.equal(eio.status, 1);
+  assert.match(eio.stderr, /committed but directory sync failed \(EIO\); do not retry/);
+  assert.ok(fs.existsSync(path.join(fixture.root, eioTarget)));
 });
 
 test(
