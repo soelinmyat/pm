@@ -74,6 +74,46 @@ test("strict PDF inspection ignores page-tree tokens inside dictionary comments 
   assert.throws(() => inspectPdfBytes(Buffer.from(body, "latin1")), /Root is not a Catalog/);
 });
 
+test("strict PDF inspection ignores page-tree tokens inside nested dictionary values", () => {
+  const objects = [
+    "1 0 obj\n<< /Note << /Type /Catalog /Pages 2 0 R >> >>\nendobj\n",
+    "2 0 obj\n<< /Note << /Type /Pages /Count 1 /Kids [3 0 R] >> >>\nendobj\n",
+    "3 0 obj\n<< /Note << /Type /Page >> >>\nendobj\n",
+  ];
+  let body = "%PDF-1.7\n";
+  const offsets = [0];
+  for (const object of objects) {
+    offsets.push(Buffer.byteLength(body, "latin1"));
+    body += object;
+  }
+  body += `%${"padding".repeat(150)}\n`;
+  const xref = Buffer.byteLength(body, "latin1");
+  body += "xref\n0 4\n0000000000 65535 f \n";
+  for (const offset of offsets.slice(1)) body += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  body += `trailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  assert.throws(() => inspectPdfBytes(Buffer.from(body, "latin1")), /Root is not a Catalog/);
+});
+
+test("strict PDF inspection accepts opaque literal and hex values before semantic keys", () => {
+  const objects = [
+    "1 0 obj\n<< /Lang (en-US) /Identifier <656e2d5553> /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+    "2 0 obj\n<< /Label (Pages) /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+    "3 0 obj\n<< /Label <50616765> /Type /Page /Parent 2 0 R >>\nendobj\n",
+  ];
+  let body = "%PDF-1.7\n";
+  const offsets = [0];
+  for (const object of objects) {
+    offsets.push(Buffer.byteLength(body, "latin1"));
+    body += object;
+  }
+  body += `%${"padding".repeat(150)}\n`;
+  const xref = Buffer.byteLength(body, "latin1");
+  body += "xref\n0 4\n0000000000 65535 f \n";
+  for (const offset of offsets.slice(1)) body += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  body += `trailer\n<< /Size 4 /ID [(one) <74776f>] /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  assert.deepEqual(inspectPdfBytes(Buffer.from(body, "latin1")), { pages: 1 });
+});
+
 function png({ colorType }) {
   const width = 10;
   const height = 10;

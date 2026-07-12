@@ -6,6 +6,7 @@ const zlib = require("node:zlib");
 const PNG_SIGNATURE = Buffer.from("89504e470d0a1a0a", "hex");
 const MIN_RENDER_BYTES = 1024;
 const MAX_DECODED_BYTES = 128 * 1024 * 1024;
+const PDF_TOKEN = new RegExp(String.raw`^[^\s<>\[\]()%/]+`);
 const VALID_DEPTHS = Object.freeze({
   0: new Set([1, 2, 4, 8, 16]),
   2: new Set([8, 16]),
@@ -126,8 +127,8 @@ function inspectPdfBytes(bytes) {
   if (!Number.isSafeInteger(xrefOffset) || text.slice(xrefOffset, xrefOffset + 4) !== "xref")
     throw new Error("invalid PDF xref offset");
   const { entries, trailer } = parseXref(text, xrefOffset);
-  const trailerDictionary = extractDictionary(trailer, 0, "trailer");
-  const rootRef = trailerDictionary.match(/\/Root\s+(\d+)\s+(\d+)\s+R/);
+  const trailerDictionary = directDictionary(extractDictionary(trailer, 0, "trailer"), "trailer");
+  const rootRef = referenceValue(trailerDictionary.get("Root"));
   if (!rootRef) throw new Error("PDF trailer Root is required");
   const objects = new Map();
   for (const entry of entries.filter((item) => item.inUse)) {
@@ -138,12 +139,15 @@ function inspectPdfBytes(bytes) {
     if (end < 0) throw new Error(`PDF object ${entry.object} is unterminated`);
     objects.set(`${entry.object}:${entry.generation}`, source.slice(0, end + 6));
   }
-  const root = objectDictionary(resolveObject(objects, rootRef[1], rootRef[2], "Root"), "Root");
-  if (!/\/Type\s*\/Catalog\b/.test(root)) throw new Error("PDF Root is not a Catalog");
-  const pagesRef = root.match(/\/Pages\s+(\d+)\s+(\d+)\s+R/);
+  const root = directDictionary(
+    objectDictionary(resolveObject(objects, rootRef.object, rootRef.generation, "Root"), "Root"),
+    "Root"
+  );
+  if (nameValue(root.get("Type")) !== "Catalog") throw new Error("PDF Root is not a Catalog");
+  const pagesRef = referenceValue(root.get("Pages"));
   if (!pagesRef) throw new Error("PDF Catalog Pages is required");
   const visited = new Set();
-  const pages = walkPages(objects, pagesRef[1], pagesRef[2], visited);
+  const pages = walkPages(objects, pagesRef.object, pagesRef.generation, visited);
   if (pages < 1) throw new Error("PDF must contain at least one page");
   return { pages };
 }
@@ -181,16 +185,135 @@ function walkPages(objects, object, generation, visited) {
   const key = `${object}:${generation}`;
   if (visited.has(key)) throw new Error("PDF page tree cycle");
   visited.add(key);
-  const source = objectDictionary(resolveObject(objects, object, generation, "Pages"), "Pages");
-  if (/\/Type\s*\/Page\b/.test(source)) return 1;
-  if (!/\/Type\s*\/Pages\b/.test(source)) throw new Error("PDF page tree node is invalid");
-  const count = Number(source.match(/\/Count\s+(\d+)/)?.[1]);
-  const kidsBody = source.match(/\/Kids\s*\[([\s\S]*?)\]/)?.[1];
-  if (!Number.isInteger(count) || !kidsBody) throw new Error("PDF Pages node lacks Count or Kids");
-  const refs = [...kidsBody.matchAll(/(\d+)\s+(\d+)\s+R/g)];
-  const actual = refs.reduce((sum, ref) => sum + walkPages(objects, ref[1], ref[2], visited), 0);
+  const source = directDictionary(
+    objectDictionary(resolveObject(objects, object, generation, "Pages"), "Pages"),
+    "Pages"
+  );
+  if (nameValue(source.get("Type")) === "Page") return 1;
+  if (nameValue(source.get("Type")) !== "Pages") throw new Error("PDF page tree node is invalid");
+  const count = integerValue(source.get("Count"));
+  const refs = referenceArrayValue(source.get("Kids"));
+  if (!Number.isInteger(count) || !refs) throw new Error("PDF Pages node lacks Count or Kids");
+  const actual = refs.reduce(
+    (sum, ref) => sum + walkPages(objects, ref.object, ref.generation, visited),
+    0
+  );
   if (actual !== count) throw new Error("PDF page tree Count does not match Kids");
   return actual;
+}
+
+function directDictionary(dictionary, label) {
+  const tokens = dictionaryTokens(dictionary);
+  if (tokens[0]?.type !== "dict-start" || tokens.at(-1)?.type !== "dict-end")
+    throw new Error(`PDF ${label} dictionary tokens are invalid`);
+  const entries = new Map();
+  let cursor = 1;
+  while (cursor < tokens.length - 1) {
+    const key = tokens[cursor];
+    if (key.type !== "name") throw new Error(`PDF ${label} dictionary key is invalid`);
+    if (entries.has(key.value)) throw new Error(`PDF ${label} dictionary key is duplicated`);
+    const consumed = consumeDictionaryValue(tokens, cursor + 1, label);
+    entries.set(key.value, consumed.value);
+    cursor = consumed.next;
+  }
+  return entries;
+}
+
+function dictionaryTokens(source) {
+  const tokens = [];
+  let cursor = 0;
+  while (cursor < source.length) {
+    if (/\s/.test(source[cursor])) {
+      cursor += 1;
+      continue;
+    }
+    const pair = source.slice(cursor, cursor + 2);
+    if (pair === "<<" || pair === ">>") {
+      tokens.push({ type: pair === "<<" ? "dict-start" : "dict-end", value: pair });
+      cursor += 2;
+      continue;
+    }
+    if (source[cursor] === "[" || source[cursor] === "]") {
+      tokens.push({
+        type: source[cursor] === "[" ? "array-start" : "array-end",
+        value: source[cursor],
+      });
+      cursor += 1;
+      continue;
+    }
+    if (source[cursor] === "/") {
+      const match = source.slice(cursor + 1).match(PDF_TOKEN);
+      if (!match) throw new Error("PDF dictionary name is invalid");
+      tokens.push({ type: "name", value: match[0] });
+      cursor += match[0].length + 1;
+      continue;
+    }
+    const match = source.slice(cursor).match(PDF_TOKEN);
+    if (!match) {
+      cursor += 1;
+      continue;
+    }
+    tokens.push({ type: /^\d+$/.test(match[0]) ? "integer" : "word", value: match[0] });
+    cursor += match[0].length;
+  }
+  return tokens;
+}
+
+function consumeDictionaryValue(tokens, cursor, label) {
+  const first = tokens[cursor];
+  if (!first) throw new Error(`PDF ${label} dictionary value is missing`);
+  if (first.type === "dict-start" || first.type === "array-start") {
+    const opening = first.type;
+    const closing = opening === "dict-start" ? "dict-end" : "array-end";
+    let depth = 0;
+    for (let index = cursor; index < tokens.length; index += 1) {
+      if (tokens[index].type === opening) depth += 1;
+      if (tokens[index].type === closing) depth -= 1;
+      if (depth === 0) return { value: tokens.slice(cursor, index + 1), next: index + 1 };
+    }
+    throw new Error(`PDF ${label} nested value is unterminated`);
+  }
+  if (
+    first.type === "integer" &&
+    tokens[cursor + 1]?.type === "integer" &&
+    tokens[cursor + 2]?.type === "word" &&
+    tokens[cursor + 2].value === "R"
+  )
+    return { value: tokens.slice(cursor, cursor + 3), next: cursor + 3 };
+  return { value: [first], next: cursor + 1 };
+}
+
+function nameValue(tokens) {
+  return tokens?.length === 1 && tokens[0].type === "name" ? tokens[0].value : null;
+}
+
+function integerValue(tokens) {
+  if (tokens?.length !== 1 || tokens[0].type !== "integer") return null;
+  const value = Number(tokens[0].value);
+  return Number.isSafeInteger(value) ? value : null;
+}
+
+function referenceValue(tokens) {
+  if (
+    tokens?.length !== 3 ||
+    tokens[0].type !== "integer" ||
+    tokens[1].type !== "integer" ||
+    tokens[2].type !== "word" ||
+    tokens[2].value !== "R"
+  )
+    return null;
+  return { object: tokens[0].value, generation: tokens[1].value };
+}
+
+function referenceArrayValue(tokens) {
+  if (tokens?.[0]?.type !== "array-start" || tokens.at(-1)?.type !== "array-end") return null;
+  const refs = [];
+  for (let cursor = 1; cursor < tokens.length - 1; cursor += 3) {
+    const ref = referenceValue(tokens.slice(cursor, cursor + 3));
+    if (!ref) return null;
+    refs.push(ref);
+  }
+  return refs.length > 0 ? refs : null;
 }
 
 function objectDictionary(source, label) {
@@ -286,12 +409,12 @@ function sanitizeDictionary(dictionary) {
       output[index] = " ";
       comment = true;
     } else if (char === "(") {
-      output[index] = " ";
+      output[index] = "S";
       literalDepth = 1;
     } else if ((char === "<" && next === "<") || (char === ">" && next === ">")) {
       index += 1;
     } else if (char === "<" && next !== "<") {
-      output[index] = " ";
+      output[index] = "S";
       hexString = true;
     }
   }
