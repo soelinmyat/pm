@@ -6,7 +6,12 @@ const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { inspectHtmlArtifact, structuralMarkup } = require("./artifact-check");
-const { VIEWPORTS: ARTIFACT_VIEWPORTS, validateMetrics } = require("./artifact-render-check");
+const {
+  VIEWPORTS: ARTIFACT_VIEWPORTS,
+  probeDataMarkerVisibility,
+  resolveBrowser,
+  validateMetrics,
+} = require("./artifact-render-check");
 const { isRfc3339DateTime } = require("./lib/iso-time");
 const { inspectPdfBytes, inspectPngBytes } = require("./lib/media-inspect");
 
@@ -18,7 +23,7 @@ const VIEWPORTS = new Set(["desktop", "tablet", "narrow", "device", "print"]);
 const STATES = new Set(["primary", "empty", "error", "boundary", "responsive", "print"]);
 const MAX_EVIDENCE_BYTES = 64 * 1024 * 1024;
 const MAX_JSON_BYTES = 4 * 1024 * 1024;
-const MAX_CACHE_BYTES = 64 * 1024 * 1024;
+const MAX_CACHE_BYTES = 256 * 1024 * 1024;
 const ARTIFACT_VIEWPORT_NAMES = Object.freeze(ARTIFACT_VIEWPORTS.map((item) => item.name));
 let activeReadCache = null;
 const SCORE_KEYS = Object.freeze({
@@ -69,7 +74,17 @@ function checkDesignCritiqueUncached(options) {
   if (options.verifyGit !== false)
     validateDiffIdentity(root, route, gitIdentity.baseCommit, issues);
   validateCaptures(root, captures, route, routeFile, issues);
-  validateReport(root, report, route, captures, routeFile, capturesFile, reportFile, issues);
+  validateReport(
+    root,
+    report,
+    route,
+    captures,
+    routeFile,
+    capturesFile,
+    reportFile,
+    options,
+    issues
+  );
   return { ok: issues.length === 0, issues };
 }
 
@@ -164,13 +179,22 @@ function resolveTrustedBase(root, issues) {
     const output = execFileSync("git", ["ls-remote", "--symref", "origin", "HEAD"], {
       cwd: root,
       encoding: "utf8",
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "Never" },
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 15_000,
     });
     const ref = output.match(/^ref:\s+refs\/heads\/([^\s]+)\s+HEAD$/m)?.[1];
     const commit = output.match(/^([a-f0-9]{40,64})\s+HEAD$/m)?.[1];
     if (!ref || !commit) throw new Error("origin HEAD lacks a symbolic ref or object ID");
     return { ref: `origin/${ref}`, commit };
   } catch (error) {
-    add(issues, "base", `cannot resolve authoritative origin default: ${error.message}`);
+    const detail =
+      error.code === "ETIMEDOUT" || error.signal
+        ? "timed out after 15 seconds with interactive prompts disabled"
+        : String(error.stderr || error.message)
+            .trim()
+            .slice(0, 300);
+    add(issues, "base", `cannot resolve authoritative origin default: ${detail}`);
     return { ref: "", commit: "" };
   }
 }
@@ -619,6 +643,7 @@ function validateReport(
   routeFile,
   capturesFile,
   reportFile,
+  options,
   issues
 ) {
   if (!object(report)) return add(issues, "report", "must be an object");
@@ -698,6 +723,18 @@ function validateReport(
     add(issues, "report.outcome", "passed requires 100% applicable coverage");
   if (["blocked", "deferred"].includes(report.outcome) && !text(report.reason))
     add(issues, "report.reason", `${report.outcome} requires a concrete reason`);
+  const unresolvedBlocking = (report.findings || []).some(
+    (finding) =>
+      finding.owner === "design-critique" &&
+      ["P0", "P1"].includes(finding.priority) &&
+      ["open", "deferred"].includes(finding.status)
+  );
+  if (report.outcome === "failed" && !unresolvedBlocking && !text(report.reason))
+    add(
+      issues,
+      "report.reason",
+      "failed requires an unresolved Design Critique P0/P1 or a concrete reason"
+    );
   if (
     report.outcome === "deferred" &&
     (!object(report.authority) ||
@@ -705,7 +742,7 @@ function validateReport(
       !text(report.authority.decision))
   )
     add(issues, "report.authority", "deferred requires approver and decision");
-  validateHumanReport(root, report.human_report, report, reportFile, capturesFile, issues);
+  validateHumanReport(root, report.human_report, report, reportFile, capturesFile, options, issues);
 }
 
 function validateScores(scores, mode, captures, issues) {
@@ -858,7 +895,7 @@ function validateCaptureBytes(root, item, label, issues) {
   }
 }
 
-function validateHumanReport(root, human, report, reportFile, capturesFile, issues) {
+function validateHumanReport(root, human, report, reportFile, capturesFile, options, issues) {
   if (!object(human) || !text(human.path))
     return add(issues, "report.human_report", "requires an HTML path");
   const htmlFile = readBoundFile(root, human.path, "report.human_report.path", issues);
@@ -950,6 +987,54 @@ function validateHumanReport(root, human, report, reportFile, capturesFile, issu
       )
     )
       add(issues, "report.human_report", `missing visible finding ${finding.id}`);
+  }
+  if (options.verifyBrowser !== false) {
+    try {
+      const markers = options.markerProbe
+        ? options.markerProbe(htmlFile.path)
+        : probeDataMarkerVisibility(
+            resolveBrowser(options.browserPath),
+            htmlFile.path,
+            path.dirname(htmlFile.path)
+          );
+      validateRenderedMarkers(markers, report, issues);
+    } catch (error) {
+      add(
+        issues,
+        "report.human_report",
+        `cannot verify rendered marker visibility: ${error.message}`
+      );
+    }
+  }
+}
+
+function validateRenderedMarkers(markers, report, issues) {
+  const expected = [
+    { "data-dc-outcome": report.outcome },
+    { "data-dc-coverage": String(report.coverage?.percent) },
+    { "data-dc-top-issue-sha256": digest(Buffer.from(report.top_issue || "")) },
+    { "data-dc-next-action-sha256": digest(Buffer.from(report.next_action || "")) },
+    ...Object.entries(report.scores || {}).map(([key, score]) => ({
+      "data-dc-score-key": key,
+      "data-dc-score-value": String(score.value),
+    })),
+    ...(report.findings || []).map((finding) => ({
+      "data-dc-finding-id": finding.id,
+      "data-dc-finding-priority": finding.priority,
+      "data-dc-finding-status": finding.status,
+      "data-dc-finding-sha256": digest(Buffer.from(JSON.stringify(findingProjection(finding)))),
+    })),
+  ];
+  for (const attributes of expected) {
+    const matches = markers.filter((marker) =>
+      Object.entries(attributes).every(([name, value]) => marker.attributes?.[name] === value)
+    );
+    if (matches.length !== 1 || matches[0].visible !== true || !text(matches[0].text))
+      add(
+        issues,
+        "report.human_report",
+        `rendered marker ${JSON.stringify(attributes)} must exist exactly once and be visible`
+      );
   }
 }
 
@@ -1136,11 +1221,9 @@ function readBoundFile(root, rel, label, issues) {
     };
     if (!cached) {
       file.sha256 = digest(file.bytes);
-      if (
-        activeReadCache &&
-        file.bytes.length <= MAX_JSON_BYTES &&
-        activeReadCache.bytes + file.bytes.length <= MAX_CACHE_BYTES
-      ) {
+      if (activeReadCache) {
+        if (activeReadCache.bytes + file.bytes.length > MAX_CACHE_BYTES)
+          throw new Error(`aggregate evidence exceeds the ${MAX_CACHE_BYTES}-byte cache budget`);
         activeReadCache.files.set(real, file);
         activeReadCache.bytes += file.bytes.length;
       }
@@ -1215,6 +1298,7 @@ function parseArgs(argv) {
       "--commit": "commit",
       "--base": "baseRef",
       "--base-commit": "baseCommit",
+      "--browser": "browserPath",
     }[arg];
     if (!key) throw new Error(`unknown argument ${arg}`);
     if (!argv[index + 1] || argv[index + 1].startsWith("--"))

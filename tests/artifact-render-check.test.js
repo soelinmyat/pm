@@ -9,6 +9,7 @@ const path = require("node:path");
 const {
   VIEWPORTS,
   findClosingBodyIndex,
+  probeDataMarkerVisibility,
   renderArtifact,
   resolveBrowser,
 } = require("../scripts/artifact-render-check");
@@ -33,7 +34,9 @@ if (dump) {
   const probe = fs.readFileSync(probePath, "utf8");
   const markerId = probe.match(/marker[.]id="([^"]+)"/)[1];
   const width = Number(process.argv.find((arg) => arg.startsWith("--window-size=")).split("=")[1].split(",")[0]);
-  const metrics = {innerWidth:width,clientWidth:width-15,scrollWidth:width-15,documentHeight:2400,bodyText:500,mainVisible:true,h1Visible:true,anchorCount:4,horizontalOverflow:false};
+  const metrics = probe.includes("pm-data-marker-visibility")
+    ? [{attributes:{"data-dc-outcome":"passed"},text:"passed",visible:false}]
+    : {innerWidth:width,clientWidth:width-15,scrollWidth:width-15,documentHeight:2400,bodyText:500,mainVisible:true,h1Visible:true,anchorCount:4,horizontalOverflow:false};
   process.stdout.write('<html><head><meta id="' + markerId + '" data-json="' + encodeURIComponent(JSON.stringify(metrics)) + '"></head></html>');
 }
 if (screenshot) {
@@ -148,6 +151,22 @@ test("render checker rejects captures with the wrong dimensions", () => {
 
 test("browser resolution fails closed when no configured candidate exists", () => {
   assert.throws(() => resolveBrowser("/definitely/missing/chromium"), /does not exist/);
+});
+
+test("browser marker probe reports computed visibility instead of trusting markup", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-render-"));
+  try {
+    const htmlPath = path.join(root, "report.html");
+    fs.writeFileSync(
+      htmlPath,
+      '<!doctype html><style>[data-dc-outcome]{display:none}</style><details><p data-dc-outcome="passed">passed</p></details>'
+    );
+    assert.deepEqual(probeDataMarkerVisibility(fakeBrowser(root), htmlPath, root), [
+      { attributes: { "data-dc-outcome": "passed" }, text: "passed", visible: false },
+    ]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("render probe finds the body close outside JSON raw text and trailing comments", () => {

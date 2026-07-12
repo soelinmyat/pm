@@ -265,7 +265,7 @@ function auditEvidenceFile(root, id, kind, captures) {
   };
 }
 
-function validPng(width, height, marker = 0) {
+function validPng(width, height, marker = 0, ancillaryBytes = 0) {
   const header = Buffer.alloc(13);
   header.writeUInt32BE(width, 0);
   header.writeUInt32BE(height, 4);
@@ -274,12 +274,10 @@ function validPng(width, height, marker = 0) {
   const rows = Buffer.alloc((width * 4 + 1) * height);
   for (let row = 0; row < height; row += 1) rows[row * (width * 4 + 1)] = 0;
   rows[rows.length - 1] = marker;
-  return Buffer.concat([
-    Buffer.from("89504e470d0a1a0a", "hex"),
-    pngChunk("IHDR", header),
-    pngChunk("IDAT", zlib.deflateSync(rows)),
-    pngChunk("IEND", Buffer.alloc(0)),
-  ]);
+  const chunks = [Buffer.from("89504e470d0a1a0a", "hex"), pngChunk("IHDR", header)];
+  if (ancillaryBytes > 0) chunks.push(pngChunk("tEXt", Buffer.alloc(ancillaryBytes, 65)));
+  chunks.push(pngChunk("IDAT", zlib.deflateSync(rows)), pngChunk("IEND", Buffer.alloc(0)));
+  return Buffer.concat(chunks);
 }
 
 function validPdf() {
@@ -384,7 +382,7 @@ function artifactSubjectHtml() {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Artifact subject</title><script id="pm-artifact" type="application/json">${JSON.stringify(meta)}</script><style>.skip-link{position:absolute}.skip-link:focus{position:static}:focus-visible{outline:3px solid #05f}@media(max-width:600px){main{padding:1rem}}@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto}}@media print{nav{display:none}}</style></head><body><a class="skip-link" href="#main">Skip</a><nav aria-label="Report"><a href="#content">Content</a></nav><main id="main"><h1>Artifact subject</h1><p data-pm-lifecycle>reviewed</p><section id="content"><h2>Content</h2><p>Evidence subject.</p></section></main></body></html>`;
 }
 
-function check(fixture, commit = COMMIT) {
+function check(fixture, commit = COMMIT, options = {}) {
   return checkDesignCritique({
     root: fixture.root,
     routePath: fixture.routePath,
@@ -392,7 +390,27 @@ function check(fixture, commit = COMMIT) {
     reportPath: fixture.reportPath,
     commit,
     verifyGit: false,
+    verifyBrowser: false,
+    ...options,
   });
+}
+
+function renderedMarkers(report, hidden = () => false) {
+  const rows = [
+    [{ "data-dc-outcome": report.outcome }, report.outcome],
+    [{ "data-dc-coverage": String(report.coverage.percent) }, `${report.coverage.percent}%`],
+    [{ "data-dc-top-issue-sha256": digest(Buffer.from(report.top_issue)) }, report.top_issue],
+    [{ "data-dc-next-action-sha256": digest(Buffer.from(report.next_action)) }, report.next_action],
+    ...Object.entries(report.scores).map(([key, score]) => [
+      { "data-dc-score-key": key, "data-dc-score-value": String(score.value) },
+      score.rationale,
+    ]),
+  ];
+  return rows.map(([attributes, text]) => ({
+    attributes,
+    text,
+    visible: !hidden(attributes),
+  }));
 }
 
 function rewrite(root, rel, value) {
@@ -521,6 +539,30 @@ test("rejects oversized evidence before reading it", () => {
   const result = check(fixture);
   assert.equal(result.ok, false);
   assert.match(JSON.stringify(result.issues), /evidence budget/);
+});
+
+test("reads a large bound capture only once per validation run", () => {
+  const fixture = makeFixture();
+  const capture = fixture.captures.captures[0];
+  const large = write(fixture.root, capture.path, validPng(1440, 1000, 0, 4 * 1024 * 1024 + 1));
+  capture.sha256 = large.sha256;
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  const original = fs.readFileSync;
+  let reads = 0;
+  fs.readFileSync = function counted(file, ...args) {
+    try {
+      if (fs.statSync(file).size > 4 * 1024 * 1024) reads += 1;
+    } catch {}
+    return original.call(this, file, ...args);
+  };
+  try {
+    assert.deepEqual(check(fixture), { ok: true, issues: [] });
+  } finally {
+    fs.readFileSync = original;
+  }
+  assert.equal(reads, 1);
 });
 
 test("rejects missing required coverage", () => {
@@ -656,6 +698,40 @@ test("ignores semantic markers hidden by a stylesheet class", () => {
   const result = check(fixture);
   assert.equal(result.ok, false);
   assert.match(JSON.stringify(result.issues), /visible outcome marker must match report JSON/);
+});
+
+for (const [name, wrapper] of [
+  ["an attribute selector", (marker) => `<style>[data-dc-outcome]{display:none}</style>${marker}`],
+  ["a closed details element", (marker) => `<details>${marker}</details>`],
+  ["a closed dialog element", (marker) => `<dialog>${marker}</dialog>`],
+]) {
+  test(`rejects an outcome marker hidden by ${name} in the rendered DOM`, () => {
+    const fixture = makeFixture();
+    const htmlPath = path.join(fixture.root, fixture.report.human_report.path);
+    const html = fs.readFileSync(htmlPath, "utf8");
+    const marker = '<p data-dc-outcome="passed">passed</p>';
+    fs.writeFileSync(htmlPath, html.replace(marker, wrapper(marker)));
+    const result = check(fixture, COMMIT, {
+      verifyBrowser: true,
+      markerProbe: () =>
+        renderedMarkers(fixture.report, (attributes) => attributes["data-dc-outcome"] === "passed"),
+    });
+    assert.equal(result.ok, false);
+    assert.match(JSON.stringify(result.issues), /must exist exactly once and be visible/);
+  });
+}
+
+test("rejects failed outcome without a blocking design finding or reason", () => {
+  const fixture = makeFixture();
+  fixture.report.outcome = "failed";
+  fixture.report.top_issue = "No unresolved design issue.";
+  rewriteReportAndHtml(fixture);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(
+    JSON.stringify(result.issues),
+    /failed requires an unresolved Design Critique P0\/P1/
+  );
 });
 
 test("rejects unknown durable schema fields", () => {

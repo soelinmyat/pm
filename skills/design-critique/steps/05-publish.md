@@ -25,6 +25,8 @@ node "$PM_PLUGIN_ROOT/scripts/design-critique-check.js" \
   --base-commit "{BASE_COMMIT_FROM_ROUTE}"
 ```
 
+The checker resolves Chromium automatically. If the project uses a nonstandard browser binary, add `--browser "{CHROMIUM_PATH}"` or set `PM_ARTIFACT_BROWSER`. Remote-base verification is noninteractive and bounded; a timeout is a blocked gate, not permission to trust a stale local ref.
+
 4. For `passed`, update only the `design-critique` row in `.pm/dev-sessions/{slug}.gates.json` with current commit and `report.html` as the artifact. Preserve `tdd`, legacy `simplify`, `qa`, `review`, and `verification` rows. For `failed`, `blocked`, or `deferred`, record a non-passing gate with the concrete reason; map `deferred` to `blocked` because the Dev schema has no deferred status.
 5. Run `dev-gate-check.js --require design-critique` only for a passed outcome. Return report paths, coverage, score summary, resolved blockers, remaining P2/P3 findings, and the single next action.
 

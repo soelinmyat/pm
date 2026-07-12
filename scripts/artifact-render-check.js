@@ -164,6 +164,43 @@ function captureMetrics(browserPath, htmlPath, outputDir, viewport) {
   }
 }
 
+function probeDataMarkerVisibility(browserPath, htmlPath, outputDir = path.dirname(htmlPath)) {
+  const source = fs.readFileSync(htmlPath, "utf8");
+  const markerId = `pm-data-marker-visibility-${crypto.randomBytes(12).toString("hex")}`;
+  const probe = `<script>(()=>{const visible=(element)=>{if(!element)return false;let node=element;while(node&&node.nodeType===1){const style=getComputedStyle(node);if(node.hidden||node.getAttribute("aria-hidden")==="true"||style.display==="none"||style.visibility==="hidden"||style.visibility==="collapse"||Number(style.opacity)===0)return false;node=node.parentElement}const rects=element.getClientRects();return rects.length>0&&Array.from(rects).some((rect)=>rect.width>0&&rect.height>0)};const markers=Array.from(document.querySelectorAll("*")).filter((element)=>Array.from(element.attributes).some((attribute)=>attribute.name.startsWith("data-dc-"))).map((element)=>({attributes:Object.fromEntries(Array.from(element.attributes).filter((attribute)=>attribute.name.startsWith("data-dc-")).map((attribute)=>[attribute.name,attribute.value])),text:(element.innerText||"").replace(/\\s+/g," ").trim(),visible:visible(element)}));const marker=document.createElement("meta");marker.id="${markerId}";marker.setAttribute("data-json",encodeURIComponent(JSON.stringify(markers)));document.head.append(marker)})();</script>`;
+  const bodyClose = findClosingBodyIndex(source);
+  const instrumented =
+    bodyClose >= 0
+      ? `${source.slice(0, bodyClose)}${probe}${source.slice(bodyClose)}`
+      : `${source}${probe}`;
+  const probePath = path.join(
+    outputDir,
+    `.pm-marker-probe-${process.pid}-${crypto.randomBytes(5).toString("hex")}.html`
+  );
+  fs.mkdirSync(outputDir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(probePath, instrumented, { mode: 0o600 });
+  try {
+    const result = runBrowser(browserPath, [
+      ...baseArgs(),
+      "--window-size=1440,1000",
+      "--virtual-time-budget=1000",
+      "--dump-dom",
+      pathToFileURL(probePath).href,
+    ]);
+    const markerPattern = new RegExp(
+      `<meta\\b(?=[^>]*\\bid=["']${markerId}["'])(?=[^>]*\\bdata-json=["']([^"']+)["'])[^>]*>`,
+      "i"
+    );
+    const match = result.stdout.match(markerPattern);
+    if (!match) throw new Error("report render did not emit marker visibility evidence");
+    const markers = JSON.parse(decodeURIComponent(match[1]));
+    if (!Array.isArray(markers)) throw new Error("report marker visibility evidence is invalid");
+    return markers;
+  } finally {
+    fs.rmSync(probePath, { force: true });
+  }
+}
+
 function findClosingBodyIndex(html) {
   const lower = String(html).toLowerCase();
   let index = 0;
@@ -325,6 +362,7 @@ module.exports = {
   findClosingBodyIndex,
   inspectPdf,
   inspectPng,
+  probeDataMarkerVisibility,
   renderArtifact,
   resolveBrowser,
   validateMetrics,
