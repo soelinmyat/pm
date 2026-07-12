@@ -107,7 +107,7 @@ const LEADING_WRAPPERS = new Set([
   "do",
 ]);
 const WRAPPER_VALUE_OPTIONS = Object.freeze({
-  env: new Set(["-u", "--unset", "-C", "--chdir", "-S", "--split-string"]),
+  env: new Set(["-u", "--unset", "-C", "--chdir", "-S", "--split-string", "-P"]),
   sudo: new Set([
     "-u", "--user", "-g", "--group", "-h", "--host", "-p", "--prompt",
     "-C", "--close-from", "-R", "--chroot", "-D", "--chdir", "-T", "--command-timeout",
@@ -154,15 +154,20 @@ function parseSegment(segment, depth = 0) {
           i += 1;
           break;
         }
-        const option = tokens[i].split("=", 1)[0];
+        const rawOption = tokens[i];
+        const option = rawOption.includes("=")
+          ? rawOption.slice(0, rawOption.indexOf("="))
+          : rawOption.startsWith("-") && !rawOption.startsWith("--") && rawOption.length > 2
+            ? rawOption.slice(0, 2)
+            : rawOption;
         const consumesValue = WRAPPER_VALUE_OPTIONS[wrapper]?.has(option);
         const inlineValue =
-          tokens[i].includes("=") || (/^-[A-Za-z]\S+/.test(tokens[i]) && tokens[i].length > 2);
+          rawOption.includes("=") || (/^-[A-Za-z]\S+/.test(rawOption) && rawOption.length > 2);
         const valueIndex = inlineValue ? i : i + 1;
         const value = inlineValue
-          ? tokens[i].includes("=")
-            ? tokens[i].slice(tokens[i].indexOf("=") + 1)
-            : tokens[i].slice(2)
+          ? rawOption.includes("=")
+            ? rawOption.slice(rawOption.indexOf("=") + 1)
+            : rawOption.slice(2)
           : tokens[valueIndex];
         if (
           consumesValue &&

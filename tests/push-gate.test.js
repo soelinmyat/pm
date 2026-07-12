@@ -886,10 +886,16 @@ test("cwd-changing wrapper options gate the effective repository", () => {
     writeFailingGates(gated, "x");
     for (const command of [
       "env -C gated git push origin HEAD",
+      "env -Cgated git push origin HEAD",
       "env --chdir=gated git push origin HEAD",
       "sudo -D gated git push origin HEAD",
+      "sudo -Dgated git push origin HEAD",
     ])
       assertBlock(runHook(command, { cwd: parent }), /verification is failed/);
+    assertBlock(
+      runHook("env -P /usr/bin git push origin HEAD", { cwd: gated }),
+      /verification is failed/
+    );
   } finally {
     fs.rmSync(parent, { recursive: true, force: true });
   }
