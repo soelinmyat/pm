@@ -619,6 +619,7 @@ test("cross-branch push (dst is not the session branch) is out of scope → allo
     assertAllow(runHook("git push origin main", { cwd: dir }));
     assertAllow(runHook("git push origin feat/x:feat/y", { cwd: dir }));
     assertAllow(runHook("git push origin HEAD:refs/heads/other", { cwd: dir }));
+    assertAllow(runHook("git push origin @:refs/heads/other", { cwd: dir }));
     assertAllow(runHook("git push --repo origin HEAD:refs/heads/other", { cwd: dir }));
     assertAllow(runHook("git push --repo=origin HEAD:refs/heads/other", { cwd: dir }));
     assertAllow(runHook("git push --repo origin refs/tags/v1.0.0", { cwd: dir }));
@@ -633,6 +634,10 @@ test("explicit push of the session branch is still gated → block", () => {
     writeFailingGates(dir, "x");
     assertBlock(runHook("git push origin feat/x", { cwd: dir }), /verification is failed/);
     assertBlock(runHook("git push origin HEAD:refs/heads/feat/x", { cwd: dir }), /verification/);
+    assertBlock(runHook("git push origin @", { cwd: dir }), /verification/);
+    assertBlock(runHook("git push origin +@", { cwd: dir }), /verification/);
+    assertBlock(runHook("git push origin @:feat/x", { cwd: dir }), /verification/);
+    assertBlock(runHook("git push origin @:refs/heads/feat/x", { cwd: dir }), /verification/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

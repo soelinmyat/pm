@@ -789,7 +789,7 @@ function pushUpdatesSessionBranch(args, sessionBranch) {
   for (const spec of refspecs) {
     const dest = refspecDest(spec);
     if (dest.kind !== "branch") continue; // delete/tag refspec → skip
-    if (dest.dst === "HEAD" || dest.dst === sessionBranch) return true;
+    if (dest.dst === "HEAD" || dest.dst === "@" || dest.dst === sessionBranch) return true;
   }
   return false;
 }
@@ -803,7 +803,11 @@ function sessionBranchPushSource(args, sessionBranch) {
   for (const raw of refspecs) {
     const spec = raw.startsWith("+") ? raw.slice(1) : raw;
     const dest = refspecDest(spec);
-    if (dest.kind !== "branch" || (dest.dst !== "HEAD" && dest.dst !== sessionBranch)) continue;
+    if (
+      dest.kind !== "branch" ||
+      (dest.dst !== "HEAD" && dest.dst !== "@" && dest.dst !== sessionBranch)
+    )
+      continue;
     const colon = spec.indexOf(":");
     const source = colon >= 0 ? spec.slice(0, colon) : spec;
     if (!source) return { error: "session-branch deletion has no source commit" };
