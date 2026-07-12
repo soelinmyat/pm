@@ -77,11 +77,11 @@ Required support by category is checked. Evidence files and line bounds must exi
 - `dismiss`
 - `defer`
 
-Never infer approver identity or create a decision from reviewer majority. Repository-local approver text is not authentication: `keep-review` is the only safety-monotonic action that can resolve a dispute. The checker preserves `handoff-*`, `dismiss`, and `defer` proposals for audit but keeps the finding Review-owned and the report blocked until a trusted external approval channel exists.
+Never infer approver identity or create a decision from reviewer majority. Repository-local approver text is not authentication. `keep-review` is safety-monotonic for ownership and disposition, but it cannot authenticate resolution of a dispute or decision requirement. The checker preserves every local decision proposal for audit and keeps authority-bearing state blocked until a trusted external approval channel exists.
 
 ## Canonical merge
 
-Exact IDs merge. Keep all signals. Use maximum confidence, highest severity, and the strongest signal's detail. Severity spread greater than one tier, fix kind, normalized remediation, disposition, or decision requirement creates a dispute. A `keep-review` decision resolves the gate-level dispute without deleting the signals; authority-reducing proposals remain unresolved.
+Exact IDs merge. Keep all signals. Use maximum confidence, highest severity, and the strongest signal's detail. Severity spread greater than one tier, fix kind, normalized remediation, disposition, or decision requirement creates a dispute. Local decision rows never resolve the gate-level dispute; they preserve the proposed action and rationale for a future authenticated resolution channel.
 
 Auto-fix eligibility requires all of: Review owner, open, confidence at least 80, `fix_kind: mechanical`, not disputed, not decision-required. Eligibility is a ceiling; the root still verifies the code before editing.
 
