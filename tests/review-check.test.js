@@ -18,7 +18,7 @@ const {
   reviewPathContext,
   reviewRootFromTargetPath,
 } = require("../scripts/lib/review-paths");
-const { resolveBrowser } = require("../scripts/artifact-render-check");
+const { renderArtifact, resolveBrowser } = require("../scripts/artifact-render-check");
 const { safeProjectInput, safeProjectOutput } = require("../scripts/lib/safe-project-output");
 
 let installedBrowser = null;
@@ -775,6 +775,42 @@ test("renderer escapes reviewer text without treating data as template syntax", 
   const html = fs.readFileSync(path.join(fixture.root, fixture.roundHtmlPath), "utf8");
   assert.match(html, /The &lt;Component&gt; exposes {{PLUGIN_VERSION}} as user data\./);
 });
+
+test(
+  "real Chromium keeps long reviewer-controlled prose inside the narrow viewport",
+  {
+    skip:
+      (process.env.PM_SKIP_BROWSER_TESTS && "browser tests explicitly disabled") ||
+      (!installedBrowser && "Chromium is not installed"),
+  },
+  () => {
+    const fixture = makeFixture({ maxWorkers: 6 });
+    const finding = validFinding("quality");
+    const token = `https://example.test/${"unbroken-review-token-".repeat(30)}`;
+    finding.issue = token;
+    finding.impact = token;
+    finding.fix = token;
+    finding.id = findingId(finding);
+    setFindingForLens(fixture, "quality", finding);
+    const generated = generate(fixture, {
+      reportPath: fixture.roundReportPath,
+      htmlPath: fixture.roundHtmlPath,
+    });
+    assert.equal(generated.ok, true, JSON.stringify(generated.issues));
+    renderReviewReport({
+      root: fixture.root,
+      reportPath: fixture.roundReportPath,
+      outputPath: fixture.roundHtmlPath,
+    });
+    assert.doesNotThrow(() =>
+      renderArtifact({
+        htmlPath: path.join(fixture.root, fixture.roundHtmlPath),
+        outputDir: path.join(fixture.root, ".pm/long-token-render"),
+        browserPath: installedBrowser,
+      })
+    );
+  }
+);
 
 test(
   "real Chromium verifies first-screen Review markers and their visible text",
