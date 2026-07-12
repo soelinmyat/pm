@@ -88,6 +88,26 @@ test("incompatible fixes are material disagreement even with the same fix kind",
   assert.deepEqual(merged.unresolved_disagreements, [first.id]);
 });
 
+test("overlapping findings with different identities cannot evade fix disagreement", () => {
+  const first = { ...sampleFinding(), reviewer_id: "worker-a" };
+  first.id = findingId(first);
+  const second = {
+    ...sampleFinding(),
+    reviewer_id: "worker-b",
+    rule: "cache-coherency-contract",
+    evidence: [{ kind: "source", ref: "src/example.js:11" }],
+    fix: "Delete caching from the read path.",
+  };
+  second.id = findingId(second);
+  assert.notEqual(first.id, second.id);
+  const merged = mergeSignals([first, second], []);
+  assert.equal(
+    merged.findings.every((finding) => finding.disputed),
+    true
+  );
+  assert.deepEqual(merged.unresolved_disagreements, [first.id, second.id].sort());
+});
+
 test("Dev review context binds route identity and ordered acceptance criteria", () => {
   const session = {
     run_id: "dev_example",
@@ -124,8 +144,18 @@ test("Review design applicability shares Dev's UI-impact classifier", () => {
     "app/page.mdx",
     "frontend/state.ts",
     "ios/ContentView.swift",
+    "ios/Checkout/Card.swift",
+    "ios/Checkout/CardViewController.m",
+    "ios/en.lproj/Checkout.strings",
+    "ios/App/Main.storyboard",
+    "ios/App/Assets.xcassets/Accent.colorset/Contents.json",
     "android/CheckoutScreen.kt",
+    "android/app/src/main/java/com/acme/payments/Card.kt",
+    "android/app/src/main/res/layout/checkout.xml",
+    "android/app/src/main/res/drawable/card.xml",
     "lib/widgets/cart_widget.dart",
+    "lib/checkout/card.dart",
+    "public/images/checkout-card.svg",
   ];
   for (const path of positives) {
     const design = deriveLensApplicability("full", [{ path }]).find(

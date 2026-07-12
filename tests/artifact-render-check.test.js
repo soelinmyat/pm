@@ -73,6 +73,7 @@ test("render checker captures the canonical viewport matrix and print PDF", () =
       outputDir: path.join(root, "renders"),
       browserPath: fakeBrowser(root),
       projectRoot: root,
+      markerPrefix: "data-dc-",
     });
     assert.deepEqual(
       result.captures.map(({ name, width, height }) => ({ name, width, height })),
@@ -90,6 +91,7 @@ test("render checker captures the canonical viewport matrix and print PDF", () =
     assert.equal(result.print.pages, 1);
     assert.match(result.print.sha256, /^sha256:[0-9a-f]{64}$/);
     assert.match(result.source.sha256, /^sha256:[0-9a-f]{64}$/);
+    assert.equal(result.markers.length, 1);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

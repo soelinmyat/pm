@@ -225,7 +225,7 @@ function validateReviewReportArtifact(
     issues.push(issue(manifestPath, "review-report-v1 requires sibling review/report.json"));
     return;
   }
-  validateReviewRenderManifest(reviewGate, htmlPath, artifactRoot, manifestPath, issues);
+  validateReviewRenderManifest(reviewGate, htmlPath, artifactRoot, manifestPath, null, issues);
   try {
     const root = path.resolve(artifactRoot || process.cwd());
     const relative = path.relative(root, reportPath).split(path.sep).join("/");
@@ -240,6 +240,15 @@ function validateReviewReportArtifact(
         verifyBrowser: false,
       })
     );
+    if (result.report)
+      validateReviewRenderManifest(
+        reviewGate,
+        htmlPath,
+        artifactRoot,
+        manifestPath,
+        result.report,
+        issues
+      );
     if (!result.ok)
       issues.push(
         issue(
@@ -292,7 +301,14 @@ function validateReviewReportArtifact(
   }
 }
 
-function validateReviewRenderManifest(reviewGate, htmlPath, artifactRoot, manifestPath, issues) {
+function validateReviewRenderManifest(
+  reviewGate,
+  htmlPath,
+  artifactRoot,
+  manifestPath,
+  report,
+  issues
+) {
   const expected = path.join(path.dirname(htmlPath), "renders", "manifest.json");
   const manifest = resolveArtifactPath(reviewGate.render_manifest, artifactRoot);
   if (!manifest || path.resolve(manifest) !== path.resolve(expected)) {
@@ -391,6 +407,16 @@ function validateReviewRenderManifest(reviewGate, htmlPath, artifactRoot, manife
       "review render print",
       issues
     );
+  if (!Array.isArray(value.markers)) {
+    issues.push(issue(manifestPath, "review render manifest requires browser marker evidence"));
+  } else if (report) {
+    const markerIssues = [];
+    require("./review-check").validateRenderedReportMarkers(value.markers, report, markerIssues);
+    for (const markerIssue of markerIssues)
+      issues.push(
+        issue(manifestPath, `retained browser marker evidence failed: ${markerIssue.message}`)
+      );
+  }
 }
 
 function validateRenderedFile(

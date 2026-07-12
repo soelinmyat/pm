@@ -8,7 +8,13 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const { buildCanonicalReport, checkReview, expandFromReport } = require("../scripts/review-check");
+const {
+  buildCanonicalReport,
+  checkReview,
+  expandFromReport,
+  validateFrozenTarget,
+  validateSignal,
+} = require("../scripts/review-check");
 const { renderReviewReport } = require("../scripts/review-report");
 const {
   buildReviewTarget,
@@ -143,6 +149,43 @@ test("trusted base resolves remote HEAD instead of a stale tracking ref", () => 
   assert.equal(trusted.ref, "origin/main");
   assert.equal(trusted.commit, fixture.target.source.commit);
   assert.notEqual(trusted.commit, localTracking);
+});
+
+test("frozen review uses three-dot merge-base semantics on diverged branches", () => {
+  const fixture = makeFixture({ maxWorkers: 2, deleteFile: true });
+  const control = `${fixture.root}-control`;
+  execFileSync("git", ["clone", "-q", `${fixture.root}-origin.git`, control]);
+  try {
+    git(control, ["config", "user.email", "test@example.com"]);
+    git(control, ["config", "user.name", "Test"]);
+    fs.rmSync(path.join(control, "src/deleted.js"));
+    git(control, ["add", "-A"]);
+    git(control, ["commit", "-qm", "default branch also removes deleted source"]);
+    git(control, ["push", "-q", "origin", "main"]);
+
+    const target = buildReviewTarget({ root: fixture.root, maxWorkers: 2 });
+    assert.equal(target.changed_files.find((item) => item.path === "src/deleted.js").status, "D");
+    const issues = [];
+    validateFrozenTarget(fixture.root, target, issues);
+    const finding = {
+      ...validFinding("bug"),
+      file: "src/deleted.js",
+      line_start: 1,
+      line_end: 1,
+      evidence: [
+        { kind: "source", ref: "src/deleted.js:1" },
+        { kind: "contract", ref: "skills/dev/references/model-profiles.json:1" },
+      ],
+    };
+    finding.id = findingId(finding);
+    assert.equal(
+      validateSignal(fixture.root, finding, "reviewer-1", ["bug"], target, "finding", issues),
+      true
+    );
+    assert.deepEqual(issues, []);
+  } finally {
+    fs.rmSync(control, { recursive: true, force: true });
+  }
 });
 
 test("target creation refuses dirty source and inventory remains bound to committed bytes", () => {
@@ -990,6 +1033,24 @@ test("blocked reports surface deferred blockers and stop at the iteration cap", 
     "report.html"
   );
   assert.equal(ranked.top_issue, "Critical blocker");
+
+  const residual = {
+    ...validFinding("quality"),
+    id: "rv-residual",
+    severity: "medium",
+    confidence: 70,
+    issue: "Residual medium finding",
+  };
+  const passingWithResidual = buildCanonicalReport(
+    { run_id: "review-test", review_round: 1, iteration_cap: 3, lenses: [] },
+    { relative: "target.json", sha256: "d".repeat(64) },
+    [],
+    null,
+    { findings: [residual], unresolved_disagreements: [] },
+    "report.html"
+  );
+  assert.equal(passingWithResidual.outcome, "passed");
+  assert.equal(passingWithResidual.top_issue, residual.issue);
 
   const blocker = validFinding("bug");
   const capReport = buildCanonicalReport(

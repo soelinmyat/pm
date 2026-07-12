@@ -124,6 +124,14 @@ test("review skip requires a current checked report and gate row", () => {
   assert.match(publish, /evidence_kind/);
 });
 
+test("Ship stale-gate recovery points to the current Dev review step", () => {
+  for (const file of ["skills/ship/steps/04-push.md", "skills/ship/steps/07-merge-loop.md"]) {
+    const text = read(file);
+    assert.match(text, /skills\/dev\/steps\/08-review\.md/, file);
+    assert.doesNotMatch(text, /skills\/dev\/steps\/07-review\.md/, file);
+  }
+});
+
 test("review preserves immutable fix rounds and publishes only the passing projection canonically", () => {
   const contract = read("skills/review/references/evidence-contract.md");
   const target = read("skills/review/steps/01-target.md");
@@ -457,7 +465,7 @@ test("pre-push runs the dev gate checker from the pushed commit, not the dirty w
     assert.equal(git("branch", "-M", "main").status, 0);
     const base = git("rev-parse", "HEAD").stdout.trim();
     assert.equal(git("update-ref", "refs/remotes/origin/main", base).status, 0);
-    assert.equal(git("checkout", "-q", "-b", "codex/harden").status, 0);
+    assert.equal(git("checkout", "-q", "-b", "CODEX/Harden++Gate").status, 0);
     fs.writeFileSync(path.join(dir, "commands", "dev.md"), "changed runtime\n");
     fs.writeFileSync(path.join(dir, "scripts", "lib", "checker-helper.js"), "process.exit(42);\n");
     assert.equal(git("add", ".").status, 0);
@@ -465,19 +473,19 @@ test("pre-push runs the dev gate checker from the pushed commit, not the dirty w
     const localOid = git("rev-parse", "HEAD").stdout.trim();
 
     fs.writeFileSync(path.join(dir, "scripts", "dev-gate-check.js"), "process.exit(0);\n");
-    fs.mkdirSync(path.join(dir, ".pm", "dev-sessions", "harden"), { recursive: true });
-    fs.writeFileSync(path.join(dir, ".pm", "dev-sessions", "harden", "gates.json"), "{}\n");
-    fs.writeFileSync(path.join(dir, ".pm", "dev-sessions", "harden", "session.json"), "{}\n");
+    fs.mkdirSync(path.join(dir, ".pm", "dev-sessions", "harden-gate"), { recursive: true });
+    fs.writeFileSync(path.join(dir, ".pm", "dev-sessions", "harden-gate", "gates.json"), "{}\n");
+    fs.writeFileSync(path.join(dir, ".pm", "dev-sessions", "harden-gate", "session.json"), "{}\n");
 
     const zeroOid = "0000000000000000000000000000000000000000";
     const result = spawnSync("bash", [hook, "origin"], {
       cwd: dir,
       encoding: "utf8",
-      input: `refs/heads/codex/harden ${localOid} refs/heads/codex/harden ${zeroOid}\n`,
+      input: `refs/heads/CODEX/Harden++Gate ${localOid} refs/heads/CODEX/Harden++Gate ${zeroOid}\n`,
     });
     assert.notEqual(result.status, 0, result.stdout + result.stderr);
     assert.doesNotMatch(result.stdout + result.stderr, /missing 'description'/);
-    assert.match(result.stdout + result.stderr, /Checking PM dev gates for codex\/harden/);
+    assert.match(result.stdout + result.stderr, /Checking PM dev gates for CODEX\/Harden\+\+Gate/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

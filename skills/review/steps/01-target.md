@@ -13,7 +13,7 @@ Create immutable `target.json` for the current committed diff and a reviewer pla
 ## How
 
 1. Resolve the session slug with the shared `deriveSessionSlug` helper from `scripts/lib/session-slug.js`. For example, `codex/pm-dev-workflow-proposal` resolves to `pm-dev-workflow-proposal`. Choose a stable kebab-case run ID. Store evidence under `.pm/dev-sessions/{slug}/review/runs/{RUN_ID}/round-{N}/`; never reuse a prior run or round directory.
-2. Refuse uncommitted implementation changes. Fetch the authoritative remote default; do not trust a stale local base ref.
+2. Refuse uncommitted implementation changes. Resolve the authoritative remote default; do not trust a stale local base ref. Use three-dot diff semantics and retain the merge base for deleted-file evidence; do not reject an otherwise valid feature branch merely because the remote default advanced after it branched.
 3. Choose `full` from Dev's recorded route or for standalone review. Use `code-scan` only when the canonical Dev route says so.
 4. Choose the configured profile from `skills/dev/references/model-profiles.json`. Use the observed safe reviewer capacity, capped at six. Do not encode model names in prompts.
 5. Generate the target:

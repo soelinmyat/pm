@@ -24,10 +24,12 @@ const UI_TOKEN_DATA_RE =
   /(^|\/)(design-tokens?|tokens?|themes?)(\/|[-.])|(^|\/)(design-tokens?|tokens?|themes?|style-dictionary\.config)\.(json|ya?ml|toml)$/i;
 const UI_TEMPLATE_MARKUP_RE =
   /\.(html?|astro|erb|ejs|hbs|handlebars|liquid|twig|njk|j2|pug|jade|slim|haml|mustache|cshtml|razor|blade\.php)$/i;
-const SWIFT_UI_RE = /(^|\/)[^/]*(View|Screen|App)\.swift$/i;
-const COMPOSE_UI_RE = /(^|\/)[^/]*(Screen|View|Activity|Fragment)\.kts?$/i;
-const FLUTTER_UI_RE =
-  /(^|\/)lib\/(screens?|widgets?|pages?|views?|ui|themes?)(\/|$)|(^|\/)(main|[^/]+_(screen|page|widget|view))\.dart$/i;
+const APPLE_UI_RE =
+  /(^|\/)(ios|macos|watchos|tvos|swiftui|uikit)(\/|$).*\.(swift|m|mm|h|storyboard|xib|strings|stringsdict)$|\.(storyboard|xib)$|(^|\/)[^/]+\.xcassets\//i;
+const ANDROID_UI_RE =
+  /(^|\/)(android|app)(\/|$).*\.(kt|kts)$|(^|\/)(android\/[^/]+\/)?(app\/)?src\/[^/]+\/res\/(layout|drawable|mipmap|values|anim|animator|menu|navigation|xml)(\/|$)/i;
+const FLUTTER_UI_RE = /(^|\/)lib\/.*\.dart$|(^|\/)(main|[^/]+_(screen|page|widget|view))\.dart$/i;
+const UI_ASSET_RE = /(^|\/)(assets?|public)\/.*\.(svg|png|jpe?g|gif|webp|avif)$/i;
 const KB_ARTIFACT_PATH_RE = /^\.?pm\//;
 
 function isUiImpactPath(file) {
@@ -35,8 +37,9 @@ function isUiImpactPath(file) {
   if (UI_PATH_RE.test(file)) return true;
   if (UI_TOKEN_DATA_RE.test(file)) return true;
   if (UI_TEMPLATE_MARKUP_RE.test(file)) return true;
+  if (UI_ASSET_RE.test(file)) return true;
   if (NEXT_APP_ROUTER_MARKUP_RE.test(file)) return true;
-  if (SWIFT_UI_RE.test(file) || COMPOSE_UI_RE.test(file) || FLUTTER_UI_RE.test(file)) return true;
+  if (APPLE_UI_RE.test(file) || ANDROID_UI_RE.test(file) || FLUTTER_UI_RE.test(file)) return true;
   if (!JS_TS_PATH_RE.test(file)) return false;
   return (
     UI_JS_TS_PATH_RE.test(file) ||

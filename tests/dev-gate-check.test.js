@@ -239,7 +239,7 @@ test("nested canonical review rows resolve project-relative evidence from the pr
   reviewModule.checkReview = () => ({
     ok: true,
     issues: [],
-    report: { source: { commit: "abc123" }, outcome: "passed" },
+    report: reviewReportForMarkers(),
   });
   try {
     const result = checkGateManifest(
@@ -279,7 +279,7 @@ test("canonical Dev routing binds the Review target mode and exact completed len
   fs.writeFileSync(htmlPath, "<!doctype html><title>Review</title>");
   fs.writeFileSync(path.join(reviewDir, "report.json"), "{}\n");
   fs.writeFileSync(path.join(reviewDir, "target.json"), JSON.stringify({ mode: "code-scan" }));
-  const render = seedReviewRenderManifest(root, htmlPath);
+  const render = seedReviewRenderManifest(root, htmlPath, { coverage: "5/5" });
   const lenses = ["bug", "edge", "reuse", "quality", "efficiency"];
   const routedSession = {
     run_id: "dev_run-1",
@@ -300,10 +300,8 @@ test("canonical Dev routing binds the Review target mode and exact completed len
       dev_context: devReviewContext(routedSession),
     },
     report: {
-      source: { commit: "abc123" },
-      outcome: "passed",
+      ...reviewReportForMarkers({ coverage: lenses }),
       target: { path: ".pm/dev-sessions/example/review/target.json" },
-      coverage: { completed: lenses },
     },
   });
   const row = gate("review", "abc123", {
@@ -430,6 +428,29 @@ test("canonical Dev routing binds the Review target mode and exact completed len
     );
     assert.equal(foreign.ok, false);
     assert.match(JSON.stringify(foreign.issues), /must belong to the canonical Dev session/);
+
+    const manifestFile = path.join(root, render.path);
+    const hiddenMarkers = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
+    hiddenMarkers.markers.find((marker) => marker.attributes["data-review-source-sha256"]).visible =
+      false;
+    fs.writeFileSync(manifestFile, `${JSON.stringify(hiddenMarkers)}\n`);
+    const hiddenSource = checkGateManifest(
+      manifest([{ ...row, render_manifest_sha256: fileDigest(manifestFile) }], {
+        run_id: routedSession.run_id,
+      }),
+      {
+        artifactRoot: root,
+        currentCommit: "abc123",
+        requiredGates: ["review"],
+        canonicalSession: routedSession,
+        requireSessionBinding: true,
+        manifestPath: ".pm/dev-sessions/example/gates.json",
+        authoritativeBaseRef: "origin/main",
+        authoritativeBaseCommit: "base123",
+      }
+    );
+    assert.equal(hiddenSource.ok, false);
+    assert.match(JSON.stringify(hiddenSource.issues), /retained browser marker evidence failed/);
   } finally {
     reviewModule.checkReview = originalCheck;
     reviewModule.expandFromReport = originalExpand;
@@ -549,6 +570,13 @@ test("review render evidence rejects forged retained-render boundaries", () => {
         expected: /requires a non-empty print PDF/,
       },
       {
+        name: "missing marker evidence",
+        mutate(value) {
+          delete value.markers;
+        },
+        expected: /requires browser marker evidence/,
+      },
+      {
         name: "out-of-root capture",
         mutate(value) {
           fs.writeFileSync(outside, retainedBytes.get(value.captures[0].path));
@@ -607,7 +635,7 @@ test("review render evidence rejects forged retained-render boundaries", () => {
   }
 });
 
-function seedReviewRenderManifest(root, htmlPath) {
+function seedReviewRenderManifest(root, htmlPath, values = {}) {
   const renderDir = path.join(path.dirname(htmlPath), "renders");
   fs.mkdirSync(renderDir, { recursive: true });
   const viewports = [
@@ -650,10 +678,64 @@ function seedReviewRenderManifest(root, htmlPath) {
       browser: "/test/chromium",
       captures,
       print: { ...renderFile(root, pdf), pages: 1 },
+      markers: reviewRenderedMarkers(values),
       checked_at: "2026-07-12T00:00:00Z",
     })}\n`
   );
   return { path: path.relative(root, manifest), sha256: fileDigest(manifest) };
+}
+
+function reviewReportForMarkers({ coverage = [] } = {}) {
+  return {
+    source: { commit: "abc123", base_ref: "origin/main", base_commit: "base123" },
+    outcome: "passed",
+    review_round: 1,
+    blockers: [],
+    coverage: { required: coverage, completed: coverage },
+    top_issue: "No unresolved Review finding.",
+    next_action: "Proceed to full verification.",
+  };
+}
+
+function reviewRenderedMarkers({ coverage = "0/0" } = {}) {
+  const report = reviewReportForMarkers();
+  const rows = [
+    [{ "data-review-outcome": "passed" }, "passed"],
+    [{ "data-review-round": "1" }, "1"],
+    [{ "data-review-blockers": "0" }, "0"],
+    [{ "data-review-coverage": coverage }, coverage],
+    [
+      { "data-review-source-sha256": fileDigestBytes(Buffer.from(report.source.commit)) },
+      `Target: ${report.source.commit}`,
+    ],
+    [
+      {
+        "data-review-base-sha256": fileDigestBytes(
+          Buffer.from(`${report.source.base_ref}:${report.source.base_commit}`)
+        ),
+      },
+      `Base: ${report.source.base_ref} at ${report.source.base_commit}`,
+    ],
+    [
+      { "data-review-top-issue-sha256": fileDigestBytes(Buffer.from(report.top_issue)) },
+      `Top issue: ${report.top_issue}`,
+    ],
+    [
+      { "data-review-next-action-sha256": fileDigestBytes(Buffer.from(report.next_action)) },
+      `Next: ${report.next_action}`,
+    ],
+  ];
+  return rows.map(([attributes, text]) => ({
+    attributes,
+    text,
+    firstScreenText: text,
+    visible: true,
+    inViewport: true,
+  }));
+}
+
+function fileDigestBytes(bytes) {
+  return crypto.createHash("sha256").update(bytes).digest("hex");
 }
 
 function renderFile(root, file) {
@@ -1427,6 +1509,8 @@ test("deriveSessionSlug normalizes branch families the same way hooks and skills
   assert.equal(deriveSessionSlug("codex/pm-dev-workflow-proposal"), "pm-dev-workflow-proposal");
   assert.equal(deriveSessionSlug("release/v1.2.3"), "v1.2.3");
   assert.equal(deriveSessionSlug("team/feature/foo"), "team-feature-foo");
+  assert.equal(deriveSessionSlug("feat/Checkout Card++"), "checkout-card");
+  assert.equal(deriveSessionSlug("CODEX/UPPER/Case"), "upper-case");
   assert.equal(deriveSessionSlug(""), "current");
 });
 

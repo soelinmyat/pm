@@ -34,7 +34,7 @@ node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" \
   --base origin/{DEFAULT_BRANCH}
 ```
 
-If the manifest is missing or any required gate is missing, stop and run the missing gate first. If any required gate row is stale, run the final recertification pass from `skills/dev/steps/07-review.md`: rerun gates whose relevant surface changed, or write `verified_commit` / `verified_at` only when the existing evidence still applies to current HEAD. Do not treat green CI, a PR label, or remembered test output as a substitute for a current sidecar row.
+If the manifest is missing or any required gate is missing, stop and run the missing gate first. If any required gate row is stale, run the final recertification pass from `skills/dev/steps/08-review.md`: rerun gates whose relevant surface changed, or write `verified_commit` / `verified_at` only when the existing evidence still applies to current HEAD. Do not treat green CI, a PR label, or remembered test output as a substitute for a current sidecar row.
 
 ### Attempt push
 

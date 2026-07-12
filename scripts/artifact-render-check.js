@@ -96,6 +96,9 @@ function renderArtifact(options) {
     url,
   ]);
   const printInspection = inspectPdf(pdfPath);
+  const markers = options.markerPrefix
+    ? probeDataMarkerVisibility(browserPath, htmlPath, outputDir, options.markerPrefix)
+    : null;
 
   return {
     schema_version: 1,
@@ -108,6 +111,7 @@ function renderArtifact(options) {
       bytes: fs.statSync(pdfPath).size,
       pages: printInspection.pages,
     },
+    ...(markers ? { markers } : {}),
     checked_at: new Date().toISOString(),
   };
 }
@@ -436,6 +440,7 @@ function main(argv = process.argv.slice(2)) {
       "--browser": { type: "string" },
       "--manifest": { type: "string" },
       "--root": { type: "string" },
+      "--marker-prefix": { type: "string" },
       "--json": { type: "boolean" },
     }).args;
     if (!parsed.html || !parsed.outDir) throw new Error("--html and --out-dir are required");
@@ -444,6 +449,7 @@ function main(argv = process.argv.slice(2)) {
       outputDir: parsed.outDir,
       browserPath: parsed.browser,
       projectRoot: parsed.root || process.cwd(),
+      markerPrefix: parsed.markerPrefix,
     });
     if (parsed.manifest)
       writeJsonAtomic(path.resolve(parsed.manifest), result, { fileMode: 0o600 });

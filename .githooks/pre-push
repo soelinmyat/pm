@@ -11,6 +11,7 @@ push_ref_lines=()
 derive_gate_slug() {
   local slug="$1"
   local prefix
+  slug=$(printf "%s" "$slug" | tr '[:upper:]' '[:lower:]')
   for prefix in "codex/" "feat/" "fix/" "chore/" "release/"; do
     if [[ "$slug" == "$prefix"* ]]; then
       slug="${slug#"$prefix"}"
@@ -18,6 +19,7 @@ derive_gate_slug() {
     fi
   done
   slug="${slug//\//-}"
+  slug=$(printf "%s" "$slug" | sed -E 's/[^a-z0-9._-]+/-/g; s/^-+//; s/-+$//')
   if [[ -z "$slug" ]]; then
     slug="current"
   fi

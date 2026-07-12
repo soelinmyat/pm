@@ -52,6 +52,7 @@ const REQUIRED_EVIDENCE = Object.freeze({
   quality: new Set(["source", "contract"]),
   efficiency: new Set(["source", "benchmark", "trace"]),
 });
+const FROZEN_MERGE_BASE = Symbol("review-frozen-merge-base");
 
 function checkReview(options) {
   const root = fs.realpathSync(path.resolve(options.root || process.cwd()));
@@ -549,6 +550,7 @@ function validateLiveTarget(root, target, issues) {
     if (target.source?.base_ref !== trusted.ref || target.source?.base_commit !== trusted.commit)
       add(issues, "target.source", "does not match the authoritative remote default");
     const diff = git(root, ["diff", "--binary", `${trusted.commit}...${head}`], null);
+    target[FROZEN_MERGE_BASE] = git(root, ["merge-base", trusted.commit, head]).toString().trim();
     if (target.source?.diff_sha256 !== digest(diff))
       add(issues, "target.source.diff_sha256", "does not match current diff bytes");
     const inventory = changedFileInventory(root, trusted.commit, head);
@@ -563,7 +565,14 @@ function validateFrozenTarget(root, target, issues) {
   try {
     git(root, ["cat-file", "-e", `${target.source.commit}^{commit}`]);
     git(root, ["cat-file", "-e", `${target.source.base_commit}^{commit}`]);
-    git(root, ["merge-base", "--is-ancestor", target.source.base_commit, target.source.commit]);
+    target[FROZEN_MERGE_BASE] = git(root, [
+      "merge-base",
+      target.source.base_commit,
+      target.source.commit,
+    ])
+      .toString()
+      .trim();
+    if (!sha(target[FROZEN_MERGE_BASE])) throw new Error("source and base have no merge base");
     const diff = git(
       root,
       ["diff", "--binary", `${target.source.base_commit}...${target.source.commit}`],
@@ -843,7 +852,10 @@ function validateEvidenceReference(root, evidence, target, label, issues) {
       return add(issues, `${label}.ref`, "has an invalid line range");
     const changed = (target.changed_files || []).find((item) => item.path === match[1]);
     try {
-      const commit = changed?.status === "D" ? target.source.base_commit : target.source.commit;
+      const commit =
+        changed?.status === "D"
+          ? target[FROZEN_MERGE_BASE] || target.source.base_commit
+          : target.source.commit;
       const bytes = readCommittedBlob(root, commit, match[1]);
       validateTextLineRange(bytes, end, `${label}.ref`, issues);
     } catch (error) {
@@ -902,7 +914,10 @@ function validateArtifactEvidence(file, evidence, label, issues, gate, targetCom
 
 function validateChangedLineRange(root, target, changed, end, label, issues) {
   try {
-    const commit = changed.status === "D" ? target.source.base_commit : target.source.commit;
+    const commit =
+      changed.status === "D"
+        ? target[FROZEN_MERGE_BASE] || target.source.base_commit
+        : target.source.commit;
     const bytes = readCommittedBlob(root, commit, changed.path);
     validateTextLineRange(bytes, end, label, issues);
   } catch (error) {
@@ -999,18 +1014,14 @@ function buildCanonicalReport(
           ? "blocked"
           : "failed"
         : "passed";
-  const topFinding = [
-    ...new Map(
-      [
-        ...blockers,
-        ...merged.findings.filter((finding) =>
-          merged.unresolved_disagreements.includes(finding.id)
-        ),
-        ...deferredBlockers,
-      ].map((finding) => [finding.id, finding])
-    ).values(),
-  ].sort(
+  const priorityFindingIds = new Set([
+    ...blockers.map((finding) => finding.id),
+    ...deferredBlockers.map((finding) => finding.id),
+    ...merged.unresolved_disagreements,
+  ]);
+  const topFinding = [...merged.findings].sort(
     (left, right) =>
+      Number(priorityFindingIds.has(right.id)) - Number(priorityFindingIds.has(left.id)) ||
       SEVERITIES.indexOf(right.severity) - SEVERITIES.indexOf(left.severity) ||
       right.confidence - left.confidence ||
       left.id.localeCompare(right.id)
@@ -1049,7 +1060,7 @@ function buildCanonicalReport(
     prior_report: target.prior_report,
     coverage: { required: applicable, completed: applicable, not_applicable: notApplicable },
     outcome,
-    top_issue: topFinding ? topFinding.issue : "No unresolved Review blocker.",
+    top_issue: topFinding ? topFinding.issue : "No unresolved Review finding.",
     blockers: [...blockers, ...deferredBlockers].map((item) => item.id),
     unresolved_disagreements: merged.unresolved_disagreements,
     auto_fix_eligible: autoFixEligible,
@@ -1454,5 +1465,6 @@ module.exports = {
   expandFromReport,
   parseArgs,
   validateFrozenTarget,
+  validateRenderedReportMarkers,
   validateSignal,
 };

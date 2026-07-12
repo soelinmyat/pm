@@ -154,6 +154,33 @@ function resolveTrustedBase(root) {
   const branch = output.match(/^ref:\s+refs\/heads\/([^\s]+)\s+HEAD$/m)?.[1];
   const commit = output.match(/^([a-f0-9]{40,64})\s+HEAD$/m)?.[1];
   if (!branch || !commit) throw new Error("origin HEAD lacks a symbolic ref or object ID");
+  try {
+    execFileSync("git", ["cat-file", "-e", `${commit}^{commit}`], {
+      cwd: root,
+      stdio: ["ignore", "ignore", "ignore"],
+      timeout: 5_000,
+    });
+  } catch {
+    try {
+      execFileSync("git", ["fetch", "--no-tags", "--quiet", "origin", `refs/heads/${branch}`], {
+        cwd: root,
+        env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "Never" },
+        stdio: ["ignore", "ignore", "pipe"],
+        timeout: 30_000,
+      });
+      execFileSync("git", ["cat-file", "-e", `${commit}^{commit}`], {
+        cwd: root,
+        stdio: ["ignore", "ignore", "pipe"],
+        timeout: 5_000,
+      });
+    } catch (error) {
+      throw new Error(
+        `cannot materialize authoritative origin object: ${String(error.stderr || error.message)
+          .trim()
+          .slice(0, 300)}`
+      );
+    }
+  }
   return { ref: `origin/${branch}`, commit };
 }
 

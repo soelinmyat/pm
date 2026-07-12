@@ -19,7 +19,7 @@ Before arming auto-merge or invoking `gh pr merge`, re-verify the gate attestati
 3. Compute changed files with `changed_files="$(git diff --name-only origin/{DEFAULT_BRANCH}...origin/{branch} | paste -sd, -)"`.
 4. Set `PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"`, then run `node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" --manifest .pm/dev-sessions/{slug}/gates.json --commit "$remote_tip" --review-evidence-mode enforce --changed-files "$changed_files"`. The checker is the authority for effective attestation; do not require every raw `commit` field to equal the remote tip.
 5. If every required row is effectively attested and the checker passes: proceed to the merge loop.
-6. If any row is missing or neither `commit` nor `verified_commit` matches `remote_tip` — fix commits, rebases, or auto-fixes have landed since the last attestation — run the final recertification pass from `skills/dev/steps/07-review.md`. Rerun review and any other gate whose relevant surface changed. Only proceed once the sidecar attests the remote branch tip.
+6. If any row is missing or neither `commit` nor `verified_commit` matches `remote_tip` — fix commits, rebases, or auto-fixes have landed since the last attestation — run the final recertification pass from `skills/dev/steps/08-review.md`. Rerun review and any other gate whose relevant surface changed. Only proceed once the sidecar attests the remote branch tip.
 
 This enforces ship's Iron Law — "NEVER MERGE WITHOUT READING THE DIFF" — structurally. A stale review SHA means code is about to ship that no review ever read.
 

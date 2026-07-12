@@ -24,7 +24,9 @@ renders/
 
 Each fresh Review invocation gets a new kebab-case run directory. Synthesis may overwrite only `runs/{run-id}/round-N/draft-report.json` and `draft-report.html` while decisions are pending. Finalize the round report exactly once after decisions. Never overwrite a finalized prior run or round: later rounds bind the exact preceding report path. A passing round is projected to the canonical root `report.json` and `report.html` for Dev/Ship gate discovery; its target and result bindings still point into the run directory.
 
-The canonical gate row binds `renders/manifest.json` with `render_manifest` and raw `render_manifest_sha256`. The manifest's source hash equals the canonical `report.html` bytes; its desktop, tablet, and narrow viewport plus full-page PNGs and print PDF retain project-relative paths, byte counts, dimensions/pages, and `sha256:` hashes. Gate-time validation rechecks those frozen bytes and metrics without launching a browser or contacting the network.
+The canonical gate row binds `renders/manifest.json` with `render_manifest` and raw `render_manifest_sha256`. The manifest's source hash equals the canonical `report.html` bytes; its desktop, tablet, and narrow viewport plus full-page PNGs and print PDF retain project-relative paths, byte counts, dimensions/pages, and `sha256:` hashes. The renderer also retains its real-browser `data-review-*` marker visibility set. Gate-time validation rechecks those frozen bytes, metrics, and first-screen marker results without launching a browser or contacting the network.
+
+Source inventory and diff identity use Git three-dot semantics against the live authoritative remote-default object. A feature branch may legitimately diverge from that object; frozen validation authenticates both commits and their merge base rather than requiring the moving default-branch tip to be a linear ancestor. Deleted-file line evidence resolves from that merge base.
 
 Review JSON bindings (targets, results, decisions, reports, gate-row references, and retained render payloads) use project-relative regular-file paths. Inputs are opened once with no-follow semantics, identity-checked, byte-bounded, and read through the same descriptor. Target, machine-report, and HTML publication descends from an anchored project-root child process and creates plus commits the temporary file relative to the opened directory, so an ancestor swap cannot redirect the write. Publication returns explicit `committed` and `directory_synced` state. Known platform limitations (`EBADF`, `EINVAL`, `EISDIR`, `ENOSYS`, `ENOTSUP`, `EPERM`) are exposed as non-blocking `directory_sync_error` warnings; genuine storage errors such as `EIO` block the workflow with an explicit committed/do-not-retry error. Traversal, absolute retained paths, stale bindings, unknown fields, and JSON over 4 MiB fail.
 
@@ -81,7 +83,7 @@ Never infer approver identity or create a decision from reviewer majority. Repos
 
 ## Canonical merge
 
-Exact IDs merge. Keep all signals. Use maximum confidence, highest severity, and the strongest signal's detail. Severity spread greater than one tier, fix kind, normalized remediation, disposition, or decision requirement creates a dispute. Local decision rows never resolve the gate-level dispute; they preserve the proposed action and rationale for a future authenticated resolution channel.
+Exact IDs merge. Keep all signals. Use maximum confidence, highest severity, and the strongest signal's detail. Severity spread greater than one tier, fix kind, normalized remediation, disposition, or decision requirement creates a dispute. After exact merging, findings whose source ranges overlap also become disputed when their fix kind or normalized remediation conflicts, even if reviewer-authored rule names or corroborating evidence produced different IDs. Local decision rows never resolve the gate-level dispute; they preserve the proposed action and rationale for a future authenticated resolution channel.
 
 Auto-fix eligibility requires all of: Review owner, open, confidence at least 80, `fix_kind: mechanical`, not disputed, not decision-required. Eligibility is a ceiling; the root still verifies the code before editing.
 
@@ -99,7 +101,7 @@ Generate canonical `report.json` with `review-check.js --write-report`. It binds
 
 Render `report.html` with `scripts/review-report.js`, which uses `references/templates/review-report.html`. Metadata generator is exactly `pm:review` plus `plugin.config.json` version. Metadata source binds `report.json`; evidence binds target, every result, and decisions. Unresolved tokens fail.
 
-The first screenful visibly binds outcome, round, blocker count, top issue, and next action. Every finding marker visibly includes issue, impact, fix, owner, evidence refs, signals, dispute/decision state, and the advisory, non-executable verification plan. Structural and real-browser validation ignore hidden/offscreen/clipped text.
+The first screenful visibly binds outcome, round, blocker count, top issue, and next action. The top issue ranks gate blockers and disputes first, then every residual finding by severity and confidence; a passing report cannot claim there is no issue while lower-severity findings remain. Every finding marker visibly includes issue, impact, fix, owner, evidence refs, signals, dispute/decision state, and the advisory, non-executable verification plan. Structural and real-browser validation ignore hidden/offscreen/clipped text.
 
 ## Commands
 

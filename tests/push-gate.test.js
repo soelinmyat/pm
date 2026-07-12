@@ -404,6 +404,22 @@ test("branch slug matches deriveSessionSlug for gate manifest lookup", () => {
   }
 });
 
+test("branch slug normalization cannot bypass gates with case or punctuation", () => {
+  const dir = makeRepo({ branch: "chore/Review++Gate" });
+  try {
+    const slug = deriveSessionSlug("chore/Review++Gate");
+    assert.equal(slug, "review-gate");
+    const sha = headSha(dir);
+    const m = passingManifest(dir, slug, sha);
+    m.gates.find((g) => g.name === "review").status = "failed";
+    m.gates.find((g) => g.name === "review").reason = "review not run";
+    writeGates(dir, slug, m);
+    assertBlock(runHook("git push", { cwd: dir }), /review is failed/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // hooks.json registers push-gate as a synchronous PreToolUse Bash hook.
 // ---------------------------------------------------------------------------
