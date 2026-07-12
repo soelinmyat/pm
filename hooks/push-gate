@@ -131,11 +131,15 @@ function parseSegment(segment) {
   const tokens = shellWords.map((word) => stripToken(word.value));
   let i = 0;
   // Skip leading `VAR=value` assignments and common command wrappers.
-  while (
-    i < tokens.length &&
-    (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[i]) || LEADING_WRAPPERS.has(tokens[i]))
-  ) {
-    i += 1;
+  while (i < tokens.length) {
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[i])) {
+      i += 1;
+    } else if (LEADING_WRAPPERS.has(tokens[i])) {
+      i += 1;
+      if (tokens[i] === "--") i += 1;
+    } else {
+      break;
+    }
   }
   if (i >= tokens.length) return null;
   if (path.basename(tokens[i]) !== "git") return null;
@@ -531,6 +535,41 @@ function lexShellCharacters(input) {
   return { characters, closed: quote === null, sawBacktick };
 }
 
+function containsUnsupportedHeredoc(command) {
+  const syntax = lexShellCharacters(command);
+  for (let i = 0; i + 1 < syntax.characters.length; i += 1) {
+    const previous = syntax.characters[i - 1];
+    const first = syntax.characters[i];
+    const second = syntax.characters[i + 1];
+    const third = syntax.characters[i + 2];
+    if (
+      !first.quote &&
+      !first.escaped &&
+      first.char === "<" &&
+      !(
+        previous &&
+        !previous.quote &&
+        !previous.escaped &&
+        previous.char === "<" &&
+        previous.index === first.index - 1
+      ) &&
+      !second.quote &&
+      !second.escaped &&
+      second.char === "<" &&
+      second.index === first.index + 1 &&
+      !(
+        third &&
+        !third.quote &&
+        !third.escaped &&
+        third.char === "<" &&
+        third.index === second.index + 1
+      )
+    )
+      return true;
+  }
+  return false;
+}
+
 function partitionShellStates(states, operator) {
   const executes = [];
   const skips = [];
@@ -805,6 +844,13 @@ function main() {
       ? payload.tool_input.command
       : "";
   if (!command || !command.includes("push")) return allow();
+  if (containsUnsupportedHeredoc(command)) {
+    emitDeny(
+      "PM dev gate cannot safely inspect a push command containing a shell here-document. " +
+        "Run the push as a separate command so its repository, refspec, and quality gates can be verified."
+    );
+    return;
+  }
   const baseCwd =
     (payload && typeof payload.cwd === "string" && payload.cwd) ||
     process.env.CLAUDE_PROJECT_DIR ||
