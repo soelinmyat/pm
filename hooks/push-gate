@@ -123,10 +123,7 @@ function stripToken(token) {
 // when the segment invokes git, else null. dir/gitDir/workTree come from git's
 // global -C / --git-dir / --work-tree options; args are the tokens after `push`.
 function parseSegment(segment) {
-  const tokens = segment
-    .trim()
-    .replace(/^[({]\s*/, "")
-    .split(/\s+/)
+  const tokens = splitSimpleShellWords(segment.trim().replace(/^[({]\s*/, ""))
     .map(stripToken)
     .filter(Boolean);
   let i = 0;
@@ -179,6 +176,23 @@ function parseSegment(segment) {
     }
   }
   return null;
+}
+
+function splitSimpleShellWords(input) {
+  const syntax = lexShellCharacters(input);
+  if (!syntax.closed) return [];
+  const words = [];
+  let current = "";
+  for (const entry of syntax.characters) {
+    if (!entry.quote && !entry.escaped && /\s/.test(entry.char)) {
+      if (current) words.push(current);
+      current = "";
+    } else {
+      current += entry.char;
+    }
+  }
+  if (current) words.push(current);
+  return words;
 }
 
 // Scan a full command string for a `git push`. Backslash-newline is a shell
@@ -359,6 +373,12 @@ function scanShellTokens(command) {
     }
     const char = entry.char;
     const i = entry.index;
+    if (
+      char === "&" &&
+      ((/[<>]/.test(command[i - 1] || "") && /[\d-]/.test(command[i + 1] || "")) ||
+        command[i + 1] === ">")
+    )
+      continue;
     if (char === "{" || char === "}") {
       const boundary = (value) =>
         value === undefined || /\s/.test(value) || ";|&(){}".includes(value);

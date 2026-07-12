@@ -349,6 +349,22 @@ test("git -C <dir> push form is detected and gated against that repo", () => {
   }
 });
 
+test("quoted git -C paths remain one shell word", () => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "pm-push-gate-quoted-git-c-"));
+  const repo = path.join(parent, "gated repo");
+  try {
+    fs.mkdirSync(repo);
+    makeRepoAt(repo);
+    writeFailingGates(repo, "x");
+    assertBlock(
+      runHook('git -C "gated repo" push origin HEAD', { cwd: parent }),
+      /verification is failed/
+    );
+  } finally {
+    fs.rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test("cd <dir> && git push form is detected and gated against that repo", () => {
   const repo = makeRepo();
   const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), "push-gate-cwd2-"));
@@ -695,6 +711,7 @@ test("cwd-mutating shell builtins cannot move push inspection away from the repo
       "pushd gated >/dev/null && git push origin HEAD",
       "pushd gated>/dev/null && git push origin HEAD",
       "cd gated>/dev/null && git push origin HEAD",
+      "cd gated 2>&1 && git push origin HEAD",
       ">/dev/null cd gated && git push origin HEAD",
       ">/dev/null pushd gated && git push origin HEAD",
       "builtin cd gated && git push origin HEAD",
