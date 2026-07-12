@@ -744,6 +744,35 @@ function refspecDest(spec) {
   return { kind: "branch", dst };
 }
 
+function branchPatternCapture(pattern, branch) {
+  const wildcard = pattern.indexOf("*");
+  if (wildcard < 0) return pattern === branch ? "" : null;
+  if (pattern.indexOf("*", wildcard + 1) >= 0) return null;
+  const prefix = pattern.slice(0, wildcard);
+  const suffix = pattern.slice(wildcard + 1);
+  if (!branch.startsWith(prefix) || !branch.endsWith(suffix)) return null;
+  if (branch.length < prefix.length + suffix.length) return null;
+  return branch.slice(prefix.length, branch.length - suffix.length);
+}
+
+function sessionBranchRefspecSource(raw, sessionBranch) {
+  const spec = raw.startsWith("+") ? raw.slice(1) : raw;
+  const dest = refspecDest(spec);
+  if (dest.kind !== "branch") return null;
+  const capture = branchPatternCapture(dest.dst, sessionBranch);
+  const targetsSession = dest.dst === "HEAD" || dest.dst === "@" || capture !== null;
+  if (!targetsSession) return null;
+  const colon = spec.indexOf(":");
+  const source = colon >= 0 ? spec.slice(0, colon) : spec;
+  if (!source) return { error: "session-branch deletion has no source commit" };
+  if (capture !== null && source.includes("*")) {
+    if (source.indexOf("*") !== source.lastIndexOf("*"))
+      return { error: "session branch wildcard push has an ambiguous source refspec" };
+    return { source: source.replace("*", capture) };
+  }
+  return { source };
+}
+
 // Does this `git push` update the SESSION BRANCH's ref? Only those pushes are
 // gated. Tag pushes, deletions, and cross-branch pushes are out of scope.
 function parsePushArguments(args) {
@@ -787,9 +816,7 @@ function pushUpdatesSessionBranch(args, sessionBranch) {
     return !sawTags;
   }
   for (const spec of refspecs) {
-    const dest = refspecDest(spec);
-    if (dest.kind !== "branch") continue; // delete/tag refspec → skip
-    if (dest.dst === "HEAD" || dest.dst === "@" || dest.dst === sessionBranch) return true;
+    if (sessionBranchRefspecSource(spec, sessionBranch)) return true;
   }
   return false;
 }
@@ -801,17 +828,10 @@ function sessionBranchPushSource(args, sessionBranch) {
   if (refspecs.length === 0) return { source: "HEAD" };
   const sources = [];
   for (const raw of refspecs) {
-    const spec = raw.startsWith("+") ? raw.slice(1) : raw;
-    const dest = refspecDest(spec);
-    if (
-      dest.kind !== "branch" ||
-      (dest.dst !== "HEAD" && dest.dst !== "@" && dest.dst !== sessionBranch)
-    )
-      continue;
-    const colon = spec.indexOf(":");
-    const source = colon >= 0 ? spec.slice(0, colon) : spec;
-    if (!source) return { error: "session-branch deletion has no source commit" };
-    sources.push(source);
+    const match = sessionBranchRefspecSource(raw, sessionBranch);
+    if (!match) continue;
+    if (match.error) return match;
+    sources.push(match.source);
   }
   if (sources.length !== 1)
     return { error: "session branch push must resolve to exactly one source refspec" };
