@@ -35,7 +35,6 @@ const SIMPLIFY_SKIP_REASON =
 const PM_RUNTIME_PATH_RE =
   /^(commands|skills|templates|hooks|scripts|tests|references|agents|\.githooks)\//;
 const PM_RUNTIME_FILE_RE = /^(plugin\.config\.json|\.claude-plugin\/|\.codex-plugin\/)/;
-const JS_TS_PATH_RE = /\.(js|mjs|cjs|ts)$/i;
 const CODE_PATH_RE =
   /\.(js|mjs|cjs|ts|tsx|jsx|py|rb|go|rs|java|kt|kts|swift|php|cs|cpp|cxx|cc|c|h|hpp|m|mm|sh|bash|zsh|fish|ps1|sql)$/i;
 const DOC_OR_CONFIG_PATH_RE =
