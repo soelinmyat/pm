@@ -11,6 +11,7 @@ const {
   expectedPriorReportPath,
   expectedReviewPath,
   requireReviewPath,
+  reviewPathContext,
   reviewRootFromTargetPath,
 } = require("./lib/review-paths");
 
@@ -308,7 +309,11 @@ function main(argv = process.argv.slice(2)) {
         `prior report path must equal ${expectedPriorReportPath(requestedRoot, requestedRound)}`
       );
     const target = buildReviewTarget(options);
-    const reviewRoot = reviewRootFromTargetPath(options.outPath, target.review_round);
+    const reviewRoot = reviewPathContext(
+      options.outPath,
+      target.review_round,
+      target.run_id
+    ).evidenceRoot;
     requireReviewPath(
       options.outPath,
       expectedReviewPath(reviewRoot, target.review_round, "target"),

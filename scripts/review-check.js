@@ -11,7 +11,7 @@ const { writeJsonAtomic } = require("./lib/atomic-file");
 const {
   expectedPriorReportPath,
   expectedReviewPath,
-  reviewRootFromTargetPath,
+  reviewPathContext,
 } = require("./lib/review-paths");
 const { isRfc3339DateTime } = require("./lib/iso-time");
 const {
@@ -59,8 +59,11 @@ function checkReview(options) {
   const target = targetFile.value;
   validateTarget(target, issues);
   let reviewRoot = null;
+  let canonicalReviewRoot = null;
   try {
-    reviewRoot = reviewRootFromTargetPath(targetFile.relative, target.review_round);
+    const context = reviewPathContext(targetFile.relative, target.review_round, target.run_id);
+    reviewRoot = context.evidenceRoot;
+    canonicalReviewRoot = context.canonicalRoot;
   } catch (error) {
     add(issues, "target.path", error.message);
   }
@@ -142,10 +145,12 @@ function checkReview(options) {
     const expectedReport = expectedReviewPath(reviewRoot, target.review_round, "report", {
       outcome: report.outcome,
       stage: reportStage,
+      canonicalRoot: canonicalReviewRoot,
     });
     const expectedHuman = expectedReviewPath(reviewRoot, target.review_round, "human", {
       outcome: report.outcome,
       stage: reportStage,
+      canonicalRoot: canonicalReviewRoot,
     });
     if (options.reportPath !== expectedReport)
       add(issues, "report.path", `must equal ${expectedReport}`);
@@ -195,7 +200,7 @@ function validateTarget(target, issues) {
     issues
   );
   if (target.schema_version !== 1) add(issues, "target.schema_version", "must equal 1");
-  if (!text(target.run_id)) add(issues, "target.run_id", "is required");
+  if (!slug(target.run_id)) add(issues, "target.run_id", "must be kebab-case");
   if (!isRfc3339DateTime(target.created_at)) add(issues, "target.created_at", "must be RFC 3339");
   if (!Number.isInteger(target.review_round) || target.review_round < 1 || target.review_round > 3)
     add(issues, "target.review_round", "must be 1 through 3");

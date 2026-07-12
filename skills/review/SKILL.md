@@ -84,7 +84,7 @@ Resolve session paths with `deriveSessionSlug` from `scripts/lib/session-slug.js
 
 ## Before marking done
 
-- [ ] `round-{N}/target.json`, every planned result, and the round report are preserved; a pass also publishes canonical `review/report.json` and `review/report.html`.
+- [ ] `runs/{run-id}/round-{N}/target.json`, every planned result, and the round report are preserved; a pass also publishes canonical `review/report.json` and `review/report.html`.
 - [ ] The user confirmed the implementation scope, or the Dev/RFC session supplies it.
 - [ ] `review-check.js` passes against current HEAD and the authoritative remote base.
 - [ ] All applicable logical lenses have exact verdict coverage; disputes and decisions are explicit.

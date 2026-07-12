@@ -15,6 +15,7 @@ const { findingId } = require("../scripts/lib/review-contract");
 const {
   expectedPriorReportPath,
   expectedReviewPath,
+  reviewPathContext,
   reviewRootFromTargetPath,
 } = require("../scripts/lib/review-paths");
 const { resolveBrowser } = require("../scripts/artifact-render-check");
@@ -63,6 +64,15 @@ test("complete adaptively allocated review evidence produces a current passing r
     })
   );
   assert.equal(resumed.ok, true, JSON.stringify(resumed.issues, null, 2));
+});
+
+test("a fresh run keeps evidence run-scoped while publishing the pass canonically", () => {
+  const fixture = makeFixture({ maxWorkers: 3, runScoped: true });
+  const generated = generate(fixture);
+  assert.equal(generated.ok, true, JSON.stringify(generated.issues));
+  assert.match(fixture.targetPath, /review\/runs\/review-test\/round-1\/target\.json$/);
+  assert.equal(generated.report.human_report.path, fixture.htmlPath);
+  assert.equal(fixture.reportPath, ".pm/dev-sessions/example/review/report.json");
 });
 
 test("missing a planned physical reviewer fails logical coverage", () => {
@@ -120,6 +130,29 @@ test("target creation refuses dirty source and inventory remains bound to commit
   assert.throws(
     () => buildReviewTarget({ root: fixture.root, maxWorkers: 2 }),
     /requires a clean worktree/
+  );
+  const runContext = reviewPathContext(
+    ".pm/dev-sessions/example/review/runs/remediation-run/round-1/target.json",
+    1,
+    "remediation-run"
+  );
+  assert.equal(runContext.evidenceRoot, ".pm/dev-sessions/example/review/runs/remediation-run");
+  assert.equal(runContext.canonicalRoot, ".pm/dev-sessions/example/review");
+  assert.equal(
+    expectedReviewPath(runContext.evidenceRoot, 1, "report", {
+      outcome: "passed",
+      canonicalRoot: runContext.canonicalRoot,
+    }),
+    ".pm/dev-sessions/example/review/report.json"
+  );
+  assert.throws(
+    () =>
+      reviewPathContext(
+        ".pm/dev-sessions/example/review/runs/wrong-run/round-1/target.json",
+        1,
+        "expected-run"
+      ),
+    /must equal run_id/
   );
 });
 
@@ -525,7 +558,7 @@ test(
   }
 );
 
-function makeFixture({ maxWorkers, deleteFile = false }) {
+function makeFixture({ maxWorkers, deleteFile = false, runScoped = false }) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-check-"));
   fs.mkdirSync(path.join(root, "src"), { recursive: true });
   fs.mkdirSync(path.join(root, "skills/dev/references"), { recursive: true });
@@ -562,17 +595,20 @@ function makeFixture({ maxWorkers, deleteFile = false }) {
   git(root, ["add", "-A"]);
   git(root, ["commit", "-qm", "change"]);
 
-  const targetPath = ".pm/dev-sessions/example/review/round-1/target.json";
   const target = buildReviewTarget({
     root,
     maxWorkers,
     profile: "codex-workhorse",
     runId: "review-test",
   });
+  const evidenceRoot = runScoped
+    ? ".pm/dev-sessions/example/review/runs/review-test"
+    : ".pm/dev-sessions/example/review";
+  const targetPath = `${evidenceRoot}/round-1/target.json`;
   write(root, targetPath, target);
   const targetBinding = binding(root, targetPath);
   const resultPaths = target.allocation.map((worker) => {
-    const resultPath = `.pm/dev-sessions/example/review/round-1/results/${worker.worker_id}.json`;
+    const resultPath = `${evidenceRoot}/round-1/results/${worker.worker_id}.json`;
     write(root, resultPath, {
       schema_version: 1,
       run_id: target.run_id,
@@ -600,8 +636,8 @@ function makeFixture({ maxWorkers, deleteFile = false }) {
     resultPaths,
     reportPath: ".pm/dev-sessions/example/review/report.json",
     htmlPath: ".pm/dev-sessions/example/review/report.html",
-    roundReportPath: ".pm/dev-sessions/example/review/round-1/report.json",
-    roundHtmlPath: ".pm/dev-sessions/example/review/round-1/report.html",
+    roundReportPath: `${evidenceRoot}/round-1/report.json`,
+    roundHtmlPath: `${evidenceRoot}/round-1/report.html`,
   };
 }
 

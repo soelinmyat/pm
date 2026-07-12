@@ -5,22 +5,23 @@
 Store the chain under `.pm/dev-sessions/{slug}/review/`:
 
 ```text
-round-1/
-  target.json
-  results/{worker-id}.json
-  decisions.json        # only when decisions exist
-  draft-report.json     # mutable synthesis before decisions
-  draft-report.html
-  report.json           # retained when the round does not pass
-  report.html
-round-2/                 # created only after source mutation
-round-3/                 # hard cap
+runs/{run-id}/
+  round-1/
+    target.json
+    results/{worker-id}.json
+    decisions.json        # only when decisions exist
+    draft-report.json     # mutable synthesis before decisions
+    draft-report.html
+    report.json           # retained when the round does not pass
+    report.html
+  round-2/                 # created only after source mutation
+  round-3/                 # hard cap
 report.json              # canonical passing projection only
 report.html              # canonical passing human artifact only
 renders/                 # canonical passing render evidence
 ```
 
-Synthesis may overwrite only `round-N/draft-report.json` and `draft-report.html` while decisions are pending. Finalize `round-N/report.json` and `report.html` exactly once after decisions. Never overwrite a finalized prior round: later targets bind its exact immutable path. A passing round is projected to the canonical root `report.json` and `report.html` for Dev/Ship gate discovery; their target and result bindings still point into that round's directory.
+Each fresh Review invocation gets a new kebab-case run directory. Synthesis may overwrite only `runs/{run-id}/round-N/draft-report.json` and `draft-report.html` while decisions are pending. Finalize the round report exactly once after decisions. Never overwrite a finalized prior run or round: later rounds bind the exact preceding report path. A passing round is projected to the canonical root `report.json` and `report.html` for Dev/Ship gate discovery; its target and result bindings still point into the run directory.
 
 All paths are project-relative regular files. Symlinks, traversal, absolute paths, stale bindings, unknown fields, and JSON over 4 MiB fail.
 
@@ -101,8 +102,8 @@ Generate the canonical report:
 ```bash
 node "$PM_PLUGIN_ROOT/scripts/review-check.js" \
   --root "$PWD" \
-  --target ".pm/dev-sessions/{slug}/review/round-{N}/target.json" \
-  --result ".pm/dev-sessions/{slug}/review/round-{N}/results/reviewer-1.json" \
+  --target ".pm/dev-sessions/{slug}/review/runs/{RUN_ID}/round-{N}/target.json" \
+  --result ".pm/dev-sessions/{slug}/review/runs/{RUN_ID}/round-{N}/results/reviewer-1.json" \
   --report ".pm/dev-sessions/{slug}/review/report.json" \
   --human-report ".pm/dev-sessions/{slug}/review/report.html" \
   --write-report
@@ -110,6 +111,6 @@ node "$PM_PLUGIN_ROOT/scripts/review-check.js" \
 
 Repeat `--result` for every planned reviewer and add `--decisions` when present. After rendering HTML, rerun the same command without `--write-report`.
 
-For a non-passing round, write its report and HTML inside `round-{N}/` instead of the canonical root. Bind that stable report with `--prior-report` after the fix commit.
+For a non-passing round, write its report and HTML inside `runs/{RUN_ID}/round-{N}/` instead of the canonical root. Bind that stable report with `--prior-report` after the fix commit.
 
-During synthesis, use `--stage draft` with `round-{N}/draft-report.json` and `draft-report.html`. After decisions are complete, rerun with `--stage final` (or omit `--stage`) and finalize the appropriate canonical or round report exactly once.
+During synthesis, use `--stage draft` with the current run's `round-{N}/draft-report.json` and `draft-report.html`. After decisions are complete, rerun with `--stage final` (or omit `--stage`) and finalize the appropriate canonical or round report exactly once.

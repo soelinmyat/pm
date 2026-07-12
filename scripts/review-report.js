@@ -5,7 +5,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { writeTextAtomic } = require("./lib/atomic-file");
-const { expectedReviewPath, reviewRootFromTargetPath } = require("./lib/review-paths");
+const { expectedReviewPath, reviewPathContext } = require("./lib/review-paths");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 const MAX_JSON_BYTES = 4 * 1024 * 1024;
@@ -21,15 +21,18 @@ function renderReviewReport(options) {
     throw new Error("output escapes project root");
   const relativeReport = path.relative(root, reportPath).split(path.sep).join("/");
   const relativeOutput = path.relative(root, outputPath).split(path.sep).join("/");
-  const reviewRoot = reviewRootFromTargetPath(report.target?.path, report.review_round);
+  const pathContext = reviewPathContext(report.target?.path, report.review_round, report.run_id);
+  const reviewRoot = pathContext.evidenceRoot;
   const reportStage = path.basename(relativeReport) === "draft-report.json" ? "draft" : "final";
   const expectedReport = expectedReviewPath(reviewRoot, report.review_round, "report", {
     outcome: report.outcome,
     stage: reportStage,
+    canonicalRoot: pathContext.canonicalRoot,
   });
   const expectedHuman = expectedReviewPath(reviewRoot, report.review_round, "human", {
     outcome: report.outcome,
     stage: reportStage,
+    canonicalRoot: pathContext.canonicalRoot,
   });
   if (relativeReport !== expectedReport)
     throw new Error(`report path must equal ${expectedReport}`);

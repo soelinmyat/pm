@@ -1,14 +1,25 @@
 "use strict";
 
-const TARGET_RE = /^(\.pm\/dev-sessions\/[^/]+\/review)\/round-([1-3])\/target\.json$/;
+const TARGET_RE =
+  /^(\.pm\/dev-sessions\/[^/]+\/review)(?:\/runs\/([a-z0-9]+(?:-[a-z0-9]+)*))?\/round-([1-3])\/target\.json$/;
+
+function reviewPathContext(targetPath, round, runId) {
+  const match = String(targetPath || "").match(TARGET_RE);
+  if (!match || Number(match[3]) !== round)
+    throw new Error(
+      `target path must equal .pm/dev-sessions/{slug}/review/runs/{run-id}/round-${round}/target.json`
+    );
+  if (match[2] && runId && match[2] !== runId)
+    throw new Error(`target run directory must equal run_id ${runId}`);
+  return {
+    canonicalRoot: match[1],
+    evidenceRoot: match[2] ? `${match[1]}/runs/${match[2]}` : match[1],
+    runId: match[2] || null,
+  };
+}
 
 function reviewRootFromTargetPath(targetPath, round) {
-  const match = String(targetPath || "").match(TARGET_RE);
-  if (!match || Number(match[2]) !== round)
-    throw new Error(
-      `target path must equal .pm/dev-sessions/{slug}/review/round-${round}/target.json`
-    );
-  return match[1];
+  return reviewPathContext(targetPath, round).evidenceRoot;
 }
 
 function expectedReviewPath(reviewRoot, round, kind, options = {}) {
@@ -25,8 +36,9 @@ function expectedReviewPath(reviewRoot, round, kind, options = {}) {
     if (kind === "human") return `${roundRoot}/draft-report.html`;
   }
   const canonical = options.outcome === "passed";
-  if (kind === "report") return `${canonical ? reviewRoot : roundRoot}/report.json`;
-  if (kind === "human") return `${canonical ? reviewRoot : roundRoot}/report.html`;
+  const canonicalRoot = options.canonicalRoot || reviewRoot;
+  if (kind === "report") return `${canonical ? canonicalRoot : roundRoot}/report.json`;
+  if (kind === "human") return `${canonical ? canonicalRoot : roundRoot}/report.html`;
   throw new Error(`unknown Review evidence kind ${kind}`);
 }
 
@@ -45,5 +57,6 @@ module.exports = {
   expectedPriorReportPath,
   expectedReviewPath,
   requireReviewPath,
+  reviewPathContext,
   reviewRootFromTargetPath,
 };
