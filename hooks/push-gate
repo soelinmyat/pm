@@ -131,7 +131,7 @@ const PUSH_VALUE_OPTS = new Set(["-o", "--push-option", "--receive-pack", "--exe
 // when the segment invokes git, else null. dir/gitDir/workTree come from git's
 // global -C / --git-dir / --work-tree options; args are the tokens after `push`.
 function parseSegment(segment, depth = 0) {
-  if (depth > 3) return null;
+  if (depth > 3) return indeterminatePush();
   const withoutRedirections = stripTrailingShellRedirections(segment);
   if (withoutRedirections === null) return null;
   const shellWords = splitSimpleShellWords(
@@ -170,6 +170,7 @@ function parseSegment(segment, depth = 0) {
             (wrapper === "sudo" && (option === "-D" || option === "--chdir")))
         ) {
           if (value === undefined) return null;
+          if (/[\\'"$`]/.test(value)) return indeterminatePush(wrapperDir);
           wrapperDir = composeGitDirectory(wrapperDir, value);
           wrapperDynamic ||= shellWords[valueIndex]?.dynamic === true;
         }
@@ -179,6 +180,7 @@ function parseSegment(segment, depth = 0) {
           consumesValue
         ) {
           if (value === undefined) return null;
+          if (/[\\'"$`]/.test(value)) return indeterminatePush(wrapperDir);
           const remainderStart = inlineValue ? i + 1 : i + 2;
           const nestedCommand = [
             value,
@@ -195,13 +197,7 @@ function parseSegment(segment, depth = 0) {
               shellWords.slice(remainderStart).some((word) => word.dynamic)
             )
               return {
-                isGit: true,
-                isPush: true,
-                dir: wrapperDir,
-                gitDir: null,
-                workTree: null,
-                args: [],
-                indeterminate: true,
+                ...indeterminatePush(wrapperDir),
               };
             return null;
           }
@@ -269,6 +265,18 @@ function parseSegment(segment, depth = 0) {
     }
   }
   return null;
+}
+
+function indeterminatePush(dir = null) {
+  return {
+    isGit: true,
+    isPush: true,
+    dir,
+    gitDir: null,
+    workTree: null,
+    args: [],
+    indeterminate: true,
+  };
 }
 
 function normalizeWrapperOption(wrapper, rawOption) {

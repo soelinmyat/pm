@@ -897,6 +897,14 @@ test("wrapper-prefixed pushes (sudo / VAR=1 / env) are detected → block", () =
       runHook("env -S 'git push -o' '$TRACE' origin HEAD", { cwd: dir }),
       /verification is failed/
     );
+    assertBlock(
+      runHook("env -S 'git\\_push\\_origin\\_HEAD'", { cwd: dir }),
+      /could not determine the repository/
+    );
+    assertBlock(
+      runHook("env -S 'env -S env -S env -S env -S git push origin HEAD'", { cwd: dir }),
+      /could not determine the repository/
+    );
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
