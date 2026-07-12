@@ -95,7 +95,7 @@ function blockUnverified(branch, manifestRel, detail) {
 
 // --- git command detection -------------------------------------------------
 
-const SEGMENT_SPLIT = /(?:&&|\|\||[;\n|&])/;
+const CONTROL_OPERATOR = /&&|\|\||[;\n|&]/g;
 const LEADING_WRAPPERS = new Set([
   "env",
   "sudo",
@@ -188,27 +188,70 @@ function parseSegment(segment) {
 // leading `cd <dir>` so `cd repo && git push` gates the right repo.
 function detectGitPushes(command, baseCwd) {
   const joined = command.replace(/\\\r?\n/g, " ");
-  let effectiveCwd = path.resolve(baseCwd);
+  let states = [{ cwd: path.resolve(baseCwd), succeeded: true }];
   const pushes = [];
-  for (const segment of joined.split(SEGMENT_SPLIT)) {
+  let operator = null;
+  let cursor = 0;
+  CONTROL_OPERATOR.lastIndex = 0;
+
+  const visit = (segment) => {
     const trimmed = segment.trim();
+    if (!trimmed) return;
+    const executes = [];
+    const skips = [];
+    for (const state of states) {
+      const shouldExecute =
+        operator === "&&"
+          ? state.succeeded
+          : operator === "||"
+            ? !state.succeeded
+            : true;
+      (shouldExecute ? executes : skips).push(state);
+    }
     const cd = trimmed.match(/^cd\s+(?:-P\s+)?(['"]?)([^'"]+)\1\s*$/);
     if (cd) {
-      effectiveCwd = path.resolve(effectiveCwd, cd[2]);
-      continue;
+      states = dedupeShellStates([
+        ...skips,
+        ...executes.flatMap((state) => [
+          { cwd: path.resolve(state.cwd, cd[2]), succeeded: true },
+          { cwd: state.cwd, succeeded: false },
+        ]),
+      ]);
+      return;
     }
     const parsed = parseSegment(trimmed);
     if (parsed && parsed.isPush) {
-      pushes.push({
-        dir: parsed.dir,
-        gitDir: parsed.gitDir,
-        workTree: parsed.workTree,
-        cwdOverride: effectiveCwd,
-        args: parsed.args,
-      });
+      for (const state of executes)
+        pushes.push({
+          dir: parsed.dir,
+          gitDir: parsed.gitDir,
+          workTree: parsed.workTree,
+          cwdOverride: state.cwd,
+          args: parsed.args,
+        });
     }
+    states = dedupeShellStates([
+      ...skips,
+      ...executes.flatMap((state) => [
+        { cwd: state.cwd, succeeded: true },
+        { cwd: state.cwd, succeeded: false },
+      ]),
+    ]);
+  };
+
+  for (const match of joined.matchAll(CONTROL_OPERATOR)) {
+    visit(joined.slice(cursor, match.index));
+    operator = match[0];
+    cursor = match.index + match[0].length;
   }
+  visit(joined.slice(cursor));
   return pushes;
+}
+
+function dedupeShellStates(states) {
+  const unique = new Map();
+  for (const state of states) unique.set(`${state.cwd}\0${state.succeeded}`, state);
+  return [...unique.values()];
 }
 
 // Destination branch a refspec writes to, or a sentinel for delete/tag/none.

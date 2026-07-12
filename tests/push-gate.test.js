@@ -581,6 +581,29 @@ test("compound pushes resolve each relative cd from the current shell directory"
   }
 });
 
+test("conditional cd branches cannot redirect gate inspection away from the pushed repo", () => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "pm-push-gate-conditional-cd-"));
+  const gated = path.join(parent, "gated");
+  const elsewhere = path.join(parent, "elsewhere");
+  try {
+    fs.mkdirSync(gated);
+    fs.mkdirSync(elsewhere);
+    makeRepoAt(gated);
+    makeRepoAt(elsewhere);
+    writeFailingGates(gated, "x");
+    assertBlock(
+      runHook("cd gated || cd ../elsewhere; git push origin HEAD", { cwd: parent }),
+      /verification is failed/
+    );
+    assertBlock(
+      runHook("cd missing || cd gated; git push origin HEAD", { cwd: parent }),
+      /verification is failed/
+    );
+  } finally {
+    fs.rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test("explicit alternate source commit is checked instead of current HEAD", () => {
   const dir = makeRepo();
   try {

@@ -436,12 +436,124 @@ function runCanonicalProbe(browserPath, htmlPath, viewport, expression) {
 }
 
 function metricsExpression() {
-  return `(()=>{const visible=(element)=>{if(!element)return false;const rect=element.getBoundingClientRect();const style=getComputedStyle(element);return rect.width>0&&rect.height>0&&style.display!=="none"&&style.visibility!=="hidden"};const root=document.documentElement;return {innerWidth:window.innerWidth,clientWidth:root.clientWidth,scrollWidth:root.scrollWidth,documentHeight:root.scrollHeight,bodyText:(document.body?.innerText||"").trim().length,mainVisible:visible(document.querySelector("main")),h1Visible:visible(document.querySelector("h1")),anchorCount:document.querySelectorAll('a[href^="#"]').length,horizontalOverflow:root.scrollWidth>root.clientWidth+1}})()`;
+  return `(${collectMetrics.toString()})()`;
 }
 
 function markerVisibilityExpression(attributePrefix) {
-  const prefix = JSON.stringify(attributePrefix);
-  return `(()=>{const intersects=(left,right)=>left.right>right.left&&left.left<right.right&&left.bottom>right.top&&left.top<right.bottom;const geometry=(rawRects,element)=>{if(!element)return {visible:false,inViewport:false};let rects=Array.from(rawRects).filter((rect)=>rect.width>0&&rect.height>0);if(rects.length===0)return {visible:false,inViewport:false};let node=element;while(node&&node.nodeType===1){const style=getComputedStyle(node);if(node.hidden||node.getAttribute("aria-hidden")==="true"||style.display==="none"||style.visibility==="hidden"||style.visibility==="collapse"||style.contentVisibility==="hidden"||Number(style.opacity)===0||(style.clipPath&&style.clipPath!=="none"))return {visible:false,inViewport:false};if(node!==element){const clipsX=/(hidden|clip|auto|scroll)/.test(style.overflowX);const clipsY=/(hidden|clip|auto|scroll)/.test(style.overflowY);if(clipsX||clipsY){const clip=node.getBoundingClientRect();rects=rects.map((rect)=>({left:clipsX?Math.max(rect.left,clip.left):rect.left,right:clipsX?Math.min(rect.right,clip.right):rect.right,top:clipsY?Math.max(rect.top,clip.top):rect.top,bottom:clipsY?Math.min(rect.bottom,clip.bottom):rect.bottom})).filter((rect)=>rect.right>rect.left&&rect.bottom>rect.top);if(rects.length===0)return {visible:false,inViewport:false}}}node=node.parentElement}const documentBounds={left:0,top:0,right:window.innerWidth,bottom:document.documentElement.scrollHeight};rects=rects.filter((rect)=>intersects(rect,documentBounds));if(rects.length===0)return {visible:false,inViewport:false};const viewport={left:0,top:0,right:window.innerWidth,bottom:window.innerHeight};return {visible:true,inViewport:rects.some((rect)=>intersects(rect,viewport))}};const textVisibility=(element)=>{const visible=[];const firstScreen=[];const walker=document.createTreeWalker(element,NodeFilter.SHOW_TEXT);let textNode;while((textNode=walker.nextNode())){const value=(textNode.nodeValue||"").replace(/\\s+/g," ").trim();if(!value)continue;const range=document.createRange();range.selectNodeContents(textNode);const state=geometry(range.getClientRects(),textNode.parentElement);if(state.visible)visible.push(value);if(state.inViewport)firstScreen.push(value)}return {text:visible.join(" "),firstScreenText:firstScreen.join(" ")}};return Array.from(document.querySelectorAll("*")).filter((element)=>Array.from(element.attributes).some((attribute)=>attribute.name.startsWith(${prefix}))).map((element)=>({attributes:Object.fromEntries(Array.from(element.attributes).filter((attribute)=>attribute.name.startsWith(${prefix})).map((attribute)=>[attribute.name,attribute.value])),...textVisibility(element),...geometry(element.getClientRects(),element)}))})()`;
+  return `(${collectMarkerVisibility.toString()})(${JSON.stringify(attributePrefix)})`;
+}
+
+/* global document, window, NodeFilter, getComputedStyle */
+// These two functions are serialized and evaluated inside Chromium. Keeping
+// them as ordinary formatted functions makes the shared probe program auditable.
+function collectMetrics() {
+  const visible = (element) => {
+    if (!element) return false;
+    const rect = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return (
+      rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden"
+    );
+  };
+  const root = document.documentElement;
+  return {
+    innerWidth: window.innerWidth,
+    clientWidth: root.clientWidth,
+    scrollWidth: root.scrollWidth,
+    documentHeight: root.scrollHeight,
+    bodyText: (document.body?.innerText || "").trim().length,
+    mainVisible: visible(document.querySelector("main")),
+    h1Visible: visible(document.querySelector("h1")),
+    anchorCount: document.querySelectorAll('a[href^="#"]').length,
+    horizontalOverflow: root.scrollWidth > root.clientWidth + 1,
+  };
+}
+
+function collectMarkerVisibility(attributePrefix) {
+  const intersects = (left, right) =>
+    left.right > right.left &&
+    left.left < right.right &&
+    left.bottom > right.top &&
+    left.top < right.bottom;
+  const geometry = (rawRects, element) => {
+    if (!element) return { visible: false, inViewport: false };
+    let rects = Array.from(rawRects).filter((rect) => rect.width > 0 && rect.height > 0);
+    if (rects.length === 0) return { visible: false, inViewport: false };
+    let node = element;
+    while (node && node.nodeType === 1) {
+      const style = getComputedStyle(node);
+      if (
+        node.hidden ||
+        node.getAttribute("aria-hidden") === "true" ||
+        style.display === "none" ||
+        style.visibility === "hidden" ||
+        style.visibility === "collapse" ||
+        style.contentVisibility === "hidden" ||
+        Number(style.opacity) === 0 ||
+        (style.clipPath && style.clipPath !== "none")
+      )
+        return { visible: false, inViewport: false };
+      if (node !== element) {
+        const clipsX = /(hidden|clip|auto|scroll)/.test(style.overflowX);
+        const clipsY = /(hidden|clip|auto|scroll)/.test(style.overflowY);
+        if (clipsX || clipsY) {
+          const clip = node.getBoundingClientRect();
+          rects = rects
+            .map((rect) => ({
+              left: clipsX ? Math.max(rect.left, clip.left) : rect.left,
+              right: clipsX ? Math.min(rect.right, clip.right) : rect.right,
+              top: clipsY ? Math.max(rect.top, clip.top) : rect.top,
+              bottom: clipsY ? Math.min(rect.bottom, clip.bottom) : rect.bottom,
+            }))
+            .filter((rect) => rect.right > rect.left && rect.bottom > rect.top);
+          if (rects.length === 0) return { visible: false, inViewport: false };
+        }
+      }
+      node = node.parentElement;
+    }
+    const documentBounds = {
+      left: 0,
+      top: 0,
+      right: window.innerWidth,
+      bottom: document.documentElement.scrollHeight,
+    };
+    rects = rects.filter((rect) => intersects(rect, documentBounds));
+    if (rects.length === 0) return { visible: false, inViewport: false };
+    const viewport = { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight };
+    return {
+      visible: true,
+      inViewport: rects.some((rect) => intersects(rect, viewport)),
+    };
+  };
+  const textVisibility = (element) => {
+    const visible = [];
+    const firstScreen = [];
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    let textNode;
+    while ((textNode = walker.nextNode())) {
+      const value = (textNode.nodeValue || "").replace(/\s+/g, " ").trim();
+      if (!value) continue;
+      const range = document.createRange();
+      range.selectNodeContents(textNode);
+      const state = geometry(range.getClientRects(), textNode.parentElement);
+      if (state.visible) visible.push(value);
+      if (state.inViewport) firstScreen.push(value);
+    }
+    return { text: visible.join(" "), firstScreenText: firstScreen.join(" ") };
+  };
+  return Array.from(document.querySelectorAll("*"))
+    .filter((element) =>
+      Array.from(element.attributes).some((attribute) => attribute.name.startsWith(attributePrefix))
+    )
+    .map((element) => ({
+      attributes: Object.fromEntries(
+        Array.from(element.attributes)
+          .filter((attribute) => attribute.name.startsWith(attributePrefix))
+          .map((attribute) => [attribute.name, attribute.value])
+      ),
+      ...textVisibility(element),
+      ...geometry(element.getClientRects(), element),
+    }));
 }
 
 function findClosingBodyIndex(html) {
