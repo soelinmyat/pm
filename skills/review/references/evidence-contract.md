@@ -111,6 +111,8 @@ node "$PM_PLUGIN_ROOT/scripts/review-check.js" \
 
 Repeat `--result` for every planned reviewer and add `--decisions` when present. After rendering HTML, rerun the same command without `--write-report`.
 
+Source, test, contract, and design-token locators are resolved from the target's frozen Git commit (or its base commit for deleted files), never from a later worktree. Trace and benchmark evidence uses `artifact:<project-path>#<literal UTF-8 locator>` and includes the artifact's exact `sha256`. Upstream-gate evidence includes an exact `sha256` and points to JSON with a recognized `outcome`. Missing locators, digest drift, symlinked inputs, or malformed gate semantics fail validation.
+
 For a non-passing round, write its report and HTML inside `runs/{RUN_ID}/round-{N}/` instead of the canonical root. Bind that stable report with `--prior-report` after the fix commit.
 
 During synthesis, use `--stage draft` with the current run's `round-{N}/draft-report.json` and `draft-report.html`. After decisions are complete, rerun with `--stage final` (or omit `--stage`) and finalize the appropriate canonical or round report exactly once.

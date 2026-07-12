@@ -8,6 +8,7 @@ const path = require("node:path");
 const { allocateLenses, LENSES } = require("./lib/review-contract");
 const { writeJsonAtomic } = require("./lib/atomic-file");
 const { safeProjectOutput } = require("./lib/safe-project-output");
+const { safeProjectInput } = require("./lib/safe-project-output");
 const {
   expectedPriorReportPath,
   expectedReviewPath,
@@ -66,9 +67,21 @@ function buildReviewTarget(options) {
   ).map((worker) => ({ ...worker, runtime: profile }));
   const round = positiveInt(options.round || 1, "round");
   if (round > 3) throw new Error("review round cannot exceed 3");
-  const priorReport = optionalJsonFileBinding(root, options.priorReportPath, "prior report");
+  const priorLoaded = optionalJsonFileBinding(root, options.priorReportPath, "prior report");
+  const priorReport = priorLoaded?.binding || null;
   if (round > 1 && !priorReport) throw new Error("rounds after 1 require a prior report binding");
   if (round === 1 && priorReport) throw new Error("round 1 cannot bind a prior report");
+  if (priorLoaded) {
+    const priorCommit = priorLoaded.value?.source?.commit;
+    if (!/^[a-f0-9]{40,64}$/.test(priorCommit || ""))
+      throw new Error("prior report must contain a valid source commit");
+    if (priorCommit === commit) throw new Error("later review rounds require a source mutation");
+    try {
+      git(root, ["merge-base", "--is-ancestor", priorCommit, commit]);
+    } catch {
+      throw new Error("prior report source commit must be an ancestor of current HEAD");
+    }
+  }
   const acceptance = optionalFileBinding(root, options.acceptancePath, "acceptance criteria");
 
   return {
@@ -186,29 +199,25 @@ function optionalFileBinding(root, relative, label) {
 function optionalJsonFileBinding(root, relative, label) {
   const loaded = readOptionalFile(root, relative, label, MAX_JSON_BYTES);
   if (!loaded) return null;
+  let value;
   try {
-    JSON.parse(loaded.bytes.toString("utf8"));
+    value = JSON.parse(loaded.bytes.toString("utf8"));
   } catch (error) {
     throw new Error(`${label} must be valid JSON: ${error.message}`);
   }
-  return loaded.binding;
+  return { binding: loaded.binding, value };
 }
 
 function readOptionalFile(root, relative, label, maxBytes) {
   if (!relative) return null;
   validateGitPath(relative);
-  const absolute = path.resolve(root, relative);
-  if (path.relative(root, absolute).startsWith("..")) throw new Error(`${label} escapes root`);
-  const stat = fs.lstatSync(absolute);
-  if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`${label} must be a regular file`);
+  const absolute = safeProjectInput(root, relative);
+  const stat = fs.statSync(absolute);
   if (stat.size > maxBytes)
     throw new Error(`${label} exceeds ${maxBytes === MAX_JSON_BYTES ? "4 MiB JSON" : "64 MiB"}`);
-  const real = fs.realpathSync(absolute);
-  if (real !== root && !real.startsWith(`${root}${path.sep}`))
-    throw new Error(`${label} resolves outside project root`);
-  const bytes = fs.readFileSync(real);
+  const bytes = fs.readFileSync(absolute);
   return {
-    binding: { path: path.relative(root, real).split(path.sep).join("/"), sha256: digest(bytes) },
+    binding: { path: relative.split(path.sep).join("/"), sha256: digest(bytes) },
     bytes,
   };
 }

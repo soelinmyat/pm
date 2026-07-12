@@ -5,7 +5,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { writeTextAtomic } = require("./lib/atomic-file");
-const { safeProjectOutput } = require("./lib/safe-project-output");
+const { safeProjectInput, safeProjectOutput } = require("./lib/safe-project-output");
 const { expectedReviewPath, reviewPathContext } = require("./lib/review-paths");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
@@ -137,12 +137,22 @@ function findingCard(finding) {
     .map((item) => `<code>${escapeHtml(item.ref)}</code>`)
     .join(" · ");
   const signals = (finding.signals || [])
-    .map(
-      (signal) =>
-        `<li>${escapeHtml(signal.reviewer_id)} · ${escapeHtml(signal.category)} · ${escapeHtml(
-          signal.severity
-        )} · ${signal.confidence}%</li>`
-    )
+    .map((signal) => {
+      const differences = [];
+      if (signal.issue !== finding.issue)
+        differences.push(`<span><strong>Signal issue:</strong> ${escapeHtml(signal.issue)}</span>`);
+      if (signal.fix !== finding.fix)
+        differences.push(`<span><strong>Signal fix:</strong> ${escapeHtml(signal.fix)}</span>`);
+      return `<li>${escapeHtml(signal.reviewer_id)} · ${escapeHtml(
+        signal.category
+      )} · ${escapeHtml(signal.severity)} · ${signal.confidence}% · owner ${escapeHtml(
+        signal.owner
+      )} · disposition ${escapeHtml(signal.disposition)} · fix ${escapeHtml(
+        signal.fix_kind
+      )} · decision required ${signal.decision_required ? "yes" : "no"}${
+        differences.length ? `<div>${differences.join(" ")}</div>` : ""
+      }</li>`;
+    })
     .join("");
   const decision = finding.decision
     ? `<p><strong>Decision:</strong> ${escapeHtml(finding.decision.action)} by ${escapeHtml(
@@ -186,13 +196,11 @@ function projectFile(root, relative, label) {
     relative.split(/[\\/]/).includes("..")
   )
     throw new Error(`${label} path must be project-relative`);
-  const absolute = path.resolve(root, relative);
-  const stat = fs.lstatSync(absolute);
-  if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`${label} must be a regular file`);
-  const real = fs.realpathSync(absolute);
-  if (real !== root && !real.startsWith(`${root}${path.sep}`))
-    throw new Error(`${label} resolves outside project root`);
-  return real;
+  try {
+    return safeProjectInput(root, relative);
+  } catch (error) {
+    throw new Error(`${label} ${error.message}`);
+  }
 }
 
 function escapeHtml(value) {

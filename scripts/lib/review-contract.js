@@ -60,7 +60,10 @@ function allocateLenses(lenses, maxWorkers, profile) {
 
 function findingId(finding) {
   const evidence = [...(finding?.evidence || [])]
-    .map((item) => `${normalize(item.kind)}:${normalize(item.ref)}`)
+    .map(
+      (item) =>
+        `${normalize(item.kind)}:${normalize(item.ref)}:${normalize(item.sha256 || "unbound")}`
+    )
     .sort();
   const identity = [
     normalizePath(finding?.file),

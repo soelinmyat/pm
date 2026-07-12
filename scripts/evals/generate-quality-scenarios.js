@@ -169,6 +169,9 @@ function fixtureFor(workflow, type, caseId, state) {
     post.push(
       'file-matches .pm/dev-sessions/feature/review/report.json "\\\"outcome\\\": \\\"passed\\\""'
     );
+    post.push(
+      'command-succeeds "node \\\"$PM_PLUGIN_ROOT/scripts/review-check.js\\\" --root \\\"$PWD\\\" --report .pm/dev-sessions/feature/review/report.json --from-report"'
+    );
     if (type === "happy-path")
       post.push(
         "command-succeeds \"node -e \\\"const fs=require('fs'),r=require('./.pm/dev-sessions/feature/review/report.json');if(!/^\\\\.pm\\\\/dev-sessions\\\\/feature\\\\/review\\\\/runs\\\\/[^/]+\\\\/round-[1-3]\\\\/target\\\\.json$/.test(r.target.path)||!fs.existsSync(r.target.path))process.exit(1)\\\"\""
@@ -179,7 +182,7 @@ function fixtureFor(workflow, type, caseId, state) {
       );
       post.push("file-exists .pm/dev-sessions/feature/review/repeat-comparison.json");
       post.push(
-        'file-matches .pm/dev-sessions/feature/review/repeat-comparison.json "recall|false_positive|severity|dedup"'
+        'command-succeeds "node \\\"$PM_PLUGIN_ROOT/scripts/evals/review-repeat-check.js\\\" \\\"$PWD\\\" .pm/dev-sessions/feature/review/repeat-comparison.json"'
       );
     }
   }

@@ -20,7 +20,8 @@ post() {
   file-exists .pm/dev-sessions/feature/review/report.json
   file-exists .pm/dev-sessions/feature/review/report.html
   file-matches .pm/dev-sessions/feature/review/report.json "\"outcome\": \"passed\""
+  command-succeeds "node \"$PM_PLUGIN_ROOT/scripts/review-check.js\" --root \"$PWD\" --report .pm/dev-sessions/feature/review/report.json --from-report"
   command-succeeds "test \"$(find .pm/dev-sessions/feature/review/runs -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')\" = 3"
   file-exists .pm/dev-sessions/feature/review/repeat-comparison.json
-  file-matches .pm/dev-sessions/feature/review/repeat-comparison.json "recall|false_positive|severity|dedup"
+  command-succeeds "node \"$PM_PLUGIN_ROOT/scripts/evals/review-repeat-check.js\" \"$PWD\" .pm/dev-sessions/feature/review/repeat-comparison.json"
 }

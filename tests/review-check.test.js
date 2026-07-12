@@ -19,7 +19,7 @@ const {
   reviewRootFromTargetPath,
 } = require("../scripts/lib/review-paths");
 const { resolveBrowser } = require("../scripts/artifact-render-check");
-const { safeProjectOutput } = require("../scripts/lib/safe-project-output");
+const { safeProjectInput, safeProjectOutput } = require("../scripts/lib/safe-project-output");
 
 let installedBrowser = null;
 try {
@@ -228,6 +228,29 @@ test("review outputs reject symlinked path ancestors", () => {
   assert.throws(() => safeProjectOutput(root, ".pm/dangling/report.json"), /contains symlink/);
   fs.symlinkSync(path.join(outside, "missing-file"), path.join(root, ".pm", "final.json"));
   assert.throws(() => safeProjectOutput(root, ".pm/final.json"), /contains symlink/);
+  fs.writeFileSync(path.join(outside, "evidence.json"), "{}\n");
+  assert.throws(() => safeProjectInput(root, ".pm/linked/evidence.json"), /contains symlink/);
+});
+
+test("later round target creation requires an intervening source commit", () => {
+  const fixture = makeFixture({ maxWorkers: 6 });
+  setFindingForLens(fixture, "bug", validFinding("bug"));
+  assert.equal(
+    generate(fixture, { reportPath: fixture.roundReportPath, htmlPath: fixture.roundHtmlPath }).ok,
+    true
+  );
+  assert.throws(
+    () =>
+      buildReviewTarget({
+        root: fixture.root,
+        maxWorkers: 3,
+        profile: "codex-workhorse",
+        runId: "review-test",
+        round: 2,
+        priorReportPath: fixture.roundReportPath,
+      }),
+    /require a source mutation/
+  );
 });
 
 test("later targets reject a copied prior report outside the preceding round path", () => {
@@ -443,6 +466,38 @@ test("bug findings require corroboration and trace evidence requires a locator",
   const missingLocator = generate(trace);
   assert.equal(missingLocator.ok, false);
   assert.match(JSON.stringify(missingLocator.issues), /artifact:<project-path>#locator/);
+
+  const bound = makeFixture({ maxWorkers: 6 });
+  write(bound.root, ".pm/trace.json", { event: "observed" });
+  const traceBytes = fs.readFileSync(path.join(bound.root, ".pm/trace.json"));
+  const tracedFinding = validFinding("bug");
+  tracedFinding.evidence = [
+    { kind: "source", ref: "src/example.js:1" },
+    {
+      kind: "trace",
+      ref: "artifact:.pm/trace.json#observed",
+      sha256: crypto.createHash("sha256").update(traceBytes).digest("hex"),
+    },
+  ];
+  tracedFinding.id = findingId(tracedFinding);
+  setFindingForLens(bound, "bug", tracedFinding);
+  assert.equal(
+    generate(bound, { reportPath: bound.roundReportPath, htmlPath: bound.roundHtmlPath }).ok,
+    true
+  );
+  const tampered = JSON.parse(fs.readFileSync(path.join(bound.root, bound.resultPaths[0]), "utf8"));
+  const signal = tampered.findings[0];
+  if (signal) signal.evidence[1].sha256 = "0".repeat(64);
+  fs.writeFileSync(
+    path.join(bound.root, bound.resultPaths[0]),
+    `${JSON.stringify(tampered, null, 2)}\n`
+  );
+  const drifted = generate(bound, {
+    reportPath: bound.roundReportPath,
+    htmlPath: bound.roundHtmlPath,
+  });
+  assert.equal(drifted.ok, false);
+  assert.match(JSON.stringify(drifted.issues), /does not match artifact bytes/);
 });
 
 test("deleted source evidence is checked against frozen base line bounds", () => {
@@ -502,6 +557,16 @@ test("material reviewer disagreement blocks until an explicit decision", () => {
   assert.equal(blocked.ok, true, JSON.stringify(blocked.issues));
   assert.equal(blocked.report.outcome, "blocked");
   assert.deepEqual(blocked.report.unresolved_disagreements, [bug.id]);
+  renderReviewReport({
+    root: fixture.root,
+    reportPath: fixture.roundReportPath,
+    outputPath: fixture.roundHtmlPath,
+  });
+  const disputedHtml = fs.readFileSync(path.join(fixture.root, fixture.roundHtmlPath), "utf8");
+  assert.match(disputedHtml, /owner qa/);
+  assert.match(disputedHtml, /disposition open/);
+  assert.match(disputedHtml, /fix behavioral/);
+  assert.match(disputedHtml, /decision required no/);
 
   const decisionsPath = ".pm/dev-sessions/example/review/runs/review-test/round-1/decisions.json";
   write(fixture.root, decisionsPath, {
@@ -623,6 +688,36 @@ test("later rounds reject a shallow hand-written prior report", () => {
   fs.writeFileSync(path.join(fixture.root, "src/example.js"), "module.exports = { value: 3 };\n");
   git(fixture.root, ["add", "src/example.js"]);
   git(fixture.root, ["commit", "-qm", "round two source"]);
+  assert.throws(
+    () =>
+      buildReviewTarget({
+        root: fixture.root,
+        maxWorkers: 3,
+        profile: "codex-workhorse",
+        runId: "review-test",
+        round: 2,
+        priorReportPath: fixture.roundReportPath,
+      }),
+    /valid source commit/
+  );
+});
+
+test("prior-round evidence remains valid after the cited source is removed", () => {
+  const fixture = makeFixture({ maxWorkers: 6 });
+  setFindingForLens(fixture, "bug", validFinding("bug"));
+  const roundOne = generate(fixture, {
+    reportPath: fixture.roundReportPath,
+    htmlPath: fixture.roundHtmlPath,
+  });
+  assert.equal(roundOne.ok, true, JSON.stringify(roundOne.issues));
+  renderReviewReport({
+    root: fixture.root,
+    reportPath: fixture.roundReportPath,
+    outputPath: fixture.roundHtmlPath,
+  });
+  fs.rmSync(path.join(fixture.root, "src/example.js"));
+  git(fixture.root, ["add", "-A"]);
+  git(fixture.root, ["commit", "-qm", "remove cited source"]);
   const target = buildReviewTarget({
     root: fixture.root,
     maxWorkers: 3,
@@ -644,7 +739,8 @@ test("later rounds reject a shallow hand-written prior report", () => {
     verifyBrowser: false,
   });
   assert.equal(checked.ok, false);
-  assert.match(JSON.stringify(checked.issues), /canonical finalized Review report/);
+  assert.doesNotMatch(JSON.stringify(checked.issues), /target\.prior_report|frozen evidence/);
+  assert.match(JSON.stringify(checked.issues), /missing planned reviewer/);
 });
 
 test("renderer escapes reviewer text without treating data as template syntax", () => {

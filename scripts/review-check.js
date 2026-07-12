@@ -8,7 +8,7 @@ const path = require("node:path");
 const { inspectHtmlArtifact } = require("./artifact-check");
 const { probeDataMarkerVisibility, resolveBrowser } = require("./artifact-render-check");
 const { writeJsonAtomic } = require("./lib/atomic-file");
-const { safeProjectOutput } = require("./lib/safe-project-output");
+const { safeProjectInput, safeProjectOutput } = require("./lib/safe-project-output");
 const {
   expectedPriorReportPath,
   expectedReviewPath,
@@ -311,6 +311,21 @@ function validateTargetBindings(root, target, reviewRoot, issues) {
         "target.prior_report",
         "must bind the immediately prior non-passing report for the same run"
       );
+    if (value?.source?.commit) {
+      if (value.source.commit === target.source.commit)
+        add(issues, "target.prior_report", "later review rounds require a source mutation");
+      else {
+        try {
+          git(root, ["merge-base", "--is-ancestor", value.source.commit, target.source.commit]);
+        } catch {
+          add(
+            issues,
+            "target.prior_report",
+            "prior report source commit must be an ancestor of current target commit"
+          );
+        }
+      }
+    }
     if (value && object(value) && value.outcome !== "passed") {
       try {
         const prior = checkReview(
@@ -665,7 +680,7 @@ function validateSignal(root, finding, reviewerId, assignedLenses, target, label
         identityReady = false;
         continue;
       }
-      closed(evidence, ["kind", "ref"], at, issues);
+      closed(evidence, ["kind", "ref", "sha256"], at, issues);
       if (!EVIDENCE_KINDS.has(evidence.kind) || !text(evidence.ref) || evidence.ref.length > 1000) {
         add(issues, at, "requires a known kind and bounded reference");
         identityReady = false;
@@ -725,19 +740,20 @@ function validateEvidenceReference(root, evidence, target, label, issues) {
     if (!positiveLine(start) || !positiveLine(end) || end < start)
       return add(issues, `${label}.ref`, "has an invalid line range");
     const changed = (target.changed_files || []).find((item) => item.path === match[1]);
-    if (changed?.status === "D") {
-      validateChangedLineRange(root, target, changed, end, `${label}.ref`, issues);
-      return;
+    try {
+      const commit = changed?.status === "D" ? target.source.base_commit : target.source.commit;
+      const bytes = readCommittedBlob(root, commit, match[1]);
+      validateTextLineRange(bytes, end, `${label}.ref`, issues);
+    } catch (error) {
+      add(issues, `${label}.ref`, `cannot resolve frozen evidence: ${error.message}`);
     }
-    const file = readBoundFile(root, match[1], `${label}.ref`, issues);
-    if (!file) return;
-    validateTextLineRange(file.bytes, end, `${label}.ref`, issues);
     return;
   }
   if (evidence.kind === "upstream-gate") {
     if (!projectPath(evidence.ref))
       return add(issues, `${label}.ref`, "must be a project-relative gate artifact path");
-    readBoundFile(root, evidence.ref, `${label}.ref`, issues);
+    const file = readBoundFile(root, evidence.ref, `${label}.ref`, issues);
+    validateArtifactEvidence(file, evidence, label, issues, true);
     return;
   }
   const match = evidence.ref.match(/^artifact:([^#]+)#([^#\r\n]{1,500})$/);
@@ -747,7 +763,35 @@ function validateEvidenceReference(root, evidence, target, label, issues) {
       `${label}.ref`,
       "trace and benchmark evidence must use artifact:<project-path>#locator"
     );
-  readBoundFile(root, match[1], `${label}.ref`, issues);
+  const file = readBoundFile(root, match[1], `${label}.ref`, issues);
+  if (!validateArtifactEvidence(file, evidence, label, issues, false)) return;
+  if (!file.bytes.toString("utf8").includes(match[2]))
+    add(issues, `${label}.ref`, "locator is not present in the bound artifact bytes");
+}
+
+function validateArtifactEvidence(file, evidence, label, issues, gate) {
+  if (!sha256(evidence.sha256)) {
+    add(issues, `${label}.sha256`, "artifact evidence requires an exact SHA-256 binding");
+    return false;
+  }
+  if (!file) return false;
+  if (file.sha256 !== evidence.sha256) {
+    add(issues, `${label}.sha256`, "does not match artifact bytes");
+    return false;
+  }
+  if (gate) {
+    try {
+      const value = JSON.parse(file.bytes.toString("utf8"));
+      if (
+        !object(value) ||
+        !new Set(["passed", "failed", "blocked", "deferred"]).has(value.outcome)
+      )
+        add(issues, `${label}.ref`, "upstream gate JSON requires a recognized outcome");
+    } catch (error) {
+      add(issues, `${label}.ref`, `upstream gate must be JSON: ${error.message}`);
+    }
+  }
+  return true;
 }
 
 function validateChangedLineRange(root, target, changed, end, label, issues) {
@@ -1089,18 +1133,13 @@ function readBoundFile(root, relative, label, issues) {
     return null;
   }
   try {
-    const absolute = path.resolve(root, relative);
-    const stat = fs.lstatSync(absolute);
-    if (!stat.isFile() || stat.isSymbolicLink())
-      throw new Error("must be a regular non-symlink file");
+    const absolute = safeProjectInput(root, relative);
+    const stat = fs.statSync(absolute);
     if (stat.size > 64 * 1024 * 1024) throw new Error("exceeds 64 MiB");
-    const real = fs.realpathSync(absolute);
-    if (real !== root && !real.startsWith(`${root}${path.sep}`))
-      throw new Error("resolves outside project root");
-    const bytes = fs.readFileSync(real);
+    const bytes = fs.readFileSync(absolute);
     return {
-      path: real,
-      relative: path.relative(root, real).split(path.sep).join("/"),
+      path: absolute,
+      relative: path.relative(root, absolute).split(path.sep).join("/"),
       bytes,
       sha256: digest(bytes),
     };
