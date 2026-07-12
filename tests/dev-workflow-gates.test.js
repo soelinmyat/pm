@@ -148,6 +148,8 @@ test("review report navigation wraps without narrow horizontal overflow", () => 
   const template = read("references/templates/review-report.html");
   assert.match(template, /@media\(max-width:720px\).*nav ul\{flex-wrap:wrap/);
   assert.match(template, /\.lede\{[^}]*overflow-wrap:anywhere/);
+  assert.match(template, /\.summary p\{[^}]*min-width:0[^}]*overflow-wrap:anywhere/);
+  assert.match(template, /\.finding p\{overflow-wrap:anywhere/);
 });
 
 test("low-risk S work receives a code scan instead of silently skipping review", () => {
