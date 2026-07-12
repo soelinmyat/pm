@@ -393,7 +393,7 @@ function stripTrailingShellRedirections(segment) {
   do {
     leading = commandText;
     commandText = commandText.replace(
-      /^\s*\d*(?:>>?|<<?)\s*(?:"[^"]*"|'[^']*'|[^\s<>]+)\s+/,
+      /^\s*(?:\d*(?:>>?|<<?)|&>>?)\s*(?:"[^"]*"|'[^']*'|[^\s<>]+)\s+/,
       ""
     );
   } while (commandText !== leading);
@@ -403,9 +403,12 @@ function stripTrailingShellRedirections(segment) {
   for (const entry of syntax.characters) {
     if (!entry.quote && !entry.escaped && (entry.char === ">" || entry.char === "<")) {
       redirectIndex = entry.index;
-      while (redirectIndex > 0 && /\d/.test(commandText[redirectIndex - 1]))
-        redirectIndex -= 1;
-      if (redirectIndex > 0 && !/\s/.test(commandText[redirectIndex - 1]))
+      const aggregate = entry.char === ">" && commandText[redirectIndex - 1] === "&";
+      if (aggregate) redirectIndex -= 1;
+      else
+        while (redirectIndex > 0 && /\d/.test(commandText[redirectIndex - 1]))
+          redirectIndex -= 1;
+      if (!aggregate && redirectIndex > 0 && !/\s/.test(commandText[redirectIndex - 1]))
         redirectIndex = entry.index;
       break;
     }
@@ -413,7 +416,9 @@ function stripTrailingShellRedirections(segment) {
   if (redirectIndex < 0) return commandText;
   const suffix = commandText.slice(redirectIndex);
   if (
-    !/^(?:\d*(?:>>?|<<?)\s*(?:"[^"]*"|'[^']*'|[^\s<>]+)\s*)+$/.test(suffix)
+    !/^(?:(?:\d*(?:>>?|<<?)|&>>?)\s*(?:"[^"]*"|'[^']*'|[^\s<>]+)\s*)+$/.test(
+      suffix
+    )
   )
     return null;
   return commandText.slice(0, redirectIndex).trimEnd();

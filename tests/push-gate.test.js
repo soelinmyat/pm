@@ -392,6 +392,18 @@ test("quoted git -C paths remain one shell word", () => {
       /verification is failed/
     );
     assertBlock(
+      runHook("&>/dev/null git push origin HEAD", { cwd: repo }),
+      /verification is failed/
+    );
+    assertBlock(
+      runHook("git push origin HEAD &>/dev/null", { cwd: repo }),
+      /verification is failed/
+    );
+    assertBlock(
+      runHook("git push origin HEAD&>/dev/null", { cwd: repo }),
+      /verification is failed/
+    );
+    assertBlock(
       runHook("TRACE=$RUN_ID git push origin HEAD", { cwd: repo }),
       /verification is failed/
     );
