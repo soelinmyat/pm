@@ -1056,7 +1056,9 @@ function validateRenderedMarkers(markers, report, issues) {
     const matches = markers.filter((marker) =>
       Object.entries(attributes).every(([name, value]) => marker.attributes?.[name] === value)
     );
-    const renderedText = normalizeVisible(matches[0]?.text || "");
+    const renderedText = normalizeVisible(
+      (item.firstScreen ? matches[0]?.firstScreenText : matches[0]?.text) || ""
+    );
     const textMatches = item.exactText
       ? renderedText.toLowerCase() === normalizeVisible(item.exactText).toLowerCase()
       : (item.requiredText || []).every((value) =>

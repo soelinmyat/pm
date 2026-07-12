@@ -246,13 +246,56 @@ function extractDictionary(source, start, label) {
     if (char === ">" && next === ">") {
       depth -= 1;
       cursor += 2;
-      if (depth === 0) return source.slice(begin, cursor);
+      if (depth === 0) return sanitizeDictionary(source.slice(begin, cursor));
       if (depth < 0) break;
       continue;
     }
     cursor += 1;
   }
   throw new Error(`PDF ${label} dictionary is unterminated`);
+}
+
+function sanitizeDictionary(dictionary) {
+  const output = [...dictionary];
+  let literalDepth = 0;
+  let escaped = false;
+  let hexString = false;
+  let comment = false;
+  for (let index = 0; index < dictionary.length; index += 1) {
+    const char = dictionary[index];
+    const next = dictionary[index + 1];
+    if (comment) {
+      if (char === "\n" || char === "\r") comment = false;
+      else output[index] = " ";
+      continue;
+    }
+    if (literalDepth > 0) {
+      output[index] = " ";
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === "(") literalDepth += 1;
+      else if (char === ")") literalDepth -= 1;
+      continue;
+    }
+    if (hexString) {
+      output[index] = " ";
+      if (char === ">") hexString = false;
+      continue;
+    }
+    if (char === "%") {
+      output[index] = " ";
+      comment = true;
+    } else if (char === "(") {
+      output[index] = " ";
+      literalDepth = 1;
+    } else if ((char === "<" && next === "<") || (char === ">" && next === ">")) {
+      index += 1;
+    } else if (char === "<" && next !== "<") {
+      output[index] = " ";
+      hexString = true;
+    }
+  }
+  return output.join("");
 }
 
 function skipPdfSpaceAndComments(source, start) {

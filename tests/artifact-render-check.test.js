@@ -15,6 +15,13 @@ const {
   resolveBrowser,
 } = require("../scripts/artifact-render-check");
 
+let installedBrowser = null;
+try {
+  installedBrowser = resolveBrowser();
+} catch {
+  installedBrowser = null;
+}
+
 function fakeBrowser(root) {
   const browserPath = path.join(root, "fake-chromium.js");
   fs.writeFileSync(
@@ -36,7 +43,7 @@ if (dump) {
   const markerId = probe.match(/marker[.]id="([^"]+)"/)[1];
   const width = Number(process.argv.find((arg) => arg.startsWith("--window-size=")).split("=")[1].split(",")[0]);
   const metrics = probe.includes("pm-data-marker-visibility")
-    ? [{attributes:{"data-dc-outcome":"passed"},text:"passed",visible:false,inViewport:false}]
+    ? [{attributes:{"data-dc-outcome":"passed"},text:"passed",firstScreenText:"",visible:false,inViewport:false}]
     : {innerWidth:width,clientWidth:width-15,scrollWidth:width-15,documentHeight:2400,bodyText:500,mainVisible:true,h1Visible:true,anchorCount:4,horizontalOverflow:false};
   process.stdout.write('<html><head><meta id="' + markerId + '" data-json="' + encodeURIComponent(JSON.stringify(metrics)) + '"></head></html>');
 }
@@ -166,6 +173,7 @@ test("browser marker probe reports computed visibility instead of trusting marku
       {
         attributes: { "data-dc-outcome": "passed" },
         text: "passed",
+        firstScreenText: "",
         visible: false,
         inViewport: false,
       },
@@ -174,6 +182,28 @@ test("browser marker probe reports computed visibility instead of trusting marku
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test(
+  "real browser marker probe excludes offscreen and clipped descendant text",
+  { skip: !installedBrowser && "Chromium is not installed" },
+  () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-render-"));
+    try {
+      const htmlPath = path.join(root, "report.html");
+      fs.writeFileSync(
+        htmlPath,
+        '<!doctype html><html><body><p data-dc-next-action-sha256="test"><span style="position:absolute;left:-10000px">Fix navigation</span><span>Proceed</span><span style="clip-path:inset(50%)">Clipped</span></p></body></html>'
+      );
+      const [marker] = probeDataMarkerVisibility(installedBrowser, htmlPath, root);
+      assert.equal(marker.visible, true);
+      assert.equal(marker.inViewport, true);
+      assert.equal(marker.text, "Proceed");
+      assert.equal(marker.firstScreenText, "Proceed");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+);
 
 test("browser candidates include standard Windows Chrome, Chromium, and Edge installs", () => {
   const candidates = browserCandidates("win32", {

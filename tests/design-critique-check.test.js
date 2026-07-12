@@ -409,6 +409,7 @@ function renderedMarkers(report, hidden = () => false) {
   return rows.map(([attributes, text]) => ({
     attributes,
     text,
+    firstScreenText: text,
     visible: !hidden(attributes),
     inViewport: true,
   }));
@@ -555,7 +556,9 @@ test("reads a large bound capture only once per validation run", () => {
   fs.readFileSync = function counted(file, ...args) {
     try {
       if (fs.statSync(file).size > 4 * 1024 * 1024) reads += 1;
-    } catch {}
+    } catch {
+      // Non-file reads cannot be the large capture under observation.
+    }
     return original.call(this, file, ...args);
   };
   try {
@@ -743,7 +746,9 @@ test("rejects a marker whose JSON-bound text is hidden behind visible filler", (
       )
   );
   const markers = renderedMarkers(fixture.report);
-  markers.find((item) => item.attributes["data-dc-next-action-sha256"]).text = "Proceed";
+  const nextAction = markers.find((item) => item.attributes["data-dc-next-action-sha256"]);
+  nextAction.text = "Proceed";
+  nextAction.firstScreenText = "Proceed";
   const result = check(fixture, COMMIT, {
     verifyBrowser: true,
     markerProbe: () => markers,
