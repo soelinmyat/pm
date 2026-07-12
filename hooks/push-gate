@@ -197,16 +197,20 @@ function detectGitPushes(command, baseCwd) {
     const trimmed = segment.trim();
     if (!trimmed) return;
     const { executes, skips } = partitionShellStates(states, operator);
-    const cd = parseCdTarget(trimmed);
-    if (cd.recognized) {
+    const directoryChange = parseDirectoryChange(trimmed);
+    if (directoryChange.recognized) {
       states = dedupeShellStates([
         ...skips,
         ...executes.flatMap((state) => [
           {
             cwd:
-              cd.target === null || (state.cwd === null && !path.isAbsolute(cd.target))
+              directoryChange.target === null ||
+              (state.cwd === null && !path.isAbsolute(directoryChange.target))
                 ? null
-                : path.resolve(state.cwd || path.parse(cd.target).root, cd.target),
+                : path.resolve(
+                    state.cwd || path.parse(directoryChange.target).root,
+                    directoryChange.target
+                  ),
             succeeded: true,
           },
           { cwd: state.cwd, succeeded: false },
@@ -266,13 +270,28 @@ function detectGitPushes(command, baseCwd) {
   return pushes;
 }
 
-function parseCdTarget(segment) {
-  const match = segment.match(/^cd(?:\s+-P)?(?:\s+(.*?))?\s*$/);
+function parseDirectoryChange(segment) {
+  let commandText = segment;
+  let withoutRedirect;
+  do {
+    withoutRedirect = commandText;
+    commandText = commandText.replace(
+      /\s+\d*(?:>>?|<<?)\s*(?:"[^"]*"|'[^']*'|[^\s]+)\s*$/,
+      ""
+    );
+  } while (commandText !== withoutRedirect);
+  const match = commandText.match(
+    /^(?:(?:builtin|command)\s+)?(cd|pushd|popd)(?:\s+(-P|--))?(?:\s+(.*?))?\s*$/
+  );
   if (!match) return { recognized: false, target: null };
-  if (match[1] === undefined || match[1] === "")
+  const [, command, option, operand] = match;
+  if (command === "popd") return { recognized: true, target: null };
+  if (command === "pushd" && (option || operand === undefined || /^[+-]\d+$/.test(operand)))
+    return { recognized: true, target: null };
+  if (operand === undefined || operand === "")
     return { recognized: true, target: process.env.HOME ? path.resolve(process.env.HOME) : null };
-  if (match[1] === "-") return { recognized: true, target: null };
-  return { recognized: true, target: decodeSimpleShellWord(match[1]) };
+  if (operand === "-") return { recognized: true, target: null };
+  return { recognized: true, target: decodeSimpleShellWord(operand) };
 }
 
 function decodeSimpleShellWord(raw) {

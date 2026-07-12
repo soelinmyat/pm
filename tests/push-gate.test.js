@@ -684,6 +684,28 @@ test("tilde, glob, and brace expansion cd targets fail closed", () => {
   }
 });
 
+test("cwd-mutating shell builtins cannot move push inspection away from the repository", () => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "pm-push-gate-cwd-builtins-"));
+  const gated = path.join(parent, "gated");
+  try {
+    fs.mkdirSync(gated);
+    makeRepoAt(gated);
+    writeFailingGates(gated, "x");
+    for (const command of [
+      "pushd gated >/dev/null && git push origin HEAD",
+      "builtin cd gated && git push origin HEAD",
+      "command cd gated && git push origin HEAD",
+    ])
+      assertBlock(runHook(command, { cwd: parent }), /verification is failed/);
+    assertBlock(
+      runHook("popd && git push origin HEAD", { cwd: parent }),
+      /could not determine the repository/
+    );
+  } finally {
+    fs.rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test("explicit alternate source commit is checked instead of current HEAD", () => {
   const dir = makeRepo();
   try {
