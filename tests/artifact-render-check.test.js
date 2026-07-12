@@ -14,6 +14,7 @@ const {
   renderArtifact,
   resolveBrowser,
 } = require("../scripts/artifact-render-check");
+const { MAX_HTML_BYTES } = require("../scripts/lib/review-limits");
 
 let installedBrowser = null;
 try {
@@ -169,6 +170,65 @@ test("render checker rejects HTML source drift during capture", () => {
           projectRoot: root,
         }),
       /HTML source changed during artifact capture/
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("render checker preserves the source directory as the relative-resource base", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-render-"));
+  try {
+    const htmlPath = path.join(root, "example.html");
+    const browserPath = fakeBrowser(root);
+    fs.writeFileSync(htmlPath, '<!doctype html><link rel="stylesheet" href="theme.css">');
+    fs.writeFileSync(path.join(root, "theme.css"), "main { display: block; }\n");
+    fs.writeFileSync(
+      browserPath,
+      fs
+        .readFileSync(browserPath, "utf8")
+        .replace(
+          "if (screenshot) {",
+          'if (screenshot) { const source = new URL(process.argv[process.argv.length - 1]); if (!fs.existsSync(new URL("theme.css", source))) process.exit(9);'
+        )
+    );
+    assert.doesNotThrow(() =>
+      renderArtifact({
+        htmlPath,
+        outputDir: path.join(root, "renders"),
+        browserPath,
+        projectRoot: root,
+      })
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("render checker bounds immutable HTML reads at the shared byte ceiling", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-render-"));
+  try {
+    const htmlPath = path.join(root, "example.html");
+    const browserPath = fakeBrowser(root);
+    fs.writeFileSync(htmlPath, Buffer.alloc(MAX_HTML_BYTES, 0x20));
+    assert.doesNotThrow(() =>
+      renderArtifact({
+        htmlPath,
+        outputDir: path.join(root, "renders"),
+        browserPath,
+        projectRoot: root,
+      })
+    );
+    fs.writeFileSync(htmlPath, Buffer.alloc(MAX_HTML_BYTES + 1, 0x20));
+    assert.throws(
+      () =>
+        renderArtifact({
+          htmlPath,
+          outputDir: path.join(root, "renders-over"),
+          browserPath,
+          projectRoot: root,
+        }),
+      /HTML exceeds (?:the )?\d+-byte input budget/
     );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

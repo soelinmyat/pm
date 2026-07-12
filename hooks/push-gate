@@ -263,10 +263,15 @@ function pushUpdatesSessionBranch(args, sessionBranch) {
 function sessionBranchPushSource(args, sessionBranch) {
   const positionals = [];
   let sawAllOrMirror = false;
+  let remoteSuppliedByOption = false;
   for (let i = 0; i < args.length; i += 1) {
     const token = args[i];
     if (token.startsWith("-")) {
       if (token === "--all" || token === "--mirror") sawAllOrMirror = true;
+      else if (token === "--repo") {
+        remoteSuppliedByOption = true;
+        i += 1;
+      } else if (token.startsWith("--repo=")) remoteSuppliedByOption = true;
       else if (PUSH_VALUE_OPTS.has(token)) i += 1;
       continue;
     }
@@ -274,7 +279,7 @@ function sessionBranchPushSource(args, sessionBranch) {
   }
   if (sawAllOrMirror)
     return { error: "multi-ref --all/--mirror push cannot be bound to one source commit" };
-  const refspecs = positionals.slice(1);
+  const refspecs = positionals.slice(remoteSuppliedByOption ? 0 : 1);
   if (refspecs.length === 0) return { source: "HEAD" };
   const sources = [];
   for (const raw of refspecs) {

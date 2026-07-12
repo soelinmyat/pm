@@ -548,10 +548,12 @@ test("explicit alternate source commit is checked instead of current HEAD", () =
     git(dir, "reset", "--hard", reviewedHead);
     writeGates(dir, "x", passingManifest(dir, "x", reviewedHead));
 
-    assertBlock(
-      runHook(`git push origin ${alternate}:refs/heads/feat/x`, { cwd: dir }),
-      /commit mismatch|stale|does not match/i
-    );
+    for (const command of [
+      `git push origin ${alternate}:refs/heads/feat/x`,
+      `git push --repo origin ${alternate}:refs/heads/feat/x`,
+      `git push --repo=origin ${alternate}:refs/heads/feat/x`,
+    ])
+      assertBlock(runHook(command, { cwd: dir }), /commit mismatch|stale|does not match/i);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

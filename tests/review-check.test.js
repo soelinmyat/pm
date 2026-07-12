@@ -520,6 +520,16 @@ test("legacy targets cannot publish an authoritative final passing report", () =
   assert.match(JSON.stringify(checked.issues), /legacy targets are inspection-only/);
 });
 
+test("Git-backed evidence rejects the phantom line after a trailing newline", () => {
+  const fixture = makeFixture({ maxWorkers: 2 });
+  const finding = validFinding("bug");
+  finding.evidence.push({ kind: "source", ref: "src/example.js:2" });
+  finding.id = findingId(finding);
+  const issues = [];
+  validateSignal(fixture.root, finding, "reviewer-1", ["bug"], fixture.target, "finding", issues);
+  assert.match(JSON.stringify(issues), /line range exceeds file length 1/);
+});
+
 test("target creation refuses dirty source and inventory remains bound to committed bytes", () => {
   const fixture = makeFixture({ maxWorkers: 2 });
   const committed = changedFileInventory(

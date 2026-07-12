@@ -10,6 +10,7 @@ const { spawnSync } = require("node:child_process");
 const { parseCliArgs } = require("./loop-args");
 const { writeJsonAtomic } = require("./lib/atomic-file");
 const { inspectPdf, inspectPng } = require("./lib/media-inspect");
+const { MAX_HTML_BYTES } = require("./lib/review-limits");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 const VIEWPORTS = Object.freeze([
@@ -40,8 +41,11 @@ function renderArtifact(options) {
   const sourceBefore = readRenderSourceIdentity(htmlPath);
   fs.mkdirSync(outputDir, { recursive: true, mode: 0o700 });
   assertRealContained(realProjectRoot, fs.realpathSync(outputDir), "render output directory");
-  const snapshotDir = fs.mkdtempSync(path.join(outputDir, ".pm-render-source-"));
-  const snapshotPath = path.join(snapshotDir, "source.html");
+  const sourceDir = path.dirname(htmlPath);
+  const snapshotPath = path.join(
+    sourceDir,
+    `.pm-render-source-${process.pid}-${crypto.randomBytes(8).toString("hex")}.html`
+  );
   fs.writeFileSync(snapshotPath, sourceBefore.bytes, { mode: 0o400, flag: "wx" });
   try {
     const url = pathToFileURL(snapshotPath).href;
@@ -52,7 +56,7 @@ function renderArtifact(options) {
         outputDir,
         `${path.basename(htmlPath, ".html")}-${viewport.name}.png`
       );
-      const metrics = captureMetrics(browserPath, snapshotPath, outputDir, viewport);
+      const metrics = captureMetrics(browserPath, snapshotPath, sourceDir, viewport);
       validateMetrics(metrics, viewport);
       fs.rmSync(output, { force: true });
       runBrowser(browserPath, [
@@ -111,7 +115,7 @@ function renderArtifact(options) {
     ]);
     const printInspection = inspectPdf(pdfPath);
     const markers = options.markerPrefix
-      ? probeDataMarkerVisibility(browserPath, snapshotPath, outputDir, options.markerPrefix)
+      ? probeDataMarkerVisibility(browserPath, snapshotPath, sourceDir, options.markerPrefix)
       : null;
     const canonicalBrowserPathAfter = fs.realpathSync(requestedBrowserPath);
     const executableSha256After = digestFile(canonicalBrowserPathAfter);
@@ -157,7 +161,7 @@ function renderArtifact(options) {
       checked_at: new Date().toISOString(),
     };
   } finally {
-    fs.rmSync(snapshotDir, { recursive: true, force: true });
+    fs.rmSync(snapshotPath, { force: true });
   }
 }
 
@@ -167,7 +171,20 @@ function readRenderSourceIdentity(htmlPath) {
   try {
     const stat = fs.fstatSync(descriptor);
     if (!stat.isFile()) throw new Error(`HTML is not a regular file: ${htmlPath}`);
-    const bytes = fs.readFileSync(descriptor);
+    if (stat.size > MAX_HTML_BYTES)
+      throw new Error(`HTML exceeds the ${MAX_HTML_BYTES}-byte input budget`);
+    const chunks = [];
+    let total = 0;
+    while (total <= MAX_HTML_BYTES) {
+      const buffer = Buffer.allocUnsafe(Math.min(64 * 1024, MAX_HTML_BYTES + 1 - total));
+      const count = fs.readSync(descriptor, buffer, 0, buffer.length, null);
+      if (count === 0) break;
+      total += count;
+      if (total > MAX_HTML_BYTES)
+        throw new Error(`HTML exceeds the ${MAX_HTML_BYTES}-byte input budget`);
+      chunks.push(buffer.subarray(0, count));
+    }
+    const bytes = Buffer.concat(chunks, total);
     return {
       realpath: fs.realpathSync(htmlPath),
       dev: String(stat.dev),
