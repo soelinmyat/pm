@@ -10,6 +10,7 @@ const { spawnSync } = require("node:child_process");
 const { parseCliArgs } = require("./loop-args");
 const { writeJsonAtomic } = require("./lib/atomic-file");
 const { inspectPdf, inspectPng } = require("./lib/media-inspect");
+const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 const VIEWPORTS = Object.freeze([
   { name: "desktop", width: 1440, height: 1000 },
@@ -20,6 +21,8 @@ const VIEWPORTS = Object.freeze([
   { name: "narrow", width: 500, height: 812 },
 ]);
 const MAX_RENDER_HEIGHT = 16_000;
+const OBSERVATION_ASSURANCE_LEVEL = "local-observation";
+const OBSERVATION_PRODUCER = "pm:artifact-render-check";
 
 function renderArtifact(options) {
   const projectRoot = path.resolve(options.projectRoot || process.cwd());
@@ -28,7 +31,10 @@ function renderArtifact(options) {
   const outputDir = path.resolve(options.outputDir);
   const relativeHtml = projectRelative(projectRoot, htmlPath, "HTML");
   projectRelative(projectRoot, outputDir, "render output directory");
-  const browserPath = resolveBrowser(options.browserPath);
+  const requestedBrowserPath = resolveBrowser(options.browserPath);
+  const browserPath = fs.realpathSync(requestedBrowserPath);
+  const executableSha256Before = digestFile(browserPath);
+  const browserVersion = probeBrowserVersion(browserPath);
   if (!fs.statSync(htmlPath).isFile()) throw new Error(`HTML is not a file: ${htmlPath}`);
   assertRealContained(realProjectRoot, fs.realpathSync(htmlPath), "HTML");
   fs.mkdirSync(outputDir, { recursive: true, mode: 0o700 });
@@ -99,11 +105,27 @@ function renderArtifact(options) {
   const markers = options.markerPrefix
     ? probeDataMarkerVisibility(browserPath, htmlPath, outputDir, options.markerPrefix)
     : null;
+  const canonicalBrowserPathAfter = fs.realpathSync(requestedBrowserPath);
+  const executableSha256After = digestFile(canonicalBrowserPathAfter);
+  if (canonicalBrowserPathAfter !== browserPath || executableSha256After !== executableSha256Before)
+    throw new Error("browser executable changed during artifact capture");
 
   return {
     schema_version: 1,
     source: { path: relativeHtml, sha256: digestFile(htmlPath) },
-    browser: path.resolve(browserPath),
+    browser: browserPath,
+    observation: {
+      assurance_level: OBSERVATION_ASSURANCE_LEVEL,
+      producer: { name: OBSERVATION_PRODUCER, version: PLUGIN_VERSION },
+      browser: {
+        path: browserPath,
+        executable_sha256_before: executableSha256Before,
+        executable_sha256_after: executableSha256After,
+        engine: "chromium",
+        version: browserVersion,
+      },
+      invocation_configuration_sha256: invocationConfigurationDigest(options.markerPrefix),
+    },
     captures,
     print: {
       path: projectRelative(projectRoot, pdfPath, "print render"),
@@ -114,6 +136,34 @@ function renderArtifact(options) {
     ...(markers ? { markers } : {}),
     checked_at: new Date().toISOString(),
   };
+}
+
+function probeBrowserVersion(browserPath) {
+  const result = spawnSync(browserPath, ["--version"], {
+    encoding: "utf8",
+    timeout: 10_000,
+    maxBuffer: 64 * 1024,
+  });
+  if (result.error) throw new Error(`cannot identify browser executable: ${result.error.message}`);
+  if (result.status !== 0)
+    throw new Error(
+      `cannot identify browser executable: ${(result.stderr || result.stdout || `exit ${result.status}`).trim().slice(0, 500)}`
+    );
+  const version = (result.stdout || result.stderr || "").trim().replace(/\s+/g, " ");
+  if (!version || version.length > 500 || !/(chromium|chrome|edge)/i.test(version))
+    throw new Error("browser executable emitted an invalid Chromium-family version identity");
+  return version;
+}
+
+function invocationConfigurationDigest(markerPrefix) {
+  const configuration = {
+    viewports: VIEWPORTS,
+    max_render_height: MAX_RENDER_HEIGHT,
+    browser_args: baseArgs(),
+    marker_prefix: markerPrefix || null,
+    capture_modes: ["viewport-png", "full-page-png", "print-pdf", "dom-metrics"],
+  };
+  return `sha256:${crypto.createHash("sha256").update(JSON.stringify(configuration)).digest("hex")}`;
 }
 
 function projectRelative(root, absolute, label) {
@@ -466,12 +516,15 @@ function main(argv = process.argv.slice(2)) {
 if (require.main === module) process.exitCode = main();
 
 module.exports = {
+  OBSERVATION_ASSURANCE_LEVEL,
+  OBSERVATION_PRODUCER,
   VIEWPORTS,
   browserCandidates,
   captureMetrics,
   findClosingBodyIndex,
   inspectPdf,
   inspectPng,
+  invocationConfigurationDigest,
   probeDataMarkerVisibility,
   renderArtifact,
   resolveBrowser,

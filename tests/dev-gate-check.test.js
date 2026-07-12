@@ -19,6 +19,8 @@ const {
   parseArgs,
 } = require("../scripts/dev-gate-check.js");
 const { devReviewContext } = require("../scripts/lib/review-contract");
+const { invocationConfigurationDigest } = require("../scripts/artifact-render-check");
+const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 function gate(name, commit = "abc123", overrides = {}) {
   return {
@@ -560,6 +562,27 @@ test("review render evidence rejects forged retained-render boundaries", () => {
         expected: /bind the exact report\.html bytes/,
       },
       {
+        name: "missing local observation",
+        mutate(value) {
+          delete value.observation;
+        },
+        expected: /requires the current local-observation producer identity/,
+      },
+      {
+        name: "browser executable drift",
+        mutate(value) {
+          value.observation.browser.executable_sha256_after = forgedHash;
+        },
+        expected: /requires a stable canonical Chromium executable observation/,
+      },
+      {
+        name: "invocation configuration drift",
+        mutate(value) {
+          value.observation.invocation_configuration_sha256 = forgedHash;
+        },
+        expected: /uses a noncanonical invocation configuration/,
+      },
+      {
         name: "capture hash",
         mutate(value) {
           value.captures[0].sha256 = forgedHash;
@@ -732,7 +755,18 @@ function seedReviewRenderManifest(root, htmlPath, values = {}) {
     `${JSON.stringify({
       schema_version: 1,
       source: { path: path.relative(root, htmlPath), sha256: `sha256:${fileDigest(htmlPath)}` },
-      browser: "/test/chromium",
+      observation: {
+        assurance_level: "local-observation",
+        producer: { name: "pm:artifact-render-check", version: PLUGIN_VERSION },
+        browser: {
+          path: path.resolve(root, "test-chromium"),
+          executable_sha256_before: `sha256:${"a".repeat(64)}`,
+          executable_sha256_after: `sha256:${"a".repeat(64)}`,
+          engine: "chromium",
+          version: "Chromium 123.0.0 test",
+        },
+        invocation_configuration_sha256: invocationConfigurationDigest("data-review-"),
+      },
       captures,
       print: { ...renderFile(root, pdf), pages: 1 },
       markers: reviewRenderedMarkers(values),

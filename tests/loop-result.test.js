@@ -28,6 +28,7 @@ function checkedGateFixture(manifest, options) {
   assert.equal(options.reviewEvidenceMode, "enforce");
   assert.equal(options.requireSessionBinding, true);
   assert.equal(options.canonicalSession.run_id, manifest.run_id);
+  assert.equal(options.currentBranch, options.canonicalSession.source.branch);
   return { ok: true, issues: [] };
 }
 
@@ -423,6 +424,22 @@ test("delivery verification rejects a legacy-shaped Review row", (t) => {
   assert.equal(checked.ok, false);
   assert.equal(checked.code, "gate-verification-failed");
   assert.match(checked.reason, /requires evidence_kind review-report-v1 in enforcement mode/);
+});
+
+test("gate verification rejects a colliding session slug bound to another branch", (t) => {
+  const fixture = makeGateFixture(t);
+  const collidingBranch = "loop/pm@108";
+  git(["branch", collidingBranch, fixture.headOid], fixture.root);
+
+  const checked = verifyCommittedGateSidecar(fixture.root, {
+    expectedHeadOid: fixture.headOid,
+    expectedHead: collidingBranch,
+    baseRef: fixture.baseOid,
+  });
+
+  assert.equal(checked.ok, false, JSON.stringify(checked));
+  assert.equal(checked.code, "gate-verification-failed");
+  assert.match(checked.reason, /sibling session branch must equal loop\/pm@108/);
 });
 
 test("gate verification rejects stale, missing, symlinked, and wrong-HEAD evidence", (t) => {

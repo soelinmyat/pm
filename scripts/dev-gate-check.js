@@ -5,12 +5,19 @@ const crypto = require("node:crypto");
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
-const { VIEWPORTS: REVIEW_RENDER_VIEWPORTS, validateMetrics } = require("./artifact-render-check");
+const {
+  OBSERVATION_ASSURANCE_LEVEL,
+  OBSERVATION_PRODUCER,
+  VIEWPORTS: REVIEW_RENDER_VIEWPORTS,
+  invocationConfigurationDigest,
+  validateMetrics,
+} = require("./artifact-render-check");
 const { inspectPdfBytes, inspectPngBytes } = require("./lib/media-inspect");
 const { readProjectInput } = require("./lib/safe-project-output");
 const { MAX_HTML_BYTES, MAX_JSON_BYTES } = require("./lib/review-limits");
 const { isUiImpactPath } = require("./lib/ui-impact");
 const { deriveSessionSlug } = require("./lib/session-slug");
+const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 const DEFAULT_MANIFEST_PATH = ".pm/dev-sessions/current.gates.json";
 const DEFAULT_REQUIRED_GATES = ["tdd", "design-critique", "qa", "review", "verification"];
@@ -381,6 +388,7 @@ function validateReviewRenderManifest(
     issues.push(
       issue(manifestPath, "review render manifest must bind the exact report.html bytes")
     );
+  validateRenderObservation(value.observation, manifestPath, issues);
 
   const captures = Array.isArray(value.captures) ? value.captures : [];
   const names = captures.map((item) => item?.name);
@@ -455,6 +463,44 @@ function validateReviewRenderManifest(
       issues.push(issue(manifestPath, `retained browser marker evidence failed: ${error.message}`));
     }
   }
+}
+
+function validateRenderObservation(observation, manifestPath, issues) {
+  const browser = observation?.browser;
+  const expectedInvocation = invocationConfigurationDigest("data-review-");
+  if (
+    observation?.assurance_level !== OBSERVATION_ASSURANCE_LEVEL ||
+    observation?.producer?.name !== OBSERVATION_PRODUCER ||
+    observation?.producer?.version !== PLUGIN_VERSION
+  )
+    issues.push(
+      issue(
+        manifestPath,
+        "review render manifest requires the current local-observation producer identity"
+      )
+    );
+  if (
+    !browser ||
+    typeof browser.path !== "string" ||
+    !path.isAbsolute(browser.path) ||
+    path.normalize(browser.path) !== browser.path ||
+    browser.engine !== "chromium" ||
+    typeof browser.version !== "string" ||
+    !browser.version.trim() ||
+    browser.version.length > 500 ||
+    !/^sha256:[a-f0-9]{64}$/.test(browser.executable_sha256_before || "") ||
+    browser.executable_sha256_after !== browser.executable_sha256_before
+  )
+    issues.push(
+      issue(
+        manifestPath,
+        "review render manifest requires a stable canonical Chromium executable observation"
+      )
+    );
+  if (observation?.invocation_configuration_sha256 !== expectedInvocation)
+    issues.push(
+      issue(manifestPath, "review render manifest uses a noncanonical invocation configuration")
+    );
 }
 
 function validateRenderedFile(

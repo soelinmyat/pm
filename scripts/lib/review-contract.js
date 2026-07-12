@@ -256,6 +256,14 @@ function integer(value) {
   return Number.isInteger(value) ? value : null;
 }
 
+function changeAnchorText(anchor) {
+  const cause =
+    anchor?.side === "path"
+      ? `${anchor.path} [path]`
+      : `${anchor?.path || "unknown"} [${anchor?.side || "unknown"} ${anchor?.line_start}-${anchor?.line_end}]`;
+  return `${cause} → ${anchor?.affected_ref || "unbound"} — ${anchor?.relation || "missing relation"}`;
+}
+
 module.exports = {
   DECISION_ACTIONS,
   DISPOSITIONS,
@@ -263,6 +271,7 @@ module.exports = {
   OWNERS,
   SEVERITIES,
   allocateLenses,
+  changeAnchorText,
   deriveLensApplicability,
   devReviewContext,
   findingId,

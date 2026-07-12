@@ -8,6 +8,7 @@ const projectWriter = require("./lib/project-atomic-write");
 const { readProjectInput } = require("./lib/safe-project-output");
 const { MAX_HTML_BYTES, MAX_JSON_BYTES } = require("./lib/review-limits");
 const { expectedReviewPath, reviewPathContext } = require("./lib/review-paths");
+const { changeAnchorText } = require("./lib/review-contract");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 function renderReviewReport(options) {
@@ -197,12 +198,7 @@ function findingCard(finding) {
     finding.fix
   )}</p><p><strong>Advisory verification plan (do not execute directly):</strong> <code>${escapeHtml(
     finding.verify
-  )}</code></p><p><strong>Decision required:</strong> ${finding.decision_required ? "yes" : "no"}</p><p><strong>Disputed:</strong> ${finding.disputed ? "yes" : "no"}</p>${decision}<div class="evidence"><strong>Change anchors:</strong> ${anchors || "Legacy target — not required."}</div><div class="evidence"><strong>Evidence:</strong> ${evidence}</div><details open><summary>Independent signals</summary><ul>${signals}</ul></details></article>`;
-}
-
-function changeAnchorText(anchor) {
-  if (anchor?.side === "path") return `${anchor.path} [path]`;
-  return `${anchor?.path || "unknown"} [${anchor?.side || "unknown"} ${anchor?.line_start}-${anchor?.line_end}]`;
+  )}</code></p><p><strong>Decision required:</strong> ${finding.decision_required ? "yes" : "no"}</p><p><strong>Disputed:</strong> ${finding.disputed ? "yes" : "no"}</p>${decision}<div class="evidence"><strong>Change anchors:</strong> ${anchors || "Legacy target — not required."}</div><div class="evidence"><strong>Evidence:</strong> ${evidence}</div><details open><summary>Reviewer signals</summary><ul>${signals}</ul></details></article>`;
 }
 
 function handoffList(values) {

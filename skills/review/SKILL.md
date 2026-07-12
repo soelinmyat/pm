@@ -89,5 +89,5 @@ Resolve session paths with `deriveSessionSlug` from `scripts/lib/session-slug.js
 - [ ] `review-check.js` passes against current HEAD and the authoritative remote base.
 - [ ] All applicable logical lenses have exact verdict coverage; disputes and decisions are explicit.
 - [ ] Review-owned blockers are resolved in a new complete round or the gate is reported failed/blocked.
-- [ ] The HTML artifact passes structural, real-browser viewport, accessibility, offline, and print checks.
+- [ ] The HTML artifact passes structural, locally observed browser viewport, accessibility, offline, and print checks.
 - [ ] The `review` gate row points to the current checked report without deleting other gate rows.

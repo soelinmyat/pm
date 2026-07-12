@@ -6,7 +6,48 @@
 # 4. Validate skill directory structure
 
 remote="$1"
+remote_url="$2"
 push_ref_lines=()
+
+resolve_authoritative_remote_head() {
+  local remote_target="$remote_url"
+  local output=""
+  local head_ref=""
+  local head_commit=""
+  local head_branch=""
+
+  if [[ -z "$remote_target" || "$remote_target" == "." ]]; then
+    remote_target="$remote"
+  fi
+  if [[ -z "$remote_target" ]]; then
+    return 1
+  fi
+  output=$(GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=Never git ls-remote --symref "$remote_target" HEAD 2>/dev/null) || return 1
+  head_ref=$(printf "%s\n" "$output" | sed -nE 's/^ref:[[:space:]]+(refs\/heads\/[^[:space:]]+)[[:space:]]+HEAD$/\1/p' | head -1)
+  head_commit=$(printf "%s\n" "$output" | sed -nE 's/^([a-f0-9]{40,64})[[:space:]]+HEAD$/\1/p' | head -1)
+  if [[ -z "$head_ref" || -z "$head_commit" ]]; then
+    return 1
+  fi
+  if ! git cat-file -e "${head_commit}^{commit}" 2>/dev/null; then
+    GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=Never git fetch --no-tags --quiet "$remote_target" "$head_commit" 2>/dev/null || return 1
+    git cat-file -e "${head_commit}^{commit}" 2>/dev/null || return 1
+  fi
+  head_branch="${head_ref#refs/heads/}"
+  authoritative_base_commit="$head_commit"
+  authoritative_base_ref="${remote}/${head_branch}"
+  return 0
+}
+
+commit_contains_pm_runtime_inventory() {
+  local commit="$1"
+  git cat-file -e "$commit:plugin.config.json" 2>/dev/null ||
+    git cat-file -e "$commit:.claude-plugin/plugin.json" 2>/dev/null ||
+    git cat-file -e "$commit:.codex-plugin/plugin.json" 2>/dev/null ||
+    {
+      [[ -n "$(git ls-tree -r --name-only "$commit" -- commands 2>/dev/null)" ]] &&
+        [[ -n "$(git ls-tree -r --name-only "$commit" -- skills 2>/dev/null)" ]]
+    }
+}
 
 derive_gate_slug() {
   local slug="$1"
@@ -160,14 +201,19 @@ for push_ref_line in "${push_ref_lines[@]}"; do
     exit 1
   fi
 
-  if ! git rev-parse --verify origin/main >/dev/null 2>&1; then
-    echo "ERROR: unable to verify origin/main for PM dev gate checks."
-    echo "Fetch origin/main, then retry the push."
-    exit 1
+  authoritative_base_ref=""
+  authoritative_base_commit=""
+  if ! resolve_authoritative_remote_head; then
+    if commit_contains_pm_runtime_inventory "$local_oid" || [[ "$gate_session_detected" -eq 1 ]]; then
+      echo "ERROR: unable to resolve the authoritative remote HEAD for PM dev gate checks."
+      echo "Verify the pre-push remote and network access, then retry."
+      exit 1
+    fi
+    continue
   fi
-  changed_pm_runtime_files=$(git diff --name-only "origin/main...$local_oid" -- commands skills scripts hooks templates tests references agents plugin.config.json .claude-plugin .codex-plugin .codex/INSTALL.md README.md .githooks 2>/dev/null)
+  changed_pm_runtime_files=$(git diff --name-only "${authoritative_base_commit}...$local_oid" -- commands skills scripts hooks templates tests references agents plugin.config.json .claude-plugin .codex-plugin .codex/INSTALL.md README.md .githooks 2>/dev/null)
   if [[ "$?" -ne 0 ]]; then
-    echo "ERROR: unable to diff origin/main...$local_oid for PM dev gate checks."
+    echo "ERROR: unable to diff authoritative remote HEAD ${authoritative_base_commit}...$local_oid for PM dev gate checks."
     exit 1
   fi
 
@@ -197,7 +243,7 @@ for push_ref_line in "${push_ref_lines[@]}"; do
       --commit "$local_oid" \
       --branch "$branch_name" \
       --review-evidence-mode enforce \
-      --base origin/main; then
+      --base "$authoritative_base_ref"; then
       rm -rf "$checker_tmp"
       exit 1
     fi

@@ -13,6 +13,18 @@ function read(relPath) {
   return fs.readFileSync(path.join(repoRoot, relPath), "utf8");
 }
 
+function configureAuthoritativeRemote(dir, git, base) {
+  const remote = path.join(dir, ".remote.git");
+  assert.equal(spawnSync("git", ["init", "-q", "--bare", remote]).status, 0);
+  assert.equal(
+    spawnSync("git", ["--git-dir", remote, "symbolic-ref", "HEAD", "refs/heads/main"]).status,
+    0
+  );
+  assert.equal(git("remote", "add", "origin", remote).status, 0);
+  assert.equal(git("push", "-q", "origin", `${base}:refs/heads/main`).status, 0);
+  return remote;
+}
+
 test("PM-native design critique is in the plugin inventory", () => {
   const config = JSON.parse(read("plugin.config.json"));
   assert.ok(config.commands.includes("design-critique"));
@@ -168,7 +180,8 @@ test("review report navigation wraps without narrow horizontal overflow", () => 
   assert.match(template, /@media\(max-width:720px\).*nav ul\{flex-wrap:wrap/);
   assert.match(template, /\.lede\{[^}]*overflow-wrap:anywhere/);
   assert.match(template, /\.summary p\{[^}]*min-width:0[^}]*overflow-wrap:anywhere/);
-  assert.match(template, /\.finding h3,\.finding p\{overflow-wrap:anywhere/);
+  assert.match(template, /\.finding h3\{[^}]*overflow-wrap:anywhere/);
+  assert.match(template, /\.finding p\{[^}]*overflow-wrap:anywhere/);
 });
 
 test("low-risk S work receives a code scan instead of silently skipping review", () => {
@@ -334,10 +347,11 @@ test("source repo pre-push hook uses the shared gate checker for PM runtime chan
   assert.match(text, /if ! node "\$checker_tmp\/scripts\/dev-gate-check\.js"/);
   assert.doesNotMatch(text, /if ! node scripts\/dev-gate-check\.js/);
   assert.doesNotMatch(text, /if ! node --test tests\/\*\.test\.js/);
-  assert.match(text, /--base origin\/main/);
+  assert.match(text, /git ls-remote --symref "\$remote_target" HEAD/);
+  assert.match(text, /--base "\$authoritative_base_ref"/);
   assert.match(text, /--review-evidence-mode enforce/);
-  assert.match(text, /unable to verify origin\/main/);
-  assert.match(text, /unable to diff origin\/main\.\.\.\$local_oid/);
+  assert.match(text, /unable to resolve the authoritative remote HEAD/);
+  assert.match(text, /unable to diff authoritative remote HEAD/);
   assert.match(text, /push_ref_lines/);
   assert.match(text, /--commit "\$local_oid"/);
   assert.match(text, /canonical_session_dir="\.pm\/dev-sessions\/\$\{gate_slug\}"/);
@@ -346,7 +360,7 @@ test("source repo pre-push hook uses the shared gate checker for PM runtime chan
   assert.match(text, /current\.gates\.json/);
   assert.match(text, /Canonical PM gate manifest requires sibling session\.json/);
   assert.doesNotMatch(text, /gate_manifest="\$legacy_gate_manifest"/);
-  assert.match(text, /origin\/main\.\.\.\$local_oid/);
+  assert.match(text, /authoritative_base_commit/);
   assert.match(text, /changed_pm_runtime_files/);
   assert.match(text, /plugin\.config\.json/);
   assert.match(text, /\.claude-plugin/);
@@ -374,6 +388,7 @@ test("pre-push runs tests from the pushed commit, not the dirty worktree", () =>
     assert.equal(git("commit", "-q", "-m", "failing test").status, 0);
     const base = git("rev-parse", "HEAD").stdout.trim();
     assert.equal(git("update-ref", "refs/remotes/origin/main", base).status, 0);
+    configureAuthoritativeRemote(dir, git, base);
     const localOid = git("rev-parse", "HEAD").stdout.trim();
     fs.writeFileSync(path.join(dir, "tests", "fail.test.js"), 'console.log("dirty pass");\n');
 
@@ -421,6 +436,7 @@ test("pre-push committed-test worktree preserves git repository context", () => 
     assert.equal(git("commit", "-q", "-m", "git context test").status, 0);
     const base = git("rev-parse", "HEAD").stdout.trim();
     assert.equal(git("update-ref", "refs/remotes/origin/main", base).status, 0);
+    configureAuthoritativeRemote(dir, git, base);
     const localOid = git("rev-parse", "HEAD").stdout.trim();
 
     const zeroOid = "0000000000000000000000000000000000000000";
@@ -467,6 +483,7 @@ test("pre-push runs the dev gate checker from the pushed commit, not the dirty w
     assert.equal(git("branch", "-M", "main").status, 0);
     const base = git("rev-parse", "HEAD").stdout.trim();
     assert.equal(git("update-ref", "refs/remotes/origin/main", base).status, 0);
+    configureAuthoritativeRemote(dir, git, base);
     assert.equal(git("checkout", "-q", "-b", "CODEX/Harden++Gate").status, 0);
     fs.writeFileSync(path.join(dir, "commands", "dev.md"), "changed runtime\n");
     fs.writeFileSync(path.join(dir, "scripts", "lib", "checker-helper.js"), "process.exit(42);\n");
@@ -521,6 +538,7 @@ test("pre-push never lets a flat legacy manifest shadow a canonical session", ()
     assert.equal(git("branch", "-M", "main").status, 0);
     const base = git("rev-parse", "HEAD").stdout.trim();
     assert.equal(git("update-ref", "refs/remotes/origin/main", base).status, 0);
+    configureAuthoritativeRemote(dir, git, base);
     assert.equal(git("checkout", "-q", "-b", "codex/harden").status, 0);
     fs.writeFileSync(path.join(dir, "commands", "dev.md"), "changed runtime\n");
     assert.equal(git("add", ".").status, 0);
@@ -579,7 +597,83 @@ test("pre-push fails closed when origin/main is unavailable for PM runtime chang
       input: `refs/heads/codex/harden ${localOid} refs/heads/codex/harden ${zeroOid}\n`,
     });
     assert.notEqual(result.status, 0, result.stdout + result.stderr);
-    assert.match(result.stdout + result.stderr, /unable to verify origin\/main/);
+    assert.match(result.stdout + result.stderr, /unable to resolve the authoritative remote HEAD/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("pre-push preserves non-PM repositories when no authoritative remote is available", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-pre-push-non-pm-"));
+  try {
+    const hook = path.join(dir, "pre-push");
+    fs.copyFileSync(path.join(repoRoot, ".githooks", "pre-push"), hook);
+    fs.chmodSync(hook, 0o755);
+    const git = (...args) => spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+    assert.equal(git("init", "-q", "-b", "main").status, 0);
+    assert.equal(git("config", "user.email", "test@example.com").status, 0);
+    assert.equal(git("config", "user.name", "Test User").status, 0);
+    fs.writeFileSync(path.join(dir, "notes.txt"), "ordinary repository\n");
+    assert.equal(git("add", "notes.txt").status, 0);
+    assert.equal(git("commit", "-q", "-m", "ordinary change").status, 0);
+    const localOid = git("rev-parse", "HEAD").stdout.trim();
+
+    const zeroOid = "0000000000000000000000000000000000000000";
+    const result = spawnSync("bash", [hook, "missing-remote"], {
+      cwd: dir,
+      encoding: "utf8",
+      input: `refs/heads/topic ${localOid} refs/heads/topic ${zeroOid}\n`,
+    });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("pre-push scope ignores a forged local tracking ref and uses remote HEAD", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-pre-push-forged-base-"));
+  try {
+    const hook = path.join(dir, "pre-push");
+    fs.copyFileSync(path.join(repoRoot, ".githooks", "pre-push"), hook);
+    fs.chmodSync(hook, 0o755);
+    const git = (...args) => spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+    assert.equal(git("init", "-q", "-b", "main").status, 0);
+    assert.equal(git("config", "user.email", "test@example.com").status, 0);
+    assert.equal(git("config", "user.name", "Test User").status, 0);
+    fs.mkdirSync(path.join(dir, "commands"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "skills", "dev"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "plugin.config.json"),
+      JSON.stringify({ commands: ["dev"] }, null, 2)
+    );
+    fs.writeFileSync(path.join(dir, "commands", "dev.md"), "base command\n");
+    fs.writeFileSync(
+      path.join(dir, "skills", "dev", "SKILL.md"),
+      "---\nname: dev\ndescription: dev skill\n---\n"
+    );
+    fs.writeFileSync(path.join(dir, "scripts", "dev-gate-check.js"), "process.exit(0);\n");
+    assert.equal(git("add", ".").status, 0);
+    assert.equal(git("commit", "-q", "-m", "base").status, 0);
+    const base = git("rev-parse", "HEAD").stdout.trim();
+    configureAuthoritativeRemote(dir, git, base);
+
+    assert.equal(git("checkout", "-q", "-b", "codex/harden").status, 0);
+    fs.writeFileSync(path.join(dir, "commands", "dev.md"), "changed PM runtime\n");
+    assert.equal(git("add", "commands/dev.md").status, 0);
+    assert.equal(git("commit", "-q", "-m", "runtime change").status, 0);
+    const localOid = git("rev-parse", "HEAD").stdout.trim();
+    assert.equal(git("update-ref", "refs/remotes/origin/main", localOid).status, 0);
+
+    const zeroOid = "0000000000000000000000000000000000000000";
+    const result = spawnSync("bash", [hook, "origin", path.join(dir, ".remote.git")], {
+      cwd: dir,
+      encoding: "utf8",
+      input: `refs/heads/codex/harden ${localOid} refs/heads/codex/harden ${zeroOid}\n`,
+    });
+    assert.notEqual(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout + result.stderr, /PM dev gate manifest not found/);
+    assert.match(result.stdout + result.stderr, /Expected \.pm\/dev-sessions\/harden\/gates\.json/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

@@ -218,7 +218,13 @@ function bindCommittedFile(root, commit, relative, remainingBytes = MAX_CHANGED_
   return { sha256: digest(bytes), bytes: bytes.length };
 }
 
-function readCommittedBlob(root, commit, relative, remainingBytes = MAX_CHANGED_FILE_BYTES) {
+function readCommittedBlob(
+  root,
+  commit,
+  relative,
+  remainingBytes = MAX_CHANGED_FILE_BYTES,
+  aggregateError = null
+) {
   const tree = git(root, ["ls-tree", "-z", commit, "--", relative], null).toString("utf8");
   const match = tree.match(/^([0-7]{6}) blob ([a-f0-9]{40,64})\t([^\0]+)\0$/);
   if (!match || match[3] !== relative || match[1] === "120000")
@@ -228,7 +234,8 @@ function readCommittedBlob(root, commit, relative, remainingBytes = MAX_CHANGED_
     throw new Error(`changed file exceeds 64 MiB: ${relative}`);
   if (!Number.isSafeInteger(remainingBytes) || remainingBytes < 0 || size > remainingBytes)
     throw new Error(
-      `changed files exceed the ${MAX_CHANGED_FILE_BYTES}-byte aggregate committed-byte budget`
+      aggregateError ||
+        `changed files exceed the ${MAX_CHANGED_FILE_BYTES}-byte aggregate committed-byte budget`
     );
   const bytes = git(root, ["cat-file", "blob", match[2]], null);
   if (bytes.length !== size) throw new Error(`changed blob size drifted: ${relative}`);

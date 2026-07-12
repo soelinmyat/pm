@@ -12,6 +12,7 @@ const {
   buildCanonicalReport,
   checkReview,
   expandFromReport,
+  findingRenderChars,
   validateFrozenTarget,
   validateRenderedReportMarkers,
   validateSignal,
@@ -23,13 +24,16 @@ const {
   readCommittedBlob,
   resolveTrustedBase,
 } = require("../scripts/review-target");
-const { findingId } = require("../scripts/lib/review-contract");
+const { changeAnchorText, findingId } = require("../scripts/lib/review-contract");
 const {
   MAX_CHANGED_FILE_BYTES,
+  MAX_EVIDENCE_BYTES_PER_CHECK,
+  MAX_EVIDENCE_PER_FINDING,
   MAX_FINDING_PROSE_CHARS,
   MAX_FINDING_RENDER_CHARS_PER_ROUND,
   MAX_FINDINGS_PER_REVIEWER,
   MAX_FINDINGS_PER_ROUND,
+  MAX_JSON_BYTES,
 } = require("../scripts/lib/review-limits");
 const { createSession } = require("../scripts/lib/dev-session-schema");
 const {
@@ -193,6 +197,16 @@ test("frozen review uses three-dot merge-base semantics on diverged branches", (
         { kind: "source", ref: "src/deleted.js:1" },
         { kind: "contract", ref: "skills/dev/references/model-profiles.json:1" },
       ],
+      change_anchors: [
+        {
+          path: "src/deleted.js",
+          side: "base",
+          line_start: 1,
+          line_end: 1,
+          affected_ref: "src/deleted.js:1",
+          relation: "Removing the source export causes the reported contract failure.",
+        },
+      ],
     };
     finding.id = findingId(finding);
     assert.equal(
@@ -214,9 +228,19 @@ test("changed-hunk policy accepts a stable primary line only with a causal hunk 
     line_end: 1,
     evidence: [
       { kind: "source", ref: "src/example.js:1" },
+      { kind: "source", ref: "src/example.js:2" },
       { kind: "contract", ref: "skills/dev/references/model-profiles.json:1" },
     ],
-    change_anchors: [{ path: "src/example.js", side: "head", line_start: 2, line_end: 2 }],
+    change_anchors: [
+      {
+        path: "src/example.js",
+        side: "head",
+        line_start: 2,
+        line_end: 2,
+        affected_ref: "src/example.js:1",
+        relation: "The changed export value alters the stable declaration's observable contract.",
+      },
+    ],
   };
   finding.id = findingId(finding);
   const accepted = [];
@@ -227,7 +251,16 @@ test("changed-hunk policy accepts a stable primary line only with a causal hunk 
   );
   assert.deepEqual(accepted, []);
 
-  finding.change_anchors = [{ path: "src/example.js", side: "head", line_start: 1, line_end: 1 }];
+  finding.change_anchors = [
+    {
+      path: "src/example.js",
+      side: "head",
+      line_start: 1,
+      line_end: 1,
+      affected_ref: "src/example.js:1",
+      relation: "The cited unchanged line is not the causal change.",
+    },
+  ];
   const rejected = [];
   validateSignal(fixture.root, finding, "reviewer-1", ["bug"], target, "finding", rejected);
   assert.match(JSON.stringify(rejected), /does not intersect a head changed hunk/);
@@ -248,17 +281,36 @@ test("changed-hunk policy authenticates additions, deletions, and non-textual pa
     {
       file: "src/added.js",
       evidence: "src/added.js:1",
-      anchor: { path: "src/added.js", side: "head", line_start: 1, line_end: 1 },
+      anchor: {
+        path: "src/added.js",
+        side: "head",
+        line_start: 1,
+        line_end: 1,
+        affected_ref: "src/added.js:1",
+        relation: "The added export creates the reported contract behavior.",
+      },
     },
     {
       file: "src/deleted.js",
       evidence: "src/deleted.js:1",
-      anchor: { path: "src/deleted.js", side: "base", line_start: 1, line_end: 1 },
+      anchor: {
+        path: "src/deleted.js",
+        side: "base",
+        line_start: 1,
+        line_end: 1,
+        affected_ref: "src/deleted.js:1",
+        relation: "Removing the export creates the reported missing behavior.",
+      },
     },
     {
       file: "src/added.js",
       evidence: "src/added.js:1",
-      anchor: { path: "src/binary.dat", side: "path" },
+      anchor: {
+        path: "src/binary.dat",
+        side: "path",
+        affected_ref: "src/added.js:1",
+        relation: "The binary payload is consumed by the added module at the affected locator.",
+      },
     },
   ]) {
     const finding = {
@@ -278,6 +330,118 @@ test("changed-hunk policy authenticates additions, deletions, and non-textual pa
     );
     assert.deepEqual(issues, []);
   }
+
+  const crossFile = {
+    ...validFinding("bug"),
+    file: "src/added.js",
+    evidence: [
+      { kind: "source", ref: "src/added.js:1" },
+      { kind: "source", ref: "src/example.js:1" },
+      { kind: "contract", ref: "skills/dev/references/model-profiles.json:1" },
+    ],
+    change_anchors: [
+      {
+        path: "src/example.js",
+        side: "head",
+        line_start: 1,
+        line_end: 1,
+        affected_ref: "src/added.js:1",
+        relation: "The changed producer value breaks the consumer at the affected locator.",
+      },
+    ],
+  };
+  crossFile.id = findingId(crossFile);
+  const crossFileIssues = [];
+  assert.equal(
+    validateSignal(
+      fixture.root,
+      crossFile,
+      "reviewer-1",
+      ["bug"],
+      target,
+      "finding",
+      crossFileIssues
+    ),
+    true
+  );
+  assert.deepEqual(crossFileIssues, []);
+
+  const unrelated = {
+    ...validFinding("bug"),
+    file: "src/added.js",
+    evidence: [
+      { kind: "source", ref: "src/added.js:1" },
+      { kind: "contract", ref: "skills/dev/references/model-profiles.json:1" },
+    ],
+    change_anchors: [
+      {
+        path: "src/example.js",
+        side: "head",
+        line_start: 1,
+        line_end: 1,
+        affected_ref: "src/added.js:1",
+        relation: "Claims an unrelated changed export caused the added module defect.",
+      },
+    ],
+  };
+  unrelated.id = findingId(unrelated);
+  const unrelatedIssues = [];
+  validateSignal(
+    fixture.root,
+    unrelated,
+    "reviewer-1",
+    ["bug"],
+    target,
+    "finding",
+    unrelatedIssues
+  );
+  assert.match(JSON.stringify(unrelatedIssues), /overlapping Git-backed evidence on the same path/);
+
+  const unboundPath = {
+    ...unrelated,
+    change_anchors: [
+      {
+        path: "src/binary.dat",
+        side: "path",
+        affected_ref: "src/missing.js:1",
+        relation: "Claims a cross-file effect without binding its affected locator.",
+      },
+    ],
+  };
+  const unboundIssues = [];
+  validateSignal(
+    fixture.root,
+    unboundPath,
+    "reviewer-1",
+    ["bug"],
+    target,
+    "finding",
+    unboundIssues
+  );
+  assert.match(JSON.stringify(unboundIssues), /must exactly bind the finding primary locator/);
+
+  const oversizedRelation = {
+    ...unrelated,
+    change_anchors: [
+      {
+        path: "src/binary.dat",
+        side: "path",
+        affected_ref: "src/added.js:1",
+        relation: "x".repeat(501),
+      },
+    ],
+  };
+  const oversizedRelationIssues = [];
+  validateSignal(
+    fixture.root,
+    oversizedRelation,
+    "reviewer-1",
+    ["bug"],
+    target,
+    "finding",
+    oversizedRelationIssues
+  );
+  assert.match(JSON.stringify(oversizedRelationIssues), /must not exceed 500 characters/);
 });
 
 test("legacy targets remain readable without change anchors", () => {
@@ -507,6 +671,54 @@ test("review I/O rejects symlinked path ancestors", () => {
   assert.throws(() => readProjectInput(root, ".pm/linked/evidence.json"), /contains symlink/);
 });
 
+test("from-report reads once through a descriptor and rejects symlinked or oversized input", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-resume-"));
+  const reportPath = ".pm/review/report.json";
+  const absolute = path.join(root, reportPath);
+  write(root, reportPath, {
+    target: { path: ".pm/original-target.json" },
+    results: [{ path: ".pm/original-result.json" }],
+  });
+
+  const originalReadSync = fs.readSync;
+  let swapped = false;
+  fs.readSync = function descriptorBoundRead(descriptor, ...args) {
+    if (!swapped) {
+      swapped = true;
+      fs.renameSync(absolute, `${absolute}.opened`);
+      write(root, reportPath, {
+        target: { path: ".pm/replacement-target.json" },
+        results: [{ path: ".pm/replacement-result.json" }],
+      });
+    }
+    return originalReadSync.call(this, descriptor, ...args);
+  };
+  try {
+    const expanded = expandFromReport({ root, reportPath, fromReport: true });
+    assert.equal(expanded.targetPath, ".pm/original-target.json");
+    assert.deepEqual(expanded.resultPaths, [".pm/original-result.json"]);
+  } finally {
+    fs.readSync = originalReadSync;
+  }
+
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-resume-outside-"));
+  write(outside, "report.json", {
+    target: { path: ".pm/outside-target.json" },
+    results: [{ path: ".pm/outside-result.json" }],
+  });
+  fs.symlinkSync(outside, path.join(root, ".pm/linked"));
+  assert.throws(
+    () => expandFromReport({ root, reportPath: ".pm/linked/report.json", fromReport: true }),
+    /contains symlink/
+  );
+
+  fs.writeFileSync(path.join(root, ".pm/oversized.json"), Buffer.alloc(MAX_JSON_BYTES + 1));
+  assert.throws(
+    () => expandFromReport({ root, reportPath: ".pm/oversized.json", fromReport: true }),
+    /input exceeds .*byte budget/
+  );
+});
+
 test("later round target creation requires an intervening source commit", () => {
   const fixture = makeFixture({ maxWorkers: 6 });
   setFindingForLens(fixture, "bug", validFinding("bug"));
@@ -629,6 +841,145 @@ test("malformed evidence returns structured issues instead of throwing", () => {
   assert.match(JSON.stringify(result.issues), /evidence\[0\].*must be an object/);
 });
 
+test("evidence count and duplicate identities fail before locator resolution", () => {
+  const duplicateFixture = makeFixture({ maxWorkers: 6 });
+  const duplicate = validFinding("edge");
+  const missing = {
+    kind: "trace",
+    ref: "artifact:.pm/missing-trace.json#event",
+    sha256: "0".repeat(64),
+  };
+  duplicate.evidence = [missing, { ...missing }];
+  duplicate.id = findingId(duplicate);
+  let issues = [];
+  validateSignal(
+    duplicateFixture.root,
+    duplicate,
+    "reviewer-edge",
+    ["edge"],
+    duplicateFixture.target,
+    "finding",
+    issues
+  );
+  assert.match(JSON.stringify(issues), /duplicates evidence/);
+  assert.doesNotMatch(JSON.stringify(issues), /ENOENT|cannot resolve frozen evidence/);
+
+  const overFixture = makeFixture({ maxWorkers: 6 });
+  const over = validFinding("edge");
+  over.evidence = Array.from({ length: MAX_EVIDENCE_PER_FINDING + 1 }, (_, index) => ({
+    kind: "trace",
+    ref: `artifact:.pm/missing-trace.json#event-${index}`,
+    sha256: "0".repeat(64),
+  }));
+  over.id = findingId(over);
+  issues = [];
+  validateSignal(
+    overFixture.root,
+    over,
+    "reviewer-edge",
+    ["edge"],
+    overFixture.target,
+    "finding",
+    issues
+  );
+  assert.match(JSON.stringify(issues), new RegExp(`at most ${MAX_EVIDENCE_PER_FINDING}`));
+  assert.doesNotMatch(JSON.stringify(issues), /ENOENT|cannot resolve frozen evidence/);
+});
+
+test("distinct artifact locators share one descriptor-bound read per check", () => {
+  const fixture = makeFixture({ maxWorkers: 6 });
+  const events = Array.from(
+    { length: MAX_EVIDENCE_PER_FINDING - 1 },
+    (_, index) => `event-${index}`
+  );
+  write(fixture.root, ".pm/trace.json", { events });
+  const tracePath = path.join(fixture.root, ".pm/trace.json");
+  const realTracePath = fs.realpathSync(tracePath);
+  const sha256 = crypto.createHash("sha256").update(fs.readFileSync(tracePath)).digest("hex");
+  const finding = validFinding("edge");
+  finding.evidence = [
+    { kind: "source", ref: "src/example.js:1" },
+    ...events.map((event) => ({
+      kind: "trace",
+      ref: `artifact:.pm/trace.json#${event}`,
+      sha256,
+    })),
+  ];
+  finding.id = findingId(finding);
+
+  const originalOpenSync = fs.openSync;
+  let artifactOpens = 0;
+  fs.openSync = function countedOpen(file, ...args) {
+    if (path.resolve(String(file)) === realTracePath) artifactOpens += 1;
+    return originalOpenSync.call(this, file, ...args);
+  };
+  const issues = [];
+  try {
+    validateSignal(
+      fixture.root,
+      finding,
+      "reviewer-edge",
+      ["edge"],
+      fixture.target,
+      "finding",
+      issues
+    );
+  } finally {
+    fs.openSync = originalOpenSync;
+  }
+  assert.deepEqual(issues, []);
+  assert.equal(artifactOpens, 1);
+});
+
+test("review evidence aggregate bytes accept the exact boundary and reject one byte above", () => {
+  const fixture = makeFixture({ maxWorkers: 6 });
+  const tracePath = path.join(fixture.root, ".pm/evidence-boundary.bin");
+  fs.mkdirSync(path.dirname(tracePath), { recursive: true });
+  const primaryBytes = fixture.target.changed_files.find(
+    (item) => item.path === "src/example.js"
+  ).bytes;
+  const exactArtifactBytes = MAX_EVIDENCE_BYTES_PER_CHECK - primaryBytes;
+
+  function writeSizedTrace(bytes) {
+    fs.writeFileSync(tracePath, "evidence-boundary");
+    fs.truncateSync(tracePath, bytes);
+    return crypto.createHash("sha256").update(fs.readFileSync(tracePath)).digest("hex");
+  }
+
+  function boundaryFinding(sha256) {
+    const finding = validFinding("edge");
+    finding.evidence = [
+      { kind: "source", ref: "src/example.js:1" },
+      {
+        kind: "trace",
+        ref: "artifact:.pm/evidence-boundary.bin#evidence-boundary",
+        sha256,
+      },
+    ];
+    finding.id = findingId(finding);
+    return finding;
+  }
+
+  let issues = [];
+  let finding = boundaryFinding(writeSizedTrace(exactArtifactBytes));
+  validateSignal(
+    fixture.root,
+    finding,
+    "reviewer-edge",
+    ["edge"],
+    fixture.target,
+    "finding",
+    issues
+  );
+  assert.deepEqual(issues, []);
+
+  const freshTarget = structuredClone(fixture.target);
+  finding = boundaryFinding(writeSizedTrace(exactArtifactBytes + 1));
+  issues = [];
+  validateSignal(fixture.root, finding, "reviewer-edge", ["edge"], freshTarget, "finding", issues);
+  assert.match(JSON.stringify(issues), /aggregate byte budget/);
+});
+
 test("malformed reviewer result shapes return issues instead of throwing during path checks", () => {
   for (const malformed of [null, "truncated", { schema_version: 1 }]) {
     const fixture = makeFixture({ maxWorkers: 3 });
@@ -727,13 +1078,18 @@ test("reviewer finding floods fail closed before conflict synthesis", () => {
   );
 });
 
-test("reviewer and round finding budgets accept the exact boundary", () => {
+test("reviewer, round, and rendered-text budgets accept their combined exact boundary", () => {
   const fixture = makeFixture({ maxWorkers: 3 });
   const resultPath = fixture.resultPaths[0];
   const absolute = path.join(fixture.root, resultPath);
   const result = JSON.parse(fs.readFileSync(absolute, "utf8"));
   const lens = result.lenses[0];
-  result.findings = uniqueFindings(lens, MAX_FINDINGS_PER_ROUND, "boundary");
+  result.findings = maximumRenderBudgetFindings(lens, "boundary");
+  assert.equal(result.findings.length, MAX_FINDINGS_PER_ROUND);
+  assert.equal(
+    result.findings.reduce((sum, finding) => sum + findingRenderChars(finding), 0),
+    MAX_FINDING_RENDER_CHARS_PER_ROUND
+  );
   result.verdicts.find((verdict) => verdict.lens === lens).outcome = "findings";
   fs.writeFileSync(absolute, `${JSON.stringify(result)}\n`);
 
@@ -1380,6 +1736,16 @@ test("later rounds authenticate prior frozen Git evidence on a diverged deleted-
       { kind: "source", ref: "src/deleted.js:1" },
       { kind: "contract", ref: "skills/dev/references/model-profiles.json:1" },
     ],
+    change_anchors: [
+      {
+        path: "src/deleted.js",
+        side: "base",
+        line_start: 1,
+        line_end: 1,
+        affected_ref: "src/deleted.js:1",
+        relation: "Removing the source creates the reported missing behavior.",
+      },
+    ],
   };
   finding.id = findingId(finding);
   setFindingForLens(fixture, "bug", finding);
@@ -1471,9 +1837,11 @@ test("renderer escapes reviewer text without treating data as template syntax", 
   );
   const html = fs.readFileSync(path.join(fixture.root, fixture.roundHtmlPath), "utf8");
   assert.match(html, /The &lt;Component&gt; exposes {{PLUGIN_VERSION}} as user data\./);
-  assert.match(html, /<details open><summary>Independent signals<\/summary>/);
+  assert.match(html, /<details open><summary>Reviewer signals<\/summary>/);
   assert.match(html, new RegExp(generated.report.findings[0].signals[0].reviewer_id));
   assert.match(html, /node --test tests\/example\.test\.js/);
+  assert.match(html, /src\/example\.js:1/);
+  assert.match(html, /The changed export directly causes the reported contract violation\./);
 });
 
 test("rendered finding markers require advisory verification and independent signal detail", () => {
@@ -1497,11 +1865,7 @@ test("rendered finding markers require advisory verification and independent sig
     "Disputed: no",
     "No recorded decision.",
     ...finding.evidence.map((item) => item.ref),
-    ...finding.change_anchors.map((anchor) =>
-      anchor.side === "path"
-        ? `${anchor.path} [path]`
-        : `${anchor.path} [${anchor.side} ${anchor.line_start}-${anchor.line_end}]`
-    ),
+    ...finding.change_anchors.map(changeAnchorText),
   ];
   const signalText = [
     signal.reviewer_id,
@@ -1512,11 +1876,7 @@ test("rendered finding markers require advisory verification and independent sig
     `disposition ${signal.disposition}`,
     `fix ${signal.fix_kind}`,
     `decision required ${signal.decision_required ? "yes" : "no"}`,
-    ...signal.change_anchors.map((anchor) =>
-      anchor.side === "path"
-        ? `${anchor.path} [path]`
-        : `${anchor.path} [${anchor.side} ${anchor.line_start}-${anchor.line_end}]`
-    ),
+    ...signal.change_anchors.map(changeAnchorText),
   ];
   const marker = (textParts) => ({
     attributes: { "data-review-finding-id": finding.id },
@@ -1741,7 +2101,11 @@ test(
     const absolute = path.join(fixture.root, fixture.resultPaths[0]);
     const result = JSON.parse(fs.readFileSync(absolute, "utf8"));
     const lens = result.lenses[0];
-    result.findings = uniqueFindings(lens, MAX_FINDINGS_PER_ROUND, "render-boundary");
+    result.findings = maximumRenderBudgetFindings(lens, "render-boundary");
+    assert.equal(
+      result.findings.reduce((sum, finding) => sum + findingRenderChars(finding), 0),
+      MAX_FINDING_RENDER_CHARS_PER_ROUND
+    );
     result.verdicts.find((verdict) => verdict.lens === lens).outcome = "findings";
     fs.writeFileSync(absolute, `${JSON.stringify(result)}\n`);
     const generated = generate(fixture, {
@@ -1980,7 +2344,16 @@ function validFinding(category) {
     fix_kind: "behavioral",
     verify: "node --test tests/example.test.js",
     evidence: [{ kind: "source", ref: "src/example.js:1" }],
-    change_anchors: [{ path: "src/example.js", side: "head", line_start: 1, line_end: 1 }],
+    change_anchors: [
+      {
+        path: "src/example.js",
+        side: "head",
+        line_start: 1,
+        line_end: 1,
+        affected_ref: "src/example.js:1",
+        relation: "The changed export directly causes the reported contract violation.",
+      },
+    ],
     owner: "review",
     disposition: "open",
     decision_required: false,
@@ -1998,6 +2371,36 @@ function uniqueFindings(category, count, prefix = "finding") {
     finding.id = findingId(finding);
     return finding;
   });
+}
+
+function maximumRenderBudgetFindings(category, prefix) {
+  const findings = uniqueFindings(category, MAX_FINDINGS_PER_ROUND, prefix);
+  for (const [index, finding] of findings.entries()) {
+    finding.rule = `r-${index}`;
+    finding.issue = `Issue ${index}`;
+    finding.impact = "Impact.";
+    finding.fix = "Fix.";
+    finding.verify = "Verify.";
+    finding.change_anchors[0].relation = "Changed line causes affected behavior.";
+    finding.id = findingId(finding);
+  }
+  let remaining =
+    MAX_FINDING_RENDER_CHARS_PER_ROUND -
+    findings.reduce((sum, finding) => sum + findingRenderChars(finding), 0);
+  assert.ok(remaining > 0, "baseline boundary fixture must leave prose budget to fill");
+  for (const finding of findings) {
+    const addition = Math.min(remaining, MAX_FINDING_PROSE_CHARS - finding.impact.length);
+    finding.impact += "x".repeat(addition);
+    finding.id = findingId(finding);
+    remaining -= addition;
+    if (remaining === 0) break;
+  }
+  assert.equal(remaining, 0, "fixture fields must have enough capacity to reach the exact budget");
+  assert.equal(
+    findings.reduce((sum, finding) => sum + findingRenderChars(finding), 0),
+    MAX_FINDING_RENDER_CHARS_PER_ROUND
+  );
+  return findings;
 }
 
 function setFindingForLens(fixture, lens, finding) {

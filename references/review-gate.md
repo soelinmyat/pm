@@ -26,7 +26,7 @@ Every gate runs the same loop:
 
 ```
 1. Dispatch ALL reviewers in one parallel wave
-2. Collect verdicts; merge + deduplicate team findings (independent reviewers stay separate signals)
+2. Collect verdicts; merge + deduplicate team findings (context-separated reviewer signals stay distinct)
 3. Split blocking vs advisory
 4. Blocking → fix the artifact → re-dispatch the whole wave. `fresh-eyes` reviewers always get a fresh agent; `Independence: none` reviewers may be re-engaged with fix context (see Sequential dispatch). Fixes can introduce new problems — re-checks cover the whole artifact, not just the fixes.
 5. Repeat up to the iteration cap

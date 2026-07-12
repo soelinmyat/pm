@@ -17,6 +17,8 @@ const {
 const { isRfc3339DateTime } = require("./lib/iso-time");
 const {
   MAX_CHANGED_FILE_BYTES,
+  MAX_EVIDENCE_PER_FINDING,
+  MAX_EVIDENCE_BYTES_PER_CHECK,
   MAX_FINDING_PROSE_CHARS,
   MAX_FINDING_RENDER_CHARS_PER_ROUND,
   MAX_FINDINGS_PER_REVIEWER,
@@ -26,6 +28,7 @@ const {
 } = require("./lib/review-limits");
 const {
   DECISION_ACTIONS,
+  changeAnchorText,
   deriveLensApplicability,
   LENSES,
   OWNERS,
@@ -62,9 +65,13 @@ const REQUIRED_EVIDENCE = Object.freeze({
 });
 const FROZEN_MERGE_BASE = Symbol("review-frozen-merge-base");
 const CHANGE_HUNK_CACHE = Symbol("review-change-hunk-cache");
+const FROZEN_BLOB_CACHE = Symbol("review-frozen-blob-cache");
+const BOUND_ARTIFACT_CACHE = Symbol("review-bound-artifact-cache");
+const EVIDENCE_BYTE_LEDGER = Symbol("review-evidence-byte-ledger");
 const CHANGE_HUNK_ANCHOR_POLICY = "changed-hunk-anchor-v1";
 const MAX_CHANGE_ANCHORS = 8;
 const MAX_ANCHOR_PATHS = 500;
+const MAX_ANCHOR_RELATION_CHARS = 500;
 
 function checkReview(options) {
   const root = fs.realpathSync(path.resolve(options.root || process.cwd()));
@@ -818,7 +825,7 @@ function validateSignal(root, finding, reviewerId, assignedLenses, target, label
       issues
     );
   if (target.relevance_policy === CHANGE_HUNK_ANCHOR_POLICY)
-    validateChangeAnchors(root, finding.change_anchors, target, `${label}.change_anchors`, issues);
+    validateChangeAnchors(root, finding, target, `${label}.change_anchors`, issues);
   for (const field of ["rule", "issue", "impact", "fix", "verify"])
     if (!text(finding[field]) || finding[field].length > MAX_FINDING_PROSE_CHARS)
       add(
@@ -849,6 +856,12 @@ function validateSignal(root, finding, reviewerId, assignedLenses, target, label
   } else {
     let categoryEvidence = false;
     const refs = new Set();
+    let duplicateEvidence = false;
+    const overEvidenceBudget = finding.evidence.length > MAX_EVIDENCE_PER_FINDING;
+    if (overEvidenceBudget) {
+      add(issues, `${label}.evidence`, `must contain at most ${MAX_EVIDENCE_PER_FINDING} entries`);
+      identityReady = false;
+    }
     for (const [index, evidence] of finding.evidence.entries()) {
       const at = `${label}.evidence[${index}]`;
       if (!object(evidence)) {
@@ -860,7 +873,26 @@ function validateSignal(root, finding, reviewerId, assignedLenses, target, label
       if (!EVIDENCE_KINDS.has(evidence.kind) || !text(evidence.ref) || evidence.ref.length > 1000) {
         add(issues, at, "requires a known kind and bounded reference");
         identityReady = false;
-      } else {
+      }
+      const evidenceKey = evidenceIdentityKey(evidence);
+      if (refs.has(evidenceKey)) {
+        add(issues, at, "duplicates evidence in this finding");
+        duplicateEvidence = true;
+        identityReady = false;
+      }
+      refs.add(evidenceKey);
+      if (REQUIRED_EVIDENCE[finding.category]?.has(evidence.kind)) categoryEvidence = true;
+    }
+    if (!overEvidenceBudget && !duplicateEvidence)
+      for (const [index, evidence] of finding.evidence.entries()) {
+        if (
+          !object(evidence) ||
+          !EVIDENCE_KINDS.has(evidence.kind) ||
+          !text(evidence.ref) ||
+          evidence.ref.length > 1000
+        )
+          continue;
+        const at = `${label}.evidence[${index}]`;
         if (
           ["source", "test", "contract", "design-token"].includes(evidence.kind) &&
           evidence.sha256 !== undefined
@@ -868,11 +900,6 @@ function validateSignal(root, finding, reviewerId, assignedLenses, target, label
           add(issues, `${at}.sha256`, "Git-backed evidence must not include sha256");
         validateEvidenceReference(root, evidence, target, at, issues);
       }
-      if (refs.has(`${evidence.kind}:${evidence.ref}`))
-        add(issues, at, "duplicates evidence in this finding");
-      refs.add(`${evidence.kind}:${evidence.ref}`);
-      if (REQUIRED_EVIDENCE[finding.category]?.has(evidence.kind)) categoryEvidence = true;
-    }
     if (!categoryEvidence) add(issues, `${label}.evidence`, `does not support ${finding.category}`);
     if (finding.category === "bug") {
       const kinds = new Set(
@@ -928,7 +955,7 @@ function validateEvidenceReference(root, evidence, target, label, issues) {
         changed?.status === "D"
           ? target[FROZEN_MERGE_BASE] || target.source.base_commit
           : target.source.commit;
-      const bytes = readCommittedBlob(root, commit, match[1]);
+      const bytes = readFrozenBlob(root, target, commit, match[1]);
       validateTextLineRange(bytes, end, `${label}.ref`, issues);
     } catch (error) {
       add(issues, `${label}.ref`, `cannot resolve frozen evidence: ${error.message}`);
@@ -938,7 +965,7 @@ function validateEvidenceReference(root, evidence, target, label, issues) {
   if (evidence.kind === "upstream-gate") {
     if (!projectPath(evidence.ref))
       return add(issues, `${label}.ref`, "must be a project-relative gate artifact path");
-    const file = readBoundFile(root, evidence.ref, `${label}.ref`, issues);
+    const file = readBoundArtifact(root, target, evidence.ref, `${label}.ref`, issues);
     validateArtifactEvidence(file, evidence, label, issues, true, target.source.commit);
     return;
   }
@@ -949,10 +976,71 @@ function validateEvidenceReference(root, evidence, target, label, issues) {
       `${label}.ref`,
       "trace and benchmark evidence must use artifact:<project-path>#locator"
     );
-  const file = readBoundFile(root, match[1], `${label}.ref`, issues);
+  const file = readBoundArtifact(root, target, match[1], `${label}.ref`, issues);
   if (!validateArtifactEvidence(file, evidence, label, issues, false)) return;
   if (!file.bytes.toString("utf8").includes(match[2]))
     add(issues, `${label}.ref`, "locator is not present in the bound artifact bytes");
+}
+
+function evidenceIdentityKey(evidence) {
+  if (!object(evidence)) return `invalid:${String(evidence)}`;
+  const digestIdentity = new Set(["trace", "benchmark", "upstream-gate"]).has(evidence.kind)
+    ? String(evidence.sha256 || "")
+    : "unbound";
+  return `${String(evidence.kind)}\0${String(evidence.ref)}\0${digestIdentity}`;
+}
+
+function readFrozenBlob(root, target, commit, relative) {
+  let cache = target[FROZEN_BLOB_CACHE];
+  if (!cache) {
+    cache = new Map();
+    target[FROZEN_BLOB_CACHE] = cache;
+  }
+  const key = `${commit}\0${relative}`;
+  if (!cache.has(key)) {
+    const remaining = remainingEvidenceBytes(target);
+    const bytes = readCommittedBlob(
+      root,
+      commit,
+      relative,
+      remaining,
+      `review evidence exceeds the ${MAX_EVIDENCE_BYTES_PER_CHECK}-byte aggregate byte budget`
+    );
+    consumeEvidenceBytes(target, bytes.length);
+    cache.set(key, bytes);
+  }
+  return cache.get(key);
+}
+
+function readBoundArtifact(root, target, relative, label, issues) {
+  let cache = target[BOUND_ARTIFACT_CACHE];
+  if (!cache) {
+    cache = new Map();
+    target[BOUND_ARTIFACT_CACHE] = cache;
+  }
+  if (cache.has(relative)) return cache.get(relative);
+  const remaining = remainingEvidenceBytes(target);
+  const file = readBoundFile(root, relative, label, issues, remaining, {
+    budgetMessage: `review evidence exceeds the ${MAX_EVIDENCE_BYTES_PER_CHECK}-byte aggregate byte budget`,
+  });
+  if (file) {
+    consumeEvidenceBytes(target, file.bytes.length);
+    cache.set(relative, file);
+  }
+  return file;
+}
+
+function remainingEvidenceBytes(target) {
+  return MAX_EVIDENCE_BYTES_PER_CHECK - (target[EVIDENCE_BYTE_LEDGER] || 0);
+}
+
+function consumeEvidenceBytes(target, bytes) {
+  const used = target[EVIDENCE_BYTE_LEDGER] || 0;
+  if (!Number.isSafeInteger(bytes) || bytes < 0 || bytes > MAX_EVIDENCE_BYTES_PER_CHECK - used)
+    throw new Error(
+      `review evidence exceeds the ${MAX_EVIDENCE_BYTES_PER_CHECK}-byte aggregate byte budget`
+    );
+  target[EVIDENCE_BYTE_LEDGER] = used + bytes;
 }
 
 function validateArtifactEvidence(file, evidence, label, issues, gate, targetCommit = null) {
@@ -990,16 +1078,31 @@ function validateChangedLineRange(root, target, changed, end, label, issues) {
       changed.status === "D"
         ? target[FROZEN_MERGE_BASE] || target.source.base_commit
         : target.source.commit;
-    const bytes = readCommittedBlob(root, commit, changed.path);
+    const bytes = readFrozenBlob(root, target, commit, changed.path);
     validateTextLineRange(bytes, end, label, issues);
   } catch (error) {
     add(issues, label, `cannot resolve frozen source: ${error.message}`);
   }
 }
 
-function validateChangeAnchors(root, anchors, target, label, issues) {
+function validateChangeAnchors(root, finding, target, label, issues) {
+  const anchors = finding.change_anchors;
   if (!Array.isArray(anchors) || anchors.length < 1 || anchors.length > MAX_CHANGE_ANCHORS)
     return add(issues, label, `must contain 1 through ${MAX_CHANGE_ANCHORS} causal anchors`);
+  const gitEvidence = (finding.evidence || [])
+    .filter(
+      (item) =>
+        object(item) &&
+        ["source", "test", "contract", "design-token"].includes(item.kind) &&
+        text(item.ref)
+    )
+    .map((item) => ({ ref: item.ref, locator: parseGitLocator(item.ref) }))
+    .filter((item) => item.locator);
+  const primaryRefs = new Set([
+    `${finding.file}:${finding.line_start}`,
+    `${finding.file}:${finding.line_start}-${finding.line_end}`,
+  ]);
+  const affectedRefs = new Set([...primaryRefs, ...gitEvidence.map((item) => item.ref)]);
   const changedByPath = new Map();
   for (const changed of target.changed_files || []) {
     changedByPath.set(changed.path, changed);
@@ -1011,7 +1114,28 @@ function validateChangeAnchors(root, anchors, target, label, issues) {
       add(issues, at, "must be an object");
       continue;
     }
-    closed(anchor, ["path", "side", "line_start", "line_end"], at, issues);
+    closed(
+      anchor,
+      ["path", "side", "line_start", "line_end", "affected_ref", "relation"],
+      at,
+      issues
+    );
+    if (
+      !text(anchor.relation) ||
+      anchor.relation.length > MAX_ANCHOR_RELATION_CHARS ||
+      /[\r\n]/.test(anchor.relation)
+    )
+      add(
+        issues,
+        `${at}.relation`,
+        `is required, single-line, and must not exceed ${MAX_ANCHOR_RELATION_CHARS} characters`
+      );
+    if (!text(anchor.affected_ref) || !affectedRefs.has(anchor.affected_ref))
+      add(
+        issues,
+        `${at}.affected_ref`,
+        "must exactly bind the finding primary locator or one Git-backed evidence locator"
+      );
     const changed = changedByPath.get(anchor.path);
     if (!projectPath(anchor.path) || !changed) {
       add(issues, `${at}.path`, "must reference a frozen changed path or its old rename path");
@@ -1053,7 +1177,28 @@ function validateChangeAnchors(root, anchors, target, label, issues) {
     });
     if (!intersects)
       add(issues, at, `does not intersect a ${anchor.side} changed hunk in the frozen diff`);
+    const evidenceOverlap = gitEvidence.some(
+      ({ locator }) =>
+        locator.path === anchor.path &&
+        anchor.line_start <= locator.end &&
+        locator.start <= anchor.line_end
+    );
+    if (!evidenceOverlap)
+      add(
+        issues,
+        at,
+        "head and base anchors require overlapping Git-backed evidence on the same path"
+      );
   }
+}
+
+function parseGitLocator(value) {
+  const match = String(value || "").match(/^(.+):(\d+)(?:-(\d+))?$/);
+  if (!match || !projectPath(match[1])) return null;
+  const start = Number(match[2]);
+  const end = Number(match[3] || match[2]);
+  if (!positiveLine(start) || !positiveLine(end) || end < start) return null;
+  return { path: match[1], start, end };
 }
 
 function frozenPathChange(root, target, changed) {
@@ -1483,7 +1628,7 @@ function readJson(root, relative, label, issues) {
   }
 }
 
-function readBoundFile(root, relative, label, issues, maxBytes = 64 * 1024 * 1024) {
+function readBoundFile(root, relative, label, issues, maxBytes = 64 * 1024 * 1024, options = {}) {
   if (!projectPath(relative)) {
     add(issues, label, "must be project-relative without traversal");
     return null;
@@ -1498,7 +1643,13 @@ function readBoundFile(root, relative, label, issues, maxBytes = 64 * 1024 * 102
       sha256: digest(bytes),
     };
   } catch (error) {
-    add(issues, label, error.message);
+    add(
+      issues,
+      label,
+      options.budgetMessage && error.message === `input exceeds ${maxBytes}-byte budget`
+        ? options.budgetMessage
+        : error.message
+    );
     return null;
   }
 }
@@ -1563,17 +1714,8 @@ function expandFromReport(options) {
   if (!options.fromReport) return options;
   const root = path.resolve(options.root || process.cwd());
   if (!projectPath(options.reportPath)) throw new Error("--report must be project-relative");
-  const absolute = path.resolve(root, options.reportPath);
-  const stat = fs.lstatSync(absolute);
-  if (!stat.isFile() || stat.isSymbolicLink())
-    throw new Error("report must be a regular non-symlink file");
-  const realRoot = fs.realpathSync(root);
-  const real = fs.realpathSync(absolute);
-  if (real !== realRoot && !real.startsWith(`${realRoot}${path.sep}`))
-    throw new Error("report resolves outside project root");
-  const bytes = fs.readFileSync(real);
-  if (bytes.length > MAX_JSON_BYTES) throw new Error("report exceeds JSON budget");
-  const report = JSON.parse(bytes.toString("utf8"));
+  const reportFile = readProjectInput(root, options.reportPath, MAX_JSON_BYTES);
+  const report = JSON.parse(reportFile.bytes.toString("utf8"));
   if (!object(report.target) || !Array.isArray(report.results) || report.results.length === 0)
     throw new Error("report does not contain target and result bindings");
   return {
@@ -1626,15 +1768,13 @@ function findingRenderChars(finding) {
     ...(finding.change_anchors || []).flatMap((item) => [
       item?.path,
       item?.side,
+      item?.affected_ref,
+      item?.relation,
       Number.isInteger(item?.line_start) ? String(item.line_start) : "",
       Number.isInteger(item?.line_end) ? String(item.line_end) : "",
     ]),
   ];
   return fields.reduce((sum, value) => sum + (typeof value === "string" ? value.length : 0), 0);
-}
-function changeAnchorText(anchor) {
-  if (anchor?.side === "path") return `${anchor.path} [path]`;
-  return `${anchor?.path || "unknown"} [${anchor?.side || "unknown"} ${anchor?.line_start}-${anchor?.line_end}]`;
 }
 function object(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -1685,6 +1825,7 @@ module.exports = {
   buildCanonicalReport,
   checkReview,
   expandFromReport,
+  findingRenderChars,
   parseArgs,
   validateFrozenTarget,
   validateRenderedReportMarkers,

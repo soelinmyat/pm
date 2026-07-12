@@ -1,7 +1,7 @@
 ---
 name: Dispatch reviewers
 order: 2
-description: Run the target-planned read-only wave and collect schema-valid independent results
+description: Run the target-planned read-only wave and collect schema-valid context-separated results
 requires:
   - ../references/evidence-contract.md
   - ../references/reviewer-briefs.md
@@ -15,9 +15,9 @@ Produce exactly one hash-bound JSON result for every physical reviewer in `targe
 ## How
 
 1. Read the target, reviewer briefs, personas, project instructions, AGENTS/CLAUDE conventions, acceptance criteria, and exact diff. Do not give reviewers prior findings or the intended answer.
-2. Dispatch all planned physical reviewers in one read-only parallel wave when native subagents are available. This is the scoped review exception in `agent-runtime.md`. With one physical reviewer or no safe subagent capability, run assigned lenses sequentially without mixing their verdict sections.
+2. Dispatch all planned physical reviewers in one read-only parallel wave when native subagents are available. This is requested context separation for variance reduction, not an independent security principal. With one physical reviewer or no safe subagent capability, run assigned lenses sequentially without mixing their verdict sections and describe the fallback as shared-orchestrator execution.
 3. Give each reviewer only its assigned lenses, exact target binding, runtime/profile identity, changed files, diff, acceptance criteria, and the shared JSON schema. A multi-lens reviewer must return an isolated verdict for each lens.
-4. Require evidence locators that the checker can resolve. Source/test/contract/design-token evidence uses `path:line[-line]` against the frozen source commit. Trace/benchmark uses `artifact:path#literal-locator` plus the artifact's exact `sha256`; upstream-gate evidence uses a project-relative JSON artifact path plus its exact `sha256`, recognized outcome, and `commit` equal to the target source commit. For `changed-hunk-anchor-v1` targets, require 1–8 causal anchors per finding: `head` for current changed lines, `base` for removed lines, or `path` only for non-textual changes without hunks. The primary line may be unchanged, but the anchor must identify the change that caused the finding.
+4. Require evidence locators that the checker can resolve. Source/test/contract/design-token evidence uses `path:line[-line]` against the frozen source commit. Trace/benchmark uses `artifact:path#literal-locator` plus the artifact's exact `sha256`; upstream-gate evidence uses a project-relative JSON artifact path plus its exact `sha256`, recognized outcome, and `commit` equal to the target source commit. For `changed-hunk-anchor-v1` targets, require 1–8 causal anchors per finding: `head` for current changed lines, `base` for removed lines, or `path` only for non-textual changes without hunks. Each line anchor overlaps Git-backed evidence on the same causal path; every anchor names an affected primary/evidence locator and explains the cause/effect relation in one bounded line. The primary line may be unchanged and effects may cross files, but the anchor must bind the change that caused the finding to the location it affects.
 5. Save exactly one file per allocation row at `.pm/dev-sessions/{slug}/review/runs/{RUN_ID}/round-{N}/results/{worker-id}.json`, deriving `{RUN_ID}` and `{N}` from the target. Do not repair malformed reviewer JSON by inventing content; re-dispatch that worker once with the validation error.
 6. Reviewers are read-only. They do not edit, commit, push, update gates, or decide product/design questions.
 

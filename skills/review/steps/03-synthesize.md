@@ -8,7 +8,7 @@ requires:
 
 ## Goal
 
-Generate a mutable draft review report from current evidence without losing independent signals or hiding disagreements.
+Generate a mutable draft review report from current evidence without losing reviewer signals or hiding disagreements.
 
 ## How
 

@@ -1,5 +1,13 @@
 # Review Evidence Contract
 
+## Assurance and threat model
+
+Review is a trusted-local-root workflow. It assumes the local user/root orchestrator, installed PM plugin and validators, operating system, selected model runtime, and browser process are honest. Repository content, reviewer prose, HTML, and imported artifacts are untrusted inputs. The contract detects stale, malformed, swapped, hidden, path-escaped, or accidentally edited evidence; it does not authenticate evidence against a malicious root with arbitrary filesystem and process control.
+
+Hashes bind the package's internal consistency and make post-production drift visible. They do not prove who produced an artifact or which process executed. The legacy allocation field `independent: true` requests context-separated reviewer execution for variance reduction; it is not an attestation of an independent security principal, and inline-sequential fallback shares the root orchestrator. Local keys, HMACs, nonces, timestamps, hardware-backed signatures, browser paths, or executable hashes are not adversarial controls when the same root can fabricate inputs or invoke the signer.
+
+The default assurance level is `local-observation`. An optional future externally attested mode may bind the same package to a protected CI or other trusted service identity, but no external attestation is attempted by this contract.
+
 ## Files
 
 Store the chain under `.pm/dev-sessions/{slug}/review/`:
@@ -24,7 +32,7 @@ renders/
 
 Each fresh Review invocation gets a new kebab-case run directory. Synthesis may overwrite only `runs/{run-id}/round-N/draft-report.json` and `draft-report.html` while decisions are pending. Finalize the round report exactly once after decisions. Never overwrite a finalized prior run or round: later rounds bind the exact preceding report path. A passing round is projected to the canonical root `report.json` and `report.html` for Dev/Ship gate discovery; its target and result bindings still point into the run directory.
 
-The canonical gate row binds `renders/manifest.json` with `render_manifest` and raw `render_manifest_sha256`. The manifest's source hash equals the canonical `report.html` bytes; its desktop, tablet, and narrow viewport plus full-page PNGs and print PDF retain project-relative paths, byte counts, dimensions/pages, and `sha256:` hashes. The renderer also retains its real-browser `data-review-*` marker visibility set. Gate-time validation rechecks those frozen bytes, metrics, and first-screen marker results without launching a browser or contacting the network.
+The canonical gate row binds `renders/manifest.json` with `render_manifest` and raw `render_manifest_sha256`. The manifest's source hash equals the canonical `report.html` bytes; its desktop, tablet, and narrow viewport plus full-page PNGs and print PDF retain project-relative paths, byte counts, dimensions/pages, and `sha256:` hashes. The renderer also retains locally observed browser-computed `data-review-*` marker visibility and an `observation` record: assurance level, producer/plugin version, canonical executable path, executable SHA-256 before and after capture, Chromium-family version, and canonical invocation-configuration digest. Executable drift during capture fails. These fields detect accidental drift or substitution; a malicious local root can forge the complete record. Gate-time validation rechecks the frozen package without launching a browser or contacting the network.
 
 Source inventory and diff identity use Git three-dot semantics against the live authoritative remote-default object. A feature branch may legitimately diverge from that object; frozen validation authenticates both commits and their merge base rather than requiring the moving default-branch tip to be a linear ancestor. Deleted-file line evidence resolves from that merge base.
 
@@ -52,15 +60,17 @@ One result is required for every allocation row. Result run, round, target bindi
 
 Findings use the schema in `reviewer-briefs.md`. The `verify` field is an untrusted, non-executable plan; the resolving root independently derives trusted commands from repository-controlled test configuration and never executes reviewer text directly. Deterministic identity is `rv-` plus the first 20 lowercase SHA-256 hex characters over compact JSON:
 
+Each finding may contain at most 12 evidence entries. Exact duplicate evidence identities are rejected before any locator is resolved; identity includes kind and ref plus the exact digest for trace, benchmark, and upstream-gate evidence. Frozen Git blobs and bound artifacts are read at most once per path and identity during one check, and their unique resolved bytes share a 64 MiB aggregate per-check budget.
+
 ```text
 [normalized file, line_start, line_end, normalized rule, sorted normalized "kind:ref:digest" evidence]
 ```
 
 `digest` is the exact SHA-256 for trace, benchmark, and upstream-gate evidence. Git-backed source, test, contract, and design-token evidence must not include `sha256` and use the literal `unbound` sentinel in the identity tuple. For example: `source:src/cache.js:18:unbound`.
 
-Category is deliberately excluded so independent lenses can converge on the same defect. A reviewer may emit only assigned categories. The primary file must be changed and line ranges must exist in current text (deleted-file diff locations remain valid).
+Category is deliberately excluded so context-separated lenses can converge on the same defect. A reviewer may emit only assigned categories. The primary file must be changed and line ranges must exist in current text (deleted-file diff locations remain valid).
 
-When the target declares `relevance_policy: changed-hunk-anchor-v1`, each finding carries 1–8 causal `change_anchors`. A `head` anchor intersects an added/current zero-context hunk range; a `base` anchor intersects a removed zero-context hunk range; a `path` anchor names a frozen changed path that has no textual hunks (for example a binary or metadata-only change) and omits line fields. Anchor paths may use the current path or the frozen old path of a rename. Validation derives and lazily caches hunks from the authenticated merge base and target commit with bounded, argument-only Git calls. This permits an unchanged primary line when a concrete changed hunk caused the defect, while rejecting findings attached only to unrelated pre-existing code. Anchors are retained in signals, canonical findings, JSON, and HTML, but excluded from deterministic finding identity so adding provenance does not split otherwise identical signals.
+When the target declares `relevance_policy: changed-hunk-anchor-v1`, each finding carries 1–8 causal `change_anchors`. Every anchor contains a bounded, single-line `relation` and an `affected_ref` that exactly binds the finding's primary locator or a Git-backed evidence locator. A `head` anchor intersects an added/current zero-context hunk range; a `base` anchor intersects a removed zero-context hunk range. Both line-addressed forms must overlap source/test/contract/design-token evidence on the same causal path, so an arbitrary changed hunk cannot justify an unrelated pre-existing observation. A `path` anchor names a frozen changed path that has no textual hunks (for example a binary or metadata-only change), omits line fields, and uses its explicit relation plus affected locator to bind a legitimate cross-file effect. Anchor paths may use the current path or the frozen old path of a rename. Validation derives and lazily caches hunks from the authenticated merge base and target commit with bounded, argument-only Git calls. This permits an unchanged primary line and cross-file consequences when their cause/effect chain is explicit. Anchors are retained in signals, canonical findings, JSON, and HTML, but excluded from deterministic finding identity so adding provenance does not split otherwise identical signals.
 
 Evidence locator forms:
 
@@ -104,7 +114,7 @@ Generate canonical `report.json` with `review-check.js --write-report`. It binds
 
 Render `report.html` with `scripts/review-report.js`, which uses `references/templates/review-report.html`. Metadata generator is exactly `pm:review` plus `plugin.config.json` version. Metadata source binds `report.json`; evidence binds target, every result, and decisions. Unresolved tokens fail.
 
-The first screenful visibly binds outcome, round, blocker count, top issue, and next action. The top issue ranks gate blockers and disputes first, then every residual finding by severity and confidence; a passing report cannot claim there is no issue while lower-severity findings remain. Every finding marker visibly includes issue, impact, fix, owner, evidence refs, signals, dispute/decision state, and the advisory, non-executable verification plan. Structural and real-browser validation ignore hidden/offscreen/clipped text.
+The first screenful visibly binds outcome, round, blocker count, top issue, and next action. The top issue ranks gate blockers and disputes first, then every residual finding by severity and confidence; a passing report cannot claim there is no issue while lower-severity findings remain. Every finding marker visibly includes issue, impact, fix, owner, evidence refs, signals, dispute/decision state, and the advisory, non-executable verification plan. Structural and locally observed browser validation ignore hidden/offscreen/clipped text.
 
 ## Commands
 

@@ -11,6 +11,7 @@ Use only the lenses assigned in `target.json`. The shared result schema and evid
 - Set `decision_required: true` and `fix_kind: decision` when resolution needs product, design, architecture, or authority choice.
 - Confidence measures evidence strength. Severity measures consequence. Do not use confidence as severity.
 - `verify` is an untrusted, non-executable verification plan: describe the focused behavior or repository test that should prove the fix. The resolving root must derive its own trusted command from repository configuration and must never execute this string directly.
+- Keep evidence to the smallest sufficient set, with at most 12 unique entries per finding. Trace, benchmark, and upstream-gate uniqueness includes their exact digest identity.
 
 ## Lens briefs
 
@@ -53,7 +54,7 @@ Use only the lenses assigned in `target.json`. The shared result schema and evid
       "fix_kind": "behavioral",
       "verify": "Exercise the cache invalidation regression in tests/cache.test.js.",
       "evidence": [{ "kind": "source", "ref": "src/cache.js:42-45" }],
-      "change_anchors": [{ "path": "src/cache.js", "side": "head", "line_start": 42, "line_end": 45 }],
+      "change_anchors": [{ "path": "src/cache.js", "side": "head", "line_start": 42, "line_end": 45, "affected_ref": "src/cache.js:42-45", "relation": "The changed write path omits invalidation, leaving the affected read cache stale." }],
       "owner": "review",
       "disposition": "open",
       "decision_required": false
@@ -65,4 +66,4 @@ Use only the lenses assigned in `target.json`. The shared result schema and evid
 
 Compute finding IDs with `findingId` from `scripts/lib/review-contract.js`; never guess them.
 
-For targets with `relevance_policy: changed-hunk-anchor-v1`, every finding needs 1–8 causal `change_anchors`. Use `head` for added/current changed lines, `base` for removed lines, and `path` only for a changed non-textual path with no line hunk. A finding's primary line may describe unchanged code, but at least one anchor must identify the frozen diff hunk that caused the issue. Anchors are retained for audit and deliberately excluded from finding identity.
+For targets with `relevance_policy: changed-hunk-anchor-v1`, every finding needs 1–8 causal `change_anchors`. Every anchor includes a single-line `relation` (maximum 500 characters) and an `affected_ref` that exactly names either the finding's primary locator or one Git-backed evidence locator. Use `head` for added/current changed lines and `base` for removed lines; each must overlap a source/test/contract/design-token evidence locator on the same causal path. Use `path` only for a changed non-textual path with no line hunk; its relation and affected locator make the cross-file effect explicit. A finding's primary line may describe unchanged code, but the anchor must identify the frozen cause and bind its affected location. Anchors are retained for audit and deliberately excluded from finding identity.

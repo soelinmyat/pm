@@ -37,6 +37,10 @@ function makePdf(){const objects=["1 0 obj\\n<< /Type /Catalog /Pages 2 0 R >>\\
 const screenshot = process.argv.find((arg) => arg.startsWith("--screenshot="));
 const pdf = process.argv.find((arg) => arg.startsWith("--print-to-pdf="));
 const dump = process.argv.includes("--dump-dom");
+if (process.argv.includes("--version")) {
+  process.stdout.write("Chromium 123.0.0 test\\n");
+  process.exit(0);
+}
 if (dump) {
   const probePath = new URL(process.argv[process.argv.length - 1]);
   const probe = fs.readFileSync(probePath, "utf8");
@@ -92,6 +96,50 @@ test("render checker captures the canonical viewport matrix and print PDF", () =
     assert.match(result.print.sha256, /^sha256:[0-9a-f]{64}$/);
     assert.match(result.source.sha256, /^sha256:[0-9a-f]{64}$/);
     assert.equal(result.markers.length, 1);
+    assert.equal(result.observation.assurance_level, "local-observation");
+    assert.equal(result.observation.producer.name, "pm:artifact-render-check");
+    assert.equal(
+      result.observation.browser.path,
+      fs.realpathSync(path.join(root, "fake-chromium.js"))
+    );
+    assert.equal(result.observation.browser.engine, "chromium");
+    assert.equal(result.observation.browser.version, "Chromium 123.0.0 test");
+    assert.match(result.observation.browser.executable_sha256_before, /^sha256:[0-9a-f]{64}$/);
+    assert.equal(
+      result.observation.browser.executable_sha256_after,
+      result.observation.browser.executable_sha256_before
+    );
+    assert.match(result.observation.invocation_configuration_sha256, /^sha256:[0-9a-f]{64}$/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("render checker rejects browser executable drift during capture", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-render-"));
+  try {
+    const htmlPath = path.join(root, "example.html");
+    const browserPath = fakeBrowser(root);
+    fs.writeFileSync(htmlPath, "<!doctype html><title>Example</title>");
+    fs.writeFileSync(
+      browserPath,
+      fs
+        .readFileSync(browserPath, "utf8")
+        .replace(
+          "if (screenshot) {",
+          'if (screenshot) { fs.appendFileSync(__filename, "\\n// executable drift\\n");'
+        )
+    );
+    assert.throws(
+      () =>
+        renderArtifact({
+          htmlPath,
+          outputDir: path.join(root, "renders"),
+          browserPath,
+          projectRoot: root,
+        }),
+      /browser executable changed during artifact capture/
+    );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

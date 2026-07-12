@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 
 const {
   allocateLenses,
+  changeAnchorText,
   devReviewContext,
   deriveLensApplicability,
   findingId,
@@ -12,6 +13,40 @@ const {
 } = require("../scripts/lib/review-contract");
 
 const ALL = ["bug", "design", "edge", "reuse", "quality", "efficiency"];
+
+test("change-anchor labels share exact head, base, and path formatting", () => {
+  assert.equal(
+    changeAnchorText({
+      path: "src/cache.js",
+      side: "head",
+      line_start: 4,
+      line_end: 9,
+      affected_ref: "src/cache.js:12",
+      relation: "The changed write leaves the affected read stale.",
+    }),
+    "src/cache.js [head 4-9] → src/cache.js:12 — The changed write leaves the affected read stale."
+  );
+  assert.equal(
+    changeAnchorText({
+      path: "src/cache.js",
+      side: "base",
+      line_start: 2,
+      line_end: 3,
+      affected_ref: "src/cache.js:8",
+      relation: "Removing the guard changes the affected branch.",
+    }),
+    "src/cache.js [base 2-3] → src/cache.js:8 — Removing the guard changes the affected branch."
+  );
+  assert.equal(
+    changeAnchorText({
+      path: "assets/logo.png",
+      side: "path",
+      affected_ref: "src/header.js:10",
+      relation: "The changed asset is displayed by the affected header.",
+    }),
+    "assets/logo.png [path] → src/header.js:10 — The changed asset is displayed by the affected header."
+  );
+});
 
 test("adaptive allocation covers every logical lens exactly once", () => {
   for (const maxWorkers of [1, 2, 3, 4, 5, 6, 10]) {
@@ -40,7 +75,7 @@ test("finding identity is deterministic across evidence order but changes with l
   assert.notEqual(findingId(finding), findingId({ ...finding, line_start: 11 }));
 });
 
-test("merge retains independent signals and exposes material disagreement", () => {
+test("merge retains reviewer signals and exposes material disagreement", () => {
   const first = { ...sampleFinding(), id: findingId(sampleFinding()), reviewer_id: "worker-bug" };
   const second = {
     ...first,

@@ -567,6 +567,7 @@ function verifyCommittedGateSidecarWithChecker(workspace, options, gateChecker) 
   }
   const checked = gateChecker(manifest, {
     currentCommit: options.expectedHeadOid,
+    currentBranch: options.expectedHead,
     manifestPath,
     artifactRoot: workspace,
     changedFiles,
