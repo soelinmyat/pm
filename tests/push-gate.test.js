@@ -37,6 +37,7 @@ function makeRepo({ branch = "feat/x" } = {}) {
   fs.writeFileSync(path.join(dir, "README.md"), "hi\n");
   git(dir, "add", ".");
   git(dir, "commit", "-q", "-m", "init");
+  git(dir, "update-ref", "refs/remotes/origin/main", "HEAD");
   git(dir, "checkout", "-q", "-b", branch);
   return dir;
 }

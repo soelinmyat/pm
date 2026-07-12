@@ -18,6 +18,7 @@ const {
   loadChangedFilesFromGit,
   parseArgs,
 } = require("../scripts/dev-gate-check.js");
+const { devReviewContext } = require("../scripts/lib/review-contract");
 
 function gate(name, commit = "abc123", overrides = {}) {
   return {
@@ -280,6 +281,12 @@ test("canonical Dev routing binds the Review target mode and exact completed len
   fs.writeFileSync(path.join(reviewDir, "target.json"), JSON.stringify({ mode: "code-scan" }));
   const render = seedReviewRenderManifest(root, htmlPath);
   const lenses = ["bug", "edge", "reuse", "quality", "efficiency"];
+  const routedSession = {
+    run_id: "dev_run-1",
+    slug: "example",
+    routing: { review_mode: "code-scan", decision_version: 1 },
+    task: { acceptance_criteria: ["Review the exact routed behavior"] },
+  };
   const reviewModule = require("../scripts/review-check");
   const originalCheck = reviewModule.checkReview;
   const originalExpand = reviewModule.expandFromReport;
@@ -287,7 +294,11 @@ test("canonical Dev routing binds the Review target mode and exact completed len
   reviewModule.checkReview = () => ({
     ok: true,
     issues: [],
-    target: { mode: "code-scan" },
+    target: {
+      mode: "code-scan",
+      source: { base_ref: "origin/main", base_commit: "base123" },
+      dev_context: devReviewContext(routedSession),
+    },
     report: {
       source: { commit: "abc123" },
       outcome: "passed",
@@ -303,47 +314,109 @@ test("canonical Dev routing binds the Review target mode and exact completed len
     lenses,
   });
   try {
-    const matching = checkGateManifest(manifest([row], { run_id: "run-1" }), {
+    const matching = checkGateManifest(manifest([row], { run_id: routedSession.run_id }), {
       artifactRoot: root,
       currentCommit: "abc123",
       requiredGates: ["review"],
-      canonicalSession: { run_id: "run-1", routing: { review_mode: "code-scan" } },
+      canonicalSession: routedSession,
       requireSessionBinding: true,
+      manifestPath: ".pm/dev-sessions/example/gates.json",
+      authoritativeBaseRef: "origin/main",
+      authoritativeBaseCommit: "base123",
     });
     assert.equal(matching.ok, true, JSON.stringify(matching.issues));
 
     fs.writeFileSync(path.join(reviewDir, "target.json"), JSON.stringify({ mode: "full" }));
-    const swappedPath = checkGateManifest(manifest([row], { run_id: "run-1" }), {
+    const swappedPath = checkGateManifest(manifest([row], { run_id: routedSession.run_id }), {
       artifactRoot: root,
       currentCommit: "abc123",
       requiredGates: ["review"],
-      canonicalSession: { run_id: "run-1", routing: { review_mode: "code-scan" } },
+      canonicalSession: routedSession,
       requireSessionBinding: true,
+      manifestPath: ".pm/dev-sessions/example/gates.json",
+      authoritativeBaseRef: "origin/main",
+      authoritativeBaseCommit: "base123",
     });
     assert.equal(swappedPath.ok, true, JSON.stringify(swappedPath.issues));
 
-    const wrongMode = checkGateManifest(manifest([row], { run_id: "run-1" }), {
+    const wrongMode = checkGateManifest(manifest([row], { run_id: routedSession.run_id }), {
       artifactRoot: root,
       currentCommit: "abc123",
       requiredGates: ["review"],
-      canonicalSession: { run_id: "run-1", routing: { review_mode: "full" } },
+      canonicalSession: {
+        ...routedSession,
+        routing: { ...routedSession.routing, review_mode: "full" },
+      },
       requireSessionBinding: true,
+      manifestPath: ".pm/dev-sessions/example/gates.json",
+      authoritativeBaseRef: "origin/main",
+      authoritativeBaseCommit: "base123",
     });
     assert.equal(wrongMode.ok, false);
     assert.match(JSON.stringify(wrongMode.issues), /must equal routed full/);
 
     const wrongLenses = checkGateManifest(
-      manifest([{ ...row, lenses: lenses.slice(0, -1) }], { run_id: "run-1" }),
+      manifest([{ ...row, lenses: lenses.slice(0, -1) }], { run_id: routedSession.run_id }),
       {
         artifactRoot: root,
         currentCommit: "abc123",
         requiredGates: ["review"],
-        canonicalSession: { run_id: "run-1", routing: { review_mode: "code-scan" } },
+        canonicalSession: routedSession,
         requireSessionBinding: true,
+        manifestPath: ".pm/dev-sessions/example/gates.json",
+        authoritativeBaseRef: "origin/main",
+        authoritativeBaseCommit: "base123",
       }
     );
     assert.equal(wrongLenses.ok, false);
     assert.match(JSON.stringify(wrongLenses.issues), /must exactly match report coverage/);
+
+    const wrongBase = checkGateManifest(manifest([row], { run_id: routedSession.run_id }), {
+      artifactRoot: root,
+      currentCommit: "abc123",
+      requiredGates: ["review"],
+      canonicalSession: routedSession,
+      requireSessionBinding: true,
+      manifestPath: ".pm/dev-sessions/example/gates.json",
+      authoritativeBaseRef: "origin/main",
+      authoritativeBaseCommit: "different-base",
+    });
+    assert.equal(wrongBase.ok, false);
+    assert.match(JSON.stringify(wrongBase.issues), /must equal the authoritative delivery base/);
+
+    const changedAcceptance = checkGateManifest(manifest([row], { run_id: routedSession.run_id }), {
+      artifactRoot: root,
+      currentCommit: "abc123",
+      requiredGates: ["review"],
+      canonicalSession: {
+        ...routedSession,
+        task: { acceptance_criteria: ["Different routed acceptance criteria"] },
+      },
+      requireSessionBinding: true,
+      manifestPath: ".pm/dev-sessions/example/gates.json",
+      authoritativeBaseRef: "origin/main",
+      authoritativeBaseCommit: "base123",
+    });
+    assert.equal(changedAcceptance.ok, false);
+    assert.match(JSON.stringify(changedAcceptance.issues), /must bind the canonical Dev run/);
+
+    const foreign = checkGateManifest(
+      manifest([{ ...row, artifact: ".pm/dev-sessions/other/review/report.html" }], {
+        run_id: routedSession.run_id,
+      }),
+      {
+        artifactRoot: root,
+        currentCommit: "abc123",
+        requiredGates: ["review"],
+        canonicalSession: routedSession,
+        requireSessionBinding: true,
+        manifestPath: ".pm/dev-sessions/example/gates.json",
+        authoritativeBaseRef: "origin/main",
+        authoritativeBaseCommit: "base123",
+      }
+    );
+    assert.equal(foreign.ok, false);
+    assert.match(JSON.stringify(foreign.issues), /must belong to the canonical Dev session/);
   } finally {
     reviewModule.checkReview = originalCheck;
     reviewModule.expandFromReport = originalExpand;

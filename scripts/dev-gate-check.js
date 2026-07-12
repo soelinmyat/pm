@@ -8,6 +8,7 @@ const path = require("node:path");
 const { VIEWPORTS: REVIEW_RENDER_VIEWPORTS, validateMetrics } = require("./artifact-render-check");
 const { inspectPdfBytes, inspectPngBytes } = require("./lib/media-inspect");
 const { readProjectInput } = require("./lib/safe-project-output");
+const { MAX_HTML_BYTES, MAX_JSON_BYTES } = require("./lib/review-limits");
 const { deriveSessionSlug } = require("./lib/session-slug");
 
 const DEFAULT_MANIFEST_PATH = ".pm/dev-sessions/current.gates.json";
@@ -161,9 +162,12 @@ function checkGateManifest(manifest, opts = {}) {
       manifestPath,
       artifactRoot,
       currentCommit,
+      canonicalSession,
       Boolean(manifest.run_id),
       reviewEvidenceMode === "enforce",
       canonicalSession?.routing?.review_mode || null,
+      opts.authoritativeBaseRef || null,
+      opts.authoritativeBaseCommit || null,
       issues
     );
   }
@@ -184,8 +188,11 @@ function validateReviewReportArtifact(
   artifactRoot,
   currentCommit,
   canonicalSession,
+  canonicalDeclared,
   enforceReviewEvidence,
   expectedReviewMode,
+  authoritativeBaseRef,
+  authoritativeBaseCommit,
   issues
 ) {
   if (!reviewGate || reviewGate.status !== "passed") return;
@@ -200,7 +207,7 @@ function validateReviewReportArtifact(
           "required passed review gate requires evidence_kind review-report-v1 in enforcement mode"
         )
       );
-    else if (canonicalSession || /(^|\/)review\/report\.html$/.test(artifact))
+    else if (canonicalDeclared || /(^|\/)review\/report\.html$/.test(artifact))
       issues.push(
         issue(manifestPath, "canonical review/report.html requires evidence_kind review-report-v1")
       );
@@ -211,6 +218,19 @@ function validateReviewReportArtifact(
     return;
   }
   const htmlPath = resolveArtifactPath(reviewGate.artifact, artifactRoot);
+  if (canonicalSession) {
+    const canonicalReview = path.join(
+      path.dirname(resolveArtifactPath(manifestPath, artifactRoot)),
+      "review",
+      "report.html"
+    );
+    if (path.resolve(htmlPath) !== path.resolve(canonicalReview)) {
+      issues.push(
+        issue(manifestPath, "review-report-v1 artifact must belong to the canonical Dev session")
+      );
+      return;
+    }
+  }
   if (
     path.basename(htmlPath) !== "report.html" ||
     path.basename(path.dirname(htmlPath)) !== "review"
@@ -265,6 +285,26 @@ function validateReviewReportArtifact(
           )
         );
     }
+    if (canonicalSession) {
+      const expectedContext = require("./lib/review-contract").devReviewContext(canonicalSession);
+      if (JSON.stringify(result.target?.dev_context) !== JSON.stringify(expectedContext))
+        issues.push(
+          issue(
+            manifestPath,
+            "review target must bind the canonical Dev run, route, and acceptance criteria"
+          )
+        );
+    }
+    if (canonicalSession && (!authoritativeBaseRef || !authoritativeBaseCommit))
+      issues.push(issue(manifestPath, "canonical Review enforcement requires authoritative base"));
+    else if (
+      authoritativeBaseRef &&
+      (result.target?.source?.base_ref !== authoritativeBaseRef ||
+        result.target?.source?.base_commit !== authoritativeBaseCommit)
+    )
+      issues.push(
+        issue(manifestPath, "review target base must equal the authoritative delivery base")
+      );
   } catch (error) {
     issues.push(issue(manifestPath, `cannot validate review-report-v1: ${error.message}`));
   }
@@ -285,7 +325,7 @@ function validateReviewRenderManifest(reviewGate, htmlPath, artifactRoot, manife
   }
   let value;
   try {
-    const file = readRegularProjectFile(manifest, artifactRoot, 4 * 1024 * 1024);
+    const file = readRegularProjectFile(manifest, artifactRoot, MAX_JSON_BYTES);
     if (digest(file.bytes) !== reviewGate.render_manifest_sha256)
       throw new Error("render manifest SHA-256 does not match its bytes");
     value = JSON.parse(file.bytes.toString("utf8"));
@@ -295,7 +335,7 @@ function validateReviewRenderManifest(reviewGate, htmlPath, artifactRoot, manife
   }
   let html;
   try {
-    html = readRegularProjectFile(htmlPath, artifactRoot, 4 * 1024 * 1024);
+    html = readRegularProjectFile(htmlPath, artifactRoot, MAX_HTML_BYTES);
   } catch (error) {
     issues.push(issue(manifestPath, `cannot bind review render source: ${error.message}`));
     return;
@@ -840,9 +880,15 @@ function main(argv = process.argv.slice(2)) {
     return 1;
   }
   let changedFiles = opts.changedFiles;
+  let authoritativeBaseCommit = null;
   if (opts.baseRef) {
     try {
       changedFiles = loadChangedFilesFromGit(opts.baseRef, process.cwd(), currentCommit);
+      authoritativeBaseCommit = execFileSync("git", ["rev-parse", opts.baseRef], {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      }).trim();
     } catch (err) {
       const result = {
         ok: false,
@@ -862,8 +908,10 @@ function main(argv = process.argv.slice(2)) {
     changedFiles,
     runId: opts.runId || sibling.session?.run_id || null,
     canonicalSession: sibling.session,
-    requireSessionBinding: path.basename(manifestPath) === "gates.json",
+    requireSessionBinding: opts.reviewEvidenceMode === "enforce",
     sessionError: sibling.error,
+    authoritativeBaseRef: opts.baseRef,
+    authoritativeBaseCommit,
     reviewEvidenceMode: opts.reviewEvidenceMode,
   });
   printResult(result, opts.json);
@@ -874,7 +922,7 @@ function readSiblingSessionContext(manifestPath) {
   if (path.basename(manifestPath) !== "gates.json") return { session: null, error: null };
   try {
     const sessionPath = path.join(path.dirname(manifestPath), "session.json");
-    const file = readRegularProjectFile(sessionPath, process.cwd(), 4 * 1024 * 1024);
+    const file = readRegularProjectFile(sessionPath, process.cwd(), MAX_JSON_BYTES);
     const session = JSON.parse(file.bytes.toString("utf8"));
     const validation = require("./lib/dev-session-schema").validateSession(session);
     if (validation.length > 0)

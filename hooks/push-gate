@@ -284,14 +284,6 @@ function resolveDefaultBranch(repoDir) {
   return "main";
 }
 
-function refExists(repoDir, ref) {
-  const result = spawnSync("git", ["-C", repoDir, "rev-parse", "--verify", "--quiet", ref], {
-    encoding: "utf8",
-    maxBuffer: MAX_BUFFER,
-  });
-  return !!result && result.status === 0;
-}
-
 // deriveSessionSlug is the single source of truth for branch -> manifest-name
 // normalization, shared with skills/hooks and .githooks/pre-push.
 function loadDeriveSessionSlug() {
@@ -402,13 +394,8 @@ function main() {
       "--review-evidence-mode",
       "enforce",
     ];
-    // Prefer the diff-aware check; degrade gracefully (drop --base) when the base
-    // isn't fetched so a missing remote ref never false-blocks. The core status /
-    // staleness checks still run without it.
     const defaultBranch = resolveDefaultBranch(repoDir);
-    if (refExists(repoDir, `origin/${defaultBranch}`)) {
-      checkerArgs.push("--base", `origin/${defaultBranch}`);
-    }
+    checkerArgs.push("--base", `origin/${defaultBranch}`);
 
     const result = spawnSync(process.execPath, [CHECKER, ...checkerArgs], {
       cwd: repoDir,

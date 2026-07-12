@@ -560,6 +560,10 @@ function verifyCommittedGateSidecarWithChecker(workspace, options, gateChecker) 
     reviewEvidenceMode: "enforce",
     canonicalSession,
     requireSessionBinding: true,
+    authoritativeBaseRef: options.baseRef,
+    authoritativeBaseCommit: runGit(["rev-parse", options.baseRef], workspace, {
+      timeout: 30_000,
+    }),
   });
   if (!checked.ok) {
     return {

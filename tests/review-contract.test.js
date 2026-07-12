@@ -3,7 +3,12 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { allocateLenses, findingId, mergeSignals } = require("../scripts/lib/review-contract");
+const {
+  allocateLenses,
+  devReviewContext,
+  findingId,
+  mergeSignals,
+} = require("../scripts/lib/review-contract");
 
 const ALL = ["bug", "design", "edge", "reuse", "quality", "efficiency"];
 
@@ -72,6 +77,39 @@ test("decision requirement disagreement is material and remains decision-bound",
   assert.equal(merged.findings[0].disputed, true);
   assert.equal(merged.findings[0].decision_required, true);
   assert.deepEqual(merged.unresolved_disagreements, [first.id]);
+});
+
+test("incompatible fixes are material disagreement even with the same fix kind", () => {
+  const first = { ...sampleFinding(), id: findingId(sampleFinding()), reviewer_id: "worker-a" };
+  const second = { ...first, reviewer_id: "worker-b", fix: "Delete the cache entirely." };
+  const merged = mergeSignals([first, second], []);
+  assert.equal(merged.findings[0].disputed, true);
+  assert.deepEqual(merged.unresolved_disagreements, [first.id]);
+});
+
+test("Dev review context binds route identity and ordered acceptance criteria", () => {
+  const session = {
+    run_id: "dev_example",
+    slug: "example",
+    routing: { review_mode: "full", decision_version: 2 },
+    task: { acceptance_criteria: ["First", "Second"] },
+  };
+  const context = devReviewContext(session);
+  assert.deepEqual(context, {
+    run_id: "dev_example",
+    slug: "example",
+    review_mode: "full",
+    decision_version: 2,
+    acceptance_sha256: context.acceptance_sha256,
+  });
+  assert.match(context.acceptance_sha256, /^[a-f0-9]{64}$/);
+  assert.notEqual(
+    context.acceptance_sha256,
+    devReviewContext({
+      ...session,
+      task: { acceptance_criteria: ["Second", "First"] },
+    }).acceptance_sha256
+  );
 });
 
 function sampleFinding() {

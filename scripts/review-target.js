@@ -5,7 +5,11 @@ const crypto = require("node:crypto");
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
-const { allocateLenses, LENSES } = require("./lib/review-contract");
+const {
+  allocateLenses,
+  deriveLensApplicability,
+  devReviewContext,
+} = require("./lib/review-contract");
 const projectWriter = require("./lib/project-atomic-write");
 const { readProjectInput } = require("./lib/safe-project-output");
 const {
@@ -18,8 +22,6 @@ const {
 
 const MAX_BOUND_BYTES = 64 * 1024 * 1024;
 const MAX_JSON_BYTES = 4 * 1024 * 1024;
-const UI_SOURCE =
-  /(^|\/)(components?|screens?|pages?|routes?|views?|layouts?|design-system|styles?|theme|copy|locales?|i18n)(\/|$)|\.(tsx|jsx|css|scss|sass|less|vue|svelte|html?|astro|erb|ejs|hbs|liquid|twig|mdx)$/i;
 
 function buildReviewTarget(options) {
   const root = fs.realpathSync(path.resolve(options.root || process.cwd()));
@@ -40,8 +42,6 @@ function buildReviewTarget(options) {
 
   const mode = options.mode || "full";
   if (!new Set(["full", "code-scan"]).has(mode)) throw new Error("mode must be full or code-scan");
-  const logical = mode === "full" ? [...LENSES] : LENSES.filter((lens) => lens !== "design");
-  const designApplicable = changedFiles.some((item) => UI_SOURCE.test(item.path));
   const designEvidence = optionalBinding(
     root,
     options.designCritiquePath,
@@ -49,16 +49,7 @@ function buildReviewTarget(options) {
   );
   if (designEvidence && designEvidence.commit !== commit)
     throw new Error(`design critique report must attest current HEAD ${commit}`);
-  const lenses = logical.map((name) => {
-    if (name !== "design")
-      return { name, applicable: true, reason: "required source-quality lens" };
-    if (!designApplicable) return { name, applicable: false, reason: "no UI source files changed" };
-    return {
-      name,
-      applicable: true,
-      reason: "UI source changed; inspect source-level design-system compliance only",
-    };
-  });
+  const lenses = deriveLensApplicability(mode, changedFiles);
   const profile = loadProfile(options.profile || "codex-workhorse");
   const maxWorkers = positiveInt(options.maxWorkers || 3, "max workers");
   const allocation = allocateLenses(
@@ -84,6 +75,7 @@ function buildReviewTarget(options) {
     }
   }
   const acceptance = optionalFileBinding(root, options.acceptancePath, "acceptance criteria");
+  const devContext = options.devSessionPath ? loadDevContext(root, options.devSessionPath) : null;
 
   return {
     schema_version: 1,
@@ -99,6 +91,7 @@ function buildReviewTarget(options) {
       diff_sha256: digest(diff),
     },
     changed_files: changedFiles,
+    dev_context: devContext,
     acceptance,
     upstream: { design_critique: designEvidence },
     ownership: {
@@ -110,6 +103,20 @@ function buildReviewTarget(options) {
     allocation,
     prior_report: priorReport,
   };
+}
+
+function loadDevContext(root, relative) {
+  const loaded = optionalJsonFileBinding(root, relative, "Dev session");
+  if (!loaded) throw new Error("Dev session is required");
+  const errors = require("./lib/dev-session-schema").validateSession(loaded.value);
+  if (errors.length > 0)
+    throw new Error(
+      `Dev session is invalid: ${errors
+        .slice(0, 3)
+        .map((item) => `${item.path}: ${item.message}`)
+        .join("; ")}`
+    );
+  return devReviewContext(loaded.value);
 }
 
 function resolveTrustedBase(root) {
@@ -295,6 +302,7 @@ function parseArgs(argv) {
     "--base-commit": "baseCommit",
     "--commit": "commit",
     "--acceptance": "acceptancePath",
+    "--dev-session": "devSessionPath",
     "--design-critique": "designCritiquePath",
     "--prior-report": "priorReportPath",
   };

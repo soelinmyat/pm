@@ -34,10 +34,11 @@ Generate `target.json` with `scripts/review-target.js`. It freezes:
 
 - run ID, round 1–3, iteration cap 3, mode, timestamp;
 - current commit, authoritative remote base ref/object, and binary diff SHA-256;
+- for Dev-routed work, canonical Dev run/slug, routed mode/version, and acceptance-criteria digest;
 - sorted changed-file status, old path, current byte hash, and byte count;
 - optional exact acceptance, Design Critique, and prior-report bindings;
 - non-overlapping gate ownership;
-- every logical lens with applicability and reason;
+- every logical lens with applicability deterministically derived from the frozen changed files;
 - every physical reviewer with exact profile, runtime, and assigned lenses.
 
 Rounds after 1 bind the immediately prior non-passing report for the same run. Round 1 cannot bind a prior report.
@@ -80,7 +81,7 @@ Never infer approver identity or create a decision from reviewer majority. Repos
 
 ## Canonical merge
 
-Exact IDs merge. Keep all signals. Use maximum confidence, highest severity, and the strongest signal's detail. Severity spread greater than one tier, fix kind, disposition, or decision requirement creates a dispute. A `keep-review` decision resolves the gate-level dispute without deleting the signals; authority-reducing proposals remain unresolved.
+Exact IDs merge. Keep all signals. Use maximum confidence, highest severity, and the strongest signal's detail. Severity spread greater than one tier, fix kind, normalized remediation, disposition, or decision requirement creates a dispute. A `keep-review` decision resolves the gate-level dispute without deleting the signals; authority-reducing proposals remain unresolved.
 
 Auto-fix eligibility requires all of: Review owner, open, confidence at least 80, `fix_kind: mechanical`, not disputed, not decision-required. Eligibility is a ceiling; the root still verifies the code before editing.
 

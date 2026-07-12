@@ -16,6 +16,7 @@ const {
 } = require("../scripts/evals/review-repeat-check");
 const { checkReview } = require("../scripts/review-check");
 const { renderReviewReport } = require("../scripts/review-report");
+const { deriveLensApplicability } = require("../scripts/lib/review-contract");
 
 test("review repeat comparison binds three complete independent result sets", (t) => {
   const root = temporaryRoot(t, "pm-review-repeats-");
@@ -442,7 +443,8 @@ function seedRun(root, runId, source) {
   const roundRoot = `.pm/dev-sessions/feature/review/runs/${runId}/round-1`;
   const targetPath = `${roundRoot}/target.json`;
   const changedBytes = fs.readFileSync(path.join(root, "src/example.js"));
-  const lenses = ["bug", "design", "edge", "reuse", "quality", "efficiency"];
+  const lensRows = deriveLensApplicability("full", [{ path: "src/example.js" }]);
+  const lenses = lensRows.filter((item) => item.applicable).map((item) => item.name);
   const runtime = {
     provider: "codex",
     model: "gpt-5.6-sol",
@@ -473,11 +475,7 @@ function seedRun(root, runId, source) {
       design_critique: ["rendered-design"],
       qa: ["live-behavior"],
     },
-    lenses: lenses.map((name) => ({
-      name,
-      applicable: true,
-      reason: "required repeat lens",
-    })),
+    lenses: lensRows,
     allocation: [
       {
         worker_id: "reviewer-1",

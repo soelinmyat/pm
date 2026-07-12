@@ -15,8 +15,10 @@ const {
   reviewPathContext,
 } = require("./lib/review-paths");
 const { isRfc3339DateTime } = require("./lib/iso-time");
+const { MAX_JSON_BYTES } = require("./lib/review-limits");
 const {
   DECISION_ACTIONS,
+  deriveLensApplicability,
   LENSES,
   OWNERS,
   SEVERITIES,
@@ -31,7 +33,6 @@ const {
 } = require("./review-target");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
-const MAX_JSON_BYTES = 4 * 1024 * 1024;
 const EVIDENCE_KINDS = new Set([
   "source",
   "test",
@@ -215,6 +216,7 @@ function validateTarget(target, issues) {
       "mode",
       "source",
       "changed_files",
+      "dev_context",
       "acceptance",
       "upstream",
       "ownership",
@@ -233,6 +235,7 @@ function validateTarget(target, issues) {
   if (target.iteration_cap !== 3) add(issues, "target.iteration_cap", "must equal 3");
   if (!new Set(["full", "code-scan"]).has(target.mode)) add(issues, "target.mode", "is invalid");
   validateSource(target.source, "target.source", issues);
+  validateDevContext(target.dev_context, issues);
   validateBindingShape(target.acceptance, "target.acceptance", issues, true);
   validateBindingShape(target.prior_report, "target.prior_report", issues, true);
   if (target.review_round === 1 && target.prior_report !== null)
@@ -264,6 +267,27 @@ function validateTarget(target, issues) {
   validateOwnership(target.ownership, issues);
   validateChangedFiles(target.changed_files, issues);
   validateLensesAndAllocation(target, issues);
+}
+
+function validateDevContext(context, issues) {
+  if (context === null || context === undefined) return;
+  if (!object(context)) return add(issues, "target.dev_context", "must be null or an object");
+  closed(
+    context,
+    ["run_id", "slug", "review_mode", "decision_version", "acceptance_sha256"],
+    "target.dev_context",
+    issues
+  );
+  if (
+    typeof context.run_id !== "string" ||
+    !context.run_id.startsWith("dev_") ||
+    !text(context.slug) ||
+    !new Set(["full", "code-scan"]).has(context.review_mode) ||
+    !Number.isInteger(context.decision_version) ||
+    context.decision_version < 1 ||
+    !sha256(context.acceptance_sha256)
+  )
+    add(issues, "target.dev_context", "must contain a valid canonical Dev context");
 }
 
 function validateSource(source, label, issues) {
@@ -451,6 +475,17 @@ function validateLensesAndAllocation(target, issues) {
   const expected = target.mode === "full" ? LENSES : LENSES.filter((lens) => lens !== "design");
   if (expected.some((lens) => !logical.has(lens)) || logical.size !== expected.length)
     add(issues, "target.lenses", `must exactly cover ${expected.join(", ")}`);
+  const derived = new Map(
+    deriveLensApplicability(target.mode, target.changed_files).map((item) => [item.name, item])
+  );
+  for (const [name, lens] of logical) {
+    const expectedLens = derived.get(name);
+    if (
+      expectedLens &&
+      (lens.applicable !== expectedLens.applicable || lens.reason !== expectedLens.reason)
+    )
+      add(issues, "target.lenses", `lens ${name} applicability must match the frozen diff`);
+  }
   if (!Array.isArray(target.allocation) || target.allocation.length === 0)
     return add(issues, "target.allocation", "must plan at least one reviewer");
   const workers = new Set();
@@ -958,11 +993,22 @@ function buildCanonicalReport(
           ? "blocked"
           : "failed"
         : "passed";
-  const topFinding =
-    blockers[0] ||
-    merged.findings.find((finding) => merged.unresolved_disagreements.includes(finding.id)) ||
-    deferredBlockers[0] ||
-    null;
+  const topFinding = [
+    ...new Map(
+      [
+        ...blockers,
+        ...merged.findings.filter((finding) =>
+          merged.unresolved_disagreements.includes(finding.id)
+        ),
+        ...deferredBlockers,
+      ].map((finding) => [finding.id, finding])
+    ).values(),
+  ].sort(
+    (left, right) =>
+      SEVERITIES.indexOf(right.severity) - SEVERITIES.indexOf(left.severity) ||
+      right.confidence - left.confidence ||
+      left.id.localeCompare(right.id)
+  )[0];
   const nextAction =
     outcome === "passed"
       ? "Proceed to full verification."

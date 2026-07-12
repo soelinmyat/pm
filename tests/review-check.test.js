@@ -367,6 +367,24 @@ test("reviewer cannot emit a finding for an unassigned lens", () => {
   assert.match(JSON.stringify(result.issues), /must be assigned to this reviewer/);
 });
 
+test("target validation re-derives lens applicability from the frozen diff", () => {
+  const fixture = makeFixture({ maxWorkers: 6 });
+  const bugLens = fixture.target.lenses.find((item) => item.name === "bug");
+  bugLens.applicable = false;
+  bugLens.reason = "caller claimed this lens was unnecessary";
+  write(fixture.root, fixture.targetPath, fixture.target);
+  const rebound = binding(fixture.root, fixture.targetPath);
+  for (const resultPath of fixture.resultPaths) {
+    const absolute = path.join(fixture.root, resultPath);
+    const result = JSON.parse(fs.readFileSync(absolute, "utf8"));
+    result.target = rebound;
+    fs.writeFileSync(absolute, `${JSON.stringify(result, null, 2)}\n`);
+  }
+  const checked = generate(fixture);
+  assert.equal(checked.ok, false);
+  assert.match(JSON.stringify(checked.issues), /lens bug applicability must match the frozen diff/);
+});
+
 test("malformed evidence returns structured issues instead of throwing", () => {
   const fixture = makeFixture({ maxWorkers: 6 });
   const firstPath = path.join(fixture.root, fixture.resultPaths[0]);
@@ -832,6 +850,24 @@ test("blocked reports surface deferred blockers and stop at the iteration cap", 
   assert.equal(deferredReport.top_issue, deferred.issue);
   assert.deepEqual(deferredReport.blockers, [deferred.id]);
 
+  const high = { ...validFinding("bug"), id: "rv-high", issue: "High blocker" };
+  const critical = {
+    ...validFinding("bug"),
+    id: "rv-critical",
+    severity: "critical",
+    confidence: 81,
+    issue: "Critical blocker",
+  };
+  const ranked = buildCanonicalReport(
+    { run_id: "review-test", review_round: 1, iteration_cap: 3, lenses: [] },
+    { relative: "target.json", sha256: "c".repeat(64) },
+    [],
+    null,
+    { findings: [high, critical], unresolved_disagreements: [] },
+    "report.html"
+  );
+  assert.equal(ranked.top_issue, "Critical blocker");
+
   const blocker = validFinding("bug");
   const capReport = buildCanonicalReport(
     { run_id: "review-test", review_round: 3, iteration_cap: 3, lenses: [] },
@@ -941,6 +977,39 @@ test("renderer escapes reviewer text without treating data as template syntax", 
   assert.match(html, /The &lt;Component&gt; exposes {{PLUGIN_VERSION}} as user data\./);
 });
 
+test("Review HTML expansion fails before publishing beyond the shared byte budget", () => {
+  const fixture = makeFixture({ maxWorkers: 3 });
+  const generated = generate(fixture);
+  assert.equal(generated.ok, true, JSON.stringify(generated.issues));
+  const reportFile = path.join(fixture.root, fixture.reportPath);
+  const report = JSON.parse(fs.readFileSync(reportFile, "utf8"));
+  const expansion = "<".repeat(1_100_000);
+  report.findings = [
+    {
+      ...validFinding("quality"),
+      id: "rv-html-expansion",
+      issue: expansion,
+      signals: [],
+      disputed: false,
+      decision: null,
+    },
+  ];
+  report.top_issue = expansion;
+  fs.writeFileSync(reportFile, `${JSON.stringify(report)}\n`);
+  fs.rmSync(path.join(fixture.root, fixture.htmlPath), { force: true });
+  assert.ok(fs.statSync(reportFile).size < 4 * 1024 * 1024);
+  assert.throws(
+    () =>
+      renderReviewReport({
+        root: fixture.root,
+        reportPath: fixture.reportPath,
+        outputPath: fixture.htmlPath,
+      }),
+    /output exceeds 4194304-byte budget/
+  );
+  assert.equal(fs.existsSync(path.join(fixture.root, fixture.htmlPath)), false);
+});
+
 test("Review publication surfaces unsupported sync warnings and committed EIO failures", (t) => {
   const fixture = makeFixture({ maxWorkers: 3 });
   t.after(() => {
@@ -997,7 +1066,11 @@ test("Review publication surfaces unsupported sync warnings and committed EIO fa
   assert.ok(fs.existsSync(path.join(fixture.root, fixture.reportPath)));
 
   projectWriter.writeProjectJsonAtomic = originalJson;
-  projectWriter.writeProjectTextAtomic = unsupported(originalText);
+  let htmlPublicationOptions;
+  projectWriter.writeProjectTextAtomic = (...args) => {
+    htmlPublicationOptions = args[3];
+    return unsupported(originalText)(...args);
+  };
   const warnedHtml = renderReviewReport({
     root: fixture.root,
     reportPath: fixture.reportPath,
@@ -1005,6 +1078,7 @@ test("Review publication surfaces unsupported sync warnings and committed EIO fa
   });
   assert.equal(warnedHtml.directory_synced, false);
   assert.equal(warnedHtml.directory_sync_error, "EPERM");
+  assert.equal(htmlPublicationOptions.maxBytes, 4 * 1024 * 1024);
 
   projectWriter.writeProjectTextAtomic = genuineFailure(originalText);
   assert.throws(

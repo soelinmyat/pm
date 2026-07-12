@@ -13,6 +13,38 @@ const DECISION_ACTIONS = Object.freeze([
   "dismiss",
   "defer",
 ]);
+const UI_REVIEW_PATH =
+  /(^|\/)(components?|screens?|pages?|routes?|views?|layouts?|design-system|styles?|theme|copy|locales?|i18n)(\/|$)|\.(tsx|jsx|css|scss|sass|less|vue|svelte|html?|astro|erb|ejs|hbs|liquid|twig|mdx)$/i;
+
+function deriveLensApplicability(mode, changedFiles) {
+  if (!new Set(["full", "code-scan"]).has(mode)) throw new Error("unknown Review mode");
+  const logical = mode === "full" ? [...LENSES] : LENSES.filter((lens) => lens !== "design");
+  const designApplicable = (changedFiles || []).some((item) => UI_REVIEW_PATH.test(item.path));
+  return logical.map((name) => {
+    if (name !== "design")
+      return { name, applicable: true, reason: "required source-quality lens" };
+    return designApplicable
+      ? {
+          name,
+          applicable: true,
+          reason: "UI source changed; inspect source-level design-system compliance only",
+        }
+      : { name, applicable: false, reason: "no UI source files changed" };
+  });
+}
+
+function devReviewContext(session) {
+  const acceptance = Array.isArray(session?.task?.acceptance_criteria)
+    ? session.task.acceptance_criteria
+    : [];
+  return {
+    run_id: session?.run_id,
+    slug: session?.slug,
+    review_mode: session?.routing?.review_mode,
+    decision_version: session?.routing?.decision_version,
+    acceptance_sha256: crypto.createHash("sha256").update(JSON.stringify(acceptance)).digest("hex"),
+  };
+}
 
 function allocateLenses(lenses, maxWorkers, profile) {
   const unique = [...new Set(lenses || [])];
@@ -139,12 +171,14 @@ function materialDisagreement(rows) {
   const owners = new Set(rows.map((row) => row.owner));
   const dispositions = new Set(rows.map((row) => row.disposition));
   const fixKinds = new Set(rows.map((row) => row.fix_kind));
+  const fixes = new Set(rows.map((row) => normalize(row.fix)));
   const decisionRequirements = new Set(rows.map((row) => row.decision_required));
   return (
     Math.max(...severities) - Math.min(...severities) > 1 ||
     owners.size > 1 ||
     dispositions.size > 1 ||
     fixKinds.size > 1 ||
+    fixes.size > 1 ||
     decisionRequirements.size > 1
   );
 }
@@ -191,6 +225,8 @@ module.exports = {
   OWNERS,
   SEVERITIES,
   allocateLenses,
+  deriveLensApplicability,
+  devReviewContext,
   findingId,
   mergeSignals,
   severityRank,

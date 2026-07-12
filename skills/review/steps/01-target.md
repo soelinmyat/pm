@@ -23,12 +23,13 @@ node "$PM_PLUGIN_ROOT/scripts/review-target.js" \
   --root "$PWD" \
   --out ".pm/dev-sessions/{slug}/review/runs/{RUN_ID}/round-{N}/target.json" \
   --run-id "{RUN_ID}" \
+  --dev-session ".pm/dev-sessions/{slug}/session.json" \
   --mode "{full|code-scan}" \
   --profile "{PROFILE}" \
   --max-workers "{CAPACITY}"
 ```
 
-Add `--acceptance`, `--design-critique`, or `--prior-report` when those current artifacts exist. For rounds 2–3, keep the same run ID, increment `--round`, and bind the immediately prior immutable `round-{N-1}/report.json`.
+For Dev-routed work, `--dev-session` is mandatory and binds the stable run, slug, review mode, decision version, and acceptance-criteria digest. Omit it only for a genuinely standalone Review. Add `--acceptance`, `--design-critique`, or `--prior-report` when those current artifacts exist. For rounds 2–3, keep the same run ID, increment `--round`, and bind the immediately prior immutable `round-{N-1}/report.json`.
 6. Read the generated allocation. Treat its physical workers, logical lenses, runtime snapshot, and applicability decisions as authoritative for this round.
 
 ## Done-when

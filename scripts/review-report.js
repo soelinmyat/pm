@@ -6,10 +6,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 const projectWriter = require("./lib/project-atomic-write");
 const { readProjectInput } = require("./lib/safe-project-output");
+const { MAX_HTML_BYTES, MAX_JSON_BYTES } = require("./lib/review-limits");
 const { expectedReviewPath, reviewPathContext } = require("./lib/review-paths");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
-
-const MAX_JSON_BYTES = 4 * 1024 * 1024;
 
 function renderReviewReport(options) {
   const root = fs.realpathSync(path.resolve(options.root || process.cwd()));
@@ -128,6 +127,7 @@ function renderReviewReport(options) {
       fileMode: 0o600,
       directoryMode: 0o700,
       replace: !(reportStage === "final" && report.outcome !== "passed"),
+      maxBytes: MAX_HTML_BYTES,
     });
   } catch (error) {
     if (/EEXIST|file exists/i.test(error.message))
