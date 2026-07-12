@@ -123,9 +123,11 @@ function stripToken(token) {
 // when the segment invokes git, else null. dir/gitDir/workTree come from git's
 // global -C / --git-dir / --work-tree options; args are the tokens after `push`.
 function parseSegment(segment) {
-  const tokens = splitSimpleShellWords(segment.trim().replace(/^[({]\s*/, ""))
-    .map(stripToken)
-    .filter(Boolean);
+  const withoutRedirections = stripTrailingShellRedirections(segment);
+  if (withoutRedirections === null) return null;
+  const tokens = splitSimpleShellWords(withoutRedirections.trim().replace(/^[({]\s*/, "")).map(
+    stripToken
+  );
   let i = 0;
   // Skip leading `VAR=value` assignments and common command wrappers.
   while (
@@ -152,6 +154,10 @@ function parseSegment(segment) {
         gitDir,
         workTree,
         args: isPush ? tokens.slice(i + 1) : [],
+        indeterminate:
+          [dir, gitDir, workTree, ...(isPush ? tokens.slice(i + 1) : [])]
+            .filter((value) => value !== null)
+            .some(hasShellExpansion),
       };
     }
     if (token === "-C" && i + 1 < tokens.length) {
@@ -178,20 +184,31 @@ function parseSegment(segment) {
   return null;
 }
 
+function hasShellExpansion(value) {
+  return /[$`*?[\]{}]/.test(value) || value.startsWith("~");
+}
+
 function splitSimpleShellWords(input) {
   const syntax = lexShellCharacters(input);
   if (!syntax.closed) return [];
   const words = [];
   let current = "";
+  let active = false;
   for (const entry of syntax.characters) {
+    if (entry.marker) {
+      active = true;
+      continue;
+    }
     if (!entry.quote && !entry.escaped && /\s/.test(entry.char)) {
-      if (current) words.push(current);
+      if (active) words.push(current);
       current = "";
+      active = false;
     } else {
       current += entry.char;
+      active = true;
     }
   }
-  if (current) words.push(current);
+  if (active) words.push(current);
   return words;
 }
 
@@ -241,6 +258,7 @@ function detectGitPushes(command, baseCwd) {
           workTree: parsed.workTree,
           cwdOverride: state.cwd,
           args: parsed.args,
+          indeterminate: parsed.indeterminate,
         });
     }
     states = dedupeShellStates([
@@ -412,6 +430,7 @@ function lexShellCharacters(input) {
     if (char === "'" || char === '"' || char === "`") {
       quote = char;
       if (char === "`") sawBacktick = true;
+      characters.push({ char: "", index: i, quote, escaped: false, marker: true });
       continue;
     }
     if (char === "\\") {
@@ -572,10 +591,10 @@ function resolveRepoDir(baseCwd, push) {
 }
 
 function gatePush(baseCwd, push) {
-  if (push.cwdOverride === null) {
+  if (push.cwdOverride === null || push.indeterminate) {
     emitDeny(
-      "PM dev gate could not determine the repository for this push after a dynamic cd. " +
-        "Use a literal repository path so the exact pushed commit and quality gates can be verified."
+      "PM dev gate could not determine the repository for this push or its refspec after shell expansion. " +
+        "Use literal repository and refspec values so the exact pushed commit and quality gates can be verified."
     );
     return true;
   }

@@ -360,6 +360,15 @@ test("quoted git -C paths remain one shell word", () => {
       runHook('git -C "gated repo" push origin HEAD', { cwd: parent }),
       /verification is failed/
     );
+    assertBlock(runHook('git -C "" push origin HEAD', { cwd: repo }), /verification is failed/);
+    assertBlock(
+      runHook('git -C "$PWD/gated repo" push origin HEAD', { cwd: parent }),
+      /could not determine the repository/
+    );
+    assertBlock(
+      runHook(">/dev/null git push origin HEAD", { cwd: repo }),
+      /verification is failed/
+    );
   } finally {
     fs.rmSync(parent, { recursive: true, force: true });
   }
