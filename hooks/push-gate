@@ -115,6 +115,12 @@ const WRAPPER_VALUE_OPTIONS = Object.freeze({
   nice: new Set(["-n", "--adjustment"]),
   time: new Set(["-f", "--format", "-o", "--output"]),
 });
+const WRAPPER_SHORT_VALUE_OPTIONS = Object.freeze({
+  env: new Set(["u", "C", "S", "P"]),
+  sudo: new Set(["u", "g", "h", "p", "C", "R", "D", "T"]),
+  nice: new Set(["n"]),
+  time: new Set(["f", "o"]),
+});
 // git GLOBAL options (before the subcommand) that consume the next token.
 const GIT_VALUE_OPTS = new Set(["-c", "--namespace", "--super-prefix", "--exec-path"]);
 // `git push` options that consume the next token (so their value isn't mistaken
@@ -155,20 +161,13 @@ function parseSegment(segment, depth = 0) {
           break;
         }
         const rawOption = tokens[i];
-        const option = rawOption.includes("=")
-          ? rawOption.slice(0, rawOption.indexOf("="))
-          : rawOption.startsWith("-") && !rawOption.startsWith("--") && rawOption.length > 2
-            ? rawOption.slice(0, 2)
-            : rawOption;
+        const { option, inlineValue, inlineValueText } = normalizeWrapperOption(
+          wrapper,
+          rawOption
+        );
         const consumesValue = WRAPPER_VALUE_OPTIONS[wrapper]?.has(option);
-        const inlineValue =
-          rawOption.includes("=") || (/^-[A-Za-z]\S+/.test(rawOption) && rawOption.length > 2);
         const valueIndex = inlineValue ? i : i + 1;
-        const value = inlineValue
-          ? rawOption.includes("=")
-            ? rawOption.slice(rawOption.indexOf("=") + 1)
-            : rawOption.slice(2)
-          : tokens[valueIndex];
+        const value = inlineValue ? inlineValueText : tokens[valueIndex];
         if (
           consumesValue &&
           ((wrapper === "env" && (option === "-C" || option === "--chdir")) ||
@@ -184,7 +183,8 @@ function parseSegment(segment, depth = 0) {
           consumesValue
         ) {
           if (value === undefined) return null;
-          const nested = parseSegment(value, depth + 1);
+          const remainderStart = inlineValue ? i + 1 : i + 2;
+          const nested = parseSegment([value, ...tokens.slice(remainderStart)].join(" "), depth + 1);
           if (!nested) return null;
           nested.dir = nested.dir
             ? composeGitDirectory(wrapperDir, nested.dir)
@@ -249,6 +249,30 @@ function parseSegment(segment, depth = 0) {
     }
   }
   return null;
+}
+
+function normalizeWrapperOption(wrapper, rawOption) {
+  if (rawOption.startsWith("--")) {
+    const equals = rawOption.indexOf("=");
+    return {
+      option: equals >= 0 ? rawOption.slice(0, equals) : rawOption,
+      inlineValue: equals >= 0,
+      inlineValueText: equals >= 0 ? rawOption.slice(equals + 1) : null,
+    };
+  }
+  if (rawOption.startsWith("-") && rawOption.length > 2) {
+    const body = rawOption.slice(1);
+    const valueOptions = WRAPPER_SHORT_VALUE_OPTIONS[wrapper] || new Set();
+    for (let index = 0; index < body.length; index += 1) {
+      if (!valueOptions.has(body[index])) continue;
+      return {
+        option: `-${body[index]}`,
+        inlineValue: index + 1 < body.length,
+        inlineValueText: body.slice(index + 1),
+      };
+    }
+  }
+  return { option: rawOption, inlineValue: false, inlineValueText: null };
 }
 
 function composeGitDirectory(current, next) {

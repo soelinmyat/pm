@@ -872,6 +872,7 @@ test("wrapper-prefixed pushes (sudo / VAR=1 / env) are detected → block", () =
     );
     assertBlock(runHook("nice -n 5 git push origin HEAD", { cwd: dir }), /verification is failed/);
     assertBlock(runHook("env -S 'git push origin HEAD'", { cwd: dir }), /verification is failed/);
+    assertBlock(runHook("env -S 'git' push origin HEAD", { cwd: dir }), /verification is failed/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -887,9 +888,11 @@ test("cwd-changing wrapper options gate the effective repository", () => {
     for (const command of [
       "env -C gated git push origin HEAD",
       "env -Cgated git push origin HEAD",
+      "env -iCgated git push origin HEAD",
       "env --chdir=gated git push origin HEAD",
       "sudo -D gated git push origin HEAD",
       "sudo -Dgated git push origin HEAD",
+      "sudo -nDgated git push origin HEAD",
     ])
       assertBlock(runHook(command, { cwd: parent }), /verification is failed/);
     assertBlock(
