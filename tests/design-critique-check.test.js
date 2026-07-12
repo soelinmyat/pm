@@ -10,6 +10,7 @@ const path = require("node:path");
 const zlib = require("node:zlib");
 const { buildManifest, inspectHtmlArtifact } = require("../scripts/artifact-check");
 const { checkDesignCritique, findingId } = require("../scripts/design-critique-check");
+const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 const COMMIT = "a".repeat(40);
 
@@ -334,7 +335,7 @@ function htmlReport(source, captures, report) {
     lifecycle: "reviewed",
     title: "Design critique test",
     generated_at: "2026-07-12T00:00:00Z",
-    generator: { name: "pm:design-critique", version: "test" },
+    generator: { name: "pm:design-critique", version: PLUGIN_VERSION },
     source,
     evidence: [captures],
   };
@@ -650,6 +651,20 @@ test("rejects a human report whose visible outcome diverges from JSON", () => {
   const result = check(fixture);
   assert.equal(result.ok, false);
   assert.match(JSON.stringify(result.issues), /visible outcome marker must match report JSON/);
+});
+
+test("rejects an unresolved or stale report generator version", () => {
+  const fixture = makeFixture();
+  const htmlPath = path.join(fixture.root, fixture.report.human_report.path);
+  fs.writeFileSync(
+    htmlPath,
+    fs
+      .readFileSync(htmlPath, "utf8")
+      .replace(`"version":"${PLUGIN_VERSION}"`, '"version":"{{PLUGIN_VERSION}}"')
+  );
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /metadata generator must be pm:design-critique/);
 });
 
 test("rejects correct outcome attributes with contradictory visible text", () => {

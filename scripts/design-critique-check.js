@@ -14,6 +14,7 @@ const {
 } = require("./artifact-render-check");
 const { isRfc3339DateTime } = require("./lib/iso-time");
 const { inspectPdfBytes, inspectPngBytes } = require("./lib/media-inspect");
+const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 const MODES = new Set(["product-ui", "pm-artifact"]);
 const OUTCOMES = new Set(["passed", "failed", "blocked", "deferred"]);
@@ -905,6 +906,15 @@ function validateHumanReport(root, human, report, reportFile, capturesFile, opti
     add(issues, `report.human_report${item.path || ""}`, item.message);
   const metadata = inspection.metadata;
   if (!metadata) return;
+  if (
+    metadata.generator?.name !== "pm:design-critique" ||
+    metadata.generator?.version !== PLUGIN_VERSION
+  )
+    add(
+      issues,
+      "report.human_report",
+      `metadata generator must be pm:design-critique ${PLUGIN_VERSION}`
+    );
   if (
     metadata.source?.path !== reportFile.relative ||
     metadata.source?.sha256 !== `sha256:${reportFile.sha256}`

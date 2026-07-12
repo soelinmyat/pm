@@ -11,7 +11,7 @@ Publish the machine report and accessible human report, validate the full eviden
 ## How
 
 1. Write `report.json` using `evidence-contract.md`. Bind the exact route and captures bytes, account for coverage, include mode-specific scores, findings, resolution history, rounds, outcome, and authority when deferred.
-2. Render `report.html` from `${CLAUDE_PLUGIN_ROOT}/references/templates/design-critique-report.html`. Show verdict first, coverage and scores next, then findings, before/after evidence, ownership handoffs, and methods. Its PM artifact metadata source must hash-bind `report.json`; evidence must hash-bind `captures.json`.
+2. Render `report.html` from `${CLAUDE_PLUGIN_ROOT}/references/templates/design-critique-report.html`. Replace `{{PLUGIN_VERSION}}` with `version` from `${CLAUDE_PLUGIN_ROOT}/plugin.config.json`; unresolved or stale generator versions fail validation. Show verdict first, coverage and scores next, then findings, before/after evidence, ownership handoffs, and methods. Its PM artifact metadata source must hash-bind `report.json`; evidence must hash-bind `captures.json`.
 3. Run `artifact-check.js` against the HTML, then run the full chain checker:
 
 ```bash
