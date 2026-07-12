@@ -292,99 +292,73 @@ function parseDirectoryChange(segment) {
 }
 
 function stripTrailingShellRedirections(segment) {
-  let quote = null;
+  let commandText = segment;
+  let leading;
+  do {
+    leading = commandText;
+    commandText = commandText.replace(
+      /^\s*\d*(?:>>?|<<?)\s*(?:"[^"]*"|'[^']*'|[^\s<>]+)\s+/,
+      ""
+    );
+  } while (commandText !== leading);
+  const syntax = lexShellCharacters(commandText);
+  if (!syntax.closed) return null;
   let redirectIndex = -1;
-  for (let i = 0; i < segment.length; i += 1) {
-    const char = segment[i];
-    if (quote) {
-      if (char === quote) quote = null;
-      else if (char === "\\" && quote !== "'") i += 1;
-      continue;
-    }
-    if (char === "'" || char === '"') {
-      quote = char;
-      continue;
-    }
-    if (char === "\\") {
-      i += 1;
-      continue;
-    }
-    if (char === ">" || char === "<") {
-      redirectIndex = i;
-      while (redirectIndex > 0 && /\d/.test(segment[redirectIndex - 1])) redirectIndex -= 1;
-      if (redirectIndex > 0 && !/\s/.test(segment[redirectIndex - 1])) redirectIndex = i;
+  for (const entry of syntax.characters) {
+    if (!entry.quote && !entry.escaped && (entry.char === ">" || entry.char === "<")) {
+      redirectIndex = entry.index;
+      while (redirectIndex > 0 && /\d/.test(commandText[redirectIndex - 1]))
+        redirectIndex -= 1;
+      if (redirectIndex > 0 && !/\s/.test(commandText[redirectIndex - 1]))
+        redirectIndex = entry.index;
       break;
     }
   }
-  if (redirectIndex < 0) return segment;
-  const suffix = segment.slice(redirectIndex);
+  if (redirectIndex < 0) return commandText;
+  const suffix = commandText.slice(redirectIndex);
   if (
     !/^(?:\d*(?:>>?|<<?)\s*(?:"[^"]*"|'[^']*'|[^\s<>]+)\s*)+$/.test(suffix)
   )
     return null;
-  return segment.slice(0, redirectIndex).trimEnd();
+  return commandText.slice(0, redirectIndex).trimEnd();
 }
 
 function decodeSimpleShellWord(raw) {
+  const syntax = lexShellCharacters(raw);
+  if (!syntax.closed || syntax.sawBacktick) return null;
   let value = "";
-  let quote = null;
-  for (let i = 0; i < raw.length; i += 1) {
-    const char = raw[i];
-    if (quote) {
-      if (char === quote) quote = null;
-      else if (char === "\\" && quote === '"') {
-        if (i + 1 >= raw.length) return null;
-        value += raw[++i];
-      } else if (char === "$" && quote === '"') return null;
-      else value += char;
-      continue;
-    }
-    if (char === "'" || char === '"') {
-      quote = char;
-      continue;
-    }
-    if (char === "\\") {
-      if (i + 1 >= raw.length) return null;
-      value += raw[++i];
-      continue;
-    }
+  for (const entry of syntax.characters) {
+    const { char, quote, escaped } = entry;
     if (
-      /\s/.test(char) ||
-      char === "$" ||
-      char === "`" ||
-      (char === "~" && value === "") ||
-      "*?[]{}".includes(char)
+      (!quote && !escaped && /\s/.test(char)) ||
+      (char === "$" && quote !== "'") ||
+      (!quote && !escaped && char === "~" && value === "") ||
+      (!quote && !escaped && "*?[]{}".includes(char))
     )
       return null;
     value += char;
   }
-  return quote || value === "" ? null : value;
+  return value === "" ? null : value;
 }
 
 function scanShellTokens(command) {
   const tokens = [];
-  let quote = null;
-  for (let i = 0; i < command.length; i += 1) {
-    const char = command[i];
-    if (quote) {
-      if (char === quote) quote = null;
-      else if (char === "\\" && quote !== "'") i += 1;
-      continue;
-    }
-    if (char === "'" || char === '"' || char === "`") {
-      quote = char;
-      continue;
-    }
-    if (char === "\\") {
-      i += 1;
-      continue;
-    }
-    const pair = command.slice(i, i + 2);
+  const syntax = lexShellCharacters(command);
+  for (let offset = 0; offset < syntax.characters.length; offset += 1) {
+    const entry = syntax.characters[offset];
+    if (entry.quote || entry.escaped) continue;
+    const next = syntax.characters[offset + 1];
+    const pair =
+      next && !next.quote && !next.escaped && next.index === entry.index + 1
+        ? `${entry.char}${next.char}`
+        : "";
     if (pair === "&&" || pair === "||") {
-      tokens.push({ value: pair, index: i, end: i + 2 });
-      i += 1;
+      tokens.push({ value: pair, index: entry.index, end: next.index + 1 });
+      offset += 1;
       continue;
     }
+    const char = entry.char;
+    const i = entry.index;
     if (char === "{" || char === "}") {
       const boundary = (value) =>
         value === undefined || /\s/.test(value) || ";|&(){}".includes(value);
@@ -392,10 +366,43 @@ function scanShellTokens(command) {
         tokens.push({ value: char, index: i, end: i + 1 });
       continue;
     }
-    if (";\n|&()".includes(char))
-      tokens.push({ value: char, index: i, end: i + 1 });
+    if (";\n|&()".includes(char)) tokens.push({ value: char, index: i, end: i + 1 });
   }
   return tokens;
+}
+
+function lexShellCharacters(input) {
+  const characters = [];
+  let quote = null;
+  let sawBacktick = false;
+  for (let i = 0; i < input.length; i += 1) {
+    const char = input[i];
+    if (quote) {
+      if (char === quote) {
+        quote = null;
+      } else if (char === "\\" && quote !== "'") {
+        if (i + 1 >= input.length) return { characters, closed: false, sawBacktick };
+        i += 1;
+        characters.push({ char: input[i], index: i, quote, escaped: true });
+      } else {
+        characters.push({ char, index: i, quote, escaped: false });
+      }
+      continue;
+    }
+    if (char === "'" || char === '"' || char === "`") {
+      quote = char;
+      if (char === "`") sawBacktick = true;
+      continue;
+    }
+    if (char === "\\") {
+      if (i + 1 >= input.length) return { characters, closed: false, sawBacktick };
+      i += 1;
+      characters.push({ char: input[i], index: i, quote: null, escaped: true });
+      continue;
+    }
+    characters.push({ char, index: i, quote: null, escaped: false });
+  }
+  return { characters, closed: quote === null, sawBacktick };
 }
 
 function partitionShellStates(states, operator) {

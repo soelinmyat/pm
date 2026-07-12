@@ -695,6 +695,8 @@ test("cwd-mutating shell builtins cannot move push inspection away from the repo
       "pushd gated >/dev/null && git push origin HEAD",
       "pushd gated>/dev/null && git push origin HEAD",
       "cd gated>/dev/null && git push origin HEAD",
+      ">/dev/null cd gated && git push origin HEAD",
+      ">/dev/null pushd gated && git push origin HEAD",
       "builtin cd gated && git push origin HEAD",
       "command cd gated && git push origin HEAD",
     ])
