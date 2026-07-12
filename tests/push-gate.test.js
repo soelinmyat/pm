@@ -370,6 +370,12 @@ test("quoted git -C paths remain one shell word", () => {
       /could not determine the repository/
     );
     assertBlock(
+      runHook("git -C $(git rev-parse --show-toplevel)/gated push origin HEAD", {
+        cwd: parent,
+      }),
+      /could not determine the repository/
+    );
+    assertBlock(
       runHook("git -C `pwd`/gated push origin HEAD", { cwd: parent }),
       /could not determine the repository/
     );
@@ -383,6 +389,14 @@ test("quoted git -C paths remain one shell word", () => {
     );
     assertBlock(
       runHook(">/dev/null git push origin HEAD", { cwd: repo }),
+      /verification is failed/
+    );
+    assertBlock(
+      runHook("TRACE=$RUN_ID git push origin HEAD", { cwd: repo }),
+      /verification is failed/
+    );
+    assertBlock(
+      runHook("git -c helper=$HELPER push origin HEAD", { cwd: repo }),
       /verification is failed/
     );
   } finally {
