@@ -262,6 +262,7 @@ function validateReviewReportArtifact(
         artifactRoot,
         manifestPath,
         result.report,
+        result.validated_human_report,
         issues
       );
       renderValidated = true;
@@ -315,7 +316,15 @@ function validateReviewReportArtifact(
       );
   } catch (error) {
     if (renderBindingValid && !renderValidated)
-      validateReviewRenderManifest(reviewGate, htmlPath, artifactRoot, manifestPath, null, issues);
+      validateReviewRenderManifest(
+        reviewGate,
+        htmlPath,
+        artifactRoot,
+        manifestPath,
+        null,
+        null,
+        issues
+      );
     issues.push(issue(manifestPath, `cannot validate review-report-v1: ${error.message}`));
   }
 }
@@ -326,6 +335,7 @@ function validateReviewRenderManifest(
   artifactRoot,
   manifestPath,
   report,
+  validatedHumanReport,
   issues
 ) {
   const expected = path.join(path.dirname(htmlPath), "renders", "manifest.json");
@@ -346,6 +356,8 @@ function validateReviewRenderManifest(
     if (digest(file.bytes) !== reviewGate.render_manifest_sha256)
       throw new Error("render manifest SHA-256 does not match its bytes");
     value = JSON.parse(file.bytes.toString("utf8"));
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      throw new Error("render manifest must be a non-array object");
   } catch (error) {
     issues.push(issue(manifestPath, `cannot validate review render manifest: ${error.message}`));
     return;
@@ -361,7 +373,8 @@ function validateReviewRenderManifest(
     value.schema_version !== 1 ||
     !isProjectRelative(value.source?.path) ||
     resolveArtifactPath(value.source?.path, artifactRoot) !== path.resolve(htmlPath) ||
-    value.source?.sha256 !== `sha256:${digest(html.bytes)}`
+    value.source?.sha256 !== `sha256:${digest(html.bytes)}` ||
+    (validatedHumanReport && validatedHumanReport.sha256 !== digest(html.bytes))
   )
     issues.push(
       issue(manifestPath, "review render manifest must bind the exact report.html bytes")

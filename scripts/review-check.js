@@ -166,9 +166,18 @@ function checkReview(options) {
       add(issues, "report.human_report.path", `must equal ${expectedHuman}`);
   }
 
+  let validatedHumanReport = null;
   if (options.reportPath && !options.writeReport) {
     const reportFile = readJson(root, options.reportPath, "report", issues);
-    if (reportFile) validateReport(root, reportFile.value, report, reportFile, options, issues);
+    if (reportFile)
+      validatedHumanReport = validateReport(
+        root,
+        reportFile.value,
+        report,
+        reportFile,
+        options,
+        issues
+      );
   }
   if (options.writeReport && options.reportPath && issues.length === 0)
     if (projectPath(options.reportPath)) {
@@ -202,6 +211,7 @@ function checkReview(options) {
     issues,
     report,
     target,
+    validated_human_report: validatedHumanReport,
     ...(warnings.length > 0 ? { warnings } : {}),
   };
 }
@@ -1092,7 +1102,10 @@ function buildCanonicalReport(
 }
 
 function validateReport(root, report, canonical, reportFile, options, issues) {
-  if (!object(report)) return add(issues, "report", "must be an object");
+  if (!object(report)) {
+    add(issues, "report", "must be an object");
+    return null;
+  }
   closed(
     report,
     [
@@ -1127,7 +1140,8 @@ function validateReport(root, report, canonical, reportFile, options, issues) {
     add(issues, "report", "does not match the canonical merge of current evidence");
   if (!isRfc3339DateTime(report.checked_at)) add(issues, "report.checked_at", "must be RFC 3339");
   if (report.human_report !== null)
-    validateHumanReport(root, report.human_report, report, reportFile, options, issues);
+    return validateHumanReport(root, report.human_report, report, reportFile, options, issues);
+  return null;
 }
 
 function validateHumanReport(root, human, report, reportFile, options, issues) {
@@ -1140,7 +1154,7 @@ function validateHumanReport(root, human, report, reportFile, options, issues) {
     issues,
     MAX_HTML_BYTES
   );
-  if (!htmlFile) return;
+  if (!htmlFile) return null;
   const inspected = inspectHtmlArtifact(htmlFile.bytes, { expectedKind: "report" });
   for (const item of inspected.issues || [])
     add(issues, `report.human_report${item.path || ""}`, item.message);
@@ -1193,6 +1207,7 @@ function validateHumanReport(root, human, report, reportFile, options, issues) {
       add(issues, "report.human_report", `cannot verify rendered markers: ${error.message}`);
     }
   }
+  return { path: htmlFile.relative, sha256: htmlFile.sha256 };
 }
 
 function validateRenderedReportMarkers(markers, report, issues) {

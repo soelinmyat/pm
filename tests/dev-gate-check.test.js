@@ -295,6 +295,10 @@ test("canonical Dev routing binds the Review target mode and exact completed len
     ...reviewReportForMarkers({ coverage: lenses }),
     target: { path: ".pm/dev-sessions/example/review/target.json" },
   };
+  let validatedHumanReport = {
+    path: ".pm/dev-sessions/example/review/report.html",
+    sha256: fileDigest(htmlPath),
+  };
   reviewModule.checkReview = () => ({
     ok: true,
     issues: [],
@@ -304,6 +308,7 @@ test("canonical Dev routing binds the Review target mode and exact completed len
       dev_context: devReviewContext(routedSession),
     },
     report: checkedReport,
+    validated_human_report: validatedHumanReport,
   });
   const row = gate("review", "abc123", {
     artifact: ".pm/dev-sessions/example/review/report.html",
@@ -324,6 +329,27 @@ test("canonical Dev routing binds the Review target mode and exact completed len
       authoritativeBaseCommit: "base123",
     });
     assert.equal(matching.ok, true, JSON.stringify(matching.issues));
+
+    validatedHumanReport = { ...validatedHumanReport, sha256: "0".repeat(64) };
+    const swappedHtmlSnapshot = checkGateManifest(
+      manifest([row], { run_id: routedSession.run_id }),
+      {
+        artifactRoot: root,
+        currentCommit: "abc123",
+        requiredGates: ["review"],
+        canonicalSession: routedSession,
+        requireSessionBinding: true,
+        manifestPath: ".pm/dev-sessions/example/gates.json",
+        authoritativeBaseRef: "origin/main",
+        authoritativeBaseCommit: "base123",
+      }
+    );
+    assert.equal(swappedHtmlSnapshot.ok, false);
+    assert.match(JSON.stringify(swappedHtmlSnapshot.issues), /bind the exact report\.html bytes/);
+    validatedHumanReport = {
+      path: ".pm/dev-sessions/example/review/report.html",
+      sha256: fileDigest(htmlPath),
+    };
 
     fs.writeFileSync(path.join(reviewDir, "target.json"), JSON.stringify({ mode: "full" }));
     const swappedPath = checkGateManifest(manifest([row], { run_id: routedSession.run_id }), {
@@ -521,6 +547,12 @@ test("review render evidence rejects forged retained-render boundaries", () => {
         expected: /render manifest SHA-256 does not match its bytes/,
       },
       {
+        name: "non-object render manifest",
+        value: null,
+        mutate() {},
+        expected: /render manifest must be a non-array object/,
+      },
+      {
         name: "source hash",
         mutate(value) {
           value.source.sha256 = forgedHash;
@@ -626,7 +658,7 @@ test("review render evidence rejects forged retained-render boundaries", () => {
 
     for (const scenario of scenarios) {
       for (const [file, bytes] of retainedBytes) fs.writeFileSync(path.join(root, file), bytes);
-      const value = structuredClone(baseline);
+      const value = scenario.value === undefined ? structuredClone(baseline) : scenario.value;
       scenario.mutate(value);
       fs.writeFileSync(manifestPath, `${JSON.stringify(value)}\n`);
       const result = checkGateManifest(
