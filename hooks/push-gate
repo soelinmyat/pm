@@ -106,6 +106,15 @@ const LEADING_WRAPPERS = new Set([
   "then",
   "do",
 ]);
+const WRAPPER_VALUE_OPTIONS = Object.freeze({
+  env: new Set(["-u", "--unset", "-C", "--chdir", "-S", "--split-string"]),
+  sudo: new Set([
+    "-u", "--user", "-g", "--group", "-h", "--host", "-p", "--prompt",
+    "-C", "--close-from", "-R", "--chroot", "-D", "--chdir", "-T", "--command-timeout",
+  ]),
+  nice: new Set(["-n", "--adjustment"]),
+  time: new Set(["-f", "--format", "-o", "--output"]),
+});
 // git GLOBAL options (before the subcommand) that consume the next token.
 const GIT_VALUE_OPTS = new Set(["-c", "--namespace", "--super-prefix", "--exec-path"]);
 // `git push` options that consume the next token (so their value isn't mistaken
@@ -135,8 +144,20 @@ function parseSegment(segment) {
     if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[i])) {
       i += 1;
     } else if (LEADING_WRAPPERS.has(tokens[i])) {
+      const wrapper = tokens[i];
       i += 1;
-      if (tokens[i] === "--") i += 1;
+      while (i < tokens.length && tokens[i].startsWith("-")) {
+        if (tokens[i] === "--") {
+          i += 1;
+          break;
+        }
+        const option = tokens[i].split("=", 1)[0];
+        const consumesValue = WRAPPER_VALUE_OPTIONS[wrapper]?.has(option);
+        const inlineValue =
+          tokens[i].includes("=") || (/^-[A-Za-z]\S+/.test(tokens[i]) && tokens[i].length > 2);
+        i += 1;
+        if (consumesValue && !inlineValue) i += 1;
+      }
     } else {
       break;
     }
@@ -570,6 +591,30 @@ function containsUnsupportedHeredoc(command) {
   return false;
 }
 
+function commandWithoutHeredocPayloads(command) {
+  const lines = command.split(/\r?\n/);
+  const output = [];
+  let delimiter = null;
+  let stripTabs = false;
+  for (const line of lines) {
+    if (delimiter !== null) {
+      const candidate = stripTabs ? line.replace(/^\t+/, "") : line;
+      if (candidate === delimiter) {
+        delimiter = null;
+        stripTabs = false;
+      }
+      continue;
+    }
+    output.push(line);
+    const match = line.match(/<<(-?)\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2/);
+    if (match && !line.includes("<<<")) {
+      stripTabs = match[1] === "-";
+      delimiter = match[3];
+    }
+  }
+  return output.join("\n");
+}
+
 function partitionShellStates(states, operator) {
   const executes = [];
   const skips = [];
@@ -843,8 +888,11 @@ function main() {
     payload && payload.tool_input && typeof payload.tool_input.command === "string"
       ? payload.tool_input.command
       : "";
-  if (!command || !command.includes("push")) return allow();
-  if (containsUnsupportedHeredoc(command)) {
+  if (!command) return allow();
+  const hasHeredoc = containsUnsupportedHeredoc(command);
+  const executableCommand = hasHeredoc ? commandWithoutHeredocPayloads(command) : command;
+  if (!executableCommand.includes("push")) return allow();
+  if (hasHeredoc) {
     emitDeny(
       "PM dev gate cannot safely inspect a push command containing a shell here-document. " +
         "Run the push as a separate command so its repository, refspec, and quality gates can be verified."

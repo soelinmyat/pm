@@ -864,6 +864,13 @@ test("wrapper-prefixed pushes (sudo / VAR=1 / env) are detected → block", () =
     );
     assertBlock(runHook("command -- git push origin HEAD", { cwd: dir }), /verification is failed/);
     assertBlock(runHook("env -- git push origin HEAD", { cwd: dir }), /verification is failed/);
+    assertBlock(runHook("env -i git push origin HEAD", { cwd: dir }), /verification is failed/);
+    assertBlock(runHook("command -p git push origin HEAD", { cwd: dir }), /verification is failed/);
+    assertBlock(
+      runHook("sudo -u user git push origin HEAD", { cwd: dir }),
+      /verification is failed/
+    );
+    assertBlock(runHook("nice -n 5 git push origin HEAD", { cwd: dir }), /verification is failed/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -874,6 +881,7 @@ test("push commands containing here-documents fail closed before payload lines a
   try {
     const command = "cat <<EOF\ncd ../ungated\nEOF\ngit push origin HEAD";
     assertBlock(runHook(command, { cwd: dir }), /cannot safely inspect.*here-document/);
+    assertAllow(runHook("cat <<EOF\npush notification text\nEOF", { cwd: dir }));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
