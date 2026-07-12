@@ -17,8 +17,10 @@ post() {
   quality-outcome-valid repeated-run-variance review
   artifact-contains quality-outcome.json "\"repeat_control\": \"frozen\""
   command-succeeds "npm test"
-  command-succeeds "test \"$(find .pm/dev-sessions/feature/review/runs -path '*/round-*/target.json' -type f | wc -l | tr -d ' ')\" = 1"
   file-exists .pm/dev-sessions/feature/review/report.json
   file-exists .pm/dev-sessions/feature/review/report.html
   file-matches .pm/dev-sessions/feature/review/report.json "\"outcome\": \"passed\""
+  command-succeeds "test \"$(find .pm/dev-sessions/feature/review/runs -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')\" = 3"
+  file-exists .pm/dev-sessions/feature/review/repeat-comparison.json
+  file-matches .pm/dev-sessions/feature/review/repeat-comparison.json "recall|false_positive|severity|dedup"
 }

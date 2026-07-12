@@ -164,14 +164,24 @@ function fixtureFor(workflow, type, caseId, state) {
   }
   if (workflow === "review" && ["happy-path", "repeated-run-variance"].includes(type)) {
     post.push('command-succeeds "npm test"');
-    post.push(
-      "command-succeeds \"test \\\"$(find .pm/dev-sessions/feature/review/runs -path '*/round-*/target.json' -type f | wc -l | tr -d ' ')\\\" = 1\""
-    );
     post.push("file-exists .pm/dev-sessions/feature/review/report.json");
     post.push("file-exists .pm/dev-sessions/feature/review/report.html");
     post.push(
       'file-matches .pm/dev-sessions/feature/review/report.json "\\\"outcome\\\": \\\"passed\\\""'
     );
+    if (type === "happy-path")
+      post.push(
+        "command-succeeds \"node -e \\\"const fs=require('fs'),r=require('./.pm/dev-sessions/feature/review/report.json');if(!/^\\\\.pm\\\\/dev-sessions\\\\/feature\\\\/review\\\\/runs\\\\/[^/]+\\\\/round-[1-3]\\\\/target\\\\.json$/.test(r.target.path)||!fs.existsSync(r.target.path))process.exit(1)\\\"\""
+      );
+    else {
+      post.push(
+        'command-succeeds "test \\"$(find .pm/dev-sessions/feature/review/runs -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d \' \')\\" = 3"'
+      );
+      post.push("file-exists .pm/dev-sessions/feature/review/repeat-comparison.json");
+      post.push(
+        'file-matches .pm/dev-sessions/feature/review/repeat-comparison.json "recall|false_positive|severity|dedup"'
+      );
+    }
   }
   if (type === "resume") {
     post.push("file-exists .pm/quality/resume-session.json");

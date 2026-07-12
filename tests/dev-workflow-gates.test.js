@@ -125,6 +125,7 @@ test("review preserves immutable fix rounds and publishes only the passing proje
   assert.match(target, /runs\/\{RUN_ID\}\/round-\{N\}\/target\.json/);
   assert.match(synthesize, /review-report\.js.*draft-report\.json.*draft-report\.html/);
   assert.match(resolve, /round-\{N-1\}\/report\.json/);
+  assert.match(resolve, /Check `review_round` against `iteration_cap` before any edit/);
   assert.ok(
     resolve.indexOf("finalize, render, and validate") < resolve.indexOf("Apply one coherent")
   );

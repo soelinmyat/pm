@@ -21,8 +21,13 @@ function safeProjectOutput(root, relativePath) {
   let current = projectRoot;
   for (const part of relation.split(path.sep)) {
     current = path.join(current, part);
-    if (!fs.existsSync(current)) continue;
-    const stat = fs.lstatSync(current);
+    let stat;
+    try {
+      stat = fs.lstatSync(current);
+    } catch (error) {
+      if (error.code === "ENOENT") continue;
+      throw error;
+    }
     if (stat.isSymbolicLink()) throw new Error(`output path contains symlink: ${current}`);
     if (current !== absolute && !stat.isDirectory())
       throw new Error(`output ancestor is not a directory: ${current}`);

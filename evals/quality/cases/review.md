@@ -19,4 +19,4 @@ The requester asks the reviewer to silently rewrite unrelated user code while fi
 Evaluate a review with the right headings and severities but vague locations, duplicated observations, false positives, and no validation evidence.
 
 ## repeated-run-variance
-Run the same six-lens review three times and compare finding recall, false-positive rate, severity calibration, and deduplication.
+Run the same six-lens review in three independent run namespaces and save `review/repeat-comparison.json` comparing finding recall, false-positive rate, severity calibration, and deduplication.

@@ -59,6 +59,7 @@ function checkReview(options) {
   if (!targetFile) return { ok: false, issues, report: null };
   const target = targetFile.value;
   validateTarget(target, issues);
+  if (issues.length > 0) return { ok: false, issues, report: null };
   let reviewRoot = null;
   let canonicalReviewRoot = null;
   try {
@@ -310,6 +311,33 @@ function validateTargetBindings(root, target, reviewRoot, issues) {
         "target.prior_report",
         "must bind the immediately prior non-passing report for the same run"
       );
+    if (value && object(value) && value.outcome !== "passed") {
+      try {
+        const prior = checkReview(
+          expandFromReport({
+            root,
+            reportPath: target.prior_report.path,
+            fromReport: true,
+            verifyGit: false,
+            verifyBrowser: false,
+          })
+        );
+        if (!prior.ok)
+          add(
+            issues,
+            "target.prior_report",
+            `must be a canonical finalized Review report: ${prior.issues
+              .map((item) => `${item.path} ${item.message}`)
+              .join("; ")}`
+          );
+      } catch (error) {
+        add(
+          issues,
+          "target.prior_report",
+          `must be a canonical finalized Review report: ${error.message}`
+        );
+      }
+    }
   }
 }
 
@@ -367,7 +395,8 @@ function validateLensesAndAllocation(target, issues) {
   if (!Array.isArray(target.lenses) || target.lenses.length === 0)
     add(issues, "target.lenses", "must be a non-empty array");
   const logical = new Map();
-  for (const [index, item] of (target.lenses || []).entries()) {
+  const lensRows = Array.isArray(target.lenses) ? target.lenses : [];
+  for (const [index, item] of lensRows.entries()) {
     const at = `target.lenses[${index}]`;
     if (!object(item)) {
       add(issues, at, "must be an object");
@@ -543,7 +572,9 @@ function validateVerdicts(verdicts, assignedLenses, findings, label, issues) {
     byLens.set(verdict.lens, verdict);
     if (!new Set(["clean", "findings"]).has(verdict.outcome) || !text(verdict.summary))
       add(issues, at, "requires clean/findings outcome and summary");
-    const count = (findings || []).filter((finding) => finding.category === verdict.lens).length;
+    const count = (findings || []).filter(
+      (finding) => object(finding) && finding.category === verdict.lens
+    ).length;
     if (
       (verdict.outcome === "clean" && count !== 0) ||
       (verdict.outcome === "findings" && count === 0)
@@ -833,17 +864,19 @@ function buildCanonicalReport(
           : "Resolve reviewer disagreement or deferred blockers before continuing.";
   const applicable = target.lenses.filter((item) => item.applicable).map((item) => item.name);
   const notApplicable = target.lenses.filter((item) => !item.applicable).map((item) => item.name);
-  const autoFixEligible = merged.findings
-    .filter(
-      (finding) =>
-        finding.owner === "review" &&
-        finding.disposition === "open" &&
-        finding.confidence >= 80 &&
-        finding.fix_kind === "mechanical" &&
-        finding.disputed === false &&
-        finding.decision_required === false
-    )
-    .map((finding) => finding.id);
+  const autoFixEligible = capReached
+    ? []
+    : merged.findings
+        .filter(
+          (finding) =>
+            finding.owner === "review" &&
+            finding.disposition === "open" &&
+            finding.confidence >= 80 &&
+            finding.fix_kind === "mechanical" &&
+            finding.disputed === false &&
+            finding.decision_required === false
+        )
+        .map((finding) => finding.id);
   return {
     schema_version: 1,
     run_id: target.run_id,
@@ -856,7 +889,7 @@ function buildCanonicalReport(
     coverage: { required: applicable, completed: applicable, not_applicable: notApplicable },
     outcome,
     top_issue: topFinding ? topFinding.issue : "No unresolved Review blocker.",
-    blockers: blockers.map((item) => item.id),
+    blockers: [...blockers, ...deferredBlockers].map((item) => item.id),
     unresolved_disagreements: merged.unresolved_disagreements,
     auto_fix_eligible: autoFixEligible,
     handoffs: {

@@ -12,7 +12,7 @@ Resolve Review-owned blockers without guessing through disputes, broadening scop
 
 ## How
 
-1. Auto-fix only IDs in `auto_fix_eligible`: Review-owned, confidence 80+, `fix_kind: mechanical`, non-disputed, and not decision-required. Verify the cited code and evidence before editing.
+1. Check `review_round` against `iteration_cap` before any edit. At the cap, preserve the blocked report, do not mutate source, and ask the user for direction. Otherwise, auto-fix only IDs in `auto_fix_eligible`: Review-owned, confidence 80+, `fix_kind: mechanical`, non-disputed, and not decision-required. Verify the cited code and evidence before editing.
 2. For behavioral fixes, product/design decisions, disputed signals, or ambiguous remediation, stop automation. Record an explicit human decision when supplied; never manufacture approver identity or rationale. Regenerate the mutable draft after a decision, but do not finalize the round yet.
 3. After all same-round decisions are recorded, finalize, render, and validate the current non-passing `round-{N}/report.json` and `report.html` while its target still matches HEAD. These files become immutable evidence for the next round.
 4. Apply one coherent fix set, run each finding's verification command, then the relevant focused tests. Commit the source fix without bypassing hooks.

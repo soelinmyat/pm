@@ -224,6 +224,10 @@ test("review outputs reject symlinked path ancestors", () => {
   fs.mkdirSync(path.join(root, ".pm"), { recursive: true });
   fs.symlinkSync(outside, path.join(root, ".pm", "linked"));
   assert.throws(() => safeProjectOutput(root, ".pm/linked/report.json"), /contains symlink/);
+  fs.symlinkSync(path.join(outside, "missing"), path.join(root, ".pm", "dangling"));
+  assert.throws(() => safeProjectOutput(root, ".pm/dangling/report.json"), /contains symlink/);
+  fs.symlinkSync(path.join(outside, "missing-file"), path.join(root, ".pm", "final.json"));
+  assert.throws(() => safeProjectOutput(root, ".pm/final.json"), /contains symlink/);
 });
 
 test("later targets reject a copied prior report outside the preceding round path", () => {
@@ -333,6 +337,38 @@ test("malformed reviewer result shapes return issues instead of throwing during 
       JSON.stringify(result.issues),
       /must be an object|worker_id|schema, run, and round/
     );
+  }
+});
+
+test("malformed target containers and finding rows fail with structured issues", () => {
+  for (const mutation of [
+    (target) => (target.lenses = "all"),
+    (target) => (target.allocation = { worker_id: "reviewer-1" }),
+    (target) => (target.allocation = [null]),
+  ]) {
+    const fixture = makeFixture({ maxWorkers: 3 });
+    mutation(fixture.target);
+    write(fixture.root, fixture.targetPath, fixture.target);
+    let result;
+    assert.doesNotThrow(() => {
+      result = generate(fixture);
+    });
+    assert.equal(result.ok, false);
+    assert.match(JSON.stringify(result.issues), /target\.(lenses|allocation)/);
+  }
+  for (const malformed of [null, "truncated", 7]) {
+    const fixture = makeFixture({ maxWorkers: 3 });
+    const resultPath = path.join(fixture.root, fixture.resultPaths[0]);
+    const result = JSON.parse(fs.readFileSync(resultPath, "utf8"));
+    result.findings = [malformed];
+    result.verdicts[0].outcome = "findings";
+    fs.writeFileSync(resultPath, `${JSON.stringify(result, null, 2)}\n`);
+    let checked;
+    assert.doesNotThrow(() => {
+      checked = generate(fixture);
+    });
+    assert.equal(checked.ok, false);
+    assert.match(JSON.stringify(checked.issues), /must be an object/);
   }
 });
 
@@ -553,6 +589,7 @@ test("blocked reports surface deferred blockers and stop at the iteration cap", 
   );
   assert.equal(deferredReport.outcome, "blocked");
   assert.equal(deferredReport.top_issue, deferred.issue);
+  assert.deepEqual(deferredReport.blockers, [deferred.id]);
 
   const blocker = validFinding("bug");
   const capReport = buildCanonicalReport(
@@ -565,6 +602,49 @@ test("blocked reports surface deferred blockers and stop at the iteration cap", 
   );
   assert.equal(capReport.outcome, "blocked");
   assert.match(capReport.next_action, /three-round cap/);
+  assert.deepEqual(capReport.auto_fix_eligible, []);
+});
+
+test("later rounds reject a shallow hand-written prior report", () => {
+  const fixture = makeFixture({ maxWorkers: 6 });
+  setFindingForLens(fixture, "bug", validFinding("bug"));
+  assert.equal(
+    generate(fixture, {
+      reportPath: fixture.roundReportPath,
+      htmlPath: fixture.roundHtmlPath,
+    }).ok,
+    true
+  );
+  write(fixture.root, fixture.roundReportPath, {
+    run_id: "review-test",
+    review_round: 1,
+    outcome: "failed",
+  });
+  fs.writeFileSync(path.join(fixture.root, "src/example.js"), "module.exports = { value: 3 };\n");
+  git(fixture.root, ["add", "src/example.js"]);
+  git(fixture.root, ["commit", "-qm", "round two source"]);
+  const target = buildReviewTarget({
+    root: fixture.root,
+    maxWorkers: 3,
+    profile: "codex-workhorse",
+    runId: "review-test",
+    round: 2,
+    priorReportPath: fixture.roundReportPath,
+  });
+  const targetPath = ".pm/dev-sessions/example/review/runs/review-test/round-2/target.json";
+  write(fixture.root, targetPath, target);
+  const checked = checkReview({
+    root: fixture.root,
+    targetPath,
+    resultPaths: [],
+    reportPath: ".pm/dev-sessions/example/review/runs/review-test/round-2/draft-report.json",
+    humanReportPath: ".pm/dev-sessions/example/review/runs/review-test/round-2/draft-report.html",
+    reportStage: "draft",
+    writeReport: true,
+    verifyBrowser: false,
+  });
+  assert.equal(checked.ok, false);
+  assert.match(JSON.stringify(checked.issues), /canonical finalized Review report/);
 });
 
 test("renderer escapes reviewer text without treating data as template syntax", () => {
