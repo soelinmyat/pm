@@ -625,6 +625,46 @@ test("subshell and brace-group cd state gates pushes in the effective repository
   }
 });
 
+test("group delimiters inside quoted repository paths remain ordinary path characters", () => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "pm-push-gate-quoted-group-"));
+  const name = "gated(parent){repo}";
+  const gated = path.join(parent, name);
+  try {
+    fs.mkdirSync(gated);
+    makeRepoAt(gated);
+    writeFailingGates(gated, "x");
+    for (const command of [
+      `cd '${name}' && git push origin HEAD`,
+      `cd "${name}" && git push origin HEAD`,
+      `(cd '${name}' && git push origin HEAD)`,
+    ])
+      assertBlock(runHook(command, { cwd: parent }), /verification is failed/);
+  } finally {
+    fs.rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("escaped path characters are decoded and dynamic cd targets fail closed", () => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "pm-push-gate-escaped-cd-"));
+  const name = "gated(parent) repo";
+  const gated = path.join(parent, name);
+  try {
+    fs.mkdirSync(gated);
+    makeRepoAt(gated);
+    writeFailingGates(gated, "x");
+    assertBlock(
+      runHook("cd gated\\(parent\\)\\ repo && git push origin HEAD", { cwd: parent }),
+      /verification is failed/
+    );
+    assertBlock(
+      runHook('cd "$PM_REPO" && git push origin HEAD', { cwd: parent }),
+      /could not determine the repository/
+    );
+  } finally {
+    fs.rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test("explicit alternate source commit is checked instead of current HEAD", () => {
   const dir = makeRepo();
   try {

@@ -95,7 +95,6 @@ function blockUnverified(branch, manifestRel, detail) {
 
 // --- git command detection -------------------------------------------------
 
-const SHELL_TOKEN = /&&|\|\||[;\n|&(){}]/g;
 const LEADING_WRAPPERS = new Set([
   "env",
   "sudo",
@@ -193,18 +192,23 @@ function detectGitPushes(command, baseCwd) {
   const pushes = [];
   let operator = null;
   let cursor = 0;
-  SHELL_TOKEN.lastIndex = 0;
 
   const visit = (segment) => {
     const trimmed = segment.trim();
     if (!trimmed) return;
     const { executes, skips } = partitionShellStates(states, operator);
-    const cd = trimmed.match(/^cd\s+(?:-P\s+)?(['"]?)([^'"]+)\1\s*$/);
-    if (cd) {
+    const cd = parseCdTarget(trimmed);
+    if (cd.recognized) {
       states = dedupeShellStates([
         ...skips,
         ...executes.flatMap((state) => [
-          { cwd: path.resolve(state.cwd, cd[2]), succeeded: true },
+          {
+            cwd:
+              cd.target === null || (state.cwd === null && !path.isAbsolute(cd.target))
+                ? null
+                : path.resolve(state.cwd || path.parse(cd.target).root, cd.target),
+            succeeded: true,
+          },
           { cwd: state.cwd, succeeded: false },
         ]),
       ]);
@@ -230,9 +234,9 @@ function detectGitPushes(command, baseCwd) {
     ]);
   };
 
-  for (const match of joined.matchAll(SHELL_TOKEN)) {
-    visit(joined.slice(cursor, match.index));
-    const token = match[0];
+  for (const shellToken of scanShellTokens(joined)) {
+    visit(joined.slice(cursor, shellToken.index));
+    const token = shellToken.value;
     if (token === "(") {
       const { executes, skips } = partitionShellStates(states, operator);
       subshells.push({ executes, skips });
@@ -256,10 +260,78 @@ function detectGitPushes(command, baseCwd) {
     } else {
       operator = token;
     }
-    cursor = match.index + match[0].length;
+    cursor = shellToken.end;
   }
   visit(joined.slice(cursor));
   return pushes;
+}
+
+function parseCdTarget(segment) {
+  const match = segment.match(/^cd(?:\s+-P)?(?:\s+(.*?))?\s*$/);
+  if (!match) return { recognized: false, target: null };
+  if (match[1] === undefined || match[1] === "")
+    return { recognized: true, target: process.env.HOME ? path.resolve(process.env.HOME) : null };
+  if (match[1] === "-") return { recognized: true, target: null };
+  return { recognized: true, target: decodeSimpleShellWord(match[1]) };
+}
+
+function decodeSimpleShellWord(raw) {
+  let value = "";
+  let quote = null;
+  for (let i = 0; i < raw.length; i += 1) {
+    const char = raw[i];
+    if (quote) {
+      if (char === quote) quote = null;
+      else if (char === "\\" && quote === '"') {
+        if (i + 1 >= raw.length) return null;
+        value += raw[++i];
+      } else if (char === "$" && quote === '"') return null;
+      else value += char;
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      continue;
+    }
+    if (char === "\\") {
+      if (i + 1 >= raw.length) return null;
+      value += raw[++i];
+      continue;
+    }
+    if (/\s/.test(char) || char === "$" || char === "`") return null;
+    value += char;
+  }
+  return quote || value === "" ? null : value;
+}
+
+function scanShellTokens(command) {
+  const tokens = [];
+  let quote = null;
+  for (let i = 0; i < command.length; i += 1) {
+    const char = command[i];
+    if (quote) {
+      if (char === quote) quote = null;
+      else if (char === "\\" && quote !== "'") i += 1;
+      continue;
+    }
+    if (char === "'" || char === '"' || char === "`") {
+      quote = char;
+      continue;
+    }
+    if (char === "\\") {
+      i += 1;
+      continue;
+    }
+    const pair = command.slice(i, i + 2);
+    if (pair === "&&" || pair === "||") {
+      tokens.push({ value: pair, index: i, end: i + 2 });
+      i += 1;
+      continue;
+    }
+    if (";\n|&(){}".includes(char))
+      tokens.push({ value: char, index: i, end: i + 1 });
+  }
+  return tokens;
 }
 
 function partitionShellStates(states, operator) {
@@ -275,7 +347,8 @@ function partitionShellStates(states, operator) {
 
 function dedupeShellStates(states) {
   const unique = new Map();
-  for (const state of states) unique.set(`${state.cwd}\0${state.succeeded}`, state);
+  for (const state of states)
+    unique.set(`${state.cwd === null ? "<unknown>" : state.cwd}\0${state.succeeded}`, state);
   return [...unique.values()];
 }
 
@@ -408,6 +481,13 @@ function resolveRepoDir(baseCwd, push) {
 }
 
 function gatePush(baseCwd, push) {
+  if (push.cwdOverride === null) {
+    emitDeny(
+      "PM dev gate could not determine the repository for this push after a dynamic cd. " +
+        "Use a literal repository path so the exact pushed commit and quality gates can be verified."
+    );
+    return true;
+  }
   const repoDir = resolveRepoDir(baseCwd, push);
 
   const branch = currentBranch(repoDir);
