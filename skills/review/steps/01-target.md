@@ -12,7 +12,7 @@ Create immutable `target.json` for the current committed diff and a reviewer pla
 
 ## How
 
-1. Resolve the session slug with the shared `deriveSessionSlug` helper from `scripts/lib/dev-session-state.js`. For example, `codex/pm-dev-workflow-proposal` resolves to `pm-dev-workflow-proposal`. Use `.pm/dev-sessions/{slug}/review/` for all evidence.
+1. Resolve the session slug with the shared `deriveSessionSlug` helper from `scripts/lib/dev-session-state.js`. For example, `codex/pm-dev-workflow-proposal` resolves to `pm-dev-workflow-proposal`. Store evidence under `.pm/dev-sessions/{slug}/review/round-{N}/`; never reuse a prior round directory.
 2. Refuse uncommitted implementation changes. Fetch the authoritative remote default; do not trust a stale local base ref.
 3. Choose `full` from Dev's recorded route or for standalone review. Use `code-scan` only when the canonical Dev route says so.
 4. Choose the configured profile from `skills/dev/references/model-profiles.json`. Use the observed safe reviewer capacity, capped at six. Do not encode model names in prompts.
@@ -21,14 +21,14 @@ Create immutable `target.json` for the current committed diff and a reviewer pla
 ```bash
 node "$PM_PLUGIN_ROOT/scripts/review-target.js" \
   --root "$PWD" \
-  --out ".pm/dev-sessions/{slug}/review/target.json" \
+  --out ".pm/dev-sessions/{slug}/review/round-{N}/target.json" \
   --run-id "{RUN_ID}" \
   --mode "{full|code-scan}" \
   --profile "{PROFILE}" \
   --max-workers "{CAPACITY}"
 ```
 
-Add `--acceptance`, `--design-critique`, or `--prior-report` when those current artifacts exist. For rounds 2–3, keep the same run ID, increment `--round`, and bind the immediately prior non-passing report.
+Add `--acceptance`, `--design-critique`, or `--prior-report` when those current artifacts exist. For rounds 2–3, keep the same run ID, increment `--round`, and bind the immediately prior immutable `round-{N-1}/report.json`.
 6. Read the generated allocation. Treat its physical workers, logical lenses, runtime snapshot, and applicability decisions as authoritative for this round.
 
 ## Done-when

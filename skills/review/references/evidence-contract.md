@@ -5,13 +5,20 @@
 Store the chain under `.pm/dev-sessions/{slug}/review/`:
 
 ```text
-target.json
-results/{worker-id}.json
-decisions.json          # only when decisions exist
-report.json
-report.html
-renders/
+round-1/
+  target.json
+  results/{worker-id}.json
+  decisions.json        # only when decisions exist
+  report.json           # retained when the round does not pass
+  report.html
+round-2/                 # created only after source mutation
+round-3/                 # hard cap
+report.json              # canonical passing projection only
+report.html              # canonical passing human artifact only
+renders/                 # canonical passing render evidence
 ```
+
+Never overwrite a prior round: later targets bind its immutable `round-N/report.json`. A passing round is projected to the canonical root `report.json` and `report.html` for Dev/Ship gate discovery; their target and result bindings still point into that round's directory.
 
 All paths are project-relative regular files. Symlinks, traversal, absolute paths, stale bindings, unknown fields, and JSON over 4 MiB fail.
 
@@ -92,11 +99,13 @@ Generate the canonical report:
 ```bash
 node "$PM_PLUGIN_ROOT/scripts/review-check.js" \
   --root "$PWD" \
-  --target ".pm/dev-sessions/{slug}/review/target.json" \
-  --result ".pm/dev-sessions/{slug}/review/results/reviewer-1.json" \
+  --target ".pm/dev-sessions/{slug}/review/round-{N}/target.json" \
+  --result ".pm/dev-sessions/{slug}/review/round-{N}/results/reviewer-1.json" \
   --report ".pm/dev-sessions/{slug}/review/report.json" \
   --human-report ".pm/dev-sessions/{slug}/review/report.html" \
   --write-report
 ```
 
 Repeat `--result` for every planned reviewer and add `--decisions` when present. After rendering HTML, rerun the same command without `--write-report`.
+
+For a non-passing round, write its report and HTML inside `round-{N}/` instead of the canonical root. Bind that stable report with `--prior-report` after the fix commit.

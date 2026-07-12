@@ -12,7 +12,7 @@ Publish machine-readable and human-readable Review evidence for current HEAD and
 
 ## How
 
-1. Render the deterministic HTML projection with `node "$PM_PLUGIN_ROOT/scripts/review-report.js" --root "$PWD" --report ".pm/dev-sessions/{slug}/review/report.json" --out ".pm/dev-sessions/{slug}/review/report.html"`. The renderer uses the shared template, replaces the plugin version, and binds metadata to the report, target, every result, and decisions.
+1. For `failed` or `blocked`, write `round-{N}/report.json` and `round-{N}/report.html`, preserve them for the next target binding, and stop delivery. For `passed`, write canonical `.pm/dev-sessions/{slug}/review/report.json`, then render `.pm/dev-sessions/{slug}/review/report.html` with `review-report.js`. The canonical report keeps target/results bindings in `round-{N}/`.
 2. Put outcome, round, logical coverage, blocker count, top issue, and next action in the first screenful. Render every finding with its ID, issue, impact, fix, owner, evidence refs, signals, decision/dispute state, and verification.
 3. Run the artifact checker and renderer. Inspect desktop, tablet, narrow full-page captures and print PDF. Fix artifact defects before recording a pass.
 4. Run the final checker without `--write-report`, supplying the exact target, every result, decisions if any, report, and human report. The real-browser marker probe must pass.

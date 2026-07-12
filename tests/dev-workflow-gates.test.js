@@ -114,6 +114,19 @@ test("review skip requires a current checked report and gate row", () => {
   assert.match(publish, /evidence_kind/);
 });
 
+test("review preserves immutable fix rounds and publishes only the passing projection canonically", () => {
+  const contract = read("skills/review/references/evidence-contract.md");
+  const target = read("skills/review/steps/01-target.md");
+  const resolve = read("skills/review/steps/04-resolve.md");
+  const publish = read("skills/review/steps/05-publish.md");
+  assert.match(contract, /round-1\//);
+  assert.match(contract, /Never overwrite a prior round/);
+  assert.match(target, /round-\{N\}\/target\.json/);
+  assert.match(resolve, /round-\{N-1\}\/report\.json/);
+  assert.match(publish, /For `failed` or `blocked`/);
+  assert.match(publish, /canonical .*review\/report\.json/);
+});
+
 test("review treats PM plugin Markdown runtime files as reviewable source", () => {
   const target = read("scripts/review-target.js");
   const briefs = read("skills/review/references/reviewer-briefs.md");
