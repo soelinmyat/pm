@@ -6,6 +6,15 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { readProjectInput } = require("./safe-project-output");
 
+const UNSUPPORTED_DIRECTORY_SYNC_ERRORS = new Set([
+  "EBADF",
+  "EINVAL",
+  "EISDIR",
+  "ENOSYS",
+  "ENOTSUP",
+  "EPERM",
+]);
+
 function writeProjectFileAtomic(root, relativePath, content, options = {}) {
   const projectRoot = fs.realpathSync(path.resolve(root));
   validateRelative(relativePath);
@@ -48,6 +57,17 @@ function writeProjectFileAtomic(root, relativePath, content, options = {}) {
       `project output committed but path attestation failed: ${error.message}`
     );
     failure.committed = true;
+    throw failure;
+  }
+  if (
+    state.directory_synced === false &&
+    !UNSUPPORTED_DIRECTORY_SYNC_ERRORS.has(state.directory_sync_error)
+  ) {
+    const failure = new Error(
+      `project output committed but directory sync failed (${state.directory_sync_error || "UNKNOWN"}); do not retry this write`
+    );
+    failure.committed = true;
+    failure.directorySyncError = state.directory_sync_error || "UNKNOWN";
     throw failure;
   }
   return { path: path.resolve(projectRoot, relativePath), ...state };

@@ -334,11 +334,20 @@ function main(argv = process.argv.slice(2)) {
       "target"
     );
     try {
-      writeProjectJsonAtomic(options.root || process.cwd(), options.outPath, target, {
-        fileMode: 0o600,
-        directoryMode: 0o700,
-        replace: false,
-      });
+      const publication = writeProjectJsonAtomic(
+        options.root || process.cwd(),
+        options.outPath,
+        target,
+        {
+          fileMode: 0o600,
+          directoryMode: 0o700,
+          replace: false,
+        }
+      );
+      if (!publication.directory_synced)
+        process.stderr.write(
+          `Warning: target committed with unsupported directory sync ${publication.directory_sync_error}.\n`
+        );
     } catch (error) {
       if (/EEXIST|file exists/i.test(error.message))
         throw new Error("refusing to overwrite an existing review target");

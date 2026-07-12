@@ -132,13 +132,13 @@ test("directory sync errors report committed state without creating retry ambigu
       };
     `
   );
-  for (const [index, code] of ["EPERM", "EISDIR", "ENOSYS", "EIO"].entries()) {
-    const script = `
-      const [root, writer, relative, exclusive] = process.argv.slice(1);
-      const { writeProjectTextAtomic } = require(writer);
-      const result = writeProjectTextAtomic(root, relative, "committed", { replace: exclusive !== "true" });
-      process.stdout.write(JSON.stringify(result));
-    `;
+  const script = `
+    const [root, writer, relative, exclusive] = process.argv.slice(1);
+    const { writeProjectTextAtomic } = require(writer);
+    const result = writeProjectTextAtomic(root, relative, "committed", { replace: exclusive !== "true" });
+    process.stdout.write(JSON.stringify(result));
+  `;
+  for (const [index, code] of ["EPERM", "EISDIR", "ENOSYS"].entries()) {
     const relative = `review/report-${index}.json`;
     const result = spawnSync(
       process.execPath,
@@ -164,4 +164,17 @@ test("directory sync errors report committed state without creating retry ambigu
     );
     assert.equal(fs.readFileSync(path.join(root, relative), "utf8"), "committed");
   }
+
+  const eioRelative = "review/report-eio.json";
+  const eio = spawnSync(process.execPath, ["-e", script, root, writerModule, eioRelative, "true"], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      NODE_OPTIONS: `--require=${preload}`,
+      PM_TEST_FSYNC_CODE: "EIO",
+    },
+  });
+  assert.notEqual(eio.status, 0);
+  assert.match(eio.stderr, /committed but directory sync failed \(EIO\); do not retry/);
+  assert.equal(fs.readFileSync(path.join(root, eioRelative), "utf8"), "committed");
 });

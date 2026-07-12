@@ -55,6 +55,7 @@ const REQUIRED_EVIDENCE = Object.freeze({
 function checkReview(options) {
   const root = fs.realpathSync(path.resolve(options.root || process.cwd()));
   const issues = [];
+  const warnings = [];
   const targetFile = readJson(root, options.targetPath, "target", issues);
   if (!targetFile) return { ok: false, issues, report: null };
   const target = targetFile.value;
@@ -170,11 +171,16 @@ function checkReview(options) {
       try {
         const immutable =
           (options.reportStage || "final") === "final" && report.outcome !== "passed";
-        writeProjectJsonAtomic(root, options.reportPath, report, {
+        const publication = writeProjectJsonAtomic(root, options.reportPath, report, {
           fileMode: 0o600,
           directoryMode: 0o700,
           replace: !immutable,
         });
+        if (!publication.directory_synced)
+          warnings.push({
+            path: "report.path",
+            message: `committed with unsupported directory sync ${publication.directory_sync_error}`,
+          });
       } catch (error) {
         add(
           issues,
@@ -186,7 +192,12 @@ function checkReview(options) {
         return { ok: false, issues, report };
       }
     } else add(issues, "report.path", "must be project-relative without traversal");
-  return { ok: issues.length === 0, issues, report };
+  return {
+    ok: issues.length === 0,
+    issues,
+    report,
+    ...(warnings.length > 0 ? { warnings } : {}),
+  };
 }
 
 function validateTarget(target, issues) {

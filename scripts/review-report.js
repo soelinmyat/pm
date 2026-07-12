@@ -122,8 +122,9 @@ function renderReviewReport(options) {
   const rawHtml = new Set(["LENS_CARDS", "FINDINGS", "DISAGREEMENTS", "HANDOFFS"]);
   for (const [name, value] of Object.entries(replacements))
     html = html.split(`{{${name}}}`).join(rawHtml.has(name) ? String(value) : escapeHtml(value));
+  let publication;
   try {
-    writeProjectTextAtomic(root, options.outputPath, html, {
+    publication = writeProjectTextAtomic(root, options.outputPath, html, {
       fileMode: 0o600,
       directoryMode: 0o700,
       replace: !(reportStage === "final" && report.outcome !== "passed"),
@@ -137,6 +138,12 @@ function renderReviewReport(options) {
     path: relativeOutput,
     sha256: digest(Buffer.from(html)),
     bytes: Buffer.byteLength(html),
+    ...(!publication.directory_synced
+      ? {
+          directory_synced: false,
+          directory_sync_error: publication.directory_sync_error,
+        }
+      : {}),
   };
 }
 
