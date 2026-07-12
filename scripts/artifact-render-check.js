@@ -37,105 +37,147 @@ function renderArtifact(options) {
   const browserVersion = probeBrowserVersion(browserPath);
   if (!fs.statSync(htmlPath).isFile()) throw new Error(`HTML is not a file: ${htmlPath}`);
   assertRealContained(realProjectRoot, fs.realpathSync(htmlPath), "HTML");
+  const sourceBefore = readRenderSourceIdentity(htmlPath);
   fs.mkdirSync(outputDir, { recursive: true, mode: 0o700 });
   assertRealContained(realProjectRoot, fs.realpathSync(outputDir), "render output directory");
-  const url = pathToFileURL(htmlPath).href;
-  const captures = [];
+  const snapshotDir = fs.mkdtempSync(path.join(outputDir, ".pm-render-source-"));
+  const snapshotPath = path.join(snapshotDir, "source.html");
+  fs.writeFileSync(snapshotPath, sourceBefore.bytes, { mode: 0o400, flag: "wx" });
+  try {
+    const url = pathToFileURL(snapshotPath).href;
+    const captures = [];
 
-  for (const viewport of VIEWPORTS) {
-    const output = path.join(outputDir, `${path.basename(htmlPath, ".html")}-${viewport.name}.png`);
-    const metrics = captureMetrics(browserPath, htmlPath, outputDir, viewport);
-    validateMetrics(metrics, viewport);
-    fs.rmSync(output, { force: true });
+    for (const viewport of VIEWPORTS) {
+      const output = path.join(
+        outputDir,
+        `${path.basename(htmlPath, ".html")}-${viewport.name}.png`
+      );
+      const metrics = captureMetrics(browserPath, snapshotPath, outputDir, viewport);
+      validateMetrics(metrics, viewport);
+      fs.rmSync(output, { force: true });
+      runBrowser(browserPath, [
+        ...baseArgs(),
+        `--window-size=${viewport.width},${viewport.height}`,
+        `--screenshot=${output}`,
+        url,
+      ]);
+      const dimensions = inspectPng(output);
+      if (dimensions.width !== viewport.width || dimensions.height !== viewport.height) {
+        throw new Error(
+          `${viewport.name} capture has ${dimensions.width}x${dimensions.height}; expected ${viewport.width}x${viewport.height}`
+        );
+      }
+      const fullHeight = Math.max(viewport.height, Math.ceil(metrics.documentHeight));
+      const fullOutput = path.join(
+        outputDir,
+        `${path.basename(htmlPath, ".html")}-${viewport.name}-full.png`
+      );
+      fs.rmSync(fullOutput, { force: true });
+      runBrowser(browserPath, [
+        ...baseArgs(),
+        `--window-size=${viewport.width},${fullHeight}`,
+        `--screenshot=${fullOutput}`,
+        url,
+      ]);
+      const fullDimensions = inspectPng(fullOutput);
+      if (fullDimensions.width !== viewport.width || fullDimensions.height !== fullHeight) {
+        throw new Error(
+          `${viewport.name} full capture has ${fullDimensions.width}x${fullDimensions.height}; expected ${viewport.width}x${fullHeight}`
+        );
+      }
+      captures.push({
+        ...viewport,
+        path: projectRelative(projectRoot, output, "render capture"),
+        sha256: digestFile(output),
+        bytes: fs.statSync(output).size,
+        metrics,
+        full_page: {
+          path: projectRelative(projectRoot, fullOutput, "full-page render capture"),
+          width: viewport.width,
+          height: fullHeight,
+          sha256: digestFile(fullOutput),
+          bytes: fs.statSync(fullOutput).size,
+        },
+      });
+    }
+
+    const pdfPath = path.join(outputDir, `${path.basename(htmlPath, ".html")}-print.pdf`);
+    fs.rmSync(pdfPath, { force: true });
     runBrowser(browserPath, [
       ...baseArgs(),
-      `--window-size=${viewport.width},${viewport.height}`,
-      `--screenshot=${output}`,
+      `--print-to-pdf=${pdfPath}`,
+      "--no-pdf-header-footer",
       url,
     ]);
-    const dimensions = inspectPng(output);
-    if (dimensions.width !== viewport.width || dimensions.height !== viewport.height) {
-      throw new Error(
-        `${viewport.name} capture has ${dimensions.width}x${dimensions.height}; expected ${viewport.width}x${viewport.height}`
-      );
-    }
-    const fullHeight = Math.max(viewport.height, Math.ceil(metrics.documentHeight));
-    const fullOutput = path.join(
-      outputDir,
-      `${path.basename(htmlPath, ".html")}-${viewport.name}-full.png`
-    );
-    fs.rmSync(fullOutput, { force: true });
-    runBrowser(browserPath, [
-      ...baseArgs(),
-      `--window-size=${viewport.width},${fullHeight}`,
-      `--screenshot=${fullOutput}`,
-      url,
-    ]);
-    const fullDimensions = inspectPng(fullOutput);
-    if (fullDimensions.width !== viewport.width || fullDimensions.height !== fullHeight) {
-      throw new Error(
-        `${viewport.name} full capture has ${fullDimensions.width}x${fullDimensions.height}; expected ${viewport.width}x${fullHeight}`
-      );
-    }
-    captures.push({
-      ...viewport,
-      path: projectRelative(projectRoot, output, "render capture"),
-      sha256: digestFile(output),
-      bytes: fs.statSync(output).size,
-      metrics,
-      full_page: {
-        path: projectRelative(projectRoot, fullOutput, "full-page render capture"),
-        width: viewport.width,
-        height: fullHeight,
-        sha256: digestFile(fullOutput),
-        bytes: fs.statSync(fullOutput).size,
+    const printInspection = inspectPdf(pdfPath);
+    const markers = options.markerPrefix
+      ? probeDataMarkerVisibility(browserPath, snapshotPath, outputDir, options.markerPrefix)
+      : null;
+    const canonicalBrowserPathAfter = fs.realpathSync(requestedBrowserPath);
+    const executableSha256After = digestFile(canonicalBrowserPathAfter);
+    if (
+      canonicalBrowserPathAfter !== browserPath ||
+      executableSha256After !== executableSha256Before
+    )
+      throw new Error("browser executable changed during artifact capture");
+    const sourceAfter = readRenderSourceIdentity(htmlPath);
+    if (
+      sourceAfter.realpath !== sourceBefore.realpath ||
+      sourceAfter.dev !== sourceBefore.dev ||
+      sourceAfter.ino !== sourceBefore.ino ||
+      sourceAfter.sha256 !== sourceBefore.sha256
+    )
+      throw new Error("HTML source changed during artifact capture");
+    if (digestFile(snapshotPath) !== sourceBefore.sha256)
+      throw new Error("immutable HTML snapshot changed during artifact capture");
+
+    return {
+      schema_version: 1,
+      source: { path: relativeHtml, sha256: sourceBefore.sha256 },
+      observation: {
+        assurance_level: OBSERVATION_ASSURANCE_LEVEL,
+        producer: { name: OBSERVATION_PRODUCER, version: PLUGIN_VERSION },
+        browser: {
+          path: browserPath,
+          executable_sha256_before: executableSha256Before,
+          executable_sha256_after: executableSha256After,
+          engine: "chromium",
+          version: browserVersion,
+        },
+        invocation_configuration_sha256: invocationConfigurationDigest(options.markerPrefix),
       },
-    });
+      captures,
+      print: {
+        path: projectRelative(projectRoot, pdfPath, "print render"),
+        sha256: digestFile(pdfPath),
+        bytes: fs.statSync(pdfPath).size,
+        pages: printInspection.pages,
+      },
+      ...(markers ? { markers } : {}),
+      checked_at: new Date().toISOString(),
+    };
+  } finally {
+    fs.rmSync(snapshotDir, { recursive: true, force: true });
   }
+}
 
-  const pdfPath = path.join(outputDir, `${path.basename(htmlPath, ".html")}-print.pdf`);
-  fs.rmSync(pdfPath, { force: true });
-  runBrowser(browserPath, [
-    ...baseArgs(),
-    `--print-to-pdf=${pdfPath}`,
-    "--no-pdf-header-footer",
-    url,
-  ]);
-  const printInspection = inspectPdf(pdfPath);
-  const markers = options.markerPrefix
-    ? probeDataMarkerVisibility(browserPath, htmlPath, outputDir, options.markerPrefix)
-    : null;
-  const canonicalBrowserPathAfter = fs.realpathSync(requestedBrowserPath);
-  const executableSha256After = digestFile(canonicalBrowserPathAfter);
-  if (canonicalBrowserPathAfter !== browserPath || executableSha256After !== executableSha256Before)
-    throw new Error("browser executable changed during artifact capture");
-
-  return {
-    schema_version: 1,
-    source: { path: relativeHtml, sha256: digestFile(htmlPath) },
-    browser: browserPath,
-    observation: {
-      assurance_level: OBSERVATION_ASSURANCE_LEVEL,
-      producer: { name: OBSERVATION_PRODUCER, version: PLUGIN_VERSION },
-      browser: {
-        path: browserPath,
-        executable_sha256_before: executableSha256Before,
-        executable_sha256_after: executableSha256After,
-        engine: "chromium",
-        version: browserVersion,
-      },
-      invocation_configuration_sha256: invocationConfigurationDigest(options.markerPrefix),
-    },
-    captures,
-    print: {
-      path: projectRelative(projectRoot, pdfPath, "print render"),
-      sha256: digestFile(pdfPath),
-      bytes: fs.statSync(pdfPath).size,
-      pages: printInspection.pages,
-    },
-    ...(markers ? { markers } : {}),
-    checked_at: new Date().toISOString(),
-  };
+function readRenderSourceIdentity(htmlPath) {
+  const noFollow = fs.constants.O_NOFOLLOW || 0;
+  const descriptor = fs.openSync(htmlPath, fs.constants.O_RDONLY | noFollow);
+  try {
+    const stat = fs.fstatSync(descriptor);
+    if (!stat.isFile()) throw new Error(`HTML is not a regular file: ${htmlPath}`);
+    const bytes = fs.readFileSync(descriptor);
+    return {
+      realpath: fs.realpathSync(htmlPath),
+      dev: String(stat.dev),
+      ino: String(stat.ino),
+      sha256: `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`,
+      bytes,
+    };
+  } finally {
+    fs.closeSync(descriptor);
+  }
 }
 
 function probeBrowserVersion(browserPath) {

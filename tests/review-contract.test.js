@@ -195,6 +195,10 @@ test("Review design applicability shares Dev's UI-impact classifier", () => {
     "android/app/src/main/java/com/acme/payments/Card.kt",
     "android/app/src/main/res/layout/checkout.xml",
     "android/app/src/main/res/drawable/card.xml",
+    "mobile/src/main/java/com/acme/CheckoutScreen.kt",
+    "feature-checkout/src/main/kotlin/com/acme/CheckoutActivity.kt",
+    "feature-checkout/src/main/res/layout/checkout.xml",
+    "feature-checkout/src/debug/res/values/colors.xml",
     "lib/widgets/cart_widget.dart",
     "lib/checkout/card.dart",
     "public/images/checkout-card.svg",
@@ -212,6 +216,7 @@ test("Review design applicability shares Dev's UI-impact classifier", () => {
     "Sources/Networking/APIClient.swift",
     "Sources/Core/DateParser.swift",
     "Sources/Models/User.swift",
+    "services/payments/src/main/kotlin/com/acme/Ledger.kt",
   ]) {
     const design = deriveLensApplicability("full", [{ path }]).find(
       (item) => item.name === "design"

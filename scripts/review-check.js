@@ -163,8 +163,18 @@ function checkReview(options) {
     merged,
     options.humanReportPath
   );
+  const reportStage = options.reportStage || "final";
+  if (
+    reportStage === "final" &&
+    report.outcome === "passed" &&
+    target.relevance_policy !== CHANGE_HUNK_ANCHOR_POLICY
+  )
+    add(
+      issues,
+      "target.relevance_policy",
+      `final passing review evidence requires ${CHANGE_HUNK_ANCHOR_POLICY}; legacy targets are inspection-only`
+    );
   if (reviewRoot && options.validateOnly !== true) {
-    const reportStage = options.reportStage || "final";
     if (!new Set(["draft", "final"]).has(reportStage))
       add(issues, "report.stage", "must be draft or final");
     const expectedReport = expectedReviewPath(reviewRoot, target.review_round, "report", {
@@ -949,10 +959,12 @@ function validateEvidenceReference(root, evidence, target, label, issues) {
     const end = Number(match[3] || match[2]);
     if (!positiveLine(start) || !positiveLine(end) || end < start)
       return add(issues, `${label}.ref`, "has an invalid line range");
-    const changed = (target.changed_files || []).find((item) => item.path === match[1]);
+    const changed = (target.changed_files || []).find(
+      (item) => item.path === match[1] || item.old_path === match[1]
+    );
     try {
       const commit =
-        changed?.status === "D"
+        changed?.status === "D" || (changed?.old_path === match[1] && changed.path !== match[1])
           ? target[FROZEN_MERGE_BASE] || target.source.base_commit
           : target.source.commit;
       const bytes = readFrozenBlob(root, target, commit, match[1]);

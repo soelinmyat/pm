@@ -29,7 +29,9 @@ const APPLE_UI_RE =
 const APPLE_UI_NAMED_FILE_RE =
   /(^|\/)(?:[A-Z][A-Za-z0-9_]*(?:ViewController|View|Screen)|AppDelegate|SceneDelegate)\.(?:swift|m|mm|h)$/;
 const ANDROID_UI_RE =
-  /(^|\/)(android|app)(\/|$).*\.(kt|kts)$|(^|\/)(android\/[^/]+\/)?(app\/)?src\/[^/]+\/res\/(layout|drawable|mipmap|values|anim|animator|menu|navigation|xml)(\/|$)/i;
+  /(^|\/)(android|app)(\/|$).*\.(kt|kts)$|(^|\/)(?:android\/[^/]+\/)?(?:app\/)?src\/[^/]+\/res\/(layout|drawable|mipmap|values|anim|animator|menu|navigation|xml)(\/|$)|(^|\/)[^/]+\/src\/[^/]+\/res\/(layout|drawable|mipmap|values|anim|animator|menu|navigation|xml)(\/|$)/i;
+const ANDROID_NAMED_KOTLIN_UI_RE =
+  /(^|\/)[^/]+\/src\/[^/]+\/(java|kotlin)\/.*(?:Activity|Fragment|Screen|View|Dialog|Adapter|Composable|Ui|UI)\.(kt|kts)$/i;
 const FLUTTER_UI_RE = /(^|\/)lib\/.*\.dart$|(^|\/)(main|[^/]+_(screen|page|widget|view))\.dart$/i;
 const UI_ASSET_RE = /(^|\/)(assets?|public)\/.*\.(svg|png|jpe?g|gif|webp|avif)$/i;
 const KB_ARTIFACT_PATH_RE = /^\.?pm\//;
@@ -45,6 +47,7 @@ function isUiImpactPath(file) {
     APPLE_UI_RE.test(file) ||
     APPLE_UI_NAMED_FILE_RE.test(file) ||
     ANDROID_UI_RE.test(file) ||
+    ANDROID_NAMED_KOTLIN_UI_RE.test(file) ||
     FLUTTER_UI_RE.test(file)
   )
     return true;

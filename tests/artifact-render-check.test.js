@@ -145,6 +145,36 @@ test("render checker rejects browser executable drift during capture", () => {
   }
 });
 
+test("render checker rejects HTML source drift during capture", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-render-"));
+  try {
+    const htmlPath = path.join(root, "example.html");
+    const browserPath = fakeBrowser(root);
+    fs.writeFileSync(htmlPath, "<!doctype html><title>Example</title>");
+    fs.writeFileSync(
+      browserPath,
+      fs
+        .readFileSync(browserPath, "utf8")
+        .replace(
+          "if (screenshot) {",
+          `if (screenshot) { fs.appendFileSync(${JSON.stringify(htmlPath)}, "\\n<!-- source drift -->\\n");`
+        )
+    );
+    assert.throws(
+      () =>
+        renderArtifact({
+          htmlPath,
+          outputDir: path.join(root, "renders"),
+          browserPath,
+          projectRoot: root,
+        }),
+      /HTML source changed during artifact capture/
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("render checker rejects stale captures when the browser produces no new image", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-render-"));
   try {

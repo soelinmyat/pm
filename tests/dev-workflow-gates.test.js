@@ -603,6 +603,53 @@ test("pre-push fails closed when origin/main is unavailable for PM runtime chang
   }
 });
 
+test("pre-push fails closed when an unavailable remote push deletes all PM inventory", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-pre-push-deleted-inventory-"));
+  try {
+    const hook = path.join(dir, "pre-push");
+    fs.copyFileSync(path.join(repoRoot, ".githooks", "pre-push"), hook);
+    fs.chmodSync(hook, 0o755);
+    const git = (...args) => spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+    assert.equal(git("init", "-q", "-b", "main").status, 0);
+    assert.equal(git("config", "user.email", "test@example.com").status, 0);
+    assert.equal(git("config", "user.name", "Test User").status, 0);
+    fs.mkdirSync(path.join(dir, "commands"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "skills", "dev"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "plugin.config.json"),
+      JSON.stringify({ commands: ["dev"] }, null, 2)
+    );
+    fs.writeFileSync(path.join(dir, "commands", "dev.md"), "dev command\n");
+    fs.writeFileSync(
+      path.join(dir, "skills", "dev", "SKILL.md"),
+      "---\nname: dev\ndescription: dev skill\n---\n"
+    );
+    fs.writeFileSync(path.join(dir, "scripts", "dev-gate-check.js"), "process.exit(0);\n");
+    assert.equal(git("add", ".").status, 0);
+    assert.equal(git("commit", "-q", "-m", "runtime").status, 0);
+    assert.equal(git("checkout", "-q", "-b", "codex/remove-runtime").status, 0);
+    fs.rmSync(path.join(dir, "plugin.config.json"));
+    fs.rmSync(path.join(dir, "commands"), { recursive: true });
+    fs.rmSync(path.join(dir, "skills"), { recursive: true });
+    fs.rmSync(path.join(dir, "scripts"), { recursive: true });
+    assert.equal(git("add", "-A").status, 0);
+    assert.equal(git("commit", "-q", "-m", "remove runtime").status, 0);
+    const localOid = git("rev-parse", "HEAD").stdout.trim();
+
+    const zeroOid = "0000000000000000000000000000000000000000";
+    const result = spawnSync("bash", [hook, "missing-remote"], {
+      cwd: dir,
+      encoding: "utf8",
+      input: `refs/heads/codex/remove-runtime ${localOid} refs/heads/codex/remove-runtime ${zeroOid}\n`,
+    });
+    assert.notEqual(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout + result.stderr, /unable to resolve the authoritative remote HEAD/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("pre-push preserves non-PM repositories when no authoritative remote is available", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-pre-push-non-pm-"));
   try {

@@ -219,6 +219,50 @@ test("frozen review uses three-dot merge-base semantics on diverged branches", (
   }
 });
 
+test("base-side evidence resolves through a renamed file's old path", () => {
+  const fixture = makeFixture({ maxWorkers: 2, renameFile: true });
+  try {
+    const renamed = fixture.target.changed_files.find(
+      (item) => item.path === "src/renamed.js" && item.old_path === "src/old-name.js"
+    );
+    assert.ok(renamed, JSON.stringify(fixture.target.changed_files, null, 2));
+    const finding = {
+      ...validFinding("edge"),
+      file: "src/renamed.js",
+      line_start: 2,
+      line_end: 2,
+      rule: "rename-removed-contract",
+      evidence: [{ kind: "source", ref: "src/old-name.js:2" }],
+      change_anchors: [
+        {
+          path: "src/old-name.js",
+          side: "base",
+          line_start: 2,
+          line_end: 2,
+          affected_ref: "src/old-name.js:2",
+          relation: "Removing the old renamed-file contract line causes the reported edge failure.",
+        },
+      ],
+    };
+    finding.id = findingId(finding);
+    const issues = [];
+    validateFrozenTarget(fixture.root, fixture.target, issues);
+    validateSignal(
+      fixture.root,
+      finding,
+      "reviewer-2",
+      ["edge"],
+      fixture.target,
+      "finding",
+      issues
+    );
+    assert.deepEqual(issues, []);
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+    fs.rmSync(`${fixture.root}-origin.git`, { recursive: true, force: true });
+  }
+});
+
 test("changed-hunk policy accepts a stable primary line only with a causal hunk anchor", () => {
   const fixture = makeFixture({ maxWorkers: 2, multiline: true });
   const target = fixture.target;
@@ -457,6 +501,23 @@ test("legacy targets remain readable without change anchors", () => {
     true
   );
   assert.deepEqual(issues, []);
+});
+
+test("legacy targets cannot publish an authoritative final passing report", () => {
+  const fixture = makeFixture({ maxWorkers: 2 });
+  const target = structuredClone(fixture.target);
+  delete target.relevance_policy;
+  write(fixture.root, fixture.targetPath, target);
+  const targetBinding = binding(fixture.root, fixture.targetPath);
+  for (const resultPath of fixture.resultPaths) {
+    const absolute = path.join(fixture.root, resultPath);
+    const result = JSON.parse(fs.readFileSync(absolute, "utf8"));
+    result.target = targetBinding;
+    fs.writeFileSync(absolute, `${JSON.stringify(result, null, 2)}\n`);
+  }
+  const checked = generate(fixture);
+  assert.equal(checked.ok, false);
+  assert.match(JSON.stringify(checked.issues), /legacy targets are inspection-only/);
 });
 
 test("target creation refuses dirty source and inventory remains bound to committed bytes", () => {
@@ -2236,7 +2297,13 @@ test(
   }
 );
 
-function makeFixture({ maxWorkers, deleteFile = false, runScoped = true, multiline = false }) {
+function makeFixture({
+  maxWorkers,
+  deleteFile = false,
+  renameFile = false,
+  runScoped = true,
+  multiline = false,
+}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-check-"));
   fs.mkdirSync(path.join(root, "src"), { recursive: true });
   fs.mkdirSync(path.join(root, "skills/dev/references"), { recursive: true });
@@ -2249,6 +2316,11 @@ function makeFixture({ maxWorkers, deleteFile = false, runScoped = true, multili
   );
   if (deleteFile)
     fs.writeFileSync(path.join(root, "src/deleted.js"), "module.exports = 'delete me';\n");
+  if (renameFile)
+    fs.writeFileSync(
+      path.join(root, "src/old-name.js"),
+      "stable 1\nold contract\nstable 3\nstable 4\nstable 5\nstable 6\nstable 7\nstable 8\n"
+    );
   fs.writeFileSync(
     path.join(root, "skills/dev/references/model-profiles.json"),
     JSON.stringify({
@@ -2280,6 +2352,13 @@ function makeFixture({ maxWorkers, deleteFile = false, runScoped = true, multili
       : "module.exports = { value: 2 };\n"
   );
   if (deleteFile) fs.rmSync(path.join(root, "src/deleted.js"));
+  if (renameFile) {
+    fs.renameSync(path.join(root, "src/old-name.js"), path.join(root, "src/renamed.js"));
+    fs.writeFileSync(
+      path.join(root, "src/renamed.js"),
+      "stable 1\nnew contract\nstable 3\nstable 4\nstable 5\nstable 6\nstable 7\nstable 8\n"
+    );
+  }
   git(root, ["add", "-A"]);
   git(root, ["commit", "-qm", "change"]);
 

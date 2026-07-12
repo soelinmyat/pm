@@ -537,6 +537,26 @@ test("explicit push of the session branch is still gated → block", () => {
   }
 });
 
+test("explicit alternate source commit is checked instead of current HEAD", () => {
+  const dir = makeRepo();
+  try {
+    const reviewedHead = headSha(dir);
+    fs.writeFileSync(path.join(dir, "README.md"), "unreviewed alternate commit\n");
+    git(dir, "add", "README.md");
+    git(dir, "commit", "-q", "-m", "alternate");
+    const alternate = headSha(dir);
+    git(dir, "reset", "--hard", reviewedHead);
+    writeGates(dir, "x", passingManifest(dir, "x", reviewedHead));
+
+    assertBlock(
+      runHook(`git push origin ${alternate}:refs/heads/feat/x`, { cwd: dir }),
+      /commit mismatch|stale|does not match/i
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // PARSER ROBUSTNESS FOR NATURAL FORMS (BLOCKING #4). Quotes/parens stripped,
 // backslash-newline treated as a continuation (joined), wrappers honored.

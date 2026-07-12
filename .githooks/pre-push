@@ -49,6 +49,45 @@ commit_contains_pm_runtime_inventory() {
     }
 }
 
+commit_or_history_contains_pm_runtime_inventory() {
+  local commit="$1"
+  local remote_commit="$2"
+  local pathspec=""
+  local changed_commit=""
+  local candidate=""
+  local history_paths=(
+    "plugin.config.json"
+    ".claude-plugin/plugin.json"
+    ".codex-plugin/plugin.json"
+    "commands"
+    "skills"
+  )
+
+  if commit_contains_pm_runtime_inventory "$commit"; then
+    return 0
+  fi
+  if [[ "$remote_commit" =~ ^[a-f0-9]{40,64}$ ]] &&
+    git cat-file -e "${remote_commit}^{commit}" 2>/dev/null &&
+    commit_contains_pm_runtime_inventory "$remote_commit"; then
+    return 0
+  fi
+  for pathspec in "${history_paths[@]}"; do
+    changed_commit=$(git rev-list --max-count=1 "$commit" -- "$pathspec" 2>/dev/null) || return 1
+    if [[ -z "$changed_commit" ]]; then
+      continue
+    fi
+    while IFS= read -r candidate; do
+      if [[ -n "$candidate" ]] && commit_contains_pm_runtime_inventory "$candidate"; then
+        return 0
+      fi
+    done < <(
+      git rev-list --parents --max-count=1 "$changed_commit" 2>/dev/null |
+        tr ' ' '\n'
+    )
+  done
+  return 1
+}
+
 derive_gate_slug() {
   local slug="$1"
   local prefix
@@ -204,7 +243,8 @@ for push_ref_line in "${push_ref_lines[@]}"; do
   authoritative_base_ref=""
   authoritative_base_commit=""
   if ! resolve_authoritative_remote_head; then
-    if commit_contains_pm_runtime_inventory "$local_oid" || [[ "$gate_session_detected" -eq 1 ]]; then
+    if commit_or_history_contains_pm_runtime_inventory "$local_oid" "$remote_oid" ||
+      [[ "$gate_session_detected" -eq 1 ]]; then
       echo "ERROR: unable to resolve the authoritative remote HEAD for PM dev gate checks."
       echo "Verify the pre-push remote and network access, then retry."
       exit 1

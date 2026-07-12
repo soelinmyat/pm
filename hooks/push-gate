@@ -71,7 +71,7 @@ function blockFailingGate(branch, manifestRel, checkerOutput) {
       "",
       checkerOutput.trim(),
       "",
-      `Run the missing/failing gates, refresh ${manifestRel} for HEAD, then retry the push.`,
+      `Run the missing/failing gates, refresh ${manifestRel} for the exact pushed commit, then retry the push.`,
     ].join("\n")
   );
 }
@@ -88,7 +88,7 @@ function blockUnverified(branch, manifestRel, detail) {
       }.`,
       "",
       `The gate cannot be assumed passed when it can't be evaluated. Fix the checker/environment, ` +
-        `confirm ${manifestRel} is current for HEAD, then retry.`,
+        `confirm ${manifestRel} is current for the exact pushed commit, then retry.`,
     ].join("\n")
   );
 }
@@ -260,6 +260,37 @@ function pushUpdatesSessionBranch(args, sessionBranch) {
   return false;
 }
 
+function sessionBranchPushSource(args, sessionBranch) {
+  const positionals = [];
+  let sawAllOrMirror = false;
+  for (let i = 0; i < args.length; i += 1) {
+    const token = args[i];
+    if (token.startsWith("-")) {
+      if (token === "--all" || token === "--mirror") sawAllOrMirror = true;
+      else if (PUSH_VALUE_OPTS.has(token)) i += 1;
+      continue;
+    }
+    positionals.push(token);
+  }
+  if (sawAllOrMirror)
+    return { error: "multi-ref --all/--mirror push cannot be bound to one source commit" };
+  const refspecs = positionals.slice(1);
+  if (refspecs.length === 0) return { source: "HEAD" };
+  const sources = [];
+  for (const raw of refspecs) {
+    const spec = raw.startsWith("+") ? raw.slice(1) : raw;
+    const dest = refspecDest(spec);
+    if (dest.kind !== "branch" || (dest.dst !== "HEAD" && dest.dst !== sessionBranch)) continue;
+    const colon = spec.indexOf(":");
+    const source = colon >= 0 ? spec.slice(0, colon) : spec;
+    if (!source) return { error: "session-branch deletion has no source commit" };
+    sources.push(source);
+  }
+  if (sources.length !== 1)
+    return { error: "session branch push must resolve to exactly one source refspec" };
+  return { source: sources[0] };
+}
+
 // --- git helpers -----------------------------------------------------------
 
 function gitCapture(repoDir, args) {
@@ -383,14 +414,21 @@ function main() {
   // real manifest. Fail CLOSED on anything that stops a clean verdict — including
   // an unexpected throw in here: an error is not proof the gate passed.
   try {
-    const headSha = gitCapture(repoDir, ["rev-parse", "HEAD"]);
-    if (!headSha) return blockUnverified(branch, manifestRel, "unable to resolve HEAD");
+    const pushed = sessionBranchPushSource(push.args, branch);
+    if (pushed.error) return blockUnverified(branch, manifestRel, pushed.error);
+    const pushedSha = gitCapture(repoDir, ["rev-parse", "--verify", `${pushed.source}^{commit}`]);
+    if (!/^[a-f0-9]{40,64}$/.test(pushedSha))
+      return blockUnverified(
+        branch,
+        manifestRel,
+        `unable to resolve pushed source ${pushed.source} to one commit`
+      );
 
     const checkerArgs = [
       "--manifest",
       manifestPath,
       "--commit",
-      headSha,
+      pushedSha,
       "--branch",
       branch,
       "--review-evidence-mode",
