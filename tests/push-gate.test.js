@@ -521,6 +521,9 @@ test("cross-branch push (dst is not the session branch) is out of scope → allo
     assertAllow(runHook("git push origin main", { cwd: dir }));
     assertAllow(runHook("git push origin feat/x:feat/y", { cwd: dir }));
     assertAllow(runHook("git push origin HEAD:refs/heads/other", { cwd: dir }));
+    assertAllow(runHook("git push --repo origin HEAD:refs/heads/other", { cwd: dir }));
+    assertAllow(runHook("git push --repo=origin HEAD:refs/heads/other", { cwd: dir }));
+    assertAllow(runHook("git push --repo origin refs/tags/v1.0.0", { cwd: dir }));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

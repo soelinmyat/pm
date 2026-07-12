@@ -205,6 +205,38 @@ test("render checker preserves the source directory as the relative-resource bas
   }
 });
 
+test("render checker observes the canonical HTML URL without source-directory writes", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-render-"));
+  const sourceDir = path.join(root, "read-only-source");
+  try {
+    fs.mkdirSync(sourceDir);
+    const htmlPath = path.join(sourceDir, "canonical.html");
+    const browserPath = fakeBrowser(root);
+    fs.writeFileSync(htmlPath, "<!doctype html><title>Canonical</title>");
+    fs.writeFileSync(
+      browserPath,
+      fs
+        .readFileSync(browserPath, "utf8")
+        .replace(
+          "if (screenshot) {",
+          `if (screenshot) { const observed = decodeURIComponent(new URL(process.argv[process.argv.length - 1]).pathname); if (observed !== ${JSON.stringify(htmlPath)}) process.exit(10);`
+        )
+    );
+    fs.chmodSync(sourceDir, 0o500);
+    assert.doesNotThrow(() =>
+      renderArtifact({
+        htmlPath,
+        outputDir: path.join(root, "renders"),
+        browserPath,
+        projectRoot: root,
+      })
+    );
+  } finally {
+    fs.chmodSync(sourceDir, 0o700);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("render checker bounds immutable HTML reads at the shared byte ceiling", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-render-"));
   try {
