@@ -127,13 +127,6 @@ const GIT_VALUE_OPTS = new Set(["-c", "--namespace", "--super-prefix", "--exec-p
 // for a remote/refspec positional).
 const PUSH_VALUE_OPTS = new Set(["-o", "--push-option", "--receive-pack", "--exec", "--repo"]);
 
-// Strip surrounding quotes/backticks/parens an agent may wrap a token in, so
-// `(git push)` and `git "push"` are recognized. ponytail: this covers natural
-// quoting only — `eval`/`alias`/base64 indirection is the documented ceiling.
-function stripToken(token) {
-  return token.replace(/^[('"`]+/, "").replace(/[)'"`]+$/, "");
-}
-
 // Parse one shell segment. Returns { isGit, isPush, dir, gitDir, workTree, args }
 // when the segment invokes git, else null. dir/gitDir/workTree come from git's
 // global -C / --git-dir / --work-tree options; args are the tokens after `push`.
@@ -144,7 +137,7 @@ function parseSegment(segment, depth = 0) {
   const shellWords = splitSimpleShellWords(
     withoutRedirections.trim().replace(/^[({]\s*/, "")
   );
-  const tokens = shellWords.map((word) => stripToken(word.value));
+  const tokens = shellWords.map((word) => word.value);
   let i = 0;
   let wrapperDir = null;
   let wrapperDynamic = false;
@@ -168,6 +161,9 @@ function parseSegment(segment, depth = 0) {
         const consumesValue = WRAPPER_VALUE_OPTIONS[wrapper]?.has(option);
         const valueIndex = inlineValue ? i : i + 1;
         const value = inlineValue ? inlineValueText : tokens[valueIndex];
+        const splitValueDynamic =
+          value !== undefined &&
+          (shellWords[valueIndex]?.dynamic === true || /[$`]/.test(value));
         if (
           consumesValue &&
           ((wrapper === "env" && (option === "-C" || option === "--chdir")) ||
@@ -186,17 +182,34 @@ function parseSegment(segment, depth = 0) {
           const remainderStart = inlineValue ? i + 1 : i + 2;
           const nestedCommand = [
             value,
-            ...tokens.slice(remainderStart).map(shellQuoteLiteral),
+            ...tokens.slice(remainderStart).map((token, offset) =>
+              shellWords[remainderStart + offset]?.dynamic
+                ? "$PM_DYNAMIC"
+                : shellQuoteLiteral(token)
+            ),
           ].join(" ");
           const nested = parseSegment(nestedCommand, depth + 1);
-          if (!nested) return null;
+          if (!nested) {
+            if (
+              splitValueDynamic ||
+              shellWords.slice(remainderStart).some((word) => word.dynamic)
+            )
+              return {
+                isGit: true,
+                isPush: true,
+                dir: wrapperDir,
+                gitDir: null,
+                workTree: null,
+                args: [],
+                indeterminate: true,
+              };
+            return null;
+          }
           nested.dir = nested.dir
             ? composeGitDirectory(wrapperDir, nested.dir)
             : wrapperDir;
           nested.indeterminate ||=
-            wrapperDynamic ||
-            shellWords[valueIndex]?.dynamic === true ||
-            shellWords.slice(remainderStart).some((word) => word.dynamic);
+            wrapperDynamic || splitValueDynamic;
           return nested;
         }
         i += 1;

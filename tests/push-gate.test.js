@@ -387,6 +387,14 @@ test("quoted git -C paths remain one shell word", () => {
       runHook("git -C 'repo$archive' push origin HEAD", { cwd: parent }),
       /verification is failed/
     );
+    const parenthesized = path.join(parent, "(gated)");
+    fs.mkdirSync(parenthesized);
+    makeRepoAt(parenthesized);
+    writeFailingGates(parenthesized, "x");
+    assertBlock(
+      runHook("git -C '(gated)' push origin HEAD", { cwd: parent }),
+      /verification is failed/
+    );
     assertBlock(
       runHook(">/dev/null git push origin HEAD", { cwd: repo }),
       /verification is failed/
@@ -879,6 +887,14 @@ test("wrapper-prefixed pushes (sudo / VAR=1 / env) are detected → block", () =
     writeFailingGates(spaced, "x");
     assertBlock(
       runHook("env -S 'git -C' 'gated repo' push origin HEAD", { cwd: dir }),
+      /verification is failed/
+    );
+    assertBlock(
+      runHook("CMD=git env -S '${CMD}' push origin HEAD", { cwd: dir }),
+      /could not determine the repository/
+    );
+    assertBlock(
+      runHook("env -S 'git push -o' '$TRACE' origin HEAD", { cwd: dir }),
       /verification is failed/
     );
   } finally {
