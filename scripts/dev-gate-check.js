@@ -96,6 +96,17 @@ function checkGateManifest(manifest, opts = {}) {
     return { ok: false, issues };
   }
   const sessionContext = readSessionContext(manifest, opts);
+  const canonicalSession = opts.canonicalSession || null;
+  if (opts.requireSessionBinding && !canonicalSession)
+    issues.push(
+      issue(manifestPath, opts.sessionError || "canonical gates require sibling session.json")
+    );
+  if (canonicalSession) {
+    if (canonicalSession.run_id !== manifest.run_id)
+      issues.push(issue(manifestPath, "gate run_id must equal sibling session.json"));
+    if (!new Set(["full", "code-scan"]).has(canonicalSession.routing?.review_mode))
+      issues.push(issue(manifestPath, "sibling session.json requires routing.review_mode"));
+  }
 
   const legacySimplifyTolerated = !requiredGates.includes("simplify");
   const byName = new Map();
@@ -152,6 +163,7 @@ function checkGateManifest(manifest, opts = {}) {
       currentCommit,
       Boolean(manifest.run_id),
       reviewEvidenceMode === "enforce",
+      canonicalSession?.routing?.review_mode || null,
       issues
     );
   }
@@ -173,6 +185,7 @@ function validateReviewReportArtifact(
   currentCommit,
   canonicalSession,
   enforceReviewEvidence,
+  expectedReviewMode,
   issues
 ) {
   if (!reviewGate || reviewGate.status !== "passed") return;
@@ -239,6 +252,22 @@ function validateReviewReportArtifact(
       issues.push(
         issue(manifestPath, "review-report-v1 must be passed and bound to current commit")
       );
+    const completed = [...(result.report?.coverage?.completed || [])].sort();
+    const recorded = [...(reviewGate.lenses || [])].sort();
+    if (JSON.stringify(recorded) !== JSON.stringify(completed))
+      issues.push(issue(manifestPath, "review row lenses must exactly match report coverage"));
+    if (expectedReviewMode) {
+      const targetPath = resolveArtifactPath(result.report?.target?.path, artifactRoot);
+      const targetFile = readRegularProjectFile(targetPath, artifactRoot, 4 * 1024 * 1024);
+      const reviewTarget = JSON.parse(targetFile.bytes.toString("utf8"));
+      if (reviewTarget.mode !== expectedReviewMode)
+        issues.push(
+          issue(
+            manifestPath,
+            `review target mode ${reviewTarget.mode || "missing"} must equal routed ${expectedReviewMode}`
+          )
+        );
+    }
   } catch (error) {
     issues.push(issue(manifestPath, `cannot validate review-report-v1: ${error.message}`));
   }
@@ -276,7 +305,8 @@ function validateReviewRenderManifest(reviewGate, htmlPath, artifactRoot, manife
   }
   if (
     value.schema_version !== 1 ||
-    path.resolve(value.source?.path || "") !== path.resolve(htmlPath) ||
+    !isProjectRelative(value.source?.path) ||
+    resolveArtifactPath(value.source?.path, artifactRoot) !== path.resolve(htmlPath) ||
     value.source?.sha256 !== `sha256:${digest(html.bytes)}`
   )
     issues.push(
@@ -357,11 +387,15 @@ function validateRenderedFile(
   try {
     if (
       !entry ||
-      !path.isAbsolute(entry.path || "") ||
+      !isProjectRelative(entry.path) ||
       !/^sha256:[a-f0-9]{64}$/.test(entry.sha256 || "")
     )
-      throw new Error("requires an absolute path and SHA-256 binding");
-    const file = readRegularProjectFile(entry.path, artifactRoot, 64 * 1024 * 1024);
+      throw new Error("requires a project-relative path and SHA-256 binding");
+    const file = readRegularProjectFile(
+      resolveArtifactPath(entry.path, artifactRoot),
+      artifactRoot,
+      64 * 1024 * 1024
+    );
     if (entry.sha256 !== `sha256:${digest(file.bytes)}` || entry.bytes !== file.bytes.length)
       throw new Error("hash or byte count does not match rendered bytes");
     if (kind === "png") {
@@ -374,6 +408,15 @@ function validateRenderedFile(
   } catch (error) {
     issues.push(issue(manifestPath, `${label}: ${error.message}`));
   }
+}
+
+function isProjectRelative(value) {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    !path.isAbsolute(value) &&
+    !value.split(/[\\/]+/).some((part) => !part || part === "." || part === "..")
+  );
 }
 
 function readRegularProjectFile(filePath, artifactRoot, maxBytes) {
@@ -813,28 +856,40 @@ function main(argv = process.argv.slice(2)) {
     }
   }
 
+  const sibling = readSiblingSessionContext(manifestPath);
   const result = checkGateManifest(manifest, {
     currentCommit,
     manifestPath,
     requiredGates: opts.requiredGates,
     allowSkippedGates: opts.allowSkippedGates,
     changedFiles,
-    runId: opts.runId || readSiblingRunId(manifestPath),
+    runId: opts.runId || sibling.session?.run_id || null,
+    canonicalSession: sibling.session,
+    requireSessionBinding: path.basename(manifestPath) === "gates.json",
+    sessionError: sibling.error,
     reviewEvidenceMode: opts.reviewEvidenceMode,
   });
   printResult(result, opts.json);
   return result.ok ? 0 : 1;
 }
 
-function readSiblingRunId(manifestPath) {
-  if (path.basename(manifestPath) !== "gates.json") return null;
+function readSiblingSessionContext(manifestPath) {
+  if (path.basename(manifestPath) !== "gates.json") return { session: null, error: null };
   try {
-    const session = JSON.parse(
-      fs.readFileSync(path.join(path.dirname(manifestPath), "session.json"), "utf8")
-    );
-    return typeof session.run_id === "string" ? session.run_id : null;
-  } catch {
-    return null;
+    const sessionPath = path.join(path.dirname(manifestPath), "session.json");
+    const file = readRegularProjectFile(sessionPath, process.cwd(), 4 * 1024 * 1024);
+    const session = JSON.parse(file.bytes.toString("utf8"));
+    const validation = require("./lib/dev-session-schema").validateSession(session);
+    if (validation.length > 0)
+      throw new Error(
+        validation
+          .slice(0, 3)
+          .map((item) => `${item.path}: ${item.message}`)
+          .join("; ")
+      );
+    return { session, error: null };
+  } catch (error) {
+    return { session: null, error: `cannot validate sibling session.json: ${error.message}` };
   }
 }
 

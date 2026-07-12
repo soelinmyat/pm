@@ -175,6 +175,7 @@ function checkReview(options) {
           fileMode: 0o600,
           directoryMode: 0o700,
           replace: !immutable,
+          maxBytes: MAX_JSON_BYTES,
         });
         if (!publication.directory_synced)
           warnings.push({
@@ -704,6 +705,12 @@ function validateSignal(root, finding, reviewerId, assignedLenses, target, label
     if (!text(finding[field])) add(issues, `${label}.${field}`, "is required");
   if (!FIX_KINDS.has(finding.fix_kind)) add(issues, `${label}.fix_kind`, "is invalid");
   if (!OWNERS.includes(finding.owner)) add(issues, `${label}.owner`, "is invalid");
+  else if (finding.owner !== "review")
+    add(
+      issues,
+      `${label}.owner`,
+      "reviewer signals must remain Review-owned; only an authenticated external approval may hand off ownership"
+    );
   if (!SIGNAL_DISPOSITIONS.has(finding.disposition))
     add(
       issues,

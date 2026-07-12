@@ -471,10 +471,36 @@ function verifyCommittedGateSidecarWithChecker(workspace, options, gateChecker) 
   const sessionRoot = path.join(workspace, ".pm", "dev-sessions");
   const canonicalSessionDir = path.join(sessionRoot, slug);
   const canonicalManifest = path.join(canonicalSessionDir, "gates.json");
-  const legacyManifest = path.join(sessionRoot, `${slug}.gates.json`);
-  const manifestPath =
-    options.manifestPath ||
-    (fs.existsSync(canonicalSessionDir) ? canonicalManifest : legacyManifest);
+  const manifestPath = options.manifestPath || canonicalManifest;
+  if (path.resolve(manifestPath) !== path.resolve(canonicalManifest))
+    return failed(
+      "gate-sidecar-non-authoritative",
+      "legacy gate sidecars are inspection-only; canonical gates.json is required"
+    );
+  if (!fs.existsSync(path.join(canonicalSessionDir, "session.json")))
+    return failed("gate-session-missing", "canonical sibling session.json is required");
+  const sessionRead = readBoundedRegularFile(
+    path.join(canonicalSessionDir, "session.json"),
+    MAX_RESULT_BYTES * 2,
+    "gate-session",
+    { requirePrivate: false }
+  );
+  if (!sessionRead.ok) return sessionRead;
+  let canonicalSession;
+  try {
+    canonicalSession = JSON.parse(sessionRead.content.toString("utf8"));
+  } catch (err) {
+    return failed("gate-session-malformed", `canonical session is malformed: ${err.message}`);
+  }
+  const sessionIssues = require("./lib/dev-session-schema").validateSession(canonicalSession);
+  if (sessionIssues.length > 0)
+    return failed(
+      "gate-session-invalid",
+      sessionIssues
+        .slice(0, 3)
+        .map((item) => `${item.path}: ${item.message}`)
+        .join("; ")
+    );
   if (pathChainHasSymlink(workspace, manifestPath)) {
     return failed("gate-sidecar-unsafe", "gate sidecar must be a bounded regular file");
   }
@@ -532,6 +558,8 @@ function verifyCommittedGateSidecarWithChecker(workspace, options, gateChecker) 
     artifactRoot: workspace,
     changedFiles,
     reviewEvidenceMode: "enforce",
+    canonicalSession,
+    requireSessionBinding: true,
   });
   if (!checked.ok) {
     return {

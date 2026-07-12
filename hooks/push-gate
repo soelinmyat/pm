@@ -364,7 +364,8 @@ function main() {
   const canonicalSessionDir = path.join(sessionsDir, slug);
   const canonicalPath = path.join(canonicalSessionDir, "gates.json");
   const legacyPath = path.join(sessionsDir, `${slug}.gates.json`);
-  let manifestPath = canonicalPath;
+  const currentPath = path.join(sessionsDir, "current.gates.json");
+  const manifestPath = canonicalPath;
   if (fs.existsSync(canonicalSessionDir) && !fs.existsSync(canonicalPath)) {
     return blockUnverified(
       branch,
@@ -372,16 +373,17 @@ function main() {
       "canonical gate manifest is missing"
     );
   }
-  if (!fs.existsSync(canonicalPath) && !fs.existsSync(canonicalSessionDir)) {
-    manifestPath = legacyPath;
-  }
   if (!fs.existsSync(manifestPath)) {
-    const currentPath = path.join(sessionsDir, "current.gates.json");
-    if (fs.existsSync(currentPath)) {
-      manifestPath = currentPath;
-    } else {
-      return allow(); // no PM dev session for this branch — no-op.
-    }
+    if (fs.existsSync(legacyPath) || fs.existsSync(currentPath))
+      return blockUnverified(
+        branch,
+        `.pm/dev-sessions/${slug}/gates.json`,
+        "legacy gate manifests are inspection-only; migrate and recertify the canonical session"
+      );
+    return allow(); // no PM dev session for this branch — no-op.
+  }
+  if (!fs.existsSync(path.join(canonicalSessionDir, "session.json"))) {
+    return blockUnverified(branch, manifestPath, "canonical sibling session.json is missing");
   }
   const manifestRel = path.relative(repoDir, manifestPath).split(path.sep).join("/");
 

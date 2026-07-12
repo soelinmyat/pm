@@ -10,6 +10,7 @@ const path = require("node:path");
 const ROOT = path.resolve(__dirname, "..");
 const HOOK = path.join(ROOT, "hooks", "push-gate");
 const { deriveSessionSlug } = require("../scripts/dev-gate-check.js");
+const { createSession } = require("../scripts/lib/dev-session-schema");
 
 // ---------------------------------------------------------------------------
 // hooks/push-gate is a PreToolUse (Bash matcher, async:false) hook that makes
@@ -47,7 +48,11 @@ function headSha(dir) {
 function writeGates(dir, slug, gatesManifest) {
   const sessionDir = path.join(dir, ".pm", "dev-sessions", slug);
   fs.mkdirSync(sessionDir, { recursive: true });
+  const session = createSession({ slug, sourceDir: dir });
+  session.routing.review_mode = "code-scan";
+  gatesManifest.run_id = session.run_id;
   fs.writeFileSync(path.join(sessionDir, "gates.json"), JSON.stringify(gatesManifest, null, 2));
+  fs.writeFileSync(path.join(sessionDir, "session.json"), JSON.stringify(session, null, 2));
 }
 
 function writeLegacyGates(dir, slug, gatesManifest) {
@@ -218,14 +223,14 @@ test("push with a legacy-shaped passed Review row is blocked", () => {
   }
 });
 
-test("flat legacy manifest is used only when no canonical session directory exists", () => {
+test("flat legacy manifest is inspection-only and cannot authorize a push", () => {
   const dir = makeRepo();
   try {
     const m = passingManifest(dir, "x", headSha(dir));
     m.gates.find((g) => g.name === "qa").status = "failed";
     m.gates.find((g) => g.name === "qa").reason = "legacy qa failed";
     writeLegacyGates(dir, "x", m);
-    assertBlock(runHook("git push", { cwd: dir }), /qa is failed/);
+    assertBlock(runHook("git push", { cwd: dir }), /legacy gate manifests are inspection-only/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -358,11 +363,10 @@ test("cd <dir> && git push form is detected and gated against that repo", () => 
 });
 
 // ---------------------------------------------------------------------------
-// current.gates.json fallback (parity with .githooks/pre-push): when no
-// canonical session or flat legacy manifest exists, gate against it.
+// current.gates.json is a migration-only compatibility artifact.
 // ---------------------------------------------------------------------------
 
-test("current.gates.json is used when no canonical or flat slug manifest exists", () => {
+test("current.gates.json is inspection-only and cannot authorize a push", () => {
   const dir = makeRepo();
   try {
     const sha = headSha(dir);
@@ -371,7 +375,7 @@ test("current.gates.json is used when no canonical or flat slug manifest exists"
     m.gates.find((g) => g.name === "verification").reason = "tests failed";
     writeCurrentGates(dir, m);
 
-    assertBlock(runHook("git push", { cwd: dir }), /verification is failed/);
+    assertBlock(runHook("git push", { cwd: dir }), /legacy gate manifests are inspection-only/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -607,11 +611,10 @@ test("failing manifest blocks even when origin/DEFAULT_BRANCH is not present", (
 });
 
 // ---------------------------------------------------------------------------
-// MINOR #5: the block message names the manifest that was actually checked
-// (current.gates.json when it was the fallback), not the slug manifest.
+// Migration diagnostics name the canonical destination that must be recertified.
 // ---------------------------------------------------------------------------
 
-test("block message names current.gates.json when that fallback was the one checked", () => {
+test("current.gates.json denial names the required canonical manifest", () => {
   const dir = makeRepo();
   try {
     const m = passingManifest(dir, "x", headSha(dir));
@@ -620,9 +623,8 @@ test("block message names current.gates.json when that fallback was the one chec
     writeCurrentGates(dir, m);
 
     const result = runHook("git push", { cwd: dir });
-    assertBlock(result, /current\.gates\.json/);
-    // and must NOT misname the non-existent slug manifest
-    assert.doesNotMatch(decisionOf(result).permissionDecisionReason, /x\.gates\.json/);
+    assertBlock(result, /\.pm\/dev-sessions\/x\/gates\.json/);
+    assert.match(decisionOf(result).permissionDecisionReason, /inspection-only/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

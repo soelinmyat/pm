@@ -270,6 +270,86 @@ test("nested canonical review rows resolve project-relative evidence from the pr
   }
 });
 
+test("canonical Dev routing binds the Review target mode and exact completed lenses", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-routing-gate-"));
+  const reviewDir = path.join(root, ".pm/dev-sessions/example/review");
+  fs.mkdirSync(reviewDir, { recursive: true });
+  const htmlPath = path.join(reviewDir, "report.html");
+  fs.writeFileSync(htmlPath, "<!doctype html><title>Review</title>");
+  fs.writeFileSync(path.join(reviewDir, "report.json"), "{}\n");
+  fs.writeFileSync(path.join(reviewDir, "target.json"), JSON.stringify({ mode: "code-scan" }));
+  const render = seedReviewRenderManifest(root, htmlPath);
+  const lenses = ["bug", "edge", "reuse", "quality", "efficiency"];
+  const reviewModule = require("../scripts/review-check");
+  const originalCheck = reviewModule.checkReview;
+  const originalExpand = reviewModule.expandFromReport;
+  reviewModule.expandFromReport = (options) => options;
+  reviewModule.checkReview = () => ({
+    ok: true,
+    issues: [],
+    report: {
+      source: { commit: "abc123" },
+      outcome: "passed",
+      target: { path: ".pm/dev-sessions/example/review/target.json" },
+      coverage: { completed: lenses },
+    },
+  });
+  const row = gate("review", "abc123", {
+    artifact: ".pm/dev-sessions/example/review/report.html",
+    evidence_kind: "review-report-v1",
+    render_manifest: render.path,
+    render_manifest_sha256: render.sha256,
+    lenses,
+  });
+  try {
+    const matching = checkGateManifest(manifest([row], { run_id: "run-1" }), {
+      artifactRoot: root,
+      currentCommit: "abc123",
+      requiredGates: ["review"],
+      canonicalSession: { run_id: "run-1", routing: { review_mode: "code-scan" } },
+      requireSessionBinding: true,
+    });
+    assert.equal(matching.ok, true, JSON.stringify(matching.issues));
+
+    const wrongMode = checkGateManifest(manifest([row], { run_id: "run-1" }), {
+      artifactRoot: root,
+      currentCommit: "abc123",
+      requiredGates: ["review"],
+      canonicalSession: { run_id: "run-1", routing: { review_mode: "full" } },
+      requireSessionBinding: true,
+    });
+    assert.equal(wrongMode.ok, false);
+    assert.match(JSON.stringify(wrongMode.issues), /must equal routed full/);
+
+    const wrongLenses = checkGateManifest(
+      manifest([{ ...row, lenses: lenses.slice(0, -1) }], { run_id: "run-1" }),
+      {
+        artifactRoot: root,
+        currentCommit: "abc123",
+        requiredGates: ["review"],
+        canonicalSession: { run_id: "run-1", routing: { review_mode: "code-scan" } },
+        requireSessionBinding: true,
+      }
+    );
+    assert.equal(wrongLenses.ok, false);
+    assert.match(JSON.stringify(wrongLenses.issues), /must exactly match report coverage/);
+  } finally {
+    reviewModule.checkReview = originalCheck;
+    reviewModule.expandFromReport = originalExpand;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("canonical enforcement requires a sibling session binding", () => {
+  const result = checkGateManifest(manifest([gate("review")], { run_id: "run-1" }), {
+    currentCommit: "abc123",
+    requiredGates: ["review"],
+    requireSessionBinding: true,
+  });
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /canonical gates require sibling session\.json/);
+});
+
 test("review render evidence rejects forged retained-render boundaries", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-render-forgery-"));
   const outside = `${root}-outside.png`;
@@ -286,7 +366,9 @@ test("review render evidence rejects forged retained-render boundaries", () => {
       ...baseline.captures.flatMap((capture) => [capture.path, capture.full_page.path]),
       baseline.print.path,
     ];
-    const retainedBytes = new Map(retainedFiles.map((file) => [file, fs.readFileSync(file)]));
+    const retainedBytes = new Map(
+      retainedFiles.map((file) => [file, fs.readFileSync(path.join(root, file))])
+    );
     const forgedHash = `sha256:${"0".repeat(64)}`;
     const scenarios = [
       {
@@ -320,9 +402,10 @@ test("review render evidence rejects forged retained-render boundaries", () => {
         name: "capture PNG dimensions",
         mutate(value) {
           const capture = value.captures[0];
-          fs.writeFileSync(capture.path, validGatePng(capture.width - 1, capture.height));
-          capture.sha256 = `sha256:${fileDigest(capture.path)}`;
-          capture.bytes = fs.statSync(capture.path).size;
+          const absolute = path.join(root, capture.path);
+          fs.writeFileSync(absolute, validGatePng(capture.width - 1, capture.height));
+          capture.sha256 = `sha256:${fileDigest(absolute)}`;
+          capture.bytes = fs.statSync(absolute).size;
         },
         expected: /PNG dimensions must equal 1440x1000/,
       },
@@ -376,23 +459,23 @@ test("review render evidence rejects forged retained-render boundaries", () => {
           value.captures[0].sha256 = `sha256:${fileDigest(outside)}`;
           value.captures[0].bytes = fs.statSync(outside).size;
         },
-        expected: /path resolves outside the project root/,
+        expected: /requires a project-relative path/,
       },
       {
         name: "symlinked capture",
         mutate(value) {
           const capture = value.captures[0];
-          const link = path.join(path.dirname(capture.path), "desktop-link.png");
+          const link = path.join(root, path.dirname(capture.path), "desktop-link.png");
           fs.rmSync(link, { force: true });
-          fs.symlinkSync(capture.path, link);
-          capture.path = link;
+          fs.symlinkSync(path.join(root, capture.path), link);
+          capture.path = path.relative(root, link);
         },
         expected: /project path contains symlink|must be a regular non-symlink file/,
       },
     ];
 
     for (const scenario of scenarios) {
-      for (const [file, bytes] of retainedBytes) fs.writeFileSync(file, bytes);
+      for (const [file, bytes] of retainedBytes) fs.writeFileSync(path.join(root, file), bytes);
       const value = structuredClone(baseline);
       scenario.mutate(value);
       fs.writeFileSync(manifestPath, `${JSON.stringify(value)}\n`);
@@ -444,7 +527,7 @@ function seedReviewRenderManifest(root, htmlPath) {
       name,
       width,
       height,
-      ...renderFile(screen),
+      ...renderFile(root, screen),
       metrics: {
         innerWidth: width,
         clientWidth: width,
@@ -456,7 +539,7 @@ function seedReviewRenderManifest(root, htmlPath) {
         anchorCount: 4,
         horizontalOverflow: false,
       },
-      full_page: { ...renderFile(full), width, height },
+      full_page: { ...renderFile(root, full), width, height },
     };
   });
   const pdf = path.join(renderDir, "print.pdf");
@@ -466,19 +549,19 @@ function seedReviewRenderManifest(root, htmlPath) {
     manifest,
     `${JSON.stringify({
       schema_version: 1,
-      source: { path: htmlPath, sha256: `sha256:${fileDigest(htmlPath)}` },
+      source: { path: path.relative(root, htmlPath), sha256: `sha256:${fileDigest(htmlPath)}` },
       browser: "/test/chromium",
       captures,
-      print: { ...renderFile(pdf), pages: 1 },
+      print: { ...renderFile(root, pdf), pages: 1 },
       checked_at: "2026-07-12T00:00:00Z",
     })}\n`
   );
   return { path: path.relative(root, manifest), sha256: fileDigest(manifest) };
 }
 
-function renderFile(file) {
+function renderFile(root, file) {
   return {
-    path: file,
+    path: path.relative(root, file),
     sha256: `sha256:${fileDigest(file)}`,
     bytes: fs.statSync(file).size,
   };

@@ -18,6 +18,7 @@ const {
   writeStageResult,
   __test,
 } = require("../scripts/loop-result.js");
+const { createSession } = require("../scripts/lib/dev-session-schema");
 
 const RUN_ID = "loop-123e4567-e89b-42d3-a456-426614174000";
 const CONTEXT = { runId: RUN_ID, cardId: "PM-108", stage: "dev" };
@@ -25,6 +26,8 @@ const CONTEXT = { runId: RUN_ID, cardId: "PM-108", stage: "dev" };
 function checkedGateFixture(manifest, options) {
   assert.ok(Array.isArray(manifest.gates));
   assert.equal(options.reviewEvidenceMode, "enforce");
+  assert.equal(options.requireSessionBinding, true);
+  assert.equal(options.canonicalSession.run_id, manifest.run_id);
   return { ok: true, issues: [] };
 }
 
@@ -331,12 +334,18 @@ function makeGateFixture(t, { protectedChange = false, stale = false } = {}) {
   });
   const canonicalSessionDir = path.join(sessionDir, "loop-pm-108");
   fs.mkdirSync(canonicalSessionDir, { recursive: true, mode: 0o700 });
+  const session = createSession({ slug: "loop-pm-108", sourceDir: root });
+  session.routing.review_mode = "code-scan";
+  fs.writeFileSync(path.join(canonicalSessionDir, "session.json"), `${JSON.stringify(session)}\n`, {
+    mode: 0o600,
+  });
   const manifestPath = path.join(canonicalSessionDir, "gates.json");
   fs.writeFileSync(
     manifestPath,
     `${JSON.stringify(
       {
         schema_version: 1,
+        run_id: session.run_id,
         size: "XL",
         kind: "proposal",
         gates: [
@@ -385,11 +394,11 @@ test("gate verification pins the sidecar to expected source HEAD and rejects pro
   assert.equal(protectedResult.code, "protected-source-path-changed");
 });
 
-test("gate verification uses a flat legacy sidecar only without a canonical session directory", (t) => {
+test("gate verification rejects a flat legacy sidecar as non-authoritative", (t) => {
   const fixture = makeGateFixture(t);
   const legacyPath = path.join(fixture.root, ".pm", "dev-sessions", "loop-pm-108.gates.json");
   fs.renameSync(fixture.manifestPath, legacyPath);
-  fs.rmdirSync(path.dirname(fixture.manifestPath));
+  fs.rmSync(path.dirname(fixture.manifestPath), { recursive: true, force: true });
 
   const checked = __test.verifyCommittedGateSidecarWithChecker(
     fixture.root,
@@ -400,8 +409,8 @@ test("gate verification uses a flat legacy sidecar only without a canonical sess
     },
     checkedGateFixture
   );
-  assert.equal(checked.ok, true, JSON.stringify(checked));
-  assert.equal(checked.manifestPath, legacyPath);
+  assert.equal(checked.ok, false, JSON.stringify(checked));
+  assert.equal(checked.code, "gate-session-missing");
 });
 
 test("delivery verification rejects a legacy-shaped Review row", (t) => {

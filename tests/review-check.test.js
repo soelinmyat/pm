@@ -647,7 +647,7 @@ test("deleted source evidence is checked against frozen base line bounds", () =>
   assert.match(JSON.stringify(result.issues), /line range exceeds file length/);
 });
 
-test("Review-owned blockers fail while QA-owned findings become non-blocking handoffs", () => {
+test("reviewer signals cannot self-route Review-owned findings into non-blocking handoffs", () => {
   const blocked = makeFixture({ maxWorkers: 6 });
   const reviewFinding = validFinding("bug");
   setFindingForLens(blocked, "bug", reviewFinding);
@@ -664,19 +664,19 @@ test("Review-owned blockers fail while QA-owned findings become non-blocking han
   qaFinding.id = findingId(qaFinding);
   setFindingForLens(handedOff, "edge", qaFinding);
   const passed = generate(handedOff);
-  assert.equal(passed.ok, true, JSON.stringify(passed.issues));
-  assert.equal(passed.report.outcome, "passed");
-  assert.deepEqual(passed.report.handoffs.qa, [qaFinding.id]);
+  assert.equal(passed.ok, false);
+  assert.match(JSON.stringify(passed.issues), /reviewer signals must remain Review-owned/);
 });
 
 test("material reviewer disagreement blocks until an explicit decision", () => {
   const fixture = makeFixture({ maxWorkers: 6 });
+  const draftReport = ".pm/dev-sessions/example/review/runs/review-test/round-1/draft-report.json";
+  const draftHtml = ".pm/dev-sessions/example/review/runs/review-test/round-1/draft-report.html";
   const bug = validFinding("bug");
   const edge = {
     ...bug,
     category: "edge",
     severity: "low",
-    owner: "qa",
     impact: "The live flow may recover differently than the static path suggests.",
   };
   edge.id = findingId(edge);
@@ -684,19 +684,20 @@ test("material reviewer disagreement blocks until an explicit decision", () => {
   setFindingForLens(fixture, "bug", bug);
   setFindingForLens(fixture, "edge", edge);
   const blocked = generate(fixture, {
-    reportPath: fixture.roundReportPath,
-    htmlPath: fixture.roundHtmlPath,
+    reportPath: draftReport,
+    htmlPath: draftHtml,
+    reportStage: "draft",
   });
   assert.equal(blocked.ok, true, JSON.stringify(blocked.issues));
   assert.equal(blocked.report.outcome, "blocked");
   assert.deepEqual(blocked.report.unresolved_disagreements, [bug.id]);
   renderReviewReport({
     root: fixture.root,
-    reportPath: fixture.roundReportPath,
-    outputPath: fixture.roundHtmlPath,
+    reportPath: draftReport,
+    outputPath: draftHtml,
   });
-  const disputedHtml = fs.readFileSync(path.join(fixture.root, fixture.roundHtmlPath), "utf8");
-  assert.match(disputedHtml, /owner qa/);
+  const disputedHtml = fs.readFileSync(path.join(fixture.root, draftHtml), "utf8");
+  assert.match(disputedHtml, /owner review/);
   assert.match(disputedHtml, /disposition open/);
   assert.match(disputedHtml, /fix behavioral/);
   assert.match(disputedHtml, /decision required no/);
@@ -718,16 +719,22 @@ test("material reviewer disagreement blocks until an explicit decision", () => {
     ],
     checked_at: "2026-07-12T00:05:00Z",
   });
-  const decided = generate(fixture, { decisionsPath });
+  const decided = generate(fixture, {
+    decisionsPath,
+    reportPath: draftReport,
+    htmlPath: draftHtml,
+    reportStage: "draft",
+  });
   assert.equal(decided.ok, true, JSON.stringify(decided.issues));
-  assert.equal(decided.report.outcome, "passed");
-  assert.deepEqual(decided.report.handoffs.qa, [bug.id]);
+  assert.equal(decided.report.outcome, "blocked");
+  assert.deepEqual(decided.report.unresolved_disagreements, [bug.id]);
+  assert.deepEqual(decided.report.handoffs.qa, []);
   renderReviewReport({
     root: fixture.root,
-    reportPath: fixture.reportPath,
-    outputPath: fixture.htmlPath,
+    reportPath: draftReport,
+    outputPath: draftHtml,
   });
-  const html = fs.readFileSync(path.join(fixture.root, fixture.htmlPath), "utf8");
+  const html = fs.readFileSync(path.join(fixture.root, draftHtml), "utf8");
   assert.match(html, /handoff-qa/);
   assert.match(html, /Maintainer/);
   assert.match(html, /depends on the live runtime flow/);
@@ -773,6 +780,42 @@ test("draft synthesis remains replaceable until a non-passing decision is finali
   assert.equal(final.ok, true, JSON.stringify(final.issues));
   assert.equal(final.report.outcome, "blocked");
   assert.equal(final.report.findings[0].decision.action, "defer");
+});
+
+test("self-declared approver text cannot authorize blocker-reducing decisions", () => {
+  for (const action of ["dismiss", "defer", "handoff-design", "handoff-qa"]) {
+    const fixture = makeFixture({ maxWorkers: 6 });
+    const bug = validFinding("bug");
+    setFindingForLens(fixture, "bug", bug);
+    const decisionsPath = ".pm/dev-sessions/example/review/runs/review-test/round-1/decisions.json";
+    write(fixture.root, decisionsPath, {
+      schema_version: 1,
+      run_id: fixture.target.run_id,
+      review_round: 1,
+      target: binding(fixture.root, fixture.targetPath),
+      decisions: [
+        {
+          finding_id: bug.id,
+          approver: "Claimed Maintainer",
+          action,
+          rationale: "A workspace writer cannot authenticate this authority-bearing action.",
+          decided_at: "2026-07-12T00:07:00Z",
+        },
+      ],
+      checked_at: "2026-07-12T00:07:00Z",
+    });
+    const result = generate(fixture, {
+      decisionsPath,
+      reportPath: ".pm/dev-sessions/example/review/runs/review-test/round-1/draft-report.json",
+      htmlPath: ".pm/dev-sessions/example/review/runs/review-test/round-1/draft-report.html",
+      reportStage: "draft",
+    });
+    assert.equal(result.ok, true, `${action}: ${JSON.stringify(result.issues)}`);
+    assert.equal(result.report.outcome, "blocked", action);
+    assert.equal(result.report.findings[0].owner, "review", action);
+    assert.equal(result.report.findings[0].disposition, "open", action);
+    assert.deepEqual(result.report.unresolved_disagreements, [bug.id], action);
+  }
 });
 
 test("blocked reports surface deferred blockers and stop at the iteration cap", () => {
@@ -929,9 +972,14 @@ test("Review publication surfaces unsupported sync warnings and committed EIO fa
       throw error;
     };
 
-  projectWriter.writeProjectJsonAtomic = unsupported(originalJson);
+  let publicationOptions;
+  projectWriter.writeProjectJsonAtomic = (...args) => {
+    publicationOptions = args[3];
+    return unsupported(originalJson)(...args);
+  };
   const warnedReport = generate(fixture);
   assert.equal(warnedReport.ok, true, JSON.stringify(warnedReport.issues));
+  assert.equal(publicationOptions.maxBytes, 4 * 1024 * 1024);
   assert.deepEqual(warnedReport.warnings, [
     {
       path: "report.path",
@@ -1068,6 +1116,7 @@ test(
         htmlPath: path.join(fixture.root, fixture.roundHtmlPath),
         outputDir: path.join(fixture.root, ".pm/long-token-render"),
         browserPath: installedBrowser,
+        projectRoot: fixture.root,
       })
     );
     const negativeHtml = path.join(fixture.root, ".pm/long-token-negative.html");
@@ -1083,6 +1132,7 @@ test(
           htmlPath: negativeHtml,
           outputDir: path.join(fixture.root, ".pm/long-token-negative-render"),
           browserPath: installedBrowser,
+          projectRoot: fixture.root,
         }),
       /horizontal document overflow/
     );

@@ -17,8 +17,8 @@ Generate a mutable draft review report from current evidence without losing inde
 3. Inspect canonical findings:
    - same deterministic ID becomes one finding with every reviewer signal retained;
    - maximum confidence and highest severity lead; confidence is never averaged;
-   - conflicting owner, severity spread, fix kind, disposition, or `decision_required` becomes a visible dispute;
-   - Design Critique/QA owners are handoffs, not Review blockers.
+   - severity spread, fix kind, disposition, or `decision_required` becomes a visible dispute;
+   - every reviewer signal remains Review-owned; proposed Design Critique/QA handoffs are not authority.
 4. Use the generated `auto_fix_eligible` list as a ceiling, not a command. Do not auto-fix anything absent from it.
 5. If outcome is `passed`, continue to publishing. If `failed`, continue to the fix loop. If `blocked`, resolve only through the explicit decision/capability path.
 

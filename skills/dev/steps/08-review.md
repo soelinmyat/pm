@@ -24,7 +24,7 @@ Complete the routed code review, fix verified findings, run fresh full verificat
 
 ## How
 
-1. Confirm the integrated diff, current HEAD, `session.routing.review_mode`, acceptance criteria, and existing Design Critique/QA gate rows. Use the recorded route; do not recompute it from kind or size. Contract drift invalidates any conditional lens skip.
+1. Confirm the integrated diff, current HEAD, `session.routing.review_mode`, acceptance criteria, and existing Design Critique/QA gate rows. Use the recorded route; do not recompute it from kind or size. The delivery gate independently binds the Review target mode and exact completed lens coverage back to this routing decision; contract drift invalidates the report.
 2. Invoke `pm:review` with the recorded mode. `full` targets all six logical lenses; `code-scan` targets bug, edge, reuse, quality, and efficiency. Physical reviewer count adapts, but applicable logical coverage and structured verdicts are mandatory. Never replace either path with an informal self-review.
 3. Follow the canonical report's policy. Auto-fix only `auto_fix_eligible` findings after verifying the code. Surface disputes and product/design decisions instead of guessing, and cap complete fix/review rounds at three.
 4. Run the full project test suite fresh after the final mutating commit. Read the output and require zero failures. Earlier test output is not current verification evidence.

@@ -143,17 +143,19 @@ for push_ref_line in "${push_ref_lines[@]}"; do
 
   canonical_session_dir=".pm/dev-sessions/${gate_slug}"
   canonical_gate_manifest="${canonical_session_dir}/gates.json"
-  legacy_gate_manifest=".pm/dev-sessions/${gate_slug}.gates.json"
   gate_manifest="$canonical_gate_manifest"
   gate_session_detected=0
   if [[ -d "$canonical_session_dir" ]]; then
     gate_session_detected=1
-  elif [[ -f "$legacy_gate_manifest" ]]; then
-    gate_manifest="$legacy_gate_manifest"
+  elif [[ -f ".pm/dev-sessions/${gate_slug}.gates.json" || -f ".pm/dev-sessions/current.gates.json" ]]; then
+    echo "ERROR: Legacy PM gate manifests are inspection-only and cannot authorize delivery."
+    echo "Migrate and recertify .pm/dev-sessions/${gate_slug}/gates.json with sibling session.json."
+    exit 1
+  fi
+  if [[ -f "$canonical_gate_manifest" && ! -f "${canonical_session_dir}/session.json" ]]; then
+    echo "ERROR: Canonical PM gate manifest requires sibling session.json."
     gate_session_detected=1
-  elif [[ "$branch_name" == "$(git branch --show-current 2>/dev/null)" && -f ".pm/dev-sessions/current.gates.json" ]]; then
-    gate_manifest=".pm/dev-sessions/current.gates.json"
-    gate_session_detected=1
+    exit 1
   fi
 
   if ! git rev-parse --verify origin/main >/dev/null 2>&1; then

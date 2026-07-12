@@ -143,7 +143,7 @@ function makeFixture(options = {}) {
         return {
           name,
           ...viewport,
-          path: path.join(root, screen.path),
+          path: screen.path,
           sha256: `sha256:${screen.sha256}`,
           bytes: fs.statSync(path.join(root, screen.path)).size,
           metrics: {
@@ -158,7 +158,7 @@ function makeFixture(options = {}) {
             anchorCount: 4,
           },
           full_page: {
-            path: path.join(root, item.path),
+            path: item.path,
             sha256: `sha256:${item.sha256}`,
             bytes: fs.statSync(path.join(root, item.path)).size,
             width: item.width,
@@ -168,10 +168,10 @@ function makeFixture(options = {}) {
       });
     const print = captures.find((item) => item.kind === "pdf");
     const render = {
-      source: { path: artifactPath, sha256: `sha256:${artifact.sha256}` },
+      source: { path: artifact.path, sha256: `sha256:${artifact.sha256}` },
       captures: renderCaptures,
       print: {
-        path: path.join(root, print.path),
+        path: print.path,
         sha256: `sha256:${print.sha256}`,
         bytes: fs.statSync(path.join(root, print.path)).size,
         pages: 1,
@@ -465,6 +465,19 @@ test("rejects artifact captures not bound by the render manifest", () => {
   const result = check(fixture);
   assert.equal(result.ok, false);
   assert.match(JSON.stringify(result.issues), /render hash and byte count must match the file/);
+});
+
+test("rejects non-portable absolute paths in retained artifact renders", () => {
+  const fixture = makeFixture({ mode: "pm-artifact" });
+  const renderEvidence = fixture.captures.evidence.find((item) => item.kind === "artifact-render");
+  const render = JSON.parse(fs.readFileSync(path.join(fixture.root, renderEvidence.path), "utf8"));
+  render.captures[0].path = path.join(fixture.root, render.captures[0].path);
+  const rebound = write(fixture.root, renderEvidence.path, `${JSON.stringify(render, null, 2)}\n`);
+  renderEvidence.sha256 = rebound.sha256;
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /must be a relative path/);
 });
 
 test("rejects artifact captures swapped between viewport labels", () => {

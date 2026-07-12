@@ -72,13 +72,19 @@ test("render checker captures the canonical viewport matrix and print PDF", () =
       htmlPath,
       outputDir: path.join(root, "renders"),
       browserPath: fakeBrowser(root),
+      projectRoot: root,
     });
     assert.deepEqual(
       result.captures.map(({ name, width, height }) => ({ name, width, height })),
       VIEWPORTS
     );
-    assert.ok(result.captures.every((capture) => fs.existsSync(capture.path)));
-    assert.ok(result.captures.every((capture) => fs.existsSync(capture.full_page.path)));
+    assert.ok(result.captures.every((capture) => fs.existsSync(path.join(root, capture.path))));
+    assert.ok(
+      result.captures.every((capture) => fs.existsSync(path.join(root, capture.full_page.path)))
+    );
+    assert.equal(result.source.path, "example.html");
+    assert.ok(result.captures.every((capture) => !path.isAbsolute(capture.path)));
+    assert.equal(path.isAbsolute(result.print.path), false);
     assert.ok(result.captures.every((capture) => capture.full_page.height === 2400));
     assert.ok(result.captures.every((capture) => capture.metrics.horizontalOverflow === false));
     assert.equal(result.print.pages, 1);
@@ -107,7 +113,7 @@ test("render checker rejects stale captures when the browser produces no new ima
         .replace("if (screenshot) {", "if (false && screenshot) {")
     );
     assert.throws(
-      () => renderArtifact({ htmlPath, outputDir, browserPath }),
+      () => renderArtifact({ htmlPath, outputDir, browserPath, projectRoot: root }),
       /did not create a fresh PNG/
     );
   } finally {
@@ -128,7 +134,13 @@ test("render checker rejects horizontal document overflow from DOM metrics", () 
         .replace("horizontalOverflow:false", "horizontalOverflow:true")
     );
     assert.throws(
-      () => renderArtifact({ htmlPath, outputDir: path.join(root, "renders"), browserPath }),
+      () =>
+        renderArtifact({
+          htmlPath,
+          outputDir: path.join(root, "renders"),
+          browserPath,
+          projectRoot: root,
+        }),
       /horizontal document overflow/
     );
   } finally {
@@ -149,11 +161,51 @@ test("render checker rejects captures with the wrong dimensions", () => {
         .replace("makePng(size[0], size[1])", "makePng(1400, size[1])")
     );
     assert.throws(
-      () => renderArtifact({ htmlPath, outputDir: path.join(root, "renders"), browserPath }),
+      () =>
+        renderArtifact({
+          htmlPath,
+          outputDir: path.join(root, "renders"),
+          browserPath,
+          projectRoot: root,
+        }),
       /expected 1440x1000/
     );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("render checker rejects source and output paths outside the project root", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-root-"));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-outside-"));
+  try {
+    const insideHtml = path.join(root, "inside.html");
+    const outsideHtml = path.join(outside, "outside.html");
+    fs.writeFileSync(insideHtml, "<!doctype html><title>Inside</title>");
+    fs.writeFileSync(outsideHtml, "<!doctype html><title>Outside</title>");
+    assert.throws(
+      () =>
+        renderArtifact({
+          htmlPath: outsideHtml,
+          outputDir: path.join(root, "renders"),
+          browserPath: fakeBrowser(root),
+          projectRoot: root,
+        }),
+      /HTML must be inside the project root/
+    );
+    assert.throws(
+      () =>
+        renderArtifact({
+          htmlPath: insideHtml,
+          outputDir: path.join(outside, "renders"),
+          browserPath: fakeBrowser(root),
+          projectRoot: root,
+        }),
+      /render output directory must be inside the project root/
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
   }
 });
 

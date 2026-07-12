@@ -115,15 +115,19 @@ function mergeSignals(signals, decisions) {
       fix_kind: lead.fix_kind,
       verify: lead.verify,
       evidence: lead.evidence,
-      owner: lead.owner,
+      owner: "review",
       disposition: lead.disposition,
       decision_required: rows.some((row) => row.decision_required === true),
       disputed,
       decision,
       signals: rows,
     };
-    applyDecision(canonical, decision);
-    if ((disputed || canonical.decision_required) && !decision) unresolved.push(id);
+    const decisionAuthoritative = applyDecision(canonical, decision);
+    if (
+      (decision && !decisionAuthoritative) ||
+      ((disputed || canonical.decision_required) && !decisionAuthoritative)
+    )
+      unresolved.push(id);
     findings.push(canonical);
   }
   return { findings, unresolved_disagreements: unresolved };
@@ -146,19 +150,17 @@ function materialDisagreement(rows) {
 }
 
 function applyDecision(finding, decision) {
-  if (!decision) return;
-  if (!DECISION_ACTIONS.includes(decision.action)) return;
+  if (!decision) return false;
+  if (!DECISION_ACTIONS.includes(decision.action)) return false;
   if (decision.action === "keep-review") {
     finding.owner = "review";
     finding.disposition = "open";
-  } else if (decision.action === "handoff-design") {
-    finding.owner = "design-critique";
-    finding.disposition = "open";
-  } else if (decision.action === "handoff-qa") {
-    finding.owner = "qa";
-    finding.disposition = "open";
-  } else if (decision.action === "dismiss") finding.disposition = "dismissed";
-  else if (decision.action === "defer") finding.disposition = "deferred";
+    return true;
+  }
+  // A repository file cannot prove that a human, rather than the reviewing
+  // model, authorized a blocker-reducing action. Preserve the requested action
+  // for audit, but never let it dismiss, defer, or hand off gate authority.
+  return false;
 }
 
 function severityRank(value) {

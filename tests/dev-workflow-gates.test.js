@@ -331,7 +331,10 @@ test("source repo pre-push hook uses the shared gate checker for PM runtime chan
   assert.match(text, /--commit "\$local_oid"/);
   assert.match(text, /canonical_session_dir="\.pm\/dev-sessions\/\$\{gate_slug\}"/);
   assert.match(text, /canonical_gate_manifest="\$\{canonical_session_dir\}\/gates\.json"/);
-  assert.match(text, /elif \[\[ -f "\$legacy_gate_manifest" \]\]/);
+  assert.match(text, /Legacy PM gate manifests are inspection-only/);
+  assert.match(text, /current\.gates\.json/);
+  assert.match(text, /Canonical PM gate manifest requires sibling session\.json/);
+  assert.doesNotMatch(text, /gate_manifest="\$legacy_gate_manifest"/);
   assert.match(text, /origin\/main\.\.\.\$local_oid/);
   assert.match(text, /changed_pm_runtime_files/);
   assert.match(text, /plugin\.config\.json/);
@@ -463,6 +466,7 @@ test("pre-push runs the dev gate checker from the pushed commit, not the dirty w
     fs.writeFileSync(path.join(dir, "scripts", "dev-gate-check.js"), "process.exit(0);\n");
     fs.mkdirSync(path.join(dir, ".pm", "dev-sessions", "harden"), { recursive: true });
     fs.writeFileSync(path.join(dir, ".pm", "dev-sessions", "harden", "gates.json"), "{}\n");
+    fs.writeFileSync(path.join(dir, ".pm", "dev-sessions", "harden", "session.json"), "{}\n");
 
     const zeroOid = "0000000000000000000000000000000000000000";
     const result = spawnSync("bash", [hook, "origin"], {

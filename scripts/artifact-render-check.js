@@ -22,11 +22,17 @@ const VIEWPORTS = Object.freeze([
 const MAX_RENDER_HEIGHT = 16_000;
 
 function renderArtifact(options) {
+  const projectRoot = path.resolve(options.projectRoot || process.cwd());
+  const realProjectRoot = fs.realpathSync(projectRoot);
   const htmlPath = path.resolve(options.htmlPath);
   const outputDir = path.resolve(options.outputDir);
+  const relativeHtml = projectRelative(projectRoot, htmlPath, "HTML");
+  projectRelative(projectRoot, outputDir, "render output directory");
   const browserPath = resolveBrowser(options.browserPath);
   if (!fs.statSync(htmlPath).isFile()) throw new Error(`HTML is not a file: ${htmlPath}`);
+  assertRealContained(realProjectRoot, fs.realpathSync(htmlPath), "HTML");
   fs.mkdirSync(outputDir, { recursive: true, mode: 0o700 });
+  assertRealContained(realProjectRoot, fs.realpathSync(outputDir), "render output directory");
   const url = pathToFileURL(htmlPath).href;
   const captures = [];
 
@@ -67,12 +73,12 @@ function renderArtifact(options) {
     }
     captures.push({
       ...viewport,
-      path: output,
+      path: projectRelative(projectRoot, output, "render capture"),
       sha256: digestFile(output),
       bytes: fs.statSync(output).size,
       metrics,
       full_page: {
-        path: fullOutput,
+        path: projectRelative(projectRoot, fullOutput, "full-page render capture"),
         width: viewport.width,
         height: fullHeight,
         sha256: digestFile(fullOutput),
@@ -93,17 +99,34 @@ function renderArtifact(options) {
 
   return {
     schema_version: 1,
-    source: { path: htmlPath, sha256: digestFile(htmlPath) },
+    source: { path: relativeHtml, sha256: digestFile(htmlPath) },
     browser: path.resolve(browserPath),
     captures,
     print: {
-      path: pdfPath,
+      path: projectRelative(projectRoot, pdfPath, "print render"),
       sha256: digestFile(pdfPath),
       bytes: fs.statSync(pdfPath).size,
       pages: printInspection.pages,
     },
     checked_at: new Date().toISOString(),
   };
+}
+
+function projectRelative(root, absolute, label) {
+  const relative = path.relative(root, path.resolve(absolute));
+  if (
+    !relative ||
+    relative === ".." ||
+    relative.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relative)
+  )
+    throw new Error(`${label} must be inside the project root`);
+  return relative.split(path.sep).join("/");
+}
+
+function assertRealContained(root, candidate, label) {
+  if (candidate !== root && !candidate.startsWith(`${root}${path.sep}`))
+    throw new Error(`${label} resolves outside the project root`);
 }
 
 function baseArgs() {
@@ -412,6 +435,7 @@ function main(argv = process.argv.slice(2)) {
       "--out-dir": { type: "string" },
       "--browser": { type: "string" },
       "--manifest": { type: "string" },
+      "--root": { type: "string" },
       "--json": { type: "boolean" },
     }).args;
     if (!parsed.html || !parsed.outDir) throw new Error("--html and --out-dir are required");
@@ -419,6 +443,7 @@ function main(argv = process.argv.slice(2)) {
       htmlPath: parsed.html,
       outputDir: parsed.outDir,
       browserPath: parsed.browser,
+      projectRoot: parsed.root || process.cwd(),
     });
     if (parsed.manifest)
       writeJsonAtomic(path.resolve(parsed.manifest), result, { fileMode: 0o600 });

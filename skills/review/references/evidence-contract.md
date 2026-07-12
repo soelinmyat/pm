@@ -24,9 +24,9 @@ renders/
 
 Each fresh Review invocation gets a new kebab-case run directory. Synthesis may overwrite only `runs/{run-id}/round-N/draft-report.json` and `draft-report.html` while decisions are pending. Finalize the round report exactly once after decisions. Never overwrite a finalized prior run or round: later rounds bind the exact preceding report path. A passing round is projected to the canonical root `report.json` and `report.html` for Dev/Ship gate discovery; its target and result bindings still point into the run directory.
 
-The canonical gate row binds `renders/manifest.json` with `render_manifest` and raw `render_manifest_sha256`. The manifest's source hash equals the canonical `report.html` bytes; its desktop, tablet, and narrow viewport plus full-page PNGs and print PDF retain absolute renderer paths, byte counts, dimensions/pages, and `sha256:` hashes. Gate-time validation rechecks those frozen bytes and metrics without launching a browser or contacting the network.
+The canonical gate row binds `renders/manifest.json` with `render_manifest` and raw `render_manifest_sha256`. The manifest's source hash equals the canonical `report.html` bytes; its desktop, tablet, and narrow viewport plus full-page PNGs and print PDF retain project-relative paths, byte counts, dimensions/pages, and `sha256:` hashes. Gate-time validation rechecks those frozen bytes and metrics without launching a browser or contacting the network.
 
-Review JSON bindings (targets, results, decisions, reports, and gate-row artifact/manifest references) use project-relative regular-file paths. Inputs are opened once with no-follow semantics, identity-checked, byte-bounded, and read through the same descriptor. Target, machine-report, and HTML publication descends from an anchored project-root child process and creates plus commits the temporary file relative to the opened directory, so an ancestor swap cannot redirect the write. Publication returns explicit `committed` and `directory_synced` state. Known platform limitations (`EBADF`, `EINVAL`, `EISDIR`, `ENOSYS`, `ENOTSUP`, `EPERM`) are exposed as non-blocking `directory_sync_error` warnings; genuine storage errors such as `EIO` block the workflow with an explicit committed/do-not-retry error. Renderer payload entries inside `renders/manifest.json` deliberately retain absolute paths because they identify the exact captured files; gate validation still requires those paths to resolve to regular, non-symlink files contained by the project root. Traversal, stale bindings, unknown fields, and JSON over 4 MiB fail.
+Review JSON bindings (targets, results, decisions, reports, gate-row references, and retained render payloads) use project-relative regular-file paths. Inputs are opened once with no-follow semantics, identity-checked, byte-bounded, and read through the same descriptor. Target, machine-report, and HTML publication descends from an anchored project-root child process and creates plus commits the temporary file relative to the opened directory, so an ancestor swap cannot redirect the write. Publication returns explicit `committed` and `directory_synced` state. Known platform limitations (`EBADF`, `EINVAL`, `EISDIR`, `ENOSYS`, `ENOTSUP`, `EPERM`) are exposed as non-blocking `directory_sync_error` warnings; genuine storage errors such as `EIO` block the workflow with an explicit committed/do-not-retry error. Traversal, absolute retained paths, stale bindings, unknown fields, and JSON over 4 MiB fail.
 
 ## Target
 
@@ -44,7 +44,7 @@ Rounds after 1 bind the immediately prior non-passing report for the same run. R
 
 ## Results
 
-One result is required for every allocation row. Result run, round, target binding, source, worker, profile, runtime, and ordered lens list exactly match the target. `verdicts` covers every assigned lens exactly once with `clean` or `findings`; the outcome agrees with emitted finding categories. Reviewer findings always use `disposition: open`; only a validated decision may dismiss, defer, or hand off a finding.
+One result is required for every allocation row. Result run, round, target binding, source, worker, profile, runtime, and ordered lens list exactly match the target. `verdicts` covers every assigned lens exactly once with `clean` or `findings`; the outcome agrees with emitted finding categories. Reviewer findings always use `owner: review` and `disposition: open`; reviewer output cannot dismiss, defer, or hand off a finding.
 
 Findings use the schema in `reviewer-briefs.md`. The `verify` field is an untrusted, non-executable plan; the resolving root independently derives trusted commands from repository-controlled test configuration and never executes reviewer text directly. Deterministic identity is `rv-` plus the first 20 lowercase SHA-256 hex characters over compact JSON:
 
@@ -76,11 +76,11 @@ Required support by category is checked. Evidence files and line bounds must exi
 - `dismiss`
 - `defer`
 
-Never infer approver identity or create a decision from reviewer majority.
+Never infer approver identity or create a decision from reviewer majority. Repository-local approver text is not authentication: `keep-review` is the only safety-monotonic action that can resolve a dispute. The checker preserves `handoff-*`, `dismiss`, and `defer` proposals for audit but keeps the finding Review-owned and the report blocked until a trusted external approval channel exists.
 
 ## Canonical merge
 
-Exact IDs merge. Keep all signals. Use maximum confidence, highest severity, and the strongest signal's detail. Different owner, severity spread greater than one tier, fix kind, disposition, or decision requirement creates a dispute. A current decision resolves the gate-level dispute without deleting the signals.
+Exact IDs merge. Keep all signals. Use maximum confidence, highest severity, and the strongest signal's detail. Severity spread greater than one tier, fix kind, disposition, or decision requirement creates a dispute. A `keep-review` decision resolves the gate-level dispute without deleting the signals; authority-reducing proposals remain unresolved.
 
 Auto-fix eligibility requires all of: Review owner, open, confidence at least 80, `fix_kind: mechanical`, not disputed, not decision-required. Eligibility is a ceiling; the root still verifies the code before editing.
 
@@ -90,7 +90,7 @@ Outcome policy:
 - `blocked`: unresolved disagreement/decision, or deferred Review-owned high/critical finding.
 - `passed`: complete logical coverage and neither condition above.
 
-Design Critique and QA owners become handoffs. They do not change Review's outcome.
+Design Critique and QA handoffs require a trusted external approval channel. Reviewer-authored ownership or a self-declared approver can never change Review's outcome.
 
 ## Report and HTML
 

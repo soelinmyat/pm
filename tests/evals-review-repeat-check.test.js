@@ -8,9 +8,11 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const {
+  MINIMUM_METRICS,
   checkReviewRepeats,
   deriveConsistencyMetrics,
   readBoundedJson,
+  validateMetrics,
 } = require("../scripts/evals/review-repeat-check");
 const { checkReview } = require("../scripts/review-check");
 const { renderReviewReport } = require("../scripts/review-report");
@@ -112,6 +114,33 @@ test("consistency metrics are derived from checked report findings and outcomes"
     severity_agreement: 0,
     outcome_agreement: 0.333333,
   });
+});
+
+test("repeat stability policy rejects honestly reported divergent metrics", () => {
+  const metrics = deriveConsistencyMetrics([
+    { outcome: "passed", findings: [] },
+    { outcome: "failed", findings: [{ id: "rv-a", severity: "high" }] },
+    { outcome: "failed", findings: [{ id: "rv-a", severity: "low" }] },
+  ]);
+  for (const [name, minimum] of Object.entries(MINIMUM_METRICS))
+    assert.ok(metrics[name] < minimum, `${name} should fall below ${minimum}`);
+});
+
+test("repeat stability thresholds accept the boundary and reject one unit below", () => {
+  assert.deepEqual(
+    (() => {
+      const issues = [];
+      validateMetrics(MINIMUM_METRICS, MINIMUM_METRICS, issues);
+      return issues;
+    })(),
+    []
+  );
+  for (const [name, minimum] of Object.entries(MINIMUM_METRICS)) {
+    const metrics = { ...MINIMUM_METRICS, [name]: minimum - 0.000001 };
+    const issues = [];
+    validateMetrics(metrics, metrics, issues);
+    assert.match(issues.join("\n"), new RegExp(`metrics\\.${name} below required minimum`));
+  }
 });
 
 test("malformed runs values return structured issues instead of throwing", (t) => {

@@ -14,6 +14,12 @@ const METRIC_NAMES = Object.freeze([
   "severity_agreement",
   "outcome_agreement",
 ]);
+const MINIMUM_METRICS = Object.freeze({
+  finding_set_agreement: 0.8,
+  finding_count_stability: 0.8,
+  severity_agreement: 1,
+  outcome_agreement: 1,
+});
 
 function checkReviewRepeats(root, comparisonPath) {
   const projectRoot = fs.realpathSync(path.resolve(root));
@@ -231,6 +237,8 @@ function validateMetrics(submitted, computed, issues) {
     }
     if (computed && value !== computed[name])
       issues.push(`metrics.${name} must equal derived value ${computed[name]}`);
+    else if (value < MINIMUM_METRICS[name])
+      issues.push(`metrics.${name} below required minimum ${MINIMUM_METRICS[name]}`);
   }
 }
 
@@ -300,4 +308,10 @@ if (require.main === module) {
   }
 }
 
-module.exports = { checkReviewRepeats, deriveConsistencyMetrics, readBoundedJson };
+module.exports = {
+  MINIMUM_METRICS,
+  checkReviewRepeats,
+  deriveConsistencyMetrics,
+  readBoundedJson,
+  validateMetrics,
+};
