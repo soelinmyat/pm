@@ -96,10 +96,15 @@ function renderReviewReport(options) {
     COMMIT: report.source?.commit || "",
     BASE_COMMIT: report.source?.base_commit || "",
   };
+  const slots = [...html.matchAll(/{{([A-Z0-9_]+)}}/g)].map((match) => match[1]);
+  const unknown = slots.filter((name) => !Object.hasOwn(replacements, name));
+  if (unknown.length > 0)
+    throw new Error(
+      `review report template contains unresolved tokens: ${[...new Set(unknown)].join(", ")}`
+    );
+  const rawHtml = new Set(["LENS_CARDS", "FINDINGS", "DISAGREEMENTS", "HANDOFFS"]);
   for (const [name, value] of Object.entries(replacements))
-    html = html.split(`{{${name}}}`).join(String(value));
-  if (/{{[A-Z0-9_]+}}/.test(html))
-    throw new Error("review report contains unresolved template tokens");
+    html = html.split(`{{${name}}}`).join(rawHtml.has(name) ? String(value) : escapeHtml(value));
   writeTextAtomic(outputPath, html, { fileMode: 0o600 });
   return {
     path: relativeOutput,
@@ -120,21 +125,24 @@ function findingCard(finding) {
         )} · ${signal.confidence}%</li>`
     )
     .join("");
+  const decision = finding.decision
+    ? `<p><strong>Decision:</strong> ${escapeHtml(finding.decision.action)} by ${escapeHtml(
+        finding.decision.approver
+      )} — ${escapeHtml(finding.decision.rationale)}</p>`
+    : "<p><strong>Decision:</strong> No recorded decision.</p>";
   return `<article class="finding" data-review-finding-id="${escapeHtml(
     finding.id
   )}"><div class="finding-head"><span class="priority">${escapeHtml(
     finding.severity
   )} · ${finding.confidence}%</span><span>${escapeHtml(finding.owner)} · ${escapeHtml(
     finding.disposition
-  )}${finding.disputed ? " · disputed" : ""}</span></div><h3>${escapeHtml(
-    finding.issue
-  )}</h3><p><strong>Impact:</strong> ${escapeHtml(
+  )}</span></div><h3>${escapeHtml(finding.issue)}</h3><p><strong>Impact:</strong> ${escapeHtml(
     finding.impact
   )}</p><p><strong>Fix:</strong> ${escapeHtml(
     finding.fix
   )}</p><p><strong>Verify:</strong> <code>${escapeHtml(
     finding.verify
-  )}</code></p><div class="evidence"><strong>Evidence:</strong> ${evidence}</div><details><summary>Independent signals</summary><ul>${signals}</ul></details></article>`;
+  )}</code></p><p><strong>Decision required:</strong> ${finding.decision_required ? "yes" : "no"}</p><p><strong>Disputed:</strong> ${finding.disputed ? "yes" : "no"}</p>${decision}<div class="evidence"><strong>Evidence:</strong> ${evidence}</div><details><summary>Independent signals</summary><ul>${signals}</ul></details></article>`;
 }
 
 function handoffList(values) {

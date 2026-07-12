@@ -10,7 +10,7 @@ const path = require("node:path");
 
 const { checkReview, expandFromReport } = require("../scripts/review-check");
 const { renderReviewReport } = require("../scripts/review-report");
-const { buildReviewTarget } = require("../scripts/review-target");
+const { buildReviewTarget, changedFileInventory } = require("../scripts/review-target");
 const { findingId } = require("../scripts/lib/review-contract");
 const { resolveBrowser } = require("../scripts/artifact-render-check");
 
@@ -96,6 +96,55 @@ test("a source mutation makes target and reviewer evidence stale", () => {
   );
 });
 
+test("target creation refuses dirty source and inventory remains bound to committed bytes", () => {
+  const fixture = makeFixture({ maxWorkers: 2 });
+  const committed = changedFileInventory(
+    fixture.root,
+    fixture.target.source.base_commit,
+    fixture.target.source.commit
+  );
+  fs.writeFileSync(path.join(fixture.root, "src/example.js"), "module.exports = { value: 999 };\n");
+  assert.deepEqual(
+    changedFileInventory(
+      fixture.root,
+      fixture.target.source.base_commit,
+      fixture.target.source.commit
+    ),
+    committed
+  );
+  assert.throws(
+    () => buildReviewTarget({ root: fixture.root, maxWorkers: 2 }),
+    /requires a clean worktree/
+  );
+});
+
+test("target creation rejects oversized optional bindings before reading them", () => {
+  const fixture = makeFixture({ maxWorkers: 2 });
+  const oversized = path.join(fixture.root, ".pm/oversized-input.json");
+  fs.mkdirSync(path.dirname(oversized), { recursive: true });
+  fs.writeFileSync(oversized, "{}");
+  fs.truncateSync(oversized, 64 * 1024 * 1024 + 1);
+  assert.throws(
+    () =>
+      buildReviewTarget({
+        root: fixture.root,
+        maxWorkers: 2,
+        acceptancePath: ".pm/oversized-input.json",
+      }),
+    /exceeds 64 MiB/
+  );
+  fs.truncateSync(oversized, 4 * 1024 * 1024 + 1);
+  assert.throws(
+    () =>
+      buildReviewTarget({
+        root: fixture.root,
+        maxWorkers: 2,
+        designCritiquePath: ".pm/oversized-input.json",
+      }),
+    /exceeds 4 MiB JSON/
+  );
+});
+
 test("reviewer cannot emit a finding for an unassigned lens", () => {
   const fixture = makeFixture({ maxWorkers: 6 });
   const firstPath = path.join(fixture.root, fixture.resultPaths[0]);
@@ -113,6 +162,28 @@ test("reviewer cannot emit a finding for an unassigned lens", () => {
   });
   assert.equal(result.ok, false);
   assert.match(JSON.stringify(result.issues), /must be assigned to this reviewer/);
+});
+
+test("malformed evidence returns structured issues instead of throwing", () => {
+  const fixture = makeFixture({ maxWorkers: 6 });
+  const firstPath = path.join(fixture.root, fixture.resultPaths[0]);
+  const first = JSON.parse(fs.readFileSync(firstPath, "utf8"));
+  const finding = validFinding(first.lenses[0]);
+  finding.evidence = [null];
+  first.findings = [finding];
+  first.verdicts[0].outcome = "findings";
+  fs.writeFileSync(firstPath, `${JSON.stringify(first, null, 2)}\n`);
+  const result = checkReview({
+    root: fixture.root,
+    targetPath: fixture.targetPath,
+    resultPaths: fixture.resultPaths,
+    reportPath: fixture.reportPath,
+    humanReportPath: fixture.htmlPath,
+    writeReport: true,
+    verifyBrowser: false,
+  });
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /evidence\[0\].*must be an object/);
 });
 
 test("Review-owned blockers fail while QA-owned findings become non-blocking handoffs", () => {
@@ -174,6 +245,34 @@ test("material reviewer disagreement blocks until an explicit decision", () => {
   assert.equal(decided.ok, true, JSON.stringify(decided.issues));
   assert.equal(decided.report.outcome, "passed");
   assert.deepEqual(decided.report.handoffs.qa, [bug.id]);
+  renderReviewReport({
+    root: fixture.root,
+    reportPath: fixture.reportPath,
+    outputPath: fixture.htmlPath,
+  });
+  const html = fs.readFileSync(path.join(fixture.root, fixture.htmlPath), "utf8");
+  assert.match(html, /handoff-qa/);
+  assert.match(html, /Maintainer/);
+  assert.match(html, /depends on the live runtime flow/);
+});
+
+test("renderer escapes reviewer text without treating data as template syntax", () => {
+  const fixture = makeFixture({ maxWorkers: 6 });
+  const finding = validFinding("bug");
+  finding.issue = "The <Component> exposes {{PLUGIN_VERSION}} as user data.";
+  finding.id = findingId(finding);
+  setFindingForLens(fixture, "bug", finding);
+  const generated = generate(fixture);
+  assert.equal(generated.ok, true, JSON.stringify(generated.issues));
+  assert.doesNotThrow(() =>
+    renderReviewReport({
+      root: fixture.root,
+      reportPath: fixture.reportPath,
+      outputPath: fixture.htmlPath,
+    })
+  );
+  const html = fs.readFileSync(path.join(fixture.root, fixture.htmlPath), "utf8");
+  assert.match(html, /The &lt;Component&gt; exposes {{PLUGIN_VERSION}} as user data\./);
 });
 
 test(

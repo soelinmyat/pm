@@ -8,11 +8,14 @@ const path = require("node:path");
 const { allocateLenses, LENSES } = require("./lib/review-contract");
 const { writeJsonAtomic } = require("./lib/atomic-file");
 
+const MAX_BOUND_BYTES = 64 * 1024 * 1024;
+const MAX_JSON_BYTES = 4 * 1024 * 1024;
 const UI_SOURCE =
   /(^|\/)(components?|screens?|pages?|routes?|views?|layouts?|design-system|styles?|theme|copy|locales?|i18n)(\/|$)|\.(tsx|jsx|css|scss|sass|less|vue|svelte|html?|astro|erb|ejs|hbs|liquid|twig|mdx)$/i;
 
 function buildReviewTarget(options) {
   const root = fs.realpathSync(path.resolve(options.root || process.cwd()));
+  assertCleanWorktree(root);
   const commit = git(root, ["rev-parse", "HEAD"]).trim();
   if (options.commit && options.commit !== commit)
     throw new Error(`supplied commit must equal current HEAD ${commit}`);
@@ -55,7 +58,7 @@ function buildReviewTarget(options) {
   ).map((worker) => ({ ...worker, runtime: profile }));
   const round = positiveInt(options.round || 1, "round");
   if (round > 3) throw new Error("review round cannot exceed 3");
-  const priorReport = optionalFileBinding(root, options.priorReportPath, "prior report");
+  const priorReport = optionalJsonFileBinding(root, options.priorReportPath, "prior report");
   if (round > 1 && !priorReport) throw new Error("rounds after 1 require a prior report binding");
   if (round === 1 && priorReport) throw new Error("round 1 cannot bind a prior report");
   const acceptance = optionalFileBinding(root, options.acceptancePath, "acceptance criteria");
@@ -130,51 +133,77 @@ function changedFileInventory(root, baseCommit, commit) {
     validateGitPath(filePath);
     if (oldPath) validateGitPath(oldPath);
     const deleted = status === "D";
-    const binding = deleted ? { sha256: null, bytes: null } : bindWorkingFile(root, filePath);
+    const binding = deleted
+      ? { sha256: null, bytes: null }
+      : bindCommittedFile(root, commit, filePath);
     rows.push({ path: filePath, old_path: oldPath, status, ...binding });
   }
   return rows.sort((left, right) => left.path.localeCompare(right.path));
 }
 
-function bindWorkingFile(root, relative) {
-  const absolute = path.resolve(root, relative);
-  if (path.relative(root, absolute).startsWith(".."))
-    throw new Error(`changed path escapes root: ${relative}`);
-  const stat = fs.lstatSync(absolute);
-  if (!stat.isFile() || stat.isSymbolicLink())
-    throw new Error(`changed path must be a regular non-symlink file: ${relative}`);
-  if (stat.size > 64 * 1024 * 1024) throw new Error(`changed file exceeds 64 MiB: ${relative}`);
-  const real = fs.realpathSync(absolute);
-  if (real !== root && !real.startsWith(`${root}${path.sep}`))
-    throw new Error(`changed file resolves outside root: ${relative}`);
-  const bytes = fs.readFileSync(real);
+function bindCommittedFile(root, commit, relative) {
+  const tree = git(root, ["ls-tree", "-z", commit, "--", relative], null).toString("utf8");
+  const match = tree.match(/^([0-7]{6}) blob ([a-f0-9]{40,64})\t([^\0]+)\0$/);
+  if (!match || match[3] !== relative || match[1] === "120000")
+    throw new Error(`changed path must be a committed regular blob: ${relative}`);
+  const size = Number(git(root, ["cat-file", "-s", match[2]]).trim());
+  if (!Number.isSafeInteger(size) || size < 0 || size > MAX_BOUND_BYTES)
+    throw new Error(`changed file exceeds 64 MiB: ${relative}`);
+  const bytes = git(root, ["cat-file", "blob", match[2]], null);
+  if (bytes.length !== size) throw new Error(`changed blob size drifted: ${relative}`);
   return { sha256: digest(bytes), bytes: bytes.length };
 }
 
 function optionalBinding(root, relative, label) {
-  const binding = optionalFileBinding(root, relative, label);
-  if (!binding) return null;
+  const loaded = readOptionalFile(root, relative, label, MAX_JSON_BYTES);
+  if (!loaded) return null;
   let value;
   try {
-    value = JSON.parse(fs.readFileSync(path.join(root, binding.path), "utf8"));
+    value = JSON.parse(loaded.bytes.toString("utf8"));
   } catch (error) {
     throw new Error(`${label} must be valid JSON: ${error.message}`);
   }
-  return { ...binding, commit: value.commit || null, outcome: value.outcome || null };
+  return { ...loaded.binding, commit: value.commit || null, outcome: value.outcome || null };
 }
 
 function optionalFileBinding(root, relative, label) {
+  return readOptionalFile(root, relative, label, MAX_BOUND_BYTES)?.binding || null;
+}
+
+function optionalJsonFileBinding(root, relative, label) {
+  const loaded = readOptionalFile(root, relative, label, MAX_JSON_BYTES);
+  if (!loaded) return null;
+  try {
+    JSON.parse(loaded.bytes.toString("utf8"));
+  } catch (error) {
+    throw new Error(`${label} must be valid JSON: ${error.message}`);
+  }
+  return loaded.binding;
+}
+
+function readOptionalFile(root, relative, label, maxBytes) {
   if (!relative) return null;
   validateGitPath(relative);
   const absolute = path.resolve(root, relative);
   if (path.relative(root, absolute).startsWith("..")) throw new Error(`${label} escapes root`);
   const stat = fs.lstatSync(absolute);
   if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`${label} must be a regular file`);
+  if (stat.size > maxBytes)
+    throw new Error(`${label} exceeds ${maxBytes === MAX_JSON_BYTES ? "4 MiB JSON" : "64 MiB"}`);
   const real = fs.realpathSync(absolute);
   if (real !== root && !real.startsWith(`${root}${path.sep}`))
     throw new Error(`${label} resolves outside project root`);
   const bytes = fs.readFileSync(real);
-  return { path: path.relative(root, real).split(path.sep).join("/"), sha256: digest(bytes) };
+  return {
+    binding: { path: path.relative(root, real).split(path.sep).join("/"), sha256: digest(bytes) },
+    bytes,
+  };
+}
+
+function assertCleanWorktree(root) {
+  const dirty = git(root, ["status", "--porcelain=v1", "--untracked-files=all"]);
+  if (dirty.trim())
+    throw new Error("review target requires a clean worktree; commit or remove changes");
 }
 
 function loadProfile(name) {
@@ -273,6 +302,7 @@ function main(argv = process.argv.slice(2)) {
 if (require.main === module) process.exitCode = main();
 
 module.exports = {
+  assertCleanWorktree,
   buildReviewTarget,
   changedFileInventory,
   loadProfile,

@@ -17,7 +17,11 @@ const {
   findingId,
   mergeSignals,
 } = require("./lib/review-contract");
-const { changedFileInventory, resolveTrustedBase } = require("./review-target");
+const {
+  assertCleanWorktree,
+  changedFileInventory,
+  resolveTrustedBase,
+} = require("./review-target");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 const MAX_JSON_BYTES = 4 * 1024 * 1024;
@@ -240,6 +244,10 @@ function validateExactBinding(root, value, label, issues) {
 function validateExactJsonBinding(root, value, label, issues) {
   const file = validateExactBinding(root, value, label, issues);
   if (!file) return null;
+  if (file.bytes.length > MAX_JSON_BYTES) {
+    add(issues, label, `exceeds ${MAX_JSON_BYTES} bytes`);
+    return null;
+  }
   try {
     return JSON.parse(file.bytes.toString("utf8"));
   } catch (error) {
@@ -343,6 +351,7 @@ function validateRuntime(runtime, label, issues) {
 function validateLiveTarget(root, target, issues) {
   let head = "";
   try {
+    assertCleanWorktree(root);
     head = git(root, ["rev-parse", "HEAD"]).toString().trim();
     if (target.source?.commit !== head)
       add(issues, "target.source.commit", `is stale for current HEAD ${head}`);
@@ -527,21 +536,25 @@ function validateSignal(root, finding, reviewerId, assignedLenses, target, label
     add(issues, `${label}.disposition`, "reviewer signals must be open or dismissed");
   if (typeof finding.decision_required !== "boolean")
     add(issues, `${label}.decision_required`, "must be boolean");
-  if (!Array.isArray(finding.evidence) || finding.evidence.length === 0)
+  let identityReady = true;
+  if (!Array.isArray(finding.evidence) || finding.evidence.length === 0) {
     add(issues, `${label}.evidence`, "must be non-empty");
-  else {
+    identityReady = false;
+  } else {
     let categoryEvidence = false;
     const refs = new Set();
     for (const [index, evidence] of finding.evidence.entries()) {
       const at = `${label}.evidence[${index}]`;
       if (!object(evidence)) {
         add(issues, at, "must be an object");
+        identityReady = false;
         continue;
       }
       closed(evidence, ["kind", "ref"], at, issues);
-      if (!EVIDENCE_KINDS.has(evidence.kind) || !text(evidence.ref) || evidence.ref.length > 1000)
+      if (!EVIDENCE_KINDS.has(evidence.kind) || !text(evidence.ref) || evidence.ref.length > 1000) {
         add(issues, at, "requires a known kind and bounded reference");
-      else validateEvidenceReference(root, evidence, target, at, issues);
+        identityReady = false;
+      } else validateEvidenceReference(root, evidence, target, at, issues);
       if (refs.has(`${evidence.kind}:${evidence.ref}`))
         add(issues, at, "duplicates evidence in this finding");
       refs.add(`${evidence.kind}:${evidence.ref}`);
@@ -549,9 +562,13 @@ function validateSignal(root, finding, reviewerId, assignedLenses, target, label
     }
     if (!categoryEvidence) add(issues, `${label}.evidence`, `does not support ${finding.category}`);
   }
-  const expectedId = findingId(finding);
-  if (finding.id !== expectedId) {
-    add(issues, `${label}.id`, `must equal deterministic identity ${expectedId}`);
+  if (identityReady) {
+    const expectedId = findingId(finding);
+    if (finding.id !== expectedId) {
+      add(issues, `${label}.id`, `must equal deterministic identity ${expectedId}`);
+      valid = false;
+    }
+  } else {
     valid = false;
   }
   if (finding.fix_kind === "decision" && finding.decision_required !== true)
@@ -853,6 +870,11 @@ function validateRenderedReportMarkers(markers, report, issues) {
         finding.impact,
         finding.fix,
         finding.owner,
+        `Decision required: ${finding.decision_required ? "yes" : "no"}`,
+        `Disputed: ${finding.disputed ? "yes" : "no"}`,
+        ...(finding.decision
+          ? [finding.decision.action, finding.decision.approver, finding.decision.rationale]
+          : ["No recorded decision."]),
         ...finding.evidence.map((item) => item.ref),
       ],
       firstScreen: false,
