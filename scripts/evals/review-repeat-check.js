@@ -5,7 +5,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { safeProjectInput } = require("../lib/safe-project-output");
-const { checkReview } = require("../review-check");
+const { checkReview, expandFromReport } = require("../review-check");
 
 function checkReviewRepeats(root, comparisonPath) {
   const projectRoot = fs.realpathSync(path.resolve(root));
@@ -20,10 +20,32 @@ function checkReviewRepeats(root, comparisonPath) {
     "canonical_report",
     issues
   );
-  if (canonical && canonical.value.outcome !== "passed")
-    issues.push("canonical_report must bind a passing Review report");
+  const canonicalPath = ".pm/dev-sessions/feature/review/report.json";
+  if (comparison.canonical_report?.path !== canonicalPath)
+    issues.push(`canonical_report.path must equal ${canonicalPath}`);
+  let canonicalChecked = null;
+  if (canonical) {
+    canonicalChecked = checkReview(
+      expandFromReport({
+        root: projectRoot,
+        reportPath: canonicalPath,
+        fromReport: true,
+        verifyGit: false,
+        verifyFrozenGit: true,
+        verifyBrowser: false,
+      })
+    );
+    if (!canonicalChecked.ok || canonical.value.outcome !== "passed")
+      issues.push(
+        `canonical_report must be a valid passing Review report: ${canonicalChecked.issues
+          .map((item) => `${item.path} ${item.message}`)
+          .join("; ")}`
+      );
+  }
   const runIds = new Set();
-  let frozenSource = null;
+  let frozenSource = canonicalChecked?.report
+    ? JSON.stringify(canonicalChecked.report.source)
+    : null;
   for (const [index, run] of (comparison.runs || []).entries()) {
     const at = `runs[${index}]`;
     if (!object(run) || !slug(run.run_id)) {

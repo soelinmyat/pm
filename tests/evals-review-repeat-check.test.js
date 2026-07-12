@@ -8,6 +8,8 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { checkReviewRepeats } = require("../scripts/evals/review-repeat-check");
+const { checkReview } = require("../scripts/review-check");
+const { renderReviewReport } = require("../scripts/review-report");
 
 test("review repeat comparison binds three complete independent result sets", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-repeats-"));
@@ -21,13 +23,24 @@ test("review repeat comparison binds three complete independent result sets", ()
     fs.writeFileSync(path.join(root, `${roundRoot}/draft-report.html`), `<p>${run.run_id}</p>`);
   }
   const preserved = snapshotDrafts(root, runs);
-  write(root, ".pm/dev-sessions/feature/review/report.json", {
-    outcome: "passed",
-    target: runs[0].target,
+  const reportPath = ".pm/dev-sessions/feature/review/report.json";
+  const htmlPath = ".pm/dev-sessions/feature/review/report.html";
+  const generated = checkReview({
+    root,
+    targetPath: runs[0].target.path,
+    resultPaths: runs[0].results.map((item) => item.path),
+    reportPath,
+    humanReportPath: htmlPath,
+    writeReport: true,
+    verifyGit: false,
+    verifyFrozenGit: true,
+    verifyBrowser: false,
   });
+  assert.equal(generated.ok, true, JSON.stringify(generated.issues));
+  renderReviewReport({ root, reportPath, outputPath: htmlPath });
   write(root, ".pm/dev-sessions/feature/review/repeat-comparison.json", {
     schema_version: 1,
-    canonical_report: binding(root, ".pm/dev-sessions/feature/review/report.json"),
+    canonical_report: binding(root, reportPath),
     runs,
     metrics: {
       recall: 0.9,
@@ -44,13 +57,18 @@ test("review repeat comparison binds three complete independent result sets", ()
   const invalid = JSON.parse(fs.readFileSync(comparisonPath, "utf8"));
   delete invalid.metrics.deduplication;
   invalid.runs[2].run_id = invalid.runs[1].run_id;
+  fs.copyFileSync(path.join(root, reportPath), path.join(root, ".pm/fake-passed-report.json"));
+  invalid.canonical_report = binding(root, ".pm/fake-passed-report.json");
   fs.writeFileSync(comparisonPath, `${JSON.stringify(invalid, null, 2)}\n`);
   const rejected = checkReviewRepeats(
     root,
     ".pm/dev-sessions/feature/review/repeat-comparison.json"
   );
   assert.equal(rejected.ok, false);
-  assert.match(JSON.stringify(rejected.issues), /run_id must be unique|metrics\.deduplication/);
+  assert.match(
+    JSON.stringify(rejected.issues),
+    /canonical_report\.path must equal|run_id must be unique|metrics\.deduplication/
+  );
   assert.deepEqual(snapshotDrafts(root, runs), preserved);
 });
 
