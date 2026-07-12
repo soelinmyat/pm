@@ -871,8 +871,27 @@ test("wrapper-prefixed pushes (sudo / VAR=1 / env) are detected → block", () =
       /verification is failed/
     );
     assertBlock(runHook("nice -n 5 git push origin HEAD", { cwd: dir }), /verification is failed/);
+    assertBlock(runHook("env -S 'git push origin HEAD'", { cwd: dir }), /verification is failed/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("cwd-changing wrapper options gate the effective repository", () => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "pm-push-gate-wrapper-cwd-"));
+  const gated = path.join(parent, "gated");
+  try {
+    fs.mkdirSync(gated);
+    makeRepoAt(gated);
+    writeFailingGates(gated, "x");
+    for (const command of [
+      "env -C gated git push origin HEAD",
+      "env --chdir=gated git push origin HEAD",
+      "sudo -D gated git push origin HEAD",
+    ])
+      assertBlock(runHook(command, { cwd: parent }), /verification is failed/);
+  } finally {
+    fs.rmSync(parent, { recursive: true, force: true });
   }
 });
 
@@ -882,6 +901,9 @@ test("push commands containing here-documents fail closed before payload lines a
     const command = "cat <<EOF\ncd ../ungated\nEOF\ngit push origin HEAD";
     assertBlock(runHook(command, { cwd: dir }), /cannot safely inspect.*here-document/);
     assertAllow(runHook("cat <<EOF\npush notification text\nEOF", { cwd: dir }));
+    assertAllow(
+      runHook("cat <<ONE <<TWO\nfirst payload\nONE\npush notification text\nTWO", { cwd: dir })
+    );
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

@@ -131,7 +131,8 @@ function stripToken(token) {
 // Parse one shell segment. Returns { isGit, isPush, dir, gitDir, workTree, args }
 // when the segment invokes git, else null. dir/gitDir/workTree come from git's
 // global -C / --git-dir / --work-tree options; args are the tokens after `push`.
-function parseSegment(segment) {
+function parseSegment(segment, depth = 0) {
+  if (depth > 3) return null;
   const withoutRedirections = stripTrailingShellRedirections(segment);
   if (withoutRedirections === null) return null;
   const shellWords = splitSimpleShellWords(
@@ -139,6 +140,8 @@ function parseSegment(segment) {
   );
   const tokens = shellWords.map((word) => stripToken(word.value));
   let i = 0;
+  let wrapperDir = null;
+  let wrapperDynamic = false;
   // Skip leading `VAR=value` assignments and common command wrappers.
   while (i < tokens.length) {
     if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[i])) {
@@ -155,6 +158,35 @@ function parseSegment(segment) {
         const consumesValue = WRAPPER_VALUE_OPTIONS[wrapper]?.has(option);
         const inlineValue =
           tokens[i].includes("=") || (/^-[A-Za-z]\S+/.test(tokens[i]) && tokens[i].length > 2);
+        const valueIndex = inlineValue ? i : i + 1;
+        const value = inlineValue
+          ? tokens[i].includes("=")
+            ? tokens[i].slice(tokens[i].indexOf("=") + 1)
+            : tokens[i].slice(2)
+          : tokens[valueIndex];
+        if (
+          consumesValue &&
+          ((wrapper === "env" && (option === "-C" || option === "--chdir")) ||
+            (wrapper === "sudo" && (option === "-D" || option === "--chdir")))
+        ) {
+          if (value === undefined) return null;
+          wrapperDir = composeGitDirectory(wrapperDir, value);
+          wrapperDynamic ||= shellWords[valueIndex]?.dynamic === true;
+        }
+        if (
+          wrapper === "env" &&
+          (option === "-S" || option === "--split-string") &&
+          consumesValue
+        ) {
+          if (value === undefined) return null;
+          const nested = parseSegment(value, depth + 1);
+          if (!nested) return null;
+          nested.dir = nested.dir
+            ? composeGitDirectory(wrapperDir, nested.dir)
+            : wrapperDir;
+          nested.indeterminate ||= wrapperDynamic || shellWords[valueIndex]?.dynamic === true;
+          return nested;
+        }
         i += 1;
         if (consumesValue && !inlineValue) i += 1;
       }
@@ -166,10 +198,10 @@ function parseSegment(segment) {
   if (path.basename(tokens[i]) !== "git") return null;
   i += 1;
 
-  let dir = null;
+  let dir = wrapperDir;
   let gitDir = null;
   let workTree = null;
-  let repositoryDynamic = false;
+  let repositoryDynamic = wrapperDynamic;
   while (i < tokens.length) {
     const token = tokens[i];
     if (!token.startsWith("-")) {
@@ -594,23 +626,18 @@ function containsUnsupportedHeredoc(command) {
 function commandWithoutHeredocPayloads(command) {
   const lines = command.split(/\r?\n/);
   const output = [];
-  let delimiter = null;
-  let stripTabs = false;
+  const pending = [];
   for (const line of lines) {
-    if (delimiter !== null) {
-      const candidate = stripTabs ? line.replace(/^\t+/, "") : line;
-      if (candidate === delimiter) {
-        delimiter = null;
-        stripTabs = false;
-      }
+    if (pending.length > 0) {
+      const current = pending[0];
+      const candidate = current.stripTabs ? line.replace(/^\t+/, "") : line;
+      if (candidate === current.delimiter) pending.shift();
       continue;
     }
     output.push(line);
-    const match = line.match(/<<(-?)\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2/);
-    if (match && !line.includes("<<<")) {
-      stripTabs = match[1] === "-";
-      delimiter = match[3];
-    }
+    if (line.includes("<<<")) continue;
+    for (const match of line.matchAll(/<<(-?)\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2/g))
+      pending.push({ stripTabs: match[1] === "-", delimiter: match[3] });
   }
   return output.join("\n");
 }
