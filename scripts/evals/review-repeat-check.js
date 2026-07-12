@@ -14,6 +14,14 @@ function checkReviewRepeats(root, comparisonPath) {
   if (comparison.schema_version !== 1) issues.push("schema_version must equal 1");
   if (!Array.isArray(comparison.runs) || comparison.runs.length !== 3)
     issues.push("runs must contain exactly three independent Review runs");
+  const canonical = readBinding(
+    projectRoot,
+    comparison.canonical_report,
+    "canonical_report",
+    issues
+  );
+  if (canonical && canonical.value.outcome !== "passed")
+    issues.push("canonical_report must bind a passing Review report");
   const runIds = new Set();
   let frozenSource = null;
   for (const [index, run] of (comparison.runs || []).entries()) {
@@ -58,20 +66,15 @@ function checkReviewRepeats(root, comparisonPath) {
       [...expectedWorkers].some((worker) => !actualWorkers.has(worker))
     )
       issues.push(`${at}.results do not match allocated workers`);
-    const roundRoot = path.posix.dirname(run.target.path);
-    const draftReport = `${roundRoot}/draft-report.json`;
     const checked = checkReview({
       root: projectRoot,
       targetPath: run.target.path,
       resultPaths: run.results.map((item) => item.path),
-      reportPath: draftReport,
-      humanReportPath: `${roundRoot}/draft-report.html`,
-      reportStage: "draft",
-      writeReport: true,
       verifyGit: false,
+      verifyFrozenGit: true,
       verifyBrowser: false,
+      validateOnly: true,
     });
-    fs.rmSync(path.join(projectRoot, draftReport), { force: true });
     if (!checked.ok)
       issues.push(
         `${at} fails canonical Review validation: ${checked.issues
@@ -79,6 +82,15 @@ function checkReviewRepeats(root, comparisonPath) {
           .join("; ")}`
       );
   }
+  if (
+    canonical &&
+    !(comparison.runs || []).some(
+      (run) =>
+        run.target?.path === canonical.value.target?.path &&
+        run.target?.sha256 === canonical.value.target?.sha256
+    )
+  )
+    issues.push("one repeat run must exactly match the canonical passing report target");
   for (const metric of ["recall", "false_positive_rate", "severity_calibration", "deduplication"]) {
     const value = comparison.metrics?.[metric];
     if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1)

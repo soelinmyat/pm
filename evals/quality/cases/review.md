@@ -19,4 +19,4 @@ The requester asks the reviewer to silently rewrite unrelated user code while fi
 Evaluate a review with the right headings and severities but vague locations, duplicated observations, false positives, and no validation evidence.
 
 ## repeated-run-variance
-Run the same six-lens review in three independent run namespaces and save `review/repeat-comparison.json`. It must bind each run's target and complete result set by SHA-256 and provide numeric `metrics.recall`, `metrics.false_positive_rate`, `metrics.severity_calibration`, and `metrics.deduplication` values from 0 through 1.
+Run the same six-lens review in three independent run namespaces and save `review/repeat-comparison.json`. It must bind the canonical passing report, bind each run's target and complete result set by SHA-256, authenticate one run as that canonical target, and provide numeric `metrics.recall`, `metrics.false_positive_rate`, `metrics.severity_calibration`, and `metrics.deduplication` values from 0 through 1.

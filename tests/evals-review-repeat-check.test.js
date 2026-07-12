@@ -3,6 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
+const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -10,9 +11,23 @@ const { checkReviewRepeats } = require("../scripts/evals/review-repeat-check");
 
 test("review repeat comparison binds three complete independent result sets", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-repeats-"));
-  const runs = ["repeat-one", "repeat-two", "repeat-three"].map((runId) => seedRun(root, runId));
+  const source = seedGit(root);
+  const runs = ["repeat-one", "repeat-two", "repeat-three"].map((runId) =>
+    seedRun(root, runId, source)
+  );
+  for (const run of runs) {
+    const roundRoot = path.posix.dirname(run.target.path);
+    write(root, `${roundRoot}/draft-report.json`, { preserved: run.run_id });
+    fs.writeFileSync(path.join(root, `${roundRoot}/draft-report.html`), `<p>${run.run_id}</p>`);
+  }
+  const preserved = snapshotDrafts(root, runs);
+  write(root, ".pm/dev-sessions/feature/review/report.json", {
+    outcome: "passed",
+    target: runs[0].target,
+  });
   write(root, ".pm/dev-sessions/feature/review/repeat-comparison.json", {
     schema_version: 1,
+    canonical_report: binding(root, ".pm/dev-sessions/feature/review/report.json"),
     runs,
     metrics: {
       recall: 0.9,
@@ -23,6 +38,7 @@ test("review repeat comparison binds three complete independent result sets", ()
   });
   const valid = checkReviewRepeats(root, ".pm/dev-sessions/feature/review/repeat-comparison.json");
   assert.equal(valid.ok, true, JSON.stringify(valid.issues));
+  assert.deepEqual(snapshotDrafts(root, runs), preserved);
 
   const comparisonPath = path.join(root, ".pm/dev-sessions/feature/review/repeat-comparison.json");
   const invalid = JSON.parse(fs.readFileSync(comparisonPath, "utf8"));
@@ -35,17 +51,22 @@ test("review repeat comparison binds three complete independent result sets", ()
   );
   assert.equal(rejected.ok, false);
   assert.match(JSON.stringify(rejected.issues), /run_id must be unique|metrics\.deduplication/);
+  assert.deepEqual(snapshotDrafts(root, runs), preserved);
 });
 
-function seedRun(root, runId) {
+function snapshotDrafts(root, runs) {
+  return runs.flatMap((run) => {
+    const roundRoot = path.posix.dirname(run.target.path);
+    return ["json", "html"].map((extension) =>
+      fs.readFileSync(path.join(root, `${roundRoot}/draft-report.${extension}`), "utf8")
+    );
+  });
+}
+
+function seedRun(root, runId, source) {
   const roundRoot = `.pm/dev-sessions/feature/review/runs/${runId}/round-1`;
   const targetPath = `${roundRoot}/target.json`;
-  const source = {
-    commit: "a".repeat(40),
-    base_ref: "origin/main",
-    base_commit: "b".repeat(40),
-    diff_sha256: "c".repeat(64),
-  };
+  const changedBytes = fs.readFileSync(path.join(root, "src/example.js"));
   const lenses = ["bug", "design", "edge", "reuse", "quality", "efficiency"];
   const runtime = {
     provider: "codex",
@@ -66,8 +87,8 @@ function seedRun(root, runId) {
         path: "src/example.js",
         old_path: null,
         status: "M",
-        sha256: "d".repeat(64),
-        bytes: 10,
+        sha256: crypto.createHash("sha256").update(changedBytes).digest("hex"),
+        bytes: changedBytes.length,
       },
     ],
     acceptance: null,
@@ -114,6 +135,34 @@ function seedRun(root, runId) {
     checked_at: "2026-07-12T00:01:00Z",
   });
   return { run_id: runId, target, results: [binding(root, resultPath)] };
+}
+
+function seedGit(root) {
+  fs.mkdirSync(path.join(root, "src"), { recursive: true });
+  fs.writeFileSync(path.join(root, "src/example.js"), "module.exports = 1;\n");
+  git(root, ["init", "-q", "-b", "main"]);
+  git(root, ["config", "user.email", "test@example.com"]);
+  git(root, ["config", "user.name", "Test"]);
+  git(root, ["add", "."]);
+  git(root, ["commit", "-qm", "base"]);
+  const base = git(root, ["rev-parse", "HEAD"]).trim();
+  fs.writeFileSync(path.join(root, "src/example.js"), "module.exports = 2;\n");
+  git(root, ["add", "."]);
+  git(root, ["commit", "-qm", "change"]);
+  const commit = git(root, ["rev-parse", "HEAD"]).trim();
+  const diff = execFileSync("git", ["diff", "--binary", `${base}...${commit}`], {
+    cwd: root,
+  });
+  return {
+    commit,
+    base_ref: "origin/main",
+    base_commit: base,
+    diff_sha256: crypto.createHash("sha256").update(diff).digest("hex"),
+  };
+}
+
+function git(root, args) {
+  return execFileSync("git", args, { cwd: root, encoding: "utf8" });
 }
 
 function write(root, relative, value) {

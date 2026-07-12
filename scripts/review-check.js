@@ -71,6 +71,7 @@ function checkReview(options) {
   }
   validateTargetBindings(root, target, reviewRoot, issues);
   if (options.verifyGit !== false) validateLiveTarget(root, target, issues);
+  else if (options.verifyFrozenGit === true) validateFrozenTarget(root, target, issues);
 
   const planned = new Map((target.allocation || []).map((item) => [item.worker_id, item]));
   const resultFiles = (options.resultPaths || []).map((resultPath, index) =>
@@ -140,7 +141,7 @@ function checkReview(options) {
     merged,
     options.humanReportPath
   );
-  if (reviewRoot) {
+  if (reviewRoot && options.validateOnly !== true) {
     const reportStage = options.reportStage || "final";
     if (!new Set(["draft", "final"]).has(reportStage))
       add(issues, "report.stage", "must be draft or final");
@@ -491,6 +492,26 @@ function validateLiveTarget(root, target, issues) {
       add(issues, "target.changed_files", "does not match current changed-file bytes");
   } catch (error) {
     add(issues, "target.source", `cannot verify live Git identity: ${error.message}`);
+  }
+}
+
+function validateFrozenTarget(root, target, issues) {
+  try {
+    git(root, ["cat-file", "-e", `${target.source.commit}^{commit}`]);
+    git(root, ["cat-file", "-e", `${target.source.base_commit}^{commit}`]);
+    git(root, ["merge-base", "--is-ancestor", target.source.base_commit, target.source.commit]);
+    const diff = git(
+      root,
+      ["diff", "--binary", `${target.source.base_commit}...${target.source.commit}`],
+      null
+    );
+    if (target.source.diff_sha256 !== digest(diff))
+      add(issues, "target.source.diff_sha256", "does not match frozen Git diff bytes");
+    const inventory = changedFileInventory(root, target.source.base_commit, target.source.commit);
+    if (JSON.stringify(target.changed_files) !== JSON.stringify(inventory))
+      add(issues, "target.changed_files", "does not match frozen Git changed-file bytes");
+  } catch (error) {
+    add(issues, "target.source", `cannot authenticate frozen Git identity: ${error.message}`);
   }
 }
 
@@ -1312,5 +1333,6 @@ module.exports = {
   checkReview,
   expandFromReport,
   parseArgs,
+  validateFrozenTarget,
   validateSignal,
 };
