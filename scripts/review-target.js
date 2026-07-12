@@ -6,7 +6,7 @@ const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { allocateLenses, LENSES } = require("./lib/review-contract");
-const { writeProjectJsonAtomic } = require("./lib/project-atomic-write");
+const projectWriter = require("./lib/project-atomic-write");
 const { readProjectInput } = require("./lib/safe-project-output");
 const {
   expectedPriorReportPath,
@@ -334,7 +334,7 @@ function main(argv = process.argv.slice(2)) {
       "target"
     );
     try {
-      const publication = writeProjectJsonAtomic(
+      const publication = projectWriter.writeProjectJsonAtomic(
         options.root || process.cwd(),
         options.outPath,
         target,
@@ -368,6 +368,7 @@ module.exports = {
   buildReviewTarget,
   changedFileInventory,
   loadProfile,
+  main,
   parseArgs,
   readCommittedBlob,
   resolveTrustedBase,

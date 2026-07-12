@@ -10,7 +10,11 @@ const path = require("node:path");
 
 const { buildCanonicalReport, checkReview, expandFromReport } = require("../scripts/review-check");
 const { renderReviewReport } = require("../scripts/review-report");
-const { buildReviewTarget, changedFileInventory } = require("../scripts/review-target");
+const {
+  buildReviewTarget,
+  changedFileInventory,
+  main: reviewTargetMain,
+} = require("../scripts/review-target");
 const { findingId } = require("../scripts/lib/review-contract");
 const {
   expectedPriorReportPath,
@@ -19,7 +23,8 @@ const {
   reviewRootFromTargetPath,
 } = require("../scripts/lib/review-paths");
 const { renderArtifact, resolveBrowser } = require("../scripts/artifact-render-check");
-const { writeProjectTextAtomic } = require("../scripts/lib/project-atomic-write");
+const projectWriter = require("../scripts/lib/project-atomic-write");
+const { writeProjectTextAtomic } = projectWriter;
 const { readProjectInput } = require("../scripts/lib/safe-project-output");
 
 let installedBrowser = null;
@@ -895,6 +900,147 @@ test("renderer escapes reviewer text without treating data as template syntax", 
   );
   const html = fs.readFileSync(path.join(fixture.root, fixture.roundHtmlPath), "utf8");
   assert.match(html, /The &lt;Component&gt; exposes {{PLUGIN_VERSION}} as user data\./);
+});
+
+test("Review publication surfaces unsupported sync warnings and committed EIO failures", (t) => {
+  const fixture = makeFixture({ maxWorkers: 3 });
+  t.after(() => {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+    fs.rmSync(`${fixture.root}-origin.git`, { recursive: true, force: true });
+  });
+  const originalJson = projectWriter.writeProjectJsonAtomic;
+  const originalText = projectWriter.writeProjectTextAtomic;
+  t.after(() => {
+    projectWriter.writeProjectJsonAtomic = originalJson;
+    projectWriter.writeProjectTextAtomic = originalText;
+  });
+  const unsupported =
+    (writer) =>
+    (...args) => ({
+      ...writer(...args),
+      directory_synced: false,
+      directory_sync_error: "EPERM",
+    });
+  const genuineFailure =
+    (writer) =>
+    (...args) => {
+      writer(...args);
+      const error = new Error(
+        "project output committed but directory sync failed (EIO); do not retry this write"
+      );
+      error.committed = true;
+      error.directorySyncError = "EIO";
+      throw error;
+    };
+
+  projectWriter.writeProjectJsonAtomic = unsupported(originalJson);
+  const warnedReport = generate(fixture);
+  assert.equal(warnedReport.ok, true, JSON.stringify(warnedReport.issues));
+  assert.deepEqual(warnedReport.warnings, [
+    {
+      path: "report.path",
+      message: "committed with unsupported directory sync EPERM",
+    },
+  ]);
+
+  projectWriter.writeProjectJsonAtomic = genuineFailure(originalJson);
+  const blockedReport = generate(fixture);
+  assert.equal(blockedReport.ok, false);
+  assert.match(
+    JSON.stringify(blockedReport.issues),
+    /committed but directory sync failed \(EIO\); do not retry/
+  );
+  assert.ok(fs.existsSync(path.join(fixture.root, fixture.reportPath)));
+
+  projectWriter.writeProjectJsonAtomic = originalJson;
+  projectWriter.writeProjectTextAtomic = unsupported(originalText);
+  const warnedHtml = renderReviewReport({
+    root: fixture.root,
+    reportPath: fixture.reportPath,
+    outputPath: fixture.htmlPath,
+  });
+  assert.equal(warnedHtml.directory_synced, false);
+  assert.equal(warnedHtml.directory_sync_error, "EPERM");
+
+  projectWriter.writeProjectTextAtomic = genuineFailure(originalText);
+  assert.throws(
+    () =>
+      renderReviewReport({
+        root: fixture.root,
+        reportPath: fixture.reportPath,
+        outputPath: fixture.htmlPath,
+      }),
+    /committed but directory sync failed \(EIO\); do not retry/
+  );
+  assert.ok(fs.existsSync(path.join(fixture.root, fixture.htmlPath)));
+
+  const stdout = [];
+  const stderr = [];
+  const originalStdout = process.stdout.write;
+  const originalStderr = process.stderr.write;
+  process.stdout.write = (chunk) => {
+    stdout.push(String(chunk));
+    return true;
+  };
+  process.stderr.write = (chunk) => {
+    stderr.push(String(chunk));
+    return true;
+  };
+  try {
+    projectWriter.writeProjectJsonAtomic = unsupported(originalJson);
+    const warningTarget =
+      ".pm/dev-sessions/example/review/runs/durability-warning/round-1/target.json";
+    const warningStatus = reviewTargetMain([
+      "--root",
+      fixture.root,
+      "--out",
+      warningTarget,
+      "--run-id",
+      "durability-warning",
+      "--round",
+      "1",
+      "--mode",
+      "full",
+      "--profile",
+      "codex-workhorse",
+      "--max-workers",
+      "3",
+      "--base",
+      "origin/main",
+    ]);
+    assert.equal(warningStatus, 0, stderr.join(""));
+    assert.match(stderr.join(""), /unsupported directory sync EPERM/);
+    assert.ok(fs.existsSync(path.join(fixture.root, warningTarget)));
+
+    stderr.length = 0;
+    projectWriter.writeProjectJsonAtomic = genuineFailure(originalJson);
+    const eioTarget = ".pm/dev-sessions/example/review/runs/durability-eio/round-1/target.json";
+    const eioStatus = reviewTargetMain([
+      "--root",
+      fixture.root,
+      "--out",
+      eioTarget,
+      "--run-id",
+      "durability-eio",
+      "--round",
+      "1",
+      "--mode",
+      "full",
+      "--profile",
+      "codex-workhorse",
+      "--max-workers",
+      "3",
+      "--base",
+      "origin/main",
+    ]);
+    assert.equal(eioStatus, 1);
+    assert.match(stderr.join(""), /committed but directory sync failed \(EIO\); do not retry/);
+    assert.ok(fs.existsSync(path.join(fixture.root, eioTarget)));
+  } finally {
+    process.stdout.write = originalStdout;
+    process.stderr.write = originalStderr;
+  }
+  assert.ok(stdout.length > 0);
 });
 
 test(

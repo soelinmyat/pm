@@ -4,7 +4,7 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { writeProjectTextAtomic } = require("./lib/project-atomic-write");
+const projectWriter = require("./lib/project-atomic-write");
 const { readProjectInput } = require("./lib/safe-project-output");
 const { expectedReviewPath, reviewPathContext } = require("./lib/review-paths");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
@@ -124,7 +124,7 @@ function renderReviewReport(options) {
     html = html.split(`{{${name}}}`).join(rawHtml.has(name) ? String(value) : escapeHtml(value));
   let publication;
   try {
-    publication = writeProjectTextAtomic(root, options.outputPath, html, {
+    publication = projectWriter.writeProjectTextAtomic(root, options.outputPath, html, {
       fileMode: 0o600,
       directoryMode: 0o700,
       replace: !(reportStage === "final" && report.outcome !== "passed"),

@@ -7,7 +7,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { inspectHtmlArtifact } = require("./artifact-check");
 const { probeDataMarkerVisibility, resolveBrowser } = require("./artifact-render-check");
-const { writeProjectJsonAtomic } = require("./lib/project-atomic-write");
+const projectWriter = require("./lib/project-atomic-write");
 const { readProjectInput } = require("./lib/safe-project-output");
 const {
   expectedPriorReportPath,
@@ -171,7 +171,7 @@ function checkReview(options) {
       try {
         const immutable =
           (options.reportStage || "final") === "final" && report.outcome !== "passed";
-        const publication = writeProjectJsonAtomic(root, options.reportPath, report, {
+        const publication = projectWriter.writeProjectJsonAtomic(root, options.reportPath, report, {
           fileMode: 0o600,
           directoryMode: 0o700,
           replace: !immutable,
