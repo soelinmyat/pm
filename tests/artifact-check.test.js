@@ -274,6 +274,7 @@ test("artifact checker CLI writes a hash-bound manifest atomically", () => {
 for (const [kind, relativePath] of [
   ["proposal", "references/templates/proposal-reference.html"],
   ["rfc", "references/templates/rfc-reference.html"],
+  ["report", "references/templates/design-critique-report.html"],
 ]) {
   test(`reference ${kind} template satisfies the shared artifact contract`, () => {
     const result = spawnSync(

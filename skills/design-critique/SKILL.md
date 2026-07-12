@@ -1,53 +1,84 @@
 ---
 name: design-critique
-description: "Use after UI, UX, frontend, mobile, CSS, layout, visual, component, page, or interaction changes are implemented. Use when the user asks for design critique, UI review, visual QA, design pass, polish review, layout review, frontend review, or when pm:dev needs the mandatory PM-native design critique gate before QA, review, push, PR, or ship."
+description: "Use after implemented UI, UX, frontend, mobile, CSS, layout, visual, component, page, interaction, proposal HTML, RFC HTML, or PM report changes. Use when the user asks for design critique, artifact critique, UI review, visual QA, visual review, design pass, polish review, layout review, frontend review, HTML report review, proposal review, RFC presentation review, responsive review, print review, or when pm:dev needs its mandatory PM-native design critique gate before QA, review, push, PR, or ship."
 ---
 
 # pm:design-critique
 
 ## Purpose
 
-PM-native post-implementation design critique gate. It captures real visual artifacts, reviews the changed UI for user-visible regressions and design quality, drives P0/P1 fixes, and records the gate in dev session state.
+Run a post-implementation evidence gate for either product UI or a rendered PM artifact. It produces a commit-bound route, hash-bound capture manifest, structured findings report, accessible HTML report, and a Dev gate row without duplicating QA or code-review ownership.
 
-This skill replaces any dependency on external `/design-critique` availability inside PM workflows. It can use project tooling and PM references directly in every runtime.
+## Iron Law
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
+**NEVER PASS WITHOUT COMPLETE, CURRENT, HASH-BOUND RENDERED EVIDENCE.**
+
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, and custom instructions.
+Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
 ## When NOT to use
 
-- Backend-only, docs-only, generated-only, lockfile-only, or non-UI config-only changes with no user-visible UI impact.
-- Before implementation exists. Use this after the changed UI can be run or inspected.
-- Pure product strategy, copy-only proposal work, or research. Use the relevant PM planning skill instead.
+- Before an interface or artifact can be rendered. Use `pm:shape`, `pm:groom`, or `pm:rfc` for pre-implementation design work.
+- For functional acceptance behavior, data integrity, or workflow correctness. Keep those in Dev QA.
+- For source correctness, security, reuse, maintainability, or runtime efficiency. Use `pm:review`.
+- For backend-only, docs-only, generated-only, lockfile-only, or non-UI configuration changes with proven no visual impact. Record the routed Dev skip instead.
+- For a Markdown-only product document with no rendered artifact. Review its content in the owning product skill.
+
+## Modes and status
+
+Subject mode is explicit and independent from execution context:
+
+| Mode | Subject | Required evidence |
+|---|---|---|
+| `product-ui` | Running web or mobile interface | State/viewport captures, accessibility evidence, and DOM audit for web |
+| `pm-artifact` | Proposal, RFC, report, or other rendered PM HTML | Structural manifest, desktop/tablet/narrow full renders, accessibility evidence, render manifest, and print PDF |
+
+Report outcomes are `passed`, `failed`, `blocked`, or `deferred`. A deferred blocking decision maps to a blocked Dev gate; human authority can choose a direction but cannot turn unresolved P0/P1 evidence into a pass. `skipped` is a Dev routing result, not a critique report outcome.
 
 ## Workflow
 
-**Workflow:** `design-critique`
+**Workflow:** `design-critique` | **Telemetry steps:** `scope-route`, `capture`, `evaluate`, `resolve`, `publish`
 
-## Steps
+Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/steps/` in numeric filename order. If `.pm/workflows/design-critique/` exists, same-named files there override defaults. Execute each step in order and preserve its explicit transition criteria.
 
-Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/steps/` in numeric filename order. If `.pm/workflows/design-critique/` exists, same-named files there override defaults. Execute each step in order.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/evidence-contract.md` before creating route, capture, report, or HTML artifacts. Use `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/state-schema.md` for the Dev gate sidecar.
 
-Use `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/state-schema.md` for the gate manifest shape and `${CLAUDE_PLUGIN_ROOT}/scripts/dev-gate-check.js` for the checker contract.
+## Resume
 
-## References
+If `.pm/dev-sessions/{slug}/design-critique/` exists, validate the source commit and every upstream hash before resuming. Resume at the first missing or invalid artifact. A new commit invalidates the route; changed route bytes invalidate captures and report; changed capture bytes invalidate the report. Preserve earlier rounds as evidence rather than overwriting them.
 
-| Reference | Purpose |
-|---|---|
-| `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique.md` | Existing PM design critique flow, reviewer dispatch, and report format |
-| `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-capture-guide.md` | Platform detection, server lifecycle, screenshots, and enriched artifacts |
-| `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/design-critique-seed-conventions.md` | Seed data conventions and edge-state checklist |
-| `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/state-schema.md` | Markdown state and JSON gate sidecar schema |
+## Red Flags — Self-Check
 
-## Hard rules
-
-- Never pass a UI gate without visual artifacts — a critique must inspect screenshots/captures of the changed UI, or record an explicit blocked/skipped reason tied to the current commit. A diff is input, not evidence, and small UI changes still break layout, contrast, and responsive behavior.
-- Environment failure (the app won't start or render) is `blocked` or `skipped` with a reason — never `passed`.
-- P0/P1 findings block the gate until fixed, re-captured, and re-reviewed — or the user makes an explicit product/design call to defer them.
-- Record the outcome in `.pm/dev-sessions/{slug}.md` and a `design-critique` row in `.pm/dev-sessions/{slug}.gates.json` tied to the current commit.
-- This is the PM-native gate — run the steps inline; external design skills are optional, never required. Never record artifacts that expose private data; sanitize with seed data first.
+- **"The screenshots look current enough."** Paths and timestamps are not identity; verify commit and SHA-256 bindings.
+- **"One desktop happy path represents the feature."** State and viewport applicability must be decided explicitly, including empty, error, boundary, responsive, and print coverage.
+- **"The reviewer said it looks good, so the gate passes."** Reviewer prose cannot replace deterministic coverage, accessibility, structural, and freshness checks.
+- **"QA or code review will catch this."** Keep rendered craft here, behavior in QA, and source quality in Review; do not leave an ownership gap.
+- **"The user approved deferring the P1, so I can mark passed."** Record `deferred` and block the gate until the evidence is resolved or the design changes.
+- **"I can update the report after a fix without recapturing."** Resolved P0/P1 findings require distinct hash-bound before and after captures.
 
 ## Escalation Paths
 
-- **App cannot be rendered:** "Design critique blocked: I could not run or capture the changed UI because {reason}. Want me to fix the environment, accept a documented skip, or pause?"
-- **P0/P1 design findings need product judgment:** "Design critique found blocking product/design tradeoffs: {summary}. Which direction should I take?"
-- **Artifacts cannot be sanitized:** "Design critique blocked: the available screenshots expose private data. I need sanitized seed data before I can record artifacts."
+- **Cannot render or sanitize:** “Design critique blocked: {exact environment or privacy failure}. I need {smallest recovery action} before current evidence can be captured.”
+- **Blocking product decision:** “Design critique is deferred on {finding IDs}: {tradeoff}. Choose {bounded options}; the gate remains blocked until the selected direction is rendered and rechecked.”
+- **Ownership conflict:** “This finding belongs to {QA/Review}, not Design Critique, because {boundary}. I will preserve the evidence reference and hand it to that gate.”
+- **Coverage ambiguity:** “I cannot determine whether {state/viewport} applies from the diff and acceptance criteria. Confirm the intended behavior or update the route inventory.”
+
+## Common Rationalizations
+
+| Rationalization | Reality |
+|---|---|
+| “It is only a small CSS change.” | Small changes can break narrow layouts, contrast, focus, and print; scope changes depth, not evidence freshness. |
+| “The HTML validator already passed.” | Structural safety does not assess hierarchy, density, navigation quality, or visual craft. |
+| “Fresh Eyes found nothing.” | Independent review complements, but does not replace, coverage and deterministic evidence. |
+| “The artifact is in `/tmp`, so the path is enough.” | Passing evidence must be durable under the session directory and bound by hash. |
+| “P2 means optional.” | P2 may be deferred only with a concrete reason and owner; it is still recorded. |
+| “A new commit only changed tests.” | Recompute the route against current HEAD; the checker, not intuition, establishes freshness. |
+
+## Before Marking Done
+
+- [ ] Route, captures, structured report, and accessible HTML report are saved under `.pm/dev-sessions/{slug}/design-critique/`.
+- [ ] `scripts/design-critique-check.js` passes against current HEAD.
+- [ ] Applicable coverage is 100%, all P0/P1 findings are resolved with before/after evidence, and the bounded review loop is complete.
+- [ ] The Dev gate row preserves other gates and points to the checked HTML report at the current commit.
+- [ ] The user or calling Dev phase receives the outcome, remaining P2/P3 findings, and the exact next action.
+- [ ] Key deterministic, artifact, and project-specific gates passed; the user confirmed any design choice that required authority.

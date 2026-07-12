@@ -1,47 +1,29 @@
 ---
-name: Scope
+name: Scope and route
 order: 1
-description: Determine whether design critique is required and identify the changed UI surface
+description: Freeze subject mode, source identity, ownership, surfaces, and coverage decisions
 ---
 
 ## Goal
 
-Decide whether the PM-native design critique gate must run, and capture the exact UI surface to review.
+Create `route.json`, a complete and reviewable coverage contract bound to the current source commit and diff.
 
 ## How
 
-1. Detect the default branch from the dev session state or git remote metadata.
-2. Run `git diff {DEFAULT_BRANCH}...HEAD --name-only`.
-3. Treat the gate as required when the diff includes `tsx`, `jsx`, `css`, `scss`, mobile view files, static HTML such as `public/index.html`, server-rendered templates such as `templates/base.html`, design-system files, UI config files such as `tailwind.config.*`, design-token/theme data such as `tokens/*.json`, page/layout files, or user-visible interaction changes.
-4. Treat the gate as skipped only for backend-only, docs-only, non-UI config-only, generated-only, lockfile-only, or changes with an explicit no-visual-impact reason.
-5. Identify affected routes, screens, components, and states from the diff, RFC, issue, or dev session state.
-6. Derive `{slug}` from `.pm/dev-sessions/{slug}.md` if present, otherwise from the current branch name using the normalization rules in `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/state-schema.md`.
+1. Resolve the authoritative remote default with `git ls-remote --symref origin HEAD`. Freeze its branch name and immutable object ID as `base_ref` and `base_commit`, then compute current HEAD plus the SHA-256 of `git diff --binary {base_commit}...HEAD`. Do not reuse a route created for another commit, remote base, or diff.
+2. Select exactly one subject mode from the evidence, never from execution context:
+   - `product-ui` for a running web/mobile interface;
+   - `pm-artifact` for rendered proposal, RFC, report, or other PM HTML.
+3. Keep ownership explicit: Design Critique owns rendered hierarchy, density, consistency, accessibility evidence, state presentation, responsive behavior, and print/navigation craft. QA owns functional behavior. Review owns source correctness and maintainability.
+4. List each changed route, screen, component, or document as a stable subject. For product UI, decide applicability for primary, empty, error, and boundary/long-content states; require desktop for web and responsive viewport rows where the surface can reflow. For PM artifacts, require desktop, tablet, narrow, and print rows.
+5. For every non-applicable row, record a specific product reason. “Not needed” is not a reason.
+6. Save the route under `.pm/dev-sessions/{slug}/design-critique/route.json` using `evidence-contract.md`. Do not delete an earlier valid run; namespace a new run when HEAD changes.
+7. If the diff has proven no visual impact, do not fabricate a critique route. Record `design-critique: skipped` in the Dev sidecar with the exact current commit and specific no-visual-impact reason, preserving all other rows.
 
-If skipped, write both records:
+## Done-when
 
-```markdown
-## Design Critique
-- Status: skipped
-- Reason: {specific no-visual-impact reason}
-- Commit: {git rev-parse HEAD}
-```
+- Subject mode, source commit/base/diff identity, ownership, subjects, and every applicable/non-applicable coverage row are explicit.
+- A reviewer can identify every required state and viewport without reading the source diff again.
+- A routed skip, if applicable, is current and passes the Dev gate checker.
 
-```json
-{
-  "schema_version": 1,
-  "gates": [
-    {
-      "name": "design-critique",
-      "status": "skipped",
-      "commit": "<current-sha>",
-      "artifact": "",
-      "reason": "<specific no-visual-impact reason>",
-      "checked_at": "<ISO timestamp>"
-    }
-  ]
-}
-```
-
-Write or update the `design-critique` row inside `.pm/dev-sessions/{slug}.gates.json` using the schema from `skills/dev/references/state-schema.md`; do not delete any existing gate rows.
-
-If skipped, return the skip outcome to the caller. Otherwise continue to capture.
+**Advance:** if skipped, return the routed skip outcome; otherwise proceed to Step 2 (Capture).

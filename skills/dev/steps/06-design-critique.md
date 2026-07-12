@@ -23,16 +23,16 @@ Produce current, sanitized visual evidence for the changed UI, resolve blocking 
 
 ## How
 
-1. Confirm the routed UI scope and current HEAD. This phase appears only when risk routing requires Design Critique; do not silently convert an unavailable environment into a pass or skip.
-2. Read the declared capture and critique references. Create sanitized seed states covering the primary flow, empty state, realistic edge state, and relevant error state.
-3. Capture the required viewport set plus accessibility and consistency evidence. Store a manifest that identifies route/state, viewport, artifact path, and current commit. Never capture private customer data.
-4. Invoke `pm:design-critique`. The skill invocation is the gate; an informal inline opinion does not satisfy it. Fix P0/P1 findings, recapture affected states, and re-run the critique. Stop after two bounded rounds if blocking findings remain.
-5. Write the critique report as the evidence artifact and update the gate manifest with `design-critique: passed` for current HEAD. Do not run QA, code review, verification, push, or PR work in this phase.
-6. Return a strict phase result with the current commit and passing `review` evidence pointing to the critique report. Record it through `dev-session record`; never write prose fields into `session.json`.
+1. Confirm the routed visual scope and current HEAD. This phase appears only when risk routing requires Design Critique; do not silently convert an unavailable environment into a pass or skip.
+2. Invoke `pm:design-critique`. The skill invocation is the gate; an informal inline opinion does not satisfy it. Its route selects `product-ui` or `pm-artifact` independently from this embedded execution context.
+3. Follow the declared capture guide and the skill's evidence contract. Produce commit-bound `route.json`, hash-bound `captures.json`, structured `report.json`, and accessible `report.html`; cover the required viewport/state or desktop/tablet/narrow/print matrix without private data.
+4. Fix P0/P1 findings, preserve before captures, recapture affected states, and re-run deterministic plus visual review. Stop after two bounded rounds if blocking findings remain.
+5. Run `scripts/design-critique-check.js` against current HEAD. Only a checked `passed` report may create `design-critique: passed` in the gate manifest. Failed, blocked, and deferred outcomes stop this phase. Do not run QA, code review, verification, push, or PR work here.
+6. Return a strict phase result with the current commit and passing `review` evidence pointing to `report.html`. Record it through `dev-session record`; never write prose fields into `session.json`.
 
 ## Done-when
 
-- The capture manifest covers the routed UI states and viewports with sanitized evidence.
+- The route and capture manifests cover the routed UI or PM artifact states and viewports with sanitized hash-bound evidence.
 - No unresolved P0/P1 finding remains, or the phase is explicitly blocked for a product decision.
 - The Design Critique gate and phase evidence point to current HEAD and validate.
 

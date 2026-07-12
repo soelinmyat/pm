@@ -66,26 +66,34 @@ test("review absorbed the simplify lenses (v1.9)", () => {
   assert.match(shim, /skills\/review\/SKILL\.md/);
 });
 
-test("design critique step examples use the full sidecar schema", () => {
+test("design critique uses the bound two-mode evidence contract", () => {
+  const skill = read("skills/design-critique/SKILL.md");
   const scope = read("skills/design-critique/steps/01-scope.md");
-  const critique = read("skills/design-critique/steps/03-critique.md");
-  for (const text of [scope, critique]) {
-    assert.match(text, /"schema_version": 1/);
-    assert.match(text, /"gates": \[/);
-    assert.match(text, /"name": "design-critique"/);
-  }
-  assert.match(scope, /do not delete any existing gate rows/);
-  assert.match(scope, /static HTML such as `public\/index\.html`/);
-  assert.match(scope, /server-rendered templates such as `templates\/base\.html`/);
-  assert.match(scope, /UI config files such as `tailwind\.config\.\*`/);
-  assert.match(scope, /design-token\/theme data such as `tokens\/\*\.json`/);
-  assert.match(scope, /non-UI config-only/);
+  const capture = read("skills/design-critique/steps/02-capture.md");
+  const evaluate = read("skills/design-critique/steps/03-critique.md");
+  const resolve = read("skills/design-critique/steps/04-resolve.md");
+  const publish = read("skills/design-critique/steps/05-publish.md");
+  const contract = read("skills/design-critique/references/evidence-contract.md");
+  assert.match(skill, /`product-ui`/);
+  assert.match(skill, /`pm-artifact`/);
+  assert.match(skill, /NEVER PASS WITHOUT COMPLETE, CURRENT, HASH-BOUND RENDERED EVIDENCE/);
+  assert.match(scope, /diff --binary/);
+  assert.match(scope, /primary, empty, error, and boundary/);
+  assert.match(capture, /artifact-render-check\.js/);
+  assert.match(capture, /passing evidence cannot live only in `\/tmp`/);
+  assert.match(evaluate, /Fresh Eyes/);
+  assert.match(evaluate, /`design-critique`, `qa`, or `review`/);
+  assert.match(resolve, /distinct `before_capture_id` and `after_capture_id`/);
+  assert.match(resolve, /two total review rounds/);
+  assert.match(publish, /scripts\/design-critique-check\.js/);
+  assert.match(publish, /map `deferred` to `blocked`/);
+  assert.match(contract, /deterministic identity/);
   const devDesign = read("skills/dev/steps/06-design-critique.md");
   assert.match(devDesign, /design-critique-capture-guide\.md/);
   assert.match(devDesign, /viewport/);
   assert.match(
-    critique,
-    /preserve any existing `tdd`, `simplify`, `qa`, `review`, or `verification` rows/
+    publish,
+    /Preserve `tdd`, legacy `simplify`, `qa`, `review`, and `verification` rows/
   );
 });
 

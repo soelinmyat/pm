@@ -8,6 +8,7 @@ const { pathToFileURL } = require("node:url");
 const { spawnSync } = require("node:child_process");
 const { parseCliArgs } = require("./loop-args");
 const { writeJsonAtomic } = require("./lib/atomic-file");
+const { inspectPdf, inspectPng } = require("./lib/media-inspect");
 
 const VIEWPORTS = Object.freeze([
   { name: "desktop", width: 1440, height: 1000 },
@@ -17,8 +18,6 @@ const VIEWPORTS = Object.freeze([
   // max-width responsive rule.
   { name: "narrow", width: 500, height: 812 },
 ]);
-const PNG_SIGNATURE = Buffer.from("89504e470d0a1a0a", "hex");
-const MIN_RENDER_BYTES = 1024;
 const MAX_RENDER_HEIGHT = 16_000;
 
 function renderArtifact(options) {
@@ -165,6 +164,85 @@ function captureMetrics(browserPath, htmlPath, outputDir, viewport) {
   }
 }
 
+function probeDataMarkerVisibility(browserPath, htmlPath, outputDir = path.dirname(htmlPath)) {
+  const source = fs.readFileSync(htmlPath, "utf8");
+  const markerId = `pm-data-marker-visibility-${crypto.randomBytes(12).toString("hex")}`;
+  const probe = `<script>(()=>{
+    const intersects=(left,right)=>left.right>right.left&&left.left<right.right&&left.bottom>right.top&&left.top<right.bottom;
+    const geometry=(rawRects,element)=>{
+      if(!element)return {visible:false,inViewport:false};
+      let rects=Array.from(rawRects).filter((rect)=>rect.width>0&&rect.height>0);
+      if(rects.length===0)return {visible:false,inViewport:false};
+      let node=element;
+      while(node&&node.nodeType===1){
+        const style=getComputedStyle(node);
+        if(node.hidden||node.getAttribute("aria-hidden")==="true"||style.display==="none"||style.visibility==="hidden"||style.visibility==="collapse"||style.contentVisibility==="hidden"||Number(style.opacity)===0||(style.clipPath&&style.clipPath!=="none"))return {visible:false,inViewport:false};
+        if(node!==element){
+          const clipsX=/(hidden|clip|auto|scroll)/.test(style.overflowX);
+          const clipsY=/(hidden|clip|auto|scroll)/.test(style.overflowY);
+          if(clipsX||clipsY){
+            const clip=node.getBoundingClientRect();
+            rects=rects.map((rect)=>({left:clipsX?Math.max(rect.left,clip.left):rect.left,right:clipsX?Math.min(rect.right,clip.right):rect.right,top:clipsY?Math.max(rect.top,clip.top):rect.top,bottom:clipsY?Math.min(rect.bottom,clip.bottom):rect.bottom})).filter((rect)=>rect.right>rect.left&&rect.bottom>rect.top);
+            if(rects.length===0)return {visible:false,inViewport:false};
+          }
+        }
+        node=node.parentElement;
+      }
+      const documentBounds={left:0,top:0,right:window.innerWidth,bottom:document.documentElement.scrollHeight};
+      rects=rects.filter((rect)=>intersects(rect,documentBounds));
+      if(rects.length===0)return {visible:false,inViewport:false};
+      const viewport={left:0,top:0,right:window.innerWidth,bottom:window.innerHeight};
+      return {visible:true,inViewport:rects.some((rect)=>intersects(rect,viewport))};
+    };
+    const textVisibility=(element)=>{
+      const visible=[];const firstScreen=[];const walker=document.createTreeWalker(element,NodeFilter.SHOW_TEXT);
+      let textNode;
+      while((textNode=walker.nextNode())){
+        const value=(textNode.nodeValue||"").replace(/\\s+/g," ").trim();
+        if(!value)continue;
+        const range=document.createRange();range.selectNodeContents(textNode);
+        const state=geometry(range.getClientRects(),textNode.parentElement);
+        if(state.visible)visible.push(value);
+        if(state.inViewport)firstScreen.push(value);
+      }
+      return {text:visible.join(" "),firstScreenText:firstScreen.join(" ")};
+    };
+    const markers=Array.from(document.querySelectorAll("*")).filter((element)=>Array.from(element.attributes).some((attribute)=>attribute.name.startsWith("data-dc-"))).map((element)=>({attributes:Object.fromEntries(Array.from(element.attributes).filter((attribute)=>attribute.name.startsWith("data-dc-")).map((attribute)=>[attribute.name,attribute.value])),...textVisibility(element),...geometry(element.getClientRects(),element)}));
+    const marker=document.createElement("meta");marker.id="${markerId}";marker.setAttribute("data-json",encodeURIComponent(JSON.stringify(markers)));document.head.append(marker)
+  })();</script>`;
+  const bodyClose = findClosingBodyIndex(source);
+  const instrumented =
+    bodyClose >= 0
+      ? `${source.slice(0, bodyClose)}${probe}${source.slice(bodyClose)}`
+      : `${source}${probe}`;
+  const probePath = path.join(
+    outputDir,
+    `.pm-marker-probe-${process.pid}-${crypto.randomBytes(5).toString("hex")}.html`
+  );
+  fs.mkdirSync(outputDir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(probePath, instrumented, { mode: 0o600 });
+  try {
+    const result = runBrowser(browserPath, [
+      ...baseArgs(),
+      "--window-size=1440,1000",
+      "--virtual-time-budget=1000",
+      "--dump-dom",
+      pathToFileURL(probePath).href,
+    ]);
+    const markerPattern = new RegExp(
+      `<meta\\b(?=[^>]*\\bid=["']${markerId}["'])(?=[^>]*\\bdata-json=["']([^"']+)["'])[^>]*>`,
+      "i"
+    );
+    const match = result.stdout.match(markerPattern);
+    if (!match) throw new Error("report render did not emit marker visibility evidence");
+    const markers = JSON.parse(decodeURIComponent(match[1]));
+    if (!Array.isArray(markers)) throw new Error("report marker visibility evidence is invalid");
+    return markers;
+  } finally {
+    fs.rmSync(probePath, { force: true });
+  }
+}
+
 function findClosingBodyIndex(html) {
   const lower = String(html).toLowerCase();
   let index = 0;
@@ -269,14 +347,7 @@ function resolveBrowser(explicit) {
     if (fs.existsSync(explicit) && fs.statSync(explicit).isFile()) return explicit;
     throw new Error(`configured Chromium browser does not exist: ${explicit}`);
   }
-  const candidates = [
-    process.env.PM_ARTIFACT_BROWSER,
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    "/Applications/Chromium.app/Contents/MacOS/Chromium",
-    "/usr/bin/google-chrome",
-    "/usr/bin/chromium",
-    "/usr/bin/chromium-browser",
-  ].filter(Boolean);
+  const candidates = browserCandidates(process.platform, process.env);
   const found = candidates.find(
     (candidate) => fs.existsSync(candidate) && fs.statSync(candidate).isFile()
   );
@@ -286,39 +357,30 @@ function resolveBrowser(explicit) {
   return found;
 }
 
-function inspectPng(filePath) {
-  requireFreshRegularFile(filePath, "PNG");
-  const bytes = fs.readFileSync(filePath);
-  if (bytes.length < MIN_RENDER_BYTES || !bytes.subarray(0, 8).equals(PNG_SIGNATURE)) {
-    throw new Error(`invalid PNG capture: ${filePath}`);
+function browserCandidates(platform = process.platform, env = process.env) {
+  const candidates = [env.PM_ARTIFACT_BROWSER];
+  if (platform === "win32") {
+    for (const root of [env.LOCALAPPDATA, env.PROGRAMFILES, env["PROGRAMFILES(X86)"]].filter(
+      Boolean
+    )) {
+      candidates.push(
+        path.join(root, "Google", "Chrome", "Application", "chrome.exe"),
+        path.join(root, "Chromium", "Application", "chrome.exe"),
+        path.join(root, "Microsoft", "Edge", "Application", "msedge.exe")
+      );
+    }
+  } else {
+    candidates.push(
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      "/Applications/Chromium.app/Contents/MacOS/Chromium",
+      "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+      "/usr/bin/google-chrome",
+      "/usr/bin/microsoft-edge",
+      "/usr/bin/chromium",
+      "/usr/bin/chromium-browser"
+    );
   }
-  return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
-}
-
-function inspectPdf(filePath) {
-  requireFreshRegularFile(filePath, "PDF");
-  const bytes = fs.readFileSync(filePath);
-  const pages = (bytes.toString("latin1").match(/\/Type\s*\/Page\b/g) || []).length;
-  if (
-    bytes.length < MIN_RENDER_BYTES ||
-    bytes.subarray(0, 5).toString("ascii") !== "%PDF-" ||
-    pages < 1
-  ) {
-    throw new Error(`invalid PDF capture: ${filePath}`);
-  }
-  return { pages };
-}
-
-function requireFreshRegularFile(filePath, kind) {
-  let stat;
-  try {
-    stat = fs.lstatSync(filePath);
-  } catch {
-    throw new Error(`browser did not create a fresh ${kind} capture: ${filePath}`);
-  }
-  if (!stat.isFile() || stat.isSymbolicLink()) {
-    throw new Error(`${kind} capture is not a regular file: ${filePath}`);
-  }
+  return [...new Set(candidates.filter(Boolean))];
 }
 
 function digestFile(filePath) {
@@ -357,10 +419,12 @@ if (require.main === module) process.exitCode = main();
 
 module.exports = {
   VIEWPORTS,
+  browserCandidates,
   captureMetrics,
   findClosingBodyIndex,
   inspectPdf,
   inspectPng,
+  probeDataMarkerVisibility,
   renderArtifact,
   resolveBrowser,
   validateMetrics,
