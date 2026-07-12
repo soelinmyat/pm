@@ -5,9 +5,9 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { readProjectInput } = require("../lib/safe-project-output");
+const { MAX_JSON_BYTES } = require("../lib/review-limits");
 const { checkReview, expandFromReport } = require("../review-check");
 
-const MAX_JSON_BYTES = 4 * 1024 * 1024;
 const METRIC_NAMES = Object.freeze([
   "finding_set_agreement",
   "finding_count_stability",

@@ -110,7 +110,12 @@ function renderReviewReport(options) {
     METHOD:
       "Target-bound logical lenses, adaptive read-only reviewers, deterministic identity, retained signals, explicit disagreement, and bounded fix rounds.",
     COMMIT: report.source?.commit || "",
+    COMMIT_SHA256: digest(Buffer.from(report.source?.commit || "")),
+    BASE_REF: report.source?.base_ref || "",
     BASE_COMMIT: report.source?.base_commit || "",
+    BASE_SHA256: digest(
+      Buffer.from(`${report.source?.base_ref || ""}:${report.source?.base_commit || ""}`)
+    ),
   };
   const slots = [...html.matchAll(/{{([A-Z0-9_]+)}}/g)].map((match) => match[1]);
   const unknown = slots.filter((name) => !Object.hasOwn(replacements, name));

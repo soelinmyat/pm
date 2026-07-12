@@ -9,6 +9,7 @@ const { VIEWPORTS: REVIEW_RENDER_VIEWPORTS, validateMetrics } = require("./artif
 const { inspectPdfBytes, inspectPngBytes } = require("./lib/media-inspect");
 const { readProjectInput } = require("./lib/safe-project-output");
 const { MAX_HTML_BYTES, MAX_JSON_BYTES } = require("./lib/review-limits");
+const { isUiImpactPath } = require("./lib/ui-impact");
 const { deriveSessionSlug } = require("./lib/session-slug");
 
 const DEFAULT_MANIFEST_PATH = ".pm/dev-sessions/current.gates.json";
@@ -34,30 +35,7 @@ const SIMPLIFY_SKIP_REASON =
 const PM_RUNTIME_PATH_RE =
   /^(commands|skills|templates|hooks|scripts|tests|references|agents|\.githooks)\//;
 const PM_RUNTIME_FILE_RE = /^(plugin\.config\.json|\.claude-plugin\/|\.codex-plugin\/)/;
-const UI_PATH_RE =
-  /(^|\/)(components?|screens?|pages?|routes?|views?|layouts?|design-system|styles?|theme|copy|locales?|i18n)(\/|$)|\.(tsx|jsx|css|scss|sass|less|vue|svelte)$/i;
 const JS_TS_PATH_RE = /\.(js|mjs|cjs|ts)$/i;
-const UI_JS_TS_PATH_RE =
-  /(^|\/)(app\/javascript|assets\/javascripts?|public\/javascripts?|frontend|client|web|mobile|ui|browser)(\/|$)/i;
-const UI_JS_TS_ENTRY_RE =
-  /(^|\/)src\/(App|app|main|index|bootstrap|entry-client|entry-server)\.(js|mjs|cjs|ts)$/i;
-const UI_APP_ROOT_RE =
-  /(^|\/)(apps?|packages)\/[^/]*(web|frontend|client|mobile|ui|browser)[^/]*\/(src|app)\//i;
-const NEXT_APP_ROUTER_UI_RE =
-  /(^|\/)(src\/)?app\/([^/]+\/)*(page|layout|template|loading|error|not-found|global-error|default)\.(js|mjs|cjs|ts)$/i;
-const NEXT_APP_ROUTER_MARKUP_RE =
-  /(^|\/)(src\/)?app\/([^/]+\/)*(page|layout|template|loading|error|not-found|global-error|default)\.(mdx|md)$/i;
-const ANGULAR_UI_TS_RE = /(^|\/)(src\/)?app\/([^/]+\/)*[^/]+\.(component|directive|pipe)\.ts$/i;
-const UI_ROUTER_JS_TS_RE =
-  /(^|\/)(src\/)?((routes|routing|router)\.(js|mjs|cjs|ts)|router\/(index|routes|router)\.(js|mjs|cjs|ts)|app\/([^/]+\/)*[^/]+(\.routes|-routing\.module)\.ts)$/i;
-const UI_SINGLE_APP_STATE_RE =
-  /(^|\/)src\/(features?|hooks?|stores?|state|contexts?|providers?|redux|reducers?|slices?|zustand)\//i;
-const UI_CONFIG_RE =
-  /(^|\/)(tailwind\.config|postcss\.config|uno\.config|unocss\.config|theme\.config|tokens\.config)\.(js|mjs|cjs|ts)$/i;
-const UI_TOKEN_DATA_RE =
-  /(^|\/)(design-tokens?|tokens?|themes?)(\/|[-.])|(^|\/)(design-tokens?|tokens?|themes?|style-dictionary\.config)\.(json|ya?ml|toml)$/i;
-const UI_TEMPLATE_MARKUP_RE =
-  /\.(html?|astro|erb|ejs|hbs|handlebars|liquid|twig|njk|j2|pug|jade|slim|haml|mustache|cshtml|razor|blade\.php)$/i;
 const CODE_PATH_RE =
   /\.(js|mjs|cjs|ts|tsx|jsx|py|rb|go|rs|java|kt|kts|swift|php|cs|cpp|cxx|cc|c|h|hpp|m|mm|sh|bash|zsh|fish|ps1|sql)$/i;
 const DOC_OR_CONFIG_PATH_RE =
@@ -107,6 +85,11 @@ function checkGateManifest(manifest, opts = {}) {
       issues.push(issue(manifestPath, "gate run_id must equal sibling session.json"));
     if (!new Set(["full", "code-scan"]).has(canonicalSession.routing?.review_mode))
       issues.push(issue(manifestPath, "sibling session.json requires routing.review_mode"));
+    const expectedSlug = path.basename(
+      path.dirname(resolveArtifactPath(manifestPath, artifactRoot))
+    );
+    if (canonicalSession.slug !== expectedSlug)
+      issues.push(issue(manifestPath, `sibling session slug must equal ${expectedSlug}`));
   }
 
   const legacySimplifyTolerated = !requiredGates.includes("simplify");
@@ -625,31 +608,6 @@ function hasUiImpact(changedFiles) {
   return changedFiles.some(isUiImpactPath);
 }
 
-const KB_ARTIFACT_PATH_RE = /^\.?pm\//;
-
-function isUiImpactPath(file) {
-  // pm/ (and .pm/) hold PM knowledge-base documents — generated RFC/proposal
-  // HTML included. They are read as documents, not shipped as app UI; without
-  // this exemption every branch carrying an RFC HTML would force the
-  // design-critique gate.
-  if (KB_ARTIFACT_PATH_RE.test(file)) return false;
-  if (UI_PATH_RE.test(file)) return true;
-  if (UI_TOKEN_DATA_RE.test(file)) return true;
-  if (UI_TEMPLATE_MARKUP_RE.test(file)) return true;
-  if (NEXT_APP_ROUTER_MARKUP_RE.test(file)) return true;
-  if (!JS_TS_PATH_RE.test(file)) return false;
-  return (
-    UI_JS_TS_PATH_RE.test(file) ||
-    UI_JS_TS_ENTRY_RE.test(file) ||
-    UI_APP_ROOT_RE.test(file) ||
-    NEXT_APP_ROUTER_UI_RE.test(file) ||
-    ANGULAR_UI_TS_RE.test(file) ||
-    UI_ROUTER_JS_TS_RE.test(file) ||
-    UI_SINGLE_APP_STATE_RE.test(file) ||
-    UI_CONFIG_RE.test(file)
-  );
-}
-
 function artifactExists(artifact, artifactRoot) {
   const filePath = resolveArtifactPath(artifact, artifactRoot);
   return filePath !== "" && fs.existsSync(filePath);
@@ -879,9 +837,29 @@ function main(argv = process.argv.slice(2)) {
     printResult(result, opts.json);
     return 1;
   }
+  const sibling = readSiblingSessionContext(manifestPath);
   let changedFiles = opts.changedFiles;
+  let authoritativeBaseRef = opts.baseRef || null;
   let authoritativeBaseCommit = null;
-  if (opts.baseRef) {
+  if (sibling.session && opts.reviewEvidenceMode === "enforce") {
+    try {
+      const trusted = require("./review-target").resolveTrustedBase(process.cwd());
+      if (opts.baseRef && opts.baseRef !== trusted.ref)
+        throw new Error(`supplied base ${opts.baseRef} must equal remote default ${trusted.ref}`);
+      authoritativeBaseRef = trusted.ref;
+      authoritativeBaseCommit = trusted.commit;
+      changedFiles = loadChangedFilesFromGit(trusted.commit, process.cwd(), currentCommit);
+    } catch (err) {
+      const result = {
+        ok: false,
+        issues: [
+          issue(process.cwd(), `unable to resolve authoritative remote base: ${err.message}`),
+        ],
+      };
+      printResult(result, opts.json);
+      return 1;
+    }
+  } else if (opts.baseRef) {
     try {
       changedFiles = loadChangedFilesFromGit(opts.baseRef, process.cwd(), currentCommit);
       authoritativeBaseCommit = execFileSync("git", ["rev-parse", opts.baseRef], {
@@ -899,7 +877,6 @@ function main(argv = process.argv.slice(2)) {
     }
   }
 
-  const sibling = readSiblingSessionContext(manifestPath);
   const result = checkGateManifest(manifest, {
     currentCommit,
     manifestPath,
@@ -910,7 +887,7 @@ function main(argv = process.argv.slice(2)) {
     canonicalSession: sibling.session,
     requireSessionBinding: opts.reviewEvidenceMode === "enforce",
     sessionError: sibling.error,
-    authoritativeBaseRef: opts.baseRef,
+    authoritativeBaseRef,
     authoritativeBaseCommit,
     reviewEvidenceMode: opts.reviewEvidenceMode,
   });

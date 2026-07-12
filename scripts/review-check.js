@@ -15,7 +15,7 @@ const {
   reviewPathContext,
 } = require("./lib/review-paths");
 const { isRfc3339DateTime } = require("./lib/iso-time");
-const { MAX_JSON_BYTES } = require("./lib/review-limits");
+const { MAX_HTML_BYTES, MAX_JSON_BYTES } = require("./lib/review-limits");
 const {
   DECISION_ACTIONS,
   deriveLensApplicability,
@@ -475,16 +475,22 @@ function validateLensesAndAllocation(target, issues) {
   const expected = target.mode === "full" ? LENSES : LENSES.filter((lens) => lens !== "design");
   if (expected.some((lens) => !logical.has(lens)) || logical.size !== expected.length)
     add(issues, "target.lenses", `must exactly cover ${expected.join(", ")}`);
-  const derived = new Map(
-    deriveLensApplicability(target.mode, target.changed_files).map((item) => [item.name, item])
-  );
-  for (const [name, lens] of logical) {
-    const expectedLens = derived.get(name);
-    if (
-      expectedLens &&
-      (lens.applicable !== expectedLens.applicable || lens.reason !== expectedLens.reason)
-    )
-      add(issues, "target.lenses", `lens ${name} applicability must match the frozen diff`);
+  if (
+    new Set(["full", "code-scan"]).has(target.mode) &&
+    Array.isArray(target.changed_files) &&
+    target.changed_files.every((item) => object(item) && typeof item.path === "string")
+  ) {
+    const derived = new Map(
+      deriveLensApplicability(target.mode, target.changed_files).map((item) => [item.name, item])
+    );
+    for (const [name, lens] of logical) {
+      const expectedLens = derived.get(name);
+      if (
+        expectedLens &&
+        (lens.applicable !== expectedLens.applicable || lens.reason !== expectedLens.reason)
+      )
+        add(issues, "target.lenses", `lens ${name} applicability must match the frozen diff`);
+    }
   }
   if (!Array.isArray(target.allocation) || target.allocation.length === 0)
     return add(issues, "target.allocation", "must plan at least one reviewer");
@@ -1102,7 +1108,13 @@ function validateReport(root, report, canonical, reportFile, options, issues) {
 function validateHumanReport(root, human, report, reportFile, options, issues) {
   if (!object(human) || !text(human.path))
     return add(issues, "report.human_report", "requires a path");
-  const htmlFile = readBoundFile(root, human.path, "report.human_report.path", issues);
+  const htmlFile = readBoundFile(
+    root,
+    human.path,
+    "report.human_report.path",
+    issues,
+    MAX_HTML_BYTES
+  );
   if (!htmlFile) return;
   const inspected = inspectHtmlArtifact(htmlFile.bytes, { expectedKind: "report" });
   for (const item of inspected.issues || [])
@@ -1131,6 +1143,10 @@ function validateHumanReport(root, human, report, reportFile, options, issues) {
     ["data-review-outcome", report.outcome],
     ["data-review-round", String(report.review_round)],
     ["data-review-blockers", String(report.blockers.length)],
+    [
+      "data-review-coverage",
+      `${report.coverage?.completed?.length || 0}/${report.coverage?.required?.length || 0}`,
+    ],
   ])
     if (!new RegExp(`${attribute}=["']${escapeRegex(value)}["']`, "i").test(html))
       add(issues, "report.human_report", `missing ${attribute}=${value}`);
@@ -1169,6 +1185,29 @@ function validateRenderedReportMarkers(markers, report, issues) {
     {
       attributes: { "data-review-blockers": String(report.blockers.length) },
       exact: String(report.blockers.length),
+      firstScreen: true,
+    },
+    {
+      attributes: {
+        "data-review-coverage": `${report.coverage?.completed?.length || 0}/${report.coverage?.required?.length || 0}`,
+      },
+      exact: `${report.coverage?.completed?.length || 0}/${report.coverage?.required?.length || 0}`,
+      firstScreen: true,
+    },
+    {
+      attributes: {
+        "data-review-source-sha256": digest(Buffer.from(report.source?.commit || "")),
+      },
+      required: [report.source?.commit || ""],
+      firstScreen: true,
+    },
+    {
+      attributes: {
+        "data-review-base-sha256": digest(
+          Buffer.from(`${report.source?.base_ref || ""}:${report.source?.base_commit || ""}`)
+        ),
+      },
+      required: [report.source?.base_ref || "", report.source?.base_commit || ""],
       firstScreen: true,
     },
     {
@@ -1224,7 +1263,7 @@ function validateRenderedReportMarkers(markers, report, issues) {
 }
 
 function readJson(root, relative, label, issues) {
-  const file = readBoundFile(root, relative, `${label}.path`, issues);
+  const file = readBoundFile(root, relative, `${label}.path`, issues, MAX_JSON_BYTES);
   if (!file) return null;
   if (file.bytes.length > MAX_JSON_BYTES) {
     add(issues, label, `exceeds ${MAX_JSON_BYTES} bytes`);
@@ -1238,13 +1277,13 @@ function readJson(root, relative, label, issues) {
   }
 }
 
-function readBoundFile(root, relative, label, issues) {
+function readBoundFile(root, relative, label, issues, maxBytes = 64 * 1024 * 1024) {
   if (!projectPath(relative)) {
     add(issues, label, "must be project-relative without traversal");
     return null;
   }
   try {
-    const loaded = readProjectInput(root, relative, 64 * 1024 * 1024);
+    const loaded = readProjectInput(root, relative, maxBytes);
     const { bytes } = loaded;
     return {
       path: loaded.path,

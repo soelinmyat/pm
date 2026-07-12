@@ -1,6 +1,7 @@
 "use strict";
 
 const crypto = require("node:crypto");
+const { isUiImpactPath } = require("./ui-impact");
 
 const LENSES = Object.freeze(["bug", "design", "edge", "reuse", "quality", "efficiency"]);
 const SEVERITIES = Object.freeze(["low", "medium", "high", "critical"]);
@@ -13,13 +14,13 @@ const DECISION_ACTIONS = Object.freeze([
   "dismiss",
   "defer",
 ]);
-const UI_REVIEW_PATH =
-  /(^|\/)(components?|screens?|pages?|routes?|views?|layouts?|design-system|styles?|theme|copy|locales?|i18n)(\/|$)|\.(tsx|jsx|css|scss|sass|less|vue|svelte|html?|astro|erb|ejs|hbs|liquid|twig|mdx)$/i;
 
 function deriveLensApplicability(mode, changedFiles) {
   if (!new Set(["full", "code-scan"]).has(mode)) throw new Error("unknown Review mode");
   const logical = mode === "full" ? [...LENSES] : LENSES.filter((lens) => lens !== "design");
-  const designApplicable = (changedFiles || []).some((item) => UI_REVIEW_PATH.test(item.path));
+  const designApplicable = Array.isArray(changedFiles)
+    ? changedFiles.some((item) => isUiImpactPath(item?.path))
+    : false;
   return logical.map((name) => {
     if (name !== "design")
       return { name, applicable: true, reason: "required source-quality lens" };
@@ -189,7 +190,10 @@ function applyDecision(finding, decision) {
   if (decision.action === "keep-review") {
     finding.owner = "review";
     finding.disposition = "open";
-    return true;
+    // Keeping ownership and disposition is monotonic, but a repository-local
+    // row still cannot authenticate resolution of a dispute or decision gate.
+    // Preserve it for audit while leaving authority-bearing state unresolved.
+    return false;
   }
   // A repository file cannot prove that a human, rather than the reviewing
   // model, authorized a blocker-reducing action. Preserve the requested action

@@ -6,6 +6,7 @@ const assert = require("node:assert/strict");
 const {
   allocateLenses,
   devReviewContext,
+  deriveLensApplicability,
   findingId,
   mergeSignals,
 } = require("../scripts/lib/review-contract");
@@ -66,7 +67,7 @@ test("merge retains independent signals and exposes material disagreement", () =
       },
     ]
   );
-  assert.equal(decided.unresolved_disagreements.length, 0);
+  assert.deepEqual(decided.unresolved_disagreements, [first.id]);
   assert.equal(decided.findings[0].owner, "review");
 });
 
@@ -110,6 +111,34 @@ test("Dev review context binds route identity and ordered acceptance criteria", 
       task: { acceptance_criteria: ["Second", "First"] },
     }).acceptance_sha256
   );
+});
+
+test("Review design applicability shares Dev's UI-impact classifier", () => {
+  const positives = [
+    "src/app/app.component.ts",
+    "apps/admin/app/page.ts",
+    "src/features/orders/useOrderFilters.ts",
+    "src/router/index.ts",
+    "tailwind.config.ts",
+    "packages/ui/tokens/colors.json",
+    "app/page.mdx",
+    "frontend/state.ts",
+    "ios/ContentView.swift",
+    "android/CheckoutScreen.kt",
+    "lib/widgets/cart_widget.dart",
+  ];
+  for (const path of positives) {
+    const design = deriveLensApplicability("full", [{ path }]).find(
+      (item) => item.name === "design"
+    );
+    assert.equal(design.applicable, true, path);
+  }
+  for (const path of ["server/jobs/sync.ts", "pm/backlog/rfc.html", ".pm/private/report.html"]) {
+    const design = deriveLensApplicability("full", [{ path }]).find(
+      (item) => item.name === "design"
+    );
+    assert.equal(design.applicable, false, path);
+  }
 });
 
 function sampleFinding() {

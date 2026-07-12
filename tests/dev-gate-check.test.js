@@ -355,6 +355,19 @@ test("canonical Dev routing binds the Review target mode and exact completed len
     assert.equal(wrongMode.ok, false);
     assert.match(JSON.stringify(wrongMode.issues), /must equal routed full/);
 
+    const wrongSlug = checkGateManifest(manifest([row], { run_id: routedSession.run_id }), {
+      artifactRoot: root,
+      currentCommit: "abc123",
+      requiredGates: ["review"],
+      canonicalSession: { ...routedSession, slug: "other" },
+      requireSessionBinding: true,
+      manifestPath: ".pm/dev-sessions/example/gates.json",
+      authoritativeBaseRef: "origin/main",
+      authoritativeBaseCommit: "base123",
+    });
+    assert.equal(wrongSlug.ok, false);
+    assert.match(JSON.stringify(wrongSlug.issues), /sibling session slug must equal example/);
+
     const wrongLenses = checkGateManifest(
       manifest([{ ...row, lenses: lenses.slice(0, -1) }], { run_id: routedSession.run_id }),
       {

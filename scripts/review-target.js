@@ -11,6 +11,7 @@ const {
   devReviewContext,
 } = require("./lib/review-contract");
 const projectWriter = require("./lib/project-atomic-write");
+const { MAX_JSON_BYTES } = require("./lib/review-limits");
 const { readProjectInput } = require("./lib/safe-project-output");
 const {
   expectedPriorReportPath,
@@ -21,7 +22,6 @@ const {
 } = require("./lib/review-paths");
 
 const MAX_BOUND_BYTES = 64 * 1024 * 1024;
-const MAX_JSON_BYTES = 4 * 1024 * 1024;
 
 function buildReviewTarget(options) {
   const root = fs.realpathSync(path.resolve(options.root || process.cwd()));
@@ -75,7 +75,13 @@ function buildReviewTarget(options) {
     }
   }
   const acceptance = optionalFileBinding(root, options.acceptancePath, "acceptance criteria");
-  const devContext = options.devSessionPath ? loadDevContext(root, options.devSessionPath) : null;
+  const targetSlug = options.outPath?.match(/^\.pm\/dev-sessions\/([^/]+)\/review\//)?.[1];
+  const devContext = options.devSessionPath
+    ? loadDevContext(root, options.devSessionPath, {
+        expectedSlug: targetSlug,
+        expectedMode: mode,
+      })
+    : null;
 
   return {
     schema_version: 1,
@@ -105,7 +111,7 @@ function buildReviewTarget(options) {
   };
 }
 
-function loadDevContext(root, relative) {
+function loadDevContext(root, relative, expected) {
   const loaded = optionalJsonFileBinding(root, relative, "Dev session");
   if (!loaded) throw new Error("Dev session is required");
   const errors = require("./lib/dev-session-schema").validateSession(loaded.value);
@@ -116,6 +122,13 @@ function loadDevContext(root, relative) {
         .map((item) => `${item.path}: ${item.message}`)
         .join("; ")}`
     );
+  if (!expected.expectedSlug) throw new Error("Dev-routed review target path lacks a session slug");
+  if (loaded.value.slug !== expected.expectedSlug)
+    throw new Error(`Dev session slug must equal target namespace ${expected.expectedSlug}`);
+  if (relative !== `.pm/dev-sessions/${expected.expectedSlug}/session.json`)
+    throw new Error("Dev session path must be the canonical sibling session.json");
+  if (loaded.value.routing.review_mode !== expected.expectedMode)
+    throw new Error("Dev session review mode must equal the requested target mode");
   return devReviewContext(loaded.value);
 }
 

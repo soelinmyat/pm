@@ -10,8 +10,13 @@ const path = require("node:path");
 
 const { buildCanonicalReport, checkReview, expandFromReport } = require("../scripts/review-check");
 const { renderReviewReport } = require("../scripts/review-report");
-const { buildReviewTarget, changedFileInventory } = require("../scripts/review-target");
+const {
+  buildReviewTarget,
+  changedFileInventory,
+  resolveTrustedBase,
+} = require("../scripts/review-target");
 const { findingId } = require("../scripts/lib/review-contract");
+const { createSession } = require("../scripts/lib/dev-session-schema");
 const {
   expectedPriorReportPath,
   expectedReviewPath,
@@ -114,6 +119,32 @@ test("a source mutation makes target and reviewer evidence stale", () => {
   );
 });
 
+test("trusted base resolves remote HEAD instead of a stale tracking ref", () => {
+  const fixture = makeFixture({ maxWorkers: 2 });
+  const localTracking = git(fixture.root, ["rev-parse", "origin/main"]).trim();
+  const remote = `${fixture.root}-origin.git`;
+  execFileSync("git", [
+    "--git-dir",
+    remote,
+    "fetch",
+    fixture.root,
+    `${fixture.target.source.commit}:refs/review-test/new-main`,
+  ]);
+  execFileSync("git", [
+    "--git-dir",
+    remote,
+    "update-ref",
+    "refs/heads/main",
+    fixture.target.source.commit,
+  ]);
+  assert.equal(git(fixture.root, ["rev-parse", "origin/main"]).trim(), localTracking);
+
+  const trusted = resolveTrustedBase(fixture.root);
+  assert.equal(trusted.ref, "origin/main");
+  assert.equal(trusted.commit, fixture.target.source.commit);
+  assert.notEqual(trusted.commit, localTracking);
+});
+
 test("target creation refuses dirty source and inventory remains bound to committed bytes", () => {
   const fixture = makeFixture({ maxWorkers: 2 });
   const committed = changedFileInventory(
@@ -183,6 +214,47 @@ test("target creation rejects oversized optional bindings before reading them", 
         designCritiquePath: ".pm/oversized-input.json",
       }),
     /exceeds 4 MiB JSON/
+  );
+});
+
+test("Dev-routed targets require the canonical sibling session and routed mode", () => {
+  const fixture = makeFixture({ maxWorkers: 2 });
+  const session = createSession({
+    slug: "example",
+    sourceDir: fixture.root,
+    runId: "dev_example",
+  });
+  const canonical = ".pm/dev-sessions/example/session.json";
+  write(fixture.root, canonical, session);
+  const options = {
+    root: fixture.root,
+    maxWorkers: 2,
+    runId: "bound-review",
+    mode: "full",
+    outPath: ".pm/dev-sessions/example/review/runs/bound-review/round-1/target.json",
+    devSessionPath: canonical,
+  };
+  const target = buildReviewTarget(options);
+  assert.equal(target.dev_context.slug, "example");
+  assert.equal(target.dev_context.review_mode, "full");
+
+  const alias = ".pm/dev-sessions/example/session-copy.json";
+  write(fixture.root, alias, session);
+  assert.throws(
+    () => buildReviewTarget({ ...options, devSessionPath: alias }),
+    /canonical sibling session\.json/
+  );
+  assert.throws(
+    () =>
+      buildReviewTarget({
+        ...options,
+        outPath: ".pm/dev-sessions/other/review/runs/bound-review/round-1/target.json",
+      }),
+    /slug must equal target namespace other/
+  );
+  assert.throws(
+    () => buildReviewTarget({ ...options, mode: "code-scan" }),
+    /review mode must equal the requested target mode/
   );
 });
 
@@ -439,6 +511,9 @@ test("malformed target containers and finding rows fail with structured issues",
     (target) => (target.lenses = "all"),
     (target) => (target.allocation = { worker_id: "reviewer-1" }),
     (target) => (target.allocation = [null]),
+    (target) => (target.mode = "unknown"),
+    (target) => (target.changed_files = { path: "src/example.js" }),
+    (target) => (target.changed_files = [null]),
   ]) {
     const fixture = makeFixture({ maxWorkers: 3 });
     mutation(fixture.target);
@@ -448,7 +523,7 @@ test("malformed target containers and finding rows fail with structured issues",
       result = generate(fixture);
     });
     assert.equal(result.ok, false);
-    assert.match(JSON.stringify(result.issues), /target\.(lenses|allocation)/);
+    assert.match(JSON.stringify(result.issues), /target\.(lenses|allocation|mode|changed_files)/);
   }
   for (const malformed of [null, "truncated", 7]) {
     const fixture = makeFixture({ maxWorkers: 3 });
@@ -756,6 +831,54 @@ test("material reviewer disagreement blocks until an explicit decision", () => {
   assert.match(html, /handoff-qa/);
   assert.match(html, /Maintainer/);
   assert.match(html, /depends on the live runtime flow/);
+});
+
+test("repository-local keep-review cannot clear a sub-blocker disagreement", () => {
+  const fixture = makeFixture({ maxWorkers: 6 });
+  const bug = {
+    ...validFinding("bug"),
+    severity: "medium",
+    confidence: 70,
+    fix: "Preserve the old return value for existing callers.",
+  };
+  bug.id = findingId(bug);
+  const edge = {
+    ...bug,
+    category: "edge",
+    fix: "Migrate every caller to the new return value.",
+  };
+  edge.id = findingId(edge);
+  assert.equal(edge.id, bug.id);
+  setFindingForLens(fixture, "bug", bug);
+  setFindingForLens(fixture, "edge", edge);
+
+  const decisionsPath = ".pm/dev-sessions/example/review/runs/review-test/round-1/decisions.json";
+  write(fixture.root, decisionsPath, {
+    schema_version: 1,
+    run_id: fixture.target.run_id,
+    review_round: 1,
+    target: binding(fixture.root, fixture.targetPath),
+    decisions: [
+      {
+        finding_id: bug.id,
+        approver: "Claimed Maintainer",
+        action: "keep-review",
+        rationale: "A local row cannot authenticate resolution of incompatible fixes.",
+        decided_at: "2026-07-12T00:05:30Z",
+      },
+    ],
+    checked_at: "2026-07-12T00:05:30Z",
+  });
+  const result = generate(fixture, {
+    decisionsPath,
+    reportPath: ".pm/dev-sessions/example/review/runs/review-test/round-1/draft-report.json",
+    htmlPath: ".pm/dev-sessions/example/review/runs/review-test/round-1/draft-report.html",
+    reportStage: "draft",
+  });
+  assert.equal(result.ok, true, JSON.stringify(result.issues));
+  assert.equal(result.report.outcome, "blocked");
+  assert.deepEqual(result.report.blockers, []);
+  assert.deepEqual(result.report.unresolved_disagreements, [bug.id]);
 });
 
 test("draft synthesis remains replaceable until a non-passing decision is finalized", () => {

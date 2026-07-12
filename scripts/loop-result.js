@@ -450,9 +450,22 @@ function verifyCommittedGateSidecarWithChecker(workspace, options, gateChecker) 
     return failed("source-head-mismatch", `source branch could not be verified: ${err.message}`);
   }
 
+  let trustedBase;
+  try {
+    trustedBase = /^[a-f0-9]{40,64}$/.test(options.baseRef || "")
+      ? { ref: options.baseRef, commit: options.baseRef }
+      : require("./review-target").resolveTrustedBase(workspace);
+    if (options.baseRef && options.baseRef !== trustedBase.ref)
+      return failed(
+        "source-base-mismatch",
+        `source base ${options.baseRef} does not equal remote default ${trustedBase.ref}`
+      );
+  } catch (err) {
+    return failed("source-base-unreadable", `authoritative remote base failed: ${err.message}`);
+  }
   let changedFiles;
   try {
-    changedFiles = loadChangedFilesFromGit(options.baseRef, workspace, options.expectedHeadOid);
+    changedFiles = loadChangedFilesFromGit(trustedBase.commit, workspace, options.expectedHeadOid);
   } catch (err) {
     return failed("source-diff-unreadable", `source diff could not be verified: ${err.message}`);
   }
@@ -560,10 +573,8 @@ function verifyCommittedGateSidecarWithChecker(workspace, options, gateChecker) 
     reviewEvidenceMode: "enforce",
     canonicalSession,
     requireSessionBinding: true,
-    authoritativeBaseRef: options.baseRef,
-    authoritativeBaseCommit: runGit(["rev-parse", options.baseRef], workspace, {
-      timeout: 30_000,
-    }),
+    authoritativeBaseRef: trustedBase.ref,
+    authoritativeBaseCommit: trustedBase.commit,
   });
   if (!checked.ok) {
     return {
