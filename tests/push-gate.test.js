@@ -604,6 +604,27 @@ test("conditional cd branches cannot redirect gate inspection away from the push
   }
 });
 
+test("subshell and brace-group cd state gates pushes in the effective repository", () => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "pm-push-gate-group-cd-"));
+  const gated = path.join(parent, "gated");
+  try {
+    fs.mkdirSync(gated);
+    makeRepoAt(gated);
+    writeFailingGates(gated, "x");
+    assertBlock(
+      runHook("(cd gated && git push origin HEAD)", { cwd: parent }),
+      /verification is failed/
+    );
+    assertBlock(
+      runHook("{ cd gated && git push origin HEAD; }", { cwd: parent }),
+      /verification is failed/
+    );
+    assertAllow(runHook("(cd gated); git push origin HEAD", { cwd: parent }));
+  } finally {
+    fs.rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test("explicit alternate source commit is checked instead of current HEAD", () => {
   const dir = makeRepo();
   try {

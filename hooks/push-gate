@@ -95,7 +95,7 @@ function blockUnverified(branch, manifestRel, detail) {
 
 // --- git command detection -------------------------------------------------
 
-const CONTROL_OPERATOR = /&&|\|\||[;\n|&]/g;
+const SHELL_TOKEN = /&&|\|\||[;\n|&(){}]/g;
 const LEADING_WRAPPERS = new Set([
   "env",
   "sudo",
@@ -189,25 +189,16 @@ function parseSegment(segment) {
 function detectGitPushes(command, baseCwd) {
   const joined = command.replace(/\\\r?\n/g, " ");
   let states = [{ cwd: path.resolve(baseCwd), succeeded: true }];
+  const subshells = [];
   const pushes = [];
   let operator = null;
   let cursor = 0;
-  CONTROL_OPERATOR.lastIndex = 0;
+  SHELL_TOKEN.lastIndex = 0;
 
   const visit = (segment) => {
     const trimmed = segment.trim();
     if (!trimmed) return;
-    const executes = [];
-    const skips = [];
-    for (const state of states) {
-      const shouldExecute =
-        operator === "&&"
-          ? state.succeeded
-          : operator === "||"
-            ? !state.succeeded
-            : true;
-      (shouldExecute ? executes : skips).push(state);
-    }
+    const { executes, skips } = partitionShellStates(states, operator);
     const cd = trimmed.match(/^cd\s+(?:-P\s+)?(['"]?)([^'"]+)\1\s*$/);
     if (cd) {
       states = dedupeShellStates([
@@ -239,13 +230,47 @@ function detectGitPushes(command, baseCwd) {
     ]);
   };
 
-  for (const match of joined.matchAll(CONTROL_OPERATOR)) {
+  for (const match of joined.matchAll(SHELL_TOKEN)) {
     visit(joined.slice(cursor, match.index));
-    operator = match[0];
+    const token = match[0];
+    if (token === "(") {
+      const { executes, skips } = partitionShellStates(states, operator);
+      subshells.push({ executes, skips });
+      states = executes.map((state) => ({ cwd: state.cwd, succeeded: true }));
+      operator = null;
+    } else if (token === ")") {
+      const frame = subshells.pop();
+      if (frame) {
+        const outcomes = new Set(states.map((state) => state.succeeded));
+        states = dedupeShellStates([
+          ...frame.skips,
+          ...frame.executes.flatMap((entry) =>
+            [...outcomes].map((succeeded) => ({ cwd: entry.cwd, succeeded }))
+          ),
+        ]);
+      }
+      operator = null;
+    } else if (token === "{" || token === "}") {
+      // Brace groups execute in the current shell. The delimiter itself does
+      // not change cwd; commands inside continue through the same state set.
+    } else {
+      operator = token;
+    }
     cursor = match.index + match[0].length;
   }
   visit(joined.slice(cursor));
   return pushes;
+}
+
+function partitionShellStates(states, operator) {
+  const executes = [];
+  const skips = [];
+  for (const state of states) {
+    const shouldExecute =
+      operator === "&&" ? state.succeeded : operator === "||" ? !state.succeeded : true;
+    (shouldExecute ? executes : skips).push(state);
+  }
+  return { executes, skips };
 }
 
 function dedupeShellStates(states) {
