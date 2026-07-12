@@ -149,7 +149,7 @@ test("malformed comparison roots return structured issues instead of throwing", 
   }
 });
 
-test("bound canonical, target, and result JSON must be non-array objects", () => {
+test("bound review evidence fails closed for malformed values and object schemas", (t) => {
   const malformedValues = [
     ["null", null],
     ["array", []],
@@ -176,23 +176,40 @@ test("bound canonical, target, and result JSON must be non-array objects", () =>
       },
     },
   ];
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-malformed-binding-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const comparisonPath = seedComparison(root);
+  const absoluteComparison = path.join(root, comparisonPath);
+  const baselineComparisonBytes = fs.readFileSync(absoluteComparison);
+  const baselineComparison = JSON.parse(baselineComparisonBytes);
+  const boundPaths = new Set([
+    baselineComparison.canonical_report.path,
+    ...baselineComparison.runs.flatMap((run) => [
+      run.target.path,
+      ...run.results.map((result) => result.path),
+    ]),
+  ]);
+  const baselineBoundBytes = new Map(
+    [...boundPaths].map((relative) => [relative, fs.readFileSync(path.join(root, relative))])
+  );
+  const restore = () => {
+    fs.writeFileSync(absoluteComparison, baselineComparisonBytes);
+    for (const [relative, bytes] of baselineBoundBytes)
+      fs.writeFileSync(path.join(root, relative), bytes);
+  };
+  const replaceBoundValue = (select, value) => {
+    const comparison = JSON.parse(fs.readFileSync(absoluteComparison, "utf8"));
+    const selected = select(comparison);
+    const bytes = Buffer.from(`${JSON.stringify(value)}\n`);
+    fs.writeFileSync(path.join(root, selected.path), bytes);
+    selected.sha256 = crypto.createHash("sha256").update(bytes).digest("hex");
+    fs.writeFileSync(absoluteComparison, `${JSON.stringify(comparison, null, 2)}\n`);
+  };
 
   for (const bound of bindings) {
     for (const [valueLabel, value] of malformedValues) {
-      const root = fs.mkdtempSync(
-        path.join(
-          os.tmpdir(),
-          `pm-review-binding-${bound.label.replaceAll(/\W/g, "-")}-${valueLabel}-`
-        )
-      );
-      const comparisonPath = seedComparison(root);
-      const absoluteComparison = path.join(root, comparisonPath);
-      const comparison = JSON.parse(fs.readFileSync(absoluteComparison, "utf8"));
-      const selected = bound.select(comparison);
-      const bytes = Buffer.from(`${JSON.stringify(value)}\n`);
-      fs.writeFileSync(path.join(root, selected.path), bytes);
-      selected.sha256 = crypto.createHash("sha256").update(bytes).digest("hex");
-      fs.writeFileSync(absoluteComparison, `${JSON.stringify(comparison, null, 2)}\n`);
+      restore();
+      replaceBoundValue(bound.select, value);
 
       const result = checkReviewRepeats(root, comparisonPath);
       assert.equal(result.ok, false, `${bound.label} ${valueLabel}`);
@@ -204,6 +221,41 @@ test("bound canonical, target, and result JSON must be non-array objects", () =>
         `${bound.label} ${valueLabel}`
       );
     }
+  }
+
+  for (const [label, report] of [
+    ["empty object", {}],
+    ["missing target", { results: [{}] }],
+    ["empty results", { target: {}, results: [] }],
+  ]) {
+    restore();
+    replaceBoundValue((comparison) => comparison.canonical_report, report);
+    const result = checkReviewRepeats(root, comparisonPath);
+    assert.equal(result.ok, false, label);
+    assert.match(JSON.stringify(result.issues), /canonical_report/, label);
+  }
+
+  for (const [label, allocation, omit = false] of [
+    ["missing", undefined, true],
+    ["null", null],
+    ["object", {}],
+    ["matching-length object", { length: 1 }],
+    ["string", "x"],
+  ]) {
+    restore();
+    const comparison = JSON.parse(fs.readFileSync(absoluteComparison, "utf8"));
+    const targetBinding = comparison.runs[0].target;
+    const target = JSON.parse(fs.readFileSync(path.join(root, targetBinding.path), "utf8"));
+    if (omit) delete target.allocation;
+    else target.allocation = allocation;
+    replaceBoundValue((value) => value.runs[0].target, target);
+    const result = checkReviewRepeats(root, comparisonPath);
+    assert.equal(result.ok, false, label);
+    assert.match(
+      JSON.stringify(result.issues),
+      /runs\[0\]\.target allocation must be an array/,
+      label
+    );
   }
 });
 

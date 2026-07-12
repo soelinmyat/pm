@@ -38,22 +38,28 @@ function checkReviewRepeats(root, comparisonPath) {
     issues.push(`canonical_report.path must equal ${canonicalPath}`);
   let canonicalChecked = null;
   if (canonical) {
-    canonicalChecked = checkReview(
-      expandFromReport({
-        root: projectRoot,
-        reportPath: canonicalPath,
-        fromReport: true,
-        verifyGit: false,
-        verifyFrozenGit: true,
-        verifyBrowser: false,
-      })
-    );
-    if (!canonicalChecked.ok || canonical.value.outcome !== "passed")
-      issues.push(
-        `canonical_report must be a valid passing Review report: ${canonicalChecked.issues
-          .map((item) => `${item.path} ${item.message}`)
-          .join("; ")}`
+    try {
+      canonicalChecked = checkReview(
+        expandFromReport({
+          root: projectRoot,
+          reportPath: canonicalPath,
+          fromReport: true,
+          verifyGit: false,
+          verifyFrozenGit: true,
+          verifyBrowser: false,
+        })
       );
+    } catch (error) {
+      issues.push(`canonical_report ${error.message}`);
+    }
+    if (!canonicalChecked?.ok || canonical.value.outcome !== "passed") {
+      const detail = canonicalChecked?.issues
+        ?.map((item) => `${item.path} ${item.message}`)
+        .join("; ");
+      issues.push(
+        `canonical_report must be a valid passing Review report${detail ? `: ${detail}` : ""}`
+      );
+    }
   }
   const runIds = new Set();
   const checkedReports = [];
@@ -79,7 +85,11 @@ function checkReviewRepeats(root, comparisonPath) {
       `^\\.pm/dev-sessions/feature/review/runs/${escapeRegex(run.run_id)}/round-[1-3]/target\\.json$`
     );
     if (!targetPattern.test(run.target.path)) issues.push(`${at}.target path is not run-scoped`);
-    if (!Array.isArray(run.results) || run.results.length !== target.value.allocation?.length) {
+    if (!Array.isArray(target.value.allocation)) {
+      issues.push(`${at}.target allocation must be an array`);
+      continue;
+    }
+    if (!Array.isArray(run.results) || run.results.length !== target.value.allocation.length) {
       issues.push(`${at}.results must exactly cover target allocation`);
       continue;
     }
