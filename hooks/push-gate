@@ -298,7 +298,14 @@ function decodeSimpleShellWord(raw) {
       value += raw[++i];
       continue;
     }
-    if (/\s/.test(char) || char === "$" || char === "`") return null;
+    if (
+      /\s/.test(char) ||
+      char === "$" ||
+      char === "`" ||
+      (char === "~" && value === "") ||
+      "*?[]{}".includes(char)
+    )
+      return null;
     value += char;
   }
   return quote || value === "" ? null : value;
@@ -328,7 +335,14 @@ function scanShellTokens(command) {
       i += 1;
       continue;
     }
-    if (";\n|&(){}".includes(char))
+    if (char === "{" || char === "}") {
+      const boundary = (value) =>
+        value === undefined || /\s/.test(value) || ";|&(){}".includes(value);
+      if (boundary(command[i - 1]) && boundary(command[i + 1]))
+        tokens.push({ value: char, index: i, end: i + 1 });
+      continue;
+    }
+    if (";\n|&()".includes(char))
       tokens.push({ value: char, index: i, end: i + 1 });
   }
   return tokens;

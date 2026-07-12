@@ -665,6 +665,25 @@ test("escaped path characters are decoded and dynamic cd targets fail closed", (
   }
 });
 
+test("tilde, glob, and brace expansion cd targets fail closed", () => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "pm-push-gate-expanded-cd-"));
+  const home = path.join(parent, "home");
+  try {
+    fs.mkdirSync(home);
+    for (const command of [
+      "cd ~/gated && git push origin HEAD",
+      "cd gated-* && git push origin HEAD",
+      "cd gated-{one,two} && git push origin HEAD",
+    ])
+      assertBlock(
+        runHook(command, { cwd: parent }, { HOME: home }),
+        /could not determine the repository/
+      );
+  } finally {
+    fs.rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test("explicit alternate source commit is checked instead of current HEAD", () => {
   const dir = makeRepo();
   try {
