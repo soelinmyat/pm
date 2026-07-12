@@ -72,7 +72,12 @@ function makeFixture(options = {}) {
     run_id: "dc-test-run",
     created_at: "2026-07-12T00:00:00Z",
     mode,
-    source: { commit: COMMIT, base_ref: "origin/main", diff_sha256: "b".repeat(64) },
+    source: {
+      commit: COMMIT,
+      base_ref: "origin/main",
+      base_commit: "c".repeat(40),
+      diff_sha256: "b".repeat(64),
+    },
     subjects: [
       {
         id: "account-detail",
@@ -141,6 +146,10 @@ function makeFixture(options = {}) {
           sha256: `sha256:${screen.sha256}`,
           bytes: fs.statSync(path.join(root, screen.path)).size,
           metrics: {
+            innerWidth: viewport.width,
+            clientWidth: viewport.width - 15,
+            scrollWidth: viewport.width - 15,
+            documentHeight: item.height,
             horizontalOverflow: false,
             mainVisible: true,
             h1Visible: true,
@@ -217,6 +226,7 @@ function makeFixture(options = {}) {
       ])
     ),
     findings: [],
+    top_issue: "No unresolved design issue.",
     next_action: "Proceed to QA.",
     human_report: { path: "evidence/report.html" },
     checked_at: "2026-07-12T00:03:00Z",
@@ -354,7 +364,8 @@ function htmlReport(source, captures, report) {
     )
     .join("");
   const nextHash = digest(Buffer.from(report.next_action));
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Design critique test</title><script id="pm-artifact" type="application/json">${JSON.stringify(meta)}</script><style>.skip-link{position:absolute}.skip-link:focus{position:static}:focus-visible{outline:3px solid #05f}@media(max-width:600px){main{padding:1rem}}@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto}}@media print{nav{display:none}}</style></head><body><a class="skip-link" href="#main">Skip</a><nav aria-label="Report"><a href="#findings">Findings</a></nav><main id="main"><h1>Design critique test</h1><p>Reviewed</p><p data-dc-outcome="${report.outcome}">${report.outcome}</p><p data-dc-coverage="${report.coverage.percent}">${report.coverage.percent}%</p><p data-dc-next-action-sha256="${nextHash}">${report.next_action}</p>${scoreMarkers}<section id="findings"><h2>Findings</h2><p>No blocking findings.</p>${findingMarkers}</section></main></body></html>`;
+  const topIssueHash = digest(Buffer.from(report.top_issue));
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Design critique test</title><script id="pm-artifact" type="application/json">${JSON.stringify(meta)}</script><style>.skip-link{position:absolute}.skip-link:focus{position:static}:focus-visible{outline:3px solid #05f}@media(max-width:600px){main{padding:1rem}}@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto}}@media print{nav{display:none}}</style></head><body><a class="skip-link" href="#main">Skip</a><nav aria-label="Report"><a href="#findings">Findings</a></nav><main id="main"><h1>Design critique test</h1><p>Reviewed</p><p data-dc-outcome="${report.outcome}">${report.outcome}</p><p data-dc-coverage="${report.coverage.percent}">${report.coverage.percent}%</p><p data-dc-top-issue-sha256="${topIssueHash}">${report.top_issue}</p><p data-dc-next-action-sha256="${nextHash}">${report.next_action}</p>${scoreMarkers}<section id="findings"><h2>Findings</h2><p>No blocking findings.</p>${findingMarkers}</section></main></body></html>`;
 }
 
 function artifactSubjectHtml() {
@@ -620,6 +631,42 @@ test("ignores semantic markers hidden in HTML comments", () => {
   assert.match(JSON.stringify(result.issues), /visible outcome marker must match report JSON/);
 });
 
+test("ignores semantic markers inside hidden ancestors", () => {
+  const fixture = makeFixture();
+  const htmlPath = path.join(fixture.root, fixture.report.human_report.path);
+  const html = fs.readFileSync(htmlPath, "utf8");
+  const marker = '<p data-dc-outcome="passed">passed</p>';
+  fs.writeFileSync(htmlPath, html.replace(marker, `<div hidden>${marker}</div>`));
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /visible outcome marker must match report JSON/);
+});
+
+test("ignores semantic markers hidden by a stylesheet class", () => {
+  const fixture = makeFixture();
+  const htmlPath = path.join(fixture.root, fixture.report.human_report.path);
+  const html = fs.readFileSync(htmlPath, "utf8");
+  const marker = '<p data-dc-outcome="passed">passed</p>';
+  fs.writeFileSync(
+    htmlPath,
+    html
+      .replace("</style>", ".concealed{display:none}</style>")
+      .replace(marker, `<div class="concealed">${marker}</div>`)
+  );
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /visible outcome marker must match report JSON/);
+});
+
+test("rejects unknown durable schema fields", () => {
+  const fixture = makeFixture();
+  fixture.route.source.base_sha = "typo";
+  rewrite(fixture.root, fixture.routePath, fixture.route);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /route\.source\.base_sha.*unknown field/);
+});
+
 test("rejects a human report whose visible score diverges from JSON", () => {
   const fixture = makeFixture();
   const htmlPath = path.join(fixture.root, fixture.report.human_report.path);
@@ -656,14 +703,22 @@ test("verifies the frozen git diff hash when enabled", () => {
     cwd: fixture.root,
     encoding: "utf8",
   }).trim();
-  execFileSync("git", ["update-ref", "refs/remotes/origin/main", base], { cwd: fixture.root });
-  execFileSync("git", ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"], {
+  const origin = path.join(path.dirname(fixture.root), `${path.basename(fixture.root)}-origin.git`);
+  execFileSync("git", ["init", "-q", "--bare", origin]);
+  execFileSync("git", ["--git-dir", origin, "symbolic-ref", "HEAD", "refs/heads/main"]);
+  execFileSync("git", ["remote", "add", "origin", origin], { cwd: fixture.root });
+  execFileSync("git", ["push", "-q", "origin", `${base}:refs/heads/main`], {
     cwd: fixture.root,
   });
   const diff = execFileSync("git", ["diff", "--binary", `${base}...${commit}`], {
     cwd: fixture.root,
   });
-  fixture.route.source = { commit, base_ref: "origin/main", diff_sha256: digest(diff) };
+  fixture.route.source = {
+    commit,
+    base_ref: "origin/main",
+    base_commit: base,
+    diff_sha256: digest(diff),
+  };
   rewrite(fixture.root, fixture.routePath, fixture.route);
   fixture.captures.commit = commit;
   fixture.captures.route = binding(fixture.root, fixture.routePath);
@@ -687,6 +742,7 @@ test("verifies the frozen git diff hash when enabled", () => {
     reportPath: fixture.reportPath,
     commit,
     baseRef: "origin/main",
+    baseCommit: base,
   });
   assert.deepEqual(result, { ok: true, issues: [] });
   assert.match(
@@ -698,6 +754,7 @@ test("verifies the frozen git diff hash when enabled", () => {
         reportPath: fixture.reportPath,
         commit: base,
         baseRef: "origin/main",
+        baseCommit: base,
       }).issues
     ),
     /supplied commit must equal current HEAD/
@@ -711,9 +768,10 @@ test("verifies the frozen git diff hash when enabled", () => {
         reportPath: fixture.reportPath,
         commit,
         baseRef: commit,
+        baseCommit: commit,
       }).issues
     ),
-    /supplied base must equal repository default origin\/main/
+    /supplied base must equal remote default origin\/main/
   );
   fixture.route.source.diff_sha256 = "0".repeat(64);
   rewrite(fixture.root, fixture.routePath, fixture.route);
@@ -726,6 +784,7 @@ test("verifies the frozen git diff hash when enabled", () => {
         reportPath: fixture.reportPath,
         commit,
         baseRef: "origin/main",
+        baseCommit: base,
       }).issues
     ),
     /does not match the frozen git diff bytes/

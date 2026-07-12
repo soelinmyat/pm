@@ -10,7 +10,7 @@ Create `route.json`, a complete and reviewable coverage contract bound to the cu
 
 ## How
 
-1. Resolve the default branch and compute current HEAD plus the SHA-256 of `git diff --binary {base}...HEAD`. Do not reuse a route created for another commit or diff.
+1. Resolve the authoritative remote default with `git ls-remote --symref origin HEAD`. Freeze its branch name and immutable object ID as `base_ref` and `base_commit`, then compute current HEAD plus the SHA-256 of `git diff --binary {base_commit}...HEAD`. Do not reuse a route created for another commit, remote base, or diff.
 2. Select exactly one subject mode from the evidence, never from execution context:
    - `product-ui` for a running web/mobile interface;
    - `pm-artifact` for rendered proposal, RFC, report, or other PM HTML.

@@ -5,10 +5,10 @@ const crypto = require("node:crypto");
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
-const zlib = require("node:zlib");
 const { inspectHtmlArtifact, structuralMarkup } = require("./artifact-check");
-const { VIEWPORTS: ARTIFACT_VIEWPORTS } = require("./artifact-render-check");
+const { VIEWPORTS: ARTIFACT_VIEWPORTS, validateMetrics } = require("./artifact-render-check");
 const { isRfc3339DateTime } = require("./lib/iso-time");
+const { inspectPdfBytes, inspectPngBytes } = require("./lib/media-inspect");
 
 const MODES = new Set(["product-ui", "pm-artifact"]);
 const OUTCOMES = new Set(["passed", "failed", "blocked", "deferred"]);
@@ -18,6 +18,7 @@ const VIEWPORTS = new Set(["desktop", "tablet", "narrow", "device", "print"]);
 const STATES = new Set(["primary", "empty", "error", "boundary", "responsive", "print"]);
 const MAX_EVIDENCE_BYTES = 64 * 1024 * 1024;
 const MAX_JSON_BYTES = 4 * 1024 * 1024;
+const MAX_CACHE_BYTES = 64 * 1024 * 1024;
 const ARTIFACT_VIEWPORT_NAMES = Object.freeze(ARTIFACT_VIEWPORTS.map((item) => item.name));
 let activeReadCache = null;
 const SCORE_KEYS = Object.freeze({
@@ -41,7 +42,7 @@ const SCORE_KEYS = Object.freeze({
 
 function checkDesignCritique(options) {
   const previousCache = activeReadCache;
-  activeReadCache = new Map();
+  activeReadCache = { files: new Map(), bytes: 0 };
   try {
     return checkDesignCritiqueUncached(options);
   } finally {
@@ -62,23 +63,36 @@ function checkDesignCritiqueUncached(options) {
   const report = reportFile.value;
   const gitIdentity =
     options.verifyGit === false
-      ? { commit: options.commit, baseRef: options.baseRef }
+      ? { commit: options.commit, baseRef: options.baseRef, baseCommit: options.baseCommit }
       : resolveGitIdentity(root, options, issues);
-  validateRoute(route, gitIdentity.commit, gitIdentity.baseRef, issues);
-  if (options.verifyGit !== false) validateDiffIdentity(root, route, gitIdentity.baseRef, issues);
+  validateRoute(route, gitIdentity.commit, gitIdentity.baseRef, gitIdentity.baseCommit, issues);
+  if (options.verifyGit !== false)
+    validateDiffIdentity(root, route, gitIdentity.baseCommit, issues);
   validateCaptures(root, captures, route, routeFile, issues);
   validateReport(root, report, route, captures, routeFile, capturesFile, reportFile, issues);
   return { ok: issues.length === 0, issues };
 }
 
-function validateRoute(route, commit, baseRef, issues) {
+function validateRoute(route, commit, baseRef, baseCommit, issues) {
   if (!object(route)) return add(issues, "route", "must be an object");
+  closed(
+    route,
+    ["schema_version", "run_id", "created_at", "mode", "source", "subjects", "coverage"],
+    "route",
+    issues
+  );
   if (route.schema_version !== 1) add(issues, "route.schema_version", "must equal 1");
   if (!text(route.run_id)) add(issues, "route.run_id", "is required");
   if (!isRfc3339DateTime(route.created_at)) add(issues, "route.created_at", "must be RFC 3339");
   if (!MODES.has(route.mode)) add(issues, "route.mode", "must be product-ui or pm-artifact");
   if (!object(route.source)) add(issues, "route.source", "is required");
   else {
+    closed(
+      route.source,
+      ["commit", "base_ref", "base_commit", "diff_sha256"],
+      "route.source",
+      issues
+    );
     if (!sha(route.source.commit))
       add(issues, "route.source.commit", "must be a SHA-1 or SHA-256 commit");
     if (commit && route.source.commit !== commit)
@@ -86,6 +100,10 @@ function validateRoute(route, commit, baseRef, issues) {
     if (!text(route.source.base_ref)) add(issues, "route.source.base_ref", "is required");
     if (baseRef && route.source.base_ref !== baseRef)
       add(issues, "route.source.base_ref", `must equal expected base ${baseRef}`);
+    if (!sha(route.source.base_commit))
+      add(issues, "route.source.base_commit", "must be an immutable Git object ID");
+    if (baseCommit && route.source.base_commit !== baseCommit)
+      add(issues, "route.source.base_commit", `must equal remote base commit ${baseCommit}`);
     if (!sha256(route.source.diff_sha256))
       add(issues, "route.source.diff_sha256", "must be SHA-256");
   }
@@ -98,6 +116,9 @@ function validateRoute(route, commit, baseRef, issues) {
       add(issues, at, "must be an object");
       continue;
     }
+    closed(subject, ["id", "title", "surface", "platform", "artifact"], at, issues);
+    if (object(subject.artifact))
+      closed(subject.artifact, ["path", "sha256", "kind"], `${at}.artifact`, issues);
     if (!slug(subject.id) || subjectIds.has(subject.id))
       add(issues, `${at}.id`, "must be unique kebab-case");
     subjectIds.add(subject.id);
@@ -123,37 +144,38 @@ function resolveGitIdentity(root, options, issues) {
   if (options.commit && head && options.commit !== head)
     add(issues, "commit", `supplied commit must equal current HEAD ${head}`);
   if (!text(options.baseRef)) add(issues, "base", "an expected base ref is required");
-  const trustedBase =
-    options.verifyBase === false ? options.baseRef : resolveTrustedBase(root, issues);
-  if (trustedBase && options.baseRef && trustedBase !== options.baseRef)
-    add(issues, "base", `supplied base must equal repository default ${trustedBase}`);
-  return { commit: head || options.commit, baseRef: trustedBase || options.baseRef };
+  const trusted =
+    options.verifyRemote === false
+      ? { ref: options.baseRef, commit: options.baseCommit }
+      : resolveTrustedBase(root, issues);
+  if (trusted.ref && options.baseRef && trusted.ref !== options.baseRef)
+    add(issues, "base", `supplied base must equal remote default ${trusted.ref}`);
+  if (trusted.commit && options.baseCommit && trusted.commit !== options.baseCommit)
+    add(issues, "baseCommit", `supplied base commit must equal remote default ${trusted.commit}`);
+  return {
+    commit: head || options.commit,
+    baseRef: trusted.ref || options.baseRef,
+    baseCommit: trusted.commit || options.baseCommit,
+  };
 }
 
 function resolveTrustedBase(root, issues) {
   try {
-    const symbolic = execFileSync(
-      "git",
-      ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
-      { cwd: root, encoding: "utf8" }
-    ).trim();
-    if (symbolic) return symbolic;
-  } catch {
-    // Fall through to the conventional remote default only when it exists.
-  }
-  try {
-    execFileSync("git", ["rev-parse", "--verify", "origin/main"], {
+    const output = execFileSync("git", ["ls-remote", "--symref", "origin", "HEAD"], {
       cwd: root,
-      stdio: "ignore",
+      encoding: "utf8",
     });
-    return "origin/main";
-  } catch {
-    add(issues, "base", "cannot resolve trusted origin default branch");
-    return "";
+    const ref = output.match(/^ref:\s+refs\/heads\/([^\s]+)\s+HEAD$/m)?.[1];
+    const commit = output.match(/^([a-f0-9]{40,64})\s+HEAD$/m)?.[1];
+    if (!ref || !commit) throw new Error("origin HEAD lacks a symbolic ref or object ID");
+    return { ref: `origin/${ref}`, commit };
+  } catch (error) {
+    add(issues, "base", `cannot resolve authoritative origin default: ${error.message}`);
+    return { ref: "", commit: "" };
   }
 }
 
-function validateDiffIdentity(root, route, baseRef, issues) {
+function validateDiffIdentity(root, route, baseCommit, issues) {
   if (
     !text(route?.source?.base_ref) ||
     !sha(route?.source?.commit) ||
@@ -161,12 +183,16 @@ function validateDiffIdentity(root, route, baseRef, issues) {
   )
     return;
   try {
-    const bytes = execFileSync("git", ["diff", "--binary", `${baseRef}...${route.source.commit}`], {
-      cwd: root,
-      encoding: null,
-      stdio: ["ignore", "pipe", "pipe"],
-      maxBuffer: 32 * 1024 * 1024,
-    });
+    const bytes = execFileSync(
+      "git",
+      ["diff", "--binary", `${baseCommit}...${route.source.commit}`],
+      {
+        cwd: root,
+        encoding: null,
+        stdio: ["ignore", "pipe", "pipe"],
+        maxBuffer: 32 * 1024 * 1024,
+      }
+    );
     if (digest(bytes) !== route.source.diff_sha256)
       add(issues, "route.source.diff_sha256", "does not match the frozen git diff bytes");
   } catch (error) {
@@ -190,6 +216,7 @@ function validateCoverage(route, subjectIds, issues) {
       add(issues, at, "must be an object");
       continue;
     }
+    closed(item, ["id", "subject_id", "state", "viewport", "required", "reason"], at, issues);
     if (!slug(item.id) || ids.has(item.id)) add(issues, `${at}.id`, "must be unique kebab-case");
     ids.add(item.id);
     if (!subjectIds.has(item.subject_id))
@@ -226,6 +253,13 @@ function validateCoverage(route, subjectIds, issues) {
 
 function validateCaptures(root, captures, route, routeFile, issues) {
   if (!object(captures)) return add(issues, "captures", "must be an object");
+  closed(
+    captures,
+    ["schema_version", "run_id", "mode", "commit", "route", "captures", "evidence", "checked_at"],
+    "captures",
+    issues
+  );
+  if (object(captures.route)) closed(captures.route, ["path", "sha256"], "captures.route", issues);
   if (captures.schema_version !== 1) add(issues, "captures.schema_version", "must equal 1");
   if (captures.run_id !== route.run_id || captures.mode !== route.mode)
     add(issues, "captures", "run_id and mode must match route");
@@ -245,6 +279,25 @@ function validateCaptures(root, captures, route, routeFile, issues) {
       add(issues, `${at}.id`, "must be unique kebab-case");
       continue;
     }
+    closed(
+      item,
+      [
+        "id",
+        "coverage_id",
+        "kind",
+        "path",
+        "sha256",
+        "active",
+        "round",
+        "captured_at",
+        "width",
+        "height",
+        "full_page",
+        "pages",
+      ],
+      at,
+      issues
+    );
     captureIds.add(item.id);
     if (!coverage.has(item.coverage_id))
       add(issues, `${at}.coverage_id`, "must reference route coverage");
@@ -289,6 +342,12 @@ function validateCaptures(root, captures, route, routeFile, issues) {
 function validateAuditEvidence(root, entry, route, captureRows, label, issues) {
   const audit = readEvidenceJson(root, entry, label, issues);
   if (!audit) return;
+  closed(
+    audit,
+    ["schema_version", "subject_id", "commit", "capture_ids", "checks", "findings"],
+    label,
+    issues
+  );
   if (
     audit.schema_version !== 1 ||
     audit.subject_id !== entry.subject_id ||
@@ -318,6 +377,7 @@ function validateAuditEvidence(root, entry, route, captureRows, label, issues) {
     entry.kind === "accessibility-tree"
       ? ["landmarks", "names", "focus_order"]
       : ["overflow", "edge_alignment", "hierarchy"];
+  if (object(audit.checks)) closed(audit.checks, requiredChecks, `${label}.checks`, issues);
   if (!object(audit.checks) || requiredChecks.some((name) => audit.checks[name] !== true))
     add(issues, `${label}.checks`, `requires passing ${requiredChecks.join(", ")}`);
   if (!Array.isArray(audit.findings)) add(issues, `${label}.findings`, "must be an array");
@@ -331,6 +391,7 @@ function validateEvidence(root, evidence, route, captureRows, issues) {
     if (!object(item) || !slug(item.id) || ids.has(item.id))
       add(issues, `${at}.id`, "must be unique kebab-case");
     ids.add(item?.id);
+    if (object(item)) closed(item, ["id", "subject_id", "kind", "path", "sha256"], at, issues);
     if (!(route.subjects || []).some((subject) => subject.id === item?.subject_id))
       add(issues, `${at}.subject_id`, "must reference a subject");
     if (
@@ -444,17 +505,11 @@ function validateArtifactSubject(root, subject, evidence, route, captureRows, is
           renderedPaths,
           issues
         );
-      if (
-        !object(item.metrics) ||
-        item.metrics.horizontalOverflow !== false ||
-        item.metrics.mainVisible !== true ||
-        item.metrics.h1Visible !== true ||
-        !Number.isFinite(item.metrics.bodyText) ||
-        item.metrics.bodyText < 100 ||
-        !Number.isFinite(item.metrics.anchorCount) ||
-        item.metrics.anchorCount < 1
-      )
-        add(issues, `${at}.render.${expected.name}.metrics`, "requires passing render metrics");
+      try {
+        validateMetrics(item.metrics, expected);
+      } catch (error) {
+        add(issues, `${at}.render.${expected.name}.metrics`, error.message);
+      }
     }
     if (
       !text(render.print?.path) ||
@@ -523,7 +578,7 @@ function validateRenderedPng(root, item, width, height, label, seen, issues) {
   if (item.sha256 !== `sha256:${file.sha256}` || item.bytes !== file.bytes.length)
     add(issues, label, "render hash and byte count must match the file");
   try {
-    const dimensions = inspectPngStrict(file.bytes);
+    const dimensions = inspectPngBytes(file.bytes);
     if (dimensions.width !== width || dimensions.height !== height)
       add(issues, label, `render dimensions must equal ${width}x${height}`);
   } catch (error) {
@@ -567,6 +622,41 @@ function validateReport(
   issues
 ) {
   if (!object(report)) return add(issues, "report", "must be an object");
+  closed(
+    report,
+    [
+      "schema_version",
+      "run_id",
+      "mode",
+      "commit",
+      "route",
+      "captures",
+      "outcome",
+      "reason",
+      "authority",
+      "rounds",
+      "coverage",
+      "scores",
+      "findings",
+      "top_issue",
+      "next_action",
+      "human_report",
+      "checked_at",
+    ],
+    "report",
+    issues
+  );
+  for (const [name, binding] of [
+    ["route", report.route],
+    ["captures", report.captures],
+  ])
+    if (object(binding)) closed(binding, ["path", "sha256"], `report.${name}`, issues);
+  if (object(report.coverage))
+    closed(report.coverage, ["required", "captured", "percent"], "report.coverage", issues);
+  if (object(report.human_report))
+    closed(report.human_report, ["path"], "report.human_report", issues);
+  if (object(report.authority))
+    closed(report.authority, ["approver", "decision"], "report.authority", issues);
   if (report.schema_version !== 1) add(issues, "report.schema_version", "must equal 1");
   if (!isRfc3339DateTime(report.checked_at)) add(issues, "report.checked_at", "must be RFC 3339");
   if (
@@ -579,6 +669,9 @@ function validateReport(
   validateBinding(report.captures, capturesFile, "report.captures", issues);
   if (!OUTCOMES.has(report.outcome)) add(issues, "report.outcome", "is invalid");
   if (!text(report.next_action)) add(issues, "report.next_action", "is required");
+  const expectedTopIssue = deriveTopIssue(report);
+  if (report.top_issue !== expectedTopIssue)
+    add(issues, "report.top_issue", `must equal ${expectedTopIssue}`);
   if (!Number.isInteger(report.rounds) || report.rounds < 1 || report.rounds > 2)
     add(issues, "report.rounds", "must be 1 or 2");
   if ((captures.captures || []).some((item) => item.round > report.rounds))
@@ -630,6 +723,7 @@ function validateScores(scores, mode, captures, issues) {
       add(issues, `report.scores.${key}`, "must be an evidence-backed score object");
       continue;
     }
+    closed(score, ["value", "rationale", "evidence_ids"], `report.scores.${key}`, issues);
     if (!Number.isInteger(score.value) || score.value < 1 || score.value > 5)
       add(issues, `report.scores.${key}.value`, "must be an integer from 1 to 5");
     if (!text(score.rationale)) add(issues, `report.scores.${key}.rationale`, "is required");
@@ -653,6 +747,27 @@ function validateFindings(findings, route, captures, outcome, issues) {
       add(issues, at, "must be an object");
       continue;
     }
+    closed(
+      finding,
+      [
+        "id",
+        "subject_id",
+        "region",
+        "rule",
+        "evidence_ids",
+        "priority",
+        "status",
+        "owner",
+        "summary",
+        "remediation",
+        "before_capture_id",
+        "after_capture_id",
+        "defer_reason",
+        "defer_owner",
+      ],
+      at,
+      issues
+    );
     const expectedId = findingId(finding);
     if (finding.id !== expectedId || ids.has(finding.id))
       add(issues, `${at}.id`, `must equal deterministic identity ${expectedId}`);
@@ -725,7 +840,7 @@ function validateCaptureBytes(root, item, label, issues) {
   if (!file) return;
   try {
     if (item.kind === "screenshot") {
-      const dimensions = inspectPngStrict(file.bytes);
+      const dimensions = inspectPngBytes(file.bytes);
       if (dimensions.width !== item.width || dimensions.height !== item.height)
         add(
           issues,
@@ -734,110 +849,13 @@ function validateCaptureBytes(root, item, label, issues) {
         );
     }
     if (item.kind === "pdf") {
-      const inspected = inspectPdfStrict(file.bytes);
+      const inspected = inspectPdfBytes(file.bytes);
       if (!positiveInt(item.pages) || item.pages !== inspected.pages)
         add(issues, label, `declared pages must equal ${inspected.pages}`);
     }
   } catch (error) {
     add(issues, label, error.message);
   }
-}
-
-function inspectPngStrict(bytes) {
-  const signature = Buffer.from("89504e470d0a1a0a", "hex");
-  if (bytes.length < 1024 || !bytes.subarray(0, 8).equals(signature))
-    throw new Error("invalid PNG capture");
-  let offset = 8;
-  let width = 0;
-  let height = 0;
-  let bitDepth = 0;
-  let colorType = 0;
-  let interlace = 0;
-  let sawHeader = false;
-  let sawEnd = false;
-  const compressed = [];
-  while (offset + 12 <= bytes.length) {
-    const length = bytes.readUInt32BE(offset);
-    const end = offset + 12 + length;
-    if (end > bytes.length) throw new Error("invalid PNG chunk length");
-    const type = bytes.subarray(offset + 4, offset + 8).toString("ascii");
-    const data = bytes.subarray(offset + 8, offset + 8 + length);
-    const expectedCrc = bytes.readUInt32BE(offset + 8 + length);
-    if (crc32(Buffer.concat([Buffer.from(type, "ascii"), data])) !== expectedCrc)
-      throw new Error(`invalid PNG ${type} checksum`);
-    if (type === "IHDR") {
-      if (sawHeader || length !== 13 || offset !== 8) throw new Error("invalid PNG header");
-      sawHeader = true;
-      width = data.readUInt32BE(0);
-      height = data.readUInt32BE(4);
-      bitDepth = data[8];
-      colorType = data[9];
-      interlace = data[12];
-      if (!positiveInt(width) || !positiveInt(height) || data[10] !== 0 || data[11] !== 0)
-        throw new Error("invalid PNG dimensions or compression");
-    } else if (type === "IDAT") compressed.push(data);
-    else if (type === "IEND") {
-      if (length !== 0) throw new Error("invalid PNG end chunk");
-      sawEnd = true;
-      offset = end;
-      break;
-    }
-    offset = end;
-  }
-  if (!sawHeader || !sawEnd || compressed.length === 0 || interlace !== 0)
-    throw new Error("PNG must contain non-interlaced IHDR, IDAT, and IEND chunks");
-  const channels = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }[colorType];
-  if (!channels || ![1, 2, 4, 8, 16].includes(bitDepth)) throw new Error("unsupported PNG format");
-  let pixels;
-  try {
-    pixels = zlib.inflateSync(Buffer.concat(compressed), { maxOutputLength: 256 * 1024 * 1024 });
-  } catch (error) {
-    throw new Error(`invalid PNG pixel stream: ${error.message}`);
-  }
-  const rowBytes = Math.ceil((width * channels * bitDepth) / 8);
-  if (pixels.length !== (rowBytes + 1) * height) throw new Error("invalid PNG pixel length");
-  for (let row = 0; row < height; row += 1)
-    if (pixels[row * (rowBytes + 1)] > 4) throw new Error("invalid PNG row filter");
-  return { width, height };
-}
-
-function inspectPdfStrict(bytes) {
-  if (bytes.length < 1024 || !/^%PDF-1\.[0-7]/.test(bytes.subarray(0, 8).toString("ascii")))
-    throw new Error("invalid PDF header");
-  const textValue = bytes.toString("latin1");
-  if (!/%%EOF\s*$/.test(textValue)) throw new Error("invalid PDF end marker");
-  const startMatches = [...textValue.matchAll(/startxref\s+(\d+)\s+%%EOF/g)];
-  if (startMatches.length === 0) throw new Error("PDF startxref is required");
-  const xrefOffset = Number(startMatches.at(-1)[1]);
-  if (!Number.isSafeInteger(xrefOffset) || xrefOffset < 9 || xrefOffset >= bytes.length)
-    throw new Error("invalid PDF xref offset");
-  const xrefText = textValue.slice(xrefOffset, xrefOffset + 200);
-  if (!xrefText.startsWith("xref") && !/\d+\s+\d+\s+obj[\s\S]*\/Type\s*\/XRef/.test(xrefText))
-    throw new Error("invalid PDF xref structure");
-  const catalog = textValue.match(/\d+\s+\d+\s+obj[\s\S]*?\/Type\s*\/Catalog[\s\S]*?endobj/);
-  const pagesRoot = textValue.match(
-    /\d+\s+\d+\s+obj[\s\S]*?\/Type\s*\/Pages\b[\s\S]*?\/Count\s+(\d+)[\s\S]*?endobj/
-  );
-  const pages = (textValue.match(/\/Type\s*\/Page\b/g) || []).length;
-  if (!catalog || !pagesRoot || pages < 1 || Number(pagesRoot[1]) !== pages)
-    throw new Error("invalid PDF catalog or page tree");
-  return { pages };
-}
-
-const CRC_TABLE = (() => {
-  const table = new Uint32Array(256);
-  for (let value = 0; value < 256; value += 1) {
-    let crc = value;
-    for (let bit = 0; bit < 8; bit += 1) crc = crc & 1 ? 0xedb88320 ^ (crc >>> 1) : crc >>> 1;
-    table[value] = crc >>> 0;
-  }
-  return table;
-})();
-
-function crc32(bytes) {
-  let crc = 0xffffffff;
-  for (const byte of bytes) crc = CRC_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
-  return (crc ^ 0xffffffff) >>> 0;
 }
 
 function validateHumanReport(root, human, report, reportFile, capturesFile, issues) {
@@ -862,39 +880,68 @@ function validateHumanReport(root, human, report, reportFile, capturesFile, issu
     )
   )
     add(issues, "report.human_report", "metadata evidence must bind the exact captures manifest");
-  const html = structuralMarkup(htmlFile.bytes.toString("utf8"));
-  const outcome = visibleMarker(html, { "data-dc-outcome": report.outcome });
+  const rawHtml = htmlFile.bytes.toString("utf8");
+  const html = structuralMarkup(rawHtml);
+  const css = [...rawHtml.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)]
+    .map((match) => match[1])
+    .join("\n");
+  const outcome = visibleMarker(html, { "data-dc-outcome": report.outcome }, css);
   if (!outcome || normalizeVisible(outcome.text).toLowerCase() !== report.outcome)
     add(issues, "report.human_report", "visible outcome marker must match report JSON");
-  const coverage = visibleMarker(html, {
-    "data-dc-coverage": String(report.coverage?.percent),
-  });
+  const coverage = visibleMarker(
+    html,
+    {
+      "data-dc-coverage": String(report.coverage?.percent),
+    },
+    css
+  );
   if (!coverage || !normalizeVisible(coverage.text).includes(`${report.coverage?.percent}%`))
     add(issues, "report.human_report", "visible coverage marker must match report JSON");
-  const nextAction = visibleMarker(html, {
-    "data-dc-next-action-sha256": digest(Buffer.from(report.next_action || "")),
-  });
+  const nextAction = visibleMarker(
+    html,
+    {
+      "data-dc-next-action-sha256": digest(Buffer.from(report.next_action || "")),
+    },
+    css
+  );
   if (
     !nextAction ||
     !normalizeVisible(nextAction.text).includes(normalizeVisible(report.next_action))
   )
     add(issues, "report.human_report", "visible next action must match report JSON");
+  const topIssue = visibleMarker(
+    html,
+    {
+      "data-dc-top-issue-sha256": digest(Buffer.from(report.top_issue || "")),
+    },
+    css
+  );
+  if (!topIssue || !normalizeVisible(topIssue.text).includes(normalizeVisible(report.top_issue)))
+    add(issues, "report.human_report", "visible top issue must match report JSON");
   for (const [key, score] of Object.entries(report.scores || {})) {
-    const marker = visibleMarker(html, {
-      "data-dc-score-key": key,
-      "data-dc-score-value": score.value,
-    });
+    const marker = visibleMarker(
+      html,
+      {
+        "data-dc-score-key": key,
+        "data-dc-score-value": score.value,
+      },
+      css
+    );
     if (!marker || !normalizeVisible(marker.text).includes(normalizeVisible(score.rationale)))
       add(issues, "report.human_report", `visible score ${key} must match report JSON`);
   }
   for (const finding of report.findings || []) {
     const projection = findingProjection(finding);
-    const marker = visibleMarker(html, {
-      "data-dc-finding-id": finding.id,
-      "data-dc-finding-priority": finding.priority,
-      "data-dc-finding-status": finding.status,
-      "data-dc-finding-sha256": digest(Buffer.from(JSON.stringify(projection))),
-    });
+    const marker = visibleMarker(
+      html,
+      {
+        "data-dc-finding-id": finding.id,
+        "data-dc-finding-priority": finding.priority,
+        "data-dc-finding-status": finding.status,
+        "data-dc-finding-sha256": digest(Buffer.from(JSON.stringify(projection))),
+      },
+      css
+    );
     const visibleText = normalizeVisible(marker?.text || "");
     if (
       !marker ||
@@ -911,7 +958,7 @@ function hasDataValue(html, attribute, value) {
   return new RegExp(`\\b${attribute}=["']${escaped}["']`, "i").test(html);
 }
 
-function visibleMarker(html, attributes) {
+function visibleMarker(html, attributes, css) {
   const firstAttribute = Object.keys(attributes)[0];
   const pattern = new RegExp(
     `<([a-z][a-z0-9-]*)\\b(?=[^>]*\\b${firstAttribute}=["'])[^>]*>([\\s\\S]*?)<\\/\\1>`,
@@ -921,16 +968,79 @@ function visibleMarker(html, attributes) {
     const opening = match[0].slice(0, match[0].indexOf(">") + 1);
     if (!Object.entries(attributes).every(([name, value]) => hasDataValue(opening, name, value)))
       continue;
-    if (
-      /\bhidden\b|\baria-hidden=["']true["']|style=["'][^"']*(?:display\s*:\s*none|visibility\s*:\s*hidden)/i.test(
-        opening
-      )
-    )
-      continue;
-    const textValue = match[2].replace(/<[^>]+>/g, " ");
+    if (hiddenMarkup(opening, css) || hiddenAncestorAt(html, match.index, css)) continue;
+    const visibleInner = removeHiddenSubtrees(match[2], css);
+    const textValue = visibleInner.replace(/<[^>]+>/g, " ");
     if (normalizeVisible(textValue)) return { text: textValue };
   }
   return null;
+}
+
+function hiddenAncestorAt(html, targetIndex, css) {
+  const stack = [];
+  const voidTags = new Set([
+    "area",
+    "base",
+    "br",
+    "col",
+    "embed",
+    "hr",
+    "img",
+    "input",
+    "link",
+    "meta",
+    "source",
+    "track",
+    "wbr",
+  ]);
+  for (const match of html.slice(0, targetIndex).matchAll(/<\/?([a-z][a-z0-9-]*)\b[^>]*>/gi)) {
+    const token = match[0];
+    const name = match[1].toLowerCase();
+    if (token.startsWith("</")) {
+      const index = stack.map((item) => item.name).lastIndexOf(name);
+      if (index >= 0) stack.splice(index);
+    } else if (!token.endsWith("/>") && !voidTags.has(name)) {
+      stack.push({ name, hidden: hiddenMarkup(token, css) });
+    }
+  }
+  return stack.some((item) => item.hidden);
+}
+
+function hiddenMarkup(opening, css) {
+  if (
+    /\bhidden(?:\s|=|\/?>)|\baria-hidden=["']true["']|style=["'][^"']*(?:display\s*:\s*none|visibility\s*:\s*hidden|opacity\s*:\s*0)/i.test(
+      opening
+    )
+  )
+    return true;
+  const classes =
+    opening
+      .match(/\bclass=["']([^"']*)["']/i)?.[1]
+      ?.split(/\s+/)
+      .filter(Boolean) || [];
+  const id = opening.match(/\bid=["']([^"']+)["']/i)?.[1];
+  return [
+    ...classes.map((value) => `\\.${escapeRegex(value)}`),
+    ...(id ? [`#${escapeRegex(id)}`] : []),
+  ].some((selector) =>
+    new RegExp(
+      `${selector}(?:[^,{]*)\\{[^}]*(?:display\\s*:\\s*none|visibility\\s*:\\s*hidden|opacity\\s*:\\s*0)`,
+      "i"
+    ).test(css)
+  );
+}
+
+function removeHiddenSubtrees(html, css) {
+  let output = String(html);
+  let previous;
+  do {
+    previous = output;
+    output = output.replace(
+      /<([a-z][a-z0-9-]*)\b([^>]*)>([\s\S]*?)<\/\1>/gi,
+      (whole, name, attrs) => (hiddenMarkup(`<${name}${attrs}>`, css) ? "" : whole)
+    );
+  } while (output !== previous);
+  return output;
 }
 
 function normalizeVisible(value) {
@@ -939,6 +1049,10 @@ function normalizeVisible(value) {
     .replace(/&amp;/gi, "&")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function findingProjection(finding) {
@@ -953,6 +1067,22 @@ function findingProjection(finding) {
     before_capture_id: finding.before_capture_id || null,
     after_capture_id: finding.after_capture_id || null,
   };
+}
+
+function deriveTopIssue(report) {
+  const priority = { P0: 0, P1: 1, P2: 2, P3: 3 };
+  const unresolved = (report.findings || [])
+    .filter(
+      (finding) =>
+        finding.owner === "design-critique" && ["open", "deferred"].includes(finding.status)
+    )
+    .sort(
+      (left, right) =>
+        priority[left.priority] - priority[right.priority] || left.id.localeCompare(right.id)
+    );
+  if (unresolved[0]) return unresolved[0].summary;
+  if (report.outcome !== "passed" && text(report.reason)) return report.reason;
+  return "No unresolved design issue.";
 }
 
 function findingId(finding) {
@@ -999,14 +1129,21 @@ function readBoundFile(root, rel, label, issues) {
     const real = fs.realpathSync(resolved);
     if (real !== root && !real.startsWith(`${fs.realpathSync(root)}${path.sep}`))
       throw new Error("resolves outside project root");
-    const cached = activeReadCache?.get(real);
+    const cached = activeReadCache?.files.get(real);
     const file = cached || {
       path: real,
       bytes: fs.readFileSync(real),
     };
     if (!cached) {
       file.sha256 = digest(file.bytes);
-      activeReadCache?.set(real, file);
+      if (
+        activeReadCache &&
+        file.bytes.length <= MAX_JSON_BYTES &&
+        activeReadCache.bytes + file.bytes.length <= MAX_CACHE_BYTES
+      ) {
+        activeReadCache.files.set(real, file);
+        activeReadCache.bytes += file.bytes.length;
+      }
     }
     return { ...file, relative: path.relative(root, real).split(path.sep).join("/") };
   } catch (error) {
@@ -1060,6 +1197,11 @@ function positiveInt(value) {
 function add(issues, pathName, message) {
   issues.push({ path: pathName, message });
 }
+function closed(value, allowed, pathName, issues) {
+  const fields = new Set(allowed);
+  for (const key of Object.keys(value || {}))
+    if (!fields.has(key)) add(issues, `${pathName}.${key}`, "unknown field");
+}
 
 function parseArgs(argv) {
   const out = {};
@@ -1072,13 +1214,14 @@ function parseArgs(argv) {
       "--report": "reportPath",
       "--commit": "commit",
       "--base": "baseRef",
+      "--base-commit": "baseCommit",
     }[arg];
     if (!key) throw new Error(`unknown argument ${arg}`);
     if (!argv[index + 1] || argv[index + 1].startsWith("--"))
       throw new Error(`${arg} requires a value`);
     out[key] = argv[++index];
   }
-  for (const key of ["routePath", "capturesPath", "reportPath", "commit", "baseRef"])
+  for (const key of ["routePath", "capturesPath", "reportPath", "commit", "baseRef", "baseCommit"])
     if (!out[key]) throw new Error(`missing required ${key}`);
   return out;
 }

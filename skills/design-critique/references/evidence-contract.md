@@ -15,6 +15,7 @@ This contract defines the durable chain checked by `scripts/design-critique-chec
   "source": {
     "commit": "<40-or-64-hex>",
     "base_ref": "origin/main",
+    "base_commit": "<authoritative-origin-head-object-id>",
     "diff_sha256": "<64-hex>"
   },
   "subjects": [
@@ -121,6 +122,7 @@ Accessibility and DOM evidence are JSON objects bound to the route commit, subje
     "state-clarity": { "value": 4, "rationale": "Applicable states communicate status and recovery clearly.", "evidence_ids": ["capture-account-primary-desktop-r1"] }
   },
   "findings": [],
+  "top_issue": "No unresolved design issue.",
   "next_action": "Proceed to QA.",
   "human_report": { "path": ".pm/.../report.html" },
   "checked_at": "2026-07-12T00:03:00Z"
@@ -166,7 +168,7 @@ Resolved P0/P1 needs distinct before/after capture hashes. Deferred findings nee
 
 Render `report.html` from `references/templates/design-critique-report.html`. The inert PM artifact metadata uses kind `report`, lifecycle `reviewed`, `source.path` equal to `report.json`, `source.sha256` equal to `sha256:<report-json-hash>`, and an evidence row binding `captures.json` the same way. Replace all example zero hashes before validation.
 
-The first screenful shows outcome, subject mode, coverage, largest remaining issue, and next action. Mark the visible outcome with `data-dc-outcome="{outcome}"`, coverage with `data-dc-coverage="{percent}"`, and the next action with `data-dc-next-action-sha256="{raw-sha256-of-next-action}"`; their visible text must agree. Every score card carries `data-dc-score-key` and `data-dc-score-value` and visibly includes its rationale. Every rendered finding carries `data-dc-finding-id`, `data-dc-finding-priority`, `data-dc-finding-status`, and `data-dc-finding-sha256`, where the digest binds the normalized finding projection defined by the checker. Its visible content includes summary, remediation, owner, and evidence IDs. Markers in comments, scripts, templates, hidden elements, or empty elements are ignored. Include before/after proof, ownership handoffs, method, and print-friendly navigation.
+The first screenful shows outcome, subject mode, coverage, deterministic `top_issue`, and next action. `top_issue` is the summary of the highest-priority unresolved Design Critique finding (priority then finding ID), otherwise the non-passing reason, otherwise `No unresolved design issue.` Mark the visible outcome with `data-dc-outcome="{outcome}"`, coverage with `data-dc-coverage="{percent}"`, top issue with `data-dc-top-issue-sha256`, and the next action with `data-dc-next-action-sha256="{raw-sha256-of-next-action}"`; their visible text must agree. Every score card carries `data-dc-score-key` and `data-dc-score-value` and visibly includes its rationale. Every rendered finding carries `data-dc-finding-id`, `data-dc-finding-priority`, `data-dc-finding-status`, and `data-dc-finding-sha256`, where the digest binds the normalized finding projection defined by the checker. Its visible content includes summary, remediation, owner, and evidence IDs. Markers in comments, scripts, templates, hidden elements, hidden ancestors/descendants, stylesheet-hidden classes, or empty elements are ignored. Include before/after proof, ownership handoffs, method, and print-friendly navigation.
 
 ## Outcome mapping
 

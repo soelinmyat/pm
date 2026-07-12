@@ -21,7 +21,8 @@ node "$PM_PLUGIN_ROOT/scripts/design-critique-check.js" \
   --captures ".pm/dev-sessions/{slug}/design-critique/captures.json" \
   --report ".pm/dev-sessions/{slug}/design-critique/report.json" \
   --commit "$(git rev-parse HEAD)" \
-  --base "origin/{DEFAULT_BRANCH}"
+  --base "origin/{DEFAULT_BRANCH}" \
+  --base-commit "{BASE_COMMIT_FROM_ROUTE}"
 ```
 
 4. For `passed`, update only the `design-critique` row in `.pm/dev-sessions/{slug}.gates.json` with current commit and `report.html` as the artifact. Preserve `tdd`, legacy `simplify`, `qa`, `review`, and `verification` rows. For `failed`, `blocked`, or `deferred`, record a non-passing gate with the concrete reason; map `deferred` to `blocked` because the Dev schema has no deferred status.

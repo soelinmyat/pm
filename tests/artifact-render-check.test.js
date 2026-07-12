@@ -20,6 +20,11 @@ function fakeBrowser(root) {
     `#!/usr/bin/env node
 "use strict";
 const fs = require("node:fs");
+const zlib = require("node:zlib");
+function crc32(bytes){let crc=0xffffffff;for(const byte of bytes){crc^=byte;for(let bit=0;bit<8;bit+=1)crc=crc&1?0xedb88320^(crc>>>1):crc>>>1}return(crc^0xffffffff)>>>0}
+function chunk(type,data){const name=Buffer.from(type,"ascii");const out=Buffer.alloc(12+data.length);out.writeUInt32BE(data.length,0);name.copy(out,4);data.copy(out,8);out.writeUInt32BE(crc32(Buffer.concat([name,data])),8+data.length);return out}
+function makePng(width,height){const header=Buffer.alloc(13);header.writeUInt32BE(width,0);header.writeUInt32BE(height,4);header[8]=8;header[9]=6;const rows=Buffer.alloc((width*4+1)*height);return Buffer.concat([Buffer.from("89504e470d0a1a0a","hex"),chunk("IHDR",header),chunk("IDAT",zlib.deflateSync(rows)),chunk("IEND",Buffer.alloc(0))])}
+function makePdf(){const objects=["1 0 obj\\n<< /Type /Catalog /Pages 2 0 R >>\\nendobj\\n","2 0 obj\\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\\nendobj\\n","3 0 obj\\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\\nendobj\\n"];let body="%PDF-1.7\\n";const offsets=[0];for(const object of objects){offsets.push(Buffer.byteLength(body,"latin1"));body+=object}body+="%"+"padding".repeat(150)+"\\n";const xref=Buffer.byteLength(body,"latin1");body+="xref\\n0 4\\n0000000000 65535 f \\n";for(const offset of offsets.slice(1))body+=String(offset).padStart(10,"0")+" 00000 n \\n";body+="trailer\\n<< /Size 4 /Root 1 0 R >>\\nstartxref\\n"+xref+"\\n%%EOF\\n";return Buffer.from(body,"latin1")}
 const screenshot = process.argv.find((arg) => arg.startsWith("--screenshot="));
 const pdf = process.argv.find((arg) => arg.startsWith("--print-to-pdf="));
 const dump = process.argv.includes("--dump-dom");
@@ -33,17 +38,10 @@ if (dump) {
 }
 if (screenshot) {
   const size = process.argv.find((arg) => arg.startsWith("--window-size=")).split("=")[1].split(",").map(Number);
-  const bytes = Buffer.alloc(2048);
-  Buffer.from("89504e470d0a1a0a", "hex").copy(bytes, 0);
-  Buffer.from("IHDR").copy(bytes, 12);
-  bytes.writeUInt32BE(size[0], 16);
-  bytes.writeUInt32BE(size[1], 20);
-  fs.writeFileSync(screenshot.slice("--screenshot=".length), bytes);
+  fs.writeFileSync(screenshot.slice("--screenshot=".length), makePng(size[0], size[1]));
 }
 if (pdf) {
-  const bytes = Buffer.alloc(2048, 32);
-  Buffer.from("%PDF-1.4\\n1 0 obj <</Type /Page>>\\n%%EOF\\n").copy(bytes);
-  fs.writeFileSync(pdf.slice("--print-to-pdf=".length), bytes);
+  fs.writeFileSync(pdf.slice("--print-to-pdf=".length), makePdf());
 }
 `
   );
@@ -137,7 +135,7 @@ test("render checker rejects captures with the wrong dimensions", () => {
       browserPath,
       fs
         .readFileSync(browserPath, "utf8")
-        .replace("bytes.writeUInt32BE(size[0], 16)", "bytes.writeUInt32BE(1, 16)")
+        .replace("makePng(size[0], size[1])", "makePng(1400, size[1])")
     );
     assert.throws(
       () => renderArtifact({ htmlPath, outputDir: path.join(root, "renders"), browserPath }),

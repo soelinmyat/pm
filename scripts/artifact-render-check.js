@@ -8,6 +8,7 @@ const { pathToFileURL } = require("node:url");
 const { spawnSync } = require("node:child_process");
 const { parseCliArgs } = require("./loop-args");
 const { writeJsonAtomic } = require("./lib/atomic-file");
+const { inspectPdf, inspectPng } = require("./lib/media-inspect");
 
 const VIEWPORTS = Object.freeze([
   { name: "desktop", width: 1440, height: 1000 },
@@ -17,8 +18,6 @@ const VIEWPORTS = Object.freeze([
   // max-width responsive rule.
   { name: "narrow", width: 500, height: 812 },
 ]);
-const PNG_SIGNATURE = Buffer.from("89504e470d0a1a0a", "hex");
-const MIN_RENDER_BYTES = 1024;
 const MAX_RENDER_HEIGHT = 16_000;
 
 function renderArtifact(options) {
@@ -284,41 +283,6 @@ function resolveBrowser(explicit) {
     throw new Error("no Chromium browser found; pass --browser or set PM_ARTIFACT_BROWSER");
   }
   return found;
-}
-
-function inspectPng(filePath) {
-  requireFreshRegularFile(filePath, "PNG");
-  const bytes = fs.readFileSync(filePath);
-  if (bytes.length < MIN_RENDER_BYTES || !bytes.subarray(0, 8).equals(PNG_SIGNATURE)) {
-    throw new Error(`invalid PNG capture: ${filePath}`);
-  }
-  return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
-}
-
-function inspectPdf(filePath) {
-  requireFreshRegularFile(filePath, "PDF");
-  const bytes = fs.readFileSync(filePath);
-  const pages = (bytes.toString("latin1").match(/\/Type\s*\/Page\b/g) || []).length;
-  if (
-    bytes.length < MIN_RENDER_BYTES ||
-    bytes.subarray(0, 5).toString("ascii") !== "%PDF-" ||
-    pages < 1
-  ) {
-    throw new Error(`invalid PDF capture: ${filePath}`);
-  }
-  return { pages };
-}
-
-function requireFreshRegularFile(filePath, kind) {
-  let stat;
-  try {
-    stat = fs.lstatSync(filePath);
-  } catch {
-    throw new Error(`browser did not create a fresh ${kind} capture: ${filePath}`);
-  }
-  if (!stat.isFile() || stat.isSymbolicLink()) {
-    throw new Error(`${kind} capture is not a regular file: ${filePath}`);
-  }
 }
 
 function digestFile(filePath) {
