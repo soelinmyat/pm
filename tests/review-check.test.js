@@ -184,6 +184,53 @@ test("target creation rejects oversized optional bindings before reading them", 
   );
 });
 
+test("Design Critique bindings must attest the current review commit", () => {
+  const fixture = makeFixture({ maxWorkers: 2 });
+  const designPath = ".pm/design-critique/report.json";
+  write(fixture.root, designPath, {
+    commit: fixture.target.source.base_commit,
+    outcome: "passed",
+  });
+  assert.throws(
+    () =>
+      buildReviewTarget({
+        root: fixture.root,
+        maxWorkers: 2,
+        designCritiquePath: designPath,
+      }),
+    /must attest current HEAD/
+  );
+
+  write(fixture.root, designPath, {
+    commit: fixture.target.source.commit,
+    outcome: "passed",
+  });
+  const current = buildReviewTarget({
+    root: fixture.root,
+    maxWorkers: 2,
+    designCritiquePath: designPath,
+  });
+  assert.equal(current.upstream.design_critique.commit, current.source.commit);
+});
+
+test("review checking rejects a target with stale Design Critique evidence", () => {
+  const fixture = makeFixture({ maxWorkers: 2 });
+  const designPath = ".pm/design-critique/report.json";
+  write(fixture.root, designPath, {
+    commit: fixture.target.source.base_commit,
+    outcome: "passed",
+  });
+  fixture.target.upstream.design_critique = {
+    ...binding(fixture.root, designPath),
+    commit: fixture.target.source.base_commit,
+    outcome: "passed",
+  };
+  write(fixture.root, fixture.targetPath, fixture.target);
+  const result = generate(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /must attest the target source commit/);
+});
+
 test("review paths bind each round and reserve the canonical root for passes", () => {
   const targetPath = ".pm/dev-sessions/example/review/runs/review-test/round-2/target.json";
   const reviewRoot = reviewRootFromTargetPath(targetPath, 2);
@@ -509,6 +556,75 @@ test("Git-backed evidence rejects irrelevant SHA-256 identity salt", () => {
   const checked = generate(fixture);
   assert.equal(checked.ok, false);
   assert.match(JSON.stringify(checked.issues), /Git-backed evidence must not include sha256/);
+});
+
+test("reviewer signals cannot dismiss their own findings", () => {
+  const fixture = makeFixture({ maxWorkers: 6 });
+  const finding = { ...validFinding("bug"), disposition: "dismissed" };
+  finding.id = findingId(finding);
+  setFindingForLens(fixture, "bug", finding);
+  const checked = generate(fixture);
+  assert.equal(checked.ok, false);
+  assert.match(JSON.stringify(checked.issues), /only decisions may dismiss/);
+});
+
+test("upstream-gate evidence must attest the current review commit", () => {
+  const stale = makeFixture({ maxWorkers: 6 });
+  const gatePath = ".pm/gates/design-critique.json";
+  write(stale.root, gatePath, {
+    commit: stale.target.source.base_commit,
+    outcome: "passed",
+  });
+  const staleFinding = validFinding("quality");
+  staleFinding.evidence.push({
+    kind: "upstream-gate",
+    ref: gatePath,
+    sha256: binding(stale.root, gatePath).sha256,
+  });
+  staleFinding.id = findingId(staleFinding);
+  setFindingForLens(stale, "quality", staleFinding);
+  const rejected = generate(stale, {
+    reportPath: stale.roundReportPath,
+    htmlPath: stale.roundHtmlPath,
+  });
+  assert.equal(rejected.ok, false);
+  assert.match(JSON.stringify(rejected.issues), /commit must equal the target source commit/);
+
+  const missing = makeFixture({ maxWorkers: 6 });
+  write(missing.root, gatePath, { outcome: "passed" });
+  const missingFinding = validFinding("quality");
+  missingFinding.evidence.push({
+    kind: "upstream-gate",
+    ref: gatePath,
+    sha256: binding(missing.root, gatePath).sha256,
+  });
+  missingFinding.id = findingId(missingFinding);
+  setFindingForLens(missing, "quality", missingFinding);
+  const unattested = generate(missing, {
+    reportPath: missing.roundReportPath,
+    htmlPath: missing.roundHtmlPath,
+  });
+  assert.equal(unattested.ok, false);
+  assert.match(JSON.stringify(unattested.issues), /requires a valid commit attestation/);
+
+  const current = makeFixture({ maxWorkers: 6 });
+  write(current.root, gatePath, {
+    commit: current.target.source.commit,
+    outcome: "passed",
+  });
+  const currentFinding = validFinding("quality");
+  currentFinding.evidence.push({
+    kind: "upstream-gate",
+    ref: gatePath,
+    sha256: binding(current.root, gatePath).sha256,
+  });
+  currentFinding.id = findingId(currentFinding);
+  setFindingForLens(current, "quality", currentFinding);
+  const accepted = generate(current, {
+    reportPath: current.roundReportPath,
+    htmlPath: current.roundHtmlPath,
+  });
+  assert.equal(accepted.ok, true, JSON.stringify(accepted.issues));
 });
 
 test("deleted source evidence is checked against frozen base line bounds", () => {

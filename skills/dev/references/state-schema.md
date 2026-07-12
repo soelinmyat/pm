@@ -188,7 +188,7 @@ Gate names are `tdd`, `design-critique`, `qa`, `review`, and `verification` (`si
 
 Rules:
 
-- Canonical v2 manifests include `run_id` equal to the sibling `session.json`. The gate checker rejects a mismatched run even when commits happen to match. Legacy flat manifests without a sibling canonical session remain readable during migration.
+- Canonical v2 manifests include `run_id` equal to the sibling `session.json`. The gate checker rejects a mismatched run even when commits happen to match. Legacy flat manifests without a sibling canonical session remain readable only with `--review-evidence-mode inspect` during migration; inspection cannot authorize Dev completion, push, PR creation, or Ship. Enforcement requires every passed required `review` row to declare `evidence_kind: review-report-v1`, hash-bind `review/renders/manifest.json` with `render_manifest` and `render_manifest_sha256`, and pass canonical report plus retained-render validation.
 - Update the row immediately after each gate runs or is explicitly skipped.
 - `commit` is the evidence commit where the gate ran or was explicitly skipped.
 - `verified_commit` / `verified_at` are optional recertification fields written after later commits. They mean the original gate evidence was rechecked against that final tree. These two fields must be written together.
@@ -204,6 +204,7 @@ Rules:
   node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" \
     --manifest .pm/dev-sessions/{slug}/gates.json \
     --commit "$(git rev-parse HEAD)" \
+    --review-evidence-mode enforce \
     --base origin/{DEFAULT_BRANCH}
   ```
 - If the checker fails for a missing gate, run that gate. If it fails for a stale gate, use the final recertification rule above: rerun the gate when its relevant surface changed, or write `verified_commit` / `verified_at` only when the evidence still applies. Do not push around it.
@@ -280,7 +281,7 @@ Tasks are populated during intake from the RFC's JSON sidecar `issues[]` when it
 
 ## Gate Manifest
 - Sidecar: .pm/dev-sessions/{slug}/gates.json
-- Checker: set `PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"`, then run `node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" --manifest .pm/dev-sessions/{slug}/gates.json --commit "$(git rev-parse HEAD)"`
+- Checker: set `PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"`, then run `node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" --manifest .pm/dev-sessions/{slug}/gates.json --commit "$(git rev-parse HEAD)" --review-evidence-mode enforce`
 - Required before push: tdd, design-critique, qa, review, verification (skipped gates require reasons)
 
 ## Merge-Watch

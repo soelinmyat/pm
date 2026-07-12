@@ -169,7 +169,7 @@ function findingCard(finding) {
     finding.impact
   )}</p><p><strong>Fix:</strong> ${escapeHtml(
     finding.fix
-  )}</p><p><strong>Verify:</strong> <code>${escapeHtml(
+  )}</p><p><strong>Advisory verification plan (do not execute directly):</strong> <code>${escapeHtml(
     finding.verify
   )}</code></p><p><strong>Decision required:</strong> ${finding.decision_required ? "yes" : "no"}</p><p><strong>Disputed:</strong> ${finding.disputed ? "yes" : "no"}</p>${decision}<div class="evidence"><strong>Evidence:</strong> ${evidence}</div><details><summary>Independent signals</summary><ul>${signals}</ul></details></article>`;
 }

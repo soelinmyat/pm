@@ -42,7 +42,7 @@ const EVIDENCE_KINDS = new Set([
   "upstream-gate",
 ]);
 const FIX_KINDS = new Set(["mechanical", "behavioral", "decision"]);
-const SIGNAL_DISPOSITIONS = new Set(["open", "dismissed"]);
+const SIGNAL_DISPOSITIONS = new Set(["open"]);
 const REQUIRED_EVIDENCE = Object.freeze({
   bug: new Set(["source", "test", "trace", "contract"]),
   design: new Set(["source", "design-token", "upstream-gate"]),
@@ -236,6 +236,12 @@ function validateTarget(target, issues) {
         !new Set(["passed", "failed", "blocked", "deferred"]).has(design?.outcome)
       )
         add(issues, "target.upstream.design_critique", "requires commit and outcome");
+      else if (design.commit !== target.source?.commit)
+        add(
+          issues,
+          "target.upstream.design_critique.commit",
+          "must attest the target source commit"
+        );
     }
   }
   validateOwnership(target.ownership, issues);
@@ -684,7 +690,11 @@ function validateSignal(root, finding, reviewerId, assignedLenses, target, label
   if (!FIX_KINDS.has(finding.fix_kind)) add(issues, `${label}.fix_kind`, "is invalid");
   if (!OWNERS.includes(finding.owner)) add(issues, `${label}.owner`, "is invalid");
   if (!SIGNAL_DISPOSITIONS.has(finding.disposition))
-    add(issues, `${label}.disposition`, "reviewer signals must be open or dismissed");
+    add(
+      issues,
+      `${label}.disposition`,
+      "reviewer signals must be open; only decisions may dismiss"
+    );
   if (typeof finding.decision_required !== "boolean")
     add(issues, `${label}.decision_required`, "must be boolean");
   let identityReady = true;
@@ -781,7 +791,7 @@ function validateEvidenceReference(root, evidence, target, label, issues) {
     if (!projectPath(evidence.ref))
       return add(issues, `${label}.ref`, "must be a project-relative gate artifact path");
     const file = readBoundFile(root, evidence.ref, `${label}.ref`, issues);
-    validateArtifactEvidence(file, evidence, label, issues, true);
+    validateArtifactEvidence(file, evidence, label, issues, true, target.source.commit);
     return;
   }
   const match = evidence.ref.match(/^artifact:([^#]+)#([^#\r\n]{1,500})$/);
@@ -797,7 +807,7 @@ function validateEvidenceReference(root, evidence, target, label, issues) {
     add(issues, `${label}.ref`, "locator is not present in the bound artifact bytes");
 }
 
-function validateArtifactEvidence(file, evidence, label, issues, gate) {
+function validateArtifactEvidence(file, evidence, label, issues, gate, targetCommit = null) {
   if (!sha256(evidence.sha256)) {
     add(issues, `${label}.sha256`, "artifact evidence requires an exact SHA-256 binding");
     return false;
@@ -815,6 +825,10 @@ function validateArtifactEvidence(file, evidence, label, issues, gate) {
         !new Set(["passed", "failed", "blocked", "deferred"]).has(value.outcome)
       )
         add(issues, `${label}.ref`, "upstream gate JSON requires a recognized outcome");
+      else if (!sha(value.commit))
+        add(issues, `${label}.ref`, "upstream gate JSON requires a valid commit attestation");
+      else if (value.commit !== targetCommit)
+        add(issues, `${label}.ref`, "upstream gate commit must equal the target source commit");
     } catch (error) {
       add(issues, `${label}.ref`, `upstream gate must be JSON: ${error.message}`);
     }

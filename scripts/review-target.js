@@ -48,6 +48,8 @@ function buildReviewTarget(options) {
     options.designCritiquePath,
     "design critique report"
   );
+  if (designEvidence && designEvidence.commit !== commit)
+    throw new Error(`design critique report must attest current HEAD ${commit}`);
   const lenses = logical.map((name) => {
     if (name !== "design")
       return { name, applicable: true, reason: "required source-quality lens" };

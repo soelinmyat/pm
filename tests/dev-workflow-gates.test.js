@@ -244,6 +244,7 @@ test("implementation flow runs the gate checker before push and PR creation", ()
   const prIndex = block[1].indexOf("gh pr create");
   assert.ok(checkerIndex > -1, "push block must run dev-gate-check");
   assert.match(block[1], /--base origin\/\{DEFAULT_BRANCH\}/);
+  assert.match(block[1], /--review-evidence-mode enforce/);
   assert.ok(pushIndex > checkerIndex, "checker must appear before git push");
   assert.ok(prIndex > checkerIndex, "checker must appear before gh pr create");
 });
@@ -252,6 +253,7 @@ test("ship push step requires the full default gate contract before git push", (
   const text = read("skills/ship/steps/04-push.md");
   assert.match(text, /scripts\/dev-gate-check\.js/);
   assert.match(text, /--base origin\/\{DEFAULT_BRANCH\}/);
+  assert.match(text, /--review-evidence-mode enforce/);
   assert.doesNotMatch(text, /--require review,verification/);
   assert.match(text, /any required gate row is stale/);
   assert.match(text, /any required gate is missing/);
@@ -267,6 +269,7 @@ test("ship merge loop rechecks the full sidecar against the remote branch tip", 
   assert.match(text, /otherwise `verified_commit` when it equals `remote_tip`/);
   assert.match(text, /do not require every raw `commit` field to equal the remote tip/);
   assert.match(text, /--changed-files "\$changed_files"/);
+  assert.match(text, /--review-evidence-mode enforce/);
   assert.match(text, /final recertification pass/);
   assert.doesNotMatch(text, /--require review,verification/);
 });
@@ -307,6 +310,7 @@ test("source repo pre-push hook uses the shared gate checker for PM runtime chan
   assert.doesNotMatch(text, /if ! node scripts\/dev-gate-check\.js/);
   assert.doesNotMatch(text, /if ! node --test tests\/\*\.test\.js/);
   assert.match(text, /--base origin\/main/);
+  assert.match(text, /--review-evidence-mode enforce/);
   assert.match(text, /unable to verify origin\/main/);
   assert.match(text, /unable to diff origin\/main\.\.\.\$local_oid/);
   assert.match(text, /push_ref_lines/);

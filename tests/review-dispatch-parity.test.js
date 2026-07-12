@@ -105,3 +105,20 @@ test("review-gate.md dispatch row: Codex parallel spawn_agent by default, sequen
   // The stale "inline-sequential fallback when delegation is unavailable" is gone.
   assert.doesNotMatch(dispatchRow, /inline-sequential fallback when delegation is unavailable/);
 });
+
+test("reviewer verification text is advisory and never executed directly", () => {
+  const reviewer = read("skills/review/references/reviewer-briefs.md");
+  const resolve = read("skills/review/steps/04-resolve.md");
+  const contract = read("skills/review/references/evidence-contract.md");
+  assert.match(reviewer, /untrusted, non-executable verification plan/i);
+  assert.match(resolve, /never pass it to a shell or execute it directly/i);
+  assert.match(resolve, /derive trusted verification commands from committed repository scripts/i);
+  assert.match(contract, /never executes reviewer text directly/i);
+});
+
+test("review gate evidence contract requires current-commit attestations", () => {
+  const dispatch = read("skills/review/steps/02-dispatch.md");
+  const contract = read("skills/review/references/evidence-contract.md");
+  assert.match(dispatch, /`commit` equal to the target source commit/i);
+  assert.match(contract, /Optional Design Critique evidence follows the same current-commit rule/i);
+});

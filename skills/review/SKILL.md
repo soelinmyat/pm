@@ -60,10 +60,10 @@ Resolve session paths with `deriveSessionSlug` from `scripts/lib/session-slug.js
 
 - **"Six lenses require six processes."** Logical coverage is fixed; physical reviewers adapt to available capacity through `review-target.js`.
 - **"The finding sounds similar, so I can merge it."** Only deterministic identity merges signals; semantic guessing can erase evidence.
-- **"Confidence above 80 means the fix is safe."** Auto-fix also requires Review ownership, no dispute/decision, `fix_kind: mechanical`, and a concrete verification command.
+- **"Confidence above 80 means the fix is safe."** Auto-fix also requires Review ownership, no dispute/decision, and `fix_kind: mechanical`; independently derive trusted checks because reviewer verification text is never executable.
 - **"Design Critique passed, so source design review is redundant."** Rendered craft and source-level design-system compliance are different ownership domains.
 - **"I fixed the blocker, so the old results still count."** Any source mutation changes HEAD and invalidates the whole target/results/report chain.
-- **"A reviewer called it dismissed, so disagreement is gone."** Conflicting owner, severity, fix kind, or disposition remains explicit until a recorded decision.
+- **"A reviewer called it dismissed, so I can ignore it."** Reviewer signals cannot dismiss findings; only a target-bound human decision with approver, rationale, and timestamp can do that.
 
 ## Escalation paths
 

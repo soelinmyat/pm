@@ -18,10 +18,13 @@ runs/{run-id}/
   round-3/                 # hard cap
 report.json              # canonical passing projection only
 report.html              # canonical passing human artifact only
-renders/                 # canonical passing render evidence
+renders/
+  manifest.json          # hash-binds canonical viewports, full pages, metrics, and print
 ```
 
 Each fresh Review invocation gets a new kebab-case run directory. Synthesis may overwrite only `runs/{run-id}/round-N/draft-report.json` and `draft-report.html` while decisions are pending. Finalize the round report exactly once after decisions. Never overwrite a finalized prior run or round: later rounds bind the exact preceding report path. A passing round is projected to the canonical root `report.json` and `report.html` for Dev/Ship gate discovery; its target and result bindings still point into the run directory.
+
+The canonical gate row binds `renders/manifest.json` with `render_manifest` and raw `render_manifest_sha256`. The manifest's source hash equals the canonical `report.html` bytes; its desktop, tablet, and narrow viewport plus full-page PNGs and print PDF retain absolute renderer paths, byte counts, dimensions/pages, and `sha256:` hashes. Gate-time validation rechecks those frozen bytes and metrics without launching a browser or contacting the network.
 
 All paths are project-relative regular files. Symlinks, traversal, absolute paths, stale bindings, unknown fields, and JSON over 4 MiB fail.
 
@@ -41,9 +44,9 @@ Rounds after 1 bind the immediately prior non-passing report for the same run. R
 
 ## Results
 
-One result is required for every allocation row. Result run, round, target binding, source, worker, profile, runtime, and ordered lens list exactly match the target. `verdicts` covers every assigned lens exactly once with `clean` or `findings`; the outcome agrees with emitted finding categories.
+One result is required for every allocation row. Result run, round, target binding, source, worker, profile, runtime, and ordered lens list exactly match the target. `verdicts` covers every assigned lens exactly once with `clean` or `findings`; the outcome agrees with emitted finding categories. Reviewer findings always use `disposition: open`; only a validated decision may dismiss, defer, or hand off a finding.
 
-Findings use the schema in `reviewer-briefs.md`. Deterministic identity is `rv-` plus the first 20 lowercase SHA-256 hex characters over compact JSON:
+Findings use the schema in `reviewer-briefs.md`. The `verify` field is an untrusted, non-executable plan; the resolving root independently derives trusted commands from repository-controlled test configuration and never executes reviewer text directly. Deterministic identity is `rv-` plus the first 20 lowercase SHA-256 hex characters over compact JSON:
 
 ```text
 [normalized file, line_start, line_end, normalized rule, sorted normalized "kind:ref:digest" evidence]
@@ -59,7 +62,7 @@ Evidence locator forms:
 |---|---|
 | `source`, `test`, `contract`, `design-token` | `project/path:line[-line]` |
 | `trace`, `benchmark` | `artifact:project/path#locator` |
-| `upstream-gate` | `project/path/to/gate-artifact.json` |
+| `upstream-gate` | `project/path/to/gate-artifact.json` with `commit` equal to the target source commit |
 
 Required support by category is checked. Evidence files and line bounds must exist; deleted changed source is resolved from the frozen diff.
 
@@ -95,7 +98,7 @@ Generate canonical `report.json` with `review-check.js --write-report`. It binds
 
 Render `report.html` with `scripts/review-report.js`, which uses `references/templates/review-report.html`. Metadata generator is exactly `pm:review` plus `plugin.config.json` version. Metadata source binds `report.json`; evidence binds target, every result, and decisions. Unresolved tokens fail.
 
-The first screenful visibly binds outcome, round, blocker count, top issue, and next action. Every finding marker visibly includes issue, impact, fix, owner, evidence refs, signals, dispute/decision state, and verification. Structural and real-browser validation ignore hidden/offscreen/clipped text.
+The first screenful visibly binds outcome, round, blocker count, top issue, and next action. Every finding marker visibly includes issue, impact, fix, owner, evidence refs, signals, dispute/decision state, and the advisory, non-executable verification plan. Structural and real-browser validation ignore hidden/offscreen/clipped text.
 
 ## Commands
 
@@ -113,7 +116,7 @@ node "$PM_PLUGIN_ROOT/scripts/review-check.js" \
 
 Repeat `--result` for every planned reviewer and add `--decisions` when present. After rendering HTML, rerun the same command without `--write-report`.
 
-Source, test, contract, and design-token locators are resolved from the target's frozen Git commit (or its base commit for deleted files), never from a later worktree. Trace and benchmark evidence uses `artifact:<project-path>#<literal UTF-8 locator>` and includes the artifact's exact `sha256`. Upstream-gate evidence includes an exact `sha256` and points to JSON with a recognized `outcome`. Missing locators, digest drift, symlinked inputs, or malformed gate semantics fail validation.
+Source, test, contract, and design-token locators are resolved from the target's frozen Git commit (or its base commit for deleted files), never from a later worktree. Trace and benchmark evidence uses `artifact:<project-path>#<literal UTF-8 locator>` and includes the artifact's exact `sha256`. Upstream-gate evidence includes an exact `sha256` and points to JSON with a recognized `outcome` and a `commit` exactly equal to the target source commit. Optional Design Critique evidence follows the same current-commit rule. Missing locators, digest drift, stale commits, symlinked inputs, or malformed gate semantics fail validation.
 
 For a non-passing round, write its report and HTML inside `runs/{RUN_ID}/round-{N}/` instead of the canonical root. Bind that stable report with `--prior-report` after the fix commit.
 

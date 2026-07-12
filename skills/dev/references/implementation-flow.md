@@ -251,6 +251,7 @@ PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to th
 node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" \
   --manifest .pm/dev-sessions/{slug}/gates.json \
   --commit "$(git rev-parse HEAD)" \
+  --review-evidence-mode enforce \
   --base origin/{DEFAULT_BRANCH}
 ```
 
@@ -261,7 +262,7 @@ If the checker fails, stop and run the missing gate. For stale rows, follow `${C
 ```bash
 git fetch origin {DEFAULT_BRANCH} && git merge origin/{DEFAULT_BRANCH} --no-edit
 PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"
-node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" --manifest .pm/dev-sessions/{slug}/gates.json --commit "$(git rev-parse HEAD)" --base origin/{DEFAULT_BRANCH}
+node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" --manifest .pm/dev-sessions/{slug}/gates.json --commit "$(git rev-parse HEAD)" --review-evidence-mode enforce --base origin/{DEFAULT_BRANCH}
 git push origin {BRANCH}
 gh pr create --title "feat({ISSUE_ID}): {TITLE}" --body "..." --base {DEFAULT_BRANCH}
 ```

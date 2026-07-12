@@ -7,7 +7,10 @@ const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { checkReviewRepeats } = require("../scripts/evals/review-repeat-check");
+const {
+  checkReviewRepeats,
+  deriveConsistencyMetrics,
+} = require("../scripts/evals/review-repeat-check");
 const { checkReview } = require("../scripts/review-check");
 const { renderReviewReport } = require("../scripts/review-report");
 
@@ -43,19 +46,43 @@ test("review repeat comparison binds three complete independent result sets", ()
     canonical_report: binding(root, reportPath),
     runs,
     metrics: {
-      recall: 0.9,
-      false_positive_rate: 0.1,
-      severity_calibration: 0.8,
-      deduplication: 1,
+      finding_set_agreement: 1,
+      finding_count_stability: 1,
+      severity_agreement: 1,
+      outcome_agreement: 1,
     },
   });
   const valid = checkReviewRepeats(root, ".pm/dev-sessions/feature/review/repeat-comparison.json");
   assert.equal(valid.ok, true, JSON.stringify(valid.issues));
+  assert.deepEqual(valid.computed_metrics, {
+    finding_set_agreement: 1,
+    finding_count_stability: 1,
+    severity_agreement: 1,
+    outcome_agreement: 1,
+  });
   assert.deepEqual(snapshotDrafts(root, runs), preserved);
 
   const comparisonPath = path.join(root, ".pm/dev-sessions/feature/review/repeat-comparison.json");
+  const forged = JSON.parse(fs.readFileSync(comparisonPath, "utf8"));
+  forged.metrics.finding_set_agreement = 0.37;
+  fs.writeFileSync(comparisonPath, `${JSON.stringify(forged, null, 2)}\n`);
+  const forgedResult = checkReviewRepeats(
+    root,
+    ".pm/dev-sessions/feature/review/repeat-comparison.json"
+  );
+  assert.equal(forgedResult.ok, false);
+  assert.match(
+    JSON.stringify(forgedResult.issues),
+    /metrics\.finding_set_agreement must equal derived value 1/
+  );
+
+  fs.writeFileSync(
+    comparisonPath,
+    `${JSON.stringify({ ...forged, metrics: valid.computed_metrics }, null, 2)}\n`
+  );
   const invalid = JSON.parse(fs.readFileSync(comparisonPath, "utf8"));
-  delete invalid.metrics.deduplication;
+  delete invalid.metrics.outcome_agreement;
+  invalid.metrics.finding_set_agreement = 0.37;
   invalid.runs[2].run_id = invalid.runs[1].run_id;
   fs.copyFileSync(path.join(root, reportPath), path.join(root, ".pm/fake-passed-report.json"));
   invalid.canonical_report = binding(root, ".pm/fake-passed-report.json");
@@ -67,9 +94,23 @@ test("review repeat comparison binds three complete independent result sets", ()
   assert.equal(rejected.ok, false);
   assert.match(
     JSON.stringify(rejected.issues),
-    /canonical_report\.path must equal|run_id must be unique|metrics\.deduplication/
+    /canonical_report\.path must equal|run_id must be unique|metrics\.outcome_agreement|metrics\.finding_set_agreement/
   );
   assert.deepEqual(snapshotDrafts(root, runs), preserved);
+});
+
+test("consistency metrics are derived from checked report findings and outcomes", () => {
+  const metrics = deriveConsistencyMetrics([
+    { outcome: "passed", findings: [] },
+    { outcome: "failed", findings: [{ id: "rv-a", severity: "high" }] },
+    { outcome: "failed", findings: [{ id: "rv-a", severity: "low" }] },
+  ]);
+  assert.deepEqual(metrics, {
+    finding_set_agreement: 0.333333,
+    finding_count_stability: 0,
+    severity_agreement: 0,
+    outcome_agreement: 0.333333,
+  });
 });
 
 function snapshotDrafts(root, runs) {

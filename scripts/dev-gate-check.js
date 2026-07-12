@@ -1,9 +1,17 @@
 #!/usr/bin/env node
 "use strict";
 
+const crypto = require("node:crypto");
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const {
+  VIEWPORTS: REVIEW_RENDER_VIEWPORTS,
+  inspectPdf,
+  inspectPng,
+  validateMetrics,
+} = require("./artifact-render-check");
+const { safeProjectInput } = require("./lib/safe-project-output");
 const { deriveSessionSlug } = require("./lib/session-slug");
 
 const DEFAULT_MANIFEST_PATH = ".pm/dev-sessions/current.gates.json";
@@ -141,6 +149,7 @@ function checkGateManifest(manifest, opts = {}) {
       artifactRoot,
       currentCommit,
       Boolean(manifest.run_id),
+      opts.reviewEvidenceMode === "enforce",
       issues
     );
   }
@@ -154,6 +163,7 @@ function validateReviewReportArtifact(
   artifactRoot,
   currentCommit,
   canonicalSession,
+  enforceReviewEvidence,
   issues
 ) {
   if (!reviewGate || reviewGate.status !== "passed") return;
@@ -161,7 +171,14 @@ function validateReviewReportArtifact(
     const artifact = String(reviewGate.artifact || "")
       .split(path.sep)
       .join("/");
-    if (canonicalSession || /(^|\/)review\/report\.html$/.test(artifact))
+    if (enforceReviewEvidence)
+      issues.push(
+        issue(
+          manifestPath,
+          "required passed review gate requires evidence_kind review-report-v1 in enforcement mode"
+        )
+      );
+    else if (canonicalSession || /(^|\/)review\/report\.html$/.test(artifact))
       issues.push(
         issue(manifestPath, "canonical review/report.html requires evidence_kind review-report-v1")
       );
@@ -184,11 +201,21 @@ function validateReviewReportArtifact(
     issues.push(issue(manifestPath, "review-report-v1 requires sibling review/report.json"));
     return;
   }
+  validateReviewRenderManifest(reviewGate, htmlPath, artifactRoot, manifestPath, issues);
   try {
     const root = path.resolve(artifactRoot || process.cwd());
     const relative = path.relative(root, reportPath).split(path.sep).join("/");
     const { checkReview, expandFromReport } = require("./review-check");
-    const result = checkReview(expandFromReport({ root, reportPath: relative, fromReport: true }));
+    const result = checkReview(
+      expandFromReport({
+        root,
+        reportPath: relative,
+        fromReport: true,
+        verifyGit: false,
+        verifyFrozenGit: true,
+        verifyBrowser: false,
+      })
+    );
     if (!result.ok)
       issues.push(
         issue(
@@ -206,6 +233,167 @@ function validateReviewReportArtifact(
   } catch (error) {
     issues.push(issue(manifestPath, `cannot validate review-report-v1: ${error.message}`));
   }
+}
+
+function validateReviewRenderManifest(reviewGate, htmlPath, artifactRoot, manifestPath, issues) {
+  const expected = path.join(path.dirname(htmlPath), "renders", "manifest.json");
+  const manifest = resolveArtifactPath(reviewGate.render_manifest, artifactRoot);
+  if (!manifest || path.resolve(manifest) !== path.resolve(expected)) {
+    issues.push(
+      issue(manifestPath, "review-report-v1 requires render_manifest review/renders/manifest.json")
+    );
+    return;
+  }
+  if (!/^[a-f0-9]{64}$/.test(reviewGate.render_manifest_sha256 || "")) {
+    issues.push(issue(manifestPath, "review-report-v1 requires render_manifest_sha256"));
+    return;
+  }
+  let value;
+  try {
+    const file = readRegularProjectFile(manifest, artifactRoot, 4 * 1024 * 1024);
+    if (digest(file.bytes) !== reviewGate.render_manifest_sha256)
+      throw new Error("render manifest SHA-256 does not match its bytes");
+    value = JSON.parse(file.bytes.toString("utf8"));
+  } catch (error) {
+    issues.push(issue(manifestPath, `cannot validate review render manifest: ${error.message}`));
+    return;
+  }
+  let html;
+  try {
+    html = readRegularProjectFile(htmlPath, artifactRoot, 4 * 1024 * 1024);
+  } catch (error) {
+    issues.push(issue(manifestPath, `cannot bind review render source: ${error.message}`));
+    return;
+  }
+  if (
+    value.schema_version !== 1 ||
+    path.resolve(value.source?.path || "") !== path.resolve(htmlPath) ||
+    value.source?.sha256 !== `sha256:${digest(html.bytes)}`
+  )
+    issues.push(
+      issue(manifestPath, "review render manifest must bind the exact report.html bytes")
+    );
+
+  const captures = Array.isArray(value.captures) ? value.captures : [];
+  const names = captures.map((item) => item?.name);
+  if (captures.length !== REVIEW_RENDER_VIEWPORTS.length || new Set(names).size !== names.length)
+    issues.push(
+      issue(manifestPath, "review render manifest requires one canonical capture per viewport")
+    );
+  for (const viewport of REVIEW_RENDER_VIEWPORTS) {
+    const capture = captures.find((item) => item?.name === viewport.name);
+    const label = `review render ${viewport.name}`;
+    if (!capture || capture.width !== viewport.width || capture.height !== viewport.height) {
+      issues.push(issue(manifestPath, `${label} uses noncanonical viewport dimensions`));
+      continue;
+    }
+    try {
+      validateMetrics(capture.metrics, viewport);
+    } catch (error) {
+      issues.push(issue(manifestPath, `${label} metrics failed: ${error.message}`));
+    }
+    validateRenderedFile(
+      capture,
+      "png",
+      viewport.width,
+      viewport.height,
+      artifactRoot,
+      manifestPath,
+      label,
+      issues
+    );
+    if (
+      !capture.full_page ||
+      capture.full_page.width !== viewport.width ||
+      capture.full_page.height < viewport.height
+    )
+      issues.push(issue(manifestPath, `${label} requires canonical full-page metadata`));
+    else
+      validateRenderedFile(
+        capture.full_page,
+        "png",
+        viewport.width,
+        capture.full_page.height,
+        artifactRoot,
+        manifestPath,
+        `${label} full-page`,
+        issues
+      );
+  }
+  if (!value.print || !Number.isInteger(value.print.pages) || value.print.pages < 1)
+    issues.push(issue(manifestPath, "review render manifest requires a non-empty print PDF"));
+  else
+    validateRenderedFile(
+      value.print,
+      "pdf",
+      null,
+      value.print.pages,
+      artifactRoot,
+      manifestPath,
+      "review render print",
+      issues
+    );
+}
+
+function validateRenderedFile(
+  entry,
+  kind,
+  width,
+  heightOrPages,
+  artifactRoot,
+  manifestPath,
+  label,
+  issues
+) {
+  try {
+    if (
+      !entry ||
+      !path.isAbsolute(entry.path || "") ||
+      !/^sha256:[a-f0-9]{64}$/.test(entry.sha256 || "")
+    )
+      throw new Error("requires an absolute path and SHA-256 binding");
+    const file = readRegularProjectFile(entry.path, artifactRoot, 64 * 1024 * 1024);
+    if (entry.sha256 !== `sha256:${digest(file.bytes)}` || entry.bytes !== file.bytes.length)
+      throw new Error("hash or byte count does not match rendered bytes");
+    if (kind === "png") {
+      const image = inspectPng(file.path);
+      if (image.width !== width || image.height !== heightOrPages)
+        throw new Error(`PNG dimensions must equal ${width}x${heightOrPages}`);
+    } else if (inspectPdf(file.path).pages !== heightOrPages) {
+      throw new Error(`PDF pages must equal ${heightOrPages}`);
+    }
+  } catch (error) {
+    issues.push(issue(manifestPath, `${label}: ${error.message}`));
+  }
+}
+
+function readRegularProjectFile(filePath, artifactRoot, maxBytes) {
+  const requestedRoot = path.resolve(artifactRoot || process.cwd());
+  const root = fs.realpathSync(requestedRoot);
+  const absolute = path.resolve(filePath);
+  let relative = path.relative(requestedRoot, absolute);
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
+    relative = path.relative(root, absolute);
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
+    throw new Error("path resolves outside the project root");
+  const safe = safeProjectInput(root, relative);
+  const stat = fs.lstatSync(safe);
+  if (!stat.isFile() || stat.isSymbolicLink())
+    throw new Error("must be a regular non-symlink file");
+  if (stat.size > maxBytes) throw new Error("evidence exceeds its byte budget");
+  const real = fs.realpathSync(safe);
+  const realRelative = path.relative(root, real);
+  if (
+    realRelative === ".." ||
+    realRelative.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(realRelative)
+  )
+    throw new Error("path resolves outside the project root");
+  return { path: real, bytes: fs.readFileSync(real) };
+}
+
+function digest(bytes) {
+  return crypto.createHash("sha256").update(bytes).digest("hex");
 }
 
 // The v1.9 absorption of simplify into review is enforceable, not prose-only:
@@ -473,6 +661,7 @@ function parseArgs(argv) {
     requiredGates: [],
     allowSkippedGates: DEFAULT_ALLOW_SKIPPED_GATES,
     changedFiles: [],
+    reviewEvidenceMode: "enforce",
     json: false,
   };
 
@@ -502,6 +691,11 @@ function parseArgs(argv) {
       opts.changedFiles.push(requireValue(argv, ++index, arg));
     } else if (arg === "--changed-files") {
       opts.changedFiles.push(...normalizeChangedFiles(requireValue(argv, ++index, arg)));
+    } else if (arg === "--review-evidence-mode") {
+      opts.reviewEvidenceMode = requireValue(argv, ++index, arg);
+      if (!new Set(["enforce", "inspect"]).has(opts.reviewEvidenceMode)) {
+        throw new Error("--review-evidence-mode must be enforce or inspect");
+      }
     } else if (arg === "--json") {
       opts.json = true;
     } else if (arg === "--help" || arg === "-h") {
@@ -526,20 +720,20 @@ function requireValue(argv, index, flag) {
 
 function usage() {
   return [
-    "Usage: node scripts/dev-gate-check.js [--manifest PATH] [--run-id ID] [--commit SHA] [--base REF] [--changed-files file[,file]] [--changed-file file] [--require gate[,gate]] [--allow-skip gate[,gate]] [--no-skip] [--json]",
+    "Usage: node scripts/dev-gate-check.js [--manifest PATH] [--run-id ID] [--commit SHA] [--base REF] [--changed-files file[,file]] [--changed-file file] [--require gate[,gate]] [--allow-skip gate[,gate]] [--no-skip] [--review-evidence-mode enforce|inspect] [--json]",
     "",
     "Default manifest: .pm/dev-sessions/current.gates.json",
     `Default required gates: ${DEFAULT_REQUIRED_GATES.join(", ")}`,
     `Default skip-allowed gates: ${DEFAULT_ALLOW_SKIPPED_GATES.join(", ")}`,
+    "Default review evidence mode: enforce (inspect is migration-only and cannot authorize delivery)",
   ].join("\n");
 }
 
 // These four helpers are intentionally NOT pulled from scripts/lib/check-cli.js
-// (where rfc-sidecar-check.js gets them). .githooks/pre-push runs THIS file as an
-// isolated `git show` copy in /tmp, so any repo-relative require() would resolve
-// against /tmp and fail — breaking every PM push. Keep dev-gate-check.js
-// dependency-free (node builtins only). Duplicating ~20 trivial lines is the
-// cheaper trade than teaching the hook to carry this file's dependency tree.
+// (where rfc-sidecar-check.js gets them). .githooks/pre-push runs the archived
+// `scripts/` tree plus plugin.config.json from the pushed commit in /tmp. Review
+// evidence validation may use that archived tree, but adding dependencies outside
+// it would break the push gate. Keep these trivial CLI helpers local.
 function issue(file, message) {
   return { file: toRel(file), message };
 }
@@ -620,6 +814,7 @@ function main(argv = process.argv.slice(2)) {
     allowSkippedGates: opts.allowSkippedGates,
     changedFiles,
     runId: opts.runId || readSiblingRunId(manifestPath),
+    reviewEvidenceMode: opts.reviewEvidenceMode,
   });
   printResult(result, opts.json);
   return result.ok ? 0 : 1;

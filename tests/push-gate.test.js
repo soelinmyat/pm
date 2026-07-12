@@ -181,17 +181,41 @@ test("push in a repo with no .pm/ directory is allowed", () => {
 });
 
 // ---------------------------------------------------------------------------
-// A push with a PASSING manifest for HEAD is allowed.
+// A legacy-shaped row cannot self-assert that Review passed. The checker remains
+// independently testable, so a separate stub proves the hook allows a clean
+// checker verdict without weakening production evidence enforcement.
 // ---------------------------------------------------------------------------
 
-test("push with a passing gate manifest is allowed", () => {
+test("push with a legacy-shaped passed Review row is blocked", () => {
   const dir = makeRepo();
   try {
     const sha = headSha(dir);
     writeGates(dir, "x", passingManifest(dir, "x", sha));
-    assertAllow(runHook("git push origin HEAD", { cwd: dir }));
+    assertBlock(
+      runHook("git push origin HEAD", { cwd: dir }),
+      /requires evidence_kind review-report-v1 in enforcement mode/
+    );
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("push is allowed when the enforcement checker returns a clean verdict", () => {
+  const dir = makeRepo();
+  const fakeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "push-gate-cleanroot-"));
+  try {
+    fs.mkdirSync(path.join(fakeRoot, "scripts"), { recursive: true });
+    fs.writeFileSync(
+      path.join(fakeRoot, "scripts", "dev-gate-check.js"),
+      `"use strict";\n` +
+        `module.exports = require(${JSON.stringify(path.join(ROOT, "scripts", "dev-gate-check.js"))});\n` +
+        `if (require.main === module) process.exitCode = 0;\n`
+    );
+    writeGates(dir, "x", passingManifest(dir, "x", headSha(dir)));
+    assertAllow(runHook("git push origin HEAD", { cwd: dir }, { PM_PLUGIN_ROOT: fakeRoot }));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(fakeRoot, { recursive: true, force: true });
   }
 });
 
@@ -329,6 +353,7 @@ test("hooks.json registers push-gate as a synchronous PreToolUse Bash hook", () 
 test("push-gate hook file is executable", () => {
   const stat = fs.statSync(HOOK);
   assert.ok(stat.mode & 0o111, "hooks/push-gate must be executable");
+  assert.match(fs.readFileSync(HOOK, "utf8"), /"--review-evidence-mode",\s*"enforce"/);
 });
 
 // ---------------------------------------------------------------------------

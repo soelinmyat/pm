@@ -2,10 +2,12 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const zlib = require("node:zlib");
 
 const repoRoot = path.resolve(__dirname, "..");
 const checkScript = path.join(repoRoot, "scripts", "dev-gate-check.js");
@@ -117,6 +119,29 @@ test("review-report-v1 gate requires the canonical sibling machine report", () =
   }
 });
 
+test("review-report-v1 gate requires a hash-bound canonical render manifest", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-render-gate-"));
+  try {
+    const artifact = path.join(root, ".pm/dev-sessions/example/review/report.html");
+    fs.mkdirSync(path.dirname(artifact), { recursive: true });
+    fs.writeFileSync(artifact, "<!doctype html><title>Review</title>");
+    fs.writeFileSync(path.join(path.dirname(artifact), "report.json"), "{}\n");
+    const result = checkGateManifest(
+      manifest([
+        gate("review", "abc123", {
+          artifact: path.relative(root, artifact),
+          evidence_kind: "review-report-v1",
+        }),
+      ]),
+      { currentCommit: "abc123", requiredGates: ["review"], artifactRoot: root }
+    );
+    assert.equal(result.ok, false);
+    assert.match(JSON.stringify(result.issues), /requires render_manifest/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("review gate rejects unknown evidence contract versions", () => {
   const result = checkGateManifest(
     manifest([gate("review", "abc123", { evidence_kind: "review-report-v9" })]),
@@ -156,6 +181,188 @@ test("canonical sessions cannot use legacy-shaped passed Review rows", () => {
     assert.match(JSON.stringify(result.issues), /requires evidence_kind review-report-v1/);
   }
 });
+
+test("review enforcement rejects legacy-shaped passed rows while inspection remains readable", () => {
+  const legacy = manifest([gate("review")]);
+  const enforced = checkGateManifest(legacy, {
+    currentCommit: "abc123",
+    requiredGates: ["review"],
+    reviewEvidenceMode: "enforce",
+  });
+  assert.equal(enforced.ok, false);
+  assert.match(
+    enforced.issues.map((item) => item.message).join("\n"),
+    /requires evidence_kind review-report-v1 in enforcement mode/
+  );
+
+  const inspected = checkGateManifest(legacy, {
+    currentCommit: "abc123",
+    requiredGates: ["review"],
+    reviewEvidenceMode: "inspect",
+  });
+  assert.equal(inspected.ok, true, JSON.stringify(inspected.issues, null, 2));
+});
+
+test("gate-time canonical review validation authenticates frozen Git without browser or live-tree checks", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-gate-options-"));
+  const reviewDir = path.join(root, "review");
+  fs.mkdirSync(reviewDir, { recursive: true });
+  fs.writeFileSync(path.join(reviewDir, "report.html"), "<!doctype html><title>Review</title>");
+  fs.writeFileSync(path.join(reviewDir, "report.json"), "{}\n");
+  const render = seedReviewRenderManifest(root, path.join(reviewDir, "report.html"));
+
+  const reviewModule = require("../scripts/review-check");
+  const originalCheck = reviewModule.checkReview;
+  const originalExpand = reviewModule.expandFromReport;
+  let received;
+  reviewModule.expandFromReport = (options) => {
+    received = options;
+    return options;
+  };
+  reviewModule.checkReview = () => ({
+    ok: true,
+    issues: [],
+    report: { source: { commit: "abc123" }, outcome: "passed" },
+  });
+  try {
+    const result = checkGateManifest(
+      manifest([
+        gate("review", "abc123", {
+          artifact: "review/report.html",
+          evidence_kind: "review-report-v1",
+          render_manifest: render.path,
+          render_manifest_sha256: render.sha256,
+        }),
+      ]),
+      {
+        artifactRoot: root,
+        currentCommit: "abc123",
+        requiredGates: ["review"],
+        reviewEvidenceMode: "enforce",
+      }
+    );
+    assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
+    assert.equal(received.verifyGit, false);
+    assert.equal(received.verifyFrozenGit, true);
+    assert.equal(received.verifyBrowser, false);
+  } finally {
+    reviewModule.checkReview = originalCheck;
+    reviewModule.expandFromReport = originalExpand;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+function seedReviewRenderManifest(root, htmlPath) {
+  const renderDir = path.join(path.dirname(htmlPath), "renders");
+  fs.mkdirSync(renderDir, { recursive: true });
+  const viewports = [
+    ["desktop", 1440, 1000],
+    ["tablet", 768, 1024],
+    ["narrow", 500, 812],
+  ];
+  const captures = viewports.map(([name, width, height]) => {
+    const screen = path.join(renderDir, `${name}.png`);
+    const full = path.join(renderDir, `${name}-full.png`);
+    fs.writeFileSync(screen, validGatePng(width, height));
+    fs.writeFileSync(full, validGatePng(width, height));
+    return {
+      name,
+      width,
+      height,
+      ...renderFile(screen),
+      metrics: {
+        innerWidth: width,
+        clientWidth: width,
+        scrollWidth: width,
+        documentHeight: height,
+        bodyText: 500,
+        mainVisible: true,
+        h1Visible: true,
+        anchorCount: 4,
+        horizontalOverflow: false,
+      },
+      full_page: { ...renderFile(full), width, height },
+    };
+  });
+  const pdf = path.join(renderDir, "print.pdf");
+  fs.writeFileSync(pdf, validGatePdf());
+  const manifest = path.join(renderDir, "manifest.json");
+  fs.writeFileSync(
+    manifest,
+    `${JSON.stringify({
+      schema_version: 1,
+      source: { path: htmlPath, sha256: `sha256:${fileDigest(htmlPath)}` },
+      browser: "/test/chromium",
+      captures,
+      print: { ...renderFile(pdf), pages: 1 },
+      checked_at: "2026-07-12T00:00:00Z",
+    })}\n`
+  );
+  return { path: path.relative(root, manifest), sha256: fileDigest(manifest) };
+}
+
+function renderFile(file) {
+  return {
+    path: file,
+    sha256: `sha256:${fileDigest(file)}`,
+    bytes: fs.statSync(file).size,
+  };
+}
+
+function fileDigest(file) {
+  return crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
+}
+
+function validGatePng(width, height) {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 6;
+  const rows = Buffer.alloc((width * 4 + 1) * height);
+  const chunks = [Buffer.from("89504e470d0a1a0a", "hex"), gatePngChunk("IHDR", header)];
+  chunks.push(gatePngChunk("IDAT", zlib.deflateSync(rows)), gatePngChunk("IEND", Buffer.alloc(0)));
+  return Buffer.concat(chunks);
+}
+
+function gatePngChunk(type, data) {
+  const typeBytes = Buffer.from(type, "ascii");
+  const chunk = Buffer.alloc(12 + data.length);
+  chunk.writeUInt32BE(data.length, 0);
+  typeBytes.copy(chunk, 4);
+  data.copy(chunk, 8);
+  chunk.writeUInt32BE(gateCrc32(Buffer.concat([typeBytes, data])), 8 + data.length);
+  return chunk;
+}
+
+function gateCrc32(bytes) {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) crc = crc & 1 ? 0xedb88320 ^ (crc >>> 1) : crc >>> 1;
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function validGatePdf() {
+  const objects = [
+    "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+    "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+    "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\n",
+  ];
+  let body = "%PDF-1.7\n";
+  const offsets = [0];
+  for (const object of objects) {
+    offsets.push(Buffer.byteLength(body, "latin1"));
+    body += object;
+  }
+  body += `%${"padding".repeat(150)}\n`;
+  const xref = Buffer.byteLength(body, "latin1");
+  body += "xref\n0 4\n0000000000 65535 f \n";
+  for (const offset of offsets.slice(1)) body += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  body += `trailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(body, "latin1");
+}
 
 test("canonical gate manifests are bound to the active session run ID", () => {
   const rows = [gate("verification")];
@@ -820,6 +1027,15 @@ test("dev gate checker parses base refs and changed files", () => {
   assert.deepEqual(parsed.changedFiles, ["src/App.tsx", "README.md", "skills/dev/SKILL.md"]);
 });
 
+test("dev gate checker defaults to enforcement and accepts explicit migration inspection", () => {
+  assert.equal(parseArgs([]).reviewEvidenceMode, "enforce");
+  assert.equal(parseArgs(["--review-evidence-mode", "inspect"]).reviewEvidenceMode, "inspect");
+  assert.throws(
+    () => parseArgs(["--review-evidence-mode", "unsafe"]),
+    /must be enforce or inspect/
+  );
+});
+
 test("dev gate checker can load changed files for a target commit that is not HEAD", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-dev-git-target-"));
   try {
@@ -937,6 +1153,44 @@ test("dev gate checker CLI exits non-zero on stale gate state", () => {
     const output = JSON.parse(result.stdout);
     assert.equal(output.ok, false);
     assert.match(output.issues.map((i) => i.message).join("\n"), /stale for current commit/);
+  } finally {
+    tmp.cleanup();
+  }
+});
+
+test("dev gate checker CLI cannot authorize a legacy-shaped required Review row", () => {
+  const tmp = makeTmpManifest(manifest([gate("review")]));
+  try {
+    const enforced = spawnSync(
+      process.execPath,
+      [checkScript, "--manifest", tmp.file, "--commit", "abc123", "--require", "review", "--json"],
+      { cwd: repoRoot, encoding: "utf8" }
+    );
+    assert.notEqual(enforced.status, 0);
+    assert.match(
+      JSON.parse(enforced.stdout)
+        .issues.map((item) => item.message)
+        .join("\n"),
+      /requires evidence_kind review-report-v1 in enforcement mode/
+    );
+
+    const inspected = spawnSync(
+      process.execPath,
+      [
+        checkScript,
+        "--manifest",
+        tmp.file,
+        "--commit",
+        "abc123",
+        "--require",
+        "review",
+        "--review-evidence-mode",
+        "inspect",
+        "--json",
+      ],
+      { cwd: repoRoot, encoding: "utf8" }
+    );
+    assert.equal(inspected.status, 0, inspected.stderr || inspected.stdout);
   } finally {
     tmp.cleanup();
   }

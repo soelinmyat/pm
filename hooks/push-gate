@@ -381,7 +381,14 @@ function main() {
     const headSha = gitCapture(repoDir, ["rev-parse", "HEAD"]);
     if (!headSha) return blockUnverified(branch, manifestRel, "unable to resolve HEAD");
 
-    const checkerArgs = ["--manifest", manifestPath, "--commit", headSha];
+    const checkerArgs = [
+      "--manifest",
+      manifestPath,
+      "--commit",
+      headSha,
+      "--review-evidence-mode",
+      "enforce",
+    ];
     // Prefer the diff-aware check; degrade gracefully (drop --base) when the base
     // isn't fetched so a missing remote ref never false-blocks. The core status /
     // staleness checks still run without it.

@@ -30,6 +30,7 @@ PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to th
 node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" \
   --manifest .pm/dev-sessions/{slug}.gates.json \
   --commit "$(git rev-parse HEAD)" \
+  --review-evidence-mode enforce \
   --base origin/{DEFAULT_BRANCH}
 ```
 
