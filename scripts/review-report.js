@@ -5,6 +5,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { writeTextAtomic } = require("./lib/atomic-file");
+const { expectedReviewPath, reviewRootFromTargetPath } = require("./lib/review-paths");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 const MAX_JSON_BYTES = 4 * 1024 * 1024;
@@ -20,6 +21,17 @@ function renderReviewReport(options) {
     throw new Error("output escapes project root");
   const relativeReport = path.relative(root, reportPath).split(path.sep).join("/");
   const relativeOutput = path.relative(root, outputPath).split(path.sep).join("/");
+  const reviewRoot = reviewRootFromTargetPath(report.target?.path, report.review_round);
+  const expectedReport = expectedReviewPath(reviewRoot, report.review_round, "report", {
+    outcome: report.outcome,
+  });
+  const expectedHuman = expectedReviewPath(reviewRoot, report.review_round, "human", {
+    outcome: report.outcome,
+  });
+  if (relativeReport !== expectedReport)
+    throw new Error(`report path must equal ${expectedReport}`);
+  if (relativeOutput !== expectedHuman)
+    throw new Error(`human report path must equal ${expectedHuman}`);
   if (report.human_report?.path !== relativeOutput)
     throw new Error("report.human_report.path must equal the requested output path");
   const evidence = [report.target, ...(report.results || []), report.decisions]
@@ -105,6 +117,8 @@ function renderReviewReport(options) {
   const rawHtml = new Set(["LENS_CARDS", "FINDINGS", "DISAGREEMENTS", "HANDOFFS"]);
   for (const [name, value] of Object.entries(replacements))
     html = html.split(`{{${name}}}`).join(rawHtml.has(name) ? String(value) : escapeHtml(value));
+  if (report.outcome !== "passed" && fs.existsSync(outputPath))
+    throw new Error("refusing to overwrite immutable non-passing human report");
   writeTextAtomic(outputPath, html, { fileMode: 0o600 });
   return {
     path: relativeOutput,

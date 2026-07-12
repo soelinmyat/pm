@@ -12,6 +12,7 @@ const { checkReview, expandFromReport } = require("../scripts/review-check");
 const { renderReviewReport } = require("../scripts/review-report");
 const { buildReviewTarget, changedFileInventory } = require("../scripts/review-target");
 const { findingId } = require("../scripts/lib/review-contract");
+const { expectedReviewPath, reviewRootFromTargetPath } = require("../scripts/lib/review-paths");
 const { resolveBrowser } = require("../scripts/artifact-render-check");
 
 let installedBrowser = null;
@@ -145,6 +146,28 @@ test("target creation rejects oversized optional bindings before reading them", 
   );
 });
 
+test("review paths bind each round and reserve the canonical root for passes", () => {
+  const targetPath = ".pm/dev-sessions/example/review/round-2/target.json";
+  const reviewRoot = reviewRootFromTargetPath(targetPath, 2);
+  assert.equal(reviewRoot, ".pm/dev-sessions/example/review");
+  assert.equal(
+    expectedReviewPath(reviewRoot, 2, "result", { workerId: "reviewer-3" }),
+    ".pm/dev-sessions/example/review/round-2/results/reviewer-3.json"
+  );
+  assert.equal(
+    expectedReviewPath(reviewRoot, 2, "report", { outcome: "failed" }),
+    ".pm/dev-sessions/example/review/round-2/report.json"
+  );
+  assert.equal(
+    expectedReviewPath(reviewRoot, 2, "report", { outcome: "passed" }),
+    ".pm/dev-sessions/example/review/report.json"
+  );
+  assert.throws(
+    () => reviewRootFromTargetPath(".pm/dev-sessions/example/review/target.json", 2),
+    /round-2\/target\.json/
+  );
+});
+
 test("reviewer cannot emit a finding for an unassigned lens", () => {
   const fixture = makeFixture({ maxWorkers: 6 });
   const firstPath = path.join(fixture.root, fixture.resultPaths[0]);
@@ -198,14 +221,55 @@ test("reuse findings require both changed and reusable source locators", () => {
   finding.id = findingId(finding);
   const valid = makeFixture({ maxWorkers: 6 });
   setFindingForLens(valid, "reuse", finding);
-  assert.equal(generate(valid).ok, true);
+  const accepted = generate(valid, {
+    reportPath: valid.roundReportPath,
+    htmlPath: valid.roundHtmlPath,
+  });
+  assert.equal(accepted.ok, true, JSON.stringify(accepted.issues));
+});
+
+test("bug findings require corroboration and trace evidence requires a locator", () => {
+  const fixture = makeFixture({ maxWorkers: 6 });
+  const finding = validFinding("bug");
+  finding.evidence = [{ kind: "source", ref: "src/example.js:1" }];
+  finding.id = findingId(finding);
+  setFindingForLens(fixture, "bug", finding);
+  const uncorroborated = generate(fixture);
+  assert.equal(uncorroborated.ok, false);
+  assert.match(JSON.stringify(uncorroborated.issues), /bug requires source plus/);
+
+  const trace = makeFixture({ maxWorkers: 6 });
+  write(trace.root, ".pm/trace.json", { event: "observed" });
+  finding.evidence.push({ kind: "trace", ref: "artifact:.pm/trace.json" });
+  finding.id = findingId(finding);
+  setFindingForLens(trace, "bug", finding);
+  const missingLocator = generate(trace);
+  assert.equal(missingLocator.ok, false);
+  assert.match(JSON.stringify(missingLocator.issues), /artifact:<project-path>#locator/);
+});
+
+test("deleted source evidence is checked against frozen base line bounds", () => {
+  const fixture = makeFixture({ maxWorkers: 6, deleteFile: true });
+  const finding = validFinding("edge");
+  finding.file = "src/deleted.js";
+  finding.line_start = 99;
+  finding.line_end = 99;
+  finding.evidence = [{ kind: "source", ref: "src/deleted.js:99" }];
+  finding.id = findingId(finding);
+  setFindingForLens(fixture, "edge", finding);
+  const result = generate(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /line range exceeds file length/);
 });
 
 test("Review-owned blockers fail while QA-owned findings become non-blocking handoffs", () => {
   const blocked = makeFixture({ maxWorkers: 6 });
   const reviewFinding = validFinding("bug");
   setFindingForLens(blocked, "bug", reviewFinding);
-  const failed = generate(blocked);
+  const failed = generate(blocked, {
+    reportPath: blocked.roundReportPath,
+    htmlPath: blocked.roundHtmlPath,
+  });
   assert.equal(failed.ok, true, JSON.stringify(failed.issues));
   assert.equal(failed.report.outcome, "failed");
   assert.deepEqual(failed.report.blockers, [reviewFinding.id]);
@@ -234,12 +298,15 @@ test("material reviewer disagreement blocks until an explicit decision", () => {
   assert.equal(edge.id, bug.id);
   setFindingForLens(fixture, "bug", bug);
   setFindingForLens(fixture, "edge", edge);
-  const blocked = generate(fixture);
+  const blocked = generate(fixture, {
+    reportPath: fixture.roundReportPath,
+    htmlPath: fixture.roundHtmlPath,
+  });
   assert.equal(blocked.ok, true, JSON.stringify(blocked.issues));
   assert.equal(blocked.report.outcome, "blocked");
   assert.deepEqual(blocked.report.unresolved_disagreements, [bug.id]);
 
-  const decisionsPath = ".pm/dev-sessions/example/review/decisions.json";
+  const decisionsPath = ".pm/dev-sessions/example/review/round-1/decisions.json";
   write(fixture.root, decisionsPath, {
     schema_version: 1,
     run_id: fixture.target.run_id,
@@ -277,16 +344,19 @@ test("renderer escapes reviewer text without treating data as template syntax", 
   finding.issue = "The <Component> exposes {{PLUGIN_VERSION}} as user data.";
   finding.id = findingId(finding);
   setFindingForLens(fixture, "bug", finding);
-  const generated = generate(fixture);
+  const generated = generate(fixture, {
+    reportPath: fixture.roundReportPath,
+    htmlPath: fixture.roundHtmlPath,
+  });
   assert.equal(generated.ok, true, JSON.stringify(generated.issues));
   assert.doesNotThrow(() =>
     renderReviewReport({
       root: fixture.root,
-      reportPath: fixture.reportPath,
-      outputPath: fixture.htmlPath,
+      reportPath: fixture.roundReportPath,
+      outputPath: fixture.roundHtmlPath,
     })
   );
-  const html = fs.readFileSync(path.join(fixture.root, fixture.htmlPath), "utf8");
+  const html = fs.readFileSync(path.join(fixture.root, fixture.roundHtmlPath), "utf8");
   assert.match(html, /The &lt;Component&gt; exposes {{PLUGIN_VERSION}} as user data\./);
 });
 
@@ -336,12 +406,14 @@ test(
   }
 );
 
-function makeFixture({ maxWorkers }) {
+function makeFixture({ maxWorkers, deleteFile = false }) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-check-"));
   fs.mkdirSync(path.join(root, "src"), { recursive: true });
   fs.mkdirSync(path.join(root, "skills/dev/references"), { recursive: true });
   fs.writeFileSync(path.join(root, ".gitignore"), ".pm/\n");
   fs.writeFileSync(path.join(root, "src/example.js"), "module.exports = { value: 1 };\n");
+  if (deleteFile)
+    fs.writeFileSync(path.join(root, "src/deleted.js"), "module.exports = 'delete me';\n");
   fs.writeFileSync(
     path.join(root, "skills/dev/references/model-profiles.json"),
     JSON.stringify({
@@ -367,10 +439,11 @@ function makeFixture({ maxWorkers }) {
   git(root, ["remote", "add", "origin", origin]);
   git(root, ["push", "-q", "origin", `${base}:refs/heads/main`]);
   fs.writeFileSync(path.join(root, "src/example.js"), "module.exports = { value: 2 };\n");
-  git(root, ["add", "src/example.js"]);
+  if (deleteFile) fs.rmSync(path.join(root, "src/deleted.js"));
+  git(root, ["add", "-A"]);
   git(root, ["commit", "-qm", "change"]);
 
-  const targetPath = ".pm/dev-sessions/example/review/target.json";
+  const targetPath = ".pm/dev-sessions/example/review/round-1/target.json";
   const target = buildReviewTarget({
     root,
     maxWorkers,
@@ -380,7 +453,7 @@ function makeFixture({ maxWorkers }) {
   write(root, targetPath, target);
   const targetBinding = binding(root, targetPath);
   const resultPaths = target.allocation.map((worker) => {
-    const resultPath = `.pm/dev-sessions/example/review/results/${worker.worker_id}.json`;
+    const resultPath = `.pm/dev-sessions/example/review/round-1/results/${worker.worker_id}.json`;
     write(root, resultPath, {
       schema_version: 1,
       run_id: target.run_id,
@@ -408,6 +481,8 @@ function makeFixture({ maxWorkers }) {
     resultPaths,
     reportPath: ".pm/dev-sessions/example/review/report.json",
     htmlPath: ".pm/dev-sessions/example/review/report.html",
+    roundReportPath: ".pm/dev-sessions/example/review/round-1/report.json",
+    roundHtmlPath: ".pm/dev-sessions/example/review/round-1/report.html",
   };
 }
 
@@ -430,6 +505,8 @@ function validFinding(category) {
     disposition: "open",
     decision_required: false,
   };
+  if (category === "bug")
+    finding.evidence.push({ kind: "contract", ref: "skills/dev/references/model-profiles.json:1" });
   finding.id = findingId(finding);
   return finding;
 }
@@ -452,8 +529,8 @@ function generate(fixture, overrides = {}) {
     root: fixture.root,
     targetPath: fixture.targetPath,
     resultPaths: fixture.resultPaths,
-    reportPath: fixture.reportPath,
-    humanReportPath: fixture.htmlPath,
+    reportPath: overrides.reportPath || fixture.reportPath,
+    humanReportPath: overrides.htmlPath || fixture.htmlPath,
     decisionsPath: overrides.decisionsPath,
     writeReport: true,
     verifyBrowser: false,

@@ -8,6 +8,7 @@ const path = require("node:path");
 const { inspectHtmlArtifact } = require("./artifact-check");
 const { probeDataMarkerVisibility, resolveBrowser } = require("./artifact-render-check");
 const { writeJsonAtomic } = require("./lib/atomic-file");
+const { expectedReviewPath, reviewRootFromTargetPath } = require("./lib/review-paths");
 const { isRfc3339DateTime } = require("./lib/iso-time");
 const {
   DECISION_ACTIONS,
@@ -20,6 +21,7 @@ const {
 const {
   assertCleanWorktree,
   changedFileInventory,
+  readCommittedBlob,
   resolveTrustedBase,
 } = require("./review-target");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
@@ -52,6 +54,12 @@ function checkReview(options) {
   if (!targetFile) return { ok: false, issues, report: null };
   const target = targetFile.value;
   validateTarget(target, issues);
+  let reviewRoot = null;
+  try {
+    reviewRoot = reviewRootFromTargetPath(targetFile.relative, target.review_round);
+  } catch (error) {
+    add(issues, "target.path", error.message);
+  }
   validateTargetBindings(root, target, issues);
   if (options.verifyGit !== false) validateLiveTarget(root, target, issues);
 
@@ -75,6 +83,13 @@ function checkReview(options) {
       `results[${index}]`,
       issues
     );
+    if (reviewRoot) {
+      const expected = expectedReviewPath(reviewRoot, target.review_round, "result", {
+        workerId: resultFile.value.worker_id,
+      });
+      if (resultFile.relative !== expected)
+        add(issues, `results[${index}].path`, `must equal ${expected}`);
+    }
   }
   for (const workerId of planned.keys())
     if (!seenWorkers.has(workerId)) add(issues, "results", `missing planned reviewer ${workerId}`);
@@ -84,6 +99,16 @@ function checkReview(options) {
   const decisionsFile = options.decisionsPath
     ? readJson(root, options.decisionsPath, "decisions", issues)
     : null;
+  if (
+    reviewRoot &&
+    decisionsFile &&
+    decisionsFile.relative !== expectedReviewPath(reviewRoot, target.review_round, "decisions")
+  )
+    add(
+      issues,
+      "decisions.path",
+      `must equal ${expectedReviewPath(reviewRoot, target.review_round, "decisions")}`
+    );
   const decisions = validateDecisions(
     decisionsFile?.value,
     decisionsFile,
@@ -102,15 +127,30 @@ function checkReview(options) {
     merged,
     options.humanReportPath
   );
+  if (reviewRoot) {
+    const expectedReport = expectedReviewPath(reviewRoot, target.review_round, "report", {
+      outcome: report.outcome,
+    });
+    const expectedHuman = expectedReviewPath(reviewRoot, target.review_round, "human", {
+      outcome: report.outcome,
+    });
+    if (options.reportPath !== expectedReport)
+      add(issues, "report.path", `must equal ${expectedReport}`);
+    if (options.humanReportPath !== expectedHuman)
+      add(issues, "report.human_report.path", `must equal ${expectedHuman}`);
+  }
 
   if (options.reportPath && !options.writeReport) {
     const reportFile = readJson(root, options.reportPath, "report", issues);
     if (reportFile) validateReport(root, reportFile.value, report, reportFile, options, issues);
   }
   if (options.writeReport && options.reportPath && issues.length === 0)
-    if (projectPath(options.reportPath))
-      writeJsonAtomic(path.resolve(root, options.reportPath), report, { fileMode: 0o600 });
-    else add(issues, "report.path", "must be project-relative without traversal");
+    if (projectPath(options.reportPath)) {
+      const absoluteReport = path.resolve(root, options.reportPath);
+      if (report.outcome !== "passed" && fs.existsSync(absoluteReport))
+        add(issues, "report.path", "refusing to overwrite immutable non-passing round report");
+      else writeJsonAtomic(absoluteReport, report, { fileMode: 0o600 });
+    } else add(issues, "report.path", "must be project-relative without traversal");
   return { ok: issues.length === 0, issues, report };
 }
 
@@ -522,12 +562,15 @@ function validateSignal(root, finding, reviewerId, assignedLenses, target, label
   )
     add(issues, label, "requires a valid positive line range");
   const changedFile = changed.get(finding.file);
-  if (changedFile && changedFile.status !== "D" && positiveLine(finding.line_end)) {
-    const absolute = path.resolve(root, finding.file);
-    const lines = fs.readFileSync(absolute, "utf8").split(/\r?\n/).length;
-    if (finding.line_end > lines)
-      add(issues, `${label}.line_end`, `exceeds current file length ${lines}`);
-  }
+  if (changedFile && positiveLine(finding.line_end))
+    validateChangedLineRange(
+      root,
+      target,
+      changedFile,
+      finding.line_end,
+      `${label}.line_end`,
+      issues
+    );
   for (const field of ["rule", "issue", "impact", "fix", "verify"])
     if (!text(finding[field])) add(issues, `${label}.${field}`, "is required");
   if (!FIX_KINDS.has(finding.fix_kind)) add(issues, `${label}.fix_kind`, "is invalid");
@@ -561,6 +604,17 @@ function validateSignal(root, finding, reviewerId, assignedLenses, target, label
       if (REQUIRED_EVIDENCE[finding.category]?.has(evidence.kind)) categoryEvidence = true;
     }
     if (!categoryEvidence) add(issues, `${label}.evidence`, `does not support ${finding.category}`);
+    if (finding.category === "bug") {
+      const kinds = new Set(
+        finding.evidence.filter((item) => object(item)).map((item) => item.kind)
+      );
+      if (!kinds.has("source") || !["test", "trace", "contract"].some((kind) => kinds.has(kind)))
+        add(
+          issues,
+          `${label}.evidence`,
+          "bug requires source plus test, trace, or contract corroboration"
+        );
+    }
     if (
       finding.category === "reuse" &&
       new Set(
@@ -599,13 +653,13 @@ function validateEvidenceReference(root, evidence, target, label, issues) {
     if (!positiveLine(start) || !positiveLine(end) || end < start)
       return add(issues, `${label}.ref`, "has an invalid line range");
     const changed = (target.changed_files || []).find((item) => item.path === match[1]);
-    if (changed?.status === "D") return;
+    if (changed?.status === "D") {
+      validateChangedLineRange(root, target, changed, end, `${label}.ref`, issues);
+      return;
+    }
     const file = readBoundFile(root, match[1], `${label}.ref`, issues);
     if (!file) return;
-    if (file.bytes.includes(0))
-      return add(issues, `${label}.ref`, "cannot line-address a binary file");
-    const lines = file.bytes.toString("utf8").split(/\r?\n/).length;
-    if (end > lines) add(issues, `${label}.ref`, `line range exceeds file length ${lines}`);
+    validateTextLineRange(file.bytes, end, `${label}.ref`, issues);
     return;
   }
   if (evidence.kind === "upstream-gate") {
@@ -614,7 +668,7 @@ function validateEvidenceReference(root, evidence, target, label, issues) {
     readBoundFile(root, evidence.ref, `${label}.ref`, issues);
     return;
   }
-  const match = evidence.ref.match(/^artifact:([^#]+)(?:#.+)?$/);
+  const match = evidence.ref.match(/^artifact:([^#]+)#([^#\r\n]{1,500})$/);
   if (!match || !projectPath(match[1]))
     return add(
       issues,
@@ -622,6 +676,22 @@ function validateEvidenceReference(root, evidence, target, label, issues) {
       "trace and benchmark evidence must use artifact:<project-path>#locator"
     );
   readBoundFile(root, match[1], `${label}.ref`, issues);
+}
+
+function validateChangedLineRange(root, target, changed, end, label, issues) {
+  try {
+    const commit = changed.status === "D" ? target.source.base_commit : target.source.commit;
+    const bytes = readCommittedBlob(root, commit, changed.path);
+    validateTextLineRange(bytes, end, label, issues);
+  } catch (error) {
+    add(issues, label, `cannot resolve frozen source: ${error.message}`);
+  }
+}
+
+function validateTextLineRange(bytes, end, label, issues) {
+  if (bytes.includes(0)) return add(issues, label, "cannot line-address a binary file");
+  const lines = bytes.toString("utf8").split(/\r?\n/).length;
+  if (end > lines) add(issues, label, `line range exceeds file length ${lines}`);
 }
 
 function validateDecisions(value, file, target, targetFile, findingIds, issues) {

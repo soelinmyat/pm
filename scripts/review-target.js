@@ -7,6 +7,11 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { allocateLenses, LENSES } = require("./lib/review-contract");
 const { writeJsonAtomic } = require("./lib/atomic-file");
+const {
+  expectedReviewPath,
+  requireReviewPath,
+  reviewRootFromTargetPath,
+} = require("./lib/review-paths");
 
 const MAX_BOUND_BYTES = 64 * 1024 * 1024;
 const MAX_JSON_BYTES = 4 * 1024 * 1024;
@@ -142,6 +147,11 @@ function changedFileInventory(root, baseCommit, commit) {
 }
 
 function bindCommittedFile(root, commit, relative) {
+  const bytes = readCommittedBlob(root, commit, relative);
+  return { sha256: digest(bytes), bytes: bytes.length };
+}
+
+function readCommittedBlob(root, commit, relative) {
   const tree = git(root, ["ls-tree", "-z", commit, "--", relative], null).toString("utf8");
   const match = tree.match(/^([0-7]{6}) blob ([a-f0-9]{40,64})\t([^\0]+)\0$/);
   if (!match || match[3] !== relative || match[1] === "120000")
@@ -151,7 +161,7 @@ function bindCommittedFile(root, commit, relative) {
     throw new Error(`changed file exceeds 64 MiB: ${relative}`);
   const bytes = git(root, ["cat-file", "blob", match[2]], null);
   if (bytes.length !== size) throw new Error(`changed blob size drifted: ${relative}`);
-  return { sha256: digest(bytes), bytes: bytes.length };
+  return bytes;
 }
 
 function optionalBinding(root, relative, label) {
@@ -288,7 +298,16 @@ function main(argv = process.argv.slice(2)) {
     const options = parseArgs(argv);
     validateGitPath(options.outPath);
     const target = buildReviewTarget(options);
-    writeJsonAtomic(path.resolve(options.root || process.cwd(), options.outPath), target, {
+    const reviewRoot = reviewRootFromTargetPath(options.outPath, target.review_round);
+    requireReviewPath(
+      options.outPath,
+      expectedReviewPath(reviewRoot, target.review_round, "target"),
+      "target"
+    );
+    const absoluteOut = path.resolve(options.root || process.cwd(), options.outPath);
+    if (fs.existsSync(absoluteOut))
+      throw new Error("refusing to overwrite an existing review target");
+    writeJsonAtomic(absoluteOut, target, {
       fileMode: 0o600,
     });
     process.stdout.write(`${JSON.stringify(target, null, 2)}\n`);
@@ -307,5 +326,6 @@ module.exports = {
   changedFileInventory,
   loadProfile,
   parseArgs,
+  readCommittedBlob,
   resolveTrustedBase,
 };

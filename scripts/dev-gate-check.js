@@ -135,7 +135,14 @@ function checkGateManifest(manifest, opts = {}) {
   if (requiredGates.includes("review")) {
     const reviewGate = byName.get("review");
     validateReviewLenses(reviewGate, manifestPath, sessionContext, issues);
-    validateReviewReportArtifact(reviewGate, manifestPath, artifactRoot, currentCommit, issues);
+    validateReviewReportArtifact(
+      reviewGate,
+      manifestPath,
+      artifactRoot,
+      currentCommit,
+      Boolean(manifest.run_id),
+      issues
+    );
   }
 
   return { ok: issues.length === 0, issues };
@@ -146,6 +153,7 @@ function validateReviewReportArtifact(
   manifestPath,
   artifactRoot,
   currentCommit,
+  canonicalSession,
   issues
 ) {
   if (!reviewGate || reviewGate.status !== "passed") return;
@@ -153,7 +161,7 @@ function validateReviewReportArtifact(
     const artifact = String(reviewGate.artifact || "")
       .split(path.sep)
       .join("/");
-    if (/(^|\/)review\/report\.html$/.test(artifact))
+    if (canonicalSession || /(^|\/)review\/report\.html$/.test(artifact))
       issues.push(
         issue(manifestPath, "canonical review/report.html requires evidence_kind review-report-v1")
       );

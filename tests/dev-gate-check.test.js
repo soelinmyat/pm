@@ -132,7 +132,9 @@ test("canonical review artifact cannot omit its evidence contract", () => {
   fs.mkdirSync(path.dirname(artifact), { recursive: true });
   fs.writeFileSync(artifact, "<!doctype html><title>Unbound</title>");
   const result = checkGateManifest(
-    manifest([gate("review", "abc123", { artifact: "review/report.html" })]),
+    manifest([gate("review", "abc123", { artifact: "review/report.html" })], {
+      run_id: "canonical-run",
+    }),
     {
       manifestPath: path.join(root, ".pm/dev-sessions/example.gates.json"),
       artifactRoot: path.join(root, ".pm/dev-sessions/example"),
@@ -144,17 +146,28 @@ test("canonical review artifact cannot omit its evidence contract", () => {
   assert.match(JSON.stringify(result.issues), /requires evidence_kind review-report-v1/);
 });
 
+test("canonical sessions cannot use legacy-shaped passed Review rows", () => {
+  for (const artifact of ["", "tests/dev-gate-check.test.js#review"]) {
+    const result = checkGateManifest(
+      manifest([gate("review", "abc123", { artifact })], { run_id: "canonical-run" }),
+      { currentCommit: "abc123", requiredGates: ["review"] }
+    );
+    assert.equal(result.ok, false);
+    assert.match(JSON.stringify(result.issues), /requires evidence_kind review-report-v1/);
+  }
+});
+
 test("canonical gate manifests are bound to the active session run ID", () => {
-  const rows = [gate("review"), gate("verification")];
+  const rows = [gate("verification")];
   const ok = checkGateManifest(manifest(rows, { run_id: "dev_current" }), {
     currentCommit: "abc123",
-    requiredGates: ["review", "verification"],
+    requiredGates: ["verification"],
     runId: "dev_current",
   });
   assert.equal(ok.ok, true, JSON.stringify(ok.issues));
   const stale = checkGateManifest(manifest(rows, { run_id: "dev_old" }), {
     currentCommit: "abc123",
-    requiredGates: ["review", "verification"],
+    requiredGates: ["verification"],
     runId: "dev_current",
   });
   assert.equal(stale.ok, false);
