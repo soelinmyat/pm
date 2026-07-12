@@ -62,6 +62,15 @@ test("merge retains independent signals and exposes material disagreement", () =
   assert.equal(decided.findings[0].owner, "review");
 });
 
+test("decision requirement disagreement is material and remains decision-bound", () => {
+  const first = { ...sampleFinding(), id: findingId(sampleFinding()), reviewer_id: "worker-a" };
+  const second = { ...first, reviewer_id: "worker-b", decision_required: true };
+  const merged = mergeSignals([first, second], []);
+  assert.equal(merged.findings[0].disputed, true);
+  assert.equal(merged.findings[0].decision_required, true);
+  assert.deepEqual(merged.unresolved_disagreements, [first.id]);
+});
+
 function sampleFinding() {
   return {
     category: "bug",

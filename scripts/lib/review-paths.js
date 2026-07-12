@@ -1,7 +1,7 @@
 "use strict";
 
 const TARGET_RE =
-  /^(\.pm\/dev-sessions\/[^/]+\/review)(?:\/runs\/([a-z0-9]+(?:-[a-z0-9]+)*))?\/round-([1-3])\/target\.json$/;
+  /^(\.pm\/dev-sessions\/[^/]+\/review)\/runs\/([a-z0-9]+(?:-[a-z0-9]+)*)\/round-([1-3])\/target\.json$/;
 
 function reviewPathContext(targetPath, round, runId) {
   const match = String(targetPath || "").match(TARGET_RE);
@@ -9,12 +9,12 @@ function reviewPathContext(targetPath, round, runId) {
     throw new Error(
       `target path must equal .pm/dev-sessions/{slug}/review/runs/{run-id}/round-${round}/target.json`
     );
-  if (match[2] && runId && match[2] !== runId)
+  if (runId && match[2] !== runId)
     throw new Error(`target run directory must equal run_id ${runId}`);
   return {
     canonicalRoot: match[1],
-    evidenceRoot: match[2] ? `${match[1]}/runs/${match[2]}` : match[1],
-    runId: match[2] || null,
+    evidenceRoot: `${match[1]}/runs/${match[2]}`,
+    runId: match[2],
   };
 }
 

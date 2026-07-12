@@ -8,7 +8,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const { checkReview, expandFromReport } = require("../scripts/review-check");
+const { buildCanonicalReport, checkReview, expandFromReport } = require("../scripts/review-check");
 const { renderReviewReport } = require("../scripts/review-report");
 const { buildReviewTarget, changedFileInventory } = require("../scripts/review-target");
 const { findingId } = require("../scripts/lib/review-contract");
@@ -19,6 +19,7 @@ const {
   reviewRootFromTargetPath,
 } = require("../scripts/lib/review-paths");
 const { resolveBrowser } = require("../scripts/artifact-render-check");
+const { safeProjectOutput } = require("../scripts/lib/safe-project-output");
 
 let installedBrowser = null;
 try {
@@ -184,29 +185,45 @@ test("target creation rejects oversized optional bindings before reading them", 
 });
 
 test("review paths bind each round and reserve the canonical root for passes", () => {
-  const targetPath = ".pm/dev-sessions/example/review/round-2/target.json";
+  const targetPath = ".pm/dev-sessions/example/review/runs/review-test/round-2/target.json";
   const reviewRoot = reviewRootFromTargetPath(targetPath, 2);
-  assert.equal(reviewRoot, ".pm/dev-sessions/example/review");
+  assert.equal(reviewRoot, ".pm/dev-sessions/example/review/runs/review-test");
   assert.equal(
     expectedReviewPath(reviewRoot, 2, "result", { workerId: "reviewer-3" }),
-    ".pm/dev-sessions/example/review/round-2/results/reviewer-3.json"
+    ".pm/dev-sessions/example/review/runs/review-test/round-2/results/reviewer-3.json"
   );
   assert.equal(
     expectedReviewPath(reviewRoot, 2, "report", { outcome: "failed" }),
-    ".pm/dev-sessions/example/review/round-2/report.json"
+    ".pm/dev-sessions/example/review/runs/review-test/round-2/report.json"
   );
   assert.equal(
     expectedReviewPath(reviewRoot, 2, "report", { outcome: "passed" }),
-    ".pm/dev-sessions/example/review/report.json"
+    ".pm/dev-sessions/example/review/runs/review-test/report.json"
   );
   assert.equal(
     expectedPriorReportPath(reviewRoot, 2),
-    ".pm/dev-sessions/example/review/round-1/report.json"
+    ".pm/dev-sessions/example/review/runs/review-test/round-1/report.json"
   );
   assert.throws(
     () => reviewRootFromTargetPath(".pm/dev-sessions/example/review/target.json", 2),
     /round-2\/target\.json/
   );
+});
+
+test("fresh review paths require an explicit run namespace", () => {
+  assert.throws(
+    () =>
+      reviewPathContext(".pm/dev-sessions/example/review/round-1/target.json", 1, "review-test"),
+    /runs\/\{run-id\}/
+  );
+});
+
+test("review outputs reject symlinked path ancestors", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-output-"));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-outside-"));
+  fs.mkdirSync(path.join(root, ".pm"), { recursive: true });
+  fs.symlinkSync(outside, path.join(root, ".pm", "linked"));
+  assert.throws(() => safeProjectOutput(root, ".pm/linked/report.json"), /contains symlink/);
 });
 
 test("later targets reject a copied prior report outside the preceding round path", () => {
@@ -221,7 +238,7 @@ test("later targets reject a copied prior report outside the preceding round pat
   fs.writeFileSync(path.join(fixture.root, "src/example.js"), "module.exports = { value: 3 };\n");
   git(fixture.root, ["add", "src/example.js"]);
   git(fixture.root, ["commit", "-qm", "round two source"]);
-  const targetPath = ".pm/dev-sessions/example/review/round-2/target.json";
+  const targetPath = ".pm/dev-sessions/example/review/runs/review-test/round-2/target.json";
   const target = buildReviewTarget({
     root: fixture.root,
     maxWorkers: 3,
@@ -241,8 +258,8 @@ test("later targets reject a copied prior report outside the preceding round pat
     root: fixture.root,
     targetPath,
     resultPaths: fixture.resultPaths,
-    reportPath: ".pm/dev-sessions/example/review/round-2/draft-report.json",
-    humanReportPath: ".pm/dev-sessions/example/review/round-2/draft-report.html",
+    reportPath: ".pm/dev-sessions/example/review/runs/review-test/round-2/draft-report.json",
+    humanReportPath: ".pm/dev-sessions/example/review/runs/review-test/round-2/draft-report.html",
     reportStage: "draft",
     writeReport: true,
     verifyBrowser: false,
@@ -317,6 +334,40 @@ test("malformed reviewer result shapes return issues instead of throwing during 
       /must be an object|worker_id|schema, run, and round/
     );
   }
+});
+
+test("malformed decision entries return structured issues instead of crashing synthesis", () => {
+  for (const malformed of [null, "truncated", 7]) {
+    const fixture = makeFixture({ maxWorkers: 3 });
+    const decisionsPath = ".pm/dev-sessions/example/review/runs/review-test/round-1/decisions.json";
+    write(fixture.root, decisionsPath, {
+      schema_version: 1,
+      run_id: fixture.target.run_id,
+      review_round: 1,
+      target: binding(fixture.root, fixture.targetPath),
+      decisions: [malformed],
+      checked_at: "2026-07-12T00:00:00Z",
+    });
+    let result;
+    assert.doesNotThrow(() => {
+      result = generate(fixture, { decisionsPath });
+    });
+    assert.equal(result.ok, false);
+    assert.match(JSON.stringify(result.issues), /must be an object/);
+  }
+});
+
+test("checker mirrors the target builder's 500-file review budget", () => {
+  const fixture = makeFixture({ maxWorkers: 3 });
+  const original = fixture.target.changed_files[0];
+  fixture.target.changed_files = Array.from({ length: 501 }, (_, index) => ({
+    ...original,
+    path: `src/generated-${index}.js`,
+  }));
+  write(fixture.root, fixture.targetPath, fixture.target);
+  const result = generate(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /500-file budget/);
 });
 
 test("reuse findings require both changed and reusable source locators", () => {
@@ -416,7 +467,7 @@ test("material reviewer disagreement blocks until an explicit decision", () => {
   assert.equal(blocked.report.outcome, "blocked");
   assert.deepEqual(blocked.report.unresolved_disagreements, [bug.id]);
 
-  const decisionsPath = ".pm/dev-sessions/example/review/round-1/decisions.json";
+  const decisionsPath = ".pm/dev-sessions/example/review/runs/review-test/round-1/decisions.json";
   write(fixture.root, decisionsPath, {
     schema_version: 1,
     run_id: fixture.target.run_id,
@@ -452,8 +503,8 @@ test("draft synthesis remains replaceable until a non-passing decision is finali
   const fixture = makeFixture({ maxWorkers: 6 });
   const bug = validFinding("bug");
   setFindingForLens(fixture, "bug", bug);
-  const draftReport = ".pm/dev-sessions/example/review/round-1/draft-report.json";
-  const draftHtml = ".pm/dev-sessions/example/review/round-1/draft-report.html";
+  const draftReport = ".pm/dev-sessions/example/review/runs/review-test/round-1/draft-report.json";
+  const draftHtml = ".pm/dev-sessions/example/review/runs/review-test/round-1/draft-report.html";
   const draft = generate(fixture, {
     reportPath: draftReport,
     htmlPath: draftHtml,
@@ -462,7 +513,7 @@ test("draft synthesis remains replaceable until a non-passing decision is finali
   assert.equal(draft.ok, true, JSON.stringify(draft.issues));
   renderReviewReport({ root: fixture.root, reportPath: draftReport, outputPath: draftHtml });
 
-  const decisionsPath = ".pm/dev-sessions/example/review/round-1/decisions.json";
+  const decisionsPath = ".pm/dev-sessions/example/review/runs/review-test/round-1/decisions.json";
   write(fixture.root, decisionsPath, {
     schema_version: 1,
     run_id: fixture.target.run_id,
@@ -490,6 +541,32 @@ test("draft synthesis remains replaceable until a non-passing decision is finali
   assert.equal(final.report.findings[0].decision.action, "defer");
 });
 
+test("blocked reports surface deferred blockers and stop at the iteration cap", () => {
+  const deferred = { ...validFinding("bug"), disposition: "deferred" };
+  const deferredReport = buildCanonicalReport(
+    { run_id: "review-test", review_round: 1, iteration_cap: 3, lenses: [] },
+    { relative: "target.json", sha256: "a".repeat(64) },
+    [],
+    null,
+    { findings: [deferred], unresolved_disagreements: [] },
+    "report.html"
+  );
+  assert.equal(deferredReport.outcome, "blocked");
+  assert.equal(deferredReport.top_issue, deferred.issue);
+
+  const blocker = validFinding("bug");
+  const capReport = buildCanonicalReport(
+    { run_id: "review-test", review_round: 3, iteration_cap: 3, lenses: [] },
+    { relative: "target.json", sha256: "b".repeat(64) },
+    [],
+    null,
+    { findings: [blocker], unresolved_disagreements: [] },
+    "report.html"
+  );
+  assert.equal(capReport.outcome, "blocked");
+  assert.match(capReport.next_action, /three-round cap/);
+});
+
 test("renderer escapes reviewer text without treating data as template syntax", () => {
   const fixture = makeFixture({ maxWorkers: 6 });
   const finding = validFinding("bug");
@@ -514,7 +591,11 @@ test("renderer escapes reviewer text without treating data as template syntax", 
 
 test(
   "real Chromium verifies first-screen Review markers and their visible text",
-  { skip: !installedBrowser && "Chromium is not installed" },
+  {
+    skip:
+      (process.env.PM_SKIP_BROWSER_TESTS && "browser tests explicitly disabled") ||
+      (!installedBrowser && "Chromium is not installed"),
+  },
   () => {
     const fixture = makeFixture({ maxWorkers: 3 });
     const generated = generate(fixture);
@@ -558,7 +639,7 @@ test(
   }
 );
 
-function makeFixture({ maxWorkers, deleteFile = false, runScoped = false }) {
+function makeFixture({ maxWorkers, deleteFile = false, runScoped = true }) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-check-"));
   fs.mkdirSync(path.join(root, "src"), { recursive: true });
   fs.mkdirSync(path.join(root, "skills/dev/references"), { recursive: true });

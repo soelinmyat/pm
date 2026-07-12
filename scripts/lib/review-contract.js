@@ -130,11 +130,13 @@ function materialDisagreement(rows) {
   const owners = new Set(rows.map((row) => row.owner));
   const dispositions = new Set(rows.map((row) => row.disposition));
   const fixKinds = new Set(rows.map((row) => row.fix_kind));
+  const decisionRequirements = new Set(rows.map((row) => row.decision_required));
   return (
     Math.max(...severities) - Math.min(...severities) > 1 ||
     owners.size > 1 ||
     dispositions.size > 1 ||
-    fixKinds.size > 1
+    fixKinds.size > 1 ||
+    decisionRequirements.size > 1
   );
 }
 

@@ -8,6 +8,7 @@ const path = require("node:path");
 const { inspectHtmlArtifact } = require("./artifact-check");
 const { probeDataMarkerVisibility, resolveBrowser } = require("./artifact-render-check");
 const { writeJsonAtomic } = require("./lib/atomic-file");
+const { safeProjectOutput } = require("./lib/safe-project-output");
 const {
   expectedPriorReportPath,
   expectedReviewPath,
@@ -164,7 +165,13 @@ function checkReview(options) {
   }
   if (options.writeReport && options.reportPath && issues.length === 0)
     if (projectPath(options.reportPath)) {
-      const absoluteReport = path.resolve(root, options.reportPath);
+      let absoluteReport;
+      try {
+        absoluteReport = safeProjectOutput(root, options.reportPath);
+      } catch (error) {
+        add(issues, "report.path", error.message);
+        return { ok: false, issues, report };
+      }
       if (
         (options.reportStage || "final") === "final" &&
         report.outcome !== "passed" &&
@@ -331,6 +338,8 @@ function validateExactJsonBinding(root, value, label, issues) {
 function validateChangedFiles(files, issues) {
   if (!Array.isArray(files) || files.length === 0)
     return add(issues, "target.changed_files", "must be a non-empty array");
+  if (files.length > 500)
+    add(issues, "target.changed_files", "must not exceed the 500-file budget");
   const seen = new Set();
   for (const [index, item] of files.entries()) {
     const at = `target.changed_files[${index}]`;
@@ -769,7 +778,7 @@ function validateDecisions(value, file, target, targetFile, findingIds, issues) 
       add(issues, at, "requires approver, rationale, and RFC 3339 timestamp");
     if (!DECISION_ACTIONS.includes(decision.action)) add(issues, `${at}.action`, "is invalid");
   }
-  return value.decisions;
+  return value.decisions.filter(object);
 }
 
 function validateDecisionCoverage(merged, decisions, issues) {
@@ -800,22 +809,28 @@ function buildCanonicalReport(
       finding.disposition === "deferred" &&
       ["critical", "high"].includes(finding.severity)
   );
+  const capReached = target.review_round >= target.iteration_cap;
   const outcome =
     merged.unresolved_disagreements.length > 0 || deferredBlockers.length > 0
       ? "blocked"
       : blockers.length > 0
-        ? "failed"
+        ? capReached
+          ? "blocked"
+          : "failed"
         : "passed";
   const topFinding =
     blockers[0] ||
     merged.findings.find((finding) => merged.unresolved_disagreements.includes(finding.id)) ||
+    deferredBlockers[0] ||
     null;
   const nextAction =
     outcome === "passed"
       ? "Proceed to full verification."
       : outcome === "failed"
         ? "Fix Review-owned blockers and create the next review round."
-        : "Resolve reviewer disagreement or deferred blockers before continuing.";
+        : capReached && blockers.length > 0
+          ? "Review reached its three-round cap. Preserve this report and ask the user for direction."
+          : "Resolve reviewer disagreement or deferred blockers before continuing.";
   const applicable = target.lenses.filter((item) => item.applicable).map((item) => item.name);
   const notApplicable = target.lenses.filter((item) => !item.applicable).map((item) => item.name);
   const autoFixEligible = merged.findings

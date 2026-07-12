@@ -7,6 +7,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { allocateLenses, LENSES } = require("./lib/review-contract");
 const { writeJsonAtomic } = require("./lib/atomic-file");
+const { safeProjectOutput } = require("./lib/safe-project-output");
 const {
   expectedPriorReportPath,
   expectedReviewPath,
@@ -319,7 +320,7 @@ function main(argv = process.argv.slice(2)) {
       expectedReviewPath(reviewRoot, target.review_round, "target"),
       "target"
     );
-    const absoluteOut = path.resolve(options.root || process.cwd(), options.outPath);
+    const absoluteOut = safeProjectOutput(options.root || process.cwd(), options.outPath);
     if (fs.existsSync(absoluteOut))
       throw new Error("refusing to overwrite an existing review target");
     writeJsonAtomic(absoluteOut, target, {

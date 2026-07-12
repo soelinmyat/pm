@@ -12,7 +12,7 @@ Generate a mutable draft review report from current evidence without losing inde
 
 ## How
 
-1. Run `review-check.js --stage draft --write-report` with the target and every result path, writing `round-{N}/draft-report.json` and `draft-report.html`. Include `--decisions` only when an existing decision artifact belongs to this target and round.
+1. Run `review-check.js --stage draft --write-report` with the target and every result path to write `round-{N}/draft-report.json`. Then run `review-report.js --report .../draft-report.json --out .../draft-report.html` and validate the rendered draft. Include `--decisions` only when an existing decision artifact belongs to this target and round.
 2. Treat checker failures as evidence failures. Re-dispatch malformed/missing workers; regenerate the target after Git drift; never patch hashes by hand.
 3. Inspect canonical findings:
    - same deterministic ID becomes one finding with every reviewer signal retained;

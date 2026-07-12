@@ -87,6 +87,7 @@ test("review dispatch step follows target allocation and defaults the read-only 
   assert.match(text, /scoped review exception/i);
   assert.match(text, /no safe subagent capability, run assigned lenses sequentially/i);
   assert.match(text, /exactly one.*result for every physical reviewer/i);
+  assert.match(text, /review\/runs\/\{RUN_ID\}\/round-\{N\}\/results\/\{worker-id\}\.json/);
   // The old flat "Codex inline / other runtimes: run the lens briefs sequentially"
   // default must be gone.
   assert.doesNotMatch(

@@ -164,7 +164,9 @@ function fixtureFor(workflow, type, caseId, state) {
   }
   if (workflow === "review" && ["happy-path", "repeated-run-variance"].includes(type)) {
     post.push('command-succeeds "npm test"');
-    post.push("file-exists .pm/dev-sessions/feature/review/target.json");
+    post.push(
+      "command-succeeds \"test \\\"$(find .pm/dev-sessions/feature/review/runs -path '*/round-*/target.json' -type f | wc -l | tr -d ' ')\\\" = 1\""
+    );
     post.push("file-exists .pm/dev-sessions/feature/review/report.json");
     post.push("file-exists .pm/dev-sessions/feature/review/report.html");
     post.push(

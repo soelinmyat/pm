@@ -5,6 +5,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { writeTextAtomic } = require("./lib/atomic-file");
+const { safeProjectOutput } = require("./lib/safe-project-output");
 const { expectedReviewPath, reviewPathContext } = require("./lib/review-paths");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
@@ -16,9 +17,7 @@ function renderReviewReport(options) {
   const bytes = fs.readFileSync(reportPath);
   if (bytes.length > MAX_JSON_BYTES) throw new Error("review report exceeds JSON budget");
   const report = JSON.parse(bytes.toString("utf8"));
-  const outputPath = path.resolve(root, options.outputPath);
-  if (path.relative(root, outputPath).startsWith(".."))
-    throw new Error("output escapes project root");
+  const outputPath = safeProjectOutput(root, options.outputPath);
   const relativeReport = path.relative(root, reportPath).split(path.sep).join("/");
   const relativeOutput = path.relative(root, outputPath).split(path.sep).join("/");
   const pathContext = reviewPathContext(report.target?.path, report.review_round, report.run_id);

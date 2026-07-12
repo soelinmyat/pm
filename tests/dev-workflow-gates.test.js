@@ -117,12 +117,17 @@ test("review skip requires a current checked report and gate row", () => {
 test("review preserves immutable fix rounds and publishes only the passing projection canonically", () => {
   const contract = read("skills/review/references/evidence-contract.md");
   const target = read("skills/review/steps/01-target.md");
+  const synthesize = read("skills/review/steps/03-synthesize.md");
   const resolve = read("skills/review/steps/04-resolve.md");
   const publish = read("skills/review/steps/05-publish.md");
   assert.match(contract, /round-1\//);
   assert.match(contract, /Never overwrite a finalized prior run or round/);
   assert.match(target, /runs\/\{RUN_ID\}\/round-\{N\}\/target\.json/);
+  assert.match(synthesize, /review-report\.js.*draft-report\.json.*draft-report\.html/);
   assert.match(resolve, /round-\{N-1\}\/report\.json/);
+  assert.ok(
+    resolve.indexOf("finalize, render, and validate") < resolve.indexOf("Apply one coherent")
+  );
   assert.match(publish, /For `failed` or `blocked`/);
   assert.match(publish, /canonical .*review\/report\.json/);
 });
