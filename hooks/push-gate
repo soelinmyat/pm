@@ -186,15 +186,15 @@ function parseSegment(segment) {
 // CONTINUATION — join it first so a wrapped push stays one command (bare newlines
 // remain genuine separators, so a push on a later line is never missed). Tracks a
 // leading `cd <dir>` so `cd repo && git push` gates the right repo.
-function detectGitPushes(command) {
+function detectGitPushes(command, baseCwd) {
   const joined = command.replace(/\\\r?\n/g, " ");
-  let cwdOverride = null;
+  let effectiveCwd = path.resolve(baseCwd);
   const pushes = [];
   for (const segment of joined.split(SEGMENT_SPLIT)) {
     const trimmed = segment.trim();
     const cd = trimmed.match(/^cd\s+(?:-P\s+)?(['"]?)([^'"]+)\1\s*$/);
     if (cd) {
-      cwdOverride = cd[2];
+      effectiveCwd = path.resolve(effectiveCwd, cd[2]);
       continue;
     }
     const parsed = parseSegment(trimmed);
@@ -203,7 +203,7 @@ function detectGitPushes(command) {
         dir: parsed.dir,
         gitDir: parsed.gitDir,
         workTree: parsed.workTree,
-        cwdOverride,
+        cwdOverride: effectiveCwd,
         args: parsed.args,
       });
     }
@@ -460,12 +460,12 @@ function main() {
       ? payload.tool_input.command
       : "";
   if (!command || !command.includes("push")) return allow();
-  const pushes = detectGitPushes(command);
-  if (pushes.length === 0) return allow();
   const baseCwd =
     (payload && typeof payload.cwd === "string" && payload.cwd) ||
     process.env.CLAUDE_PROJECT_DIR ||
     process.cwd();
+  const pushes = detectGitPushes(command, baseCwd);
+  if (pushes.length === 0) return allow();
   for (const push of pushes) if (gatePush(baseCwd, push)) return;
   return allow();
 }

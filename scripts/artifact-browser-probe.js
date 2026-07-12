@@ -61,6 +61,12 @@ async function connect(url) {
 
 async function main() {
   const config = JSON.parse(fs.readFileSync(0, "utf8"));
+  const readinessTimeoutMs =
+    Number.isSafeInteger(config.readinessTimeoutMs) &&
+    config.readinessTimeoutMs > 0 &&
+    config.readinessTimeoutMs <= 10_000
+      ? config.readinessTimeoutMs
+      : 10_000;
   const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-cdp-"));
   const browser = spawn(
     config.browserPath,
@@ -78,20 +84,42 @@ async function main() {
       "--remote-debugging-port=0",
       "about:blank",
     ],
-    { stdio: "ignore" }
+    { stdio: "ignore", detached: process.platform !== "win32" }
   );
   let client = null;
+  let cleaned = false;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    if (client) client.close();
+    try {
+      if (browser.exitCode === null) {
+        if (process.platform === "win32") browser.kill("SIGKILL");
+        else process.kill(-browser.pid, "SIGKILL");
+      }
+    } catch {
+      // The browser may have exited between the state check and the kill.
+    }
+    fs.rmSync(profileDir, { recursive: true, force: true });
+  };
+  for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"]) {
+    process.once(signal, () => {
+      cleanup();
+      process.exit(128 + (os.constants.signals[signal] || 0));
+    });
+  }
   try {
     const portFile = path.join(profileDir, "DevToolsActivePort");
-    const deadline = Date.now() + 10_000;
+    const endpointDeadline = Date.now() + 10_000;
     while (!fs.existsSync(portFile)) {
-      if (browser.exitCode !== null || Date.now() >= deadline)
+      if (browser.exitCode !== null || Date.now() >= endpointDeadline)
         throw new Error("Chromium did not expose a debugging endpoint");
       await sleep(25);
     }
     const port = Number(fs.readFileSync(portFile, "utf8").split(/\r?\n/)[0]);
     let targets = [];
-    while (targets.length === 0 && Date.now() < deadline) {
+    const targetDeadline = Date.now() + 10_000;
+    while (targets.length === 0 && Date.now() < targetDeadline) {
       targets = await requestJson(`http://127.0.0.1:${port}/json/list`).catch(() => []);
       if (targets.length === 0) await sleep(25);
     }
@@ -107,14 +135,20 @@ async function main() {
       mobile: false,
     });
     await client.send("Page.navigate", { url: pathToFileURL(config.htmlPath).href });
-    while (Date.now() < deadline) {
+    const readinessDeadline = Date.now() + readinessTimeoutMs;
+    let ready = false;
+    while (Date.now() < readinessDeadline) {
       const state = await client.send("Runtime.evaluate", {
         expression: "document.readyState",
         returnByValue: true,
       });
-      if (state.result?.value === "complete") break;
+      if (state.result?.value === "complete") {
+        ready = true;
+        break;
+      }
       await sleep(25);
     }
+    if (!ready) throw new Error("canonical page did not reach complete readiness");
     const evaluated = await client.send("Runtime.evaluate", {
       expression: config.expression,
       returnByValue: true,
@@ -123,9 +157,7 @@ async function main() {
     if (evaluated.exceptionDetails) throw new Error("browser probe expression failed");
     process.stdout.write(`${JSON.stringify(evaluated.result?.value)}\n`);
   } finally {
-    if (client) client.close();
-    browser.kill("SIGKILL");
-    fs.rmSync(profileDir, { recursive: true, force: true });
+    cleanup();
   }
 }
 

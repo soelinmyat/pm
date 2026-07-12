@@ -331,16 +331,12 @@ function runBrowser(browserPath, args) {
 }
 
 function captureMetrics(browserPath, htmlPath, outputDir, viewport, options = {}) {
+  const expression = metricsExpression();
   if (options.legacyProbe !== true)
-    return runCanonicalProbe(
-      browserPath,
-      htmlPath,
-      viewport,
-      `(()=>{const visible=(element)=>{if(!element)return false;const rect=element.getBoundingClientRect();const style=getComputedStyle(element);return rect.width>0&&rect.height>0&&style.display!=="none"&&style.visibility!=="hidden"};const root=document.documentElement;return {innerWidth:window.innerWidth,clientWidth:root.clientWidth,scrollWidth:root.scrollWidth,documentHeight:root.scrollHeight,bodyText:(document.body?.innerText||"").trim().length,mainVisible:visible(document.querySelector("main")),h1Visible:visible(document.querySelector("h1")),anchorCount:document.querySelectorAll('a[href^="#"]').length,horizontalOverflow:root.scrollWidth>root.clientWidth+1}})()`
-    );
+    return runCanonicalProbe(browserPath, htmlPath, viewport, expression);
   const source = fs.readFileSync(htmlPath, "utf8");
   const markerId = `pm-render-metrics-${crypto.randomBytes(12).toString("hex")}`;
-  const probe = `<script>(()=>{const visible=(element)=>{if(!element)return false;const rect=element.getBoundingClientRect();const style=getComputedStyle(element);return rect.width>0&&rect.height>0&&style.display!=="none"&&style.visibility!=="hidden"};const root=document.documentElement;const metrics={innerWidth:window.innerWidth,clientWidth:root.clientWidth,scrollWidth:root.scrollWidth,documentHeight:root.scrollHeight,bodyText:(document.body?.innerText||"").trim().length,mainVisible:visible(document.querySelector("main")),h1Visible:visible(document.querySelector("h1")),anchorCount:document.querySelectorAll('a[href^="#"]').length,horizontalOverflow:root.scrollWidth>root.clientWidth+1};const marker=document.createElement("meta");marker.id="${markerId}";marker.setAttribute("data-json",encodeURIComponent(JSON.stringify(metrics)));document.head.append(marker)})();</script>`;
+  const probe = `<script>(()=>{const metrics=${expression};const marker=document.createElement("meta");marker.id="${markerId}";marker.setAttribute("data-json",encodeURIComponent(JSON.stringify(metrics)));document.head.append(marker)})();</script>`;
   const bodyClose = findClosingBodyIndex(source);
   const instrumented =
     bodyClose >= 0
@@ -380,59 +376,17 @@ function probeDataMarkerVisibility(
 ) {
   if (!/^data-[a-z0-9-]+-$/.test(attributePrefix))
     throw new Error("marker attribute prefix must be a safe data-* prefix ending in '-'");
+  const expression = markerVisibilityExpression(attributePrefix);
   if (options.legacyProbe !== true)
     return runCanonicalProbe(
       browserPath,
       htmlPath,
       { name: "marker", width: 1440, height: 1000 },
-      canonicalMarkerExpression(attributePrefix)
+      expression
     );
   const source = fs.readFileSync(htmlPath, "utf8");
   const markerId = `pm-data-marker-visibility-${crypto.randomBytes(12).toString("hex")}`;
-  const prefix = JSON.stringify(attributePrefix);
-  const probe = `<script>(()=>{
-    const intersects=(left,right)=>left.right>right.left&&left.left<right.right&&left.bottom>right.top&&left.top<right.bottom;
-    const geometry=(rawRects,element)=>{
-      if(!element)return {visible:false,inViewport:false};
-      let rects=Array.from(rawRects).filter((rect)=>rect.width>0&&rect.height>0);
-      if(rects.length===0)return {visible:false,inViewport:false};
-      let node=element;
-      while(node&&node.nodeType===1){
-        const style=getComputedStyle(node);
-        if(node.hidden||node.getAttribute("aria-hidden")==="true"||style.display==="none"||style.visibility==="hidden"||style.visibility==="collapse"||style.contentVisibility==="hidden"||Number(style.opacity)===0||(style.clipPath&&style.clipPath!=="none"))return {visible:false,inViewport:false};
-        if(node!==element){
-          const clipsX=/(hidden|clip|auto|scroll)/.test(style.overflowX);
-          const clipsY=/(hidden|clip|auto|scroll)/.test(style.overflowY);
-          if(clipsX||clipsY){
-            const clip=node.getBoundingClientRect();
-            rects=rects.map((rect)=>({left:clipsX?Math.max(rect.left,clip.left):rect.left,right:clipsX?Math.min(rect.right,clip.right):rect.right,top:clipsY?Math.max(rect.top,clip.top):rect.top,bottom:clipsY?Math.min(rect.bottom,clip.bottom):rect.bottom})).filter((rect)=>rect.right>rect.left&&rect.bottom>rect.top);
-            if(rects.length===0)return {visible:false,inViewport:false};
-          }
-        }
-        node=node.parentElement;
-      }
-      const documentBounds={left:0,top:0,right:window.innerWidth,bottom:document.documentElement.scrollHeight};
-      rects=rects.filter((rect)=>intersects(rect,documentBounds));
-      if(rects.length===0)return {visible:false,inViewport:false};
-      const viewport={left:0,top:0,right:window.innerWidth,bottom:window.innerHeight};
-      return {visible:true,inViewport:rects.some((rect)=>intersects(rect,viewport))};
-    };
-    const textVisibility=(element)=>{
-      const visible=[];const firstScreen=[];const walker=document.createTreeWalker(element,NodeFilter.SHOW_TEXT);
-      let textNode;
-      while((textNode=walker.nextNode())){
-        const value=(textNode.nodeValue||"").replace(/\\s+/g," ").trim();
-        if(!value)continue;
-        const range=document.createRange();range.selectNodeContents(textNode);
-        const state=geometry(range.getClientRects(),textNode.parentElement);
-        if(state.visible)visible.push(value);
-        if(state.inViewport)firstScreen.push(value);
-      }
-      return {text:visible.join(" "),firstScreenText:firstScreen.join(" ")};
-    };
-    const markers=Array.from(document.querySelectorAll("*")).filter((element)=>Array.from(element.attributes).some((attribute)=>attribute.name.startsWith(${prefix}))).map((element)=>({attributes:Object.fromEntries(Array.from(element.attributes).filter((attribute)=>attribute.name.startsWith(${prefix})).map((attribute)=>[attribute.name,attribute.value])),...textVisibility(element),...geometry(element.getClientRects(),element)}));
-    const marker=document.createElement("meta");marker.id="${markerId}";marker.setAttribute("data-json",encodeURIComponent(JSON.stringify(markers)));document.head.append(marker)
-  })();</script>`;
+  const probe = `<script>(()=>{const markers=${expression};const marker=document.createElement("meta");marker.id="${markerId}";marker.setAttribute("data-json",encodeURIComponent(JSON.stringify(markers)));document.head.append(marker)})();</script>`;
   const bodyClose = findClosingBodyIndex(source);
   const instrumented =
     bodyClose >= 0
@@ -481,7 +435,11 @@ function runCanonicalProbe(browserPath, htmlPath, viewport, expression) {
   return JSON.parse(result.stdout);
 }
 
-function canonicalMarkerExpression(attributePrefix) {
+function metricsExpression() {
+  return `(()=>{const visible=(element)=>{if(!element)return false;const rect=element.getBoundingClientRect();const style=getComputedStyle(element);return rect.width>0&&rect.height>0&&style.display!=="none"&&style.visibility!=="hidden"};const root=document.documentElement;return {innerWidth:window.innerWidth,clientWidth:root.clientWidth,scrollWidth:root.scrollWidth,documentHeight:root.scrollHeight,bodyText:(document.body?.innerText||"").trim().length,mainVisible:visible(document.querySelector("main")),h1Visible:visible(document.querySelector("h1")),anchorCount:document.querySelectorAll('a[href^="#"]').length,horizontalOverflow:root.scrollWidth>root.clientWidth+1}})()`;
+}
+
+function markerVisibilityExpression(attributePrefix) {
   const prefix = JSON.stringify(attributePrefix);
   return `(()=>{const intersects=(left,right)=>left.right>right.left&&left.left<right.right&&left.bottom>right.top&&left.top<right.bottom;const geometry=(rawRects,element)=>{if(!element)return {visible:false,inViewport:false};let rects=Array.from(rawRects).filter((rect)=>rect.width>0&&rect.height>0);if(rects.length===0)return {visible:false,inViewport:false};let node=element;while(node&&node.nodeType===1){const style=getComputedStyle(node);if(node.hidden||node.getAttribute("aria-hidden")==="true"||style.display==="none"||style.visibility==="hidden"||style.visibility==="collapse"||style.contentVisibility==="hidden"||Number(style.opacity)===0||(style.clipPath&&style.clipPath!=="none"))return {visible:false,inViewport:false};if(node!==element){const clipsX=/(hidden|clip|auto|scroll)/.test(style.overflowX);const clipsY=/(hidden|clip|auto|scroll)/.test(style.overflowY);if(clipsX||clipsY){const clip=node.getBoundingClientRect();rects=rects.map((rect)=>({left:clipsX?Math.max(rect.left,clip.left):rect.left,right:clipsX?Math.min(rect.right,clip.right):rect.right,top:clipsY?Math.max(rect.top,clip.top):rect.top,bottom:clipsY?Math.min(rect.bottom,clip.bottom):rect.bottom})).filter((rect)=>rect.right>rect.left&&rect.bottom>rect.top);if(rects.length===0)return {visible:false,inViewport:false}}}node=node.parentElement}const documentBounds={left:0,top:0,right:window.innerWidth,bottom:document.documentElement.scrollHeight};rects=rects.filter((rect)=>intersects(rect,documentBounds));if(rects.length===0)return {visible:false,inViewport:false};const viewport={left:0,top:0,right:window.innerWidth,bottom:window.innerHeight};return {visible:true,inViewport:rects.some((rect)=>intersects(rect,viewport))}};const textVisibility=(element)=>{const visible=[];const firstScreen=[];const walker=document.createTreeWalker(element,NodeFilter.SHOW_TEXT);let textNode;while((textNode=walker.nextNode())){const value=(textNode.nodeValue||"").replace(/\\s+/g," ").trim();if(!value)continue;const range=document.createRange();range.selectNodeContents(textNode);const state=geometry(range.getClientRects(),textNode.parentElement);if(state.visible)visible.push(value);if(state.inViewport)firstScreen.push(value)}return {text:visible.join(" "),firstScreenText:firstScreen.join(" ")}};return Array.from(document.querySelectorAll("*")).filter((element)=>Array.from(element.attributes).some((attribute)=>attribute.name.startsWith(${prefix}))).map((element)=>({attributes:Object.fromEntries(Array.from(element.attributes).filter((attribute)=>attribute.name.startsWith(${prefix})).map((attribute)=>[attribute.name,attribute.value])),...textVisibility(element),...geometry(element.getClientRects(),element)}))})()`;
 }

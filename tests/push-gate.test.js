@@ -30,6 +30,11 @@ function git(dir, ...args) {
 
 function makeRepo({ branch = "feat/x" } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "push-gate-"));
+  makeRepoAt(dir, branch);
+  return dir;
+}
+
+function makeRepoAt(dir, branch = "feat/x") {
   git(dir, "init", "-q");
   git(dir, "config", "user.email", "test@example.com");
   git(dir, "config", "user.name", "Test User");
@@ -39,7 +44,6 @@ function makeRepo({ branch = "feat/x" } = {}) {
   git(dir, "commit", "-q", "-m", "init");
   git(dir, "update-ref", "refs/remotes/origin/main", "HEAD");
   git(dir, "checkout", "-q", "-b", branch);
-  return dir;
 }
 
 function headSha(dir) {
@@ -552,6 +556,28 @@ test("every push in a compound command is evaluated", () => {
       assertBlock(runHook(command, { cwd: dir }), /verification is failed/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("compound pushes resolve each relative cd from the current shell directory", () => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "pm-push-gate-cumulative-cd-"));
+  const first = path.join(parent, "first");
+  const second = path.join(parent, "second");
+  try {
+    fs.mkdirSync(first);
+    fs.mkdirSync(second);
+    makeRepoAt(first);
+    makeRepoAt(second);
+    writeFailingGates(second, "x");
+    assertBlock(
+      runHook(
+        "cd first && git push origin HEAD:refs/heads/other && cd ../second && git push origin HEAD",
+        { cwd: parent }
+      ),
+      /verification is failed/
+    );
+  } finally {
+    fs.rmSync(parent, { recursive: true, force: true });
   }
 });
 
