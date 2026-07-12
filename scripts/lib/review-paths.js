@@ -20,10 +20,20 @@ function expectedReviewPath(reviewRoot, round, kind, options = {}) {
     return `${roundRoot}/results/${options.workerId}.json`;
   }
   if (kind === "decisions") return `${roundRoot}/decisions.json`;
+  if (options.stage === "draft") {
+    if (kind === "report") return `${roundRoot}/draft-report.json`;
+    if (kind === "human") return `${roundRoot}/draft-report.html`;
+  }
   const canonical = options.outcome === "passed";
   if (kind === "report") return `${canonical ? reviewRoot : roundRoot}/report.json`;
   if (kind === "human") return `${canonical ? reviewRoot : roundRoot}/report.html`;
   throw new Error(`unknown Review evidence kind ${kind}`);
+}
+
+function expectedPriorReportPath(reviewRoot, round) {
+  if (!Number.isInteger(round) || round < 2 || round > 3)
+    throw new Error("prior report path requires review round 2 or 3");
+  return `${reviewRoot}/round-${round - 1}/report.json`;
 }
 
 function requireReviewPath(actual, expected, label = "Review evidence") {
@@ -31,4 +41,9 @@ function requireReviewPath(actual, expected, label = "Review evidence") {
   return actual;
 }
 
-module.exports = { expectedReviewPath, requireReviewPath, reviewRootFromTargetPath };
+module.exports = {
+  expectedPriorReportPath,
+  expectedReviewPath,
+  requireReviewPath,
+  reviewRootFromTargetPath,
+};

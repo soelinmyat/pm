@@ -9,6 +9,8 @@ round-1/
   target.json
   results/{worker-id}.json
   decisions.json        # only when decisions exist
+  draft-report.json     # mutable synthesis before decisions
+  draft-report.html
   report.json           # retained when the round does not pass
   report.html
 round-2/                 # created only after source mutation
@@ -18,7 +20,7 @@ report.html              # canonical passing human artifact only
 renders/                 # canonical passing render evidence
 ```
 
-Never overwrite a prior round: later targets bind its immutable `round-N/report.json`. A passing round is projected to the canonical root `report.json` and `report.html` for Dev/Ship gate discovery; their target and result bindings still point into that round's directory.
+Synthesis may overwrite only `round-N/draft-report.json` and `draft-report.html` while decisions are pending. Finalize `round-N/report.json` and `report.html` exactly once after decisions. Never overwrite a finalized prior round: later targets bind its exact immutable path. A passing round is projected to the canonical root `report.json` and `report.html` for Dev/Ship gate discovery; their target and result bindings still point into that round's directory.
 
 All paths are project-relative regular files. Symlinks, traversal, absolute paths, stale bindings, unknown fields, and JSON over 4 MiB fail.
 
@@ -109,3 +111,5 @@ node "$PM_PLUGIN_ROOT/scripts/review-check.js" \
 Repeat `--result` for every planned reviewer and add `--decisions` when present. After rendering HTML, rerun the same command without `--write-report`.
 
 For a non-passing round, write its report and HTML inside `round-{N}/` instead of the canonical root. Bind that stable report with `--prior-report` after the fix commit.
+
+During synthesis, use `--stage draft` with `round-{N}/draft-report.json` and `draft-report.html`. After decisions are complete, rerun with `--stage final` (or omit `--stage`) and finalize the appropriate canonical or round report exactly once.

@@ -8,11 +8,11 @@ requires:
 
 ## Goal
 
-Generate the canonical review report from current evidence without losing independent signals or hiding disagreements.
+Generate a mutable draft review report from current evidence without losing independent signals or hiding disagreements.
 
 ## How
 
-1. Run `review-check.js --write-report` with the target and every result path. Include `--decisions` only when an existing decision artifact belongs to this target and round.
+1. Run `review-check.js --stage draft --write-report` with the target and every result path, writing `round-{N}/draft-report.json` and `draft-report.html`. Include `--decisions` only when an existing decision artifact belongs to this target and round.
 2. Treat checker failures as evidence failures. Re-dispatch malformed/missing workers; regenerate the target after Git drift; never patch hashes by hand.
 3. Inspect canonical findings:
    - same deterministic ID becomes one finding with every reviewer signal retained;
@@ -25,8 +25,7 @@ Generate the canonical review report from current evidence without losing indepe
 ## Done-when
 
 - The checker recomputed Git identity and accepted exact logical coverage.
-- `report.json` preserves result bindings, signals, disputes, blockers, handoffs, and next action.
+- `draft-report.json` preserves result bindings, signals, disputes, blockers, handoffs, and next action without finalizing the round.
 - Outcome follows machine policy; no prose override changes it.
 
 **Advance:** proceed to Step 4 (Resolve blockers).
-

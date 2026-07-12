@@ -8,7 +8,11 @@ const path = require("node:path");
 const { inspectHtmlArtifact } = require("./artifact-check");
 const { probeDataMarkerVisibility, resolveBrowser } = require("./artifact-render-check");
 const { writeJsonAtomic } = require("./lib/atomic-file");
-const { expectedReviewPath, reviewRootFromTargetPath } = require("./lib/review-paths");
+const {
+  expectedPriorReportPath,
+  expectedReviewPath,
+  reviewRootFromTargetPath,
+} = require("./lib/review-paths");
 const { isRfc3339DateTime } = require("./lib/iso-time");
 const {
   DECISION_ACTIONS,
@@ -60,7 +64,7 @@ function checkReview(options) {
   } catch (error) {
     add(issues, "target.path", error.message);
   }
-  validateTargetBindings(root, target, issues);
+  validateTargetBindings(root, target, reviewRoot, issues);
   if (options.verifyGit !== false) validateLiveTarget(root, target, issues);
 
   const planned = new Map((target.allocation || []).map((item) => [item.worker_id, item]));
@@ -83,12 +87,16 @@ function checkReview(options) {
       `results[${index}]`,
       issues
     );
-    if (reviewRoot) {
-      const expected = expectedReviewPath(reviewRoot, target.review_round, "result", {
-        workerId: resultFile.value.worker_id,
-      });
-      if (resultFile.relative !== expected)
-        add(issues, `results[${index}].path`, `must equal ${expected}`);
+    if (reviewRoot && object(resultFile.value) && slug(resultFile.value.worker_id)) {
+      try {
+        const expected = expectedReviewPath(reviewRoot, target.review_round, "result", {
+          workerId: resultFile.value.worker_id,
+        });
+        if (resultFile.relative !== expected)
+          add(issues, `results[${index}].path`, `must equal ${expected}`);
+      } catch (error) {
+        add(issues, `results[${index}].path`, error.message);
+      }
     }
   }
   for (const workerId of planned.keys())
@@ -128,11 +136,16 @@ function checkReview(options) {
     options.humanReportPath
   );
   if (reviewRoot) {
+    const reportStage = options.reportStage || "final";
+    if (!new Set(["draft", "final"]).has(reportStage))
+      add(issues, "report.stage", "must be draft or final");
     const expectedReport = expectedReviewPath(reviewRoot, target.review_round, "report", {
       outcome: report.outcome,
+      stage: reportStage,
     });
     const expectedHuman = expectedReviewPath(reviewRoot, target.review_round, "human", {
       outcome: report.outcome,
+      stage: reportStage,
     });
     if (options.reportPath !== expectedReport)
       add(issues, "report.path", `must equal ${expectedReport}`);
@@ -147,7 +160,11 @@ function checkReview(options) {
   if (options.writeReport && options.reportPath && issues.length === 0)
     if (projectPath(options.reportPath)) {
       const absoluteReport = path.resolve(root, options.reportPath);
-      if (report.outcome !== "passed" && fs.existsSync(absoluteReport))
+      if (
+        (options.reportStage || "final") === "final" &&
+        report.outcome !== "passed" &&
+        fs.existsSync(absoluteReport)
+      )
         add(issues, "report.path", "refusing to overwrite immutable non-passing round report");
       else writeJsonAtomic(absoluteReport, report, { fileMode: 0o600 });
     } else add(issues, "report.path", "must be project-relative without traversal");
@@ -233,7 +250,7 @@ function validateOwnership(ownership, issues) {
       add(issues, `target.ownership.${key}`, "must be a non-empty string array");
 }
 
-function validateTargetBindings(root, target, issues) {
+function validateTargetBindings(root, target, reviewRoot, issues) {
   if (target.acceptance) validateExactBinding(root, target.acceptance, "target.acceptance", issues);
   if (target.upstream?.design_critique) {
     const value = validateExactJsonBinding(
@@ -254,6 +271,16 @@ function validateTargetBindings(root, target, issues) {
       );
   }
   if (target.prior_report) {
+    if (
+      reviewRoot &&
+      target.review_round > 1 &&
+      target.prior_report.path !== expectedPriorReportPath(reviewRoot, target.review_round)
+    )
+      add(
+        issues,
+        "target.prior_report.path",
+        `must equal ${expectedPriorReportPath(reviewRoot, target.review_round)}`
+      );
     const value = validateExactJsonBinding(
       root,
       target.prior_report,
@@ -1057,6 +1084,7 @@ function parseArgs(argv) {
     ["--decisions", "decisionsPath"],
     ["--report", "reportPath"],
     ["--human-report", "humanReportPath"],
+    ["--stage", "reportStage"],
   ]);
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === "--write-report") {

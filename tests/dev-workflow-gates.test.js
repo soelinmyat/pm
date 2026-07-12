@@ -120,7 +120,7 @@ test("review preserves immutable fix rounds and publishes only the passing proje
   const resolve = read("skills/review/steps/04-resolve.md");
   const publish = read("skills/review/steps/05-publish.md");
   assert.match(contract, /round-1\//);
-  assert.match(contract, /Never overwrite a prior round/);
+  assert.match(contract, /Never overwrite a finalized prior round/);
   assert.match(target, /round-\{N\}\/target\.json/);
   assert.match(resolve, /round-\{N-1\}\/report\.json/);
   assert.match(publish, /For `failed` or `blocked`/);

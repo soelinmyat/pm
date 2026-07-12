@@ -22,11 +22,14 @@ function renderReviewReport(options) {
   const relativeReport = path.relative(root, reportPath).split(path.sep).join("/");
   const relativeOutput = path.relative(root, outputPath).split(path.sep).join("/");
   const reviewRoot = reviewRootFromTargetPath(report.target?.path, report.review_round);
+  const reportStage = path.basename(relativeReport) === "draft-report.json" ? "draft" : "final";
   const expectedReport = expectedReviewPath(reviewRoot, report.review_round, "report", {
     outcome: report.outcome,
+    stage: reportStage,
   });
   const expectedHuman = expectedReviewPath(reviewRoot, report.review_round, "human", {
     outcome: report.outcome,
+    stage: reportStage,
   });
   if (relativeReport !== expectedReport)
     throw new Error(`report path must equal ${expectedReport}`);
@@ -117,7 +120,7 @@ function renderReviewReport(options) {
   const rawHtml = new Set(["LENS_CARDS", "FINDINGS", "DISAGREEMENTS", "HANDOFFS"]);
   for (const [name, value] of Object.entries(replacements))
     html = html.split(`{{${name}}}`).join(rawHtml.has(name) ? String(value) : escapeHtml(value));
-  if (report.outcome !== "passed" && fs.existsSync(outputPath))
+  if (reportStage === "final" && report.outcome !== "passed" && fs.existsSync(outputPath))
     throw new Error("refusing to overwrite immutable non-passing human report");
   writeTextAtomic(outputPath, html, { fileMode: 0o600 });
   return {

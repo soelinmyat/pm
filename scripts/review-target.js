@@ -8,6 +8,7 @@ const path = require("node:path");
 const { allocateLenses, LENSES } = require("./lib/review-contract");
 const { writeJsonAtomic } = require("./lib/atomic-file");
 const {
+  expectedPriorReportPath,
   expectedReviewPath,
   requireReviewPath,
   reviewRootFromTargetPath,
@@ -297,6 +298,15 @@ function main(argv = process.argv.slice(2)) {
   try {
     const options = parseArgs(argv);
     validateGitPath(options.outPath);
+    const requestedRound = positiveInt(options.round || 1, "round");
+    const requestedRoot = reviewRootFromTargetPath(options.outPath, requestedRound);
+    if (
+      requestedRound > 1 &&
+      options.priorReportPath !== expectedPriorReportPath(requestedRoot, requestedRound)
+    )
+      throw new Error(
+        `prior report path must equal ${expectedPriorReportPath(requestedRoot, requestedRound)}`
+      );
     const target = buildReviewTarget(options);
     const reviewRoot = reviewRootFromTargetPath(options.outPath, target.review_round);
     requireReviewPath(

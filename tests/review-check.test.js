@@ -12,7 +12,11 @@ const { checkReview, expandFromReport } = require("../scripts/review-check");
 const { renderReviewReport } = require("../scripts/review-report");
 const { buildReviewTarget, changedFileInventory } = require("../scripts/review-target");
 const { findingId } = require("../scripts/lib/review-contract");
-const { expectedReviewPath, reviewRootFromTargetPath } = require("../scripts/lib/review-paths");
+const {
+  expectedPriorReportPath,
+  expectedReviewPath,
+  reviewRootFromTargetPath,
+} = require("../scripts/lib/review-paths");
 const { resolveBrowser } = require("../scripts/artifact-render-check");
 
 let installedBrowser = null;
@@ -162,10 +166,56 @@ test("review paths bind each round and reserve the canonical root for passes", (
     expectedReviewPath(reviewRoot, 2, "report", { outcome: "passed" }),
     ".pm/dev-sessions/example/review/report.json"
   );
+  assert.equal(
+    expectedPriorReportPath(reviewRoot, 2),
+    ".pm/dev-sessions/example/review/round-1/report.json"
+  );
   assert.throws(
     () => reviewRootFromTargetPath(".pm/dev-sessions/example/review/target.json", 2),
     /round-2\/target\.json/
   );
+});
+
+test("later targets reject a copied prior report outside the preceding round path", () => {
+  const fixture = makeFixture({ maxWorkers: 6 });
+  setFindingForLens(fixture, "bug", validFinding("bug"));
+  const roundOne = generate(fixture, {
+    reportPath: fixture.roundReportPath,
+    htmlPath: fixture.roundHtmlPath,
+  });
+  assert.equal(roundOne.ok, true, JSON.stringify(roundOne.issues));
+
+  fs.writeFileSync(path.join(fixture.root, "src/example.js"), "module.exports = { value: 3 };\n");
+  git(fixture.root, ["add", "src/example.js"]);
+  git(fixture.root, ["commit", "-qm", "round two source"]);
+  const targetPath = ".pm/dev-sessions/example/review/round-2/target.json";
+  const target = buildReviewTarget({
+    root: fixture.root,
+    maxWorkers: 3,
+    profile: "codex-workhorse",
+    runId: fixture.target.run_id,
+    round: 2,
+    priorReportPath: fixture.roundReportPath,
+  });
+  const copied = ".pm/dev-sessions/example/review/copied-prior.json";
+  fs.copyFileSync(
+    path.join(fixture.root, fixture.roundReportPath),
+    path.join(fixture.root, copied)
+  );
+  target.prior_report = binding(fixture.root, copied);
+  write(fixture.root, targetPath, target);
+  const result = checkReview({
+    root: fixture.root,
+    targetPath,
+    resultPaths: fixture.resultPaths,
+    reportPath: ".pm/dev-sessions/example/review/round-2/draft-report.json",
+    humanReportPath: ".pm/dev-sessions/example/review/round-2/draft-report.html",
+    reportStage: "draft",
+    writeReport: true,
+    verifyBrowser: false,
+  });
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /round-1\/report\.json/);
 });
 
 test("reviewer cannot emit a finding for an unassigned lens", () => {
@@ -207,6 +257,33 @@ test("malformed evidence returns structured issues instead of throwing", () => {
   });
   assert.equal(result.ok, false);
   assert.match(JSON.stringify(result.issues), /evidence\[0\].*must be an object/);
+});
+
+test("malformed reviewer result shapes return issues instead of throwing during path checks", () => {
+  for (const malformed of [null, "truncated", { schema_version: 1 }]) {
+    const fixture = makeFixture({ maxWorkers: 3 });
+    fs.writeFileSync(
+      path.join(fixture.root, fixture.resultPaths[0]),
+      `${JSON.stringify(malformed)}\n`
+    );
+    let result;
+    assert.doesNotThrow(() => {
+      result = checkReview({
+        root: fixture.root,
+        targetPath: fixture.targetPath,
+        resultPaths: fixture.resultPaths,
+        reportPath: fixture.reportPath,
+        humanReportPath: fixture.htmlPath,
+        writeReport: true,
+        verifyBrowser: false,
+      });
+    });
+    assert.equal(result.ok, false);
+    assert.match(
+      JSON.stringify(result.issues),
+      /must be an object|worker_id|schema, run, and round/
+    );
+  }
 });
 
 test("reuse findings require both changed and reusable source locators", () => {
@@ -336,6 +413,48 @@ test("material reviewer disagreement blocks until an explicit decision", () => {
   assert.match(html, /handoff-qa/);
   assert.match(html, /Maintainer/);
   assert.match(html, /depends on the live runtime flow/);
+});
+
+test("draft synthesis remains replaceable until a non-passing decision is finalized", () => {
+  const fixture = makeFixture({ maxWorkers: 6 });
+  const bug = validFinding("bug");
+  setFindingForLens(fixture, "bug", bug);
+  const draftReport = ".pm/dev-sessions/example/review/round-1/draft-report.json";
+  const draftHtml = ".pm/dev-sessions/example/review/round-1/draft-report.html";
+  const draft = generate(fixture, {
+    reportPath: draftReport,
+    htmlPath: draftHtml,
+    reportStage: "draft",
+  });
+  assert.equal(draft.ok, true, JSON.stringify(draft.issues));
+  renderReviewReport({ root: fixture.root, reportPath: draftReport, outputPath: draftHtml });
+
+  const decisionsPath = ".pm/dev-sessions/example/review/round-1/decisions.json";
+  write(fixture.root, decisionsPath, {
+    schema_version: 1,
+    run_id: fixture.target.run_id,
+    review_round: 1,
+    target: binding(fixture.root, fixture.targetPath),
+    decisions: [
+      {
+        finding_id: bug.id,
+        approver: "Maintainer",
+        action: "defer",
+        rationale: "Track this blocker outside the current delivery window.",
+        decided_at: "2026-07-12T00:06:00Z",
+      },
+    ],
+    checked_at: "2026-07-12T00:06:00Z",
+  });
+  const final = generate(fixture, {
+    decisionsPath,
+    reportPath: fixture.roundReportPath,
+    htmlPath: fixture.roundHtmlPath,
+    reportStage: "final",
+  });
+  assert.equal(final.ok, true, JSON.stringify(final.issues));
+  assert.equal(final.report.outcome, "blocked");
+  assert.equal(final.report.findings[0].decision.action, "defer");
 });
 
 test("renderer escapes reviewer text without treating data as template syntax", () => {
@@ -532,6 +651,7 @@ function generate(fixture, overrides = {}) {
     reportPath: overrides.reportPath || fixture.reportPath,
     humanReportPath: overrides.htmlPath || fixture.htmlPath,
     decisionsPath: overrides.decisionsPath,
+    reportStage: overrides.reportStage,
     writeReport: true,
     verifyBrowser: false,
   });
