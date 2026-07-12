@@ -786,7 +786,7 @@ test(
   () => {
     const fixture = makeFixture({ maxWorkers: 6 });
     const finding = validFinding("quality");
-    const token = `https://example.test/${"unbroken-review-token-".repeat(30)}`;
+    const token = "A".repeat(900);
     finding.issue = token;
     finding.impact = token;
     finding.fix = token;
@@ -808,6 +808,22 @@ test(
         outputDir: path.join(fixture.root, ".pm/long-token-render"),
         browserPath: installedBrowser,
       })
+    );
+    const negativeHtml = path.join(fixture.root, ".pm/long-token-negative.html");
+    fs.writeFileSync(
+      negativeHtml,
+      fs
+        .readFileSync(path.join(fixture.root, fixture.roundHtmlPath), "utf8")
+        .replaceAll("overflow-wrap:anywhere", "overflow-wrap:normal")
+    );
+    assert.throws(
+      () =>
+        renderArtifact({
+          htmlPath: negativeHtml,
+          outputDir: path.join(fixture.root, ".pm/long-token-negative-render"),
+          browserPath: installedBrowser,
+        }),
+      /horizontal document overflow/
     );
   }
 );
