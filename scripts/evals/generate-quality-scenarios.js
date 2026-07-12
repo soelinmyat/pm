@@ -164,6 +164,12 @@ function fixtureFor(workflow, type, caseId, state) {
   }
   if (workflow === "review" && ["happy-path", "repeated-run-variance"].includes(type)) {
     post.push('command-succeeds "npm test"');
+    post.push("file-exists .pm/dev-sessions/feature/review/target.json");
+    post.push("file-exists .pm/dev-sessions/feature/review/report.json");
+    post.push("file-exists .pm/dev-sessions/feature/review/report.html");
+    post.push(
+      'file-matches .pm/dev-sessions/feature/review/report.json "\\\"outcome\\\": \\\"passed\\\""'
+    );
   }
   if (type === "resume") {
     post.push("file-exists .pm/quality/resume-session.json");

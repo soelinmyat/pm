@@ -14,9 +14,9 @@ The review gate is the last quality check before code leaves your machine. Bugs 
 
 ### Skip check
 
-**Verify review ran (standalone invocation guard):** Check `.pm/dev-sessions/*.md` and `.pm/dev-sessions/*.gates.json` for the current branch. Parse the SHA from the `Review gate: passed (commit <sha>)` line that `pm:review` writes and confirm the sidecar has a `review` row for the same SHA. If both equal `git rev-parse HEAD`, skip this step and proceed to push. Log: "Review gate already passed in dev session — skipping."
+**Verify review ran (standalone invocation guard):** Resolve the branch sidecar and its `review` row. The row must be `passed`, equal current HEAD, and point to `review/report.html`. Read sibling `review/report.json`, then run `node "$PM_PLUGIN_ROOT/scripts/review-check.js" --root "$PWD" --report "{REPORT_PATH}" --from-report`. Only a passing current check may skip a new review. Log: "Review gate already passed with current checked evidence — skipping."
 
-If the `Review gate:` line or `review` sidecar row is missing, absent a SHA, or differs from current HEAD, the state is stale — do NOT skip. Re-run review so what ships is what was reviewed.
+If the row, report, any bound result, current SHA, remote base, diff, or browser-checked HTML fails, the state is stale — do NOT skip. Re-run Review so what ships is what was reviewed.
 
 If no state file exists (standalone ship invocation without a dev session), invoke `pm:review` as the gate. Do not skip review for standalone invocations.
 
@@ -28,26 +28,26 @@ Invoke `pm:review` in branch mode (no PR number argument):
 Invoke pm:review (no arguments — it will diff current branch against the default branch)
 ```
 
-This runs review agents in parallel, tiers findings by confidence, auto-fixes high-confidence findings, and commits fixes.
+This freezes the target, plans six logical lenses across available reviewers, validates structured evidence, preserves disagreement, runs bounded fix rounds, and publishes checked JSON plus HTML.
 
 For the full workflow, see `${CLAUDE_PLUGIN_ROOT}/skills/review/SKILL.md`.
 
 If `pm:review` reports "No changes to review", stop — there's nothing to push.
 
-`pm:review` writes `Review gate: passed (commit <sha>)` to `.pm/dev-sessions/{slug}.md` and `review: passed` to `.pm/dev-sessions/{slug}.gates.json` when it completes. That SHA is the attestation that review read the actual commits on HEAD at review time. Every downstream gate (push skip check above, pre-merge verification in Step 07) parses that line and the sidecar row and compares against the current SHA — if any commit is added after, whether a fix, rebase, or merge-loop auto-fix, the recorded SHA will not match and review must re-run before merge.
+`pm:review` writes a current checked report and points the sidecar `review` row to its HTML artifact. The report binds target, commit, remote base, binary diff, reviewer results, decisions, findings, and human projection. Any later commit, rebase, merge-loop fix, or evidence mutation invalidates the check and requires a new round.
 
-Confirm the line and sidecar row were written before proceeding. If either is missing (e.g. `pm:review` aborted mid-flight), treat the gate as not passed and re-invoke.
+Confirm the report checker and sidecar row pass before proceeding. A Markdown line alone is never review evidence.
 
 ### What "passing" means
 
-Review passes when there are no unresolved **critical** findings. The bar by change size:
+Review passes only with complete current logical-lens coverage, no unresolved Review-owned high/critical finding at confidence 80+, and no unresolved reviewer disagreement or decision-required item. The bar by route:
 
 | Size | Review bar |
 |------|-----------|
-| XS/S via `pm:dev` | Code scan attestation is acceptable if the sidecar has `review: passed` for HEAD |
+| XS/S via `pm:dev` | Checked `code-scan` report with bug, edge, reuse, quality, and efficiency coverage |
 | Standalone `pm:ship` | Run `pm:review` unless a current `review` gate already exists |
-| M | All critical findings auto-fixed. Advisory findings noted but don't block. |
-| L/XL | All critical findings auto-fixed. Advisory findings reviewed — fix or explicitly defer with a reason. |
+| M | Checked full report; safe mechanical fixes may run automatically; disputes require decisions. |
+| L/XL | Same machine gate; every handoff, advisory, decision, and fix round remains in the report. |
 
 **Critical findings** are bugs, security issues, data loss risks, or behavioral regressions. These block push — always fix before proceeding.
 
@@ -57,7 +57,7 @@ Review passes when there are no unresolved **critical** findings. The bar by cha
 
 1. **Auto-fixable findings:** Review auto-fixes and commits them. Verify the fixes are correct — don't blindly trust auto-fix on complex logic.
 2. **Manual-fix findings:** Fix them, run tests, commit. Then re-run `pm:review` to confirm the fix didn't introduce new issues.
-3. **Disagreement with a finding:** If you genuinely disagree with a finding, note why in the PR description. Don't silently skip it.
+3. **Disagreement with a finding:** Record an explicit approver, action, and rationale in `decisions.json`. A PR-description note cannot override the machine gate.
 
 ### PR description quality
 

@@ -16,4 +16,8 @@ post() {
   quality-outcome-valid happy-path review
   artifact-contains quality-outcome.json "\"lifecycle\": \"complete\""
   command-succeeds "npm test"
+  file-exists .pm/dev-sessions/feature/review/target.json
+  file-exists .pm/dev-sessions/feature/review/report.json
+  file-exists .pm/dev-sessions/feature/review/report.html
+  file-matches .pm/dev-sessions/feature/review/report.json "\"outcome\": \"passed\""
 }

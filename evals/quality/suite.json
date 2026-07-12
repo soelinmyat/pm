@@ -192,7 +192,7 @@
           "type": "happy-path",
           "prompt_ref": "evals/quality/cases/review.md",
           "scenario_ref": "quality-review-happy-path",
-          "scenario_contract_hash": "sha256:92e1f4346d32cbff80149b593326f396cf6f368338cf1606f11de778428112c8"
+          "scenario_contract_hash": "sha256:4b9d37ec097e921e97a6083b00d9a3978978d709e3b9019ea8b625b4e3ab7a49"
         },
         {
           "id": "review-ambiguous-input",
@@ -234,7 +234,7 @@
           "type": "repeated-run-variance",
           "prompt_ref": "evals/quality/cases/review.md",
           "scenario_ref": "quality-review-repeated-run-variance",
-          "scenario_contract_hash": "sha256:f29cc80f28f3e54506cba5e7b7204d573ce992fb64cd49785fa1428c8edc8d91"
+          "scenario_contract_hash": "sha256:5bd641fe177e3513b57c8c58446514070f023cbae8e56177a6455a59fca58b2a"
         }
       ]
     },

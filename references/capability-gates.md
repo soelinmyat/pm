@@ -15,7 +15,7 @@ Shared classification for optional tools, skills, and runtime features used by P
 
 | Capability | Class | Notes |
 |------------|-------|-------|
-| `delegation` | `runtime-specific` | Required only when a workflow explicitly chooses delegated execution. Inline execution must remain available in Codex. **Scoped default-on:** for short-lived read-only review waves (the `pm:review` 6-lens fan-out and groom's scope/team review waves), Codex uses `spawn_agent`/`wait_agent` parallel dispatch by default — inline-sequential only when `spawn_agent` is genuinely unavailable. Stays default-off for mutating/implementation agents. |
+| `delegation` | `runtime-specific` | Required only when a workflow explicitly chooses delegated execution. Inline execution must remain available in Codex. **Scoped default-on:** for short-lived read-only review waves (the `pm:review` target-planned logical-lens wave and groom's scope/team review waves), Codex uses `spawn_agent`/`wait_agent` parallel dispatch by default — inline-sequential only when `spawn_agent` is genuinely unavailable. Stays default-off for mutating/implementation agents. |
 | `persistent_workers` | `runtime-specific` | Required only for resumable delegated worker flows. Claude normally has this. Codex only has it when delegation is enabled. |
 | `gh` for PR creation/merge | `required` when the chosen path creates or merges a PR | Detect early and stop only on PR-required paths. |
 | `pm:review` | built-in | Always available. In-house multi-agent review via `agent-runtime.md` (6 lenses: bugs, design, input edge-case, reuse, quality, efficiency — the last three absorbed from the former `pm:simplify` in v1.9). Runtime-uniform — no external command dependency. No availability check needed. |

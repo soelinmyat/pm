@@ -133,10 +133,62 @@ function checkGateManifest(manifest, opts = {}) {
   }
 
   if (requiredGates.includes("review")) {
-    validateReviewLenses(byName.get("review"), manifestPath, sessionContext, issues);
+    const reviewGate = byName.get("review");
+    validateReviewLenses(reviewGate, manifestPath, sessionContext, issues);
+    validateReviewReportArtifact(reviewGate, manifestPath, artifactRoot, currentCommit, issues);
   }
 
   return { ok: issues.length === 0, issues };
+}
+
+function validateReviewReportArtifact(
+  reviewGate,
+  manifestPath,
+  artifactRoot,
+  currentCommit,
+  issues
+) {
+  if (!reviewGate || reviewGate.status !== "passed" || reviewGate.evidence_kind === undefined)
+    return;
+  if (reviewGate.evidence_kind !== "review-report-v1") {
+    issues.push(issue(manifestPath, "review evidence_kind must equal review-report-v1"));
+    return;
+  }
+  const htmlPath = resolveArtifactPath(reviewGate.artifact, artifactRoot);
+  if (
+    path.basename(htmlPath) !== "report.html" ||
+    path.basename(path.dirname(htmlPath)) !== "review"
+  ) {
+    issues.push(issue(manifestPath, "review-report-v1 artifact must point to review/report.html"));
+    return;
+  }
+  const reportPath = path.join(path.dirname(htmlPath), "report.json");
+  if (!fs.existsSync(reportPath)) {
+    issues.push(issue(manifestPath, "review-report-v1 requires sibling review/report.json"));
+    return;
+  }
+  try {
+    const root = path.resolve(artifactRoot || process.cwd());
+    const relative = path.relative(root, reportPath).split(path.sep).join("/");
+    const { checkReview, expandFromReport } = require("./review-check");
+    const result = checkReview(expandFromReport({ root, reportPath: relative, fromReport: true }));
+    if (!result.ok)
+      issues.push(
+        issue(
+          manifestPath,
+          `review-report-v1 failed current validation: ${result.issues
+            .slice(0, 3)
+            .map((item) => `${item.path}: ${item.message}`)
+            .join("; ")}`
+        )
+      );
+    if (result.report?.source?.commit !== currentCommit || result.report?.outcome !== "passed")
+      issues.push(
+        issue(manifestPath, "review-report-v1 must be passed and bound to current commit")
+      );
+  } catch (error) {
+    issues.push(issue(manifestPath, `cannot validate review-report-v1: ${error.message}`));
+  }
 }
 
 // The v1.9 absorption of simplify into review is enforceable, not prose-only:

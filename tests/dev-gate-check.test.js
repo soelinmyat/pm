@@ -91,6 +91,41 @@ test("dev gate checker accepts required gates tied to the current commit", () =>
   assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
 });
 
+test("review-report-v1 gate requires the canonical sibling machine report", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-gate-"));
+  try {
+    const artifact = path.join(root, ".pm/dev-sessions/example/review/report.html");
+    fs.mkdirSync(path.dirname(artifact), { recursive: true });
+    fs.writeFileSync(artifact, "<!doctype html><title>Review</title>");
+    const result = checkGateManifest(
+      manifest([
+        gate("review", "abc123", {
+          artifact: path.relative(root, artifact),
+          evidence_kind: "review-report-v1",
+        }),
+      ]),
+      {
+        currentCommit: "abc123",
+        requiredGates: ["review"],
+        artifactRoot: root,
+      }
+    );
+    assert.equal(result.ok, false);
+    assert.match(JSON.stringify(result.issues), /requires sibling review\/report\.json/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("review gate rejects unknown evidence contract versions", () => {
+  const result = checkGateManifest(
+    manifest([gate("review", "abc123", { evidence_kind: "review-report-v9" })]),
+    { currentCommit: "abc123", requiredGates: ["review"] }
+  );
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /evidence_kind must equal review-report-v1/);
+});
+
 test("canonical gate manifests are bound to the active session run ID", () => {
   const rows = [gate("review"), gate("verification")];
   const ok = checkGateManifest(manifest(rows, { run_id: "dev_current" }), {

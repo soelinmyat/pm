@@ -11,7 +11,7 @@ The workflow contract is provider-neutral. Provider details live in `scripts/dev
 
 ## Capability Flags
 
-**Scoped exception — short-lived read-only review waves.** The `pm:review` 6-lens fan-out and groom's scope/team review waves use parallel dispatch by default when native subagents are available. Keep delegation default-off for anything that mutates files or owns a lifecycle. Inline-sequential remains the fallback only when `spawn_agent` is genuinely unavailable or the user deliberately opts out.
+**Scoped exception — short-lived read-only review waves.** The `pm:review` target-planned logical-lens wave and groom's scope/team review waves use parallel dispatch by default when native subagents are available. Review adapts 1–6 physical reviewers without dropping applicable logical lenses. Keep delegation default-off for anything that mutates files or owns a lifecycle. Inline-sequential remains the fallback only when `spawn_agent` is genuinely unavailable or the user deliberately opts out.
 
 ### Codex inline execution
 

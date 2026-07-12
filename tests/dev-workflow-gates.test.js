@@ -43,13 +43,16 @@ test("separate quality phases record gate evidence and run the checker", () => {
 
 test("review absorbed the simplify lenses (v1.9)", () => {
   const skill = read("skills/review/SKILL.md");
-  assert.match(skill, /category: bug \| design \| edge \| reuse \| quality \| efficiency/);
-  assert.match(skill, /Lens 4: Code reuse/);
-  assert.match(skill, /Lens 5: Code quality/);
-  assert.match(skill, /Lens 6: Efficiency/);
-  assert.match(skill, /category: reuse/);
-  assert.match(skill, /category: quality/);
-  assert.match(skill, /category: efficiency/);
+  const briefs = read("skills/review/references/reviewer-briefs.md");
+  const contract = read("scripts/lib/review-contract.js");
+  assert.match(skill, /six logical lenses/);
+  assert.match(briefs, /`bug`/);
+  assert.match(briefs, /`design`/);
+  assert.match(briefs, /`edge`/);
+  assert.match(briefs, /`reuse`/);
+  assert.match(briefs, /`quality`/);
+  assert.match(briefs, /`efficiency`/);
+  assert.match(contract, /"bug", "design", "edge", "reuse", "quality", "efficiency"/);
   // the dev step is gone; the skill file survives only as a deprecation stub
   // (the pre-push hook requires a SKILL.md for every configured command)
   const stub = read("skills/simplify/SKILL.md");
@@ -97,34 +100,35 @@ test("design critique uses the bound two-mode evidence contract", () => {
   );
 });
 
-test("review skip requires or repairs the review sidecar", () => {
-  const text = read("skills/review/SKILL.md");
-  assert.match(text, /do not skip yet/);
-  assert.match(text, /confirm it has `review: passed`/);
-  assert.match(text, /repair the sidecar `review` row/);
-  assert.match(text, /Review path: no reviewable source changes/);
-  assert.match(text, /This is a pass attestation from inspecting the diff, not a skipped gate/);
-  assert.match(text, /without deleting any existing gate rows/);
-  assert.match(text, /"schema_version": 1/);
-  assert.match(text, /"gates": \[/);
-  assert.match(text, /--require review/);
+test("review skip requires a current checked report and gate row", () => {
+  const skill = read("skills/review/SKILL.md");
+  const ship = read("skills/ship/steps/03-review.md");
+  const publish = read("skills/review/steps/05-publish.md");
+  assert.match(skill, /checked `report\.json` and gate row already pass current validation/);
+  assert.match(ship, /review\/report\.html/);
+  assert.match(ship, /review\/report\.json/);
+  assert.match(ship, /review-check\.js/);
+  assert.match(ship, /--from-report/);
+  assert.match(ship, /do NOT skip/);
+  assert.match(publish, /Preserve all other rows/);
+  assert.match(publish, /evidence_kind/);
 });
 
 test("review treats PM plugin Markdown runtime files as reviewable source", () => {
-  const text = read("skills/review/SKILL.md");
-  assert.match(text, /PM plugin exception/);
-  assert.match(
-    text,
-    /`commands\/`, `skills\/`, `templates\/`, `hooks\/`, `scripts\/`, `tests\/`, `references\/`, `agents\/`, `\.githooks\/`, `\.claude-plugin\/`, `\.codex-plugin\/`, and `plugin\.config\.json`/
-  );
-  assert.match(text, /do not treat them as docs-only\/config-only/);
+  const target = read("scripts/review-target.js");
+  const briefs = read("skills/review/references/reviewer-briefs.md");
+  assert.match(target, /changed_files: changedFiles/);
+  assert.match(target, /sha256: digest\(bytes\), bytes: bytes\.length/);
+  assert.doesNotMatch(target, /docs-only|config-only/);
+  assert.match(briefs, /PM plugin runtime Markdown is source/);
 });
 
 test("low-risk S work receives a code scan instead of silently skipping review", () => {
   const risk = read("skills/dev/references/risk-routing.md");
   const review = read("skills/dev/steps/08-review.md");
   assert.match(risk, /low-risk XS\/S work uses the code-scan review mode/);
-  assert.match(review, /routing\.review_mode: code-scan/);
+  assert.match(review, /session\.routing\.review_mode/);
+  assert.match(review, /`code-scan` targets bug, edge, reuse, quality, and efficiency/);
   assert.doesNotMatch(review, /S tasks skip both code scan and full review/);
 });
 

@@ -17,4 +17,8 @@ post() {
   quality-outcome-valid repeated-run-variance review
   artifact-contains quality-outcome.json "\"repeat_control\": \"frozen\""
   command-succeeds "npm test"
+  file-exists .pm/dev-sessions/feature/review/target.json
+  file-exists .pm/dev-sessions/feature/review/report.json
+  file-exists .pm/dev-sessions/feature/review/report.html
+  file-matches .pm/dev-sessions/feature/review/report.json "\"outcome\": \"passed\""
 }

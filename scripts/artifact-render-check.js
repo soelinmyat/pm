@@ -3,6 +3,7 @@
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { spawnSync } = require("node:child_process");
@@ -109,7 +110,10 @@ function baseArgs() {
   return [
     "--headless=new",
     "--disable-background-networking",
+    "--disable-component-update",
+    "--disable-default-apps",
     "--disable-extensions",
+    "--disable-gpu",
     "--disable-sync",
     "--metrics-recording-only",
     "--no-first-run",
@@ -117,17 +121,22 @@ function baseArgs() {
 }
 
 function runBrowser(browserPath, args) {
-  const result = spawnSync(browserPath, args, {
-    encoding: "utf8",
-    timeout: 60_000,
-    maxBuffer: 2 * 1024 * 1024,
-  });
-  if (result.error) throw new Error(`browser launch failed: ${result.error.message}`);
-  if (result.status !== 0) {
-    const detail = (result.stderr || result.stdout || "unknown error").trim().slice(0, 500);
-    throw new Error(`browser exited ${result.status}: ${detail}`);
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-browser-"));
+  try {
+    const result = spawnSync(browserPath, [`--user-data-dir=${profileDir}`, ...args], {
+      encoding: "utf8",
+      timeout: 60_000,
+      maxBuffer: 2 * 1024 * 1024,
+    });
+    if (result.error) throw new Error(`browser launch failed: ${result.error.message}`);
+    if (result.status !== 0) {
+      const detail = (result.stderr || result.stdout || "unknown error").trim().slice(0, 500);
+      throw new Error(`browser exited ${result.status}: ${detail}`);
+    }
+    return result;
+  } finally {
+    fs.rmSync(profileDir, { recursive: true, force: true });
   }
-  return result;
 }
 
 function captureMetrics(browserPath, htmlPath, outputDir, viewport) {
@@ -164,9 +173,17 @@ function captureMetrics(browserPath, htmlPath, outputDir, viewport) {
   }
 }
 
-function probeDataMarkerVisibility(browserPath, htmlPath, outputDir = path.dirname(htmlPath)) {
+function probeDataMarkerVisibility(
+  browserPath,
+  htmlPath,
+  outputDir = path.dirname(htmlPath),
+  attributePrefix = "data-dc-"
+) {
+  if (!/^data-[a-z0-9-]+-$/.test(attributePrefix))
+    throw new Error("marker attribute prefix must be a safe data-* prefix ending in '-'");
   const source = fs.readFileSync(htmlPath, "utf8");
   const markerId = `pm-data-marker-visibility-${crypto.randomBytes(12).toString("hex")}`;
+  const prefix = JSON.stringify(attributePrefix);
   const probe = `<script>(()=>{
     const intersects=(left,right)=>left.right>right.left&&left.left<right.right&&left.bottom>right.top&&left.top<right.bottom;
     const geometry=(rawRects,element)=>{
@@ -207,7 +224,7 @@ function probeDataMarkerVisibility(browserPath, htmlPath, outputDir = path.dirna
       }
       return {text:visible.join(" "),firstScreenText:firstScreen.join(" ")};
     };
-    const markers=Array.from(document.querySelectorAll("*")).filter((element)=>Array.from(element.attributes).some((attribute)=>attribute.name.startsWith("data-dc-"))).map((element)=>({attributes:Object.fromEntries(Array.from(element.attributes).filter((attribute)=>attribute.name.startsWith("data-dc-")).map((attribute)=>[attribute.name,attribute.value])),...textVisibility(element),...geometry(element.getClientRects(),element)}));
+    const markers=Array.from(document.querySelectorAll("*")).filter((element)=>Array.from(element.attributes).some((attribute)=>attribute.name.startsWith(${prefix}))).map((element)=>({attributes:Object.fromEntries(Array.from(element.attributes).filter((attribute)=>attribute.name.startsWith(${prefix})).map((attribute)=>[attribute.name,attribute.value])),...textVisibility(element),...geometry(element.getClientRects(),element)}));
     const marker=document.createElement("meta");marker.id="${markerId}";marker.setAttribute("data-json",encodeURIComponent(JSON.stringify(markers)));document.head.append(marker)
   })();</script>`;
   const bodyClose = findClosingBodyIndex(source);

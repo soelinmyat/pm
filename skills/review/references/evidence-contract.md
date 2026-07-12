@@ -1,0 +1,102 @@
+# Review Evidence Contract
+
+## Files
+
+Store the chain under `.pm/dev-sessions/{slug}/review/`:
+
+```text
+target.json
+results/{worker-id}.json
+decisions.json          # only when decisions exist
+report.json
+report.html
+renders/
+```
+
+All paths are project-relative regular files. Symlinks, traversal, absolute paths, stale bindings, unknown fields, and JSON over 4 MiB fail.
+
+## Target
+
+Generate `target.json` with `scripts/review-target.js`. It freezes:
+
+- run ID, round 1–3, iteration cap 3, mode, timestamp;
+- current commit, authoritative remote base ref/object, and binary diff SHA-256;
+- sorted changed-file status, old path, current byte hash, and byte count;
+- optional exact acceptance, Design Critique, and prior-report bindings;
+- non-overlapping gate ownership;
+- every logical lens with applicability and reason;
+- every physical reviewer with exact profile, runtime, and assigned lenses.
+
+Rounds after 1 bind the immediately prior non-passing report for the same run. Round 1 cannot bind a prior report.
+
+## Results
+
+One result is required for every allocation row. Result run, round, target binding, source, worker, profile, runtime, and ordered lens list exactly match the target. `verdicts` covers every assigned lens exactly once with `clean` or `findings`; the outcome agrees with emitted finding categories.
+
+Findings use the schema in `reviewer-briefs.md`. Deterministic identity is `rv-` plus the first 20 lowercase SHA-256 hex characters over compact JSON:
+
+```text
+[normalized file, line_start, line_end, normalized rule, sorted normalized "kind:ref" evidence]
+```
+
+Category is deliberately excluded so independent lenses can converge on the same defect. A reviewer may emit only assigned categories. The primary file must be changed and line ranges must exist in current text (deleted-file diff locations remain valid).
+
+Evidence locator forms:
+
+| Kind | Locator |
+|---|---|
+| `source`, `test`, `contract`, `design-token` | `project/path:line[-line]` |
+| `trace`, `benchmark` | `artifact:project/path#locator` |
+| `upstream-gate` | `project/path/to/gate-artifact.json` |
+
+Required support by category is checked. Evidence files and line bounds must exist; deleted changed source is resolved from the frozen diff.
+
+## Decisions
+
+`decisions.json` binds the same target/run/round. Each unique current finding decision contains `finding_id`, human `approver`, action, concrete rationale, and RFC 3339 timestamp. Actions are:
+
+- `keep-review`
+- `handoff-design`
+- `handoff-qa`
+- `dismiss`
+- `defer`
+
+Never infer approver identity or create a decision from reviewer majority.
+
+## Canonical merge
+
+Exact IDs merge. Keep all signals. Use maximum confidence, highest severity, and the strongest signal's detail. Different owner, severity spread greater than one tier, fix kind, disposition, or decision requirement creates a dispute. A current decision resolves the gate-level dispute without deleting the signals.
+
+Auto-fix eligibility requires all of: Review owner, open, confidence at least 80, `fix_kind: mechanical`, not disputed, not decision-required. Eligibility is a ceiling; the root still verifies the code before editing.
+
+Outcome policy:
+
+- `failed`: unresolved Review-owned high/critical finding at confidence 80+.
+- `blocked`: unresolved disagreement/decision, or deferred Review-owned high/critical finding.
+- `passed`: complete logical coverage and neither condition above.
+
+Design Critique and QA owners become handoffs. They do not change Review's outcome.
+
+## Report and HTML
+
+Generate canonical `report.json` with `review-check.js --write-report`. It binds target, every result, decisions, prior report, source identity, coverage, findings/signals, blockers, disputes, auto-fix eligibility, handoffs, top issue, and next action.
+
+Render `report.html` with `scripts/review-report.js`, which uses `references/templates/review-report.html`. Metadata generator is exactly `pm:review` plus `plugin.config.json` version. Metadata source binds `report.json`; evidence binds target, every result, and decisions. Unresolved tokens fail.
+
+The first screenful visibly binds outcome, round, blocker count, top issue, and next action. Every finding marker visibly includes issue, impact, fix, owner, evidence refs, signals, dispute/decision state, and verification. Structural and real-browser validation ignore hidden/offscreen/clipped text.
+
+## Commands
+
+Generate the canonical report:
+
+```bash
+node "$PM_PLUGIN_ROOT/scripts/review-check.js" \
+  --root "$PWD" \
+  --target ".pm/dev-sessions/{slug}/review/target.json" \
+  --result ".pm/dev-sessions/{slug}/review/results/reviewer-1.json" \
+  --report ".pm/dev-sessions/{slug}/review/report.json" \
+  --human-report ".pm/dev-sessions/{slug}/review/report.html" \
+  --write-report
+```
+
+Repeat `--result` for every planned reviewer and add `--decisions` when present. After rendering HTML, rerun the same command without `--write-report`.

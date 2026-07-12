@@ -166,7 +166,7 @@ for push_ref_line in "${push_ref_lines[@]}"; do
   if [[ -f "$gate_manifest" ]]; then
     checker_tmp=$(mktemp -d "${TMPDIR:-/tmp}/pm-dev-gate-check.XXXXXX") || exit 1
     checker_archive="$checker_tmp/scripts.tar"
-    if ! git archive --format=tar --output="$checker_archive" "$local_oid" scripts; then
+    if ! git archive --format=tar --output="$checker_archive" "$local_oid" scripts plugin.config.json; then
       rm -rf "$checker_tmp"
       echo "ERROR: unable to archive scripts from pushed commit $local_oid."
       exit 1

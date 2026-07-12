@@ -1,0 +1,281 @@
+#!/usr/bin/env node
+"use strict";
+
+const crypto = require("node:crypto");
+const { execFileSync } = require("node:child_process");
+const fs = require("node:fs");
+const path = require("node:path");
+const { allocateLenses, LENSES } = require("./lib/review-contract");
+const { writeJsonAtomic } = require("./lib/atomic-file");
+
+const UI_SOURCE =
+  /(^|\/)(components?|screens?|pages?|routes?|views?|layouts?|design-system|styles?|theme|copy|locales?|i18n)(\/|$)|\.(tsx|jsx|css|scss|sass|less|vue|svelte|html?|astro|erb|ejs|hbs|liquid|twig|mdx)$/i;
+
+function buildReviewTarget(options) {
+  const root = fs.realpathSync(path.resolve(options.root || process.cwd()));
+  const commit = git(root, ["rev-parse", "HEAD"]).trim();
+  if (options.commit && options.commit !== commit)
+    throw new Error(`supplied commit must equal current HEAD ${commit}`);
+  const trusted = resolveTrustedBase(root);
+  const baseRef = options.baseRef || trusted.ref;
+  const baseCommit = options.baseCommit || trusted.commit;
+  if (baseRef !== trusted.ref) throw new Error(`base must equal remote default ${trusted.ref}`);
+  if (baseCommit !== trusted.commit)
+    throw new Error(`base commit must equal remote default ${trusted.commit}`);
+  const diff = git(root, ["diff", "--binary", `${baseCommit}...${commit}`], null);
+  const changedFiles = changedFileInventory(root, baseCommit, commit);
+  if (changedFiles.length === 0) throw new Error("review target has no changed files");
+  if (changedFiles.length > 500) throw new Error("review target exceeds the 500-file budget");
+
+  const mode = options.mode || "full";
+  if (!new Set(["full", "code-scan"]).has(mode)) throw new Error("mode must be full or code-scan");
+  const logical = mode === "full" ? [...LENSES] : LENSES.filter((lens) => lens !== "design");
+  const designApplicable = changedFiles.some((item) => UI_SOURCE.test(item.path));
+  const designEvidence = optionalBinding(
+    root,
+    options.designCritiquePath,
+    "design critique report"
+  );
+  const lenses = logical.map((name) => {
+    if (name !== "design")
+      return { name, applicable: true, reason: "required source-quality lens" };
+    if (!designApplicable) return { name, applicable: false, reason: "no UI source files changed" };
+    return {
+      name,
+      applicable: true,
+      reason: "UI source changed; inspect source-level design-system compliance only",
+    };
+  });
+  const profile = loadProfile(options.profile || "codex-workhorse");
+  const maxWorkers = positiveInt(options.maxWorkers || 3, "max workers");
+  const allocation = allocateLenses(
+    lenses.filter((item) => item.applicable).map((item) => item.name),
+    maxWorkers,
+    options.profile || "codex-workhorse"
+  ).map((worker) => ({ ...worker, runtime: profile }));
+  const round = positiveInt(options.round || 1, "round");
+  if (round > 3) throw new Error("review round cannot exceed 3");
+  const priorReport = optionalFileBinding(root, options.priorReportPath, "prior report");
+  if (round > 1 && !priorReport) throw new Error("rounds after 1 require a prior report binding");
+  if (round === 1 && priorReport) throw new Error("round 1 cannot bind a prior report");
+  const acceptance = optionalFileBinding(root, options.acceptancePath, "acceptance criteria");
+
+  return {
+    schema_version: 1,
+    run_id: options.runId || `review-${crypto.randomUUID()}`,
+    review_round: round,
+    iteration_cap: 3,
+    created_at: new Date().toISOString(),
+    mode,
+    source: {
+      commit,
+      base_ref: baseRef,
+      base_commit: baseCommit,
+      diff_sha256: digest(diff),
+    },
+    changed_files: changedFiles,
+    acceptance,
+    upstream: { design_critique: designEvidence },
+    ownership: {
+      review: ["source-correctness", "contracts", "tests", "reuse", "quality", "efficiency"],
+      design_critique: ["rendered-hierarchy", "density", "responsive-craft", "print-craft"],
+      qa: ["live-behavior", "navigation", "state-transitions", "integrations"],
+    },
+    lenses,
+    allocation,
+    prior_report: priorReport,
+  };
+}
+
+function resolveTrustedBase(root) {
+  let output;
+  try {
+    output = execFileSync("git", ["ls-remote", "--symref", "origin", "HEAD"], {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "Never" },
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 15_000,
+    });
+  } catch (error) {
+    const detail =
+      error.code === "ETIMEDOUT" || error.signal
+        ? "timed out after 15 seconds with prompts disabled"
+        : String(error.stderr || error.message)
+            .trim()
+            .slice(0, 300);
+    throw new Error(`cannot resolve authoritative origin default: ${detail}`);
+  }
+  const branch = output.match(/^ref:\s+refs\/heads\/([^\s]+)\s+HEAD$/m)?.[1];
+  const commit = output.match(/^([a-f0-9]{40,64})\s+HEAD$/m)?.[1];
+  if (!branch || !commit) throw new Error("origin HEAD lacks a symbolic ref or object ID");
+  return { ref: `origin/${branch}`, commit };
+}
+
+function changedFileInventory(root, baseCommit, commit) {
+  const raw = git(root, ["diff", "--name-status", "-z", `${baseCommit}...${commit}`], null);
+  const fields = raw.toString("utf8").split("\0");
+  if (fields.at(-1) === "") fields.pop();
+  const rows = [];
+  for (let index = 0; index < fields.length; ) {
+    const status = fields[index++];
+    if (!/^(?:[ACDMRTUXB]|R\d{1,3}|C\d{1,3})$/.test(status))
+      throw new Error(`unsupported git status ${status}`);
+    let oldPath = null;
+    let filePath = fields[index++];
+    if (/^[RC]/.test(status)) {
+      oldPath = filePath;
+      filePath = fields[index++];
+    }
+    validateGitPath(filePath);
+    if (oldPath) validateGitPath(oldPath);
+    const deleted = status === "D";
+    const binding = deleted ? { sha256: null, bytes: null } : bindWorkingFile(root, filePath);
+    rows.push({ path: filePath, old_path: oldPath, status, ...binding });
+  }
+  return rows.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+function bindWorkingFile(root, relative) {
+  const absolute = path.resolve(root, relative);
+  if (path.relative(root, absolute).startsWith(".."))
+    throw new Error(`changed path escapes root: ${relative}`);
+  const stat = fs.lstatSync(absolute);
+  if (!stat.isFile() || stat.isSymbolicLink())
+    throw new Error(`changed path must be a regular non-symlink file: ${relative}`);
+  if (stat.size > 64 * 1024 * 1024) throw new Error(`changed file exceeds 64 MiB: ${relative}`);
+  const real = fs.realpathSync(absolute);
+  if (real !== root && !real.startsWith(`${root}${path.sep}`))
+    throw new Error(`changed file resolves outside root: ${relative}`);
+  const bytes = fs.readFileSync(real);
+  return { sha256: digest(bytes), bytes: bytes.length };
+}
+
+function optionalBinding(root, relative, label) {
+  const binding = optionalFileBinding(root, relative, label);
+  if (!binding) return null;
+  let value;
+  try {
+    value = JSON.parse(fs.readFileSync(path.join(root, binding.path), "utf8"));
+  } catch (error) {
+    throw new Error(`${label} must be valid JSON: ${error.message}`);
+  }
+  return { ...binding, commit: value.commit || null, outcome: value.outcome || null };
+}
+
+function optionalFileBinding(root, relative, label) {
+  if (!relative) return null;
+  validateGitPath(relative);
+  const absolute = path.resolve(root, relative);
+  if (path.relative(root, absolute).startsWith("..")) throw new Error(`${label} escapes root`);
+  const stat = fs.lstatSync(absolute);
+  if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`${label} must be a regular file`);
+  const real = fs.realpathSync(absolute);
+  if (real !== root && !real.startsWith(`${root}${path.sep}`))
+    throw new Error(`${label} resolves outside project root`);
+  const bytes = fs.readFileSync(real);
+  return { path: path.relative(root, real).split(path.sep).join("/"), sha256: digest(bytes) };
+}
+
+function loadProfile(name) {
+  const profiles = JSON.parse(
+    fs.readFileSync(path.join(__dirname, "..", "skills/dev/references/model-profiles.json"), "utf8")
+  ).profiles;
+  const profile = profiles?.[name];
+  if (!profile || !new Set(["codex", "claude", "inline"]).has(profile.provider))
+    throw new Error(`unknown or invalid review profile ${name}`);
+  if (!profile.model || !profile.effort || profile.externalEffects !== false)
+    throw new Error(`review profile ${name} lacks safe model metadata`);
+  return {
+    provider: profile.provider,
+    model: profile.model,
+    effort: profile.effort,
+    external_effects: false,
+  };
+}
+
+function validateGitPath(value) {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > 4096 ||
+    path.isAbsolute(value) ||
+    value.split(/[\\/]/).includes("..") ||
+    value.includes("\0")
+  )
+    throw new Error(`invalid project-relative path: ${String(value)}`);
+}
+
+function git(root, args, encoding = "utf8") {
+  return execFileSync("git", args, {
+    cwd: root,
+    encoding,
+    stdio: ["ignore", "pipe", "pipe"],
+    maxBuffer: 64 * 1024 * 1024,
+  });
+}
+
+function digest(bytes) {
+  return crypto.createHash("sha256").update(bytes).digest("hex");
+}
+
+function positiveInt(value, label) {
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < 1)
+    throw new Error(`${label} must be a positive integer`);
+  return number;
+}
+
+function parseArgs(argv) {
+  const out = {};
+  const map = {
+    "--root": "root",
+    "--out": "outPath",
+    "--run-id": "runId",
+    "--round": "round",
+    "--mode": "mode",
+    "--profile": "profile",
+    "--max-workers": "maxWorkers",
+    "--base": "baseRef",
+    "--base-commit": "baseCommit",
+    "--commit": "commit",
+    "--acceptance": "acceptancePath",
+    "--design-critique": "designCritiquePath",
+    "--prior-report": "priorReportPath",
+  };
+  for (let index = 0; index < argv.length; index += 1) {
+    const key = map[argv[index]];
+    if (!key) throw new Error(`unknown argument ${argv[index]}`);
+    const value = argv[++index];
+    if (!value || value.startsWith("--")) throw new Error(`${argv[index - 1]} requires a value`);
+    out[key] = value;
+  }
+  if (!out.outPath) throw new Error("--out is required");
+  return out;
+}
+
+function main(argv = process.argv.slice(2)) {
+  try {
+    const options = parseArgs(argv);
+    validateGitPath(options.outPath);
+    const target = buildReviewTarget(options);
+    writeJsonAtomic(path.resolve(options.root || process.cwd(), options.outPath), target, {
+      fileMode: 0o600,
+    });
+    process.stdout.write(`${JSON.stringify(target, null, 2)}\n`);
+    return 0;
+  } catch (error) {
+    process.stderr.write(`${error.message}\n`);
+    return 1;
+  }
+}
+
+if (require.main === module) process.exitCode = main();
+
+module.exports = {
+  buildReviewTarget,
+  changedFileInventory,
+  loadProfile,
+  parseArgs,
+  resolveTrustedBase,
+};
