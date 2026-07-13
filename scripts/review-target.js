@@ -138,20 +138,18 @@ function resolveTrustedBase(root, remote = "origin") {
   const configured = git(root, ["remote"]).trim().split(/\r?\n/).filter(Boolean);
   if (remote === "." || !configured.includes(remote))
     throw new Error("authoritative remote must be an exact configured remote name");
-  const readUrls = (key) => {
-    try {
-      return git(root, ["config", "--get-all", key]).trim().split(/\r?\n/).filter(Boolean);
-    } catch {
-      return [];
-    }
-  };
-  const pushUrls = readUrls(`remote.${remote}.pushurl`);
-  if (pushUrls.length > 1)
-    throw new Error(`${remote} has multiple push URLs and cannot bind one delivery destination`);
-  const fetchUrls = readUrls(`remote.${remote}.url`);
-  if (pushUrls.length === 0 && fetchUrls.length > 1)
-    throw new Error(`${remote} has multiple delivery URLs and cannot bind one destination`);
-  const remoteTarget = pushUrls[0] || fetchUrls[0];
+  let effectivePushUrls;
+  try {
+    effectivePushUrls = git(root, ["remote", "get-url", "--push", "--all", "--", remote])
+      .trim()
+      .split(/\r?\n/)
+      .filter(Boolean);
+  } catch {
+    effectivePushUrls = [];
+  }
+  if (effectivePushUrls.length > 1)
+    throw new Error(`${remote} has multiple effective push URLs and cannot bind one destination`);
+  const remoteTarget = effectivePushUrls[0];
   if (!remoteTarget) throw new Error(`${remote} has no configured delivery URL`);
   let output;
   try {

@@ -3,21 +3,11 @@
 const { runGit } = require("./loop-git.js");
 
 function deliveryUrl(gitRoot, remoteName) {
-  let pushUrls = [];
   try {
-    pushUrls = runGit(["config", "--get-all", `remote.${remoteName}.pushurl`], gitRoot)
+    const pushUrls = runGit(["remote", "get-url", "--push", "--all", "--", remoteName], gitRoot)
       .split(/\r?\n/)
       .filter(Boolean);
-  } catch {
-    // A remote without pushurl delivers to its ordinary URL.
-  }
-  if (pushUrls.length > 1) return "";
-  if (pushUrls.length === 1) return pushUrls[0];
-  try {
-    const urls = runGit(["config", "--get-all", `remote.${remoteName}.url`], gitRoot)
-      .split(/\r?\n/)
-      .filter(Boolean);
-    return urls.length === 1 ? urls[0] : "";
+    return pushUrls.length === 1 ? pushUrls[0] : "";
   } catch {
     return "";
   }

@@ -494,7 +494,7 @@ test("quoted git -C paths remain one shell word", () => {
     );
     assertBlock(
       runHook("git -c helper=$HELPER push origin HEAD", { cwd: repo }),
-      /verification is failed/
+      /could not determine the repository/
     );
   } finally {
     fs.rmSync(parent, { recursive: true, force: true });
@@ -1194,6 +1194,23 @@ test("dynamic push-option payloads do not obscure a static push identity", () =>
   }
 });
 
+test("invocation-local Git configuration cannot override reviewed push authority", () => {
+  const dir = makeRepo();
+  try {
+    writeGates(dir, "x", passingManifest(dir, "x", headSha(dir)));
+    for (const command of [
+      "git -c remote.origin.pushurl=/tmp/other push origin HEAD",
+      "git -cremote.origin.pushurl=/tmp/other push origin HEAD",
+      "git --config-env remote.origin.pushurl=OVERRIDE push origin HEAD",
+      "git --config-env=remote.origin.pushurl=OVERRIDE push origin HEAD",
+      "GIT_CONFIG_COUNT=1 git push origin HEAD",
+    ])
+      assertBlock(runHook(command, { cwd: dir }), /could not determine the repository/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("a non-push subcommand whose name merely contains 'push' is allowed (substring guard)", () => {
   const dir = makeRepo();
   try {
@@ -1222,6 +1239,21 @@ test("--git-dir= value resolves the target repo for gating", () => {
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
     fs.rmSync(elsewhere, { recursive: true, force: true });
+  }
+});
+
+test("standalone --work-tree does not replace the pushed repository identity", () => {
+  const repo = makeRepo();
+  const other = makeRepo();
+  try {
+    writeFailingGates(repo, "x");
+    assertBlock(
+      runHook(`git --work-tree=${other} push origin HEAD`, { cwd: repo }),
+      /verification is failed/
+    );
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(other, { recursive: true, force: true });
   }
 });
 

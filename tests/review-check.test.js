@@ -218,11 +218,32 @@ test("trusted base binds the remote push URL instead of its fetch URL", () => {
     crypto.createHash("sha256").update(pushRemote).digest("hex")
   );
   git(fixture.root, ["config", "--add", "remote.origin.pushurl", `${pushRemote}-second`]);
-  assert.throws(() => resolveTrustedBase(fixture.root), /multiple push URLs/);
+  assert.throws(() => resolveTrustedBase(fixture.root), /multiple effective push URLs/);
 
   git(fixture.root, ["config", "--unset-all", "remote.origin.pushurl"]);
   git(fixture.root, ["config", "--add", "remote.origin.url", `${pushRemote}-second`]);
-  assert.throws(() => resolveTrustedBase(fixture.root), /multiple delivery URLs/);
+  assert.throws(() => resolveTrustedBase(fixture.root), /multiple effective push URLs/);
+});
+
+test("trusted base binds Git-resolved pushInsteadOf destinations", () => {
+  const fixture = makeFixture({ maxWorkers: 2 });
+  const rewritten = `${fixture.root}-rewritten.git`;
+  git(fixture.root, ["init", "-q", "--bare", rewritten]);
+  execFileSync("git", ["--git-dir", rewritten, "symbolic-ref", "HEAD", "refs/heads/main"]);
+  execFileSync("git", [
+    "--git-dir",
+    rewritten,
+    "fetch",
+    fixture.root,
+    `${fixture.target.source.commit}:refs/heads/main`,
+  ]);
+  const raw = git(fixture.root, ["config", "--get", "remote.origin.url"]).trim();
+  git(fixture.root, ["config", `url.${rewritten}.pushInsteadOf`, raw]);
+  const trusted = resolveTrustedBase(fixture.root);
+  assert.equal(
+    trusted.remote_push_url_sha256,
+    crypto.createHash("sha256").update(rewritten).digest("hex")
+  );
 });
 
 test("named-remote target passes live end-to-end review validation", () => {
