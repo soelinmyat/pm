@@ -178,3 +178,65 @@ test("directory sync errors report committed state without creating retry ambigu
   assert.match(eio.stderr, /committed but directory sync failed \(EIO\); do not retry/);
   assert.equal(fs.readFileSync(path.join(root, eioRelative), "utf8"), "committed");
 });
+
+test("post-commit cleanup failures retain committed do-not-retry state", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-write-cleanup-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const preload = path.join(root, "cleanup-preload.cjs");
+  fs.writeFileSync(
+    preload,
+    `
+      const fs = require("node:fs");
+      let installed = false;
+      const originalLink = fs.linkSync;
+      const originalRename = fs.renameSync;
+      const originalUnlink = fs.unlinkSync;
+      const originalClose = fs.closeSync;
+      fs.linkSync = function(...args) { const value = originalLink.apply(fs, args); installed = true; return value; };
+      fs.renameSync = function(...args) { const value = originalRename.apply(fs, args); installed = true; return value; };
+      fs.unlinkSync = function(...args) {
+        if (process.argv.includes("--child") && installed && process.env.PM_TEST_CLEANUP === "unlink") {
+          const error = new Error("injected temporary unlink failure"); error.code = "EIO"; throw error;
+        }
+        return originalUnlink.apply(fs, args);
+      };
+      fs.closeSync = function(...args) {
+        if (process.argv.includes("--child") && installed && process.env.PM_TEST_CLEANUP === "close") {
+          installed = false;
+          const error = new Error("injected descriptor close failure"); error.code = "EIO"; throw error;
+        }
+        return originalClose.apply(fs, args);
+      };
+    `
+  );
+  const script = `
+    const [root, writer, relative, exclusive] = process.argv.slice(1);
+    const { writeProjectTextAtomic } = require(writer);
+    try {
+      writeProjectTextAtomic(root, relative, "committed", { replace: exclusive !== "true" });
+      process.stdout.write(JSON.stringify({ unexpected: "passed" }));
+    } catch (error) {
+      process.stdout.write(JSON.stringify({ message: error.message, committed: error.committed }));
+    }
+  `;
+  for (const [cleanup, exclusive] of [
+    ["unlink", true],
+    ["close", true],
+    ["close", false],
+  ]) {
+    const relative = `review/${cleanup}-${exclusive ? "exclusive" : "replace"}.json`;
+    const result = spawnSync(
+      process.execPath,
+      ["-e", script, root, writerModule, relative, String(exclusive)],
+      {
+        encoding: "utf8",
+        env: { ...process.env, NODE_OPTIONS: `--require=${preload}`, PM_TEST_CLEANUP: cleanup },
+      }
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const error = JSON.parse(result.stdout);
+    assert.equal(error.committed, true, `${cleanup}/${exclusive}: ${error.message}`);
+    assert.match(error.message, /committed.*do not retry/i);
+    assert.equal(fs.readFileSync(path.join(root, relative), "utf8"), "committed");
+  }
+});

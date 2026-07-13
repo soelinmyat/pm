@@ -126,70 +126,127 @@ function buildReviewTarget(options) {
   };
 }
 
-function assertDevReviewLineage(root, outPath, target) {
+function assertDevReviewLineage(root, outPath, target, options = {}) {
   if (!target.dev_context) return;
   const { canonicalRoot } = reviewPathContext(outPath, target.review_round, target.run_id);
-  const runsRoot = path.join(root, canonicalRoot, "runs");
+  const runsRelative = path.posix.join(canonicalRoot, "runs");
+  const runsRoot = path.join(root, runsRelative);
   if (!fs.existsSync(runsRoot)) return;
+  assertRealDirectory(root, runsRelative);
   const runEntries = fs.readdirSync(runsRoot, { withFileTypes: true });
   if (runEntries.length > 256)
     throw new Error("review lineage exceeds the 256-run inspection budget");
   const targets = [];
   for (const runEntry of runEntries) {
-    if (!runEntry.isDirectory() || runEntry.isSymbolicLink()) continue;
-    const runRoot = path.join(runsRoot, runEntry.name);
+    if (runEntry.isSymbolicLink()) throw new Error("review lineage contains unsafe evidence");
+    if (!runEntry.isDirectory()) continue;
     for (let round = 1; round <= 3; round += 1) {
-      const targetPath = path.join(runRoot, `round-${round}`, "target.json");
-      const value = readRegularJson(targetPath);
+      const targetPath = path.posix.join(
+        runsRelative,
+        runEntry.name,
+        `round-${round}`,
+        "target.json"
+      );
+      const value = readRegularJson(root, targetPath);
       if (
         value?.dev_context?.run_id === target.dev_context.run_id &&
         value.dev_context.decision_version === target.dev_context.decision_version
       )
-        targets.push(value);
+        targets.push({ path: targetPath, value });
     }
   }
   if (targets.length === 0) return;
   targets.sort((left, right) => {
-    const created = Date.parse(left.created_at || "") - Date.parse(right.created_at || "");
-    return created || left.review_round - right.review_round;
+    const created =
+      Date.parse(left.value.created_at || "") - Date.parse(right.value.created_at || "");
+    return created || left.value.review_round - right.value.review_round;
   });
   const latest = targets.at(-1);
-  const canonical = readRegularJson(path.join(root, canonicalRoot, "report.json"));
-  const latestPassed =
+  const canonicalPath = path.posix.join(canonicalRoot, "report.json");
+  const canonical = readRegularJson(root, canonicalPath);
+  const claimsLatestPass =
     canonical?.outcome === "passed" &&
-    canonical.run_id === latest.run_id &&
-    canonical.review_round === latest.review_round &&
-    canonical.source?.commit === latest.source?.commit;
+    canonical.run_id === latest.value.run_id &&
+    canonical.review_round === latest.value.review_round &&
+    canonical.source?.commit === latest.value.source?.commit;
+  let latestPassed = false;
+  if (claimsLatestPass) {
+    const validateCanonicalReport = options.validateCanonicalReport || validateCanonicalReviewPass;
+    try {
+      latestPassed = validateCanonicalReport(root, canonicalPath, latest) === true;
+    } catch (error) {
+      throw new Error(`canonical review lineage report is invalid: ${error.message}`);
+    }
+    if (!latestPassed)
+      throw new Error("canonical review lineage report is invalid: validation failed");
+  }
   if (latestPassed) {
     if (target.review_round !== 1)
       throw new Error("a passed review lineage must be followed by a new round-1 run");
     return;
   }
-  if (target.run_id !== latest.run_id)
+  if (target.run_id !== latest.value.run_id)
     throw new Error(
-      `active review lineage uses run_id ${latest.run_id}; continue it through round ${latest.review_round + 1} instead of resetting the remediation cap`
+      `active review lineage uses run_id ${latest.value.run_id}; continue it through round ${latest.value.review_round + 1} instead of resetting the remediation cap`
     );
-  if (target.review_round !== latest.review_round + 1)
-    throw new Error(`active review lineage must continue at round ${latest.review_round + 1}`);
+  if (target.review_round !== latest.value.review_round + 1)
+    throw new Error(
+      `active review lineage must continue at round ${latest.value.review_round + 1}`
+    );
 }
 
-function readRegularJson(file) {
-  let stat;
+function assertRealDirectory(root, relative) {
+  let current = fs.realpathSync(path.resolve(root));
+  for (const component of relative.split("/")) {
+    current = path.join(current, component);
+    const stat = fs.lstatSync(current);
+    if (stat.isSymbolicLink() || !stat.isDirectory())
+      throw new Error("review lineage contains unsafe evidence");
+  }
+  return current;
+}
+
+function readRegularJson(root, relative) {
+  let input;
   try {
-    stat = fs.lstatSync(file);
+    input = readProjectInput(root, relative, MAX_JSON_BYTES);
   } catch (error) {
     if (error.code === "ENOENT") return null;
     throw error;
   }
-  if (!stat.isFile() || stat.isSymbolicLink())
-    throw new Error("review lineage contains unsafe evidence");
-  if (stat.size > MAX_JSON_BYTES)
-    throw new Error("review lineage evidence exceeds the JSON budget");
   try {
-    return JSON.parse(fs.readFileSync(file, "utf8"));
+    return JSON.parse(input.bytes.toString("utf8"));
   } catch {
     throw new Error("review lineage contains malformed JSON evidence");
   }
+}
+
+function validateCanonicalReviewPass(root, reportPath, latest) {
+  const { checkReview, expandFromReport } = require("./review-check");
+  const checked = checkReview(
+    expandFromReport({
+      root,
+      reportPath,
+      fromReport: true,
+      verifyGit: false,
+      verifyFrozenGit: true,
+      verifyBrowser: false,
+    })
+  );
+  if (!checked.ok)
+    throw new Error(
+      checked.issues
+        .slice(0, 3)
+        .map((issue) => `${issue.path}: ${issue.message}`)
+        .join("; ") || "review checker rejected the report"
+    );
+  return (
+    checked.report?.outcome === "passed" &&
+    checked.report?.target?.path === latest.path &&
+    checked.report?.run_id === latest.value.run_id &&
+    checked.report?.review_round === latest.value.review_round &&
+    checked.report?.source?.commit === latest.value.source?.commit
+  );
 }
 
 function loadDevContext(root, relative, expected) {

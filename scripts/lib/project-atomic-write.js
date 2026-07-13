@@ -44,8 +44,24 @@ function writeProjectFileAtomic(root, relativePath, content, options = {}) {
     }
   );
   if (result.error) throw result.error;
-  if (result.status !== 0)
+  if (result.status !== 0) {
+    let childState = null;
+    try {
+      childState = JSON.parse(result.stdout || "null");
+    } catch {
+      // Preserve the ordinary child failure below.
+    }
+    if (childState?.committed === true) {
+      const failure = new Error(
+        childState.message ||
+          "project output committed but child cleanup failed; do not retry this write"
+      );
+      failure.committed = true;
+      if (childState.error_code) failure.code = childState.error_code;
+      throw failure;
+    }
     throw new Error((result.stderr || result.stdout || "project output write failed").trim());
+  }
   const state = JSON.parse(result.stdout || "{}");
   if (state.committed !== true) throw new Error("project output child omitted committed state");
   try {
@@ -135,10 +151,36 @@ function writeFromAnchoredRoot(relativePath, content, options = {}) {
       ...(durability.errorCode ? { directory_sync_error: durability.errorCode } : {}),
     };
   } catch (error) {
-    if (descriptor !== undefined) fs.closeSync(descriptor);
-    fs.rmSync(temporary, { force: true });
-    if (committed && /changed during atomic commit/.test(error.message))
-      fs.rmSync(basename, { force: true });
+    let cleanupError = null;
+    if (descriptor !== undefined)
+      try {
+        fs.closeSync(descriptor);
+      } catch (closeError) {
+        cleanupError = closeError;
+      }
+    try {
+      fs.rmSync(temporary, { force: true });
+    } catch (removeError) {
+      cleanupError ||= removeError;
+    }
+    if (committed && /changed during atomic commit/.test(error.message)) {
+      try {
+        fs.rmSync(basename, { force: true });
+      } catch (removeError) {
+        cleanupError ||= removeError;
+      }
+      if (!cleanupError) throw error;
+    }
+    if (committed) {
+      const cause = cleanupError || error;
+      const failure = new Error(
+        `project output committed but cleanup failed (${cause.code || "UNKNOWN"}); do not retry this write`
+      );
+      failure.committed = true;
+      failure.code = cause.code || "UNKNOWN";
+      throw failure;
+    }
+    if (cleanupError) throw cleanupError;
     throw error;
   }
 }
@@ -209,7 +251,11 @@ function childMain(argv) {
     process.stdout.write(`${JSON.stringify(state)}\n`);
     return 0;
   } catch (error) {
-    process.stderr.write(`${error.message}\n`);
+    if (error.committed === true) {
+      process.stdout.write(
+        `${JSON.stringify({ committed: true, message: error.message, error_code: error.code || "UNKNOWN" })}\n`
+      );
+    } else process.stderr.write(`${error.message}\n`);
     return 1;
   }
 }

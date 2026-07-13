@@ -959,7 +959,15 @@ test("Dev review lineages cannot reset the three-round cap with a new run ID", (
       outcome: "passed",
       source: first.source,
     });
-    assert.doesNotThrow(() => assertDevReviewLineage(root, targetPath(reset.run_id, 1), reset));
+    assert.throws(
+      () => assertDevReviewLineage(root, targetPath(reset.run_id, 1), reset),
+      /canonical review lineage report is invalid/
+    );
+    assert.doesNotThrow(() =>
+      assertDevReviewLineage(root, targetPath(reset.run_id, 1), reset, {
+        validateCanonicalReport: () => true,
+      })
+    );
 
     const directedReset = target("directed-review", 1, 2, "2026-07-13T00:00:03Z");
     assert.doesNotThrow(() =>
@@ -968,6 +976,48 @@ test("Dev review lineages cannot reset the three-round cap with a new run ID", (
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("Dev review lineage inventory fails closed on symlinked run and round ancestors", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-lineage-link-"));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-lineage-outside-"));
+  t.after(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  });
+  const canonicalRoot = ".pm/dev-sessions/example/review";
+  const next = {
+    run_id: "new-review",
+    review_round: 1,
+    created_at: "2026-07-13T00:00:02Z",
+    source: { commit: "2".repeat(40) },
+    dev_context: { run_id: "dev_example", decision_version: 1 },
+  };
+  const runs = path.join(root, canonicalRoot, "runs");
+  fs.mkdirSync(runs, { recursive: true });
+  fs.symlinkSync(outside, path.join(runs, "linked-run"), "dir");
+  assert.throws(
+    () =>
+      assertDevReviewLineage(
+        root,
+        `${canonicalRoot}/runs/${next.run_id}/round-1/target.json`,
+        next
+      ),
+    /unsafe evidence|symlink/
+  );
+
+  fs.rmSync(path.join(runs, "linked-run"));
+  fs.mkdirSync(path.join(runs, "real-run"));
+  fs.symlinkSync(outside, path.join(runs, "real-run", "round-1"), "dir");
+  assert.throws(
+    () =>
+      assertDevReviewLineage(
+        root,
+        `${canonicalRoot}/runs/${next.run_id}/round-1/target.json`,
+        next
+      ),
+    /symlink/
+  );
 });
 
 test("fresh review paths require an explicit run namespace", () => {
