@@ -603,6 +603,11 @@ test("shell control keywords preserve directory changes before gated pushes", ()
       "time cd gated && git push origin HEAD",
       "time -p cd gated && git push origin HEAD",
       "! cd gated; git push origin HEAD",
+      "MODE=test cd gated && git push origin HEAD",
+      "MODE= cd gated && git push origin HEAD",
+      "command -- cd gated && git push origin HEAD",
+      "builtin -- cd gated && git push origin HEAD",
+      "cd gated; if false; then :; else git push origin HEAD; fi",
     ])
       assertBlock(runHook(command, { cwd: parent }), /verification is failed/);
   } finally {

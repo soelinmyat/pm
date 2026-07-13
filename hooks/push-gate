@@ -104,6 +104,15 @@ function blockUnverified(branch, manifestRel, detail) {
 
 // --- git command detection -------------------------------------------------
 
+const SHELL_CONTROL_PREFIXES = Object.freeze([
+  "if",
+  "elif",
+  "while",
+  "until",
+  "then",
+  "else",
+  "do",
+]);
 const LEADING_WRAPPERS = new Set([
   "env",
   "sudo",
@@ -117,13 +126,8 @@ const LEADING_WRAPPERS = new Set([
   "arch",
   "builtin",
   "exec",
-  "if",
-  "elif",
-  "while",
-  "until",
   "!",
-  "then",
-  "do",
+  ...SHELL_CONTROL_PREFIXES,
 ]);
 const WRAPPER_VALUE_OPTIONS = Object.freeze({
   env: new Set(["-u", "--unset", "-C", "--chdir", "-S", "--split-string", "-P", "-a", "--argv0"]),
@@ -615,11 +619,13 @@ function parseDirectoryChange(segment) {
   const commandText = stripTrailingShellRedirections(withoutControlKeywords);
   if (commandText === null)
     return {
-      recognized: /^(?:(?:builtin|command)\s+)?(?:cd|pushd|popd)\b/.test(withoutControlKeywords),
+      recognized: /^(?:(?:builtin|command)(?:\s+--)?\s+)?(?:cd|pushd|popd)\b/.test(
+        withoutControlKeywords
+      ),
       target: null,
     };
   const match = commandText.match(
-    /^(?:(?:builtin|command)\s+)?(cd|pushd|popd)(?:\s+(-P|--))?(?:\s+(.*?))?\s*$/
+    /^(?:(?:builtin|command)(?:\s+--)?\s+)?(cd|pushd|popd)(?:\s+(-P|--))?(?:\s+(.*?))?\s*$/
   );
   if (!match) return { recognized: false, target: null };
   const [, command, option, operand] = match;
@@ -635,12 +641,17 @@ function parseDirectoryChange(segment) {
 function stripDirectoryCommandPrefixes(segment) {
   let current = String(segment).trimStart();
   let prior;
+  const controlPrefix = new RegExp(
+    `^(?:(?:${SHELL_CONTROL_PREFIXES.join("|")})\\b\\s*)+`,
+    "i"
+  );
   do {
     prior = current;
     current = current
-      .replace(/^(?:(?:then|do|else|if|elif|while|until)\b\s*)+/i, "")
+      .replace(controlPrefix, "")
       .replace(/^(?:!\s*)+/, "")
-      .replace(/^time(?:\s+-p)?\s+/i, "");
+      .replace(/^time(?:\s+-p)?\s+/i, "")
+      .replace(/^(?:[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|"[^"]*"|[^\s]*)\s+)+/, "");
   } while (current !== prior);
   return current;
 }

@@ -45,6 +45,15 @@ const FLUTTER_UI_RE =
 const UI_ASSET_RE = /(^|\/)(assets?|public)\/.*\.(svg|png|jpe?g|gif|webp|avif)$/i;
 const KB_ARTIFACT_PATH_RE = /^\.?pm\//;
 
+function isFrontendRouteModule(file) {
+  const match = FRONTEND_ROUTE_MODULE_RE.exec(file);
+  if (!match) return false;
+  // Backend ownership only disqualifies the path before the recognized
+  // frontend route root. Route namespaces beneath `src/routes/` (for example
+  // `src/routes/api/users.ts`) remain user-interface modules.
+  return !BACKEND_ROUTE_CONTEXT_RE.test(file.slice(0, match.index));
+}
+
 function isUiImpactPath(file) {
   if (typeof file !== "string" || KB_ARTIFACT_PATH_RE.test(file)) return false;
   if (UI_PATH_RE.test(file)) return true;
@@ -70,8 +79,8 @@ function isUiImpactPath(file) {
     UI_APP_ROOT_RE.test(file) ||
     NEXT_APP_ROUTER_UI_RE.test(file) ||
     ANGULAR_UI_TS_RE.test(file) ||
-    ((UI_ROUTER_JS_TS_RE.test(file) || FRONTEND_ROUTE_MODULE_RE.test(file)) &&
-      !BACKEND_ROUTE_CONTEXT_RE.test(file)) ||
+    (UI_ROUTER_JS_TS_RE.test(file) && !BACKEND_ROUTE_CONTEXT_RE.test(file)) ||
+    isFrontendRouteModule(file) ||
     UI_SINGLE_APP_STATE_RE.test(file) ||
     UI_CONFIG_RE.test(file)
   );

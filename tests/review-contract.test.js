@@ -210,6 +210,9 @@ test("Review design applicability shares Dev's UI-impact classifier", () => {
     "lib/widgets/cart_widget.dart",
     "public/images/checkout-card.svg",
     "src/routes/home.js",
+    "src/routes/api/users.ts",
+    "src/routes/server/status.ts",
+    "src/routes/services/plans.ts",
     "frontend/routes/account.ts",
     "client/routes/settings.js",
   ];
