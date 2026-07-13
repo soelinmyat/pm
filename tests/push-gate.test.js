@@ -663,6 +663,9 @@ test("shell control keywords preserve directory changes before gated pushes", ()
       "HOME=.; declare HOME=gated; cd; git push origin HEAD",
       "HOME=.; typeset HOME=gated; cd; git push origin HEAD",
       "CDPATH=; declare CDPATH=gated; cd child; git push origin HEAD",
+      "HOME=.; declare -r HOME; unset HOME || cd gated; git push origin HEAD",
+      "HOME=.; declare -r HOME=gated; unset HOME || cd; git push origin HEAD",
+      "HOME=.; typeset -u HOME; cd; git push origin HEAD",
       "HOME=gated; HOME[a[0]]=gated; cd; git push origin HEAD",
       "HOME=gated; export HOME[a[0]]=gated; cd; git push origin HEAD",
       "HOME=gated; readonly HOME[a[0]]=gated; cd; git push origin HEAD",
@@ -690,6 +693,11 @@ test("shell control keywords preserve directory changes before gated pushes", ()
     assertAllow(runHook("unset HOME; cd; git push origin HEAD", { cwd: parent }));
     assertAllow(runHook("HOME=; cd; git push origin HEAD", { cwd: parent }));
     assertAllow(runHook("HOME=gated; unset -v HOME; cd; git push origin HEAD", { cwd: parent }));
+    assertAllow(
+      runHook("HOME=gated; declare +r HOME; unset HOME || cd gated; git push origin HEAD", {
+        cwd: parent,
+      })
+    );
     assertBlock(
       runHook("HOME=gated; readonly -p HOME; unset HOME; cd; git push origin HEAD", {
         cwd: parent,

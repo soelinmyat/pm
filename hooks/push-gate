@@ -720,6 +720,11 @@ function parseDirectoryEnvironmentCommand(segment) {
     else return null;
   }
   const optionLetters = new Set(options.flatMap((option) => option.slice(1).split("")));
+  const enabledOptionLetters = new Set(
+    options
+      .filter((option) => option.startsWith("-") && option !== "--")
+      .flatMap((option) => option.slice(1).split(""))
+  );
   const supportedOptions = {
     declare: new Set(["a", "A", "f", "F", "g", "i", "I", "l", "n", "p", "r", "t", "u", "x", "-"]),
     export: new Set(["f", "n", "p", "-"]),
@@ -729,14 +734,15 @@ function parseDirectoryEnvironmentCommand(segment) {
   };
   const forcedFailure =
     [...optionLetters].some((option) => !supportedOptions[command].has(option)) ||
-    (command === "unset" && optionLetters.has("f") && optionLetters.has("v")) ||
+    (command === "unset" && enabledOptionLetters.has("f") && enabledOptionLetters.has("v")) ||
     ((command === "export" || command === "readonly") &&
-      optionLetters.has("f") &&
+      enabledOptionLetters.has("f") &&
       operandAssignments.length > 0) ||
     (command === "readonly" &&
-      optionLetters.has("f") &&
-      (optionLetters.has("a") || optionLetters.has("A")));
-  const arrayMode = command === "readonly" && (optionLetters.has("a") || optionLetters.has("A"));
+      enabledOptionLetters.has("f") &&
+      (enabledOptionLetters.has("a") || enabledOptionLetters.has("A")));
+  const arrayMode =
+    command === "readonly" && (enabledOptionLetters.has("a") || enabledOptionLetters.has("A"));
   const ambientAssignmentMayFail =
     ["export", "readonly"].includes(command) &&
     operandAssignments.some(
@@ -745,9 +751,15 @@ function parseDirectoryEnvironmentCommand(segment) {
   const ambientUnsetMayFail =
     command === "unset" && names.some((name) => !["HOME", "CDPATH"].includes(name));
   const declarationMayVary = ["declare", "typeset"].includes(command);
+  const declarationReadonly = declarationMayVary && enabledOptionLetters.has("r");
+  const declarationValueMayChange =
+    declarationMayVary &&
+    ["a", "A", "i", "l", "n", "u"].some((option) => enabledOptionLetters.has(option));
   const namesChangeValues =
-    (command === "unset" && (!optionLetters.has("f") || optionLetters.has("v"))) ||
-    (command === "readonly" && !optionLetters.has("f"));
+    (command === "unset" && (!enabledOptionLetters.has("f") || enabledOptionLetters.has("v"))) ||
+    (command === "readonly" && !enabledOptionLetters.has("f")) ||
+    declarationReadonly ||
+    declarationValueMayChange;
   let effectiveNames = namesChangeValues ? names : [];
   if (command === "unset") {
     const temporaryNames = new Set(prefixAssignments.map(assignmentName));
@@ -756,8 +768,8 @@ function parseDirectoryEnvironmentCommand(segment) {
   const prefixTargetNames = command === "export" ? names : effectiveNames;
   const targetNames = new Set([...prefixTargetNames, ...operandAssignments.map(assignmentName)]);
   const prefixPersists =
-    (command === "export" && !optionLetters.has("n") && !optionLetters.has("f")) ||
-    (command === "readonly" && !optionLetters.has("f"));
+    (command === "export" && !enabledOptionLetters.has("n") && !enabledOptionLetters.has("f")) ||
+    (command === "readonly" && !enabledOptionLetters.has("f"));
   const persistentPrefixAssignments = prefixPersists
     ? prefixAssignments.filter((assignment) => targetNames.has(assignmentName(assignment)))
     : [];
@@ -770,6 +782,8 @@ function parseDirectoryEnvironmentCommand(segment) {
     ? {
         arrayMode,
         command,
+        declarationReadonly,
+        declarationValueMayChange,
         forcedFailure,
         // Array support, variable type, and unrelated builtin operands depend
         // on shell state that the hook process cannot prove from syntax.
@@ -815,7 +829,7 @@ function applyDirectoryEnvironmentCommand(state, command) {
     }
   }
   const next = { ...assigned };
-  if (command.command === "readonly") {
+  if (command.command === "readonly" || command.declarationReadonly) {
     for (const name of [
       ...command.persistentPrefixAssignments.map(assignmentName),
       ...command.operandAssignments.map(assignmentName),
@@ -824,7 +838,17 @@ function applyDirectoryEnvironmentCommand(state, command) {
       if (name === "HOME") next.homeReadonly = true;
       if (name === "CDPATH") next.cdpathReadonly = true;
     }
-  } else if (command.command === "unset") {
+  }
+  if (command.declarationValueMayChange) {
+    for (const name of command.names) {
+      if (name === "HOME") {
+        next.homeValue = null;
+        next.homeKnown = false;
+        next.homeSet = true;
+      } else if (name === "CDPATH") next.cdpathActive = null;
+    }
+  }
+  if (command.command === "unset") {
     for (const name of command.names) {
       if (name === "HOME") {
         if (next.homeReadonly) succeeded = false;
