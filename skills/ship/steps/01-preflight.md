@@ -8,7 +8,11 @@ description: Verify branch, check uncommitted changes, detect default branch, an
 
 <!-- telemetry step: pre-flight -->
 
-**Goal:** Verify the working tree is ready to ship: correct branch, clean state, required tools available.
+## Goal
+
+Verify the working tree is ready to ship: correct branch, clean state, required tools available.
+
+## How
 
 Once you're on a feature branch (not `{DEFAULT_BRANCH}`) with a clean working tree, `gh` authenticated, and `{DEFAULT_BRANCH}` detected, proceed to the conflict check.
 
@@ -54,3 +58,9 @@ If there are uncommitted changes:
 3. Do not stage or commit on the user's behalf from this step. Ship starts from committed code.
 
 If working tree is clean, continue.
+
+## Done-when
+
+The exact feature branch, default branch, clean working tree, authenticated GitHub CLI, and required delivery inputs are verified, or Ship has stopped without mutation on a precise blocker.
+
+**Advance:** proceed to Step 2 (Conflict Check).

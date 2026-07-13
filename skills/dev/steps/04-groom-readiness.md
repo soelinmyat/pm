@@ -22,6 +22,8 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capabilit
 
 Decide whether this task can proceed directly, needs conversational scoping, should route through grooming, or must stop for RFC generation first.
 
+## How
+
 <HARD-RULE>
 Never ask an open-ended question here. XS/S routes through inline scoping with no user turn. M+ either proceeds on an approved RFC, or halts with a deterministic instruction telling the user exactly what to run next — not a menu, not a "should we?" question.
 

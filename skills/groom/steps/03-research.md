@@ -7,6 +7,12 @@ applies_to: [quick, standard, full]
 
 ### Step 3: Research
 
+## Goal
+
+Produce the tier-appropriate competitive and evidence assessment, including freshness and prior-art risk, before scope is defined.
+
+## How
+
 <!-- Tier routing: keep in sync with SKILL.md "Research by tier" -->
 
 Read the current `groom_tier` from the session state. Route accordingly:
@@ -97,3 +103,9 @@ If the research yields "nothing relevant," that is a valid finding — it is dif
 phase: research
 research_location: {pm_dir}/evidence/research/{topic-slug}.md
 ```
+
+## Done-when
+
+The selected tier has its required research artifact or inline assessment, stale inputs and absent prior art are visible, and session state points to the evidence actually used.
+
+**Advance:** proceed to Step 4 (Scope).

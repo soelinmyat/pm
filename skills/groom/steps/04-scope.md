@@ -7,6 +7,12 @@ applies_to: [quick, standard, full]
 
 ### Step 4: Scope
 
+## Goal
+
+Lock explicit in-scope and out-of-scope boundaries, strategic intent, codebase constraints, and the 10x/impact-effort assessment.
+
+## How
+
 <HARD-GATE>
 Formal scoping is required before review. Do NOT skip based on perceived simplicity or feature type.
 Even "obvious" features benefit from explicit in-scope / out-of-scope boundaries.
@@ -46,3 +52,9 @@ scope:
   out_of_scope: []
   filter_result: 10x | gap-fill | table-stakes | parity
 ```
+
+## Done-when
+
+The user-confirmed scope, exclusions, filter result, impact/effort position, and codebase implications are saved without unresolved boundary ambiguity.
+
+**Advance:** proceed to Step 5 (Scope Review), or Step 7 (Draft Proposal) according to the selected tier branch.

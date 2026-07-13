@@ -9,6 +9,21 @@ description: "Use when shipping committed changes — review, push, PR, CI monit
 
 Complete shipping lifecycle in one command: review, push, create PR, monitor CI, poll readiness gates, and auto-merge. Ship takes committed code and drives it through every gate to a merged PR — or stops with a clear diagnosis when a gate fails.
 
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions.
+Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating the PR description or reports.
+
+**Workflow:** `ship` | **Telemetry steps:** `pre_flight`, `conflict_check`, `review`, `push`, `create_or_detect_pr`, `ci_monitor`, `merge_monitor`
+
+## Iron Law
+
+**NEVER MERGE WITHOUT READING THE DIFF.**
+
+## When NOT to use
+
+- For read-only PR status, inspect the PR without entering Ship.
+- When changes are uncommitted or implementation gates are incomplete, return to `pm:dev`.
+- When the user wants only a raw push without review, explain that Ship owns the full delivery lifecycle and do not broaden the request.
+
 ## Hard rules
 
 - **NEVER MERGE WITHOUT READING THE DIFF.** Every merge is preceded by a review that read the actual changes — not just status labels. Review is mandatory regardless of diff size; small diffs cause incidents too. If review was skipped, CI was green, and auto-merge is armed, that's a pipeline shipping unreviewed code — stop and review first.
@@ -19,6 +34,15 @@ Complete shipping lifecycle in one command: review, push, create PR, monitor CI,
 - **You don't get to classify findings as "nits."** Follow the review step's severity rubric — advisory findings are evaluated, not dismissed.
 - **The PR description is for the reviewer, not the author** — a meaningful title and enough context, not a terse note.
 - **Before done:** PR created with a meaningful title/description, CI passed (not just running), review comments evaluated and addressed (not blindly resolved), merge state verified as MERGED (not just armed), and the feature branch cleaned up.
+- Every phase records current evidence and advances only from an observed remote state. Push, PR creation, merge, and tracker effects require their exact persisted authority; preferences never supply consent.
+
+## Red Flags — Self-Check
+
+- **"The diff is tiny, so CI is enough."** Stop and read the exact contracted diff before pushing.
+- **"Auto-merge is enabled, so merge is authorized."** Check persisted merge authority separately from preference.
+- **"The PR is green, so comments can wait."** Include current review feedback in the readiness gate.
+- **"The hook is flaky."** Fix or diagnose it; never use `--no-verify`.
+- **"Auto-merge was armed, so shipping succeeded."** Check the remote PR state for `MERGED` and its merge SHA.
 
 ## Loop Worker Mode (headless)
 
@@ -30,15 +54,7 @@ When `PM_LOOP_WORKER=1` with `PM_LOOP_STAGE=ship` (or `review`), this run is ONE
 - Atomically write the version-1 result to `PM_LOOP_RESULT_FILE`. Exact statuses: merged, ready-for-human, waiting, blocked, failed, noop. PR-bearing statuses include the repository-pinned pull-request payload; `merged` adds merge SHA/time; `waiting` adds a bounded `retry_after`; `blocked` includes bounded remediation.
 - Non-interactive: never wait for user input; return `ready-for-human` or `blocked` when a decision requires a human.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions.
-
-Document output (the PR description) follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
-
-**Workflow:** `ship`
-
 **Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/ship/steps/` in numeric filename order. If `.pm/workflows/ship/` exists, same-named files there override defaults. Execute each step in order — each step contains its own instructions.
-
-**When NOT to use:** Checking PR status ("what's the status of my PR?"), when changes aren't committed yet, or when the user just wants to push without review. Ship runs the full review-push-PR-merge lifecycle — if they only need `git push`, they don't need this skill.
 
 **Also handles existing PRs.** If a PR already exists for the current branch, ship skips creation and jumps straight to gate monitoring — resolving review comments, fixing CI failures, and iterating until the PR is mergeable. Use this when you need to babysit a PR to completion.
 
@@ -58,8 +74,22 @@ The following reference files provide detailed guidance for specific ship phases
 
 ## Escalation Paths
 
+- Stop at the last verified local or remote boundary before asking for a new authority, product decision, or manual conflict resolution.
 - **Changes aren't committed yet:** "There are uncommitted changes. Want to commit first, or run `/pm:dev` to finish the implementation?"
 - **PR has blocking human review feedback:** "PR has unresolved review comments that need your input. [Summary of blocking items]. Want to address these before I continue the merge loop?"
 - **CI keeps failing after 3 fix rounds:** "CI has failed 3 times. Here's what's still broken: [details]. Want to investigate manually, or should I try a different approach?"
 - **Merge conflicts can't be auto-resolved:** "Merge conflicts in [files] require judgment calls I can't make confidently. Want to resolve these manually?"
 - **Branch is stale and diverged significantly:** "Branch is [N] commits behind {DEFAULT_BRANCH} with conflicts in [critical files]. Consider rebasing or re-running `/pm:dev` to verify the implementation still works after merge."
+
+## Common Rationalizations
+
+| Excuse | Reality |
+|---|---|
+| "Green checks prove the change is safe." | CI does not replace diff review, product gates, or review feedback. |
+| "The hosting service will eventually merge it." | Success is an observed merged identity, not an armed setting. |
+
+## Before Marking Done
+
+- [ ] The delivery contract, PR description, gate evidence, delivery receipt, and required Product Memory artifacts are saved and identity-bound.
+- [ ] The user granted each requested external effect, including merge when applicable.
+- [ ] Diff review, conflict, hook, CI, feedback, remote identity, merge verification, tracker, and cleanup gates passed.

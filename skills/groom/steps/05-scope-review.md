@@ -7,6 +7,12 @@ applies_to: [standard, full, agent]
 
 ### Step 5: Scope Review
 
+## Goal
+
+Challenge the locked scope through independent product, competitive, and engineering lenses until blockers converge or escalate.
+
+## How
+
 This is a review gate. Run the canonical dispatch-collect-fix loop from `${CLAUDE_PLUGIN_ROOT}/references/review-gate.md` with these parameters:
 
 | Parameter | Value |
@@ -48,3 +54,9 @@ scope_review:
   blocking_issues_fixed: 0
   iterations: 1
 ```
+
+## Done-when
+
+All required lenses have current verdicts, blocking fixes were followed by a full rerun, the EM checkpoint is confirmed where interactive, and the iteration cap has not been bypassed.
+
+**Advance:** proceed to Step 6 (Design), or Step 7 (Draft Proposal) according to the agent-tier branch.

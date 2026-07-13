@@ -8,7 +8,11 @@ description: Create PR with structured description or detect existing PR, then c
 
 <!-- telemetry step: create-or-detect-pr -->
 
-**Goal:** Create or detect the one PR whose repository, head, and base exactly match the reviewed delivery contract, then resolve behavior without broadening merge authority.
+## Goal
+
+Create or detect the one PR whose repository, head, and base exactly match the reviewed delivery contract, then resolve behavior without broadening merge authority.
+
+## How
 
 Read and validate `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/delivery-contract.md`. Export `GH_OWNER`, `GH_REPOSITORY`, `GH_REPO`, `HEAD_BRANCH`, and `BASE_BRANCH` only from that current contract.
 
@@ -92,6 +96,8 @@ PR is green and ready. Merge manually or re-run `/pm:ship` to trigger the merge 
 
 Then run the Product Memory steps (backlog `prs` write is skipped — no merge yet) and exit. Do NOT run cleanup — the branch stays open.
 
-**Done-when:** Exactly one PR has passed the contracted repository/head/base identity check, any PR mutation had explicit `create_pr` authority, and merge behavior is resolved without treating a preference as consent.
+## Done-when
 
-**Advance:** proceed to Step 06 (CI Monitor). After CI, enter Step 07 only when both merge authority and auto-merge behavior permit it; otherwise emit the green-PR early-exit report.
+Exactly one PR has passed the contracted repository/head/base identity check, any PR mutation had explicit `create_pr` authority, and merge behavior is resolved without treating a preference as consent.
+
+**Advance:** proceed to Step 6 (CI Monitor), then Step 7 only according to the explicit merge-authority and auto-merge branch; otherwise emit the green-PR early-exit report.

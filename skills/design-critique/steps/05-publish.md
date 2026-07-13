@@ -37,4 +37,4 @@ The checker resolves Chromium automatically. If the project uses a nonstandard b
 - The preserved Dev gate sidecar reflects the exact outcome and current commit.
 - The user or calling phase has the report location and next action.
 
-**Advance:** return to the caller. In Dev, proceed to Step 07 (QA) only when the Design Critique gate is passed; otherwise stop at the recorded outcome.
+**Advance:** return to the caller. In Dev, continue to QA only when the Design Critique gate is passed; otherwise stop at the recorded outcome.

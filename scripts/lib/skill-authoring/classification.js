@@ -62,6 +62,20 @@ const STEP_TRANSITIONS = Object.freeze({
     4: Object.freeze([5]),
     5: Object.freeze([]),
   }),
+  groom: Object.freeze({
+    1: Object.freeze([2]),
+    1.1: Object.freeze([4.1]),
+    2: Object.freeze([3]),
+    3: Object.freeze([4]),
+    4: Object.freeze([5, 7]),
+    4.1: Object.freeze([5]),
+    5: Object.freeze([6, 7]),
+    6: Object.freeze([7]),
+    7: Object.freeze([8, 11]),
+    8: Object.freeze([10, 11]),
+    10: Object.freeze([11]),
+    11: Object.freeze([]),
+  }),
 });
 
 function classForSkill(skill) {

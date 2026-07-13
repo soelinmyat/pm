@@ -8,7 +8,13 @@ description: Check if branch is behind default branch and resolve merge conflict
 
 <!-- telemetry step: conflict-check -->
 
-**Goal:** Ensure the branch is up to date with `{DEFAULT_BRANCH}` and free of merge conflicts before review.
+## Goal
+
+Ensure the branch is up to date with `{DEFAULT_BRANCH}` and free of merge conflicts before review.
+
+## How
+
+Fetch the contracted default branch, measure divergence, and resolve any merge through the repository's documented verification path.
 
 ### Check if branch is behind {DEFAULT_BRANCH}
 
@@ -37,3 +43,9 @@ Run: `git fetch origin {DEFAULT_BRANCH} && git log HEAD..origin/{DEFAULT_BRANCH}
    - If tests fail after resolution, fix and amend the merge commit
 
 Once the branch is current with `{DEFAULT_BRANCH}` — or conflicts are resolved, committed, and verified with tests — proceed to the review gate.
+
+## Done-when
+
+The feature branch is current enough for review, every conflict is resolved with intent preserved, the resolution is committed, and affected verification passes.
+
+**Advance:** proceed to Step 3 (Review Gate).

@@ -7,6 +7,12 @@ applies_to: [quick, standard, full, agent]
 
 ### Step 7: Draft Proposal
 
+## Goal
+
+Assemble the canonical proposal and presentation artifact from approved research, scope, design, feasibility, and citation evidence.
+
+## How
+
 Assemble the product proposal from research, scope, and design artifacts. This step produces the proposal content that will be reviewed and presented — not engineering issues.
 
 #### Step 1: Feature-type detection
@@ -237,3 +243,9 @@ If `citation_parity: false`, the team-review step (Step 08) will flag this as a 
 ### Proceed to Step 08 (agent tier)
 
 Agent-tier flow proceeds directly to `08-team-review.md` (agent parameters) for parallel reviewer dispatch. Do NOT wait for user approval at this step — the proposal-ready checkpoint comes after team review converges.
+
+## Done-when
+
+The proposal and HTML artifact contain every required section and applicable visual, citation parity passes, session paths/hashes are saved, and no engineering issues were invented.
+
+**Advance:** proceed to Step 8 (Team Review), or Step 11 (Link) according to the selected tier branch.

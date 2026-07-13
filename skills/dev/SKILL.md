@@ -11,7 +11,7 @@ Take an implementation request from intake to verified delivery while preserving
 
 ## Iron Law
 
-**NEVER SHIP WITHOUT CURRENT, EXECUTED TEST AND REVIEW EVIDENCE.**
+**NEVER SHIP WITHOUT CURRENT GATE EVIDENCE.**
 
 ## When NOT to use
 
@@ -47,12 +47,12 @@ Step files live in `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/`. Load the single in
 
 ## Red Flags — Self-Check
 
-- **"I already know the rest of the workflow, so I can load all steps now."** Later-phase instructions inflate context and create authority confusion; load the active phase only.
+- **"I already know the rest of the workflow, so I can load all steps now."** Stop and load the active phase only; later instructions create authority confusion.
 - **"It is a task or bug, so full review is unnecessary."** Kind no longer overrides observed risk; use the risk decision recorded in state.
-- **"A fresh agent is always safer."** Agent churn discards useful context; delegate only for dependency-ready, ownership-safe work or mandated review fan-out.
-- **"The worker says it merged, so I can advance."** Workers have no merge authority; accept only a schema-valid result and root-observed repository state.
-- **"The tests passed earlier."** Evidence tied to an older commit is stale; rerun or recertify according to the review step.
-- **"The CLI probably supports this flag."** Probe required capabilities and fail closed before launching a long worker.
+- **"A fresh agent is always safer."** Use delegation only for dependency-ready, ownership-safe work or mandated review fan-out.
+- **"The worker says it merged, so I can advance."** Check the schema-valid result and root-observed repository state; workers have no merge authority.
+- **"The tests passed earlier."** Check evidence against the current commit and rerun or recertify when stale.
+- **"The CLI probably supports this flag."** Check required capabilities and fail closed before launching a long worker.
 
 ## Escalation Paths
 

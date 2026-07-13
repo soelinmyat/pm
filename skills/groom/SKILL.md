@@ -15,6 +15,18 @@ Research gates grooming — even quick tier requires an inline assessment. Strat
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`. The functional reference `capability-gates.md` is loaded by the steps that need it.
 
+**Workflow:** `groom` | **Telemetry steps:** `intake`, `strategy_check`, `research`, `scope`, `synthesis`, `scope_review`, `design`, `draft_proposal`, `team_review`, `present`, `link`
+
+## Iron Law
+
+**NEVER DRAFT A PROPOSAL WITHOUT RESEARCH.**
+
+## When NOT to use
+
+- For open-ended framing or deciding whether to build, use `pm:think`.
+- For a quick outline or explanation with no sprint-ready artifact, answer directly.
+- For technical issue decomposition or implementation, use `pm:rfc` or `pm:dev` after product scope is approved.
+
 ## Hard rules
 
 - **Never draft a proposal without research.** Even quick tier requires the inline assessment; skipping research entirely produces proposals built on assumptions instead of evidence. "Nothing relevant" is a valid finding — never looking is not. "No prior art" is itself a finding worth documenting: flag the uncharted-territory risk, don't erase it.
@@ -23,6 +35,15 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and
 - **Re-run all reviewers after a scope-changing fix.** Fixes can introduce new problems; if you changed scope to address a blocking issue, re-run every reviewer, not just the one that flagged it.
 - **Check the template, not the length.** Length is not completeness — verify the section template against what you actually wrote; missing sections are invisible until someone reads the proposal expecting them.
 - **Verify freshness before relying on it.** Stale research or strategy is worse than none — always check `updated:` dates.
+- Preserve lifecycle evidence and explicit transitions in session state. Authority to groom does not authorize RFC approval, tracker creation, or implementation.
+
+## Red Flags — Self-Check
+
+- **"The idea is clear enough to skip research."** Stop and run the tier-appropriate evidence check.
+- **"This tier has too much ceremony."** Use a lower eligible tier instead of skipping a required gate.
+- **"Scope is obvious from the request."** Check the 10x filter, impact/effort, and non-goal boundaries.
+- **"One reviewer fixed the issue, so review is done."** Use a full reviewer rerun after a scope-changing fix.
+- **"The proposal looks complete."** Check the canonical template, artifact links, and current session evidence.
 
 ## Setup Detection
 
@@ -32,10 +53,6 @@ If `{pm_dir}` does not exist:
 > "No PM workspace found. Groom writes proposals into `{pm_dir}/backlog/` — run `/pm:start` first to set up the workspace, then re-invoke `/pm:groom`."
 
 Stop. Do not create `.pm/` or `pm/` implicitly.
-
-**Workflow:** `groom`
-
-**When NOT to use:** Quick outlines or explanations ("what would X look like?"), when the user says "spec" but means "explain," or when they want a rough sketch — use `pm:think` instead. Groom produces a full PRD with reviews; think produces a lightweight artifact.
 
 **Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/groom/steps/` in numeric filename order. If `.pm/workflows/groom/` exists, same-named files there override defaults. Execute each step in order — each contains its own instructions, HARD-GATEs, agent prompts, and state update schemas.
 
@@ -123,6 +140,7 @@ Each grooming session has its own state file under `{source_dir}/.pm/groom-sessi
 
 ## Escalation Paths
 
+- Stop before switching lanes and preserve the current phase, evidence, and unresolved decision in session state.
 - **Idea isn't ready for grooming:** "This needs more exploration first. Want to run `/pm:think` to challenge the framing before we scope it?"
 - **KB too thin for requested tier:** "The KB only supports {max_tier} right now. Missing: {gaps}. Want to build prerequisites first with `/pm:strategy` or `/pm:research`?"
 - **Research reveals the idea is already solved:** "Research shows {competitor} already handles this well. This might be parity, not differentiation. Want to rethink the angle or proceed as gap-fill?"
@@ -146,3 +164,16 @@ Each grooming session has its own state file under `{source_dir}/.pm/groom-sessi
 ## Proposal Format (Backlog Entry)
 
 See `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/proposal-format.md` for the full proposal template, frontmatter schema, ID assignment rules, and status lifecycle.
+
+## Common Rationalizations
+
+| Excuse | Reality |
+|---|---|
+| "A short proposal does not need every gate." | Tier changes depth, not the integrity of required gates within that tier. |
+| "Engineering can resolve the open product question later." | Unresolved scope turns implementation into accidental product management. |
+
+## Before Marking Done
+
+- [ ] The proposal, presentation/wireframe artifacts when applicable, indexes, and linking metadata are saved and validated.
+- [ ] The user confirmed scope, design, open questions, and final proposal approval at the gates required by the selected tier.
+- [ ] Research, strategy, scope, review, artifact, lifecycle-transition, authority, and cleanup gates passed.

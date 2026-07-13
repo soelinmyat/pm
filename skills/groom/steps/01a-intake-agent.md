@@ -7,6 +7,12 @@ applies_to: [agent]
 
 ### Step 01a: Intake (agent tier)
 
+## Goal
+
+Admit only an eligible Claude agent-tier request, resolve its bounded brief, derive the slug, and create initial agent session state.
+
+## How
+
 This is the agent-tier intake step. It runs in place of `01-intake.md` for sessions where `groom_tier == "agent"`. The dispatcher selects this file via `applies_to: [agent]`.
 
 **What this step owns:**
@@ -138,3 +144,9 @@ redirects:
 ```
 
 Advance phase to `synthesis` and proceed to `04a-synthesis.md`.
+
+## Done-when
+
+Runtime and KB freshness gates pass, no more than two decision-rule questions are resolved, and the agent-tier state is durably initialized; otherwise the request is refused with a standard-tier recovery route.
+
+**Advance:** proceed to Step 4.1 (Synthesis).

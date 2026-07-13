@@ -7,6 +7,12 @@ applies_to: [quick, standard, full, agent]
 
 ### Step 11: Link
 
+## Goal
+
+Finalize proposal identity and integrations, write durable decision learnings, close telemetry, and remove only completed session state.
+
+## How
+
 1. **Enrich backlog entry metadata.** The proposal file already exists at `{pm_dir}/backlog/{topic-slug}.md` (written in Draft Proposal / Present). Do NOT rewrite it. Only add linking metadata:
    - **Thinking discovery:** Check if `{pm_dir}/thinking/{topic-slug}.md` exists. If found, set `thinking: thinking/{topic-slug}.md` in the backlog frontmatter. If not found, set `thinking: null`.
    - **ID rule:** If `linear_id` is available, set `id` to the Linear identifier. Otherwise use the local `PM-{NNN}` sequence (scan `{pm_dir}/backlog/*.md` for highest `id`, increment by 1).
@@ -231,3 +237,7 @@ Say:
 > Proposal: `{pm_dir}/backlog/{topic-slug}.md`
 > HTML: `{pm_dir}/backlog/proposals/{topic-slug}.html`
 > Next: run `pm:rfc {topic-slug}` to generate the technical RFC, then `pm:dev {topic-slug}` to implement."
+
+## Done-when
+
+Proposal metadata and optional tracker links are verified, durable learnings are written when warranted, `completed_at` closes telemetry before deletion, and the user has the RFC as the concrete next action.

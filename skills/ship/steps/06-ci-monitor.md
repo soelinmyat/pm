@@ -8,7 +8,11 @@ description: Monitor CI status, auto-fix failures, retry up to 3 rounds
 
 <!-- telemetry step: ci-monitor -->
 
-**Goal:** Monitor CI to green, auto-fixing failures up to 3 rounds.
+## Goal
+
+Monitor CI to green, auto-fixing failures up to 3 rounds.
+
+## How
 
 Read and validate `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/delivery-contract.md`. Use only its `GH_REPO`, `HEAD_BRANCH`, `BASE_BRANCH`, and the already identity-checked `PR_NUMBER`; never use ambient `gh` repository discovery.
 
@@ -52,6 +56,8 @@ When CI concludes `success` on the latest run, proceed to the merge loop; if 3 f
 
 **Max 3 CI fix attempts.** After 3 rounds: stop, report failures with full context, ask user whether to continue or investigate manually.
 
-**Done-when:** CI reports success for the exact remote tip and every CI-fix commit has current Review/gate artifacts plus a passing `dev-gate-check` recorded before its push.
+## Done-when
+
+CI reports success for the exact remote tip and every CI-fix commit has current Review/gate artifacts plus a passing `dev-gate-check` recorded before its push.
 
 **Advance:** proceed to Step 07 (Merge Loop) only with explicit merge authority and enabled merge behavior; otherwise emit the green-PR early-exit report and stop.

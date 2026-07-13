@@ -47,12 +47,12 @@ Steps live in `${CLAUDE_PLUGIN_ROOT}/skills/rfc/steps/`. Resolve the one path re
 
 ## Red Flags — Self-Check
 
-- **"The reviewers passed, so the RFC is approved."** Technical review only enters `awaiting_approval`; wait for an explicit human decision.
-- **"The old session says approved."** Legacy state lacks trustworthy approval provenance; recertify review and approval.
-- **"A stronger model can keep the whole workflow straight."** Future-phase instructions still create authority and lifecycle confusion; load one phase.
+- **"The reviewers passed, so the RFC is approved."** Stop at `awaiting_approval` and ask for an explicit human decision.
+- **"The old session says approved."** Use review and approval recertification because legacy state lacks trustworthy provenance.
+- **"A stronger model can keep the whole workflow straight."** Stop and load one phase; future instructions create authority confusion.
 - **"Three reviewers means three agents."** Lenses are mandatory, process count is not; use the smallest independent review shape that preserves judgment quality.
-- **"The HTML looks unchanged."** Compare the sidecar hash and binding; prose confidence is not artifact identity.
-- **"Approval probably includes Linear and loop pickup."** Those are separate external authorities and require their own grant.
+- **"The HTML looks unchanged."** Check the sidecar hash and binding; prose confidence is not artifact identity.
+- **"Approval probably includes Linear and loop pickup."** Stop and require separate authority for each external effect.
 
 ## Escalation Paths
 

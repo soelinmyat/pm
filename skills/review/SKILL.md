@@ -58,13 +58,12 @@ Resolve session paths with `deriveSessionSlug` from `scripts/lib/session-slug.js
 
 ## Red Flags — Self-Check
 
-- **"Six lenses require six processes."** Logical coverage is fixed; physical reviewers adapt to available capacity through `review-target.js`.
-- **"The finding sounds similar, so I can merge it."** Only deterministic identity merges signals; semantic guessing can erase evidence.
-- **"Confidence above 80 means the fix is safe."** Auto-fix also requires Review ownership, no dispute/decision, and `fix_kind: mechanical`; independently derive trusted checks because reviewer verification text is never executable.
-- **"Design Critique passed, so source design review is redundant."** Rendered craft and source-level design-system compliance are different ownership domains.
-- **"I fixed the blocker, so the old results still count."** Any source mutation changes HEAD and invalidates the whole target/results/report chain.
-- **"I can start a fresh run to get three more rounds."** A Dev decision version has one unfinished lineage; changing `run_id` never resets its remediation budget.
-- **"A reviewer called it dismissed, so I can ignore it."** Reviewer signals cannot dismiss findings; only a target-bound human decision with approver, rationale, and timestamp can do that.
+- **"The finding sounds similar, so I can merge it."** Keep deterministic identity; semantic guessing can erase evidence.
+- **"Confidence above 80 means the fix is safe."** Check Review ownership, dispute state, decision state, and `fix_kind: mechanical` before any auto-fix.
+- **"Design Critique passed, so source design review is redundant."** Keep rendered craft and source-level design-system compliance in their distinct ownership domains.
+- **"I fixed the blocker, so the old results still count."** Stop and recertify because any source mutation invalidates the target/results/report chain.
+- **"I can start a fresh run to get three more rounds."** Keep one unfinished lineage per Dev decision version; a new `run_id` cannot reset budget.
+- **"A reviewer called it dismissed, so I can ignore it."** Stop and require a target-bound human decision with approver, rationale, and timestamp.
 
 ## Escalation paths
 
