@@ -333,6 +333,7 @@ function runBrowser(browserPath, args, options = {}) {
       const outputPath = (screenshot || pdf).split("=").slice(1).join("=");
       const stagingDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-capture-"));
       const stagingPath = path.join(stagingDir, screenshot ? "capture.png" : "capture.pdf");
+      const browserPidPath = path.join(stagingDir, "browser.pid");
       try {
         const result = runBrowserProbe(
           {
@@ -341,10 +342,12 @@ function runBrowser(browserPath, args, options = {}) {
             viewport: { width, height },
             action: screenshot ? "screenshot" : "pdf",
             outputPath: stagingPath,
+            browserPidPath,
           },
           "browser capture"
         );
-        const bytes = readCaptureFilePinned(stagingPath);
+        const attestation = JSON.parse(result.stdout);
+        const bytes = readCaptureFilePinned(stagingPath, attestation);
         projectWriter.writeProjectFileAtomic(
           options.projectRoot,
           projectRelative(options.projectRoot, outputPath, "browser capture"),
@@ -358,6 +361,7 @@ function runBrowser(browserPath, args, options = {}) {
         );
         return result;
       } finally {
+        terminateRecordedBrowser(browserPidPath);
         fs.rmSync(stagingDir, { recursive: true, force: true });
       }
     }
@@ -380,7 +384,7 @@ function runBrowser(browserPath, args, options = {}) {
   }
 }
 
-function readCaptureFilePinned(capturePath) {
+function readCaptureFilePinned(capturePath, expected = null) {
   const descriptor = fs.openSync(
     capturePath,
     fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0)
@@ -406,9 +410,39 @@ function readCaptureFilePinned(capturePath) {
       after.ctimeNs !== before.ctimeNs
     )
       throw new Error("staged browser capture changed during bounded read");
+    const actual = {
+      dev: String(after.dev),
+      ino: String(after.ino),
+      size: String(after.size),
+      sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+    };
+    if (
+      expected &&
+      (actual.dev !== expected.dev ||
+        actual.ino !== expected.ino ||
+        actual.size !== expected.size ||
+        actual.sha256 !== expected.sha256)
+    )
+      throw new Error("staged browser capture does not match producer attestation");
     return bytes;
   } finally {
     fs.closeSync(descriptor);
+  }
+}
+
+function terminateRecordedBrowser(pidPath) {
+  let pid;
+  try {
+    pid = Number(fs.readFileSync(pidPath, "utf8").trim());
+  } catch {
+    return;
+  }
+  if (!Number.isSafeInteger(pid) || pid < 2) return;
+  try {
+    if (process.platform === "win32") process.kill(pid, "SIGKILL");
+    else process.kill(-pid, "SIGKILL");
+  } catch {
+    // Normal helper cleanup already terminated the browser.
   }
 }
 

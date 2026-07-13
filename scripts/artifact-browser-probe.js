@@ -2,6 +2,7 @@
 "use strict";
 
 const fs = require("node:fs");
+const crypto = require("node:crypto");
 const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
@@ -25,6 +26,13 @@ function writeCaptureFile(outputPath, encoded, label) {
     descriptor = fs.openSync(outputPath, flags | noFollow, 0o600);
     fs.writeFileSync(descriptor, bytes);
     fs.fsyncSync(descriptor);
+    const stat = fs.fstatSync(descriptor, { bigint: true });
+    return {
+      dev: String(stat.dev),
+      ino: String(stat.ino),
+      size: String(stat.size),
+      sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+    };
   } finally {
     if (descriptor !== undefined) fs.closeSync(descriptor);
   }
@@ -115,6 +123,8 @@ async function main() {
     ],
     { stdio: "ignore", detached: process.platform !== "win32" }
   );
+  if (config.browserPidPath)
+    fs.writeFileSync(config.browserPidPath, `${browser.pid}\n`, { mode: 0o600, flag: "wx" });
   let client = null;
   let cleaned = false;
   const cleanup = () => {
@@ -191,7 +201,8 @@ async function main() {
         captureBeyondViewport: false,
       });
       if (!captured.data) throw new Error("browser did not return screenshot bytes");
-      writeCaptureFile(config.outputPath, captured.data, "screenshot");
+      const attestation = writeCaptureFile(config.outputPath, captured.data, "screenshot");
+      process.stdout.write(`${JSON.stringify(attestation)}\n`);
       return;
     }
     if (config.action === "pdf") {
@@ -201,7 +212,8 @@ async function main() {
         printBackground: true,
       });
       if (!printed.data) throw new Error("browser did not return PDF bytes");
-      writeCaptureFile(config.outputPath, printed.data, "PDF");
+      const attestation = writeCaptureFile(config.outputPath, printed.data, "PDF");
+      process.stdout.write(`${JSON.stringify(attestation)}\n`);
       return;
     }
     const evaluated = await client.send("Runtime.evaluate", {

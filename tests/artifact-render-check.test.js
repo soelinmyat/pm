@@ -504,6 +504,16 @@ test("staged capture reads reject symlinks and oversized files before allocation
     const linked = path.join(root, "linked.png");
     const oversized = path.join(root, "oversized.png");
     fs.writeFileSync(target, "capture");
+    assert.throws(
+      () =>
+        readCaptureFilePinned(target, {
+          dev: "0",
+          ino: "0",
+          size: "7",
+          sha256: "0".repeat(64),
+        }),
+      /does not match producer attestation/
+    );
     fs.symlinkSync(target, linked);
     assert.throws(() => readCaptureFilePinned(linked), /ELOOP|symbolic link|too many levels/i);
     fs.closeSync(fs.openSync(oversized, "w"));
