@@ -231,6 +231,7 @@ function validateCanonicalReviewPass(root, reportPath, latest) {
       verifyGit: false,
       verifyFrozenGit: true,
       verifyBrowser: false,
+      allowHistoricalGeneratorVersion: true,
     })
   );
   if (!checked.ok)
@@ -598,8 +599,6 @@ function main(argv = process.argv.slice(2)) {
   }
 }
 
-if (require.main === module) process.exitCode = main();
-
 module.exports = {
   assertCleanWorktree,
   assertDevReviewLineage,
@@ -610,3 +609,5 @@ module.exports = {
   readCommittedBlob,
   resolveTrustedBase,
 };
+
+if (require.main === module) process.exitCode = main();

@@ -92,7 +92,7 @@ function checkReview(options) {
   } catch (error) {
     add(issues, "target.path", error.message);
   }
-  validateTargetBindings(root, target, reviewRoot, issues);
+  validateTargetBindings(root, target, reviewRoot, options, issues);
   if (options.verifyGit !== false) validateLiveTarget(root, target, issues);
   else if (options.verifyFrozenGit === true) validateFrozenTarget(root, target, issues);
 
@@ -365,7 +365,7 @@ function validateOwnership(ownership, issues) {
       add(issues, `target.ownership.${key}`, "must be a non-empty string array");
 }
 
-function validateTargetBindings(root, target, reviewRoot, issues) {
+function validateTargetBindings(root, target, reviewRoot, options, issues) {
   if (target.acceptance) {
     const acceptanceFile = validateExactBinding(
       root,
@@ -458,6 +458,7 @@ function validateTargetBindings(root, target, reviewRoot, issues) {
             verifyGit: false,
             verifyFrozenGit: true,
             verifyBrowser: false,
+            allowHistoricalGeneratorVersion: options.allowHistoricalGeneratorVersion === true,
           })
         );
         if (!prior.ok)
@@ -1577,10 +1578,14 @@ function validateHumanReport(root, human, report, reportFile, options, issues) {
   for (const item of inspected.issues || [])
     add(issues, `report.human_report${item.path || ""}`, item.message);
   const metadata = inspected.metadata;
+  const generatorVersionValid =
+    metadata?.generator?.version === PLUGIN_VERSION ||
+    (options.allowHistoricalGeneratorVersion === true &&
+      historicalPluginVersion(metadata?.generator?.version));
   if (
     metadata &&
     (metadata.generator?.name !== "pm:review" ||
-      metadata.generator?.version !== PLUGIN_VERSION ||
+      !generatorVersionValid ||
       metadata.source?.path !== reportFile.relative ||
       metadata.source?.sha256 !== `sha256:${reportFile.sha256}`)
   )
@@ -1625,6 +1630,21 @@ function validateHumanReport(root, human, report, reportFile, options, issues) {
     }
   }
   return { path: htmlFile.relative, sha256: htmlFile.sha256 };
+}
+
+function historicalPluginVersion(value) {
+  const parse = (version) => {
+    const match = String(version || "").match(/^(\d+)\.(\d+)\.(\d+)$/);
+    return match ? match.slice(1).map(Number) : null;
+  };
+  const candidate = parse(value);
+  const current = parse(PLUGIN_VERSION);
+  if (!candidate || !current) return false;
+  for (let index = 0; index < current.length; index += 1) {
+    if (candidate[index] < current[index]) return true;
+    if (candidate[index] > current[index]) return false;
+  }
+  return true;
 }
 
 function validateRenderedReportMarkers(markers, report, issues) {

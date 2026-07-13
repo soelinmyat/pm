@@ -978,6 +978,117 @@ test("Dev review lineages cannot reset the three-round cap with a new run ID", (
   }
 });
 
+test("review target CLI can start a fresh Dev run after a canonical pass", () => {
+  const fixture = makeFixture({ maxWorkers: 2 });
+  const session = createSession({
+    slug: "example",
+    sourceDir: fixture.root,
+    runId: "dev_example",
+  });
+  const sessionPath = ".pm/dev-sessions/example/session.json";
+  write(fixture.root, sessionPath, session);
+  const firstPath = ".pm/dev-sessions/example/review/runs/dev-first/round-1/target.json";
+  const first = buildReviewTarget({
+    root: fixture.root,
+    outPath: firstPath,
+    runId: "dev-first",
+    mode: "full",
+    profile: "codex-workhorse",
+    maxWorkers: 2,
+    devSessionPath: sessionPath,
+  });
+  write(fixture.root, firstPath, first);
+  const firstBinding = binding(fixture.root, firstPath);
+  const resultPaths = first.allocation.map((worker) => {
+    const resultPath = `.pm/dev-sessions/example/review/runs/dev-first/round-1/results/${worker.worker_id}.json`;
+    write(fixture.root, resultPath, {
+      schema_version: 1,
+      run_id: first.run_id,
+      review_round: first.review_round,
+      target: firstBinding,
+      source: first.source,
+      worker_id: worker.worker_id,
+      profile: worker.profile,
+      runtime: worker.runtime,
+      lenses: worker.lenses,
+      verdicts: worker.lenses.map((lens) => ({
+        lens,
+        outcome: "clean",
+        summary: `No actionable ${lens} findings in the changed source.`,
+      })),
+      findings: [],
+      checked_at: "2026-07-13T00:00:00Z",
+    });
+    return resultPath;
+  });
+  const reportPath = ".pm/dev-sessions/example/review/report.json";
+  const htmlPath = ".pm/dev-sessions/example/review/report.html";
+  const generated = checkReview({
+    root: fixture.root,
+    targetPath: firstPath,
+    resultPaths,
+    reportPath,
+    humanReportPath: htmlPath,
+    writeReport: true,
+    verifyBrowser: false,
+  });
+  assert.equal(generated.ok, true, JSON.stringify(generated.issues, null, 2));
+  renderReviewReport({ root: fixture.root, reportPath, outputPath: htmlPath });
+  const historicalHtmlPath = path.join(fixture.root, htmlPath);
+  const historicalHtml = fs.readFileSync(historicalHtmlPath, "utf8");
+  const metadataMatch = historicalHtml.match(
+    /(<script id="pm-artifact" type="application\/json">)([\s\S]*?)(<\/script>)/
+  );
+  const historicalMetadata = JSON.parse(metadataMatch[2]);
+  historicalMetadata.generator.version = "1.13.14";
+  fs.writeFileSync(
+    historicalHtmlPath,
+    historicalHtml.replace(
+      metadataMatch[0],
+      `${metadataMatch[1]}${JSON.stringify(historicalMetadata)}${metadataMatch[3]}`
+    )
+  );
+  const currentValidation = checkReview({
+    root: fixture.root,
+    targetPath: firstPath,
+    resultPaths,
+    reportPath,
+    humanReportPath: htmlPath,
+    verifyBrowser: false,
+  });
+  assert.equal(currentValidation.ok, false);
+  assert.match(JSON.stringify(currentValidation.issues), /metadata must bind/);
+
+  const targetScript = path.join(__dirname, "..", "scripts", "review-target.js");
+  const nextPath = ".pm/dev-sessions/example/review/runs/dev-release/round-1/target.json";
+  const next = spawnSync(
+    process.execPath,
+    [
+      targetScript,
+      "--root",
+      fixture.root,
+      "--out",
+      nextPath,
+      "--run-id",
+      "dev-release",
+      "--round",
+      "1",
+      "--mode",
+      "full",
+      "--profile",
+      "codex-workhorse",
+      "--max-workers",
+      "2",
+      "--dev-session",
+      sessionPath,
+    ],
+    { encoding: "utf8" }
+  );
+  assert.equal(next.status, 0, next.stderr);
+  assert.equal(JSON.parse(next.stdout).run_id, "dev-release");
+  assert.ok(fs.existsSync(path.join(fixture.root, nextPath)));
+});
+
 test("Dev review lineage inventory fails closed on symlinked run and round ancestors", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-lineage-link-"));
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-lineage-outside-"));
@@ -2090,6 +2201,19 @@ test("prior-round evidence remains valid after the cited source is removed", () 
     reportPath: fixture.roundReportPath,
     outputPath: fixture.roundHtmlPath,
   });
+  const priorHtmlPath = path.join(fixture.root, fixture.roundHtmlPath);
+  const priorHtml = fs.readFileSync(priorHtmlPath, "utf8");
+  fs.writeFileSync(priorHtmlPath, priorHtml.replace('"version":"1.13.15"', '"version":"1.13.14"'));
+  const strictPrior = checkReview(
+    expandFromReport({
+      root: fixture.root,
+      reportPath: fixture.roundReportPath,
+      fromReport: true,
+      verifyBrowser: false,
+    })
+  );
+  assert.equal(strictPrior.ok, false);
+  assert.match(JSON.stringify(strictPrior.issues), /metadata must bind/);
   fs.rmSync(path.join(fixture.root, "src/example.js"));
   git(fixture.root, ["add", "-A"]);
   git(fixture.root, ["commit", "-qm", "remove cited source"]);
@@ -2112,6 +2236,7 @@ test("prior-round evidence remains valid after the cited source is removed", () 
     reportStage: "draft",
     writeReport: true,
     verifyBrowser: false,
+    allowHistoricalGeneratorVersion: true,
   });
   assert.equal(checked.ok, false);
   assert.doesNotMatch(JSON.stringify(checked.issues), /target\.prior_report|frozen evidence/);
