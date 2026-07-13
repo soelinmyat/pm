@@ -13,7 +13,7 @@ function read(rel) {
 
 // ---------------------------------------------------------------------------
 // Phase E4 — Codex review parallelism (parity). Short-lived read-only review
-// waves (the pm:review 6-lens fan-out and groom's scope/team review waves)
+// waves (the pm:review target-planned logical-lens wave and groom's review waves)
 // must default to parallel spawn_agent dispatch on Codex, NOT the inline-
 // sequential fallback that cost ~6× wall time. Delegation stays default-off
 // for mutating/implementation agents. This pins the contract the runtime reads.
@@ -41,7 +41,10 @@ test("capability-gates.md: usage rules carry the scoped read-only exception", ()
 test("agent-runtime.md: Capability Flags declares the scoped read-only review exception", () => {
   const text = read("skills/dev/references/agent-runtime.md");
   assert.match(text, /Scoped exception — short-lived read-only review waves/i);
-  assert.match(text, /`pm:review` 6-lens fan-out and groom's scope\/team review waves/);
+  assert.match(
+    text,
+    /`pm:review` target-planned logical-lens wave and groom's scope\/team review waves/
+  );
   assert.match(text, /parallel dispatch by default/i);
   // Keep default-off for mutating / lifecycle-owning work.
   assert.match(
@@ -78,12 +81,13 @@ test("agent-runtime.md: an explicit delegation:false opt-out is still honored", 
   assert.match(text, /explicitly.{0,40}`delegation: false`|deliberate opt-out/i);
 });
 
-test("review SKILL Phase 2: Codex defaults to parallel spawn_agent for the read-only wave", () => {
-  const text = read("skills/review/SKILL.md");
-  // The Codex bullet defaults to parallel spawn_agent regardless of the global flag.
-  assert.match(text, /parallel `spawn_agent` calls for the read-only review wave/);
-  assert.match(text, /regardless of the session's global `delegation` flag/);
-  assert.match(text, /Sequential[\s\S]{0,120}only when `spawn_agent` is genuinely unavailable/);
+test("review dispatch step follows target allocation and defaults the read-only wave to parallel", () => {
+  const text = read("skills/review/steps/02-dispatch.md");
+  assert.match(text, /Dispatch all planned physical reviewers in one read-only parallel wave/i);
+  assert.match(text, /scoped review exception/i);
+  assert.match(text, /no safe subagent capability, run assigned lenses sequentially/i);
+  assert.match(text, /exactly one.*result for every physical reviewer/i);
+  assert.match(text, /review\/runs\/\{RUN_ID\}\/round-\{N\}\/results\/\{worker-id\}\.json/);
   // The old flat "Codex inline / other runtimes: run the lens briefs sequentially"
   // default must be gone.
   assert.doesNotMatch(
@@ -100,4 +104,21 @@ test("review-gate.md dispatch row: Codex parallel spawn_agent by default, sequen
   assert.match(dispatchRow, /sequential only when `spawn_agent` is genuinely unavailable/);
   // The stale "inline-sequential fallback when delegation is unavailable" is gone.
   assert.doesNotMatch(dispatchRow, /inline-sequential fallback when delegation is unavailable/);
+});
+
+test("reviewer verification text is advisory and never executed directly", () => {
+  const reviewer = read("skills/review/references/reviewer-briefs.md");
+  const resolve = read("skills/review/steps/04-resolve.md");
+  const contract = read("skills/review/references/evidence-contract.md");
+  assert.match(reviewer, /untrusted, non-executable verification plan/i);
+  assert.match(resolve, /never pass it to a shell or execute it directly/i);
+  assert.match(resolve, /derive trusted verification commands from committed repository scripts/i);
+  assert.match(contract, /never executes reviewer text directly/i);
+});
+
+test("review gate evidence contract requires current-commit attestations", () => {
+  const dispatch = read("skills/review/steps/02-dispatch.md");
+  const contract = read("skills/review/references/evidence-contract.md");
+  assert.match(dispatch, /`commit` equal to the target source commit/i);
+  assert.match(contract, /Optional Design Critique evidence follows the same current-commit rule/i);
 });

@@ -9,7 +9,7 @@ const files = {
   ".pm/quality/input-lock.json": "{\n  \"case_id\": \"ship-repeated-run-variance\",\n  \"frozen\": true\n}\n",
   ".pm/quality/hosted-state.json": "{\n  \"pr\": 42,\n  \"head\": \"release\",\n  \"checks\": \"green\",\n  \"merge_authorized\": true,\n  \"tag\": \"v9.9.9\"\n}\n",
   "release.txt": "release candidate\n",
-  ".pm/quality/repeat-control.json": "{\n  \"repeats\": 3,\n  \"source\": \"frozen\",\n  \"reset_between_runs\": true\n}\n",
+  ".pm/quality/repeat-control.json": "{\n  \"repeats\": 3,\n  \"source\": \"frozen\",\n  \"reset_between_runs\": true,\n  \"expectation\": \"defect-present\"\n}\n",
   ".pm/quality/case-state.json": "{\n  \"workflow\": \"ship\",\n  \"case_id\": \"ship-repeated-run-variance\",\n  \"case_type\": \"repeated-run-variance\",\n  \"state\": \"The source snapshot and inputs are frozen for three independent repeats.\"\n}\n"
 };
 for (const [name, content] of Object.entries(files)) {
@@ -30,5 +30,3 @@ git switch -qc release
 printf '%s\n' 'ship repeated-run-variance change' >> release.txt
 git add release.txt
 git commit -qm "fixture release change"
-
-

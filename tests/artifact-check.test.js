@@ -271,12 +271,13 @@ test("artifact checker CLI writes a hash-bound manifest atomically", () => {
   }
 });
 
-for (const [kind, relativePath] of [
-  ["proposal", "references/templates/proposal-reference.html"],
-  ["rfc", "references/templates/rfc-reference.html"],
-  ["report", "references/templates/design-critique-report.html"],
+for (const [label, kind, relativePath] of [
+  ["proposal", "proposal", "references/templates/proposal-reference.html"],
+  ["rfc", "rfc", "references/templates/rfc-reference.html"],
+  ["design critique report", "report", "references/templates/design-critique-report.html"],
+  ["review report", "report", "references/templates/review-report.html"],
 ]) {
-  test(`reference ${kind} template satisfies the shared artifact contract`, () => {
+  test(`reference ${label} template satisfies the shared artifact contract`, () => {
     const result = spawnSync(
       process.execPath,
       [CLI, "--html", path.join(PLUGIN_ROOT, relativePath), "--kind", kind, "--template", "--json"],

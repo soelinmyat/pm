@@ -26,7 +26,7 @@ Every gate runs the same loop:
 
 ```
 1. Dispatch ALL reviewers in one parallel wave
-2. Collect verdicts; merge + deduplicate team findings (independent reviewers stay separate signals)
+2. Collect verdicts; merge + deduplicate team findings (context-separated reviewer signals stay distinct)
 3. Split blocking vs advisory
 4. Blocking → fix the artifact → re-dispatch the whole wave. `fresh-eyes` reviewers always get a fresh agent; `Independence: none` reviewers may be re-engaged with fix context (see Sequential dispatch). Fixes can introduce new problems — re-checks cover the whole artifact, not just the fixes.
 5. Repeat up to the iteration cap
@@ -147,6 +147,6 @@ Reference for where each gate is defined and what reviewer prompts it uses:
 | Plan review | rfc (review step) | 1 (plan-document-reviewer) | `skills/dev/references/plan-reviewer.md` |
 | Scope review | groom step 05 | 3 (PM, Competitive, EM) | `skills/groom/references/team-reviewers.md` § Scope Review |
 | Team review + bar raiser | groom step 08 (one concurrent wave) | 4-5 (PM, Competitive, EM, Design cond., Product Director fresh-eyes) | `skills/groom/references/team-reviewers.md` |
-| Code review | review | 6 lenses (bugs, design, input edge-case, reuse, quality, efficiency) | `skills/review/SKILL.md` |
+| Code review | review | 6 logical lenses adaptively assigned to 1–6 reviewers | `skills/review/references/reviewer-briefs.md` |
 | Spec compliance | subagent-dev | 1 (spec-reviewer) | `skills/dev/references/subagent-spec-reviewer.md` |
 | Code quality | subagent-dev | 1 (code-quality-reviewer) | `skills/dev/references/code-quality-reviewer.md` |

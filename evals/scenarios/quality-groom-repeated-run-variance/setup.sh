@@ -9,7 +9,7 @@ const files = {
   ".pm/quality/input-lock.json": "{\n  \"case_id\": \"groom-repeated-run-variance\",\n  \"frozen\": true\n}\n",
   "pm/backlog/csv-export.md": "---\nid: csv-export\nstatus: captured\n---\n# CSV export\n\nEvidence: ACME and Northstar require scheduled CSV delivery.\n",
   "pm/evidence/export-signals.md": "# Evidence\n\nACME: scheduled finance export.\nNorthstar: permission-scoped delivery.\n",
-  ".pm/quality/repeat-control.json": "{\n  \"repeats\": 3,\n  \"source\": \"frozen\",\n  \"reset_between_runs\": true\n}\n",
+  ".pm/quality/repeat-control.json": "{\n  \"repeats\": 3,\n  \"source\": \"frozen\",\n  \"reset_between_runs\": true,\n  \"expectation\": \"defect-present\"\n}\n",
   ".pm/quality/case-state.json": "{\n  \"workflow\": \"groom\",\n  \"case_id\": \"groom-repeated-run-variance\",\n  \"case_type\": \"repeated-run-variance\",\n  \"state\": \"The source snapshot and inputs are frozen for three independent repeats.\"\n}\n"
 };
 for (const [name, content] of Object.entries(files)) {
@@ -30,5 +30,3 @@ git switch -qc feature
 printf '%s\n' 'groom repeated-run-variance change' >> pm/backlog/csv-export.md
 git add pm/backlog/csv-export.md
 git commit -qm "fixture feature change"
-
-

@@ -105,7 +105,7 @@ function validateRoute(route, commit, baseRef, baseCommit, issues) {
   else {
     closed(
       route.source,
-      ["commit", "base_ref", "base_commit", "diff_sha256"],
+      ["commit", "base_ref", "base_commit", "remote_push_url_sha256", "diff_sha256"],
       "route.source",
       issues
     );
@@ -122,6 +122,11 @@ function validateRoute(route, commit, baseRef, baseCommit, issues) {
       add(issues, "route.source.base_commit", `must equal remote base commit ${baseCommit}`);
     if (!sha256(route.source.diff_sha256))
       add(issues, "route.source.diff_sha256", "must be SHA-256");
+    if (
+      route.source.remote_push_url_sha256 !== undefined &&
+      !sha256(route.source.remote_push_url_sha256)
+    )
+      add(issues, "route.source.remote_push_url_sha256", "must be SHA-256 when present");
   }
   if (!Array.isArray(route.subjects) || route.subjects.length === 0)
     add(issues, "route.subjects", "must contain at least one subject");
@@ -485,8 +490,15 @@ function validateArtifactSubject(root, subject, evidence, route, captureRows, is
   if (render) {
     if (!isRfc3339DateTime(render.checked_at))
       add(issues, `${at}.render.checked_at`, "must be RFC 3339");
+    const renderSource = readBoundFile(
+      root,
+      render.source?.path,
+      `${at}.render.source.path`,
+      issues
+    );
     if (
-      realPathMaybe(render.source?.path) !== artifactFile.path ||
+      !renderSource ||
+      renderSource.path !== artifactFile.path ||
       render.source?.sha256 !== `sha256:${artifactFile.sha256}`
     )
       add(issues, `${at}.render.source`, "must bind the exact HTML bytes");
@@ -544,12 +556,7 @@ function validateArtifactSubject(root, subject, evidence, route, captureRows, is
     )
       add(issues, `${at}.render.print`, "requires a non-empty hash-bound PDF");
     else {
-      const printFile = readAbsoluteProjectFile(
-        root,
-        render.print.path,
-        `${at}.render.print.path`,
-        issues
-      );
+      const printFile = readBoundFile(root, render.print.path, `${at}.render.print.path`, issues);
       if (
         printFile &&
         (render.print.sha256 !== `sha256:${printFile.sha256}` ||
@@ -560,9 +567,19 @@ function validateArtifactSubject(root, subject, evidence, route, captureRows, is
     const renderedByViewport = new Map();
     for (const item of render.captures || []) {
       const files = new Set();
-      if (item.path && item.sha256) files.add(`${realPathMaybe(item.path)}|${item.sha256}`);
-      if (item.full_page?.path && item.full_page?.sha256)
-        files.add(`${realPathMaybe(item.full_page.path)}|${item.full_page.sha256}`);
+      if (item.path && item.sha256) {
+        const file = readBoundFile(root, item.path, `${at}.render.${item.name}.path`, []);
+        if (file) files.add(`${file.path}|${item.sha256}`);
+      }
+      if (item.full_page?.path && item.full_page?.sha256) {
+        const file = readBoundFile(
+          root,
+          item.full_page.path,
+          `${at}.render.${item.name}.full_page.path`,
+          []
+        );
+        if (file) files.add(`${file.path}|${item.full_page.sha256}`);
+      }
       renderedByViewport.set(item.name, files);
     }
     const subjectCoverage = new Map(
@@ -577,7 +594,15 @@ function validateArtifactSubject(root, subject, evidence, route, captureRows, is
       const coverage = subjectCoverage.get(capture.coverage_id);
       const renderedFiles =
         coverage.viewport === "print"
-          ? new Set([`${realPathMaybe(render.print?.path)}|${render.print?.sha256}`])
+          ? (() => {
+              const printFile = readBoundFile(
+                root,
+                render.print?.path,
+                `${at}.render.print.path`,
+                []
+              );
+              return new Set(printFile ? [`${printFile.path}|${render.print?.sha256}`] : []);
+            })()
           : renderedByViewport.get(coverage.viewport) || new Set();
       if (capture.kind === "screenshot" && capture.full_page !== true)
         add(
@@ -596,7 +621,7 @@ function validateRenderedPng(root, item, width, height, label, seen, issues) {
     add(issues, label, "requires a hash-bound PNG");
     return;
   }
-  const file = readAbsoluteProjectFile(root, item.path, `${label}.path`, issues);
+  const file = readBoundFile(root, item.path, `${label}.path`, issues);
   if (!file) return;
   if (seen.has(file.path)) add(issues, label, "render files must be distinct");
   seen.add(file.path);
@@ -609,15 +634,6 @@ function validateRenderedPng(root, item, width, height, label, seen, issues) {
   } catch (error) {
     add(issues, label, error.message);
   }
-}
-
-function readAbsoluteProjectFile(root, absolute, label, issues) {
-  if (!text(absolute) || !path.isAbsolute(absolute)) {
-    add(issues, label, "must be an absolute renderer path");
-    return null;
-  }
-  const relative = path.relative(root, realPathMaybe(absolute));
-  return readBoundFile(root, relative, label, issues);
 }
 
 function readEvidenceJson(root, entry, label, issues) {

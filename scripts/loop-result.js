@@ -423,6 +423,10 @@ function verifyDocumentArtifact(runDir, artifact) {
 }
 
 function verifyCommittedGateSidecar(workspace, options = {}) {
+  return verifyCommittedGateSidecarWithChecker(workspace, options, checkGateManifest);
+}
+
+function verifyCommittedGateSidecarWithChecker(workspace, options, gateChecker) {
   let actualHead;
   try {
     actualHead = runGit(["rev-parse", "HEAD"], workspace, { timeout: 30_000 });
@@ -446,9 +450,22 @@ function verifyCommittedGateSidecar(workspace, options = {}) {
     return failed("source-head-mismatch", `source branch could not be verified: ${err.message}`);
   }
 
+  let trustedBase;
+  try {
+    trustedBase = /^[a-f0-9]{40,64}$/.test(options.baseRef || "")
+      ? { ref: options.baseRef, commit: options.baseRef }
+      : require("./review-target").resolveTrustedBase(workspace, options.remote || "origin");
+    if (options.baseRef && options.baseRef !== trustedBase.ref)
+      return failed(
+        "source-base-mismatch",
+        `source base ${options.baseRef} does not equal remote default ${trustedBase.ref}`
+      );
+  } catch (err) {
+    return failed("source-base-unreadable", `authoritative remote base failed: ${err.message}`);
+  }
   let changedFiles;
   try {
-    changedFiles = loadChangedFilesFromGit(options.baseRef, workspace, options.expectedHeadOid);
+    changedFiles = loadChangedFilesFromGit(trustedBase.commit, workspace, options.expectedHeadOid);
   } catch (err) {
     return failed("source-diff-unreadable", `source diff could not be verified: ${err.message}`);
   }
@@ -465,7 +482,47 @@ function verifyCommittedGateSidecar(workspace, options = {}) {
 
   const slug = deriveSessionSlug(options.expectedHead);
   const sessionRoot = path.join(workspace, ".pm", "dev-sessions");
-  const manifestPath = options.manifestPath || path.join(sessionRoot, `${slug}.gates.json`);
+  const canonicalSessionDir = path.join(sessionRoot, slug);
+  const canonicalManifest = path.join(canonicalSessionDir, "gates.json");
+  const manifestPath = options.manifestPath || canonicalManifest;
+  if (path.resolve(manifestPath) !== path.resolve(canonicalManifest))
+    return failed(
+      "gate-sidecar-non-authoritative",
+      "legacy gate sidecars are inspection-only; canonical gates.json is required"
+    );
+  if (!fs.existsSync(path.join(canonicalSessionDir, "session.json")))
+    return failed("gate-session-missing", "canonical sibling session.json is required");
+  const sessionRead = readBoundedRegularFile(
+    path.join(canonicalSessionDir, "session.json"),
+    MAX_RESULT_BYTES * 2,
+    "gate-session",
+    { requirePrivate: false }
+  );
+  if (!sessionRead.ok) return sessionRead;
+  let canonicalSession;
+  try {
+    canonicalSession = JSON.parse(sessionRead.content.toString("utf8"));
+  } catch (err) {
+    return failed("gate-session-malformed", `canonical session is malformed: ${err.message}`);
+  }
+  const sessionIssues = require("./lib/dev-session-schema").validateSession(canonicalSession);
+  if (sessionIssues.length > 0)
+    return failed(
+      "gate-session-invalid",
+      sessionIssues
+        .slice(0, 3)
+        .map((item) => `${item.path}: ${item.message}`)
+        .join("; ")
+    );
+  if (
+    canonicalSession.source.delivery_remote &&
+    canonicalSession.source.delivery_remote !== (options.remote || "origin")
+  ) {
+    return failed(
+      "delivery-remote-mismatch",
+      "delivery remote does not match the destination persisted before Review"
+    );
+  }
   if (pathChainHasSymlink(workspace, manifestPath)) {
     return failed("gate-sidecar-unsafe", "gate sidecar must be a bounded regular file");
   }
@@ -517,11 +574,19 @@ function verifyCommittedGateSidecar(workspace, options = {}) {
       if (!artifactRead.ok) return artifactRead;
     }
   }
-  const checked = checkGateManifest(manifest, {
+  const checked = gateChecker(manifest, {
     currentCommit: options.expectedHeadOid,
+    currentBranch: options.expectedHead,
     manifestPath,
     artifactRoot: workspace,
     changedFiles,
+    reviewEvidenceMode: "enforce",
+    canonicalSession,
+    requireSessionBinding: true,
+    authoritativeBaseRef: trustedBase.ref,
+    authoritativeBaseCommit: trustedBase.commit,
+    authoritativePushUrlSha256: trustedBase.remote_push_url_sha256 || null,
+    requiredAuthorities: options.requiredAuthorities || [],
   });
   if (!checked.ok) {
     return {
@@ -549,4 +614,5 @@ module.exports = {
   verifyCommittedGateSidecar,
   verifyDocumentArtifact,
   writeStageResult,
+  __test: { verifyCommittedGateSidecarWithChecker },
 };

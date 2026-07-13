@@ -2,7 +2,13 @@
 
 Shared reference for the self-healing PR merge flow. Used by the ship skill's gate monitoring phase.
 
-**Goal:** Take a PR from its current state to merged, fixing whatever comes up along the way.
+**Goal:** Take the exact delivery-contracted PR from its current state to merged, fixing and recertifying whatever comes up along the way.
+
+## Delivery identity and authority
+
+Before this reference, read and follow `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/delivery-contract.md`. Enter only with a freshly validated contract, exact `PR_NUMBER`, and explicit canonical plus snapshotted `merge: true`. Set `GH_OWNER`, `GH_REPOSITORY`, `GH_REPO`, `HEAD_BRANCH`, `BASE_BRANCH`, and `DELIVERY_REMOTE` from that contract. A preference or ambient `gh` repository is not authority.
+
+Before every PR mutation, revalidate both authority and contract identity. Every `gh pr` and `gh run` call below supplies `--repo "$GH_REPO"`; every PR call supplies the explicit `PR_NUMBER` except the already completed head/base discovery in Ship Step 05. `gh api` has no `--repo` flag, so its REST endpoint or GraphQL owner/repository variables must use the exact contracted `$GH_OWNER/$GH_REPOSITORY`. Re-fetch the PR through `repos/$GH_OWNER/$GH_REPOSITORY/pulls/$PR_NUMBER` and reject any repository, head, or base mismatch before continuing.
 
 ## Prerequisites
 
@@ -43,9 +49,9 @@ gh_retry() {
 Apply it to the network calls throughout this loop, for example:
 
 ```bash
-gh_retry gh pr view --json number,url,state,mergeStateStatus,statusCheckRollup,reviewDecision
-gh_retry gh api graphql -f query='...'
-gh_retry gh pr checks --json name,state,conclusion
+gh_retry gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json number,url,state,mergeStateStatus,statusCheckRollup,reviewDecision
+gh_retry gh api graphql -F owner="$GH_OWNER" -F repo="$GH_REPOSITORY" -f query='...'
+gh_retry gh pr checks "$PR_NUMBER" --repo "$GH_REPO" --json name,state,conclusion
 ```
 
 This bash helper is an independently-maintained copy of the same *idea* the hooks use in code (`scripts/pr-state.js`) — not the same implementation. Both retry only transient 5xx / gateway / timeout failures and let auth / 404 / 422 fail fast, but their exact transient patterns and backoff differ; keep the intent aligned, don't assume byte-identical behavior.
@@ -57,14 +63,14 @@ This bash helper is an independently-maintained copy of the same *idea* the hook
 Detect the PR and assess current state. Wrap these and every later network `gh` call with `gh_retry` (see "Transient failure retry" above).
 
 ```bash
-# Find PR from current branch (or from arg)
-gh pr view --json number,url,title,state,mergeStateStatus,statusCheckRollup,reviewDecision
+# Read the already identity-checked PR; never rediscover it from ambient context
+gh_retry gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json number,url,title,state,mergeStateStatus,statusCheckRollup,reviewDecision
 
 # ALWAYS query thread count — this is the #1 reason PRs get stuck
-gh api graphql -f query='
-query {
-  repository(owner: "{owner}", name: "{repo}") {
-    pullRequest(number: PR_NUMBER) {
+gh_retry gh api graphql -F owner="$GH_OWNER" -F repo="$GH_REPOSITORY" -F pr="$PR_NUMBER" -f query='
+query($owner: String!, $repo: String!, $pr: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $pr) {
       reviewThreads(first: 100) {
         nodes { isResolved }
       }
@@ -102,11 +108,11 @@ Do NOT guess — query each one. (Gate 3 explains why unresolved conversations, 
 Attempt to arm GitHub auto-merge. If the repo supports it, GitHub will merge automatically once all branch protection rules pass.
 
 ```bash
-gh pr merge --auto --squash
+gh_retry gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --auto --squash
 ```
 
 - **If accepted:** Auto-merge is armed. The agent's job is now fix-only — fix CI failures, resolve review comments, resolve conflicts. GitHub handles the actual merge when everything's green.
-- **If rejected** (repo doesn't allow auto-merge, or branch protection not configured): Manual path — the agent must merge via `gh pr merge --squash --delete-branch` after all gates pass.
+- **If rejected** (repo doesn't allow auto-merge, or branch protection not configured): Manual path — the agent must use the same explicit `PR_NUMBER` and `--repo "$GH_REPO"` after all gates pass.
 
 Note which path we're on. Print:
 
@@ -133,14 +139,14 @@ Always drain actionable work before blocking on CI. Bot review comments (CodeRab
 **1. Merge conflicts**
 
 ```bash
-gh pr view --json mergeStateStatus --jq .mergeStateStatus
+gh_retry gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json mergeStateStatus --jq .mergeStateStatus
 ```
 
 If `DIRTY`:
-- Fetch and merge base branch: `git fetch origin {DEFAULT_BRANCH} && git merge origin/{DEFAULT_BRANCH}`
+- Fetch and merge the contracted base: `git fetch -- "$DELIVERY_REMOTE" "$BASE_BRANCH" && git merge "$DELIVERY_REMOTE/$BASE_BRANCH"`
 - Resolve conflicts (lockfiles: accept either side + regenerate; code: preserve intent of both)
 - Run tests to verify resolution
-- Commit and push
+- Commit, then run the complete post-mutation recertification protocol from `delivery-contract.md`. Regenerate current Review and changed routed-gate artifacts, pass `dev-gate-check`, and only then push explicitly to `$DELIVERY_REMOTE`.
 
 **2. Review comments**
 
@@ -151,10 +157,10 @@ Every thread — human or bot — must be reviewed before resolution. Follow the
 
 ```bash
 # Fetch unresolved threads
-gh api graphql -f query='
-query {
-  repository(owner: "{owner}", name: "{repo}") {
-    pullRequest(number: PR_NUMBER) {
+gh_retry gh api graphql -F owner="$GH_OWNER" -F repo="$GH_REPOSITORY" -F pr="$PR_NUMBER" -f query='
+query($owner: String!, $repo: String!, $pr: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $pr) {
       reviewThreads(first: 100) {
         nodes {
           id
@@ -173,7 +179,7 @@ For each unresolved thread, **read the full comment chain first**, then categori
 
 | Comment type | Action |
 |-------------|--------|
-| Code fix (bug, style, missing check) | **Read the comment.** Verify the issue exists in the code. Fix it, commit, push, reply explaining the fix, resolve the thread |
+| Code fix (bug, style, missing check) | **Read the comment.** Verify the issue exists in the code. Fix and commit it, run post-mutation recertification, push only after `dev-gate-check`, then reply and resolve the thread |
 | Question (why did you do X?) | **Read the comment.** Understand what's being asked. Reply with the answer, resolve the thread |
 | Suggestion (consider doing X) | **Read the comment.** Evaluate against the codebase: if it improves the code, apply it. If not, reply explaining why. Resolve after responding |
 | Design/taste decision (should we use A or B?) | **Read the comment.** **Surface to user** — don't auto-respond to subjective feedback |
@@ -182,11 +188,11 @@ For each unresolved thread, **read the full comment chain first**, then categori
 **Reply format:**
 ```bash
 # Reply to the comment
-gh api repos/{owner}/{repo}/pulls/PR_NUMBER/comments/{comment-id}/replies \
+gh_retry gh api "repos/$GH_OWNER/$GH_REPOSITORY/pulls/$PR_NUMBER/comments/{comment-id}/replies" \
   -X POST -f body="Fixed in {commit-sha}. {brief description}."
 
 # Resolve the thread
-gh api graphql -f query='
+gh_retry gh api graphql -f query='
 mutation {
   resolveReviewThread(input: {threadId: "{thread-id}"}) {
     thread { isResolved }
@@ -204,10 +210,10 @@ After resolving threads in Gate 2, verify the count:
 
 ```bash
 # Count remaining unresolved threads
-gh api graphql -f query='
-query {
-  repository(owner: "{owner}", name: "{repo}") {
-    pullRequest(number: PR_NUMBER) {
+gh_retry gh api graphql -F owner="$GH_OWNER" -F repo="$GH_REPOSITORY" -F pr="$PR_NUMBER" -f query='
+query($owner: String!, $repo: String!, $pr: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $pr) {
       reviewThreads(first: 100) {
         nodes { isResolved }
       }
@@ -225,7 +231,7 @@ The single most common misdiagnosis in this loop: seeing `mergeStateStatus: BLOC
 **4. Review approval**
 
 ```bash
-gh pr view --json reviewDecision --jq .reviewDecision
+gh_retry gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json reviewDecision --jq .reviewDecision
 ```
 
 If `CHANGES_REQUESTED` and all comment threads are resolved: the reviewer may need to re-approve. If threads are resolved and code is fixed, the fixes often satisfy the reviewer — proceed to the CI gate, then re-check approval on the next iteration.
@@ -234,11 +240,11 @@ If `REVIEW_REQUIRED` and no reviewers assigned, fall back in this order before a
 
 1. **CODEOWNERS lookup** — check `CODEOWNERS` at repo root (or `.github/CODEOWNERS`, `docs/CODEOWNERS`). Find the first pattern matching any changed file. Request those owners:
    ```bash
-   gh pr edit {PR_NUMBER} --add-reviewer {handle-or-team}
+   gh_retry gh pr edit "$PR_NUMBER" --repo "$GH_REPO" --add-reviewer {handle-or-team}
    ```
 2. **Branch-protection check** — query whether review is actually required:
    ```bash
-   gh api repos/{owner}/{repo}/branches/{DEFAULT_BRANCH}/protection 2>/dev/null \
+   gh_retry gh api "repos/$GH_OWNER/$GH_REPOSITORY/branches/$BASE_BRANCH/protection" 2>/dev/null \
      | jq '.required_pull_request_reviews.required_approving_review_count // 0'
    ```
    If the count is `0` or the call returns 404 (no protection), review is not gating merge — log "Review gate: not required by branch protection" and treat this gate as green.
@@ -247,7 +253,7 @@ If `REVIEW_REQUIRED` and no reviewers assigned, fall back in this order before a
 **5. CI status (last gate — only block here when 1–4 are clean)**
 
 ```bash
-gh pr checks --json name,state,conclusion
+gh_retry gh pr checks "$PR_NUMBER" --repo "$GH_REPO" --json name,state,conclusion
 ```
 
 If any check failed:
@@ -255,26 +261,26 @@ If any check failed:
 *Flake guard (first failure only):* Before investigating, check the retry table in `.pm/dev-sessions/{slug}.md` for this signature. If Attempts == 0 (brand new failure), run one automatic rerun of the failed jobs and wait for the result before treating the failure as real:
 
 ```bash
-gh run rerun {run-id} --failed
+gh_retry gh run rerun "$RUN_ID" --repo "$GH_REPO" --failed
 ```
 
 This costs one CI cycle but catches flakes cheaply. Record the rerun in the retry table as Attempts=1 with Last action `flake-guard rerun`. If the rerun passes, clear the row and proceed. If it fails again, treat as a real failure and move to diagnosis.
 
 *On real failure:*
-- Get failure logs: `gh run view [run-id] --log-failed`
+- Get failure logs: `gh_retry gh run view "$RUN_ID" --repo "$GH_REPO" --log-failed`
 - Investigate root cause before fixing (don't guess)
-- Fix, commit, push
+- Fix and commit, then run the complete post-mutation recertification protocol. Regenerate Review and changed gate artifacts, pass `dev-gate-check`, and only then push explicitly to `$DELIVERY_REMOTE`.
 - Return to Gate 1 on the next iteration (the push may produce new comments)
 
 If checks are pending **and** gates 1–4 are clean:
-- Use `gh pr checks --watch --fail-fast` with `run_in_background: true` to wait for completion. This blocks until all checks finish or one fails — no manual polling needed.
+- Use `gh_retry gh pr checks "$PR_NUMBER" --repo "$GH_REPO" --watch --fail-fast` with `run_in_background: true` to wait for completion. This blocks until all checks finish or one fails — no manual polling needed.
 
 If checks are pending **and** any of gates 1–4 is not clean:
 - Do NOT drop into `--watch`. Return to whichever earlier gate is actionable — CI will keep running on its own, and the next iteration picks it up.
 
 <HARD-GATE>
 NEVER poll CI status in a loop. Do NOT repeatedly call `gh pr checks` with sleep between calls.
-Use `gh pr checks --watch` (background) or `gh run watch [run-id] --exit-status` (background) instead.
+Use `gh_retry gh pr checks "$PR_NUMBER" --repo "$GH_REPO" --watch` (background) or `gh_retry gh run watch "$RUN_ID" --repo "$GH_REPO" --exit-status` (background) instead.
 Tight polling wastes tokens, floods the terminal, and provides no benefit over `--watch`.
 </HARD-GATE>
 
@@ -336,7 +342,7 @@ Blocked: review-comment — design call on modal vs drawer — tried: read comme
 ```
 
 ```
-Blocked: reviewer-assignment — no CODEOWNERS match for changed files AND branch protection requires 1 approval — tried: CODEOWNERS lookup returned 0 matches — next: assign reviewer manually: gh pr edit {N} --add-reviewer {handle}
+Blocked: reviewer-assignment — no CODEOWNERS match for changed files AND branch protection requires 1 approval — tried: CODEOWNERS lookup returned 0 matches — next: assign reviewer manually: gh pr edit "$PR_NUMBER" --repo "$GH_REPO" --add-reviewer {handle}
 ```
 
 Rules for the format:
@@ -353,20 +359,20 @@ Rules for the format:
 **If auto-merge was armed in Step 2:** GitHub merges automatically when all gates pass. The agent MUST wait for the merge to complete — do NOT report "auto-merge armed" and exit.
 
 <HARD-GATE>
-Do NOT exit the merge loop until `gh pr view --json state --jq .state` returns `"MERGED"`.
+Do NOT exit the merge loop until `gh_retry gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json state --jq .state` returns `"MERGED"`.
 Reporting "auto-merge armed, gates green" without confirming the merge is the #1 cause of stale local branches — Steps 5-6 (issue tracker + cleanup) never run.
 </HARD-GATE>
 
 ```bash
 # Poll until PR is merged (auto-merge typically completes within seconds)
 for i in $(seq 1 12); do
-  STATE=$(gh pr view --json state --jq .state)
+  STATE=$(gh_retry gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json state --jq .state)
   if [ "$STATE" = "MERGED" ]; then break; fi
   sleep 10
 done
 
 # Final check
-gh pr view --json state --jq .state
+gh_retry gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json state --jq .state
 # Must return "MERGED"
 ```
 
@@ -379,14 +385,14 @@ If state is still `"OPEN"` after polling: auto-merge is armed but blocked. **Loo
 
 ```bash
 # Final verification
-gh pr view --json mergeStateStatus --jq .mergeStateStatus
+gh_retry gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json mergeStateStatus --jq .mergeStateStatus
 # Must be CLEAN or UNSTABLE (not DIRTY or BLOCKED)
 
 # If BLOCKED: diagnose WHY before looping back to Step 3 — unresolved conversations
 # are the usual cause (check thread count first), then new comments, approval, or CI.
 
 # Merge
-gh pr merge --squash --delete-branch
+gh_retry gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --squash --delete-branch
 ```
 
 After merge command, verify state is `"MERGED"`. If still `"OPEN"`, loop back to Step 3.
@@ -414,7 +420,7 @@ If an issue tracker is configured (Linear/Jira via MCP) and the PR title or bran
 If a backlog file exists in `{pm_dir}/backlog/` matching the issue slug:
 - Update `status: done` and `updated` date in frontmatter
 - If the PR number is available, add it to the `prs` array (YAML list with quoted values: `- "#N"`)
-- Commit and push to the default branch before cleanup
+- Commit and push to the contracted repository's default branch before cleanup, using explicit `$DELIVERY_REMOTE` rather than ambient `origin`
 
 **5c. Dev session file**
 
@@ -437,10 +443,10 @@ if [ "$GIT_COMMON" != "$GIT_DIR" ]; then
   cd "$MAIN_REPO"
 fi
 
-# Update base branch
-git fetch origin {DEFAULT_BRANCH}
-git checkout {DEFAULT_BRANCH}
-git merge --ff-only origin/{DEFAULT_BRANCH}
+# Update the contracted base branch
+git fetch -- "$DELIVERY_REMOTE" "$BASE_BRANCH"
+git checkout "$BASE_BRANCH"
+git merge --ff-only "$DELIVERY_REMOTE/$BASE_BRANCH"
 
 # Remove worktree if applicable
 if [ -n "$WORKTREE_PATH" ]; then
@@ -487,4 +493,4 @@ Merged
 - Stop after 2 failed fixes for the same problem (3 total tries), not on total attempt count
 - Use `/replies` sub-endpoint for PR comments (not `in_reply_to_id`)
 - Always verify remote branch was deleted after merge
-- Always pull {DEFAULT_BRANCH} after merge
+- Always update `$BASE_BRANCH` from the contracted `$DELIVERY_REMOTE` after merge

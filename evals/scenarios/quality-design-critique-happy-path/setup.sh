@@ -31,5 +31,3 @@ git switch -qc feature
 printf '%s\n' 'design-critique happy-path change' >> ui/report.html
 git add ui/report.html
 git commit -qm "fixture feature change"
-
-

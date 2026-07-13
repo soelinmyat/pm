@@ -10,6 +10,7 @@ const { validateRfcSidecar } = require("./rfc-sidecar-check");
 const { rfcIssuesToDevWorkUnits } = require("./lib/rfc-work-units");
 
 const {
+  advanceDecisionVersion,
   applyRouting,
   createSession,
   grantAuthority,
@@ -62,6 +63,8 @@ function main(argv) {
       return unblockCommand(options);
     case "authorize":
       return authorizeCommand(options);
+    case "advance-decision":
+      return advanceDecisionCommand(options);
     case "workspace":
       return workspaceCommand(options);
     case "work-unit":
@@ -111,6 +114,7 @@ function parseArguments(argv) {
     "status",
     "legacy",
     "base-commit",
+    "expected-version",
   ];
   const spec = Object.fromEntries(valueFlags.map((name) => [`--${name}`, { type: "string" }]));
   spec["--json"] = { key: "json", type: "boolean" };
@@ -672,6 +676,33 @@ function authorizeCommand(options) {
   return EXIT.OK;
 }
 
+function advanceDecisionCommand(options) {
+  requireOptions(options, ["session", "expectedVersion", "reason"]);
+  const expectedVersion = Number(options.expectedVersion);
+  if (!Number.isInteger(expectedVersion) || expectedVersion < 1) {
+    throw cliError("--expected-version must be a positive integer", EXIT.INVALID);
+  }
+  const sessionPath = path.resolve(options.session);
+  let updated;
+  try {
+    updated = mutateSession(sessionPath, (session) =>
+      advanceDecisionVersion(session, expectedVersion, options.reason)
+    );
+  } catch (error) {
+    throw cliError(error.message, EXIT.PRECONDITION);
+  }
+  emit(
+    options,
+    {
+      session_path: sessionPath,
+      decision_version: updated.routing.decision_version,
+      decision: updated.routing.decision_log.at(-1),
+    },
+    `Advanced decision version to ${updated.routing.decision_version}\n`
+  );
+  return EXIT.OK;
+}
+
 function workspaceCommand(options) {
   requireOptions(options, ["session", "worktree"]);
   const sessionPath = path.resolve(options.session);
@@ -830,6 +861,7 @@ function helpText() {
     "  recertify --session <path> --phases <csv> --commit <sha> --evidence <json-path> [--json]",
     "  unblock --session <path> --reason <resolution> [--json]",
     "  authorize --session <path> --grant <csv> --reason <consent> [--json]",
+    "  advance-decision --session <path> --expected-version <n> --reason <direction> [--json]",
     "  workspace --session <path> --worktree <path> [--json]",
     "  work-unit --session <path> --id <id> --status <status> [--worktree <path>] [--result <path>] [--reason <text>] [--json]",
     "  validate --session <path> [--json]",

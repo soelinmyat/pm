@@ -16,10 +16,21 @@ const {
   verifyCommittedGateSidecar,
   verifyDocumentArtifact,
   writeStageResult,
+  __test,
 } = require("../scripts/loop-result.js");
+const { createSession } = require("../scripts/lib/dev-session-schema");
 
 const RUN_ID = "loop-123e4567-e89b-42d3-a456-426614174000";
 const CONTEXT = { runId: RUN_ID, cardId: "PM-108", stage: "dev" };
+
+function checkedGateFixture(manifest, options) {
+  assert.ok(Array.isArray(manifest.gates));
+  assert.equal(options.reviewEvidenceMode, "enforce");
+  assert.equal(options.requireSessionBinding, true);
+  assert.equal(options.canonicalSession.run_id, manifest.run_id);
+  assert.equal(options.currentBranch, options.canonicalSession.source.branch);
+  return { ok: true, issues: [] };
+}
 
 function tmpDir(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-result-"));
@@ -322,12 +333,20 @@ function makeGateFixture(t, { protectedChange = false, stale = false } = {}) {
     checked_at: "2026-07-10T10:00:00Z",
     ...overrides,
   });
-  const manifestPath = path.join(sessionDir, "loop-pm-108.gates.json");
+  const canonicalSessionDir = path.join(sessionDir, "loop-pm-108");
+  fs.mkdirSync(canonicalSessionDir, { recursive: true, mode: 0o700 });
+  const session = createSession({ slug: "loop-pm-108", sourceDir: root });
+  session.routing.review_mode = "code-scan";
+  fs.writeFileSync(path.join(canonicalSessionDir, "session.json"), `${JSON.stringify(session)}\n`, {
+    mode: 0o600,
+  });
+  const manifestPath = path.join(canonicalSessionDir, "gates.json");
   fs.writeFileSync(
     manifestPath,
     `${JSON.stringify(
       {
         schema_version: 1,
+        run_id: session.run_id,
         size: "XL",
         kind: "proposal",
         gates: [
@@ -354,11 +373,15 @@ function makeGateFixture(t, { protectedChange = false, stale = false } = {}) {
 
 test("gate verification pins the sidecar to expected source HEAD and rejects protected source paths", (t) => {
   const fixture = makeGateFixture(t);
-  const verified = verifyCommittedGateSidecar(fixture.root, {
-    expectedHeadOid: fixture.headOid,
-    expectedHead: "loop/pm-108",
-    baseRef: fixture.baseOid,
-  });
+  const verified = __test.verifyCommittedGateSidecarWithChecker(
+    fixture.root,
+    {
+      expectedHeadOid: fixture.headOid,
+      expectedHead: "loop/pm-108",
+      baseRef: fixture.baseOid,
+    },
+    checkedGateFixture
+  );
   assert.equal(verified.ok, true, JSON.stringify(verified));
   assert.deepEqual(verified.changedFiles, ["scripts/change.js"]);
 
@@ -370,6 +393,73 @@ test("gate verification pins the sidecar to expected source HEAD and rejects pro
   });
   assert.equal(protectedResult.ok, false);
   assert.equal(protectedResult.code, "protected-source-path-changed");
+});
+
+test("gate verification forwards action-specific delivery authority", (t) => {
+  const fixture = makeGateFixture(t);
+  let observed;
+  const checked = __test.verifyCommittedGateSidecarWithChecker(
+    fixture.root,
+    {
+      expectedHeadOid: fixture.headOid,
+      expectedHead: "loop/pm-108",
+      baseRef: fixture.baseOid,
+      requiredAuthorities: ["push_feature_branch", "create_pr", "merge"],
+    },
+    (manifest, options) => {
+      observed = options.requiredAuthorities;
+      return checkedGateFixture(manifest, options);
+    }
+  );
+  assert.equal(checked.ok, true, JSON.stringify(checked));
+  assert.deepEqual(observed, ["push_feature_branch", "create_pr", "merge"]);
+});
+
+test("gate verification rejects a flat legacy sidecar as non-authoritative", (t) => {
+  const fixture = makeGateFixture(t);
+  const legacyPath = path.join(fixture.root, ".pm", "dev-sessions", "loop-pm-108.gates.json");
+  fs.renameSync(fixture.manifestPath, legacyPath);
+  fs.rmSync(path.dirname(fixture.manifestPath), { recursive: true, force: true });
+
+  const checked = __test.verifyCommittedGateSidecarWithChecker(
+    fixture.root,
+    {
+      expectedHeadOid: fixture.headOid,
+      expectedHead: "loop/pm-108",
+      baseRef: fixture.baseOid,
+    },
+    checkedGateFixture
+  );
+  assert.equal(checked.ok, false, JSON.stringify(checked));
+  assert.equal(checked.code, "gate-session-missing");
+});
+
+test("delivery verification rejects a legacy-shaped Review row", (t) => {
+  const fixture = makeGateFixture(t);
+  const checked = verifyCommittedGateSidecar(fixture.root, {
+    expectedHeadOid: fixture.headOid,
+    expectedHead: "loop/pm-108",
+    baseRef: fixture.baseOid,
+  });
+  assert.equal(checked.ok, false);
+  assert.equal(checked.code, "gate-verification-failed");
+  assert.match(checked.reason, /requires evidence_kind review-report-v1 in enforcement mode/);
+});
+
+test("gate verification rejects a colliding session slug bound to another branch", (t) => {
+  const fixture = makeGateFixture(t);
+  const collidingBranch = "loop/pm@108";
+  git(["branch", collidingBranch, fixture.headOid], fixture.root);
+
+  const checked = verifyCommittedGateSidecar(fixture.root, {
+    expectedHeadOid: fixture.headOid,
+    expectedHead: collidingBranch,
+    baseRef: fixture.baseOid,
+  });
+
+  assert.equal(checked.ok, false, JSON.stringify(checked));
+  assert.equal(checked.code, "gate-verification-failed");
+  assert.match(checked.reason, /sibling session branch must equal loop\/pm@108/);
 });
 
 test("gate verification rejects stale, missing, symlinked, and wrong-HEAD evidence", (t) => {

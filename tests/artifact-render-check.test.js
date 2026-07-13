@@ -10,16 +10,27 @@ const {
   VIEWPORTS,
   browserCandidates,
   findClosingBodyIndex,
+  isCanonicalFullPageHeight,
   probeDataMarkerVisibility,
-  renderArtifact,
+  readCaptureFilePinned,
+  renderArtifact: renderArtifactRaw,
   resolveBrowser,
+  runBrowserProbe,
 } = require("../scripts/artifact-render-check");
+const { MAX_HTML_BYTES } = require("../scripts/lib/review-limits");
 
 let installedBrowser = null;
 try {
   installedBrowser = resolveBrowser();
 } catch {
   installedBrowser = null;
+}
+
+function renderArtifact(options) {
+  return renderArtifactRaw({
+    ...options,
+    legacyProbe: path.basename(options.browserPath || "") === "fake-chromium.js",
+  });
 }
 
 function fakeBrowser(root) {
@@ -37,6 +48,10 @@ function makePdf(){const objects=["1 0 obj\\n<< /Type /Catalog /Pages 2 0 R >>\\
 const screenshot = process.argv.find((arg) => arg.startsWith("--screenshot="));
 const pdf = process.argv.find((arg) => arg.startsWith("--print-to-pdf="));
 const dump = process.argv.includes("--dump-dom");
+if (process.argv.includes("--version")) {
+  process.stdout.write("Chromium 123.0.0 test\\n");
+  process.exit(0);
+}
 if (dump) {
   const probePath = new URL(process.argv[process.argv.length - 1]);
   const probe = fs.readFileSync(probePath, "utf8");
@@ -72,18 +87,221 @@ test("render checker captures the canonical viewport matrix and print PDF", () =
       htmlPath,
       outputDir: path.join(root, "renders"),
       browserPath: fakeBrowser(root),
+      projectRoot: root,
+      markerPrefix: "data-dc-",
     });
     assert.deepEqual(
       result.captures.map(({ name, width, height }) => ({ name, width, height })),
       VIEWPORTS
     );
-    assert.ok(result.captures.every((capture) => fs.existsSync(capture.path)));
-    assert.ok(result.captures.every((capture) => fs.existsSync(capture.full_page.path)));
+    assert.ok(result.captures.every((capture) => fs.existsSync(path.join(root, capture.path))));
+    assert.ok(
+      result.captures.every((capture) => fs.existsSync(path.join(root, capture.full_page.path)))
+    );
+    assert.equal(result.source.path, "example.html");
+    assert.ok(result.captures.every((capture) => !path.isAbsolute(capture.path)));
+    assert.equal(path.isAbsolute(result.print.path), false);
     assert.ok(result.captures.every((capture) => capture.full_page.height === 2400));
     assert.ok(result.captures.every((capture) => capture.metrics.horizontalOverflow === false));
     assert.equal(result.print.pages, 1);
     assert.match(result.print.sha256, /^sha256:[0-9a-f]{64}$/);
     assert.match(result.source.sha256, /^sha256:[0-9a-f]{64}$/);
+    assert.equal(result.markers.length, 1);
+    assert.equal(result.observation.assurance_level, "local-observation");
+    assert.equal(result.observation.producer.name, "pm:artifact-render-check");
+    assert.equal(
+      result.observation.browser.path,
+      fs.realpathSync(path.join(root, "fake-chromium.js"))
+    );
+    assert.equal(result.observation.browser.engine, "chromium");
+    assert.equal(result.observation.browser.version, "Chromium 123.0.0 test");
+    assert.match(result.observation.browser.executable_sha256_before, /^sha256:[0-9a-f]{64}$/);
+    assert.equal(
+      result.observation.browser.executable_sha256_after,
+      result.observation.browser.executable_sha256_before
+    );
+    assert.match(result.observation.invocation_configuration_sha256, /^sha256:[0-9a-f]{64}$/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("render checker rejects browser executable drift during capture", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-render-"));
+  try {
+    const htmlPath = path.join(root, "example.html");
+    const browserPath = fakeBrowser(root);
+    fs.writeFileSync(htmlPath, "<!doctype html><title>Example</title>");
+    fs.writeFileSync(
+      browserPath,
+      fs
+        .readFileSync(browserPath, "utf8")
+        .replace(
+          "if (screenshot) {",
+          'if (screenshot) { fs.appendFileSync(__filename, "\\n// executable drift\\n");'
+        )
+    );
+    assert.throws(
+      () =>
+        renderArtifact({
+          htmlPath,
+          outputDir: path.join(root, "renders"),
+          browserPath,
+          projectRoot: root,
+        }),
+      /browser executable changed during artifact capture/
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("render checker rejects HTML source drift during capture", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-render-"));
+  try {
+    const htmlPath = path.join(root, "example.html");
+    const browserPath = fakeBrowser(root);
+    fs.writeFileSync(htmlPath, "<!doctype html><title>Example</title>");
+    fs.writeFileSync(
+      browserPath,
+      fs
+        .readFileSync(browserPath, "utf8")
+        .replace(
+          "if (screenshot) {",
+          `if (screenshot) { fs.appendFileSync(${JSON.stringify(htmlPath)}, "\\n<!-- source drift -->\\n");`
+        )
+    );
+    assert.throws(
+      () =>
+        renderArtifact({
+          htmlPath,
+          outputDir: path.join(root, "renders"),
+          browserPath,
+          projectRoot: root,
+        }),
+      /HTML source changed during artifact capture/
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("render checker rejects transient HTML change-and-restore during capture", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-render-"));
+  try {
+    const htmlPath = path.join(root, "example.html");
+    const browserPath = fakeBrowser(root);
+    fs.writeFileSync(htmlPath, "<!doctype html><title>Example</title>");
+    fs.writeFileSync(
+      browserPath,
+      fs
+        .readFileSync(browserPath, "utf8")
+        .replace(
+          "if (screenshot) {",
+          `if (screenshot) { const original = fs.readFileSync(${JSON.stringify(htmlPath)}); fs.appendFileSync(${JSON.stringify(htmlPath)}, "\\n<!-- transient -->"); fs.writeFileSync(${JSON.stringify(htmlPath)}, original);`
+        )
+    );
+    assert.throws(
+      () =>
+        renderArtifact({
+          htmlPath,
+          outputDir: path.join(root, "renders"),
+          browserPath,
+          projectRoot: root,
+        }),
+      /HTML source changed during artifact capture/
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("render checker preserves the source directory as the relative-resource base", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-render-"));
+  try {
+    const htmlPath = path.join(root, "example.html");
+    const browserPath = fakeBrowser(root);
+    fs.writeFileSync(htmlPath, '<!doctype html><link rel="stylesheet" href="theme.css">');
+    fs.writeFileSync(path.join(root, "theme.css"), "main { display: block; }\n");
+    fs.writeFileSync(
+      browserPath,
+      fs
+        .readFileSync(browserPath, "utf8")
+        .replace(
+          "if (screenshot) {",
+          'if (screenshot) { const source = new URL(process.argv[process.argv.length - 1]); if (!fs.existsSync(new URL("theme.css", source))) process.exit(9);'
+        )
+    );
+    assert.doesNotThrow(() =>
+      renderArtifact({
+        htmlPath,
+        outputDir: path.join(root, "renders"),
+        browserPath,
+        projectRoot: root,
+      })
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("render checker observes the canonical HTML URL without source-directory writes", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-render-"));
+  const sourceDir = path.join(root, "read-only-source");
+  try {
+    fs.mkdirSync(sourceDir);
+    const htmlPath = path.join(sourceDir, "canonical.html");
+    const browserPath = fakeBrowser(root);
+    fs.writeFileSync(htmlPath, "<!doctype html><title>Canonical</title>");
+    fs.writeFileSync(
+      browserPath,
+      fs
+        .readFileSync(browserPath, "utf8")
+        .replace(
+          "if (screenshot) {",
+          `if (screenshot) { const observed = decodeURIComponent(new URL(process.argv[process.argv.length - 1]).pathname); if (observed !== ${JSON.stringify(htmlPath)}) process.exit(10);`
+        )
+    );
+    fs.chmodSync(sourceDir, 0o500);
+    assert.doesNotThrow(() =>
+      renderArtifact({
+        htmlPath,
+        outputDir: path.join(root, "renders"),
+        browserPath,
+        projectRoot: root,
+      })
+    );
+  } finally {
+    fs.chmodSync(sourceDir, 0o700);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("render checker bounds immutable HTML reads at the shared byte ceiling", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-render-"));
+  try {
+    const htmlPath = path.join(root, "example.html");
+    const browserPath = fakeBrowser(root);
+    fs.writeFileSync(htmlPath, Buffer.alloc(MAX_HTML_BYTES, 0x20));
+    assert.doesNotThrow(() =>
+      renderArtifact({
+        htmlPath,
+        outputDir: path.join(root, "renders"),
+        browserPath,
+        projectRoot: root,
+      })
+    );
+    fs.writeFileSync(htmlPath, Buffer.alloc(MAX_HTML_BYTES + 1, 0x20));
+    assert.throws(
+      () =>
+        renderArtifact({
+          htmlPath,
+          outputDir: path.join(root, "renders-over"),
+          browserPath,
+          projectRoot: root,
+        }),
+      /HTML exceeds (?:the )?\d+-byte input budget/
+    );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -107,7 +325,7 @@ test("render checker rejects stale captures when the browser produces no new ima
         .replace("if (screenshot) {", "if (false && screenshot) {")
     );
     assert.throws(
-      () => renderArtifact({ htmlPath, outputDir, browserPath }),
+      () => renderArtifact({ htmlPath, outputDir, browserPath, projectRoot: root }),
       /did not create a fresh PNG/
     );
   } finally {
@@ -128,7 +346,13 @@ test("render checker rejects horizontal document overflow from DOM metrics", () 
         .replace("horizontalOverflow:false", "horizontalOverflow:true")
     );
     assert.throws(
-      () => renderArtifact({ htmlPath, outputDir: path.join(root, "renders"), browserPath }),
+      () =>
+        renderArtifact({
+          htmlPath,
+          outputDir: path.join(root, "renders"),
+          browserPath,
+          projectRoot: root,
+        }),
       /horizontal document overflow/
     );
   } finally {
@@ -149,7 +373,13 @@ test("render checker rejects captures with the wrong dimensions", () => {
         .replace("makePng(size[0], size[1])", "makePng(1400, size[1])")
     );
     assert.throws(
-      () => renderArtifact({ htmlPath, outputDir: path.join(root, "renders"), browserPath }),
+      () =>
+        renderArtifact({
+          htmlPath,
+          outputDir: path.join(root, "renders"),
+          browserPath,
+          projectRoot: root,
+        }),
       /expected 1440x1000/
     );
   } finally {
@@ -157,8 +387,49 @@ test("render checker rejects captures with the wrong dimensions", () => {
   }
 });
 
+test("render checker rejects source and output paths outside the project root", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-root-"));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-outside-"));
+  try {
+    const insideHtml = path.join(root, "inside.html");
+    const outsideHtml = path.join(outside, "outside.html");
+    fs.writeFileSync(insideHtml, "<!doctype html><title>Inside</title>");
+    fs.writeFileSync(outsideHtml, "<!doctype html><title>Outside</title>");
+    assert.throws(
+      () =>
+        renderArtifact({
+          htmlPath: outsideHtml,
+          outputDir: path.join(root, "renders"),
+          browserPath: fakeBrowser(root),
+          projectRoot: root,
+        }),
+      /HTML must be inside the project root/
+    );
+    assert.throws(
+      () =>
+        renderArtifact({
+          htmlPath: insideHtml,
+          outputDir: path.join(outside, "renders"),
+          browserPath: fakeBrowser(root),
+          projectRoot: root,
+        }),
+      /render output directory must be inside the project root/
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
+});
+
 test("browser resolution fails closed when no configured candidate exists", () => {
   assert.throws(() => resolveBrowser("/definitely/missing/chromium"), /does not exist/);
+});
+
+test("canonical full-page height accepts the ceiling and rejects ceiling plus one", () => {
+  assert.equal(isCanonicalFullPageHeight(1000, 16_000, 16_000), true);
+  assert.equal(isCanonicalFullPageHeight(1000, 16_000.1, 16_001), false);
+  assert.equal(isCanonicalFullPageHeight(1000, 0, 1000), false);
+  assert.equal(isCanonicalFullPageHeight(1000, -1, 1000), false);
 });
 
 test("browser marker probe reports computed visibility instead of trusting markup", () => {
@@ -169,15 +440,20 @@ test("browser marker probe reports computed visibility instead of trusting marku
       htmlPath,
       '<!doctype html><style>[data-dc-outcome]{display:none}</style><details><p data-dc-outcome="passed">passed</p></details>'
     );
-    assert.deepEqual(probeDataMarkerVisibility(fakeBrowser(root), htmlPath, root), [
-      {
-        attributes: { "data-dc-outcome": "passed" },
-        text: "passed",
-        firstScreenText: "",
-        visible: false,
-        inViewport: false,
-      },
-    ]);
+    assert.deepEqual(
+      probeDataMarkerVisibility(fakeBrowser(root), htmlPath, root, "data-dc-", {
+        legacyProbe: true,
+      }),
+      [
+        {
+          attributes: { "data-dc-outcome": "passed" },
+          text: "passed",
+          firstScreenText: "",
+          visible: false,
+          inViewport: false,
+        },
+      ]
+    );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -185,7 +461,11 @@ test("browser marker probe reports computed visibility instead of trusting marku
 
 test(
   "real browser marker probe excludes offscreen and clipped descendant text",
-  { skip: !installedBrowser && "Chromium is not installed" },
+  {
+    skip:
+      (process.env.PM_SKIP_BROWSER_TESTS && "browser tests explicitly disabled") ||
+      (!installedBrowser && "Chromium is not installed"),
+  },
   () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-render-"));
     try {
@@ -225,3 +505,118 @@ test("render probe finds the body close outside JSON raw text and trailing comme
     '<html><head><script type="application/json">{"title":"Explain </body>"}</script></head><body><main>x</main></body><!-- </body> --></html>';
   assert.equal(findClosingBodyIndex(html), html.indexOf("</body><!--"));
 });
+
+test("staged capture reads reject symlinks and oversized files before allocation", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-capture-read-"));
+  try {
+    const target = path.join(root, "target.png");
+    const linked = path.join(root, "linked.png");
+    const oversized = path.join(root, "oversized.png");
+    fs.writeFileSync(target, "capture");
+    assert.throws(
+      () =>
+        readCaptureFilePinned(target, {
+          dev: "0",
+          ino: "0",
+          size: "7",
+          sha256: "0".repeat(64),
+        }),
+      /does not match producer attestation/
+    );
+    fs.symlinkSync(target, linked);
+    assert.throws(() => readCaptureFilePinned(linked), /ELOOP|symbolic link|too many levels/i);
+    fs.closeSync(fs.openSync(oversized, "w"));
+    fs.truncateSync(oversized, 64 * 1024 * 1024 + 1);
+    assert.throws(() => readCaptureFilePinned(oversized), /exceeds .*byte budget/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("browser probe timeout consumes the private control channel and reclaims helper resources", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-browser-parent-cleanup-"));
+  try {
+    const probePath = path.join(root, "hanging-probe.js");
+    fs.writeFileSync(
+      probePath,
+      `"use strict";
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const config = JSON.parse(fs.readFileSync(0, "utf8"));
+const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-cdp-"));
+fs.writeSync(3, JSON.stringify({ type: "browser-control", token: config.controlToken, pid: 424242, profileDir }) + "\\n");
+setInterval(() => {}, 1000);
+`
+    );
+    const terminated = [];
+    const removed = [];
+    assert.throws(
+      () =>
+        runBrowserProbe({}, "browser probe", {
+          probePath,
+          timeoutMs: 100,
+          terminateBrowser: (pid) => terminated.push(pid),
+          removeProfile: (profileDir) => {
+            removed.push(profileDir);
+            fs.rmSync(profileDir, { recursive: true, force: true });
+          },
+        }),
+      /timed out|ETIMEDOUT/i
+    );
+    assert.deepEqual(terminated, [424242]);
+    assert.equal(removed.length, 1);
+    assert.match(path.basename(removed[0]), /^pm-artifact-cdp-/);
+    assert.equal(fs.existsSync(removed[0]), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("browser probe enables the Node 20 WebSocket runtime explicitly", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-browser-websocket-runtime-"));
+  try {
+    const probePath = path.join(root, "websocket-probe.js");
+    fs.writeFileSync(
+      probePath,
+      'process.stdin.resume(); process.stdin.on("end", () => process.stdout.write(JSON.stringify(typeof WebSocket)));\n'
+    );
+    const result = runBrowserProbe({}, "browser probe", { probePath });
+    assert.equal(JSON.parse(result.stdout), "function");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test(
+  "full-page capture is bound to document height from the same browser render",
+  {
+    skip:
+      (process.env.PM_SKIP_BROWSER_TESTS && "browser tests explicitly disabled") ||
+      (!installedBrowser && "Chromium is not installed"),
+  },
+  () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-full-page-"));
+    try {
+      const htmlPath = path.join(root, "report.html");
+      fs.writeFileSync(
+        htmlPath,
+        "<!doctype html><style>body{margin:0}main{height:1300px}@media(min-height:1200px){main{height:1800px}}</style><main><h1>Report</h1><p>Current evidence verifies responsive layout, complete document capture, readable content, and retained source identity across every required viewport.</p><a href='#details'>Details</a><section id='details'>Details</section></main>"
+      );
+      const result = renderArtifactRaw({
+        htmlPath,
+        outputDir: path.join(root, "renders"),
+        browserPath: installedBrowser,
+        projectRoot: root,
+      });
+      for (const capture of result.captures) {
+        assert.equal(
+          capture.full_page.height,
+          Math.max(capture.height, Math.ceil(capture.full_page.document_height))
+        );
+      }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+);

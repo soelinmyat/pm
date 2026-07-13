@@ -34,13 +34,22 @@ const { spawnSync } = require("node:child_process");
 
 const PM_PLUGIN_ROOT =
   process.env.PM_PLUGIN_ROOT || process.env.CLAUDE_PLUGIN_ROOT || path.resolve(__dirname, "..");
+const HOOK_ROOT = path.resolve(__dirname, "..");
 
 const CHECKER = path.join(PM_PLUGIN_ROOT, "scripts", "dev-gate-check.js");
+const { readProjectInput } = require(
+  path.join(HOOK_ROOT, "scripts", "lib", "safe-project-output.js")
+);
+const { validateSession } = require(
+  path.join(HOOK_ROOT, "scripts", "lib", "dev-session-schema.js")
+);
 
 // The 1MB spawnSync default ENOBUFS'd on a large (e.g. 200k-row) manifest, which
 // under fail-open silently allowed the push. Give the checker plenty of room; if
 // it still overflows, fail-closed catches it (result.error is set → block).
 const MAX_BUFFER = 64 * 1024 * 1024;
+const MAX_SESSION_BYTES = 4 * 1024 * 1024;
+const MAX_SESSION_DIRECTORIES = 512;
 
 // allow / emit never call process.exit(): a bare `process.exit(0)` after a stdout
 // write can truncate a large deny JSON on a pipe (Node exits before the async
@@ -71,7 +80,7 @@ function blockFailingGate(branch, manifestRel, checkerOutput) {
       "",
       checkerOutput.trim(),
       "",
-      `Run the missing/failing gates, refresh ${manifestRel} for HEAD, then retry the push.`,
+      `Run the missing/failing gates, refresh ${manifestRel} for the exact pushed commit, then retry the push.`,
     ].join("\n")
   );
 }
@@ -88,63 +97,225 @@ function blockUnverified(branch, manifestRel, detail) {
       }.`,
       "",
       `The gate cannot be assumed passed when it can't be evaluated. Fix the checker/environment, ` +
-        `confirm ${manifestRel} is current for HEAD, then retry.`,
+        `confirm ${manifestRel} is current for the exact pushed commit, then retry.`,
     ].join("\n")
   );
 }
 
 // --- git command detection -------------------------------------------------
 
-const SEGMENT_SPLIT = /(?:&&|\|\||[;\n|&])/;
+const SHELL_CONTROL_PREFIXES = Object.freeze([
+  "if",
+  "elif",
+  "while",
+  "until",
+  "then",
+  "else",
+  "do",
+]);
+const SHELL_CONTROL_PREFIX_RE = new RegExp(
+  `^(?:(?:${SHELL_CONTROL_PREFIXES.join("|")})\\b\\s*)+`,
+  "i"
+);
 const LEADING_WRAPPERS = new Set([
   "env",
   "sudo",
   "command",
   "nice",
   "time",
+  "timeout",
+  "nohup",
+  "noglob",
+  "xcrun",
+  "arch",
   "builtin",
   "exec",
-  "then",
-  "do",
+  "!",
+  ...SHELL_CONTROL_PREFIXES,
 ]);
+const WRAPPER_VALUE_OPTIONS = Object.freeze({
+  env: new Set(["-u", "--unset", "-C", "--chdir", "-S", "--split-string", "-P", "-a", "--argv0"]),
+  sudo: new Set([
+    "-u",
+    "--user",
+    "-g",
+    "--group",
+    "-h",
+    "--host",
+    "-p",
+    "--prompt",
+    "-C",
+    "--close-from",
+    "-R",
+    "--chroot",
+    "-D",
+    "--chdir",
+    "-T",
+    "--command-timeout",
+  ]),
+  nice: new Set(["-n", "--adjustment"]),
+  time: new Set(["-f", "--format", "-o", "--output"]),
+  timeout: new Set(["-k", "--kill-after", "-s", "--signal"]),
+  xcrun: new Set(["--sdk", "-sdk", "--toolchain", "-toolchain"]),
+  arch: new Set(["-arch", "-d", "-e"]),
+});
+const WRAPPER_SHORT_VALUE_OPTIONS = Object.freeze({
+  env: new Set(["u", "C", "S", "P", "a"]),
+  sudo: new Set(["u", "g", "h", "p", "C", "R", "D", "T"]),
+  nice: new Set(["n"]),
+  time: new Set(["f", "o"]),
+  timeout: new Set(["k", "s"]),
+  arch: new Set(["d", "e"]),
+});
 // git GLOBAL options (before the subcommand) that consume the next token.
-const GIT_VALUE_OPTS = new Set(["-c", "--namespace", "--super-prefix", "--exec-path"]);
+const GIT_VALUE_OPTS = new Set([
+  "-c",
+  "--config-env",
+  "--namespace",
+  "--super-prefix",
+  "--exec-path",
+]);
 // `git push` options that consume the next token (so their value isn't mistaken
 // for a remote/refspec positional).
 const PUSH_VALUE_OPTS = new Set(["-o", "--push-option", "--receive-pack", "--exec", "--repo"]);
-
-// Strip surrounding quotes/backticks/parens an agent may wrap a token in, so
-// `(git push)` and `git "push"` are recognized. ponytail: this covers natural
-// quoting only — `eval`/`alias`/base64 indirection is the documented ceiling.
-function stripToken(token) {
-  return token.replace(/^[('"`]+/, "").replace(/[)'"`]+$/, "");
-}
+const REPOSITORY_ENV_ASSIGNMENT = /^(?:GIT_DIR|GIT_WORK_TREE|GIT_COMMON_DIR)=/;
 
 // Parse one shell segment. Returns { isGit, isPush, dir, gitDir, workTree, args }
 // when the segment invokes git, else null. dir/gitDir/workTree come from git's
 // global -C / --git-dir / --work-tree options; args are the tokens after `push`.
-function parseSegment(segment) {
-  const tokens = segment
-    .trim()
-    .replace(/^[({]\s*/, "")
-    .split(/\s+/)
-    .map(stripToken)
-    .filter(Boolean);
+function parseSegment(segment, depth = 0) {
+  if (depth > 3) return indeterminatePush();
+  const withoutRedirections = stripTrailingShellRedirections(segment);
+  if (withoutRedirections === null) return null;
+  const shellWords = splitSimpleShellWords(withoutRedirections.trim().replace(/^[({]\s*/, ""));
+  const tokens = shellWords.map((word) => word.value);
   let i = 0;
+  let wrapperDir = null;
+  let wrapperDynamic = false;
   // Skip leading `VAR=value` assignments and common command wrappers.
-  while (
-    i < tokens.length &&
-    (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[i]) || LEADING_WRAPPERS.has(tokens[i]))
-  ) {
-    i += 1;
+  while (i < tokens.length) {
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[i])) {
+      if (/^GIT_CONFIG(?:_|=)/.test(tokens[i]) || REPOSITORY_ENV_ASSIGNMENT.test(tokens[i]))
+        wrapperDynamic = true;
+      i += 1;
+    } else if (LEADING_WRAPPERS.has(path.basename(tokens[i]))) {
+      const wrapper = path.basename(tokens[i]);
+      i += 1;
+      while (i < tokens.length && tokens[i].startsWith("-")) {
+        if (tokens[i] === "--") {
+          i += 1;
+          break;
+        }
+        const rawOption = tokens[i];
+        const { option, inlineValue, inlineValueText } = normalizeWrapperOption(wrapper, rawOption);
+        const consumesValue = WRAPPER_VALUE_OPTIONS[wrapper]?.has(option);
+        const valueIndex = inlineValue ? i : i + 1;
+        const value = inlineValue ? inlineValueText : tokens[valueIndex];
+        const splitValueDynamic =
+          value !== undefined && (shellWords[valueIndex]?.dynamic === true || /[$`]/.test(value));
+        if (
+          consumesValue &&
+          ((wrapper === "env" && (option === "-C" || option === "--chdir")) ||
+            (wrapper === "sudo" && (option === "-D" || option === "--chdir")))
+        ) {
+          if (value === undefined) return null;
+          wrapperDir = composeGitDirectory(wrapperDir, value);
+          wrapperDynamic ||= shellWords[valueIndex]?.dynamic === true;
+        }
+        if (
+          wrapper === "env" &&
+          (option === "-S" || option === "--split-string") &&
+          consumesValue
+        ) {
+          if (value === undefined) return null;
+          if (/[\\'"$`]/.test(value)) return indeterminatePush(wrapperDir);
+          const remainderStart = inlineValue ? i + 1 : i + 2;
+          const nestedCommand = [
+            value,
+            ...tokens
+              .slice(remainderStart)
+              .map((token, offset) =>
+                shellWords[remainderStart + offset]?.dynamic
+                  ? "$PM_DYNAMIC"
+                  : shellQuoteLiteral(token)
+              ),
+          ].join(" ");
+          const nested = parseSegment(nestedCommand, depth + 1);
+          if (!nested) {
+            if (splitValueDynamic || shellWords.slice(remainderStart).some((word) => word.dynamic))
+              return {
+                ...indeterminatePush(wrapperDir),
+              };
+            return null;
+          }
+          nested.dir = nested.dir ? composeGitDirectory(wrapperDir, nested.dir) : wrapperDir;
+          nested.indeterminate ||= wrapperDynamic || splitValueDynamic;
+          return nested;
+        }
+        i += 1;
+        if (consumesValue && !inlineValue) i += 1;
+      }
+      if (wrapper === "timeout" && i < tokens.length) i += 1;
+      if (wrapper === "timeout" && tokens[i] === "--") i += 1;
+    } else {
+      break;
+    }
   }
   if (i >= tokens.length) return null;
-  if (path.basename(tokens[i]) !== "git") return null;
+  const executable = path.basename(tokens[i]);
+  const indirectPush = (script) => {
+    const root = path.parse(process.cwd()).root;
+    const sentinelA = path.join(root, "__pm_indirect_shell_a__", "cwd");
+    const sentinelB = path.join(root, "__pm_indirect_shell_b__", "cwd");
+    const pushesA = detectGitPushes(script, sentinelA);
+    const pushesB = detectGitPushes(script, sentinelB);
+    if (pushesA.length === 0 && pushesB.length === 0) return null;
+    if (pushesA.length !== 1 || pushesB.length !== 1) return indeterminatePush(wrapperDir);
+    const nested = pushesA[0];
+    if (nested.cwdOverride === null || pushesB[0].cwdOverride === null)
+      return indeterminatePush(wrapperDir);
+    let nestedCwd = null;
+    if (nested.cwdOverride === pushesB[0].cwdOverride) {
+      nestedCwd = nested.cwdOverride;
+    } else {
+      const relative = path.relative(sentinelA, nested.cwdOverride);
+      if (path.resolve(sentinelB, relative) !== pushesB[0].cwdOverride)
+        return indeterminatePush(wrapperDir);
+      nestedCwd = relative === "" ? null : relative;
+    }
+    let effectiveDir = wrapperDir;
+    if (nestedCwd) effectiveDir = composeGitDirectory(effectiveDir, nestedCwd);
+    if (nested.dir) effectiveDir = composeGitDirectory(effectiveDir, nested.dir);
+    return {
+      isGit: true,
+      isPush: true,
+      ...nested,
+      cwdOverride: undefined,
+      dir: effectiveDir,
+      indeterminate: nested.indeterminate || wrapperDynamic,
+    };
+  };
+  if (executable === "eval") {
+    const script = tokens.slice(i + 1).join(" ");
+    if (!script) return null;
+    return indirectPush(script);
+  }
+  if (["bash", "sh", "zsh"].includes(executable)) {
+    for (let option = i + 1; option < tokens.length; option += 1) {
+      if (!/^-[A-Za-z]+$/.test(tokens[option]) || !tokens[option].slice(1).includes("c")) continue;
+      const script = shellWords[option + 1];
+      if (!script || script.dynamic) return indeterminatePush(wrapperDir);
+      return indirectPush(script.value);
+    }
+    return null;
+  }
+  if (executable !== "git") return null;
   i += 1;
 
-  let dir = null;
+  let dir = wrapperDir;
   let gitDir = null;
   let workTree = null;
+  let repositoryDynamic = wrapperDynamic;
   while (i < tokens.length) {
     const token = tokens[i];
     if (!token.startsWith("-")) {
@@ -156,24 +327,38 @@ function parseSegment(segment) {
         gitDir,
         workTree,
         args: isPush ? tokens.slice(i + 1) : [],
+        indeterminate:
+          repositoryDynamic || (isPush && pushIdentityDynamic(shellWords, tokens, i + 1)),
       };
     }
     if (token === "-C" && i + 1 < tokens.length) {
-      dir = tokens[i + 1];
+      dir = composeGitDirectory(dir, tokens[i + 1]);
+      repositoryDynamic ||= shellWords[i + 1].dynamic;
       i += 2;
     } else if (token.startsWith("--git-dir=")) {
       gitDir = token.slice("--git-dir=".length);
+      repositoryDynamic ||= shellWords[i].dynamic;
       i += 1;
     } else if (token === "--git-dir" && i + 1 < tokens.length) {
       gitDir = tokens[i + 1];
+      repositoryDynamic ||= shellWords[i + 1].dynamic;
       i += 2;
     } else if (token.startsWith("--work-tree=")) {
       workTree = token.slice("--work-tree=".length);
+      repositoryDynamic ||= shellWords[i].dynamic;
       i += 1;
     } else if (token === "--work-tree" && i + 1 < tokens.length) {
       workTree = tokens[i + 1];
+      repositoryDynamic ||= shellWords[i + 1].dynamic;
       i += 2;
+    } else if (token.startsWith("-c") && token !== "-c") {
+      repositoryDynamic = true;
+      i += 1;
+    } else if (token.startsWith("--config-env=")) {
+      repositoryDynamic = true;
+      i += 1;
     } else if (GIT_VALUE_OPTS.has(token)) {
+      if (token === "-c" || token === "--config-env") repositoryDynamic = true;
       i += 2;
     } else {
       i += 1;
@@ -182,37 +367,1046 @@ function parseSegment(segment) {
   return null;
 }
 
+function indeterminatePush(dir = null) {
+  return {
+    isGit: true,
+    isPush: true,
+    dir,
+    gitDir: null,
+    workTree: null,
+    args: [],
+    indeterminate: true,
+  };
+}
+
+function normalizeWrapperOption(wrapper, rawOption) {
+  if (rawOption.startsWith("--")) {
+    const equals = rawOption.indexOf("=");
+    return {
+      option: equals >= 0 ? rawOption.slice(0, equals) : rawOption,
+      inlineValue: equals >= 0,
+      inlineValueText: equals >= 0 ? rawOption.slice(equals + 1) : null,
+    };
+  }
+  if (rawOption.startsWith("-") && rawOption.length > 2) {
+    const body = rawOption.slice(1);
+    const valueOptions = WRAPPER_SHORT_VALUE_OPTIONS[wrapper] || new Set();
+    for (let index = 0; index < body.length; index += 1) {
+      if (!valueOptions.has(body[index])) continue;
+      return {
+        option: `-${body[index]}`,
+        inlineValue: index + 1 < body.length,
+        inlineValueText: body.slice(index + 1),
+      };
+    }
+  }
+  return { option: rawOption, inlineValue: false, inlineValueText: null };
+}
+
+function shellQuoteLiteral(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
+function composeGitDirectory(current, next) {
+  if (path.isAbsolute(next) || current === null) return next;
+  return path.join(current, next);
+}
+
+function pushIdentityDynamic(words, tokens, start) {
+  for (let i = start; i < tokens.length; i += 1) {
+    const token = tokens[i];
+    if (!token.startsWith("-")) {
+      if (words[i].dynamic) return true;
+      continue;
+    }
+    if (token === "--repo") {
+      if (i + 1 < words.length && words[i + 1].dynamic) return true;
+      i += 1;
+    } else if (token.startsWith("--repo=")) {
+      if (words[i].dynamic) return true;
+    } else if (PUSH_VALUE_OPTS.has(token)) {
+      i += 1;
+    }
+  }
+  return false;
+}
+
+function splitSimpleShellWords(input) {
+  const syntax = lexShellCharacters(input);
+  if (!syntax.closed) return [];
+  const words = [];
+  let current = "";
+  let active = false;
+  let dynamic = false;
+  const pushWord = (end) => {
+    words.push({ value: current, dynamic, end });
+    current = "";
+    active = false;
+    dynamic = false;
+  };
+  let substitutionDepth = 0;
+  let compoundAssignmentDepth = 0;
+  for (let offset = 0; offset < syntax.characters.length; offset += 1) {
+    const entry = syntax.characters[offset];
+    if (entry.marker) {
+      active = true;
+      if (entry.quote === "`") dynamic = true;
+      continue;
+    }
+    const next = syntax.characters[offset + 1];
+    if (compoundAssignmentDepth > 0) {
+      current += entry.char;
+      active = true;
+      dynamic = true;
+      if (!entry.quote && !entry.escaped && entry.char === "(") compoundAssignmentDepth += 1;
+      else if (!entry.quote && !entry.escaped && entry.char === ")") compoundAssignmentDepth -= 1;
+      continue;
+    }
+    if (
+      !entry.quote &&
+      !entry.escaped &&
+      entry.char === "(" &&
+      isCompoundAssignmentPrefix(current)
+    ) {
+      current += entry.char;
+      active = true;
+      dynamic = true;
+      compoundAssignmentDepth = 1;
+      continue;
+    }
+    if (
+      !entry.quote &&
+      !entry.escaped &&
+      entry.char === "$" &&
+      next &&
+      !next.quote &&
+      !next.escaped &&
+      next.char === "(" &&
+      next.index === entry.index + 1
+    ) {
+      current += "$(";
+      active = true;
+      dynamic = true;
+      substitutionDepth += 1;
+      offset += 1;
+      continue;
+    }
+    if (substitutionDepth > 0) {
+      current += entry.char;
+      active = true;
+      if (!entry.quote && !entry.escaped && entry.char === "(") substitutionDepth += 1;
+      else if (!entry.quote && !entry.escaped && entry.char === ")") substitutionDepth -= 1;
+      continue;
+    }
+    if (!entry.quote && !entry.escaped && /\s/.test(entry.char)) {
+      if (active) pushWord(entry.index);
+    } else {
+      if (
+        (!entry.escaped && entry.char === "$" && entry.quote !== "'") ||
+        (!entry.quote && !entry.escaped && "*?[]{}".includes(entry.char)) ||
+        (!entry.quote && !entry.escaped && entry.char === "~" && !active)
+      )
+        dynamic = true;
+      current += entry.char;
+      active = true;
+    }
+  }
+  if (active) pushWord(input.length);
+  return words;
+}
+
 // Scan a full command string for a `git push`. Backslash-newline is a shell
 // CONTINUATION — join it first so a wrapped push stays one command (bare newlines
 // remain genuine separators, so a push on a later line is never missed). Tracks a
 // leading `cd <dir>` so `cd repo && git push` gates the right repo.
-function detectGitPush(command) {
+function detectGitPushes(command, baseCwd) {
   const joined = command.replace(/\\\r?\n/g, " ");
-  let cwdOverride = null;
-  for (const segment of joined.split(SEGMENT_SPLIT)) {
+  let states = [
+    {
+      cwd: path.resolve(baseCwd),
+      succeeded: true,
+      homeValue: process.env.HOME || null,
+      homeKnown: true,
+      homeSet: Boolean(process.env.HOME),
+      cdpathActive: Boolean(process.env.CDPATH),
+      homeReadonly: false,
+      cdpathReadonly: false,
+      homeTransformActive: false,
+      cdpathTransformActive: false,
+    },
+  ];
+  const subshells = [];
+  const pushes = [];
+  let operator = null;
+  let pipelineBaseStates = null;
+  let cursor = 0;
+
+  const visit = (segment) => {
     const trimmed = segment.trim();
-    const cd = trimmed.match(/^cd\s+(?:-P\s+)?(['"]?)([^'"]+)\1\s*$/);
-    if (cd) {
-      cwdOverride = cd[2];
-      continue;
+    if (!trimmed) return;
+    const { executes, skips } = partitionShellStates(states, operator);
+    const directoryEnvironment = parseDirectoryEnvironmentCommand(trimmed);
+    if (directoryEnvironment) {
+      states = dedupeShellStates([
+        ...skips,
+        ...executes.flatMap((state) =>
+          applyDirectoryEnvironmentCommand(state, directoryEnvironment)
+        ),
+      ]);
+      return;
+    }
+    const directoryChange = parseDirectoryChange(trimmed);
+    if (directoryChange.recognized) {
+      states = dedupeShellStates([
+        ...skips,
+        ...executes.flatMap((state) => directoryChangeOutcomes(state, directoryChange)),
+      ]);
+      return;
     }
     const parsed = parseSegment(trimmed);
     if (parsed && parsed.isPush) {
-      return {
-        dir: parsed.dir,
-        gitDir: parsed.gitDir,
-        workTree: parsed.workTree,
-        cwdOverride,
-        args: parsed.args,
-      };
+      for (const state of executes)
+        pushes.push({
+          dir: parsed.dir,
+          gitDir: parsed.gitDir,
+          workTree: parsed.workTree,
+          cwdOverride: state.cwd,
+          args: parsed.args,
+          indeterminate: parsed.indeterminate,
+        });
+    }
+    states = dedupeShellStates([
+      ...skips,
+      ...executes.flatMap((state) => [
+        { ...state, succeeded: true },
+        { ...state, succeeded: false },
+      ]),
+    ]);
+  };
+
+  for (const shellToken of scanShellTokens(joined)) {
+    const statesBeforeSegment = states.map((state) => ({ ...state }));
+    visit(joined.slice(cursor, shellToken.index));
+    const token = shellToken.value;
+    if (pipelineBaseStates) {
+      const outcomes = new Set(states.map((state) => state.succeeded));
+      states = dedupeShellStates(
+        pipelineBaseStates.flatMap((state) =>
+          [...outcomes].map((succeeded) => ({ ...state, succeeded }))
+        )
+      );
+      if (token !== "|") pipelineBaseStates = null;
+    }
+    if (token === "|") {
+      pipelineBaseStates ||= statesBeforeSegment;
+      states = dedupeShellStates(
+        statesBeforeSegment.flatMap((state) => [
+          { ...state, succeeded: true },
+          { ...state, succeeded: false },
+        ])
+      );
+      operator = token;
+      cursor = shellToken.end;
+      continue;
+    }
+    if (token === "&") {
+      states = dedupeShellStates(
+        statesBeforeSegment.flatMap((state) => [
+          { ...state, succeeded: true },
+          { ...state, succeeded: false },
+        ])
+      );
+      operator = token;
+      cursor = shellToken.end;
+      continue;
+    }
+    if (token === "(") {
+      const { executes, skips } = partitionShellStates(states, operator);
+      subshells.push({ executes, skips });
+      states = executes.map((state) => ({ ...state, succeeded: true }));
+      operator = null;
+    } else if (token === ")") {
+      const frame = subshells.pop();
+      if (frame) {
+        const outcomes = new Set(states.map((state) => state.succeeded));
+        states = dedupeShellStates([
+          ...frame.skips,
+          ...frame.executes.flatMap((entry) =>
+            [...outcomes].map((succeeded) => ({ ...entry, succeeded }))
+          ),
+        ]);
+      }
+      operator = null;
+    } else if (token === "{" || token === "}") {
+      // Brace groups execute in the current shell. The delimiter itself does
+      // not change cwd; commands inside continue through the same state set.
+    } else {
+      operator = token;
+    }
+    cursor = shellToken.end;
+  }
+  visit(joined.slice(cursor));
+  return pushes;
+}
+
+function parseDirectoryChange(segment) {
+  const { command: withoutControlKeywords, assignmentPrefixed } =
+    stripDirectoryCommandPrefixes(segment);
+  const commandText = stripTrailingShellRedirections(withoutControlKeywords);
+  if (commandText === null)
+    return {
+      recognized: /^(?:(?:builtin|command)(?:\s+--)?\s+)?(?:cd|pushd|popd)\b/.test(
+        withoutControlKeywords
+      ),
+      target: null,
+    };
+  const match = commandText.match(
+    /^(?:(?:builtin|command)(?:\s+--)?\s+)?(cd|pushd|popd)(?:\s+(-P|--))?(?:\s+(.*?))?\s*$/
+  );
+  if (!match) return { recognized: false, target: null };
+  const [, command, option, operand] = match;
+  if (command === "popd")
+    return { recognized: true, target: null, environmentSensitive: "unknown" };
+  // Assignments on special builtins can alter directory resolution through
+  // HOME, OLDPWD, CDPATH, or shell-specific variables. Preserve detection but
+  // make the destination unknown so a following push is checked fail-closed.
+  if (assignmentPrefixed)
+    return { recognized: true, target: null, environmentSensitive: "unknown" };
+  if (command === "pushd" && (option || operand === undefined || /^[+-]\d+$/.test(operand)))
+    return { recognized: true, target: null, environmentSensitive: "unknown" };
+  if (operand === undefined || operand === "")
+    return {
+      recognized: true,
+      target: process.env.HOME ? path.resolve(process.env.HOME) : null,
+      environmentSensitive: "home",
+    };
+  if (operand === "-") return { recognized: true, target: null, environmentSensitive: "unknown" };
+  const target = decodeSimpleShellWord(operand);
+  return {
+    recognized: true,
+    target,
+    environmentSensitive:
+      target === null
+        ? "unknown"
+        : !path.isAbsolute(target) && !/^(?:\.{1,2})(?:\/|$)/.test(target)
+          ? "cdpath"
+          : null,
+  };
+}
+
+function parseDirectoryEnvironmentCommand(segment) {
+  const { words, redirectionMayFail } = shellCommandWordsWithoutRedirections(
+    stripExecutionPrefixes(segment)
+  );
+  if (words.length === 0) return null;
+  const prefixAssignments = [];
+  let index = 0;
+  while (index < words.length && isShellAssignment(words[index].value))
+    prefixAssignments.push(words[index++]);
+  if (index === words.length)
+    return prefixAssignments.some(isDirectoryAssignment)
+      ? { prefixAssignments, operandAssignments: [], redirectionMayFail, options: [] }
+      : null;
+  const command = words[index++].value;
+  if (!["declare", "export", "readonly", "typeset", "unset"].includes(command)) return null;
+  const options = [];
+  while (/^[+-]/.test(words[index]?.value || "")) {
+    options.push(words[index++].value);
+    if (options[options.length - 1] === "--") break;
+  }
+  const names = [];
+  const operandAssignments = [];
+  for (; index < words.length; index += 1) {
+    if (isShellAssignment(words[index].value)) operandAssignments.push(words[index]);
+    else if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(words[index].value)) names.push(words[index].value);
+    else return null;
+  }
+  const optionLetters = new Set(options.flatMap((option) => option.slice(1).split("")));
+  const enabledOptionLetters = new Set(
+    options
+      .filter((option) => option.startsWith("-") && option !== "--")
+      .flatMap((option) => option.slice(1).split(""))
+  );
+  const disabledOptionLetters = new Set(
+    options
+      .filter((option) => option.startsWith("+"))
+      .flatMap((option) => option.slice(1).split(""))
+  );
+  const supportedOptions = {
+    declare: new Set(["a", "A", "f", "F", "g", "i", "I", "l", "n", "p", "r", "t", "u", "x", "-"]),
+    export: new Set(["f", "n", "p", "-"]),
+    readonly: new Set(["a", "A", "f", "p", "-"]),
+    typeset: new Set(["a", "A", "f", "F", "g", "i", "I", "l", "n", "p", "r", "t", "u", "x", "-"]),
+    unset: new Set(["f", "v", "-"]),
+  };
+  const forcedFailure =
+    [...optionLetters].some((option) => !supportedOptions[command].has(option)) ||
+    (command === "unset" && enabledOptionLetters.has("f") && enabledOptionLetters.has("v")) ||
+    ((command === "export" || command === "readonly") &&
+      enabledOptionLetters.has("f") &&
+      operandAssignments.length > 0) ||
+    (command === "readonly" &&
+      enabledOptionLetters.has("f") &&
+      (enabledOptionLetters.has("a") || enabledOptionLetters.has("A")));
+  const arrayMode =
+    command === "readonly" && (enabledOptionLetters.has("a") || enabledOptionLetters.has("A"));
+  const ambientAssignmentMayFail =
+    ["export", "readonly"].includes(command) &&
+    operandAssignments.some(
+      (assignment) => !["HOME", "CDPATH"].includes(assignmentName(assignment))
+    );
+  const ambientUnsetMayFail =
+    command === "unset" && names.some((name) => !["HOME", "CDPATH"].includes(name));
+  const declarationMayVary = ["declare", "typeset"].includes(command);
+  const declarationReadonly = declarationMayVary && enabledOptionLetters.has("r");
+  const declarationTransformOptions = ["a", "A", "i", "l", "n", "u"];
+  const declarationTransformEnabled =
+    declarationMayVary &&
+    declarationTransformOptions.some((option) => enabledOptionLetters.has(option));
+  const declarationTransformDisabled =
+    declarationMayVary &&
+    declarationTransformOptions.some((option) => disabledOptionLetters.has(option));
+  const declarationValueMayChange = declarationTransformEnabled;
+  const namesChangeValues =
+    (command === "unset" && (!enabledOptionLetters.has("f") || enabledOptionLetters.has("v"))) ||
+    (command === "readonly" && !enabledOptionLetters.has("f")) ||
+    declarationReadonly ||
+    declarationValueMayChange;
+  let effectiveNames = namesChangeValues ? names : [];
+  if (command === "unset") {
+    const temporaryNames = new Set(prefixAssignments.map(assignmentName));
+    effectiveNames = effectiveNames.filter((name) => !temporaryNames.has(name));
+  }
+  const prefixTargetNames = command === "export" || declarationMayVary ? names : effectiveNames;
+  const targetNames = new Set([...prefixTargetNames, ...operandAssignments.map(assignmentName)]);
+  const prefixPersists =
+    (command === "export" && !enabledOptionLetters.has("n") && !enabledOptionLetters.has("f")) ||
+    (command === "readonly" && !enabledOptionLetters.has("f")) ||
+    declarationMayVary;
+  const persistentPrefixAssignments = prefixPersists
+    ? prefixAssignments.filter((assignment) => targetNames.has(assignmentName(assignment)))
+    : [];
+  const relevant = [
+    ...persistentPrefixAssignments.map(assignmentName),
+    ...operandAssignments.map(assignmentName),
+    ...effectiveNames,
+  ].some((name) => ["HOME", "CDPATH"].includes(name));
+  return relevant
+    ? {
+        arrayMode,
+        command,
+        declarationReadonly,
+        declarationTransformDisabled,
+        declarationTransformEnabled,
+        declarationValueMayChange,
+        forcedFailure,
+        // Array support, variable type, and unrelated builtin operands depend
+        // on shell state that the hook process cannot prove from syntax.
+        modeMayFail:
+          arrayMode || ambientAssignmentMayFail || ambientUnsetMayFail || declarationMayVary,
+        names: effectiveNames,
+        operandAssignments,
+        persistentPrefixAssignments,
+        prefixAssignments,
+        redirectionMayFail,
+        options,
+      }
+    : null;
+}
+
+function applyDirectoryEnvironmentCommand(state, command) {
+  if (command.forcedFailure) return [{ ...state, succeeded: false }];
+  const assigned = { ...state };
+  let succeeded = true;
+  const assignments = command.command
+    ? [...command.persistentPrefixAssignments, ...command.operandAssignments]
+    : command.prefixAssignments;
+  for (const assignment of assignments) {
+    const parsedAssignment = parseShellAssignment(assignment.value);
+    const name = parsedAssignment?.name || "";
+    const value = parsedAssignment?.value || "";
+    const valueKnown =
+      Boolean(parsedAssignment) &&
+      !parsedAssignment.complex &&
+      !["declare", "typeset"].includes(command.command) &&
+      (name === "HOME"
+        ? assigned.homeTransformActive === false
+        : name === "CDPATH"
+          ? assigned.cdpathTransformActive === false
+          : true) &&
+      !assignment.dynamic &&
+      !value.startsWith("~");
+    if (name === "HOME") {
+      if (assigned.homeReadonly) succeeded = false;
+      else {
+        assigned.homeValue = valueKnown ? value : null;
+        assigned.homeKnown = valueKnown;
+        assigned.homeSet = true;
+      }
+    } else if (name === "CDPATH") {
+      if (assigned.cdpathReadonly) succeeded = false;
+      else assigned.cdpathActive = valueKnown ? value !== "" : null;
     }
   }
-  return null;
+  const next = { ...assigned };
+  if (command.command === "readonly" || command.declarationReadonly) {
+    for (const name of [
+      ...command.persistentPrefixAssignments.map(assignmentName),
+      ...command.operandAssignments.map(assignmentName),
+      ...command.names,
+    ]) {
+      if (name === "HOME") next.homeReadonly = true;
+      if (name === "CDPATH") next.cdpathReadonly = true;
+    }
+  }
+  if (command.declarationValueMayChange) {
+    for (const name of command.names) {
+      if (name === "HOME") {
+        next.homeValue = null;
+        next.homeKnown = false;
+        next.homeSet = true;
+      } else if (name === "CDPATH") next.cdpathActive = null;
+    }
+  }
+  if (command.declarationTransformEnabled || command.declarationTransformDisabled) {
+    const transformState =
+      command.declarationTransformEnabled && command.declarationTransformDisabled
+        ? null
+        : command.declarationTransformEnabled;
+    for (const name of [
+      ...command.persistentPrefixAssignments.map(assignmentName),
+      ...command.operandAssignments.map(assignmentName),
+      ...command.names,
+    ]) {
+      if (name === "HOME") next.homeTransformActive = transformState;
+      if (name === "CDPATH") next.cdpathTransformActive = transformState;
+    }
+  }
+  if (command.command === "unset") {
+    for (const name of command.names) {
+      if (name === "HOME") {
+        if (next.homeReadonly) succeeded = false;
+        else {
+          next.homeValue = null;
+          next.homeKnown = true;
+          next.homeSet = false;
+          next.homeTransformActive = false;
+        }
+      } else if (name === "CDPATH") {
+        if (next.cdpathReadonly) succeeded = false;
+        else {
+          next.cdpathActive = false;
+          next.cdpathTransformActive = false;
+        }
+      }
+    }
+  }
+  const outcomes = [{ ...next, succeeded }];
+  if (command.modeMayFail) {
+    outcomes.push({ ...state, succeeded: false });
+    // Some shells apply array operands before rejecting an unsupported mode.
+    // Preserve those value changes without claiming readonly took effect.
+    outcomes.push({ ...assigned, succeeded: false });
+    // A later operand can also fail after earlier names became readonly.
+    outcomes.push({ ...next, succeeded: false });
+  }
+  if (command.redirectionMayFail) {
+    outcomes.push({ ...(command.command ? state : assigned), succeeded: false });
+    // Shells disagree on whether assignment-only changes survive a redirect
+    // failure. Preserve the prior environment as an additional valid outcome.
+    if (!command.command) outcomes.push({ ...state, succeeded: false });
+  }
+  return outcomes;
+}
+
+function directoryChangeOutcomes(state, directoryChange) {
+  let target = directoryChange.target;
+  if (directoryChange.environmentSensitive === "home") {
+    if (!state.homeKnown) target = null;
+    else if (!state.homeSet || state.homeValue === "") return [{ ...state, succeeded: false }];
+    else target = state.homeValue;
+  } else if (directoryChange.environmentSensitive === "cdpath" && state.cdpathActive !== false) {
+    target = null;
+  }
+  const cwd =
+    target === null || (state.cwd === null && !path.isAbsolute(target))
+      ? null
+      : path.resolve(state.cwd || path.parse(target).root, target);
+  return [
+    { ...state, cwd, succeeded: true },
+    { ...state, succeeded: false },
+  ];
+}
+
+function isShellAssignment(value) {
+  return parseShellAssignment(value) !== null;
+}
+
+function assignmentName(word) {
+  return parseShellAssignment(word.value)?.name || "";
+}
+
+function parseShellAssignment(value) {
+  const match = String(value).match(/^([A-Za-z_][A-Za-z0-9_]*)(\[[\s\S]*\])?(\+?=)([\s\S]*)$/);
+  if (!match) return null;
+  return {
+    name: match[1],
+    complex: Boolean(match[2]) || match[3] === "+=" || match[4].startsWith("("),
+    value: match[4],
+  };
+}
+
+function isCompoundAssignmentPrefix(value) {
+  return /^[A-Za-z_][A-Za-z0-9_]*(?:\[[\s\S]*\])?\+?=$/.test(String(value));
+}
+
+function isDirectoryAssignment(word) {
+  return ["HOME", "CDPATH"].includes(assignmentName(word));
+}
+
+function shellCommandWordsWithoutRedirections(segment) {
+  const values = splitSimpleShellWords(segment);
+  const commandWords = [];
+  let redirectionMayFail = false;
+  for (let index = 0; index < values.length; index += 1) {
+    const match = values[index].value.match(/^(\d*(?:>>?|<{1,3})|&>>?)(.*)$/);
+    if (!match) {
+      commandWords.push(values[index]);
+      continue;
+    }
+    if (match[2] === "") index += 1;
+    // Opening even /dev/null can fail after shell-local resource changes
+    // (for example a reduced descriptor limit). Keep the failure outcome for
+    // every file-opening redirect; syntax alone cannot prove runtime success.
+    redirectionMayFail = true;
+  }
+  while (
+    commandWords.length > 0 &&
+    (SHELL_CONTROL_PREFIXES.includes(commandWords[0].value) || commandWords[0].value === "!")
+  )
+    commandWords.shift();
+  if (commandWords[0]?.value === "time") {
+    commandWords.shift();
+    if (commandWords[0]?.value === "-p") commandWords.shift();
+  }
+  return { words: commandWords, redirectionMayFail };
+}
+
+function stripDirectoryCommandPrefixes(segment) {
+  let current = String(segment).trimStart();
+  let prior;
+  let assignmentPrefixed = false;
+  do {
+    prior = current;
+    current = stripExecutionPrefixes(current);
+    const assignments = stripLeadingShellAssignments(current);
+    current = assignments.command;
+    assignmentPrefixed ||= assignments.stripped;
+  } while (current !== prior);
+  return { command: current, assignmentPrefixed };
+}
+
+function stripExecutionPrefixes(segment) {
+  let current = String(segment).trimStart();
+  let prior;
+  do {
+    prior = current;
+    current = stripLeadingShellRedirections(current)
+      .replace(SHELL_CONTROL_PREFIX_RE, "")
+      .replace(/^(?:!\s*)+/, "")
+      .replace(/^time(?:\s+-p)?\s+/i, "");
+  } while (current !== prior);
+  return current;
+}
+
+function stripLeadingShellAssignments(segment) {
+  let end = 0;
+  for (const word of splitSimpleShellWords(segment)) {
+    if (!isShellAssignment(word.value)) break;
+    end = word.end;
+  }
+  return {
+    command: end === 0 ? segment : segment.slice(end).trimStart(),
+    stripped: end !== 0,
+  };
+}
+
+function stripTrailingShellRedirections(segment) {
+  let commandText = stripLeadingShellRedirections(segment);
+  const syntax = lexShellCharacters(commandText);
+  if (!syntax.closed) return null;
+  let redirectIndex = -1;
+  for (const entry of syntax.characters) {
+    if (!entry.quote && !entry.escaped && (entry.char === ">" || entry.char === "<")) {
+      redirectIndex = entry.index;
+      const aggregate = entry.char === ">" && commandText[redirectIndex - 1] === "&";
+      if (aggregate) redirectIndex -= 1;
+      else
+        while (redirectIndex > 0 && /\d/.test(commandText[redirectIndex - 1])) redirectIndex -= 1;
+      if (!aggregate && redirectIndex > 0 && !/\s/.test(commandText[redirectIndex - 1]))
+        redirectIndex = entry.index;
+      break;
+    }
+  }
+  if (redirectIndex < 0) return commandText;
+  const suffix = commandText.slice(redirectIndex);
+  if (!/^(?:(?:\d*(?:>>?|<{1,3})|&>>?)\s*(?:"[^"]*"|'[^']*'|[^\s<>]+)\s*)+$/.test(suffix))
+    return null;
+  return commandText.slice(0, redirectIndex).trimEnd();
+}
+
+function stripLeadingShellRedirections(segment) {
+  let commandText = segment;
+  let leading;
+  do {
+    leading = commandText;
+    commandText = commandText.replace(
+      /^\s*(?:\d*(?:>>?|<{1,3})|&>>?)\s*(?:"[^"]*"|'[^']*'|[^\s<>]+)\s+/,
+      ""
+    );
+  } while (commandText !== leading);
+  return commandText;
+}
+
+function decodeSimpleShellWord(raw) {
+  const syntax = lexShellCharacters(raw);
+  if (!syntax.closed || syntax.sawBacktick) return null;
+  let value = "";
+  for (const entry of syntax.characters) {
+    const { char, quote, escaped } = entry;
+    if (
+      (!quote && !escaped && /\s/.test(char)) ||
+      (char === "$" && quote !== "'") ||
+      (!quote && !escaped && char === "~" && value === "") ||
+      (!quote && !escaped && "*?[]{}".includes(char))
+    )
+      return null;
+    value += char;
+  }
+  return value === "" ? null : value;
+}
+
+function scanShellTokens(command) {
+  const tokens = [];
+  const syntax = lexShellCharacters(command);
+  let compoundAssignmentDepth = 0;
+  let wordStart = 0;
+  for (let offset = 0; offset < syntax.characters.length; offset += 1) {
+    const entry = syntax.characters[offset];
+    if (compoundAssignmentDepth > 0) {
+      if (!entry.quote && !entry.escaped && entry.char === "(") compoundAssignmentDepth += 1;
+      else if (!entry.quote && !entry.escaped && entry.char === ")") compoundAssignmentDepth -= 1;
+      continue;
+    }
+    if (entry.quote || entry.escaped) continue;
+    if (entry.char === "(" && isCompoundAssignmentPrefix(command.slice(wordStart, entry.index))) {
+      compoundAssignmentDepth = 1;
+      continue;
+    }
+    if (/\s/.test(entry.char) || ";|&(){}".includes(entry.char)) wordStart = entry.index + 1;
+    const next = syntax.characters[offset + 1];
+    if (
+      entry.char === "$" &&
+      next &&
+      !next.quote &&
+      !next.escaped &&
+      next.char === "(" &&
+      next.index === entry.index + 1
+    ) {
+      let depth = 1;
+      while (offset + 2 < syntax.characters.length && depth > 0) {
+        offset += 1;
+        const nested = syntax.characters[offset + 1];
+        if (!nested.quote && !nested.escaped && nested.char === "(") depth += 1;
+        else if (!nested.quote && !nested.escaped && nested.char === ")") depth -= 1;
+      }
+      offset += 1;
+      continue;
+    }
+    const pair =
+      next && !next.quote && !next.escaped && next.index === entry.index + 1
+        ? `${entry.char}${next.char}`
+        : "";
+    if (pair === "&&" || pair === "||") {
+      tokens.push({ value: pair, index: entry.index, end: next.index + 1 });
+      offset += 1;
+      continue;
+    }
+    const char = entry.char;
+    const i = entry.index;
+    if (
+      char === "&" &&
+      ((/[<>]/.test(command[i - 1] || "") && /[\d-]/.test(command[i + 1] || "")) ||
+        command[i + 1] === ">")
+    )
+      continue;
+    if (char === "{" || char === "}") {
+      const boundary = (value) =>
+        value === undefined || /\s/.test(value) || ";|&(){}".includes(value);
+      if (boundary(command[i - 1]) && boundary(command[i + 1]))
+        tokens.push({ value: char, index: i, end: i + 1 });
+      continue;
+    }
+    if (";\n|&()".includes(char)) tokens.push({ value: char, index: i, end: i + 1 });
+  }
+  return tokens;
+}
+
+function lexShellCharacters(input) {
+  const characters = [];
+  let quote = null;
+  let sawBacktick = false;
+  for (let i = 0; i < input.length; i += 1) {
+    const char = input[i];
+    if (quote) {
+      if (char === quote) {
+        quote = null;
+      } else if (char === "\\" && quote !== "'") {
+        if (i + 1 >= input.length) return { characters, closed: false, sawBacktick };
+        i += 1;
+        characters.push({ char: input[i], index: i, quote, escaped: true });
+      } else {
+        characters.push({ char, index: i, quote, escaped: false });
+      }
+      continue;
+    }
+    if (char === "'" || char === '"' || char === "`") {
+      quote = char;
+      if (char === "`") sawBacktick = true;
+      characters.push({ char: "", index: i, quote, escaped: false, marker: true });
+      continue;
+    }
+    if (char === "\\") {
+      if (i + 1 >= input.length) return { characters, closed: false, sawBacktick };
+      i += 1;
+      characters.push({ char: input[i], index: i, quote: null, escaped: true });
+      continue;
+    }
+    characters.push({ char, index: i, quote: null, escaped: false });
+  }
+  return { characters, closed: quote === null, sawBacktick };
+}
+
+const MAX_SUBSTITUTION_INPUT = 262_144;
+const MAX_SUBSTITUTION_DEPTH = 256;
+const MAX_SUBSTITUTION_COUNT = 4_096;
+
+function isBackslashEscaped(value, index) {
+  let backslashes = 0;
+  for (let cursor = index - 1; cursor >= 0 && value[cursor] === "\\"; cursor -= 1) backslashes += 1;
+  return backslashes % 2 === 1;
+}
+
+function inspectPushShellSubstitutions(command) {
+  if (command.length > MAX_SUBSTITUTION_INPUT)
+    return /(?:\$|[<>=])\(|`/.test(command) ? "indeterminate" : "none";
+  const root = { direct: null, executable: false, depth: 0, quote: null, delimiter: null };
+  const frames = [root];
+  let substitutions = 0;
+  const append = (frame, value) => {
+    if (frame.direct) frame.direct.push(value);
+  };
+  const open = (kind, delimiter, depth) => {
+    substitutions += 1;
+    if (substitutions > MAX_SUBSTITUTION_COUNT || frames.length > MAX_SUBSTITUTION_DEPTH)
+      return false;
+    frames.push({
+      direct: kind === "arithmetic" ? null : [],
+      executable: kind !== "arithmetic",
+      depth,
+      quote: null,
+      delimiter,
+    });
+    return true;
+  };
+  const close = () => {
+    const frame = frames.pop();
+    if (frame.executable) {
+      try {
+        if (detectGitPushes(frame.direct.join(""), process.cwd()).length > 0) return "found";
+      } catch {
+        return "indeterminate";
+      }
+    }
+    append(frames[frames.length - 1], " __pm_nested_substitution__ ");
+    return "none";
+  };
+
+  for (let index = 0; index < command.length; index += 1) {
+    const frame = frames[frames.length - 1];
+    const char = command[index];
+    if (frame.quote === "'") {
+      append(frame, char);
+      if (char === "'") frame.quote = null;
+      continue;
+    }
+    if (frame.quote === "$'") {
+      append(frame, char);
+      if (char === "\\" && index + 1 < command.length) append(frame, command[++index]);
+      else if (char === "'") frame.quote = null;
+      continue;
+    }
+    if (char === "\\") {
+      append(frame, char);
+      if (index + 1 < command.length) append(frame, command[++index]);
+      continue;
+    }
+    if (frame.delimiter === "`" && char === "`") {
+      const result = close();
+      if (result !== "none") return result;
+      continue;
+    }
+    if (char === "'" && frame.quote !== '"') {
+      frame.quote =
+        frame.quote === null &&
+        command[index - 1] === "$" &&
+        !isBackslashEscaped(command, index - 1)
+          ? "$'"
+          : "'";
+      append(frame, char);
+      continue;
+    }
+    if (char === '"') {
+      frame.quote = frame.quote === '"' ? null : '"';
+      append(frame, char);
+      continue;
+    }
+    if (char === "`" && frame.quote !== "'") {
+      append(frame, " __pm_nested_substitution__ ");
+      if (!open("command", "`", 0)) return "indeterminate";
+      continue;
+    }
+    const commandSubstitution = char === "$" && command[index + 1] === "(";
+    const arithmeticSubstitution = commandSubstitution && command[index + 2] === "(";
+    let zshProcessSubstitution = false;
+    if (frame.quote === null && char === "=" && command[index + 1] === "(") {
+      let wordStart = index;
+      while (wordStart > 0 && !/[\s;|&(){}]/.test(command[wordStart - 1])) wordStart -= 1;
+      zshProcessSubstitution = !isCompoundAssignmentPrefix(command.slice(wordStart, index + 1));
+    }
+    const processSubstitution =
+      frame.quote === null &&
+      command[index + 1] === "(" &&
+      (char === "<" || char === ">" || zshProcessSubstitution);
+    if (commandSubstitution || processSubstitution) {
+      append(frame, " __pm_nested_substitution__ ");
+      if (
+        !open(
+          arithmeticSubstitution ? "arithmetic" : "command",
+          ")",
+          arithmeticSubstitution ? 2 : 1
+        )
+      )
+        return "indeterminate";
+      index += arithmeticSubstitution ? 2 : 1;
+      continue;
+    }
+    if (frame.delimiter === ")" && frame.quote === null) {
+      if (char === "(") frame.depth += 1;
+      else if (char === ")") {
+        frame.depth -= 1;
+        if (frame.depth === 0) {
+          const result = close();
+          if (result !== "none") return result;
+          continue;
+        }
+      }
+    }
+    append(frame, char);
+  }
+  return frames.length === 1 && root.quote === null ? "none" : "indeterminate";
+}
+
+function containsUnsupportedHeredoc(command) {
+  const syntax = lexShellCharacters(command);
+  for (let i = 0; i + 1 < syntax.characters.length; i += 1) {
+    const previous = syntax.characters[i - 1];
+    const first = syntax.characters[i];
+    const second = syntax.characters[i + 1];
+    const third = syntax.characters[i + 2];
+    if (
+      !first.quote &&
+      !first.escaped &&
+      first.char === "<" &&
+      !(
+        previous &&
+        !previous.quote &&
+        !previous.escaped &&
+        previous.char === "<" &&
+        previous.index === first.index - 1
+      ) &&
+      !second.quote &&
+      !second.escaped &&
+      second.char === "<" &&
+      second.index === first.index + 1 &&
+      !(
+        third &&
+        !third.quote &&
+        !third.escaped &&
+        third.char === "<" &&
+        third.index === second.index + 1
+      )
+    )
+      return true;
+  }
+  return false;
+}
+
+function commandWithoutHeredocPayloads(command) {
+  const lines = command.split(/\r?\n/);
+  const output = [];
+  const pending = [];
+  for (const line of lines) {
+    if (pending.length > 0) {
+      const current = pending[0];
+      const candidate = current.stripTabs ? line.replace(/^\t+/, "") : line;
+      if (candidate === current.delimiter) pending.shift();
+      continue;
+    }
+    output.push(line);
+    if (line.includes("<<<")) continue;
+    for (const match of line.matchAll(/<<(-?)\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2/g))
+      pending.push({ stripTabs: match[1] === "-", delimiter: match[3] });
+  }
+  return output.join("\n");
+}
+
+function partitionShellStates(states, operator) {
+  const executes = [];
+  const skips = [];
+  for (const state of states) {
+    const shouldExecute =
+      operator === "&&" ? state.succeeded : operator === "||" ? !state.succeeded : true;
+    (shouldExecute ? executes : skips).push(state);
+  }
+  return { executes, skips };
+}
+
+function dedupeShellStates(states) {
+  const unique = new Map();
+  for (const state of states)
+    unique.set(
+      JSON.stringify([
+        state.cwd,
+        state.succeeded,
+        state.homeValue,
+        state.homeKnown,
+        state.homeSet,
+        state.cdpathActive,
+        state.homeReadonly,
+        state.cdpathReadonly,
+        state.homeTransformActive,
+        state.cdpathTransformActive,
+      ]),
+      state
+    );
+  return [...unique.values()];
 }
 
 // Destination branch a refspec writes to, or a sentinel for delete/tag/none.
 function refspecDest(spec) {
   let s = spec.startsWith("+") ? spec.slice(1) : spec;
+  if (s === ":") return { kind: "matching" };
   if (s.startsWith(":")) return { kind: "delete" };
   const colon = s.indexOf(":");
   let dst = colon >= 0 ? s.slice(colon + 1) : s;
@@ -222,48 +1416,129 @@ function refspecDest(spec) {
   return { kind: "branch", dst };
 }
 
+function branchPatternCapture(pattern, branch) {
+  const wildcard = pattern.indexOf("*");
+  if (wildcard < 0) return pattern === branch ? "" : null;
+  if (pattern.indexOf("*", wildcard + 1) >= 0) return null;
+  const prefix = pattern.slice(0, wildcard);
+  const suffix = pattern.slice(wildcard + 1);
+  if (!branch.startsWith(prefix) || !branch.endsWith(suffix)) return null;
+  if (branch.length < prefix.length + suffix.length) return null;
+  return branch.slice(prefix.length, branch.length - suffix.length);
+}
+
+function sessionBranchRefspecSource(raw, sessionBranch, provenance = null) {
+  const spec = raw.startsWith("+") ? raw.slice(1) : raw;
+  const dest = refspecDest(spec);
+  if (dest.kind === "matching")
+    return {
+      error: `${provenance ? `${provenance} ` : ""}matching multi-ref push cannot be bound to one source commit`,
+    };
+  if (dest.kind !== "branch") return null;
+  const capture = branchPatternCapture(dest.dst, sessionBranch);
+  const targetsSession = dest.dst === "HEAD" || dest.dst === "@" || capture !== null;
+  if (!targetsSession) return null;
+  const colon = spec.indexOf(":");
+  const source = colon >= 0 ? spec.slice(0, colon) : spec;
+  if (!source) return { error: "session-branch deletion has no source commit" };
+  if (source.includes("*") || dest.dst.includes("*"))
+    return {
+      error: `${provenance ? `${provenance} ` : ""}wildcard refspec can expand the session-branch push to multiple updates`,
+    };
+  return { source };
+}
+
 // Does this `git push` update the SESSION BRANCH's ref? Only those pushes are
 // gated. Tag pushes, deletions, and cross-branch pushes are out of scope.
-function pushUpdatesSessionBranch(args, sessionBranch) {
+function parsePushArguments(args) {
   const positionals = [];
   let sawDelete = false;
   let sawTags = false;
-  let sawAllOrMirror = false;
+  let allBranches = false;
+  let mirror = false;
+  let followTags = null;
+  let remote = null;
+  let remoteSuppliedByOption = false;
+  let optionsEnded = false;
   for (let i = 0; i < args.length; i += 1) {
     const token = args[i];
-    if (token.startsWith("-")) {
+    if (!optionsEnded && token === "--") {
+      optionsEnded = true;
+      continue;
+    }
+    if (!optionsEnded && token.startsWith("-")) {
       if (token === "--delete" || token === "-d") sawDelete = true;
+      else if (token === "--no-delete") sawDelete = false;
       else if (token === "--tags") sawTags = true;
-      else if (token === "--all" || token === "--mirror") sawAllOrMirror = true;
-      else if (PUSH_VALUE_OPTS.has(token)) i += 1; // skip its value
-      // else: a no-value flag (-u, -f, --force, --force-with-lease[=...], -v, …)
+      else if (token === "--no-tags") sawTags = false;
+      else if (token === "--all" || token === "--branches") allBranches = true;
+      else if (token === "--no-all" || token === "--no-branches") allBranches = false;
+      else if (token === "--mirror") mirror = true;
+      else if (token === "--no-mirror") mirror = false;
+      else if (token === "--follow-tags") followTags = true;
+      else if (token === "--no-follow-tags") followTags = false;
+      else if (token === "--repo") {
+        remoteSuppliedByOption = true;
+        remote = args[i + 1] || null;
+        i += 1;
+      } else if (token.startsWith("--repo=")) {
+        remoteSuppliedByOption = true;
+        remote = token.slice("--repo=".length) || null;
+      } else if (PUSH_VALUE_OPTS.has(token)) i += 1; // skip its value
       continue;
     }
     positionals.push(token);
   }
+  return {
+    sawDelete,
+    sawTags,
+    sawAllOrMirror: allBranches || mirror,
+    followTags,
+    remote: remoteSuppliedByOption ? remote : positionals[0] || null,
+    refspecs: positionals.slice(remoteSuppliedByOption ? 0 : 1),
+  };
+}
 
-  if (sawAllOrMirror) return true; // pushes the session branch among others
-  if (sawDelete) return false; // deletion, not an update to the branch tip
-
-  // positionals: [remote?, refspec...] — the first positional is the remote.
-  const refspecs = positionals.slice(1);
-  if (refspecs.length === 0) {
-    // `git push` / `git push origin` → pushes the current (session) branch,
-    // unless it was a `--tags`-only push (tags out of scope).
-    return !sawTags;
+function sessionBranchPushSource(
+  repoDir,
+  args,
+  sessionBranch,
+  effectiveRefspecs = null,
+  refspecSource = null,
+  gitDir = null,
+  effectiveExpansionError = null
+) {
+  const parsed = parsePushArguments(args);
+  const { sawAllOrMirror } = parsed;
+  const refspecs = effectiveRefspecs || parsed.refspecs;
+  const provenance = refspecSource || (effectiveRefspecs ? "effective" : "command line");
+  if (sawAllOrMirror)
+    return { error: "multi-ref --all/--mirror push cannot be bound to one source commit" };
+  if (effectiveExpansionError) return { error: effectiveExpansionError };
+  const expansionError = sessionPushExpansionError(repoDir, args, gitDir);
+  if (expansionError) return { error: expansionError };
+  if (refspecs.length > 1)
+    return {
+      error: `${provenance} multi-ref push cannot be bound to one source commit`,
+    };
+  if (refspecs.length === 0) return { source: "HEAD" };
+  const sources = [];
+  for (const raw of refspecs) {
+    const match = sessionBranchRefspecSource(raw, sessionBranch, provenance);
+    if (!match) continue;
+    if (match.error) return match;
+    sources.push(match.source);
   }
-  for (const spec of refspecs) {
-    const dest = refspecDest(spec);
-    if (dest.kind !== "branch") continue; // delete/tag refspec → skip
-    if (dest.dst === "HEAD" || dest.dst === sessionBranch) return true;
-  }
-  return false;
+  if (sources.length !== 1)
+    return { error: "session branch push must resolve to exactly one source refspec" };
+  return { source: sources[0] };
 }
 
 // --- git helpers -----------------------------------------------------------
 
-function gitCapture(repoDir, args) {
-  const result = spawnSync("git", ["-C", repoDir, ...args], {
+function gitCapture(repoDir, args, gitDir = null) {
+  const prefix = gitDir ? [`--git-dir=${gitDir}`, `--work-tree=${repoDir}`] : ["-C", repoDir];
+  const result = spawnSync("git", [...prefix, ...args], {
     encoding: "utf8",
     maxBuffer: MAX_BUFFER,
   });
@@ -271,25 +1546,402 @@ function gitCapture(repoDir, args) {
   return (result.stdout || "").trim();
 }
 
-function currentBranch(repoDir) {
-  const shown = gitCapture(repoDir, ["branch", "--show-current"]);
-  if (shown) return shown;
-  const abbrev = gitCapture(repoDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
-  return abbrev && abbrev !== "HEAD" ? abbrev : "";
-}
-
-function resolveDefaultBranch(repoDir) {
-  const ref = gitCapture(repoDir, ["symbolic-ref", "refs/remotes/origin/HEAD"]);
-  if (ref) return ref.replace(/^refs\/remotes\/origin\//, "");
-  return "main";
-}
-
-function refExists(repoDir, ref) {
-  const result = spawnSync("git", ["-C", repoDir, "rev-parse", "--verify", "--quiet", ref], {
+function gitConfigValues(repoDir, key, gitDir = null) {
+  const prefix = gitDir ? [`--git-dir=${gitDir}`, `--work-tree=${repoDir}`] : ["-C", repoDir];
+  const result = spawnSync("git", [...prefix, "config", "--null", "--get-all", key], {
     encoding: "utf8",
     maxBuffer: MAX_BUFFER,
   });
-  return !!result && result.status === 0;
+  if (!result || (result.status !== 0 && result.status !== 1))
+    return { error: `cannot read Git configuration ${key}` };
+  if (result.status === 1) return { values: [] };
+  const values = (result.stdout || "").split("\0");
+  if (values.at(-1) === "") values.pop();
+  return { values };
+}
+
+function gitConfigBoolean(repoDir, key, gitDir = null) {
+  const prefix = gitDir ? [`--git-dir=${gitDir}`, `--work-tree=${repoDir}`] : ["-C", repoDir];
+  const result = spawnSync("git", [...prefix, "config", "--type=bool", "--get-all", key], {
+    encoding: "utf8",
+    maxBuffer: MAX_BUFFER,
+  });
+  if (!result || (result.status !== 0 && result.status !== 1))
+    return { error: `cannot read Git boolean configuration ${key}` };
+  if (result.status === 1) return { value: false };
+  const values = (result.stdout || "").trim().split(/\r?\n/).filter(Boolean);
+  const value = values.at(-1);
+  if (value !== "true" && value !== "false")
+    return { error: `Git configuration ${key} is not a boolean` };
+  return { value: value === "true" };
+}
+
+function currentBranch(repoDir, gitDir = null) {
+  const shown = gitCapture(repoDir, ["branch", "--show-current"], gitDir);
+  if (shown) return shown;
+  const abbrev = gitCapture(repoDir, ["rev-parse", "--abbrev-ref", "HEAD"], gitDir);
+  return abbrev && abbrev !== "HEAD" ? abbrev : "";
+}
+
+function resolvePushRemote(repoDir, args, branch, gitDir = null) {
+  let remote = parsePushArguments(args).remote;
+  if (!remote) {
+    remote =
+      gitCapture(repoDir, ["config", "--get", `branch.${branch}.pushRemote`], gitDir) ||
+      gitCapture(repoDir, ["config", "--get", "remote.pushDefault"], gitDir) ||
+      gitCapture(repoDir, ["config", "--get", `branch.${branch}.remote`], gitDir) ||
+      "origin";
+  }
+  const configured = gitCapture(repoDir, ["remote"], gitDir).split(/\r?\n/).filter(Boolean);
+  if (remote === "." || !configured.includes(remote))
+    return { error: `push destination ${remote} is not a configured named remote` };
+  if (
+    !gitCapture(repoDir, ["config", "--get-all", `remote.${remote}.pushurl`], gitDir) &&
+    !gitCapture(repoDir, ["config", "--get-all", `remote.${remote}.url`], gitDir)
+  )
+    return { error: `push destination ${remote} is not a configured named remote` };
+  return { remote };
+}
+
+function sessionPushExpansionError(repoDir, args, gitDir = null) {
+  const parsed = parsePushArguments(args);
+  if (parsed.sawTags)
+    return "command line --tags expands the session-branch push to additional tag updates";
+  if (parsed.followTags === true)
+    return "command line --follow-tags can expand the session-branch push to additional tag updates";
+
+  if (parsed.followTags !== false) {
+    const configuredFollowTags = gitConfigBoolean(repoDir, "push.followTags", gitDir);
+    if (configuredFollowTags.error) return configuredFollowTags.error;
+    if (configuredFollowTags.value)
+      return "configured push.followTags expands the session-branch push to additional tag updates";
+  }
+
+  return null;
+}
+
+function upstreamPushRefspec(repoDir, destinationRemote, branch, policy, gitDir = null) {
+  const remoteConfig = gitConfigValues(repoDir, `branch.${branch}.remote`, gitDir);
+  if (remoteConfig.error) return remoteConfig;
+  const upstreamRemote = remoteConfig.values.at(-1) || null;
+  const mergeConfig = gitConfigValues(repoDir, `branch.${branch}.merge`, gitDir);
+  if (mergeConfig.error) return mergeConfig;
+
+  if (policy === "simple" && upstreamRemote && upstreamRemote !== destinationRemote)
+    return { refspecs: [`HEAD:refs/heads/${branch}`], source: "push.default=simple" };
+  if (!upstreamRemote)
+    return { error: `push.default=${policy} requires an upstream remote for ${branch}` };
+  if (upstreamRemote !== destinationRemote)
+    return {
+      error: `push.default=${policy} targets upstream remote ${upstreamRemote}, not ${destinationRemote}`,
+    };
+  if (mergeConfig.values.length !== 1)
+    return {
+      error: `push.default=${policy} requires exactly one upstream branch for ${branch}`,
+    };
+  const mergeRef = mergeConfig.values[0];
+  if (!mergeRef.startsWith("refs/heads/") || mergeRef.length === "refs/heads/".length)
+    return { error: `push.default=${policy} has an unsupported upstream ref ${mergeRef}` };
+  const destinationBranch = mergeRef.slice("refs/heads/".length);
+  if (policy === "simple" && destinationBranch !== branch)
+    return {
+      error: `push.default=simple refuses renamed upstream ${destinationBranch} for ${branch}`,
+    };
+  return { refspecs: [`HEAD:${mergeRef}`], source: `push.default=${policy}` };
+}
+
+function implicitPushRefspecs(repoDir, destinationRemote, branch, gitDir = null) {
+  const configuredDefault = gitConfigValues(repoDir, "push.default", gitDir);
+  if (configuredDefault.error) return configuredDefault;
+  const rawPolicy = configuredDefault.values.at(-1);
+  const policy = rawPolicy === undefined ? "simple" : rawPolicy.toLowerCase();
+  if (policy === "current")
+    return { refspecs: [`HEAD:refs/heads/${branch}`], source: "push.default=current" };
+  if (policy === "upstream" || policy === "tracking")
+    return upstreamPushRefspec(repoDir, destinationRemote, branch, policy, gitDir);
+  if (policy === "simple")
+    return upstreamPushRefspec(repoDir, destinationRemote, branch, policy, gitDir);
+  if (policy === "matching")
+    return { error: "push.default=matching is an ambiguous multi-ref push" };
+  if (policy === "nothing") return { error: "push.default=nothing has no implicit refspec" };
+  return { error: `unsupported push.default value ${rawPolicy === "" ? "<empty>" : rawPolicy}` };
+}
+
+function effectivePushRefspecs(repoDir, args, branch, gitDir = null) {
+  const parsed = parsePushArguments(args);
+  if (parsed.refspecs.length > 0 || parsed.sawDelete || parsed.sawTags || parsed.sawAllOrMirror)
+    return { refspecs: null, source: "command line" };
+  const destination = resolvePushRemote(repoDir, args, branch, gitDir);
+  if (destination.error) return destination;
+  const configured = gitConfigValues(repoDir, `remote.${destination.remote}.push`, gitDir);
+  if (configured.error) return configured;
+  if (configured.values.length > 0) {
+    if (configured.values.some((value) => value === ""))
+      return { error: `remote.${destination.remote}.push contains an empty refspec` };
+    if (configured.values.some((value) => refspecDest(value).kind === "matching"))
+      return { error: `remote.${destination.remote}.push contains a matching multi-ref push` };
+    return { refspecs: configured.values, source: "configured", remote: destination.remote };
+  }
+  const configuredMirror = gitConfigBoolean(repoDir, `remote.${destination.remote}.mirror`, gitDir);
+  if (configuredMirror.error) return configuredMirror;
+  if (configuredMirror.value)
+    return {
+      refspecs: ["refs/heads/*:refs/heads/*"],
+      source: `configured remote.${destination.remote}.mirror`,
+      remote: destination.remote,
+      expansionError: `configured remote.${destination.remote}.mirror expands the session-branch push to multiple ref updates`,
+    };
+  if (!branch) return { error: "implicit push from detached HEAD" };
+  return {
+    ...implicitPushRefspecs(repoDir, destination.remote, branch, gitDir),
+    remote: destination.remote,
+  };
+}
+
+function pushDestinationShape(args, currentBranch, effectiveRefspecs = null) {
+  const parsed = parsePushArguments(args);
+  if (parsed.sawDelete)
+    return { branches: [], patterns: [], broad: false, unresolvedCurrent: false };
+  const refspecs = effectiveRefspecs || parsed.refspecs;
+  if (parsed.sawAllOrMirror)
+    return { branches: [], patterns: [], broad: true, unresolvedCurrent: false };
+  if (refspecs.length === 0) {
+    if (parsed.sawTags)
+      return { branches: [], patterns: [], broad: false, unresolvedCurrent: false };
+    if (!currentBranch) return { error: "implicit push from detached HEAD" };
+    return { branches: [currentBranch], patterns: [], broad: false, unresolvedCurrent: false };
+  }
+
+  const branches = new Set();
+  const patterns = new Set();
+  let broad = false;
+  let unresolvedCurrent = false;
+  for (const raw of refspecs) {
+    const dest = refspecDest(raw);
+    if (dest.kind === "matching") {
+      broad = true;
+      continue;
+    }
+    if (dest.kind !== "branch") continue;
+    if (dest.dst === "HEAD" || dest.dst === "@") {
+      if (currentBranch) branches.add(currentBranch);
+      else unresolvedCurrent = true;
+    } else if (dest.dst.includes("*")) {
+      patterns.add(dest.dst);
+    } else {
+      branches.add(dest.dst);
+    }
+  }
+  return { branches: [...branches], patterns: [...patterns], broad, unresolvedCurrent };
+}
+
+function canonicalSessionsDirectory(repoDir) {
+  let root;
+  try {
+    root = fs.realpathSync(path.resolve(repoDir));
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+  let current = root;
+  for (const part of [".pm", "dev-sessions"]) {
+    current = path.join(current, part);
+    let stat;
+    try {
+      stat = fs.lstatSync(current);
+    } catch (error) {
+      if (error.code === "ENOENT") return null;
+      throw error;
+    }
+    if (stat.isSymbolicLink()) throw new Error(`${path.relative(root, current)} is a symlink`);
+    if (!stat.isDirectory()) throw new Error(`${path.relative(root, current)} is not a directory`);
+  }
+  return { root, directory: current };
+}
+
+function loadCanonicalSessionCandidate(located, slug, stat) {
+  const candidate = { slug, directory: path.join(located.directory, slug), session: null };
+  if (stat.isSymbolicLink()) {
+    candidate.error = "canonical session directory is a symlink";
+    return candidate;
+  }
+  if (!stat.isDirectory()) {
+    candidate.error = "canonical session candidate is not a directory";
+    return candidate;
+  }
+
+  const relative = path.join(".pm", "dev-sessions", slug, "session.json");
+  try {
+    fs.lstatSync(path.join(candidate.directory, "session.json"));
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      candidate.missingSession = true;
+      return candidate;
+    }
+    candidate.error = error.message;
+    return candidate;
+  }
+  try {
+    const file = readProjectInput(located.root, relative, MAX_SESSION_BYTES);
+    const session = JSON.parse(file.bytes.toString("utf8"));
+    const validation = validateSession(session);
+    if (validation.length > 0)
+      throw new Error(
+        validation
+          .slice(0, 3)
+          .map((item) => `${item.path}: ${item.message}`)
+          .join("; ")
+      );
+    if (session.slug !== slug)
+      throw new Error(`session.slug ${session.slug} must equal directory ${slug}`);
+    const derived = loadDeriveSessionSlug()(session.source.branch);
+    if (derived !== slug)
+      throw new Error(
+        `session.source.branch ${session.source.branch} derives slug ${derived}, not ${slug}`
+      );
+    candidate.session = session;
+  } catch (error) {
+    candidate.error = error.message;
+  }
+  return candidate;
+}
+
+function loadCanonicalSessionIndex(repoDir, exactSlugs = null) {
+  const located = canonicalSessionsDirectory(repoDir);
+  if (!located) return { sessions: [], candidates: new Map(), legacyMarkers: [] };
+  const entries = [];
+  const legacyMarkers = [];
+  if (exactSlugs) {
+    for (const slug of new Set(exactSlugs)) {
+      try {
+        entries.push({ slug, stat: fs.lstatSync(path.join(located.directory, slug)) });
+      } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+      }
+    }
+  } else {
+    const directory = fs.opendirSync(located.directory);
+    let scannedEntries = 0;
+    try {
+      let entry;
+      while ((entry = directory.readSync()) !== null) {
+        scannedEntries += 1;
+        if (scannedEntries > MAX_SESSION_DIRECTORIES)
+          throw new Error(`canonical session inventory exceeds ${MAX_SESSION_DIRECTORIES} entries`);
+        if (!entry.isDirectory() && !entry.isSymbolicLink() && entry.name.endsWith(".md")) continue;
+        if (
+          !entry.isDirectory() &&
+          !entry.isSymbolicLink() &&
+          (entry.name === "current.gates.json" || entry.name.endsWith(".gates.json"))
+        )
+          legacyMarkers.push(entry.name);
+        else entries.push({ slug: entry.name, stat: entry });
+      }
+    } finally {
+      directory.closeSync();
+    }
+  }
+
+  const sessions = [];
+  const candidates = new Map();
+  for (const entry of entries) {
+    const slug = entry.slug;
+    if (candidates.has(slug)) throw new Error(`duplicate canonical session directory ${slug}`);
+    const candidate = loadCanonicalSessionCandidate(located, slug, entry.stat);
+    candidates.set(slug, candidate);
+    if (candidate.session) sessions.push(candidate);
+  }
+  return { sessions, candidates, legacyMarkers };
+}
+
+function destinationMatchesShape(branch, shape) {
+  if (shape.broad || shape.branches.includes(branch)) return true;
+  return shape.patterns.some((pattern) => branchPatternCapture(pattern, branch) !== null);
+}
+
+function selectCanonicalSessionTargets(repoDir, shape, currentBranch) {
+  if (
+    !shape.broad &&
+    !shape.unresolvedCurrent &&
+    shape.branches.length === 0 &&
+    shape.patterns.length === 0
+  )
+    return { targets: [] };
+  const wildcardSelection = shape.broad || shape.patterns.length > 0;
+  const deriveSlug = loadDeriveSessionSlug();
+  const needsFullInventory = wildcardSelection || shape.unresolvedCurrent;
+  const index = loadCanonicalSessionIndex(
+    repoDir,
+    needsFullInventory ? null : shape.branches.map((branch) => deriveSlug(branch))
+  );
+  if ((wildcardSelection || shape.unresolvedCurrent) && index.legacyMarkers.length > 0)
+    return {
+      error: `cannot classify broad push while inspection-only legacy gate markers exist: ${index.legacyMarkers.slice(0, 5).join(", ")}`,
+    };
+  if (wildcardSelection) {
+    const invalid = [...index.candidates.values()].find(
+      (candidate) => candidate.error || candidate.missingSession
+    );
+    if (invalid)
+      return {
+        error: `cannot classify wildcard push against canonical session ${invalid.slug}: ${invalid.error || "canonical session.json is missing"}`,
+      };
+  }
+  if (shape.unresolvedCurrent) {
+    const invalid = [...index.candidates.values()].find(
+      (candidate) => candidate.error || candidate.missingSession
+    );
+    if (invalid)
+      return {
+        error: `cannot resolve detached destination against canonical session ${invalid.slug}: ${invalid.error || "canonical session.json is missing"}`,
+      };
+    if (index.sessions.length > 0)
+      return {
+        error: `detached destination cannot be resolved against canonical PM session branches: ${index.sessions.map((item) => item.session.source.branch).join(", ")}`,
+      };
+  }
+
+  const matched = new Map();
+  for (const branch of shape.branches) {
+    const slug = deriveSlug(branch);
+    const candidate = index.candidates.get(slug);
+    if (candidate) {
+      if (candidate.missingSession) {
+        matched.set(branch, { branch, slug, session: null });
+        continue;
+      }
+      if (candidate.error) {
+        return { error: `cannot validate canonical session ${slug}: ${candidate.error}` };
+      }
+      if (candidate.session.source.branch !== branch)
+        return {
+          error: `canonical session slug collision: ${slug} belongs to ${candidate.session.source.branch}, not destination ${branch}`,
+        };
+      matched.set(branch, { branch, slug, session: candidate.session });
+      continue;
+    }
+    const sessionsDir = path.join(repoDir, ".pm", "dev-sessions");
+    const hasLegacy = fs.existsSync(path.join(sessionsDir, `${slug}.gates.json`));
+    const hasCurrent =
+      branch === currentBranch && fs.existsSync(path.join(sessionsDir, "current.gates.json"));
+    if (hasLegacy || hasCurrent) matched.set(branch, { branch, slug, session: null });
+  }
+
+  for (const candidate of index.sessions) {
+    if (destinationMatchesShape(candidate.session.source.branch, shape))
+      matched.set(candidate.session.source.branch, {
+        branch: candidate.session.source.branch,
+        slug: candidate.slug,
+        session: candidate.session,
+      });
+  }
+
+  const targets = [...matched.values()];
+  if (targets.length > 1)
+    return {
+      error: `push updates multiple canonical PM session branches: ${targets.map((item) => item.branch).join(", ")}`,
+    };
+  return { targets };
 }
 
 // deriveSessionSlug is the single source of truth for branch -> manifest-name
@@ -298,100 +1950,274 @@ function loadDeriveSessionSlug() {
   return require(CHECKER).deriveSessionSlug;
 }
 
+function checkoutPointsToGitDir(checkoutGitPath, gitDir) {
+  try {
+    const reciprocal = fs.readFileSync(checkoutGitPath, "utf8").trim();
+    const match = /^gitdir:\s*(.+)$/i.exec(reciprocal);
+    return (
+      match &&
+      fs.realpathSync(path.resolve(path.dirname(checkoutGitPath), match[1])) ===
+        fs.realpathSync(gitDir)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function gitRegistersWorktree(gitDir, checkoutDir) {
+  const listed = spawnSync("git", [`--git-dir=${gitDir}`, "worktree", "list", "--porcelain"], {
+    encoding: "utf8",
+    maxBuffer: MAX_BUFFER,
+  });
+  if (!listed || listed.status !== 0) return false;
+  let expected;
+  try {
+    expected = fs.realpathSync(checkoutDir);
+  } catch {
+    return false;
+  }
+  return listed.stdout
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("worktree "))
+    .some((line) => {
+      try {
+        return fs.realpathSync(line.slice("worktree ".length)) === expected;
+      } catch {
+        return false;
+      }
+    });
+}
+
 // Resolve the working-tree directory the push targets, honoring cd / -C /
-// --work-tree / --git-dir. --work-tree is authoritative; otherwise derive the
-// work tree from --git-dir (its parent when it ends in `.git`).
+// --git-dir. A standalone --work-tree changes file presentation, not the Git
+// repository whose refs are pushed, so repository discovery remains rooted at cwd/-C.
 function resolveRepoDir(baseCwd, push) {
   let repoDir = baseCwd;
   if (push.cwdOverride) repoDir = path.resolve(repoDir, push.cwdOverride);
   if (push.dir) repoDir = path.resolve(repoDir, push.dir);
-  if (push.workTree) {
-    repoDir = path.resolve(repoDir, push.workTree);
-  } else if (push.gitDir) {
+  if (push.gitDir) {
     const gd = path.resolve(repoDir, push.gitDir);
-    repoDir = path.basename(gd) === ".git" ? path.dirname(gd) : gd;
+    if (path.basename(gd) === ".git") return path.dirname(gd);
+
+    // Linked-worktree metadata records the checkout's .git file explicitly.
+    // This is authoritative Git metadata, unlike a caller-controlled --work-tree.
+    try {
+      const checkoutGitFile = fs.readFileSync(path.join(gd, "gitdir"), "utf8").trim();
+      const checkoutGitPath = path.resolve(gd, checkoutGitFile);
+      const checkoutDir = path.dirname(checkoutGitPath);
+      if (
+        checkoutGitFile &&
+        path.basename(checkoutGitPath) === ".git" &&
+        checkoutPointsToGitDir(checkoutGitPath, gd) &&
+        gitRegistersWorktree(gd, checkoutDir)
+      )
+        return checkoutDir;
+    } catch {
+      // Not a linked-worktree administrative directory.
+    }
+
+    // A separate Git directory records its checkout in core.worktree. Ask Git
+    // to apply config path semantics rather than resolving relative paths here.
+    const configured = spawnSync(
+      "git",
+      [`--git-dir=${gd}`, "config", "--path", "--get", "core.worktree"],
+      { encoding: "utf8", maxBuffer: MAX_BUFFER }
+    );
+    if (configured && configured.status === 0 && configured.stdout.trim()) {
+      const checkoutDir = path.resolve(gd, configured.stdout.trim());
+      if (checkoutPointsToGitDir(path.join(checkoutDir, ".git"), gd)) return checkoutDir;
+    }
+
+    // A nonstandard Git directory with no authenticated checkout mapping could
+    // be paired with any caller-controlled --work-tree. Do not guess.
+    return null;
   }
   return repoDir;
 }
 
-function main() {
-  let raw = "";
-  try {
-    raw = fs.readFileSync(0, "utf8");
-  } catch {
-    return allow();
+function resolveExplicitGitDir(baseCwd, push) {
+  if (!push.gitDir) return null;
+  let dir = baseCwd;
+  if (push.cwdOverride) dir = path.resolve(dir, push.cwdOverride);
+  if (push.dir) dir = path.resolve(dir, push.dir);
+  return path.resolve(dir, push.gitDir);
+}
+
+function gatePush(baseCwd, push) {
+  if (push.cwdOverride === null || push.indeterminate) {
+    emitDeny(
+      "PM dev gate could not determine the repository for this push or its refspec after shell expansion. " +
+        "Use literal repository and refspec values so the exact pushed commit and quality gates can be verified."
+    );
+    return true;
   }
-
-  let payload;
-  try {
-    payload = JSON.parse(raw);
-  } catch {
-    return allow();
-  }
-
-  const command =
-    payload && payload.tool_input && typeof payload.tool_input.command === "string"
-      ? payload.tool_input.command
-      : "";
-
-  // Cheap pre-filter: the vast majority of Bash calls are not pushes.
-  if (!command || !command.includes("push")) return allow();
-
-  const push = detectGitPush(command);
-  if (!push) return allow();
-
-  const baseCwd =
-    (payload && typeof payload.cwd === "string" && payload.cwd) ||
-    process.env.CLAUDE_PROJECT_DIR ||
-    process.cwd();
   const repoDir = resolveRepoDir(baseCwd, push);
-
-  const branch = currentBranch(repoDir);
-  if (!branch) return allow(); // detached HEAD or not a git repo — can't identify a session.
-
-  // Refspec scoping: only gate pushes that update THIS branch's ref. Tag pushes,
-  // deletions, and cross-branch pushes are legit mid-session ops — out of scope.
-  if (!pushUpdatesSessionBranch(push.args, branch)) return allow();
-
-  let slug;
-  try {
-    slug = loadDeriveSessionSlug()(branch);
-  } catch {
-    return allow(); // can't compute the manifest name → can't tell a session exists.
+  if (!repoDir) {
+    emitDeny(
+      "PM dev gate could not bind this Git directory to an authoritative working tree. " +
+        "Configure core.worktree (or use the linked-worktree metadata) before pushing."
+    );
+    return true;
   }
+  const gitDir = resolveExplicitGitDir(baseCwd, push);
+
+  // No canonical or legacy PM session store means this repository has nothing
+  // for PM to protect. Resolve that before imposing PM's named-remote contract:
+  // ordinary Git permits an implicit push directly to a URL or local path.
+  try {
+    if (!canonicalSessionsDirectory(repoDir)) return false;
+    const preliminaryPush = parsePushArguments(push.args);
+    if (preliminaryPush.refspecs.length === 0 && preliminaryPush.remote) {
+      const configuredRemotes = gitCapture(repoDir, ["remote"], gitDir)
+        .split(/\r?\n/)
+        .filter(Boolean);
+      if (!configuredRemotes.includes(preliminaryPush.remote)) {
+        const inventory = loadCanonicalSessionIndex(repoDir);
+        if (
+          inventory.sessions.length === 0 &&
+          inventory.candidates.size === 0 &&
+          inventory.legacyMarkers.length === 0
+        )
+          return false;
+      }
+    }
+  } catch (error) {
+    emitDeny(`PM dev gate cannot inventory canonical sessions safely (${error.message}).`);
+    return true;
+  }
+
+  const checkedOutBranch = currentBranch(repoDir, gitDir);
+  const effective = effectivePushRefspecs(repoDir, push.args, checkedOutBranch, gitDir);
+  if (effective.error) {
+    emitDeny(
+      `PM dev gate cannot resolve the exact implicit push updates (${effective.error}). ` +
+        "Use one explicit source:destination refspec so every update can be verified."
+    );
+    return true;
+  }
+  const effectiveRefspecs = effective.refspecs;
+  const shape = pushDestinationShape(push.args, checkedOutBranch, effectiveRefspecs);
+  if (shape.error) {
+    emitDeny(`PM dev gate cannot resolve the exact push destinations (${shape.error}).`);
+    return true;
+  }
+
+  let selected;
+  try {
+    selected = selectCanonicalSessionTargets(repoDir, shape, checkedOutBranch);
+  } catch (error) {
+    emitDeny(`PM dev gate cannot inventory canonical sessions safely (${error.message}).`);
+    return true;
+  }
+  if (selected.error) {
+    emitDeny(
+      `PM dev gate cannot bind push destinations to canonical sessions (${selected.error}).`
+    );
+    return true;
+  }
+  if (selected.targets.length === 0) return false;
+  const [{ branch, slug, session }] = selected.targets;
 
   const sessionsDir = path.join(repoDir, ".pm", "dev-sessions");
-  let manifestPath = path.join(sessionsDir, `${slug}.gates.json`);
-  if (!fs.existsSync(manifestPath)) {
-    const currentPath = path.join(sessionsDir, "current.gates.json");
-    if (fs.existsSync(currentPath)) {
-      manifestPath = currentPath;
-    } else {
-      return allow(); // no PM dev session for this branch — no-op.
-    }
+  const canonicalSessionDir = path.join(sessionsDir, slug);
+  const canonicalPath = path.join(canonicalSessionDir, "gates.json");
+  const legacyPath = path.join(sessionsDir, `${slug}.gates.json`);
+  const currentPath = path.join(sessionsDir, "current.gates.json");
+  const manifestPath = canonicalPath;
+  if (fs.existsSync(canonicalSessionDir) && !fs.existsSync(canonicalPath)) {
+    blockUnverified(
+      branch,
+      `.pm/dev-sessions/${slug}/gates.json`,
+      "canonical gate manifest is missing"
+    );
+    return true;
   }
-  // Name the manifest that was actually checked (current.gates.json when that
-  // fallback was used), not the slug manifest that may not exist.
-  const manifestRel = `.pm/dev-sessions/${path.basename(manifestPath)}`;
+  if (!fs.existsSync(manifestPath)) {
+    if (fs.existsSync(legacyPath) || fs.existsSync(currentPath)) {
+      blockUnverified(
+        branch,
+        `.pm/dev-sessions/${slug}/gates.json`,
+        "legacy gate manifests are inspection-only; migrate and recertify the canonical session"
+      );
+      return true;
+    }
+    return false;
+  }
+  if (!fs.existsSync(path.join(canonicalSessionDir, "session.json"))) {
+    blockUnverified(branch, manifestPath, "canonical sibling session.json is missing");
+    return true;
+  }
+  if (
+    session &&
+    (session.authority?.push_feature_branch !== true ||
+      !session.authority_log?.some(
+        (entry) => Array.isArray(entry?.actions) && entry.actions.includes("push_feature_branch")
+      ))
+  ) {
+    blockUnverified(
+      branch,
+      path.relative(repoDir, manifestPath).split(path.sep).join("/"),
+      "canonical session does not grant push_feature_branch authority"
+    );
+    return true;
+  }
+  const manifestRel = path.relative(repoDir, manifestPath).split(path.sep).join("/");
 
   // VERIFICATION REGION. A push to the session branch is being gated against a
   // real manifest. Fail CLOSED on anything that stops a clean verdict — including
   // an unexpected throw in here: an error is not proof the gate passed.
   try {
-    const headSha = gitCapture(repoDir, ["rev-parse", "HEAD"]);
-    if (!headSha) return blockUnverified(branch, manifestRel, "unable to resolve HEAD");
-
-    const checkerArgs = ["--manifest", manifestPath, "--commit", headSha];
-    // Prefer the diff-aware check; degrade gracefully (drop --base) when the base
-    // isn't fetched so a missing remote ref never false-blocks. The core status /
-    // staleness checks still run without it.
-    const defaultBranch = resolveDefaultBranch(repoDir);
-    if (refExists(repoDir, `origin/${defaultBranch}`)) {
-      checkerArgs.push("--base", `origin/${defaultBranch}`);
+    const pushed = sessionBranchPushSource(
+      repoDir,
+      push.args,
+      branch,
+      effectiveRefspecs,
+      effective.source,
+      gitDir,
+      effective.expansionError
+    );
+    if (pushed.error) {
+      blockUnverified(branch, manifestRel, pushed.error);
+      return true;
     }
+    const pushedSha = gitCapture(
+      repoDir,
+      ["rev-parse", "--verify", `${pushed.source}^{commit}`],
+      gitDir
+    );
+    if (!/^[a-f0-9]{40,64}$/.test(pushedSha)) {
+      blockUnverified(
+        branch,
+        manifestRel,
+        `unable to resolve pushed source ${pushed.source} to one commit`
+      );
+      return true;
+    }
+
+    const checkerArgs = [
+      "--manifest",
+      manifestPath,
+      "--commit",
+      pushedSha,
+      "--branch",
+      branch,
+      "--review-evidence-mode",
+      "enforce",
+      "--require-authority",
+      "push_feature_branch",
+    ];
+    const destination = effective.remote
+      ? { remote: effective.remote }
+      : resolvePushRemote(repoDir, push.args, checkedOutBranch || branch, gitDir);
+    if (destination.error) {
+      blockUnverified(branch, manifestRel, destination.error);
+      return true;
+    }
+    checkerArgs.push("--remote", destination.remote);
 
     const result = spawnSync(process.execPath, [CHECKER, ...checkerArgs], {
       cwd: repoDir,
+      env: gitDir ? { ...process.env, GIT_DIR: gitDir, GIT_WORK_TREE: repoDir } : process.env,
       encoding: "utf8",
       maxBuffer: MAX_BUFFER,
     });
@@ -401,13 +2227,64 @@ function main() {
     if (!result || result.error || typeof result.status !== "number") {
       const detail =
         result && result.error ? result.error.code || result.error.message : "no verdict";
-      return blockUnverified(branch, manifestRel, detail);
+      blockUnverified(branch, manifestRel, detail);
+      return true;
     }
-    if (result.status === 0) return allow();
-    return blockFailingGate(branch, manifestRel, `${result.stdout || ""}${result.stderr || ""}`);
+    if (result.status === 0) return false;
+    blockFailingGate(branch, manifestRel, `${result.stdout || ""}${result.stderr || ""}`);
+    return true;
   } catch (err) {
-    return blockUnverified(branch, manifestRel, (err && err.message) || "hook error");
+    blockUnverified(branch, manifestRel, (err && err.message) || "hook error");
+    return true;
   }
+}
+
+function main() {
+  let raw = "";
+  try {
+    raw = fs.readFileSync(0, "utf8");
+  } catch {
+    return allow();
+  }
+  let payload;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    return allow();
+  }
+  const command =
+    payload && payload.tool_input && typeof payload.tool_input.command === "string"
+      ? payload.tool_input.command
+      : "";
+  if (!command) return allow();
+  const hasHeredoc = containsUnsupportedHeredoc(command);
+  const executableCommand = hasHeredoc ? commandWithoutHeredocPayloads(command) : command;
+  if (!executableCommand.includes("push")) return allow();
+  if (hasHeredoc) {
+    emitDeny(
+      "PM dev gate cannot safely inspect a push command containing a shell here-document. " +
+        "Run the push as a separate command so its repository, refspec, and quality gates can be verified."
+    );
+    return;
+  }
+  const substitutionInspection = inspectPushShellSubstitutions(command);
+  if (substitutionInspection !== "none") {
+    emitDeny(
+      (substitutionInspection === "found"
+        ? "PM dev gate cannot safely inspect a git push inside shell command substitution or process substitution. "
+        : "PM dev gate could not finish inspecting nested shell substitutions in a push command. ") +
+        "Run the push as a separate command so its repository, refspec, and quality gates can be verified."
+    );
+    return;
+  }
+  const baseCwd =
+    (payload && typeof payload.cwd === "string" && payload.cwd) ||
+    process.env.CLAUDE_PROJECT_DIR ||
+    process.cwd();
+  const pushes = detectGitPushes(command, baseCwd);
+  if (pushes.length === 0) return allow();
+  for (const push of pushes) if (gatePush(baseCwd, push)) return;
+  return allow();
 }
 
 try {

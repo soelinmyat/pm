@@ -6,22 +6,133 @@
 # 4. Validate skill directory structure
 
 remote="$1"
+remote_url="$2"
 push_ref_lines=()
 
-derive_gate_slug() {
-  local slug="$1"
-  local prefix
-  for prefix in "codex/" "feat/" "fix/" "chore/" "release/"; do
-    if [[ "$slug" == "$prefix"* ]]; then
-      slug="${slug#"$prefix"}"
-      break
-    fi
-  done
-  slug="${slug//\//-}"
-  if [[ -z "$slug" ]]; then
-    slug="current"
+resolve_authoritative_remote_head() {
+  local remote_target="$remote_url"
+  local output=""
+  local head_ref=""
+  local head_commit=""
+  local head_branch=""
+
+  if [[ -z "$remote_target" || "$remote_target" == "." ]]; then
+    remote_target="$remote"
   fi
-  printf "%s" "$slug"
+  if [[ -z "$remote_target" ]]; then
+    return 1
+  fi
+  output=$(GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=Never git ls-remote --symref "$remote_target" HEAD 2>/dev/null) || return 1
+  head_ref=$(printf "%s\n" "$output" | sed -nE 's/^ref:[[:space:]]+(refs\/heads\/[^[:space:]]+)[[:space:]]+HEAD$/\1/p' | head -1)
+  head_commit=$(printf "%s\n" "$output" | sed -nE 's/^([a-f0-9]{40,64})[[:space:]]+HEAD$/\1/p' | head -1)
+  if [[ -z "$head_ref" || -z "$head_commit" ]]; then
+    return 1
+  fi
+  if ! git cat-file -e "${head_commit}^{commit}" 2>/dev/null; then
+    GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=Never git fetch --no-tags --quiet "$remote_target" "$head_commit" 2>/dev/null || return 1
+    git cat-file -e "${head_commit}^{commit}" 2>/dev/null || return 1
+  fi
+  head_branch="${head_ref#refs/heads/}"
+  authoritative_base_commit="$head_commit"
+  authoritative_base_ref="${remote}/${head_branch}"
+  return 0
+}
+
+commit_contains_pm_runtime_inventory() {
+  local commit="$1"
+  git cat-file -e "$commit:plugin.config.json" 2>/dev/null ||
+    git cat-file -e "$commit:.claude-plugin/plugin.json" 2>/dev/null ||
+    git cat-file -e "$commit:.codex-plugin/plugin.json" 2>/dev/null ||
+    {
+      [[ -n "$(git ls-tree -r --name-only "$commit" -- commands 2>/dev/null)" ]] &&
+        [[ -n "$(git ls-tree -r --name-only "$commit" -- skills 2>/dev/null)" ]]
+    }
+}
+
+commit_or_history_contains_pm_runtime_inventory() {
+  local commit="$1"
+  local remote_commit="$2"
+  local pathspec=""
+  local changed_commit=""
+  local candidate=""
+  local history_paths=(
+    "plugin.config.json"
+    ".claude-plugin/plugin.json"
+    ".codex-plugin/plugin.json"
+    "commands"
+    "skills"
+  )
+
+  if commit_contains_pm_runtime_inventory "$commit"; then
+    return 0
+  fi
+  if [[ "$remote_commit" =~ ^[a-f0-9]{40,64}$ ]] &&
+    git cat-file -e "${remote_commit}^{commit}" 2>/dev/null &&
+    commit_contains_pm_runtime_inventory "$remote_commit"; then
+    return 0
+  fi
+  for pathspec in "${history_paths[@]}"; do
+    changed_commit=$(git rev-list --max-count=1 "$commit" -- "$pathspec" 2>/dev/null) || return 1
+    if [[ -z "$changed_commit" ]]; then
+      continue
+    fi
+    while IFS= read -r candidate; do
+      if [[ -n "$candidate" ]] && commit_contains_pm_runtime_inventory "$candidate"; then
+        return 0
+      fi
+    done < <(
+      git rev-list --parents --max-count=1 "$changed_commit" 2>/dev/null |
+        tr ' ' '\n'
+    )
+  done
+  return 1
+}
+
+derive_gate_slug_from_worktree() {
+  local worktree="$1"
+  local branch="$2"
+  local helper_path="$worktree/scripts/lib/session-slug.js"
+  local error_file=""
+  local output=""
+  local detail=""
+
+  gate_slug=""
+  gate_slug_error=""
+  if [[ ! -f "$helper_path" ]]; then
+    gate_slug_error="pushed commit is missing canonical scripts/lib/session-slug.js"
+    return 0
+  fi
+  error_file=$(mktemp "${TMPDIR:-/tmp}/pm-session-slug.XXXXXX") || {
+    gate_slug_error="unable to allocate canonical session-slug validation output"
+    return 0
+  }
+  if ! output=$(node - "$helper_path" "$branch" 2>"$error_file" <<'NODE'
+const path = require("node:path");
+const helperPath = path.resolve(process.argv[2]);
+const branch = process.argv[3];
+const helper = require(helperPath);
+if (!helper || typeof helper.deriveSessionSlug !== "function") {
+  throw new Error("canonical helper must export deriveSessionSlug");
+}
+const slug = helper.deriveSessionSlug(branch);
+if (
+  typeof slug !== "string" ||
+  slug.length === 0 ||
+  slug.length > 255 ||
+  !/^[a-z0-9][a-z0-9._-]*$/.test(slug)
+) {
+  throw new Error("canonical helper returned an invalid session slug");
+}
+process.stdout.write(slug);
+NODE
+  ); then
+    detail=$(head -c 300 "$error_file" | tr '\r\n' ' ')
+    gate_slug_error="canonical session-slug helper failed${detail:+: $detail}"
+    rm -f "$error_file"
+    return 0
+  fi
+  rm -f "$error_file"
+  gate_slug="$output"
 }
 
 verify_pm_commit_inventory() {
@@ -78,7 +189,10 @@ verify_pm_commit_inventory() {
 
 run_commit_tests() {
   local commit="$1"
+  local branch="$2"
   local test_tmp=""
+  gate_slug=""
+  gate_slug_error=""
   test_tmp=$(mktemp -d "${TMPDIR:-/tmp}/pm-pre-push-tests.XXXXXX") || exit 1
   rm -rf "$test_tmp"
   if ! git worktree add --detach --quiet "$test_tmp" "$commit"; then
@@ -86,6 +200,7 @@ run_commit_tests() {
     echo "ERROR: unable to create test worktree for pushed commit $commit."
     return 1
   fi
+  derive_gate_slug_from_worktree "$test_tmp" "$branch"
   if [[ -d "$test_tmp/tests" ]]; then
     echo "Running tests for $commit..."
     if ! (
@@ -131,33 +246,62 @@ for push_ref_line in "${push_ref_lines[@]}"; do
     continue
   fi
 
-  if ! run_commit_tests "$local_oid"; then
-    exit 1
-  fi
-
   branch_name="${remote_ref#refs/heads/}"
   if [[ -z "$branch_name" || "$branch_name" == "$remote_ref" ]]; then
     branch_name="${local_ref#refs/heads/}"
   fi
-  gate_slug=$(derive_gate_slug "$branch_name")
-
-  gate_manifest=".pm/dev-sessions/${gate_slug}.gates.json"
-  if [[ ! -f "$gate_manifest" && "$branch_name" == "$(git branch --show-current 2>/dev/null)" && -f ".pm/dev-sessions/current.gates.json" ]]; then
-    gate_manifest=".pm/dev-sessions/current.gates.json"
-  fi
-
-  if ! git rev-parse --verify origin/main >/dev/null 2>&1; then
-    echo "ERROR: unable to verify origin/main for PM dev gate checks."
-    echo "Fetch origin/main, then retry the push."
+  if ! run_commit_tests "$local_oid" "$branch_name"; then
     exit 1
   fi
-  changed_pm_runtime_files=$(git diff --name-only "origin/main...$local_oid" -- commands skills scripts hooks templates tests references agents plugin.config.json .claude-plugin .codex-plugin .codex/INSTALL.md README.md .githooks 2>/dev/null)
+
+  pm_runtime_detected=0
+  if commit_or_history_contains_pm_runtime_inventory "$local_oid" "$remote_oid"; then
+    pm_runtime_detected=1
+  fi
+
+  authoritative_base_ref=""
+  authoritative_base_commit=""
+  if ! resolve_authoritative_remote_head; then
+    if [[ "$pm_runtime_detected" -eq 1 ]]; then
+      echo "ERROR: unable to resolve the authoritative remote HEAD for PM dev gate checks."
+      echo "Verify the pre-push remote and network access, then retry."
+      exit 1
+    fi
+    continue
+  fi
+  changed_pm_runtime_files=$(git diff --name-only "${authoritative_base_commit}...$local_oid" -- commands skills scripts hooks templates tests references agents plugin.config.json .claude-plugin .codex-plugin .codex/INSTALL.md README.md .githooks 2>/dev/null)
   if [[ "$?" -ne 0 ]]; then
-    echo "ERROR: unable to diff origin/main...$local_oid for PM dev gate checks."
+    echo "ERROR: unable to diff authoritative remote HEAD ${authoritative_base_commit}...$local_oid for PM dev gate checks."
+    exit 1
+  fi
+  if [[ -n "$gate_slug_error" && ( -n "$changed_pm_runtime_files" || "$pm_runtime_detected" -eq 1 ) ]]; then
+    echo "ERROR: unable to derive the canonical PM dev session slug for pushed commit $local_oid."
+    echo "${gate_slug_error}."
+    echo "Restore a valid scripts/lib/session-slug.js in the pushed commit, then retry."
+    exit 1
+  fi
+  if [[ -z "$gate_slug" ]]; then
+    continue
+  fi
+
+  canonical_session_dir=".pm/dev-sessions/${gate_slug}"
+  canonical_gate_manifest="${canonical_session_dir}/gates.json"
+  gate_manifest="$canonical_gate_manifest"
+  gate_session_detected=0
+  if [[ -d "$canonical_session_dir" ]]; then
+    gate_session_detected=1
+  elif [[ -f ".pm/dev-sessions/${gate_slug}.gates.json" || -f ".pm/dev-sessions/current.gates.json" ]]; then
+    echo "ERROR: Legacy PM gate manifests are inspection-only and cannot authorize delivery."
+    echo "Migrate and recertify .pm/dev-sessions/${gate_slug}/gates.json with sibling session.json."
+    exit 1
+  fi
+  if [[ -f "$canonical_gate_manifest" && ! -f "${canonical_session_dir}/session.json" ]]; then
+    echo "ERROR: Canonical PM gate manifest requires sibling session.json."
+    gate_session_detected=1
     exit 1
   fi
 
-  if [[ -n "$changed_pm_runtime_files" || -f "$gate_manifest" ]]; then
+  if [[ -n "$changed_pm_runtime_files" || "$gate_session_detected" -eq 1 ]]; then
     if ! verify_pm_commit_inventory "$local_oid"; then
       exit 1
     fi
@@ -166,7 +310,7 @@ for push_ref_line in "${push_ref_lines[@]}"; do
   if [[ -f "$gate_manifest" ]]; then
     checker_tmp=$(mktemp -d "${TMPDIR:-/tmp}/pm-dev-gate-check.XXXXXX") || exit 1
     checker_archive="$checker_tmp/scripts.tar"
-    if ! git archive --format=tar --output="$checker_archive" "$local_oid" scripts; then
+    if ! git archive --format=tar --output="$checker_archive" "$local_oid" scripts plugin.config.json; then
       rm -rf "$checker_tmp"
       echo "ERROR: unable to archive scripts from pushed commit $local_oid."
       exit 1
@@ -181,15 +325,19 @@ for push_ref_line in "${push_ref_lines[@]}"; do
     if ! node "$checker_tmp/scripts/dev-gate-check.js" \
       --manifest "$gate_manifest" \
       --commit "$local_oid" \
-      --base origin/main; then
+      --branch "$branch_name" \
+      --review-evidence-mode enforce \
+      --require-authority push_feature_branch \
+      --remote "$remote" \
+      --base "$authoritative_base_ref"; then
       rm -rf "$checker_tmp"
       exit 1
     fi
     rm -rf "$checker_tmp"
-  elif [[ -n "$changed_pm_runtime_files" ]]; then
+  elif [[ -n "$changed_pm_runtime_files" || "$gate_session_detected" -eq 1 ]]; then
     echo "ERROR: PM dev gate manifest not found for branch $branch_name."
     echo "Expected $gate_manifest before pushing PM runtime/source changes."
-    echo "Run all required dev gates, record .pm/dev-sessions/${gate_slug}.gates.json, then retry."
+    echo "Run all required dev gates, record .pm/dev-sessions/${gate_slug}/gates.json, then retry."
     exit 1
   fi
 done

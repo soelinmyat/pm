@@ -10,7 +10,7 @@ const files = {
   "pm/backlog/export-v2.md": "---\nid: export-v2\nstatus: proposed\n---\n# Multi-surface export\n\nCustomers need CSV delivery across web and API surfaces.\n",
   "src/export-service.js": "exports.runExport = async function runExport() { return []; };\n",
   "docs/architecture.md": "# Architecture\n\nExports run in the API worker and persist jobs in SQLite.\n",
-  ".pm/quality/repeat-control.json": "{\n  \"repeats\": 3,\n  \"source\": \"frozen\",\n  \"reset_between_runs\": true\n}\n",
+  ".pm/quality/repeat-control.json": "{\n  \"repeats\": 3,\n  \"source\": \"frozen\",\n  \"reset_between_runs\": true,\n  \"expectation\": \"defect-present\"\n}\n",
   ".pm/quality/case-state.json": "{\n  \"workflow\": \"rfc\",\n  \"case_id\": \"rfc-repeated-run-variance\",\n  \"case_type\": \"repeated-run-variance\",\n  \"state\": \"The source snapshot and inputs are frozen for three independent repeats.\"\n}\n"
 };
 for (const [name, content] of Object.entries(files)) {
@@ -31,5 +31,3 @@ git switch -qc feature
 printf '%s\n' 'rfc repeated-run-variance change' >> docs/architecture.md
 git add docs/architecture.md
 git commit -qm "fixture feature change"
-
-

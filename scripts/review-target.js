@@ -1,0 +1,613 @@
+#!/usr/bin/env node
+"use strict";
+
+const crypto = require("node:crypto");
+const { execFileSync } = require("node:child_process");
+const fs = require("node:fs");
+const path = require("node:path");
+const {
+  allocateLenses,
+  deriveLensApplicability,
+  devReviewContext,
+} = require("./lib/review-contract");
+const projectWriter = require("./lib/project-atomic-write");
+const { MAX_CHANGED_FILE_BYTES, MAX_JSON_BYTES } = require("./lib/review-limits");
+const { readProjectInput } = require("./lib/safe-project-output");
+const {
+  expectedPriorReportPath,
+  expectedReviewPath,
+  requireReviewPath,
+  reviewPathContext,
+  reviewRootFromTargetPath,
+} = require("./lib/review-paths");
+
+const MAX_BOUND_BYTES = 64 * 1024 * 1024;
+
+function buildReviewTarget(options) {
+  const root = fs.realpathSync(path.resolve(options.root || process.cwd()));
+  assertCleanWorktree(root);
+  const commit = git(root, ["rev-parse", "HEAD"]).trim();
+  if (options.commit && options.commit !== commit)
+    throw new Error(`supplied commit must equal current HEAD ${commit}`);
+  const trusted = resolveTrustedBase(root, options.remote || "origin");
+  const baseRef = options.baseRef || trusted.ref;
+  const baseCommit = options.baseCommit || trusted.commit;
+  if (baseRef !== trusted.ref) throw new Error(`base must equal remote default ${trusted.ref}`);
+  if (baseCommit !== trusted.commit)
+    throw new Error(`base commit must equal remote default ${trusted.commit}`);
+  const diff = git(root, ["diff", "--binary", `${baseCommit}...${commit}`], null);
+  const changedFiles = changedFileInventory(root, baseCommit, commit);
+  if (changedFiles.length === 0) throw new Error("review target has no changed files");
+  if (changedFiles.length > 500) throw new Error("review target exceeds the 500-file budget");
+
+  const mode = options.mode || "full";
+  if (!new Set(["full", "code-scan"]).has(mode)) throw new Error("mode must be full or code-scan");
+  const designEvidence = optionalBinding(
+    root,
+    options.designCritiquePath,
+    "design critique report"
+  );
+  if (designEvidence && designEvidence.commit !== commit)
+    throw new Error(`design critique report must attest current HEAD ${commit}`);
+  const lenses = deriveLensApplicability(mode, changedFiles);
+  const profile = loadProfile(options.profile || "codex-workhorse");
+  const maxWorkers = positiveInt(options.maxWorkers || 3, "max workers");
+  const allocation = allocateLenses(
+    lenses.filter((item) => item.applicable).map((item) => item.name),
+    maxWorkers,
+    options.profile || "codex-workhorse"
+  ).map((worker) => ({ ...worker, runtime: profile }));
+  const round = positiveInt(options.round || 1, "round");
+  if (round > 3) throw new Error("review round cannot exceed 3");
+  const priorLoaded = optionalJsonFileBinding(root, options.priorReportPath, "prior report");
+  const priorReport = priorLoaded?.binding || null;
+  if (round > 1 && !priorReport) throw new Error("rounds after 1 require a prior report binding");
+  if (round === 1 && priorReport) throw new Error("round 1 cannot bind a prior report");
+  if (priorLoaded) {
+    const priorCommit = priorLoaded.value?.source?.commit;
+    if (!/^[a-f0-9]{40,64}$/.test(priorCommit || ""))
+      throw new Error("prior report must contain a valid source commit");
+    if (priorCommit === commit) throw new Error("later review rounds require a source mutation");
+    try {
+      git(root, ["merge-base", "--is-ancestor", priorCommit, commit]);
+    } catch {
+      throw new Error("prior report source commit must be an ancestor of current HEAD");
+    }
+  }
+  const acceptanceLoaded = readOptionalFile(
+    root,
+    options.acceptancePath,
+    "acceptance criteria",
+    MAX_BOUND_BYTES
+  );
+  const acceptance = acceptanceLoaded?.binding || null;
+  const targetSlug = options.outPath?.match(/^\.pm\/dev-sessions\/([^/]+)\/review\//)?.[1];
+  const devContext = options.devSessionPath
+    ? loadDevContext(root, options.devSessionPath, {
+        expectedSlug: targetSlug,
+        expectedMode: mode,
+      })
+    : null;
+  if (
+    acceptanceLoaded &&
+    devContext &&
+    canonicalAcceptanceDigest(acceptanceLoaded.bytes, "acceptance criteria") !==
+      devContext.acceptance_sha256
+  )
+    throw new Error("acceptance criteria must canonically equal the bound Dev session criteria");
+
+  return {
+    schema_version: 1,
+    relevance_policy: "changed-hunk-anchor-v1",
+    run_id: options.runId || `review-${crypto.randomUUID()}`,
+    review_round: round,
+    iteration_cap: 3,
+    created_at: new Date().toISOString(),
+    mode,
+    source: {
+      commit,
+      base_ref: baseRef,
+      base_commit: baseCommit,
+      remote_push_url_sha256: trusted.remote_push_url_sha256,
+      diff_sha256: digest(diff),
+    },
+    changed_files: changedFiles,
+    dev_context: devContext,
+    acceptance,
+    upstream: { design_critique: designEvidence },
+    ownership: {
+      review: ["source-correctness", "contracts", "tests", "reuse", "quality", "efficiency"],
+      design_critique: ["rendered-hierarchy", "density", "responsive-craft", "print-craft"],
+      qa: ["live-behavior", "navigation", "state-transitions", "integrations"],
+    },
+    lenses,
+    allocation,
+    prior_report: priorReport,
+  };
+}
+
+function assertDevReviewLineage(root, outPath, target, options = {}) {
+  if (!target.dev_context) return;
+  const { canonicalRoot } = reviewPathContext(outPath, target.review_round, target.run_id);
+  const runsRelative = path.posix.join(canonicalRoot, "runs");
+  const runsRoot = path.join(root, runsRelative);
+  if (!fs.existsSync(runsRoot)) return;
+  assertRealDirectory(root, runsRelative);
+  const runEntries = fs.readdirSync(runsRoot, { withFileTypes: true });
+  if (runEntries.length > 256)
+    throw new Error("review lineage exceeds the 256-run inspection budget");
+  const targets = [];
+  for (const runEntry of runEntries) {
+    if (runEntry.isSymbolicLink()) throw new Error("review lineage contains unsafe evidence");
+    if (!runEntry.isDirectory()) continue;
+    for (let round = 1; round <= 3; round += 1) {
+      const targetPath = path.posix.join(
+        runsRelative,
+        runEntry.name,
+        `round-${round}`,
+        "target.json"
+      );
+      const value = readRegularJson(root, targetPath);
+      if (
+        value?.dev_context?.run_id === target.dev_context.run_id &&
+        value.dev_context.decision_version === target.dev_context.decision_version
+      )
+        targets.push({ path: targetPath, value });
+    }
+  }
+  if (targets.length === 0) return;
+  targets.sort((left, right) => {
+    const created =
+      Date.parse(left.value.created_at || "") - Date.parse(right.value.created_at || "");
+    return created || left.value.review_round - right.value.review_round;
+  });
+  const latest = targets.at(-1);
+  const canonicalPath = path.posix.join(canonicalRoot, "report.json");
+  const canonical = readRegularJson(root, canonicalPath);
+  const claimsLatestPass =
+    canonical?.outcome === "passed" &&
+    canonical.run_id === latest.value.run_id &&
+    canonical.review_round === latest.value.review_round &&
+    canonical.source?.commit === latest.value.source?.commit;
+  let latestPassed = false;
+  if (claimsLatestPass) {
+    const validateCanonicalReport = options.validateCanonicalReport || validateCanonicalReviewPass;
+    try {
+      latestPassed = validateCanonicalReport(root, canonicalPath, latest) === true;
+    } catch (error) {
+      throw new Error(`canonical review lineage report is invalid: ${error.message}`);
+    }
+    if (!latestPassed)
+      throw new Error("canonical review lineage report is invalid: validation failed");
+  }
+  if (latestPassed) {
+    if (target.review_round !== 1)
+      throw new Error("a passed review lineage must be followed by a new round-1 run");
+    return;
+  }
+  if (target.run_id !== latest.value.run_id)
+    throw new Error(
+      `active review lineage uses run_id ${latest.value.run_id}; continue it through round ${latest.value.review_round + 1} instead of resetting the remediation cap`
+    );
+  if (target.review_round !== latest.value.review_round + 1)
+    throw new Error(
+      `active review lineage must continue at round ${latest.value.review_round + 1}`
+    );
+}
+
+function assertRealDirectory(root, relative) {
+  let current = fs.realpathSync(path.resolve(root));
+  for (const component of relative.split("/")) {
+    current = path.join(current, component);
+    const stat = fs.lstatSync(current);
+    if (stat.isSymbolicLink() || !stat.isDirectory())
+      throw new Error("review lineage contains unsafe evidence");
+  }
+  return current;
+}
+
+function readRegularJson(root, relative) {
+  let input;
+  try {
+    input = readProjectInput(root, relative, MAX_JSON_BYTES);
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+  try {
+    return JSON.parse(input.bytes.toString("utf8"));
+  } catch {
+    throw new Error("review lineage contains malformed JSON evidence");
+  }
+}
+
+function validateCanonicalReviewPass(root, reportPath, latest) {
+  const { checkReview, expandFromReport } = require("./review-check");
+  const checked = checkReview(
+    expandFromReport({
+      root,
+      reportPath,
+      fromReport: true,
+      verifyGit: false,
+      verifyFrozenGit: true,
+      verifyBrowser: false,
+      allowHistoricalGeneratorVersion: true,
+    })
+  );
+  if (!checked.ok)
+    throw new Error(
+      checked.issues
+        .slice(0, 3)
+        .map((issue) => `${issue.path}: ${issue.message}`)
+        .join("; ") || "review checker rejected the report"
+    );
+  return (
+    checked.report?.outcome === "passed" &&
+    checked.report?.target?.path === latest.path &&
+    checked.report?.run_id === latest.value.run_id &&
+    checked.report?.review_round === latest.value.review_round &&
+    checked.report?.source?.commit === latest.value.source?.commit
+  );
+}
+
+function loadDevContext(root, relative, expected) {
+  const loaded = optionalJsonFileBinding(root, relative, "Dev session");
+  if (!loaded) throw new Error("Dev session is required");
+  const errors = require("./lib/dev-session-schema").validateSession(loaded.value);
+  if (errors.length > 0)
+    throw new Error(
+      `Dev session is invalid: ${errors
+        .slice(0, 3)
+        .map((item) => `${item.path}: ${item.message}`)
+        .join("; ")}`
+    );
+  if (!expected.expectedSlug) throw new Error("Dev-routed review target path lacks a session slug");
+  if (loaded.value.slug !== expected.expectedSlug)
+    throw new Error(`Dev session slug must equal target namespace ${expected.expectedSlug}`);
+  if (relative !== `.pm/dev-sessions/${expected.expectedSlug}/session.json`)
+    throw new Error("Dev session path must be the canonical sibling session.json");
+  if (loaded.value.routing.review_mode !== expected.expectedMode)
+    throw new Error("Dev session review mode must equal the requested target mode");
+  return devReviewContext(loaded.value);
+}
+
+function resolveTrustedBase(root, remote = "origin") {
+  const configured = git(root, ["remote"]).trim().split(/\r?\n/).filter(Boolean);
+  if (remote === "." || !configured.includes(remote))
+    throw new Error("authoritative remote must be an exact configured remote name");
+  let effectivePushUrls;
+  try {
+    effectivePushUrls = git(root, ["remote", "get-url", "--push", "--all", "--", remote])
+      .trim()
+      .split(/\r?\n/)
+      .filter(Boolean);
+  } catch {
+    effectivePushUrls = [];
+  }
+  if (effectivePushUrls.length > 1)
+    throw new Error(`${remote} has multiple effective push URLs and cannot bind one destination`);
+  const remoteTarget = effectivePushUrls[0];
+  if (!remoteTarget) throw new Error(`${remote} has no configured delivery URL`);
+  let output;
+  try {
+    output = execFileSync("git", ["ls-remote", "--symref", "--", remoteTarget, "HEAD"], {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "Never" },
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 15_000,
+    });
+  } catch (error) {
+    const detail =
+      error.code === "ETIMEDOUT" || error.signal
+        ? "timed out after 15 seconds with prompts disabled"
+        : String(error.stderr || error.message)
+            .trim()
+            .slice(0, 300);
+    throw new Error(`cannot resolve authoritative ${remote} default: ${detail}`);
+  }
+  const branch = output.match(/^ref:\s+refs\/heads\/([^\s]+)\s+HEAD$/m)?.[1];
+  const commit = output.match(/^([a-f0-9]{40,64})\s+HEAD$/m)?.[1];
+  if (!branch || !commit) throw new Error(`${remote} HEAD lacks a symbolic ref or object ID`);
+  try {
+    execFileSync("git", ["cat-file", "-e", `${commit}^{commit}`], {
+      cwd: root,
+      stdio: ["ignore", "ignore", "ignore"],
+      timeout: 5_000,
+    });
+  } catch {
+    try {
+      execFileSync(
+        "git",
+        ["fetch", "--no-tags", "--quiet", "--", remoteTarget, `refs/heads/${branch}`],
+        {
+          cwd: root,
+          env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "Never" },
+          stdio: ["ignore", "ignore", "pipe"],
+          timeout: 30_000,
+        }
+      );
+      execFileSync("git", ["cat-file", "-e", `${commit}^{commit}`], {
+        cwd: root,
+        stdio: ["ignore", "ignore", "pipe"],
+        timeout: 5_000,
+      });
+    } catch (error) {
+      throw new Error(
+        `cannot materialize authoritative ${remote} object: ${String(error.stderr || error.message)
+          .trim()
+          .slice(0, 300)}`
+      );
+    }
+  }
+  return {
+    ref: `${remote}/${branch}`,
+    commit,
+    remote_push_url_sha256: digest(Buffer.from(remoteTarget)),
+  };
+}
+
+function changedFileInventory(root, baseCommit, commit) {
+  const raw = git(root, ["diff", "--name-status", "-z", `${baseCommit}...${commit}`], null);
+  const fields = raw.toString("utf8").split("\0");
+  if (fields.at(-1) === "") fields.pop();
+  const rows = [];
+  let committedBytes = 0;
+  for (let index = 0; index < fields.length;) {
+    const status = fields[index++];
+    if (!/^(?:[ACDMRTUXB]|R\d{1,3}|C\d{1,3})$/.test(status))
+      throw new Error(`unsupported git status ${status}`);
+    let oldPath = null;
+    let filePath = fields[index++];
+    if (/^[RC]/.test(status)) {
+      oldPath = filePath;
+      filePath = fields[index++];
+    }
+    validateGitPath(filePath);
+    if (oldPath) validateGitPath(oldPath);
+    const deleted = status === "D";
+    const binding = deleted
+      ? { sha256: null, bytes: null }
+      : bindCommittedFile(root, commit, filePath, MAX_CHANGED_FILE_BYTES - committedBytes);
+    if (!deleted) committedBytes += binding.bytes;
+    rows.push({ path: filePath, old_path: oldPath, status, ...binding });
+  }
+  return rows.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+function bindCommittedFile(root, commit, relative, remainingBytes = MAX_CHANGED_FILE_BYTES) {
+  const bytes = readCommittedBlob(root, commit, relative, remainingBytes);
+  return { sha256: digest(bytes), bytes: bytes.length };
+}
+
+function readCommittedBlob(
+  root,
+  commit,
+  relative,
+  remainingBytes = MAX_CHANGED_FILE_BYTES,
+  aggregateError = null
+) {
+  const tree = git(root, ["ls-tree", "-z", commit, "--", relative], null).toString("utf8");
+  const match = tree.match(/^([0-7]{6}) blob ([a-f0-9]{40,64})\t([^\0]+)\0$/);
+  if (!match || match[3] !== relative || match[1] === "120000")
+    throw new Error(`changed path must be a committed regular blob: ${relative}`);
+  const size = Number(git(root, ["cat-file", "-s", match[2]]).trim());
+  if (!Number.isSafeInteger(size) || size < 0 || size > MAX_BOUND_BYTES)
+    throw new Error(`changed file exceeds 64 MiB: ${relative}`);
+  if (!Number.isSafeInteger(remainingBytes) || remainingBytes < 0 || size > remainingBytes)
+    throw new Error(
+      aggregateError ||
+        `changed files exceed the ${MAX_CHANGED_FILE_BYTES}-byte aggregate committed-byte budget`
+    );
+  const bytes = git(root, ["cat-file", "blob", match[2]], null);
+  if (bytes.length !== size) throw new Error(`changed blob size drifted: ${relative}`);
+  return bytes;
+}
+
+function optionalBinding(root, relative, label) {
+  const loaded = readOptionalFile(root, relative, label, MAX_JSON_BYTES);
+  if (!loaded) return null;
+  let value;
+  try {
+    value = JSON.parse(loaded.bytes.toString("utf8"));
+  } catch (error) {
+    throw new Error(`${label} must be valid JSON: ${error.message}`);
+  }
+  return { ...loaded.binding, commit: value.commit || null, outcome: value.outcome || null };
+}
+
+function canonicalAcceptanceDigest(bytes, label) {
+  let value;
+  try {
+    value = JSON.parse(bytes.toString("utf8"));
+  } catch (error) {
+    throw new Error(`${label} must be valid JSON: ${error.message}`);
+  }
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string"))
+    throw new Error(`${label} must be a JSON array of strings`);
+  return digest(Buffer.from(JSON.stringify(value)));
+}
+
+function optionalJsonFileBinding(root, relative, label) {
+  const loaded = readOptionalFile(root, relative, label, MAX_JSON_BYTES);
+  if (!loaded) return null;
+  let value;
+  try {
+    value = JSON.parse(loaded.bytes.toString("utf8"));
+  } catch (error) {
+    throw new Error(`${label} must be valid JSON: ${error.message}`);
+  }
+  return { binding: loaded.binding, value };
+}
+
+function readOptionalFile(root, relative, label, maxBytes) {
+  if (!relative) return null;
+  validateGitPath(relative);
+  let bytes;
+  try {
+    bytes = readProjectInput(root, relative, maxBytes).bytes;
+  } catch (error) {
+    if (error.message === `input exceeds ${maxBytes}-byte budget`)
+      throw new Error(`${label} exceeds ${maxBytes === MAX_JSON_BYTES ? "4 MiB JSON" : "64 MiB"}`);
+    throw error;
+  }
+  return {
+    binding: { path: relative.split(path.sep).join("/"), sha256: digest(bytes) },
+    bytes,
+  };
+}
+
+function assertCleanWorktree(root) {
+  const dirty = git(root, ["status", "--porcelain=v1", "--untracked-files=all"]);
+  if (dirty.trim())
+    throw new Error("review target requires a clean worktree; commit or remove changes");
+}
+
+function loadProfile(name) {
+  const profiles = JSON.parse(
+    fs.readFileSync(path.join(__dirname, "..", "skills/dev/references/model-profiles.json"), "utf8")
+  ).profiles;
+  const profile = profiles?.[name];
+  if (!profile || !new Set(["codex", "claude", "inline"]).has(profile.provider))
+    throw new Error(`unknown or invalid review profile ${name}`);
+  if (!profile.model || !profile.effort || profile.externalEffects !== false)
+    throw new Error(`review profile ${name} lacks safe model metadata`);
+  return {
+    provider: profile.provider,
+    model: profile.model,
+    effort: profile.effort,
+    external_effects: false,
+  };
+}
+
+function validateGitPath(value) {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > 4096 ||
+    path.isAbsolute(value) ||
+    value.split(/[\\/]/).includes("..") ||
+    value.includes("\0")
+  )
+    throw new Error(`invalid project-relative path: ${String(value)}`);
+}
+
+function git(root, args, encoding = "utf8") {
+  return execFileSync("git", args, {
+    cwd: root,
+    encoding,
+    stdio: ["ignore", "pipe", "pipe"],
+    maxBuffer: 64 * 1024 * 1024,
+  });
+}
+
+function digest(bytes) {
+  return crypto.createHash("sha256").update(bytes).digest("hex");
+}
+
+function positiveInt(value, label) {
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < 1)
+    throw new Error(`${label} must be a positive integer`);
+  return number;
+}
+
+function parseArgs(argv) {
+  const out = {};
+  const map = {
+    "--root": "root",
+    "--out": "outPath",
+    "--run-id": "runId",
+    "--round": "round",
+    "--mode": "mode",
+    "--profile": "profile",
+    "--max-workers": "maxWorkers",
+    "--remote": "remote",
+    "--base": "baseRef",
+    "--base-commit": "baseCommit",
+    "--commit": "commit",
+    "--acceptance": "acceptancePath",
+    "--dev-session": "devSessionPath",
+    "--design-critique": "designCritiquePath",
+    "--prior-report": "priorReportPath",
+  };
+  for (let index = 0; index < argv.length; index += 1) {
+    const key = map[argv[index]];
+    if (!key) throw new Error(`unknown argument ${argv[index]}`);
+    const value = argv[++index];
+    if (!value || value.startsWith("--")) throw new Error(`${argv[index - 1]} requires a value`);
+    out[key] = value;
+  }
+  if (!out.outPath) throw new Error("--out is required");
+  return out;
+}
+
+function main(argv = process.argv.slice(2)) {
+  try {
+    const options = parseArgs(argv);
+    validateGitPath(options.outPath);
+    const requestedRound = positiveInt(options.round || 1, "round");
+    const requestedRoot = reviewRootFromTargetPath(options.outPath, requestedRound);
+    if (
+      requestedRound > 1 &&
+      options.priorReportPath !== expectedPriorReportPath(requestedRoot, requestedRound)
+    )
+      throw new Error(
+        `prior report path must equal ${expectedPriorReportPath(requestedRoot, requestedRound)}`
+      );
+    const target = buildReviewTarget(options);
+    assertDevReviewLineage(
+      fs.realpathSync(path.resolve(options.root || process.cwd())),
+      options.outPath,
+      target
+    );
+    const reviewRoot = reviewPathContext(
+      options.outPath,
+      target.review_round,
+      target.run_id
+    ).evidenceRoot;
+    requireReviewPath(
+      options.outPath,
+      expectedReviewPath(reviewRoot, target.review_round, "target"),
+      "target"
+    );
+    try {
+      const publication = projectWriter.writeProjectJsonAtomic(
+        options.root || process.cwd(),
+        options.outPath,
+        target,
+        {
+          fileMode: 0o600,
+          directoryMode: 0o700,
+          replace: false,
+        }
+      );
+      if (!publication.directory_synced)
+        process.stderr.write(
+          `Warning: target committed with unsupported directory sync ${publication.directory_sync_error}.\n`
+        );
+    } catch (error) {
+      if (/EEXIST|file exists/i.test(error.message))
+        throw new Error("refusing to overwrite an existing review target");
+      throw error;
+    }
+    process.stdout.write(`${JSON.stringify(target, null, 2)}\n`);
+    return 0;
+  } catch (error) {
+    process.stderr.write(`${error.message}\n`);
+    return 1;
+  }
+}
+
+module.exports = {
+  assertCleanWorktree,
+  assertDevReviewLineage,
+  buildReviewTarget,
+  changedFileInventory,
+  loadProfile,
+  parseArgs,
+  readCommittedBlob,
+  resolveTrustedBase,
+};
+
+if (require.main === module) process.exitCode = main();

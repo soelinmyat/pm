@@ -31,5 +31,3 @@ git switch -qc feature
 node -e "const fs=require('fs');const p='src/items.js';fs.writeFileSync(p,fs.readFileSync(p,'utf8').replace('items.length = 0','items.length = 1'))"
 git add src/items.js
 git commit -qm "fixture feature change"
-
-

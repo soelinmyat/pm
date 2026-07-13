@@ -6,11 +6,30 @@ const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { deriveSessionSlug } = require("../scripts/lib/session-slug");
 
 const repoRoot = path.resolve(__dirname, "..");
 
 function read(relPath) {
   return fs.readFileSync(path.join(repoRoot, relPath), "utf8");
+}
+
+function configureAuthoritativeRemote(dir, git, base) {
+  const remote = path.join(dir, ".remote.git");
+  assert.equal(spawnSync("git", ["init", "-q", "--bare", remote]).status, 0);
+  assert.equal(
+    spawnSync("git", ["--git-dir", remote, "symbolic-ref", "HEAD", "refs/heads/main"]).status,
+    0
+  );
+  assert.equal(git("remote", "add", "origin", remote).status, 0);
+  assert.equal(git("push", "-q", "origin", `${base}:refs/heads/main`).status, 0);
+  return remote;
+}
+
+function writeCanonicalSessionSlugHelper(dir, source = read("scripts/lib/session-slug.js")) {
+  const helper = path.join(dir, "scripts", "lib", "session-slug.js");
+  fs.mkdirSync(path.dirname(helper), { recursive: true });
+  fs.writeFileSync(helper, source);
 }
 
 test("PM-native design critique is in the plugin inventory", () => {
@@ -43,13 +62,16 @@ test("separate quality phases record gate evidence and run the checker", () => {
 
 test("review absorbed the simplify lenses (v1.9)", () => {
   const skill = read("skills/review/SKILL.md");
-  assert.match(skill, /category: bug \| design \| edge \| reuse \| quality \| efficiency/);
-  assert.match(skill, /Lens 4: Code reuse/);
-  assert.match(skill, /Lens 5: Code quality/);
-  assert.match(skill, /Lens 6: Efficiency/);
-  assert.match(skill, /category: reuse/);
-  assert.match(skill, /category: quality/);
-  assert.match(skill, /category: efficiency/);
+  const briefs = read("skills/review/references/reviewer-briefs.md");
+  const contract = read("scripts/lib/review-contract.js");
+  assert.match(skill, /six logical lenses/);
+  assert.match(briefs, /`bug`/);
+  assert.match(briefs, /`design`/);
+  assert.match(briefs, /`edge`/);
+  assert.match(briefs, /`reuse`/);
+  assert.match(briefs, /`quality`/);
+  assert.match(briefs, /`efficiency`/);
+  assert.match(contract, /"bug", "design", "edge", "reuse", "quality", "efficiency"/);
   // the dev step is gone; the skill file survives only as a deprecation stub
   // (the pre-push hook requires a SKILL.md for every configured command)
   const stub = read("skills/simplify/SKILL.md");
@@ -87,6 +109,9 @@ test("design critique uses the bound two-mode evidence contract", () => {
   assert.match(resolve, /two total review rounds/);
   assert.match(publish, /scripts\/design-critique-check\.js/);
   assert.match(publish, /map `deferred` to `blocked`/);
+  assert.match(publish, /\.pm\/dev-sessions\/\{slug\}\/gates\.json/);
+  assert.match(publish, /\.pm\/dev-sessions\/\{slug\}\/design-critique\/report\.html/);
+  assert.doesNotMatch(publish, /\.pm\/dev-sessions\/\{slug\}\.gates\.json/);
   assert.match(contract, /deterministic identity/);
   const devDesign = read("skills/dev/steps/06-design-critique.md");
   assert.match(devDesign, /design-critique-capture-guide\.md/);
@@ -97,34 +122,81 @@ test("design critique uses the bound two-mode evidence contract", () => {
   );
 });
 
-test("review skip requires or repairs the review sidecar", () => {
-  const text = read("skills/review/SKILL.md");
-  assert.match(text, /do not skip yet/);
-  assert.match(text, /confirm it has `review: passed`/);
-  assert.match(text, /repair the sidecar `review` row/);
-  assert.match(text, /Review path: no reviewable source changes/);
-  assert.match(text, /This is a pass attestation from inspecting the diff, not a skipped gate/);
-  assert.match(text, /without deleting any existing gate rows/);
-  assert.match(text, /"schema_version": 1/);
-  assert.match(text, /"gates": \[/);
-  assert.match(text, /--require review/);
+test("review skip requires a current checked report and gate row", () => {
+  const skill = read("skills/review/SKILL.md");
+  const ship = read("skills/ship/steps/03-review.md");
+  const publish = read("skills/review/steps/05-publish.md");
+  assert.match(skill, /checked `report\.json` and gate row already pass current validation/);
+  assert.match(ship, /\.pm\/dev-sessions\/\{slug\}\/review\/report\.html/);
+  assert.match(ship, /review\/report\.json/);
+  assert.match(ship, /review-check\.js/);
+  assert.match(publish, /\.pm\/dev-sessions\/\{slug\}\/gates\.json/);
+  assert.match(publish, /artifact `\.pm\/dev-sessions\/\{slug\}\/review\/report\.html`/);
+  assert.match(
+    publish,
+    /render_manifest: `?\.pm\/dev-sessions\/\{slug\}\/review\/renders\/manifest\.json`?/
+  );
+  assert.doesNotMatch(publish, /\.pm\/dev-sessions\/\{slug\}\.gates\.json/);
+  assert.match(ship, /--from-report/);
+  assert.match(ship, /do NOT skip/);
+  assert.match(publish, /Preserve all other rows/);
+  assert.match(publish, /evidence_kind/);
+});
+
+test("Ship stale-gate recovery points to the current Dev review step", () => {
+  for (const file of ["skills/ship/steps/04-push.md", "skills/ship/steps/07-merge-loop.md"]) {
+    const text = read(file);
+    assert.match(text, /skills\/dev\/steps\/08-review\.md/, file);
+    assert.doesNotMatch(text, /skills\/dev\/steps\/07-review\.md/, file);
+  }
+});
+
+test("review preserves immutable fix rounds and publishes only the passing projection canonically", () => {
+  const contract = read("skills/review/references/evidence-contract.md");
+  const target = read("skills/review/steps/01-target.md");
+  const synthesize = read("skills/review/steps/03-synthesize.md");
+  const resolve = read("skills/review/steps/04-resolve.md");
+  const publish = read("skills/review/steps/05-publish.md");
+  assert.match(contract, /round-1\//);
+  assert.match(contract, /Never overwrite a finalized prior run or round/);
+  assert.match(contract, /kind:ref:digest/);
+  assert.match(contract, /literal `unbound` sentinel/);
+  assert.match(target, /runs\/\{RUN_ID\}\/round-\{N\}\/target\.json/);
+  assert.match(target, /--dev-session/);
+  assert.match(synthesize, /review-report\.js.*draft-report\.json.*draft-report\.html/);
+  assert.match(resolve, /round-\{N-1\}\/report\.json/);
+  assert.match(resolve, /Check `review_round` against `iteration_cap` before any edit/);
+  assert.ok(
+    resolve.indexOf("finalize, render, and validate") < resolve.indexOf("Apply one coherent")
+  );
+  assert.match(publish, /For `failed` or `blocked`/);
+  assert.match(publish, /canonical .*review\/report\.json/);
 });
 
 test("review treats PM plugin Markdown runtime files as reviewable source", () => {
-  const text = read("skills/review/SKILL.md");
-  assert.match(text, /PM plugin exception/);
-  assert.match(
-    text,
-    /`commands\/`, `skills\/`, `templates\/`, `hooks\/`, `scripts\/`, `tests\/`, `references\/`, `agents\/`, `\.githooks\/`, `\.claude-plugin\/`, `\.codex-plugin\/`, and `plugin\.config\.json`/
-  );
-  assert.match(text, /do not treat them as docs-only\/config-only/);
+  const target = read("scripts/review-target.js");
+  const briefs = read("skills/review/references/reviewer-briefs.md");
+  assert.match(target, /changed_files: changedFiles/);
+  assert.match(target, /sha256: digest\(bytes\), bytes: bytes\.length/);
+  assert.doesNotMatch(target, /docs-only|config-only/);
+  assert.match(briefs, /PM plugin runtime Markdown is source/);
+});
+
+test("review report navigation wraps without narrow horizontal overflow", () => {
+  const template = read("references/templates/review-report.html");
+  assert.match(template, /@media\(max-width:720px\).*nav ul\{flex-wrap:wrap/);
+  assert.match(template, /\.lede\{[^}]*overflow-wrap:anywhere/);
+  assert.match(template, /\.summary p\{[^}]*min-width:0[^}]*overflow-wrap:anywhere/);
+  assert.match(template, /\.finding h3\{[^}]*overflow-wrap:anywhere/);
+  assert.match(template, /\.finding p\{[^}]*overflow-wrap:anywhere/);
 });
 
 test("low-risk S work receives a code scan instead of silently skipping review", () => {
   const risk = read("skills/dev/references/risk-routing.md");
   const review = read("skills/dev/steps/08-review.md");
   assert.match(risk, /low-risk XS\/S work uses the code-scan review mode/);
-  assert.match(review, /routing\.review_mode: code-scan/);
+  assert.match(review, /session\.routing\.review_mode/);
+  assert.match(review, /`code-scan` targets bug, edge, reuse, quality, and efficiency/);
   assert.doesNotMatch(review, /S tasks skip both code scan and full review/);
 });
 
@@ -211,6 +283,10 @@ test("implementation flow runs the gate checker before push and PR creation", ()
   const prIndex = block[1].indexOf("gh pr create");
   assert.ok(checkerIndex > -1, "push block must run dev-gate-check");
   assert.match(block[1], /--base origin\/\{DEFAULT_BRANCH\}/);
+  assert.match(block[1], /--review-evidence-mode enforce/);
+  assert.match(block[1], /--require-authority push_feature_branch,create_pr/);
+  assert.match(block[1], /--branch/);
+  assert.match(block[1], /\.pm\/dev-sessions\/\{slug\}\/gates\.json/);
   assert.ok(pushIndex > checkerIndex, "checker must appear before git push");
   assert.ok(prIndex > checkerIndex, "checker must appear before gh pr create");
 });
@@ -218,7 +294,14 @@ test("implementation flow runs the gate checker before push and PR creation", ()
 test("ship push step requires the full default gate contract before git push", () => {
   const text = read("skills/ship/steps/04-push.md");
   assert.match(text, /scripts\/dev-gate-check\.js/);
-  assert.match(text, /--base origin\/\{DEFAULT_BRANCH\}/);
+  assert.match(text, /--remote "\{DELIVERY_REMOTE\}"/);
+  assert.match(text, /--base "\{DELIVERY_REMOTE\}\/\{DEFAULT_BRANCH\}"/);
+  assert.match(text, /source\.delivery_remote/);
+  assert.match(text, /--review-evidence-mode enforce/);
+  assert.match(text, /--require-authority push_feature_branch/);
+  assert.match(text, /--branch/);
+  assert.match(text, /\.pm\/dev-sessions\/\{slug\}\/gates\.json/);
+  assert.doesNotMatch(text, /\.pm\/dev-sessions\/\{slug\}\.gates\.json/);
   assert.doesNotMatch(text, /--require review,verification/);
   assert.match(text, /any required gate row is stale/);
   assert.match(text, /any required gate is missing/);
@@ -227,13 +310,17 @@ test("ship push step requires the full default gate contract before git push", (
 
 test("ship merge loop rechecks the full sidecar against the remote branch tip", () => {
   const text = read("skills/ship/steps/07-merge-loop.md");
-  assert.match(text, /\.pm\/dev-sessions\/\{slug\}\.gates\.json/);
-  assert.match(text, /git rev-parse origin\/\{branch\}/);
+  assert.match(text, /\.pm\/dev-sessions\/\{slug\}\/gates\.json/);
+  assert.doesNotMatch(text, /\.pm\/dev-sessions\/\{slug\}\.gates\.json/);
+  assert.match(text, /git rev-parse "\{DELIVERY_REMOTE\}\/\{branch\}"/);
+  assert.match(text, /--remote "\{DELIVERY_REMOTE\}"/);
   assert.match(text, /scripts\/dev-gate-check\.js/);
   assert.match(text, /effective attestation is `commit` when it equals `remote_tip`/);
   assert.match(text, /otherwise `verified_commit` when it equals `remote_tip`/);
   assert.match(text, /do not require every raw `commit` field to equal the remote tip/);
   assert.match(text, /--changed-files "\$changed_files"/);
+  assert.match(text, /--review-evidence-mode enforce/);
+  assert.match(text, /--require-authority merge/);
   assert.match(text, /final recertification pass/);
   assert.doesNotMatch(text, /--require review,verification/);
 });
@@ -255,7 +342,11 @@ test("state schema documents verified_commit recertification semantics", () => {
 
 test("source repo pre-push hook uses the shared gate checker for PM runtime changes", () => {
   const text = read(".githooks/pre-push");
-  assert.match(text, /derive_gate_slug/);
+  assert.match(text, /derive_gate_slug_from_worktree/);
+  assert.match(text, /scripts\/lib\/session-slug\.js/);
+  assert.match(text, /helper\.deriveSessionSlug\(branch\)/);
+  assert.doesNotMatch(text, /for prefix in "codex\/" "feat\/" "fix\/" "chore\/" "release\/"/);
+  assert.doesNotMatch(text, /tr '\[:upper:\]' '\[:lower:\]'/);
   assert.match(text, /verify_pm_commit_inventory/);
   assert.match(text, /run_commit_tests/);
   assert.match(text, /git worktree add --detach --quiet "\$test_tmp" "\$commit"/);
@@ -273,12 +364,21 @@ test("source repo pre-push hook uses the shared gate checker for PM runtime chan
   assert.match(text, /if ! node "\$checker_tmp\/scripts\/dev-gate-check\.js"/);
   assert.doesNotMatch(text, /if ! node scripts\/dev-gate-check\.js/);
   assert.doesNotMatch(text, /if ! node --test tests\/\*\.test\.js/);
-  assert.match(text, /--base origin\/main/);
-  assert.match(text, /unable to verify origin\/main/);
-  assert.match(text, /unable to diff origin\/main\.\.\.\$local_oid/);
+  assert.match(text, /git ls-remote --symref "\$remote_target" HEAD/);
+  assert.match(text, /--base "\$authoritative_base_ref"/);
+  assert.match(text, /--review-evidence-mode enforce/);
+  assert.match(text, /--require-authority push_feature_branch/);
+  assert.match(text, /unable to resolve the authoritative remote HEAD/);
+  assert.match(text, /unable to diff authoritative remote HEAD/);
   assert.match(text, /push_ref_lines/);
   assert.match(text, /--commit "\$local_oid"/);
-  assert.match(text, /origin\/main\.\.\.\$local_oid/);
+  assert.match(text, /canonical_session_dir="\.pm\/dev-sessions\/\$\{gate_slug\}"/);
+  assert.match(text, /canonical_gate_manifest="\$\{canonical_session_dir\}\/gates\.json"/);
+  assert.match(text, /Legacy PM gate manifests are inspection-only/);
+  assert.match(text, /current\.gates\.json/);
+  assert.match(text, /Canonical PM gate manifest requires sibling session\.json/);
+  assert.doesNotMatch(text, /gate_manifest="\$legacy_gate_manifest"/);
+  assert.match(text, /authoritative_base_commit/);
   assert.match(text, /changed_pm_runtime_files/);
   assert.match(text, /plugin\.config\.json/);
   assert.match(text, /\.claude-plugin/);
@@ -306,6 +406,7 @@ test("pre-push runs tests from the pushed commit, not the dirty worktree", () =>
     assert.equal(git("commit", "-q", "-m", "failing test").status, 0);
     const base = git("rev-parse", "HEAD").stdout.trim();
     assert.equal(git("update-ref", "refs/remotes/origin/main", base).status, 0);
+    configureAuthoritativeRemote(dir, git, base);
     const localOid = git("rev-parse", "HEAD").stdout.trim();
     fs.writeFileSync(path.join(dir, "tests", "fail.test.js"), 'console.log("dirty pass");\n');
 
@@ -353,6 +454,7 @@ test("pre-push committed-test worktree preserves git repository context", () => 
     assert.equal(git("commit", "-q", "-m", "git context test").status, 0);
     const base = git("rev-parse", "HEAD").stdout.trim();
     assert.equal(git("update-ref", "refs/remotes/origin/main", base).status, 0);
+    configureAuthoritativeRemote(dir, git, base);
     const localOid = git("rev-parse", "HEAD").stdout.trim();
 
     const zeroOid = "0000000000000000000000000000000000000000";
@@ -394,12 +496,14 @@ test("pre-push runs the dev gate checker from the pushed commit, not the dirty w
       'require("./lib/checker-helper");\n'
     );
     fs.writeFileSync(path.join(dir, "scripts", "lib", "checker-helper.js"), "process.exit(0);\n");
+    writeCanonicalSessionSlugHelper(dir);
     assert.equal(git("add", ".").status, 0);
     assert.equal(git("commit", "-q", "-m", "base").status, 0);
     assert.equal(git("branch", "-M", "main").status, 0);
     const base = git("rev-parse", "HEAD").stdout.trim();
     assert.equal(git("update-ref", "refs/remotes/origin/main", base).status, 0);
-    assert.equal(git("checkout", "-q", "-b", "codex/harden").status, 0);
+    configureAuthoritativeRemote(dir, git, base);
+    assert.equal(git("checkout", "-q", "-b", "CODEX/Harden++Gate").status, 0);
     fs.writeFileSync(path.join(dir, "commands", "dev.md"), "changed runtime\n");
     fs.writeFileSync(path.join(dir, "scripts", "lib", "checker-helper.js"), "process.exit(42);\n");
     assert.equal(git("add", ".").status, 0);
@@ -407,7 +511,61 @@ test("pre-push runs the dev gate checker from the pushed commit, not the dirty w
     const localOid = git("rev-parse", "HEAD").stdout.trim();
 
     fs.writeFileSync(path.join(dir, "scripts", "dev-gate-check.js"), "process.exit(0);\n");
-    fs.mkdirSync(path.join(dir, ".pm", "dev-sessions"), { recursive: true });
+    fs.mkdirSync(path.join(dir, ".pm", "dev-sessions", "harden-gate"), { recursive: true });
+    fs.writeFileSync(path.join(dir, ".pm", "dev-sessions", "harden-gate", "gates.json"), "{}\n");
+    fs.writeFileSync(path.join(dir, ".pm", "dev-sessions", "harden-gate", "session.json"), "{}\n");
+
+    const zeroOid = "0000000000000000000000000000000000000000";
+    const result = spawnSync("bash", [hook, "origin"], {
+      cwd: dir,
+      encoding: "utf8",
+      input: `refs/heads/CODEX/Harden++Gate ${localOid} refs/heads/CODEX/Harden++Gate ${zeroOid}\n`,
+    });
+    assert.notEqual(result.status, 0, result.stdout + result.stderr);
+    assert.doesNotMatch(result.stdout + result.stderr, /missing 'description'/);
+    assert.match(result.stdout + result.stderr, /Checking PM dev gates for CODEX\/Harden\+\+Gate/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("pre-push never lets a flat legacy manifest shadow a canonical session", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-pre-push-canonical-gate-"));
+  try {
+    const hook = path.join(dir, "pre-push");
+    fs.copyFileSync(path.join(repoRoot, ".githooks", "pre-push"), hook);
+    fs.chmodSync(hook, 0o755);
+    const git = (...args) => spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+    assert.equal(git("init", "-q").status, 0);
+    assert.equal(git("config", "user.email", "test@example.com").status, 0);
+    assert.equal(git("config", "user.name", "Test User").status, 0);
+    fs.mkdirSync(path.join(dir, "commands"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "skills", "dev"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "plugin.config.json"),
+      JSON.stringify({ commands: ["dev"] }, null, 2)
+    );
+    fs.writeFileSync(path.join(dir, "commands", "dev.md"), "dev command\n");
+    fs.writeFileSync(
+      path.join(dir, "skills", "dev", "SKILL.md"),
+      "---\nname: dev\ndescription: dev skill\n---\n"
+    );
+    fs.writeFileSync(path.join(dir, "scripts", "dev-gate-check.js"), "process.exit(0);\n");
+    writeCanonicalSessionSlugHelper(dir);
+    assert.equal(git("add", ".").status, 0);
+    assert.equal(git("commit", "-q", "-m", "base").status, 0);
+    assert.equal(git("branch", "-M", "main").status, 0);
+    const base = git("rev-parse", "HEAD").stdout.trim();
+    assert.equal(git("update-ref", "refs/remotes/origin/main", base).status, 0);
+    configureAuthoritativeRemote(dir, git, base);
+    assert.equal(git("checkout", "-q", "-b", "codex/harden").status, 0);
+    fs.writeFileSync(path.join(dir, "commands", "dev.md"), "changed runtime\n");
+    assert.equal(git("add", ".").status, 0);
+    assert.equal(git("commit", "-q", "-m", "runtime change").status, 0);
+    const localOid = git("rev-parse", "HEAD").stdout.trim();
+
+    fs.mkdirSync(path.join(dir, ".pm", "dev-sessions", "harden"), { recursive: true });
     fs.writeFileSync(path.join(dir, ".pm", "dev-sessions", "harden.gates.json"), "{}\n");
 
     const zeroOid = "0000000000000000000000000000000000000000";
@@ -417,8 +575,8 @@ test("pre-push runs the dev gate checker from the pushed commit, not the dirty w
       input: `refs/heads/codex/harden ${localOid} refs/heads/codex/harden ${zeroOid}\n`,
     });
     assert.notEqual(result.status, 0, result.stdout + result.stderr);
-    assert.doesNotMatch(result.stdout + result.stderr, /missing 'description'/);
-    assert.match(result.stdout + result.stderr, /Checking PM dev gates for codex\/harden/);
+    assert.match(result.stdout + result.stderr, /Expected \.pm\/dev-sessions\/harden\/gates\.json/);
+    assert.doesNotMatch(result.stdout + result.stderr, /Checking PM dev gates/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -447,6 +605,7 @@ test("pre-push fails closed when origin/main is unavailable for PM runtime chang
       "---\nname: dev\ndescription: dev skill\n---\n"
     );
     fs.writeFileSync(path.join(dir, "scripts", "dev-gate-check.js"), "process.exit(0);\n");
+    writeCanonicalSessionSlugHelper(dir);
     assert.equal(git("add", ".").status, 0);
     assert.equal(git("commit", "-q", "-m", "runtime").status, 0);
     assert.equal(git("checkout", "-q", "-b", "codex/harden").status, 0);
@@ -459,9 +618,246 @@ test("pre-push fails closed when origin/main is unavailable for PM runtime chang
       input: `refs/heads/codex/harden ${localOid} refs/heads/codex/harden ${zeroOid}\n`,
     });
     assert.notEqual(result.status, 0, result.stdout + result.stderr);
-    assert.match(result.stdout + result.stderr, /unable to verify origin\/main/);
+    assert.match(result.stdout + result.stderr, /unable to resolve the authoritative remote HEAD/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("pre-push fails closed when an unavailable remote push deletes all PM inventory", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-pre-push-deleted-inventory-"));
+  try {
+    const hook = path.join(dir, "pre-push");
+    fs.copyFileSync(path.join(repoRoot, ".githooks", "pre-push"), hook);
+    fs.chmodSync(hook, 0o755);
+    const git = (...args) => spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+    assert.equal(git("init", "-q", "-b", "main").status, 0);
+    assert.equal(git("config", "user.email", "test@example.com").status, 0);
+    assert.equal(git("config", "user.name", "Test User").status, 0);
+    fs.mkdirSync(path.join(dir, "commands"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "skills", "dev"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "plugin.config.json"),
+      JSON.stringify({ commands: ["dev"] }, null, 2)
+    );
+    fs.writeFileSync(path.join(dir, "commands", "dev.md"), "dev command\n");
+    fs.writeFileSync(
+      path.join(dir, "skills", "dev", "SKILL.md"),
+      "---\nname: dev\ndescription: dev skill\n---\n"
+    );
+    fs.writeFileSync(path.join(dir, "scripts", "dev-gate-check.js"), "process.exit(0);\n");
+    writeCanonicalSessionSlugHelper(dir);
+    assert.equal(git("add", ".").status, 0);
+    assert.equal(git("commit", "-q", "-m", "runtime").status, 0);
+    assert.equal(git("checkout", "-q", "-b", "codex/remove-runtime").status, 0);
+    fs.rmSync(path.join(dir, "plugin.config.json"));
+    fs.rmSync(path.join(dir, "commands"), { recursive: true });
+    fs.rmSync(path.join(dir, "skills"), { recursive: true });
+    fs.rmSync(path.join(dir, "scripts"), { recursive: true });
+    assert.equal(git("add", "-A").status, 0);
+    assert.equal(git("commit", "-q", "-m", "remove runtime").status, 0);
+    const localOid = git("rev-parse", "HEAD").stdout.trim();
+
+    const zeroOid = "0000000000000000000000000000000000000000";
+    const result = spawnSync("bash", [hook, "missing-remote"], {
+      cwd: dir,
+      encoding: "utf8",
+      input: `refs/heads/codex/remove-runtime ${localOid} refs/heads/codex/remove-runtime ${zeroOid}\n`,
+    });
+    assert.notEqual(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout + result.stderr, /unable to resolve the authoritative remote HEAD/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("pre-push preserves non-PM repositories when no authoritative remote is available", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-pre-push-non-pm-"));
+  try {
+    const hook = path.join(dir, "pre-push");
+    fs.copyFileSync(path.join(repoRoot, ".githooks", "pre-push"), hook);
+    fs.chmodSync(hook, 0o755);
+    const git = (...args) => spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+    assert.equal(git("init", "-q", "-b", "main").status, 0);
+    assert.equal(git("config", "user.email", "test@example.com").status, 0);
+    assert.equal(git("config", "user.name", "Test User").status, 0);
+    fs.writeFileSync(path.join(dir, "notes.txt"), "ordinary repository\n");
+    assert.equal(git("add", "notes.txt").status, 0);
+    assert.equal(git("commit", "-q", "-m", "ordinary change").status, 0);
+    const localOid = git("rev-parse", "HEAD").stdout.trim();
+
+    const zeroOid = "0000000000000000000000000000000000000000";
+    const result = spawnSync("bash", [hook, "missing-remote"], {
+      cwd: dir,
+      encoding: "utf8",
+      input: `refs/heads/topic ${localOid} refs/heads/topic ${zeroOid}\n`,
+    });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("pre-push scope ignores a forged local tracking ref and uses remote HEAD", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-pre-push-forged-base-"));
+  try {
+    const hook = path.join(dir, "pre-push");
+    fs.copyFileSync(path.join(repoRoot, ".githooks", "pre-push"), hook);
+    fs.chmodSync(hook, 0o755);
+    const git = (...args) => spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+    assert.equal(git("init", "-q", "-b", "main").status, 0);
+    assert.equal(git("config", "user.email", "test@example.com").status, 0);
+    assert.equal(git("config", "user.name", "Test User").status, 0);
+    fs.mkdirSync(path.join(dir, "commands"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "skills", "dev"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "plugin.config.json"),
+      JSON.stringify({ commands: ["dev"] }, null, 2)
+    );
+    fs.writeFileSync(path.join(dir, "commands", "dev.md"), "base command\n");
+    fs.writeFileSync(
+      path.join(dir, "skills", "dev", "SKILL.md"),
+      "---\nname: dev\ndescription: dev skill\n---\n"
+    );
+    fs.writeFileSync(path.join(dir, "scripts", "dev-gate-check.js"), "process.exit(0);\n");
+    writeCanonicalSessionSlugHelper(dir);
+    assert.equal(git("add", ".").status, 0);
+    assert.equal(git("commit", "-q", "-m", "base").status, 0);
+    const base = git("rev-parse", "HEAD").stdout.trim();
+    configureAuthoritativeRemote(dir, git, base);
+
+    assert.equal(git("checkout", "-q", "-b", "codex/harden").status, 0);
+    fs.writeFileSync(path.join(dir, "commands", "dev.md"), "changed PM runtime\n");
+    assert.equal(git("add", "commands/dev.md").status, 0);
+    assert.equal(git("commit", "-q", "-m", "runtime change").status, 0);
+    const localOid = git("rev-parse", "HEAD").stdout.trim();
+    assert.equal(git("update-ref", "refs/remotes/origin/main", localOid).status, 0);
+
+    const zeroOid = "0000000000000000000000000000000000000000";
+    const result = spawnSync("bash", [hook, "origin", path.join(dir, ".remote.git")], {
+      cwd: dir,
+      encoding: "utf8",
+      input: `refs/heads/codex/harden ${localOid} refs/heads/codex/harden ${zeroOid}\n`,
+    });
+    assert.notEqual(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout + result.stderr, /PM dev gate manifest not found/);
+    assert.match(result.stdout + result.stderr, /Expected \.pm\/dev-sessions\/harden\/gates\.json/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("pre-push derives every gate path with the pushed canonical session-slug helper", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-pre-push-slug-parity-"));
+  try {
+    const hook = path.join(dir, "pre-push");
+    fs.copyFileSync(path.join(repoRoot, ".githooks", "pre-push"), hook);
+    fs.chmodSync(hook, 0o755);
+    const git = (...args) => spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+    assert.equal(git("init", "-q", "-b", "main").status, 0);
+    assert.equal(git("config", "user.email", "test@example.com").status, 0);
+    assert.equal(git("config", "user.name", "Test User").status, 0);
+    fs.mkdirSync(path.join(dir, "commands"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "skills", "dev"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "plugin.config.json"),
+      JSON.stringify({ commands: ["dev"] }, null, 2)
+    );
+    fs.writeFileSync(path.join(dir, "commands", "dev.md"), "dev command\n");
+    fs.writeFileSync(
+      path.join(dir, "skills", "dev", "SKILL.md"),
+      "---\nname: dev\ndescription: dev skill\n---\n"
+    );
+    fs.writeFileSync(path.join(dir, "scripts", "dev-gate-check.js"), "process.exit(0);\n");
+    writeCanonicalSessionSlugHelper(dir);
+    assert.equal(git("add", ".").status, 0);
+    assert.equal(git("commit", "-q", "-m", "base").status, 0);
+    const base = git("rev-parse", "HEAD").stdout.trim();
+    configureAuthoritativeRemote(dir, git, base);
+    fs.writeFileSync(path.join(dir, "commands", "dev.md"), "changed runtime\n");
+    assert.equal(git("add", "commands/dev.md").status, 0);
+    assert.equal(git("commit", "-q", "-m", "runtime change").status, 0);
+    const localOid = git("rev-parse", "HEAD").stdout.trim();
+
+    const zeroOid = "0000000000000000000000000000000000000000";
+    for (const branch of [
+      "codex/prefixed",
+      "FIX/MixedCase",
+      "feat/nested/branch",
+      "release/Hot++Fix__v2",
+    ]) {
+      const result = spawnSync("bash", [hook, "origin"], {
+        cwd: dir,
+        encoding: "utf8",
+        input: `refs/heads/${branch} ${localOid} refs/heads/${branch} ${zeroOid}\n`,
+      });
+      assert.notEqual(result.status, 0, result.stdout + result.stderr);
+      assert.match(
+        result.stdout + result.stderr,
+        new RegExp(`Expected \\.pm/dev-sessions/${deriveSessionSlug(branch)}/gates\\.json`)
+      );
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("pre-push fails closed when the pushed canonical session-slug helper is missing or invalid", () => {
+  for (const scenario of [
+    {
+      name: "missing",
+      source: null,
+      expected: /missing canonical scripts\/lib\/session-slug\.js/,
+    },
+    {
+      name: "invalid",
+      source: 'module.exports = { deriveSessionSlug() { return "../escape"; } };\n',
+      expected: /canonical session-slug helper failed.*invalid session slug/,
+    },
+  ]) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), `pm-pre-push-slug-${scenario.name}-`));
+    try {
+      const hook = path.join(dir, "pre-push");
+      fs.copyFileSync(path.join(repoRoot, ".githooks", "pre-push"), hook);
+      fs.chmodSync(hook, 0o755);
+      const git = (...args) => spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+      assert.equal(git("init", "-q", "-b", "main").status, 0);
+      assert.equal(git("config", "user.email", "test@example.com").status, 0);
+      assert.equal(git("config", "user.name", "Test User").status, 0);
+      fs.mkdirSync(path.join(dir, "commands"), { recursive: true });
+      fs.mkdirSync(path.join(dir, "skills", "dev"), { recursive: true });
+      fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, "plugin.config.json"),
+        JSON.stringify({ commands: ["dev"] }, null, 2)
+      );
+      fs.writeFileSync(path.join(dir, "commands", "dev.md"), "dev command\n");
+      fs.writeFileSync(
+        path.join(dir, "skills", "dev", "SKILL.md"),
+        "---\nname: dev\ndescription: dev skill\n---\n"
+      );
+      fs.writeFileSync(path.join(dir, "scripts", "dev-gate-check.js"), "process.exit(0);\n");
+      if (scenario.source !== null) writeCanonicalSessionSlugHelper(dir, scenario.source);
+      assert.equal(git("add", ".").status, 0);
+      assert.equal(git("commit", "-q", "-m", scenario.name).status, 0);
+      const localOid = git("rev-parse", "HEAD").stdout.trim();
+      configureAuthoritativeRemote(dir, git, localOid);
+
+      const zeroOid = "0000000000000000000000000000000000000000";
+      const result = spawnSync("bash", [hook, "origin"], {
+        cwd: dir,
+        encoding: "utf8",
+        input: `refs/heads/codex/harden ${localOid} refs/heads/codex/harden ${zeroOid}\n`,
+      });
+      assert.notEqual(result.status, 0, result.stdout + result.stderr);
+      assert.match(result.stdout + result.stderr, scenario.expected);
+      assert.doesNotMatch(result.stdout + result.stderr, /Checking PM dev gates/);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   }
 });
 

@@ -16,6 +16,7 @@ dev-session record --session <path> --result <path>
 dev-session recertify --session <path> --phases <csv> --commit <sha>
 dev-session unblock --session <path> --reason <resolution>
 dev-session authorize --session <path> --grant <csv> --reason <consent>
+dev-session advance-decision --session <path> --expected-version <n> --reason <direction>
 dev-session workspace --session <path> --worktree <path>
 dev-session validate --session <path>
 dev-session migrate --legacy <path> [--output <path>]
@@ -45,6 +46,8 @@ The runner is the only lifecycle writer. `next` and `prompt` are read-only. `rec
 - After later review/fix commits, `recertify` preserves the original evidence commit and writes paired `verified_commit` / `verified_at` fields for phases whose evidence was actually rechecked. Completion accepts either the original or verified commit when it equals current HEAD.
 
 Every accepted result appends a history record with the prior phase, next phase, reason, SHA-256 result hash, timestamp, and runner version. Results never grant authority or modify routing.
+
+When explicit user direction supersedes an unfinished review lineage, `advance-decision` performs a compare-and-swap on `routing.decision_version` and appends the reason and timestamp to `routing.decision_log`. This is the only supported way to open a new review lineage for the same Dev run; changing a review run ID alone never resets the three-round budget.
 
 ### Intake routing
 
@@ -188,7 +191,7 @@ Gate names are `tdd`, `design-critique`, `qa`, `review`, and `verification` (`si
 
 Rules:
 
-- Canonical v2 manifests include `run_id` equal to the sibling `session.json`. The gate checker rejects a mismatched run even when commits happen to match. Legacy flat manifests without a sibling canonical session remain readable during migration.
+- Canonical v2 manifests include `run_id` equal to the sibling `session.json`. The gate checker rejects a missing or mismatched sibling even when commits happen to match. Only `.pm/dev-sessions/{slug}/gates.json` may authorize delivery; flat and `current.gates.json` manifests are inspection-only migration inputs and never authorize Dev completion, push, PR creation, or Ship. Gate-row artifact and manifest values remain project-relative even though the gate manifest is nested: for example, Review records `.pm/dev-sessions/{slug}/review/report.html` and `.pm/dev-sessions/{slug}/review/renders/manifest.json`, while Design Critique records `.pm/dev-sessions/{slug}/design-critique/report.html`. Inspection returns `ok: false`, `authoritative: false`, a separate `inspection_ok` diagnostic, and a nonzero CLI status. Enforcement requires every passed required `review` row to declare `evidence_kind: review-report-v1`, hash-bind the canonical Review render manifest with `render_manifest` and `render_manifest_sha256`, live beneath the same canonical session directory, match the Review target to the authoritative delivery base, bind the Dev run/slug/routing/acceptance context, record lenses exactly equal to the report's completed coverage, and pass canonical report plus retained-render validation.
 - Update the row immediately after each gate runs or is explicitly skipped.
 - `commit` is the evidence commit where the gate ran or was explicitly skipped.
 - `verified_commit` / `verified_at` are optional recertification fields written after later commits. They mean the original gate evidence was rechecked against that final tree. These two fields must be written together.
@@ -204,6 +207,9 @@ Rules:
   node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" \
     --manifest .pm/dev-sessions/{slug}/gates.json \
     --commit "$(git rev-parse HEAD)" \
+    --branch "$(git branch --show-current)" \
+    --review-evidence-mode enforce \
+    --require-authority push_feature_branch,create_pr \
     --base origin/{DEFAULT_BRANCH}
   ```
 - If the checker fails for a missing gate, run that gate. If it fails for a stale gate, use the final recertification rule above: rerun the gate when its relevant surface changed, or write `verified_commit` / `verified_at` only when the evidence still applies. Do not push around it.
@@ -280,7 +286,7 @@ Tasks are populated during intake from the RFC's JSON sidecar `issues[]` when it
 
 ## Gate Manifest
 - Sidecar: .pm/dev-sessions/{slug}/gates.json
-- Checker: set `PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"`, then run `node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" --manifest .pm/dev-sessions/{slug}/gates.json --commit "$(git rev-parse HEAD)"`
+- Checker: set `PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"`, then run `node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" --manifest .pm/dev-sessions/{slug}/gates.json --commit "$(git rev-parse HEAD)" --branch "$(git branch --show-current)" --review-evidence-mode enforce --require-authority push_feature_branch,create_pr`
 - Required before push: tdd, design-critique, qa, review, verification (skipped gates require reasons)
 
 ## Merge-Watch

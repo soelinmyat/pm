@@ -1,0 +1,45 @@
+---
+name: Freeze review target
+order: 1
+description: Bind the exact Git diff, route logical lenses, and plan adaptive reviewer allocation
+requires:
+  - ../references/evidence-contract.md
+---
+
+## Goal
+
+Create immutable `target.json` for the current committed diff and a reviewer plan that covers every applicable logical lens exactly once.
+
+## How
+
+1. Resolve the session slug with the shared `deriveSessionSlug` helper from `scripts/lib/session-slug.js`. For example, `codex/pm-dev-workflow-proposal` resolves to `pm-dev-workflow-proposal`. Choose a stable kebab-case run ID only when no unfinished lineage exists for the bound Dev run and decision version. Store evidence under `.pm/dev-sessions/{slug}/review/runs/{RUN_ID}/round-{N}/`; never reuse a prior run or round directory, and never change `RUN_ID` to reset the remediation cap.
+2. Refuse uncommitted implementation changes. Resolve the authoritative remote default; do not trust a stale local base ref. Use three-dot diff semantics and retain the merge base for deleted-file evidence; do not reject an otherwise valid feature branch merely because the remote default advanced after it branched.
+3. Choose `full` from Dev's recorded route or for standalone review. Use `code-scan` only when the canonical Dev route says so.
+4. Choose the configured profile from `skills/dev/references/model-profiles.json`. Use the observed safe reviewer capacity, capped at six. Do not encode model names in prompts.
+5. Generate the target:
+
+```bash
+node "$PM_PLUGIN_ROOT/scripts/review-target.js" \
+  --root "$PWD" \
+  --out ".pm/dev-sessions/{slug}/review/runs/{RUN_ID}/round-{N}/target.json" \
+  --run-id "{RUN_ID}" \
+  --dev-session ".pm/dev-sessions/{slug}/session.json" \
+  --mode "{full|code-scan}" \
+  --remote "{DELIVERY_REMOTE, default origin}" \
+  --profile "{PROFILE}" \
+  --max-workers "{CAPACITY}"
+```
+
+Resolve the delivery remote before target creation. Use `origin` for ordinary Dev Review. When Ship selected another named remote, pass that exact name with `--remote`; the target and delivery checker must resolve the same authoritative remote HEAD.
+
+For Dev-routed work and Review invoked by Ship, `--dev-session` is mandatory and binds the stable run, slug, review mode, decision version, and acceptance-criteria digest. Ship bootstraps the canonical session before invoking Review when necessary. Omit it only for a genuinely advisory standalone Review that will not write a delivery-authoritative gate row. Add `--acceptance`, `--design-critique`, or `--prior-report` when those current artifacts exist. For rounds 2–3, keep the same run ID, increment `--round`, and bind the immediately prior immutable `round-{N-1}/report.json`. `review-target.js` rejects a different run ID while that Dev decision version has an unfinished lineage. A new run is allowed only after the latest lineage passes or explicit direction advances the Dev decision version.
+6. Read the generated allocation. Treat its physical workers, logical lenses, runtime snapshot, and applicability decisions as authoritative for this round.
+
+## Done-when
+
+- `target.json` binds current HEAD, remote base commit, binary diff, changed-file bytes, route, ownership, logical lenses, and allocation.
+- Every applicable lens is assigned exactly once; every non-applicable lens has a concrete route reason.
+- Round and prior-report bindings follow the three-round contract.
+- The Dev decision version has no other unfinished review lineage.
+
+**Advance:** proceed to Step 2 (Dispatch reviewers).

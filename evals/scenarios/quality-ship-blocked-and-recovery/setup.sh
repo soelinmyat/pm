@@ -33,4 +33,3 @@ git add release.txt
 git commit -qm "fixture release change"
 
 node "$PM_PLUGIN_ROOT/scripts/evals/quality-repo-state.js" snapshot "$(pwd)"
-

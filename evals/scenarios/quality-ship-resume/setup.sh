@@ -33,4 +33,3 @@ git add release.txt
 git commit -qm "fixture release change"
 printf '%s\n' 'user continuation' >> user-owned-dirt.txt
 node "$PM_PLUGIN_ROOT/scripts/evals/quality-resume.js" seed ship "$(pwd)"
-

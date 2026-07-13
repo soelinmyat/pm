@@ -27,6 +27,10 @@ function makeFakePmDir() {
   return { pmDir, cleanup: () => fs.rmSync(tmp, { recursive: true, force: true }) };
 }
 
+function read(relativePath) {
+  return fs.readFileSync(path.join(PLUGIN_ROOT, relativePath), "utf8");
+}
+
 // ---------------------------------------------------------------------------
 // AC 1: All 7 step files exist and load
 // ---------------------------------------------------------------------------
@@ -207,4 +211,96 @@ test("ship steps: reference paths use ${CLAUDE_PLUGIN_ROOT} template variable", 
   } finally {
     cleanup();
   }
+});
+
+// ---------------------------------------------------------------------------
+// Delivery safety: authority, exact repository identity, and recertification
+// ---------------------------------------------------------------------------
+
+test("standalone Ship persists independent push, PR, and merge authority", () => {
+  const review = read("skills/ship/steps/03-review.md");
+  const createPr = read("skills/ship/steps/05-create-pr.md");
+  const merge = read("skills/ship/steps/07-merge-loop.md");
+  const contract = read("skills/ship/references/delivery-contract.md");
+
+  assert.match(contract, /dev-session\.js" authorize/);
+  assert.match(contract, /push_feature_branch,create_pr/);
+  assert.match(contract, /Do not infer merge authority from a request to push or create a PR/);
+  assert.match(review, /persist action-specific user authority/);
+  assert.match(createPr, /preferences\.ship\.auto_merge.*does not override/s);
+  assert.match(merge, /canonical and snapshotted `merge: true`/);
+  assert.match(merge, /preferences\.ship\.auto_merge.*never merge authority/s);
+  assert.match(review, /standalone-routing-facts\.json/);
+  assert.match(review, /dev-session\.js" route/);
+  assert.match(review, /tdd, design-critique, qa, review, verification/);
+  assert.match(review, /Do not advance with the initializer's placeholder route/);
+});
+
+test("Ship freezes and rejects changes to exact GitHub delivery identity", () => {
+  const review = read("skills/ship/steps/03-review.md");
+  const createPr = read("skills/ship/steps/05-create-pr.md");
+  const contract = read("skills/ship/references/delivery-contract.md");
+
+  assert.match(review, /delivery-contract\.json/);
+  assert.match(review, /Multiple push URLs/);
+  for (const field of [
+    "push_url_sha256",
+    "github_owner",
+    "github_repository",
+    "github_name_with_owner",
+    "head_branch",
+    "base_branch",
+  ]) {
+    assert.ok(contract.includes(`"${field}"`), `delivery contract must persist ${field}`);
+  }
+  assert.match(contract, /Any mismatch blocks delivery/);
+  assert.match(contract, /Reject fork PRs and every head\/base mismatch/);
+  assert.match(
+    createPr,
+    /gh pr list --repo "\$GH_REPO" --head "\$HEAD_BRANCH" --base "\$BASE_BRANCH"/
+  );
+  assert.match(
+    createPr,
+    /gh pr create --repo "\$GH_REPO" --head "\$HEAD_BRANCH" --base "\$BASE_BRANCH"/
+  );
+  assert.match(createPr, /repos\/\$GH_OWNER\/\$GH_REPOSITORY\/pulls\/\$PR_NUMBER/);
+});
+
+test("every executable gh PR/run command is pinned to the contracted repository", () => {
+  const sources = [
+    "skills/ship/steps/05-create-pr.md",
+    "skills/ship/steps/06-ci-monitor.md",
+    "references/merge-loop.md",
+  ];
+
+  for (const source of sources) {
+    const commands = read(source)
+      .split("\n")
+      .filter((line) => /^\s*(?:gh_retry\s+)?gh\s+(?:pr|run)\s/.test(line));
+    assert.ok(commands.length > 0, `${source} should contain gh PR/run commands`);
+    for (const command of commands) {
+      assert.match(command, /--repo "\$GH_REPO"/, `${source}: ${command.trim()}`);
+    }
+  }
+});
+
+test("CI and merge-loop fix commits recertify before retry push", () => {
+  const push = read("skills/ship/steps/04-push.md");
+  const ci = read("skills/ship/steps/06-ci-monitor.md");
+  const mergeLoop = read("references/merge-loop.md");
+  const contract = read("skills/ship/references/delivery-contract.md");
+
+  for (const [name, source] of [
+    ["push", push],
+    ["ci", ci],
+    ["merge loop", mergeLoop],
+  ]) {
+    assert.match(source, /post-mutation recertification/, `${name} must require recertification`);
+    assert.match(source, /dev-gate-check/, `${name} must require the executable gate checker`);
+  }
+  assert.match(contract, /Invoke `pm:review` against current HEAD/);
+  assert.match(contract, /Regenerate its canonical artifact/);
+  assert.match(contract, /Only after the checker exits zero may Ship retry/);
+  assert.match(ci, /git push -- "\$DELIVERY_REMOTE" HEAD/);
+  assert.doesNotMatch(ci, /Push: `git push`/);
 });

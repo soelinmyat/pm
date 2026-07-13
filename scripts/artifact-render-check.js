@@ -3,12 +3,16 @@
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
-const { pathToFileURL } = require("node:url");
-const { spawnSync } = require("node:child_process");
+const { fileURLToPath, pathToFileURL } = require("node:url");
+const { spawn, spawnSync } = require("node:child_process");
 const { parseCliArgs } = require("./loop-args");
 const { writeJsonAtomic } = require("./lib/atomic-file");
+const projectWriter = require("./lib/project-atomic-write");
 const { inspectPdf, inspectPng } = require("./lib/media-inspect");
+const { MAX_HTML_BYTES } = require("./lib/review-limits");
+const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 const VIEWPORTS = Object.freeze([
   { name: "desktop", width: 1440, height: 1000 },
@@ -19,121 +23,464 @@ const VIEWPORTS = Object.freeze([
   { name: "narrow", width: 500, height: 812 },
 ]);
 const MAX_RENDER_HEIGHT = 16_000;
+const OBSERVATION_ASSURANCE_LEVEL = "local-observation";
+const OBSERVATION_PRODUCER = "pm:artifact-render-check";
+const MAX_CAPTURE_BYTES = 64 * 1024 * 1024;
+const SOURCE_WATCHER = path.join(__dirname, "artifact-source-watch.js");
+const BROWSER_PROBE = path.join(__dirname, "artifact-browser-probe.js");
+
+function isCanonicalFullPageHeight(viewportHeight, documentHeight, captureHeight) {
+  return (
+    Number.isFinite(documentHeight) &&
+    documentHeight > 0 &&
+    Number.isSafeInteger(captureHeight) &&
+    captureHeight === Math.max(viewportHeight, Math.ceil(documentHeight)) &&
+    captureHeight <= MAX_RENDER_HEIGHT
+  );
+}
 
 function renderArtifact(options) {
+  const projectRoot = path.resolve(options.projectRoot || process.cwd());
+  const realProjectRoot = fs.realpathSync(projectRoot);
   const htmlPath = path.resolve(options.htmlPath);
   const outputDir = path.resolve(options.outputDir);
-  const browserPath = resolveBrowser(options.browserPath);
+  const relativeHtml = projectRelative(projectRoot, htmlPath, "HTML");
+  projectRelative(projectRoot, outputDir, "render output directory");
+  const requestedBrowserPath = resolveBrowser(options.browserPath);
+  const browserPath = fs.realpathSync(requestedBrowserPath);
+  const executableSha256Before = digestFile(browserPath);
+  const browserVersion = probeBrowserVersion(browserPath);
   if (!fs.statSync(htmlPath).isFile()) throw new Error(`HTML is not a file: ${htmlPath}`);
+  assertRealContained(realProjectRoot, fs.realpathSync(htmlPath), "HTML");
+  const sourceBefore = readRenderSourceIdentity(htmlPath);
   fs.mkdirSync(outputDir, { recursive: true, mode: 0o700 });
-  const url = pathToFileURL(htmlPath).href;
-  const captures = [];
+  assertRealContained(realProjectRoot, fs.realpathSync(outputDir), "render output directory");
+  const sourceWatcher = startSourceWatcher(htmlPath, outputDir);
+  try {
+    const url = pathToFileURL(htmlPath).href;
+    const captures = [];
 
-  for (const viewport of VIEWPORTS) {
-    const output = path.join(outputDir, `${path.basename(htmlPath, ".html")}-${viewport.name}.png`);
-    const metrics = captureMetrics(browserPath, htmlPath, outputDir, viewport);
-    validateMetrics(metrics, viewport);
-    fs.rmSync(output, { force: true });
-    runBrowser(browserPath, [
-      ...baseArgs(),
-      `--window-size=${viewport.width},${viewport.height}`,
-      `--screenshot=${output}`,
-      url,
-    ]);
-    const dimensions = inspectPng(output);
-    if (dimensions.width !== viewport.width || dimensions.height !== viewport.height) {
-      throw new Error(
-        `${viewport.name} capture has ${dimensions.width}x${dimensions.height}; expected ${viewport.width}x${viewport.height}`
+    for (const viewport of VIEWPORTS) {
+      const output = path.join(
+        outputDir,
+        `${path.basename(htmlPath, ".html")}-${viewport.name}.png`
       );
+      const metrics = captureMetrics(browserPath, htmlPath, outputDir, viewport, {
+        legacyProbe: options.legacyProbe === true,
+      });
+      assertRenderSourceIdentity(htmlPath, sourceBefore, sourceWatcher);
+      validateMetrics(metrics, viewport);
+      fs.rmSync(output, { force: true });
+      runBrowser(
+        browserPath,
+        [
+          ...baseArgs(),
+          `--window-size=${viewport.width},${viewport.height}`,
+          `--screenshot=${output}`,
+          url,
+        ],
+        { canonical: options.legacyProbe !== true, projectRoot }
+      );
+      assertRenderSourceIdentity(htmlPath, sourceBefore, sourceWatcher);
+      const dimensions = inspectPng(output);
+      if (dimensions.width !== viewport.width || dimensions.height !== viewport.height) {
+        throw new Error(
+          `${viewport.name} capture has ${dimensions.width}x${dimensions.height}; expected ${viewport.width}x${viewport.height}`
+        );
+      }
+      const fullOutput = path.join(
+        outputDir,
+        `${path.basename(htmlPath, ".html")}-${viewport.name}-full.png`
+      );
+      fs.rmSync(fullOutput, { force: true });
+      let fullHeight;
+      let fullDocumentHeight;
+      if (options.legacyProbe !== true) {
+        const capture = JSON.parse(
+          runBrowserProbe(
+            {
+              browserPath,
+              htmlPath,
+              viewport,
+              action: "screenshot",
+              fullPage: true,
+              maxHeight: MAX_RENDER_HEIGHT,
+              outputPath: fullOutput,
+            },
+            "full-page browser capture"
+          ).stdout
+        );
+        fullHeight = capture.height;
+        fullDocumentHeight = capture.documentHeight;
+      } else {
+        fullHeight = Math.max(viewport.height, Math.ceil(metrics.documentHeight));
+        runBrowser(
+          browserPath,
+          [
+            ...baseArgs(),
+            `--window-size=${viewport.width},${fullHeight}`,
+            `--screenshot=${fullOutput}`,
+            url,
+          ],
+          { canonical: false, projectRoot }
+        );
+        fullDocumentHeight = fullHeight;
+      }
+      assertRenderSourceIdentity(htmlPath, sourceBefore, sourceWatcher);
+      const fullDimensions = inspectPng(fullOutput);
+      if (
+        fullDimensions.width !== viewport.width ||
+        fullDimensions.height !== fullHeight ||
+        !isCanonicalFullPageHeight(viewport.height, fullDocumentHeight, fullHeight)
+      ) {
+        throw new Error(
+          `${viewport.name} full capture is not bound to its same-render document height`
+        );
+      }
+      captures.push({
+        ...viewport,
+        path: projectRelative(projectRoot, output, "render capture"),
+        sha256: digestFile(output),
+        bytes: fs.statSync(output).size,
+        metrics,
+        full_page: {
+          path: projectRelative(projectRoot, fullOutput, "full-page render capture"),
+          width: viewport.width,
+          height: fullHeight,
+          document_height: fullDocumentHeight,
+          sha256: digestFile(fullOutput),
+          bytes: fs.statSync(fullOutput).size,
+        },
+      });
     }
-    const fullHeight = Math.max(viewport.height, Math.ceil(metrics.documentHeight));
-    const fullOutput = path.join(
-      outputDir,
-      `${path.basename(htmlPath, ".html")}-${viewport.name}-full.png`
+
+    const pdfPath = path.join(outputDir, `${path.basename(htmlPath, ".html")}-print.pdf`);
+    fs.rmSync(pdfPath, { force: true });
+    runBrowser(
+      browserPath,
+      [...baseArgs(), `--print-to-pdf=${pdfPath}`, "--no-pdf-header-footer", url],
+      { canonical: options.legacyProbe !== true, projectRoot }
     );
-    fs.rmSync(fullOutput, { force: true });
-    runBrowser(browserPath, [
-      ...baseArgs(),
-      `--window-size=${viewport.width},${fullHeight}`,
-      `--screenshot=${fullOutput}`,
-      url,
-    ]);
-    const fullDimensions = inspectPng(fullOutput);
-    if (fullDimensions.width !== viewport.width || fullDimensions.height !== fullHeight) {
-      throw new Error(
-        `${viewport.name} full capture has ${fullDimensions.width}x${fullDimensions.height}; expected ${viewport.width}x${fullHeight}`
-      );
-    }
-    captures.push({
-      ...viewport,
-      path: output,
-      sha256: digestFile(output),
-      bytes: fs.statSync(output).size,
-      metrics,
-      full_page: {
-        path: fullOutput,
-        width: viewport.width,
-        height: fullHeight,
-        sha256: digestFile(fullOutput),
-        bytes: fs.statSync(fullOutput).size,
+    assertRenderSourceIdentity(htmlPath, sourceBefore, sourceWatcher);
+    const printInspection = inspectPdf(pdfPath);
+    const markers = options.markerPrefix
+      ? probeDataMarkerVisibility(browserPath, htmlPath, outputDir, options.markerPrefix, {
+          legacyProbe: options.legacyProbe === true,
+        })
+      : null;
+    assertRenderSourceIdentity(htmlPath, sourceBefore, sourceWatcher);
+    const canonicalBrowserPathAfter = fs.realpathSync(requestedBrowserPath);
+    const executableSha256After = digestFile(canonicalBrowserPathAfter);
+    if (
+      canonicalBrowserPathAfter !== browserPath ||
+      executableSha256After !== executableSha256Before
+    )
+      throw new Error("browser executable changed during artifact capture");
+    assertRenderSourceIdentity(htmlPath, sourceBefore, sourceWatcher);
+
+    return {
+      schema_version: 1,
+      source: { path: relativeHtml, sha256: sourceBefore.sha256 },
+      observation: {
+        assurance_level: OBSERVATION_ASSURANCE_LEVEL,
+        producer: { name: OBSERVATION_PRODUCER, version: PLUGIN_VERSION },
+        browser: {
+          path: browserPath,
+          executable_sha256_before: executableSha256Before,
+          executable_sha256_after: executableSha256After,
+          engine: "chromium",
+          version: browserVersion,
+        },
+        invocation_configuration_sha256: invocationConfigurationDigest(options.markerPrefix),
       },
-    });
+      captures,
+      print: {
+        path: projectRelative(projectRoot, pdfPath, "print render"),
+        sha256: digestFile(pdfPath),
+        bytes: fs.statSync(pdfPath).size,
+        pages: printInspection.pages,
+      },
+      ...(markers ? { markers } : {}),
+      checked_at: new Date().toISOString(),
+    };
+  } finally {
+    stopSourceWatcher(sourceWatcher);
   }
+}
 
-  const pdfPath = path.join(outputDir, `${path.basename(htmlPath, ".html")}-print.pdf`);
-  fs.rmSync(pdfPath, { force: true });
-  runBrowser(browserPath, [
-    ...baseArgs(),
-    `--print-to-pdf=${pdfPath}`,
-    "--no-pdf-header-footer",
-    url,
-  ]);
-  const printInspection = inspectPdf(pdfPath);
+function assertRenderSourceIdentity(htmlPath, expected, watcher = null) {
+  if (watcher) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+  if (watcher && fs.existsSync(watcher.driftPath))
+    throw new Error("HTML source changed during artifact capture");
+  if (watcher && !processAlive(watcher.child.pid))
+    throw new Error("HTML source watcher stopped during artifact capture");
+  const actual = readRenderSourceIdentity(htmlPath);
+  if (
+    actual.realpath !== expected.realpath ||
+    actual.dev !== expected.dev ||
+    actual.ino !== expected.ino ||
+    actual.mtimeNs !== expected.mtimeNs ||
+    actual.ctimeNs !== expected.ctimeNs ||
+    actual.sha256 !== expected.sha256
+  )
+    throw new Error("HTML source changed during artifact capture");
+}
 
-  return {
-    schema_version: 1,
-    source: { path: htmlPath, sha256: digestFile(htmlPath) },
-    browser: path.resolve(browserPath),
-    captures,
-    print: {
-      path: pdfPath,
-      sha256: digestFile(pdfPath),
-      bytes: fs.statSync(pdfPath).size,
-      pages: printInspection.pages,
-    },
-    checked_at: new Date().toISOString(),
+function startSourceWatcher(htmlPath, outputDir) {
+  const stateDir = fs.mkdtempSync(path.join(outputDir, ".pm-source-watch-"));
+  const readyPath = path.join(stateDir, "ready");
+  const driftPath = path.join(stateDir, "drift");
+  const child = spawn(process.execPath, [SOURCE_WATCHER, htmlPath, readyPath, driftPath], {
+    stdio: "ignore",
+  });
+  const deadline = Date.now() + 5_000;
+  while (!fs.existsSync(readyPath)) {
+    if (!processAlive(child.pid) || Date.now() >= deadline) {
+      child.kill("SIGKILL");
+      fs.rmSync(stateDir, { recursive: true, force: true });
+      throw new Error("cannot start HTML source watcher");
+    }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+  }
+  return { child, stateDir, driftPath };
+}
+
+function stopSourceWatcher(watcher) {
+  if (!watcher) return;
+  watcher.child.kill("SIGTERM");
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+  fs.rmSync(watcher.stateDir, { recursive: true, force: true });
+}
+
+function processAlive(pid) {
+  if (!Number.isInteger(pid)) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readRenderSourceIdentity(htmlPath) {
+  const noFollow = fs.constants.O_NOFOLLOW || 0;
+  const descriptor = fs.openSync(htmlPath, fs.constants.O_RDONLY | noFollow);
+  try {
+    const stat = fs.fstatSync(descriptor, { bigint: true });
+    if (!stat.isFile()) throw new Error(`HTML is not a regular file: ${htmlPath}`);
+    if (stat.size > BigInt(MAX_HTML_BYTES))
+      throw new Error(`HTML exceeds the ${MAX_HTML_BYTES}-byte input budget`);
+    const chunks = [];
+    let total = 0;
+    while (total <= MAX_HTML_BYTES) {
+      const buffer = Buffer.allocUnsafe(Math.min(64 * 1024, MAX_HTML_BYTES + 1 - total));
+      const count = fs.readSync(descriptor, buffer, 0, buffer.length, null);
+      if (count === 0) break;
+      total += count;
+      if (total > MAX_HTML_BYTES)
+        throw new Error(`HTML exceeds the ${MAX_HTML_BYTES}-byte input budget`);
+      chunks.push(buffer.subarray(0, count));
+    }
+    const bytes = Buffer.concat(chunks, total);
+    return {
+      realpath: fs.realpathSync(htmlPath),
+      dev: String(stat.dev),
+      ino: String(stat.ino),
+      mtimeNs: String(stat.mtimeNs),
+      ctimeNs: String(stat.ctimeNs),
+      sha256: `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`,
+      bytes,
+    };
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+
+function probeBrowserVersion(browserPath) {
+  const result = spawnSync(browserPath, ["--version"], {
+    encoding: "utf8",
+    timeout: 10_000,
+    maxBuffer: 64 * 1024,
+  });
+  if (result.error) throw new Error(`cannot identify browser executable: ${result.error.message}`);
+  if (result.status !== 0)
+    throw new Error(
+      `cannot identify browser executable: ${(result.stderr || result.stdout || `exit ${result.status}`).trim().slice(0, 500)}`
+    );
+  const version = (result.stdout || result.stderr || "").trim().replace(/\s+/g, " ");
+  if (!version || version.length > 500 || !/(chromium|chrome|edge)/i.test(version))
+    throw new Error("browser executable emitted an invalid Chromium-family version identity");
+  return version;
+}
+
+function invocationConfigurationDigest(markerPrefix) {
+  const configuration = {
+    viewports: VIEWPORTS,
+    max_render_height: MAX_RENDER_HEIGHT,
+    browser_args: baseArgs(),
+    marker_prefix: markerPrefix || null,
+    capture_modes: ["viewport-png", "full-page-png", "print-pdf", "dom-metrics"],
+    probe_mode: "canonical-url-browser-evaluation",
+    source_guard: "immutable-page-content-or-event-watch",
   };
+  return `sha256:${crypto.createHash("sha256").update(JSON.stringify(configuration)).digest("hex")}`;
+}
+
+function projectRelative(root, absolute, label) {
+  const relative = path.relative(root, path.resolve(absolute));
+  if (
+    !relative ||
+    relative === ".." ||
+    relative.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relative)
+  )
+    throw new Error(`${label} must be inside the project root`);
+  return relative.split(path.sep).join("/");
+}
+
+function assertRealContained(root, candidate, label) {
+  if (candidate !== root && !candidate.startsWith(`${root}${path.sep}`))
+    throw new Error(`${label} resolves outside the project root`);
 }
 
 function baseArgs() {
   return [
     "--headless=new",
     "--disable-background-networking",
+    "--disable-component-update",
+    "--disable-default-apps",
     "--disable-extensions",
+    "--disable-gpu",
     "--disable-sync",
     "--metrics-recording-only",
     "--no-first-run",
   ];
 }
 
-function runBrowser(browserPath, args) {
-  const result = spawnSync(browserPath, args, {
-    encoding: "utf8",
-    timeout: 60_000,
-    maxBuffer: 2 * 1024 * 1024,
-  });
-  if (result.error) throw new Error(`browser launch failed: ${result.error.message}`);
-  if (result.status !== 0) {
-    const detail = (result.stderr || result.stdout || "unknown error").trim().slice(0, 500);
-    throw new Error(`browser exited ${result.status}: ${detail}`);
+function runBrowser(browserPath, args, options = {}) {
+  if (options.canonical === true) {
+    const screenshot = args.find((arg) => arg.startsWith("--screenshot="));
+    const pdf = args.find((arg) => arg.startsWith("--print-to-pdf="));
+    const windowSize = args.find((arg) => arg.startsWith("--window-size="));
+    const url = args.at(-1);
+    if (screenshot || pdf) {
+      const [width, height] = (windowSize?.slice("--window-size=".length) || "1440,1000")
+        .split(",")
+        .map(Number);
+      const outputPath = (screenshot || pdf).split("=").slice(1).join("=");
+      const stagingDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-capture-"));
+      const stagingPath = path.join(stagingDir, screenshot ? "capture.png" : "capture.pdf");
+      try {
+        const result = runBrowserProbe(
+          {
+            browserPath,
+            htmlPath: fileURLToPath(url),
+            viewport: { width, height },
+            action: screenshot ? "screenshot" : "pdf",
+            outputPath: stagingPath,
+          },
+          "browser capture"
+        );
+        const attestation = JSON.parse(result.stdout);
+        const bytes = readCaptureFilePinned(stagingPath, attestation);
+        projectWriter.writeProjectFileAtomic(
+          options.projectRoot,
+          projectRelative(options.projectRoot, outputPath, "browser capture"),
+          bytes,
+          {
+            replace: false,
+            fileMode: 0o600,
+            directoryMode: 0o700,
+            maxBytes: MAX_CAPTURE_BYTES,
+          }
+        );
+        return result;
+      } finally {
+        fs.rmSync(stagingDir, { recursive: true, force: true });
+      }
+    }
   }
-  return result;
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-browser-"));
+  try {
+    const result = spawnSync(browserPath, [`--user-data-dir=${profileDir}`, ...args], {
+      encoding: "utf8",
+      timeout: 60_000,
+      maxBuffer: 2 * 1024 * 1024,
+    });
+    if (result.error) throw new Error(`browser launch failed: ${result.error.message}`);
+    if (result.status !== 0) {
+      const detail = (result.stderr || result.stdout || "unknown error").trim().slice(0, 500);
+      throw new Error(`browser exited ${result.status}: ${detail}`);
+    }
+    return result;
+  } finally {
+    fs.rmSync(profileDir, { recursive: true, force: true });
+  }
 }
 
-function captureMetrics(browserPath, htmlPath, outputDir, viewport) {
+function readCaptureFilePinned(capturePath, expected = null) {
+  const descriptor = fs.openSync(
+    capturePath,
+    fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0)
+  );
+  try {
+    const before = fs.fstatSync(descriptor, { bigint: true });
+    if (!before.isFile()) throw new Error("staged browser capture is not a regular file");
+    if (before.size > BigInt(MAX_CAPTURE_BYTES))
+      throw new Error(`staged browser capture exceeds ${MAX_CAPTURE_BYTES}-byte budget`);
+    const bytes = Buffer.alloc(Number(before.size));
+    let offset = 0;
+    while (offset < bytes.length) {
+      const count = fs.readSync(descriptor, bytes, offset, bytes.length - offset, offset);
+      if (count === 0) throw new Error("staged browser capture ended before its attested size");
+      offset += count;
+    }
+    const after = fs.fstatSync(descriptor, { bigint: true });
+    if (
+      after.dev !== before.dev ||
+      after.ino !== before.ino ||
+      after.size !== before.size ||
+      after.mtimeNs !== before.mtimeNs ||
+      after.ctimeNs !== before.ctimeNs
+    )
+      throw new Error("staged browser capture changed during bounded read");
+    const actual = {
+      dev: String(after.dev),
+      ino: String(after.ino),
+      size: String(after.size),
+      sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+    };
+    if (
+      expected &&
+      (actual.dev !== expected.dev ||
+        actual.ino !== expected.ino ||
+        actual.size !== expected.size ||
+        actual.sha256 !== expected.sha256)
+    )
+      throw new Error("staged browser capture does not match producer attestation");
+    return bytes;
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+
+function terminateBrowserProcessGroup(pid) {
+  if (!Number.isSafeInteger(pid) || pid < 2) return;
+  try {
+    if (process.platform === "win32") process.kill(pid, "SIGKILL");
+    else process.kill(-pid, "SIGKILL");
+  } catch {
+    // Normal helper cleanup already terminated the browser.
+  }
+}
+
+function captureMetrics(browserPath, htmlPath, outputDir, viewport, options = {}) {
+  const expression = metricsExpression();
+  if (options.legacyProbe !== true)
+    return runCanonicalProbe(browserPath, htmlPath, viewport, expression);
   const source = fs.readFileSync(htmlPath, "utf8");
   const markerId = `pm-render-metrics-${crypto.randomBytes(12).toString("hex")}`;
-  const probe = `<script>(()=>{const visible=(element)=>{if(!element)return false;const rect=element.getBoundingClientRect();const style=getComputedStyle(element);return rect.width>0&&rect.height>0&&style.display!=="none"&&style.visibility!=="hidden"};const root=document.documentElement;const metrics={innerWidth:window.innerWidth,clientWidth:root.clientWidth,scrollWidth:root.scrollWidth,documentHeight:root.scrollHeight,bodyText:(document.body?.innerText||"").trim().length,mainVisible:visible(document.querySelector("main")),h1Visible:visible(document.querySelector("h1")),anchorCount:document.querySelectorAll('a[href^="#"]').length,horizontalOverflow:root.scrollWidth>root.clientWidth+1};const marker=document.createElement("meta");marker.id="${markerId}";marker.setAttribute("data-json",encodeURIComponent(JSON.stringify(metrics)));document.head.append(marker)})();</script>`;
+  const probe = `<script>(()=>{const metrics=${expression};const marker=document.createElement("meta");marker.id="${markerId}";marker.setAttribute("data-json",encodeURIComponent(JSON.stringify(metrics)));document.head.append(marker)})();</script>`;
   const bodyClose = findClosingBodyIndex(source);
   const instrumented =
     bodyClose >= 0
@@ -164,52 +511,26 @@ function captureMetrics(browserPath, htmlPath, outputDir, viewport) {
   }
 }
 
-function probeDataMarkerVisibility(browserPath, htmlPath, outputDir = path.dirname(htmlPath)) {
+function probeDataMarkerVisibility(
+  browserPath,
+  htmlPath,
+  outputDir = path.dirname(htmlPath),
+  attributePrefix = "data-dc-",
+  options = {}
+) {
+  if (!/^data-[a-z0-9-]+-$/.test(attributePrefix))
+    throw new Error("marker attribute prefix must be a safe data-* prefix ending in '-'");
+  const expression = markerVisibilityExpression(attributePrefix);
+  if (options.legacyProbe !== true)
+    return runCanonicalProbe(
+      browserPath,
+      htmlPath,
+      { name: "marker", width: 1440, height: 1000 },
+      expression
+    );
   const source = fs.readFileSync(htmlPath, "utf8");
   const markerId = `pm-data-marker-visibility-${crypto.randomBytes(12).toString("hex")}`;
-  const probe = `<script>(()=>{
-    const intersects=(left,right)=>left.right>right.left&&left.left<right.right&&left.bottom>right.top&&left.top<right.bottom;
-    const geometry=(rawRects,element)=>{
-      if(!element)return {visible:false,inViewport:false};
-      let rects=Array.from(rawRects).filter((rect)=>rect.width>0&&rect.height>0);
-      if(rects.length===0)return {visible:false,inViewport:false};
-      let node=element;
-      while(node&&node.nodeType===1){
-        const style=getComputedStyle(node);
-        if(node.hidden||node.getAttribute("aria-hidden")==="true"||style.display==="none"||style.visibility==="hidden"||style.visibility==="collapse"||style.contentVisibility==="hidden"||Number(style.opacity)===0||(style.clipPath&&style.clipPath!=="none"))return {visible:false,inViewport:false};
-        if(node!==element){
-          const clipsX=/(hidden|clip|auto|scroll)/.test(style.overflowX);
-          const clipsY=/(hidden|clip|auto|scroll)/.test(style.overflowY);
-          if(clipsX||clipsY){
-            const clip=node.getBoundingClientRect();
-            rects=rects.map((rect)=>({left:clipsX?Math.max(rect.left,clip.left):rect.left,right:clipsX?Math.min(rect.right,clip.right):rect.right,top:clipsY?Math.max(rect.top,clip.top):rect.top,bottom:clipsY?Math.min(rect.bottom,clip.bottom):rect.bottom})).filter((rect)=>rect.right>rect.left&&rect.bottom>rect.top);
-            if(rects.length===0)return {visible:false,inViewport:false};
-          }
-        }
-        node=node.parentElement;
-      }
-      const documentBounds={left:0,top:0,right:window.innerWidth,bottom:document.documentElement.scrollHeight};
-      rects=rects.filter((rect)=>intersects(rect,documentBounds));
-      if(rects.length===0)return {visible:false,inViewport:false};
-      const viewport={left:0,top:0,right:window.innerWidth,bottom:window.innerHeight};
-      return {visible:true,inViewport:rects.some((rect)=>intersects(rect,viewport))};
-    };
-    const textVisibility=(element)=>{
-      const visible=[];const firstScreen=[];const walker=document.createTreeWalker(element,NodeFilter.SHOW_TEXT);
-      let textNode;
-      while((textNode=walker.nextNode())){
-        const value=(textNode.nodeValue||"").replace(/\\s+/g," ").trim();
-        if(!value)continue;
-        const range=document.createRange();range.selectNodeContents(textNode);
-        const state=geometry(range.getClientRects(),textNode.parentElement);
-        if(state.visible)visible.push(value);
-        if(state.inViewport)firstScreen.push(value);
-      }
-      return {text:visible.join(" "),firstScreenText:firstScreen.join(" ")};
-    };
-    const markers=Array.from(document.querySelectorAll("*")).filter((element)=>Array.from(element.attributes).some((attribute)=>attribute.name.startsWith("data-dc-"))).map((element)=>({attributes:Object.fromEntries(Array.from(element.attributes).filter((attribute)=>attribute.name.startsWith("data-dc-")).map((attribute)=>[attribute.name,attribute.value])),...textVisibility(element),...geometry(element.getClientRects(),element)}));
-    const marker=document.createElement("meta");marker.id="${markerId}";marker.setAttribute("data-json",encodeURIComponent(JSON.stringify(markers)));document.head.append(marker)
-  })();</script>`;
+  const probe = `<script>(()=>{const markers=${expression};const marker=document.createElement("meta");marker.id="${markerId}";marker.setAttribute("data-json",encodeURIComponent(JSON.stringify(markers)));document.head.append(marker)})();</script>`;
   const bodyClose = findClosingBodyIndex(source);
   const instrumented =
     bodyClose >= 0
@@ -241,6 +562,185 @@ function probeDataMarkerVisibility(browserPath, htmlPath, outputDir = path.dirna
   } finally {
     fs.rmSync(probePath, { force: true });
   }
+}
+
+function runCanonicalProbe(browserPath, htmlPath, viewport, expression) {
+  const result = runBrowserProbe({ browserPath, htmlPath, viewport, expression }, "browser probe");
+  return JSON.parse(result.stdout);
+}
+
+function runBrowserProbe(configuration, label, runtime = {}) {
+  let result;
+  const probePath = runtime.probePath || BROWSER_PROBE;
+  const timeoutMs = runtime.timeoutMs || 30_000;
+  const terminateBrowser = runtime.terminateBrowser || terminateBrowserProcessGroup;
+  const removeProfile =
+    runtime.removeProfile ||
+    ((profileDir) =>
+      fs.rmSync(profileDir, {
+        recursive: true,
+        force: true,
+        maxRetries: 8,
+        retryDelay: 50,
+      }));
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const controlToken = crypto.randomBytes(24).toString("hex");
+    result = spawnSync(
+      process.execPath,
+      ["--experimental-websocket", "--max-old-space-size=512", probePath],
+      {
+        input: JSON.stringify({ ...configuration, controlToken }),
+        encoding: "utf8",
+        timeout: timeoutMs,
+        maxBuffer: 4 * 1024 * 1024,
+        stdio: ["pipe", "pipe", "pipe", "pipe"],
+      }
+    );
+    let control = null;
+    try {
+      control = JSON.parse(String(result.output?.[3] || "").trim());
+    } catch {
+      // A helper that failed before browser launch has no process to reclaim.
+    }
+    if (
+      control?.type === "browser-control" &&
+      control.token === controlToken &&
+      typeof control.profileDir === "string" &&
+      path.dirname(path.resolve(control.profileDir)) === path.resolve(os.tmpdir()) &&
+      path.basename(control.profileDir).startsWith("pm-artifact-cdp-")
+    ) {
+      terminateBrowser(control.pid);
+      removeProfile(control.profileDir);
+    }
+    if (!result.error && result.status === 0) return result;
+    const detail = `${result.stderr || ""}${result.stdout || ""}`;
+    if (!detail.includes("Chromium did not expose a page target") || attempt === 3) break;
+  }
+  if (result?.error) throw new Error(`${label} failed: ${result.error.message}`);
+  throw new Error(
+    `${label} exited ${result?.status}: ${(result?.stderr || result?.stdout || "unknown error").trim().slice(0, 500)}`
+  );
+}
+
+function metricsExpression() {
+  return `(${collectMetrics.toString()})()`;
+}
+
+function markerVisibilityExpression(attributePrefix) {
+  return `(${collectMarkerVisibility.toString()})(${JSON.stringify(attributePrefix)})`;
+}
+
+/* global document, window, NodeFilter, getComputedStyle */
+// These two functions are serialized and evaluated inside Chromium. Keeping
+// them as ordinary formatted functions makes the shared probe program auditable.
+function collectMetrics() {
+  const visible = (element) => {
+    if (!element) return false;
+    const rect = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return (
+      rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden"
+    );
+  };
+  const root = document.documentElement;
+  return {
+    innerWidth: window.innerWidth,
+    clientWidth: root.clientWidth,
+    scrollWidth: root.scrollWidth,
+    documentHeight: root.scrollHeight,
+    bodyText: (document.body?.innerText || "").trim().length,
+    mainVisible: visible(document.querySelector("main")),
+    h1Visible: visible(document.querySelector("h1")),
+    anchorCount: document.querySelectorAll('a[href^="#"]').length,
+    horizontalOverflow: root.scrollWidth > root.clientWidth + 1,
+  };
+}
+
+function collectMarkerVisibility(attributePrefix) {
+  const intersects = (left, right) =>
+    left.right > right.left &&
+    left.left < right.right &&
+    left.bottom > right.top &&
+    left.top < right.bottom;
+  const geometry = (rawRects, element) => {
+    if (!element) return { visible: false, inViewport: false };
+    let rects = Array.from(rawRects).filter((rect) => rect.width > 0 && rect.height > 0);
+    if (rects.length === 0) return { visible: false, inViewport: false };
+    let node = element;
+    while (node && node.nodeType === 1) {
+      const style = getComputedStyle(node);
+      if (
+        node.hidden ||
+        node.getAttribute("aria-hidden") === "true" ||
+        style.display === "none" ||
+        style.visibility === "hidden" ||
+        style.visibility === "collapse" ||
+        style.contentVisibility === "hidden" ||
+        Number(style.opacity) === 0 ||
+        (style.clipPath && style.clipPath !== "none")
+      )
+        return { visible: false, inViewport: false };
+      if (node !== element) {
+        const clipsX = /(hidden|clip|auto|scroll)/.test(style.overflowX);
+        const clipsY = /(hidden|clip|auto|scroll)/.test(style.overflowY);
+        if (clipsX || clipsY) {
+          const clip = node.getBoundingClientRect();
+          rects = rects
+            .map((rect) => ({
+              left: clipsX ? Math.max(rect.left, clip.left) : rect.left,
+              right: clipsX ? Math.min(rect.right, clip.right) : rect.right,
+              top: clipsY ? Math.max(rect.top, clip.top) : rect.top,
+              bottom: clipsY ? Math.min(rect.bottom, clip.bottom) : rect.bottom,
+            }))
+            .filter((rect) => rect.right > rect.left && rect.bottom > rect.top);
+          if (rects.length === 0) return { visible: false, inViewport: false };
+        }
+      }
+      node = node.parentElement;
+    }
+    const documentBounds = {
+      left: 0,
+      top: 0,
+      right: window.innerWidth,
+      bottom: document.documentElement.scrollHeight,
+    };
+    rects = rects.filter((rect) => intersects(rect, documentBounds));
+    if (rects.length === 0) return { visible: false, inViewport: false };
+    const viewport = { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight };
+    return {
+      visible: true,
+      inViewport: rects.some((rect) => intersects(rect, viewport)),
+    };
+  };
+  const textVisibility = (element) => {
+    const visible = [];
+    const firstScreen = [];
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    let textNode;
+    while ((textNode = walker.nextNode())) {
+      const value = (textNode.nodeValue || "").replace(/\s+/g, " ").trim();
+      if (!value) continue;
+      const range = document.createRange();
+      range.selectNodeContents(textNode);
+      const state = geometry(range.getClientRects(), textNode.parentElement);
+      if (state.visible) visible.push(value);
+      if (state.inViewport) firstScreen.push(value);
+    }
+    return { text: visible.join(" "), firstScreenText: firstScreen.join(" ") };
+  };
+  return Array.from(document.querySelectorAll("*"))
+    .filter((element) =>
+      Array.from(element.attributes).some((attribute) => attribute.name.startsWith(attributePrefix))
+    )
+    .map((element) => ({
+      attributes: Object.fromEntries(
+        Array.from(element.attributes)
+          .filter((attribute) => attribute.name.startsWith(attributePrefix))
+          .map((attribute) => [attribute.name, attribute.value])
+      ),
+      ...textVisibility(element),
+      ...geometry(element.getClientRects(), element),
+    }));
 }
 
 function findClosingBodyIndex(html) {
@@ -330,7 +830,9 @@ function validateMetrics(metrics, viewport) {
     throw new Error(`${viewport.name} render has horizontal document overflow`);
   }
   if (!Number.isFinite(metrics.documentHeight) || metrics.documentHeight > MAX_RENDER_HEIGHT) {
-    throw new Error(`${viewport.name} render exceeds the ${MAX_RENDER_HEIGHT}px height budget`);
+    throw new Error(
+      `${viewport.name} render is ${metrics.documentHeight}px and exceeds the ${MAX_RENDER_HEIGHT}px height budget`
+    );
   }
   if (
     !metrics.mainVisible ||
@@ -395,6 +897,8 @@ function main(argv = process.argv.slice(2)) {
       "--out-dir": { type: "string" },
       "--browser": { type: "string" },
       "--manifest": { type: "string" },
+      "--root": { type: "string" },
+      "--marker-prefix": { type: "string" },
       "--json": { type: "boolean" },
     }).args;
     if (!parsed.html || !parsed.outDir) throw new Error("--html and --out-dir are required");
@@ -402,6 +906,8 @@ function main(argv = process.argv.slice(2)) {
       htmlPath: parsed.html,
       outputDir: parsed.outDir,
       browserPath: parsed.browser,
+      projectRoot: parsed.root || process.cwd(),
+      markerPrefix: parsed.markerPrefix,
     });
     if (parsed.manifest)
       writeJsonAtomic(path.resolve(parsed.manifest), result, { fileMode: 0o600 });
@@ -418,14 +924,21 @@ function main(argv = process.argv.slice(2)) {
 if (require.main === module) process.exitCode = main();
 
 module.exports = {
+  MAX_RENDER_HEIGHT,
+  OBSERVATION_ASSURANCE_LEVEL,
+  OBSERVATION_PRODUCER,
   VIEWPORTS,
   browserCandidates,
   captureMetrics,
   findClosingBodyIndex,
   inspectPdf,
   inspectPng,
+  invocationConfigurationDigest,
+  isCanonicalFullPageHeight,
   probeDataMarkerVisibility,
+  readCaptureFilePinned,
   renderArtifact,
   resolveBrowser,
+  runBrowserProbe,
   validateMetrics,
 };

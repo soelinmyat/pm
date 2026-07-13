@@ -11,7 +11,7 @@ const files = {
   "renders/desktop.txt": "Viewport 1440x900: report visible; fixed export action overlaps heading.\n",
   "renders/mobile.txt": "Viewport 375x812: 900px report causes horizontal overflow; action is off-screen.\n",
   "renders/print.txt": "Print: fixed action obscures first heading and navigation remains visible.\n",
-  ".pm/quality/repeat-control.json": "{\n  \"repeats\": 3,\n  \"source\": \"frozen\",\n  \"reset_between_runs\": true\n}\n",
+  ".pm/quality/repeat-control.json": "{\n  \"repeats\": 3,\n  \"source\": \"frozen\",\n  \"reset_between_runs\": true,\n  \"expectation\": \"defect-present\"\n}\n",
   ".pm/quality/case-state.json": "{\n  \"workflow\": \"design-critique\",\n  \"case_id\": \"design-critique-repeated-run-variance\",\n  \"case_type\": \"repeated-run-variance\",\n  \"state\": \"The source snapshot and inputs are frozen for three independent repeats.\"\n}\n"
 };
 for (const [name, content] of Object.entries(files)) {
@@ -32,5 +32,3 @@ git switch -qc feature
 printf '%s\n' 'design-critique repeated-run-variance change' >> ui/report.html
 git add ui/report.html
 git commit -qm "fixture feature change"
-
-

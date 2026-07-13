@@ -74,7 +74,7 @@ for (const [name, content] of Object.entries(files)) {
   fs.writeFileSync(name, content);
 }
 NODE
-${fixture.shell}
+${fixture.shell.trimEnd()}
 `;
 }
 
@@ -164,6 +164,27 @@ function fixtureFor(workflow, type, caseId, state) {
   }
   if (workflow === "review" && ["happy-path", "repeated-run-variance"].includes(type)) {
     post.push('command-succeeds "npm test"');
+    post.push("file-exists .pm/dev-sessions/feature/review/report.json");
+    post.push("file-exists .pm/dev-sessions/feature/review/report.html");
+    post.push(
+      'file-matches .pm/dev-sessions/feature/review/report.json "\\\"outcome\\\": \\\"passed\\\""'
+    );
+    post.push(
+      'command-succeeds "node \\\"$PM_PLUGIN_ROOT/scripts/review-check.js\\\" --root \\\"$PWD\\\" --report .pm/dev-sessions/feature/review/report.json --from-report"'
+    );
+    if (type === "happy-path")
+      post.push(
+        "command-succeeds \"node -e \\\"const fs=require('fs'),r=require('./.pm/dev-sessions/feature/review/report.json');if(!/^\\\\.pm\\\\/dev-sessions\\\\/feature\\\\/review\\\\/runs\\\\/[^/]+\\\\/round-[1-3]\\\\/target\\\\.json$/.test(r.target.path)||!fs.existsSync(r.target.path))process.exit(1)\\\"\""
+      );
+    else {
+      post.push(
+        'command-succeeds "test \\"$(find .pm/dev-sessions/feature/review/runs -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d \' \')\\" = 3"'
+      );
+      post.push("file-exists .pm/dev-sessions/feature/review/repeat-comparison.json");
+      post.push(
+        'command-succeeds "node \\\"$PM_PLUGIN_ROOT/scripts/evals/review-repeat-check.js\\\" \\\"$PWD\\\" .pm/dev-sessions/feature/review/repeat-comparison.json"'
+      );
+    }
   }
   if (type === "resume") {
     post.push("file-exists .pm/quality/resume-session.json");
@@ -330,8 +351,24 @@ function typeFiles(workflow, type) {
       `${JSON.stringify({ schema_version: 1, status: "proposed", summary: "Improve it", evidence: [], risks: ["Things may fail"], next_steps: ["Do the work"] }, null, 2)}\n`;
   }
   if (type === "repeated-run-variance") {
-    files[".pm/quality/repeat-control.json"] =
-      `${JSON.stringify({ repeats: 3, source: "frozen", reset_between_runs: true }, null, 2)}\n`;
+    files[".pm/quality/repeat-control.json"] = `${JSON.stringify(
+      {
+        repeats: 3,
+        source: "frozen",
+        reset_between_runs: true,
+        expectation: "defect-present",
+        ...(workflow === "review"
+          ? {
+              expected_defect: {
+                rule: "clear-must-empty-list",
+                locator: "src/items.js:1",
+              },
+            }
+          : {}),
+      },
+      null,
+      2
+    )}\n`;
   }
   return files;
 }

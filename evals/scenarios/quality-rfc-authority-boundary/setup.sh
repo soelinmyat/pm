@@ -32,5 +32,3 @@ git switch -qc feature
 printf '%s\n' 'rfc authority-boundary change' >> docs/architecture.md
 git add docs/architecture.md
 git commit -qm "fixture feature change"
-
-

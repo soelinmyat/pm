@@ -262,7 +262,10 @@ function readRemoteCard(fixture) {
 function verifiedWorkerOptions() {
   return {
     verifyPullRequest: () => ({ ok: true, state: "OPEN" }),
-    verifyGateSidecar: () => ({ ok: true, changedFiles: ["work.txt"] }),
+    verifyGateSidecar: (_workspace, options) => {
+      assert.deepEqual(options.requiredAuthorities, ["push_feature_branch", "create_pr"]);
+      return { ok: true, changedFiles: ["work.txt"] };
+    },
   };
 }
 
