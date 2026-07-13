@@ -395,6 +395,26 @@ test("gate verification pins the sidecar to expected source HEAD and rejects pro
   assert.equal(protectedResult.code, "protected-source-path-changed");
 });
 
+test("gate verification forwards action-specific delivery authority", (t) => {
+  const fixture = makeGateFixture(t);
+  let observed;
+  const checked = __test.verifyCommittedGateSidecarWithChecker(
+    fixture.root,
+    {
+      expectedHeadOid: fixture.headOid,
+      expectedHead: "loop/pm-108",
+      baseRef: fixture.baseOid,
+      requiredAuthorities: ["push_feature_branch", "create_pr", "merge"],
+    },
+    (manifest, options) => {
+      observed = options.requiredAuthorities;
+      return checkedGateFixture(manifest, options);
+    }
+  );
+  assert.equal(checked.ok, true, JSON.stringify(checked));
+  assert.deepEqual(observed, ["push_feature_branch", "create_pr", "merge"]);
+});
+
 test("gate verification rejects a flat legacy sidecar as non-authoritative", (t) => {
   const fixture = makeGateFixture(t);
   const legacyPath = path.join(fixture.root, ".pm", "dev-sessions", "loop-pm-108.gates.json");

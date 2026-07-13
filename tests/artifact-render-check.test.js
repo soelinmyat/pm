@@ -564,3 +564,51 @@ setInterval(() => {}, 1000);
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("browser probe enables the Node 20 WebSocket runtime explicitly", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-browser-websocket-runtime-"));
+  try {
+    const probePath = path.join(root, "websocket-probe.js");
+    fs.writeFileSync(
+      probePath,
+      'process.stdin.resume(); process.stdin.on("end", () => process.stdout.write(JSON.stringify(typeof WebSocket)));\n'
+    );
+    const result = runBrowserProbe({}, "browser probe", { probePath });
+    assert.equal(JSON.parse(result.stdout), "function");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test(
+  "full-page capture is bound to document height from the same browser render",
+  {
+    skip:
+      (process.env.PM_SKIP_BROWSER_TESTS && "browser tests explicitly disabled") ||
+      (!installedBrowser && "Chromium is not installed"),
+  },
+  () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-full-page-"));
+    try {
+      const htmlPath = path.join(root, "report.html");
+      fs.writeFileSync(
+        htmlPath,
+        "<!doctype html><style>body{margin:0}main{height:1300px}@media(min-height:1200px){main{height:1800px}}</style><main><h1>Report</h1><p>Current evidence verifies responsive layout, complete document capture, readable content, and retained source identity across every required viewport.</p><a href='#details'>Details</a><section id='details'>Details</section></main>"
+      );
+      const result = renderArtifactRaw({
+        htmlPath,
+        outputDir: path.join(root, "renders"),
+        browserPath: installedBrowser,
+        projectRoot: root,
+      });
+      for (const capture of result.captures) {
+        assert.equal(
+          capture.full_page.height,
+          Math.max(capture.height, Math.ceil(capture.full_page.document_height))
+        );
+      }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+);

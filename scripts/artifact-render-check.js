@@ -78,27 +78,53 @@ function renderArtifact(options) {
           `${viewport.name} capture has ${dimensions.width}x${dimensions.height}; expected ${viewport.width}x${viewport.height}`
         );
       }
-      const fullHeight = Math.max(viewport.height, Math.ceil(metrics.documentHeight));
       const fullOutput = path.join(
         outputDir,
         `${path.basename(htmlPath, ".html")}-${viewport.name}-full.png`
       );
       fs.rmSync(fullOutput, { force: true });
-      runBrowser(
-        browserPath,
-        [
-          ...baseArgs(),
-          `--window-size=${viewport.width},${fullHeight}`,
-          `--screenshot=${fullOutput}`,
-          url,
-        ],
-        { canonical: options.legacyProbe !== true, projectRoot }
-      );
+      let fullHeight;
+      let fullDocumentHeight;
+      if (options.legacyProbe !== true) {
+        const capture = JSON.parse(
+          runBrowserProbe(
+            {
+              browserPath,
+              htmlPath,
+              viewport,
+              action: "screenshot",
+              fullPage: true,
+              maxHeight: MAX_RENDER_HEIGHT,
+              outputPath: fullOutput,
+            },
+            "full-page browser capture"
+          ).stdout
+        );
+        fullHeight = capture.height;
+        fullDocumentHeight = capture.documentHeight;
+      } else {
+        fullHeight = Math.max(viewport.height, Math.ceil(metrics.documentHeight));
+        runBrowser(
+          browserPath,
+          [
+            ...baseArgs(),
+            `--window-size=${viewport.width},${fullHeight}`,
+            `--screenshot=${fullOutput}`,
+            url,
+          ],
+          { canonical: false, projectRoot }
+        );
+        fullDocumentHeight = fullHeight;
+      }
       assertRenderSourceIdentity(htmlPath, sourceBefore, sourceWatcher);
       const fullDimensions = inspectPng(fullOutput);
-      if (fullDimensions.width !== viewport.width || fullDimensions.height !== fullHeight) {
+      if (
+        fullDimensions.width !== viewport.width ||
+        fullDimensions.height !== fullHeight ||
+        fullHeight !== Math.max(viewport.height, Math.ceil(fullDocumentHeight))
+      ) {
         throw new Error(
-          `${viewport.name} full capture has ${fullDimensions.width}x${fullDimensions.height}; expected ${viewport.width}x${fullHeight}`
+          `${viewport.name} full capture is not bound to its same-render document height`
         );
       }
       captures.push({
@@ -111,6 +137,7 @@ function renderArtifact(options) {
           path: projectRelative(projectRoot, fullOutput, "full-page render capture"),
           width: viewport.width,
           height: fullHeight,
+          document_height: fullDocumentHeight,
           sha256: digestFile(fullOutput),
           bytes: fs.statSync(fullOutput).size,
         },
@@ -548,13 +575,17 @@ function runBrowserProbe(configuration, label, runtime = {}) {
       }));
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     const controlToken = crypto.randomBytes(24).toString("hex");
-    result = spawnSync(process.execPath, ["--max-old-space-size=512", probePath], {
-      input: JSON.stringify({ ...configuration, controlToken }),
-      encoding: "utf8",
-      timeout: timeoutMs,
-      maxBuffer: 4 * 1024 * 1024,
-      stdio: ["pipe", "pipe", "pipe", "pipe"],
-    });
+    result = spawnSync(
+      process.execPath,
+      ["--experimental-websocket", "--max-old-space-size=512", probePath],
+      {
+        input: JSON.stringify({ ...configuration, controlToken }),
+        encoding: "utf8",
+        timeout: timeoutMs,
+        maxBuffer: 4 * 1024 * 1024,
+        stdio: ["pipe", "pipe", "pipe", "pipe"],
+      }
+    );
     let control = null;
     try {
       control = JSON.parse(String(result.output?.[3] || "").trim());

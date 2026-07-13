@@ -906,11 +906,14 @@ function verifyResultArtifactsUnchecked(input) {
       };
     }
     const verifyGates = options.verifyGateSidecar || verifyCommittedGateSidecar;
+    const requiredAuthorities = ["push_feature_branch", "create_pr"];
+    if (result.status === "merged") requiredAuthorities.push("merge");
     const gates = verifyGates(workspace.workspacePath, {
       expectedHeadOid: headOid,
       expectedHead: workspace.branch,
       baseRef: `${deliveryRemote}/${expectedBase}`,
       remote: deliveryRemote,
+      requiredAuthorities,
     });
     if (!gates.ok) {
       return {

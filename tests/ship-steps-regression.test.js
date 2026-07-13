@@ -230,6 +230,10 @@ test("standalone Ship persists independent push, PR, and merge authority", () =>
   assert.match(createPr, /preferences\.ship\.auto_merge.*does not override/s);
   assert.match(merge, /canonical and snapshotted `merge: true`/);
   assert.match(merge, /preferences\.ship\.auto_merge.*never merge authority/s);
+  assert.match(review, /standalone-routing-facts\.json/);
+  assert.match(review, /dev-session\.js" route/);
+  assert.match(review, /tdd, design-critique, qa, review, verification/);
+  assert.match(review, /Do not advance with the initializer's placeholder route/);
 });
 
 test("Ship freezes and rejects changes to exact GitHub delivery identity", () => {

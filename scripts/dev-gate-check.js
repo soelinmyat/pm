@@ -441,11 +441,15 @@ function validateReviewRenderManifest(
     if (
       !capture.full_page ||
       capture.full_page.width !== viewport.width ||
+      !Number.isFinite(capture.full_page.document_height) ||
       capture.full_page.height !==
-        Math.max(viewport.height, Math.ceil(capture.metrics?.documentHeight || 0))
+        Math.max(viewport.height, Math.ceil(capture.full_page.document_height || 0))
     )
       issues.push(
-        issue(manifestPath, `${label} full-page height must equal the measured document height`)
+        issue(
+          manifestPath,
+          `${label} full-page height must equal its same-render measured document height`
+        )
       );
     else
       validateRenderedFile(

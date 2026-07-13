@@ -586,6 +586,7 @@ function verifyCommittedGateSidecarWithChecker(workspace, options, gateChecker) 
     authoritativeBaseRef: trustedBase.ref,
     authoritativeBaseCommit: trustedBase.commit,
     authoritativePushUrlSha256: trustedBase.remote_push_url_sha256 || null,
+    requiredAuthorities: options.requiredAuthorities || [],
   });
   if (!checked.ok) {
     return {

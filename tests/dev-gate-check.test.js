@@ -683,14 +683,14 @@ test("review render evidence rejects forged retained-render boundaries", () => {
         mutate(value) {
           delete value.captures[0].full_page;
         },
-        expected: /full-page height must equal the measured document height/,
+        expected: /full-page height must equal its same-render measured document height/,
       },
       {
         name: "truncated full-page capture",
         mutate(value) {
-          value.captures[0].metrics.documentHeight = value.captures[0].height + 500;
+          value.captures[0].full_page.document_height = value.captures[0].height + 500;
         },
-        expected: /full-page height must equal the measured document height/,
+        expected: /full-page height must equal its same-render measured document height/,
       },
       {
         name: "print hash",
@@ -808,7 +808,7 @@ function seedReviewRenderManifest(root, htmlPath, values = {}) {
         anchorCount: 4,
         horizontalOverflow: false,
       },
-      full_page: { ...renderFile(root, full), width, height },
+      full_page: { ...renderFile(root, full), width, height, document_height: height },
     };
   });
   const pdf = path.join(renderDir, "print.pdf");

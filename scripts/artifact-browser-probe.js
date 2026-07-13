@@ -204,14 +204,31 @@ async function main() {
     }
     if (!ready) throw new Error("canonical page did not reach complete readiness");
     if (config.action === "screenshot") {
+      let height = config.viewport.height;
+      let documentHeight = height;
+      let clip;
+      if (config.fullPage === true) {
+        const layout = await client.send("Page.getLayoutMetrics");
+        const content = layout.cssContentSize || layout.contentSize;
+        documentHeight = Number(content?.height);
+        if (!Number.isFinite(documentHeight) || documentHeight <= 0)
+          throw new Error("browser did not return a valid document height");
+        height = Math.max(config.viewport.height, Math.ceil(documentHeight));
+        if (!Number.isSafeInteger(config.maxHeight) || height > config.maxHeight)
+          throw new Error(`full-page document height exceeds ${config.maxHeight}`);
+        clip = { x: 0, y: 0, width: config.viewport.width, height, scale: 1 };
+      }
       const captured = await client.send("Page.captureScreenshot", {
         format: "png",
         fromSurface: true,
-        captureBeyondViewport: false,
+        captureBeyondViewport: config.fullPage === true,
+        ...(clip ? { clip } : {}),
       });
       if (!captured.data) throw new Error("browser did not return screenshot bytes");
       const attestation = writeCaptureFile(config.outputPath, captured.data, "screenshot");
-      process.stdout.write(`${JSON.stringify(attestation)}\n`);
+      process.stdout.write(
+        `${JSON.stringify({ ...attestation, width: config.viewport.width, height, documentHeight })}\n`
+      );
       return;
     }
     if (config.action === "pdf") {

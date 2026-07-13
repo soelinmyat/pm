@@ -209,6 +209,9 @@ test("Review design applicability shares Dev's UI-impact classifier", () => {
     "feature-checkout/src/debug/res/values/colors.xml",
     "lib/widgets/cart_widget.dart",
     "public/images/checkout-card.svg",
+    "src/routes/home.js",
+    "frontend/routes/account.ts",
+    "client/routes/settings.js",
   ];
   for (const path of positives) {
     const design = deriveLensApplicability("full", [{ path }]).find(

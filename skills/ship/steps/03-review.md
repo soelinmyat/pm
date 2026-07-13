@@ -32,6 +32,14 @@ node "$PM_PLUGIN_ROOT/scripts/dev-session.js" init \
 
 Read the created session and confirm `routing.review_mode` is `full`, its recorded branch equals the current branch, and its slug equals the canonical artifact namespace. Then invoke `pm:review` with that `session.json`. This session bootstrap is mandatory: a sessionless Review is useful as an advisory standalone report but cannot authorize delivery. Do not skip review for standalone invocations.
 
+The initializer's route is only a safe placeholder. Before Review, write bounded routing facts for the frozen diff and persist them with `dev-session route`. Standalone Ship must conservatively route the complete delivery gate set, including Design Critique and QA; a non-UI diff satisfies those two gates through their documented policy skips rather than by omitting them from `routing.required_gates`:
+
+```json
+{"kind":"task","size":"M","risk":{"behavioral":1,"ui":1},"acceptance_criteria":[],"work_units":[]}
+```
+
+Save that object beside the session as `ship/standalone-routing-facts.json`, run `node "$PM_PLUGIN_ROOT/scripts/dev-session.js" route --session ".pm/dev-sessions/{slug}/session.json" --facts ".pm/dev-sessions/{slug}/ship/standalone-routing-facts.json" --json`, and require `routing.required_gates` to equal `tdd, design-critique, qa, review, verification` before continuing. Do not advance with the initializer's placeholder route.
+
 Before advancing to Push, execute every gate in the bootstrapped session's `routing.required_gates`, not only Review. Use the same Dev gate procedures for TDD, Design Critique, QA, and verification, recording a valid passed or policy-allowed skipped row for each routed gate. Standalone Ship is not a reduced-quality route; discovering missing rows at `git push` is a recovery path, not the normal workflow.
 
 Resolve the exact named delivery remote using, in order, `branch.<branch>.pushRemote`, `remote.pushDefault`, `branch.<branch>.remote`, then `origin`. Confirm the name appears exactly in `git remote` and `git config --get "remote.${name}.url"` succeeds; this also supports valid dash-prefixed remote names that option-style commands mishandle. Pass that name to Review target creation as `--remote`; do not review against `origin` and later push to a different remote.
