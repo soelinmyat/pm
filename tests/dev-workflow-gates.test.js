@@ -284,6 +284,7 @@ test("implementation flow runs the gate checker before push and PR creation", ()
   assert.ok(checkerIndex > -1, "push block must run dev-gate-check");
   assert.match(block[1], /--base origin\/\{DEFAULT_BRANCH\}/);
   assert.match(block[1], /--review-evidence-mode enforce/);
+  assert.match(block[1], /--require-authority push_feature_branch,create_pr/);
   assert.match(block[1], /--branch/);
   assert.match(block[1], /\.pm\/dev-sessions\/\{slug\}\/gates\.json/);
   assert.ok(pushIndex > checkerIndex, "checker must appear before git push");
@@ -297,6 +298,7 @@ test("ship push step requires the full default gate contract before git push", (
   assert.match(text, /--base "\{DELIVERY_REMOTE\}\/\{DEFAULT_BRANCH\}"/);
   assert.match(text, /source\.delivery_remote/);
   assert.match(text, /--review-evidence-mode enforce/);
+  assert.match(text, /--require-authority push_feature_branch/);
   assert.match(text, /--branch/);
   assert.match(text, /\.pm\/dev-sessions\/\{slug\}\/gates\.json/);
   assert.doesNotMatch(text, /\.pm\/dev-sessions\/\{slug\}\.gates\.json/);
@@ -318,6 +320,7 @@ test("ship merge loop rechecks the full sidecar against the remote branch tip", 
   assert.match(text, /do not require every raw `commit` field to equal the remote tip/);
   assert.match(text, /--changed-files "\$changed_files"/);
   assert.match(text, /--review-evidence-mode enforce/);
+  assert.match(text, /--require-authority merge/);
   assert.match(text, /final recertification pass/);
   assert.doesNotMatch(text, /--require review,verification/);
 });
@@ -364,6 +367,7 @@ test("source repo pre-push hook uses the shared gate checker for PM runtime chan
   assert.match(text, /git ls-remote --symref "\$remote_target" HEAD/);
   assert.match(text, /--base "\$authoritative_base_ref"/);
   assert.match(text, /--review-evidence-mode enforce/);
+  assert.match(text, /--require-authority push_feature_branch/);
   assert.match(text, /unable to resolve the authoritative remote HEAD/);
   assert.match(text, /unable to diff authoritative remote HEAD/);
   assert.match(text, /push_ref_lines/);

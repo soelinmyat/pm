@@ -200,6 +200,12 @@ function checkReviewRepeats(root, comparisonPath) {
           `runs[${index}] must report expected defect ${expected.rule} at ${expected.locator}`
         );
   }
+  if (
+    comparison.expectation === "clean" &&
+    checkedReports.length === 3 &&
+    checkedReports.some((report) => (report.findings || []).length > 0)
+  )
+    issues.push("clean repeats require zero evidence-bound findings in every run");
   validateMetrics(comparison.metrics, computedMetrics, issues);
   return { ok: issues.length === 0, issues, computed_metrics: computedMetrics };
 }

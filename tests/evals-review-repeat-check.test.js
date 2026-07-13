@@ -172,6 +172,19 @@ test("defect-present repeats must report the frozen expected rule and locator", 
   );
 });
 
+test("clean repeats reject three stable false-positive findings", (t) => {
+  const root = temporaryRoot(t, "pm-review-repeats-clean-false-positive-");
+  const comparisonPath = seedComparison(root, "clean", {
+    finding: repeatFinding("stable-false-positive"),
+  });
+  const checked = checkReviewRepeats(root, comparisonPath);
+  assert.equal(checked.ok, false);
+  assert.match(
+    JSON.stringify(checked.issues),
+    /clean repeats require zero evidence-bound findings in every run/
+  );
+});
+
 test("repeat stability thresholds accept the boundary and reject one unit below", () => {
   assert.deepEqual(
     (() => {

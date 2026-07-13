@@ -327,6 +327,7 @@ for push_ref_line in "${push_ref_lines[@]}"; do
       --commit "$local_oid" \
       --branch "$branch_name" \
       --review-evidence-mode enforce \
+      --require-authority push_feature_branch \
       --remote "$remote" \
       --base "$authoritative_base_ref"; then
       rm -rf "$checker_tmp"

@@ -540,6 +540,44 @@ test("canonical enforcement requires a sibling session binding", () => {
   assert.match(JSON.stringify(result.issues), /canonical gates require sibling session\.json/);
 });
 
+test("delivery authority requires both canonical state and a matching grant log", () => {
+  const baseSession = {
+    run_id: "run-1",
+    slug: "feature",
+    source: { branch: "feat/feature" },
+    routing: { review_mode: "code-scan" },
+    authority: { push_feature_branch: false },
+    authority_log: [],
+  };
+  const options = {
+    currentCommit: "abc123",
+    currentBranch: "feat/feature",
+    requiredGates: ["tdd"],
+    requiredAuthorities: ["push_feature_branch"],
+    manifestPath: ".pm/dev-sessions/feature/gates.json",
+    canonicalSession: baseSession,
+  };
+  const denied = checkGateManifest(manifest([gate("tdd")], { run_id: "run-1" }), options);
+  assert.equal(denied.ok, false);
+  assert.match(JSON.stringify(denied.issues), /does not grant authority push_feature_branch/);
+
+  const allowed = checkGateManifest(manifest([gate("tdd")], { run_id: "run-1" }), {
+    ...options,
+    canonicalSession: {
+      ...baseSession,
+      authority: { push_feature_branch: true },
+      authority_log: [
+        {
+          actions: ["push_feature_branch"],
+          reason: "User requested delivery",
+          granted_at: "2026-07-13T00:00:00Z",
+        },
+      ],
+    },
+  });
+  assert.equal(allowed.ok, true, JSON.stringify(allowed.issues));
+});
+
 test("review render evidence rejects forged retained-render boundaries", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-render-forgery-"));
   const outside = `${root}-outside.png`;
@@ -645,7 +683,14 @@ test("review render evidence rejects forged retained-render boundaries", () => {
         mutate(value) {
           delete value.captures[0].full_page;
         },
-        expected: /requires canonical full-page metadata/,
+        expected: /full-page height must equal the measured document height/,
+      },
+      {
+        name: "truncated full-page capture",
+        mutate(value) {
+          value.captures[0].metrics.documentHeight = value.captures[0].height + 500;
+        },
+        expected: /full-page height must equal the measured document height/,
       },
       {
         name: "print hash",

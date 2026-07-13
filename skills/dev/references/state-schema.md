@@ -206,6 +206,7 @@ Rules:
     --commit "$(git rev-parse HEAD)" \
     --branch "$(git branch --show-current)" \
     --review-evidence-mode enforce \
+    --require-authority push_feature_branch,create_pr \
     --base origin/{DEFAULT_BRANCH}
   ```
 - If the checker fails for a missing gate, run that gate. If it fails for a stale gate, use the final recertification rule above: rerun the gate when its relevant surface changed, or write `verified_commit` / `verified_at` only when the evidence still applies. Do not push around it.
@@ -282,7 +283,7 @@ Tasks are populated during intake from the RFC's JSON sidecar `issues[]` when it
 
 ## Gate Manifest
 - Sidecar: .pm/dev-sessions/{slug}/gates.json
-- Checker: set `PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"`, then run `node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" --manifest .pm/dev-sessions/{slug}/gates.json --commit "$(git rev-parse HEAD)" --branch "$(git branch --show-current)" --review-evidence-mode enforce`
+- Checker: set `PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"`, then run `node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" --manifest .pm/dev-sessions/{slug}/gates.json --commit "$(git rev-parse HEAD)" --branch "$(git branch --show-current)" --review-evidence-mode enforce --require-authority push_feature_branch,create_pr`
 - Required before push: tdd, design-critique, qa, review, verification (skipped gates require reasons)
 
 ## Merge-Watch

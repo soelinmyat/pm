@@ -1556,6 +1556,26 @@ function gatePush(baseCwd, push) {
   }
   const gitDir = resolveExplicitGitDir(baseCwd, push);
 
+  // No canonical or legacy PM session store means this repository has nothing
+  // for PM to protect. Resolve that before imposing PM's named-remote contract:
+  // ordinary Git permits an implicit push directly to a URL or local path.
+  if (!canonicalSessionsDirectory(repoDir)) return false;
+  const preliminaryPush = parsePushArguments(push.args);
+  if (preliminaryPush.refspecs.length === 0 && preliminaryPush.remote) {
+    const configuredRemotes = gitCapture(repoDir, ["remote"], gitDir)
+      .split(/\r?\n/)
+      .filter(Boolean);
+    if (!configuredRemotes.includes(preliminaryPush.remote)) {
+      const inventory = loadCanonicalSessionIndex(repoDir);
+      if (
+        inventory.sessions.length === 0 &&
+        inventory.candidates.size === 0 &&
+        inventory.legacyMarkers.length === 0
+      )
+        return false;
+    }
+  }
+
   const checkedOutBranch = currentBranch(repoDir, gitDir);
   const effective = effectivePushRefspecs(repoDir, push.args, checkedOutBranch, gitDir);
   if (effective.error) {
@@ -1586,7 +1606,7 @@ function gatePush(baseCwd, push) {
     return true;
   }
   if (selected.targets.length === 0) return false;
-  const [{ branch, slug }] = selected.targets;
+  const [{ branch, slug, session }] = selected.targets;
 
   const sessionsDir = path.join(repoDir, ".pm", "dev-sessions");
   const canonicalSessionDir = path.join(sessionsDir, slug);
@@ -1615,6 +1635,20 @@ function gatePush(baseCwd, push) {
   }
   if (!fs.existsSync(path.join(canonicalSessionDir, "session.json"))) {
     blockUnverified(branch, manifestPath, "canonical sibling session.json is missing");
+    return true;
+  }
+  if (
+    session &&
+    (session.authority?.push_feature_branch !== true ||
+      !session.authority_log?.some(
+        (entry) => Array.isArray(entry?.actions) && entry.actions.includes("push_feature_branch")
+      ))
+  ) {
+    blockUnverified(
+      branch,
+      path.relative(repoDir, manifestPath).split(path.sep).join("/"),
+      "canonical session does not grant push_feature_branch authority"
+    );
     return true;
   }
   const manifestRel = path.relative(repoDir, manifestPath).split(path.sep).join("/");
@@ -1659,6 +1693,8 @@ function gatePush(baseCwd, push) {
       branch,
       "--review-evidence-mode",
       "enforce",
+      "--require-authority",
+      "push_feature_branch",
     ];
     const destination = effective.remote
       ? { remote: effective.remote }

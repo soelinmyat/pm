@@ -124,7 +124,7 @@ Any commit created after the final Review invalidates delivery authority, includ
 2. Invoke `pm:review` against current HEAD and the same validated delivery contract. Publish a new canonical Review JSON/HTML report and retained-render manifest for the current commit.
 3. Rerun every routed quality gate whose relevant surface changed. Regenerate its canonical artifact. Use `dev-session recertify` only for a gate whose existing evidence was actually rechecked and remains applicable; never advance `verified_commit` by inspection alone.
 4. Confirm `.pm/dev-sessions/{slug}/gates.json` contains current, machine-valid Review and routed-gate evidence.
-5. Revalidate the delivery contract, then run `scripts/dev-gate-check.js` with current HEAD, explicit branch, reviewed remote, and reviewed base.
+5. Revalidate the delivery contract, then run `scripts/dev-gate-check.js` with current HEAD, explicit branch, reviewed remote, reviewed base, and `--require-authority push_feature_branch` before retrying a push.
 6. Only after the checker exits zero may Ship retry the explicit push to `DELIVERY_REMOTE`.
 
 This is one indivisible **post-mutation recertification protocol**. Green CI for an older commit, a PR label, or a prior report cannot substitute for it.

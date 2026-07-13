@@ -10,7 +10,7 @@ const path = require("node:path");
 const ROOT = path.resolve(__dirname, "..");
 const HOOK = path.join(ROOT, "hooks", "push-gate");
 const { deriveSessionSlug } = require("../scripts/dev-gate-check.js");
-const { createSession } = require("../scripts/lib/dev-session-schema");
+const { createSession, grantAuthority } = require("../scripts/lib/dev-session-schema");
 
 // ---------------------------------------------------------------------------
 // hooks/push-gate is a PreToolUse (Bash matcher, async:false) hook that makes
@@ -52,10 +52,12 @@ function headSha(dir) {
   return git(dir, "rev-parse", "HEAD");
 }
 
-function writeGates(dir, slug, gatesManifest) {
+function writeGates(dir, slug, gatesManifest, { grantPush = true } = {}) {
   const sessionDir = path.join(dir, ".pm", "dev-sessions", slug);
   fs.mkdirSync(sessionDir, { recursive: true });
-  const session = createSession({ slug, sourceDir: dir });
+  let session = createSession({ slug, sourceDir: dir });
+  if (grantPush)
+    session = grantAuthority(session, ["push_feature_branch"], "Test authorizes branch push");
   session.routing.review_mode = "code-scan";
   gatesManifest.run_id = session.run_id;
   fs.writeFileSync(path.join(sessionDir, "gates.json"), JSON.stringify(gatesManifest, null, 2));
@@ -205,6 +207,30 @@ test("push in a repo with no .pm/ directory is allowed", () => {
   const dir = makeRepo();
   try {
     assertAllow(runHook("git push", { cwd: dir }));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("implicit direct-URL push in a non-PM repo is allowed", () => {
+  const dir = makeRepo();
+  try {
+    assertAllow(runHook("git push /tmp/unrelated-bare-repo", { cwd: dir }));
+    fs.mkdirSync(path.join(dir, ".pm", "dev-sessions"), { recursive: true });
+    assertAllow(runHook("git push /tmp/unrelated-bare-repo", { cwd: dir }));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("canonical session without branch-push authority is blocked", () => {
+  const dir = makeRepo();
+  try {
+    writeGates(dir, "x", passingManifest(dir, "x", headSha(dir)), { grantPush: false });
+    assertBlock(
+      runHook("git push origin HEAD", { cwd: dir }),
+      /does not grant push_feature_branch/
+    );
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -614,6 +640,7 @@ test("push-gate hook file is executable", () => {
   assert.ok(stat.mode & 0o111, "hooks/push-gate must be executable");
   assert.match(fs.readFileSync(HOOK, "utf8"), /"--review-evidence-mode",\s*"enforce"/);
   assert.match(fs.readFileSync(HOOK, "utf8"), /"--branch",\s*branch/);
+  assert.match(fs.readFileSync(HOOK, "utf8"), /"--require-authority",\s*"push_feature_branch"/);
 });
 
 // ---------------------------------------------------------------------------

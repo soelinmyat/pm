@@ -29,6 +29,7 @@ const VALID_GATE_NAMES = new Set([...DEFAULT_REQUIRED_GATES, "simplify"]);
 const VALID_STATUSES = new Set(["passed", "skipped", "failed", "blocked"]);
 const DEFAULT_ALLOW_SKIPPED_GATES = ["tdd", "simplify", "design-critique", "qa"];
 const NEVER_SKIPPABLE_GATES = new Set(["review", "verification"]);
+const VALID_REQUIRED_AUTHORITIES = new Set(["push_feature_branch", "create_pr", "merge"]);
 const REQUIRED_GATE_FIELDS = ["name", "status", "commit", "artifact", "reason", "checked_at"];
 const UI_SKIP_GATES = new Set(["design-critique", "qa"]);
 const NO_UI_SKIP_REASON =
@@ -98,6 +99,21 @@ function checkGateManifest(manifest, opts = {}) {
       issues.push(issue(manifestPath, `sibling session slug must equal ${expectedSlug}`));
     if (opts.currentBranch && canonicalSession.source?.branch !== opts.currentBranch)
       issues.push(issue(manifestPath, `sibling session branch must equal ${opts.currentBranch}`));
+  }
+  for (const action of opts.requiredAuthorities || []) {
+    if (!VALID_REQUIRED_AUTHORITIES.has(action)) {
+      issues.push(issue(manifestPath, `unknown required authority ${action}`));
+      continue;
+    }
+    if (!canonicalSession) {
+      issues.push(issue(manifestPath, `required authority ${action} needs canonical session.json`));
+      continue;
+    }
+    const logged = canonicalSession.authority_log?.some(
+      (entry) => Array.isArray(entry?.actions) && entry.actions.includes(action)
+    );
+    if (canonicalSession.authority?.[action] !== true || !logged)
+      issues.push(issue(manifestPath, `canonical session does not grant authority ${action}`));
   }
 
   const legacySimplifyTolerated = !requiredGates.includes("simplify");
@@ -425,9 +441,12 @@ function validateReviewRenderManifest(
     if (
       !capture.full_page ||
       capture.full_page.width !== viewport.width ||
-      capture.full_page.height < viewport.height
+      capture.full_page.height !==
+        Math.max(viewport.height, Math.ceil(capture.metrics?.documentHeight || 0))
     )
-      issues.push(issue(manifestPath, `${label} requires canonical full-page metadata`));
+      issues.push(
+        issue(manifestPath, `${label} full-page height must equal the measured document height`)
+      );
     else
       validateRenderedFile(
         capture.full_page,
@@ -830,6 +849,14 @@ function parseArgs(argv) {
       opts.runId = requireValue(argv, ++index, arg);
     } else if (arg === "--require") {
       opts.requiredGates.push(...normalizeGateNames(requireValue(argv, ++index, arg)));
+    } else if (arg === "--require-authority") {
+      opts.requiredAuthorities ||= [];
+      opts.requiredAuthorities.push(
+        ...requireValue(argv, ++index, arg)
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean)
+      );
     } else if (arg === "--allow-skip") {
       const gateNames = normalizeGateNames(requireValue(argv, ++index, arg));
       for (const gateName of gateNames) {
@@ -877,7 +904,7 @@ function requireValue(argv, index, flag) {
 
 function usage() {
   return [
-    "Usage: node scripts/dev-gate-check.js [--manifest PATH] [--run-id ID] [--commit SHA] [--branch NAME] [--base REF] [--remote NAME] [--changed-files file[,file]] [--changed-file file] [--require gate[,gate]] [--allow-skip gate[,gate]] [--no-skip] [--review-evidence-mode enforce|inspect] [--json]",
+    "Usage: node scripts/dev-gate-check.js [--manifest PATH] [--run-id ID] [--commit SHA] [--branch NAME] [--base REF] [--remote NAME] [--changed-files file[,file]] [--changed-file file] [--require gate[,gate]] [--require-authority action[,action]] [--allow-skip gate[,gate]] [--no-skip] [--review-evidence-mode enforce|inspect] [--json]",
     "",
     "Default manifest: .pm/dev-sessions/current.gates.json",
     `Default required gates: ${DEFAULT_REQUIRED_GATES.join(", ")}`,
@@ -1037,6 +1064,7 @@ function main(argv = process.argv.slice(2)) {
     authoritativeBaseCommit,
     authoritativePushUrlSha256,
     reviewEvidenceMode: opts.reviewEvidenceMode,
+    requiredAuthorities: opts.requiredAuthorities || [],
   });
   printResult(result, opts.json);
   return result.ok ? 0 : 1;

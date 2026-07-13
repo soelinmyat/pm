@@ -36,6 +36,7 @@ node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" \
   --commit "$(git rev-parse HEAD)" \
   --branch "$(git branch --show-current)" \
   --review-evidence-mode enforce \
+  --require-authority push_feature_branch \
   --remote "{DELIVERY_REMOTE}" \
   --base "{DELIVERY_REMOTE}/{DEFAULT_BRANCH}"
 ```
