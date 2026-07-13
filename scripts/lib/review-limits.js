@@ -13,7 +13,9 @@ const MAX_FINDINGS_PER_ROUND = 24;
 // field and their aggregate so a small finding count cannot smuggle megabytes of
 // wrapping prose past the cardinality limit.
 const MAX_FINDING_PROSE_CHARS = 2_000;
-const MAX_FINDING_RENDER_CHARS_PER_ROUND = 8_000;
+// Keep the accepted logical boundary safely below the cross-browser 16,000px
+// publication ceiling. The browser regression renders this exact maximum.
+const MAX_FINDING_RENDER_CHARS_PER_ROUND = 7_200;
 // Evidence is reviewer-controlled and each locator can trigger frozen Git or
 // artifact I/O. Keep the fan-out small enough to validate predictably.
 const MAX_EVIDENCE_PER_FINDING = 12;

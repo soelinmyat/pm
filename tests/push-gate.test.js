@@ -43,7 +43,10 @@ function makeRepoAt(dir, branch = "feat/x") {
   fs.writeFileSync(path.join(dir, "README.md"), "hi\n");
   git(dir, "add", ".");
   git(dir, "commit", "-q", "-m", "init");
-  git(dir, "remote", "add", "origin", ".");
+  const origin = path.join(dir, ".git", "pm-test-origin.git");
+  git(dir, "init", "--bare", "--initial-branch=main", origin);
+  git(dir, "remote", "add", "origin", origin);
+  git(dir, "push", "-q", "origin", "HEAD:refs/heads/main");
   git(dir, "update-ref", "refs/remotes/origin/main", "HEAD");
   git(dir, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
   git(dir, "checkout", "-q", "-b", branch);

@@ -2203,7 +2203,13 @@ test("prior-round evidence remains valid after the cited source is removed", () 
   });
   const priorHtmlPath = path.join(fixture.root, fixture.roundHtmlPath);
   const priorHtml = fs.readFileSync(priorHtmlPath, "utf8");
-  fs.writeFileSync(priorHtmlPath, priorHtml.replace('"version":"1.13.15"', '"version":"1.13.14"'));
+  fs.writeFileSync(
+    priorHtmlPath,
+    priorHtml.replace(
+      /("generator":\{"name":"pm:review","version":")[^"]+/,
+      (_match, prefix) => `${prefix}0.0.0`
+    )
+  );
   const strictPrior = checkReview(
     expandFromReport({
       root: fixture.root,
@@ -2612,7 +2618,7 @@ test("Review publication surfaces unsupported sync warnings and committed EIO fa
 });
 
 test(
-  "real Chromium renders a near-boundary finding set within the artifact budget",
+  "real Chromium renders the maximum accepted finding set within the artifact budget",
   {
     skip:
       (process.env.PM_SKIP_BROWSER_TESTS && "browser tests explicitly disabled") ||
@@ -2623,11 +2629,10 @@ test(
     const absolute = path.join(fixture.root, fixture.resultPaths[0]);
     const result = JSON.parse(fs.readFileSync(absolute, "utf8"));
     const lens = result.lenses[0];
-    const browserRenderBudget = Math.floor(MAX_FINDING_RENDER_CHARS_PER_ROUND * 0.9);
-    result.findings = maximumRenderBudgetFindings(lens, "render-boundary", browserRenderBudget);
+    result.findings = maximumRenderBudgetFindings(lens, "render-boundary");
     assert.equal(
       result.findings.reduce((sum, finding) => sum + findingRenderChars(finding), 0),
-      browserRenderBudget
+      MAX_FINDING_RENDER_CHARS_PER_ROUND
     );
     result.verdicts.find((verdict) => verdict.lens === lens).outcome = "findings";
     fs.writeFileSync(absolute, `${JSON.stringify(result)}\n`);
@@ -2922,11 +2927,7 @@ function uniqueFindings(category, count, prefix = "finding") {
   });
 }
 
-function maximumRenderBudgetFindings(
-  category,
-  prefix,
-  budget = MAX_FINDING_RENDER_CHARS_PER_ROUND
-) {
+function maximumRenderBudgetFindings(category, prefix) {
   const findings = uniqueFindings(category, MAX_FINDINGS_PER_ROUND, prefix);
   for (const [index, finding] of findings.entries()) {
     finding.rule = `r-${index}`;
@@ -2937,7 +2938,9 @@ function maximumRenderBudgetFindings(
     finding.change_anchors[0].relation = "Changed line causes affected behavior.";
     finding.id = findingId(finding);
   }
-  let remaining = budget - findings.reduce((sum, finding) => sum + findingRenderChars(finding), 0);
+  let remaining =
+    MAX_FINDING_RENDER_CHARS_PER_ROUND -
+    findings.reduce((sum, finding) => sum + findingRenderChars(finding), 0);
   assert.ok(remaining > 0, "baseline boundary fixture must leave prose budget to fill");
   for (const finding of findings) {
     const addition = Math.min(remaining, MAX_FINDING_PROSE_CHARS - finding.impact.length);
@@ -2949,7 +2952,7 @@ function maximumRenderBudgetFindings(
   assert.equal(remaining, 0, "fixture fields must have enough capacity to reach the exact budget");
   assert.equal(
     findings.reduce((sum, finding) => sum + findingRenderChars(finding), 0),
-    budget
+    MAX_FINDING_RENDER_CHARS_PER_ROUND
   );
   return findings;
 }
