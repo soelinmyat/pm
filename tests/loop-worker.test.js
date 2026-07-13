@@ -65,11 +65,13 @@ function makeProjectFixture({ autonomyStartDev = true, config = {} } = {}) {
       "Do the thing.",
     ].join("\n") + "\n"
   );
-  // Safety: default engine is /usr/bin/true so no test can ever invoke a
-  // real vendor CLI; dispatch-reaching tests override engine_bin explicitly.
+  // Safety: the default engine only drains stdin and exits successfully, so no
+  // test can invoke a real vendor CLI. Unlike /usr/bin/true, it cannot race the
+  // synchronous probe writer and surface a platform-dependent EPIPE.
+  const noopEngine = writeStdinDrainingEngine(root);
   const loopConfig = {
     autonomy: { start_dev: autonomyStartDev },
-    worker: { keep_workspace: true, engine_bin: "/usr/bin/true" },
+    worker: { keep_workspace: true, engine_bin: noopEngine },
     ...config,
   };
   fs.writeFileSync(
@@ -93,6 +95,22 @@ function makeProjectFixture({ autonomyStartDev = true, config = {} } = {}) {
     pmDir,
     cleanup: () => fs.rmSync(root, { recursive: true, force: true }),
   };
+}
+
+function writeStdinDrainingEngine(root) {
+  const binPath = path.join(root, "stdin-draining-engine");
+  fs.writeFileSync(
+    binPath,
+    [
+      "#!/usr/bin/env node",
+      'process.stdin.on("error", () => process.exit(1));',
+      "process.stdin.resume();",
+      'process.stdin.on("end", () => process.exit(0));',
+      "",
+    ].join("\n")
+  );
+  fs.chmodSync(binPath, 0o755);
+  return binPath;
 }
 
 function approveFixtureConfig(fixture) {

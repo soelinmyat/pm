@@ -353,7 +353,7 @@ function changedFileInventory(root, baseCommit, commit) {
   if (fields.at(-1) === "") fields.pop();
   const rows = [];
   let committedBytes = 0;
-  for (let index = 0; index < fields.length;) {
+  for (let index = 0; index < fields.length; ) {
     const status = fields[index++];
     if (!/^(?:[ACDMRTUXB]|R\d{1,3}|C\d{1,3})$/.test(status))
       throw new Error(`unsupported git status ${status}`);
