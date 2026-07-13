@@ -913,11 +913,13 @@ function branchPatternCapture(pattern, branch) {
   return branch.slice(prefix.length, branch.length - suffix.length);
 }
 
-function sessionBranchRefspecSource(raw, sessionBranch) {
+function sessionBranchRefspecSource(raw, sessionBranch, provenance = null) {
   const spec = raw.startsWith("+") ? raw.slice(1) : raw;
   const dest = refspecDest(spec);
   if (dest.kind === "matching")
-    return { error: "matching multi-ref push cannot be bound to one source commit" };
+    return {
+      error: `${provenance ? `${provenance} ` : ""}matching multi-ref push cannot be bound to one source commit`,
+    };
   if (dest.kind !== "branch") return null;
   const capture = branchPatternCapture(dest.dst, sessionBranch);
   const targetsSession = dest.dst === "HEAD" || dest.dst === "@" || capture !== null;
@@ -925,11 +927,10 @@ function sessionBranchRefspecSource(raw, sessionBranch) {
   const colon = spec.indexOf(":");
   const source = colon >= 0 ? spec.slice(0, colon) : spec;
   if (!source) return { error: "session-branch deletion has no source commit" };
-  if (capture !== null && source.includes("*")) {
-    if (source.indexOf("*") !== source.lastIndexOf("*"))
-      return { error: "session branch wildcard push has an ambiguous source refspec" };
-    return { source: source.replace("*", capture) };
-  }
+  if (source.includes("*") || dest.dst.includes("*"))
+    return {
+      error: `${provenance ? `${provenance} ` : ""}wildcard refspec can expand the session-branch push to multiple updates`,
+    };
   return { source };
 }
 
@@ -939,7 +940,9 @@ function parsePushArguments(args) {
   const positionals = [];
   let sawDelete = false;
   let sawTags = false;
-  let sawAllOrMirror = false;
+  let allBranches = false;
+  let mirror = false;
+  let followTags = null;
   let remote = null;
   let remoteSuppliedByOption = false;
   let optionsEnded = false;
@@ -951,8 +954,15 @@ function parsePushArguments(args) {
     }
     if (!optionsEnded && token.startsWith("-")) {
       if (token === "--delete" || token === "-d") sawDelete = true;
+      else if (token === "--no-delete") sawDelete = false;
       else if (token === "--tags") sawTags = true;
-      else if (token === "--all" || token === "--mirror") sawAllOrMirror = true;
+      else if (token === "--no-tags") sawTags = false;
+      else if (token === "--all" || token === "--branches") allBranches = true;
+      else if (token === "--no-all" || token === "--no-branches") allBranches = false;
+      else if (token === "--mirror") mirror = true;
+      else if (token === "--no-mirror") mirror = false;
+      else if (token === "--follow-tags") followTags = true;
+      else if (token === "--no-follow-tags") followTags = false;
       else if (token === "--repo") {
         remoteSuppliedByOption = true;
         remote = args[i + 1] || null;
@@ -968,7 +978,8 @@ function parsePushArguments(args) {
   return {
     sawDelete,
     sawTags,
-    sawAllOrMirror,
+    sawAllOrMirror: allBranches || mirror,
+    followTags,
     remote: remoteSuppliedByOption ? remote : positionals[0] || null,
     refspecs: positionals.slice(remoteSuppliedByOption ? 0 : 1),
   };
@@ -993,24 +1004,31 @@ function pushUpdatesSessionBranch(args, sessionBranch, effectiveRefspecs = null)
 }
 
 function sessionBranchPushSource(
+  repoDir,
   args,
   sessionBranch,
   effectiveRefspecs = null,
-  refspecSource = null
+  refspecSource = null,
+  gitDir = null,
+  effectiveExpansionError = null
 ) {
   const parsed = parsePushArguments(args);
   const { sawAllOrMirror } = parsed;
   const refspecs = effectiveRefspecs || parsed.refspecs;
+  const provenance = refspecSource || (effectiveRefspecs ? "effective" : "command line");
   if (sawAllOrMirror)
     return { error: "multi-ref --all/--mirror push cannot be bound to one source commit" };
+  if (effectiveExpansionError) return { error: effectiveExpansionError };
+  const expansionError = sessionPushExpansionError(repoDir, args, gitDir);
+  if (expansionError) return { error: expansionError };
   if (refspecs.length > 1)
     return {
-      error: `${refspecSource || (effectiveRefspecs ? "effective" : "command line")} multi-ref push cannot be bound to one source commit`,
+      error: `${provenance} multi-ref push cannot be bound to one source commit`,
     };
   if (refspecs.length === 0) return { source: "HEAD" };
   const sources = [];
   for (const raw of refspecs) {
-    const match = sessionBranchRefspecSource(raw, sessionBranch);
+    const match = sessionBranchRefspecSource(raw, sessionBranch, provenance);
     if (!match) continue;
     if (match.error) return match;
     sources.push(match.source);
@@ -1046,6 +1064,22 @@ function gitConfigValues(repoDir, key, gitDir = null) {
   return { values };
 }
 
+function gitConfigBoolean(repoDir, key, gitDir = null) {
+  const prefix = gitDir ? [`--git-dir=${gitDir}`, `--work-tree=${repoDir}`] : ["-C", repoDir];
+  const result = spawnSync("git", [...prefix, "config", "--type=bool", "--get-all", key], {
+    encoding: "utf8",
+    maxBuffer: MAX_BUFFER,
+  });
+  if (!result || (result.status !== 0 && result.status !== 1))
+    return { error: `cannot read Git boolean configuration ${key}` };
+  if (result.status === 1) return { value: false };
+  const values = (result.stdout || "").trim().split(/\r?\n/).filter(Boolean);
+  const value = values.at(-1);
+  if (value !== "true" && value !== "false")
+    return { error: `Git configuration ${key} is not a boolean` };
+  return { value: value === "true" };
+}
+
 function currentBranch(repoDir, gitDir = null) {
   const shown = gitCapture(repoDir, ["branch", "--show-current"], gitDir);
   if (shown) return shown;
@@ -1071,6 +1105,23 @@ function resolvePushRemote(repoDir, args, branch, gitDir = null) {
   )
     return { error: `push destination ${remote} is not a configured named remote` };
   return { remote };
+}
+
+function sessionPushExpansionError(repoDir, args, gitDir = null) {
+  const parsed = parsePushArguments(args);
+  if (parsed.sawTags)
+    return "command line --tags expands the session-branch push to additional tag updates";
+  if (parsed.followTags === true)
+    return "command line --follow-tags can expand the session-branch push to additional tag updates";
+
+  if (parsed.followTags !== false) {
+    const configuredFollowTags = gitConfigBoolean(repoDir, "push.followTags", gitDir);
+    if (configuredFollowTags.error) return configuredFollowTags.error;
+    if (configuredFollowTags.value)
+      return "configured push.followTags expands the session-branch push to additional tag updates";
+  }
+
+  return null;
 }
 
 function upstreamPushRefspec(repoDir, destinationRemote, branch, policy, gitDir = null) {
@@ -1135,6 +1186,14 @@ function effectivePushRefspecs(repoDir, args, branch, gitDir = null) {
       return { error: `remote.${destination.remote}.push contains a matching multi-ref push` };
     return { refspecs: configured.values, source: "configured" };
   }
+  const configuredMirror = gitConfigBoolean(repoDir, `remote.${destination.remote}.mirror`, gitDir);
+  if (configuredMirror.error) return configuredMirror;
+  if (configuredMirror.value)
+    return {
+      refspecs: ["refs/heads/*:refs/heads/*"],
+      source: `configured remote.${destination.remote}.mirror`,
+      expansionError: `configured remote.${destination.remote}.mirror expands the session-branch push to multiple ref updates`,
+    };
   return implicitPushRefspecs(repoDir, destination.remote, branch, gitDir);
 }
 
@@ -1327,7 +1386,15 @@ function gatePush(baseCwd, push) {
   // real manifest. Fail CLOSED on anything that stops a clean verdict — including
   // an unexpected throw in here: an error is not proof the gate passed.
   try {
-    const pushed = sessionBranchPushSource(push.args, branch, effectiveRefspecs, effective.source);
+    const pushed = sessionBranchPushSource(
+      repoDir,
+      push.args,
+      branch,
+      effectiveRefspecs,
+      effective.source,
+      gitDir,
+      effective.expansionError
+    );
     if (pushed.error) {
       blockUnverified(branch, manifestRel, pushed.error);
       return true;

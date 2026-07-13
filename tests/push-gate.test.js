@@ -720,7 +720,7 @@ test("explicit push of the session branch is still gated → block", () => {
     assertBlock(runHook("git push origin @:refs/heads/feat/x", { cwd: dir }), /verification/);
     assertBlock(
       runHook("git push origin 'refs/heads/*:refs/heads/*'", { cwd: dir }),
-      /verification/
+      /command line wildcard refspec can expand the session-branch push/
     );
     assertBlock(runHook("git push origin :", { cwd: dir }), /matching multi-ref/);
     assertBlock(runHook("git push origin +:", { cwd: dir }), /matching multi-ref/);
@@ -1153,6 +1153,169 @@ test("configured push refspecs preserve source commit binding", () => {
     );
 
     assertBlock(runHook("git push origin", { cwd: dir }), /commit mismatch|stale|does not match/i);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("Git dry-run fixtures prove wildcard, tag-following, and mirror expansion", () => {
+  const dir = makeRepo();
+  const remote = fs.mkdtempSync(path.join(os.tmpdir(), "push-gate-remote-"));
+  try {
+    git(remote, "init", "--bare", "-q");
+    git(dir, "branch", "backup");
+    git(dir, "tag", "-a", "release-candidate", "-m", "release candidate");
+    git(dir, "remote", "add", "delivery", remote);
+
+    const wildcard = git(
+      dir,
+      "push",
+      "--dry-run",
+      "--porcelain",
+      "delivery",
+      "refs/heads/*:refs/heads/*"
+    );
+    assert.match(wildcard, /refs\/heads\/backup:refs\/heads\/backup/);
+    assert.match(wildcard, /refs\/heads\/feat\/x:refs\/heads\/feat\/x/);
+
+    git(dir, "config", "push.followTags", "true");
+    const followed = git(
+      dir,
+      "push",
+      "--dry-run",
+      "--porcelain",
+      "delivery",
+      "HEAD:refs/heads/feat/x"
+    );
+    assert.match(followed, /refs\/tags\/release-candidate:refs\/tags\/release-candidate/);
+    const disabled = git(
+      dir,
+      "push",
+      "--dry-run",
+      "--porcelain",
+      "--no-follow-tags",
+      "delivery",
+      "HEAD:refs/heads/feat/x"
+    );
+    assert.doesNotMatch(disabled, /refs\/tags\/release-candidate/);
+
+    git(dir, "config", "push.followTags", "false");
+    git(dir, "config", "remote.delivery.mirror", "true");
+    const mirrored = git(dir, "push", "--dry-run", "--porcelain", "delivery");
+    assert.match(mirrored, /refs\/heads\/backup:refs\/heads\/backup/);
+    assert.match(mirrored, /refs\/heads\/feat\/x:refs\/heads\/feat\/x/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(remote, { recursive: true, force: true });
+  }
+});
+
+test("in-scope wildcard refspecs fail closed while out-of-scope wildcards remain allowed", () => {
+  const dir = makeRepo();
+  try {
+    writeGates(dir, "x", passingManifest(dir, "x", headSha(dir)));
+    assertBlock(
+      runHook("git push origin 'refs/heads/*:refs/heads/*'", { cwd: dir }),
+      /command line wildcard refspec can expand the session-branch push/
+    );
+    assertBlock(
+      runHook("git push origin 'refs/heads/feat/*:refs/heads/feat/*'", { cwd: dir }),
+      /command line wildcard refspec can expand the session-branch push/
+    );
+
+    git(dir, "config", "remote.origin.push", "refs/heads/*:refs/heads/*");
+    assertBlock(
+      runHook("git push origin", { cwd: dir }),
+      /configured wildcard refspec can expand the session-branch push/
+    );
+
+    writeFailingGates(dir, "x");
+    git(
+      dir,
+      "config",
+      "--replace-all",
+      "remote.origin.push",
+      "refs/heads/release/*:refs/heads/release/*"
+    );
+    assertAllow(runHook("git push origin", { cwd: dir }));
+    assertAllow(
+      runHook("git push origin 'refs/heads/release/*:refs/heads/release/*'", { cwd: dir })
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("tag expansion fails closed only when the same push updates the session branch", () => {
+  const dir = makeRepo();
+  try {
+    writeGates(dir, "x", passingManifest(dir, "x", headSha(dir)));
+    for (const command of [
+      "git push --tags origin HEAD:refs/heads/feat/x",
+      "git push origin HEAD:refs/heads/feat/x --tags",
+      "git push --follow-tags origin HEAD:refs/heads/feat/x",
+    ])
+      assertBlock(runHook(command, { cwd: dir }), /additional tag updates/);
+
+    writeFailingGates(dir, "x");
+    assertAllow(runHook("git push origin --tags", { cwd: dir }));
+    assertAllow(runHook("git push --tags origin HEAD:refs/heads/backup", { cwd: dir }));
+    assertAllow(runHook("git push --follow-tags origin HEAD:refs/heads/backup", { cwd: dir }));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("push.followTags honors CLI precedence and malformed configuration fails closed", () => {
+  const dir = makeRepo();
+  try {
+    writeFailingGates(dir, "x");
+    git(dir, "config", "push.followTags", "true");
+    assertBlock(
+      runHook("git push origin HEAD:refs/heads/feat/x", { cwd: dir }),
+      /configured push\.followTags expands/
+    );
+    assertBlock(
+      runHook("git push --no-follow-tags origin HEAD:refs/heads/feat/x", { cwd: dir }),
+      /verification is failed/
+    );
+    assertAllow(runHook("git push origin HEAD:refs/heads/backup", { cwd: dir }));
+
+    git(dir, "config", "push.followTags", "not-a-boolean");
+    assertBlock(
+      runHook("git push origin HEAD:refs/heads/feat/x", { cwd: dir }),
+      /cannot read Git boolean configuration push\.followTags/
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("configured mirror and --branches fail closed for session-branch expansion", () => {
+  const dir = makeRepo();
+  try {
+    writeGates(dir, "x", passingManifest(dir, "x", headSha(dir)));
+    git(dir, "config", "remote.origin.mirror", "true");
+    assertBlock(
+      runHook("git push origin", { cwd: dir }),
+      /configured remote\.origin\.mirror expands/
+    );
+
+    git(dir, "config", "push.default", "upstream");
+    git(dir, "config", "branch.feat/x.remote", "origin");
+    git(dir, "config", "branch.feat/x.merge", "refs/heads/renamed");
+    assertBlock(
+      runHook("git push origin", { cwd: dir }),
+      /configured remote\.origin\.mirror expands/
+    );
+
+    writeFailingGates(dir, "x");
+    git(dir, "config", "remote.origin.push", "HEAD:refs/heads/backup");
+    assertAllow(runHook("git push origin", { cwd: dir }));
+
+    git(dir, "config", "--unset-all", "remote.origin.push");
+    git(dir, "config", "remote.origin.mirror", "false");
+    assertBlock(runHook("git push origin --branches", { cwd: dir }), /multi-ref --all\/--mirror/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
