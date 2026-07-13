@@ -898,12 +898,9 @@ function resolvePushRemote(repoDir, args, branch) {
       gitCapture(repoDir, ["config", "--get", `branch.${branch}.remote`]) ||
       "origin";
   }
-  if (
-    !/^[A-Za-z0-9._/-]+$/.test(remote) ||
-    remote === "." ||
-    remote.split("/").some((segment) => segment === "..")
-  )
-    return { error: "push destination must be a literal named remote" };
+  const configured = gitCapture(repoDir, ["remote"]).split(/\r?\n/).filter(Boolean);
+  if (remote === "." || !configured.includes(remote))
+    return { error: `push destination ${remote} is not a configured named remote` };
   if (!gitCapture(repoDir, ["remote", "get-url", remote]))
     return { error: `push destination ${remote} is not a configured named remote` };
   return { remote };

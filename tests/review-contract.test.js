@@ -233,6 +233,8 @@ test("Review design applicability shares Dev's UI-impact classifier", () => {
     "android/build-logic/src/main/kotlin/ConventionPlugin.kt",
     "server/SyncActivity.kt",
     "services/payments/PaymentDialog.kt",
+    "services/payments/src/main/kotlin/com/acme/PaymentActivity.kt",
+    "android/server/SyncActivity.kt",
     "lib/server/http_server.dart",
     "lib/domain/ledger.dart",
   ]) {

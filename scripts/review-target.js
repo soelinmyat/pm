@@ -134,15 +134,12 @@ function loadDevContext(root, relative, expected) {
 }
 
 function resolveTrustedBase(root, remote = "origin") {
-  if (
-    !/^[A-Za-z0-9._/-]+$/.test(remote) ||
-    remote === "." ||
-    remote.split("/").some((segment) => segment === "..")
-  )
-    throw new Error("authoritative remote must be a literal named remote");
+  const configured = git(root, ["remote"]).trim().split(/\r?\n/).filter(Boolean);
+  if (remote === "." || !configured.includes(remote))
+    throw new Error("authoritative remote must be an exact configured remote name");
   let output;
   try {
-    output = execFileSync("git", ["ls-remote", "--symref", remote, "HEAD"], {
+    output = execFileSync("git", ["ls-remote", "--symref", "--", remote, "HEAD"], {
       cwd: root,
       encoding: "utf8",
       env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "Never" },
@@ -169,7 +166,7 @@ function resolveTrustedBase(root, remote = "origin") {
     });
   } catch {
     try {
-      execFileSync("git", ["fetch", "--no-tags", "--quiet", remote, `refs/heads/${branch}`], {
+      execFileSync("git", ["fetch", "--no-tags", "--quiet", "--", remote, `refs/heads/${branch}`], {
         cwd: root,
         env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "Never" },
         stdio: ["ignore", "ignore", "pipe"],

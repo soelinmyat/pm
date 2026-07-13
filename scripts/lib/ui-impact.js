@@ -33,6 +33,7 @@ const ANDROID_UI_RE =
 const ANDROID_NAMED_KOTLIN_UI_RE =
   /(^|\/)[^/]*(?:Activity|Fragment|Screen|Dialog|Composable|Ui|UI)\.(kt|kts)$/i;
 const ANDROID_SOURCE_CONTEXT_RE = /(^|\/)[^/]+\/src\/[^/]+\/(?:java|kotlin)\/|(^|\/)android\//i;
+const ANDROID_BACKEND_CONTEXT_RE = /(^|\/)(?:server|services?|backend|build-logic|tools?)(\/|$)/i;
 const ANDROID_UI_PACKAGE_KOTLIN_RE =
   /(^|\/)[^/]+\/src\/[^/]+\/(java|kotlin)\/.*\/(ui|views?|screens?|presentation|adapters?)\/.*(?:View|Adapter)\.(kt|kts)$/i;
 const FLUTTER_UI_RE =
@@ -51,7 +52,9 @@ function isUiImpactPath(file) {
     APPLE_UI_RE.test(file) ||
     APPLE_UI_NAMED_FILE_RE.test(file) ||
     ANDROID_UI_RE.test(file) ||
-    (ANDROID_SOURCE_CONTEXT_RE.test(file) && ANDROID_NAMED_KOTLIN_UI_RE.test(file)) ||
+    (ANDROID_SOURCE_CONTEXT_RE.test(file) &&
+      !ANDROID_BACKEND_CONTEXT_RE.test(file) &&
+      ANDROID_NAMED_KOTLIN_UI_RE.test(file)) ||
     ANDROID_UI_PACKAGE_KOTLIN_RE.test(file) ||
     FLUTTER_UI_RE.test(file)
   )
