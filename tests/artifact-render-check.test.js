@@ -11,6 +11,7 @@ const {
   browserCandidates,
   findClosingBodyIndex,
   probeDataMarkerVisibility,
+  readCaptureFilePinned,
   renderArtifact: renderArtifactRaw,
   resolveBrowser,
 } = require("../scripts/artifact-render-check");
@@ -494,4 +495,21 @@ test("render probe finds the body close outside JSON raw text and trailing comme
   const html =
     '<html><head><script type="application/json">{"title":"Explain </body>"}</script></head><body><main>x</main></body><!-- </body> --></html>';
   assert.equal(findClosingBodyIndex(html), html.indexOf("</body><!--"));
+});
+
+test("staged capture reads reject symlinks and oversized files before allocation", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-capture-read-"));
+  try {
+    const target = path.join(root, "target.png");
+    const linked = path.join(root, "linked.png");
+    const oversized = path.join(root, "oversized.png");
+    fs.writeFileSync(target, "capture");
+    fs.symlinkSync(target, linked);
+    assert.throws(() => readCaptureFilePinned(linked), /ELOOP|symbolic link|too many levels/i);
+    fs.closeSync(fs.openSync(oversized, "w"));
+    fs.truncateSync(oversized, 64 * 1024 * 1024 + 1);
+    assert.throws(() => readCaptureFilePinned(oversized), /exceeds .*byte budget/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

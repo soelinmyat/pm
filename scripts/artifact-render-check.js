@@ -25,6 +25,7 @@ const VIEWPORTS = Object.freeze([
 const MAX_RENDER_HEIGHT = 16_000;
 const OBSERVATION_ASSURANCE_LEVEL = "local-observation";
 const OBSERVATION_PRODUCER = "pm:artifact-render-check";
+const MAX_CAPTURE_BYTES = 64 * 1024 * 1024;
 const SOURCE_WATCHER = path.join(__dirname, "artifact-source-watch.js");
 const BROWSER_PROBE = path.join(__dirname, "artifact-browser-probe.js");
 
@@ -343,7 +344,7 @@ function runBrowser(browserPath, args, options = {}) {
           },
           "browser capture"
         );
-        const bytes = fs.readFileSync(stagingPath);
+        const bytes = readCaptureFilePinned(stagingPath);
         projectWriter.writeProjectFileAtomic(
           options.projectRoot,
           projectRelative(options.projectRoot, outputPath, "browser capture"),
@@ -352,7 +353,7 @@ function runBrowser(browserPath, args, options = {}) {
             replace: false,
             fileMode: 0o600,
             directoryMode: 0o700,
-            maxBytes: 64 * 1024 * 1024,
+            maxBytes: MAX_CAPTURE_BYTES,
           }
         );
         return result;
@@ -376,6 +377,38 @@ function runBrowser(browserPath, args, options = {}) {
     return result;
   } finally {
     fs.rmSync(profileDir, { recursive: true, force: true });
+  }
+}
+
+function readCaptureFilePinned(capturePath) {
+  const descriptor = fs.openSync(
+    capturePath,
+    fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0)
+  );
+  try {
+    const before = fs.fstatSync(descriptor, { bigint: true });
+    if (!before.isFile()) throw new Error("staged browser capture is not a regular file");
+    if (before.size > BigInt(MAX_CAPTURE_BYTES))
+      throw new Error(`staged browser capture exceeds ${MAX_CAPTURE_BYTES}-byte budget`);
+    const bytes = Buffer.alloc(Number(before.size));
+    let offset = 0;
+    while (offset < bytes.length) {
+      const count = fs.readSync(descriptor, bytes, offset, bytes.length - offset, offset);
+      if (count === 0) throw new Error("staged browser capture ended before its attested size");
+      offset += count;
+    }
+    const after = fs.fstatSync(descriptor, { bigint: true });
+    if (
+      after.dev !== before.dev ||
+      after.ino !== before.ino ||
+      after.size !== before.size ||
+      after.mtimeNs !== before.mtimeNs ||
+      after.ctimeNs !== before.ctimeNs
+    )
+      throw new Error("staged browser capture changed during bounded read");
+    return bytes;
+  } finally {
+    fs.closeSync(descriptor);
   }
 }
 
@@ -477,7 +510,7 @@ function runCanonicalProbe(browserPath, htmlPath, viewport, expression) {
 function runBrowserProbe(configuration, label) {
   let result;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
-    result = spawnSync(process.execPath, ["--max-old-space-size=192", BROWSER_PROBE], {
+    result = spawnSync(process.execPath, ["--max-old-space-size=512", BROWSER_PROBE], {
       input: JSON.stringify(configuration),
       encoding: "utf8",
       timeout: 30_000,
@@ -805,6 +838,7 @@ module.exports = {
   inspectPng,
   invocationConfigurationDigest,
   probeDataMarkerVisibility,
+  readCaptureFilePinned,
   renderArtifact,
   resolveBrowser,
   validateMetrics,
