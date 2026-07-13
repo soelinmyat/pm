@@ -5,7 +5,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { pathToFileURL } = require("node:url");
+const { fileURLToPath, pathToFileURL } = require("node:url");
 const { spawn, spawnSync } = require("node:child_process");
 const { parseCliArgs } = require("./loop-args");
 const { writeJsonAtomic } = require("./lib/atomic-file");
@@ -59,12 +59,16 @@ function renderArtifact(options) {
       assertRenderSourceIdentity(htmlPath, sourceBefore, sourceWatcher);
       validateMetrics(metrics, viewport);
       fs.rmSync(output, { force: true });
-      runBrowser(browserPath, [
-        ...baseArgs(),
-        `--window-size=${viewport.width},${viewport.height}`,
-        `--screenshot=${output}`,
-        url,
-      ]);
+      runBrowser(
+        browserPath,
+        [
+          ...baseArgs(),
+          `--window-size=${viewport.width},${viewport.height}`,
+          `--screenshot=${output}`,
+          url,
+        ],
+        { canonical: options.legacyProbe !== true }
+      );
       assertRenderSourceIdentity(htmlPath, sourceBefore, sourceWatcher);
       const dimensions = inspectPng(output);
       if (dimensions.width !== viewport.width || dimensions.height !== viewport.height) {
@@ -78,12 +82,16 @@ function renderArtifact(options) {
         `${path.basename(htmlPath, ".html")}-${viewport.name}-full.png`
       );
       fs.rmSync(fullOutput, { force: true });
-      runBrowser(browserPath, [
-        ...baseArgs(),
-        `--window-size=${viewport.width},${fullHeight}`,
-        `--screenshot=${fullOutput}`,
-        url,
-      ]);
+      runBrowser(
+        browserPath,
+        [
+          ...baseArgs(),
+          `--window-size=${viewport.width},${fullHeight}`,
+          `--screenshot=${fullOutput}`,
+          url,
+        ],
+        { canonical: options.legacyProbe !== true }
+      );
       assertRenderSourceIdentity(htmlPath, sourceBefore, sourceWatcher);
       const fullDimensions = inspectPng(fullOutput);
       if (fullDimensions.width !== viewport.width || fullDimensions.height !== fullHeight) {
@@ -109,12 +117,11 @@ function renderArtifact(options) {
 
     const pdfPath = path.join(outputDir, `${path.basename(htmlPath, ".html")}-print.pdf`);
     fs.rmSync(pdfPath, { force: true });
-    runBrowser(browserPath, [
-      ...baseArgs(),
-      `--print-to-pdf=${pdfPath}`,
-      "--no-pdf-header-footer",
-      url,
-    ]);
+    runBrowser(
+      browserPath,
+      [...baseArgs(), `--print-to-pdf=${pdfPath}`, "--no-pdf-header-footer", url],
+      { canonical: options.legacyProbe !== true }
+    );
     assertRenderSourceIdentity(htmlPath, sourceBefore, sourceWatcher);
     const printInspection = inspectPdf(pdfPath);
     const markers = options.markerPrefix
@@ -311,7 +318,36 @@ function baseArgs() {
   ];
 }
 
-function runBrowser(browserPath, args) {
+function runBrowser(browserPath, args, options = {}) {
+  if (options.canonical === true) {
+    const screenshot = args.find((arg) => arg.startsWith("--screenshot="));
+    const pdf = args.find((arg) => arg.startsWith("--print-to-pdf="));
+    const windowSize = args.find((arg) => arg.startsWith("--window-size="));
+    const url = args.at(-1);
+    if (screenshot || pdf) {
+      const [width, height] = (windowSize?.slice("--window-size=".length) || "1440,1000")
+        .split(",")
+        .map(Number);
+      const result = spawnSync(process.execPath, [BROWSER_PROBE], {
+        input: JSON.stringify({
+          browserPath,
+          htmlPath: fileURLToPath(url),
+          viewport: { width, height },
+          action: screenshot ? "screenshot" : "pdf",
+          outputPath: (screenshot || pdf).split("=").slice(1).join("="),
+        }),
+        encoding: "utf8",
+        timeout: 60_000,
+        maxBuffer: 4 * 1024 * 1024,
+      });
+      if (result.error) throw new Error(`browser capture failed: ${result.error.message}`);
+      if (result.status !== 0)
+        throw new Error(
+          `browser capture exited ${result.status}: ${(result.stderr || result.stdout || "unknown error").trim().slice(0, 500)}`
+        );
+      return result;
+    }
+  }
   const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-browser-"));
   try {
     const result = spawnSync(browserPath, [`--user-data-dir=${profileDir}`, ...args], {
@@ -643,7 +679,9 @@ function validateMetrics(metrics, viewport) {
     throw new Error(`${viewport.name} render has horizontal document overflow`);
   }
   if (!Number.isFinite(metrics.documentHeight) || metrics.documentHeight > MAX_RENDER_HEIGHT) {
-    throw new Error(`${viewport.name} render exceeds the ${MAX_RENDER_HEIGHT}px height budget`);
+    throw new Error(
+      `${viewport.name} render is ${metrics.documentHeight}px and exceeds the ${MAX_RENDER_HEIGHT}px height budget`
+    );
   }
   if (
     !metrics.mainVisible ||

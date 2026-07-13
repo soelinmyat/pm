@@ -10,10 +10,10 @@ const { pathToFileURL } = require("node:url");
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function requestJson(url) {
+function requestJson(url, method = "GET") {
   return new Promise((resolve, reject) => {
-    http
-      .get(url, (response) => {
+    const request = http
+      .request(url, { method }, (response) => {
         let body = "";
         response.setEncoding("utf8");
         response.on("data", (chunk) => (body += chunk));
@@ -26,6 +26,7 @@ function requestJson(url) {
         });
       })
       .on("error", reject);
+    request.end();
   });
 }
 
@@ -118,12 +119,17 @@ async function main() {
     }
     const port = Number(fs.readFileSync(portFile, "utf8").split(/\r?\n/)[0]);
     let targets = [];
+    let target = await requestJson(
+      `http://127.0.0.1:${port}/json/new?${encodeURIComponent("about:blank")}`,
+      "PUT"
+    ).catch(() => null);
+    if (!target?.webSocketDebuggerUrl) target = null;
     const targetDeadline = Date.now() + 10_000;
-    while (targets.length === 0 && Date.now() < targetDeadline) {
+    while (!target && Date.now() < targetDeadline) {
       targets = await requestJson(`http://127.0.0.1:${port}/json/list`).catch(() => []);
-      if (targets.length === 0) await sleep(25);
+      target = targets.find((item) => item.type === "page" && item.webSocketDebuggerUrl);
+      if (!target) await sleep(25);
     }
-    const target = targets.find((item) => item.type === "page" && item.webSocketDebuggerUrl);
     if (!target) throw new Error("Chromium did not expose a page target");
     client = await connect(target.webSocketDebuggerUrl);
     await client.send("Page.enable");
@@ -149,6 +155,26 @@ async function main() {
       await sleep(25);
     }
     if (!ready) throw new Error("canonical page did not reach complete readiness");
+    if (config.action === "screenshot") {
+      const captured = await client.send("Page.captureScreenshot", {
+        format: "png",
+        fromSurface: true,
+        captureBeyondViewport: false,
+      });
+      if (!captured.data) throw new Error("browser did not return screenshot bytes");
+      fs.writeFileSync(config.outputPath, Buffer.from(captured.data, "base64"), { mode: 0o600 });
+      return;
+    }
+    if (config.action === "pdf") {
+      await client.send("Emulation.setEmulatedMedia", { media: "print" });
+      const printed = await client.send("Page.printToPDF", {
+        displayHeaderFooter: false,
+        printBackground: true,
+      });
+      if (!printed.data) throw new Error("browser did not return PDF bytes");
+      fs.writeFileSync(config.outputPath, Buffer.from(printed.data, "base64"), { mode: 0o600 });
+      return;
+    }
     const evaluated = await client.send("Runtime.evaluate", {
       expression: config.expression,
       returnByValue: true,
