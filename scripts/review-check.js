@@ -1325,15 +1325,18 @@ function frozenPathChange(root, target, changed) {
 }
 
 function validateTextLineRange(bytes, end, label, issues) {
-  if (bytes.includes(0)) return add(issues, label, "cannot line-address a binary file");
-  let lines = LINE_COUNT_CACHE.get(bytes);
-  if (lines === undefined) {
-    lines = 0;
-    for (const byte of bytes) if (byte === 0x0a) lines += 1;
-    if (bytes.length > 0 && bytes[bytes.length - 1] !== 0x0a) lines += 1;
-    LINE_COUNT_CACHE.set(bytes, lines);
+  let metadata = LINE_COUNT_CACHE.get(bytes);
+  if (metadata === undefined) {
+    metadata = { binary: false, lines: 0 };
+    for (const byte of bytes) {
+      if (byte === 0) metadata.binary = true;
+      if (byte === 0x0a) metadata.lines += 1;
+    }
+    if (bytes.length > 0 && bytes[bytes.length - 1] !== 0x0a) metadata.lines += 1;
+    LINE_COUNT_CACHE.set(bytes, metadata);
   }
-  if (end > lines) add(issues, label, `line range exceeds file length ${lines}`);
+  if (metadata.binary) return add(issues, label, "cannot line-address a binary file");
+  if (end > metadata.lines) add(issues, label, `line range exceeds file length ${metadata.lines}`);
 }
 
 function validateDecisions(value, file, target, targetFile, findingIds, issues) {

@@ -126,6 +126,7 @@ const WRAPPER_VALUE_OPTIONS = Object.freeze({
   time: new Set(["-f", "--format", "-o", "--output"]),
   timeout: new Set(["-k", "--kill-after", "-s", "--signal"]),
   xcrun: new Set(["--sdk", "-sdk", "--toolchain", "-toolchain"]),
+  arch: new Set(["-arch", "-d", "-e"]),
 });
 const WRAPPER_SHORT_VALUE_OPTIONS = Object.freeze({
   env: new Set(["u", "C", "S", "P"]),
@@ -133,6 +134,7 @@ const WRAPPER_SHORT_VALUE_OPTIONS = Object.freeze({
   nice: new Set(["n"]),
   time: new Set(["f", "o"]),
   timeout: new Set(["k", "s"]),
+  arch: new Set(["d", "e"]),
 });
 // git GLOBAL options (before the subcommand) that consume the next token.
 const GIT_VALUE_OPTS = new Set(["-c", "--namespace", "--super-prefix", "--exec-path"]);

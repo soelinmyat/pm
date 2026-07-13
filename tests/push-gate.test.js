@@ -1118,6 +1118,9 @@ test("common execution wrappers cannot bypass a failed push gate", () => {
       "xcrun git push origin HEAD",
       "/usr/bin/xcrun --sdk macosx git push origin HEAD",
       "arch -arm64 git push origin HEAD",
+      "arch -arch arm64 git push origin HEAD",
+      "arch -d FLAG git push origin HEAD",
+      "arch -e FLAG=value git push origin HEAD",
     ])
       assertBlock(runHook(command, { cwd: dir }), /verification is failed/);
   } finally {
