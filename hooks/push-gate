@@ -809,9 +809,14 @@ function parsePushArguments(args) {
   let sawAllOrMirror = false;
   let remote = null;
   let remoteSuppliedByOption = false;
+  let optionsEnded = false;
   for (let i = 0; i < args.length; i += 1) {
     const token = args[i];
-    if (token.startsWith("-")) {
+    if (!optionsEnded && token === "--") {
+      optionsEnded = true;
+      continue;
+    }
+    if (!optionsEnded && token.startsWith("-")) {
       if (token === "--delete" || token === "-d") sawDelete = true;
       else if (token === "--tags") sawTags = true;
       else if (token === "--all" || token === "--mirror") sawAllOrMirror = true;
@@ -901,7 +906,7 @@ function resolvePushRemote(repoDir, args, branch) {
   const configured = gitCapture(repoDir, ["remote"]).split(/\r?\n/).filter(Boolean);
   if (remote === "." || !configured.includes(remote))
     return { error: `push destination ${remote} is not a configured named remote` };
-  if (!gitCapture(repoDir, ["remote", "get-url", remote]))
+  if (!gitCapture(repoDir, ["config", "--get", `remote.${remote}.url`]))
     return { error: `push destination ${remote} is not a configured named remote` };
   return { remote };
 }

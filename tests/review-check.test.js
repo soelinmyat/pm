@@ -182,6 +182,8 @@ test("trusted base resolves the named destination remote", () => {
   assert.throws(() => resolveTrustedBase(fixture.root, "../remote"), /configured remote name/);
   git(fixture.root, ["remote", "add", "foo+bar", remote]);
   assert.equal(resolveTrustedBase(fixture.root, "foo+bar").ref, "foo+bar/main");
+  git(fixture.root, ["remote", "add", "--", "-foo", remote]);
+  assert.equal(resolveTrustedBase(fixture.root, "-foo").ref, "-foo/main");
   const target = buildReviewTarget({ root: fixture.root, remote: "upstream", maxWorkers: 2 });
   assert.equal(target.source.base_ref, "upstream/main");
 });

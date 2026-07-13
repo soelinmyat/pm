@@ -299,6 +299,7 @@ test("push gate passes the exact named destination remote to enforcement", () =>
   try {
     git(dir, "remote", "add", "upstream", ".");
     git(dir, "remote", "add", "foo+bar", ".");
+    git(dir, "remote", "add", "--", "-foo", ".");
     fs.mkdirSync(path.join(fakeRoot, "scripts"), { recursive: true });
     fs.writeFileSync(
       path.join(fakeRoot, "scripts", "dev-gate-check.js"),
@@ -326,6 +327,16 @@ test("push gate passes the exact named destination remote to enforcement", () =>
         `}\n`
     );
     assertAllow(runHook("git push foo+bar HEAD", { cwd: dir }, { PM_PLUGIN_ROOT: fakeRoot }));
+    fs.writeFileSync(
+      path.join(fakeRoot, "scripts", "dev-gate-check.js"),
+      `"use strict";\n` +
+        `module.exports = require(${JSON.stringify(path.join(ROOT, "scripts", "dev-gate-check.js"))});\n` +
+        `if (require.main === module) {\n` +
+        `  const i = process.argv.indexOf("--remote");\n` +
+        `  process.exitCode = i >= 0 && process.argv[i + 1] === "-foo" ? 0 : 7;\n` +
+        `}\n`
+    );
+    assertAllow(runHook("git push -- -foo HEAD", { cwd: dir }, { PM_PLUGIN_ROOT: fakeRoot }));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
     fs.rmSync(fakeRoot, { recursive: true, force: true });
