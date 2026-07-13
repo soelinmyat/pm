@@ -1115,6 +1115,9 @@ test("common execution wrappers cannot bypass a failed push gate", () => {
       "timeout -k 5 600 git push origin HEAD",
       "nohup git push origin HEAD",
       "noglob git push origin HEAD",
+      "xcrun git push origin HEAD",
+      "/usr/bin/xcrun --sdk macosx git push origin HEAD",
+      "arch -arm64 git push origin HEAD",
     ])
       assertBlock(runHook(command, { cwd: dir }), /verification is failed/);
   } finally {

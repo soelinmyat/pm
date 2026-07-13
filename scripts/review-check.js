@@ -70,6 +70,7 @@ const BOUND_ARTIFACT_CACHE = Symbol("review-bound-artifact-cache");
 const EVIDENCE_BYTE_LEDGER = Symbol("review-evidence-byte-ledger");
 const CHANGE_HUNK_ANCHOR_POLICY = "changed-hunk-anchor-v1";
 const MAX_CHANGE_ANCHORS = 8;
+const LINE_COUNT_CACHE = new WeakMap();
 const MAX_ANCHOR_PATHS = 500;
 const MAX_ANCHOR_RELATION_CHARS = 500;
 
@@ -1325,9 +1326,13 @@ function frozenPathChange(root, target, changed) {
 
 function validateTextLineRange(bytes, end, label, issues) {
   if (bytes.includes(0)) return add(issues, label, "cannot line-address a binary file");
-  let lines = 0;
-  for (const byte of bytes) if (byte === 0x0a) lines += 1;
-  if (bytes.length > 0 && bytes[bytes.length - 1] !== 0x0a) lines += 1;
+  let lines = LINE_COUNT_CACHE.get(bytes);
+  if (lines === undefined) {
+    lines = 0;
+    for (const byte of bytes) if (byte === 0x0a) lines += 1;
+    if (bytes.length > 0 && bytes[bytes.length - 1] !== 0x0a) lines += 1;
+    LINE_COUNT_CACHE.set(bytes, lines);
+  }
   if (end > lines) add(issues, label, `line range exceeds file length ${lines}`);
 }
 
