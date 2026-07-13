@@ -706,9 +706,9 @@ function parseDirectoryEnvironmentCommand(segment) {
       ? { prefixAssignments, operandAssignments: [], redirectionMayFail, options: [] }
       : null;
   const command = words[index++].value;
-  if (!["export", "readonly", "unset"].includes(command)) return null;
+  if (!["declare", "export", "readonly", "typeset", "unset"].includes(command)) return null;
   const options = [];
-  while (words[index]?.value.startsWith("-")) {
+  while (/^[+-]/.test(words[index]?.value || "")) {
     options.push(words[index++].value);
     if (options[options.length - 1] === "--") break;
   }
@@ -721,8 +721,10 @@ function parseDirectoryEnvironmentCommand(segment) {
   }
   const optionLetters = new Set(options.flatMap((option) => option.slice(1).split("")));
   const supportedOptions = {
+    declare: new Set(["a", "A", "f", "F", "g", "i", "I", "l", "n", "p", "r", "t", "u", "x", "-"]),
     export: new Set(["f", "n", "p", "-"]),
     readonly: new Set(["a", "A", "f", "p", "-"]),
+    typeset: new Set(["a", "A", "f", "F", "g", "i", "I", "l", "n", "p", "r", "t", "u", "x", "-"]),
     unset: new Set(["f", "v", "-"]),
   };
   const forcedFailure =
@@ -736,10 +738,13 @@ function parseDirectoryEnvironmentCommand(segment) {
       (optionLetters.has("a") || optionLetters.has("A")));
   const arrayMode = command === "readonly" && (optionLetters.has("a") || optionLetters.has("A"));
   const ambientAssignmentMayFail =
-    command === "readonly" &&
+    ["export", "readonly"].includes(command) &&
     operandAssignments.some(
       (assignment) => !["HOME", "CDPATH"].includes(assignmentName(assignment))
     );
+  const ambientUnsetMayFail =
+    command === "unset" && names.some((name) => !["HOME", "CDPATH"].includes(name));
+  const declarationMayVary = ["declare", "typeset"].includes(command);
   const namesChangeValues =
     (command === "unset" && (!optionLetters.has("f") || optionLetters.has("v"))) ||
     (command === "readonly" && !optionLetters.has("f"));
@@ -766,9 +771,10 @@ function parseDirectoryEnvironmentCommand(segment) {
         arrayMode,
         command,
         forcedFailure,
-        // Array support, variable type, and unrelated readonly operands depend
+        // Array support, variable type, and unrelated builtin operands depend
         // on shell state that the hook process cannot prove from syntax.
-        modeMayFail: arrayMode || ambientAssignmentMayFail,
+        modeMayFail:
+          arrayMode || ambientAssignmentMayFail || ambientUnsetMayFail || declarationMayVary,
         names: effectiveNames,
         operandAssignments,
         persistentPrefixAssignments,
@@ -793,6 +799,7 @@ function applyDirectoryEnvironmentCommand(state, command) {
     const valueKnown =
       Boolean(parsedAssignment) &&
       !parsedAssignment.complex &&
+      !["declare", "typeset"].includes(command.command) &&
       !assignment.dynamic &&
       !value.startsWith("~");
     if (name === "HOME") {
