@@ -611,10 +611,11 @@ function detectGitPushes(command, baseCwd) {
 }
 
 function parseDirectoryChange(segment) {
-  const commandText = stripTrailingShellRedirections(segment);
+  const withoutControlKeywords = segment.replace(/^\s*(?:(?:then|do|else)\b\s*)+/i, "");
+  const commandText = stripTrailingShellRedirections(withoutControlKeywords);
   if (commandText === null)
     return {
-      recognized: /^(?:(?:builtin|command)\s+)?(?:cd|pushd|popd)\b/.test(segment),
+      recognized: /^(?:(?:builtin|command)\s+)?(?:cd|pushd|popd)\b/.test(withoutControlKeywords),
       target: null,
     };
   const match = commandText.match(

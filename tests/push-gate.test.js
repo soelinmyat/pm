@@ -588,6 +588,23 @@ test("cd <dir> && git push form is detected and gated against that repo", () => 
   }
 });
 
+test("shell control keywords preserve directory changes before gated pushes", () => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "pm-push-gate-control-cd-"));
+  const gated = path.join(parent, "gated");
+  try {
+    fs.mkdirSync(gated);
+    makeRepoAt(gated);
+    writeFailingGates(gated, "x");
+    for (const command of [
+      "if true; then cd gated && git push origin HEAD; fi",
+      "for item in one; do cd gated && git push origin HEAD; done",
+    ])
+      assertBlock(runHook(command, { cwd: parent }), /verification is failed/);
+  } finally {
+    fs.rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // current.gates.json is a migration-only compatibility artifact.
 // ---------------------------------------------------------------------------

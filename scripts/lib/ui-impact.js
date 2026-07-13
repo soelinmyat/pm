@@ -16,6 +16,7 @@ const NEXT_APP_ROUTER_MARKUP_RE =
 const ANGULAR_UI_TS_RE = /(^|\/)(src\/)?app\/([^/]+\/)*[^/]+\.(component|directive|pipe)\.ts$/i;
 const UI_ROUTER_JS_TS_RE =
   /(^|\/)(src\/)?((routes|routing|router)\.(js|mjs|cjs|ts)|router\/(index|routes|router)\.(js|mjs|cjs|ts)|app\/([^/]+\/)*[^/]+(\.routes|-routing\.module)\.ts)$/i;
+const BACKEND_ROUTE_CONTEXT_RE = /(^|\/)(server|backend|api|services?)(\/|$)/i;
 const FRONTEND_ROUTE_MODULE_RE =
   /(^|\/)(src|frontend|client|web|mobile|ui|browser)\/routes\/[^/]+(?:\/[^/]+)*\.(js|mjs|cjs|ts)$/i;
 const UI_SINGLE_APP_STATE_RE =
@@ -69,7 +70,7 @@ function isUiImpactPath(file) {
     UI_APP_ROOT_RE.test(file) ||
     NEXT_APP_ROUTER_UI_RE.test(file) ||
     ANGULAR_UI_TS_RE.test(file) ||
-    UI_ROUTER_JS_TS_RE.test(file) ||
+    (UI_ROUTER_JS_TS_RE.test(file) && !BACKEND_ROUTE_CONTEXT_RE.test(file)) ||
     FRONTEND_ROUTE_MODULE_RE.test(file) ||
     UI_SINGLE_APP_STATE_RE.test(file) ||
     UI_CONFIG_RE.test(file)
