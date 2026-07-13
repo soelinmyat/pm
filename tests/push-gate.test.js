@@ -137,10 +137,13 @@ function assertAllow(result) {
   assert.equal((result.stdout || "").trim(), "", `expected no decision, got: ${result.stdout}`);
 }
 
-function assertBlock(result, reasonPattern) {
+function assertBlock(result, reasonPattern, label = "") {
   assert.equal(result.status, 0, `expected exit 0, got ${result.status}: ${result.stderr}`);
   const decision = decisionOf(result);
-  assert.ok(decision, `expected a deny decision on stdout, got: ${result.stdout}`);
+  assert.ok(
+    decision,
+    `${label ? `${label}: ` : ""}expected a deny decision on stdout, got: ${result.stdout}`
+  );
   assert.equal(decision.hookEventName, "PreToolUse");
   assert.equal(decision.permissionDecision, "deny");
   if (reasonPattern) {
@@ -616,10 +619,12 @@ test("shell control keywords preserve directory changes before gated pushes", ()
       ">/dev/null MODE=x cd gated && git push origin HEAD",
       "HOME=gated; cd; git push origin HEAD",
       "CDPATH=gated; cd child; git push origin HEAD",
+      "CDPATH=search; cd gated/sub; git push origin HEAD",
       "export HOME=gated; cd; git push origin HEAD",
       "export CDPATH=gated; cd child; git push origin HEAD",
-      "unset HOME; cd; git push origin HEAD",
       "HOME=gated >/dev/null MODE=x; cd; git push origin HEAD",
+      "HOME=gated export HOME; cd; git push origin HEAD",
+      "CDPATH=gated export CDPATH; cd child; git push origin HEAD",
       "if true; then HOME=gated; cd; git push origin HEAD; fi",
       "if HOME=gated; then cd; git push origin HEAD; fi",
       "command -- cd gated && git push origin HEAD",
@@ -628,7 +633,8 @@ test("shell control keywords preserve directory changes before gated pushes", ()
     ])
       assertBlock(
         runHook(command, { cwd: parent }),
-        /verification is failed|could not determine the repository/
+        /verification is failed|could not determine the repository/,
+        command
       );
     assertAllow(
       runHook("CDPATH=gated; CDPATH=; cd child && git push origin HEAD", { cwd: parent })
@@ -636,8 +642,14 @@ test("shell control keywords preserve directory changes before gated pushes", ()
     assertAllow(
       runHook("CDPATH=gated; unset CDPATH; cd child && git push origin HEAD", { cwd: parent })
     );
+    assertAllow(runHook("unset HOME; cd; git push origin HEAD", { cwd: parent }));
+    assertAllow(runHook("HOME=; cd; git push origin HEAD", { cwd: parent }));
     assertBlock(
       runHook("HOME=/tmp; cd gated && git push origin HEAD", { cwd: parent }),
+      /verification is failed/
+    );
+    assertBlock(
+      runHook("readonly HOME; unset HOME || cd gated; git push origin HEAD", { cwd: parent }),
       /verification is failed/
     );
   } finally {
