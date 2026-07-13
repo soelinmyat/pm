@@ -772,6 +772,8 @@ test("pushes inside command substitutions fail closed", () => {
       "result=$(bash -c 'git push origin HEAD')",
       "result=$(bash -lc 'git push origin HEAD')",
       "result=$(sh -c 'git -C . push origin HEAD')",
+      "result=$(env FOO=bar bash -c 'git push origin HEAD')",
+      "result=$(env -i sh -c 'git push origin HEAD')",
       "result=$(eval 'git push origin HEAD')",
     ])
       assertBlock(runHook(command, { cwd: dir }), /command substitution/);
