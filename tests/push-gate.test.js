@@ -640,6 +640,8 @@ test("shell control keywords preserve directory changes before gated pushes", ()
       "readonly HOME=/tmp >/missing/out || cd gated; git push origin HEAD",
       "readonly -a HOME; unset HOME || cd gated; git push origin HEAD",
       "readonly -f HOME=/tmp || cd gated; git push origin HEAD",
+      "readonly -g HOME || cd gated; git push origin HEAD",
+      "HOME=gated; readonly -a HOME=.; cd; git push origin HEAD",
       "command -- cd gated && git push origin HEAD",
       "builtin -- cd gated && git push origin HEAD",
       "cd gated; if false; then :; else git push origin HEAD; fi",
@@ -654,6 +656,11 @@ test("shell control keywords preserve directory changes before gated pushes", ()
     );
     assertAllow(
       runHook("CDPATH=gated; unset CDPATH; cd child && git push origin HEAD", { cwd: parent })
+    );
+    assertAllow(
+      runHook("CDPATH=gated; CDPATH= >/dev/null; cd child && git push origin HEAD", {
+        cwd: parent,
+      })
     );
     assertAllow(runHook("unset HOME; cd; git push origin HEAD", { cwd: parent }));
     assertAllow(runHook("HOME=; cd; git push origin HEAD", { cwd: parent }));
@@ -686,6 +693,12 @@ test("shell control keywords preserve directory changes before gated pushes", ()
       ),
       /could not determine the repository/
     );
+    for (const command of [
+      "HOME=/tmp unset HOME; cd; git push origin HEAD",
+      "HOME=/tmp export OTHER; cd; git push origin HEAD",
+      "HOME=/tmp readonly OTHER; cd; git push origin HEAD",
+    ])
+      assertBlock(runHook(command, { cwd: parent }, { HOME: gated }), /verification is failed/);
   } finally {
     fs.rmSync(parent, { recursive: true, force: true });
   }

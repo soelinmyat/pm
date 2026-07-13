@@ -672,17 +672,17 @@ function parseDirectoryChange(segment) {
 }
 
 function parseDirectoryEnvironmentCommand(segment) {
-  const { words, hasRedirections } = shellCommandWordsWithoutRedirections(
+  const { words, redirectionMayFail } = shellCommandWordsWithoutRedirections(
     stripExecutionPrefixes(segment)
   );
   if (words.length === 0) return null;
-  const assignments = [];
+  const prefixAssignments = [];
   let index = 0;
   while (index < words.length && isShellAssignment(words[index].value))
-    assignments.push(words[index++]);
+    prefixAssignments.push(words[index++]);
   if (index === words.length)
-    return assignments.some(isDirectoryAssignment)
-      ? { assignments, hasRedirections, options: [] }
+    return prefixAssignments.some(isDirectoryAssignment)
+      ? { prefixAssignments, operandAssignments: [], redirectionMayFail, options: [] }
       : null;
   const command = words[index++].value;
   if (!["export", "readonly", "unset"].includes(command)) return null;
@@ -692,15 +692,16 @@ function parseDirectoryEnvironmentCommand(segment) {
     if (options[options.length - 1] === "--") break;
   }
   const names = [];
+  const operandAssignments = [];
   for (; index < words.length; index += 1) {
-    if (isShellAssignment(words[index].value)) assignments.push(words[index]);
+    if (isShellAssignment(words[index].value)) operandAssignments.push(words[index]);
     else if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(words[index].value)) names.push(words[index].value);
     else return null;
   }
   const optionLetters = new Set(options.flatMap((option) => option.slice(1).split("")));
   const supportedOptions = {
     export: new Set(["f", "n", "p", "-"]),
-    readonly: new Set(["a", "A", "f", "g", "p", "-"]),
+    readonly: new Set(["a", "A", "f", "p", "-"]),
     unset: new Set(["f", "v", "-"]),
   };
   const forcedFailure =
@@ -708,16 +709,44 @@ function parseDirectoryEnvironmentCommand(segment) {
     (command === "unset" && optionLetters.has("f") && optionLetters.has("v")) ||
     ((command === "export" || command === "readonly") &&
       optionLetters.has("f") &&
-      assignments.length > 0);
+      operandAssignments.length > 0) ||
+    (command === "readonly" &&
+      optionLetters.has("f") &&
+      (optionLetters.has("a") || optionLetters.has("A")));
+  const arrayMode = command === "readonly" && (optionLetters.has("a") || optionLetters.has("A"));
   const namesChangeValues =
     (command === "unset" && (!optionLetters.has("f") || optionLetters.has("v"))) ||
     (command === "readonly" && !optionLetters.has("f"));
-  const effectiveNames = namesChangeValues ? names : [];
-  const relevant = [...assignments.map(assignmentName), ...effectiveNames].some((name) =>
-    ["HOME", "CDPATH"].includes(name)
-  );
+  let effectiveNames = namesChangeValues ? names : [];
+  if (command === "unset") {
+    const temporaryNames = new Set(prefixAssignments.map(assignmentName));
+    effectiveNames = effectiveNames.filter((name) => !temporaryNames.has(name));
+  }
+  const prefixTargetNames = command === "export" ? names : effectiveNames;
+  const targetNames = new Set([...prefixTargetNames, ...operandAssignments.map(assignmentName)]);
+  const prefixPersists =
+    (command === "export" && !optionLetters.has("n")) || command === "readonly";
+  const persistentPrefixAssignments = prefixPersists
+    ? prefixAssignments.filter((assignment) => targetNames.has(assignmentName(assignment)))
+    : [];
+  const relevant = [
+    ...persistentPrefixAssignments.map(assignmentName),
+    ...operandAssignments.map(assignmentName),
+    ...effectiveNames,
+  ].some((name) => ["HOME", "CDPATH"].includes(name));
   return relevant
-    ? { assignments, names: effectiveNames, command, forcedFailure, hasRedirections, options }
+    ? {
+        arrayMode,
+        command,
+        forcedFailure,
+        modeMayFail: arrayMode && operandAssignments.length > 0,
+        names: effectiveNames,
+        operandAssignments,
+        persistentPrefixAssignments,
+        prefixAssignments,
+        redirectionMayFail,
+        options,
+      }
     : null;
 }
 
@@ -725,7 +754,12 @@ function applyDirectoryEnvironmentCommand(state, command) {
   if (command.forcedFailure) return [{ ...state, succeeded: false }];
   const assigned = { ...state };
   let succeeded = true;
-  for (const assignment of command.assignments) {
+  const assignments = command.command
+    ? command.arrayMode
+      ? []
+      : [...command.persistentPrefixAssignments, ...command.operandAssignments]
+    : command.prefixAssignments;
+  for (const assignment of assignments) {
     const name = assignmentName(assignment);
     const value = assignment.value.slice(assignment.value.indexOf("=") + 1);
     const valueKnown = !assignment.dynamic && !value.startsWith("~");
@@ -743,7 +777,11 @@ function applyDirectoryEnvironmentCommand(state, command) {
   }
   const next = { ...assigned };
   if (command.command === "readonly") {
-    for (const name of [...command.assignments.map(assignmentName), ...command.names]) {
+    for (const name of [
+      ...command.persistentPrefixAssignments.map(assignmentName),
+      ...command.operandAssignments.map(assignmentName),
+      ...command.names,
+    ]) {
       if (name === "HOME") next.homeReadonly = true;
       if (name === "CDPATH") next.cdpathReadonly = true;
     }
@@ -763,7 +801,8 @@ function applyDirectoryEnvironmentCommand(state, command) {
     }
   }
   const outcomes = [{ ...next, succeeded }];
-  if (command.hasRedirections)
+  if (command.modeMayFail) outcomes.push({ ...state, succeeded: false });
+  if (command.redirectionMayFail)
     outcomes.push({ ...(command.command ? state : assigned), succeeded: false });
   return outcomes;
 }
@@ -802,15 +841,16 @@ function isDirectoryAssignment(word) {
 function shellCommandWordsWithoutRedirections(segment) {
   const values = splitSimpleShellWords(segment);
   const commandWords = [];
-  let hasRedirections = false;
+  let redirectionMayFail = false;
   for (let index = 0; index < values.length; index += 1) {
-    const match = values[index].value.match(/^(?:\d*(?:>>?|<{1,3})|&>>?)(.*)$/);
+    const match = values[index].value.match(/^(\d*(?:>>?|<{1,3})|&>>?)(.*)$/);
     if (!match) {
       commandWords.push(values[index]);
       continue;
     }
-    hasRedirections = true;
-    if (match[1] === "") index += 1;
+    let operand = match[2];
+    if (operand === "") operand = values[++index]?.value || "";
+    if (operand !== "/dev/null") redirectionMayFail = true;
   }
   while (
     commandWords.length > 0 &&
@@ -821,7 +861,7 @@ function shellCommandWordsWithoutRedirections(segment) {
     commandWords.shift();
     if (commandWords[0]?.value === "-p") commandWords.shift();
   }
-  return { words: commandWords, hasRedirections };
+  return { words: commandWords, redirectionMayFail };
 }
 
 function stripDirectoryCommandPrefixes(segment) {
