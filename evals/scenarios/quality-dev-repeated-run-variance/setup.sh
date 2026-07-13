@@ -12,7 +12,7 @@ const files = {
   "src/resume.js": "exports.resume = (session) => session;\n",
   "tests/resume.test.js": "const assert = require('node:assert'); const {resume}=require('../src/resume'); assert.equal(resume('ok'),'ok');\n",
   "package.json": "{\n  \"scripts\": {\n    \"test\": \"node tests/resume.test.js\"\n  }\n}\n",
-  ".pm/quality/repeat-control.json": "{\n  \"repeats\": 3,\n  \"source\": \"frozen\",\n  \"reset_between_runs\": true\n}\n",
+  ".pm/quality/repeat-control.json": "{\n  \"repeats\": 3,\n  \"source\": \"frozen\",\n  \"reset_between_runs\": true,\n  \"expectation\": \"defect-present\"\n}\n",
   ".pm/quality/case-state.json": "{\n  \"workflow\": \"dev\",\n  \"case_id\": \"dev-repeated-run-variance\",\n  \"case_type\": \"repeated-run-variance\",\n  \"state\": \"The source snapshot and inputs are frozen for three independent repeats.\"\n}\n"
 };
 for (const [name, content] of Object.entries(files)) {

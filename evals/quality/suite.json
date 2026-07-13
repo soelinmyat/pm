@@ -69,7 +69,7 @@
           "type": "repeated-run-variance",
           "prompt_ref": "evals/quality/cases/groom.md",
           "scenario_ref": "quality-groom-repeated-run-variance",
-          "scenario_contract_hash": "sha256:665a48148b14bb3c659639ecdfb7427bce0fcd4fa6837ec9d9c61d10e6c2af72"
+          "scenario_contract_hash": "sha256:593fe328eef67e7e04040145910b1d27892f5f52d8439c88b91111e8af3ac4bb"
         }
       ]
     },
@@ -124,7 +124,7 @@
           "type": "repeated-run-variance",
           "prompt_ref": "evals/quality/cases/rfc.md",
           "scenario_ref": "quality-rfc-repeated-run-variance",
-          "scenario_contract_hash": "sha256:5b4b5c05ab914eb30b6a5776c57b290be438f7d463e24e454ea86fc688cf659f"
+          "scenario_contract_hash": "sha256:a6b44f79e9d7dba9cd44f0f5e607ff58e120f24c0a7790b4d9edd0ca8a44bdf6"
         }
       ]
     },
@@ -179,7 +179,7 @@
           "type": "repeated-run-variance",
           "prompt_ref": "evals/quality/cases/dev.md",
           "scenario_ref": "quality-dev-repeated-run-variance",
-          "scenario_contract_hash": "sha256:9318de1efa523915abd6e4c1bf0a2617d41ed04db68ca07cca67c06e8a3c5035"
+          "scenario_contract_hash": "sha256:dd408d63bc4d01b56afac4b0157ff1b92186a50006c0434e3ae9ba21837a840d"
         }
       ]
     },
@@ -234,7 +234,7 @@
           "type": "repeated-run-variance",
           "prompt_ref": "evals/quality/cases/review.md",
           "scenario_ref": "quality-review-repeated-run-variance",
-          "scenario_contract_hash": "sha256:b731161def13184d1ea9e6d4b23722a5c899de28dba708a425b9db9af7ad66e3"
+          "scenario_contract_hash": "sha256:aeb632c25e534cf227e2a61e7a0186891f56a0d7976cfd1b65bbedc717a09f09"
         }
       ]
     },
@@ -282,7 +282,7 @@
           "type": "repeated-run-variance",
           "prompt_ref": "evals/quality/cases/design-critique.md",
           "scenario_ref": "quality-design-critique-repeated-run-variance",
-          "scenario_contract_hash": "sha256:a32129d145535a7b40067d2c5a2074773172f2b0fe84ea3588804a993e801093"
+          "scenario_contract_hash": "sha256:05ce8b4b263ab7a313044cb8801e4cf26256228228cdea6902e8a5336f145044"
         }
       ]
     },
@@ -337,7 +337,7 @@
           "type": "repeated-run-variance",
           "prompt_ref": "evals/quality/cases/ship.md",
           "scenario_ref": "quality-ship-repeated-run-variance",
-          "scenario_contract_hash": "sha256:f32efc1172db97da555be90ac7ebf5177023dfdfa2a8a3d233e9d58662c0b0a5"
+          "scenario_contract_hash": "sha256:d6fa95ad3d09c0ca211831fb799932118c92d5f70c64d3aa89cccc2e963d2945"
         }
       ]
     }

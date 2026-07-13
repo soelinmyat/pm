@@ -56,6 +56,9 @@ test("every quality case has concrete workflow/type state and a semantic output 
         assert.match(setup, /quality-resume\.js|phase: research/);
         assert.match(checks, /resume_validated/);
       }
+      if (item.type === "repeated-run-variance") {
+        assert.match(setup, /\\"expectation\\": \\"defect-present\\"/);
+      }
     }
   }
   assert.equal(refs.size, 41);

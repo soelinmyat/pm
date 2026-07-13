@@ -351,8 +351,16 @@ function typeFiles(workflow, type) {
       `${JSON.stringify({ schema_version: 1, status: "proposed", summary: "Improve it", evidence: [], risks: ["Things may fail"], next_steps: ["Do the work"] }, null, 2)}\n`;
   }
   if (type === "repeated-run-variance") {
-    files[".pm/quality/repeat-control.json"] =
-      `${JSON.stringify({ repeats: 3, source: "frozen", reset_between_runs: true }, null, 2)}\n`;
+    files[".pm/quality/repeat-control.json"] = `${JSON.stringify(
+      {
+        repeats: 3,
+        source: "frozen",
+        reset_between_runs: true,
+        expectation: "defect-present",
+      },
+      null,
+      2
+    )}\n`;
   }
   return files;
 }
