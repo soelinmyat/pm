@@ -113,6 +113,10 @@ const SHELL_CONTROL_PREFIXES = Object.freeze([
   "else",
   "do",
 ]);
+const SHELL_CONTROL_PREFIX_RE = new RegExp(
+  `^(?:(?:${SHELL_CONTROL_PREFIXES.join("|")})\\b\\s*)+`,
+  "i"
+);
 const LEADING_WRAPPERS = new Set([
   "env",
   "sudo",
@@ -496,7 +500,9 @@ function splitSimpleShellWords(input) {
 // leading `cd <dir>` so `cd repo && git push` gates the right repo.
 function detectGitPushes(command, baseCwd) {
   const joined = command.replace(/\\\r?\n/g, " ");
-  let states = [{ cwd: path.resolve(baseCwd), succeeded: true }];
+  let states = [
+    { cwd: path.resolve(baseCwd), succeeded: true, directoryEnvironmentChanged: false },
+  ];
   const subshells = [];
   const pushes = [];
   let operator = null;
@@ -507,14 +513,26 @@ function detectGitPushes(command, baseCwd) {
     const trimmed = segment.trim();
     if (!trimmed) return;
     const { executes, skips } = partitionShellStates(states, operator);
+    if (changesDirectoryEnvironment(trimmed)) {
+      states = dedupeShellStates([
+        ...skips,
+        ...executes.flatMap((state) => [
+          { ...state, succeeded: true, directoryEnvironmentChanged: true },
+          { ...state, succeeded: false },
+        ]),
+      ]);
+      return;
+    }
     const directoryChange = parseDirectoryChange(trimmed);
     if (directoryChange.recognized) {
       states = dedupeShellStates([
         ...skips,
         ...executes.flatMap((state) => [
           {
+            ...state,
             cwd:
               directoryChange.target === null ||
+              (state.directoryEnvironmentChanged && directoryChange.environmentSensitive) ||
               (state.cwd === null && !path.isAbsolute(directoryChange.target))
                 ? null
                 : path.resolve(
@@ -523,7 +541,7 @@ function detectGitPushes(command, baseCwd) {
                   ),
             succeeded: true,
           },
-          { cwd: state.cwd, succeeded: false },
+          { ...state, succeeded: false },
         ]),
       ]);
       return;
@@ -543,8 +561,8 @@ function detectGitPushes(command, baseCwd) {
     states = dedupeShellStates([
       ...skips,
       ...executes.flatMap((state) => [
-        { cwd: state.cwd, succeeded: true },
-        { cwd: state.cwd, succeeded: false },
+        { ...state, succeeded: true },
+        { ...state, succeeded: false },
       ]),
     ]);
   };
@@ -557,7 +575,7 @@ function detectGitPushes(command, baseCwd) {
       const outcomes = new Set(states.map((state) => state.succeeded));
       states = dedupeShellStates(
         pipelineBaseStates.flatMap((state) =>
-          [...outcomes].map((succeeded) => ({ cwd: state.cwd, succeeded }))
+          [...outcomes].map((succeeded) => ({ ...state, succeeded }))
         )
       );
       if (token !== "|") pipelineBaseStates = null;
@@ -566,8 +584,8 @@ function detectGitPushes(command, baseCwd) {
       pipelineBaseStates ||= statesBeforeSegment;
       states = dedupeShellStates(
         statesBeforeSegment.flatMap((state) => [
-          { cwd: state.cwd, succeeded: true },
-          { cwd: state.cwd, succeeded: false },
+          { ...state, succeeded: true },
+          { ...state, succeeded: false },
         ])
       );
       operator = token;
@@ -577,8 +595,8 @@ function detectGitPushes(command, baseCwd) {
     if (token === "&") {
       states = dedupeShellStates(
         statesBeforeSegment.flatMap((state) => [
-          { cwd: state.cwd, succeeded: true },
-          { cwd: state.cwd, succeeded: false },
+          { ...state, succeeded: true },
+          { ...state, succeeded: false },
         ])
       );
       operator = token;
@@ -588,7 +606,7 @@ function detectGitPushes(command, baseCwd) {
     if (token === "(") {
       const { executes, skips } = partitionShellStates(states, operator);
       subshells.push({ executes, skips });
-      states = executes.map((state) => ({ cwd: state.cwd, succeeded: true }));
+      states = executes.map((state) => ({ ...state, succeeded: true }));
       operator = null;
     } else if (token === ")") {
       const frame = subshells.pop();
@@ -597,7 +615,7 @@ function detectGitPushes(command, baseCwd) {
         states = dedupeShellStates([
           ...frame.skips,
           ...frame.executes.flatMap((entry) =>
-            [...outcomes].map((succeeded) => ({ cwd: entry.cwd, succeeded }))
+            [...outcomes].map((succeeded) => ({ ...entry, succeeded }))
           ),
         ]);
       }
@@ -630,35 +648,76 @@ function parseDirectoryChange(segment) {
   );
   if (!match) return { recognized: false, target: null };
   const [, command, option, operand] = match;
-  if (command === "popd") return { recognized: true, target: null };
+  if (command === "popd") return { recognized: true, target: null, environmentSensitive: true };
   // Assignments on special builtins can alter directory resolution through
   // HOME, OLDPWD, CDPATH, or shell-specific variables. Preserve detection but
   // make the destination unknown so a following push is checked fail-closed.
-  if (assignmentPrefixed) return { recognized: true, target: null };
+  if (assignmentPrefixed) return { recognized: true, target: null, environmentSensitive: true };
   if (command === "pushd" && (option || operand === undefined || /^[+-]\d+$/.test(operand)))
-    return { recognized: true, target: null };
+    return { recognized: true, target: null, environmentSensitive: true };
   if (operand === undefined || operand === "")
-    return { recognized: true, target: process.env.HOME ? path.resolve(process.env.HOME) : null };
-  if (operand === "-") return { recognized: true, target: null };
-  return { recognized: true, target: decodeSimpleShellWord(operand) };
+    return {
+      recognized: true,
+      target: process.env.HOME ? path.resolve(process.env.HOME) : null,
+      environmentSensitive: true,
+    };
+  if (operand === "-") return { recognized: true, target: null, environmentSensitive: true };
+  const target = decodeSimpleShellWord(operand);
+  return {
+    recognized: true,
+    target,
+    environmentSensitive: target === null || !path.isAbsolute(target),
+  };
+}
+
+const DIRECTORY_ENVIRONMENT_NAMES = new Set(["HOME", "OLDPWD", "CDPATH"]);
+
+function changesDirectoryEnvironment(segment) {
+  const commandText = stripTrailingShellRedirections(stripExecutionPrefixes(segment));
+  if (commandText === null) return false;
+  const words = splitSimpleShellWords(commandText);
+  if (words.length === 0) return false;
+  const values = words.map((word) => word.value);
+  if (values[0] === "unset")
+    return values.slice(1).some((name) => DIRECTORY_ENVIRONMENT_NAMES.has(name));
+  let start = 0;
+  if (values[0] === "export") start = 1;
+  const assignments = values.slice(start);
+  if (
+    assignments.length === 0 ||
+    assignments.some((word) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(word))
+  )
+    return false;
+  return assignments.some((word) =>
+    DIRECTORY_ENVIRONMENT_NAMES.has(word.slice(0, word.indexOf("=")))
+  );
 }
 
 function stripDirectoryCommandPrefixes(segment) {
   let current = String(segment).trimStart();
   let prior;
   let assignmentPrefixed = false;
-  const controlPrefix = new RegExp(`^(?:(?:${SHELL_CONTROL_PREFIXES.join("|")})\\b\\s*)+`, "i");
   do {
     prior = current;
-    current = current
-      .replace(controlPrefix, "")
-      .replace(/^(?:!\s*)+/, "")
-      .replace(/^time(?:\s+-p)?\s+/i, "");
+    current = stripExecutionPrefixes(current);
     const assignments = stripLeadingShellAssignments(current);
     current = assignments.command;
     assignmentPrefixed ||= assignments.stripped;
   } while (current !== prior);
   return { command: current, assignmentPrefixed };
+}
+
+function stripExecutionPrefixes(segment) {
+  let current = String(segment).trimStart();
+  let prior;
+  do {
+    prior = current;
+    current = stripLeadingShellRedirections(current)
+      .replace(SHELL_CONTROL_PREFIX_RE, "")
+      .replace(/^(?:!\s*)+/, "")
+      .replace(/^time(?:\s+-p)?\s+/i, "");
+  } while (current !== prior);
+  return current;
 }
 
 function stripLeadingShellAssignments(segment) {
@@ -674,15 +733,7 @@ function stripLeadingShellAssignments(segment) {
 }
 
 function stripTrailingShellRedirections(segment) {
-  let commandText = segment;
-  let leading;
-  do {
-    leading = commandText;
-    commandText = commandText.replace(
-      /^\s*(?:\d*(?:>>?|<{1,3})|&>>?)\s*(?:"[^"]*"|'[^']*'|[^\s<>]+)\s+/,
-      ""
-    );
-  } while (commandText !== leading);
+  let commandText = stripLeadingShellRedirections(segment);
   const syntax = lexShellCharacters(commandText);
   if (!syntax.closed) return null;
   let redirectIndex = -1;
@@ -703,6 +754,19 @@ function stripTrailingShellRedirections(segment) {
   if (!/^(?:(?:\d*(?:>>?|<{1,3})|&>>?)\s*(?:"[^"]*"|'[^']*'|[^\s<>]+)\s*)+$/.test(suffix))
     return null;
   return commandText.slice(0, redirectIndex).trimEnd();
+}
+
+function stripLeadingShellRedirections(segment) {
+  let commandText = segment;
+  let leading;
+  do {
+    leading = commandText;
+    commandText = commandText.replace(
+      /^\s*(?:\d*(?:>>?|<{1,3})|&>>?)\s*(?:"[^"]*"|'[^']*'|[^\s<>]+)\s+/,
+      ""
+    );
+  } while (commandText !== leading);
+  return commandText;
 }
 
 function decodeSimpleShellWord(raw) {
@@ -936,7 +1000,10 @@ function partitionShellStates(states, operator) {
 function dedupeShellStates(states) {
   const unique = new Map();
   for (const state of states)
-    unique.set(`${state.cwd === null ? "<unknown>" : state.cwd}\0${state.succeeded}`, state);
+    unique.set(
+      `${state.cwd === null ? "<unknown>" : state.cwd}\0${state.succeeded}\0${state.directoryEnvironmentChanged}`,
+      state
+    );
   return [...unique.values()];
 }
 
