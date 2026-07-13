@@ -740,7 +740,9 @@ function parseDirectoryEnvironmentCommand(segment) {
         arrayMode,
         command,
         forcedFailure,
-        modeMayFail: arrayMode && operandAssignments.length > 0,
+        // Array support and existing variable type depend on the executing
+        // Bash version/state, which the hook process cannot prove from syntax.
+        modeMayFail: arrayMode,
         names: effectiveNames,
         operandAssignments,
         persistentPrefixAssignments,
@@ -849,12 +851,11 @@ function shellCommandWordsWithoutRedirections(segment) {
       commandWords.push(values[index]);
       continue;
     }
-    let operand = match[2];
-    if (operand === "") operand = values[++index]?.value || "";
-    const descriptor = match[1].match(/^\d*/)?.[0] || "";
-    const ordinaryDescriptor =
-      descriptor === "" || (descriptor.length === 1 && Number(descriptor) >= 0);
-    if (operand !== "/dev/null" || !ordinaryDescriptor) redirectionMayFail = true;
+    if (match[2] === "") index += 1;
+    // Opening even /dev/null can fail after shell-local resource changes
+    // (for example a reduced descriptor limit). Keep the failure outcome for
+    // every file-opening redirect; syntax alone cannot prove runtime success.
+    redirectionMayFail = true;
   }
   while (
     commandWords.length > 0 &&

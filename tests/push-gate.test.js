@@ -645,6 +645,8 @@ test("shell control keywords preserve directory changes before gated pushes", ()
       "HOME=gated readonly -a HOME; cd; git push origin HEAD",
       "HOME=/tmp export -f HOME || cd gated; git push origin HEAD",
       "HOME=gated; unset HOME 999999999>/dev/null || cd; git push origin HEAD",
+      "readonly -a HOME; readonly -A HOME || cd gated; git push origin HEAD",
+      "ulimit -n 3; HOME=gated; unset HOME >/dev/null || cd; git push origin HEAD",
       "command -- cd gated && git push origin HEAD",
       "builtin -- cd gated && git push origin HEAD",
       "cd gated; if false; then :; else git push origin HEAD; fi",
