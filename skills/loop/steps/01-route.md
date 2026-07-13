@@ -4,7 +4,11 @@ order: 1
 description: Assess the loop situation and route the operator to the one action that fits
 ---
 
-### Step 1: Route (runs when `/pm:loop` has no subcommand)
+## Goal
+
+Classify the current loop situation and offer only the safe subcommand actions that fit it.
+
+## How
 
 This is the single-command front door. Read the situation, show it in one glance, and offer only the next action(s) that fit — defaulting to the safe one. Do NOT run `wake`, `work`, `config`, or `install` yourself here; ROUTE to them (offer, and on agreement continue into that subcommand's step). The two hard gates still hold — the router never starts implementation.
 
@@ -35,3 +39,9 @@ It returns one object with `state` plus `configured`, `installed`, `paused`, `co
 - Respect the gates: `ready-not-run` and `installed-idle` only offer to *run* a cycle; the actual `work` step still enforces `autonomy.start_dev: true` + per-card `implementation_approved`, and refuses otherwise.
 - If the operator names a subcommand explicitly (`/pm:loop status|wake|work|config|install|reconcile`), that subcommand's step runs directly — the router is only the no-subcommand default.
 - `/pm:board` is the richer live view; point at it whenever the operator wants more than the one-glance summary.
+
+## Done-when
+
+The situation is derived from the shared classifier, edge notes are visible, and the user sees no more than the applicable safe actions without an effect running early.
+
+Offer the selected routed Step 2–7 only after the user chooses that branch; otherwise end with the one-glance status.

@@ -1,5 +1,13 @@
 "use strict";
 
+const { STEP_TOPOLOGY } = require("../../lib/skill-authoring/classification.js");
+
+function hasNextAction(body) {
+  return /(next action|offer|proceed to|continue with|advance:|next,|then end|close by)/i.test(
+    body || ""
+  );
+}
+
 module.exports = {
   id: "D2-STEP-002-transition",
   severity: "warning",
@@ -8,6 +16,7 @@ module.exports = {
   check(ctx) {
     const issues = [];
     for (const skill of ctx.skills) {
+      const routed = STEP_TOPOLOGY[skill.name] === "routed";
       const ordered = [...skill.steps].sort(
         (a, b) => Number(a.frontmatter.order) - Number(b.frontmatter.order)
       );
@@ -27,6 +36,21 @@ module.exports = {
             file: step.relPath,
             message: `Advance references missing Step ${invalid[0]}`,
           });
+        }
+        if (routed) {
+          if (targets.includes(current)) {
+            issues.push({
+              file: step.relPath,
+              message: "routed step cannot advance circularly to itself",
+            });
+          }
+          if (!hasNextAction(step.body)) {
+            issues.push({
+              file: step.relPath,
+              message: "routed step must summarize and offer a concrete next action",
+            });
+          }
+          continue;
         }
         if (index < ordered.length - 1) {
           const next = Number(ordered[index + 1].frontmatter.order);
@@ -53,7 +77,7 @@ module.exports = {
               message: "final step cannot advance circularly to itself",
             });
           }
-          if (!/(next action|offer|proceed to|continue with|advance:)/i.test(step.body || "")) {
+          if (!hasNextAction(step.body)) {
             issues.push({
               file: step.relPath,
               message: "final step must summarize and offer a concrete next action",

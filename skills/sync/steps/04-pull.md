@@ -50,3 +50,9 @@ If route is `sync`:
 If the route is `sync`, this step already attempted the full bidirectional operation. Step 5 must skip.
 
 Never display raw JSON to the user.
+
+## Done-when
+
+Pull or bidirectional sync has one recorded success/failure outcome, and partial uploaded/downloaded counts plus recovery guidance are visible without raw JSON.
+
+**Advance:** proceed to Step 5 (Push); it skips for pull and completed bidirectional routes.

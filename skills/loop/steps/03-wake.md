@@ -41,3 +41,7 @@ When summarizing JSON:
 - `claimed` means the machine owns the lease and a future worker could run.
 
 Summarize the wake result with the selected card, skipped candidates, mode, dry-run/mutation status, and the next safe action. If implementation was skipped because `autonomy.start_dev` is false or `implementation_approved` is missing, say that explicitly.
+
+## Done-when
+
+Exactly one dry-run or explicitly authorized claim-only decision is reported with selected/skipped cards, policy gates, mutation status, and the next action; blocked results are not retried.

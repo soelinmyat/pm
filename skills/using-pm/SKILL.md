@@ -1,6 +1,6 @@
 ---
 name: using-pm
-description: Use at session start — establishes how to find and use all plugin skills, requiring Skill tool invocation before implementation
+description: "Use when a session opens with a general PM request, the user asks which PM skill or workflow applies, or the runtime must route a concrete request into the correct plugin skill before acting. Do not use for subagents or to add ceremony to direct questions."
 ---
 
 <SUBAGENT-STOP>
@@ -12,13 +12,32 @@ If you were dispatched as a subagent to execute a specific task, skip this skill
 Route session-start behavior and teach the runtime how to use PM skills. **Never force a PM workflow on a direct user request** — `using-pm` routes and orients, it does not hijack straightforward tasks into ceremony.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions.
+Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
+
+**Workflow:** `using-pm` | **Telemetry steps:** `classify_intent`, `route`, `handoff`
+
+## Iron Law
+
+**NEVER HIJACK A DIRECT REQUEST.**
+
+## When NOT to use
+
+- When dispatched as a subagent, obey `<SUBAGENT-STOP>` and execute the assigned lane.
+- When a concrete PM skill is already active, stay in that skill instead of routing again.
+- When the user asks a direct question that needs no PM workflow, answer it directly.
 
 ## Hard rules
 
 - **When work matches a skill in the tables below, invoke that skill — never perform its workflow inline without invoking it.** The skill invocation is the auditable unit: gates, state, and review evidence all key off it. Reviewing code without invoking `pm:review`, or critiquing UI without `pm:design-critique`, leaves no gate evidence and does not count.
 - **Never force a PM workflow onto a direct question or an explicit user instruction** — routing discipline cuts both ways.
+- Skill routing grants authority only to enter the selected workflow. It does not grant that workflow's external effects; preserve its confirmation, retry, and recovery gates.
 
-**Workflow:** `using-pm`
+## Red Flags — Self-Check
+
+- **"PM is installed, so I should start it."** Stop and classify the user's actual first-message intent.
+- **"I know the workflow well enough to do it inline."** Use the owning skill so its gates and evidence apply.
+- **"A general request must mean pm:start."** Route only when the user is genuinely asking for orientation or a project pulse.
+- **"Switching skills will make this more thorough."** Keep the active lane unless the user or its escalation contract calls for a switch.
 
 ## Session Start
 
@@ -91,3 +110,16 @@ If the user asks a direct question or wants a quick answer, give them one. Don't
 - **User wants general orientation, not a specific task:** "Want to open PM with `/pm:start`, or should I route you directly to the lane that matches what you want to do?"
 - **PM is not initialized in this project:** "PM isn’t initialized here yet. Want to run `/pm:start` to set it up, or continue without PM?"
 - **A concrete PM lane is clearly a better fit:** "This looks like `{skill}` work rather than session routing. I’ll switch there directly unless you want a broader PM overview first."
+
+## Common Rationalizations
+
+| Excuse | Reality |
+|---|---|
+| "A little ceremony cannot hurt." | Unrequested workflow state distracts from direct user intent. |
+| "Mentioning a skill is equivalent to invoking it." | Gates and evidence attach to the actual skill invocation. |
+
+## Before Marking Done
+
+- [ ] No routing artifact was fabricated; any invoked workflow owns and saves its required artifact.
+- [ ] Ambiguous orientation was confirmed with the user before entering a stateful lane.
+- [ ] Active-lane, user-instruction, subagent-stop, and downstream authority gates were preserved.

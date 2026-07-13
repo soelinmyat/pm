@@ -73,6 +73,15 @@ function getRemoteUrl(pmDir) {
   return result.ok ? result.output : null;
 }
 
+function validateRemoteUrl(remoteUrl) {
+  return (
+    typeof remoteUrl === "string" &&
+    remoteUrl.length > 0 &&
+    remoteUrl.length <= 2048 &&
+    /^[A-Za-z0-9._~:/@%+=,-]+$/.test(remoteUrl)
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Setup — initialize pm/ as a git repo and configure remote
 // ---------------------------------------------------------------------------
@@ -87,6 +96,10 @@ function getRemoteUrl(pmDir) {
  */
 function setup(pmDir, remoteUrl, opts = {}) {
   const branch = opts.branch || "main";
+
+  if (!validateRemoteUrl(remoteUrl)) {
+    return { ok: false, error: "remote URL contains unsupported or unsafe characters" };
+  }
 
   if (!fs.existsSync(pmDir)) {
     return { ok: false, error: `pm directory does not exist: ${pmDir}` };
@@ -151,6 +164,10 @@ function setup(pmDir, remoteUrl, opts = {}) {
  */
 function clone(pmDir, remoteUrl, opts = {}) {
   const branch = opts.branch || "main";
+
+  if (!validateRemoteUrl(remoteUrl)) {
+    return { ok: false, error: "remote URL contains unsupported or unsafe characters" };
+  }
 
   // If pmDir exists and has files, don't clobber
   if (fs.existsSync(pmDir)) {
@@ -424,10 +441,22 @@ function resolveCliPaths(projectDir) {
 
 if (require.main === module) {
   const mode = process.argv[2] || "sync";
+  const remoteUrl = process.argv[3];
   const projectDir = path.resolve(process.env.CLAUDE_PROJECT_DIR || ".");
   const { pmDir, dotPmDir } = resolveCliPaths(projectDir);
 
-  if (mode === "sync") {
+  if (mode === "setup" || mode === "clone") {
+    if (!remoteUrl) {
+      process.stderr.write(`Usage: kb-sync-git.js ${mode} <remote-url>\n`);
+      process.exit(1);
+    }
+    const result = mode === "setup" ? setup(pmDir, remoteUrl) : clone(pmDir, remoteUrl);
+    process.stdout.write(JSON.stringify({ ...result, mode }, null, 2) + "\n");
+    if (!result.ok) {
+      process.stderr.write(result.error + "\n");
+      process.exit(1);
+    }
+  } else if (mode === "sync") {
     const result = sync(pmDir);
     writeSyncStatus(dotPmDir, {
       mode: "sync",
@@ -468,7 +497,9 @@ if (require.main === module) {
     const result = status(pmDir);
     process.stdout.write(JSON.stringify(result, null, 2) + "\n");
   } else {
-    process.stderr.write("Usage: kb-sync-git.js [sync|push|pull|status]\n");
+    process.stderr.write(
+      "Usage: kb-sync-git.js [sync|push|pull|status|setup <remote-url>|clone <remote-url>]\n"
+    );
     process.exit(1);
   }
 }
@@ -481,6 +512,7 @@ module.exports = {
   isGitRepo,
   hasRemote,
   getRemoteUrl,
+  validateRemoteUrl,
   setup,
   clone,
   sync,

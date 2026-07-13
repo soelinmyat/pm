@@ -108,6 +108,30 @@ test("branched Advance may name later existing steps when the branch is explicit
   assert.deepEqual(rule.check(ctx), []);
 });
 
+test("routed workflows do not invent linear transitions between subcommands", () => {
+  const ctx = {
+    skills: [
+      {
+        name: "loop",
+        steps: [
+          {
+            frontmatter: { order: 1 },
+            relPath: "steps/01-route.md",
+            body: "Offer Step 2 according to the selected branch as the next action.",
+          },
+          {
+            frontmatter: { order: 2 },
+            relPath: "steps/02-status.md",
+            body: "Summarize status and offer the next action.",
+          },
+        ],
+      },
+    ],
+  };
+  const rule = d2Rules().find((entry) => entry.id === "D2-STEP-002-transition");
+  assert.deepEqual(rule.check(ctx), []);
+});
+
 test("skill audit JSON is deterministic and remains non-blocking during remediation", () => {
   const command = path.join(root, "scripts", "skill-audit.js");
   const first = execFileSync(process.execPath, [command, "--root", root, "--json"], {

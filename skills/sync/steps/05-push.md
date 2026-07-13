@@ -36,3 +36,9 @@ If `uploaded === 0`:
 > Push failed. Error: {error message}
 
 Never display raw JSON to the user.
+
+## Done-when
+
+The explicit push has one recorded outcome and any rejection, auth problem, or conflict is reported without an unsafe retry.
+
+**Advance:** proceed to Step 6 (Status); it runs only for the selected status route.

@@ -225,6 +225,18 @@ test("setup returns error for nonexistent pm directory", (t) => {
   assert.ok(result.error.includes("does not exist"));
 });
 
+test("setup rejects shell-bearing remote URLs before invoking git", (t) => {
+  const { pmDir, cleanup } = withTempProject({ "pm/strategy.md": "# Strategy\n" });
+  t.after(cleanup);
+
+  const { setup } = require(KB_SYNC_GIT_PATH);
+  const result = setup(pmDir, "https://example.com/repo.git;touch-pwned");
+
+  assert.equal(result.ok, false);
+  assert.match(result.error, /unsafe characters/);
+  assert.equal(fs.existsSync(path.join(pmDir, ".git")), false);
+});
+
 test("setup updates remote URL when already configured", (t) => {
   const { pmDir, cleanup } = withTempProject({
     "pm/strategy.md": "# Strategy\n",
@@ -532,6 +544,27 @@ test("CLI default sync writes combined sync-status.json", (t) => {
   assert.equal(syncStatus.ok, true);
   assert.equal(typeof syncStatus.downloaded, "number");
   assert.ok(syncStatus.uploaded > 0);
+});
+
+test("CLI setup routes initialization through the guarded helper", (t) => {
+  const remote = withBareRemote();
+  const { root, pmDir, cleanup } = withTempProject({
+    "pm/strategy.md": "# Strategy\n",
+  });
+  t.after(() => {
+    cleanup();
+    remote.cleanup();
+  });
+
+  const output = gitExec(`node "${KB_SYNC_GIT_PATH}" setup "${remote.url}"`, {
+    cwd: root,
+    env: { CLAUDE_PROJECT_DIR: root },
+    encoding: "utf8",
+  });
+  const result = JSON.parse(output);
+  assert.equal(result.ok, true);
+  assert.equal(result.mode, "setup");
+  assert.equal(require(KB_SYNC_GIT_PATH).getRemoteUrl(pmDir), remote.url);
 });
 
 // ---------------------------------------------------------------------------

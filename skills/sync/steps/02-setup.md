@@ -77,34 +77,25 @@ Determine whether `pm/` already has content:
 
 **If `pm/` has markdown files** (existing KB):
 
-Run the setup script to init git and push:
+Run the setup helper to initialize Git, preserve its ignore contract, configure
+the remote, create the initial commit when needed, and push:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/kb-sync-git.js" push 2>&1 || true
-```
-
-But first, manually set up the repo since the CLI script's push expects an existing git repo:
-
-```bash
-cd {pm_dir}
-git init
-git checkout -b main
-git remote add origin {remote_url}
-echo "*.local-conflict" > .gitignore
-git add -A
-git commit -m "Initial KB commit"
-git push -u origin main
+node "${CLAUDE_PLUGIN_ROOT}/scripts/kb-sync-git.js" setup "{remote_url}"
 ```
 
 **If `pm/` is empty or doesn't exist:**
 
-Clone the remote repo:
+Clone through the same helper so collision and path checks remain consistent:
 
 ```bash
-git clone {remote_url} {pm_dir}
+node "${CLAUDE_PLUGIN_ROOT}/scripts/kb-sync-git.js" clone "{remote_url}"
 ```
 
 If the clone is empty (new repo), the `pm/` directory will be created with just `.git/`. That's fine — `/pm:start` will scaffold it later.
+
+On either helper failure, report its structured error and stop. Do not fall back
+to raw Git or repeat the effect blindly.
 
 ### 5. Write sync config
 
@@ -128,3 +119,9 @@ config.sync.auto_push = true;
 > - `/pm:sync status` — check sync state
 >
 > Auto-sync is enabled: pull on session start, push on session end.
+
+## Done-when
+
+Setup either stops safely on declined/missing authority or leaves a verified git backend, remote, upstream, preserved config, and readable confirmation.
+
+**Advance:** proceed to Step 3 (Auth Check); it skips when setup was the terminal route.

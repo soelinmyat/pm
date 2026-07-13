@@ -38,8 +38,12 @@ const SKILL_CLASSES = Object.freeze([
   "redirect",
 ]);
 
+const STEP_TOPOLOGY = Object.freeze({
+  loop: "routed",
+});
+
 function classForSkill(skill) {
   return SKILL_CLASSIFICATION[skill.name] || skill.skillFm?.["skill-class"] || null;
 }
 
-module.exports = { SKILL_CLASSES, SKILL_CLASSIFICATION, classForSkill };
+module.exports = { SKILL_CLASSES, SKILL_CLASSIFICATION, STEP_TOPOLOGY, classForSkill };
