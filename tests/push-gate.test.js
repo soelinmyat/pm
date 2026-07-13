@@ -952,6 +952,7 @@ test("pushes inside command substitutions fail closed", () => {
       "result=$(echo $(git push origin HEAD))",
       'result="$(git push origin HEAD)"',
       'result="customer\'s $(git push origin HEAD)"',
+      "printf '%s' 'x\\'$(git push origin HEAD)",
       "result=$(bash -c 'git push origin HEAD')",
       "result=$(bash -lc 'git push origin HEAD')",
       "result=$(sh -c 'git -C . push origin HEAD')",
@@ -978,6 +979,14 @@ test("pushes inside command substitutions fail closed", () => {
       runHook(`result=${"$(".repeat(8_000)}git push origin HEAD${")".repeat(8_000)}`, {
         cwd: dir,
       }),
+      /could not finish inspecting nested shell substitutions/
+    );
+    assertBlock(
+      runHook(`${"x".repeat(262_145)}; result=\`git push origin HEAD\``, { cwd: dir }),
+      /could not finish inspecting nested shell substitutions/
+    );
+    assertBlock(
+      runHook("printf '%s' \"git push origin HEAD", { cwd: dir }),
       /could not finish inspecting nested shell substitutions/
     );
   } finally {

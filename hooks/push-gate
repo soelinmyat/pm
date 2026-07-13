@@ -1114,7 +1114,7 @@ const MAX_SUBSTITUTION_COUNT = 4_096;
 
 function inspectPushShellSubstitutions(command) {
   if (command.length > MAX_SUBSTITUTION_INPUT)
-    return /(?:\$|[<>=])\(/.test(command) ? "indeterminate" : "none";
+    return /(?:\$|[<>=])\(|`/.test(command) ? "indeterminate" : "none";
   const root = { direct: null, executable: false, depth: 0, quote: null, delimiter: null };
   const frames = [root];
   let substitutions = 0;
@@ -1150,6 +1150,11 @@ function inspectPushShellSubstitutions(command) {
   for (let index = 0; index < command.length; index += 1) {
     const frame = frames[frames.length - 1];
     const char = command[index];
+    if (frame.quote === "'") {
+      append(frame, char);
+      if (char === "'") frame.quote = null;
+      continue;
+    }
     if (char === "\\") {
       append(frame, char);
       if (index + 1 < command.length) append(frame, command[++index]);
@@ -1158,11 +1163,6 @@ function inspectPushShellSubstitutions(command) {
     if (frame.delimiter === "`" && char === "`") {
       const result = close();
       if (result !== "none") return result;
-      continue;
-    }
-    if (frame.quote === "'") {
-      append(frame, char);
-      if (char === "'") frame.quote = null;
       continue;
     }
     if (char === "'" && frame.quote !== '"') {
@@ -1218,7 +1218,7 @@ function inspectPushShellSubstitutions(command) {
     }
     append(frame, char);
   }
-  return frames.length === 1 ? "none" : "indeterminate";
+  return frames.length === 1 && root.quote === null ? "none" : "indeterminate";
 }
 
 function containsUnsupportedHeredoc(command) {
