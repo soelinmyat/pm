@@ -13,6 +13,18 @@ const REQUIREMENTS = {
   redirect: [/(deprecated|redirect)/i, /pm:[a-z-]+/i],
 };
 
+const MUTATION_COMMANDS = [
+  /`(?:mkdir|rm|mv|cp|touch)\b[^`]*`/i,
+  /`git\s+(?:add|commit|push|merge|tag)\b[^`]*`/i,
+  /`(?:POST|PUT|PATCH|DELETE)\s+\/[^`]*`/i,
+  /```[^`]*(?:writeFile|appendFile|mkdirSync|rmSync|unlinkSync)[^`]*```/i,
+];
+
+function mutationCommand(skill) {
+  const text = [skill.skillBody, ...skill.steps.map((step) => step.body || "")].join("\n");
+  return MUTATION_COMMANDS.find((pattern) => pattern.test(text));
+}
+
 module.exports = {
   id: "D2-SKILL-005-class-contract",
   severity: "warning",
@@ -32,6 +44,12 @@ module.exports = {
         issues.push({
           file,
           message: `missing ${skillClass} class boundary (${missing.length} signal${missing.length === 1 ? "" : "s"})`,
+        });
+      }
+      if (skillClass === "read-only-projection" && mutationCommand(skill)) {
+        issues.push({
+          file,
+          message: "read-only projection contains an executable mutation command",
         });
       }
     }

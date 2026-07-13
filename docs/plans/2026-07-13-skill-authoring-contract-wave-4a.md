@@ -80,8 +80,8 @@ The audit classifies skills before applying conditional checks:
 | Lifecycle | Dev, RFC, Groom, Ship | phase metadata, evidence, transitions, resume and authority boundaries |
 | Evidence pipeline | Ingest, Research, Refresh | source/provenance, writeback, privacy, staleness |
 | Reviewer/gate | Review, Design Critique | target identity, bounded remediation, report and gate publication |
-| Operational effect | Setup, Sync, Loop | effect authority, idempotency, recovery |
-| Read-only projection | Start, List, Board | no mutation path, shared source classification, useful empty/error state |
+| Operational effect | Setup, Sync, Loop, Start, Board | effect authority, idempotency, recovery |
+| Read-only projection | List | no mutation path, shared source classification, useful empty/error state |
 | Conversational | Think, Ideate, Strategy | forcing question/decision criteria, confirmation, promotion path |
 | Capture | Task, Bug, Note | atomic write, minimal required fields, correct routing |
 | Redirect | Simplify | exact destination, deprecation semantics, no duplicated workflow |

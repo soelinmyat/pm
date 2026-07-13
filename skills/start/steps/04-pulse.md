@@ -10,6 +10,8 @@ description: Initialized project with no active work — bias toward next useful
 
 Surface the next useful PM lane when the project is initialized but there is no active work to resume.
 
+## How
+
 Use this when the project is initialized but there is no active work to resume.
 
 The behavior is the same as Resume Mode (including auto-push in step 2 and evidence detection in step 3), except the recommendation should bias toward the next useful lane:
@@ -43,3 +45,9 @@ When the user explicitly invoked `/pm:start`, Pulse Mode should still offer the 
 - Dashboard sync setup is handled by `pm:setup` or `pm:sync`. `pm:start` only reads sync status — it never configures sync itself.
 
 Ask: "Which would you like to start with?" followed by the numbered options from the recommendation above.
+
+## Done-when
+
+The pulse names one evidence-backed next lane and bounded alternatives, and the user either chooses a lane or retains the read-only project overview.
+
+Offer the selected workflow as the next action; never invoke a mutating lane without the user's choice.

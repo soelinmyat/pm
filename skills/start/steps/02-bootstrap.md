@@ -10,7 +10,7 @@ description: Create PM workspace, write config, and route into first workflow
 
 Get the user to value quickly. Do not front-load integration questions.
 
-### Flow
+## How
 
 1. Create the minimum PM workspace
 2. Ensure `.gitignore` is correct
@@ -161,3 +161,9 @@ Routing rules:
 - "explore", "look around", "just show me", "skip" → show session brief and stop
 
 Tell the user briefly which lane you are taking, then hand off to that skill immediately.
+
+## Done-when
+
+The minimum workspace and config exist, paths were validated, the user received a concise orientation, and one first workflow was selected without premature integration setup.
+
+**Advance:** proceed to Step 3 (Resume) to generate the canonical session brief before the selected lane takes ownership.

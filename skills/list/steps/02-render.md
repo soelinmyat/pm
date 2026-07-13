@@ -10,6 +10,10 @@ Render the cached `ListRowsPayload` (from step 01) as four sectioned lists with 
 
 This step is a **prompt file**. There is no node function to call. You, the agent, are the renderer and classifier. Follow the spec below verbatim.
 
+## How
+
+Use the section order, row contract, and five-intent classifier below. Render only fields from the cached payload, and use the fall-through escalation instead of inventing behavior.
+
 ## Section order and caps
 
 1. **Active Sessions** — `payload.active`. Cap: 7 rows.
@@ -102,7 +106,7 @@ Pick the closest matching workflow command as `<suggestion>` based on what the u
 - User wants to start something new → suggest `/pm:start` or `/pm:groom <topic>`.
 - User wants analytics / counts → say no, surface the sections they can see.
 
-**Log the fall-through follow-up** to `.pm/.list-telemetry.jsonl` (one JSON object per line: `{ ts, user_utterance, fallback_suggestion }`). This is a silent write — no user-visible effect.
+Do not log the fall-through to project state. This skill is a read-only projection; route unsupported intent without creating telemetry files.
 
 ## Per-row resume-hint reference
 
@@ -122,9 +126,11 @@ For cross-reference (the emitter already populates `resumeHint`; do not reinvent
 
 Concrete examples of the `ListRowsPayload` shape live in `tests/fixtures/list-rows/*.json` — these six fixtures (`empty-repo.json`, `single-section.json`, `all-sections.json`, `over-cap.json`, `separate-repo.json`, `missing-frontmatter.json`) are the authoritative contract. When emitting JSON (intent 3), match that shape.
 
-## Exit criteria
+## Done-when
 
 - Sections rendered in the order above (or the user's requested filter).
 - Every rendered row has the full spec line (no missing fields except linkage when null).
 - Overflow line present when any section exceeds its cap.
-- If the user's follow-up hit the fall-through path, the telemetry line was written.
+- If the user's follow-up hit the fall-through path, a concrete owning workflow was offered without mutating state.
+
+Offer the next action represented by the selected row or fall-through workflow; do not invoke a mutating workflow implicitly.

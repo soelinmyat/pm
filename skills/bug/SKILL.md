@@ -13,6 +13,10 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and
 
 Document output (the backlog body) follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
 
+## Iron Law
+
+**NEVER LET A BUG REPORT EVAPORATE.**
+
 ## Hard rules
 
 - **NEVER LET A BUG REPORT EVAPORATE.** If the user says something is broken or a regression slipped in, capture it before the conversation moves on. Observed/expected/reproduction context turns a vague complaint into an actionable fix — collect it at capture time, even one line each. A title without observed/expected is a complaint, not a bug report.
@@ -28,7 +32,7 @@ Document output (the backlog body) follows `${CLAUDE_PLUGIN_ROOT}/references/wri
 - **Product signal** (customer feedback, observation). Use `pm:note`.
 - **Immediate help** — the user wants you to investigate the bug *right now*, not track it. Investigate directly; capture after if the fix is non-trivial.
 
-**Workflow:** `bug`
+**Workflow:** `bug` | **Telemetry steps:** `capture`, `enrich`, `validate`
 
 **Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/bug/steps/` in numeric filename order. If `.pm/workflows/bug/` exists, same-named files there override defaults. Execute each step in order — each step contains its own instructions.
 
@@ -36,4 +40,24 @@ Document output (the backlog body) follows `${CLAUDE_PLUGIN_ROOT}/references/wri
 
 - **Work is a feature, not a fix:** "This looks like a feature gap rather than a regression — want to use `/pm:groom` so we can scope the improvement?"
 - **User is describing a chore:** "This sounds like a chore, not a regression. Want to use `/pm:task` instead so the priority default isn't `high`?"
-- **Title too vague:** "I can save it, but I need one concrete sentence describing what's broken. What did you observe?"
+- **Title too vague:** Stop and ask: "I can save it, but I need one concrete sentence describing what's broken. What did you observe?"
+
+## Red Flags — Self-Check
+
+- **"I should diagnose before capture."** Stop and capture the symptom while reproduction context is fresh.
+- **"A task is close enough."** Use `kind: bug` so routing and priority defaults remain correct.
+- **"Missing reproduction means no bug."** Capture a pending stub and keep the report actionable.
+- **"I can edit the file directly."** Use the atomic helper and validate its collision protection.
+
+## Common Rationalizations
+
+| Excuse | Reality |
+|---|---|
+| "The user only mentioned it casually." | Regressions decay from memory unless captured immediately. |
+| "Observed and expected are obvious." | Explicit contrast is what makes a report actionable. |
+
+## Before Marking Done
+
+- [ ] The atomic backlog artifact exists with `kind: bug` and no overwritten file.
+- [ ] Observed, expected, and reproduction sections are present.
+- [ ] Validation passed and the user received the `/pm:dev` next-step hint.

@@ -1,7 +1,7 @@
 "use strict";
 
 const SKILL_CLASSIFICATION = Object.freeze({
-  board: "read-only-projection",
+  board: "operational-effect",
   bug: "capture",
   "design-critique": "reviewer-gate",
   dev: "lifecycle",
@@ -19,7 +19,7 @@ const SKILL_CLASSIFICATION = Object.freeze({
   setup: "operational-effect",
   ship: "lifecycle",
   simplify: "redirect",
-  start: "read-only-projection",
+  start: "operational-effect",
   strategy: "conversational",
   sync: "operational-effect",
   task: "capture",

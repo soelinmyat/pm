@@ -64,6 +64,50 @@ test("command parity catches a redirect whose destination drifted", () => {
   assert.match(rule.check(ctx)[0].message, /same exact destination/);
 });
 
+test("read-only class rejects executable mutation commands", () => {
+  const ctx = {
+    skills: [
+      {
+        name: "list",
+        skillFm: {},
+        skillBody: "Read-only view with an empty-state error. Run `mkdir -p .pm/cache`.",
+        steps: [],
+      },
+    ],
+  };
+  const rule = d2Rules().find((entry) => entry.id === "D2-SKILL-005-class-contract");
+  assert.match(rule.check(ctx)[0].message, /mutation command/);
+});
+
+test("branched Advance may name later existing steps when the branch is explicit", () => {
+  const ctx = {
+    skills: [
+      {
+        name: "fixture",
+        steps: [
+          {
+            frontmatter: { order: 1 },
+            relPath: "steps/01-route.md",
+            body: "**Advance:** proceed to Step 2 or Step 3 according to the selected branch.",
+          },
+          {
+            frontmatter: { order: 2 },
+            relPath: "steps/02-work.md",
+            body: "**Advance:** proceed to Step 3.",
+          },
+          {
+            frontmatter: { order: 3 },
+            relPath: "steps/03-done.md",
+            body: "Summarize the result and offer the next action.",
+          },
+        ],
+      },
+    ],
+  };
+  const rule = d2Rules().find((entry) => entry.id === "D2-STEP-002-transition");
+  assert.deepEqual(rule.check(ctx), []);
+});
+
 test("skill audit JSON is deterministic and remains non-blocking during remediation", () => {
   const command = path.join(root, "scripts", "skill-audit.js");
   const first = execFileSync(process.execPath, [command, "--root", root, "--json"], {

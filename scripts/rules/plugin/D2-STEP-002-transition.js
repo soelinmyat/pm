@@ -13,20 +13,41 @@ module.exports = {
       );
       for (let index = 0; index < ordered.length; index++) {
         const step = ordered[index];
-        const matches = [
-          ...String(step.body || "").matchAll(/\*\*Advance:\*\*[^\n]*Step\s+(\d+(?:\.\d+)?)/gi),
-        ];
+        const advanceLines = String(step.body || "")
+          .split(/\r?\n/)
+          .filter((line) => /\*\*Advance:\*\*/i.test(line));
+        const targets = advanceLines.flatMap((line) =>
+          [...line.matchAll(/Step\s+(\d+(?:\.\d+)?)/gi)].map((match) => Number(match[1]))
+        );
+        const existing = new Set(ordered.map((entry) => Number(entry.frontmatter.order)));
         const current = Number(step.frontmatter.order);
+        const invalid = targets.filter((target) => !existing.has(target));
+        if (invalid.length > 0) {
+          issues.push({
+            file: step.relPath,
+            message: `Advance references missing Step ${invalid[0]}`,
+          });
+        }
         if (index < ordered.length - 1) {
           const next = Number(ordered[index + 1].frontmatter.order);
-          if (matches.length === 0 || !matches.some((match) => Number(match[1]) === next)) {
+          if (!targets.includes(next)) {
             issues.push({
               file: step.relPath,
               message: `non-final step must advance to existing Step ${next}`,
             });
           }
+          const skips = targets.filter((target) => target > next);
+          if (
+            skips.length > 0 &&
+            !advanceLines.some((line) => /\b(if|branch|condition|according)\b/i.test(line))
+          ) {
+            issues.push({
+              file: step.relPath,
+              message: "skipped Advance targets require an explicit branch condition",
+            });
+          }
         } else {
-          if (matches.some((match) => Number(match[1]) === current)) {
+          if (targets.includes(current)) {
             issues.push({
               file: step.relPath,
               message: "final step cannot advance circularly to itself",

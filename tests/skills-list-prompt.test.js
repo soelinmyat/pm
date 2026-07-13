@@ -173,9 +173,10 @@ test("step 02 documents per-row resume-hint per kind", () => {
   assert.match(text, /\/pm:dev <shortId>/);
 });
 
-test("step 02 specifies telemetry log path for fall-through cases", () => {
+test("step 02 preserves the read-only boundary for fall-through cases", () => {
   const text = read(STEP_02);
-  assert.match(text, /\.pm\/\.list-telemetry\.jsonl/);
+  assert.doesNotMatch(text, /\.pm\/\.list-telemetry\.jsonl/);
+  assert.match(text, /read-only projection/i);
 });
 
 test("skills/list files end with a trailing newline (format discipline)", () => {

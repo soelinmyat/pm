@@ -19,6 +19,13 @@ It is the visual companion to `/pm:list` (terminal survey) and `/pm:loop status`
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and
 runtime conventions.
+Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
+
+**Workflow:** `board` | **Telemetry steps:** `resolve`, `serve`, `verify`
+
+## Iron Law
+
+**NEVER EXPOSE THE BOARD OFF HOST.**
 
 ## When to use
 
@@ -68,6 +75,9 @@ renders in backlog-only mode and the strip reads "loop not installed".
 - **One action only: the loop kill switch.** `POST /api/loop/toggle` flips
   `pm/loop/STOP` via the same mechanism as `/pm:loop` install (commits + pushes
   when a git remote exists, so every machine halts). Nothing else mutates.
+- **Effect authority and recovery.** Treat the kill-switch request as explicit
+  permission for that one effect. If its commit or push fails, report the
+  partial state and recovery command; never retry or widen authority silently.
 
 ## Hard rules
 
@@ -78,3 +88,29 @@ renders in backlog-only mode and the strip reads "loop not installed".
   actions to the board; route those to the owning workflows.
 - Bind `127.0.0.1` only — never `0.0.0.0`. The board exposes a loop mutation and
   must not be reachable off-host.
+
+## Red Flags — Self-Check
+
+- **"Editing a card would be convenient."** Stop and keep backlog mutations in their owning workflows.
+- **"The LAN is trusted."** Bind only to `127.0.0.1` and check the printed URL.
+- **"I can rederive the columns."** Use the shared board model so empty and error states match other projections.
+- **"The kill switch is just UI state."** Use its authorized commit-and-push mechanism and surface recovery failures.
+
+## Escalation Paths
+
+- If the user wants a terminal projection, switch to `pm:list`.
+- If the user wants to mutate work, stop and route to `pm:loop`, `pm:dev`, or `pm:groom`.
+- If the server cannot bind safely, stop and report the exact local error.
+
+## Common Rationalizations
+
+| Excuse | Reality |
+|---|---|
+| "One more board action saves time." | Extra mutations turn a projection into an unreviewed control plane. |
+| "Binding broadly helps another device connect." | The board exposes operational state and a kill switch. |
+
+## Before Marking Done
+
+- [ ] The board artifact is served on `127.0.0.1` with the printed local URL.
+- [ ] Backlog state remained read-only; only the explicit kill-switch effect is available.
+- [ ] Missing PM data, empty backlog, and server errors produce useful recovery guidance.

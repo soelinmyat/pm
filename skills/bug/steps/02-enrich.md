@@ -25,3 +25,9 @@ If the user provides answers:
 If the user says "skip" or declines, end cleanly without edits.
 
 Say: "Bug captured. Run `/pm:dev {slug}` to fix when you want, or `/pm:list` to see it alongside other work."
+
+## Done-when
+
+Requested refinements are saved and revalidated, or the user declines enrichment without changing the original capture.
+
+Offer the concrete next action: run `/pm:dev {slug}` to fix or `/pm:list` to survey the backlog.
