@@ -598,6 +598,11 @@ test("shell control keywords preserve directory changes before gated pushes", ()
     for (const command of [
       "if true; then cd gated && git push origin HEAD; fi",
       "for item in one; do cd gated && git push origin HEAD; done",
+      "if cd gated; then git push origin HEAD; fi",
+      "while cd gated; do git push origin HEAD; break; done",
+      "time cd gated && git push origin HEAD",
+      "time -p cd gated && git push origin HEAD",
+      "! cd gated; git push origin HEAD",
     ])
       assertBlock(runHook(command, { cwd: parent }), /verification is failed/);
   } finally {

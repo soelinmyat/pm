@@ -611,7 +611,7 @@ function detectGitPushes(command, baseCwd) {
 }
 
 function parseDirectoryChange(segment) {
-  const withoutControlKeywords = segment.replace(/^\s*(?:(?:then|do|else)\b\s*)+/i, "");
+  const withoutControlKeywords = stripDirectoryCommandPrefixes(segment);
   const commandText = stripTrailingShellRedirections(withoutControlKeywords);
   if (commandText === null)
     return {
@@ -630,6 +630,19 @@ function parseDirectoryChange(segment) {
     return { recognized: true, target: process.env.HOME ? path.resolve(process.env.HOME) : null };
   if (operand === "-") return { recognized: true, target: null };
   return { recognized: true, target: decodeSimpleShellWord(operand) };
+}
+
+function stripDirectoryCommandPrefixes(segment) {
+  let current = String(segment).trimStart();
+  let prior;
+  do {
+    prior = current;
+    current = current
+      .replace(/^(?:(?:then|do|else|if|elif|while|until)\b\s*)+/i, "")
+      .replace(/^(?:!\s*)+/, "")
+      .replace(/^time(?:\s+-p)?\s+/i, "");
+  } while (current !== prior);
+  return current;
 }
 
 function stripTrailingShellRedirections(segment) {

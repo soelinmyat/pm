@@ -70,8 +70,8 @@ function isUiImpactPath(file) {
     UI_APP_ROOT_RE.test(file) ||
     NEXT_APP_ROUTER_UI_RE.test(file) ||
     ANGULAR_UI_TS_RE.test(file) ||
-    (UI_ROUTER_JS_TS_RE.test(file) && !BACKEND_ROUTE_CONTEXT_RE.test(file)) ||
-    FRONTEND_ROUTE_MODULE_RE.test(file) ||
+    ((UI_ROUTER_JS_TS_RE.test(file) || FRONTEND_ROUTE_MODULE_RE.test(file)) &&
+      !BACKEND_ROUTE_CONTEXT_RE.test(file)) ||
     UI_SINGLE_APP_STATE_RE.test(file) ||
     UI_CONFIG_RE.test(file)
   );
