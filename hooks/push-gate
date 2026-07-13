@@ -445,6 +445,7 @@ function splitSimpleShellWords(input) {
     dynamic = false;
   };
   let substitutionDepth = 0;
+  let compoundAssignmentDepth = 0;
   for (let offset = 0; offset < syntax.characters.length; offset += 1) {
     const entry = syntax.characters[offset];
     if (entry.marker) {
@@ -453,6 +454,26 @@ function splitSimpleShellWords(input) {
       continue;
     }
     const next = syntax.characters[offset + 1];
+    if (compoundAssignmentDepth > 0) {
+      current += entry.char;
+      active = true;
+      dynamic = true;
+      if (!entry.quote && !entry.escaped && entry.char === "(") compoundAssignmentDepth += 1;
+      else if (!entry.quote && !entry.escaped && entry.char === ")") compoundAssignmentDepth -= 1;
+      continue;
+    }
+    if (
+      !entry.quote &&
+      !entry.escaped &&
+      entry.char === "(" &&
+      /^[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?\+?=$/.test(current)
+    ) {
+      current += entry.char;
+      active = true;
+      dynamic = true;
+      compoundAssignmentDepth = 1;
+      continue;
+    }
     if (
       !entry.quote &&
       !entry.escaped &&
@@ -763,9 +784,14 @@ function applyDirectoryEnvironmentCommand(state, command) {
       : [...command.persistentPrefixAssignments, ...command.operandAssignments]
     : command.prefixAssignments;
   for (const assignment of assignments) {
-    const name = assignmentName(assignment);
-    const value = assignment.value.slice(assignment.value.indexOf("=") + 1);
-    const valueKnown = !assignment.dynamic && !value.startsWith("~");
+    const parsedAssignment = parseShellAssignment(assignment.value);
+    const name = parsedAssignment?.name || "";
+    const value = parsedAssignment?.value || "";
+    const valueKnown =
+      Boolean(parsedAssignment) &&
+      !parsedAssignment.complex &&
+      !assignment.dynamic &&
+      !value.startsWith("~");
     if (name === "HOME") {
       if (assigned.homeReadonly) succeeded = false;
       else {
@@ -805,8 +831,12 @@ function applyDirectoryEnvironmentCommand(state, command) {
   }
   const outcomes = [{ ...next, succeeded }];
   if (command.modeMayFail) outcomes.push({ ...state, succeeded: false });
-  if (command.redirectionMayFail)
+  if (command.redirectionMayFail) {
     outcomes.push({ ...(command.command ? state : assigned), succeeded: false });
+    // Shells disagree on whether assignment-only changes survive a redirect
+    // failure. Preserve the prior environment as an additional valid outcome.
+    if (!command.command) outcomes.push({ ...state, succeeded: false });
+  }
   return outcomes;
 }
 
@@ -830,11 +860,21 @@ function directoryChangeOutcomes(state, directoryChange) {
 }
 
 function isShellAssignment(value) {
-  return /^[A-Za-z_][A-Za-z0-9_]*=/.test(value);
+  return parseShellAssignment(value) !== null;
 }
 
 function assignmentName(word) {
-  return word.value.slice(0, word.value.indexOf("="));
+  return parseShellAssignment(word.value)?.name || "";
+}
+
+function parseShellAssignment(value) {
+  const match = String(value).match(/^([A-Za-z_][A-Za-z0-9_]*)(\[[^\]]*\])?(\+?=)([\s\S]*)$/);
+  if (!match) return null;
+  return {
+    name: match[1],
+    complex: Boolean(match[2]) || match[3] === "+=" || match[4].startsWith("("),
+    value: match[4],
+  };
 }
 
 function isDirectoryAssignment(word) {
@@ -899,7 +939,7 @@ function stripExecutionPrefixes(segment) {
 function stripLeadingShellAssignments(segment) {
   let end = 0;
   for (const word of splitSimpleShellWords(segment)) {
-    if (!/^[A-Za-z_][A-Za-z0-9_]*=/.test(word.value)) break;
+    if (!isShellAssignment(word.value)) break;
     end = word.end;
   }
   return {
@@ -966,9 +1006,24 @@ function decodeSimpleShellWord(raw) {
 function scanShellTokens(command) {
   const tokens = [];
   const syntax = lexShellCharacters(command);
+  let compoundAssignmentDepth = 0;
+  let wordStart = 0;
   for (let offset = 0; offset < syntax.characters.length; offset += 1) {
     const entry = syntax.characters[offset];
+    if (compoundAssignmentDepth > 0) {
+      if (!entry.quote && !entry.escaped && entry.char === "(") compoundAssignmentDepth += 1;
+      else if (!entry.quote && !entry.escaped && entry.char === ")") compoundAssignmentDepth -= 1;
+      continue;
+    }
     if (entry.quote || entry.escaped) continue;
+    if (
+      entry.char === "(" &&
+      /^[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?\+?=$/.test(command.slice(wordStart, entry.index))
+    ) {
+      compoundAssignmentDepth = 1;
+      continue;
+    }
+    if (/\s/.test(entry.char) || ";|&(){}".includes(entry.char)) wordStart = entry.index + 1;
     const next = syntax.characters[offset + 1];
     if (
       entry.char === "$" &&
