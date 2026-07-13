@@ -343,6 +343,31 @@ test("push gate passes the exact named destination remote to enforcement", () =>
   }
 });
 
+test("push gate accepts a named remote configured only with pushurl", () => {
+  const dir = makeRepo();
+  const fakeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "push-gate-pushurl-only-"));
+  try {
+    git(dir, "remote", "remove", "origin");
+    git(dir, "config", "remote.delivery.pushurl", dir);
+    fs.mkdirSync(path.join(fakeRoot, "scripts"), { recursive: true });
+    fs.writeFileSync(
+      path.join(fakeRoot, "scripts", "dev-gate-check.js"),
+      `"use strict";\n` +
+        `module.exports = require(${JSON.stringify(path.join(ROOT, "scripts", "dev-gate-check.js"))});\n` +
+        `if (require.main === module) {\n` +
+        `  const i = process.argv.indexOf("--remote");\n` +
+        `  process.exitCode = i >= 0 && process.argv[i + 1] === "delivery" ? 0 : 7;\n` +
+        `}\n`
+    );
+    writeGates(dir, "x", passingManifest(dir, "x", headSha(dir)));
+    const result = runHook("git push delivery HEAD", { cwd: dir }, { PM_PLUGIN_ROOT: fakeRoot });
+    assertAllow(result);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(fakeRoot, { recursive: true, force: true });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // A push with a FAILING or STALE manifest is blocked, surfacing the checker
 // output as the deny reason.
@@ -744,11 +769,14 @@ test("pushes inside command substitutions fail closed", () => {
       "result=$(echo $(git push origin HEAD))",
       'result="$(git push origin HEAD)"',
       'result="customer\'s $(git push origin HEAD)"',
+      "result=$(bash -c 'git push origin HEAD')",
+      "result=$(eval 'git push origin HEAD')",
     ])
       assertBlock(runHook(command, { cwd: dir }), /command substitution/);
     assertAllow(runHook("printf '%s' '$(git push origin HEAD)'", { cwd: dir }));
     assertAllow(runHook("message=$(printf '%s' 'git push is disabled')", { cwd: dir }));
     assertAllow(runHook("value=$(echo git; echo push)", { cwd: dir }));
+    assertAllow(runHook("message=$(printf '%s' 'bash git push is disabled')", { cwd: dir }));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

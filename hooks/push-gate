@@ -691,7 +691,9 @@ function containsPushCommandSubstitution(command) {
   const pushInside = (body) =>
     detectGitPushes(body, process.cwd()).length > 0 ||
     containsPushCommandSubstitution(body) ||
-    /\b(?:eval|ba?sh|zsh)\b[\s\S]{0,1000}\bgit\b[\s\S]{0,1000}\bpush\b/.test(body);
+    /(?:^|[;&|()]\s*)(?:eval\s+|(?:ba?sh|zsh)\b[^;&|()]*?\s-c\s+)["'][^"']*\bgit\s+push\b/.test(
+      body
+    );
   const findClosing = (start) => {
     let depth = 1;
     let quote = null;
@@ -967,7 +969,10 @@ function resolvePushRemote(repoDir, args, branch) {
   const configured = gitCapture(repoDir, ["remote"]).split(/\r?\n/).filter(Boolean);
   if (remote === "." || !configured.includes(remote))
     return { error: `push destination ${remote} is not a configured named remote` };
-  if (!gitCapture(repoDir, ["config", "--get", `remote.${remote}.url`]))
+  if (
+    !gitCapture(repoDir, ["config", "--get-all", `remote.${remote}.pushurl`]) &&
+    !gitCapture(repoDir, ["config", "--get-all", `remote.${remote}.url`])
+  )
     return { error: `push destination ${remote} is not a configured named remote` };
   return { remote };
 }
