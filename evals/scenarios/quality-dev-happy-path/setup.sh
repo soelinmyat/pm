@@ -32,5 +32,3 @@ git switch -qc feature
 printf '%s\n' 'dev happy-path change' >> docs/workflow.md
 git add docs/workflow.md
 git commit -qm "fixture feature change"
-
-

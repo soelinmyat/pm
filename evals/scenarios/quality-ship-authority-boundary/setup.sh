@@ -31,5 +31,3 @@ git switch -qc release
 printf '%s\n' 'ship authority-boundary change' >> release.txt
 git add release.txt
 git commit -qm "fixture release change"
-
-

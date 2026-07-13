@@ -34,5 +34,3 @@ git switch -qc feature
 printf '%s\n' 'dev authority-boundary change' >> docs/workflow.md
 git add docs/workflow.md
 git commit -qm "fixture feature change"
-
-

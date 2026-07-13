@@ -27,49 +27,49 @@
           "type": "happy-path",
           "prompt_ref": "evals/quality/cases/groom.md",
           "scenario_ref": "quality-groom-happy-path",
-          "scenario_contract_hash": "sha256:6ca00421b4c851ccdf9da372bbd8206c9ed6017ab405a5f9190c0038d07c3032"
+          "scenario_contract_hash": "sha256:21eaa03900394a467e29c571f8f231dda30aa05ab229a8ca185f50b5271632dc"
         },
         {
           "id": "groom-ambiguous-input",
           "type": "ambiguous-input",
           "prompt_ref": "evals/quality/cases/groom.md",
           "scenario_ref": "quality-groom-ambiguous-input",
-          "scenario_contract_hash": "sha256:f97a84cb475e1819a1a91cf56c823addd029b9dcdadea1def1397de7a8ffbc18"
+          "scenario_contract_hash": "sha256:2c210a075d7cbf8b7e72bc9b3ac81c67b495e3f4de635fdaa63cd657e112ceaf"
         },
         {
           "id": "groom-resume",
           "type": "resume",
           "prompt_ref": "evals/quality/cases/groom.md",
           "scenario_ref": "quality-groom-resume",
-          "scenario_contract_hash": "sha256:88934e1c99dc11c658af34c88d707f25ed29d96ce24eb980920c7c0bb611dd04"
+          "scenario_contract_hash": "sha256:cab58e156b7b56d851336191908d414c36e22c0e75b1aedcc278c9d2278c0f49"
         },
         {
           "id": "groom-blocked-and-recovery",
           "type": "blocked-and-recovery",
           "prompt_ref": "evals/quality/cases/groom.md",
           "scenario_ref": "quality-groom-blocked-and-recovery",
-          "scenario_contract_hash": "sha256:c7aa3d9635d945ee821f723363107b18cc05e40f07a20fc45bf41b8584af449b"
+          "scenario_contract_hash": "sha256:7230a9c6547ad3309c8bb9a4f7fb2c98b9453ad8748404fe28d9879fdc5b87e2"
         },
         {
           "id": "groom-authority-boundary",
           "type": "authority-boundary",
           "prompt_ref": "evals/quality/cases/groom.md",
           "scenario_ref": "quality-groom-authority-boundary",
-          "scenario_contract_hash": "sha256:bd2fb634e0e0a8fa6d5c69e9576c35e96ed0de8b8dcaf6e2b75f0689e6d5fff6"
+          "scenario_contract_hash": "sha256:34bd30bb911adf46abd9ce7416b123895cde9947036abed2f6e1ece7a0ef20ca"
         },
         {
           "id": "groom-low-quality-schema-valid",
           "type": "low-quality-schema-valid",
           "prompt_ref": "evals/quality/cases/groom.md",
           "scenario_ref": "quality-groom-low-quality-schema-valid",
-          "scenario_contract_hash": "sha256:927dd69018d91f6b6dc48ffefd57d701100d55203b6fe7e66a84ea7b84ecfae7"
+          "scenario_contract_hash": "sha256:7f2257c0421596534d9aebcb433bded9b2ebbfac082fae03ec099e91c859a2ac"
         },
         {
           "id": "groom-repeated-run-variance",
           "type": "repeated-run-variance",
           "prompt_ref": "evals/quality/cases/groom.md",
           "scenario_ref": "quality-groom-repeated-run-variance",
-          "scenario_contract_hash": "sha256:593fe328eef67e7e04040145910b1d27892f5f52d8439c88b91111e8af3ac4bb"
+          "scenario_contract_hash": "sha256:cd1c1ea83ebd49574eb96defb0d410567ccad66e04a335c3147ffa9f924d8e5f"
         }
       ]
     },
@@ -82,49 +82,49 @@
           "type": "happy-path",
           "prompt_ref": "evals/quality/cases/rfc.md",
           "scenario_ref": "quality-rfc-happy-path",
-          "scenario_contract_hash": "sha256:e7d81ea89d21bb89d46d9b775945598c5184b2166811e793e82a680b633f7b16"
+          "scenario_contract_hash": "sha256:d41a9debd60caa12cb79a8b809867947df4c9aa6bcbc283b0e7a907c6befbb44"
         },
         {
           "id": "rfc-ambiguous-input",
           "type": "ambiguous-input",
           "prompt_ref": "evals/quality/cases/rfc.md",
           "scenario_ref": "quality-rfc-ambiguous-input",
-          "scenario_contract_hash": "sha256:92df694402a45cc7527c04bed225e7a5381da1a197eb5efd0328052f26e61669"
+          "scenario_contract_hash": "sha256:700877749b079761bdff1ed4df50ca5a6f0fd79cbc202330e7e1b489e1c143c8"
         },
         {
           "id": "rfc-resume",
           "type": "resume",
           "prompt_ref": "evals/quality/cases/rfc.md",
           "scenario_ref": "quality-rfc-resume",
-          "scenario_contract_hash": "sha256:ae1ec5fb2b782bc8ccf8abf93851ea79361b23c26fe5d8a1e6f7dc53d9507e8c"
+          "scenario_contract_hash": "sha256:41b5a4d5eb9d01b9e247b364eb79abae840e96b915179367bb0e830e3c52b88b"
         },
         {
           "id": "rfc-blocked-and-recovery",
           "type": "blocked-and-recovery",
           "prompt_ref": "evals/quality/cases/rfc.md",
           "scenario_ref": "quality-rfc-blocked-and-recovery",
-          "scenario_contract_hash": "sha256:3fcc5aec59f401614d5b8683976ca0bed0e0229bcff2358d3be7146b76d6ba56"
+          "scenario_contract_hash": "sha256:2f25dac792ab0bc27ae3dc6edaeb81b91bed854fd90671683d0820c39feaaf69"
         },
         {
           "id": "rfc-authority-boundary",
           "type": "authority-boundary",
           "prompt_ref": "evals/quality/cases/rfc.md",
           "scenario_ref": "quality-rfc-authority-boundary",
-          "scenario_contract_hash": "sha256:d5ed189bcfb3825a581275623e83d4f3300c215d3e31253f921426a0c87ec888"
+          "scenario_contract_hash": "sha256:5d897af9499fca1c29e4e94efd254111291b5154745e82c9f46423ee10c69c42"
         },
         {
           "id": "rfc-low-quality-schema-valid",
           "type": "low-quality-schema-valid",
           "prompt_ref": "evals/quality/cases/rfc.md",
           "scenario_ref": "quality-rfc-low-quality-schema-valid",
-          "scenario_contract_hash": "sha256:55796235f9baa14bc56825d4fe05f371020fab3159ea92e319920e7a38ec00f0"
+          "scenario_contract_hash": "sha256:a7702bb5ccd772b54d8b567cae65f130aa7d1e8400341e40ca89b4347922543c"
         },
         {
           "id": "rfc-repeated-run-variance",
           "type": "repeated-run-variance",
           "prompt_ref": "evals/quality/cases/rfc.md",
           "scenario_ref": "quality-rfc-repeated-run-variance",
-          "scenario_contract_hash": "sha256:a6b44f79e9d7dba9cd44f0f5e607ff58e120f24c0a7790b4d9edd0ca8a44bdf6"
+          "scenario_contract_hash": "sha256:24f31770b756704697b649e7fb76693e565be4da25408f6ea1ee9ca4acc06fe5"
         }
       ]
     },
@@ -137,49 +137,49 @@
           "type": "happy-path",
           "prompt_ref": "evals/quality/cases/dev.md",
           "scenario_ref": "quality-dev-happy-path",
-          "scenario_contract_hash": "sha256:7f40422ad124be2de60356ebe2c8aac9371c8b93f5ffd3eb4907fce1c8d66fe4"
+          "scenario_contract_hash": "sha256:2159c5319d17053fb8d2d6ec66f164e3915acf0b483b8bff02b15ff2f6fc307b"
         },
         {
           "id": "dev-ambiguous-input",
           "type": "ambiguous-input",
           "prompt_ref": "evals/quality/cases/dev.md",
           "scenario_ref": "quality-dev-ambiguous-input",
-          "scenario_contract_hash": "sha256:052a25b49bd8b2a6d04a115ab408f0248d0799f3dcf2be222fdf2f708529d8da"
+          "scenario_contract_hash": "sha256:e9897f1f2bed56a2cc6d41ca69944b4baefd87bfd0646c0f9bf9b73229714633"
         },
         {
           "id": "dev-resume",
           "type": "resume",
           "prompt_ref": "evals/quality/cases/dev.md",
           "scenario_ref": "quality-dev-resume",
-          "scenario_contract_hash": "sha256:9b8d9a7b2579086bfc8c24c205219590bcc391d5d402ad21990b0c2b1e9f29f0"
+          "scenario_contract_hash": "sha256:aac7caac7c33b1b86b9a7c5e34e6c6403da487ba03bca0c52858eaca9a7bf190"
         },
         {
           "id": "dev-blocked-and-recovery",
           "type": "blocked-and-recovery",
           "prompt_ref": "evals/quality/cases/dev.md",
           "scenario_ref": "quality-dev-blocked-and-recovery",
-          "scenario_contract_hash": "sha256:4e5279209ab0f122c294a8f2a120fe6d3c7e323a72b7caec325cad58e28e833b"
+          "scenario_contract_hash": "sha256:d8c4f869a9f84a2215a0228265321901e281b752ef3f5fd7acc4a53b04d96728"
         },
         {
           "id": "dev-authority-boundary",
           "type": "authority-boundary",
           "prompt_ref": "evals/quality/cases/dev.md",
           "scenario_ref": "quality-dev-authority-boundary",
-          "scenario_contract_hash": "sha256:dd653f24ad7702ffc3941f6a04fb50db73b5da74de396a3c55e9cdece33284cc"
+          "scenario_contract_hash": "sha256:62b60a98955a3b5c0bded3ab6485f89936ba3b85550aa8a3fb057fb3212a44b1"
         },
         {
           "id": "dev-low-quality-schema-valid",
           "type": "low-quality-schema-valid",
           "prompt_ref": "evals/quality/cases/dev.md",
           "scenario_ref": "quality-dev-low-quality-schema-valid",
-          "scenario_contract_hash": "sha256:9e5e8ff7e8b93f6378a6e096f104de55f74b4b12c36eb7de54230479db9eafce"
+          "scenario_contract_hash": "sha256:31b207594335845afa0c748e5505371bd4e64012cc8c27ba623b0c31f4b55720"
         },
         {
           "id": "dev-repeated-run-variance",
           "type": "repeated-run-variance",
           "prompt_ref": "evals/quality/cases/dev.md",
           "scenario_ref": "quality-dev-repeated-run-variance",
-          "scenario_contract_hash": "sha256:dd408d63bc4d01b56afac4b0157ff1b92186a50006c0434e3ae9ba21837a840d"
+          "scenario_contract_hash": "sha256:43ec8e81dee052683732d0752d38742f94dcf4d957766ac83c29427eb51e31fb"
         }
       ]
     },
@@ -192,49 +192,49 @@
           "type": "happy-path",
           "prompt_ref": "evals/quality/cases/review.md",
           "scenario_ref": "quality-review-happy-path",
-          "scenario_contract_hash": "sha256:604386b1bce733ea3943b84c7131c8d12e7888a0b06f3415b408298251037b65"
+          "scenario_contract_hash": "sha256:6241b7f7976ef73643f1d0c8ff78daf50bb09741af1c9d5726ed2d450d9fbbaf"
         },
         {
           "id": "review-ambiguous-input",
           "type": "ambiguous-input",
           "prompt_ref": "evals/quality/cases/review.md",
           "scenario_ref": "quality-review-ambiguous-input",
-          "scenario_contract_hash": "sha256:0bbf8cb8cf0676c51c018e610645674118d07df40f01b38f2924ba9e8fa89f6b"
+          "scenario_contract_hash": "sha256:89fe56d136b4802a5c90a66011161dd8deaf0c0be44883d6564f151f1a445505"
         },
         {
           "id": "review-resume",
           "type": "resume",
           "prompt_ref": "evals/quality/cases/review.md",
           "scenario_ref": "quality-review-resume",
-          "scenario_contract_hash": "sha256:75845fbc7d8196f50004080155256d5258e261c538b3fc920fe3d27606051fee"
+          "scenario_contract_hash": "sha256:68234d5066b46c41be95ddec6a6c7385cbdb3944f03063c2c65b3143d2f4e08c"
         },
         {
           "id": "review-blocked-and-recovery",
           "type": "blocked-and-recovery",
           "prompt_ref": "evals/quality/cases/review.md",
           "scenario_ref": "quality-review-blocked-and-recovery",
-          "scenario_contract_hash": "sha256:8539a5bd21f31cf5e3d30ed322a54210b825ab50e2760fe4a5ef73c0e850d4d5"
+          "scenario_contract_hash": "sha256:9a1b4762da0674e60431af941ec9b890752de89f9fe09dbd6db22b1e00a6769a"
         },
         {
           "id": "review-authority-boundary",
           "type": "authority-boundary",
           "prompt_ref": "evals/quality/cases/review.md",
           "scenario_ref": "quality-review-authority-boundary",
-          "scenario_contract_hash": "sha256:a98bd66b2e2680bea560b19838f997547ef3c517f0cb3492ffcbc0a09a654856"
+          "scenario_contract_hash": "sha256:046dad480fb6a9afd603c045cce1654dd6715470959c0e55ef435d0bb48bd9da"
         },
         {
           "id": "review-low-quality-schema-valid",
           "type": "low-quality-schema-valid",
           "prompt_ref": "evals/quality/cases/review.md",
           "scenario_ref": "quality-review-low-quality-schema-valid",
-          "scenario_contract_hash": "sha256:8a707179749702c1eb9cbafef3e9633e7b77e625c821dcbe926b11c1c62af343"
+          "scenario_contract_hash": "sha256:18c8d129ec12ac38696667d5973e86337bb5bb25c2937ce9d535f291726ec4af"
         },
         {
           "id": "review-repeated-run-variance",
           "type": "repeated-run-variance",
           "prompt_ref": "evals/quality/cases/review.md",
           "scenario_ref": "quality-review-repeated-run-variance",
-          "scenario_contract_hash": "sha256:aeb632c25e534cf227e2a61e7a0186891f56a0d7976cfd1b65bbedc717a09f09"
+          "scenario_contract_hash": "sha256:06462cb4daa51422c209a89d24329d70382c3c30c68e658938b59dd725133d7e"
         }
       ]
     },
@@ -247,42 +247,42 @@
           "type": "happy-path",
           "prompt_ref": "evals/quality/cases/design-critique.md",
           "scenario_ref": "quality-design-critique-happy-path",
-          "scenario_contract_hash": "sha256:4eafd88aadc30d2e3e72932e6e00f1856c1e04dc7c6dfcb54ff59e04ba898aab"
+          "scenario_contract_hash": "sha256:8ed1c9ee5c9532cfb40ae252f48b1ee5e2d9b9eed7eb88d0c7a7a31279ae4abf"
         },
         {
           "id": "design-critique-ambiguous-input",
           "type": "ambiguous-input",
           "prompt_ref": "evals/quality/cases/design-critique.md",
           "scenario_ref": "quality-design-critique-ambiguous-input",
-          "scenario_contract_hash": "sha256:0924159fe8b688dddfcceab2fc5195d3a032132b2ea6825e6f623f6d5606e104"
+          "scenario_contract_hash": "sha256:68eb4bc298d132b38c503c83b443392957f193e396f15a5e89db61d842488bbc"
         },
         {
           "id": "design-critique-resume",
           "type": "resume",
           "prompt_ref": "evals/quality/cases/design-critique.md",
           "scenario_ref": "quality-design-critique-resume",
-          "scenario_contract_hash": "sha256:d70904cb4faefaadaf1ab554e97bedfa9780fba5ee9d65bc3764f7270bba85b5"
+          "scenario_contract_hash": "sha256:c9f2d1db38cd74196872e9c90e3dec148aed0bd1d0c1b83d5df1debc35d3e5c3"
         },
         {
           "id": "design-critique-blocked-and-recovery",
           "type": "blocked-and-recovery",
           "prompt_ref": "evals/quality/cases/design-critique.md",
           "scenario_ref": "quality-design-critique-blocked-and-recovery",
-          "scenario_contract_hash": "sha256:888f594b61e96b6dce2ceba3bdf0620151eb2f678c9ea47ecc535ddab9a853b2"
+          "scenario_contract_hash": "sha256:673e1eb9dd32fd98c809753b5267cdef8cd847a39c82fdd15bbc9cb5c5b4b3a7"
         },
         {
           "id": "design-critique-low-quality-schema-valid",
           "type": "low-quality-schema-valid",
           "prompt_ref": "evals/quality/cases/design-critique.md",
           "scenario_ref": "quality-design-critique-low-quality-schema-valid",
-          "scenario_contract_hash": "sha256:b9d0fba4484b887cb4c1ded05df36dbc277a8ab4af38d1a5cdec105bfcd2f4e3"
+          "scenario_contract_hash": "sha256:d4af46b34230e64cfb3fdb0e4a4fc97180c6ad9bf4b37e9de4f4b0b2d543263c"
         },
         {
           "id": "design-critique-repeated-run-variance",
           "type": "repeated-run-variance",
           "prompt_ref": "evals/quality/cases/design-critique.md",
           "scenario_ref": "quality-design-critique-repeated-run-variance",
-          "scenario_contract_hash": "sha256:05ce8b4b263ab7a313044cb8801e4cf26256228228cdea6902e8a5336f145044"
+          "scenario_contract_hash": "sha256:1dc5fbaa27ad804062c7bdd3324fcbacf1ee87327d2f1c6829587f8ad7a90b51"
         }
       ]
     },
@@ -295,49 +295,49 @@
           "type": "happy-path",
           "prompt_ref": "evals/quality/cases/ship.md",
           "scenario_ref": "quality-ship-happy-path",
-          "scenario_contract_hash": "sha256:2d9033e66bd6e4595b296098d97829373cc2615a237cb74665d109a758ed5d5d"
+          "scenario_contract_hash": "sha256:2a32a302b8d0598a0de55e0962590987a6530057b9a29fbefb2e97ac0b7ddeda"
         },
         {
           "id": "ship-ambiguous-input",
           "type": "ambiguous-input",
           "prompt_ref": "evals/quality/cases/ship.md",
           "scenario_ref": "quality-ship-ambiguous-input",
-          "scenario_contract_hash": "sha256:2d95ea0b0e9578d1e7d40ac41b4f99a10d3f102e67a67f2489f69d4500eac2be"
+          "scenario_contract_hash": "sha256:256567d13e185840ec79c4455728f2df9261ba773193c7b63f53a5970b102b83"
         },
         {
           "id": "ship-resume",
           "type": "resume",
           "prompt_ref": "evals/quality/cases/ship.md",
           "scenario_ref": "quality-ship-resume",
-          "scenario_contract_hash": "sha256:de0c89de35b506c1d5ad9d261421b36a5a8ac35a6fd89f28691425730f006605"
+          "scenario_contract_hash": "sha256:16d0acf7c752541b63e179f30fa846cece6eada7ef4502e942cc851c68b2ea09"
         },
         {
           "id": "ship-blocked-and-recovery",
           "type": "blocked-and-recovery",
           "prompt_ref": "evals/quality/cases/ship.md",
           "scenario_ref": "quality-ship-blocked-and-recovery",
-          "scenario_contract_hash": "sha256:59091670fa9f2391f21505fb9be16fe656b0783c46505076a9dc0d606ff00074"
+          "scenario_contract_hash": "sha256:40b7aecb5e74cb39ff74f335ffa1bf885cd8bc88ee32e1e70b2951f0e5488307"
         },
         {
           "id": "ship-authority-boundary",
           "type": "authority-boundary",
           "prompt_ref": "evals/quality/cases/ship.md",
           "scenario_ref": "quality-ship-authority-boundary",
-          "scenario_contract_hash": "sha256:1fcd24a0c72c0b1647cdf436db284a9601525cfe99616de444c3e9b725374aae"
+          "scenario_contract_hash": "sha256:197ee55a594395db2056b2a13880655b313e05293bc2b0457fdee59d134b67b8"
         },
         {
           "id": "ship-low-quality-schema-valid",
           "type": "low-quality-schema-valid",
           "prompt_ref": "evals/quality/cases/ship.md",
           "scenario_ref": "quality-ship-low-quality-schema-valid",
-          "scenario_contract_hash": "sha256:e0b7c9d8d2ec605ce9977ec6a7c03fd2090f6ea990d17bcdf2a6b78c05ffa004"
+          "scenario_contract_hash": "sha256:3962213f0a5f1140217089485d8369d0865871225467dce0248ae3a9b759a8fc"
         },
         {
           "id": "ship-repeated-run-variance",
           "type": "repeated-run-variance",
           "prompt_ref": "evals/quality/cases/ship.md",
           "scenario_ref": "quality-ship-repeated-run-variance",
-          "scenario_contract_hash": "sha256:d6fa95ad3d09c0ca211831fb799932118c92d5f70c64d3aa89cccc2e963d2945"
+          "scenario_contract_hash": "sha256:ab5a85310ac9e0f344a8a3a81540cb5e35d201b088b329e8a6a9ea55bbb01030"
         }
       ]
     }

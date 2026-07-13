@@ -74,7 +74,7 @@ for (const [name, content] of Object.entries(files)) {
   fs.writeFileSync(name, content);
 }
 NODE
-${fixture.shell}
+${fixture.shell.trimEnd()}
 `;
 }
 

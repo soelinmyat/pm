@@ -32,5 +32,3 @@ git switch -qc feature
 printf '%s\n' 'design-critique repeated-run-variance change' >> ui/report.html
 git add ui/report.html
 git commit -qm "fixture feature change"
-
-

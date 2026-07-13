@@ -29,5 +29,3 @@ git switch -qc release
 printf '%s\n' 'ship happy-path change' >> release.txt
 git add release.txt
 git commit -qm "fixture release change"
-
-

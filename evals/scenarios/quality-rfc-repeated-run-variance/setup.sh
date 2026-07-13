@@ -31,5 +31,3 @@ git switch -qc feature
 printf '%s\n' 'rfc repeated-run-variance change' >> docs/architecture.md
 git add docs/architecture.md
 git commit -qm "fixture feature change"
-
-

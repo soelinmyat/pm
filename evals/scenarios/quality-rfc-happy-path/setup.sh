@@ -30,5 +30,3 @@ git switch -qc feature
 printf '%s\n' 'rfc happy-path change' >> docs/architecture.md
 git add docs/architecture.md
 git commit -qm "fixture feature change"
-
-

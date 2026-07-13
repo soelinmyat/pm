@@ -34,4 +34,3 @@ git add ui/report.html
 git commit -qm "fixture feature change"
 
 node "$PM_PLUGIN_ROOT/scripts/evals/quality-repo-state.js" snapshot "$(pwd)"
-

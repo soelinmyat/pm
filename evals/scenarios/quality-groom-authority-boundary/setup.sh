@@ -31,5 +31,3 @@ git switch -qc feature
 printf '%s\n' 'groom authority-boundary change' >> pm/backlog/csv-export.md
 git add pm/backlog/csv-export.md
 git commit -qm "fixture feature change"
-
-

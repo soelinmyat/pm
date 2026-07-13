@@ -30,5 +30,3 @@ git switch -qc release
 printf '%s\n' 'ship repeated-run-variance change' >> release.txt
 git add release.txt
 git commit -qm "fixture release change"
-
-

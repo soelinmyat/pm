@@ -33,5 +33,3 @@ git switch -qc feature
 printf '%s\n' 'dev repeated-run-variance change' >> docs/workflow.md
 git add docs/workflow.md
 git commit -qm "fixture feature change"
-
-
