@@ -653,8 +653,12 @@ test("shell control keywords preserve directory changes before gated pushes", ()
       "HOME=gated; export HOME+=/child; cd; git push origin HEAD",
       "HOME=gated; readonly HOME[0]=gated; cd; git push origin HEAD",
       "HOME=gated; readonly -a HOME=(gated); cd; git push origin HEAD",
+      "HOME=gated; HOME[a[0]]=gated; cd; git push origin HEAD",
+      "HOME=gated; export HOME[a[0]]=gated; cd; git push origin HEAD",
+      "HOME=gated; readonly HOME[a[0]]=gated; cd; git push origin HEAD",
       "CDPATH=gated; export CDPATH+=/search; cd child; git push origin HEAD",
       "CDPATH=gated; readonly CDPATH[0]=gated; cd child; git push origin HEAD",
+      "CDPATH=gated; CDPATH[a[0]]=gated; cd child; git push origin HEAD",
       "HOME=gated; HOME=/tmp >/missing/out; cd; git push origin HEAD",
       "CDPATH=gated; CDPATH= >/dev/null; cd child && git push origin HEAD",
       "CDPATH=gated; CDPATH= 2>/dev/null; cd child && git push origin HEAD",
@@ -954,6 +958,10 @@ test("pushes inside command substitutions fail closed", () => {
       "result=$(env FOO=bar bash -c 'git push origin HEAD')",
       "result=$(env -i sh -c 'git push origin HEAD')",
       "result=$(eval 'git push origin HEAD')",
+      "A=( <(git push origin HEAD) )",
+      "A=( <(cd . && git push origin HEAD) )",
+      "A=( >(git push origin HEAD) )",
+      "declare -A A=( [key]=<(git push origin HEAD) )",
     ])
       assertBlock(runHook(command, { cwd: dir }), /command substitution/);
     assertAllow(runHook("printf '%s' '$(git push origin HEAD)'", { cwd: dir }));
@@ -961,6 +969,7 @@ test("pushes inside command substitutions fail closed", () => {
     assertAllow(runHook("value=$(echo git; echo push)", { cwd: dir }));
     assertAllow(runHook("message=$(printf '%s' 'bash git push is disabled')", { cwd: dir }));
     assertAllow(runHook("message=$(printf '%s' 'eval git push is disabled')", { cwd: dir }));
+    assertAllow(runHook("A=( 'git push origin HEAD' '(git push)' )", { cwd: dir }));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

@@ -466,7 +466,7 @@ function splitSimpleShellWords(input) {
       !entry.quote &&
       !entry.escaped &&
       entry.char === "(" &&
-      /^[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?\+?=$/.test(current)
+      isCompoundAssignmentPrefix(current)
     ) {
       current += entry.char;
       active = true;
@@ -868,13 +868,17 @@ function assignmentName(word) {
 }
 
 function parseShellAssignment(value) {
-  const match = String(value).match(/^([A-Za-z_][A-Za-z0-9_]*)(\[[^\]]*\])?(\+?=)([\s\S]*)$/);
+  const match = String(value).match(/^([A-Za-z_][A-Za-z0-9_]*)(\[[\s\S]*\])?(\+?=)([\s\S]*)$/);
   if (!match) return null;
   return {
     name: match[1],
     complex: Boolean(match[2]) || match[3] === "+=" || match[4].startsWith("("),
     value: match[4],
   };
+}
+
+function isCompoundAssignmentPrefix(value) {
+  return /^[A-Za-z_][A-Za-z0-9_]*(?:\[[\s\S]*\])?\+?=$/.test(String(value));
 }
 
 function isDirectoryAssignment(word) {
@@ -1016,10 +1020,7 @@ function scanShellTokens(command) {
       continue;
     }
     if (entry.quote || entry.escaped) continue;
-    if (
-      entry.char === "(" &&
-      /^[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?\+?=$/.test(command.slice(wordStart, entry.index))
-    ) {
+    if (entry.char === "(" && isCompoundAssignmentPrefix(command.slice(wordStart, entry.index))) {
       compoundAssignmentDepth = 1;
       continue;
     }
@@ -1107,9 +1108,9 @@ function lexShellCharacters(input) {
   return { characters, closed: quote === null, sawBacktick };
 }
 
-function containsPushCommandSubstitution(command) {
+function containsPushShellSubstitution(command) {
   const pushInside = (body) =>
-    detectGitPushes(body, process.cwd()).length > 0 || containsPushCommandSubstitution(body);
+    detectGitPushes(body, process.cwd()).length > 0 || containsPushShellSubstitution(body);
   const findClosing = (start) => {
     let depth = 1;
     let quote = null;
@@ -1155,6 +1156,12 @@ function containsPushCommandSubstitution(command) {
       continue;
     }
     if (char === "$" && command[index + 1] === "(") {
+      const end = findClosing(index + 2);
+      if (end < 0 || pushInside(command.slice(index + 2, end))) return true;
+      index = end;
+      continue;
+    }
+    if ((char === "<" || char === ">") && command[index + 1] === "(") {
       const end = findClosing(index + 2);
       if (end < 0 || pushInside(command.slice(index + 2, end))) return true;
       index = end;
@@ -2111,9 +2118,9 @@ function main() {
     );
     return;
   }
-  if (containsPushCommandSubstitution(command)) {
+  if (containsPushShellSubstitution(command)) {
     emitDeny(
-      "PM dev gate cannot safely inspect a git push inside shell command substitution. " +
+      "PM dev gate cannot safely inspect a git push inside shell command substitution or process substitution. " +
         "Run the push as a separate command so its repository, refspec, and quality gates can be verified."
     );
     return;
