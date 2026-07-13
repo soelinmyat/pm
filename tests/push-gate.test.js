@@ -642,6 +642,9 @@ test("shell control keywords preserve directory changes before gated pushes", ()
       "readonly -f HOME=/tmp || cd gated; git push origin HEAD",
       "readonly -g HOME || cd gated; git push origin HEAD",
       "HOME=gated; readonly -a HOME=.; cd; git push origin HEAD",
+      "HOME=gated readonly -a HOME; cd; git push origin HEAD",
+      "HOME=/tmp export -f HOME || cd gated; git push origin HEAD",
+      "HOME=gated; unset HOME 999999999>/dev/null || cd; git push origin HEAD",
       "command -- cd gated && git push origin HEAD",
       "builtin -- cd gated && git push origin HEAD",
       "cd gated; if false; then :; else git push origin HEAD; fi",
@@ -659,6 +662,11 @@ test("shell control keywords preserve directory changes before gated pushes", ()
     );
     assertAllow(
       runHook("CDPATH=gated; CDPATH= >/dev/null; cd child && git push origin HEAD", {
+        cwd: parent,
+      })
+    );
+    assertAllow(
+      runHook("CDPATH=gated; CDPATH= 2>/dev/null; cd child && git push origin HEAD", {
         cwd: parent,
       })
     );

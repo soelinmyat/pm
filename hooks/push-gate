@@ -725,7 +725,8 @@ function parseDirectoryEnvironmentCommand(segment) {
   const prefixTargetNames = command === "export" ? names : effectiveNames;
   const targetNames = new Set([...prefixTargetNames, ...operandAssignments.map(assignmentName)]);
   const prefixPersists =
-    (command === "export" && !optionLetters.has("n")) || command === "readonly";
+    (command === "export" && !optionLetters.has("n") && !optionLetters.has("f")) ||
+    (command === "readonly" && !optionLetters.has("f"));
   const persistentPrefixAssignments = prefixPersists
     ? prefixAssignments.filter((assignment) => targetNames.has(assignmentName(assignment)))
     : [];
@@ -756,7 +757,7 @@ function applyDirectoryEnvironmentCommand(state, command) {
   let succeeded = true;
   const assignments = command.command
     ? command.arrayMode
-      ? []
+      ? command.persistentPrefixAssignments
       : [...command.persistentPrefixAssignments, ...command.operandAssignments]
     : command.prefixAssignments;
   for (const assignment of assignments) {
@@ -850,7 +851,10 @@ function shellCommandWordsWithoutRedirections(segment) {
     }
     let operand = match[2];
     if (operand === "") operand = values[++index]?.value || "";
-    if (operand !== "/dev/null") redirectionMayFail = true;
+    const descriptor = match[1].match(/^\d*/)?.[0] || "";
+    const ordinaryDescriptor =
+      descriptor === "" || (descriptor.length === 1 && Number(descriptor) >= 0);
+    if (operand !== "/dev/null" || !ordinaryDescriptor) redirectionMayFail = true;
   }
   while (
     commandWords.length > 0 &&
