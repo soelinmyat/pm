@@ -1022,8 +1022,11 @@ function sessionBranchPushSource(args, sessionBranch) {
 
 // --- git helpers -----------------------------------------------------------
 
-function gitCapture(repoDir, args) {
-  const result = spawnSync("git", ["-C", repoDir, ...args], {
+function gitCapture(repoDir, args, gitDir = null) {
+  const prefix = gitDir
+    ? [`--git-dir=${gitDir}`, `--work-tree=${repoDir}`]
+    : ["-C", repoDir];
+  const result = spawnSync("git", [...prefix, ...args], {
     encoding: "utf8",
     maxBuffer: MAX_BUFFER,
   });
@@ -1031,28 +1034,28 @@ function gitCapture(repoDir, args) {
   return (result.stdout || "").trim();
 }
 
-function currentBranch(repoDir) {
-  const shown = gitCapture(repoDir, ["branch", "--show-current"]);
+function currentBranch(repoDir, gitDir = null) {
+  const shown = gitCapture(repoDir, ["branch", "--show-current"], gitDir);
   if (shown) return shown;
-  const abbrev = gitCapture(repoDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  const abbrev = gitCapture(repoDir, ["rev-parse", "--abbrev-ref", "HEAD"], gitDir);
   return abbrev && abbrev !== "HEAD" ? abbrev : "";
 }
 
-function resolvePushRemote(repoDir, args, branch) {
+function resolvePushRemote(repoDir, args, branch, gitDir = null) {
   let remote = parsePushArguments(args).remote;
   if (!remote) {
     remote =
-      gitCapture(repoDir, ["config", "--get", `branch.${branch}.pushRemote`]) ||
-      gitCapture(repoDir, ["config", "--get", "remote.pushDefault"]) ||
-      gitCapture(repoDir, ["config", "--get", `branch.${branch}.remote`]) ||
+      gitCapture(repoDir, ["config", "--get", `branch.${branch}.pushRemote`], gitDir) ||
+      gitCapture(repoDir, ["config", "--get", "remote.pushDefault"], gitDir) ||
+      gitCapture(repoDir, ["config", "--get", `branch.${branch}.remote`], gitDir) ||
       "origin";
   }
-  const configured = gitCapture(repoDir, ["remote"]).split(/\r?\n/).filter(Boolean);
+  const configured = gitCapture(repoDir, ["remote"], gitDir).split(/\r?\n/).filter(Boolean);
   if (remote === "." || !configured.includes(remote))
     return { error: `push destination ${remote} is not a configured named remote` };
   if (
-    !gitCapture(repoDir, ["config", "--get-all", `remote.${remote}.pushurl`]) &&
-    !gitCapture(repoDir, ["config", "--get-all", `remote.${remote}.url`])
+    !gitCapture(repoDir, ["config", "--get-all", `remote.${remote}.pushurl`], gitDir) &&
+    !gitCapture(repoDir, ["config", "--get-all", `remote.${remote}.url`], gitDir)
   )
     return { error: `push destination ${remote} is not a configured named remote` };
   return { remote };
@@ -1079,8 +1082,17 @@ function resolveRepoDir(baseCwd, push) {
     // This is authoritative Git metadata, unlike a caller-controlled --work-tree.
     try {
       const checkoutGitFile = fs.readFileSync(path.join(gd, "gitdir"), "utf8").trim();
-      if (checkoutGitFile && path.basename(checkoutGitFile) === ".git")
-        return path.dirname(path.resolve(gd, checkoutGitFile));
+      const checkoutGitPath = path.resolve(gd, checkoutGitFile);
+      const reciprocal = fs.readFileSync(checkoutGitPath, "utf8").trim();
+      const match = /^gitdir:\s*(.+)$/i.exec(reciprocal);
+      if (
+        checkoutGitFile &&
+        path.basename(checkoutGitPath) === ".git" &&
+        match &&
+        fs.realpathSync(path.resolve(path.dirname(checkoutGitPath), match[1])) ===
+          fs.realpathSync(gd)
+      )
+        return path.dirname(checkoutGitPath);
     } catch {
       // Not a linked-worktree administrative directory.
     }
@@ -1102,6 +1114,14 @@ function resolveRepoDir(baseCwd, push) {
   return repoDir;
 }
 
+function resolveExplicitGitDir(baseCwd, push) {
+  if (!push.gitDir) return null;
+  let dir = baseCwd;
+  if (push.cwdOverride) dir = path.resolve(dir, push.cwdOverride);
+  if (push.dir) dir = path.resolve(dir, push.dir);
+  return path.resolve(dir, push.gitDir);
+}
+
 function gatePush(baseCwd, push) {
   if (push.cwdOverride === null || push.indeterminate) {
     emitDeny(
@@ -1118,8 +1138,9 @@ function gatePush(baseCwd, push) {
     );
     return true;
   }
+  const gitDir = resolveExplicitGitDir(baseCwd, push);
 
-  const branch = currentBranch(repoDir);
+  const branch = currentBranch(repoDir, gitDir);
   if (!branch) return false;
 
   // Refspec scoping: only gate pushes that update THIS branch's ref. Tag pushes,
@@ -1173,7 +1194,11 @@ function gatePush(baseCwd, push) {
       blockUnverified(branch, manifestRel, pushed.error);
       return true;
     }
-    const pushedSha = gitCapture(repoDir, ["rev-parse", "--verify", `${pushed.source}^{commit}`]);
+    const pushedSha = gitCapture(
+      repoDir,
+      ["rev-parse", "--verify", `${pushed.source}^{commit}`],
+      gitDir
+    );
     if (!/^[a-f0-9]{40,64}$/.test(pushedSha)) {
       blockUnverified(
         branch,
@@ -1193,7 +1218,7 @@ function gatePush(baseCwd, push) {
       "--review-evidence-mode",
       "enforce",
     ];
-    const destination = resolvePushRemote(repoDir, push.args, branch);
+    const destination = resolvePushRemote(repoDir, push.args, branch, gitDir);
     if (destination.error) {
       blockUnverified(branch, manifestRel, destination.error);
       return true;
@@ -1202,6 +1227,9 @@ function gatePush(baseCwd, push) {
 
     const result = spawnSync(process.execPath, [CHECKER, ...checkerArgs], {
       cwd: repoDir,
+      env: gitDir
+        ? { ...process.env, GIT_DIR: gitDir, GIT_WORK_TREE: repoDir }
+        : process.env,
       encoding: "utf8",
       maxBuffer: MAX_BUFFER,
     });

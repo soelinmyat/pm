@@ -1294,6 +1294,29 @@ test("linked-worktree git metadata resolves its authoritative checkout", () => {
   }
 });
 
+test("linked-worktree metadata requires a reciprocal checkout pointer", () => {
+  const source = makeRepo();
+  const linked = fs.mkdtempSync(path.join(os.tmpdir(), "push-gate-linked-source-"));
+  const redirect = makeRepo({ branch: "feat/linked" });
+  fs.rmSync(linked, { recursive: true, force: true });
+  try {
+    git(source, "worktree", "add", "-q", "-b", "feat/linked", linked);
+    writeFailingGates(linked, "linked");
+    writeGates(redirect, "linked", passingManifest(redirect, "linked", headSha(redirect)));
+    const gitDir = git(linked, "rev-parse", "--absolute-git-dir");
+    fs.writeFileSync(path.join(gitDir, "gitdir"), `${path.join(redirect, ".git")}\n`);
+    assertBlock(
+      runHook(`git --git-dir=${gitDir} push origin HEAD`, { cwd: redirect }),
+      /could not bind this Git directory/
+    );
+  } finally {
+    spawnSync("git", ["-C", source, "worktree", "remove", "--force", linked]);
+    fs.rmSync(source, { recursive: true, force: true });
+    fs.rmSync(linked, { recursive: true, force: true });
+    fs.rmSync(redirect, { recursive: true, force: true });
+  }
+});
+
 test("unmapped separate Git directories fail closed", () => {
   const parent = fs.mkdtempSync(path.join(os.tmpdir(), "push-gate-separate-"));
   const checkout = path.join(parent, "checkout");
