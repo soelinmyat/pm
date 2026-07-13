@@ -13,7 +13,11 @@ Ideas are early-stage backlog items. They live in `{pm_dir}/backlog/` with `stat
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
 
-**Workflow:** `ideate`
+**Workflow:** `ideate` | **Telemetry steps:** `audit`, `mine_signals`, `filter`, `shape`, `rank`, `present`, `write`
+
+## Iron Law
+
+**NEVER SAVE AN UNSOURCED IDEA.**
 
 ## Hard rules
 
@@ -22,6 +26,14 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and
 - **Apply all 5 filters to every candidate.** Show the filtered-out list with a rejection reason for each — the user can override, but you never silently drop or skip filters.
 - **Quality over quantity.** 5 well-sourced ideas beat 15 thin ones. Cut the weakest to a defensible 5-10.
 - **Ideate shapes ideas, it doesn't scope them.** For depth on one idea, hand off to `pm:think` or `pm:groom`.
+
+## Red Flags — Self-Check
+
+- **"This idea is too good to need a citation."** Stop and trace it to a durable signal or drop it.
+- **"I already know what the product does."** Check the feature inventory and codebase before generating.
+- **"The rejected ideas do not matter."** Include each filtered candidate with its rejection reason.
+- **"Ten ideas looks more valuable than five."** Keep only candidates that survive all filters and remain comparable.
+- **"The top idea is ready to build."** Route to `pm:think` or `pm:groom`; ideation does not establish scope.
 
 ## Setup detection
 
@@ -120,3 +132,16 @@ When the user already knows what to build and wants to scope it — use `pm:groo
 - **KB too thin to generate ideas:** "Not enough data to mine. Run `/pm:research` and `/pm:strategy` first to build the knowledge base."
 - **User wants to deep-dive one idea:** "Want to explore '{idea}' further? I can run `/pm:think` to challenge the framing, or `/pm:groom` to scope it into a proposal."
 - **User wants to groom an idea immediately:** Invoke `pm:groom` with the idea context pre-loaded. Groom intake recognizes `status: idea` backlog items and pre-fills from them.
+
+## Common Rationalizations
+
+| Excuse | Reality |
+|---|---|
+| "A plausible idea can be marked hypothesis." | Hypothesis describes evidence strength; it does not replace a source signal. |
+| "Silent filtering keeps the output concise." | Visible rejection reasons make ranking auditable and user-overridable. |
+
+## Before Marking Done
+
+- [ ] User-approved idea artifacts are saved with stable IDs, source paths, and comparable fields; unapproved ideas remain unwritten.
+- [ ] The user confirmed which ideas to save and whether to think, groom, or stop.
+- [ ] Capability audit, signal provenance, five-filter, ranking, deduplication, and write validation gates passed.

@@ -13,7 +13,11 @@ Think is the conversation you have *before* deciding whether to build. It produc
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
 
-**Workflow:** `think`
+**Workflow:** `think` | **Telemetry steps:** `capture`, `ground`, `reframe`, `explore`, `pressure_test`, `synthesize`
+
+## Iron Law
+
+**NEVER SKIP THE REFRAME.**
 
 ## Hard rules
 
@@ -22,6 +26,14 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and
 - **Not research.** At most 2 insight files + 2 web searches. Need more → escalate to `pm:research` rather than turning thinking into a research session.
 - **Not a spec.** Think produces a one-page summary, not a design doc. If you're writing more than a page, you've crossed into groom territory.
 - **Converge or surface.** After 4+ exchanges on one beat without convergence, synthesize what you have and name the sticking point as an open question.
+
+## Red Flags — Self-Check
+
+- **"The framing already sounds good."** Stop and test it through one explicit reframing lens.
+- **"More options will help."** Keep the set genuinely distinct and recommend the strongest direction.
+- **"We need more evidence before discussing this."** Use the bounded grounding check, then route to research only if the decision truly depends on missing data.
+- **"The user seems convinced, so I should agree."** Ask the sharpest pressure-test question and disagree openly when the risk is material.
+- **"This summary is close enough."** Ask the user to confirm the artifact before saving or promoting it.
 
 ## Setup detection
 
@@ -62,6 +74,7 @@ Handle multiple ideas sequentially — finish one (synthesize + save) before sta
 
 ## Escalation paths
 
+- Stop the current beat before switching lanes; preserve the reframe, decision, and open question in the artifact.
 - **Needs data, not opinions:** "This needs evidence before we can think clearly about it. Want me to run `/pm:research` on [specific question]?"
 - **No convergence after 4+ exchanges on one beat:** synthesize the current state, name the sticking point explicitly, and save as `active` with the disagreement captured in open questions.
 - **Multiple ideas emerging:** "We're branching into [second idea]. Let me save this one first, then we can think through that separately."
@@ -118,3 +131,16 @@ promoted_to: "{groom-session-slug}" | null
 ```
 
 `status`: `active` (default on creation) · `parked` (valid but not worth pursuing now, or failed pressure-test but not dead) · `promoted` (user accepted the groom promotion). Only the user's explicit signal changes status — don't auto-park stale ideas, ask first.
+
+## Common Rationalizations
+
+| Excuse | Reality |
+|---|---|
+| "The user asked for ideas, not pushback." | Useful thinking tests the premise before multiplying solutions. |
+| "Promotion is obvious from enthusiasm." | Only explicit user confirmation changes durable status or starts grooming. |
+
+## Before Marking Done
+
+- [ ] The confirmed thinking artifact is saved, indexed, and remains the single canonical slug.
+- [ ] The user confirmed the reframe, direction, summary, and any promotion decision.
+- [ ] Grounding bounds, reframe, pressure-test, convergence, artifact validation, and promotion gates passed.

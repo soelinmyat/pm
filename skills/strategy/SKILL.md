@@ -11,7 +11,11 @@ The strategy doc is the alignment filter for all grooming decisions. Every featu
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
 
-**Workflow:** `strategy`
+**Workflow:** `strategy` | **Telemetry steps:** `prerequisite_check`, `detect_existing`, `interview`, `write_strategy`
+
+## Iron Law
+
+**NEVER INVENT STRATEGIC CERTAINTY.**
 
 ## Hard rules
 
@@ -20,6 +24,14 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and
 - **Surface missing market context, don't ignore it.** Optional landscape context is not irrelevant context.
 - **Existing docs drift.** Reuse prior strategy selectively, but verify what changed before carrying it forward — a doc unreviewed in 30 days is a historical document, not a strategy.
 - **Accept short answers.** They're still inputs. Write clearly from them instead of interrogating the user into verbosity.
+
+## Red Flags — Self-Check
+
+- **"The ICP is obvious from the product."** Ask and confirm instead of inferring strategy from implementation.
+- **"The old strategy is probably still valid."** Check what changed and re-interview only affected decisions.
+- **"A complete document needs every blank filled."** Keep evidence gaps and assumptions explicit rather than inventing certainty.
+- **"More interview questions produce better strategy."** Use the minimum forcing questions and accept concise answers.
+- **"Non-goals can be implied."** Include explicit exclusions because they are the strategy's decision boundary.
 
 ## Setup detection
 
@@ -101,3 +113,16 @@ Quick strategic questions ("who's our ICP?") — just read `{pm_dir}/strategy.md
 - **User wants feature scoping, not product direction:** "This sounds like feature discovery rather than strategy. Want to switch to `/pm:groom` instead?"
 - **User has no answers yet and wants to think first:** "We can pause strategy writing and use `/pm:think` to pressure-test the core idea before locking positioning."
 - **Landscape context is missing and the user wants evidence first:** "Want to run `/pm:research landscape` before we finish the strategy so the positioning answers are grounded in market context?"
+
+## Common Rationalizations
+
+| Excuse | Reality |
+|---|---|
+| "A standard positioning statement is a useful placeholder." | Unconfirmed placeholders quickly become false organizational truth. |
+| "Starting fresh is cleaner than updating." | Surgical updates preserve prior decisions and make strategic change legible. |
+
+## Before Marking Done
+
+- [ ] The canonical strategy artifact is saved with confirmed decisions, explicit assumptions, evidence context, and an updated date.
+- [ ] The user confirmed adopted material, changed sections, priorities, non-goals, and final wording.
+- [ ] Workspace, landscape choice, existing-doc, interview-depth, schema, overwrite, and next-lane gates passed.
