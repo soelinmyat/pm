@@ -221,11 +221,32 @@ function parseSegment(segment, depth = 0) {
   }
   if (i >= tokens.length) return null;
   const executable = path.basename(tokens[i]);
+  const indirectPush = (script) => {
+    const sentinel = path.join(path.parse(process.cwd()).root, "__pm_indirect_shell_cwd__");
+    const nested = detectGitPushes(script, sentinel)[0];
+    if (!nested) return null;
+    if (nested.cwdOverride === null) return indeterminatePush(wrapperDir);
+    const nestedCwd = nested.cwdOverride.startsWith(`${sentinel}${path.sep}`)
+      ? path.relative(sentinel, nested.cwdOverride)
+      : nested.cwdOverride === sentinel
+        ? null
+        : nested.cwdOverride;
+    let effectiveDir = wrapperDir;
+    if (nestedCwd) effectiveDir = composeGitDirectory(effectiveDir, nestedCwd);
+    if (nested.dir) effectiveDir = composeGitDirectory(effectiveDir, nested.dir);
+    return {
+      isGit: true,
+      isPush: true,
+      ...nested,
+      cwdOverride: undefined,
+      dir: effectiveDir,
+      indeterminate: nested.indeterminate || wrapperDynamic,
+    };
+  };
   if (executable === "eval") {
     const script = tokens.slice(i + 1).join(" ");
     if (!script) return null;
-    const nested = detectGitPushes(script, process.cwd())[0];
-    return nested ? { isGit: true, isPush: true, ...nested } : null;
+    return indirectPush(script);
   }
   if (["bash", "sh", "zsh"].includes(executable)) {
     for (let option = i + 1; option < tokens.length; option += 1) {
@@ -233,8 +254,7 @@ function parseSegment(segment, depth = 0) {
         continue;
       const script = shellWords[option + 1];
       if (!script || script.dynamic) return indeterminatePush(wrapperDir);
-      const nested = detectGitPushes(script.value, process.cwd())[0];
-      return nested ? { isGit: true, isPush: true, ...nested } : null;
+      return indirectPush(script.value);
     }
     return null;
   }

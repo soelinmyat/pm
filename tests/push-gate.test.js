@@ -787,6 +787,27 @@ test("pushes inside command substitutions fail closed", () => {
   }
 });
 
+test("indirect shell pushes preserve nested and wrapper working directories", () => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "push-gate-indirect-cwd-"));
+  const outer = path.join(parent, "outer");
+  const gated = path.join(outer, "gated");
+  fs.mkdirSync(outer);
+  fs.mkdirSync(gated);
+  makeRepoAt(outer);
+  makeRepoAt(gated);
+  writeFailingGates(gated, "x");
+  try {
+    for (const command of [
+      "bash -c 'cd gated && git push origin HEAD'",
+      "eval 'cd gated && git push origin HEAD'",
+      "env -C gated bash -c 'git push origin HEAD'",
+    ])
+      assertBlock(runHook(command, { cwd: outer }), /verification is failed/);
+  } finally {
+    fs.rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test("compound pushes resolve each relative cd from the current shell directory", () => {
   const parent = fs.mkdtempSync(path.join(os.tmpdir(), "pm-push-gate-cumulative-cd-"));
   const first = path.join(parent, "first");
