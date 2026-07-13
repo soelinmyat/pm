@@ -1275,6 +1275,53 @@ test("--git-dir remains authoritative when --work-tree names another repository"
   }
 });
 
+test("linked-worktree git metadata resolves its authoritative checkout", () => {
+  const source = makeRepo();
+  const linked = fs.mkdtempSync(path.join(os.tmpdir(), "push-gate-linked-"));
+  fs.rmSync(linked, { recursive: true, force: true });
+  try {
+    git(source, "worktree", "add", "-q", "-b", "feat/linked", linked);
+    writeFailingGates(linked, "linked");
+    const gitDir = git(linked, "rev-parse", "--absolute-git-dir");
+    assertBlock(
+      runHook(`git --git-dir=${gitDir} push origin HEAD`, { cwd: source }),
+      /verification is failed/
+    );
+  } finally {
+    spawnSync("git", ["-C", source, "worktree", "remove", "--force", linked]);
+    fs.rmSync(source, { recursive: true, force: true });
+    fs.rmSync(linked, { recursive: true, force: true });
+  }
+});
+
+test("unmapped separate Git directories fail closed", () => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "push-gate-separate-"));
+  const checkout = path.join(parent, "checkout");
+  const metadata = path.join(parent, "metadata");
+  try {
+    git(parent, "init", "-q", `--separate-git-dir=${metadata}`, checkout);
+    git(checkout, "config", "user.email", "test@example.com");
+    git(checkout, "config", "user.name", "Test User");
+    fs.writeFileSync(path.join(checkout, "README.md"), "hi\n");
+    git(checkout, "add", ".");
+    git(checkout, "commit", "-q", "-m", "init");
+    git(checkout, "remote", "add", "origin", ".");
+    git(checkout, "checkout", "-q", "-b", "feat/x");
+    writeFailingGates(checkout, "x");
+    assertBlock(
+      runHook(`git --git-dir=${metadata} push origin HEAD`, { cwd: parent }),
+      /could not bind this Git directory/
+    );
+    git(checkout, "config", "core.worktree", checkout);
+    assertBlock(
+      runHook(`git --git-dir=${metadata} push origin HEAD`, { cwd: parent }),
+      /verification is failed/
+    );
+  } finally {
+    fs.rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // DEGRADE PATH (BLOCKING #1 partner): a failing manifest with no origin/DEFAULT
 // fetched still blocks — the checker runs without --base and the core gate

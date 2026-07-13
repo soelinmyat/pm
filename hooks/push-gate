@@ -1073,7 +1073,31 @@ function resolveRepoDir(baseCwd, push) {
   if (push.dir) repoDir = path.resolve(repoDir, push.dir);
   if (push.gitDir) {
     const gd = path.resolve(repoDir, push.gitDir);
-    repoDir = path.basename(gd) === ".git" ? path.dirname(gd) : gd;
+    if (path.basename(gd) === ".git") return path.dirname(gd);
+
+    // Linked-worktree metadata records the checkout's .git file explicitly.
+    // This is authoritative Git metadata, unlike a caller-controlled --work-tree.
+    try {
+      const checkoutGitFile = fs.readFileSync(path.join(gd, "gitdir"), "utf8").trim();
+      if (checkoutGitFile && path.basename(checkoutGitFile) === ".git")
+        return path.dirname(path.resolve(gd, checkoutGitFile));
+    } catch {
+      // Not a linked-worktree administrative directory.
+    }
+
+    // A separate Git directory records its checkout in core.worktree. Ask Git
+    // to apply config path semantics rather than resolving relative paths here.
+    const configured = spawnSync(
+      "git",
+      [`--git-dir=${gd}`, "config", "--path", "--get", "core.worktree"],
+      { encoding: "utf8", maxBuffer: MAX_BUFFER }
+    );
+    if (configured && configured.status === 0 && configured.stdout.trim())
+      return path.resolve(gd, configured.stdout.trim());
+
+    // A nonstandard Git directory with no authenticated checkout mapping could
+    // be paired with any caller-controlled --work-tree. Do not guess.
+    return null;
   }
   return repoDir;
 }
@@ -1087,6 +1111,13 @@ function gatePush(baseCwd, push) {
     return true;
   }
   const repoDir = resolveRepoDir(baseCwd, push);
+  if (!repoDir) {
+    emitDeny(
+      "PM dev gate could not bind this Git directory to an authoritative working tree. " +
+        "Configure core.worktree (or use the linked-worktree metadata) before pushing."
+    );
+    return true;
+  }
 
   const branch = currentBranch(repoDir);
   if (!branch) return false;
