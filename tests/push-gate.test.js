@@ -636,6 +636,10 @@ test("shell control keywords preserve directory changes before gated pushes", ()
       "unset -z HOME || cd gated; git push origin HEAD",
       "export -f HOME=/tmp || cd gated; git push origin HEAD",
       "export -z HOME=/tmp || cd gated; git push origin HEAD",
+      "export HOME=/tmp >/missing/out || cd gated; git push origin HEAD",
+      "readonly HOME=/tmp >/missing/out || cd gated; git push origin HEAD",
+      "readonly -a HOME; unset HOME || cd gated; git push origin HEAD",
+      "readonly -f HOME=/tmp || cd gated; git push origin HEAD",
       "command -- cd gated && git push origin HEAD",
       "builtin -- cd gated && git push origin HEAD",
       "cd gated; if false; then :; else git push origin HEAD; fi",
@@ -671,6 +675,16 @@ test("shell control keywords preserve directory changes before gated pushes", ()
     assertBlock(
       runHook(`HOME=${gated}; unset -f HOME; cd; git push origin HEAD`, { cwd: parent }),
       /verification is failed/
+    );
+    assertBlock(
+      runHook(
+        "CDPATH= export CDPATH >/missing/out || cd child; git push origin HEAD",
+        {
+          cwd: parent,
+        },
+        { CDPATH: gated }
+      ),
+      /could not determine the repository/
     );
   } finally {
     fs.rmSync(parent, { recursive: true, force: true });

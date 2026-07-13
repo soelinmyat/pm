@@ -700,13 +700,15 @@ function parseDirectoryEnvironmentCommand(segment) {
   const optionLetters = new Set(options.flatMap((option) => option.slice(1).split("")));
   const supportedOptions = {
     export: new Set(["f", "n", "p", "-"]),
-    readonly: new Set(["f", "p", "-"]),
+    readonly: new Set(["a", "A", "f", "g", "p", "-"]),
     unset: new Set(["f", "v", "-"]),
   };
   const forcedFailure =
     [...optionLetters].some((option) => !supportedOptions[command].has(option)) ||
     (command === "unset" && optionLetters.has("f") && optionLetters.has("v")) ||
-    (command === "export" && optionLetters.has("f") && assignments.length > 0);
+    ((command === "export" || command === "readonly") &&
+      optionLetters.has("f") &&
+      assignments.length > 0);
   const namesChangeValues =
     (command === "unset" && (!optionLetters.has("f") || optionLetters.has("v"))) ||
     (command === "readonly" && !optionLetters.has("f"));
@@ -761,7 +763,8 @@ function applyDirectoryEnvironmentCommand(state, command) {
     }
   }
   const outcomes = [{ ...next, succeeded }];
-  if (command.hasRedirections) outcomes.push({ ...assigned, succeeded: false });
+  if (command.hasRedirections)
+    outcomes.push({ ...(command.command ? state : assigned), succeeded: false });
   return outcomes;
 }
 
