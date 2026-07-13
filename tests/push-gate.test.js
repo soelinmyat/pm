@@ -1106,6 +1106,22 @@ test("wrapper-prefixed pushes (sudo / VAR=1 / env) are detected → block", () =
   }
 });
 
+test("common execution wrappers cannot bypass a failed push gate", () => {
+  const dir = makeRepo();
+  try {
+    writeFailingGates(dir, "x");
+    for (const command of [
+      "timeout 600 git push origin HEAD",
+      "timeout -k 5 600 git push origin HEAD",
+      "nohup git push origin HEAD",
+      "noglob git push origin HEAD",
+    ])
+      assertBlock(runHook(command, { cwd: dir }), /verification is failed/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("cwd-changing wrapper options gate the effective repository", () => {
   const parent = fs.mkdtempSync(path.join(os.tmpdir(), "pm-push-gate-wrapper-cwd-"));
   const gated = path.join(parent, "gated");

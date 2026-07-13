@@ -306,7 +306,11 @@ test("canonical Dev routing binds the Review target mode and exact completed len
     issues: [],
     target: {
       mode: "code-scan",
-      source: { base_ref: "origin/main", base_commit: "base123" },
+      source: {
+        base_ref: "origin/main",
+        base_commit: "base123",
+        remote_push_url_sha256: "a".repeat(64),
+      },
       dev_context: devReviewContext(routedSession),
     },
     report: checkedReport,
@@ -329,8 +333,23 @@ test("canonical Dev routing binds the Review target mode and exact completed len
       manifestPath: ".pm/dev-sessions/example/gates.json",
       authoritativeBaseRef: "origin/main",
       authoritativeBaseCommit: "base123",
+      authoritativePushUrlSha256: "a".repeat(64),
     });
     assert.equal(matching.ok, true, JSON.stringify(matching.issues));
+
+    const wrongDestination = checkGateManifest(manifest([row], { run_id: routedSession.run_id }), {
+      artifactRoot: root,
+      currentCommit: "abc123",
+      requiredGates: ["review"],
+      canonicalSession: routedSession,
+      requireSessionBinding: true,
+      manifestPath: ".pm/dev-sessions/example/gates.json",
+      authoritativeBaseRef: "origin/main",
+      authoritativeBaseCommit: "base123",
+      authoritativePushUrlSha256: "b".repeat(64),
+    });
+    assert.equal(wrongDestination.ok, false);
+    assert.match(JSON.stringify(wrongDestination.issues), /authoritative delivery base/);
 
     validatedHumanReport = { ...validatedHumanReport, sha256: "0".repeat(64) };
     const swappedHtmlSnapshot = checkGateManifest(

@@ -101,6 +101,9 @@ const LEADING_WRAPPERS = new Set([
   "command",
   "nice",
   "time",
+  "timeout",
+  "nohup",
+  "noglob",
   "builtin",
   "exec",
   "if",
@@ -119,12 +122,14 @@ const WRAPPER_VALUE_OPTIONS = Object.freeze({
   ]),
   nice: new Set(["-n", "--adjustment"]),
   time: new Set(["-f", "--format", "-o", "--output"]),
+  timeout: new Set(["-k", "--kill-after", "-s", "--signal"]),
 });
 const WRAPPER_SHORT_VALUE_OPTIONS = Object.freeze({
   env: new Set(["u", "C", "S", "P"]),
   sudo: new Set(["u", "g", "h", "p", "C", "R", "D", "T"]),
   nice: new Set(["n"]),
   time: new Set(["f", "o"]),
+  timeout: new Set(["k", "s"]),
 });
 // git GLOBAL options (before the subcommand) that consume the next token.
 const GIT_VALUE_OPTS = new Set(["-c", "--namespace", "--super-prefix", "--exec-path"]);
@@ -215,6 +220,7 @@ function parseSegment(segment, depth = 0) {
         i += 1;
         if (consumesValue && !inlineValue) i += 1;
       }
+      if (wrapper === "timeout" && i < tokens.length) i += 1;
     } else {
       break;
     }

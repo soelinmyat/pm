@@ -1325,9 +1325,9 @@ function frozenPathChange(root, target, changed) {
 
 function validateTextLineRange(bytes, end, label, issues) {
   if (bytes.includes(0)) return add(issues, label, "cannot line-address a binary file");
-  const content = bytes.toString("utf8");
-  const lines =
-    content.length === 0 ? 0 : content.split(/\r?\n/).length - (/\r?\n$/.test(content) ? 1 : 0);
+  let lines = 0;
+  for (const byte of bytes) if (byte === 0x0a) lines += 1;
+  if (bytes.length > 0 && bytes[bytes.length - 1] !== 0x0a) lines += 1;
   if (end > lines) add(issues, label, `line range exceeds file length ${lines}`);
 }
 
@@ -1916,4 +1916,5 @@ module.exports = {
   validateFrozenTarget,
   validateRenderedReportMarkers,
   validateSignal,
+  validateTextLineRange,
 };

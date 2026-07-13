@@ -159,6 +159,7 @@ function checkGateManifest(manifest, opts = {}) {
       canonicalSession?.routing?.review_mode || null,
       opts.authoritativeBaseRef || null,
       opts.authoritativeBaseCommit || null,
+      opts.authoritativePushUrlSha256 || null,
       issues
     );
   }
@@ -184,6 +185,7 @@ function validateReviewReportArtifact(
   expectedReviewMode,
   authoritativeBaseRef,
   authoritativeBaseCommit,
+  authoritativePushUrlSha256,
   issues
 ) {
   if (!reviewGate || reviewGate.status !== "passed") return;
@@ -318,7 +320,9 @@ function validateReviewReportArtifact(
     else if (
       authoritativeBaseRef &&
       (result.target?.source?.base_ref !== authoritativeBaseRef ||
-        result.target?.source?.base_commit !== authoritativeBaseCommit)
+        result.target?.source?.base_commit !== authoritativeBaseCommit ||
+        (authoritativePushUrlSha256 &&
+          result.target?.source?.remote_push_url_sha256 !== authoritativePushUrlSha256))
     )
       issues.push(
         issue(manifestPath, "review target base must equal the authoritative delivery base")
@@ -972,16 +976,23 @@ function main(argv = process.argv.slice(2)) {
   let changedFiles = opts.changedFiles;
   let authoritativeBaseRef = opts.baseRef || null;
   let authoritativeBaseCommit = null;
+  let authoritativePushUrlSha256 = null;
   if (sibling.session && opts.reviewEvidenceMode === "enforce") {
     try {
-      const trusted = require("./review-target").resolveTrustedBase(
-        process.cwd(),
-        opts.remote || "origin"
-      );
+      const deliveryRemote = opts.remote || "origin";
+      if (
+        sibling.session.source?.delivery_remote &&
+        sibling.session.source.delivery_remote !== deliveryRemote
+      )
+        throw new Error(
+          `delivery remote ${deliveryRemote} must equal session remote ${sibling.session.source.delivery_remote}`
+        );
+      const trusted = require("./review-target").resolveTrustedBase(process.cwd(), deliveryRemote);
       if (opts.baseRef && opts.baseRef !== trusted.ref)
         throw new Error(`supplied base ${opts.baseRef} must equal remote default ${trusted.ref}`);
       authoritativeBaseRef = trusted.ref;
       authoritativeBaseCommit = trusted.commit;
+      authoritativePushUrlSha256 = trusted.remote_push_url_sha256;
       changedFiles = loadChangedFilesFromGit(trusted.commit, process.cwd(), currentCommit);
     } catch (err) {
       const result = {
@@ -1024,6 +1035,7 @@ function main(argv = process.argv.slice(2)) {
     sessionError: sibling.error,
     authoritativeBaseRef,
     authoritativeBaseCommit,
+    authoritativePushUrlSha256,
     reviewEvidenceMode: opts.reviewEvidenceMode,
   });
   printResult(result, opts.json);

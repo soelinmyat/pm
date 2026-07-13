@@ -16,6 +16,7 @@ const {
   validateFrozenTarget,
   validateRenderedReportMarkers,
   validateSignal,
+  validateTextLineRange,
 } = require("../scripts/review-check");
 const { renderReviewReport } = require("../scripts/review-report");
 const {
@@ -53,6 +54,15 @@ try {
 } catch {
   installedBrowser = null;
 }
+
+test("line range validation counts newline-dense buffers without materializing lines", () => {
+  const issues = [];
+  const bytes = Buffer.alloc(8 * 1024 * 1024, 0x0a);
+  validateTextLineRange(bytes, bytes.length, "evidence", issues);
+  assert.deepEqual(issues, []);
+  validateTextLineRange(bytes, bytes.length + 1, "evidence", issues);
+  assert.match(issues.at(-1).message, new RegExp(`file length ${bytes.length}$`));
+});
 
 test("complete adaptively allocated review evidence produces a current passing report", () => {
   const fixture = makeFixture({ maxWorkers: 3 });

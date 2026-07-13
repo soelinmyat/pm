@@ -585,6 +585,7 @@ function verifyCommittedGateSidecarWithChecker(workspace, options, gateChecker) 
     requireSessionBinding: true,
     authoritativeBaseRef: trustedBase.ref,
     authoritativeBaseCommit: trustedBase.commit,
+    authoritativePushUrlSha256: trustedBase.remote_push_url_sha256 || null,
   });
   if (!checked.ok) {
     return {
