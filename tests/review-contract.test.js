@@ -199,6 +199,8 @@ test("Review design applicability shares Dev's UI-impact classifier", () => {
     "android/app/src/main/res/drawable/card.xml",
     "mobile/src/main/java/com/acme/CheckoutScreen.kt",
     "feature-checkout/src/main/kotlin/com/acme/CheckoutActivity.kt",
+    "checkout/src/main/kotlin/com/acme/CheckoutScreen.kt",
+    "payments/src/release/java/com/acme/PaymentActivity.kt",
     "feature-checkout/src/main/kotlin/com/acme/ui/CheckoutView.kt",
     "feature-checkout/src/main/kotlin/com/acme/adapters/CheckoutAdapter.kt",
     "feature-checkout/src/main/res/layout/checkout.xml",
