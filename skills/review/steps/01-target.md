@@ -25,9 +25,12 @@ node "$PM_PLUGIN_ROOT/scripts/review-target.js" \
   --run-id "{RUN_ID}" \
   --dev-session ".pm/dev-sessions/{slug}/session.json" \
   --mode "{full|code-scan}" \
+  --remote "{DELIVERY_REMOTE, default origin}" \
   --profile "{PROFILE}" \
   --max-workers "{CAPACITY}"
 ```
+
+Resolve the delivery remote before target creation. Use `origin` for ordinary Dev Review. When Ship selected another named remote, pass that exact name with `--remote`; the target and delivery checker must resolve the same authoritative remote HEAD.
 
 For Dev-routed work and Review invoked by Ship, `--dev-session` is mandatory and binds the stable run, slug, review mode, decision version, and acceptance-criteria digest. Ship bootstraps the canonical session before invoking Review when necessary. Omit it only for a genuinely advisory standalone Review that will not write a delivery-authoritative gate row. Add `--acceptance`, `--design-critique`, or `--prior-report` when those current artifacts exist. For rounds 2–3, keep the same run ID, increment `--round`, and bind the immediately prior immutable `round-{N-1}/report.json`.
 6. Read the generated allocation. Treat its physical workers, logical lenses, runtime snapshot, and applicability decisions as authoritative for this round.

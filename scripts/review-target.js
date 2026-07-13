@@ -29,7 +29,7 @@ function buildReviewTarget(options) {
   const commit = git(root, ["rev-parse", "HEAD"]).trim();
   if (options.commit && options.commit !== commit)
     throw new Error(`supplied commit must equal current HEAD ${commit}`);
-  const trusted = resolveTrustedBase(root);
+  const trusted = resolveTrustedBase(root, options.remote || "origin");
   const baseRef = options.baseRef || trusted.ref;
   const baseCommit = options.baseCommit || trusted.commit;
   if (baseRef !== trusted.ref) throw new Error(`base must equal remote default ${trusted.ref}`);
@@ -358,6 +358,7 @@ function parseArgs(argv) {
     "--mode": "mode",
     "--profile": "profile",
     "--max-workers": "maxWorkers",
+    "--remote": "remote",
     "--base": "baseRef",
     "--base-commit": "baseCommit",
     "--commit": "commit",

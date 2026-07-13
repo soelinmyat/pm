@@ -229,6 +229,8 @@ test("Review design applicability shares Dev's UI-impact classifier", () => {
     "ios/Domain/Ledger.swift",
     "android/app/src/main/java/com/acme/data/Repository.kt",
     "android/build-logic/src/main/kotlin/ConventionPlugin.kt",
+    "server/SyncActivity.kt",
+    "services/payments/PaymentDialog.kt",
     "lib/server/http_server.dart",
     "lib/domain/ledger.dart",
   ]) {

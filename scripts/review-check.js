@@ -597,6 +597,18 @@ function validateRuntime(runtime, label, issues) {
     add(issues, label, "must contain a safe exact runtime profile");
 }
 
+function remoteForBaseRef(root, baseRef) {
+  const remotes = git(root, ["remote"])
+    .toString()
+    .trim()
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .sort((left, right) => right.length - left.length);
+  const remote = remotes.find((candidate) => String(baseRef || "").startsWith(`${candidate}/`));
+  if (!remote) throw new Error("target base_ref does not name a configured remote");
+  return remote;
+}
+
 function validateLiveTarget(root, target, issues) {
   let head = "";
   try {
@@ -604,7 +616,7 @@ function validateLiveTarget(root, target, issues) {
     head = git(root, ["rev-parse", "HEAD"]).toString().trim();
     if (target.source?.commit !== head)
       add(issues, "target.source.commit", `is stale for current HEAD ${head}`);
-    const trusted = resolveTrustedBase(root);
+    const trusted = resolveTrustedBase(root, remoteForBaseRef(root, target.source?.base_ref));
     if (target.source?.base_ref !== trusted.ref || target.source?.base_commit !== trusted.commit)
       add(issues, "target.source", "does not match the authoritative remote default");
     const diff = git(root, ["diff", "--binary", `${trusted.commit}...${head}`], null);

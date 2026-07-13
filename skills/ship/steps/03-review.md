@@ -30,6 +30,8 @@ node "$PM_PLUGIN_ROOT/scripts/dev-session.js" init \
 
 Read the created session and confirm `routing.review_mode` is `full`, its recorded branch equals the current branch, and its slug equals the canonical artifact namespace. Then invoke `pm:review` with that `session.json`. This session bootstrap is mandatory: a sessionless Review is useful as an advisory standalone report but cannot authorize delivery. Do not skip review for standalone invocations.
 
+Resolve the exact named delivery remote using, in order, `branch.<branch>.pushRemote`, `remote.pushDefault`, `branch.<branch>.remote`, then `origin`. Confirm `git remote get-url <name>` succeeds. Pass that name to Review target creation as `--remote`; do not review against `origin` and later push to a different remote.
+
 ### Run the review
 
 Invoke `pm:review` in branch mode (no PR number argument):

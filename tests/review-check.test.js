@@ -180,6 +180,23 @@ test("trusted base resolves the named destination remote", () => {
   assert.equal(trusted.ref, "upstream/main");
   assert.match(trusted.commit, /^[a-f0-9]{40}$/);
   assert.throws(() => resolveTrustedBase(fixture.root, "../remote"), /literal named remote/);
+  const target = buildReviewTarget({ root: fixture.root, remote: "upstream", maxWorkers: 2 });
+  assert.equal(target.source.base_ref, "upstream/main");
+});
+
+test("named-remote target passes live end-to-end review validation", () => {
+  const fixture = makeFixture({ maxWorkers: 2, remote: "upstream" });
+  const checked = checkReview({
+    root: fixture.root,
+    targetPath: fixture.targetPath,
+    resultPaths: fixture.resultPaths,
+    reportPath: fixture.reportPath,
+    humanReportPath: fixture.htmlPath,
+    writeReport: true,
+    verifyBrowser: false,
+  });
+  assert.equal(checked.ok, true, JSON.stringify(checked.issues, null, 2));
+  assert.equal(checked.target.source.base_ref, "upstream/main");
 });
 
 test("frozen review uses three-dot merge-base semantics on diverged branches", () => {
@@ -2372,6 +2389,7 @@ function makeFixture({
   removeLine = false,
   runScoped = true,
   multiline = false,
+  remote = "origin",
 }) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-check-"));
   fs.mkdirSync(path.join(root, "src"), { recursive: true });
@@ -2416,6 +2434,7 @@ function makeFixture({
   execFileSync("git", ["--git-dir", origin, "symbolic-ref", "HEAD", "refs/heads/main"]);
   git(root, ["remote", "add", "origin", origin]);
   git(root, ["push", "-q", "origin", `${base}:refs/heads/main`]);
+  if (remote !== "origin") git(root, ["remote", "add", remote, origin]);
   fs.writeFileSync(
     path.join(root, "src/example.js"),
     removeLine
@@ -2440,6 +2459,7 @@ function makeFixture({
     maxWorkers,
     profile: "codex-workhorse",
     runId: "review-test",
+    remote,
   });
   const evidenceRoot = runScoped
     ? ".pm/dev-sessions/example/review/runs/review-test"
