@@ -234,7 +234,7 @@
           "type": "repeated-run-variance",
           "prompt_ref": "evals/quality/cases/review.md",
           "scenario_ref": "quality-review-repeated-run-variance",
-          "scenario_contract_hash": "sha256:06462cb4daa51422c209a89d24329d70382c3c30c68e658938b59dd725133d7e"
+          "scenario_contract_hash": "sha256:620885a651f17132a727adde023111f689fa0afa31b452b91e23437d481c9db1"
         }
       ]
     },

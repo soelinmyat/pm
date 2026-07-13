@@ -357,6 +357,14 @@ function typeFiles(workflow, type) {
         source: "frozen",
         reset_between_runs: true,
         expectation: "defect-present",
+        ...(workflow === "review"
+          ? {
+              expected_defect: {
+                rule: "clear-must-empty-list",
+                locator: "src/items.js:1",
+              },
+            }
+          : {}),
       },
       null,
       2

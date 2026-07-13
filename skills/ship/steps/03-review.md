@@ -10,6 +10,8 @@ description: Run review for M/L/XL changes or code scan for XS/S before pushing
 
 **Goal:** Run the required pre-push review gate and ensure anything leaving the machine has already survived the appropriate quality check.
 
+Read `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/delivery-contract.md` before this step. This step owns creation of the run-scoped delivery contract; later steps may validate it but must not silently replace it.
+
 The review gate is the last quality check before code leaves your machine. Bugs caught here cost minutes to fix; bugs caught in production cost hours.
 
 ### Skip check
@@ -34,7 +36,11 @@ Before advancing to Push, execute every gate in the bootstrapped session's `rout
 
 Resolve the exact named delivery remote using, in order, `branch.<branch>.pushRemote`, `remote.pushDefault`, `branch.<branch>.remote`, then `origin`. Confirm the name appears exactly in `git remote` and `git config --get "remote.${name}.url"` succeeds; this also supports valid dash-prefixed remote names that option-style commands mishandle. Pass that name to Review target creation as `--remote`; do not review against `origin` and later push to a different remote.
 
-Persist that exact name as `source.delivery_remote` in canonical `session.json`, update `updated_at`, and validate the session with `node "$PM_PLUGIN_ROOT/scripts/dev-session.js" validate --file ".pm/dev-sessions/{slug}/session.json" --json`. Every later Ship step must read this value; never re-resolve or silently fall back after Review binds the destination.
+Persist that exact name as `source.delivery_remote` in canonical `session.json`, update `updated_at`, and validate the session with `node "$PM_PLUGIN_ROOT/scripts/dev-session.js" validate --session ".pm/dev-sessions/{slug}/session.json" --json`. Every later Ship step must read this value; never re-resolve or silently fall back after Review binds the destination.
+
+For standalone Ship, persist action-specific user authority through `dev-session authorize` before any external action. `push_feature_branch`, `create_pr`, and `merge` are independent grants; record only what the user requested. A saved `preferences.ship.auto_merge` value cannot grant merge. If the request did not make the delivery boundary clear, ask once now and do not advance to Push until the answer is recorded in `authority_log` and copied into the delivery contract.
+
+After authority is settled, resolve the remote's sole push URL, normalize its exact GitHub `OWNER/REPO`, and persist its SHA-256, current head/default-base identity, and canonical authority snapshot in `.pm/dev-sessions/{slug}/ship/delivery-contract.json` exactly as specified by `delivery-contract.md`. Multiple push URLs, a non-GitHub destination, or an unparseable owner/repo blocks Ship.
 
 ### Run the review
 
@@ -86,4 +92,6 @@ Before creating the PR in the next step, the review step should ensure you have 
 
 For handling review feedback after PR creation, see `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/handling-feedback.md`.
 
-Once the correct review path has run, blocking findings are fixed (or the flow has stopped), and you have enough context to write a meaningful PR, proceed to push.
+**Done-when:** The correct review path has run against the frozen delivery remote, blocking findings are fixed (or the flow has stopped), all routed gates are current, the delivery contract validates, and explicit authority for the next requested action is persisted.
+
+**Advance:** proceed to Step 04 (Push).

@@ -117,20 +117,24 @@ const LEADING_WRAPPERS = new Set([
   "do",
 ]);
 const WRAPPER_VALUE_OPTIONS = Object.freeze({
-  env: new Set([
-    "-u",
-    "--unset",
-    "-C",
-    "--chdir",
-    "-S",
-    "--split-string",
-    "-P",
-    "-a",
-    "--argv0",
-  ]),
+  env: new Set(["-u", "--unset", "-C", "--chdir", "-S", "--split-string", "-P", "-a", "--argv0"]),
   sudo: new Set([
-    "-u", "--user", "-g", "--group", "-h", "--host", "-p", "--prompt",
-    "-C", "--close-from", "-R", "--chroot", "-D", "--chdir", "-T", "--command-timeout",
+    "-u",
+    "--user",
+    "-g",
+    "--group",
+    "-h",
+    "--host",
+    "-p",
+    "--prompt",
+    "-C",
+    "--close-from",
+    "-R",
+    "--chroot",
+    "-D",
+    "--chdir",
+    "-T",
+    "--command-timeout",
   ]),
   nice: new Set(["-n", "--adjustment"]),
   time: new Set(["-f", "--format", "-o", "--output"]),
@@ -157,6 +161,7 @@ const GIT_VALUE_OPTS = new Set([
 // `git push` options that consume the next token (so their value isn't mistaken
 // for a remote/refspec positional).
 const PUSH_VALUE_OPTS = new Set(["-o", "--push-option", "--receive-pack", "--exec", "--repo"]);
+const REPOSITORY_ENV_ASSIGNMENT = /^(?:GIT_DIR|GIT_WORK_TREE|GIT_COMMON_DIR)=/;
 
 // Parse one shell segment. Returns { isGit, isPush, dir, gitDir, workTree, args }
 // when the segment invokes git, else null. dir/gitDir/workTree come from git's
@@ -165,9 +170,7 @@ function parseSegment(segment, depth = 0) {
   if (depth > 3) return indeterminatePush();
   const withoutRedirections = stripTrailingShellRedirections(segment);
   if (withoutRedirections === null) return null;
-  const shellWords = splitSimpleShellWords(
-    withoutRedirections.trim().replace(/^[({]\s*/, "")
-  );
+  const shellWords = splitSimpleShellWords(withoutRedirections.trim().replace(/^[({]\s*/, ""));
   const tokens = shellWords.map((word) => word.value);
   let i = 0;
   let wrapperDir = null;
@@ -175,7 +178,8 @@ function parseSegment(segment, depth = 0) {
   // Skip leading `VAR=value` assignments and common command wrappers.
   while (i < tokens.length) {
     if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[i])) {
-      if (/^GIT_CONFIG(?:_|=)/.test(tokens[i])) wrapperDynamic = true;
+      if (/^GIT_CONFIG(?:_|=)/.test(tokens[i]) || REPOSITORY_ENV_ASSIGNMENT.test(tokens[i]))
+        wrapperDynamic = true;
       i += 1;
     } else if (LEADING_WRAPPERS.has(path.basename(tokens[i]))) {
       const wrapper = path.basename(tokens[i]);
@@ -186,16 +190,12 @@ function parseSegment(segment, depth = 0) {
           break;
         }
         const rawOption = tokens[i];
-        const { option, inlineValue, inlineValueText } = normalizeWrapperOption(
-          wrapper,
-          rawOption
-        );
+        const { option, inlineValue, inlineValueText } = normalizeWrapperOption(wrapper, rawOption);
         const consumesValue = WRAPPER_VALUE_OPTIONS[wrapper]?.has(option);
         const valueIndex = inlineValue ? i : i + 1;
         const value = inlineValue ? inlineValueText : tokens[valueIndex];
         const splitValueDynamic =
-          value !== undefined &&
-          (shellWords[valueIndex]?.dynamic === true || /[$`]/.test(value));
+          value !== undefined && (shellWords[valueIndex]?.dynamic === true || /[$`]/.test(value));
         if (
           consumesValue &&
           ((wrapper === "env" && (option === "-C" || option === "--chdir")) ||
@@ -215,28 +215,24 @@ function parseSegment(segment, depth = 0) {
           const remainderStart = inlineValue ? i + 1 : i + 2;
           const nestedCommand = [
             value,
-            ...tokens.slice(remainderStart).map((token, offset) =>
-              shellWords[remainderStart + offset]?.dynamic
-                ? "$PM_DYNAMIC"
-                : shellQuoteLiteral(token)
-            ),
+            ...tokens
+              .slice(remainderStart)
+              .map((token, offset) =>
+                shellWords[remainderStart + offset]?.dynamic
+                  ? "$PM_DYNAMIC"
+                  : shellQuoteLiteral(token)
+              ),
           ].join(" ");
           const nested = parseSegment(nestedCommand, depth + 1);
           if (!nested) {
-            if (
-              splitValueDynamic ||
-              shellWords.slice(remainderStart).some((word) => word.dynamic)
-            )
+            if (splitValueDynamic || shellWords.slice(remainderStart).some((word) => word.dynamic))
               return {
                 ...indeterminatePush(wrapperDir),
               };
             return null;
           }
-          nested.dir = nested.dir
-            ? composeGitDirectory(wrapperDir, nested.dir)
-            : wrapperDir;
-          nested.indeterminate ||=
-            wrapperDynamic || splitValueDynamic;
+          nested.dir = nested.dir ? composeGitDirectory(wrapperDir, nested.dir) : wrapperDir;
+          nested.indeterminate ||= wrapperDynamic || splitValueDynamic;
           return nested;
         }
         i += 1;
@@ -289,8 +285,7 @@ function parseSegment(segment, depth = 0) {
   }
   if (["bash", "sh", "zsh"].includes(executable)) {
     for (let option = i + 1; option < tokens.length; option += 1) {
-      if (!/^-[A-Za-z]+$/.test(tokens[option]) || !tokens[option].slice(1).includes("c"))
-        continue;
+      if (!/^-[A-Za-z]+$/.test(tokens[option]) || !tokens[option].slice(1).includes("c")) continue;
       const script = shellWords[option + 1];
       if (!script || script.dynamic) return indeterminatePush(wrapperDir);
       return indirectPush(script.value);
@@ -646,8 +641,7 @@ function stripTrailingShellRedirections(segment) {
       const aggregate = entry.char === ">" && commandText[redirectIndex - 1] === "&";
       if (aggregate) redirectIndex -= 1;
       else
-        while (redirectIndex > 0 && /\d/.test(commandText[redirectIndex - 1]))
-          redirectIndex -= 1;
+        while (redirectIndex > 0 && /\d/.test(commandText[redirectIndex - 1])) redirectIndex -= 1;
       if (!aggregate && redirectIndex > 0 && !/\s/.test(commandText[redirectIndex - 1]))
         redirectIndex = entry.index;
       break;
@@ -655,11 +649,7 @@ function stripTrailingShellRedirections(segment) {
   }
   if (redirectIndex < 0) return commandText;
   const suffix = commandText.slice(redirectIndex);
-  if (
-    !/^(?:(?:\d*(?:>>?|<{1,3})|&>>?)\s*(?:"[^"]*"|'[^']*'|[^\s<>]+)\s*)+$/.test(
-      suffix
-    )
-  )
+  if (!/^(?:(?:\d*(?:>>?|<{1,3})|&>>?)\s*(?:"[^"]*"|'[^']*'|[^\s<>]+)\s*)+$/.test(suffix))
     return null;
   return commandText.slice(0, redirectIndex).trimEnd();
 }
@@ -773,8 +763,7 @@ function lexShellCharacters(input) {
 
 function containsPushCommandSubstitution(command) {
   const pushInside = (body) =>
-    detectGitPushes(body, process.cwd()).length > 0 ||
-    containsPushCommandSubstitution(body);
+    detectGitPushes(body, process.cwd()).length > 0 || containsPushCommandSubstitution(body);
   const findClosing = (start) => {
     let depth = 1;
     let quote = null;
@@ -971,8 +960,7 @@ function parsePushArguments(args) {
       } else if (token.startsWith("--repo=")) {
         remoteSuppliedByOption = true;
         remote = token.slice("--repo=".length) || null;
-      }
-      else if (PUSH_VALUE_OPTS.has(token)) i += 1; // skip its value
+      } else if (PUSH_VALUE_OPTS.has(token)) i += 1; // skip its value
       continue;
     }
     positionals.push(token);
@@ -986,9 +974,10 @@ function parsePushArguments(args) {
   };
 }
 
-function pushUpdatesSessionBranch(args, sessionBranch) {
+function pushUpdatesSessionBranch(args, sessionBranch, effectiveRefspecs = null) {
   const parsed = parsePushArguments(args);
-  const { sawDelete, sawTags, sawAllOrMirror, refspecs } = parsed;
+  const { sawDelete, sawTags, sawAllOrMirror } = parsed;
+  const refspecs = effectiveRefspecs || parsed.refspecs;
   if (sawAllOrMirror) return true; // pushes the session branch among others
   if (sawDelete) return false; // deletion, not an update to the branch tip
 
@@ -1003,10 +992,14 @@ function pushUpdatesSessionBranch(args, sessionBranch) {
   return false;
 }
 
-function sessionBranchPushSource(args, sessionBranch) {
-  const { sawAllOrMirror, refspecs } = parsePushArguments(args);
+function sessionBranchPushSource(args, sessionBranch, effectiveRefspecs = null) {
+  const parsed = parsePushArguments(args);
+  const { sawAllOrMirror } = parsed;
+  const refspecs = effectiveRefspecs || parsed.refspecs;
   if (sawAllOrMirror)
     return { error: "multi-ref --all/--mirror push cannot be bound to one source commit" };
+  if (effectiveRefspecs && refspecs.length > 1)
+    return { error: "configured multi-ref push cannot be bound to one source commit" };
   if (refspecs.length === 0) return { source: "HEAD" };
   const sources = [];
   for (const raw of refspecs) {
@@ -1023,9 +1016,7 @@ function sessionBranchPushSource(args, sessionBranch) {
 // --- git helpers -----------------------------------------------------------
 
 function gitCapture(repoDir, args, gitDir = null) {
-  const prefix = gitDir
-    ? [`--git-dir=${gitDir}`, `--work-tree=${repoDir}`]
-    : ["-C", repoDir];
+  const prefix = gitDir ? [`--git-dir=${gitDir}`, `--work-tree=${repoDir}`] : ["-C", repoDir];
   const result = spawnSync("git", [...prefix, ...args], {
     encoding: "utf8",
     maxBuffer: MAX_BUFFER,
@@ -1059,6 +1050,21 @@ function resolvePushRemote(repoDir, args, branch, gitDir = null) {
   )
     return { error: `push destination ${remote} is not a configured named remote` };
   return { remote };
+}
+
+function configuredPushRefspecs(repoDir, args, branch, gitDir = null) {
+  const parsed = parsePushArguments(args);
+  if (parsed.refspecs.length > 0 || parsed.sawDelete || parsed.sawTags || parsed.sawAllOrMirror)
+    return null;
+  const destination = resolvePushRemote(repoDir, args, branch, gitDir);
+  if (destination.error) return null;
+  const configured = gitCapture(
+    repoDir,
+    ["config", "--get-all", `remote.${destination.remote}.push`],
+    gitDir
+  );
+  if (!configured) return null;
+  return configured.split(/\r?\n/).filter(Boolean);
 }
 
 // deriveSessionSlug is the single source of truth for branch -> manifest-name
@@ -1180,10 +1186,11 @@ function gatePush(baseCwd, push) {
 
   const branch = currentBranch(repoDir, gitDir);
   if (!branch) return false;
+  const effectiveRefspecs = configuredPushRefspecs(repoDir, push.args, branch, gitDir);
 
   // Refspec scoping: only gate pushes that update THIS branch's ref. Tag pushes,
   // deletions, and cross-branch pushes are legit mid-session ops — out of scope.
-  if (!pushUpdatesSessionBranch(push.args, branch)) return false;
+  if (!pushUpdatesSessionBranch(push.args, branch, effectiveRefspecs)) return false;
 
   let slug;
   try {
@@ -1227,7 +1234,7 @@ function gatePush(baseCwd, push) {
   // real manifest. Fail CLOSED on anything that stops a clean verdict — including
   // an unexpected throw in here: an error is not proof the gate passed.
   try {
-    const pushed = sessionBranchPushSource(push.args, branch);
+    const pushed = sessionBranchPushSource(push.args, branch, effectiveRefspecs);
     if (pushed.error) {
       blockUnverified(branch, manifestRel, pushed.error);
       return true;
@@ -1265,9 +1272,7 @@ function gatePush(baseCwd, push) {
 
     const result = spawnSync(process.execPath, [CHECKER, ...checkerArgs], {
       cwd: repoDir,
-      env: gitDir
-        ? { ...process.env, GIT_DIR: gitDir, GIT_WORK_TREE: repoDir }
-        : process.env,
+      env: gitDir ? { ...process.env, GIT_DIR: gitDir, GIT_WORK_TREE: repoDir } : process.env,
       encoding: "utf8",
       maxBuffer: MAX_BUFFER,
     });

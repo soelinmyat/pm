@@ -366,7 +366,27 @@ function validateOwnership(ownership, issues) {
 }
 
 function validateTargetBindings(root, target, reviewRoot, issues) {
-  if (target.acceptance) validateExactBinding(root, target.acceptance, "target.acceptance", issues);
+  if (target.acceptance) {
+    const acceptanceFile = validateExactBinding(
+      root,
+      target.acceptance,
+      "target.acceptance",
+      issues
+    );
+    if (acceptanceFile && target.dev_context) {
+      const acceptanceDigest = canonicalAcceptanceDigest(
+        acceptanceFile.bytes,
+        "target.acceptance",
+        issues
+      );
+      if (acceptanceDigest && acceptanceDigest !== target.dev_context.acceptance_sha256)
+        add(
+          issues,
+          "target.acceptance",
+          "must canonically equal the bound Dev session acceptance criteria"
+        );
+    }
+  }
   if (target.upstream?.design_critique) {
     const value = validateExactJsonBinding(
       root,
@@ -479,6 +499,21 @@ function validateExactJsonBinding(root, value, label, issues) {
     add(issues, label, `invalid JSON: ${error.message}`);
     return null;
   }
+}
+
+function canonicalAcceptanceDigest(bytes, label, issues) {
+  let value;
+  try {
+    value = JSON.parse(bytes.toString("utf8"));
+  } catch (error) {
+    add(issues, label, `must be valid JSON: ${error.message}`);
+    return null;
+  }
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    add(issues, label, "must be a JSON array of strings");
+    return null;
+  }
+  return digest(Buffer.from(JSON.stringify(value)));
 }
 
 function validateChangedFiles(files, issues) {
@@ -1550,16 +1585,15 @@ function validateHumanReport(root, human, report, reportFile, options, issues) {
       metadata.source?.sha256 !== `sha256:${reportFile.sha256}`)
   )
     add(issues, "report.human_report", "metadata must bind the exact Review report JSON");
-  const expectedEvidence = [report.target, ...(report.results || []), report.decisions].filter(
-    Boolean
-  );
-  for (const expected of expectedEvidence)
-    if (
-      !(metadata?.evidence || []).some(
-        (item) => item.path === expected.path && item.sha256 === `sha256:${expected.sha256}`
-      )
-    )
-      add(issues, "report.human_report", `metadata evidence must bind ${expected.path}`);
+  const expectedEvidence = [report.target, ...(report.results || []), report.decisions]
+    .filter(Boolean)
+    .map((item) => ({ path: item.path, sha256: `sha256:${item.sha256}` }));
+  if (metadata && JSON.stringify(metadata.evidence) !== JSON.stringify(expectedEvidence))
+    add(
+      issues,
+      "report.human_report",
+      "metadata evidence must exactly equal the canonical target, results, and decisions bindings"
+    );
   const html = htmlFile.bytes.toString("utf8");
   for (const [attribute, value] of [
     ["data-review-outcome", report.outcome],

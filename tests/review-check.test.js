@@ -120,6 +120,48 @@ test("a fresh run keeps evidence run-scoped while publishing the pass canonicall
   assert.equal(fixture.reportPath, ".pm/dev-sessions/example/review/report.json");
 });
 
+test("Review HTML metadata evidence exactly matches canonical report evidence", () => {
+  for (const mutation of [
+    (metadata) => metadata.evidence.push({ ...metadata.evidence[0] }),
+    (metadata) =>
+      metadata.evidence.push({
+        path: ".pm/foreign-review-evidence.json",
+        sha256: `sha256:${"0".repeat(64)}`,
+      }),
+  ]) {
+    const fixture = makeFixture({ maxWorkers: 3 });
+    const generated = generate(fixture);
+    assert.equal(generated.ok, true, JSON.stringify(generated.issues));
+    renderReviewReport({
+      root: fixture.root,
+      reportPath: fixture.reportPath,
+      outputPath: fixture.htmlPath,
+    });
+    const htmlPath = path.join(fixture.root, fixture.htmlPath);
+    const html = fs.readFileSync(htmlPath, "utf8");
+    const match = html.match(
+      /(<script id="pm-artifact" type="application\/json">)([\s\S]*?)(<\/script>)/
+    );
+    assert.ok(match);
+    const metadata = JSON.parse(match[2]);
+    mutation(metadata);
+    fs.writeFileSync(
+      htmlPath,
+      html.replace(match[0], `${match[1]}${JSON.stringify(metadata)}${match[3]}`)
+    );
+    const checked = checkReview({
+      root: fixture.root,
+      targetPath: fixture.targetPath,
+      resultPaths: fixture.resultPaths,
+      reportPath: fixture.reportPath,
+      humanReportPath: fixture.htmlPath,
+      verifyBrowser: false,
+    });
+    assert.equal(checked.ok, false);
+    assert.match(JSON.stringify(checked.issues), /metadata evidence must exactly equal/);
+  }
+});
+
 test("missing a planned physical reviewer fails logical coverage", () => {
   const fixture = makeFixture({ maxWorkers: 3 });
   const result = checkReview({
@@ -756,6 +798,9 @@ test("Dev-routed targets require the canonical sibling session and routed mode",
     outPath: ".pm/dev-sessions/example/review/runs/bound-review/round-1/target.json",
     devSessionPath: canonical,
   };
+  const acceptancePath = ".pm/dev-sessions/example/acceptance.json";
+  write(fixture.root, acceptancePath, session.task.acceptance_criteria);
+  options.acceptancePath = acceptancePath;
   const target = buildReviewTarget(options);
   assert.equal(target.dev_context.slug, "example");
   assert.equal(target.dev_context.review_mode, "full");
@@ -778,6 +823,28 @@ test("Dev-routed targets require the canonical sibling session and routed mode",
     () => buildReviewTarget({ ...options, mode: "code-scan" }),
     /review mode must equal the requested target mode/
   );
+
+  write(fixture.root, acceptancePath, ["Different acceptance criteria"]);
+  assert.throws(
+    () => buildReviewTarget(options),
+    /must canonically equal the bound Dev session criteria/
+  );
+
+  write(fixture.root, acceptancePath, session.task.acceptance_criteria);
+  const mismatchedTarget = structuredClone(target);
+  mismatchedTarget.dev_context.acceptance_sha256 = "0".repeat(64);
+  write(fixture.root, options.outPath, mismatchedTarget);
+  const checked = checkReview({
+    root: fixture.root,
+    targetPath: options.outPath,
+    resultPaths: [],
+    verifyGit: false,
+    verifyFrozenGit: false,
+    verifyBrowser: false,
+    validateOnly: true,
+  });
+  assert.equal(checked.ok, false);
+  assert.match(JSON.stringify(checked.issues), /must canonically equal the bound Dev session/);
 });
 
 test("Design Critique bindings must attest the current review commit", () => {

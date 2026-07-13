@@ -16,7 +16,7 @@ const {
 } = require("../scripts/evals/review-repeat-check");
 const { checkReview } = require("../scripts/review-check");
 const { renderReviewReport } = require("../scripts/review-report");
-const { deriveLensApplicability } = require("../scripts/lib/review-contract");
+const { deriveLensApplicability, findingId } = require("../scripts/lib/review-contract");
 
 test("review repeat comparison binds three complete independent result sets", (t) => {
   const root = temporaryRoot(t, "pm-review-repeats-");
@@ -130,7 +130,9 @@ test("repeat stability policy rejects honestly reported divergent metrics", () =
 
 test("defect-present repeat comparison rejects three consistently empty reviews", (t) => {
   const root = temporaryRoot(t, "pm-review-repeats-empty-defect-");
-  const comparisonPath = seedComparison(root, "defect-present");
+  const comparisonPath = seedComparison(root, "defect-present", {
+    expectedDefect: { rule: "seeded-export-defect", locator: "src/example.js:1" },
+  });
   const absolute = path.join(root, comparisonPath);
   const comparison = JSON.parse(fs.readFileSync(absolute, "utf8"));
   comparison.expectation = "defect-present";
@@ -144,6 +146,30 @@ test("defect-present repeat comparison rejects three consistently empty reviews"
   const relabeled = checkReviewRepeats(root, comparisonPath);
   assert.equal(relabeled.ok, false);
   assert.match(JSON.stringify(relabeled.issues), /frozen repeat-control expectation/);
+});
+
+test("defect-present repeats must report the frozen expected rule and locator", (t) => {
+  const matchingRoot = temporaryRoot(t, "pm-review-repeats-matching-defect-");
+  const matching = repeatFinding("seeded-export-defect");
+  const matchingPath = seedComparison(matchingRoot, "defect-present", {
+    expectedDefect: { rule: matching.rule, locator: "src/example.js:1" },
+    finding: matching,
+  });
+  const accepted = checkReviewRepeats(matchingRoot, matchingPath);
+  assert.equal(accepted.ok, true, JSON.stringify(accepted.issues));
+
+  const root = temporaryRoot(t, "pm-review-repeats-expected-defect-");
+  const expected = repeatFinding("seeded-export-defect");
+  const comparisonPath = seedComparison(root, "defect-present", {
+    expectedDefect: { rule: expected.rule, locator: "src/example.js:1" },
+    finding: repeatFinding("unrelated-style-defect"),
+  });
+  const checked = checkReviewRepeats(root, comparisonPath);
+  assert.equal(checked.ok, false);
+  assert.match(
+    JSON.stringify(checked.issues),
+    /must report expected defect seeded-export-defect at src\/example\.js:1/
+  );
 });
 
 test("repeat stability thresholds accept the boundary and reject one unit below", () => {
@@ -414,10 +440,10 @@ function temporaryRoot(t, prefix) {
   return root;
 }
 
-function seedComparison(root, expectation = "clean") {
-  const source = seedGit(root, expectation);
+function seedComparison(root, expectation = "clean", options = {}) {
+  const source = seedGit(root, expectation, options.expectedDefect);
   const runs = ["repeat-one", "repeat-two", "repeat-three"].map((runId) =>
-    seedRun(root, runId, source)
+    seedRun(root, runId, source, options.finding)
   );
   const reportPath = ".pm/dev-sessions/feature/review/report.json";
   const htmlPath = ".pm/dev-sessions/feature/review/report.html";
@@ -437,7 +463,7 @@ function seedComparison(root, expectation = "clean") {
   const comparisonPath = ".pm/dev-sessions/feature/review/repeat-comparison.json";
   write(root, comparisonPath, {
     schema_version: 1,
-    expectation: "clean",
+    expectation,
     canonical_report: binding(root, reportPath),
     runs,
     metrics: {
@@ -459,7 +485,7 @@ function snapshotDrafts(root, runs) {
   });
 }
 
-function seedRun(root, runId, source) {
+function seedRun(root, runId, source, finding = null) {
   const roundRoot = `.pm/dev-sessions/feature/review/runs/${runId}/round-1`;
   const targetPath = `${roundRoot}/target.json`;
   const changedBytes = fs.readFileSync(path.join(root, "src/example.js"));
@@ -510,6 +536,7 @@ function seedRun(root, runId, source) {
   });
   const target = binding(root, targetPath);
   const resultPath = `${roundRoot}/results/reviewer-1.json`;
+  const findings = finding ? [structuredClone(finding)] : [];
   write(root, resultPath, {
     schema_version: 1,
     run_id: runId,
@@ -522,22 +549,35 @@ function seedRun(root, runId, source) {
     lenses,
     verdicts: lenses.map((lens) => ({
       lens,
-      outcome: "clean",
-      summary: `No ${lens} finding in the frozen repeat.`,
+      outcome: finding?.category === lens ? "findings" : "clean",
+      summary:
+        finding?.category === lens
+          ? `Found ${finding.issue}`
+          : `No ${lens} finding in the frozen repeat.`,
     })),
-    findings: [],
+    findings,
     checked_at: "2026-07-12T00:01:00Z",
   });
   return { run_id: runId, target, results: [binding(root, resultPath)] };
 }
 
-function seedGit(root, expectation = "clean") {
+function seedGit(root, expectation = "clean", expectedDefect = null) {
   fs.mkdirSync(path.join(root, "src"), { recursive: true });
   fs.writeFileSync(path.join(root, "src/example.js"), "module.exports = 1;\n");
   fs.mkdirSync(path.join(root, ".pm", "quality"), { recursive: true });
   fs.writeFileSync(
     path.join(root, ".pm", "quality", "repeat-control.json"),
-    `${JSON.stringify({ repeats: 3, source: "frozen", reset_between_runs: true, expectation }, null, 2)}\n`
+    `${JSON.stringify(
+      {
+        repeats: 3,
+        source: "frozen",
+        reset_between_runs: true,
+        expectation,
+        ...(expectation === "defect-present" ? { expected_defect: expectedDefect } : {}),
+      },
+      null,
+      2
+    )}\n`
   );
   git(root, ["init", "-q", "-b", "main"]);
   git(root, ["config", "user.email", "test@example.com"]);
@@ -558,6 +598,39 @@ function seedGit(root, expectation = "clean") {
     base_commit: base,
     diff_sha256: crypto.createHash("sha256").update(diff).digest("hex"),
   };
+}
+
+function repeatFinding(rule) {
+  const finding = {
+    category: "quality",
+    severity: "medium",
+    confidence: 95,
+    file: "src/example.js",
+    line_start: 1,
+    line_end: 1,
+    rule,
+    issue: `The ${rule} fixture remains present.`,
+    impact: "The seeded repeat control remains observable.",
+    fix: "Correct the seeded export and retain the repeat regression.",
+    fix_kind: "behavioral",
+    verify: "node --test tests/example.test.js",
+    evidence: [{ kind: "source", ref: "src/example.js:1" }],
+    change_anchors: [
+      {
+        path: "src/example.js",
+        side: "head",
+        line_start: 1,
+        line_end: 1,
+        affected_ref: "src/example.js:1",
+        relation: "The changed export directly exposes the seeded repeat defect.",
+      },
+    ],
+    owner: "review",
+    disposition: "open",
+    decision_required: false,
+  };
+  finding.id = findingId(finding);
+  return finding;
 }
 
 function git(root, args) {

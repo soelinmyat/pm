@@ -76,12 +76,12 @@ function checkReviewRepeats(root, comparisonPath) {
       );
     }
   }
-  const trustedExpectation = readTrustedExpectation(
+  const trustedControl = readTrustedExpectation(
     projectRoot,
     canonicalChecked?.target?.source?.base_commit,
     issues
   );
-  if (comparison.expectation !== trustedExpectation)
+  if (comparison.expectation !== trustedControl?.expectation)
     issues.push("expectation must equal the frozen repeat-control expectation");
   const runIds = new Set();
   const checkedReports = [];
@@ -188,6 +188,18 @@ function checkReviewRepeats(root, comparisonPath) {
     checkedReports.some((report) => (report.findings || []).length === 0)
   )
     issues.push("defect-present repeats require at least one evidence-bound finding in every run");
+  if (
+    comparison.expectation === "defect-present" &&
+    checkedReports.length === 3 &&
+    trustedControl?.expected_defect
+  ) {
+    const expected = trustedControl.expected_defect;
+    for (const [index, report] of checkedReports.entries())
+      if (!(report.findings || []).some((finding) => matchesExpectedDefect(finding, expected)))
+        issues.push(
+          `runs[${index}] must report expected defect ${expected.rule} at ${expected.locator}`
+        );
+  }
   validateMetrics(comparison.metrics, computedMetrics, issues);
   return { ok: issues.length === 0, issues, computed_metrics: computedMetrics };
 }
@@ -206,11 +218,51 @@ function readTrustedExpectation(root, baseCommit, issues) {
     const control = JSON.parse(raw);
     if (!new Set(["defect-present", "clean"]).has(control.expectation))
       throw new Error("expectation must equal defect-present or clean");
-    return control.expectation;
+    if (control.expectation === "defect-present") validateExpectedDefect(control.expected_defect);
+    return control;
   } catch (error) {
     issues.push(`frozen repeat-control expectation is invalid: ${error.message}`);
     return null;
   }
+}
+
+function validateExpectedDefect(value) {
+  if (!object(value)) throw new Error("defect-present control requires expected_defect");
+  const unknown = Object.keys(value).filter((key) => !new Set(["rule", "locator"]).has(key));
+  if (unknown.length > 0)
+    throw new Error(`expected_defect has unknown fields: ${unknown.join(", ")}`);
+  if (typeof value.rule !== "string" || value.rule.length === 0 || value.rule.length > 200)
+    throw new Error("expected_defect.rule must be a non-empty string up to 200 characters");
+  if (!parseLocator(value.locator))
+    throw new Error("expected_defect.locator must be project-path:line or project-path:start-end");
+}
+
+function matchesExpectedDefect(finding, expected) {
+  const locator = findingLocator(finding);
+  return finding?.rule === expected.rule && locator === expected.locator;
+}
+
+function findingLocator(finding) {
+  if (
+    !object(finding) ||
+    typeof finding.file !== "string" ||
+    !Number.isInteger(finding.line_start) ||
+    !Number.isInteger(finding.line_end)
+  )
+    return null;
+  return `${finding.file}:${finding.line_start}${
+    finding.line_end === finding.line_start ? "" : `-${finding.line_end}`
+  }`;
+}
+
+function parseLocator(value) {
+  const match = typeof value === "string" && value.match(/^(.+):(\d+)(?:-(\d+))?$/);
+  if (!match || path.isAbsolute(match[1]) || match[1].split(/[\\/]/).includes("..")) return null;
+  const start = Number(match[2]);
+  const end = Number(match[3] || match[2]);
+  return Number.isSafeInteger(start) && start > 0 && Number.isSafeInteger(end) && end >= start
+    ? { path: match[1], start, end }
+    : null;
 }
 
 function deriveConsistencyMetrics(reports) {

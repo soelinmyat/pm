@@ -10,6 +10,8 @@ description: Push branch to remote, handle pre-push hook failures with diagnosis
 
 **Goal:** Push the branch to the remote, diagnosing and fixing any hook failures along the way.
 
+Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/delivery-contract.md`. Before every push attempt, reload and validate the contract and require both canonical and snapshotted `push_feature_branch: true`. If authority is absent, stop before the external action and request that exact grant.
+
 ### Pre-push hook preparation
 
 Read AGENTS.md for any pre-push hook setup commands the project requires. Common patterns:
@@ -23,7 +25,7 @@ Run any documented setup commands before pushing.
 
 Before running `git push`, ensure canonical `.pm/dev-sessions/{slug}/gates.json` has a current `verification` row. If it is missing or stale, run the full project test suite fresh using the command from AGENTS.md or the dev session's `## Project Context`, read the output, and record `verification: passed` with the command output artifact or state section path.
 
-Read `{DELIVERY_REMOTE}` from canonical `session.json` at `source.delivery_remote`. Stop if it is absent, if the named remote no longer exists, or if its configured push destination differs from the destination hash frozen by Review.
+Read `{DELIVERY_REMOTE}` from canonical `session.json` at `source.delivery_remote`. Stop if it is absent, if the named remote no longer exists, or if its sole configured push URL, normalized GitHub owner/repo, head, base, or SHA-256 differs from the delivery contract frozen by Review. Never fall back to `origin`.
 
 Then run the shared PM gate checker against current HEAD:
 
@@ -42,7 +44,7 @@ If the manifest is missing or any required gate is missing, stop and run the mis
 
 ### Attempt push
 
-Run `git push` with `timeout: 600000` (pre-push hooks can take 5-10 min). Push explicitly to the reviewed destination; if no upstream tracking branch exists, use `git push -u -- "{DELIVERY_REMOTE}" HEAD`.
+Run `git push` with `timeout: 600000` (pre-push hooks can take 5-10 min). Push explicitly to the reviewed destination; if no upstream tracking branch exists, use `git push -u -- "$DELIVERY_REMOTE" HEAD`.
 
 ### Handle result
 
@@ -75,10 +77,14 @@ git worktree remove /tmp/check-default-$$ --force 2>/dev/null || true
 
 **In both cases:** Retry push (max 3 attempts).
 
+Every hook fix, generated-file update, amend, or new commit triggers the complete post-mutation recertification protocol in `delivery-contract.md`: rerun current Review and changed routed gates, regenerate their artifacts, validate the delivery contract, and pass `dev-gate-check` on current HEAD before the next push attempt. Do not retry directly after committing a fix.
+
 After 3 failed push attempts: stop, report the error details with actionable diagnosis, ask user for guidance.
 
 NEVER use `--no-verify` to bypass hook failures. All failures must be fixed.
 
 **If push fails for other reasons** (auth, network, etc.): Report the error and stop.
 
-After `git push` exits 0 and the branch has an upstream tracking branch on `{DELIVERY_REMOTE}`, proceed to PR creation.
+**Done-when:** `git push` exits 0, the pushed branch has an upstream on the exact contracted `{DELIVERY_REMOTE}`, and no local commit exists after the Review/gate evidence accepted by `dev-gate-check`.
+
+**Advance:** proceed to Step 05 (Create or Detect PR).

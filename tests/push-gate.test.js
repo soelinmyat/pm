@@ -1027,6 +1027,67 @@ test("explicit alternate source commit is checked instead of current HEAD", () =
   }
 });
 
+test("configured remote push refspecs determine whether the session branch is gated", () => {
+  const dir = makeRepo();
+  try {
+    writeFailingGates(dir, "x");
+
+    git(dir, "config", "--replace-all", "remote.origin.push", "HEAD:refs/heads/main");
+    assertAllow(runHook("git push origin", { cwd: dir }));
+
+    git(dir, "config", "--replace-all", "remote.origin.push", "HEAD:refs/heads/feat/x");
+    assertBlock(runHook("git push origin", { cwd: dir }), /verification is failed/);
+
+    // An explicit command-line refspec overrides remote.<name>.push.
+    assertAllow(runHook("git push origin HEAD:refs/heads/main", { cwd: dir }));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("configured push refspecs preserve source commit binding", () => {
+  const dir = makeRepo();
+  try {
+    const reviewedHead = headSha(dir);
+    fs.writeFileSync(path.join(dir, "README.md"), "unreviewed configured source\n");
+    git(dir, "add", "README.md");
+    git(dir, "commit", "-q", "-m", "configured source");
+    const configuredSource = headSha(dir);
+    git(dir, "reset", "--hard", reviewedHead);
+    writeGates(dir, "x", passingManifest(dir, "x", reviewedHead));
+    git(
+      dir,
+      "config",
+      "--replace-all",
+      "remote.origin.push",
+      `${configuredSource}:refs/heads/feat/x`
+    );
+
+    assertBlock(runHook("git push origin", { cwd: dir }), /commit mismatch|stale|does not match/i);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("configured multi-ref pushes that include the session branch fail closed", () => {
+  const dir = makeRepo();
+  try {
+    writeGates(dir, "x", passingManifest(dir, "x", headSha(dir)));
+    git(dir, "config", "--add", "remote.origin.push", "HEAD:refs/heads/feat/x");
+    git(dir, "config", "--add", "remote.origin.push", "HEAD:refs/heads/backup");
+
+    assertBlock(
+      runHook("git push origin", { cwd: dir }),
+      /configured multi-ref push cannot be bound to one source commit/
+    );
+
+    git(dir, "config", "--replace-all", "remote.origin.push", ":");
+    assertBlock(runHook("git push origin", { cwd: dir }), /matching multi-ref push/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // PARSER ROBUSTNESS FOR NATURAL FORMS (BLOCKING #4). Quotes/parens stripped,
 // backslash-newline treated as a continuation (joined), wrappers honored.
@@ -1103,6 +1164,27 @@ test("wrapper-prefixed pushes (sudo / VAR=1 / env) are detected → block", () =
     );
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("repository-selecting environment assignments fail closed across wrappers", () => {
+  const dir = makeRepo();
+  const alternate = makeRepo();
+  try {
+    writeGates(dir, "x", passingManifest(dir, "x", headSha(dir)));
+    const alternateGitDir = path.join(alternate, ".git");
+    for (const command of [
+      `GIT_DIR=${alternateGitDir} git push origin HEAD`,
+      `GIT_WORK_TREE=${alternate} git push origin HEAD`,
+      `GIT_COMMON_DIR=${alternateGitDir} git push origin HEAD`,
+      `env GIT_DIR=${alternateGitDir} git push origin HEAD`,
+      `sh -c 'GIT_WORK_TREE=${alternate} git push origin HEAD'`,
+      `env -S 'GIT_COMMON_DIR=${alternateGitDir} git push origin HEAD'`,
+    ])
+      assertBlock(runHook(command, { cwd: dir }), /could not determine the repository/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(alternate, { recursive: true, force: true });
   }
 });
 

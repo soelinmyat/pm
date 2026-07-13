@@ -113,4 +113,4 @@ BAD: ANY gratitude expression — actions speak
 
 ## GitHub Thread Replies
 
-When replying to inline review comments on GitHub, reply in the comment thread (`gh api repos/{owner}/{repo}/pulls/{pr}/comments/{id}/replies`), not as a top-level PR comment.
+When replying to inline review comments on GitHub, first validate the Ship delivery contract, then reply in the exact comment thread (`gh api "repos/$GH_OWNER/$GH_REPOSITORY/pulls/$PR_NUMBER/comments/{id}/replies"`), not as a top-level PR comment. Any code-fix commit must complete Ship's post-mutation recertification protocol before it is pushed or cited as delivered.

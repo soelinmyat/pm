@@ -74,7 +74,13 @@ function buildReviewTarget(options) {
       throw new Error("prior report source commit must be an ancestor of current HEAD");
     }
   }
-  const acceptance = optionalFileBinding(root, options.acceptancePath, "acceptance criteria");
+  const acceptanceLoaded = readOptionalFile(
+    root,
+    options.acceptancePath,
+    "acceptance criteria",
+    MAX_BOUND_BYTES
+  );
+  const acceptance = acceptanceLoaded?.binding || null;
   const targetSlug = options.outPath?.match(/^\.pm\/dev-sessions\/([^/]+)\/review\//)?.[1];
   const devContext = options.devSessionPath
     ? loadDevContext(root, options.devSessionPath, {
@@ -82,6 +88,13 @@ function buildReviewTarget(options) {
         expectedMode: mode,
       })
     : null;
+  if (
+    acceptanceLoaded &&
+    devContext &&
+    canonicalAcceptanceDigest(acceptanceLoaded.bytes, "acceptance criteria") !==
+      devContext.acceptance_sha256
+  )
+    throw new Error("acceptance criteria must canonically equal the bound Dev session criteria");
 
   return {
     schema_version: 1,
@@ -279,8 +292,16 @@ function optionalBinding(root, relative, label) {
   return { ...loaded.binding, commit: value.commit || null, outcome: value.outcome || null };
 }
 
-function optionalFileBinding(root, relative, label) {
-  return readOptionalFile(root, relative, label, MAX_BOUND_BYTES)?.binding || null;
+function canonicalAcceptanceDigest(bytes, label) {
+  let value;
+  try {
+    value = JSON.parse(bytes.toString("utf8"));
+  } catch (error) {
+    throw new Error(`${label} must be valid JSON: ${error.message}`);
+  }
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string"))
+    throw new Error(`${label} must be a JSON array of strings`);
+  return digest(Buffer.from(JSON.stringify(value)));
 }
 
 function optionalJsonFileBinding(root, relative, label) {
