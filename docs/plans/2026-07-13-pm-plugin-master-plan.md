@@ -24,7 +24,7 @@ Completion means every shipped skill has an explicit contract, proportionate eva
 | v1.13.12 | Shared HTML artifact foundation | Released |
 | v1.13.13 | Blind output-quality evaluation harness | Released |
 | v1.13.14 | Evidence-bound `pm:design-critique` | Released |
-| Wave 3B | Evidence-bound adaptive `pm:review` | Implemented and locally verified; delivery pending |
+| v1.13.15 / Wave 3B | Evidence-bound adaptive `pm:review` | Release commit and tag prepared locally; delivery pending |
 
 The next work starts only after Wave 3B lands. New waves must not be stacked onto its reviewed commit.
 
@@ -86,7 +86,12 @@ The master plan is complete only when all of the following are evidenced on main
 
 **State:** implemented and locally verified on `codex/review-quality-gate`.
 
-Land the adaptive six-lens evidence contract, immutable review rounds, strict synthesis, browser-verified report, and non-resettable remediation budget. Preserve the single non-blocking crash-window finding as owned follow-up debt rather than reopening review.
+Land the adaptive six-lens evidence contract, immutable review rounds, strict synthesis, browser-verified report, and non-resettable remediation budget. Preserve the two non-blocking medium findings as owned follow-up debt rather than reopening review:
+
+- attest an already-installed atomic output after a child crashes between installation and receipt serialization;
+- make historical nested-prior validation available through the documented Review CLI path while keeping current-report version checks strict.
+
+The terminal release pass covered all six lenses with zero blockers or disputes. The exact `v1.13.15` source commit passed 1,800 tests with zero failures and one intentional skip; both installed workhorse caches passed plugin validation and a 91-test Review smoke suite.
 
 **Exit:** patch release on main, both workhorse caches verified, CI green, tag moved to the main merge commit.
 
@@ -235,8 +240,8 @@ Do not duplicate the core matrix for aliases, redirects, or read-only projection
 
 ## Current concerns and decisions needed
 
-1. Wave 3B still requires explicit push/PR authority. No source work is blocked, but the release cannot be completed without that grant.
-2. Wave 3B was reviewed before its patch bump. For this one release, delivery must use one bounded release-evidence refresh; future waves prevent this by preparing the version before final review.
+1. Wave 3B still requires explicit `push_feature_branch` and `create_pr` authority. No source work is blocked, but the release cannot be completed without those grants. `merge` remains a separate later decision.
+2. Wave 3B needed one bounded release-evidence refresh after its patch bump. That terminal pass is complete and must not be extended into another certification lineage; future waves prepare the version before final review.
 3. The current authoring rules are stronger than the plugin validator. Wave 4A should land before broad skill rewrites so regressions become executable rather than review conventions.
 4. Supporting skills should not inherit core-workflow ceremony. Their quality bar is contract clarity and artifact usefulness, not reviewer count.
 
