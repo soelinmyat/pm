@@ -1144,7 +1144,7 @@ function validate(pmDir) {
 }
 
 function runPluginMode(args) {
-  const { runPack } = require("./rules/plugin/index.js");
+  const { loadRules, runPack } = require("./rules/plugin/index.js");
   let rootDir = process.cwd();
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--root" && args[i + 1]) {
@@ -1156,7 +1156,12 @@ function runPluginMode(args) {
     console.log(JSON.stringify({ ok: false, error: `plugin root not found: ${rootDir}` }));
     process.exit(1);
   }
-  const result = runPack(rootDir);
+  // Advisory rules are intentionally visible through scripts/skill-audit.js
+  // while their remediation slices are in flight. Promotion to `error` is the
+  // single enforcement switch; validate:plugin never emits a giant warning
+  // payload that can overflow CI subprocess buffers.
+  const enforcedRules = loadRules().filter((rule) => rule.severity === "error");
+  const result = runPack(rootDir, { rules: enforcedRules });
   const hasError = result.issues.some((i) => i.severity === "error");
   const out = {
     ok: !hasError,
