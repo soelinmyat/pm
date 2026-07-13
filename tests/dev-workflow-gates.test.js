@@ -6,6 +6,7 @@ const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { deriveSessionSlug } = require("../scripts/lib/session-slug");
 
 const repoRoot = path.resolve(__dirname, "..");
 
@@ -23,6 +24,12 @@ function configureAuthoritativeRemote(dir, git, base) {
   assert.equal(git("remote", "add", "origin", remote).status, 0);
   assert.equal(git("push", "-q", "origin", `${base}:refs/heads/main`).status, 0);
   return remote;
+}
+
+function writeCanonicalSessionSlugHelper(dir, source = read("scripts/lib/session-slug.js")) {
+  const helper = path.join(dir, "scripts", "lib", "session-slug.js");
+  fs.mkdirSync(path.dirname(helper), { recursive: true });
+  fs.writeFileSync(helper, source);
 }
 
 test("PM-native design critique is in the plugin inventory", () => {
@@ -332,7 +339,11 @@ test("state schema documents verified_commit recertification semantics", () => {
 
 test("source repo pre-push hook uses the shared gate checker for PM runtime changes", () => {
   const text = read(".githooks/pre-push");
-  assert.match(text, /derive_gate_slug/);
+  assert.match(text, /derive_gate_slug_from_worktree/);
+  assert.match(text, /scripts\/lib\/session-slug\.js/);
+  assert.match(text, /helper\.deriveSessionSlug\(branch\)/);
+  assert.doesNotMatch(text, /for prefix in "codex\/" "feat\/" "fix\/" "chore\/" "release\/"/);
+  assert.doesNotMatch(text, /tr '\[:upper:\]' '\[:lower:\]'/);
   assert.match(text, /verify_pm_commit_inventory/);
   assert.match(text, /run_commit_tests/);
   assert.match(text, /git worktree add --detach --quiet "\$test_tmp" "\$commit"/);
@@ -481,6 +492,7 @@ test("pre-push runs the dev gate checker from the pushed commit, not the dirty w
       'require("./lib/checker-helper");\n'
     );
     fs.writeFileSync(path.join(dir, "scripts", "lib", "checker-helper.js"), "process.exit(0);\n");
+    writeCanonicalSessionSlugHelper(dir);
     assert.equal(git("add", ".").status, 0);
     assert.equal(git("commit", "-q", "-m", "base").status, 0);
     assert.equal(git("branch", "-M", "main").status, 0);
@@ -536,6 +548,7 @@ test("pre-push never lets a flat legacy manifest shadow a canonical session", ()
       "---\nname: dev\ndescription: dev skill\n---\n"
     );
     fs.writeFileSync(path.join(dir, "scripts", "dev-gate-check.js"), "process.exit(0);\n");
+    writeCanonicalSessionSlugHelper(dir);
     assert.equal(git("add", ".").status, 0);
     assert.equal(git("commit", "-q", "-m", "base").status, 0);
     assert.equal(git("branch", "-M", "main").status, 0);
@@ -588,6 +601,7 @@ test("pre-push fails closed when origin/main is unavailable for PM runtime chang
       "---\nname: dev\ndescription: dev skill\n---\n"
     );
     fs.writeFileSync(path.join(dir, "scripts", "dev-gate-check.js"), "process.exit(0);\n");
+    writeCanonicalSessionSlugHelper(dir);
     assert.equal(git("add", ".").status, 0);
     assert.equal(git("commit", "-q", "-m", "runtime").status, 0);
     assert.equal(git("checkout", "-q", "-b", "codex/harden").status, 0);
@@ -629,6 +643,7 @@ test("pre-push fails closed when an unavailable remote push deletes all PM inven
       "---\nname: dev\ndescription: dev skill\n---\n"
     );
     fs.writeFileSync(path.join(dir, "scripts", "dev-gate-check.js"), "process.exit(0);\n");
+    writeCanonicalSessionSlugHelper(dir);
     assert.equal(git("add", ".").status, 0);
     assert.equal(git("commit", "-q", "-m", "runtime").status, 0);
     assert.equal(git("checkout", "-q", "-b", "codex/remove-runtime").status, 0);
@@ -703,6 +718,7 @@ test("pre-push scope ignores a forged local tracking ref and uses remote HEAD", 
       "---\nname: dev\ndescription: dev skill\n---\n"
     );
     fs.writeFileSync(path.join(dir, "scripts", "dev-gate-check.js"), "process.exit(0);\n");
+    writeCanonicalSessionSlugHelper(dir);
     assert.equal(git("add", ".").status, 0);
     assert.equal(git("commit", "-q", "-m", "base").status, 0);
     const base = git("rev-parse", "HEAD").stdout.trim();
@@ -726,6 +742,118 @@ test("pre-push scope ignores a forged local tracking ref and uses remote HEAD", 
     assert.match(result.stdout + result.stderr, /Expected \.pm\/dev-sessions\/harden\/gates\.json/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("pre-push derives every gate path with the pushed canonical session-slug helper", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-pre-push-slug-parity-"));
+  try {
+    const hook = path.join(dir, "pre-push");
+    fs.copyFileSync(path.join(repoRoot, ".githooks", "pre-push"), hook);
+    fs.chmodSync(hook, 0o755);
+    const git = (...args) => spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+    assert.equal(git("init", "-q", "-b", "main").status, 0);
+    assert.equal(git("config", "user.email", "test@example.com").status, 0);
+    assert.equal(git("config", "user.name", "Test User").status, 0);
+    fs.mkdirSync(path.join(dir, "commands"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "skills", "dev"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "plugin.config.json"),
+      JSON.stringify({ commands: ["dev"] }, null, 2)
+    );
+    fs.writeFileSync(path.join(dir, "commands", "dev.md"), "dev command\n");
+    fs.writeFileSync(
+      path.join(dir, "skills", "dev", "SKILL.md"),
+      "---\nname: dev\ndescription: dev skill\n---\n"
+    );
+    fs.writeFileSync(path.join(dir, "scripts", "dev-gate-check.js"), "process.exit(0);\n");
+    writeCanonicalSessionSlugHelper(dir);
+    assert.equal(git("add", ".").status, 0);
+    assert.equal(git("commit", "-q", "-m", "base").status, 0);
+    const base = git("rev-parse", "HEAD").stdout.trim();
+    configureAuthoritativeRemote(dir, git, base);
+    fs.writeFileSync(path.join(dir, "commands", "dev.md"), "changed runtime\n");
+    assert.equal(git("add", "commands/dev.md").status, 0);
+    assert.equal(git("commit", "-q", "-m", "runtime change").status, 0);
+    const localOid = git("rev-parse", "HEAD").stdout.trim();
+
+    const zeroOid = "0000000000000000000000000000000000000000";
+    for (const branch of [
+      "codex/prefixed",
+      "FIX/MixedCase",
+      "feat/nested/branch",
+      "release/Hot++Fix__v2",
+    ]) {
+      const result = spawnSync("bash", [hook, "origin"], {
+        cwd: dir,
+        encoding: "utf8",
+        input: `refs/heads/${branch} ${localOid} refs/heads/${branch} ${zeroOid}\n`,
+      });
+      assert.notEqual(result.status, 0, result.stdout + result.stderr);
+      assert.match(
+        result.stdout + result.stderr,
+        new RegExp(`Expected \\.pm/dev-sessions/${deriveSessionSlug(branch)}/gates\\.json`)
+      );
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("pre-push fails closed when the pushed canonical session-slug helper is missing or invalid", () => {
+  for (const scenario of [
+    {
+      name: "missing",
+      source: null,
+      expected: /missing canonical scripts\/lib\/session-slug\.js/,
+    },
+    {
+      name: "invalid",
+      source: 'module.exports = { deriveSessionSlug() { return "../escape"; } };\n',
+      expected: /canonical session-slug helper failed.*invalid session slug/,
+    },
+  ]) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), `pm-pre-push-slug-${scenario.name}-`));
+    try {
+      const hook = path.join(dir, "pre-push");
+      fs.copyFileSync(path.join(repoRoot, ".githooks", "pre-push"), hook);
+      fs.chmodSync(hook, 0o755);
+      const git = (...args) => spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+      assert.equal(git("init", "-q", "-b", "main").status, 0);
+      assert.equal(git("config", "user.email", "test@example.com").status, 0);
+      assert.equal(git("config", "user.name", "Test User").status, 0);
+      fs.mkdirSync(path.join(dir, "commands"), { recursive: true });
+      fs.mkdirSync(path.join(dir, "skills", "dev"), { recursive: true });
+      fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, "plugin.config.json"),
+        JSON.stringify({ commands: ["dev"] }, null, 2)
+      );
+      fs.writeFileSync(path.join(dir, "commands", "dev.md"), "dev command\n");
+      fs.writeFileSync(
+        path.join(dir, "skills", "dev", "SKILL.md"),
+        "---\nname: dev\ndescription: dev skill\n---\n"
+      );
+      fs.writeFileSync(path.join(dir, "scripts", "dev-gate-check.js"), "process.exit(0);\n");
+      if (scenario.source !== null) writeCanonicalSessionSlugHelper(dir, scenario.source);
+      assert.equal(git("add", ".").status, 0);
+      assert.equal(git("commit", "-q", "-m", scenario.name).status, 0);
+      const localOid = git("rev-parse", "HEAD").stdout.trim();
+      configureAuthoritativeRemote(dir, git, localOid);
+
+      const zeroOid = "0000000000000000000000000000000000000000";
+      const result = spawnSync("bash", [hook, "origin"], {
+        cwd: dir,
+        encoding: "utf8",
+        input: `refs/heads/codex/harden ${localOid} refs/heads/codex/harden ${zeroOid}\n`,
+      });
+      assert.notEqual(result.status, 0, result.stdout + result.stderr);
+      assert.match(result.stdout + result.stderr, scenario.expected);
+      assert.doesNotMatch(result.stdout + result.stderr, /Checking PM dev gates/);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   }
 });
 

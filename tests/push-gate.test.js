@@ -39,6 +39,7 @@ function makeRepoAt(dir, branch = "feat/x") {
   git(dir, "config", "user.email", "test@example.com");
   git(dir, "config", "user.name", "Test User");
   git(dir, "config", "commit.gpgsign", "false");
+  git(dir, "config", "push.default", "current");
   fs.writeFileSync(path.join(dir, "README.md"), "hi\n");
   git(dir, "add", ".");
   git(dir, "commit", "-q", "-m", "init");
@@ -1031,6 +1032,7 @@ test("configured remote push refspecs determine whether the session branch is ga
   const dir = makeRepo();
   try {
     writeFailingGates(dir, "x");
+    git(dir, "config", "push.default", "matching");
 
     git(dir, "config", "--replace-all", "remote.origin.push", "HEAD:refs/heads/main");
     assertAllow(runHook("git push origin", { cwd: dir }));
@@ -1039,6 +1041,93 @@ test("configured remote push refspecs determine whether the session branch is ga
     assertBlock(runHook("git push origin", { cwd: dir }), /verification is failed/);
 
     // An explicit command-line refspec overrides remote.<name>.push.
+    assertAllow(runHook("git push origin HEAD:refs/heads/main", { cwd: dir }));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("implicit current and simple policies bind the effective destination", () => {
+  const dir = makeRepo();
+  try {
+    writeFailingGates(dir, "x");
+
+    git(dir, "config", "push.default", "current");
+    assertBlock(runHook("git push origin", { cwd: dir }), /verification is failed/);
+
+    git(dir, "config", "push.default", "simple");
+    assertBlock(runHook("git push origin", { cwd: dir }), /requires an upstream remote/);
+
+    git(dir, "config", "branch.feat/x.remote", "origin");
+    git(dir, "config", "branch.feat/x.merge", "refs/heads/feat/x");
+    assertBlock(runHook("git push origin", { cwd: dir }), /verification is failed/);
+
+    git(dir, "config", "--unset-all", "push.default");
+    assertBlock(runHook("git push origin", { cwd: dir }), /verification is failed/);
+
+    git(dir, "config", "push.default", "simple");
+    git(dir, "config", "branch.feat/x.merge", "refs/heads/renamed");
+    assertBlock(runHook("git push origin", { cwd: dir }), /refuses renamed upstream/);
+
+    git(dir, "remote", "add", "other", ".");
+    assertBlock(runHook("git push other", { cwd: dir }), /verification is failed/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("implicit upstream and tracking policies use the configured upstream destination", () => {
+  const dir = makeRepo();
+  try {
+    writeFailingGates(dir, "x");
+    git(dir, "config", "branch.feat/x.remote", "origin");
+    git(dir, "config", "branch.feat/x.merge", "refs/heads/renamed");
+    git(dir, "config", "push.default", "upstream");
+
+    assertAllow(runHook("git push origin", { cwd: dir }));
+
+    git(dir, "config", "branch.feat/x.merge", "refs/heads/feat/x");
+    assertBlock(runHook("git push origin", { cwd: dir }), /verification is failed/);
+
+    git(dir, "config", "push.default", "tracking");
+    assertBlock(runHook("git push origin", { cwd: dir }), /verification is failed/);
+
+    git(dir, "remote", "add", "other", ".");
+    assertBlock(runHook("git push other", { cwd: dir }), /targets upstream remote origin/);
+
+    git(dir, "config", "--add", "branch.feat/x.merge", "refs/heads/second");
+    assertBlock(runHook("git push origin", { cwd: dir }), /requires exactly one upstream branch/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ambiguous or non-updating implicit push policies fail closed", () => {
+  const dir = makeRepo();
+  try {
+    writeGates(dir, "x", passingManifest(dir, "x", headSha(dir)));
+    for (const [policy, reason] of [
+      ["matching", /ambiguous multi-ref push/],
+      ["nothing", /has no implicit refspec/],
+      ["bogus", /cannot resolve.*implicit push/],
+    ]) {
+      git(dir, "config", "push.default", policy);
+      assertBlock(runHook("git push origin", { cwd: dir }), reason);
+    }
+    git(dir, "config", "push.default", "");
+    assertBlock(runHook("git push origin", { cwd: dir }), /cannot resolve.*implicit push/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("detached implicit pushes fail closed while explicit refspecs preserve precedence", () => {
+  const dir = makeRepo();
+  try {
+    writeGates(dir, "x", passingManifest(dir, "x", headSha(dir)));
+    git(dir, "checkout", "-q", "--detach");
+
+    assertBlock(runHook("git push origin", { cwd: dir }), /implicit push from detached HEAD/);
     assertAllow(runHook("git push origin HEAD:refs/heads/main", { cwd: dir }));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

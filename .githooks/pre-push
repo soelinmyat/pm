@@ -88,22 +88,51 @@ commit_or_history_contains_pm_runtime_inventory() {
   return 1
 }
 
-derive_gate_slug() {
-  local slug="$1"
-  local prefix
-  slug=$(printf "%s" "$slug" | tr '[:upper:]' '[:lower:]')
-  for prefix in "codex/" "feat/" "fix/" "chore/" "release/"; do
-    if [[ "$slug" == "$prefix"* ]]; then
-      slug="${slug#"$prefix"}"
-      break
-    fi
-  done
-  slug="${slug//\//-}"
-  slug=$(printf "%s" "$slug" | sed -E 's/[^a-z0-9._-]+/-/g; s/^-+//; s/-+$//')
-  if [[ -z "$slug" ]]; then
-    slug="current"
+derive_gate_slug_from_worktree() {
+  local worktree="$1"
+  local branch="$2"
+  local helper_path="$worktree/scripts/lib/session-slug.js"
+  local error_file=""
+  local output=""
+  local detail=""
+
+  gate_slug=""
+  gate_slug_error=""
+  if [[ ! -f "$helper_path" ]]; then
+    gate_slug_error="pushed commit is missing canonical scripts/lib/session-slug.js"
+    return 0
   fi
-  printf "%s" "$slug"
+  error_file=$(mktemp "${TMPDIR:-/tmp}/pm-session-slug.XXXXXX") || {
+    gate_slug_error="unable to allocate canonical session-slug validation output"
+    return 0
+  }
+  if ! output=$(node - "$helper_path" "$branch" 2>"$error_file" <<'NODE'
+const path = require("node:path");
+const helperPath = path.resolve(process.argv[2]);
+const branch = process.argv[3];
+const helper = require(helperPath);
+if (!helper || typeof helper.deriveSessionSlug !== "function") {
+  throw new Error("canonical helper must export deriveSessionSlug");
+}
+const slug = helper.deriveSessionSlug(branch);
+if (
+  typeof slug !== "string" ||
+  slug.length === 0 ||
+  slug.length > 255 ||
+  !/^[a-z0-9][a-z0-9._-]*$/.test(slug)
+) {
+  throw new Error("canonical helper returned an invalid session slug");
+}
+process.stdout.write(slug);
+NODE
+  ); then
+    detail=$(head -c 300 "$error_file" | tr '\r\n' ' ')
+    gate_slug_error="canonical session-slug helper failed${detail:+: $detail}"
+    rm -f "$error_file"
+    return 0
+  fi
+  rm -f "$error_file"
+  gate_slug="$output"
 }
 
 verify_pm_commit_inventory() {
@@ -160,7 +189,10 @@ verify_pm_commit_inventory() {
 
 run_commit_tests() {
   local commit="$1"
+  local branch="$2"
   local test_tmp=""
+  gate_slug=""
+  gate_slug_error=""
   test_tmp=$(mktemp -d "${TMPDIR:-/tmp}/pm-pre-push-tests.XXXXXX") || exit 1
   rm -rf "$test_tmp"
   if ! git worktree add --detach --quiet "$test_tmp" "$commit"; then
@@ -168,6 +200,7 @@ run_commit_tests() {
     echo "ERROR: unable to create test worktree for pushed commit $commit."
     return 1
   fi
+  derive_gate_slug_from_worktree "$test_tmp" "$branch"
   if [[ -d "$test_tmp/tests" ]]; then
     echo "Running tests for $commit..."
     if ! (
@@ -213,15 +246,43 @@ for push_ref_line in "${push_ref_lines[@]}"; do
     continue
   fi
 
-  if ! run_commit_tests "$local_oid"; then
-    exit 1
-  fi
-
   branch_name="${remote_ref#refs/heads/}"
   if [[ -z "$branch_name" || "$branch_name" == "$remote_ref" ]]; then
     branch_name="${local_ref#refs/heads/}"
   fi
-  gate_slug=$(derive_gate_slug "$branch_name")
+  if ! run_commit_tests "$local_oid" "$branch_name"; then
+    exit 1
+  fi
+
+  pm_runtime_detected=0
+  if commit_or_history_contains_pm_runtime_inventory "$local_oid" "$remote_oid"; then
+    pm_runtime_detected=1
+  fi
+
+  authoritative_base_ref=""
+  authoritative_base_commit=""
+  if ! resolve_authoritative_remote_head; then
+    if [[ "$pm_runtime_detected" -eq 1 ]]; then
+      echo "ERROR: unable to resolve the authoritative remote HEAD for PM dev gate checks."
+      echo "Verify the pre-push remote and network access, then retry."
+      exit 1
+    fi
+    continue
+  fi
+  changed_pm_runtime_files=$(git diff --name-only "${authoritative_base_commit}...$local_oid" -- commands skills scripts hooks templates tests references agents plugin.config.json .claude-plugin .codex-plugin .codex/INSTALL.md README.md .githooks 2>/dev/null)
+  if [[ "$?" -ne 0 ]]; then
+    echo "ERROR: unable to diff authoritative remote HEAD ${authoritative_base_commit}...$local_oid for PM dev gate checks."
+    exit 1
+  fi
+  if [[ -n "$gate_slug_error" && ( -n "$changed_pm_runtime_files" || "$pm_runtime_detected" -eq 1 ) ]]; then
+    echo "ERROR: unable to derive the canonical PM dev session slug for pushed commit $local_oid."
+    echo "${gate_slug_error}."
+    echo "Restore a valid scripts/lib/session-slug.js in the pushed commit, then retry."
+    exit 1
+  fi
+  if [[ -z "$gate_slug" ]]; then
+    continue
+  fi
 
   canonical_session_dir=".pm/dev-sessions/${gate_slug}"
   canonical_gate_manifest="${canonical_session_dir}/gates.json"
@@ -237,23 +298,6 @@ for push_ref_line in "${push_ref_lines[@]}"; do
   if [[ -f "$canonical_gate_manifest" && ! -f "${canonical_session_dir}/session.json" ]]; then
     echo "ERROR: Canonical PM gate manifest requires sibling session.json."
     gate_session_detected=1
-    exit 1
-  fi
-
-  authoritative_base_ref=""
-  authoritative_base_commit=""
-  if ! resolve_authoritative_remote_head; then
-    if commit_or_history_contains_pm_runtime_inventory "$local_oid" "$remote_oid" ||
-      [[ "$gate_session_detected" -eq 1 ]]; then
-      echo "ERROR: unable to resolve the authoritative remote HEAD for PM dev gate checks."
-      echo "Verify the pre-push remote and network access, then retry."
-      exit 1
-    fi
-    continue
-  fi
-  changed_pm_runtime_files=$(git diff --name-only "${authoritative_base_commit}...$local_oid" -- commands skills scripts hooks templates tests references agents plugin.config.json .claude-plugin .codex-plugin .codex/INSTALL.md README.md .githooks 2>/dev/null)
-  if [[ "$?" -ne 0 ]]; then
-    echo "ERROR: unable to diff authoritative remote HEAD ${authoritative_base_commit}...$local_oid for PM dev gate checks."
     exit 1
   fi
 

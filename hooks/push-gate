@@ -992,14 +992,21 @@ function pushUpdatesSessionBranch(args, sessionBranch, effectiveRefspecs = null)
   return false;
 }
 
-function sessionBranchPushSource(args, sessionBranch, effectiveRefspecs = null) {
+function sessionBranchPushSource(
+  args,
+  sessionBranch,
+  effectiveRefspecs = null,
+  refspecSource = null
+) {
   const parsed = parsePushArguments(args);
   const { sawAllOrMirror } = parsed;
   const refspecs = effectiveRefspecs || parsed.refspecs;
   if (sawAllOrMirror)
     return { error: "multi-ref --all/--mirror push cannot be bound to one source commit" };
   if (effectiveRefspecs && refspecs.length > 1)
-    return { error: "configured multi-ref push cannot be bound to one source commit" };
+    return {
+      error: `${refspecSource || "effective"} multi-ref push cannot be bound to one source commit`,
+    };
   if (refspecs.length === 0) return { source: "HEAD" };
   const sources = [];
   for (const raw of refspecs) {
@@ -1023,6 +1030,20 @@ function gitCapture(repoDir, args, gitDir = null) {
   });
   if (!result || result.status !== 0) return "";
   return (result.stdout || "").trim();
+}
+
+function gitConfigValues(repoDir, key, gitDir = null) {
+  const prefix = gitDir ? [`--git-dir=${gitDir}`, `--work-tree=${repoDir}`] : ["-C", repoDir];
+  const result = spawnSync("git", [...prefix, "config", "--null", "--get-all", key], {
+    encoding: "utf8",
+    maxBuffer: MAX_BUFFER,
+  });
+  if (!result || (result.status !== 0 && result.status !== 1))
+    return { error: `cannot read Git configuration ${key}` };
+  if (result.status === 1) return { values: [] };
+  const values = (result.stdout || "").split("\0");
+  if (values.at(-1) === "") values.pop();
+  return { values };
 }
 
 function currentBranch(repoDir, gitDir = null) {
@@ -1052,19 +1073,69 @@ function resolvePushRemote(repoDir, args, branch, gitDir = null) {
   return { remote };
 }
 
-function configuredPushRefspecs(repoDir, args, branch, gitDir = null) {
+function upstreamPushRefspec(repoDir, destinationRemote, branch, policy, gitDir = null) {
+  const remoteConfig = gitConfigValues(repoDir, `branch.${branch}.remote`, gitDir);
+  if (remoteConfig.error) return remoteConfig;
+  const upstreamRemote = remoteConfig.values.at(-1) || null;
+  const mergeConfig = gitConfigValues(repoDir, `branch.${branch}.merge`, gitDir);
+  if (mergeConfig.error) return mergeConfig;
+
+  if (policy === "simple" && upstreamRemote && upstreamRemote !== destinationRemote)
+    return { refspecs: [`HEAD:refs/heads/${branch}`], source: "push.default=simple" };
+  if (!upstreamRemote)
+    return { error: `push.default=${policy} requires an upstream remote for ${branch}` };
+  if (upstreamRemote !== destinationRemote)
+    return {
+      error: `push.default=${policy} targets upstream remote ${upstreamRemote}, not ${destinationRemote}`,
+    };
+  if (mergeConfig.values.length !== 1)
+    return {
+      error: `push.default=${policy} requires exactly one upstream branch for ${branch}`,
+    };
+  const mergeRef = mergeConfig.values[0];
+  if (!mergeRef.startsWith("refs/heads/") || mergeRef.length === "refs/heads/".length)
+    return { error: `push.default=${policy} has an unsupported upstream ref ${mergeRef}` };
+  const destinationBranch = mergeRef.slice("refs/heads/".length);
+  if (policy === "simple" && destinationBranch !== branch)
+    return {
+      error: `push.default=simple refuses renamed upstream ${destinationBranch} for ${branch}`,
+    };
+  return { refspecs: [`HEAD:${mergeRef}`], source: `push.default=${policy}` };
+}
+
+function implicitPushRefspecs(repoDir, destinationRemote, branch, gitDir = null) {
+  const configuredDefault = gitConfigValues(repoDir, "push.default", gitDir);
+  if (configuredDefault.error) return configuredDefault;
+  const rawPolicy = configuredDefault.values.at(-1);
+  const policy = rawPolicy === undefined ? "simple" : rawPolicy.toLowerCase();
+  if (policy === "current")
+    return { refspecs: [`HEAD:refs/heads/${branch}`], source: "push.default=current" };
+  if (policy === "upstream" || policy === "tracking")
+    return upstreamPushRefspec(repoDir, destinationRemote, branch, policy, gitDir);
+  if (policy === "simple")
+    return upstreamPushRefspec(repoDir, destinationRemote, branch, policy, gitDir);
+  if (policy === "matching")
+    return { error: "push.default=matching is an ambiguous multi-ref push" };
+  if (policy === "nothing") return { error: "push.default=nothing has no implicit refspec" };
+  return { error: `unsupported push.default value ${rawPolicy === "" ? "<empty>" : rawPolicy}` };
+}
+
+function effectivePushRefspecs(repoDir, args, branch, gitDir = null) {
   const parsed = parsePushArguments(args);
   if (parsed.refspecs.length > 0 || parsed.sawDelete || parsed.sawTags || parsed.sawAllOrMirror)
-    return null;
+    return { refspecs: null, source: "command line" };
   const destination = resolvePushRemote(repoDir, args, branch, gitDir);
-  if (destination.error) return null;
-  const configured = gitCapture(
-    repoDir,
-    ["config", "--get-all", `remote.${destination.remote}.push`],
-    gitDir
-  );
-  if (!configured) return null;
-  return configured.split(/\r?\n/).filter(Boolean);
+  if (destination.error) return destination;
+  const configured = gitConfigValues(repoDir, `remote.${destination.remote}.push`, gitDir);
+  if (configured.error) return configured;
+  if (configured.values.length > 0) {
+    if (configured.values.some((value) => value === ""))
+      return { error: `remote.${destination.remote}.push contains an empty refspec` };
+    if (configured.values.some((value) => refspecDest(value).kind === "matching"))
+      return { error: `remote.${destination.remote}.push contains a matching multi-ref push` };
+    return { refspecs: configured.values, source: "configured" };
+  }
+  return implicitPushRefspecs(repoDir, destination.remote, branch, gitDir);
 }
 
 // deriveSessionSlug is the single source of truth for branch -> manifest-name
@@ -1185,8 +1256,30 @@ function gatePush(baseCwd, push) {
   const gitDir = resolveExplicitGitDir(baseCwd, push);
 
   const branch = currentBranch(repoDir, gitDir);
-  if (!branch) return false;
-  const effectiveRefspecs = configuredPushRefspecs(repoDir, push.args, branch, gitDir);
+  if (!branch) {
+    const parsed = parsePushArguments(push.args);
+    if (
+      parsed.refspecs.length === 0 &&
+      !parsed.sawDelete &&
+      !parsed.sawTags &&
+      !parsed.sawAllOrMirror
+    ) {
+      emitDeny(
+        "PM dev gate cannot resolve an implicit push from detached HEAD. Check out the source branch or provide one explicit refspec."
+      );
+      return true;
+    }
+    return false;
+  }
+  const effective = effectivePushRefspecs(repoDir, push.args, branch, gitDir);
+  if (effective.error) {
+    emitDeny(
+      `PM dev gate cannot resolve the exact implicit push updates (${effective.error}). ` +
+        "Use one explicit source:destination refspec so every update can be verified."
+    );
+    return true;
+  }
+  const effectiveRefspecs = effective.refspecs;
 
   // Refspec scoping: only gate pushes that update THIS branch's ref. Tag pushes,
   // deletions, and cross-branch pushes are legit mid-session ops — out of scope.
@@ -1234,7 +1327,7 @@ function gatePush(baseCwd, push) {
   // real manifest. Fail CLOSED on anything that stops a clean verdict — including
   // an unexpected throw in here: an error is not proof the gate passed.
   try {
-    const pushed = sessionBranchPushSource(push.args, branch, effectiveRefspecs);
+    const pushed = sessionBranchPushSource(push.args, branch, effectiveRefspecs, effective.source);
     if (pushed.error) {
       blockUnverified(branch, manifestRel, pushed.error);
       return true;
