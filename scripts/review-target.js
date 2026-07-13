@@ -133,10 +133,16 @@ function loadDevContext(root, relative, expected) {
   return devReviewContext(loaded.value);
 }
 
-function resolveTrustedBase(root) {
+function resolveTrustedBase(root, remote = "origin") {
+  if (
+    !/^[A-Za-z0-9._/-]+$/.test(remote) ||
+    remote === "." ||
+    remote.split("/").some((segment) => segment === "..")
+  )
+    throw new Error("authoritative remote must be a literal named remote");
   let output;
   try {
-    output = execFileSync("git", ["ls-remote", "--symref", "origin", "HEAD"], {
+    output = execFileSync("git", ["ls-remote", "--symref", remote, "HEAD"], {
       cwd: root,
       encoding: "utf8",
       env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "Never" },
@@ -150,11 +156,11 @@ function resolveTrustedBase(root) {
         : String(error.stderr || error.message)
             .trim()
             .slice(0, 300);
-    throw new Error(`cannot resolve authoritative origin default: ${detail}`);
+    throw new Error(`cannot resolve authoritative ${remote} default: ${detail}`);
   }
   const branch = output.match(/^ref:\s+refs\/heads\/([^\s]+)\s+HEAD$/m)?.[1];
   const commit = output.match(/^([a-f0-9]{40,64})\s+HEAD$/m)?.[1];
-  if (!branch || !commit) throw new Error("origin HEAD lacks a symbolic ref or object ID");
+  if (!branch || !commit) throw new Error(`${remote} HEAD lacks a symbolic ref or object ID`);
   try {
     execFileSync("git", ["cat-file", "-e", `${commit}^{commit}`], {
       cwd: root,
@@ -163,7 +169,7 @@ function resolveTrustedBase(root) {
     });
   } catch {
     try {
-      execFileSync("git", ["fetch", "--no-tags", "--quiet", "origin", `refs/heads/${branch}`], {
+      execFileSync("git", ["fetch", "--no-tags", "--quiet", remote, `refs/heads/${branch}`], {
         cwd: root,
         env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "Never" },
         stdio: ["ignore", "ignore", "pipe"],
@@ -176,13 +182,13 @@ function resolveTrustedBase(root) {
       });
     } catch (error) {
       throw new Error(
-        `cannot materialize authoritative origin object: ${String(error.stderr || error.message)
+        `cannot materialize authoritative ${remote} object: ${String(error.stderr || error.message)
           .trim()
           .slice(0, 300)}`
       );
     }
   }
-  return { ref: `origin/${branch}`, commit };
+  return { ref: `${remote}/${branch}`, commit };
 }
 
 function changedFileInventory(root, baseCommit, commit) {
@@ -191,7 +197,7 @@ function changedFileInventory(root, baseCommit, commit) {
   if (fields.at(-1) === "") fields.pop();
   const rows = [];
   let committedBytes = 0;
-  for (let index = 0; index < fields.length; ) {
+  for (let index = 0; index < fields.length;) {
     const status = fields[index++];
     if (!/^(?:[ACDMRTUXB]|R\d{1,3}|C\d{1,3})$/.test(status))
       throw new Error(`unsupported git status ${status}`);

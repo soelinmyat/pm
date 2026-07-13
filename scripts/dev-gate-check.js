@@ -838,6 +838,8 @@ function parseArgs(argv) {
       opts.allowSkippedGates = [];
     } else if (arg === "--base") {
       opts.baseRef = requireValue(argv, ++index, arg);
+    } else if (arg === "--remote") {
+      opts.remote = requireValue(argv, ++index, arg);
     } else if (arg === "--changed-file") {
       opts.changedFiles.push(requireValue(argv, ++index, arg));
     } else if (arg === "--changed-files") {
@@ -871,7 +873,7 @@ function requireValue(argv, index, flag) {
 
 function usage() {
   return [
-    "Usage: node scripts/dev-gate-check.js [--manifest PATH] [--run-id ID] [--commit SHA] [--branch NAME] [--base REF] [--changed-files file[,file]] [--changed-file file] [--require gate[,gate]] [--allow-skip gate[,gate]] [--no-skip] [--review-evidence-mode enforce|inspect] [--json]",
+    "Usage: node scripts/dev-gate-check.js [--manifest PATH] [--run-id ID] [--commit SHA] [--branch NAME] [--base REF] [--remote NAME] [--changed-files file[,file]] [--changed-file file] [--require gate[,gate]] [--allow-skip gate[,gate]] [--no-skip] [--review-evidence-mode enforce|inspect] [--json]",
     "",
     "Default manifest: .pm/dev-sessions/current.gates.json",
     `Default required gates: ${DEFAULT_REQUIRED_GATES.join(", ")}`,
@@ -972,7 +974,10 @@ function main(argv = process.argv.slice(2)) {
   let authoritativeBaseCommit = null;
   if (sibling.session && opts.reviewEvidenceMode === "enforce") {
     try {
-      const trusted = require("./review-target").resolveTrustedBase(process.cwd());
+      const trusted = require("./review-target").resolveTrustedBase(
+        process.cwd(),
+        opts.remote || "origin"
+      );
       if (opts.baseRef && opts.baseRef !== trusted.ref)
         throw new Error(`supplied base ${opts.baseRef} must equal remote default ${trusted.ref}`);
       authoritativeBaseRef = trusted.ref;

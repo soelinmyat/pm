@@ -18,7 +18,17 @@ The review gate is the last quality check before code leaves your machine. Bugs 
 
 If the row, report, any bound result, current SHA, remote base, diff, or browser-checked HTML fails, the state is stale — do NOT skip. Re-run Review so what ships is what was reviewed.
 
-If no state file exists (standalone ship invocation without a dev session), invoke `pm:review` as the gate. Do not skip review for standalone invocations.
+If no canonical `session.json` exists (standalone Ship invocation), create it before Review:
+
+```bash
+node "$PM_PLUGIN_ROOT/scripts/dev-session.js" init \
+  --slug "{slug from deriveSessionSlug(current branch)}" \
+  --source-dir "$PWD" \
+  --task "standalone-ship-review" \
+  --json
+```
+
+Read the created session and confirm `routing.review_mode` is `full`, its recorded branch equals the current branch, and its slug equals the canonical artifact namespace. Then invoke `pm:review` with that `session.json`. This session bootstrap is mandatory: a sessionless Review is useful as an advisory standalone report but cannot authorize delivery. Do not skip review for standalone invocations.
 
 ### Run the review
 

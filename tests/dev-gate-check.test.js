@@ -1553,6 +1553,8 @@ test("dev gate checker parses base refs and changed files", () => {
     "chore/Review++Gate",
     "--base",
     "origin/main",
+    "--remote",
+    "origin",
     "--changed-file",
     "src/App.tsx",
     "--changed-files",
@@ -1560,6 +1562,7 @@ test("dev gate checker parses base refs and changed files", () => {
   ]);
   assert.equal(parsed.currentBranch, "chore/Review++Gate");
   assert.equal(parsed.baseRef, "origin/main");
+  assert.equal(parsed.remote, "origin");
   assert.deepEqual(parsed.changedFiles, ["src/App.tsx", "README.md", "skills/dev/SKILL.md"]);
 });
 

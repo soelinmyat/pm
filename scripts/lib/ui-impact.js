@@ -25,16 +25,17 @@ const UI_TOKEN_DATA_RE =
 const UI_TEMPLATE_MARKUP_RE =
   /\.(html?|astro|erb|ejs|hbs|handlebars|liquid|twig|njk|j2|pug|jade|slim|haml|mustache|cshtml|razor|blade\.php)$/i;
 const APPLE_UI_RE =
-  /(^|\/)(ios|macos|watchos|tvos|swiftui|uikit)(\/|$).*\.(swift|m|mm|h|storyboard|xib|strings|stringsdict)$|\.(storyboard|xib)$|(^|\/)[^/]+\.xcassets\//i;
+  /(^|\/)(ios|macos|watchos|tvos|swiftui|uikit)(\/|$).*(^|\/)(views?|screens?|ui|presentation)(\/|$).*\.(swift|m|mm|h)$|(^|\/)(ios|macos|watchos|tvos)(\/|$).*\.(storyboard|xib|strings|stringsdict)$|\.(storyboard|xib)$|(^|\/)[^/]+\.xcassets\//i;
 const APPLE_UI_NAMED_FILE_RE =
   /(^|\/)(?:[A-Z][A-Za-z0-9_]*(?:ViewController|View|Screen)|AppDelegate|SceneDelegate)\.(?:swift|m|mm|h)$/;
 const ANDROID_UI_RE =
-  /(^|\/)android(\/|$).*\.(kt|kts)$|(^|\/)(?:android\/[^/]+\/)?app\/src\/[^/]+\/(java|kotlin)\/.*\.(kt|kts)$|(^|\/)(?:android\/[^/]+\/)?(?:app\/)?src\/[^/]+\/res\/(layout|drawable|mipmap|values|anim|animator|menu|navigation|xml)(\/|$)|(^|\/)[^/]+\/src\/[^/]+\/res\/(layout|drawable|mipmap|values|anim|animator|menu|navigation|xml)(\/|$)/i;
+  /(^|\/)(?:android\/[^/]+\/)?(?:app\/)?src\/[^/]+\/res\/(layout|drawable|mipmap|values|anim|animator|menu|navigation|xml)(\/|$)|(^|\/)[^/]+\/src\/[^/]+\/res\/(layout|drawable|mipmap|values|anim|animator|menu|navigation|xml)(\/|$)/i;
 const ANDROID_NAMED_KOTLIN_UI_RE =
-  /(^|\/)[^/]+\/src\/[^/]+\/(java|kotlin)\/.*(?:Activity|Fragment|Screen|Dialog|Composable|Ui|UI)\.(kt|kts)$/i;
+  /(^|\/)[^/]*(?:Activity|Fragment|Screen|Dialog|Composable|Ui|UI)\.(kt|kts)$/i;
 const ANDROID_UI_PACKAGE_KOTLIN_RE =
   /(^|\/)[^/]+\/src\/[^/]+\/(java|kotlin)\/.*\/(ui|views?|screens?|presentation|adapters?)\/.*(?:View|Adapter)\.(kt|kts)$/i;
-const FLUTTER_UI_RE = /(^|\/)lib\/.*\.dart$|(^|\/)(main|[^/]+_(screen|page|widget|view))\.dart$/i;
+const FLUTTER_UI_RE =
+  /(^|\/)lib\/(widgets?|screens?|pages?|views?|ui|presentation)\/.*\.dart$|(^|\/)(main|[^/]+_(screen|page|widget|view))\.dart$/i;
 const UI_ASSET_RE = /(^|\/)(assets?|public)\/.*\.(svg|png|jpe?g|gif|webp|avif)$/i;
 const KB_ARTIFACT_PATH_RE = /^\.?pm\//;
 

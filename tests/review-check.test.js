@@ -172,6 +172,16 @@ test("trusted base resolves remote HEAD instead of a stale tracking ref", () => 
   assert.notEqual(trusted.commit, localTracking);
 });
 
+test("trusted base resolves the named destination remote", () => {
+  const fixture = makeFixture({ maxWorkers: 2 });
+  const remote = `${fixture.root}-origin.git`;
+  git(fixture.root, ["remote", "add", "upstream", remote]);
+  const trusted = resolveTrustedBase(fixture.root, "upstream");
+  assert.equal(trusted.ref, "upstream/main");
+  assert.match(trusted.commit, /^[a-f0-9]{40}$/);
+  assert.throws(() => resolveTrustedBase(fixture.root, "../remote"), /literal named remote/);
+});
+
 test("frozen review uses three-dot merge-base semantics on diverged branches", () => {
   const fixture = makeFixture({ maxWorkers: 2, deleteFile: true });
   const control = `${fixture.root}-control`;

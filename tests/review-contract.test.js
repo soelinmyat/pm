@@ -2,6 +2,10 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+
+const ROOT = path.resolve(__dirname, "..");
 
 const {
   allocateLenses,
@@ -179,7 +183,6 @@ test("Review design applicability shares Dev's UI-impact classifier", () => {
     "app/page.mdx",
     "frontend/state.ts",
     "ios/ContentView.swift",
-    "ios/Checkout/Card.swift",
     "ios/Checkout/CardViewController.m",
     "ios/en.lproj/Checkout.strings",
     "ios/App/Main.storyboard",
@@ -192,7 +195,6 @@ test("Review design applicability shares Dev's UI-impact classifier", () => {
     "AppDelegate.swift",
     "MyApp/SceneDelegate.m",
     "android/CheckoutScreen.kt",
-    "android/app/src/main/java/com/acme/payments/Card.kt",
     "android/app/src/main/res/layout/checkout.xml",
     "android/app/src/main/res/drawable/card.xml",
     "mobile/src/main/java/com/acme/CheckoutScreen.kt",
@@ -202,7 +204,6 @@ test("Review design applicability shares Dev's UI-impact classifier", () => {
     "feature-checkout/src/main/res/layout/checkout.xml",
     "feature-checkout/src/debug/res/values/colors.xml",
     "lib/widgets/cart_widget.dart",
-    "lib/checkout/card.dart",
     "public/images/checkout-card.svg",
   ];
   for (const path of positives) {
@@ -224,12 +225,28 @@ test("Review design applicability shares Dev's UI-impact classifier", () => {
     "app/services/Billing.kt",
     "app/domain/Ledger.kt",
     "app/jobs/Reconcile.kt",
+    "ios/Networking/APIClient.swift",
+    "ios/Domain/Ledger.swift",
+    "android/app/src/main/java/com/acme/data/Repository.kt",
+    "android/build-logic/src/main/kotlin/ConventionPlugin.kt",
+    "lib/server/http_server.dart",
+    "lib/domain/ledger.dart",
   ]) {
     const design = deriveLensApplicability("full", [{ path }]).find(
       (item) => item.name === "design"
     );
     assert.equal(design.applicable, false, path);
   }
+});
+
+test("standalone Ship bootstraps session-bound Review authority", () => {
+  const ship = fs.readFileSync(path.join(ROOT, "skills/ship/steps/03-review.md"), "utf8");
+  const target = fs.readFileSync(path.join(ROOT, "skills/review/steps/01-target.md"), "utf8");
+  const publish = fs.readFileSync(path.join(ROOT, "skills/review/steps/05-publish.md"), "utf8");
+  assert.match(ship, /dev-session\.js" init/);
+  assert.match(ship, /sessionless Review.*cannot authorize delivery/);
+  assert.match(target, /Review invoked by Ship, `--dev-session` is mandatory/);
+  assert.match(publish, /advisory standalone Review.*do not create or update `gates\.json`/);
 });
 
 function sampleFinding() {

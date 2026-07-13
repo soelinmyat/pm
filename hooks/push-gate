@@ -103,6 +103,11 @@ const LEADING_WRAPPERS = new Set([
   "time",
   "builtin",
   "exec",
+  "if",
+  "elif",
+  "while",
+  "until",
+  "!",
   "then",
   "do",
 ]);
@@ -403,6 +408,7 @@ function detectGitPushes(command, baseCwd) {
   const subshells = [];
   const pushes = [];
   let operator = null;
+  let pipelineBaseStates = null;
   let cursor = 0;
 
   const visit = (segment) => {
@@ -455,7 +461,28 @@ function detectGitPushes(command, baseCwd) {
     const statesBeforeSegment = states.map((state) => ({ ...state }));
     visit(joined.slice(cursor, shellToken.index));
     const token = shellToken.value;
-    if (token === "|" || token === "&") {
+    if (pipelineBaseStates) {
+      const outcomes = new Set(states.map((state) => state.succeeded));
+      states = dedupeShellStates(
+        pipelineBaseStates.flatMap((state) =>
+          [...outcomes].map((succeeded) => ({ cwd: state.cwd, succeeded }))
+        )
+      );
+      if (token !== "|") pipelineBaseStates = null;
+    }
+    if (token === "|") {
+      pipelineBaseStates ||= statesBeforeSegment;
+      states = dedupeShellStates(
+        statesBeforeSegment.flatMap((state) => [
+          { cwd: state.cwd, succeeded: true },
+          { cwd: state.cwd, succeeded: false },
+        ])
+      );
+      operator = token;
+      cursor = shellToken.end;
+      continue;
+    }
+    if (token === "&") {
       states = dedupeShellStates(
         statesBeforeSegment.flatMap((state) => [
           { cwd: state.cwd, succeeded: true },
@@ -780,6 +807,7 @@ function parsePushArguments(args) {
   let sawDelete = false;
   let sawTags = false;
   let sawAllOrMirror = false;
+  let remote = null;
   let remoteSuppliedByOption = false;
   for (let i = 0; i < args.length; i += 1) {
     const token = args[i];
@@ -789,8 +817,12 @@ function parsePushArguments(args) {
       else if (token === "--all" || token === "--mirror") sawAllOrMirror = true;
       else if (token === "--repo") {
         remoteSuppliedByOption = true;
+        remote = args[i + 1] || null;
         i += 1;
-      } else if (token.startsWith("--repo=")) remoteSuppliedByOption = true;
+      } else if (token.startsWith("--repo=")) {
+        remoteSuppliedByOption = true;
+        remote = token.slice("--repo=".length) || null;
+      }
       else if (PUSH_VALUE_OPTS.has(token)) i += 1; // skip its value
       continue;
     }
@@ -800,6 +832,7 @@ function parsePushArguments(args) {
     sawDelete,
     sawTags,
     sawAllOrMirror,
+    remote: remoteSuppliedByOption ? remote : positionals[0] || null,
     refspecs: positionals.slice(remoteSuppliedByOption ? 0 : 1),
   };
 }
@@ -856,10 +889,24 @@ function currentBranch(repoDir) {
   return abbrev && abbrev !== "HEAD" ? abbrev : "";
 }
 
-function resolveDefaultBranch(repoDir) {
-  const ref = gitCapture(repoDir, ["symbolic-ref", "refs/remotes/origin/HEAD"]);
-  if (ref) return ref.replace(/^refs\/remotes\/origin\//, "");
-  return "main";
+function resolvePushRemote(repoDir, args, branch) {
+  let remote = parsePushArguments(args).remote;
+  if (!remote) {
+    remote =
+      gitCapture(repoDir, ["config", "--get", `branch.${branch}.pushRemote`]) ||
+      gitCapture(repoDir, ["config", "--get", "remote.pushDefault"]) ||
+      gitCapture(repoDir, ["config", "--get", `branch.${branch}.remote`]) ||
+      "origin";
+  }
+  if (
+    !/^[A-Za-z0-9._/-]+$/.test(remote) ||
+    remote === "." ||
+    remote.split("/").some((segment) => segment === "..")
+  )
+    return { error: "push destination must be a literal named remote" };
+  if (!gitCapture(repoDir, ["remote", "get-url", remote]))
+    return { error: `push destination ${remote} is not a configured named remote` };
+  return { remote };
 }
 
 // deriveSessionSlug is the single source of truth for branch -> manifest-name
@@ -968,8 +1015,12 @@ function gatePush(baseCwd, push) {
       "--review-evidence-mode",
       "enforce",
     ];
-    const defaultBranch = resolveDefaultBranch(repoDir);
-    checkerArgs.push("--base", `origin/${defaultBranch}`);
+    const destination = resolvePushRemote(repoDir, push.args, branch);
+    if (destination.error) {
+      blockUnverified(branch, manifestRel, destination.error);
+      return true;
+    }
+    checkerArgs.push("--remote", destination.remote);
 
     const result = spawnSync(process.execPath, [CHECKER, ...checkerArgs], {
       cwd: repoDir,

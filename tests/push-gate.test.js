@@ -42,6 +42,7 @@ function makeRepoAt(dir, branch = "feat/x") {
   fs.writeFileSync(path.join(dir, "README.md"), "hi\n");
   git(dir, "add", ".");
   git(dir, "commit", "-q", "-m", "init");
+  git(dir, "remote", "add", "origin", ".");
   git(dir, "update-ref", "refs/remotes/origin/main", "HEAD");
   git(dir, "checkout", "-q", "-b", branch);
 }
@@ -286,6 +287,34 @@ test("push is allowed when the enforcement checker returns a clean verdict", () 
     );
     writeGates(dir, "x", passingManifest(dir, "x", headSha(dir)));
     assertAllow(runHook("git push origin HEAD", { cwd: dir }, { PM_PLUGIN_ROOT: fakeRoot }));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(fakeRoot, { recursive: true, force: true });
+  }
+});
+
+test("push gate passes the exact named destination remote to enforcement", () => {
+  const dir = makeRepo();
+  const fakeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "push-gate-remote-checker-"));
+  try {
+    git(dir, "remote", "add", "upstream", ".");
+    fs.mkdirSync(path.join(fakeRoot, "scripts"), { recursive: true });
+    fs.writeFileSync(
+      path.join(fakeRoot, "scripts", "dev-gate-check.js"),
+      `"use strict";\n` +
+        `module.exports = require(${JSON.stringify(path.join(ROOT, "scripts", "dev-gate-check.js"))});\n` +
+        `if (require.main === module) {\n` +
+        `  const i = process.argv.indexOf("--remote");\n` +
+        `  process.exitCode = i >= 0 && process.argv[i + 1] === "upstream" ? 0 : 7;\n` +
+        `}\n`
+    );
+    writeGates(dir, "x", passingManifest(dir, "x", headSha(dir)));
+    for (const command of [
+      "git push upstream HEAD",
+      "git push --repo upstream HEAD",
+      "git push --repo=upstream HEAD",
+    ])
+      assertAllow(runHook(command, { cwd: dir }, { PM_PLUGIN_ROOT: fakeRoot }));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
     fs.rmSync(fakeRoot, { recursive: true, force: true });
@@ -665,6 +694,22 @@ test("every push in a compound command is evaluated", () => {
   }
 });
 
+test("leading shell control constructs cannot hide a session-branch push", () => {
+  const dir = makeRepo();
+  try {
+    writeFailingGates(dir, "x");
+    for (const command of [
+      "if git push origin HEAD; then true; fi",
+      "if ! git push origin HEAD; then true; fi",
+      "while git push origin HEAD; do break; done",
+      "until git push origin HEAD; do break; done",
+    ])
+      assertBlock(runHook(command, { cwd: dir }), /verification is failed/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("compound pushes resolve each relative cd from the current shell directory", () => {
   const parent = fs.mkdtempSync(path.join(os.tmpdir(), "pm-push-gate-cumulative-cd-"));
   const first = path.join(parent, "first");
@@ -696,6 +741,10 @@ test("pipeline and background directory changes do not leak into the following p
     writeFailingGates(outer, "x");
     for (const command of ["cd gated | git push origin HEAD", "cd gated & git push origin HEAD"])
       assertBlock(runHook(command, { cwd: outer }), /verification is failed/);
+    assertBlock(
+      runHook("true | cd gated && git push origin HEAD", { cwd: outer }),
+      /verification is failed/
+    );
   } finally {
     fs.rmSync(outer, { recursive: true, force: true });
   }
