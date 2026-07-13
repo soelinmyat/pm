@@ -779,9 +779,7 @@ function applyDirectoryEnvironmentCommand(state, command) {
   const assigned = { ...state };
   let succeeded = true;
   const assignments = command.command
-    ? command.arrayMode
-      ? command.persistentPrefixAssignments
-      : [...command.persistentPrefixAssignments, ...command.operandAssignments]
+    ? [...command.persistentPrefixAssignments, ...command.operandAssignments]
     : command.prefixAssignments;
   for (const assignment of assignments) {
     const parsedAssignment = parseShellAssignment(assignment.value);
@@ -1112,6 +1110,12 @@ const MAX_SUBSTITUTION_INPUT = 262_144;
 const MAX_SUBSTITUTION_DEPTH = 256;
 const MAX_SUBSTITUTION_COUNT = 4_096;
 
+function isBackslashEscaped(value, index) {
+  let backslashes = 0;
+  for (let cursor = index - 1; cursor >= 0 && value[cursor] === "\\"; cursor -= 1) backslashes += 1;
+  return backslashes % 2 === 1;
+}
+
 function inspectPushShellSubstitutions(command) {
   if (command.length > MAX_SUBSTITUTION_INPUT)
     return /(?:\$|[<>=])\(|`/.test(command) ? "indeterminate" : "none";
@@ -1155,6 +1159,12 @@ function inspectPushShellSubstitutions(command) {
       if (char === "'") frame.quote = null;
       continue;
     }
+    if (frame.quote === "$'") {
+      append(frame, char);
+      if (char === "\\" && index + 1 < command.length) append(frame, command[++index]);
+      else if (char === "'") frame.quote = null;
+      continue;
+    }
     if (char === "\\") {
       append(frame, char);
       if (index + 1 < command.length) append(frame, command[++index]);
@@ -1166,7 +1176,12 @@ function inspectPushShellSubstitutions(command) {
       continue;
     }
     if (char === "'" && frame.quote !== '"') {
-      frame.quote = "'";
+      frame.quote =
+        frame.quote === null &&
+        command[index - 1] === "$" &&
+        !isBackslashEscaped(command, index - 1)
+          ? "$'"
+          : "'";
       append(frame, char);
       continue;
     }

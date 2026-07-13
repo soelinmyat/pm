@@ -653,6 +653,8 @@ test("shell control keywords preserve directory changes before gated pushes", ()
       "HOME=gated; export HOME+=/child; cd; git push origin HEAD",
       "HOME=gated; readonly HOME[0]=gated; cd; git push origin HEAD",
       "HOME=gated; readonly -a HOME=(gated); cd; git push origin HEAD",
+      "HOME=.; readonly -a HOME=(gated); cd; git push origin HEAD",
+      "HOME=.; readonly -A HOME=([key]=gated); cd; git push origin HEAD",
       "HOME=gated; HOME[a[0]]=gated; cd; git push origin HEAD",
       "HOME=gated; export HOME[a[0]]=gated; cd; git push origin HEAD",
       "HOME=gated; readonly HOME[a[0]]=gated; cd; git push origin HEAD",
@@ -975,6 +977,8 @@ test("pushes inside command substitutions fail closed", () => {
     assertAllow(runHook("A=(git push origin HEAD)", { cwd: dir }));
     assertAllow(runHook("printf '%s' \"<(git push origin HEAD)\"", { cwd: dir }));
     assertAllow(runHook("printf '%s' \">(git push origin HEAD)\"", { cwd: dir }));
+    assertAllow(runHook("printf '%s' $'x\\'$(git push origin HEAD)'", { cwd: dir }));
+    assertAllow(runHook("printf '%s' $'x\\'`git push origin HEAD`'", { cwd: dir }));
     assertBlock(
       runHook(`result=${"$(".repeat(8_000)}git push origin HEAD${")".repeat(8_000)}`, {
         cwd: dir,
