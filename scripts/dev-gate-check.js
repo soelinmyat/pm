@@ -9,6 +9,7 @@ const {
   OBSERVATION_ASSURANCE_LEVEL,
   OBSERVATION_PRODUCER,
   VIEWPORTS: REVIEW_RENDER_VIEWPORTS,
+  isCanonicalFullPageHeight,
   invocationConfigurationDigest,
   validateMetrics,
 } = require("./artifact-render-check");
@@ -441,10 +442,11 @@ function validateReviewRenderManifest(
     if (
       !capture.full_page ||
       capture.full_page.width !== viewport.width ||
-      !Number.isFinite(capture.full_page.document_height) ||
-      capture.full_page.document_height <= 0 ||
-      capture.full_page.height !==
-        Math.max(viewport.height, Math.ceil(capture.full_page.document_height || 0))
+      !isCanonicalFullPageHeight(
+        viewport.height,
+        capture.full_page.document_height,
+        capture.full_page.height
+      )
     )
       issues.push(
         issue(

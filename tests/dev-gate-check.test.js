@@ -707,6 +707,14 @@ test("review render evidence rejects forged retained-render boundaries", () => {
         expected: /full-page height must equal its same-render measured document height/,
       },
       {
+        name: "over-ceiling full-page document height",
+        mutate(value) {
+          value.captures[0].full_page.document_height = 16_001;
+          value.captures[0].full_page.height = 16_001;
+        },
+        expected: /full-page height must equal its same-render measured document height/,
+      },
+      {
         name: "print hash",
         mutate(value) {
           value.print.sha256 = forgedHash;

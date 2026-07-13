@@ -10,6 +10,7 @@ const {
   VIEWPORTS,
   browserCandidates,
   findClosingBodyIndex,
+  isCanonicalFullPageHeight,
   probeDataMarkerVisibility,
   readCaptureFilePinned,
   renderArtifact: renderArtifactRaw,
@@ -422,6 +423,13 @@ test("render checker rejects source and output paths outside the project root", 
 
 test("browser resolution fails closed when no configured candidate exists", () => {
   assert.throws(() => resolveBrowser("/definitely/missing/chromium"), /does not exist/);
+});
+
+test("canonical full-page height accepts the ceiling and rejects ceiling plus one", () => {
+  assert.equal(isCanonicalFullPageHeight(1000, 16_000, 16_000), true);
+  assert.equal(isCanonicalFullPageHeight(1000, 16_000.1, 16_001), false);
+  assert.equal(isCanonicalFullPageHeight(1000, 0, 1000), false);
+  assert.equal(isCanonicalFullPageHeight(1000, -1, 1000), false);
 });
 
 test("browser marker probe reports computed visibility instead of trusting markup", () => {

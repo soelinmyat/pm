@@ -29,6 +29,16 @@ const MAX_CAPTURE_BYTES = 64 * 1024 * 1024;
 const SOURCE_WATCHER = path.join(__dirname, "artifact-source-watch.js");
 const BROWSER_PROBE = path.join(__dirname, "artifact-browser-probe.js");
 
+function isCanonicalFullPageHeight(viewportHeight, documentHeight, captureHeight) {
+  return (
+    Number.isFinite(documentHeight) &&
+    documentHeight > 0 &&
+    Number.isSafeInteger(captureHeight) &&
+    captureHeight === Math.max(viewportHeight, Math.ceil(documentHeight)) &&
+    captureHeight <= MAX_RENDER_HEIGHT
+  );
+}
+
 function renderArtifact(options) {
   const projectRoot = path.resolve(options.projectRoot || process.cwd());
   const realProjectRoot = fs.realpathSync(projectRoot);
@@ -121,7 +131,7 @@ function renderArtifact(options) {
       if (
         fullDimensions.width !== viewport.width ||
         fullDimensions.height !== fullHeight ||
-        fullHeight !== Math.max(viewport.height, Math.ceil(fullDocumentHeight))
+        !isCanonicalFullPageHeight(viewport.height, fullDocumentHeight, fullHeight)
       ) {
         throw new Error(
           `${viewport.name} full capture is not bound to its same-render document height`
@@ -914,6 +924,7 @@ function main(argv = process.argv.slice(2)) {
 if (require.main === module) process.exitCode = main();
 
 module.exports = {
+  MAX_RENDER_HEIGHT,
   OBSERVATION_ASSURANCE_LEVEL,
   OBSERVATION_PRODUCER,
   VIEWPORTS,
@@ -923,6 +934,7 @@ module.exports = {
   inspectPdf,
   inspectPng,
   invocationConfigurationDigest,
+  isCanonicalFullPageHeight,
   probeDataMarkerVisibility,
   readCaptureFilePinned,
   renderArtifact,
