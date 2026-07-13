@@ -833,6 +833,8 @@ function applyDirectoryEnvironmentCommand(state, command) {
     // Some shells apply array operands before rejecting an unsupported mode.
     // Preserve those value changes without claiming readonly took effect.
     outcomes.push({ ...assigned, succeeded: false });
+    // A later operand can also fail after earlier names became readonly.
+    outcomes.push({ ...next, succeeded: false });
   }
   if (command.redirectionMayFail) {
     outcomes.push({ ...(command.command ? state : assigned), succeeded: false });
