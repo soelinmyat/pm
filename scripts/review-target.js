@@ -126,6 +126,72 @@ function buildReviewTarget(options) {
   };
 }
 
+function assertDevReviewLineage(root, outPath, target) {
+  if (!target.dev_context) return;
+  const { canonicalRoot } = reviewPathContext(outPath, target.review_round, target.run_id);
+  const runsRoot = path.join(root, canonicalRoot, "runs");
+  if (!fs.existsSync(runsRoot)) return;
+  const runEntries = fs.readdirSync(runsRoot, { withFileTypes: true });
+  if (runEntries.length > 256)
+    throw new Error("review lineage exceeds the 256-run inspection budget");
+  const targets = [];
+  for (const runEntry of runEntries) {
+    if (!runEntry.isDirectory() || runEntry.isSymbolicLink()) continue;
+    const runRoot = path.join(runsRoot, runEntry.name);
+    for (let round = 1; round <= 3; round += 1) {
+      const targetPath = path.join(runRoot, `round-${round}`, "target.json");
+      const value = readRegularJson(targetPath);
+      if (
+        value?.dev_context?.run_id === target.dev_context.run_id &&
+        value.dev_context.decision_version === target.dev_context.decision_version
+      )
+        targets.push(value);
+    }
+  }
+  if (targets.length === 0) return;
+  targets.sort((left, right) => {
+    const created = Date.parse(left.created_at || "") - Date.parse(right.created_at || "");
+    return created || left.review_round - right.review_round;
+  });
+  const latest = targets.at(-1);
+  const canonical = readRegularJson(path.join(root, canonicalRoot, "report.json"));
+  const latestPassed =
+    canonical?.outcome === "passed" &&
+    canonical.run_id === latest.run_id &&
+    canonical.review_round === latest.review_round &&
+    canonical.source?.commit === latest.source?.commit;
+  if (latestPassed) {
+    if (target.review_round !== 1)
+      throw new Error("a passed review lineage must be followed by a new round-1 run");
+    return;
+  }
+  if (target.run_id !== latest.run_id)
+    throw new Error(
+      `active review lineage uses run_id ${latest.run_id}; continue it through round ${latest.review_round + 1} instead of resetting the remediation cap`
+    );
+  if (target.review_round !== latest.review_round + 1)
+    throw new Error(`active review lineage must continue at round ${latest.review_round + 1}`);
+}
+
+function readRegularJson(file) {
+  let stat;
+  try {
+    stat = fs.lstatSync(file);
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+  if (!stat.isFile() || stat.isSymbolicLink())
+    throw new Error("review lineage contains unsafe evidence");
+  if (stat.size > MAX_JSON_BYTES)
+    throw new Error("review lineage evidence exceeds the JSON budget");
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    throw new Error("review lineage contains malformed JSON evidence");
+  }
+}
+
 function loadDevContext(root, relative, expected) {
   const loaded = optionalJsonFileBinding(root, relative, "Dev session");
   if (!loaded) throw new Error("Dev session is required");
@@ -432,6 +498,11 @@ function main(argv = process.argv.slice(2)) {
         `prior report path must equal ${expectedPriorReportPath(requestedRoot, requestedRound)}`
       );
     const target = buildReviewTarget(options);
+    assertDevReviewLineage(
+      fs.realpathSync(path.resolve(options.root || process.cwd())),
+      options.outPath,
+      target
+    );
     const reviewRoot = reviewPathContext(
       options.outPath,
       target.review_round,
@@ -474,6 +545,7 @@ if (require.main === module) process.exitCode = main();
 
 module.exports = {
   assertCleanWorktree,
+  assertDevReviewLineage,
   buildReviewTarget,
   changedFileInventory,
   loadProfile,

@@ -92,6 +92,8 @@ Maximum three rounds. After any source mutation:
 
 At the cap, unresolved Review-owned P0/P1 or disputed findings produce `blocked`. Product/design decisions block immediately rather than consuming automatic rounds.
 
+The cap belongs to the bound Dev run and decision version, not merely the run-directory name. An unfinished lineage must retain its run ID through rounds 1–3. Starting another round-1 run cannot reset the budget; a new lineage requires either a passing latest lineage or explicit direction recorded by advancing the Dev decision version.
+
 ## Artifact
 
 Create a shared-foundation HTML report. The first screenful shows outcome, target commit/base, logical-lens coverage, top blocker, fix rounds, and next action. Findings show independent signals, evidence, ownership, dispute state, and verification. The artifact is offline, responsive, accessible, print-safe, and hash-bound to `report.json` plus result evidence.

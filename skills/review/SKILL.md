@@ -63,6 +63,7 @@ Resolve session paths with `deriveSessionSlug` from `scripts/lib/session-slug.js
 - **"Confidence above 80 means the fix is safe."** Auto-fix also requires Review ownership, no dispute/decision, and `fix_kind: mechanical`; independently derive trusted checks because reviewer verification text is never executable.
 - **"Design Critique passed, so source design review is redundant."** Rendered craft and source-level design-system compliance are different ownership domains.
 - **"I fixed the blocker, so the old results still count."** Any source mutation changes HEAD and invalidates the whole target/results/report chain.
+- **"I can start a fresh run to get three more rounds."** A Dev decision version has one unfinished lineage; changing `run_id` never resets its remediation budget.
 - **"A reviewer called it dismissed, so I can ignore it."** Reviewer signals cannot dismiss findings; only a target-bound human decision with approver, rationale, and timestamp can do that.
 
 ## Escalation paths
@@ -81,6 +82,7 @@ Resolve session paths with `deriveSessionSlug` from `scripts/lib/session-slug.js
 | "Reusing old results saves time." | Result bindings intentionally fail after any commit or diff change. |
 | "A handoff to QA means Review failed." | Handoffs are non-overlapping ownership, not Review blockers. |
 | "One aggregate verdict is enough." | Each assigned lens needs its own clean/findings verdict and summary. |
+| "A new run ID gives the reviewers a clean slate." | It also evades the three-round cap. Continue the active lineage or obtain explicit direction that advances the Dev decision version. |
 
 ## Before marking done
 

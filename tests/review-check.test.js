@@ -21,6 +21,7 @@ const {
 const { renderReviewReport } = require("../scripts/review-report");
 const {
   buildReviewTarget,
+  assertDevReviewLineage,
   changedFileInventory,
   readCommittedBlob,
   resolveTrustedBase,
@@ -918,6 +919,55 @@ test("review paths bind each round and reserve the canonical root for passes", (
     () => reviewRootFromTargetPath(".pm/dev-sessions/example/review/target.json", 2),
     /round-2\/target\.json/
   );
+});
+
+test("Dev review lineages cannot reset the three-round cap with a new run ID", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-lineage-"));
+  const canonicalRoot = ".pm/dev-sessions/example/review";
+  const target = (
+    runId,
+    round,
+    decisionVersion = 1,
+    createdAt = `2026-07-13T00:00:0${round}Z`
+  ) => ({
+    run_id: runId,
+    review_round: round,
+    created_at: createdAt,
+    source: { commit: `${round}`.repeat(40) },
+    dev_context: { run_id: "dev_example", decision_version: decisionVersion },
+  });
+  const targetPath = (runId, round) => `${canonicalRoot}/runs/${runId}/round-${round}/target.json`;
+  try {
+    const first = target("active-review", 1);
+    assert.doesNotThrow(() => assertDevReviewLineage(root, targetPath(first.run_id, 1), first));
+    write(root, targetPath(first.run_id, 1), first);
+
+    const reset = target("reset-review", 1, 1, "2026-07-13T00:00:02Z");
+    assert.throws(
+      () => assertDevReviewLineage(root, targetPath(reset.run_id, 1), reset),
+      /continue it through round 2 instead of resetting the remediation cap/
+    );
+
+    const continued = target("active-review", 2, 1, "2026-07-13T00:00:02Z");
+    assert.doesNotThrow(() =>
+      assertDevReviewLineage(root, targetPath(continued.run_id, 2), continued)
+    );
+
+    write(root, `${canonicalRoot}/report.json`, {
+      run_id: first.run_id,
+      review_round: first.review_round,
+      outcome: "passed",
+      source: first.source,
+    });
+    assert.doesNotThrow(() => assertDevReviewLineage(root, targetPath(reset.run_id, 1), reset));
+
+    const directedReset = target("directed-review", 1, 2, "2026-07-13T00:00:03Z");
+    assert.doesNotThrow(() =>
+      assertDevReviewLineage(root, targetPath(directedReset.run_id, 1), directedReset)
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("fresh review paths require an explicit run namespace", () => {
