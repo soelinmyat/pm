@@ -843,7 +843,7 @@ function compactFinalization(finalization) {
 }
 
 function verifyResultArtifactsUnchecked(input) {
-  const { result, workspace, projectGitRoot, dispatchRecord, options, resultDir, plan } = input;
+  const { result, workspace, dispatchRecord, options, resultDir, plan } = input;
   const prStatus = new Set(["shipped", "merged", "ready-for-human", "waiting"]);
   if (prStatus.has(result.status)) {
     const headOid = runGit(["rev-parse", "HEAD"], workspace.workspacePath);
