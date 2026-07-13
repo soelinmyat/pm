@@ -222,15 +222,25 @@ function parseSegment(segment, depth = 0) {
   if (i >= tokens.length) return null;
   const executable = path.basename(tokens[i]);
   const indirectPush = (script) => {
-    const sentinel = path.join(path.parse(process.cwd()).root, "__pm_indirect_shell_cwd__");
-    const nested = detectGitPushes(script, sentinel)[0];
-    if (!nested) return null;
-    if (nested.cwdOverride === null) return indeterminatePush(wrapperDir);
-    const nestedCwd = nested.cwdOverride.startsWith(`${sentinel}${path.sep}`)
-      ? path.relative(sentinel, nested.cwdOverride)
-      : nested.cwdOverride === sentinel
-        ? null
-        : nested.cwdOverride;
+    const root = path.parse(process.cwd()).root;
+    const sentinelA = path.join(root, "__pm_indirect_shell_a__", "cwd");
+    const sentinelB = path.join(root, "__pm_indirect_shell_b__", "cwd");
+    const pushesA = detectGitPushes(script, sentinelA);
+    const pushesB = detectGitPushes(script, sentinelB);
+    if (pushesA.length === 0 && pushesB.length === 0) return null;
+    if (pushesA.length !== 1 || pushesB.length !== 1) return indeterminatePush(wrapperDir);
+    const nested = pushesA[0];
+    if (nested.cwdOverride === null || pushesB[0].cwdOverride === null)
+      return indeterminatePush(wrapperDir);
+    let nestedCwd = null;
+    if (nested.cwdOverride === pushesB[0].cwdOverride) {
+      nestedCwd = nested.cwdOverride;
+    } else {
+      const relative = path.relative(sentinelA, nested.cwdOverride);
+      if (path.resolve(sentinelB, relative) !== pushesB[0].cwdOverride)
+        return indeterminatePush(wrapperDir);
+      nestedCwd = relative === "" ? null : relative;
+    }
     let effectiveDir = wrapperDir;
     if (nestedCwd) effectiveDir = composeGitDirectory(effectiveDir, nestedCwd);
     if (nested.dir) effectiveDir = composeGitDirectory(effectiveDir, nested.dir);
