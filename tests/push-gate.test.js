@@ -666,6 +666,8 @@ test("shell control keywords preserve directory changes before gated pushes", ()
       "HOME=.; declare -r HOME; unset HOME || cd gated; git push origin HEAD",
       "HOME=.; declare -r HOME=gated; unset HOME || cd; git push origin HEAD",
       "HOME=.; typeset -u HOME; cd; git push origin HEAD",
+      "HOME=. ; HOME=gated declare -r HOME; cd; git push origin HEAD",
+      "HOME=.; declare -l HOME; HOME=GATED; cd; git push origin HEAD",
       "HOME=gated; HOME[a[0]]=gated; cd; git push origin HEAD",
       "HOME=gated; export HOME[a[0]]=gated; cd; git push origin HEAD",
       "HOME=gated; readonly HOME[a[0]]=gated; cd; git push origin HEAD",

@@ -531,6 +531,8 @@ function detectGitPushes(command, baseCwd) {
       cdpathActive: Boolean(process.env.CDPATH),
       homeReadonly: false,
       cdpathReadonly: false,
+      homeTransformActive: false,
+      cdpathTransformActive: false,
     },
   ];
   const subshells = [];
@@ -725,6 +727,11 @@ function parseDirectoryEnvironmentCommand(segment) {
       .filter((option) => option.startsWith("-") && option !== "--")
       .flatMap((option) => option.slice(1).split(""))
   );
+  const disabledOptionLetters = new Set(
+    options
+      .filter((option) => option.startsWith("+"))
+      .flatMap((option) => option.slice(1).split(""))
+  );
   const supportedOptions = {
     declare: new Set(["a", "A", "f", "F", "g", "i", "I", "l", "n", "p", "r", "t", "u", "x", "-"]),
     export: new Set(["f", "n", "p", "-"]),
@@ -752,9 +759,14 @@ function parseDirectoryEnvironmentCommand(segment) {
     command === "unset" && names.some((name) => !["HOME", "CDPATH"].includes(name));
   const declarationMayVary = ["declare", "typeset"].includes(command);
   const declarationReadonly = declarationMayVary && enabledOptionLetters.has("r");
-  const declarationValueMayChange =
+  const declarationTransformOptions = ["a", "A", "i", "l", "n", "u"];
+  const declarationTransformEnabled =
     declarationMayVary &&
-    ["a", "A", "i", "l", "n", "u"].some((option) => enabledOptionLetters.has(option));
+    declarationTransformOptions.some((option) => enabledOptionLetters.has(option));
+  const declarationTransformDisabled =
+    declarationMayVary &&
+    declarationTransformOptions.some((option) => disabledOptionLetters.has(option));
+  const declarationValueMayChange = declarationTransformEnabled;
   const namesChangeValues =
     (command === "unset" && (!enabledOptionLetters.has("f") || enabledOptionLetters.has("v"))) ||
     (command === "readonly" && !enabledOptionLetters.has("f")) ||
@@ -765,11 +777,12 @@ function parseDirectoryEnvironmentCommand(segment) {
     const temporaryNames = new Set(prefixAssignments.map(assignmentName));
     effectiveNames = effectiveNames.filter((name) => !temporaryNames.has(name));
   }
-  const prefixTargetNames = command === "export" ? names : effectiveNames;
+  const prefixTargetNames = command === "export" || declarationMayVary ? names : effectiveNames;
   const targetNames = new Set([...prefixTargetNames, ...operandAssignments.map(assignmentName)]);
   const prefixPersists =
     (command === "export" && !enabledOptionLetters.has("n") && !enabledOptionLetters.has("f")) ||
-    (command === "readonly" && !enabledOptionLetters.has("f"));
+    (command === "readonly" && !enabledOptionLetters.has("f")) ||
+    declarationMayVary;
   const persistentPrefixAssignments = prefixPersists
     ? prefixAssignments.filter((assignment) => targetNames.has(assignmentName(assignment)))
     : [];
@@ -783,6 +796,8 @@ function parseDirectoryEnvironmentCommand(segment) {
         arrayMode,
         command,
         declarationReadonly,
+        declarationTransformDisabled,
+        declarationTransformEnabled,
         declarationValueMayChange,
         forcedFailure,
         // Array support, variable type, and unrelated builtin operands depend
@@ -814,6 +829,11 @@ function applyDirectoryEnvironmentCommand(state, command) {
       Boolean(parsedAssignment) &&
       !parsedAssignment.complex &&
       !["declare", "typeset"].includes(command.command) &&
+      (name === "HOME"
+        ? assigned.homeTransformActive === false
+        : name === "CDPATH"
+          ? assigned.cdpathTransformActive === false
+          : true) &&
       !assignment.dynamic &&
       !value.startsWith("~");
     if (name === "HOME") {
@@ -848,6 +868,20 @@ function applyDirectoryEnvironmentCommand(state, command) {
       } else if (name === "CDPATH") next.cdpathActive = null;
     }
   }
+  if (command.declarationTransformEnabled || command.declarationTransformDisabled) {
+    const transformState =
+      command.declarationTransformEnabled && command.declarationTransformDisabled
+        ? null
+        : command.declarationTransformEnabled;
+    for (const name of [
+      ...command.persistentPrefixAssignments.map(assignmentName),
+      ...command.operandAssignments.map(assignmentName),
+      ...command.names,
+    ]) {
+      if (name === "HOME") next.homeTransformActive = transformState;
+      if (name === "CDPATH") next.cdpathTransformActive = transformState;
+    }
+  }
   if (command.command === "unset") {
     for (const name of command.names) {
       if (name === "HOME") {
@@ -856,10 +890,14 @@ function applyDirectoryEnvironmentCommand(state, command) {
           next.homeValue = null;
           next.homeKnown = true;
           next.homeSet = false;
+          next.homeTransformActive = false;
         }
       } else if (name === "CDPATH") {
         if (next.cdpathReadonly) succeeded = false;
-        else next.cdpathActive = false;
+        else {
+          next.cdpathActive = false;
+          next.cdpathTransformActive = false;
+        }
       }
     }
   }
@@ -1357,6 +1395,8 @@ function dedupeShellStates(states) {
         state.cdpathActive,
         state.homeReadonly,
         state.cdpathReadonly,
+        state.homeTransformActive,
+        state.cdpathTransformActive,
       ]),
       state
     );
