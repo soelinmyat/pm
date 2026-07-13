@@ -116,14 +116,43 @@ test("terminating the helper kills its detached Chromium process group", async (
       stdio: ["pipe", "pipe", "pipe", "pipe"],
     });
     let controlBytes = "";
+    let controlSettled = false;
+    let resolveControl;
+    let rejectControl;
+    const controlReady = new Promise((resolve, reject) => {
+      resolveControl = resolve;
+      rejectControl = reject;
+    });
+    const controlTimeout = setTimeout(() => {
+      if (!controlSettled) {
+        controlSettled = true;
+        helper.kill("SIGKILL");
+        rejectControl(new Error("timed out waiting for browser control record"));
+      }
+    }, 5_000);
     helper.stdio[3].setEncoding("utf8");
-    helper.stdio[3].on("data", (chunk) => (controlBytes += chunk));
-    helper.stdin.end(JSON.stringify(probeConfig(root, { controlToken })));
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    helper.kill("SIGTERM");
-    const exit = await new Promise((resolve) =>
-      helper.once("exit", (code, signal) => resolve({ code, signal }))
+    helper.stdio[3].on("data", (chunk) => {
+      controlBytes += chunk;
+      if (!controlSettled && controlBytes.includes("\n")) {
+        controlSettled = true;
+        clearTimeout(controlTimeout);
+        resolveControl();
+      }
+    });
+    const exited = new Promise((resolve) =>
+      helper.once("exit", (code, signal) => {
+        if (!controlSettled) {
+          controlSettled = true;
+          clearTimeout(controlTimeout);
+          rejectControl(new Error("helper exited before browser control record"));
+        }
+        resolve({ code, signal });
+      })
     );
+    helper.stdin.end(JSON.stringify(probeConfig(root, { controlToken })));
+    await controlReady;
+    helper.kill("SIGTERM");
+    const exit = await exited;
     assert.ok(exit.code !== 0 || exit.signal, "helper should terminate on SIGTERM");
     assert.equal(fs.readFileSync(killMarker, "utf8"), "-424242");
     const control = JSON.parse(controlBytes.trim());
