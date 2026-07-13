@@ -688,7 +688,10 @@ function lexShellCharacters(input) {
 }
 
 function containsPushCommandSubstitution(command) {
-  const pushInside = (body) => /\bgit\b[\s\S]{0,1000}\bpush\b/.test(body);
+  const pushInside = (body) =>
+    detectGitPushes(body, process.cwd()).length > 0 ||
+    containsPushCommandSubstitution(body) ||
+    /\b(?:eval|ba?sh|zsh)\b[\s\S]{0,1000}\bgit\b[\s\S]{0,1000}\bpush\b/.test(body);
   const findClosing = (start) => {
     let depth = 1;
     let quote = null;

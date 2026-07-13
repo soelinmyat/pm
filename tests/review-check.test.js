@@ -209,6 +209,10 @@ test("trusted base binds the remote push URL instead of its fetch URL", () => {
   );
   git(fixture.root, ["config", "--add", "remote.origin.pushurl", `${pushRemote}-second`]);
   assert.throws(() => resolveTrustedBase(fixture.root), /multiple push URLs/);
+
+  git(fixture.root, ["config", "--unset-all", "remote.origin.pushurl"]);
+  git(fixture.root, ["config", "--add", "remote.origin.url", `${pushRemote}-second`]);
+  assert.throws(() => resolveTrustedBase(fixture.root), /multiple delivery URLs/);
 });
 
 test("named-remote target passes live end-to-end review validation", () => {

@@ -14,7 +14,10 @@ function deliveryUrl(gitRoot, remoteName) {
   if (pushUrls.length > 1) return "";
   if (pushUrls.length === 1) return pushUrls[0];
   try {
-    return runGit(["config", "--get", `remote.${remoteName}.url`], gitRoot).trim();
+    const urls = runGit(["config", "--get-all", `remote.${remoteName}.url`], gitRoot)
+      .split(/\r?\n/)
+      .filter(Boolean);
+    return urls.length === 1 ? urls[0] : "";
   } catch {
     return "";
   }
