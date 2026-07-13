@@ -14,6 +14,7 @@ const {
   readCaptureFilePinned,
   renderArtifact: renderArtifactRaw,
   resolveBrowser,
+  runBrowserProbe,
 } = require("../scripts/artifact-render-check");
 const { MAX_HTML_BYTES } = require("../scripts/lib/review-limits");
 
@@ -519,6 +520,46 @@ test("staged capture reads reject symlinks and oversized files before allocation
     fs.closeSync(fs.openSync(oversized, "w"));
     fs.truncateSync(oversized, 64 * 1024 * 1024 + 1);
     assert.throws(() => readCaptureFilePinned(oversized), /exceeds .*byte budget/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("browser probe timeout consumes the private control channel and reclaims helper resources", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-browser-parent-cleanup-"));
+  try {
+    const probePath = path.join(root, "hanging-probe.js");
+    fs.writeFileSync(
+      probePath,
+      `"use strict";
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const config = JSON.parse(fs.readFileSync(0, "utf8"));
+const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-cdp-"));
+fs.writeSync(3, JSON.stringify({ type: "browser-control", token: config.controlToken, pid: 424242, profileDir }) + "\\n");
+setInterval(() => {}, 1000);
+`
+    );
+    const terminated = [];
+    const removed = [];
+    assert.throws(
+      () =>
+        runBrowserProbe({}, "browser probe", {
+          probePath,
+          timeoutMs: 100,
+          terminateBrowser: (pid) => terminated.push(pid),
+          removeProfile: (profileDir) => {
+            removed.push(profileDir);
+            fs.rmSync(profileDir, { recursive: true, force: true });
+          },
+        }),
+      /timed out|ETIMEDOUT/i
+    );
+    assert.deepEqual(terminated, [424242]);
+    assert.equal(removed.length, 1);
+    assert.match(path.basename(removed[0]), /^pm-artifact-cdp-/);
+    assert.equal(fs.existsSync(removed[0]), false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

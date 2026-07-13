@@ -532,14 +532,26 @@ function runCanonicalProbe(browserPath, htmlPath, viewport, expression) {
   return JSON.parse(result.stdout);
 }
 
-function runBrowserProbe(configuration, label) {
+function runBrowserProbe(configuration, label, runtime = {}) {
   let result;
+  const probePath = runtime.probePath || BROWSER_PROBE;
+  const timeoutMs = runtime.timeoutMs || 30_000;
+  const terminateBrowser = runtime.terminateBrowser || terminateBrowserProcessGroup;
+  const removeProfile =
+    runtime.removeProfile ||
+    ((profileDir) =>
+      fs.rmSync(profileDir, {
+        recursive: true,
+        force: true,
+        maxRetries: 8,
+        retryDelay: 50,
+      }));
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     const controlToken = crypto.randomBytes(24).toString("hex");
-    result = spawnSync(process.execPath, ["--max-old-space-size=512", BROWSER_PROBE], {
+    result = spawnSync(process.execPath, ["--max-old-space-size=512", probePath], {
       input: JSON.stringify({ ...configuration, controlToken }),
       encoding: "utf8",
-      timeout: 30_000,
+      timeout: timeoutMs,
       maxBuffer: 4 * 1024 * 1024,
       stdio: ["pipe", "pipe", "pipe", "pipe"],
     });
@@ -556,13 +568,8 @@ function runBrowserProbe(configuration, label) {
       path.dirname(path.resolve(control.profileDir)) === path.resolve(os.tmpdir()) &&
       path.basename(control.profileDir).startsWith("pm-artifact-cdp-")
     ) {
-      terminateBrowserProcessGroup(control.pid);
-      fs.rmSync(control.profileDir, {
-        recursive: true,
-        force: true,
-        maxRetries: 8,
-        retryDelay: 50,
-      });
+      terminateBrowser(control.pid);
+      removeProfile(control.profileDir);
     }
     if (!result.error && result.status === 0) return result;
     const detail = `${result.stderr || ""}${result.stdout || ""}`;
@@ -889,5 +896,6 @@ module.exports = {
   readCaptureFilePinned,
   renderArtifact,
   resolveBrowser,
+  runBrowserProbe,
   validateMetrics,
 };
