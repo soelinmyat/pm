@@ -34,13 +34,22 @@ const { spawnSync } = require("node:child_process");
 
 const PM_PLUGIN_ROOT =
   process.env.PM_PLUGIN_ROOT || process.env.CLAUDE_PLUGIN_ROOT || path.resolve(__dirname, "..");
+const HOOK_ROOT = path.resolve(__dirname, "..");
 
 const CHECKER = path.join(PM_PLUGIN_ROOT, "scripts", "dev-gate-check.js");
+const { readProjectInput } = require(
+  path.join(HOOK_ROOT, "scripts", "lib", "safe-project-output.js")
+);
+const { validateSession } = require(
+  path.join(HOOK_ROOT, "scripts", "lib", "dev-session-schema.js")
+);
 
 // The 1MB spawnSync default ENOBUFS'd on a large (e.g. 200k-row) manifest, which
 // under fail-open silently allowed the push. Give the checker plenty of room; if
 // it still overflows, fail-closed catches it (result.error is set → block).
 const MAX_BUFFER = 64 * 1024 * 1024;
+const MAX_SESSION_BYTES = 4 * 1024 * 1024;
+const MAX_SESSION_DIRECTORIES = 512;
 
 // allow / emit never call process.exit(): a bare `process.exit(0)` after a stdout
 // write can truncate a large deny JSON on a pipe (Node exits before the async
@@ -985,24 +994,6 @@ function parsePushArguments(args) {
   };
 }
 
-function pushUpdatesSessionBranch(args, sessionBranch, effectiveRefspecs = null) {
-  const parsed = parsePushArguments(args);
-  const { sawDelete, sawTags, sawAllOrMirror } = parsed;
-  const refspecs = effectiveRefspecs || parsed.refspecs;
-  if (sawAllOrMirror) return true; // pushes the session branch among others
-  if (sawDelete) return false; // deletion, not an update to the branch tip
-
-  if (refspecs.length === 0) {
-    // `git push` / `git push origin` → pushes the current (session) branch,
-    // unless it was a `--tags`-only push (tags out of scope).
-    return !sawTags;
-  }
-  for (const spec of refspecs) {
-    if (sessionBranchRefspecSource(spec, sessionBranch)) return true;
-  }
-  return false;
-}
-
 function sessionBranchPushSource(
   repoDir,
   args,
@@ -1184,7 +1175,7 @@ function effectivePushRefspecs(repoDir, args, branch, gitDir = null) {
       return { error: `remote.${destination.remote}.push contains an empty refspec` };
     if (configured.values.some((value) => refspecDest(value).kind === "matching"))
       return { error: `remote.${destination.remote}.push contains a matching multi-ref push` };
-    return { refspecs: configured.values, source: "configured" };
+    return { refspecs: configured.values, source: "configured", remote: destination.remote };
   }
   const configuredMirror = gitConfigBoolean(repoDir, `remote.${destination.remote}.mirror`, gitDir);
   if (configuredMirror.error) return configuredMirror;
@@ -1192,9 +1183,248 @@ function effectivePushRefspecs(repoDir, args, branch, gitDir = null) {
     return {
       refspecs: ["refs/heads/*:refs/heads/*"],
       source: `configured remote.${destination.remote}.mirror`,
+      remote: destination.remote,
       expansionError: `configured remote.${destination.remote}.mirror expands the session-branch push to multiple ref updates`,
     };
-  return implicitPushRefspecs(repoDir, destination.remote, branch, gitDir);
+  if (!branch) return { error: "implicit push from detached HEAD" };
+  return {
+    ...implicitPushRefspecs(repoDir, destination.remote, branch, gitDir),
+    remote: destination.remote,
+  };
+}
+
+function pushDestinationShape(args, currentBranch, effectiveRefspecs = null) {
+  const parsed = parsePushArguments(args);
+  if (parsed.sawDelete)
+    return { branches: [], patterns: [], broad: false, unresolvedCurrent: false };
+  const refspecs = effectiveRefspecs || parsed.refspecs;
+  if (parsed.sawAllOrMirror)
+    return { branches: [], patterns: [], broad: true, unresolvedCurrent: false };
+  if (refspecs.length === 0) {
+    if (parsed.sawTags)
+      return { branches: [], patterns: [], broad: false, unresolvedCurrent: false };
+    if (!currentBranch) return { error: "implicit push from detached HEAD" };
+    return { branches: [currentBranch], patterns: [], broad: false, unresolvedCurrent: false };
+  }
+
+  const branches = new Set();
+  const patterns = new Set();
+  let broad = false;
+  let unresolvedCurrent = false;
+  for (const raw of refspecs) {
+    const dest = refspecDest(raw);
+    if (dest.kind === "matching") {
+      broad = true;
+      continue;
+    }
+    if (dest.kind !== "branch") continue;
+    if (dest.dst === "HEAD" || dest.dst === "@") {
+      if (currentBranch) branches.add(currentBranch);
+      else unresolvedCurrent = true;
+    } else if (dest.dst.includes("*")) {
+      patterns.add(dest.dst);
+    } else {
+      branches.add(dest.dst);
+    }
+  }
+  return { branches: [...branches], patterns: [...patterns], broad, unresolvedCurrent };
+}
+
+function canonicalSessionsDirectory(repoDir) {
+  let root;
+  try {
+    root = fs.realpathSync(path.resolve(repoDir));
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+  let current = root;
+  for (const part of [".pm", "dev-sessions"]) {
+    current = path.join(current, part);
+    let stat;
+    try {
+      stat = fs.lstatSync(current);
+    } catch (error) {
+      if (error.code === "ENOENT") return null;
+      throw error;
+    }
+    if (stat.isSymbolicLink()) throw new Error(`${path.relative(root, current)} is a symlink`);
+    if (!stat.isDirectory()) throw new Error(`${path.relative(root, current)} is not a directory`);
+  }
+  return { root, directory: current };
+}
+
+function loadCanonicalSessionCandidate(located, slug, stat) {
+  const candidate = { slug, directory: path.join(located.directory, slug), session: null };
+  if (stat.isSymbolicLink()) {
+    candidate.error = "canonical session directory is a symlink";
+    return candidate;
+  }
+  if (!stat.isDirectory()) {
+    candidate.error = "canonical session candidate is not a directory";
+    return candidate;
+  }
+
+  const relative = path.join(".pm", "dev-sessions", slug, "session.json");
+  try {
+    fs.lstatSync(path.join(candidate.directory, "session.json"));
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      candidate.missingSession = true;
+      return candidate;
+    }
+    candidate.error = error.message;
+    return candidate;
+  }
+  try {
+    const file = readProjectInput(located.root, relative, MAX_SESSION_BYTES);
+    const session = JSON.parse(file.bytes.toString("utf8"));
+    const validation = validateSession(session);
+    if (validation.length > 0)
+      throw new Error(
+        validation
+          .slice(0, 3)
+          .map((item) => `${item.path}: ${item.message}`)
+          .join("; ")
+      );
+    if (session.slug !== slug)
+      throw new Error(`session.slug ${session.slug} must equal directory ${slug}`);
+    const derived = loadDeriveSessionSlug()(session.source.branch);
+    if (derived !== slug)
+      throw new Error(
+        `session.source.branch ${session.source.branch} derives slug ${derived}, not ${slug}`
+      );
+    candidate.session = session;
+  } catch (error) {
+    candidate.error = error.message;
+  }
+  return candidate;
+}
+
+function loadCanonicalSessionIndex(repoDir, exactSlugs = null) {
+  const located = canonicalSessionsDirectory(repoDir);
+  if (!located) return { sessions: [], candidates: new Map() };
+  const entries = [];
+  if (exactSlugs) {
+    for (const slug of new Set(exactSlugs)) {
+      try {
+        entries.push({ slug, stat: fs.lstatSync(path.join(located.directory, slug)) });
+      } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+      }
+    }
+  } else {
+    for (const entry of fs.readdirSync(located.directory, { withFileTypes: true })) {
+      if (
+        !entry.isDirectory() &&
+        !entry.isSymbolicLink() &&
+        (entry.name === "current.gates.json" ||
+          entry.name.endsWith(".gates.json") ||
+          entry.name.endsWith(".md"))
+      )
+        continue;
+      entries.push({ slug: entry.name, stat: entry });
+    }
+    if (entries.length > MAX_SESSION_DIRECTORIES)
+      throw new Error(`canonical session inventory exceeds ${MAX_SESSION_DIRECTORIES} entries`);
+  }
+
+  const sessions = [];
+  const candidates = new Map();
+  for (const entry of entries) {
+    const slug = entry.slug;
+    if (candidates.has(slug)) throw new Error(`duplicate canonical session directory ${slug}`);
+    const candidate = loadCanonicalSessionCandidate(located, slug, entry.stat);
+    candidates.set(slug, candidate);
+    if (candidate.session) sessions.push(candidate);
+  }
+  return { sessions, candidates };
+}
+
+function destinationMatchesShape(branch, shape) {
+  if (shape.broad || shape.branches.includes(branch)) return true;
+  return shape.patterns.some((pattern) => branchPatternCapture(pattern, branch) !== null);
+}
+
+function selectCanonicalSessionTargets(repoDir, shape, currentBranch) {
+  if (
+    !shape.broad &&
+    !shape.unresolvedCurrent &&
+    shape.branches.length === 0 &&
+    shape.patterns.length === 0
+  )
+    return { targets: [] };
+  const wildcardSelection = shape.broad || shape.patterns.length > 0;
+  const deriveSlug = loadDeriveSessionSlug();
+  const needsFullInventory = wildcardSelection || shape.unresolvedCurrent;
+  const index = loadCanonicalSessionIndex(
+    repoDir,
+    needsFullInventory ? null : shape.branches.map((branch) => deriveSlug(branch))
+  );
+  if (wildcardSelection) {
+    const invalid = [...index.candidates.values()].find(
+      (candidate) => candidate.error || candidate.missingSession
+    );
+    if (invalid)
+      return {
+        error: `cannot classify wildcard push against canonical session ${invalid.slug}: ${invalid.error || "canonical session.json is missing"}`,
+      };
+  }
+  if (shape.unresolvedCurrent) {
+    const invalid = [...index.candidates.values()].find(
+      (candidate) => candidate.error || candidate.missingSession
+    );
+    if (invalid)
+      return {
+        error: `cannot resolve detached destination against canonical session ${invalid.slug}: ${invalid.error || "canonical session.json is missing"}`,
+      };
+    if (index.sessions.length > 0)
+      return {
+        error: `detached destination cannot be resolved against canonical PM session branches: ${index.sessions.map((item) => item.session.source.branch).join(", ")}`,
+      };
+  }
+
+  const matched = new Map();
+  for (const branch of shape.branches) {
+    const slug = deriveSlug(branch);
+    const candidate = index.candidates.get(slug);
+    if (candidate) {
+      if (candidate.missingSession) {
+        matched.set(branch, { branch, slug, session: null });
+        continue;
+      }
+      if (candidate.error) {
+        return { error: `cannot validate canonical session ${slug}: ${candidate.error}` };
+      }
+      if (candidate.session.source.branch !== branch)
+        return {
+          error: `canonical session slug collision: ${slug} belongs to ${candidate.session.source.branch}, not destination ${branch}`,
+        };
+      matched.set(branch, { branch, slug, session: candidate.session });
+      continue;
+    }
+    const sessionsDir = path.join(repoDir, ".pm", "dev-sessions");
+    const hasLegacy = fs.existsSync(path.join(sessionsDir, `${slug}.gates.json`));
+    const hasCurrent =
+      branch === currentBranch && fs.existsSync(path.join(sessionsDir, "current.gates.json"));
+    if (hasLegacy || hasCurrent) matched.set(branch, { branch, slug, session: null });
+  }
+
+  for (const candidate of index.sessions) {
+    if (destinationMatchesShape(candidate.session.source.branch, shape))
+      matched.set(candidate.session.source.branch, {
+        branch: candidate.session.source.branch,
+        slug: candidate.slug,
+        session: candidate.session,
+      });
+  }
+
+  const targets = [...matched.values()];
+  if (targets.length > 1)
+    return {
+      error: `push updates multiple canonical PM session branches: ${targets.map((item) => item.branch).join(", ")}`,
+    };
+  return { targets };
 }
 
 // deriveSessionSlug is the single source of truth for branch -> manifest-name
@@ -1314,23 +1544,8 @@ function gatePush(baseCwd, push) {
   }
   const gitDir = resolveExplicitGitDir(baseCwd, push);
 
-  const branch = currentBranch(repoDir, gitDir);
-  if (!branch) {
-    const parsed = parsePushArguments(push.args);
-    if (
-      parsed.refspecs.length === 0 &&
-      !parsed.sawDelete &&
-      !parsed.sawTags &&
-      !parsed.sawAllOrMirror
-    ) {
-      emitDeny(
-        "PM dev gate cannot resolve an implicit push from detached HEAD. Check out the source branch or provide one explicit refspec."
-      );
-      return true;
-    }
-    return false;
-  }
-  const effective = effectivePushRefspecs(repoDir, push.args, branch, gitDir);
+  const checkedOutBranch = currentBranch(repoDir, gitDir);
+  const effective = effectivePushRefspecs(repoDir, push.args, checkedOutBranch, gitDir);
   if (effective.error) {
     emitDeny(
       `PM dev gate cannot resolve the exact implicit push updates (${effective.error}). ` +
@@ -1339,17 +1554,27 @@ function gatePush(baseCwd, push) {
     return true;
   }
   const effectiveRefspecs = effective.refspecs;
-
-  // Refspec scoping: only gate pushes that update THIS branch's ref. Tag pushes,
-  // deletions, and cross-branch pushes are legit mid-session ops — out of scope.
-  if (!pushUpdatesSessionBranch(push.args, branch, effectiveRefspecs)) return false;
-
-  let slug;
-  try {
-    slug = loadDeriveSessionSlug()(branch);
-  } catch {
-    return false;
+  const shape = pushDestinationShape(push.args, checkedOutBranch, effectiveRefspecs);
+  if (shape.error) {
+    emitDeny(`PM dev gate cannot resolve the exact push destinations (${shape.error}).`);
+    return true;
   }
+
+  let selected;
+  try {
+    selected = selectCanonicalSessionTargets(repoDir, shape, checkedOutBranch);
+  } catch (error) {
+    emitDeny(`PM dev gate cannot inventory canonical sessions safely (${error.message}).`);
+    return true;
+  }
+  if (selected.error) {
+    emitDeny(
+      `PM dev gate cannot bind push destinations to canonical sessions (${selected.error}).`
+    );
+    return true;
+  }
+  if (selected.targets.length === 0) return false;
+  const [{ branch, slug }] = selected.targets;
 
   const sessionsDir = path.join(repoDir, ".pm", "dev-sessions");
   const canonicalSessionDir = path.join(sessionsDir, slug);
@@ -1423,7 +1648,9 @@ function gatePush(baseCwd, push) {
       "--review-evidence-mode",
       "enforce",
     ];
-    const destination = resolvePushRemote(repoDir, push.args, branch, gitDir);
+    const destination = effective.remote
+      ? { remote: effective.remote }
+      : resolvePushRemote(repoDir, push.args, checkedOutBranch || branch, gitDir);
     if (destination.error) {
       blockUnverified(branch, manifestRel, destination.error);
       return true;

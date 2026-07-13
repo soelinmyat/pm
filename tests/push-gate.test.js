@@ -1134,6 +1134,195 @@ test("detached implicit pushes fail closed while explicit refspecs preserve prec
   }
 });
 
+test("explicit protected destinations are gated from detached HEAD and other branches", () => {
+  const dir = makeRepo();
+  try {
+    writeFailingGates(dir, "x");
+
+    git(dir, "checkout", "-q", "main");
+    assertBlock(
+      runHook("git push origin HEAD:refs/heads/feat/x", { cwd: dir }),
+      /verification is failed/
+    );
+    assertAllow(runHook("git push origin HEAD:refs/heads/backup", { cwd: dir }));
+    assertAllow(runHook("git push origin refs/tags/release-candidate", { cwd: dir }));
+    assertAllow(runHook("git push origin :refs/heads/feat/x", { cwd: dir }));
+
+    git(dir, "checkout", "-q", "--detach");
+    assertBlock(
+      runHook("git push origin HEAD:refs/heads/feat/x", { cwd: dir }),
+      /verification is failed/
+    );
+    assertAllow(runHook("git push origin HEAD:refs/heads/backup", { cwd: dir }));
+    assertAllow(runHook("git push origin --tags", { cwd: dir }));
+    assertAllow(runHook("git push origin :refs/heads/feat/x", { cwd: dir }));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("configured protected destinations are gated independently of checkout identity", () => {
+  const dir = makeRepo();
+  try {
+    writeFailingGates(dir, "x");
+    git(dir, "config", "remote.origin.push", "HEAD:refs/heads/feat/x");
+
+    git(dir, "checkout", "-q", "main");
+    assertBlock(runHook("git push origin", { cwd: dir }), /verification is failed/);
+    git(dir, "checkout", "-q", "--detach");
+    assertBlock(runHook("git push origin", { cwd: dir }), /verification is failed/);
+
+    git(dir, "config", "--unset-all", "remote.origin.push");
+    git(dir, "checkout", "-q", "main");
+    assertAllow(runHook("git push origin", { cwd: dir }));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("wildcard, mirror, and multi-ref pushes bind protected destinations, not checkout", () => {
+  const dir = makeRepo();
+  try {
+    writeGates(dir, "x", passingManifest(dir, "x", headSha(dir)));
+    git(dir, "checkout", "-q", "main");
+
+    assertBlock(
+      runHook("git push origin 'refs/heads/*:refs/heads/*'", { cwd: dir }),
+      /command line wildcard refspec/
+    );
+    assertBlock(
+      runHook("git push origin HEAD:refs/heads/backup HEAD:refs/heads/feat/x", { cwd: dir }),
+      /command line multi-ref push/
+    );
+
+    git(dir, "config", "remote.origin.mirror", "true");
+    assertBlock(runHook("git push origin", { cwd: dir }), /remote\.origin\.mirror expands/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("multiple protected destinations fail before any single session can authorize them", () => {
+  const dir = makeRepo();
+  try {
+    writeGates(dir, "x", passingManifest(dir, "x", headSha(dir)));
+    git(dir, "checkout", "-q", "-b", "backup");
+    writeGates(dir, "backup", passingManifest(dir, "backup", headSha(dir)));
+    git(dir, "checkout", "-q", "main");
+
+    assertBlock(
+      runHook("git push origin HEAD:refs/heads/feat/x HEAD:refs/heads/backup", { cwd: dir }),
+      /multiple canonical PM session branches: feat\/x, backup|multiple canonical PM session branches: backup, feat\/x/
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("canonical session selection rejects slug collisions and malformed candidates", () => {
+  const collision = makeRepo({ branch: "chore/Review++Gate" });
+  const malformed = makeRepo();
+  const invalidDirectory = makeRepo();
+  try {
+    writeGates(
+      collision,
+      "review-gate",
+      passingManifest(collision, "review-gate", headSha(collision))
+    );
+    git(collision, "checkout", "-q", "main");
+    assertBlock(
+      runHook("git push origin HEAD:refs/heads/chore/review-gate", { cwd: collision }),
+      /canonical session slug collision/
+    );
+
+    writeGates(malformed, "x", passingManifest(malformed, "x", headSha(malformed)));
+    fs.writeFileSync(
+      path.join(malformed, ".pm", "dev-sessions", "x", "session.json"),
+      '{"schema_version":2}'
+    );
+    git(malformed, "checkout", "-q", "main");
+    assertBlock(
+      runHook("git push origin HEAD:refs/heads/feat/x", { cwd: malformed }),
+      /cannot validate canonical session x/
+    );
+
+    fs.mkdirSync(path.join(malformed, ".pm", "dev-sessions", "unrelated"));
+    assertAllow(runHook("git push origin HEAD:refs/heads/backup", { cwd: malformed }));
+    assertBlock(
+      runHook("git push origin 'refs/heads/*:refs/heads/*'", { cwd: malformed }),
+      /cannot classify wildcard push against canonical session/
+    );
+
+    const invalidRoot = path.join(invalidDirectory, ".pm", "dev-sessions");
+    fs.mkdirSync(invalidRoot, { recursive: true });
+    fs.writeFileSync(path.join(invalidRoot, "x"), "not a directory\n");
+    git(invalidDirectory, "checkout", "-q", "main");
+    assertBlock(
+      runHook("git push origin HEAD:refs/heads/feat/x", { cwd: invalidDirectory }),
+      /cannot validate canonical session x: canonical session candidate is not a directory/
+    );
+    assertBlock(
+      runHook("git push origin 'refs/heads/*:refs/heads/*'", { cwd: invalidDirectory }),
+      /cannot classify wildcard push against canonical session x: canonical session candidate is not a directory/
+    );
+  } finally {
+    fs.rmSync(collision, { recursive: true, force: true });
+    fs.rmSync(malformed, { recursive: true, force: true });
+    fs.rmSync(invalidDirectory, { recursive: true, force: true });
+  }
+});
+
+test("completed canonical sessions still protect their delivery branch", () => {
+  const dir = makeRepo();
+  try {
+    writeFailingGates(dir, "x");
+    const sessionPath = path.join(dir, ".pm", "dev-sessions", "x", "session.json");
+    const session = JSON.parse(fs.readFileSync(sessionPath, "utf8"));
+    session.status = "complete";
+    session.phase = "retro";
+    fs.writeFileSync(sessionPath, JSON.stringify(session, null, 2));
+
+    git(dir, "checkout", "-q", "main");
+    assertBlock(
+      runHook("git push origin HEAD:refs/heads/feat/x", { cwd: dir }),
+      /verification is failed/
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("canonical session inventory rejects symlinked candidates and entry floods", () => {
+  const symlinked = makeRepo();
+  const flooded = makeRepo();
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "push-gate-session-outside-"));
+  try {
+    const sessions = path.join(symlinked, ".pm", "dev-sessions");
+    fs.mkdirSync(sessions, { recursive: true });
+    fs.symlinkSync(outside, path.join(sessions, "x"));
+    assertBlock(
+      runHook("git push origin HEAD:refs/heads/feat/x", { cwd: symlinked }),
+      /canonical session directory is a symlink/
+    );
+
+    const floodRoot = path.join(flooded, ".pm", "dev-sessions");
+    fs.mkdirSync(floodRoot, { recursive: true });
+    for (let index = 0; index < 513; index += 1)
+      fs.mkdirSync(path.join(floodRoot, `session-${index}`));
+    assertAllow(runHook("git push origin --tags", { cwd: flooded }));
+    assertAllow(runHook("git push origin :refs/heads/feat/x", { cwd: flooded }));
+    assertAllow(runHook("git push origin HEAD:refs/heads/backup", { cwd: flooded }));
+    assertBlock(
+      runHook("git push origin 'refs/heads/*:refs/heads/*'", { cwd: flooded }),
+      /canonical session inventory exceeds 512 entries/
+    );
+  } finally {
+    fs.rmSync(symlinked, { recursive: true, force: true });
+    fs.rmSync(flooded, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
+});
+
 test("configured push refspecs preserve source commit binding", () => {
   const dir = makeRepo();
   try {
