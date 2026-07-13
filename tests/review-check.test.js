@@ -2203,7 +2203,13 @@ test("prior-round evidence remains valid after the cited source is removed", () 
   });
   const priorHtmlPath = path.join(fixture.root, fixture.roundHtmlPath);
   const priorHtml = fs.readFileSync(priorHtmlPath, "utf8");
-  fs.writeFileSync(priorHtmlPath, priorHtml.replace('"version":"1.13.15"', '"version":"1.13.14"'));
+  fs.writeFileSync(
+    priorHtmlPath,
+    priorHtml.replace(
+      /("generator":\{"name":"pm:review","version":")[^"]+/,
+      (_match, prefix) => `${prefix}0.0.0`
+    )
+  );
   const strictPrior = checkReview(
     expandFromReport({
       root: fixture.root,

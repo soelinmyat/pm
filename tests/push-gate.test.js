@@ -43,8 +43,12 @@ function makeRepoAt(dir, branch = "feat/x") {
   fs.writeFileSync(path.join(dir, "README.md"), "hi\n");
   git(dir, "add", ".");
   git(dir, "commit", "-q", "-m", "init");
-  git(dir, "remote", "add", "origin", ".");
+  const origin = path.join(dir, ".git", "pm-test-origin.git");
+  git(dir, "init", "--bare", "--initial-branch=main", origin);
+  git(dir, "remote", "add", "origin", origin);
+  git(dir, "push", "-q", "origin", "HEAD:refs/heads/main");
   git(dir, "update-ref", "refs/remotes/origin/main", "HEAD");
+  git(dir, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
   git(dir, "checkout", "-q", "-b", branch);
 }
 
@@ -124,6 +128,13 @@ function writeFailingGates(dir, slug, gateName = "verification") {
   g.reason = `${gateName} not run`;
   writeGates(dir, slug, m);
   return m;
+}
+
+function bindSessionDeliveryRemote(dir, slug, remote) {
+  const sessionPath = path.join(dir, ".pm", "dev-sessions", slug, "session.json");
+  const session = JSON.parse(fs.readFileSync(sessionPath, "utf8"));
+  session.source.delivery_remote = remote;
+  fs.writeFileSync(sessionPath, JSON.stringify(session, null, 2));
 }
 
 function decisionOf(result) {
@@ -1298,6 +1309,7 @@ test("implicit current and simple policies bind the effective destination", () =
     assertBlock(runHook("git push origin", { cwd: dir }), /refuses renamed upstream/);
 
     git(dir, "remote", "add", "other", ".");
+    bindSessionDeliveryRemote(dir, "x", "other");
     assertBlock(runHook("git push other", { cwd: dir }), /verification is failed/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
