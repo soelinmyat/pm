@@ -333,7 +333,6 @@ function runBrowser(browserPath, args, options = {}) {
       const outputPath = (screenshot || pdf).split("=").slice(1).join("=");
       const stagingDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-capture-"));
       const stagingPath = path.join(stagingDir, screenshot ? "capture.png" : "capture.pdf");
-      const browserPidPath = path.join(stagingDir, "browser.pid");
       try {
         const result = runBrowserProbe(
           {
@@ -342,7 +341,6 @@ function runBrowser(browserPath, args, options = {}) {
             viewport: { width, height },
             action: screenshot ? "screenshot" : "pdf",
             outputPath: stagingPath,
-            browserPidPath,
           },
           "browser capture"
         );
@@ -361,7 +359,6 @@ function runBrowser(browserPath, args, options = {}) {
         );
         return result;
       } finally {
-        terminateRecordedBrowser(browserPidPath);
         fs.rmSync(stagingDir, { recursive: true, force: true });
       }
     }
@@ -430,13 +427,7 @@ function readCaptureFilePinned(capturePath, expected = null) {
   }
 }
 
-function terminateRecordedBrowser(pidPath) {
-  let pid;
-  try {
-    pid = Number(fs.readFileSync(pidPath, "utf8").trim());
-  } catch {
-    return;
-  }
+function terminateBrowserProcessGroup(pid) {
   if (!Number.isSafeInteger(pid) || pid < 2) return;
   try {
     if (process.platform === "win32") process.kill(pid, "SIGKILL");
@@ -544,12 +535,35 @@ function runCanonicalProbe(browserPath, htmlPath, viewport, expression) {
 function runBrowserProbe(configuration, label) {
   let result;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const controlToken = crypto.randomBytes(24).toString("hex");
     result = spawnSync(process.execPath, ["--max-old-space-size=512", BROWSER_PROBE], {
-      input: JSON.stringify(configuration),
+      input: JSON.stringify({ ...configuration, controlToken }),
       encoding: "utf8",
       timeout: 30_000,
       maxBuffer: 4 * 1024 * 1024,
+      stdio: ["pipe", "pipe", "pipe", "pipe"],
     });
+    let control = null;
+    try {
+      control = JSON.parse(String(result.output?.[3] || "").trim());
+    } catch {
+      // A helper that failed before browser launch has no process to reclaim.
+    }
+    if (
+      control?.type === "browser-control" &&
+      control.token === controlToken &&
+      typeof control.profileDir === "string" &&
+      path.dirname(path.resolve(control.profileDir)) === path.resolve(os.tmpdir()) &&
+      path.basename(control.profileDir).startsWith("pm-artifact-cdp-")
+    ) {
+      terminateBrowserProcessGroup(control.pid);
+      fs.rmSync(control.profileDir, {
+        recursive: true,
+        force: true,
+        maxRetries: 8,
+        retryDelay: 50,
+      });
+    }
     if (!result.error && result.status === 0) return result;
     const detail = `${result.stderr || ""}${result.stdout || ""}`;
     if (!detail.includes("Chromium did not expose a page target") || attempt === 3) break;

@@ -110,11 +110,15 @@ test("terminating the helper kills its detached Chromium process group", async (
   try {
     const preload = writePreload(root);
     const killMarker = path.join(root, "group-kill");
+    const controlToken = "test-control-token";
     const helper = spawn(process.execPath, ["--require", preload, PROBE], {
       env: { ...process.env, PM_TEST_GROUP_KILL: killMarker },
-      stdio: ["pipe", "pipe", "pipe"],
+      stdio: ["pipe", "pipe", "pipe", "pipe"],
     });
-    helper.stdin.end(JSON.stringify(probeConfig(root)));
+    let controlBytes = "";
+    helper.stdio[3].setEncoding("utf8");
+    helper.stdio[3].on("data", (chunk) => (controlBytes += chunk));
+    helper.stdin.end(JSON.stringify(probeConfig(root, { controlToken })));
     await new Promise((resolve) => setTimeout(resolve, 150));
     helper.kill("SIGTERM");
     const exit = await new Promise((resolve) =>
@@ -122,6 +126,13 @@ test("terminating the helper kills its detached Chromium process group", async (
     );
     assert.ok(exit.code !== 0 || exit.signal, "helper should terminate on SIGTERM");
     assert.equal(fs.readFileSync(killMarker, "utf8"), "-424242");
+    const control = JSON.parse(controlBytes.trim());
+    assert.deepEqual(
+      { type: control.type, token: control.token, pid: control.pid },
+      { type: "browser-control", token: controlToken, pid: 424242 }
+    );
+    assert.match(path.basename(control.profileDir), /^pm-artifact-cdp-/);
+    assert.equal(fs.existsSync(control.profileDir), false, "helper should remove its profile");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

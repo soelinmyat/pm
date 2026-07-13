@@ -123,8 +123,6 @@ async function main() {
     ],
     { stdio: "ignore", detached: process.platform !== "win32" }
   );
-  if (config.browserPidPath)
-    fs.writeFileSync(config.browserPidPath, `${browser.pid}\n`, { mode: 0o600, flag: "wx" });
   let client = null;
   let cleaned = false;
   const cleanup = () => {
@@ -148,6 +146,17 @@ async function main() {
     });
   }
   try {
+    if (config.controlToken) {
+      fs.writeSync(
+        3,
+        `${JSON.stringify({
+          type: "browser-control",
+          token: config.controlToken,
+          pid: browser.pid,
+          profileDir,
+        })}\n`
+      );
+    }
     const portFile = path.join(profileDir, "DevToolsActivePort");
     const endpointDeadline = Date.now() + 10_000;
     while (!fs.existsSync(portFile)) {
