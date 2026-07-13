@@ -223,6 +223,30 @@ test("implicit direct-URL push in a non-PM repo is allowed", () => {
   }
 });
 
+test("early session probes fail closed for malformed and oversized stores", () => {
+  const malformed = makeRepo();
+  const oversized = makeRepo();
+  try {
+    fs.symlinkSync(os.tmpdir(), path.join(malformed, ".pm"));
+    assertBlock(
+      runHook("git push origin HEAD", { cwd: malformed }),
+      /cannot inventory canonical sessions safely/
+    );
+
+    const sessions = path.join(oversized, ".pm", "dev-sessions");
+    fs.mkdirSync(sessions, { recursive: true });
+    for (let index = 0; index < 513; index += 1)
+      fs.mkdirSync(path.join(sessions, `candidate-${index}`));
+    assertBlock(
+      runHook("git push /tmp/unrelated-bare-repo", { cwd: oversized }),
+      /inventory exceeds 512 entries/
+    );
+  } finally {
+    fs.rmSync(malformed, { recursive: true, force: true });
+    fs.rmSync(oversized, { recursive: true, force: true });
+  }
+});
+
 test("canonical session without branch-push authority is blocked", () => {
   const dir = makeRepo();
   try {

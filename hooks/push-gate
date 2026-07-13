@@ -1559,21 +1559,26 @@ function gatePush(baseCwd, push) {
   // No canonical or legacy PM session store means this repository has nothing
   // for PM to protect. Resolve that before imposing PM's named-remote contract:
   // ordinary Git permits an implicit push directly to a URL or local path.
-  if (!canonicalSessionsDirectory(repoDir)) return false;
-  const preliminaryPush = parsePushArguments(push.args);
-  if (preliminaryPush.refspecs.length === 0 && preliminaryPush.remote) {
-    const configuredRemotes = gitCapture(repoDir, ["remote"], gitDir)
-      .split(/\r?\n/)
-      .filter(Boolean);
-    if (!configuredRemotes.includes(preliminaryPush.remote)) {
-      const inventory = loadCanonicalSessionIndex(repoDir);
-      if (
-        inventory.sessions.length === 0 &&
-        inventory.candidates.size === 0 &&
-        inventory.legacyMarkers.length === 0
-      )
-        return false;
+  try {
+    if (!canonicalSessionsDirectory(repoDir)) return false;
+    const preliminaryPush = parsePushArguments(push.args);
+    if (preliminaryPush.refspecs.length === 0 && preliminaryPush.remote) {
+      const configuredRemotes = gitCapture(repoDir, ["remote"], gitDir)
+        .split(/\r?\n/)
+        .filter(Boolean);
+      if (!configuredRemotes.includes(preliminaryPush.remote)) {
+        const inventory = loadCanonicalSessionIndex(repoDir);
+        if (
+          inventory.sessions.length === 0 &&
+          inventory.candidates.size === 0 &&
+          inventory.legacyMarkers.length === 0
+        )
+          return false;
+      }
     }
+  } catch (error) {
+    emitDeny(`PM dev gate cannot inventory canonical sessions safely (${error.message}).`);
+    return true;
   }
 
   const checkedOutBranch = currentBranch(repoDir, gitDir);
