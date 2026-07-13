@@ -1003,9 +1003,9 @@ function sessionBranchPushSource(
   const refspecs = effectiveRefspecs || parsed.refspecs;
   if (sawAllOrMirror)
     return { error: "multi-ref --all/--mirror push cannot be bound to one source commit" };
-  if (effectiveRefspecs && refspecs.length > 1)
+  if (refspecs.length > 1)
     return {
-      error: `${refspecSource || "effective"} multi-ref push cannot be bound to one source commit`,
+      error: `${refspecSource || (effectiveRefspecs ? "effective" : "command line")} multi-ref push cannot be bound to one source commit`,
     };
   if (refspecs.length === 0) return { source: "HEAD" };
   const sources = [];

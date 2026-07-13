@@ -1158,6 +1158,56 @@ test("configured push refspecs preserve source commit binding", () => {
   }
 });
 
+test("explicit multi-ref pushes that include the session branch fail closed", () => {
+  const dir = makeRepo();
+  try {
+    writeGates(dir, "x", passingManifest(dir, "x", headSha(dir)));
+    for (const command of [
+      "git push origin HEAD:refs/heads/feat/x HEAD:refs/heads/backup",
+      "git push origin HEAD:refs/heads/backup HEAD:refs/heads/feat/x",
+      "git push origin HEAD:refs/heads/feat/x HEAD:refs/heads/feat/x",
+      "git push origin HEAD:refs/heads/feat/x feat/x:refs/heads/feat/x",
+      "git push --repo origin HEAD:refs/heads/feat/x HEAD:refs/heads/backup",
+    ])
+      assertBlock(
+        runHook(command, { cwd: dir }),
+        /command line multi-ref push cannot be bound to one source commit/
+      );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("explicit multi-ref pushes excluding the session branch remain out of scope", () => {
+  const dir = makeRepo();
+  try {
+    writeFailingGates(dir, "x");
+    for (const command of [
+      "git push origin HEAD:refs/heads/main HEAD:refs/heads/backup",
+      "git push origin HEAD:refs/heads/main HEAD:refs/tags/release-candidate",
+    ])
+      assertAllow(runHook(command, { cwd: dir }));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("single explicit session source keeps command-line precedence and source binding", () => {
+  const dir = makeRepo();
+  try {
+    writeFailingGates(dir, "x");
+    git(dir, "config", "push.default", "matching");
+    git(dir, "config", "remote.origin.push", "HEAD:refs/heads/backup");
+
+    assertBlock(
+      runHook("git push origin HEAD:refs/heads/feat/x", { cwd: dir }),
+      /verification is failed/
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("configured multi-ref pushes that include the session branch fail closed", () => {
   const dir = makeRepo();
   try {
