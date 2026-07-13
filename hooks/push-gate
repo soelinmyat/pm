@@ -1108,66 +1108,117 @@ function lexShellCharacters(input) {
   return { characters, closed: quote === null, sawBacktick };
 }
 
-function containsPushShellSubstitution(command) {
-  const pushInside = (body) =>
-    detectGitPushes(body, process.cwd()).length > 0 || containsPushShellSubstitution(body);
-  const findClosing = (start) => {
-    let depth = 1;
-    let quote = null;
-    for (let index = start; index < command.length; index += 1) {
-      const char = command[index];
-      if (char === "\\") {
-        index += 1;
-        continue;
-      }
-      if (quote) {
-        if (char === quote) quote = null;
-        continue;
-      }
-      if (char === "'" || char === '"' || char === "`") {
-        quote = char;
-        continue;
-      }
-      if (char === "(") depth += 1;
-      else if (char === ")" && --depth === 0) return index;
-    }
-    return -1;
+const MAX_SUBSTITUTION_INPUT = 262_144;
+const MAX_SUBSTITUTION_DEPTH = 256;
+const MAX_SUBSTITUTION_COUNT = 4_096;
+
+function inspectPushShellSubstitutions(command) {
+  if (command.length > MAX_SUBSTITUTION_INPUT)
+    return /(?:\$|[<>=])\(/.test(command) ? "indeterminate" : "none";
+  const root = { direct: null, executable: false, depth: 0, quote: null, delimiter: null };
+  const frames = [root];
+  let substitutions = 0;
+  const append = (frame, value) => {
+    if (frame.direct) frame.direct.push(value);
   };
-  let quote = null;
+  const open = (kind, delimiter, depth) => {
+    substitutions += 1;
+    if (substitutions > MAX_SUBSTITUTION_COUNT || frames.length > MAX_SUBSTITUTION_DEPTH)
+      return false;
+    frames.push({
+      direct: kind === "arithmetic" ? null : [],
+      executable: kind !== "arithmetic",
+      depth,
+      quote: null,
+      delimiter,
+    });
+    return true;
+  };
+  const close = () => {
+    const frame = frames.pop();
+    if (frame.executable) {
+      try {
+        if (detectGitPushes(frame.direct.join(""), process.cwd()).length > 0) return "found";
+      } catch {
+        return "indeterminate";
+      }
+    }
+    append(frames[frames.length - 1], " __pm_nested_substitution__ ");
+    return "none";
+  };
+
   for (let index = 0; index < command.length; index += 1) {
+    const frame = frames[frames.length - 1];
     const char = command[index];
     if (char === "\\") {
-      index += 1;
+      append(frame, char);
+      if (index + 1 < command.length) append(frame, command[++index]);
       continue;
     }
-    if (char === "'" && quote !== '"') {
-      quote = quote === "'" ? null : "'";
+    if (frame.delimiter === "`" && char === "`") {
+      const result = close();
+      if (result !== "none") return result;
       continue;
     }
-    if (quote === "'") continue;
+    if (frame.quote === "'") {
+      append(frame, char);
+      if (char === "'") frame.quote = null;
+      continue;
+    }
+    if (char === "'" && frame.quote !== '"') {
+      frame.quote = "'";
+      append(frame, char);
+      continue;
+    }
     if (char === '"') {
-      quote = quote === '"' ? null : '"';
+      frame.quote = frame.quote === '"' ? null : '"';
+      append(frame, char);
       continue;
     }
-    if (char === "`") {
-      const end = command.indexOf("`", index + 1);
-      if (end < 0 || pushInside(command.slice(index + 1, end))) return true;
-      index = end;
+    if (char === "`" && frame.quote !== "'") {
+      append(frame, " __pm_nested_substitution__ ");
+      if (!open("command", "`", 0)) return "indeterminate";
       continue;
     }
-    if (char === "$" && command[index + 1] === "(") {
-      const end = findClosing(index + 2);
-      if (end < 0 || pushInside(command.slice(index + 2, end))) return true;
-      index = end;
+    const commandSubstitution = char === "$" && command[index + 1] === "(";
+    const arithmeticSubstitution = commandSubstitution && command[index + 2] === "(";
+    let zshProcessSubstitution = false;
+    if (frame.quote === null && char === "=" && command[index + 1] === "(") {
+      let wordStart = index;
+      while (wordStart > 0 && !/[\s;|&(){}]/.test(command[wordStart - 1])) wordStart -= 1;
+      zshProcessSubstitution = !isCompoundAssignmentPrefix(command.slice(wordStart, index + 1));
+    }
+    const processSubstitution =
+      frame.quote === null &&
+      command[index + 1] === "(" &&
+      (char === "<" || char === ">" || zshProcessSubstitution);
+    if (commandSubstitution || processSubstitution) {
+      append(frame, " __pm_nested_substitution__ ");
+      if (
+        !open(
+          arithmeticSubstitution ? "arithmetic" : "command",
+          ")",
+          arithmeticSubstitution ? 2 : 1
+        )
+      )
+        return "indeterminate";
+      index += arithmeticSubstitution ? 2 : 1;
       continue;
     }
-    if ((char === "<" || char === ">") && command[index + 1] === "(") {
-      const end = findClosing(index + 2);
-      if (end < 0 || pushInside(command.slice(index + 2, end))) return true;
-      index = end;
+    if (frame.delimiter === ")" && frame.quote === null) {
+      if (char === "(") frame.depth += 1;
+      else if (char === ")") {
+        frame.depth -= 1;
+        if (frame.depth === 0) {
+          const result = close();
+          if (result !== "none") return result;
+          continue;
+        }
+      }
     }
+    append(frame, char);
   }
-  return false;
+  return frames.length === 1 ? "none" : "indeterminate";
 }
 
 function containsUnsupportedHeredoc(command) {
@@ -2118,9 +2169,12 @@ function main() {
     );
     return;
   }
-  if (containsPushShellSubstitution(command)) {
+  const substitutionInspection = inspectPushShellSubstitutions(command);
+  if (substitutionInspection !== "none") {
     emitDeny(
-      "PM dev gate cannot safely inspect a git push inside shell command substitution or process substitution. " +
+      (substitutionInspection === "found"
+        ? "PM dev gate cannot safely inspect a git push inside shell command substitution or process substitution. "
+        : "PM dev gate could not finish inspecting nested shell substitutions in a push command. ") +
         "Run the push as a separate command so its repository, refspec, and quality gates can be verified."
     );
     return;

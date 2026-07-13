@@ -961,15 +961,25 @@ test("pushes inside command substitutions fail closed", () => {
       "A=( <(git push origin HEAD) )",
       "A=( <(cd . && git push origin HEAD) )",
       "A=( >(git push origin HEAD) )",
+      "A=( =(git push origin HEAD) )",
       "declare -A A=( [key]=<(git push origin HEAD) )",
     ])
-      assertBlock(runHook(command, { cwd: dir }), /command substitution/);
+      assertBlock(runHook(command, { cwd: dir }), /command substitution/, command);
     assertAllow(runHook("printf '%s' '$(git push origin HEAD)'", { cwd: dir }));
     assertAllow(runHook("message=$(printf '%s' 'git push is disabled')", { cwd: dir }));
     assertAllow(runHook("value=$(echo git; echo push)", { cwd: dir }));
     assertAllow(runHook("message=$(printf '%s' 'bash git push is disabled')", { cwd: dir }));
     assertAllow(runHook("message=$(printf '%s' 'eval git push is disabled')", { cwd: dir }));
     assertAllow(runHook("A=( 'git push origin HEAD' '(git push)' )", { cwd: dir }));
+    assertAllow(runHook("A=(git push origin HEAD)", { cwd: dir }));
+    assertAllow(runHook("printf '%s' \"<(git push origin HEAD)\"", { cwd: dir }));
+    assertAllow(runHook("printf '%s' \">(git push origin HEAD)\"", { cwd: dir }));
+    assertBlock(
+      runHook(`result=${"$(".repeat(8_000)}git push origin HEAD${")".repeat(8_000)}`, {
+        cwd: dir,
+      }),
+      /could not finish inspecting nested shell substitutions/
+    );
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
