@@ -1067,6 +1067,44 @@ function loadDeriveSessionSlug() {
   return require(CHECKER).deriveSessionSlug;
 }
 
+function checkoutPointsToGitDir(checkoutGitPath, gitDir) {
+  try {
+    const reciprocal = fs.readFileSync(checkoutGitPath, "utf8").trim();
+    const match = /^gitdir:\s*(.+)$/i.exec(reciprocal);
+    return (
+      match &&
+      fs.realpathSync(path.resolve(path.dirname(checkoutGitPath), match[1])) ===
+        fs.realpathSync(gitDir)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function gitRegistersWorktree(gitDir, checkoutDir) {
+  const listed = spawnSync("git", [`--git-dir=${gitDir}`, "worktree", "list", "--porcelain"], {
+    encoding: "utf8",
+    maxBuffer: MAX_BUFFER,
+  });
+  if (!listed || listed.status !== 0) return false;
+  let expected;
+  try {
+    expected = fs.realpathSync(checkoutDir);
+  } catch {
+    return false;
+  }
+  return listed.stdout
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("worktree "))
+    .some((line) => {
+      try {
+        return fs.realpathSync(line.slice("worktree ".length)) === expected;
+      } catch {
+        return false;
+      }
+    });
+}
+
 // Resolve the working-tree directory the push targets, honoring cd / -C /
 // --git-dir. A standalone --work-tree changes file presentation, not the Git
 // repository whose refs are pushed, so repository discovery remains rooted at cwd/-C.
@@ -1083,16 +1121,14 @@ function resolveRepoDir(baseCwd, push) {
     try {
       const checkoutGitFile = fs.readFileSync(path.join(gd, "gitdir"), "utf8").trim();
       const checkoutGitPath = path.resolve(gd, checkoutGitFile);
-      const reciprocal = fs.readFileSync(checkoutGitPath, "utf8").trim();
-      const match = /^gitdir:\s*(.+)$/i.exec(reciprocal);
+      const checkoutDir = path.dirname(checkoutGitPath);
       if (
         checkoutGitFile &&
         path.basename(checkoutGitPath) === ".git" &&
-        match &&
-        fs.realpathSync(path.resolve(path.dirname(checkoutGitPath), match[1])) ===
-          fs.realpathSync(gd)
+        checkoutPointsToGitDir(checkoutGitPath, gd) &&
+        gitRegistersWorktree(gd, checkoutDir)
       )
-        return path.dirname(checkoutGitPath);
+        return checkoutDir;
     } catch {
       // Not a linked-worktree administrative directory.
     }
@@ -1104,8 +1140,10 @@ function resolveRepoDir(baseCwd, push) {
       [`--git-dir=${gd}`, "config", "--path", "--get", "core.worktree"],
       { encoding: "utf8", maxBuffer: MAX_BUFFER }
     );
-    if (configured && configured.status === 0 && configured.stdout.trim())
-      return path.resolve(gd, configured.stdout.trim());
+    if (configured && configured.status === 0 && configured.stdout.trim()) {
+      const checkoutDir = path.resolve(gd, configured.stdout.trim());
+      if (checkoutPointsToGitDir(path.join(checkoutDir, ".git"), gd)) return checkoutDir;
+    }
 
     // A nonstandard Git directory with no authenticated checkout mapping could
     // be paired with any caller-controlled --work-tree. Do not guess.

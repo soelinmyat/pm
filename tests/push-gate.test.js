@@ -1321,6 +1321,7 @@ test("unmapped separate Git directories fail closed", () => {
   const parent = fs.mkdtempSync(path.join(os.tmpdir(), "push-gate-separate-"));
   const checkout = path.join(parent, "checkout");
   const metadata = path.join(parent, "metadata");
+  const redirect = makeRepo();
   try {
     git(parent, "init", "-q", `--separate-git-dir=${metadata}`, checkout);
     git(checkout, "config", "user.email", "test@example.com");
@@ -1340,8 +1341,14 @@ test("unmapped separate Git directories fail closed", () => {
       runHook(`git --git-dir=${metadata} push origin HEAD`, { cwd: parent }),
       /verification is failed/
     );
+    git(checkout, "config", "core.worktree", redirect);
+    assertBlock(
+      runHook(`git --git-dir=${metadata} push origin HEAD`, { cwd: parent }),
+      /could not bind this Git directory/
+    );
   } finally {
     fs.rmSync(parent, { recursive: true, force: true });
+    fs.rmSync(redirect, { recursive: true, force: true });
   }
 });
 
