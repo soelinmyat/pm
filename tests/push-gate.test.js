@@ -628,8 +628,14 @@ test("shell control keywords preserve directory changes before gated pushes", ()
       "TARGET=gated; HOME=$TARGET; cd; git push origin HEAD",
       "HOME=~/gated; cd; git push origin HEAD",
       "HOME=/tmp >/missing/out || cd gated; git push origin HEAD",
+      "HOME=gated >/missing/out || cd; git push origin HEAD",
       "if true; then HOME=gated; cd; git push origin HEAD; fi",
       "if HOME=gated; then cd; git push origin HEAD; fi",
+      "readonly -f HOME || cd gated; git push origin HEAD",
+      "unset -fv HOME || cd gated; git push origin HEAD",
+      "unset -z HOME || cd gated; git push origin HEAD",
+      "export -f HOME=/tmp || cd gated; git push origin HEAD",
+      "export -z HOME=/tmp || cd gated; git push origin HEAD",
       "command -- cd gated && git push origin HEAD",
       "builtin -- cd gated && git push origin HEAD",
       "cd gated; if false; then :; else git push origin HEAD; fi",
@@ -648,10 +654,11 @@ test("shell control keywords preserve directory changes before gated pushes", ()
     assertAllow(runHook("unset HOME; cd; git push origin HEAD", { cwd: parent }));
     assertAllow(runHook("HOME=; cd; git push origin HEAD", { cwd: parent }));
     assertAllow(runHook("HOME=gated; unset -v HOME; cd; git push origin HEAD", { cwd: parent }));
-    assertAllow(
+    assertBlock(
       runHook("HOME=gated; readonly -p HOME; unset HOME; cd; git push origin HEAD", {
         cwd: parent,
-      })
+      }),
+      /verification is failed/
     );
     assertBlock(
       runHook("HOME=/tmp; cd gated && git push origin HEAD", { cwd: parent }),

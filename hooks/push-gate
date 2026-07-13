@@ -698,37 +698,48 @@ function parseDirectoryEnvironmentCommand(segment) {
     else return null;
   }
   const optionLetters = new Set(options.flatMap((option) => option.slice(1).split("")));
+  const supportedOptions = {
+    export: new Set(["f", "n", "p", "-"]),
+    readonly: new Set(["f", "p", "-"]),
+    unset: new Set(["f", "v", "-"]),
+  };
+  const forcedFailure =
+    [...optionLetters].some((option) => !supportedOptions[command].has(option)) ||
+    (command === "unset" && optionLetters.has("f") && optionLetters.has("v")) ||
+    (command === "export" && optionLetters.has("f") && assignments.length > 0);
   const namesChangeValues =
     (command === "unset" && (!optionLetters.has("f") || optionLetters.has("v"))) ||
-    (command === "readonly" && !optionLetters.has("p"));
+    (command === "readonly" && !optionLetters.has("f"));
   const effectiveNames = namesChangeValues ? names : [];
   const relevant = [...assignments.map(assignmentName), ...effectiveNames].some((name) =>
     ["HOME", "CDPATH"].includes(name)
   );
   return relevant
-    ? { assignments, names: effectiveNames, command, hasRedirections, options }
+    ? { assignments, names: effectiveNames, command, forcedFailure, hasRedirections, options }
     : null;
 }
 
 function applyDirectoryEnvironmentCommand(state, command) {
-  const next = { ...state };
+  if (command.forcedFailure) return [{ ...state, succeeded: false }];
+  const assigned = { ...state };
   let succeeded = true;
   for (const assignment of command.assignments) {
     const name = assignmentName(assignment);
     const value = assignment.value.slice(assignment.value.indexOf("=") + 1);
     const valueKnown = !assignment.dynamic && !value.startsWith("~");
     if (name === "HOME") {
-      if (next.homeReadonly) succeeded = false;
+      if (assigned.homeReadonly) succeeded = false;
       else {
-        next.homeValue = valueKnown ? value : null;
-        next.homeKnown = valueKnown;
-        next.homeSet = true;
+        assigned.homeValue = valueKnown ? value : null;
+        assigned.homeKnown = valueKnown;
+        assigned.homeSet = true;
       }
     } else if (name === "CDPATH") {
-      if (next.cdpathReadonly) succeeded = false;
-      else next.cdpathActive = valueKnown ? value !== "" : null;
+      if (assigned.cdpathReadonly) succeeded = false;
+      else assigned.cdpathActive = valueKnown ? value !== "" : null;
     }
   }
+  const next = { ...assigned };
   if (command.command === "readonly") {
     for (const name of [...command.assignments.map(assignmentName), ...command.names]) {
       if (name === "HOME") next.homeReadonly = true;
@@ -750,7 +761,7 @@ function applyDirectoryEnvironmentCommand(state, command) {
     }
   }
   const outcomes = [{ ...next, succeeded }];
-  if (command.hasRedirections) outcomes.push({ ...state, succeeded: false });
+  if (command.hasRedirections) outcomes.push({ ...assigned, succeeded: false });
   return outcomes;
 }
 
