@@ -9,8 +9,28 @@ const { spawn } = require("node:child_process");
 const { pathToFileURL } = require("node:url");
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const MAX_CDP_MESSAGE_CHARS = 96 * 1024 * 1024;
+const MAX_CAPTURE_BYTES = 64 * 1024 * 1024;
 
-function requestJson(url, method = "GET") {
+function writeCaptureFile(outputPath, encoded, label) {
+  if (typeof encoded !== "string" || encoded.length > Math.ceil((MAX_CAPTURE_BYTES * 4) / 3) + 4)
+    throw new Error(`${label} exceeds the ${MAX_CAPTURE_BYTES}-byte capture budget`);
+  const bytes = Buffer.from(encoded, "base64");
+  if (bytes.length > MAX_CAPTURE_BYTES)
+    throw new Error(`${label} exceeds the ${MAX_CAPTURE_BYTES}-byte capture budget`);
+  const flags = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL;
+  const noFollow = fs.constants.O_NOFOLLOW || 0;
+  let descriptor;
+  try {
+    descriptor = fs.openSync(outputPath, flags | noFollow, 0o600);
+    fs.writeFileSync(descriptor, bytes);
+    fs.fsyncSync(descriptor);
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+}
+
+function requestJson(url, method = "GET", timeoutMs = 2_000) {
   return new Promise((resolve, reject) => {
     const request = http
       .request(url, { method }, (response) => {
@@ -26,6 +46,7 @@ function requestJson(url, method = "GET") {
         });
       })
       .on("error", reject);
+    request.setTimeout?.(timeoutMs, () => request.destroy(new Error("CDP HTTP request timed out")));
     request.end();
   });
 }
@@ -39,7 +60,14 @@ async function connect(url) {
   let nextId = 1;
   const pending = new Map();
   socket.addEventListener("message", (event) => {
-    const message = JSON.parse(String(event.data));
+    const raw = String(event.data);
+    if (raw.length > MAX_CDP_MESSAGE_CHARS) {
+      for (const { reject } of pending.values()) reject(new Error("CDP response exceeds limit"));
+      pending.clear();
+      socket.close();
+      return;
+    }
+    const message = JSON.parse(raw);
     if (!message.id || !pending.has(message.id)) return;
     const { resolve, reject } = pending.get(message.id);
     pending.delete(message.id);
@@ -101,7 +129,7 @@ async function main() {
     } catch {
       // The browser may have exited between the state check and the kill.
     }
-    fs.rmSync(profileDir, { recursive: true, force: true });
+    fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 50 });
   };
   for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"]) {
     process.once(signal, () => {
@@ -121,7 +149,8 @@ async function main() {
     let targets = [];
     let target = await requestJson(
       `http://127.0.0.1:${port}/json/new?${encodeURIComponent("about:blank")}`,
-      "PUT"
+      "PUT",
+      1_000
     ).catch(() => null);
     if (!target?.webSocketDebuggerUrl) target = null;
     const targetDeadline = Date.now() + 10_000;
@@ -162,7 +191,7 @@ async function main() {
         captureBeyondViewport: false,
       });
       if (!captured.data) throw new Error("browser did not return screenshot bytes");
-      fs.writeFileSync(config.outputPath, Buffer.from(captured.data, "base64"), { mode: 0o600 });
+      writeCaptureFile(config.outputPath, captured.data, "screenshot");
       return;
     }
     if (config.action === "pdf") {
@@ -172,7 +201,7 @@ async function main() {
         printBackground: true,
       });
       if (!printed.data) throw new Error("browser did not return PDF bytes");
-      fs.writeFileSync(config.outputPath, Buffer.from(printed.data, "base64"), { mode: 0o600 });
+      writeCaptureFile(config.outputPath, printed.data, "PDF");
       return;
     }
     const evaluated = await client.send("Runtime.evaluate", {

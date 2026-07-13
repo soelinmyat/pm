@@ -328,24 +328,16 @@ function runBrowser(browserPath, args, options = {}) {
       const [width, height] = (windowSize?.slice("--window-size=".length) || "1440,1000")
         .split(",")
         .map(Number);
-      const result = spawnSync(process.execPath, [BROWSER_PROBE], {
-        input: JSON.stringify({
+      return runBrowserProbe(
+        {
           browserPath,
           htmlPath: fileURLToPath(url),
           viewport: { width, height },
           action: screenshot ? "screenshot" : "pdf",
           outputPath: (screenshot || pdf).split("=").slice(1).join("="),
-        }),
-        encoding: "utf8",
-        timeout: 60_000,
-        maxBuffer: 4 * 1024 * 1024,
-      });
-      if (result.error) throw new Error(`browser capture failed: ${result.error.message}`);
-      if (result.status !== 0)
-        throw new Error(
-          `browser capture exited ${result.status}: ${(result.stderr || result.stdout || "unknown error").trim().slice(0, 500)}`
-        );
-      return result;
+        },
+        "browser capture"
+      );
     }
   }
   const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-browser-"));
@@ -457,18 +449,27 @@ function probeDataMarkerVisibility(
 }
 
 function runCanonicalProbe(browserPath, htmlPath, viewport, expression) {
-  const result = spawnSync(process.execPath, [BROWSER_PROBE], {
-    input: JSON.stringify({ browserPath, htmlPath, viewport, expression }),
-    encoding: "utf8",
-    timeout: 60_000,
-    maxBuffer: 4 * 1024 * 1024,
-  });
-  if (result.error) throw new Error(`browser probe failed: ${result.error.message}`);
-  if (result.status !== 0)
-    throw new Error(
-      `browser probe exited ${result.status}: ${(result.stderr || result.stdout || "unknown error").trim().slice(0, 500)}`
-    );
+  const result = runBrowserProbe({ browserPath, htmlPath, viewport, expression }, "browser probe");
   return JSON.parse(result.stdout);
+}
+
+function runBrowserProbe(configuration, label) {
+  let result;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    result = spawnSync(process.execPath, [BROWSER_PROBE], {
+      input: JSON.stringify(configuration),
+      encoding: "utf8",
+      timeout: 30_000,
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    if (!result.error && result.status === 0) return result;
+    const detail = `${result.stderr || ""}${result.stdout || ""}`;
+    if (!detail.includes("Chromium did not expose a page target") || attempt === 3) break;
+  }
+  if (result?.error) throw new Error(`${label} failed: ${result.error.message}`);
+  throw new Error(
+    `${label} exited ${result?.status}: ${(result?.stderr || result?.stdout || "unknown error").trim().slice(0, 500)}`
+  );
 }
 
 function metricsExpression() {

@@ -36,17 +36,22 @@ childProcess.spawn = (_executable, args) => {
   browser.kill = () => { browser.exitCode = 0; return true; };
   return browser;
 };
-http.get = (_url, callback) => {
+http.request = (url, _options, callback) => {
   const request = new EventEmitter();
-  process.nextTick(() => {
-    const response = new EventEmitter();
-    response.setEncoding = () => {};
-    callback(response);
+  request.end = () => {
     process.nextTick(() => {
-      response.emit("data", JSON.stringify([{ type: "page", webSocketDebuggerUrl: "ws://fake" }]));
-      response.emit("end");
+      const response = new EventEmitter();
+      response.setEncoding = () => {};
+      callback(response);
+      process.nextTick(() => {
+        const payload = String(url).includes("/json/new")
+          ? { type: "page", webSocketDebuggerUrl: "ws://fake" }
+          : [{ type: "page", webSocketDebuggerUrl: "ws://fake" }];
+        response.emit("data", JSON.stringify(payload));
+        response.emit("end");
+      });
     });
-  });
+  };
   return request;
 };
 global.WebSocket = class FakeWebSocket {
@@ -59,7 +64,9 @@ global.WebSocket = class FakeWebSocket {
   send(raw) {
     const message = JSON.parse(raw);
     const result = message.method === "Runtime.evaluate" && message.params.expression === "document.readyState"
-      ? { result: { value: "loading" } }
+      ? { result: { value: process.env.PM_TEST_READY ? "complete" : "loading" } }
+      : message.method === "Page.captureScreenshot"
+        ? { data: Buffer.from("capture-bytes").toString("base64") }
       : {};
     process.nextTick(() => this.emit("message", { data: JSON.stringify({ id: message.id, result }) }));
   }
@@ -115,6 +122,29 @@ test("terminating the helper kills its detached Chromium process group", async (
     );
     assert.ok(exit.code !== 0 || exit.signal, "helper should terminate on SIGTERM");
     assert.equal(fs.readFileSync(killMarker, "utf8"), "-424242");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("capture publication refuses a symlink destination", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-browser-symlink-"));
+  try {
+    const preload = writePreload(root);
+    const outside = path.join(root, "outside.png");
+    const outputPath = path.join(root, "capture.png");
+    fs.writeFileSync(outside, "unchanged");
+    fs.symlinkSync(outside, outputPath);
+    const result = spawnSync(process.execPath, ["--require", preload, PROBE], {
+      input: JSON.stringify(
+        probeConfig(root, { action: "screenshot", outputPath, readinessTimeoutMs: 50 })
+      ),
+      encoding: "utf8",
+      timeout: 2_000,
+      env: { ...process.env, PM_TEST_READY: "1" },
+    });
+    assert.equal(result.status, 1);
+    assert.equal(fs.readFileSync(outside, "utf8"), "unchanged");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
