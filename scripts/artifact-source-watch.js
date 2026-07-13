@@ -11,17 +11,6 @@ const sourceDir = path.dirname(sourcePath);
 const sourceName = path.basename(sourcePath);
 let drifted = false;
 
-function sourceIdentity() {
-  try {
-    const stat = fs.statSync(sourcePath, { bigint: true });
-    return [stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs].map(String).join(":");
-  } catch (error) {
-    return `error:${error.code || error.message}`;
-  }
-}
-
-const initialIdentity = sourceIdentity();
-
 function markDrift(reason) {
   if (drifted) return;
   drifted = true;
@@ -32,16 +21,20 @@ function markDrift(reason) {
   }
 }
 
-const watcher = fs.watch(sourceDir, { persistent: true }, (event, filename) => {
+const directoryWatcher = fs.watch(sourceDir, { persistent: true }, (event, filename) => {
   if (filename && String(filename) === sourceName) markDrift(`source ${event}`);
-  else if (!filename && sourceIdentity() !== initialIdentity) markDrift(`source ${event}`);
 });
-watcher.on("error", (error) => markDrift(`watcher error: ${error.message}`));
+const fileWatcher = fs.watch(sourcePath, { persistent: true }, (event) =>
+  markDrift(`source-file ${event}`)
+);
+directoryWatcher.on("error", (error) => markDrift(`directory watcher error: ${error.message}`));
+fileWatcher.on("error", (error) => markDrift(`file watcher error: ${error.message}`));
 fs.writeFileSync(readyPath, `${process.pid}\n`, { mode: 0o600, flag: "wx" });
 
 for (const signal of ["SIGTERM", "SIGINT"]) {
   process.on(signal, () => {
-    watcher.close();
+    directoryWatcher.close();
+    fileWatcher.close();
     process.exit(0);
   });
 }

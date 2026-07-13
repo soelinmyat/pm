@@ -9,6 +9,7 @@ const { fileURLToPath, pathToFileURL } = require("node:url");
 const { spawn, spawnSync } = require("node:child_process");
 const { parseCliArgs } = require("./loop-args");
 const { writeJsonAtomic } = require("./lib/atomic-file");
+const projectWriter = require("./lib/project-atomic-write");
 const { inspectPdf, inspectPng } = require("./lib/media-inspect");
 const { MAX_HTML_BYTES } = require("./lib/review-limits");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
@@ -67,7 +68,7 @@ function renderArtifact(options) {
           `--screenshot=${output}`,
           url,
         ],
-        { canonical: options.legacyProbe !== true }
+        { canonical: options.legacyProbe !== true, projectRoot }
       );
       assertRenderSourceIdentity(htmlPath, sourceBefore, sourceWatcher);
       const dimensions = inspectPng(output);
@@ -90,7 +91,7 @@ function renderArtifact(options) {
           `--screenshot=${fullOutput}`,
           url,
         ],
-        { canonical: options.legacyProbe !== true }
+        { canonical: options.legacyProbe !== true, projectRoot }
       );
       assertRenderSourceIdentity(htmlPath, sourceBefore, sourceWatcher);
       const fullDimensions = inspectPng(fullOutput);
@@ -120,7 +121,7 @@ function renderArtifact(options) {
     runBrowser(
       browserPath,
       [...baseArgs(), `--print-to-pdf=${pdfPath}`, "--no-pdf-header-footer", url],
-      { canonical: options.legacyProbe !== true }
+      { canonical: options.legacyProbe !== true, projectRoot }
     );
     assertRenderSourceIdentity(htmlPath, sourceBefore, sourceWatcher);
     const printInspection = inspectPdf(pdfPath);
@@ -328,16 +329,36 @@ function runBrowser(browserPath, args, options = {}) {
       const [width, height] = (windowSize?.slice("--window-size=".length) || "1440,1000")
         .split(",")
         .map(Number);
-      return runBrowserProbe(
-        {
-          browserPath,
-          htmlPath: fileURLToPath(url),
-          viewport: { width, height },
-          action: screenshot ? "screenshot" : "pdf",
-          outputPath: (screenshot || pdf).split("=").slice(1).join("="),
-        },
-        "browser capture"
-      );
+      const outputPath = (screenshot || pdf).split("=").slice(1).join("=");
+      const stagingDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-capture-"));
+      const stagingPath = path.join(stagingDir, screenshot ? "capture.png" : "capture.pdf");
+      try {
+        const result = runBrowserProbe(
+          {
+            browserPath,
+            htmlPath: fileURLToPath(url),
+            viewport: { width, height },
+            action: screenshot ? "screenshot" : "pdf",
+            outputPath: stagingPath,
+          },
+          "browser capture"
+        );
+        const bytes = fs.readFileSync(stagingPath);
+        projectWriter.writeProjectFileAtomic(
+          options.projectRoot,
+          projectRelative(options.projectRoot, outputPath, "browser capture"),
+          bytes,
+          {
+            replace: false,
+            fileMode: 0o600,
+            directoryMode: 0o700,
+            maxBytes: 64 * 1024 * 1024,
+          }
+        );
+        return result;
+      } finally {
+        fs.rmSync(stagingDir, { recursive: true, force: true });
+      }
     }
   }
   const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-artifact-browser-"));
@@ -456,7 +477,7 @@ function runCanonicalProbe(browserPath, htmlPath, viewport, expression) {
 function runBrowserProbe(configuration, label) {
   let result;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
-    result = spawnSync(process.execPath, [BROWSER_PROBE], {
+    result = spawnSync(process.execPath, ["--max-old-space-size=192", BROWSER_PROBE], {
       input: JSON.stringify(configuration),
       encoding: "utf8",
       timeout: 30_000,
