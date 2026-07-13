@@ -1295,6 +1295,7 @@ test("completed canonical sessions still protect their delivery branch", () => {
 test("canonical session inventory rejects symlinked candidates and entry floods", () => {
   const symlinked = makeRepo();
   const flooded = makeRepo();
+  const excludedFlood = makeRepo();
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), "push-gate-session-outside-"));
   try {
     const sessions = path.join(symlinked, ".pm", "dev-sessions");
@@ -1316,10 +1317,61 @@ test("canonical session inventory rejects symlinked candidates and entry floods"
       runHook("git push origin 'refs/heads/*:refs/heads/*'", { cwd: flooded }),
       /canonical session inventory exceeds 512 entries/
     );
+
+    const excludedRoot = path.join(excludedFlood, ".pm", "dev-sessions");
+    fs.mkdirSync(excludedRoot, { recursive: true });
+    for (let index = 0; index < 513; index += 1)
+      fs.writeFileSync(path.join(excludedRoot, `note-${index}.md`), "historical session\n");
+    assertAllow(runHook("git push origin HEAD:refs/heads/backup", { cwd: excludedFlood }));
+    assertBlock(
+      runHook("git push origin 'refs/heads/*:refs/heads/*'", { cwd: excludedFlood }),
+      /canonical session inventory exceeds 512 entries/
+    );
   } finally {
     fs.rmSync(symlinked, { recursive: true, force: true });
     fs.rmSync(flooded, { recursive: true, force: true });
+    fs.rmSync(excludedFlood, { recursive: true, force: true });
     fs.rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test("broad session inventory iterates incrementally and closes its directory", () => {
+  const source = fs.readFileSync(HOOK, "utf8");
+  const start = source.indexOf("function loadCanonicalSessionIndex");
+  const end = source.indexOf("function destinationMatchesShape", start);
+  const inventory = source.slice(start, end);
+  assert.match(inventory, /fs\.opendirSync\(located\.directory\)/);
+  assert.doesNotMatch(inventory, /readdirSync/);
+  assert.match(inventory, /finally\s*\{\s*directory\.closeSync\(\);\s*\}/s);
+});
+
+test("broad pushes fail closed when inspection-only legacy gate markers exist", () => {
+  const dir = makeRepo();
+  try {
+    writeLegacyGates(dir, "x", {});
+    git(dir, "checkout", "-q", "main");
+
+    assertAllow(runHook("git push origin HEAD:refs/heads/backup", { cwd: dir }));
+    assertAllow(runHook("git push origin --tags", { cwd: dir }));
+    assertBlock(
+      runHook("git push origin 'refs/heads/*:refs/heads/*'", { cwd: dir }),
+      /inspection-only legacy gate markers exist: x\.gates\.json/
+    );
+
+    git(dir, "config", "remote.origin.mirror", "true");
+    assertBlock(
+      runHook("git push origin", { cwd: dir }),
+      /inspection-only legacy gate markers exist: x\.gates\.json/
+    );
+    git(dir, "config", "remote.origin.mirror", "false");
+
+    writeCurrentGates(dir, {});
+    assertBlock(
+      runHook("git push origin 'refs/heads/*:refs/heads/*'", { cwd: dir }),
+      /inspection-only legacy gate markers exist/
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 

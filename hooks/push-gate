@@ -1303,8 +1303,9 @@ function loadCanonicalSessionCandidate(located, slug, stat) {
 
 function loadCanonicalSessionIndex(repoDir, exactSlugs = null) {
   const located = canonicalSessionsDirectory(repoDir);
-  if (!located) return { sessions: [], candidates: new Map() };
+  if (!located) return { sessions: [], candidates: new Map(), legacyMarkers: [] };
   const entries = [];
+  const legacyMarkers = [];
   if (exactSlugs) {
     for (const slug of new Set(exactSlugs)) {
       try {
@@ -1314,19 +1315,26 @@ function loadCanonicalSessionIndex(repoDir, exactSlugs = null) {
       }
     }
   } else {
-    for (const entry of fs.readdirSync(located.directory, { withFileTypes: true })) {
-      if (
-        !entry.isDirectory() &&
-        !entry.isSymbolicLink() &&
-        (entry.name === "current.gates.json" ||
-          entry.name.endsWith(".gates.json") ||
-          entry.name.endsWith(".md"))
-      )
-        continue;
-      entries.push({ slug: entry.name, stat: entry });
+    const directory = fs.opendirSync(located.directory);
+    let scannedEntries = 0;
+    try {
+      let entry;
+      while ((entry = directory.readSync()) !== null) {
+        scannedEntries += 1;
+        if (scannedEntries > MAX_SESSION_DIRECTORIES)
+          throw new Error(`canonical session inventory exceeds ${MAX_SESSION_DIRECTORIES} entries`);
+        if (!entry.isDirectory() && !entry.isSymbolicLink() && entry.name.endsWith(".md")) continue;
+        if (
+          !entry.isDirectory() &&
+          !entry.isSymbolicLink() &&
+          (entry.name === "current.gates.json" || entry.name.endsWith(".gates.json"))
+        )
+          legacyMarkers.push(entry.name);
+        else entries.push({ slug: entry.name, stat: entry });
+      }
+    } finally {
+      directory.closeSync();
     }
-    if (entries.length > MAX_SESSION_DIRECTORIES)
-      throw new Error(`canonical session inventory exceeds ${MAX_SESSION_DIRECTORIES} entries`);
   }
 
   const sessions = [];
@@ -1338,7 +1346,7 @@ function loadCanonicalSessionIndex(repoDir, exactSlugs = null) {
     candidates.set(slug, candidate);
     if (candidate.session) sessions.push(candidate);
   }
-  return { sessions, candidates };
+  return { sessions, candidates, legacyMarkers };
 }
 
 function destinationMatchesShape(branch, shape) {
@@ -1361,6 +1369,10 @@ function selectCanonicalSessionTargets(repoDir, shape, currentBranch) {
     repoDir,
     needsFullInventory ? null : shape.branches.map((branch) => deriveSlug(branch))
   );
+  if ((wildcardSelection || shape.unresolvedCurrent) && index.legacyMarkers.length > 0)
+    return {
+      error: `cannot classify broad push while inspection-only legacy gate markers exist: ${index.legacyMarkers.slice(0, 5).join(", ")}`,
+    };
   if (wildcardSelection) {
     const invalid = [...index.candidates.values()].find(
       (candidate) => candidate.error || candidate.missingSession
