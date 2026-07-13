@@ -828,7 +828,12 @@ function applyDirectoryEnvironmentCommand(state, command) {
     }
   }
   const outcomes = [{ ...next, succeeded }];
-  if (command.modeMayFail) outcomes.push({ ...state, succeeded: false });
+  if (command.modeMayFail) {
+    outcomes.push({ ...state, succeeded: false });
+    // Some shells apply array operands before rejecting an unsupported mode.
+    // Preserve those value changes without claiming readonly took effect.
+    outcomes.push({ ...assigned, succeeded: false });
+  }
   if (command.redirectionMayFail) {
     outcomes.push({ ...(command.command ? state : assigned), succeeded: false });
     // Shells disagree on whether assignment-only changes survive a redirect
