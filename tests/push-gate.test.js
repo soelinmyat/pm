@@ -770,6 +770,8 @@ test("pushes inside command substitutions fail closed", () => {
       'result="$(git push origin HEAD)"',
       'result="customer\'s $(git push origin HEAD)"',
       "result=$(bash -c 'git push origin HEAD')",
+      "result=$(bash -lc 'git push origin HEAD')",
+      "result=$(sh -c 'git -C . push origin HEAD')",
       "result=$(eval 'git push origin HEAD')",
     ])
       assertBlock(runHook(command, { cwd: dir }), /command substitution/);
@@ -777,6 +779,7 @@ test("pushes inside command substitutions fail closed", () => {
     assertAllow(runHook("message=$(printf '%s' 'git push is disabled')", { cwd: dir }));
     assertAllow(runHook("value=$(echo git; echo push)", { cwd: dir }));
     assertAllow(runHook("message=$(printf '%s' 'bash git push is disabled')", { cwd: dir }));
+    assertAllow(runHook("message=$(printf '%s' 'eval git push is disabled')", { cwd: dir }));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

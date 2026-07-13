@@ -688,12 +688,38 @@ function lexShellCharacters(input) {
 }
 
 function containsPushCommandSubstitution(command) {
+  const indirectionPush = (body) => {
+    const segments = [];
+    let cursor = 0;
+    for (const token of scanShellTokens(body)) {
+      segments.push(body.slice(cursor, token.index));
+      cursor = token.index + token.value.length;
+    }
+    segments.push(body.slice(cursor));
+    return segments.some((segment) => {
+      const words = splitSimpleShellWords(segment.trim());
+      let index = 0;
+      while (index < words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[index].value)) index++;
+      while (["command", "builtin", "env"].includes(words[index]?.value)) index++;
+      const executable = words[index]?.value;
+      if (executable === "eval") {
+        const script = words.slice(index + 1).map((word) => word.value).join(" ");
+        return Boolean(script) && pushInside(script);
+      }
+      if (!["bash", "sh", "zsh"].includes(executable)) return false;
+      for (let option = index + 1; option < words.length; option += 1) {
+        const value = words[option].value;
+        if (!/^-[A-Za-z]+$/.test(value) || !value.slice(1).includes("c")) continue;
+        const script = words[option + 1];
+        return !script || script.dynamic || pushInside(script.value);
+      }
+      return false;
+    });
+  };
   const pushInside = (body) =>
     detectGitPushes(body, process.cwd()).length > 0 ||
     containsPushCommandSubstitution(body) ||
-    /(?:^|[;&|()]\s*)(?:eval\s+|(?:ba?sh|zsh)\b[^;&|()]*?\s-c\s+)["'][^"']*\bgit\s+push\b/.test(
-      body
-    );
+    indirectionPush(body);
   const findClosing = (start) => {
     let depth = 1;
     let quote = null;
