@@ -6,7 +6,11 @@ description: Write normalized evidence records into .pm/ with dedup, manifest tr
 
 ## Normalize Evidence
 
-**Goal:** Convert raw evidence inputs into normalized `.pm/` records and manifest entries with enough provenance to support safe synthesis.
+## Goal
+
+Convert raw evidence inputs into normalized `.pm/` records and manifest entries with enough provenance to support safe synthesis.
+
+## How
 
 Write normalized evidence into `.pm/`.
 
@@ -156,3 +160,9 @@ Instead:
 - keep quotes short and relevant
 - warn the user explicitly:
   > "Review these findings before committing. Automatic PII detection is not reliable enough to guarantee safe redaction."
+
+## Done-when
+
+Every accepted item has a private normalized record and manifest entry with stable identity, required fields, provenance, dedup state, and an explicit PII review warning; unreliable items remain parse warnings.
+
+**Advance:** proceed to Step 3 (Synthesize).

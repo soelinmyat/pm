@@ -6,7 +6,11 @@ description: Scan in-scope files for staleness and missing sections, present aud
 
 ## Phase 1: Audit
 
-**Goal:** Identify exactly which in-scope artifacts are stale, incomplete, missing, or fresh, and estimate the refresh cost before any patching starts.
+## Goal
+
+Identify exactly which in-scope artifacts are stale, incomplete, missing, or fresh, and estimate the refresh cost before any patching starts.
+
+## How
 
 Read `${CLAUDE_PLUGIN_ROOT}/skills/refresh/references/staleness-thresholds.md` for threshold values, frontmatter date handling, and section detection rules.
 
@@ -113,3 +117,9 @@ Proceed?
 ```
 
 Only continue after explicit confirmation.
+
+## Done-when
+
+Every in-scope artifact is classified with its canonical threshold and missing sections, provider/web cost is projected, and the user has confirmed the execution scope.
+
+**Advance:** proceed to Step 3 (Execute).

@@ -6,9 +6,11 @@ description: Generate a concise import summary report and recommend the next bes
 
 ## Report Back
 
-**Goal:** Give the user a clear summary of what was ingested and a concrete recommendation for what to do next with the new evidence.
+## Goal
 
-**How:**
+Give the user a clear summary of what was ingested and a concrete recommendation for what to do next with the new evidence.
+
+## How
 
 End with a concise import report covering:
 - files imported (text + audio separately)
@@ -32,3 +34,7 @@ Pick the strongest signal. If multiple apply, recommend the highest-impact one a
 
 Say: "Ingest complete. {N} items normalized and routed to `{pm_dir}/evidence/`.
 Ready to act on this evidence? (a) Groom a feature — `/pm:groom`, (b) Update strategy — `/pm:strategy`, (c) Done for now."
+
+## Done-when
+
+The user sees imported, skipped, replaced, normalized, synthesized, routed, and warning counts plus one evidence-backed recommendation and its concrete next action.

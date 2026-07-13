@@ -117,13 +117,18 @@ test("routed workflows do not invent linear transitions between subcommands", ()
           {
             frontmatter: { order: 1 },
             relPath: "steps/01-route.md",
-            body: "Offer Step 2 according to the selected branch as the next action.",
+            body: "**Advance:** proceed to Step 2, Step 3, Step 4, Step 5, Step 6, or Step 7 according to the selected branch.",
           },
           {
             frontmatter: { order: 2 },
             relPath: "steps/02-status.md",
             body: "Summarize status and offer the next action.",
           },
+          ...[3, 4, 5, 6, 7].map((order) => ({
+            frontmatter: { order },
+            relPath: `steps/0${order}-mode.md`,
+            body: "Summarize the routed result and offer the next action.",
+          })),
         ],
       },
     ],

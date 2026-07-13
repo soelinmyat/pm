@@ -6,7 +6,9 @@ description: Industry landscape research — market overview, key players, keywo
 
 ## Landscape Mode (`$pm-research landscape`)
 
-**Goal:** Produce (or update) the market landscape document — market overview, key players, keyword landscape, and positioning map — so that strategy and competitor profiling have a grounded market frame.
+## Goal
+
+Produce (or update) the market landscape document — market overview, key players, keyword landscape, and positioning map — so that strategy and competitor profiling have a grounded market frame.
 
 **Loop worker branch:** If `PM_LOOP_WORKER=1`, read existing PM context but write the consolidated landscape to `PM_LOOP_RESULT_DIR/artifacts/landscape.md`. Preserve sourcing, synthesis, user-input defaults, and verification. Skip the normal PM landscape, index, insight-routing, and log writes; atomically return the document through `PM_LOOP_RESULT_FILE` as `artifact-ready` (or `blocked`, `failed`, `noop`).
 
@@ -123,4 +125,6 @@ If no other insight domains exist and no `{pm_dir}/strategy.md` exists, skip thi
 
 When `{pm_dir}/insights/business/landscape.md` exists and user runs landscape mode again: re-run searches, diff against existing content, present changes for review, update the file in place, bump `last_updated:` in frontmatter.
 
-Landscape mode is complete once `{pm_dir}/insights/business/landscape.md` has all template sections populated, the user has validated the findings, insight routing has run (or been explicitly skipped), and indexes/logs are updated — for updates, the `updated:` date is bumped and the user confirmed the diff. If competitor profiling is the next selected mode, proceed to Step 4 (Competitor Mode).
+## Done-when
+
+`{pm_dir}/insights/business/landscape.md` has all template sections populated, the user has validated the findings, insight routing has run or been explicitly skipped, and indexes/logs are updated. Offer competitor profiling as the next action when appropriate; do not execute another research mode in this invocation.

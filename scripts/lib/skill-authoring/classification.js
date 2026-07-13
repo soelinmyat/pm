@@ -38,12 +38,34 @@ const SKILL_CLASSES = Object.freeze([
   "redirect",
 ]);
 
-const STEP_TOPOLOGY = Object.freeze({
-  loop: "routed",
+const STEP_TRANSITIONS = Object.freeze({
+  loop: Object.freeze({
+    1: Object.freeze([2, 3, 4, 5, 6, 7]),
+    2: Object.freeze([]),
+    3: Object.freeze([]),
+    4: Object.freeze([]),
+    5: Object.freeze([]),
+    6: Object.freeze([]),
+    7: Object.freeze([]),
+  }),
+  research: Object.freeze({
+    1: Object.freeze([2]),
+    2: Object.freeze([3, 4, 5]),
+    3: Object.freeze([]),
+    4: Object.freeze([]),
+    5: Object.freeze([]),
+  }),
+  refresh: Object.freeze({
+    1: Object.freeze([2, 4]),
+    2: Object.freeze([3]),
+    3: Object.freeze([4]),
+    4: Object.freeze([5]),
+    5: Object.freeze([]),
+  }),
 });
 
 function classForSkill(skill) {
   return SKILL_CLASSIFICATION[skill.name] || skill.skillFm?.["skill-class"] || null;
 }
 
-module.exports = { SKILL_CLASSES, SKILL_CLASSIFICATION, STEP_TOPOLOGY, classForSkill };
+module.exports = { SKILL_CLASSES, SKILL_CLASSIFICATION, STEP_TRANSITIONS, classForSkill };

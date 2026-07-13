@@ -1,6 +1,6 @@
 "use strict";
 
-const { STEP_TOPOLOGY } = require("../../lib/skill-authoring/classification.js");
+const { STEP_TRANSITIONS } = require("../../lib/skill-authoring/classification.js");
 
 function hasNextAction(body) {
   return /(next action|offer|proceed to|continue with|advance:|next,|then end|close by)/i.test(
@@ -16,7 +16,7 @@ module.exports = {
   check(ctx) {
     const issues = [];
     for (const skill of ctx.skills) {
-      const routed = STEP_TOPOLOGY[skill.name] === "routed";
+      const transitionGraph = STEP_TRANSITIONS[skill.name];
       const ordered = [...skill.steps].sort(
         (a, b) => Number(a.frontmatter.order) - Number(b.frontmatter.order)
       );
@@ -37,14 +37,38 @@ module.exports = {
             message: `Advance references missing Step ${invalid[0]}`,
           });
         }
-        if (routed) {
+        if (transitionGraph) {
+          const expected = transitionGraph[current] || [];
           if (targets.includes(current)) {
             issues.push({
               file: step.relPath,
               message: "routed step cannot advance circularly to itself",
             });
           }
-          if (!hasNextAction(step.body)) {
+          const missing = expected.filter((target) => !targets.includes(target));
+          if (missing.length > 0) {
+            issues.push({
+              file: step.relPath,
+              message: `routed step must advance to existing Step ${missing[0]}`,
+            });
+          }
+          const unexpected = targets.filter((target) => !expected.includes(target));
+          if (unexpected.length > 0) {
+            issues.push({
+              file: step.relPath,
+              message: `routed step cannot advance to undeclared Step ${unexpected[0]}`,
+            });
+          }
+          if (
+            expected.length > 1 &&
+            !advanceLines.some((line) => /\b(branch|condition|according|if|mode)\b/i.test(line))
+          ) {
+            issues.push({
+              file: step.relPath,
+              message: "multiple routed targets require an explicit branch condition",
+            });
+          }
+          if (expected.length === 0 && !hasNextAction(step.body)) {
             issues.push({
               file: step.relPath,
               message: "routed step must summarize and offer a concrete next action",

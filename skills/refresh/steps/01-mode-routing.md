@@ -6,9 +6,13 @@ description: Select refresh mode and discover domains based on arguments
 
 ## Mode Routing
 
-**Goal:** Determine the refresh scope (full audit, scoped audit, or consolidation-only) based on the user's argument and available domains.
+## Goal
 
-**How:** Read `${CLAUDE_PLUGIN_ROOT}/skills/refresh/references/mode-routing.md` for the full routing table, domain discovery rules, and scope definitions.
+Determine the refresh scope (full audit, scoped audit, or consolidation-only) based on the user's argument and available domains.
+
+## How
+
+Read `${CLAUDE_PLUGIN_ROOT}/skills/refresh/references/mode-routing.md` for the full routing table, domain discovery rules, and scope definitions.
 
 Route to the appropriate phase based on the argument:
 
@@ -30,3 +34,9 @@ Discover available insight domains by scanning `{pm_dir}/insights/*/index.md`. T
 If the argument does not resolve to a known mode or domain, show the discovered domains and any valid competitor slugs.
 
 If the resolved scope is consolidation-only, skip to Step 4 (Consolidation); otherwise continue to Step 2 (Audit).
+
+## Done-when
+
+The scope resolves to a discovered domain, competitor, full audit, or consolidation-only path without hardcoded domain assumptions.
+
+**Advance:** proceed to Step 2 (Audit), or Step 4 (Consolidation) according to the consolidation-only branch.

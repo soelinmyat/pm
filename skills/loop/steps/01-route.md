@@ -45,3 +45,5 @@ It returns one object with `state` plus `configured`, `installed`, `paused`, `co
 The situation is derived from the shared classifier, edge notes are visible, and the user sees no more than the applicable safe actions without an effect running early.
 
 Offer the selected routed Step 2–7 only after the user chooses that branch; otherwise end with the one-glance status.
+
+**Advance:** proceed to Step 2, Step 3, Step 4, Step 5, Step 6, or Step 7 according to the selected subcommand branch.

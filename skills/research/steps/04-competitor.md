@@ -8,7 +8,11 @@ description: Competitor discovery, profiling (5 files per competitor), and synth
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` for shared capability classification.
 
-**Goal:** Discover close competitors, produce 5-file profiles for each, and synthesize findings into the competitor index and landscape document so downstream skills (strategy, ideate, groom) can use them.
+## Goal
+
+Discover close competitors, produce 5-file profiles for each, and synthesize findings into the competitor index and landscape document so downstream skills (strategy, ideate, groom) can use them.
+
+## How
 
 **Loop worker branch:** If `PM_LOOP_WORKER=1`, read existing PM context but consolidate the five-file profiling output and synthesis into `PM_LOOP_RESULT_DIR/artifacts/competitor-{slug}.md`. Preserve source convergence, profile completeness, synthesis, and verification. Skip all normal PM profile, index, insight-routing, and log writes; atomically return the document through `PM_LOOP_RESULT_FILE` as `artifact-ready` (or `blocked`, `failed`, `noop`).
 
@@ -90,4 +94,6 @@ Before running batch SEO calls across multiple competitors, estimate the request
 
 Only continue after explicit confirmation.
 
-Competitor mode is complete once all confirmed competitors pass the 5-file completeness check, the competitor index is updated with links and market gaps, the landscape document reflects new players and positioning-map entries, insight routing has run (or been explicitly skipped), and all logs are appended.
+## Done-when
+
+All confirmed competitors pass the 5-file completeness check, the competitor index is updated with links and market gaps, the landscape reflects new players, routing is complete or skipped, and logs are appended. Offer strategy, ideation, or grooming as the next action; do not execute another research mode.

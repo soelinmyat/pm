@@ -6,7 +6,11 @@ description: Report refresh results — updated files, synthesis changes, unchan
 
 ## Phase 3: Summary
 
-**Goal:** Give the user a concise, trustworthy report of what changed, what was skipped, and what still needs attention after refresh.
+## Goal
+
+Give the user a concise, trustworthy report of what changed, what was skipped, and what still needs attention after refresh.
+
+## How
 
 After execution, show what changed:
 
@@ -47,3 +51,7 @@ After execution, show what changed:
 14. **Topic research with `source_origin: mixed`:** Refresh only external evidence. Preserve Representative Quotes, internal findings, and `[internal]`-prefixed entries. Rewrite shared sections to reflect both sources.
 
 Say: "Refresh complete. {N} files updated, {M} unchanged. Run `/pm:groom` or `/pm:ideate` to use the refreshed evidence. What would you like to do next?"
+
+## Done-when
+
+Updated, synthesized, unchanged, skipped, failed, and human-decision items reconcile to the audited scope, and the user has `/pm:groom` or `/pm:ideate` as a concrete next action.

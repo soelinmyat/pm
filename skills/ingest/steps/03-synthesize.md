@@ -6,7 +6,11 @@ description: Cluster normalized evidence into problem themes, score them, and wr
 
 ## Synthesize Research
 
-**Goal:** Turn normalized evidence into durable research artifacts and indexes that downstream PM skills can actually use.
+## Goal
+
+Turn normalized evidence into durable research artifacts and indexes that downstream PM skills can actually use.
+
+## How
 
 <HARD-GATE>
 Synthesis is required after normalization. Do NOT skip because the record count is small.
@@ -172,3 +176,9 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "{pm_dir}"
 ```
 
 If validation fails, fix the frontmatter errors before proceeding. Do not surface the validation step to the user — just fix silently and move on.
+
+## Done-when
+
+Evidence clusters are synthesized into canonical, provenance-rich artifacts; mixed-origin ownership is preserved; touched indexes and logs are current; validation passes.
+
+**Advance:** proceed to Step 4 (Route Insights).
