@@ -18,6 +18,7 @@ try {
 
 const {
   PHASES,
+  advanceDecisionVersion,
   applyRouting,
   createSession,
   grantAuthority,
@@ -33,6 +34,38 @@ const {
   writeJsonAtomic,
   writeSession,
 } = require("../scripts/lib/dev-session-schema");
+
+test("decision version advances are explicit, audited, and compare-and-swap guarded", () => {
+  const repo = makeRepo();
+  try {
+    const session = createSession({ slug: "decision-lineage", sourceDir: repo.root });
+    const advanced = advanceDecisionVersion(session, 1, "User stopped the stale review lineage", {
+      now: "2026-07-13T05:00:00.000Z",
+    });
+    assert.equal(advanced.routing.decision_version, 2);
+    assert.deepEqual(advanced.routing.decision_log, [
+      {
+        version: 2,
+        reason: "User stopped the stale review lineage",
+        recorded_at: "2026-07-13T05:00:00.000Z",
+      },
+    ]);
+    assert.equal(session.routing.decision_version, 1);
+    assert.throws(
+      () => advanceDecisionVersion(advanced, 1, "Stale caller"),
+      /expected 1, observed 2/
+    );
+    assert.throws(() => advanceDecisionVersion(session, 1, "  "), /non-empty reason/);
+    const bypassed = structuredClone(session);
+    bypassed.routing.decision_version = 2;
+    assert.ok(
+      validateSession(bypassed).some((issue) => issue.path === "$.routing.decision_log"),
+      "a bare version edit must not authorize a new lineage"
+    );
+  } finally {
+    repo.cleanup();
+  }
+});
 
 test("applyRouting persists observed risk and prevents kind from erasing safeguards", () => {
   const repo = makeRepo();

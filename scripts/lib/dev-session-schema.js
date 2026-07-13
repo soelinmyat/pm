@@ -390,6 +390,7 @@ function validateRouting(routing, errors) {
     "required_gates",
     "review_mode",
     "decision_version",
+    "decision_log",
     "reasons",
   ]);
   if (!isObject(routing)) {
@@ -414,6 +415,44 @@ function validateRouting(routing, errors) {
   }
   if (!Number.isInteger(routing.decision_version) || routing.decision_version < 1) {
     errors.push(issue("$.routing.decision_version", "must be a positive integer"));
+  }
+  if (routing.decision_log !== undefined) {
+    if (!Array.isArray(routing.decision_log)) {
+      errors.push(issue("$.routing.decision_log", "must be an array"));
+    } else {
+      routing.decision_log.forEach((entry, index) => {
+        const entryPath = `$.routing.decision_log[${index}]`;
+        if (!isObject(entry)) {
+          errors.push(issue(entryPath, "must be an object"));
+          return;
+        }
+        const entryFields = new Set(["version", "reason", "recorded_at"]);
+        validateExactFields(entry, entryFields, entryPath, errors);
+        for (const field of entryFields) requireField(entry, field, entryPath, errors);
+        if (!Number.isInteger(entry.version) || entry.version < 2) {
+          errors.push(issue(`${entryPath}.version`, "must be an integer of at least 2"));
+        }
+        if (typeof entry.reason !== "string" || !entry.reason.trim()) {
+          errors.push(issue(`${entryPath}.reason`, "must be a non-empty string"));
+        }
+        if (!isIsoDate(entry.recorded_at)) {
+          errors.push(issue(`${entryPath}.recorded_at`, "must be an ISO date"));
+        }
+      });
+      const versions = routing.decision_log.map((entry) => entry?.version);
+      if (new Set(versions).size !== versions.length) {
+        errors.push(issue("$.routing.decision_log", "versions must be unique"));
+      }
+      if (versions.some((version, index) => version !== index + 2)) {
+        errors.push(issue("$.routing.decision_log", "versions must be contiguous from 2"));
+      }
+      if (versions.length > 0 && versions.at(-1) !== routing.decision_version) {
+        errors.push(issue("$.routing.decision_log", "latest version must match decision_version"));
+      }
+    }
+  }
+  if (routing.decision_version > 1 && !routing.decision_log?.length) {
+    errors.push(issue("$.routing.decision_log", "required when decision_version exceeds 1"));
   }
   if (!Array.isArray(routing.reasons)) errors.push(issue("$.routing.reasons", "must be an array"));
 }
@@ -1080,6 +1119,7 @@ function createSession(options) {
       required_gates: ["tdd", "review", "verification"],
       review_mode: "full",
       decision_version: 1,
+      decision_log: [],
       reasons: ["Compatibility route until intake records observed risk"],
     },
     evidence: {},
@@ -1126,6 +1166,7 @@ function applyRouting(session, facts, options = {}) {
     required_gates: [...route.required_gates],
     review_mode: route.review_mode,
     decision_version: route.decision_version,
+    decision_log: [],
     reasons: [...route.reasons],
   };
   next.updated_at = options.now || new Date().toISOString();
@@ -1365,6 +1406,9 @@ function upgradeCompatibleSession(input) {
   if (!isObject(input) || input.schema_version !== 2) return input;
   const session = structuredClone(input);
   if (!Array.isArray(session.authority_log)) session.authority_log = [];
+  if (isObject(session.routing) && !Array.isArray(session.routing.decision_log)) {
+    session.routing.decision_log = [];
+  }
   const loggedGrants = new Set(
     session.authority_log
       .filter((entry) => isObject(entry) && Array.isArray(entry.actions))
@@ -1718,6 +1762,30 @@ function grantAuthority(session, actions, reason, options = {}) {
   return next;
 }
 
+function advanceDecisionVersion(session, expectedVersion, reason, options = {}) {
+  assertValidSession(session);
+  if (session.status !== "active") throw new Error("only an active session can advance a decision");
+  if (!Number.isInteger(expectedVersion) || expectedVersion < 1) {
+    throw new TypeError("expected decision version must be a positive integer");
+  }
+  if (session.routing.decision_version !== expectedVersion) {
+    throw new Error(
+      `decision version changed: expected ${expectedVersion}, observed ${session.routing.decision_version}`
+    );
+  }
+  if (typeof reason !== "string" || !reason.trim()) {
+    throw new TypeError("decision advance requires a non-empty reason");
+  }
+  const next = structuredClone(session);
+  const recordedAt = options.now || new Date().toISOString();
+  const version = expectedVersion + 1;
+  next.routing.decision_version = version;
+  next.routing.decision_log.push({ version, reason: reason.trim(), recorded_at: recordedAt });
+  next.updated_at = recordedAt;
+  assertValidSession(next);
+  return next;
+}
+
 function updateWorkspace(session, worktree, options = {}) {
   assertValidSession(session);
   const requested = path.resolve(worktree);
@@ -1878,6 +1946,7 @@ module.exports = {
   PHASES,
   resolvePhaseContract,
   RUNNER_VERSION,
+  advanceDecisionVersion,
   applyRouting,
   createSession,
   grantAuthority,

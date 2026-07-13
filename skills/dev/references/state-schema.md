@@ -16,6 +16,7 @@ dev-session record --session <path> --result <path>
 dev-session recertify --session <path> --phases <csv> --commit <sha>
 dev-session unblock --session <path> --reason <resolution>
 dev-session authorize --session <path> --grant <csv> --reason <consent>
+dev-session advance-decision --session <path> --expected-version <n> --reason <direction>
 dev-session workspace --session <path> --worktree <path>
 dev-session validate --session <path>
 dev-session migrate --legacy <path> [--output <path>]
@@ -45,6 +46,8 @@ The runner is the only lifecycle writer. `next` and `prompt` are read-only. `rec
 - After later review/fix commits, `recertify` preserves the original evidence commit and writes paired `verified_commit` / `verified_at` fields for phases whose evidence was actually rechecked. Completion accepts either the original or verified commit when it equals current HEAD.
 
 Every accepted result appends a history record with the prior phase, next phase, reason, SHA-256 result hash, timestamp, and runner version. Results never grant authority or modify routing.
+
+When explicit user direction supersedes an unfinished review lineage, `advance-decision` performs a compare-and-swap on `routing.decision_version` and appends the reason and timestamp to `routing.decision_log`. This is the only supported way to open a new review lineage for the same Dev run; changing a review run ID alone never resets the three-round budget.
 
 ### Intake routing
 

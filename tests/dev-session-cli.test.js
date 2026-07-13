@@ -335,6 +335,42 @@ test("route records strict intake facts and emits the durable decision", () => {
   }
 });
 
+test("advance-decision records explicit direction and rejects a stale expected version", () => {
+  const repo = makeRepo();
+  try {
+    const initialized = JSON.parse(
+      repo.run(["init", "--slug", "decision-cli", "--source-dir", repo.root, "--json"]).stdout
+    );
+    const advanced = repo.run([
+      "advance-decision",
+      "--session",
+      initialized.session_path,
+      "--expected-version",
+      "1",
+      "--reason",
+      "User stopped the stale review lineage",
+      "--json",
+    ]);
+    assert.equal(advanced.status, 0, advanced.stderr);
+    const payload = JSON.parse(advanced.stdout);
+    assert.equal(payload.decision_version, 2);
+    assert.equal(payload.decision.reason, "User stopped the stale review lineage");
+    const stale = repo.run([
+      "advance-decision",
+      "--session",
+      initialized.session_path,
+      "--expected-version",
+      "1",
+      "--reason",
+      "Stale retry",
+    ]);
+    assert.equal(stale.status, 3);
+    assert.match(stale.stderr, /expected 1, observed 2/);
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test("route converts an RFC schema-v3 sidecar into the persisted Dev DAG", () => {
   const repo = makeRepo();
   try {

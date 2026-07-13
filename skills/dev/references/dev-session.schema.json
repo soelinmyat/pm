@@ -469,8 +469,32 @@
         },
         "review_mode": { "enum": ["code-scan", "full"] },
         "decision_version": { "type": "integer", "minimum": 1 },
+        "decision_log": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["version", "reason", "recorded_at"],
+            "properties": {
+              "version": { "type": "integer", "minimum": 2 },
+              "reason": { "type": "string", "minLength": 1 },
+              "recorded_at": { "type": "string", "format": "date-time" }
+            }
+          }
+        },
         "reasons": { "type": "array", "items": { "type": "string" } }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "decision_version": { "type": "integer", "minimum": 2 } }
+          },
+          "then": {
+            "required": ["decision_log"],
+            "properties": { "decision_log": { "type": "array", "minItems": 1 } }
+          }
+        }
+      ]
     },
     "evidence_record": {
       "type": "object",
