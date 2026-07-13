@@ -591,10 +591,13 @@ test("cd <dir> && git push form is detected and gated against that repo", () => 
 test("shell control keywords preserve directory changes before gated pushes", () => {
   const parent = fs.mkdtempSync(path.join(os.tmpdir(), "pm-push-gate-control-cd-"));
   const gated = path.join(parent, "gated");
+  const child = path.join(parent, "child");
   try {
     fs.mkdirSync(gated);
     makeRepoAt(gated);
     writeFailingGates(gated, "x");
+    fs.mkdirSync(child);
+    makeRepoAt(child);
     for (const command of [
       "if true; then cd gated && git push origin HEAD; fi",
       "for item in one; do cd gated && git push origin HEAD; done",
@@ -616,6 +619,7 @@ test("shell control keywords preserve directory changes before gated pushes", ()
       "export HOME=gated; cd; git push origin HEAD",
       "export CDPATH=gated; cd child; git push origin HEAD",
       "unset HOME; cd; git push origin HEAD",
+      "HOME=gated >/dev/null MODE=x; cd; git push origin HEAD",
       "if true; then HOME=gated; cd; git push origin HEAD; fi",
       "if HOME=gated; then cd; git push origin HEAD; fi",
       "command -- cd gated && git push origin HEAD",
@@ -626,6 +630,16 @@ test("shell control keywords preserve directory changes before gated pushes", ()
         runHook(command, { cwd: parent }),
         /verification is failed|could not determine the repository/
       );
+    assertAllow(
+      runHook("CDPATH=gated; CDPATH=; cd child && git push origin HEAD", { cwd: parent })
+    );
+    assertAllow(
+      runHook("CDPATH=gated; unset CDPATH; cd child && git push origin HEAD", { cwd: parent })
+    );
+    assertBlock(
+      runHook("HOME=/tmp; cd gated && git push origin HEAD", { cwd: parent }),
+      /verification is failed/
+    );
   } finally {
     fs.rmSync(parent, { recursive: true, force: true });
   }

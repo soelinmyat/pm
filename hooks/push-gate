@@ -501,7 +501,12 @@ function splitSimpleShellWords(input) {
 function detectGitPushes(command, baseCwd) {
   const joined = command.replace(/\\\r?\n/g, " ");
   let states = [
-    { cwd: path.resolve(baseCwd), succeeded: true, directoryEnvironmentChanged: false },
+    {
+      cwd: path.resolve(baseCwd),
+      succeeded: true,
+      homeChanged: false,
+      cdpathChanged: Boolean(process.env.CDPATH),
+    },
   ];
   const subshells = [];
   const pushes = [];
@@ -513,13 +518,15 @@ function detectGitPushes(command, baseCwd) {
     const trimmed = segment.trim();
     if (!trimmed) return;
     const { executes, skips } = partitionShellStates(states, operator);
-    if (changesDirectoryEnvironment(trimmed)) {
+    const directoryEnvironment = directoryEnvironmentTransition(trimmed);
+    if (directoryEnvironment) {
       states = dedupeShellStates([
         ...skips,
-        ...executes.flatMap((state) => [
-          { ...state, succeeded: true, directoryEnvironmentChanged: true },
-          { ...state, succeeded: false },
-        ]),
+        ...executes.map((state) => ({
+          ...state,
+          ...directoryEnvironment,
+          succeeded: true,
+        })),
       ]);
       return;
     }
@@ -532,7 +539,8 @@ function detectGitPushes(command, baseCwd) {
             ...state,
             cwd:
               directoryChange.target === null ||
-              (state.directoryEnvironmentChanged && directoryChange.environmentSensitive) ||
+              (directoryChange.environmentSensitive === "home" && state.homeChanged) ||
+              (directoryChange.environmentSensitive === "cdpath" && state.cdpathChanged) ||
               (state.cwd === null && !path.isAbsolute(directoryChange.target))
                 ? null
                 : path.resolve(
@@ -648,38 +656,45 @@ function parseDirectoryChange(segment) {
   );
   if (!match) return { recognized: false, target: null };
   const [, command, option, operand] = match;
-  if (command === "popd") return { recognized: true, target: null, environmentSensitive: true };
+  if (command === "popd")
+    return { recognized: true, target: null, environmentSensitive: "unknown" };
   // Assignments on special builtins can alter directory resolution through
   // HOME, OLDPWD, CDPATH, or shell-specific variables. Preserve detection but
   // make the destination unknown so a following push is checked fail-closed.
-  if (assignmentPrefixed) return { recognized: true, target: null, environmentSensitive: true };
+  if (assignmentPrefixed)
+    return { recognized: true, target: null, environmentSensitive: "unknown" };
   if (command === "pushd" && (option || operand === undefined || /^[+-]\d+$/.test(operand)))
-    return { recognized: true, target: null, environmentSensitive: true };
+    return { recognized: true, target: null, environmentSensitive: "unknown" };
   if (operand === undefined || operand === "")
     return {
       recognized: true,
       target: process.env.HOME ? path.resolve(process.env.HOME) : null,
-      environmentSensitive: true,
+      environmentSensitive: "home",
     };
-  if (operand === "-") return { recognized: true, target: null, environmentSensitive: true };
+  if (operand === "-") return { recognized: true, target: null, environmentSensitive: "unknown" };
   const target = decodeSimpleShellWord(operand);
   return {
     recognized: true,
     target,
-    environmentSensitive: target === null || !path.isAbsolute(target),
+    environmentSensitive:
+      target === null
+        ? "unknown"
+        : !path.isAbsolute(target) && !target.includes("/")
+          ? "cdpath"
+          : null,
   };
 }
 
-const DIRECTORY_ENVIRONMENT_NAMES = new Set(["HOME", "OLDPWD", "CDPATH"]);
-
-function changesDirectoryEnvironment(segment) {
-  const commandText = stripTrailingShellRedirections(stripExecutionPrefixes(segment));
-  if (commandText === null) return false;
-  const words = splitSimpleShellWords(commandText);
-  if (words.length === 0) return false;
-  const values = words.map((word) => word.value);
-  if (values[0] === "unset")
-    return values.slice(1).some((name) => DIRECTORY_ENVIRONMENT_NAMES.has(name));
+function directoryEnvironmentTransition(segment) {
+  const values = shellCommandWordsWithoutRedirections(stripExecutionPrefixes(segment));
+  if (values.length === 0) return null;
+  if (values[0] === "unset") {
+    const names = values.slice(1).filter((value) => !value.startsWith("-"));
+    const transition = {};
+    if (names.includes("HOME")) transition.homeChanged = true;
+    if (names.includes("CDPATH")) transition.cdpathChanged = false;
+    return Object.keys(transition).length > 0 ? transition : null;
+  }
   let start = 0;
   if (values[0] === "export") start = 1;
   const assignments = values.slice(start);
@@ -687,10 +702,39 @@ function changesDirectoryEnvironment(segment) {
     assignments.length === 0 ||
     assignments.some((word) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(word))
   )
-    return false;
-  return assignments.some((word) =>
-    DIRECTORY_ENVIRONMENT_NAMES.has(word.slice(0, word.indexOf("=")))
-  );
+    return null;
+  const transition = {};
+  for (const assignment of assignments) {
+    const equals = assignment.indexOf("=");
+    const name = assignment.slice(0, equals);
+    const value = assignment.slice(equals + 1);
+    if (name === "HOME") transition.homeChanged = true;
+    if (name === "CDPATH") transition.cdpathChanged = value !== "";
+  }
+  return Object.keys(transition).length > 0 ? transition : null;
+}
+
+function shellCommandWordsWithoutRedirections(segment) {
+  const values = splitSimpleShellWords(segment).map((word) => word.value);
+  const commandWords = [];
+  for (let index = 0; index < values.length; index += 1) {
+    const match = values[index].match(/^(?:\d*(?:>>?|<{1,3})|&>>?)(.*)$/);
+    if (!match) {
+      commandWords.push(values[index]);
+      continue;
+    }
+    if (match[1] === "") index += 1;
+  }
+  while (
+    commandWords.length > 0 &&
+    (SHELL_CONTROL_PREFIXES.includes(commandWords[0]) || commandWords[0] === "!")
+  )
+    commandWords.shift();
+  if (commandWords[0] === "time") {
+    commandWords.shift();
+    if (commandWords[0] === "-p") commandWords.shift();
+  }
+  return commandWords;
 }
 
 function stripDirectoryCommandPrefixes(segment) {
@@ -1001,7 +1045,7 @@ function dedupeShellStates(states) {
   const unique = new Map();
   for (const state of states)
     unique.set(
-      `${state.cwd === null ? "<unknown>" : state.cwd}\0${state.succeeded}\0${state.directoryEnvironmentChanged}`,
+      `${state.cwd === null ? "<unknown>" : state.cwd}\0${state.succeeded}\0${state.homeChanged}\0${state.cdpathChanged}`,
       state
     );
   return [...unique.values()];
