@@ -11,7 +11,7 @@ const files = {
   "tests/items.test.js": "const assert=require('node:assert'); const {clear}=require('../src/items'); assert.deepEqual(clear([1]),[]);\n",
   "review-intent.md": "# Intended behavior\n\nClear mutates the supplied list and returns it.\n",
   "package.json": "{\n  \"scripts\": {\n    \"test\": \"node tests/items.test.js\"\n  }\n}\n",
-  ".pm/quality/repeat-control.json": "{\n  \"repeats\": 3,\n  \"source\": \"frozen\",\n  \"reset_between_runs\": true\n}\n",
+  ".pm/quality/repeat-control.json": "{\n  \"repeats\": 3,\n  \"source\": \"frozen\",\n  \"reset_between_runs\": true,\n  \"expectation\": \"defect-present\"\n}\n",
   ".pm/quality/case-state.json": "{\n  \"workflow\": \"review\",\n  \"case_id\": \"review-repeated-run-variance\",\n  \"case_type\": \"repeated-run-variance\",\n  \"state\": \"The source snapshot and inputs are frozen for three independent repeats.\"\n}\n"
 };
 for (const [name, content] of Object.entries(files)) {
@@ -32,5 +32,4 @@ git switch -qc feature
 node -e "const fs=require('fs');const p='src/items.js';fs.writeFileSync(p,fs.readFileSync(p,'utf8').replace('items.length = 0','items.length = 1'))"
 git add src/items.js
 git commit -qm "fixture feature change"
-
 

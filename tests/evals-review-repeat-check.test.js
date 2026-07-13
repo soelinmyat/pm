@@ -130,7 +130,7 @@ test("repeat stability policy rejects honestly reported divergent metrics", () =
 
 test("defect-present repeat comparison rejects three consistently empty reviews", (t) => {
   const root = temporaryRoot(t, "pm-review-repeats-empty-defect-");
-  const comparisonPath = seedComparison(root);
+  const comparisonPath = seedComparison(root, "defect-present");
   const absolute = path.join(root, comparisonPath);
   const comparison = JSON.parse(fs.readFileSync(absolute, "utf8"));
   comparison.expectation = "defect-present";
@@ -138,6 +138,12 @@ test("defect-present repeat comparison rejects three consistently empty reviews"
   const checked = checkReviewRepeats(root, comparisonPath);
   assert.equal(checked.ok, false);
   assert.match(JSON.stringify(checked.issues), /require at least one evidence-bound finding/);
+
+  comparison.expectation = "clean";
+  fs.writeFileSync(absolute, `${JSON.stringify(comparison, null, 2)}\n`);
+  const relabeled = checkReviewRepeats(root, comparisonPath);
+  assert.equal(relabeled.ok, false);
+  assert.match(JSON.stringify(relabeled.issues), /frozen repeat-control expectation/);
 });
 
 test("repeat stability thresholds accept the boundary and reject one unit below", () => {
@@ -408,8 +414,8 @@ function temporaryRoot(t, prefix) {
   return root;
 }
 
-function seedComparison(root) {
-  const source = seedGit(root);
+function seedComparison(root, expectation = "clean") {
+  const source = seedGit(root, expectation);
   const runs = ["repeat-one", "repeat-two", "repeat-three"].map((runId) =>
     seedRun(root, runId, source)
   );
@@ -525,9 +531,14 @@ function seedRun(root, runId, source) {
   return { run_id: runId, target, results: [binding(root, resultPath)] };
 }
 
-function seedGit(root) {
+function seedGit(root, expectation = "clean") {
   fs.mkdirSync(path.join(root, "src"), { recursive: true });
   fs.writeFileSync(path.join(root, "src/example.js"), "module.exports = 1;\n");
+  fs.mkdirSync(path.join(root, ".pm", "quality"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, ".pm", "quality", "repeat-control.json"),
+    `${JSON.stringify({ repeats: 3, source: "frozen", reset_between_runs: true, expectation }, null, 2)}\n`
+  );
   git(root, ["init", "-q", "-b", "main"]);
   git(root, ["config", "user.email", "test@example.com"]);
   git(root, ["config", "user.name", "Test"]);

@@ -2,6 +2,7 @@
 "use strict";
 
 const crypto = require("node:crypto");
+const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { readProjectInput } = require("../lib/safe-project-output");
@@ -39,8 +40,6 @@ function checkReviewRepeats(root, comparisonPath) {
       computed_metrics: null,
     };
   if (comparison.schema_version !== 1) issues.push("schema_version must equal 1");
-  if (!new Set(["defect-present", "clean"]).has(comparison.expectation))
-    issues.push("expectation must equal defect-present or clean");
   const runs = Array.isArray(comparison.runs) ? comparison.runs : [];
   if (runs.length !== 3) issues.push("runs must contain exactly three independent Review runs");
   const canonical = readBinding(
@@ -77,6 +76,13 @@ function checkReviewRepeats(root, comparisonPath) {
       );
     }
   }
+  const trustedExpectation = readTrustedExpectation(
+    projectRoot,
+    canonicalChecked?.target?.source?.base_commit,
+    issues
+  );
+  if (comparison.expectation !== trustedExpectation)
+    issues.push("expectation must equal the frozen repeat-control expectation");
   const runIds = new Set();
   const checkedReports = [];
   let frozenSource = canonicalChecked?.report
@@ -184,6 +190,27 @@ function checkReviewRepeats(root, comparisonPath) {
     issues.push("defect-present repeats require at least one evidence-bound finding in every run");
   validateMetrics(comparison.metrics, computedMetrics, issues);
   return { ok: issues.length === 0, issues, computed_metrics: computedMetrics };
+}
+
+function readTrustedExpectation(root, baseCommit, issues) {
+  if (!/^[a-f0-9]{40,64}$/.test(baseCommit || "")) {
+    issues.push("canonical target lacks a frozen base commit for repeat expectation");
+    return null;
+  }
+  try {
+    const raw = execFileSync("git", ["show", `${baseCommit}:.pm/quality/repeat-control.json`], {
+      cwd: root,
+      encoding: "utf8",
+      maxBuffer: MAX_JSON_BYTES,
+    });
+    const control = JSON.parse(raw);
+    if (!new Set(["defect-present", "clean"]).has(control.expectation))
+      throw new Error("expectation must equal defect-present or clean");
+    return control.expectation;
+  } catch (error) {
+    issues.push(`frozen repeat-control expectation is invalid: ${error.message}`);
+    return null;
+  }
 }
 
 function deriveConsistencyMetrics(reports) {
