@@ -505,6 +505,8 @@ function detectGitPushes(command, baseCwd) {
       cwd: path.resolve(baseCwd),
       succeeded: true,
       homeValue: process.env.HOME || null,
+      homeKnown: true,
+      homeSet: Boolean(process.env.HOME),
       cdpathActive: Boolean(process.env.CDPATH),
       homeReadonly: false,
       cdpathReadonly: false,
@@ -524,7 +526,9 @@ function detectGitPushes(command, baseCwd) {
     if (directoryEnvironment) {
       states = dedupeShellStates([
         ...skips,
-        ...executes.map((state) => applyDirectoryEnvironmentCommand(state, directoryEnvironment)),
+        ...executes.flatMap((state) =>
+          applyDirectoryEnvironmentCommand(state, directoryEnvironment)
+        ),
       ]);
       return;
     }
@@ -668,27 +672,42 @@ function parseDirectoryChange(segment) {
 }
 
 function parseDirectoryEnvironmentCommand(segment) {
-  const words = shellCommandWordsWithoutRedirections(stripExecutionPrefixes(segment));
+  const { words, hasRedirections } = shellCommandWordsWithoutRedirections(
+    stripExecutionPrefixes(segment)
+  );
   if (words.length === 0) return null;
   const assignments = [];
   let index = 0;
   while (index < words.length && isShellAssignment(words[index].value))
     assignments.push(words[index++]);
   if (index === words.length)
-    return assignments.some(isDirectoryAssignment) ? { assignments } : null;
+    return assignments.some(isDirectoryAssignment)
+      ? { assignments, hasRedirections, options: [] }
+      : null;
   const command = words[index++].value;
   if (!["export", "readonly", "unset"].includes(command)) return null;
-  while (words[index]?.value.startsWith("-")) index += 1;
+  const options = [];
+  while (words[index]?.value.startsWith("-")) {
+    options.push(words[index++].value);
+    if (options[options.length - 1] === "--") break;
+  }
   const names = [];
   for (; index < words.length; index += 1) {
     if (isShellAssignment(words[index].value)) assignments.push(words[index]);
     else if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(words[index].value)) names.push(words[index].value);
     else return null;
   }
-  const relevant = [...assignments.map(assignmentName), ...names].some((name) =>
+  const optionLetters = new Set(options.flatMap((option) => option.slice(1).split("")));
+  const namesChangeValues =
+    (command === "unset" && (!optionLetters.has("f") || optionLetters.has("v"))) ||
+    (command === "readonly" && !optionLetters.has("p"));
+  const effectiveNames = namesChangeValues ? names : [];
+  const relevant = [...assignments.map(assignmentName), ...effectiveNames].some((name) =>
     ["HOME", "CDPATH"].includes(name)
   );
-  return relevant ? { assignments, names, command } : null;
+  return relevant
+    ? { assignments, names: effectiveNames, command, hasRedirections, options }
+    : null;
 }
 
 function applyDirectoryEnvironmentCommand(state, command) {
@@ -700,7 +719,11 @@ function applyDirectoryEnvironmentCommand(state, command) {
     const valueKnown = !assignment.dynamic && !value.startsWith("~");
     if (name === "HOME") {
       if (next.homeReadonly) succeeded = false;
-      else next.homeValue = valueKnown ? value : null;
+      else {
+        next.homeValue = valueKnown ? value : null;
+        next.homeKnown = valueKnown;
+        next.homeSet = true;
+      }
     } else if (name === "CDPATH") {
       if (next.cdpathReadonly) succeeded = false;
       else next.cdpathActive = valueKnown ? value !== "" : null;
@@ -715,21 +738,28 @@ function applyDirectoryEnvironmentCommand(state, command) {
     for (const name of command.names) {
       if (name === "HOME") {
         if (next.homeReadonly) succeeded = false;
-        else next.homeValue = null;
+        else {
+          next.homeValue = null;
+          next.homeKnown = true;
+          next.homeSet = false;
+        }
       } else if (name === "CDPATH") {
         if (next.cdpathReadonly) succeeded = false;
         else next.cdpathActive = false;
       }
     }
   }
-  return { ...next, succeeded };
+  const outcomes = [{ ...next, succeeded }];
+  if (command.hasRedirections) outcomes.push({ ...state, succeeded: false });
+  return outcomes;
 }
 
 function directoryChangeOutcomes(state, directoryChange) {
   let target = directoryChange.target;
   if (directoryChange.environmentSensitive === "home") {
-    if (!state.homeValue) return [{ ...state, succeeded: false }];
-    target = state.homeValue;
+    if (!state.homeKnown) target = null;
+    else if (!state.homeSet || state.homeValue === "") return [{ ...state, succeeded: false }];
+    else target = state.homeValue;
   } else if (directoryChange.environmentSensitive === "cdpath" && state.cdpathActive !== false) {
     target = null;
   }
@@ -758,12 +788,14 @@ function isDirectoryAssignment(word) {
 function shellCommandWordsWithoutRedirections(segment) {
   const values = splitSimpleShellWords(segment);
   const commandWords = [];
+  let hasRedirections = false;
   for (let index = 0; index < values.length; index += 1) {
     const match = values[index].value.match(/^(?:\d*(?:>>?|<{1,3})|&>>?)(.*)$/);
     if (!match) {
       commandWords.push(values[index]);
       continue;
     }
+    hasRedirections = true;
     if (match[1] === "") index += 1;
   }
   while (
@@ -775,7 +807,7 @@ function shellCommandWordsWithoutRedirections(segment) {
     commandWords.shift();
     if (commandWords[0]?.value === "-p") commandWords.shift();
   }
-  return commandWords;
+  return { words: commandWords, hasRedirections };
 }
 
 function stripDirectoryCommandPrefixes(segment) {
@@ -1090,6 +1122,8 @@ function dedupeShellStates(states) {
         state.cwd,
         state.succeeded,
         state.homeValue,
+        state.homeKnown,
+        state.homeSet,
         state.cdpathActive,
         state.homeReadonly,
         state.cdpathReadonly,
