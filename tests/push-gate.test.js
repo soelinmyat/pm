@@ -605,11 +605,19 @@ test("shell control keywords preserve directory changes before gated pushes", ()
       "! cd gated; git push origin HEAD",
       "MODE=test cd gated && git push origin HEAD",
       "MODE= cd gated && git push origin HEAD",
+      "MODE=one\\ two cd gated && git push origin HEAD",
+      "MODE=$'one two' cd gated && git push origin HEAD",
+      `HOME=${gated} cd && git push origin HEAD`,
+      "CDPATH=gated cd child && git push origin HEAD",
+      "OLDPWD=gated cd - && git push origin HEAD",
       "command -- cd gated && git push origin HEAD",
       "builtin -- cd gated && git push origin HEAD",
       "cd gated; if false; then :; else git push origin HEAD; fi",
     ])
-      assertBlock(runHook(command, { cwd: parent }), /verification is failed/);
+      assertBlock(
+        runHook(command, { cwd: parent }),
+        /verification is failed|could not determine the repository/
+      );
   } finally {
     fs.rmSync(parent, { recursive: true, force: true });
   }

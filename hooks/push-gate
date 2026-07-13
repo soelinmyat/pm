@@ -434,8 +434,8 @@ function splitSimpleShellWords(input) {
   let current = "";
   let active = false;
   let dynamic = false;
-  const pushWord = () => {
-    words.push({ value: current, dynamic });
+  const pushWord = (end) => {
+    words.push({ value: current, dynamic, end });
     current = "";
     active = false;
     dynamic = false;
@@ -474,7 +474,7 @@ function splitSimpleShellWords(input) {
       continue;
     }
     if (!entry.quote && !entry.escaped && /\s/.test(entry.char)) {
-      if (active) pushWord();
+      if (active) pushWord(entry.index);
     } else {
       if (
         (!entry.escaped && entry.char === "$" && entry.quote !== "'") ||
@@ -486,7 +486,7 @@ function splitSimpleShellWords(input) {
       active = true;
     }
   }
-  if (active) pushWord();
+  if (active) pushWord(input.length);
   return words;
 }
 
@@ -615,7 +615,8 @@ function detectGitPushes(command, baseCwd) {
 }
 
 function parseDirectoryChange(segment) {
-  const withoutControlKeywords = stripDirectoryCommandPrefixes(segment);
+  const { command: withoutControlKeywords, assignmentPrefixed } =
+    stripDirectoryCommandPrefixes(segment);
   const commandText = stripTrailingShellRedirections(withoutControlKeywords);
   if (commandText === null)
     return {
@@ -630,6 +631,10 @@ function parseDirectoryChange(segment) {
   if (!match) return { recognized: false, target: null };
   const [, command, option, operand] = match;
   if (command === "popd") return { recognized: true, target: null };
+  // Assignments on special builtins can alter directory resolution through
+  // HOME, OLDPWD, CDPATH, or shell-specific variables. Preserve detection but
+  // make the destination unknown so a following push is checked fail-closed.
+  if (assignmentPrefixed) return { recognized: true, target: null };
   if (command === "pushd" && (option || operand === undefined || /^[+-]\d+$/.test(operand)))
     return { recognized: true, target: null };
   if (operand === undefined || operand === "")
@@ -641,19 +646,31 @@ function parseDirectoryChange(segment) {
 function stripDirectoryCommandPrefixes(segment) {
   let current = String(segment).trimStart();
   let prior;
-  const controlPrefix = new RegExp(
-    `^(?:(?:${SHELL_CONTROL_PREFIXES.join("|")})\\b\\s*)+`,
-    "i"
-  );
+  let assignmentPrefixed = false;
+  const controlPrefix = new RegExp(`^(?:(?:${SHELL_CONTROL_PREFIXES.join("|")})\\b\\s*)+`, "i");
   do {
     prior = current;
     current = current
       .replace(controlPrefix, "")
       .replace(/^(?:!\s*)+/, "")
-      .replace(/^time(?:\s+-p)?\s+/i, "")
-      .replace(/^(?:[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|"[^"]*"|[^\s]*)\s+)+/, "");
+      .replace(/^time(?:\s+-p)?\s+/i, "");
+    const assignments = stripLeadingShellAssignments(current);
+    current = assignments.command;
+    assignmentPrefixed ||= assignments.stripped;
   } while (current !== prior);
-  return current;
+  return { command: current, assignmentPrefixed };
+}
+
+function stripLeadingShellAssignments(segment) {
+  let end = 0;
+  for (const word of splitSimpleShellWords(segment)) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*=/.test(word.value)) break;
+    end = word.end;
+  }
+  return {
+    command: end === 0 ? segment : segment.slice(end).trimStart(),
+    stripped: end !== 0,
+  };
 }
 
 function stripTrailingShellRedirections(segment) {
