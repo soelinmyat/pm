@@ -338,10 +338,17 @@ function validateDevContext(context, issues) {
 
 function validateSource(source, label, issues) {
   if (!object(source)) return add(issues, label, "must be an object");
-  closed(source, ["commit", "base_ref", "base_commit", "diff_sha256"], label, issues);
+  closed(
+    source,
+    ["commit", "base_ref", "base_commit", "remote_push_url_sha256", "diff_sha256"],
+    label,
+    issues
+  );
   if (!sha(source.commit)) add(issues, `${label}.commit`, "must be a Git object ID");
   if (!text(source.base_ref)) add(issues, `${label}.base_ref`, "is required");
   if (!sha(source.base_commit)) add(issues, `${label}.base_commit`, "must be a Git object ID");
+  if (source.remote_push_url_sha256 !== undefined && !sha256(source.remote_push_url_sha256))
+    add(issues, `${label}.remote_push_url_sha256`, "must be SHA-256 when present");
   if (!sha256(source.diff_sha256)) add(issues, `${label}.diff_sha256`, "must be SHA-256");
 }
 
@@ -617,7 +624,11 @@ function validateLiveTarget(root, target, issues) {
     if (target.source?.commit !== head)
       add(issues, "target.source.commit", `is stale for current HEAD ${head}`);
     const trusted = resolveTrustedBase(root, remoteForBaseRef(root, target.source?.base_ref));
-    if (target.source?.base_ref !== trusted.ref || target.source?.base_commit !== trusted.commit)
+    if (
+      target.source?.base_ref !== trusted.ref ||
+      target.source?.base_commit !== trusted.commit ||
+      target.source?.remote_push_url_sha256 !== trusted.remote_push_url_sha256
+    )
       add(issues, "target.source", "does not match the authoritative remote default");
     const diff = git(root, ["diff", "--binary", `${trusted.commit}...${head}`], null);
     target[FROZEN_MERGE_BASE] = git(root, ["merge-base", trusted.commit, head]).toString().trim();
@@ -1609,10 +1620,16 @@ function validateRenderedReportMarkers(markers, report, issues) {
     {
       attributes: {
         "data-review-base-sha256": digest(
-          Buffer.from(`${report.source?.base_ref || ""}:${report.source?.base_commit || ""}`)
+          Buffer.from(
+            `${report.source?.base_ref || ""}:${report.source?.base_commit || ""}:${report.source?.remote_push_url_sha256 || ""}`
+          )
         ),
       },
-      required: [report.source?.base_ref || "", report.source?.base_commit || ""],
+      required: [
+        report.source?.base_ref || "",
+        report.source?.base_commit || "",
+        report.source?.remote_push_url_sha256 || "",
+      ],
       firstScreen: true,
     },
     {

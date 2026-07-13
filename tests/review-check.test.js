@@ -188,6 +188,29 @@ test("trusted base resolves the named destination remote", () => {
   assert.equal(target.source.base_ref, "upstream/main");
 });
 
+test("trusted base binds the remote push URL instead of its fetch URL", () => {
+  const fixture = makeFixture({ maxWorkers: 2 });
+  const pushRemote = `${fixture.root}-push.git`;
+  git(fixture.root, ["init", "-q", "--bare", pushRemote]);
+  execFileSync("git", ["--git-dir", pushRemote, "symbolic-ref", "HEAD", "refs/heads/main"]);
+  execFileSync("git", [
+    "--git-dir",
+    pushRemote,
+    "fetch",
+    fixture.root,
+    `${fixture.target.source.commit}:refs/heads/main`,
+  ]);
+  git(fixture.root, ["config", "remote.origin.pushurl", pushRemote]);
+  const trusted = resolveTrustedBase(fixture.root);
+  assert.equal(trusted.commit, fixture.target.source.commit);
+  assert.equal(
+    trusted.remote_push_url_sha256,
+    crypto.createHash("sha256").update(pushRemote).digest("hex")
+  );
+  git(fixture.root, ["config", "--add", "remote.origin.pushurl", `${pushRemote}-second`]);
+  assert.throws(() => resolveTrustedBase(fixture.root), /multiple push URLs/);
+});
+
 test("named-remote target passes live end-to-end review validation", () => {
   const fixture = makeFixture({ maxWorkers: 2, remote: "upstream" });
   const checked = checkReview({
@@ -1970,7 +1993,8 @@ test("later rounds authenticate prior frozen Git evidence on a diverged deleted-
 test("renderer escapes reviewer text without treating data as template syntax", () => {
   const fixture = makeFixture({ maxWorkers: 6 });
   const finding = validFinding("bug");
-  finding.issue = "The <Component> exposes {{PLUGIN_VERSION}} as user data.";
+  finding.issue =
+    "The <Component> exposes {{PLUGIN_VERSION}}, {{COMMIT}}, {{BASE_REF}}, and {{METHOD}} as user data.";
   finding.id = findingId(finding);
   setFindingForLens(fixture, "bug", finding);
   const generated = generate(fixture, {
@@ -1986,7 +2010,10 @@ test("renderer escapes reviewer text without treating data as template syntax", 
     })
   );
   const html = fs.readFileSync(path.join(fixture.root, fixture.roundHtmlPath), "utf8");
-  assert.match(html, /The &lt;Component&gt; exposes {{PLUGIN_VERSION}} as user data\./);
+  assert.match(
+    html,
+    /The &lt;Component&gt; exposes {{PLUGIN_VERSION}}, {{COMMIT}}, {{BASE_REF}}, and {{METHOD}} as user data\./
+  );
   assert.match(html, /<details open><summary>Reviewer signals<\/summary>/);
   assert.match(html, new RegExp(generated.report.findings[0].signals[0].reviewer_id));
   assert.match(html, /node --test tests\/example\.test\.js/);

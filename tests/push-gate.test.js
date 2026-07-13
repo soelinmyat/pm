@@ -696,6 +696,8 @@ test("explicit push of the session branch is still gated → block", () => {
       runHook("git push origin 'refs/heads/*:refs/heads/*'", { cwd: dir }),
       /verification/
     );
+    assertBlock(runHook("git push origin :", { cwd: dir }), /matching multi-ref/);
+    assertBlock(runHook("git push origin +:", { cwd: dir }), /matching multi-ref/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -727,6 +729,24 @@ test("leading shell control constructs cannot hide a session-branch push", () =>
       "until git push origin HEAD; do break; done",
     ])
       assertBlock(runHook(command, { cwd: dir }), /verification is failed/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("pushes inside command substitutions fail closed", () => {
+  const dir = makeRepo();
+  try {
+    for (const command of [
+      "result=$(git push origin HEAD 2>&1)",
+      "if output=$(git push origin HEAD); then true; fi",
+      "result=`git push origin HEAD`",
+      "result=$(echo $(git push origin HEAD))",
+      'result="$(git push origin HEAD)"',
+      'result="customer\'s $(git push origin HEAD)"',
+    ])
+      assertBlock(runHook(command, { cwd: dir }), /command substitution/);
+    assertAllow(runHook("printf '%s' '$(git push origin HEAD)'", { cwd: dir }));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

@@ -687,6 +687,61 @@ function lexShellCharacters(input) {
   return { characters, closed: quote === null, sawBacktick };
 }
 
+function containsPushCommandSubstitution(command) {
+  const pushInside = (body) => /\bgit\b[\s\S]{0,1000}\bpush\b/.test(body);
+  const findClosing = (start) => {
+    let depth = 1;
+    let quote = null;
+    for (let index = start; index < command.length; index += 1) {
+      const char = command[index];
+      if (char === "\\") {
+        index += 1;
+        continue;
+      }
+      if (quote) {
+        if (char === quote) quote = null;
+        continue;
+      }
+      if (char === "'" || char === '"' || char === "`") {
+        quote = char;
+        continue;
+      }
+      if (char === "(") depth += 1;
+      else if (char === ")" && --depth === 0) return index;
+    }
+    return -1;
+  };
+  let quote = null;
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index];
+    if (char === "\\") {
+      index += 1;
+      continue;
+    }
+    if (char === "'" && quote !== '"') {
+      quote = quote === "'" ? null : "'";
+      continue;
+    }
+    if (quote === "'") continue;
+    if (char === '"') {
+      quote = quote === '"' ? null : '"';
+      continue;
+    }
+    if (char === "`") {
+      const end = command.indexOf("`", index + 1);
+      if (end < 0 || pushInside(command.slice(index + 1, end))) return true;
+      index = end;
+      continue;
+    }
+    if (char === "$" && command[index + 1] === "(") {
+      const end = findClosing(index + 2);
+      if (end < 0 || pushInside(command.slice(index + 2, end))) return true;
+      index = end;
+    }
+  }
+  return false;
+}
+
 function containsUnsupportedHeredoc(command) {
   const syntax = lexShellCharacters(command);
   for (let i = 0; i + 1 < syntax.characters.length; i += 1) {
@@ -762,6 +817,7 @@ function dedupeShellStates(states) {
 // Destination branch a refspec writes to, or a sentinel for delete/tag/none.
 function refspecDest(spec) {
   let s = spec.startsWith("+") ? spec.slice(1) : spec;
+  if (s === ":") return { kind: "matching" };
   if (s.startsWith(":")) return { kind: "delete" };
   const colon = s.indexOf(":");
   let dst = colon >= 0 ? s.slice(colon + 1) : s;
@@ -785,6 +841,8 @@ function branchPatternCapture(pattern, branch) {
 function sessionBranchRefspecSource(raw, sessionBranch) {
   const spec = raw.startsWith("+") ? raw.slice(1) : raw;
   const dest = refspecDest(spec);
+  if (dest.kind === "matching")
+    return { error: "matching multi-ref push cannot be bound to one source commit" };
   if (dest.kind !== "branch") return null;
   const capture = branchPatternCapture(dest.dst, sessionBranch);
   const targetsSession = dest.dst === "HEAD" || dest.dst === "@" || capture !== null;
@@ -1071,6 +1129,13 @@ function main() {
   if (hasHeredoc) {
     emitDeny(
       "PM dev gate cannot safely inspect a push command containing a shell here-document. " +
+        "Run the push as a separate command so its repository, refspec, and quality gates can be verified."
+    );
+    return;
+  }
+  if (containsPushCommandSubstitution(command)) {
+    emitDeny(
+      "PM dev gate cannot safely inspect a git push inside shell command substitution. " +
         "Run the push as a separate command so its repository, refspec, and quality gates can be verified."
     );
     return;

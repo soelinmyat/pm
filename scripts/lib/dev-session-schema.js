@@ -176,9 +176,17 @@ function validateSource(source, errors) {
     errors.push(issue("$.source", "must be an object"));
     return;
   }
-  const fields = new Set(["repo_root", "worktree", "branch", "default_branch", "base_commit"]);
+  const fields = new Set([
+    "repo_root",
+    "worktree",
+    "branch",
+    "default_branch",
+    "base_commit",
+    "delivery_remote",
+  ]);
   validateExactFields(source, fields, "$.source", errors);
-  for (const field of fields) requireField(source, field, "$.source", errors);
+  for (const field of ["repo_root", "worktree", "branch", "default_branch", "base_commit"])
+    requireField(source, field, "$.source", errors);
   for (const field of ["repo_root", "worktree"]) {
     if (!isAbsolutePath(source[field])) errors.push(issue(`$.source.${field}`, "must be absolute"));
   }
@@ -186,6 +194,12 @@ function validateSource(source, errors) {
     if (typeof source[field] !== "string" || !source[field]) {
       errors.push(issue(`$.source.${field}`, "must be a non-empty string"));
     }
+  }
+  if (
+    source.delivery_remote !== undefined &&
+    (typeof source.delivery_remote !== "string" || !source.delivery_remote.trim())
+  ) {
+    errors.push(issue("$.source.delivery_remote", "must be a non-empty string when present"));
   }
 }
 
@@ -1032,6 +1046,7 @@ function createSession(options) {
       branch,
       default_branch: defaultBranch,
       base_commit: head,
+      delivery_remote: "origin",
     },
     task: {
       reference: options.task || null,

@@ -454,7 +454,7 @@ function verifyCommittedGateSidecarWithChecker(workspace, options, gateChecker) 
   try {
     trustedBase = /^[a-f0-9]{40,64}$/.test(options.baseRef || "")
       ? { ref: options.baseRef, commit: options.baseRef }
-      : require("./review-target").resolveTrustedBase(workspace);
+      : require("./review-target").resolveTrustedBase(workspace, options.remote || "origin");
     if (options.baseRef && options.baseRef !== trustedBase.ref)
       return failed(
         "source-base-mismatch",
@@ -514,6 +514,15 @@ function verifyCommittedGateSidecarWithChecker(workspace, options, gateChecker) 
         .map((item) => `${item.path}: ${item.message}`)
         .join("; ")
     );
+  if (
+    canonicalSession.source.delivery_remote &&
+    canonicalSession.source.delivery_remote !== (options.remote || "origin")
+  ) {
+    return failed(
+      "delivery-remote-mismatch",
+      "delivery remote does not match the destination persisted before Review"
+    );
+  }
   if (pathChainHasSymlink(workspace, manifestPath)) {
     return failed("gate-sidecar-unsafe", "gate sidecar must be a bounded regular file");
   }

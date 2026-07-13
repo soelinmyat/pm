@@ -23,6 +23,8 @@ Run any documented setup commands before pushing.
 
 Before running `git push`, ensure canonical `.pm/dev-sessions/{slug}/gates.json` has a current `verification` row. If it is missing or stale, run the full project test suite fresh using the command from AGENTS.md or the dev session's `## Project Context`, read the output, and record `verification: passed` with the command output artifact or state section path.
 
+Read `{DELIVERY_REMOTE}` from canonical `session.json` at `source.delivery_remote`. Stop if it is absent, if the named remote no longer exists, or if its configured push destination differs from the destination hash frozen by Review.
+
 Then run the shared PM gate checker against current HEAD:
 
 ```bash
@@ -32,14 +34,15 @@ node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" \
   --commit "$(git rev-parse HEAD)" \
   --branch "$(git branch --show-current)" \
   --review-evidence-mode enforce \
-  --base origin/{DEFAULT_BRANCH}
+  --remote "{DELIVERY_REMOTE}" \
+  --base "{DELIVERY_REMOTE}/{DEFAULT_BRANCH}"
 ```
 
 If the manifest is missing or any required gate is missing, stop and run the missing gate first. If any required gate row is stale, run the final recertification pass from `skills/dev/steps/08-review.md`: rerun gates whose relevant surface changed, or write `verified_commit` / `verified_at` only when the existing evidence still applies to current HEAD. Do not treat green CI, a PR label, or remembered test output as a substitute for a current sidecar row.
 
 ### Attempt push
 
-Run `git push` with `timeout: 600000` (pre-push hooks can take 5-10 min). If no upstream tracking branch exists, use `git push -u origin HEAD`.
+Run `git push` with `timeout: 600000` (pre-push hooks can take 5-10 min). Push explicitly to the reviewed destination; if no upstream tracking branch exists, use `git push -u -- "{DELIVERY_REMOTE}" HEAD`.
 
 ### Handle result
 
@@ -78,4 +81,4 @@ NEVER use `--no-verify` to bypass hook failures. All failures must be fixed.
 
 **If push fails for other reasons** (auth, network, etc.): Report the error and stop.
 
-After `git push` exits 0 and the branch has an upstream tracking branch on origin, proceed to PR creation.
+After `git push` exits 0 and the branch has an upstream tracking branch on `{DELIVERY_REMOTE}`, proceed to PR creation.

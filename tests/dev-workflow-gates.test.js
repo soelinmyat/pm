@@ -286,7 +286,9 @@ test("implementation flow runs the gate checker before push and PR creation", ()
 test("ship push step requires the full default gate contract before git push", () => {
   const text = read("skills/ship/steps/04-push.md");
   assert.match(text, /scripts\/dev-gate-check\.js/);
-  assert.match(text, /--base origin\/\{DEFAULT_BRANCH\}/);
+  assert.match(text, /--remote "\{DELIVERY_REMOTE\}"/);
+  assert.match(text, /--base "\{DELIVERY_REMOTE\}\/\{DEFAULT_BRANCH\}"/);
+  assert.match(text, /source\.delivery_remote/);
   assert.match(text, /--review-evidence-mode enforce/);
   assert.match(text, /--branch/);
   assert.match(text, /\.pm\/dev-sessions\/\{slug\}\/gates\.json/);
@@ -301,7 +303,8 @@ test("ship merge loop rechecks the full sidecar against the remote branch tip", 
   const text = read("skills/ship/steps/07-merge-loop.md");
   assert.match(text, /\.pm\/dev-sessions\/\{slug\}\/gates\.json/);
   assert.doesNotMatch(text, /\.pm\/dev-sessions\/\{slug\}\.gates\.json/);
-  assert.match(text, /git rev-parse origin\/\{branch\}/);
+  assert.match(text, /git rev-parse "\{DELIVERY_REMOTE\}\/\{branch\}"/);
+  assert.match(text, /--remote "\{DELIVERY_REMOTE\}"/);
   assert.match(text, /scripts\/dev-gate-check\.js/);
   assert.match(text, /effective attestation is `commit` when it equals `remote_tip`/);
   assert.match(text, /otherwise `verified_commit` when it equals `remote_tip`/);

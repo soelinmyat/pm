@@ -105,7 +105,7 @@ function validateRoute(route, commit, baseRef, baseCommit, issues) {
   else {
     closed(
       route.source,
-      ["commit", "base_ref", "base_commit", "diff_sha256"],
+      ["commit", "base_ref", "base_commit", "remote_push_url_sha256", "diff_sha256"],
       "route.source",
       issues
     );
@@ -122,6 +122,11 @@ function validateRoute(route, commit, baseRef, baseCommit, issues) {
       add(issues, "route.source.base_commit", `must equal remote base commit ${baseCommit}`);
     if (!sha256(route.source.diff_sha256))
       add(issues, "route.source.diff_sha256", "must be SHA-256");
+    if (
+      route.source.remote_push_url_sha256 !== undefined &&
+      !sha256(route.source.remote_push_url_sha256)
+    )
+      add(issues, "route.source.remote_push_url_sha256", "must be SHA-256 when present");
   }
   if (!Array.isArray(route.subjects) || route.subjects.length === 0)
     add(issues, "route.subjects", "must contain at least one subject");

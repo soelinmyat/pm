@@ -218,6 +218,9 @@ test("Review design applicability shares Dev's UI-impact classifier", () => {
   }
   for (const path of [
     "server/jobs/sync.ts",
+    "server/routes/users.js",
+    "backend/routes/admin.ts",
+    "api/routes/health.js",
     "pm/backlog/rfc.html",
     ".pm/private/report.html",
     "Sources/Networking/APIClient.swift",

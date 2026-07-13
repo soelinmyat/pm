@@ -65,7 +65,11 @@ const {
 } = require("./loop-result.js");
 const { verifyPullRequest } = require("./pr-state.js");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
-const { defaultBranchName, sourceRepository } = require("./source-identity.js");
+const {
+  defaultBranchName,
+  resolveDeliveryRemote,
+  sourceRepository,
+} = require("./source-identity.js");
 const { runEngineInterruptibleSync } = require("./loop-process.js");
 const { readBoundedRegularFile } = require("./loop-safe-file.js");
 
@@ -843,14 +847,24 @@ function verifyResultArtifactsUnchecked(input) {
   const prStatus = new Set(["shipped", "merged", "ready-for-human", "waiting"]);
   if (prStatus.has(result.status)) {
     const headOid = runGit(["rev-parse", "HEAD"], workspace.workspacePath);
+    const deliveryRemote = resolveDeliveryRemote(workspace.workspacePath, workspace.branch);
+    if (!deliveryRemote) {
+      return {
+        ok: false,
+        code: "delivery-remote-unresolved",
+        reason: "delivery remote is unknown",
+      };
+    }
     const expectedRepo =
       options.expectedRepository ||
-      (options.verifyPullRequest ? result.artifacts.repo : sourceRepository(projectGitRoot));
+      (options.verifyPullRequest
+        ? result.artifacts.repo
+        : sourceRepository(workspace.workspacePath, deliveryRemote));
     if (!expectedRepo) {
       return { ok: false, code: "repository-unresolved", reason: "source repository is unknown" };
     }
     const verifyPr = options.verifyPullRequest || verifyPullRequest;
-    const expectedBase = defaultBranchName(projectGitRoot);
+    const expectedBase = defaultBranchName(workspace.workspacePath, deliveryRemote);
     if (!expectedBase) {
       return {
         ok: false,
@@ -895,7 +909,8 @@ function verifyResultArtifactsUnchecked(input) {
     const gates = verifyGates(workspace.workspacePath, {
       expectedHeadOid: headOid,
       expectedHead: workspace.branch,
-      baseRef: `origin/${expectedBase}`,
+      baseRef: `${deliveryRemote}/${expectedBase}`,
+      remote: deliveryRemote,
     });
     if (!gates.ok) {
       return {

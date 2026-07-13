@@ -32,6 +32,8 @@ Read the created session and confirm `routing.review_mode` is `full`, its record
 
 Resolve the exact named delivery remote using, in order, `branch.<branch>.pushRemote`, `remote.pushDefault`, `branch.<branch>.remote`, then `origin`. Confirm the name appears exactly in `git remote` and `git config --get "remote.${name}.url"` succeeds; this also supports valid dash-prefixed remote names that option-style commands mishandle. Pass that name to Review target creation as `--remote`; do not review against `origin` and later push to a different remote.
 
+Persist that exact name as `source.delivery_remote` in canonical `session.json`, update `updated_at`, and validate the session with `node "$PM_PLUGIN_ROOT/scripts/dev-session.js" validate --file ".pm/dev-sessions/{slug}/session.json" --json`. Every later Ship step must read this value; never re-resolve or silently fall back after Review binds the destination.
+
 ### Run the review
 
 Invoke `pm:review` in branch mode (no PR number argument):

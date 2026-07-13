@@ -114,8 +114,11 @@ function renderReviewReport(options) {
     COMMIT_SHA256: digest(Buffer.from(report.source?.commit || "")),
     BASE_REF: report.source?.base_ref || "",
     BASE_COMMIT: report.source?.base_commit || "",
+    REMOTE_PUSH_URL_SHA256: report.source?.remote_push_url_sha256 || "",
     BASE_SHA256: digest(
-      Buffer.from(`${report.source?.base_ref || ""}:${report.source?.base_commit || ""}`)
+      Buffer.from(
+        `${report.source?.base_ref || ""}:${report.source?.base_commit || ""}:${report.source?.remote_push_url_sha256 || ""}`
+      )
     ),
   };
   const slots = [...html.matchAll(/{{([A-Z0-9_]+)}}/g)].map((match) => match[1]);
@@ -125,8 +128,9 @@ function renderReviewReport(options) {
       `review report template contains unresolved tokens: ${[...new Set(unknown)].join(", ")}`
     );
   const rawHtml = new Set(["LENS_CARDS", "FINDINGS", "DISAGREEMENTS", "HANDOFFS"]);
-  for (const [name, value] of Object.entries(replacements))
-    html = html.split(`{{${name}}}`).join(rawHtml.has(name) ? String(value) : escapeHtml(value));
+  html = html.replace(/{{([A-Z0-9_]+)}}/g, (_, name) =>
+    rawHtml.has(name) ? String(replacements[name]) : escapeHtml(replacements[name])
+  );
   let publication;
   try {
     publication = projectWriter.writeProjectTextAtomic(root, options.outputPath, html, {

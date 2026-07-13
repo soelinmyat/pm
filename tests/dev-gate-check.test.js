@@ -802,10 +802,12 @@ function reviewRenderedMarkers({ coverage = "0/0" } = {}) {
     [
       {
         "data-review-base-sha256": fileDigestBytes(
-          Buffer.from(`${report.source.base_ref}:${report.source.base_commit}`)
+          Buffer.from(
+            `${report.source.base_ref}:${report.source.base_commit}:${report.source.remote_push_url_sha256 || ""}`
+          )
         ),
       },
-      `Base: ${report.source.base_ref} at ${report.source.base_commit}`,
+      `Base: ${report.source.base_ref} at ${report.source.base_commit} · destination ${report.source.remote_push_url_sha256 || ""}`,
     ],
     [
       { "data-review-top-issue-sha256": fileDigestBytes(Buffer.from(report.top_issue)) },

@@ -2,11 +2,52 @@
 
 const { runGit } = require("./loop-git.js");
 
-function sourceRepository(gitRoot) {
+function deliveryUrl(gitRoot, remoteName) {
+  let pushUrls = [];
+  try {
+    pushUrls = runGit(["config", "--get-all", `remote.${remoteName}.pushurl`], gitRoot)
+      .split(/\r?\n/)
+      .filter(Boolean);
+  } catch {
+    // A remote without pushurl delivers to its ordinary URL.
+  }
+  if (pushUrls.length > 1) return "";
+  if (pushUrls.length === 1) return pushUrls[0];
+  try {
+    return runGit(["config", "--get", `remote.${remoteName}.url`], gitRoot).trim();
+  } catch {
+    return "";
+  }
+}
+
+function resolveDeliveryRemote(gitRoot, branch = "") {
+  if (!gitRoot) return "";
+  const currentBranch = branch || runGit(["branch", "--show-current"], gitRoot);
+  const candidates = [];
+  if (currentBranch) candidates.push(["branch", currentBranch, "pushRemote"]);
+  candidates.push(["remote", "pushDefault"]);
+  if (currentBranch) candidates.push(["branch", currentBranch, "remote"]);
+  for (const parts of candidates) {
+    try {
+      const value = runGit(["config", "--get", parts.join(".")], gitRoot).trim();
+      if (value && deliveryUrl(gitRoot, value)) return value;
+    } catch {
+      // Try the next configured source.
+    }
+  }
+  try {
+    return deliveryUrl(gitRoot, "origin") ? "origin" : "";
+  } catch {
+    return "";
+  }
+}
+
+function sourceRepository(gitRoot, remoteName = "origin") {
   if (!gitRoot) return "";
   let remote;
   try {
-    remote = runGit(["remote", "get-url", "origin"], gitRoot);
+    remote = deliveryUrl(gitRoot, remoteName);
+    if (!remote) return "";
   } catch {
     return "";
   }
@@ -25,10 +66,12 @@ function sourceRepository(gitRoot) {
   }
 }
 
-function defaultBranchName(gitRoot) {
+function defaultBranchName(gitRoot, remoteName = "origin") {
   if (!gitRoot) return "";
   try {
-    const output = runGit(["ls-remote", "--symref", "origin", "HEAD"], gitRoot);
+    const remote = deliveryUrl(gitRoot, remoteName);
+    if (!remote) return "";
+    const output = runGit(["ls-remote", "--symref", "--", remote, "HEAD"], gitRoot);
     const match = output.match(/^ref:\s+refs\/heads\/([^\s]+)\s+HEAD$/m);
     return match && /^[A-Za-z0-9][A-Za-z0-9._/-]{0,200}$/.test(match[1]) ? match[1] : "";
   } catch {
@@ -38,5 +81,6 @@ function defaultBranchName(gitRoot) {
 
 module.exports = {
   defaultBranchName,
+  resolveDeliveryRemote,
   sourceRepository,
 };

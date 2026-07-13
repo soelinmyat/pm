@@ -1,7 +1,7 @@
 "use strict";
 
 const UI_PATH_RE =
-  /(^|\/)(components?|screens?|pages?|routes?|views?|layouts?|design-system|styles?|theme|copy|locales?|i18n)(\/|$)|\.(tsx|jsx|css|scss|sass|less|vue|svelte)$/i;
+  /(^|\/)(components?|screens?|pages?|views?|layouts?|design-system|styles?|theme|copy|locales?|i18n)(\/|$)|\.(tsx|jsx|css|scss|sass|less|vue|svelte)$/i;
 const JS_TS_PATH_RE = /\.(js|mjs|cjs|ts)$/i;
 const UI_JS_TS_PATH_RE =
   /(^|\/)(app\/javascript|assets\/javascripts?|public\/javascripts?|frontend|client|web|mobile|ui|browser)(\/|$)/i;

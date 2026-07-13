@@ -96,7 +96,8 @@
         "worktree": { "type": "string", "pattern": "^/" },
         "branch": { "type": "string", "minLength": 1 },
         "default_branch": { "type": "string", "minLength": 1 },
-        "base_commit": { "type": "string", "minLength": 1 }
+        "base_commit": { "type": "string", "minLength": 1 },
+        "delivery_remote": { "type": "string", "minLength": 1 }
       }
     },
     "risk": {

@@ -95,6 +95,7 @@ function buildReviewTarget(options) {
       commit,
       base_ref: baseRef,
       base_commit: baseCommit,
+      remote_push_url_sha256: trusted.remote_push_url_sha256,
       diff_sha256: digest(diff),
     },
     changed_files: changedFiles,
@@ -137,9 +138,22 @@ function resolveTrustedBase(root, remote = "origin") {
   const configured = git(root, ["remote"]).trim().split(/\r?\n/).filter(Boolean);
   if (remote === "." || !configured.includes(remote))
     throw new Error("authoritative remote must be an exact configured remote name");
+  const readUrls = (key) => {
+    try {
+      return git(root, ["config", "--get-all", key]).trim().split(/\r?\n/).filter(Boolean);
+    } catch {
+      return [];
+    }
+  };
+  const pushUrls = readUrls(`remote.${remote}.pushurl`);
+  if (pushUrls.length > 1)
+    throw new Error(`${remote} has multiple push URLs and cannot bind one delivery destination`);
+  const fetchUrls = readUrls(`remote.${remote}.url`);
+  const remoteTarget = pushUrls[0] || fetchUrls[0];
+  if (!remoteTarget) throw new Error(`${remote} has no configured delivery URL`);
   let output;
   try {
-    output = execFileSync("git", ["ls-remote", "--symref", "--", remote, "HEAD"], {
+    output = execFileSync("git", ["ls-remote", "--symref", "--", remoteTarget, "HEAD"], {
       cwd: root,
       encoding: "utf8",
       env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "Never" },
@@ -166,12 +180,16 @@ function resolveTrustedBase(root, remote = "origin") {
     });
   } catch {
     try {
-      execFileSync("git", ["fetch", "--no-tags", "--quiet", "--", remote, `refs/heads/${branch}`], {
-        cwd: root,
-        env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "Never" },
-        stdio: ["ignore", "ignore", "pipe"],
-        timeout: 30_000,
-      });
+      execFileSync(
+        "git",
+        ["fetch", "--no-tags", "--quiet", "--", remoteTarget, `refs/heads/${branch}`],
+        {
+          cwd: root,
+          env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "Never" },
+          stdio: ["ignore", "ignore", "pipe"],
+          timeout: 30_000,
+        }
+      );
       execFileSync("git", ["cat-file", "-e", `${commit}^{commit}`], {
         cwd: root,
         stdio: ["ignore", "ignore", "pipe"],
@@ -185,7 +203,11 @@ function resolveTrustedBase(root, remote = "origin") {
       );
     }
   }
-  return { ref: `${remote}/${branch}`, commit };
+  return {
+    ref: `${remote}/${branch}`,
+    commit,
+    remote_push_url_sha256: digest(Buffer.from(remoteTarget)),
+  };
 }
 
 function changedFileInventory(root, baseCommit, commit) {
