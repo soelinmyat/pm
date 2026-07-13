@@ -39,6 +39,8 @@ function checkReviewRepeats(root, comparisonPath) {
       computed_metrics: null,
     };
   if (comparison.schema_version !== 1) issues.push("schema_version must equal 1");
+  if (!new Set(["defect-present", "clean"]).has(comparison.expectation))
+    issues.push("expectation must equal defect-present or clean");
   const runs = Array.isArray(comparison.runs) ? comparison.runs : [];
   if (runs.length !== 3) issues.push("runs must contain exactly three independent Review runs");
   const canonical = readBinding(
@@ -174,6 +176,12 @@ function checkReviewRepeats(root, comparisonPath) {
     issues.push("one repeat run must exactly match the canonical passing report target");
   const computedMetrics =
     checkedReports.length === 3 ? deriveConsistencyMetrics(checkedReports) : null;
+  if (
+    comparison.expectation === "defect-present" &&
+    checkedReports.length === 3 &&
+    checkedReports.some((report) => (report.findings || []).length === 0)
+  )
+    issues.push("defect-present repeats require at least one evidence-bound finding in every run");
   validateMetrics(comparison.metrics, computedMetrics, issues);
   return { ok: issues.length === 0, issues, computed_metrics: computedMetrics };
 }

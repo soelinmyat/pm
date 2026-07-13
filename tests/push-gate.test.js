@@ -1113,6 +1113,7 @@ test("common execution wrappers cannot bypass a failed push gate", () => {
     for (const command of [
       "timeout 600 git push origin HEAD",
       "timeout -k 5 600 git push origin HEAD",
+      "timeout 600 -- git push origin HEAD",
       "nohup git push origin HEAD",
       "noglob git push origin HEAD",
       "xcrun git push origin HEAD",
@@ -1121,6 +1122,8 @@ test("common execution wrappers cannot bypass a failed push gate", () => {
       "arch -arch arm64 git push origin HEAD",
       "arch -d FLAG git push origin HEAD",
       "arch -e FLAG=value git push origin HEAD",
+      "env -a git git push origin HEAD",
+      "env --argv0 git git push origin HEAD",
     ])
       assertBlock(runHook(command, { cwd: dir }), /verification is failed/);
   } finally {

@@ -102,7 +102,7 @@ Auto-fix eligibility requires all of: Review owner, open, confidence at least 80
 
 Outcome policy:
 
-- `failed`: unresolved Review-owned high/critical finding at confidence 80+.
+- `failed`: unresolved Review-owned high/critical finding at any confidence.
 - `blocked`: unresolved disagreement/decision, or deferred Review-owned high/critical finding.
 - `passed`: complete logical coverage and neither condition above.
 

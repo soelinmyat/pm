@@ -38,7 +38,7 @@ Review may create Design Critique or QA handoffs. Those handoffs stay visible bu
 
 ## Status definitions
 
-- `passed` — every applicable logical lens is current; no unresolved Review-owned high/critical finding at confidence 80+, no unresolved disagreement.
+- `passed` — every applicable logical lens is current; no unresolved Review-owned high/critical finding, no unresolved disagreement.
 - `failed` — current evidence contains Review-owned high/critical blockers that require a source fix and another round.
 - `blocked` — disagreement, decision-required work, deferred blocker, missing capability, or round cap prevents a safe verdict.
 

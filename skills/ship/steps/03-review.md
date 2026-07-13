@@ -30,6 +30,8 @@ node "$PM_PLUGIN_ROOT/scripts/dev-session.js" init \
 
 Read the created session and confirm `routing.review_mode` is `full`, its recorded branch equals the current branch, and its slug equals the canonical artifact namespace. Then invoke `pm:review` with that `session.json`. This session bootstrap is mandatory: a sessionless Review is useful as an advisory standalone report but cannot authorize delivery. Do not skip review for standalone invocations.
 
+Before advancing to Push, execute every gate in the bootstrapped session's `routing.required_gates`, not only Review. Use the same Dev gate procedures for TDD, Design Critique, QA, and verification, recording a valid passed or policy-allowed skipped row for each routed gate. Standalone Ship is not a reduced-quality route; discovering missing rows at `git push` is a recovery path, not the normal workflow.
+
 Resolve the exact named delivery remote using, in order, `branch.<branch>.pushRemote`, `remote.pushDefault`, `branch.<branch>.remote`, then `origin`. Confirm the name appears exactly in `git remote` and `git config --get "remote.${name}.url"` succeeds; this also supports valid dash-prefixed remote names that option-style commands mishandle. Pass that name to Review target creation as `--remote`; do not review against `origin` and later push to a different remote.
 
 Persist that exact name as `source.delivery_remote` in canonical `session.json`, update `updated_at`, and validate the session with `node "$PM_PLUGIN_ROOT/scripts/dev-session.js" validate --file ".pm/dev-sessions/{slug}/session.json" --json`. Every later Ship step must read this value; never re-resolve or silently fall back after Review binds the destination.
@@ -54,7 +56,7 @@ Confirm the report checker and sidecar row pass before proceeding. A Markdown li
 
 ### What "passing" means
 
-Review passes only with complete current logical-lens coverage, no unresolved Review-owned high/critical finding at confidence 80+, and no unresolved reviewer disagreement or decision-required item. The bar by route:
+Review passes only with complete current logical-lens coverage, no unresolved Review-owned high/critical finding, and no unresolved reviewer disagreement or decision-required item. The bar by route:
 
 | Size | Review bar |
 |------|-----------|

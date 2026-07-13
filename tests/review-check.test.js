@@ -1807,6 +1807,24 @@ test("blocked reports surface deferred blockers and stop at the iteration cap", 
   );
   assert.equal(ranked.top_issue, "Critical blocker");
 
+  const lowConfidenceHigh = {
+    ...validFinding("bug"),
+    id: "rv-low-confidence-high",
+    severity: "high",
+    confidence: 79,
+    issue: "High-severity finding remains blocking below the auto-fix threshold",
+  };
+  const lowConfidenceReport = buildCanonicalReport(
+    { run_id: "review-test", review_round: 1, iteration_cap: 3, lenses: [] },
+    { relative: "target.json", sha256: "e".repeat(64) },
+    [],
+    null,
+    { findings: [lowConfidenceHigh], unresolved_disagreements: [] },
+    "report.html"
+  );
+  assert.equal(lowConfidenceReport.outcome, "failed");
+  assert.deepEqual(lowConfidenceReport.blockers, [lowConfidenceHigh.id]);
+
   const residual = {
     ...validFinding("quality"),
     id: "rv-residual",

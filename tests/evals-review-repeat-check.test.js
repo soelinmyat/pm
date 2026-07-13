@@ -47,6 +47,7 @@ test("review repeat comparison binds three complete independent result sets", (t
   renderReviewReport({ root, reportPath, outputPath: htmlPath });
   write(root, ".pm/dev-sessions/feature/review/repeat-comparison.json", {
     schema_version: 1,
+    expectation: "clean",
     canonical_report: binding(root, reportPath),
     runs,
     metrics: {
@@ -125,6 +126,18 @@ test("repeat stability policy rejects honestly reported divergent metrics", () =
   ]);
   for (const [name, minimum] of Object.entries(MINIMUM_METRICS))
     assert.ok(metrics[name] < minimum, `${name} should fall below ${minimum}`);
+});
+
+test("defect-present repeat comparison rejects three consistently empty reviews", (t) => {
+  const root = temporaryRoot(t, "pm-review-repeats-empty-defect-");
+  const comparisonPath = seedComparison(root);
+  const absolute = path.join(root, comparisonPath);
+  const comparison = JSON.parse(fs.readFileSync(absolute, "utf8"));
+  comparison.expectation = "defect-present";
+  fs.writeFileSync(absolute, `${JSON.stringify(comparison, null, 2)}\n`);
+  const checked = checkReviewRepeats(root, comparisonPath);
+  assert.equal(checked.ok, false);
+  assert.match(JSON.stringify(checked.issues), /require at least one evidence-bound finding/);
 });
 
 test("repeat stability thresholds accept the boundary and reject one unit below", () => {
@@ -418,6 +431,7 @@ function seedComparison(root) {
   const comparisonPath = ".pm/dev-sessions/feature/review/repeat-comparison.json";
   write(root, comparisonPath, {
     schema_version: 1,
+    expectation: "clean",
     canonical_report: binding(root, reportPath),
     runs,
     metrics: {

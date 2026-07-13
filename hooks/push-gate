@@ -117,7 +117,17 @@ const LEADING_WRAPPERS = new Set([
   "do",
 ]);
 const WRAPPER_VALUE_OPTIONS = Object.freeze({
-  env: new Set(["-u", "--unset", "-C", "--chdir", "-S", "--split-string", "-P"]),
+  env: new Set([
+    "-u",
+    "--unset",
+    "-C",
+    "--chdir",
+    "-S",
+    "--split-string",
+    "-P",
+    "-a",
+    "--argv0",
+  ]),
   sudo: new Set([
     "-u", "--user", "-g", "--group", "-h", "--host", "-p", "--prompt",
     "-C", "--close-from", "-R", "--chroot", "-D", "--chdir", "-T", "--command-timeout",
@@ -129,7 +139,7 @@ const WRAPPER_VALUE_OPTIONS = Object.freeze({
   arch: new Set(["-arch", "-d", "-e"]),
 });
 const WRAPPER_SHORT_VALUE_OPTIONS = Object.freeze({
-  env: new Set(["u", "C", "S", "P"]),
+  env: new Set(["u", "C", "S", "P", "a"]),
   sudo: new Set(["u", "g", "h", "p", "C", "R", "D", "T"]),
   nice: new Set(["n"]),
   time: new Set(["f", "o"]),
@@ -226,6 +236,7 @@ function parseSegment(segment, depth = 0) {
         if (consumesValue && !inlineValue) i += 1;
       }
       if (wrapper === "timeout" && i < tokens.length) i += 1;
+      if (wrapper === "timeout" && tokens[i] === "--") i += 1;
     } else {
       break;
     }

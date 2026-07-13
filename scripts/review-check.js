@@ -1404,8 +1404,7 @@ function buildCanonicalReport(
     (finding) =>
       finding.owner === "review" &&
       finding.disposition === "open" &&
-      ["critical", "high"].includes(finding.severity) &&
-      finding.confidence >= 80
+      ["critical", "high"].includes(finding.severity)
   );
   const deferredBlockers = merged.findings.filter(
     (finding) =>
