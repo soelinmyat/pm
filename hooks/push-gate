@@ -735,6 +735,11 @@ function parseDirectoryEnvironmentCommand(segment) {
       optionLetters.has("f") &&
       (optionLetters.has("a") || optionLetters.has("A")));
   const arrayMode = command === "readonly" && (optionLetters.has("a") || optionLetters.has("A"));
+  const ambientAssignmentMayFail =
+    command === "readonly" &&
+    operandAssignments.some(
+      (assignment) => !["HOME", "CDPATH"].includes(assignmentName(assignment))
+    );
   const namesChangeValues =
     (command === "unset" && (!optionLetters.has("f") || optionLetters.has("v"))) ||
     (command === "readonly" && !optionLetters.has("f"));
@@ -761,9 +766,9 @@ function parseDirectoryEnvironmentCommand(segment) {
         arrayMode,
         command,
         forcedFailure,
-        // Array support and existing variable type depend on the executing
-        // Bash version/state, which the hook process cannot prove from syntax.
-        modeMayFail: arrayMode,
+        // Array support, variable type, and unrelated readonly operands depend
+        // on shell state that the hook process cannot prove from syntax.
+        modeMayFail: arrayMode || ambientAssignmentMayFail,
         names: effectiveNames,
         operandAssignments,
         persistentPrefixAssignments,
