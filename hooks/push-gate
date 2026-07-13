@@ -1073,11 +1073,7 @@ function resolveRepoDir(baseCwd, push) {
   if (push.dir) repoDir = path.resolve(repoDir, push.dir);
   if (push.gitDir) {
     const gd = path.resolve(repoDir, push.gitDir);
-    repoDir = push.workTree
-      ? path.resolve(repoDir, push.workTree)
-      : path.basename(gd) === ".git"
-        ? path.dirname(gd)
-        : gd;
+    repoDir = path.basename(gd) === ".git" ? path.dirname(gd) : gd;
   }
   return repoDir;
 }

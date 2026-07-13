@@ -1257,6 +1257,24 @@ test("standalone --work-tree does not replace the pushed repository identity", (
   }
 });
 
+test("--git-dir remains authoritative when --work-tree names another repository", () => {
+  const source = makeRepo();
+  const presentation = makeRepo();
+  try {
+    writeFailingGates(source, "x");
+    writeGates(presentation, "x", passingManifest(presentation, "x", headSha(presentation)));
+    assertBlock(
+      runHook(`git --git-dir=${source}/.git --work-tree=${presentation} push origin HEAD`, {
+        cwd: presentation,
+      }),
+      /verification is failed/
+    );
+  } finally {
+    fs.rmSync(source, { recursive: true, force: true });
+    fs.rmSync(presentation, { recursive: true, force: true });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // DEGRADE PATH (BLOCKING #1 partner): a failing manifest with no origin/DEFAULT
 // fetched still blocks — the checker runs without --base and the core gate
