@@ -8,6 +8,7 @@ const test = require("node:test");
 
 const {
   appendTransition,
+  createTransition,
   currentEvidenceRecords,
   hashResult,
   stableStringify,
@@ -45,6 +46,23 @@ test("workflow records are provider-neutral and byte-stable", () => {
       runner_version: "2.0.0",
     },
   ]);
+});
+
+test("shared transitions preserve common fields while adapters add schema-specific fields", () => {
+  assert.deepEqual(
+    createTransition({
+      priorPhase: "generation",
+      nextPhase: "review",
+      reason: "validated passed result",
+      timestamp: "2026-07-14T00:00:00.000Z",
+    }),
+    {
+      prior_phase: "generation",
+      next_phase: "review",
+      reason: "validated passed result",
+      timestamp: "2026-07-14T00:00:00.000Z",
+    }
+  );
 });
 
 test("current evidence uses original or recertified records consistently", () => {
@@ -139,6 +157,11 @@ test("result record validation is shared without choosing workflow statuses or p
       (item) => item.path.endsWith(".artifact") && item.message === "required field is missing"
     )
   );
+  assert.ok(
+    evidenceRecordIssues({ kind: "   ", command: null, exit_code: 0, artifact: null }, 0).some(
+      (item) => item.path.endsWith(".kind") && item.message === "required"
+    )
+  );
   assert.deepEqual(
     runtimeRecordIssues(
       { provider: "codex", model: "gpt-5.6-sol", reasoning: "high", session_id: null },
@@ -165,6 +188,21 @@ test("result record validation is shared without choosing workflow statuses or p
         (item) =>
           item.path === "$.runtime.session_id" &&
           item.message === "must be null or a non-empty string"
+      )
+    );
+  }
+  for (const field of ["provider", "model", "reasoning"]) {
+    const runtime = {
+      provider: "codex",
+      model: "gpt-5.6-sol",
+      reasoning: "high",
+      session_id: null,
+      [field]: "   ",
+    };
+    assert.ok(
+      runtimeRecordIssues(runtime, "$.runtime", { requireSessionId: true }).some(
+        (item) =>
+          item.path === `$.runtime.${field}` && item.message === "must be a non-empty string"
       )
     );
   }

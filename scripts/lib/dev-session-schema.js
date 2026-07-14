@@ -61,6 +61,13 @@ const RESULT_TOP_LEVEL_FIELDS = new Set([
   "blocker",
   "runtime",
 ]);
+const GATE_EVIDENCE_CONTRACTS = Object.freeze({
+  tdd: Object.freeze({ phase: "implementation", kind: "test" }),
+  "design-critique": Object.freeze({ phase: "design-critique", kind: "review" }),
+  qa: Object.freeze({ phase: "qa", kind: "test" }),
+  review: Object.freeze({ phase: "review", kind: "review" }),
+  verification: Object.freeze({ phase: "review", kind: "test" }),
+});
 const SESSION_TOP_LEVEL_FIELDS = new Set([
   "schema_version",
   "run_id",
@@ -1319,17 +1326,16 @@ function recertifyEvidence(session, phases, commit, verificationByPhase, options
 }
 
 function requiredRecertificationKinds(session, phase) {
-  const contracts = {
-    tdd: { phase: "implementation", kind: "test" },
-    review: { phase: "review", kind: "review" },
-    verification: { phase: "review", kind: "test" },
-  };
   return new Set(
     session.routing.required_gates
-      .map((gate) => contracts[gate] || { phase: gate, kind: gate })
+      .map(resolveGateEvidenceContract)
       .filter((contract) => contract.phase === phase)
       .map((contract) => contract.kind)
   );
+}
+
+function resolveGateEvidenceContract(gate) {
+  return GATE_EVIDENCE_CONTRACTS[gate] || { phase: gate, kind: gate };
 }
 
 function defaultRisk() {
@@ -1684,14 +1690,9 @@ function assertFinalGates(session, resultCommit, options) {
     .find((attempt) => attempt.commit)?.commit;
   const head =
     resultCommit || latestRecordedCommit || (options.branchHead || defaultBranchHead)(session);
-  const contracts = {
-    tdd: { phase: "implementation", kind: "test" },
-    review: { phase: "review", kind: "review" },
-    verification: { phase: "review", kind: "test" },
-  };
   const missing = [];
   for (const gate of session.routing.required_gates) {
-    const contract = contracts[gate] || { phase: gate, kind: gate };
+    const contract = resolveGateEvidenceContract(gate);
     const phase = contract.phase;
     const record = session.evidence[phase];
     const currentRecords = currentEvidenceRecords(record, head);
@@ -1941,6 +1942,7 @@ module.exports = {
   MAX_PHASE_ATTEMPTS,
   PHASES,
   resolvePhaseContract,
+  resolveGateEvidenceContract,
   RUNNER_VERSION,
   advanceDecisionVersion,
   applyRouting,

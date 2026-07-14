@@ -11,7 +11,7 @@ function evidenceRecordIssues(record, index, basePath = "$.evidence") {
   if (!isObject(record)) return [issue(recordPath, "must be an object")];
   exactFieldIssues(record, EVIDENCE_FIELDS, recordPath, errors);
   for (const field of EVIDENCE_FIELDS) requiredFieldIssue(record, field, recordPath, errors);
-  if (typeof record.kind !== "string" || !record.kind) {
+  if (typeof record.kind !== "string" || record.kind.trim().length === 0) {
     errors.push(issue(`${recordPath}.kind`, "required"));
   }
   if (record.command !== null && typeof record.command !== "string") {
@@ -32,7 +32,7 @@ function runtimeRecordIssues(runtime, runtimePath = "$.runtime", options = {}) {
   exactFieldIssues(runtime, RUNTIME_FIELDS, runtimePath, errors);
   for (const field of ["provider", "model", "reasoning"]) {
     requiredFieldIssue(runtime, field, runtimePath, errors);
-    if (typeof runtime[field] !== "string" || !runtime[field]) {
+    if (typeof runtime[field] !== "string" || runtime[field].trim().length === 0) {
       errors.push(issue(`${runtimePath}.${field}`, "must be a non-empty string"));
     }
   }

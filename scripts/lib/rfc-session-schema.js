@@ -11,6 +11,7 @@ const { isRfc3339DateTime: isIsoDate } = require("./iso-time.js");
 const { markdownTableValue } = require("./session-scan.js");
 const { grantActions } = require("./workflow-runtime/authority.js");
 const {
+  createTransition,
   hashResult,
   isObject: isRecordObject,
   stableStringify,
@@ -255,12 +256,14 @@ function recordResult(session, result, options = {}) {
     }
   }
   next.updated_at = now;
-  next.history.push({
-    prior_phase: session.phase,
-    next_phase: next.phase,
-    reason,
-    timestamp: now,
-  });
+  next.history.push(
+    createTransition({
+      priorPhase: session.phase,
+      nextPhase: next.phase,
+      reason,
+      timestamp: now,
+    })
+  );
   assertValidSession(next);
   return next;
 }

@@ -759,6 +759,45 @@ test("phase results reject blank runtime session identifiers", () => {
   }
 });
 
+test("phase results reject whitespace-only runtime identity and evidence kinds", () => {
+  const repo = makeRepo();
+  try {
+    const session = routedSession(repo);
+    for (const field of ["provider", "model", "reasoning"]) {
+      assert.throws(
+        () =>
+          recordResult(
+            session,
+            passed(session, {
+              runtime: {
+                provider: "inline",
+                model: "test",
+                reasoning: "high",
+                session_id: null,
+                [field]: "   ",
+              },
+            })
+          ),
+        field === "provider"
+          ? /phase result runtime is required/
+          : new RegExp(`runtime\\.${field} is required`)
+      );
+    }
+    assert.throws(
+      () =>
+        recordResult(
+          session,
+          passed(session, {
+            evidence: [{ kind: "   ", command: "fixture", exit_code: 0, artifact: null }],
+          })
+        ),
+      /evidence requires kind and integer exit_code/
+    );
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test(
   "published RFC session schema and runtime reject malformed nested audit records",
   { skip: !Ajv2020 && "Ajv 2020 dev dependency is not installed in this snapshot" },

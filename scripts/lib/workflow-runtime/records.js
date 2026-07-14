@@ -21,14 +21,20 @@ function hashResult(result) {
   return `sha256:${crypto.createHash("sha256").update(stableStringify(result)).digest("hex")}`;
 }
 
-function appendTransition(history, input) {
-  if (!Array.isArray(history)) throw new TypeError("transition history must be an array");
-  const entry = {
+function createTransition(input) {
+  return {
     prior_phase: input.priorPhase,
     next_phase: input.nextPhase,
     reason: input.reason,
-    result_hash: hashResult(input.result),
     timestamp: input.timestamp,
+  };
+}
+
+function appendTransition(history, input) {
+  if (!Array.isArray(history)) throw new TypeError("transition history must be an array");
+  const entry = {
+    ...createTransition(input),
+    result_hash: hashResult(input.result),
     runner_version: input.runnerVersion,
   };
   history.push(entry);
@@ -51,6 +57,7 @@ function hasCurrentEvidence(record, commit, predicate = () => true) {
 
 module.exports = {
   appendTransition,
+  createTransition,
   currentEvidenceRecords,
   hashResult,
   hasCurrentEvidence,

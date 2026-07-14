@@ -18,6 +18,7 @@ const { readProjectInput } = require("./lib/project-file");
 const { MAX_HTML_BYTES, MAX_JSON_BYTES } = require("./lib/review-limits");
 const { isUiImpactPath } = require("./lib/ui-impact");
 const { deriveSessionSlug } = require("./lib/session-slug");
+const { resolveGateEvidenceContract } = require("./lib/dev-session-schema");
 const { hasCurrentEvidence } = require("./lib/workflow-runtime/records");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
@@ -211,17 +212,12 @@ function validateCanonicalDeliveryEvidence(
   manifestPath,
   issues
 ) {
-  const contracts = {
-    tdd: { phase: "implementation", kind: "test" },
-    review: { phase: "review", kind: "review" },
-    verification: { phase: "review", kind: "test" },
-  };
   for (const gate of session.routing.required_gates) {
     if (!requestedGates.includes(gate)) {
       issues.push(issue(manifestPath, `delivery check omitted routed gate ${gate}`));
       continue;
     }
-    const contract = contracts[gate] || { phase: gate, kind: gate };
+    const contract = resolveGateEvidenceContract(gate);
     if (
       !hasCurrentEvidence(
         session.evidence?.[contract.phase],
