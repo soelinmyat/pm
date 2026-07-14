@@ -705,7 +705,7 @@ test("legacy targets cannot publish an authoritative final passing report", () =
 
 test("forged pre-binding and future target generators cannot publish a final pass", () => {
   const fixture = makeFixture({ maxWorkers: 2 });
-  for (const version of ["1.13.21", "999.0.0"]) {
+  for (const version of ["1.13.21", "999.0.0", "1.13.022", "01.13.22", "1.013.22", "1.13.999"]) {
     const target = structuredClone(fixture.target);
     target.generator = { name: "pm:review", version };
     write(fixture.root, fixture.targetPath, target);
