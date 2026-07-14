@@ -50,7 +50,9 @@ For `kind: proposal` (or absent/null via `resolveKind`), continue to Step 1.
 
 ### Step 1: Check for existing proposal + RFC
 
-Look for `{pm_dir}/backlog/{slug}.md`. If found, read frontmatter:
+Look first for `{pm_dir}/backlog/proposals/{slug}.json`. When present, Dev intake must route with `proposal_path`; the runner verifies the sibling approval audit and derives size and acceptance criteria from the execution contract. A generated Markdown status cannot override or repair canonical JSON. `dev-session next` re-verifies proposal revision, semantic content, approval-decision identity, and monotonic lifecycle on every resume.
+
+Only when canonical JSON does not exist, look for legacy `{pm_dir}/backlog/{slug}.md` and read frontmatter:
 
 - **`status:` is not `proposed`, `planned`, or `in-progress`** → Groom started but didn't complete. Treat as ungroomed. Continue to Step 2.
 - **`rfc:` is non-null** AND the referenced RFC exists → RFC is ready only when `{slug}.approval.json` follows `${CLAUDE_PLUGIN_ROOT}/skills/rfc/references/rfc-approval.schema.json`, records explicit human approval, and its HTML/sidecar SHA-256 values match the exact adjacent files. HTML `status: approved` is a projection, not approval authority. **Re-discover tasks from the RFC** (the session file may have stale task data from a prior intake that ran before the RFC existed), following the canonical rule in `${CLAUDE_PLUGIN_ROOT}/skills/rfc/references/writing-rfcs.md` § JSON Sidecar Contract. Run `node ${CLAUDE_PLUGIN_ROOT}/scripts/rfc-sidecar-check.js --sidecar {pm_dir}/backlog/rfcs/{slug}.json --html {pm_dir}/backlog/rfcs/{slug}.html --slug {slug}`:
@@ -63,7 +65,7 @@ Look for `{pm_dir}/backlog/{slug}.md`. If found, read frontmatter:
 - **`rfc:` is non-null** but RFC file has `status: draft` AND size is M+ → RFC started but not approved. Treat same as null — continue to the RFC prompt below. Log: `RFC: draft (needs /rfc to complete)`.
 - **`rfc:` is null** AND size is M+ → No RFC exists for M-sized work. Continue to the RFC prompt below.
 - **`rfc:` is null** AND size is XS/S → No RFC needed. Continue to Step 2 for inline scoping.
-- **No proposal `.md` found** → No product groom has run. Continue to Step 2.
+- **No canonical proposal JSON or legacy proposal Markdown found** → No product groom has run. Continue to Step 2.
 
 ### RFC halt (M+ without RFC)
 

@@ -150,7 +150,7 @@ PM officially supports Claude Code and Codex. Community contributions for other 
 | `/pm:think` | Structured product thinking — challenge assumptions, explore tradeoffs |
 | `/pm:research <topic>` | Market landscape, competitor profiling, or focused topic research |
 | `/pm:strategy` | Create or update ICP, positioning, priorities, and non-goals |
-| `/pm:groom [idea]` | Turn an idea into a scoped proposal with research and competitive context |
+| `/pm:groom [idea]` | Build a resumable, evidence-backed product proposal with canonical JSON, generated HTML/Markdown readers, quality calibration, and explicit hash-bound approval |
 | `/pm:ideate` | Mine the knowledge base for evidence-backed feature ideas |
 
 ### Development and delivery
@@ -159,8 +159,8 @@ PM officially supports Claude Code and Codex. Community contributions for other 
 |---|---|
 | `/pm:task <title>` | Capture a lightweight chore (version bump, small cleanup) — skips groom/RFC, feeds straight into `/pm:dev` |
 | `/pm:bug <title>` | File a bug report with observed/expected/reproduction stubs — skips groom/RFC, feeds straight into `/pm:dev` |
-| `/pm:rfc <feature-slug>` | Generate a technical RFC from a groomed proposal |
-| `/pm:dev [ticket]` | Routes by scope and risk, resumes phase-local state, implements with TDD, and verifies delivery evidence |
+| `/pm:rfc <feature-slug>` | Generate a technical RFC from the trusted execution contract of an approved groomed proposal |
+| `/pm:dev [ticket]` | Routes by canonical proposal scope and observed risk, resumes phase-local state, implements with TDD, and verifies delivery evidence |
 | `/pm:design-critique` | Review product UI or PM HTML artifacts with commit-bound captures, accessibility/viewport/print evidence, structured findings, and an accessible report |
 | `/pm:review` | Run evidence-bound source review with adaptive six-lens coverage, disagreement handling, bounded fix rounds, and a checked HTML report |
 | `/pm:ship [PR]` | Review, push, create PR, monitor CI, and merge |

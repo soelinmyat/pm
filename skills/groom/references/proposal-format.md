@@ -1,312 +1,132 @@
-# Proposal Format (Backlog Entry)
+# Structured Proposal Contract
 
-## Contract
+## Source and projections
 
-The final output is a single `type: backlog` document at `{pm_dir}/backlog/{topic-slug}.md`, plus a styled HTML render at `{pm_dir}/backlog/proposals/{topic-slug}.html`.
+The canonical product source is `{pm_dir}/backlog/proposals/{slug}.json` (schema version 1).
 
-- **Schema authority:** `${CLAUDE_PLUGIN_ROOT}/references/frontmatter-schemas.md` defines all allowed frontmatter fields and enum values. No step may redefine status values, required fields, or section names.
-- **Visual reference:** `${CLAUDE_PLUGIN_ROOT}/references/templates/proposal-reference.html` is the canonical HTML render. The section order, patterns, and component names below MUST match it.
-- **This file** provides the markdown body template and worked example.
+`scripts/proposal-render.js` deterministically generates:
 
-No other step may contradict the schema or the reference template. If a conflict is found, the schema wins for frontmatter; the reference template wins for HTML structure.
+- the human HTML reader at `{pm_dir}/backlog/proposals/{slug}.html`;
+- the compatibility Markdown backlog projection at `{pm_dir}/backlog/{slug}.md`.
 
-## Layered artifact contract
+Generated HTML and generated Markdown are never edited independently. Regenerate both from canonical JSON, then run `scripts/proposal-check.js`. The approval audit is `{pm_dir}/backlog/proposals/{slug}.approval.json` and is not a content source.
 
-Every proposal has three reader layers. Keep them in this order so humans and agents can stop at the right depth:
+## Lifecycle and revision
 
-1. **Decision Brief** — verdict-first prose for human approval. Target <= 400 words. It answers: who, what, why now, scope, biggest risk, and open decision.
-2. **Execution Contract** — structured agent handoff. Target <= 900 words. It captures scope, non-goals, acceptance criteria, edge cases, success metrics, and unresolved decisions.
-3. **Appendix** — evidence, alternatives, citations, research notes, flow detail, feasibility detail, and review notes. It may be long, but it is outside the default read path.
-
-**Contract wins:** if prose and the Execution Contract disagree, fix the prose before approval. Agents should execute from the contract.
-
-**Budget enforcement:** warn first for word budgets. Required layer presence is blocking; exact word counts are not blocking until the format has been dogfooded.
-
-## ID Assignment
-
-When an issue tracker is available (Linear) and a Linear issue is created or already exists for this proposal, use the Linear identifier as the local `id` (e.g., `PM-123`). Do NOT generate a separate local sequence — the Linear ID is the single source of truth. Only fall back to the local `PM-{NNN}` sequence (scan `{pm_dir}/backlog/*.md` for highest `id`, increment by 1, zero-pad to 3 digits, first entry `PM-001`) when no issue tracker is configured.
-
-## Document shape
-
-A finished proposal has three layers stacked top-to-bottom:
-
-1. **Decision Brief block** — frontmatter (machine), title + lede, optional hero prototype figure, TL;DR (For / What / Why now), and one short verdict paragraph.
-2. **Execution Contract block** — a compact, structured handoff before the long body. This is the default agent read path.
-3. **Appendix body** — the twelve numbered sections (I–XII). Order is fixed. Roman numerals in the rendered HTML; H2 headings in the markdown.
-4. **Closing** — status pipeline and next-step command.
-
-The markdown body need not visually mimic the HTML — it just needs to carry the same information, organized under the same section headings, so the HTML renderer can produce the reference layout deterministically.
-
-## Template
-
-```markdown
----
-type: backlog
-id: "{linear_id or PM-NNN}"
-title: "{Feature Title}"
-outcome: "{One-sentence lede — what changes for the user when this ships. Becomes the paragraph under the H1.}"
-status: drafted
-priority: critical | high | medium | low
-size: XS | S | M | L | XL
-labels:
-  - "{label}"
-prd: null
-rfc: null
-linear_id: "{Linear ID}" | null
-thinking: thinking/{topic-slug}.md | null
-research_refs:
-  - {pm_dir}/evidence/research/{topic-slug}.md
-created: YYYY-MM-DD
-updated: YYYY-MM-DD
----
-
-## TL;DR
-
-- **For** — {who feels the pain — primary audience, one short clause}
-- **What** — {what ships — the smallest set of components needed to deliver the outcome}
-- **Why now** — {the time-pressure or strategic reason this is the right quarter, not next}
-
-**Decision Brief.** {One short paragraph, <= 120 words, that states the approval recommendation, the smallest useful scope, the biggest risk, and any decision still needed.}
-
-{If a UI prototype exists, link it here for the markdown reader:
-- Single-file: `[Prototype]({pm_dir}/backlog/wireframes/{slug}.html)`
-- Multi-file (3+ screens): `[Prototype]({pm_dir}/backlog/wireframes/{slug}/index.html)`
-
-The HTML renderer (Step 7) reads the wireframe's metadata per
-`${CLAUDE_PLUGIN_ROOT}/skills/groom/references/prototype-format.md` §6 and
-surfaces it as an inert hero preview card and local link between the title block and TL;DR.
-For non-visual features, omit the prototype link entirely.}
-
-**Execution Contract.** Agents execute from this block. If it conflicts with the appendix prose, revise the prose before approval.
-
-| Field | Contract |
-|---|---|
-| **Scope** | {3–6 compact bullets or one sentence list of what ships} |
-| **Non-goals** | {3–6 compact bullets or one sentence list of what is explicitly out} |
-| **Acceptance criteria** | {Numbered, testable conditions. Keep implementation detail out unless it is a hard constraint.} |
-| **Edge cases** | {Boundary cases the implementation must handle} |
-| **Success metrics** | {Leading indicators from Section XI} |
-| **Open decisions** | {Questions that still need a human call, or "None"} |
-
-**Appendix.** The numbered sections below are the detail layer. Keep them rigorous, but do not force reviewers or agents to read all of them before they can decide or execute.
-
-## I. Problem & Context
-
-{Lede sentence — the pain in one line. Then 1–2 short paragraphs of evidence:
-user signal, market data, strategic driver. End with a short evidence quote
-in a blockquote when one exists (rendered as an `annotation` block in HTML).}
-
-> "{Verbatim quote from research, sales evidence, or support transcript.}"
-> — {source}, {date}
-
-## II. Users & Job to be Done
-
-**Primary JTBD.** When I {situation}, I want to {motivation}, so I can {outcome}.
-
-**Primary persona — {short name}.** {1–2 sentence description: who they are, what they're trying to do, what hurts today.}
-
-**Secondary persona — {short name}.** {Same shape — only include if a meaningfully different user is in scope.}
-
-## III. Use Cases
-
-Top 2–4 scenarios, ranked by frequency. For each:
-
-### {NN}. {Short scenario title}
-- **Trigger** — {what initiates this scenario}
-- **Action** — {what the user does, what the system does}
-- **Result** — {the observable outcome}
-
-## IV. Scope
-
-**In scope**
-- {item}
-- {item}
-
-**Out of scope**
-- {item} — {one-clause reason: scope creep, Phase 2, separate effort, etc.}
-- {item} — {reason}
-
-**10x filter result:** {10x | gap-fill | table-stakes | parity}
-
-## V. Functional Requirements
-
-What each in-scope item must support. Group by scope item (one H3 per item) and list requirements as bullets.
-
-### 1. {Scope item name}
-- {Requirement — observable behavior, not implementation detail.}
-- {Requirement.}
-
-### 2. {Scope item name}
-- {Requirement.}
-
-## VI. Edge Cases & Constraints
-
-Boundary conditions and failure modes. Use a markdown table:
-
-| Case | Expected handling |
-|---|---|
-| {Edge case} | {How the system behaves} |
-| {Edge case} | {How the system behaves} |
-
-## VII. User Flow
-
-Mermaid flowchart in a fenced code block. Include at least one `%% Source:` citation pointing to the research finding or competitor gap that informed the flow.
-
-```mermaid
-flowchart TD
-    A[Start] --> B{Decision}
-    B -->|Yes| C[Branch 1]
-    B -->|No| D[Branch 2]
-    %% Source: {pm_dir}/evidence/research/{topic-slug}.md — Finding N
-```
-
-For non-UI features: omit this section entirely.
-
-## VIII. Competitive Context
-
-Markdown comparison table — keep tight (3–5 rows):
-
-| Tool | {Capability axis} | Approach |
+| Canonical lifecycle | Backlog projection | Meaning |
 |---|---|---|
-| {Competitor} | {value} | {how they handle it} |
-| {Competitor} | {value} | {how they handle it} |
+| `draft` | `drafted` | Content is being assembled; no review or approval claim |
+| `reviewed` | `drafted` | Required questions passed for the exact revision/hash |
+| `approved` | `proposed` | Explicit product approval audit verifies the exact current bytes |
+| `planned` | `planned` | Technical RFC was explicitly approved; product trust is preserved by revision/content/decision identity |
+| `in-progress` | `in-progress` | Implementation started |
+| `done` | `done` | Delivery completed |
 
-**Handling decision.** Restate the 10x filter result from Scope and explain the rationale — why are we handling it this way given what competitors already do?
-- `10x` → what makes our approach meaningfully better than theirs?
-- `gap-fill` → what gap are we closing in their implementation?
-- `table-stakes` → baseline expectation; no differentiation claim needed.
-- `parity` → intentionally matching {competitor} — state the explicit strategic reason.
+Lifecycle-only changes advance monotonically (`approved → planned → in-progress → done`) while keeping the revision and semantic content hash. At `approved`, the audit must match the exact current bytes. Later lifecycle bytes differ by definition, so consumers verify the original approved-byte hash plus the unchanged revision, semantic content hash, and session decision identity. A substantive edit increments `revision`, clears current review/approval, and returns to the earliest affected Groom phase. Never infer approval from a Markdown status.
 
-## IX. Technical Feasibility
+## Required JSON shape
 
-**Verdict:** {feasible | feasible-with-caveats | needs-rearchitecting}.
+The executable schema lives in `scripts/lib/proposal-schema.js`; this reference explains how to fill it well.
 
-**Build on:** {existing systems, libraries, or infrastructure we're extending}.
-
-**Build new:** {what genuinely doesn't exist yet}.
-
-**Top risks:** {2–4 short risk statements with one-clause mitigations}.
-
-## X. Open Questions
-
-Decisions not yet made. Each carries a recommended answer so reviewers can confirm or override quickly.
-
-### 01. {Question}
-**Recommendation:** {one or two sentences}. **Owner:** {role}. **By:** {milestone or date}.
-
-### 02. {Question}
-**Recommendation:** {…}. **Owner:** {…}. **By:** {…}.
-
-<details>
-<summary>Resolved questions ({N})</summary>
-
-**{Question}** — {Answer, with evidence pointer if useful.}
-
-**{Question}** — {Answer.}
-
-</details>
-
-## XI. Success Metrics
-
-Leading indicators for 90-day success. Not lagging metrics like revenue.
-
-| Metric | Baseline | Target | By |
-|---|---|---|---|
-| {metric} | {current} | {goal} | {timeframe} |
-
-**Caveat.** {Optional — one short paragraph naming the assumption that, if violated, makes the metrics meaningless. E.g., "if conversion stays flat post-GA, the bottleneck is upstream — pricing or onboarding — not localization."}
-
-## XII. Status & Next Steps
-
-Pipeline of grooming steps completed (one row per step):
-
-- **Intake** — {one-clause verdict}
-- **Strategy check** — {one-clause verdict}
-- **Research** — {one-clause verdict, with evidence file reference}
-- **Scope** — {N in / M out · 10x filter result}
-- **Scope review** — {PM verdict · EM verdict}
-- **Team review** — {one-clause verdict, if `full` tier}
-- **Bar raiser** — {verdict, if `full` tier}
-
-Ready for engineering. Run `pm:rfc {slug}` to generate the technical RFC, then `pm:dev {slug}` to implement.
-
-{If stale research exists, append a final note (omit otherwise):
-**Freshness note.** '{name}' — {age_days} days old (threshold: {threshold_days}d for {type}). Run `pm:refresh` to update.}
+```json
+{
+  "schema_version": 1,
+  "id": "proposal:{slug}",
+  "slug": "{slug}",
+  "lifecycle": "draft",
+  "revision": 1,
+  "created_at": "ISO-8601",
+  "updated_at": "ISO-8601",
+  "title": "Decision-shaped title",
+  "outcome": "Observable user outcome",
+  "priority": "critical | high | medium | low",
+  "size": "XS | S | M | L | XL",
+  "labels": ["stable-label"],
+  "source": {
+    "kind": "groom-session",
+    "session_id": "groom_...",
+    "lineage": [{ "id": "source:...", "path": "pm/...", "sha256": "sha256:..." }]
+  },
+  "decision_brief": {
+    "problem": "Evidence-backed pain and audience",
+    "recommendation": "Smallest useful direction",
+    "why_now": "Why this decision is timely"
+  },
+  "audience": [],
+  "jobs_to_be_done": [],
+  "evidence": [],
+  "assumptions": [],
+  "confidence": "high | medium | low",
+  "scope": { "in_scope": [], "non_goals": [] },
+  "requirements": [],
+  "acceptance_criteria": [],
+  "edge_cases": [],
+  "design_requirements": [],
+  "success_metrics": [],
+  "alternatives": [],
+  "risks": [],
+  "open_decisions": [],
+  "resolved_decisions": [],
+  "question_reviews": [],
+  "advisory_debt": [],
+  "review": {
+    "status": "pending",
+    "revision": null,
+    "content_sha256": null,
+    "completed_at": null
+  },
+  "presentation": {
+    "summary": "One-screen decision summary",
+    "audience": "Who reviews this",
+    "sections": ["decision-brief", "execution-contract", "appendix"]
+  },
+  "handoff": {
+    "rfc_required": true,
+    "implementation_ready": false,
+    "dependencies": [],
+    "constraints": []
+  }
+}
 ```
 
-## Section name discipline
+## Authoring guidance
 
-The H2 headings in the markdown MUST be the twelve Roman-numeralled names below, in this exact order. The HTML renderer uses them as anchor IDs.
+### Stable IDs and lineage
 
-| # | Heading | HTML `id` |
-|---|---|---|
-| I | Problem & Context | `problem` |
-| II | Users & Job to be Done | `jtbd` |
-| III | Use Cases | `usecases` |
-| IV | Scope | `scope` |
-| V | Functional Requirements | `requirements` |
-| VI | Edge Cases & Constraints | `edge` |
-| VII | User Flow | `flow` |
-| VIII | Competitive Context | `competitive` |
-| IX | Technical Feasibility | `feasibility` |
-| X | Open Questions | `open-q` |
-| XI | Success Metrics | `metrics` |
-| XII | Status & Next Steps | `status` |
+Use typed stable IDs (`audience:`, `jtbd:`, `evidence:`, `assumption:`, `scope:`, `non-goal:`, `req:`, `ac:`, `edge:`, `design:`, `metric:`, `alternative:`, `risk:`, `decision:`, `review:`, `debt:`). References must resolve to the appropriate object. Evidence paths are project-relative and bounded; never write absolute paths, URLs masquerading as project evidence, or traversal.
 
-The TL;DR block sits before Section I and has no Roman numeral — it is the document's elevator pitch, not a section.
+### Decision Brief
 
-## Status Lifecycle
+Write for a human approving the product decision. State the pain, recommendation, why now, smallest scope, biggest risk, and remaining decision. Do not repeat the appendix.
 
-| Status | Set by | Meaning |
-|--------|--------|---------|
-| `idea` | `pm:ideate` | Early-stage idea from KB mining, not yet groomed |
-| `drafted` | `pm:groom` (draft-proposal) | Proposal assembled, under review |
-| `proposed` | `pm:groom` (present/finalize) | Product-approved, awaiting engineering |
-| `planned` | `pm:rfc` | RFC exists and approved, ready to build |
-| `in-progress` | `pm:dev` | Implementation underway |
-| `done` | `pm:dev` / `pm:ship` | All work shipped |
+### Execution Contract
 
----
+RFC and Dev consume the structured scope, non-goals, requirements, acceptance criteria, edge cases, design requirements, dependencies, constraints, evidence, assumptions, and open decisions directly.
 
-## Agent-tier source citations (PM-233)
+- Requirements describe observable product behavior, not chosen implementation.
+- Acceptance criteria use Given/When/Then and reference the requirements they prove.
+- Every non-goal includes the adjacent outcome intentionally excluded.
+- Every open decision has a recommendation, owner, and decision boundary when the schema requires it.
+- `implementation_ready` remains false until the required technical approval exists.
 
-Proposals produced by `groom_tier: agent` carry mandatory inline source citations on every derived decision. The citations live in three layers:
+### Evidence and assumptions
 
-1. **State** — `source_citations:` block at session-state level (already in `state-schema.md`); also inline `source:` field on each scope item, persona, JTBD, edge case, risk in the synthesizer's output.
-2. **Markdown proposal** — flattened to `[source: path#L42]` or `[source: path#F3]` notation, inline next to the cited claim. Example:
-   ```markdown
-   ## II. Users & Job to be Done
+Evidence records what was observed, where, and when. Assumptions state what is believed, confidence, and how to validate it. Never turn an assumption into evidence through confident prose.
 
-   **Primary JTBD.** When I groom a feature with KB-rich context, I want to
-   skip questions about facts already documented [source: pm/strategy.md#L24],
-   so I can review a complete proposal in one pass
-   [source: pm/evidence/research/agent-mode-pm-tools.md#F2].
-   ```
-3. **HTML proposal** — small `<sup class="src">path#L42</sup>` superscript next to each cited claim, plus a collapsed `<details class="audit-block">` "Citation audit" block at the end of the proposal listing every citation in structured form.
+### Review questions and advisory debt
 
-### Citation field shape
+Store answers from `review-questions.md` against the current revision and semantic content hash. Blocking answers prevent `reviewed`; advisory findings receive stable debt IDs and remain visible through approval/handoff.
 
-Per RFC §5.2 (PM-233), citations are structured objects, not strings:
+## Human reader order
 
-```yaml
-source:
-  file: "pm/evidence/research/agent-mode-pm-tools.md"
-  line: 42                                # nullable
-  finding_id: "F3"                        # nullable; for evidence files with finding markers
-  excerpt: "Spark sells output, not process"   # nullable; reviewer-aid
-```
+The generated HTML keeps three layers:
 
-State stores the structured object. Markdown render flattens to one of:
-- `[source: path#L<line>]` if line is set
-- `[source: path#<finding_id>]` if finding_id is set
-- `[source: path]` if neither (file-level citation only)
+1. **Decision brief** — recommendation and approval boundary.
+2. **Execution contract** — structured scope and acceptance content.
+3. **Appendix** — evidence, audience/JTBD, design, alternatives, risks, decisions, review answers, and lineage.
 
-HTML render emits the same string inside `<sup class="src">`. The audit `<details>` block at the end of the HTML lists the full structured form (file, line, finding_id, excerpt) for each citation. Audit block is collapsed by default; readers expand it to verify a specific claim.
+Visible metadata includes lifecycle, approval state, revision, semantic content hash, source lineage, evidence freshness, and unresolved decisions. The reader must remain offline, inert, accessible, responsive, and printable.
 
-### Citation count parity rule
+## Legacy compatibility
 
-The HTML proposal MUST contain at least as many `<sup class="src">` tags as the markdown contains `[source: ...]` tokens. Lower count = citation loss between layers (a real risk acknowledged in RFC §8 Risks). The 07-draft-proposal step's agent-tier subsection enforces parity by counting citations in the markdown source before HTML render and asserting the count is preserved.
-
-### When this applies
-
-Citations are **mandatory** for `groom_tier: agent`. Co-pilot tiers (quick / standard / full) MAY include citations but it is not required — the existing co-pilot 07-draft-proposal flow does not produce inline `[source: ...]` tokens. Step 07's "Agent-tier additions" subsection is the only place where citation rendering runs; co-pilot tiers skip it cleanly.
+Markdown-only proposals remain inspection-readable for List, Board, and migration. They do not gain trusted approval merely from `status: proposed`. RFC/Dev may use the legacy path only when no canonical JSON exists, and must label the handoff as legacy/unbound until the migration or explicit compatibility rule is satisfied.

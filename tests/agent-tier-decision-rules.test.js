@@ -1,189 +1,82 @@
 "use strict";
 
-// PM-233 Issue 6: brief exchange decision rule + Iron Law gate
+// Groom v2 agent-tier contract checks.
 //
-// These tests validate that the agent-tier step files contain the structural
-// decision rules that the orchestrator depends on. We're testing markdown
-// content (skill-as-instruction) — heavy unit tests of LLM behavior live in
-// dogfood retros, not CI. The smoke-check disclosure in the RFC is honest
-// about what CI does and does not cover.
+// These tests deliberately validate decision invariants rather than a model,
+// provider, worker count, or persona topology. Execution mechanics may vary;
+// evidence quality and coverage may not.
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const fs = require("fs");
-const path = require("path");
+const fs = require("node:fs");
+const path = require("node:path");
 
-const PLUGIN_ROOT = path.resolve(__dirname, "..");
-
-function readStep(file) {
-  return fs.readFileSync(path.join(PLUGIN_ROOT, "skills/groom/steps", file), "utf8");
-}
+const ROOT = path.resolve(__dirname, "..");
+const STEPS = path.join(ROOT, "skills", "groom", "steps");
+const REFERENCES = path.join(ROOT, "skills", "groom", "references");
 
 function readReference(file) {
-  return fs.readFileSync(path.join(PLUGIN_ROOT, "skills/groom/references", file), "utf8");
+  return fs.readFileSync(path.join(REFERENCES, file), "utf8");
 }
 
-// ---------------------------------------------------------------------------
-// Brief exchange decision rule (lives in 01a-intake-agent.md Phase D)
-// ---------------------------------------------------------------------------
+test("agent tier has one provider-neutral intake and synthesis path", () => {
+  const stepFiles = fs.readdirSync(STEPS).filter((file) => file.endsWith(".md"));
+  const intake = fs.readFileSync(path.join(STEPS, "01-intake.md"), "utf8");
 
-test("agent tier: 01a intake declares Q1 trigger (KB anchor check)", () => {
-  const body = readStep("01a-intake-agent.md");
-
-  // Q1 fires when topic slug has no anchor in thinking/, backlog/, or
-  // research index. If this prose disappears, the brief-exchange logic
-  // silently broadens to "ask whenever".
-  assert.ok(
-    /Q(?:uestion)? ?1[^\n]*KB anchor/i.test(body),
-    "01a-intake-agent.md must label Q1 as the 'KB anchor check'"
-  );
-  assert.ok(
-    body.includes("pm/thinking") || body.includes("`{pm_dir}/thinking"),
-    "Q1 trigger must reference the thinking/ scan"
-  );
-  assert.ok(
-    body.includes("pm/backlog") || body.includes("`{pm_dir}/backlog"),
-    "Q1 trigger must reference the backlog/ scan"
-  );
-  assert.ok(
-    body.includes("evidence/research/index.md"),
-    "Q1 trigger must reference the research index scan"
-  );
+  assert.ok(!stepFiles.includes("01a-intake-agent.md"));
+  assert.ok(!stepFiles.includes("04a-synthesis.md"));
+  assert.match(intake, /agent.*not provider-locked/i);
+  assert.doesNotMatch(intake, /refuse.*codex|claude-only/i);
 });
 
-test("agent tier: 01a intake declares Q2 ambiguity check (deferred to 04a)", () => {
-  const body = readStep("01a-intake-agent.md");
+test("agent eligibility uses explicit freshness and evidence thresholds", () => {
+  const tier = readReference("tier-gating.md");
 
-  // Q2 is described in 01a as a state-field setup but the actual ask
-  // happens from 04a after synthesizer dispatch. The two-signal rule
-  // must be mechanical (both true → ask; either false → skip).
-  assert.ok(
-    body.includes("candidate_jtbds >= 2"),
-    "01a must document the candidate_jtbds threshold"
-  );
-  assert.ok(
-    body.includes("no_clear_primary == true") || body.includes("no_clear_primary"),
-    "01a must document the no_clear_primary flag"
-  );
-  assert.ok(
-    body.toLowerCase().includes("if both true") || body.toLowerCase().includes("if both signals"),
-    "01a Q2 trigger must be mechanical (both signals required)"
-  );
+  assert.match(tier, /90 days/i);
+  assert.match(tier, /at least three active hot insights/i);
+  assert.match(tier, /at least two competitor profiles/i);
+  assert.match(tier, /project-bounded citation or explicit assumption/i);
 });
 
-test("agent tier: 01a intake hard-caps questions at 2", () => {
-  const body = readStep("01a-intake-agent.md");
+test("failed agent eligibility offers a recovery route without silent downgrade", () => {
+  const tier = readReference("tier-gating.md");
 
-  assert.ok(
-    /never more than 2 questions/i.test(body),
-    "01a must declare a hard cap of 2 questions"
-  );
-  assert.ok(
-    body.includes("questions_asked > 2"),
-    "01a must reference the telemetry alert when questions_asked exceeds 2"
-  );
+  assert.match(tier, /offer `standard`/i);
+  assert.match(tier, /pm:strategy/);
+  assert.match(tier, /pm:research/);
+  assert.match(tier, /do not silently downgrade/i);
 });
 
-// ---------------------------------------------------------------------------
-// Iron Law gate (lives in 04a-synthesis.md Phase B)
-// ---------------------------------------------------------------------------
+test("runtime capability is probed rather than inferred from provider name", () => {
+  const tier = readReference("tier-gating.md");
 
-test("agent tier: 04a synthesis runs orchestrator-side fs.exists on cited paths", () => {
-  const body = readStep("04a-synthesis.md");
-
-  // The whole point of the orchestrator-side check is that the synthesizer's
-  // self-report (research_cited: true) is not enough. The orchestrator must
-  // independently verify every cited research path exists on disk.
-  assert.ok(body.includes("fs.exists"), "04a must invoke fs.exists on cited paths");
-  assert.ok(
-    body.includes("missing_paths"),
-    "04a must populate missing_paths for cited paths that fail fs.exists"
-  );
-  assert.ok(/halt/i.test(body) && /iron law/i.test(body), "04a must halt on Iron Law gate failure");
-  assert.ok(body.includes("/pm:research"), "04a halt directive must point at /pm:research");
+  assert.match(tier, /do not infer capability from a model\/provider name/i);
+  assert.match(tier, /record actual runtime capability probes/i);
 });
 
-test("agent tier: 04a synthesis sets fs_exists_checked: true after the check", () => {
-  const body = readStep("04a-synthesis.md");
+test("agent review adds citation integrity to full question coverage", () => {
+  const tier = readReference("tier-gating.md");
+  const questions = readReference("review-questions.md");
 
-  // The synthesizer is forbidden from setting fs_exists_checked itself
-  // (per synthesizer-agent.md). The 04a step body owns this flag.
-  assert.ok(
-    body.includes("fs_exists_checked: true") || body.includes("fs_exists_checked:`"),
-    "04a must set fs_exists_checked: true after running the check"
-  );
+  assert.match(tier, /agent.*full plus sampled citation integrity/i);
+  assert.match(questions, /Agent evidence question/);
+  assert.match(questions, /Citation integrity/);
+  assert.match(questions, /citations real, current, correctly attributed/i);
 });
 
-test("agent tier: synthesizer-agent.md forbids self-reporting fs_exists_checked", () => {
-  const body = readReference("synthesizer-agent.md");
+test("review correctness is independent of worker count and persona names", () => {
+  const tier = readReference("tier-gating.md");
+  const questions = readReference("review-questions.md");
 
-  // Defends the anti-collusion property: the synthesizer agent cannot
-  // claim it ran a check it didn't actually run. The 04a step body
-  // is the authoritative validator.
-  assert.ok(
-    /DO NOT set `fs_exists_checked: true` from the synthesizer side/i.test(body),
-    "synthesizer-agent.md must explicitly forbid self-reporting fs_exists_checked"
-  );
+  assert.match(tier, /Question coverage is authoritative/i);
+  assert.match(tier, /Worker count and persona names are execution details/i);
+  assert.match(questions, /Never encode correctness as a fixed worker count or persona list/i);
 });
 
-// ---------------------------------------------------------------------------
-// Q2 re-dispatch is scoped (cost-saving)
-// ---------------------------------------------------------------------------
+test("review results bind complete question coverage to a frozen revision", () => {
+  const questions = readReference("review-questions.md");
 
-test("agent tier: Q2 re-dispatch scoped to @persona-jtbd-deriver only", () => {
-  const body04a = readStep("04a-synthesis.md");
-  const bodySyn = readReference("synthesizer-agent.md");
-
-  // Per RFC §5.1: re-dispatch is scoped — only @persona-jtbd-deriver
-  // re-fires on Q2. @scope-deriver and @risk-identifier outputs reused.
-  // Cost: 1× sub-persona vs 3×.
-  assert.ok(
-    /scope[d]?/i.test(body04a) && body04a.includes("@persona-jtbd-deriver"),
-    "04a must scope Q2 re-dispatch to @persona-jtbd-deriver only"
-  );
-  assert.ok(
-    body04a.includes("@scope-deriver") && /reuse/i.test(body04a),
-    "04a must document that @scope-deriver output is reused (not re-dispatched)"
-  );
-  assert.ok(
-    bodySyn.includes("@persona-jtbd-deriver") && /scoped/i.test(bodySyn),
-    "synthesizer-agent.md must mirror the scoped re-dispatch rule"
-  );
-});
-
-// ---------------------------------------------------------------------------
-// Tier gate (KB freshness) — guards the entire agent path
-// ---------------------------------------------------------------------------
-
-test("agent tier: 01a intake refuses on stale strategy, thin insights, or thin competitors", () => {
-  const body = readStep("01a-intake-agent.md");
-
-  // The freshness gate has three thresholds; the prose must enumerate
-  // each so the LLM can refuse with the right directive.
-  assert.ok(
-    body.includes("90 day") || body.includes("< 90"),
-    "01a must declare the 90-day strategy freshness threshold"
-  );
-  assert.ok(
-    body.includes(">= 3") || body.includes("≥ 3"),
-    "01a must declare the >=3 hot insights threshold"
-  );
-  assert.ok(
-    body.includes(">= 2") || body.includes("≥ 2"),
-    "01a must declare the >=2 competitor profiles threshold"
-  );
-  assert.ok(/refuse/i.test(body), "01a must explicitly refuse on gate failure");
-});
-
-test("agent tier: 01a intake refuses agent tier under codex runtime", () => {
-  const body = readStep("01a-intake-agent.md");
-
-  assert.ok(
-    body.includes("Codex") && /refuse/i.test(body),
-    "01a must refuse codex runtime explicitly"
-  );
-  assert.ok(
-    body.includes("--tier standard"),
-    "01a refusal directive must point users at --tier standard"
-  );
+  assert.match(questions, /frozen proposal revision\/hash/i);
+  assert.match(questions, /no `blocking` answer remains/i);
+  assert.match(questions, /disputes are explicitly resolved/i);
 });

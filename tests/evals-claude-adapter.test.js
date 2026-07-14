@@ -111,7 +111,10 @@ test("claude live adapter stages plugin, enables analytics, and captures evidenc
       { cwd: repoRoot, encoding: "utf8", env: liveClaudeEnv({ binDir }) }
     );
 
-    assert.equal(result.status, 0, result.stdout + result.stderr);
+    const adapterStderr = fs.existsSync(path.join(runDir, "metadata", "claude.stderr.log"))
+      ? fs.readFileSync(path.join(runDir, "metadata", "claude.stderr.log"), "utf8")
+      : "";
+    assert.equal(result.status, 0, result.stdout + result.stderr + adapterStderr);
     const verdict = JSON.parse(fs.readFileSync(path.join(runDir, "verdict.json"), "utf8"));
     assert.equal(verdict.status, "pass", JSON.stringify(verdict));
 
@@ -651,7 +654,7 @@ function writeFakeClaude(binDir, logPath, opts) {
   const script = path.join(binDir, "claude");
   fs.writeFileSync(
     script,
-    `#!/usr/bin/env node
+    `#!${process.execPath}
 const fs = require("node:fs");
 const path = require("node:path");
 let input = "";

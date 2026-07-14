@@ -55,6 +55,7 @@
         "configured",
         "source_kind",
         "proposal_path",
+        "proposal_identity",
         "linear_id",
         "size",
         "acceptance_criteria",
@@ -64,6 +65,43 @@
         "configured": { "type": "boolean" },
         "source_kind": { "type": ["string", "null"], "enum": ["proposal", "linear-issue", null] },
         "proposal_path": { "type": ["string", "null"] },
+        "proposal_identity": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "trusted_approval",
+                "proposal_id",
+                "slug",
+                "revision",
+                "lifecycle",
+                "content_sha256",
+                "approved_proposal_sha256",
+                "current_proposal_sha256",
+                "decision_id",
+                "decision_sha256",
+                "exact_approved_bytes_current"
+              ],
+              "properties": {
+                "kind": { "const": "approved-canonical-json" },
+                "trusted_approval": { "const": true },
+                "proposal_id": { "type": "string", "minLength": 1 },
+                "slug": { "type": "string", "minLength": 1 },
+                "revision": { "type": "integer", "minimum": 1 },
+                "lifecycle": { "enum": ["approved", "planned", "in-progress", "done"] },
+                "content_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+                "approved_proposal_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+                "current_proposal_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+                "decision_id": { "type": ["string", "null"] },
+                "decision_sha256": { "type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$" },
+                "exact_approved_bytes_current": { "type": "boolean" }
+              }
+            }
+          ]
+        },
         "linear_id": { "type": ["string", "null"] },
         "size": { "type": ["string", "null"], "enum": ["M", "L", "XL", null] },
         "acceptance_criteria": { "type": "array", "items": { "type": "string", "minLength": 1 } },

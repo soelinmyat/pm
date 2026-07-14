@@ -158,6 +158,41 @@
             }
           ]
         },
+        "proposal": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path",
+                "kind",
+                "trusted_approval",
+                "proposal_id",
+                "slug",
+                "revision",
+                "lifecycle",
+                "content_sha256",
+                "approved_proposal_sha256",
+                "decision_id",
+                "decision_sha256"
+              ],
+              "properties": {
+                "path": { "type": "string", "pattern": "^/" },
+                "kind": { "const": "approved-canonical-json" },
+                "trusted_approval": { "const": true },
+                "proposal_id": { "type": "string", "minLength": 1 },
+                "slug": { "type": "string", "minLength": 1 },
+                "revision": { "type": "integer", "minimum": 1 },
+                "lifecycle": { "enum": ["approved", "planned", "in-progress", "done"] },
+                "content_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+                "approved_proposal_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+                "decision_id": { "type": ["string", "null"] },
+                "decision_sha256": { "type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$" }
+              }
+            }
+          ]
+        },
         "kind": { "type": "string", "minLength": 1 },
         "size": { "enum": ["XS", "S", "M", "L", "XL", "unknown"] },
         "risk": { "$ref": "#/$defs/risk" },

@@ -1,132 +1,132 @@
-# Groom Session State Schema
+# Groom Session State
 
-State file location: `{source_dir}/.pm/groom-sessions/{topic-slug}.md`
+Canonical private state lives at `.pm/groom-sessions/{slug}/session.json` with mode 0600. Completed runs move to `.pm/groom-sessions/completed/{slug}/{run_id}/session.json`. Project proposal content never lives in session state.
 
-**Repo location:** Groom sessions are ephemeral, machine-local scratchpad state. They live in the **source repo's** `.pm/groom-sessions/` (gitignored), never in the PM repo. Committing session state to the shared PM repo would leak in-progress work across machines and contributors. The grooming **artefact** (the proposal document) lives at `{pm_dir}/backlog/{topic-slug}.md` in the PM repo — only the session state is source-side. In same-repo mode, source_dir is the project root, so this resolves to `.pm/groom-sessions/` there.
+Use `scripts/groom-session.js`; do not edit session JSON directly.
 
-```yaml
----
-topic: "{topic name}"
-runtime: claude | codex
-groom_tier: quick | standard | full | agent
-phase: intake | strategy-check | research | scope | scope-review | design | draft-proposal | team-review | present | link | synthesis | scope-lock | proposal-ready   # bar-raiser is a legacy phase from pre-v1.9 sessions (the bar raiser now runs inside team-review)
-started: YYYY-MM-DD
-updated: YYYY-MM-DD
-run_id: "{PM_RUN_ID}"
-started_at: YYYY-MM-DDTHH:MM:SSZ
-phase_started_at: YYYY-MM-DDTHH:MM:SSZ
-completed_at: null | YYYY-MM-DDTHH:MM:SSZ
-linear_id: "{Linear ID}" | null
-codebase_available: true | false
-codebase_context: "{brief summary of related existing code, or 'greenfield'}"
-product_features_available: true | false
-product_feature_count: 0
-kb_maturity: fresh | developing | mature
-kb_maturity_tier: quick | standard | full
-kb_signals:
-  strategy: true | false
-  insights: true | false
-  competitors: true | false
+## Lifecycle
 
-# ─── Agent-tier-only fields (additive, optional) ────────────────────────────
-# Populated only when groom_tier == agent. Co-pilot tiers leave these unset.
-# Resume logic tolerates missing fields. No migration required.
-
-kb_freshness:                       # populated by Step 01a-intake-agent.md
-  strategy_age_days: int            # null if file missing; refuses if > 90
-  hot_insights_active: int          # count without resolved/expired status; refuses if < 3
-  competitor_profiles: int          # count of evidence/competitors/*/profile.md; refuses if < 2
-
-checkpoints:                        # populated as agent flow progresses
-  - name: scope-lock | proposal-ready | scope-review-escalation | team-review-escalation
-    timestamp: YYYY-MM-DDTHH:MM:SSZ
-    outcome: approve | redirect | abort
-
-source_citations:                   # mirror of synthesizer output; rendered in proposal HTML audit details
-  - claim_id: "{anchor}"
-    file: "pm/evidence/research/{slug}.md"
-    line: int                       # nullable
-    finding_id: "{F-id}"            # nullable; for evidence files
-    excerpt: "{verbatim quote}"     # nullable; reviewer-aid
-
-iron_law_check:                     # populated by synthesizer; orchestrator validates fs.exists
-  research_cited: true | false      # must be true or 04a halts
-  research_files: ["pm/evidence/research/...md"]
-  fs_exists_checked: true           # MUST be true (orchestrator-side)
-  missing_paths: []                 # cited paths that failed fs.exists
-
-questions_asked: int                # 0-2 brief-exchange + any escalation; alerts if > 2
-cost_usd: float                     # cumulative session token spend
-tokens_used: int
-time_to_scope_lock_seconds: int
-time_to_proposal_ready_seconds: int
-
-iter_counts:                        # per-checkpoint, reset on session start only
-  scope_review: int                 # cap=2 for agent (vs 3 for co-pilot)
-  team_review: int                  # cap=2 for agent (vs 3 for full tier)
-
-redirects:
-  scope_lock: int                   # caps at 3; 4th escalates
-  proposal_ready: int               # caps at 3; 4th escalates
-
-citation_validity_sampled:          # filled by reviewer flagging during scope-review/team-review
-  sampled: int
-  valid: int
-# ─── End agent-tier-only fields ─────────────────────────────────────────────
-
-strategy_check:
-  status: passed | failed | override | skipped
-  checked_against: {pm_dir}/strategy.md | null
-  checked_at: YYYY-MM-DD | null  # for strategy-drift detection
-  reason: "{why skipped or overridden}" | null
-  conflicts:
-    - "{conflicting non-goal text}"
-  supporting_priority: "{priority text}" | null
-  context:  # extracted once, referenced by all later phases
-    icp: "{ICP summary from Section 2}"
-    priorities: ["{priority 1}", "{priority 2}", "{priority 3}"]
-    non_goals: ["{non-goal 1}", "{non-goal 2}"]
-    positioning: "{competitive positioning summary from Section 4}" | null
-
-research_location: {pm_dir}/evidence/research/{topic-slug}.md | null
-research_note: "{1-line summary of inline finding}" | null  # quick tier only
-stale_research: []  # list of {name, age_days, threshold_days, type} for research cited above threshold
-retro_failed: true | false | null
-
-scope:
-  in_scope:
-    - "{item}"
-  out_of_scope:
-    - "{item}: {reason}"
-  filter_result: 10x | gap-fill | table-stakes | parity | null
-
-scope_review:
-  pm_verdict: ship-it | rethink-scope | wrong-priority | null
-  competitive_verdict: strengthens | neutral | weakens | null
-  em_verdict: feasible | feasible-with-caveats | needs-rearchitecting | null
-  adversarial_verdict: no-issue-found | possible-mistake | likely-mistake | null   # agent tier only
-  blocking_issues_fixed: 0
-  iterations: 1
-
-team_review:
-  pm_verdict: ready | needs-revision | significant-gaps | null
-  competitive_verdict: sharp | adequate | undifferentiated | null
-  em_verdict: ready | needs-restructuring | missing-prerequisites | null
-  design_verdict: complete | gaps | inconsistencies | null
-  adversarial_verdict: no-issue-found | possible-mistake | likely-mistake | null   # agent tier only
-  advisory_notes: []                                                               # agent tier: appended to proposal Advisory Notes
-  blocking_issues_fixed: 0
-  iterations: 1
-
-bar_raiser:
-  verdict: ready | send-back | pause | null
-  iterations: 1
-  blocking_issues_fixed: 0
-
-proposal:
-  slug: "{topic-slug}"
-  backlog_path: {pm_dir}/backlog/{topic-slug}.md
-  linear_id: "{Linear ID}" | null
-  prd_path: {pm_dir}/backlog/{topic-slug}.md | null
----
+```text
+intake → research → scope → synthesis → design → draft → review → presentation → approval → handoff → retro
 ```
+
+Tier routing is defined in `tier-gating.md`. Approval is never a normal phase result: only the explicit `approve` command can leave `awaiting_approval`.
+
+## Core state
+
+```json
+{
+  "schema_version": 1,
+  "run_id": "groom_...",
+  "slug": "feature-slug",
+  "status": "active | awaiting_approval | approved | blocked | complete",
+  "phase": "intake | research | scope | synthesis | design | draft | review | presentation | approval | handoff | retro",
+  "phase_attempt": 1,
+  "created_at": "ISO-8601",
+  "updated_at": "ISO-8601",
+  "source": {
+    "repo_root": "/absolute/repo",
+    "worktree": "/absolute/repo",
+    "branch": "feature-branch",
+    "base_commit": "git-sha"
+  },
+  "context": {
+    "configured": true,
+    "tier": "quick | standard | full | agent",
+    "title": "Title",
+    "outcome": "Outcome",
+    "source_kind": "idea | backlog | legacy",
+    "source_path": null,
+    "evidence_refs": []
+  },
+  "routing": {
+    "required_phases": [],
+    "review_questions": [],
+    "kb_gate": "normal | strict"
+  },
+  "proposal": {
+    "json_path": "/absolute/path.json",
+    "proposal_sha256": "sha256:...",
+    "content_hash": "sha256:...",
+    "revision": 1,
+    "lifecycle": "draft"
+  },
+  "review": {
+    "status": "not_started | passed",
+    "proposal_hash": null,
+    "rounds": 0,
+    "outcomes": [],
+    "reviewed_at": null
+  },
+  "approval": {
+    "status": "pending | approved",
+    "approved_by": null,
+    "approved_at": null,
+    "proposal_hash": null,
+    "proposal_revision": null,
+    "proposal_snapshot_sha256": null,
+    "decision_id": null,
+    "decision_sha256": null
+  },
+  "authority": {
+    "tracker_create": false,
+    "open_browser": false,
+    "start_rfc": false,
+    "external_research": false
+  },
+  "authority_log": [],
+  "execution": {},
+  "attempts": [],
+  "blockers": [],
+  "history": [],
+  "migration": null
+}
+```
+
+The executable closed schema is `scripts/lib/groom-session-schema.js`.
+
+## Phase result
+
+Every non-approval phase returns `groom-phase-result-v1`:
+
+```json
+{
+  "schema_version": 1,
+  "run_id": "groom_...",
+  "phase": "scope",
+  "attempt": 1,
+  "status": "passed | failed | blocked",
+  "summary": "What this phase decided",
+  "proposal": null,
+  "evidence": [{ "kind": "scope", "command": "...", "exit_code": 0, "artifact": null }],
+  "question_outcomes": [],
+  "capability_downgrades": [],
+  "blocker": null,
+  "runtime": {
+    "provider": "codex | anthropic | inline",
+    "model": "model identity",
+    "reasoning": "high | xhigh",
+    "session_id": null
+  }
+}
+```
+
+The Draft and later applicable results carry exact proposal identity. Review results contain one current outcome for every routed independent question. Capability downgrades state the missing capability and chosen execution fallback; they never change product policy.
+
+## Approval chain
+
+1. Review certifies semantic `content_hash` plus `revision`.
+2. The user explicitly approves; `approve` records an immutable session decision ID/hash against that reviewed identity.
+3. Canonical proposal lifecycle changes to `approved` without substantive content/revision change.
+4. `approval-audit` binds the session decision and exact approved JSON bytes.
+5. `proposal-check.js` verifies proposal, audit, and generated projections before handoff.
+
+Each crash window fails closed. A substantive revision clears review and approval and routes to the requested earlier phase.
+
+## External authority
+
+Groom local proposal writes are lifecycle work. Tracker creation, browser opening, RFC start, and external research are separate authority fields. Grant them with `authorize`; external mutations also require target-bound idempotent effect receipts.
+
+## Migration
+
+`migrate --legacy .pm/groom-sessions/{slug}.md` imports only bounded resumable context. Legacy approval is always recorded as untrusted and must be re-reviewed/re-approved under the canonical contract.
