@@ -255,4 +255,4 @@ Implemented in seven bounded slices on `codex/skill-authoring-contract`:
 - Review round 1 exposed seven concrete enforcement and Sync boundaries; the remediation adds fence-aware parsing, monotonic transition checks, full telemetry/completion semantics, argv-safe Git execution, and same-repo PM destination protection with regressions.
 - Review round 2 exposed three boundary variants: inherited Git object stores, CommonMark fence-length semantics, and raw-text D2 scans. The remediation clears the remaining repository-shaping Git environment, makes one operative-Markdown view authoritative across D2 rules, and covers nested fences plus fenced telemetry, directives, and transitions.
 
-Release status remains pending until the patch release is merged and its version tag is moved to the main merge commit.
+Released as v1.13.17 through PR #353. The tag resolves to the main merge commit, both workhorse caches passed the 21-rule plugin contract, and the completed Dev audit is archived outside the source tree.

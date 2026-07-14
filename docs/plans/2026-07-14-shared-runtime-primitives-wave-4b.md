@@ -2,7 +2,7 @@
 title: "Shared runtime primitives — Wave 4B"
 created: 2026-07-14
 updated: 2026-07-14
-status: implementing
+status: implemented
 depends_on:
   - Wave 4A released as v1.13.17
 ---
@@ -139,3 +139,18 @@ Share profile selection and override merging over injected profile data. Dev ret
 - v1.13.18 is merged, tagged on main, and synced to both workhorse caches.
 
 **Advance:** proceed to Wave 5 (Groom v2 and proposal quality).
+
+## Implementation evidence
+
+Implemented in four bounded commits on `codex/shared-runtime-primitives`:
+
+- Dev and RFC now share stable result hashing, current-evidence selection, evidence/runtime record validation, allowlisted authority grants, prompt rendering/publication, and model-profile resolution.
+- Provider capability probing and structured-result parsing/private publication live in the shared runtime with compatibility exports for existing Dev callers.
+- Review, Design Critique, the Review gate, artifact rendering, and repeat-eval checks consume one project-file facade over descriptor-bound input and anchored atomic output.
+- pull-request delivery is normalized through a provider-neutral effect receipt that binds target, required authority actions, attempt, result, and observed remote state while Dev retains Ship policy.
+- Dev recertification rejects phase records missing any evidence kind needed by final routed gates. Delivery checks also verify the same canonical phase evidence used by archival, preventing the Wave 4A ship/retro disagreement.
+- canonical Dev and RFC prompt fixtures are locked at 748 and 550 bytes respectively with SHA-256 characterizations; neither contains provider coaching.
+- a policy-boundary test prevents shared modules from importing Dev work-unit, RFC approval, Review finding, Design Critique, routing, or artifact policy.
+- the source suite passes 1,831 of 1,832 tests with zero failures and one intentional skip. Both installed workhorse caches pass the 21-rule plugin contract and the shared-runtime smoke suite.
+
+Release status remains pending until the final patch commit is reviewed at exact HEAD, merged, and tagged on the main merge commit.
