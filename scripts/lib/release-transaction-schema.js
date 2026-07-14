@@ -22,6 +22,14 @@ const EFFECT_STATUSES = new Set([
   "blocked",
   "failed",
 ]);
+const ATTEMPT_STATUSES = new Set([
+  "attempting",
+  "verified",
+  "denied",
+  "not-observed",
+  "blocked",
+  "failed",
+]);
 const EVIDENCE_KINDS = new Set(["review", "qa", "verification"]);
 
 function createReleaseTransaction(input) {
@@ -500,6 +508,9 @@ function validateEffectConsistency(transaction, effect, name, issues) {
   if (expectedLastStatus && lastAttempt?.status !== expectedLastStatus) {
     issues.push(`${name} effect status does not match its final attempt`);
   }
+  if (effect.status === "planned" && lastAttempt && lastAttempt.status !== "not-observed") {
+    issues.push(`${name} planned effect must be new or follow an absent observation`);
+  }
   if (effect.status !== "verified" || !isObject(effect.verified_receipt)) return;
   const bound = effect.verified_receipt;
   if (bound.effect !== name) issues.push(`${name} verified receipt effect mismatch`);
@@ -549,8 +560,14 @@ function validateAttempt(attempt, name, index, issues) {
     issues
   );
   if (attempt.number !== index + 1) issues.push(`${name} attempt numbering is invalid`);
-  if (!nonEmpty(attempt.status)) issues.push(`${name} attempt status is required`);
+  if (!ATTEMPT_STATUSES.has(attempt.status)) issues.push(`${name} attempt status is invalid`);
   if (!nonEmpty(attempt.started_at)) issues.push(`${name} attempt started_at is required`);
+  if (attempt.status === "attempting" && attempt.finished_at !== null) {
+    issues.push(`${name} attempting attempt cannot be finished`);
+  }
+  if (attempt.status !== "attempting" && !nonEmpty(attempt.finished_at)) {
+    issues.push(`${name} terminal attempt requires finished_at`);
+  }
 }
 
 function validateEffectTarget(name, target, transaction) {

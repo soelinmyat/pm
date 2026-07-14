@@ -359,6 +359,21 @@ test("persisted transactions revalidate target, key, and verified receipt identi
     transactionIssues(wrongTarget).some((issue) => /target identity is invalid/.test(issue))
   );
   assert.ok(transactionIssues(wrongTarget).some((issue) => /idempotency key/.test(issue)));
+
+  const replayableVerifiedAttempt = structuredClone(value);
+  replayableVerifiedAttempt.effects.push.status = "planned";
+  replayableVerifiedAttempt.effects.push.verified_receipt = null;
+  assert.ok(
+    transactionIssues(replayableVerifiedAttempt).some((issue) =>
+      /planned effect must be new or follow an absent observation/.test(issue)
+    )
+  );
+
+  const unknownAttempt = structuredClone(value);
+  unknownAttempt.effects.push.attempts[0].status = "maybe-complete";
+  assert.ok(
+    transactionIssues(unknownAttempt).some((issue) => /attempt status is invalid/.test(issue))
+  );
 });
 
 test("release readiness consumes current canonical Review, QA, and verification evidence", () => {
