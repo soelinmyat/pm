@@ -42,6 +42,7 @@ const {
   readCommittedBlob,
   resolveTrustedBase,
 } = require("./review-target");
+const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 const EVIDENCE_KINDS = new Set([
   "source",
@@ -294,9 +295,13 @@ function validateTarget(target, issues) {
     target.generator !== undefined &&
     (!object(target.generator) ||
       target.generator.name !== "pm:review" ||
-      !/^\d+\.\d+\.\d+$/.test(target.generator.version || ""))
+      !boundTargetGeneratorVersion(target.generator.version))
   )
-    add(issues, "target.generator", "must bind pm:review to an exact semantic version");
+    add(
+      issues,
+      "target.generator",
+      `must bind pm:review to a released bound-generator version from 1.13.22 through ${PLUGIN_VERSION}`
+    );
   validateSource(target.source, "target.source", issues);
   validateDevContext(target.dev_context, issues);
   validateBindingShape(target.acceptance, "target.acceptance", issues, true);
@@ -1936,6 +1941,15 @@ function sha(value) {
 }
 function sha256(value) {
   return typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+}
+function boundTargetGeneratorVersion(value) {
+  const candidate = String(value || "").match(/^(\d+)\.(\d+)\.(\d+)$/);
+  const current = PLUGIN_VERSION.match(/^(\d+)\.(\d+)\.(\d+)$/);
+  if (!candidate || !current) return false;
+  const parts = candidate.slice(1).map(Number);
+  const currentParts = current.slice(1).map(Number);
+  const compare = (left, right) => left[0] - right[0] || left[1] - right[1] || left[2] - right[2];
+  return compare(parts, [1, 13, 22]) >= 0 && compare(parts, currentParts) <= 0;
 }
 function slug(value) {
   return typeof value === "string" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);

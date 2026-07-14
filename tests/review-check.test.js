@@ -703,6 +703,25 @@ test("legacy targets cannot publish an authoritative final passing report", () =
   assert.match(JSON.stringify(checked.issues), /legacy targets are inspection-only/);
 });
 
+test("forged pre-binding and future target generators cannot publish a final pass", () => {
+  const fixture = makeFixture({ maxWorkers: 2 });
+  for (const version of ["1.13.21", "999.0.0"]) {
+    const target = structuredClone(fixture.target);
+    target.generator = { name: "pm:review", version };
+    write(fixture.root, fixture.targetPath, target);
+    const targetBinding = binding(fixture.root, fixture.targetPath);
+    for (const resultPath of fixture.resultPaths) {
+      const absolute = path.join(fixture.root, resultPath);
+      const result = JSON.parse(fs.readFileSync(absolute, "utf8"));
+      result.target = targetBinding;
+      fs.writeFileSync(absolute, `${JSON.stringify(result, null, 2)}\n`);
+    }
+    const checked = generate(fixture);
+    assert.equal(checked.ok, false, version);
+    assert.match(JSON.stringify(checked.issues), /released bound-generator version/, version);
+  }
+});
+
 test("Git-backed evidence rejects the phantom line after a trailing newline", () => {
   const fixture = makeFixture({ maxWorkers: 2 });
   const finding = validFinding("bug");
