@@ -28,6 +28,8 @@ Ship is root-owned for both single- and multi-work-unit changes. Workers never p
 
 Take the implemented branch through PR creation, merge, cleanup, and status write-back so delivery actually finishes cleanly.
 
+## How
+
 Push the branch, create the PR, and merge via the merge-loop. Then clean up worktrees and update all status trackers.
 
 Invoke `pm:ship` to handle the PR creation and merge-loop. The ship skill manages:

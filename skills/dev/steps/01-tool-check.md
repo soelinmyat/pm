@@ -17,6 +17,8 @@ result_schema: phase-result-v1
 
 Verify the baseline tooling and source-repo access needed for `pm:dev` before any planning or coding starts.
 
+## How
+
 All sizes use the PR flow. Verify `gh` early so the user can install it before PR creation time:
 
 ```bash

@@ -22,6 +22,8 @@ result_schema: phase-result-v1
 
 Prepare a clean, correctly-based branch/worktree and a verified baseline before any implementation starts.
 
+## How
+
 Set up an isolated git worktree for every task — including XS. Worktree isolation prevents agents from mixing up branches, committing to the wrong branch, or stepping on parallel work. The overhead is seconds; the cost of a wrong-branch commit is much higher.
 
 1. Resolve context:

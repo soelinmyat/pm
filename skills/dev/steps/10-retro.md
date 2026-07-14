@@ -21,6 +21,8 @@ result_schema: phase-result-v1
 
 Extract durable learnings from the completed dev session, write them to the right PM artifacts, and only then remove the dev session state.
 
+## How
+
 Runs after EVERY task regardless of size. Applies to both single-issue and multi-task flows.
 
 If extraction fails at any point, preserve canonical state and record a structured failed retro result with the error evidence. Then say:

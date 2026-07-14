@@ -15,6 +15,7 @@
     "test:coverage": "c8 --reporter=text --reporter=lcov node --test tests/*.test.js",
     "validate": "node scripts/validate.js --dir pm",
     "validate:plugin": "node scripts/validate.js --plugin",
+    "skill:audit": "node scripts/skill-audit.js",
     "quality": "npm run lint && npm run format && npm run test && npm run eval:check",
     "bump": "node scripts/bump-version.js"
   },

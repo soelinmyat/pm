@@ -8,7 +8,11 @@ description: Push branch to remote, handle pre-push hook failures with diagnosis
 
 <!-- telemetry step: push -->
 
-**Goal:** Push the branch to the remote, diagnosing and fixing any hook failures along the way.
+## Goal
+
+Push the branch to the remote, diagnosing and fixing any hook failures along the way.
+
+## How
 
 Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/delivery-contract.md`. Before every push attempt, reload and validate the contract and require both canonical and snapshotted `push_feature_branch: true`. If authority is absent, stop before the external action and request that exact grant.
 
@@ -86,6 +90,8 @@ NEVER use `--no-verify` to bypass hook failures. All failures must be fixed.
 
 **If push fails for other reasons** (auth, network, etc.): Report the error and stop.
 
-**Done-when:** `git push` exits 0, the pushed branch has an upstream on the exact contracted `{DELIVERY_REMOTE}`, and no local commit exists after the Review/gate evidence accepted by `dev-gate-check`.
+## Done-when
+
+`git push` exits 0, the pushed branch has an upstream on the exact contracted `{DELIVERY_REMOTE}`, and no local commit exists after the Review/gate evidence accepted by `dev-gate-check`.
 
 **Advance:** proceed to Step 05 (Create or Detect PR).

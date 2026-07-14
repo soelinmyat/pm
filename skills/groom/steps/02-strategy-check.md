@@ -7,6 +7,12 @@ applies_to: [quick, standard, full]
 
 ### Step 2: Strategy Check
 
+## Goal
+
+Bind the proposal scope to current ICP, priorities, positioning, and non-goals, or record the tier-authorized skip.
+
+## How
+
 **Tier routing:** Read `groom_tier` from groom session state. If the field is absent, default to `quick`.
 
 **Quick tier:** Skip this step entirely.
@@ -90,3 +96,9 @@ strategy_check:
 ```
 
 Later phases must read `strategy_check.context` from session state — not re-read `strategy.md`.
+
+## Done-when
+
+Strategy context and freshness are saved, conflicts are explicit, and any user decision to proceed despite a conflict is recorded; quick-tier skip state is equally explicit.
+
+**Advance:** proceed to Step 3 (Research).

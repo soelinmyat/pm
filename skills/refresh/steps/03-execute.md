@@ -6,7 +6,11 @@ description: Patch stale and incomplete files using research methodologies, resp
 
 ## Phase 2: Execute
 
-**Goal:** Patch the selected stale or incomplete artifacts safely, preserving user-authored content while refreshing only the sections that need work.
+## Goal
+
+Patch the selected stale or incomplete artifacts safely, preserving user-authored content while refreshing only the sections that need work.
+
+## How
 
 Read `${CLAUDE_PLUGIN_ROOT}/skills/refresh/references/origin-rules.md` for topic research origin handling.
 
@@ -129,3 +133,9 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "{pm_dir}"
 ```
 
 If validation fails, fix the frontmatter errors before proceeding. Do not surface the validation step to the user — just fix silently and move on.
+
+## Done-when
+
+Only confirmed stale or incomplete sections are patched, origin ownership and custom content are preserved, touched indexes/logs are synchronized, routing is bounded to changed evidence, and validation passes.
+
+**Advance:** proceed to Step 4 (Consolidation).

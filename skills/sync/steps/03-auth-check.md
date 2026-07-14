@@ -37,3 +37,9 @@ test -d pm/.git && git -C pm remote get-url origin 2>/dev/null && echo "OK" || e
 If `MISSING`: "pm/ is not set up as a git repo. Run `/pm:sync setup` to configure." and stop.
 
 If `OK`: proceed to the selected subcommand step.
+
+## Done-when
+
+The selected data route has a configured git backend and reachable origin, or execution has stopped with the exact setup remediation.
+
+**Advance:** proceed to Step 4 (Pull / Sync); route-specific steps skip cleanly.

@@ -6,7 +6,11 @@ description: Parse the subcommand (enable/disable/separate-repo) and arguments f
 
 ## Parse Subcommand and Arguments
 
-**Goal:** Resolve the requested setup action and validate whether this invocation should continue, delegate to separate-repo handling, or stop with usage guidance.
+## Goal
+
+Resolve the requested setup action and validate whether this invocation should continue, delegate to separate-repo handling, or stop with usage guidance.
+
+## How
 
 Extract the subcommand from the user's message.
 
@@ -40,3 +44,9 @@ Extract the subcommand from the user's message.
 | `ahrefs` | `integrations.seo.provider` | `"ahrefs"` | `"none"` |
 
 If the integration name is not recognized, show the supported integrations table and stop.
+
+## Done-when
+
+The action and arguments resolve to one supported route, or the skill has stopped without mutation and shown exact usage guidance.
+
+**Advance:** proceed to Step 2 (Update Config), or Step 3 (Confirm) according to the explicit separate-repo branch.

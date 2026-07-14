@@ -56,3 +56,9 @@ Write a single bug report to `{pm_dir}/backlog/{slug}.md` with `kind: bug` and a
    > `Captured: {pm_dir}/backlog/{slug}.md ({id}, kind=bug). Run /pm:dev {slug} when ready to fix.`
 
 8. **Offer enrichment.** If the user wants to refine priority/labels or fill in missing reproduction details, continue to Step 2 (Enrich). Otherwise end.
+
+## Done-when
+
+The collision-safe helper has written and validated one bug artifact, the user has received its ID and fix hint, and any desired enrichment is known.
+
+**Advance:** proceed to Step 2 (Enrich) when requested; otherwise summarize the capture and stop.

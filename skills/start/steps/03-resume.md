@@ -10,7 +10,7 @@ description: Refresh status, detect evidence, generate session brief, and recomm
 
 Give the user a fast session kickoff with update status, active-work detection, and one recommended next move.
 
-### Flow
+## How
 
 1. Refresh update status:
 
@@ -145,3 +145,9 @@ Rules:
       (b) Do something else"
   - when no active work exists, ask one question:
     - "Want me to continue with the recommended next move, or choose one of the alternatives?"
+
+## Done-when
+
+The shared status emitter produced a session brief, unprocessed evidence was handled or deferred, and the next move is grounded in current durable state.
+
+**Advance:** proceed to Step 4 (Pulse) only when there is no active work to resume; otherwise offer the selected resume action.

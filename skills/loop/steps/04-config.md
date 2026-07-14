@@ -72,3 +72,9 @@ They also warn explicitly when merge autonomy, Codex `danger-full-access`,
 Claude permission bypass, or extra writable directories broaden exposure.
 
 Do not modify `implementation_approved`, `approved_by`, or `approved_at` on backlog cards from this step.
+
+## Done-when
+
+The current or initialized config is validated, calculated exposure and TTL margins are visible, broad permissions have explicit local approval, and backlog approvals remain untouched.
+
+Offer host approval, supervised canaries, or scheduler installation as the next action only when its prerequisites are satisfied.

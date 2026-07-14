@@ -107,7 +107,8 @@ function buildContext(rootDir) {
     const fileName = path.basename(filePath);
     const name = fileName.replace(/\.md$/, "");
     const body = readFile(filePath);
-    commands.push({ name, absPath: filePath, body });
+    const parsed = parseFrontmatter(body);
+    commands.push({ name, absPath: filePath, frontmatter: parsed.data || {}, body });
   }
 
   // Manifests

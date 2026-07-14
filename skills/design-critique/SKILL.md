@@ -49,12 +49,12 @@ If `.pm/dev-sessions/{slug}/design-critique/` exists, validate the source commit
 
 ## Red Flags — Self-Check
 
-- **"The screenshots look current enough."** Paths and timestamps are not identity; verify commit and SHA-256 bindings.
-- **"One desktop happy path represents the feature."** State and viewport applicability must be decided explicitly, including empty, error, boundary, responsive, and print coverage.
-- **"The reviewer said it looks good, so the gate passes."** Reviewer prose cannot replace deterministic coverage, accessibility, structural, and freshness checks.
+- **"The screenshots look current enough."** Check commit and SHA-256 bindings; paths and timestamps are not identity.
+- **"One desktop happy path represents the feature."** Check state and viewport applicability explicitly, including empty, error, boundary, responsive, and print coverage.
+- **"The reviewer said it looks good, so the gate passes."** Use deterministic coverage, accessibility, structural, and freshness checks.
 - **"QA or code review will catch this."** Keep rendered craft here, behavior in QA, and source quality in Review; do not leave an ownership gap.
-- **"The user approved deferring the P1, so I can mark passed."** Record `deferred` and block the gate until the evidence is resolved or the design changes.
-- **"I can update the report after a fix without recapturing."** Resolved P0/P1 findings require distinct hash-bound before and after captures.
+- **"The user approved deferring the P1, so I can mark passed."** Stop and record `deferred`; block the gate until the evidence is resolved or the design changes.
+- **"I can update the report after a fix without recapturing."** Capture distinct hash-bound before and after evidence for resolved P0/P1 findings.
 
 ## Escalation Paths
 

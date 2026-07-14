@@ -6,7 +6,11 @@ description: Parse input path, detect source types, validate files, and check im
 
 ## Intake
 
-**Goal:** Validate the import target, understand what kind of evidence it contains, and determine whether ingest can proceed safely.
+## Goal
+
+Validate the import target, understand what kind of evidence it contains, and determine whether ingest can proceed safely.
+
+## How
 
 1. Accept the path, or ask for one if missing.
 2. Determine whether it is a file or directory.
@@ -114,3 +118,9 @@ If no path is provided:
   > "Do you want to refresh research from existing imported evidence, or ingest a new file/folder path?"
 - If no prior imports exist, ask:
   > "Provide a file or folder path containing customer evidence to ingest."
+
+## Done-when
+
+Supported inputs, source types, dependency gaps, hashes, replacement scope, and every ambiguous mapping are known; required user confirmations are recorded before normalization.
+
+**Advance:** proceed to Step 2 (Normalize).

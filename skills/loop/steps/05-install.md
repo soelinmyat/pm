@@ -120,3 +120,7 @@ The interval comes from `scheduler_interval_minutes` (default 30) or
 `--interval <minutes>`.
 
 Close by telling the user the interval, the log path, and the kill-switch command — or, if they stopped at generate-only, exactly what remains to enable unattended wakes.
+
+## Done-when
+
+The scheduler is either left as a reviewed preview or installed after explicit confirmation with fresh same-identity canaries, host approval, and safe config; the user has its interval, log path, kill switch, and next action.

@@ -6,7 +6,13 @@ description: Read config.json, update the relevant integration field, handle Lin
 
 ## Update Config
 
-**Goal:** Apply exactly one supported config change without disturbing unrelated config state.
+## Goal
+
+Apply exactly one supported config change without disturbing unrelated config state.
+
+## How
+
+Validate the owning config first, then patch only the selected field and re-read the saved JSON before advancing.
 
 ### Check config exists
 
@@ -34,3 +40,9 @@ Rules:
 ### Linear enable extras
 
 When enabling Linear (`enable linear`), after setting `integrations.linear.enabled` to `true`, check if `integrations.linear.team` and `integrations.linear.project` are already set. If not, ask the user for their Linear team slug and project name, then write those to the config.
+
+## Done-when
+
+The requested field and any user-confirmed Linear details are durably written, unrelated fields are preserved, and the saved JSON parses successfully.
+
+**Advance:** proceed to Step 3 (Confirm).

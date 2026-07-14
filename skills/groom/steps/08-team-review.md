@@ -7,6 +7,12 @@ applies_to: [full, agent]
 
 ### Step 8: Team Review + Bar Raiser
 
+## Goal
+
+Run the tier-appropriate full proposal review wave, fix blocking findings, preserve advisory notes, and stop at the bounded escalation if reviewers cannot converge.
+
+## How
+
 This is a review gate. Run the canonical dispatch-collect-fix loop from `${CLAUDE_PLUGIN_ROOT}/references/review-gate.md` with these parameters:
 
 | Parameter | Value |
@@ -65,3 +71,9 @@ bar_raiser:
 - At the cap with blocking issues, run the escalation checkpoint in `${CLAUDE_PLUGIN_ROOT}/skills/groom/references/tier-gating.md` § Agent-tier review escalation (`name: team-review-escalation`).
 - Advisory findings (including the adversarial reviewer's `possible-mistake` items) are appended to the proposal's Advisory Notes section and recorded in `team_review.advisory_notes` — Step 10 never runs in this tier.
 - Advance `phase: proposal-ready` and proceed to `11-link.md`.
+
+## Done-when
+
+Every required reviewer for the tier has a current verdict, scope-changing fixes triggered a full rerun, citation validity is sampled, and blockers are resolved or escalated at the cap.
+
+**Advance:** proceed to Step 10 (Present), or Step 11 (Link) according to the agent-tier branch.

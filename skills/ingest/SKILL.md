@@ -11,9 +11,17 @@ Import customer evidence into PM.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
 
-**When NOT to use:** Single quick observations (use note). Non-evidence files. Data that isn't customer feedback, interviews, support signals, or sales notes.
+**Workflow:** `ingest` | **Telemetry steps:** `intake`, `normalize`, `synthesize`, `route_insights`, `report`
 
-**Workflow:** `ingest`
+## Iron Law
+
+**NEVER COMMIT RAW CUSTOMER DATA.**
+
+## When NOT to use
+
+- For one quick observation, use `pm:note`.
+- For non-evidence files or data unrelated to customer feedback, interviews, support, or sales signals, stop instead of forcing an evidence schema.
+- For market or competitor sources gathered from the web, use `pm:research`.
 
 **Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/ingest/steps/` in numeric filename order. If `.pm/workflows/ingest/` exists, same-named files there override defaults.
 
@@ -45,8 +53,29 @@ Do not block on setup just because the user wants to import evidence first.
 - Don't invent structure for sparse or messy evidence, and don't overwrite external research sections in mixed topic files.
 - Every committed record carries the required fields: id, source_path, source_type, topic, pain_point, summary.
 
+## Red Flags — Self-Check
+
+- **"The file looks anonymized already."** Stop and include the PII review warning anyway.
+- **"I can infer this CSV column."** Ask for confirmation when a mapping changes evidence meaning.
+- **"Keeping the absolute path helps traceability."** Use a portable source label and keep machine-local paths private.
+- **"A richer summary is better."** Keep uncertainty and sparse evidence visible instead of inventing structure.
+- **"Re-importing will duplicate everything."** Check the SHA manifest and use its idempotent rebuild path.
+
 ## Escalation Paths
 
 - **Input path is missing or unreadable:** "I can ingest a file or folder path of customer evidence. Want to provide one now, or stop here?"
 - **Transcription dependencies are missing for audio imports:** "I can continue with text files, but audio ingest needs the transcription dependencies installed. Want to skip audio for now or install them first?"
 - **CSV/schema mapping stays ambiguous after preview:** "The import schema is still ambiguous. Want to confirm the column mapping explicitly, or stop before I create bad evidence records?"
+
+## Common Rationalizations
+
+| Excuse | Reality |
+|---|---|
+| "Raw records are the strongest evidence." | Raw customer data creates privacy and portability risk in a shared repository. |
+| "One inferred field will not affect synthesis." | A bad mapping compounds through every downstream finding and insight. |
+
+## Before Marking Done
+
+- [ ] Raw imports and manifests stay private while normalized, redacted evidence artifacts are saved under the correct PM paths.
+- [ ] The user confirmed ambiguous mappings and received the PII review warning.
+- [ ] Deduplication, required-field, provenance, privacy, synthesis, routing, and validation gates passed.

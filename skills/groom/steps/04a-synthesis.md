@@ -7,6 +7,12 @@ applies_to: [agent]
 
 ### Step 04a: Synthesis (agent tier)
 
+## Goal
+
+Synthesize mature-KB evidence into a source-verified agent scope and obtain the bounded scope-lock checkpoint.
+
+## How
+
 This step replaces three co-pilot steps for the agent path: `02-strategy-check.md`, `03-research.md`, and `04-scope.md`. The synthesizer reads strategy, memory, evidence, and codebase context itself and emits a unified YAML synthesis.
 
 **What this step owns:**
@@ -174,3 +180,9 @@ Wait for user response. Three valid outcomes:
 > (a) Switch to `--tier standard` for guided question-by-question scoping.
 > (b) Refine the topic and start fresh with `/pm:groom {new-topic} --tier agent`.
 > (c) Tell me explicitly what to fix — I'll override the synthesizer with your text."
+
+## Done-when
+
+Every cited path is orchestrator-verified, the ambiguity gate is resolved, synthesis is persisted, and scope lock is approved or the session stops at its bounded escalation.
+
+**Advance:** proceed to Step 5 (Scope Review).

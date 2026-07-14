@@ -13,13 +13,17 @@ Three modes: **landscape** (market overview and positioning map), **competitors*
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`. Functional references (`capability-gates.md`, `kb-search.md`) are loaded by the steps that need them.
 
+**Workflow:** `research` | **Telemetry steps:** `note_digest`, `mode_routing`, `landscape`, `competitor`, `topic`
+
+## Iron Law
+
+**NEVER PRESENT INFERENCE AS FACT.**
+
 ## Loop Worker Mode (headless)
 
 When `PM_LOOP_WORKER=1` with `PM_LOOP_STAGE=research`, preserve sourcing, synthesis, and verification requirements. Do not write or update backlog/card state in loop mode—the loop worker is the only canonical durable card-state writer.
 
 Atomically write the version-1 envelope to `PM_LOOP_RESULT_FILE`. Exact statuses: artifact-ready, blocked, failed, noop. `artifact-ready` includes one `document` payload (`kind: research`, run-relative path, SHA-256, media type); create that document with restrictive mode `0600`. `blocked` includes bounded code, reason, and remediation. The worker verifies and copies the document into the allowlisted PM destination before parking it for human review.
-
-**Workflow:** `research`
 
 **Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/research/steps/` in numeric filename order. If `.pm/workflows/research/` exists, same-named files there override defaults.
 
@@ -44,6 +48,34 @@ Stop. For quick one-off questions that don't need saved artifacts, answer direct
 ## When NOT to use
 
 Factual questions that don't need a research file ("what's React Server Components?"), quick lookups, or questions the user can answer from memory. Research creates persistent artifacts — if the answer doesn't need to be saved, just answer directly.
+
+## Red Flags — Self-Check
+
+- **"One authoritative source is enough."** Keep searching until sources converge or the contradiction is explicit.
+- **"This conclusion is obvious from the facts."** Include a hypothesis label and show the inference basis.
+- **"The old file is easier to replace."** Use the canonical artifact and preserve user-authored context.
+- **"No result means the search failed."** Capture the searched gap as a finding instead of fabricating coverage.
+- **"The source was current when I last saw it."** Check its access date and the domain-specific staleness threshold.
+
+## Escalation Paths
+
+- **No durable artifact is needed:** Stop and answer the factual question directly.
+- **Workspace is missing:** Route to `pm:start` before attempting research writeback.
+- **Sources materially conflict:** Ask whether to deepen the disputed point or save the contradiction with bounded confidence.
+- **The request is really a product decision:** Save the evidence first, then offer `pm:think`, `pm:strategy`, or `pm:groom` as the next lane.
+
+## Common Rationalizations
+
+| Excuse | Reality |
+|---|---|
+| "A polished narrative is more useful than caveats." | Decisions need provenance, confidence, and contradictions more than false certainty. |
+| "A parallel file avoids disturbing existing work." | Duplicate topics fragment the knowledge base and make freshness unknowable. |
+
+## Before Marking Done
+
+- [ ] The canonical research artifact is saved with full source URLs, access dates, provenance, and explicit hypotheses.
+- [ ] The user confirmed ambiguous mode/scope decisions and any high-cost provider use.
+- [ ] Existing-KB, source convergence, staleness, synthesis, contradiction, writeback, and output verification gates passed.
 
 ## References
 

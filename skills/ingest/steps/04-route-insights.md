@@ -6,11 +6,21 @@ description: Route synthesized findings to the correct insight domains using the
 
 ## Route Findings to Insight Topics
 
-**Goal:** Connect synthesized evidence to the appropriate insight domains so findings are discoverable by downstream skills (strategy, groom, refresh).
+## Goal
 
-**How:** Read and follow `${CLAUDE_PLUGIN_ROOT}/references/insight-routing.md`.
+Connect synthesized evidence to the appropriate insight domains so findings are discoverable by downstream skills (strategy, groom, refresh).
+
+## How
+
+Read and follow `${CLAUDE_PLUGIN_ROOT}/references/insight-routing.md`.
 Pass all evidence file paths written or updated during Step 3 (Synthesize) and
 their key findings as input. Batch all evidence together for one
 routing pass (not one per file).
 
 If no insight domains exist and no `{pm_dir}/strategy.md` exists, skip this step — there is nowhere to route findings yet.
+
+## Done-when
+
+All changed evidence is routed once as a batch, or routing is explicitly skipped because no destination domain exists; evidence writeback remains valid either way.
+
+**Advance:** proceed to Step 5 (Report).

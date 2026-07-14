@@ -10,6 +10,7 @@ description: "Use when the user asks for loop engineering, AI development loop o
 Coordinate PM's git-backed loop layer. **Bare `/pm:loop` is a single-command front door**: it reads the current situation (configured? scheduled? paused? cards ready? a wake in progress?) and offers only the next action that fits — so the operator drives the whole loop by running `/pm:loop` and answering. Under the hood it still shows the durable board, plans one wake cycle, inspects conservative autonomy config, sets up the scheduler, and — behind two explicit gates — executes one unit of work unattended via the loop worker. The `status`/`wake`/`config`/`install`/`work`/`reconcile` subcommands remain for direct use.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions.
+Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
 ## When NOT to use
 
@@ -18,7 +19,11 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and
 - The user wants a one-time active-work list without orchestration policy — use `/pm:list`.
 - The user wants to create or groom new work — use `/pm:task`, `/pm:bug`, `/pm:groom`, or `/pm:rfc`.
 
-**Workflow:** `loop`
+**Workflow:** `loop` | **Telemetry steps:** `route`, `status`, `wake`, `config`, `install`, `work`, `reconcile`
+
+## Iron Law
+
+**NEVER DISPATCH WITHOUT A DURABLE LEASE.**
 
 ## Steps
 
@@ -55,10 +60,33 @@ Epics use the existing card relations — no loop-specific fields: a card with o
 - Report every wake as dry-run, claimed, blocked, or idle, and keep durable `pm/` state distinct from local `.pm/` state in the summary.
 - Reconciliation always defaults to dry-run. Apply requires the explicit `--apply` flag, verified Git sync readiness, and Issue 2's isolated PM transaction; UNKNOWN remote evidence never changes a card.
 - Never install or resume the scheduler until all three supervised canary records pass for the same plugin, source, config, and engine identity. Stale, missing, mixed, or failed evidence keeps scheduling paused/uninstalled, and canaries never merge.
+- Every mutating subcommand requires authority for that exact effect. Retries and recovery must resume from durable evidence; they never repeat an ambiguous dispatch or broaden host permission.
+
+## Red Flags — Self-Check
+
+- **"The chat approval is enough."** Stop and check both durable implementation gates.
+- **"The lease push probably succeeded."** Check remote ownership before dispatching anything.
+- **"Retrying the worker will recover it."** Use the durable recovery classification and never redispatch an ambiguous run.
+- **"A scheduler install is only configuration."** Check canary identity, host approval, budgets, and explicit user authority first.
+- **"Local session state shows the card is mine."** Use only git-synced card and lease evidence for cross-machine ownership.
 
 ## Escalation Paths
 
+- Stop the active effect before routing to any recovery lane; never hide a partial mutation behind a new subcommand.
 - **Implementation gate missing:** "This card is not approved for loop-started implementation. Add `implementation_approved: true`, `approved_by`, and `approved_at` after human approval."
 - **Autonomy disabled:** "Project-level loop implementation is disabled. Set `autonomy.start_dev: true` in `pm/loop/config.json` only if unattended pickup is acceptable."
 - **No git remote/upstream:** "Mutating loop wakes require git sync. Configure `/pm:sync` first or use dry-run status only."
 - **User wants a direct build:** "Use `/pm:dev <id>` for immediate hands-on implementation."
+
+## Common Rationalizations
+
+| Excuse | Reality |
+|---|---|
+| "The next wake will repair partial state." | Ambiguous dispatch can duplicate implementation unless recovery is evidence-bound. |
+| "The canaries passed recently enough." | Scheduler authority is valid only for fresh, same-identity evidence. |
+
+## Before Marking Done
+
+- [ ] Durable card, event, lease, recovery, and result artifacts match the reported outcome.
+- [ ] The user confirmed every config, install, resume, apply, claim, or work effect that required a decision.
+- [ ] Authority, sync, lease, budget, canary, result-contract, and recovery gates passed or failed closed with evidence.

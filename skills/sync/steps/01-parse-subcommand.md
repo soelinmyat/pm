@@ -36,3 +36,9 @@ If the user asked for `push`, `pull`, or `status` but `sync.backend` is not set 
 Then route to Step 2 (Setup).
 
 Persist the selected route (`sync`, `setup`, `push`, `pull`, or `status`) in the working context so later steps can skip cleanly.
+
+## Done-when
+
+One route is selected from current config and explicit user intent, with no backend effect performed early.
+
+**Advance:** proceed to Step 2 (Setup); later steps skip unless their selected route applies.

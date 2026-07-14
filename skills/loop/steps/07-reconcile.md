@@ -28,6 +28,6 @@ Apply mode must pass Git sync readiness first. Every card/event/lease change run
 
 A recovery record always outranks an expired lease. `recovery-ready` resumes finalization for that same run through the existing recovery transaction and never executes the card again. Ambiguous recovery, protected-path evidence, and unverified remote identity remain non-mutating with their stored remediation.
 
-## Completion
+## Done-when
 
 The command has reported every stale classification, exact proposed/applied changes, and any remediation; apply mode has either completed all isolated transactions or stopped on the first failed Git/evidence/CAS check. Next, use `/pm:loop status` or `/pm:board` to verify the durable board state.

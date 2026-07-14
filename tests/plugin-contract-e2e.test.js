@@ -28,6 +28,7 @@ test("E2E: validate.js --plugin exits 0 on the canonical valid fixture", () => {
   assert.equal(parsed.ok, true);
   assert.equal(parsed.mode, "plugin");
   assert.equal(parsed.pack_version, "1.0.0");
+  assert.ok(parsed.rules_run >= 21, "expected structural and authoring rules to be enforced");
   assert.equal(parsed.issues.length, 0);
 });
 

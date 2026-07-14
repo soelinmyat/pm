@@ -7,6 +7,12 @@ applies_to: [full]
 
 ### Step 10: Present to User
 
+## Goal
+
+Present the reviewed proposal artifact, resolve its open questions and feedback, and obtain explicit approval of the current version.
+
+## How
+
 **Full tier only.** Quick and standard tiers finalize the proposal in Draft Proposal (Step 7) and skip directly to Link. This step only runs after Team Review and Bar Raiser have completed.
 
 Present the reviewed, iterated proposal as the finalized backlog entry. The PRD content lives inline in the backlog markdown file. A styled HTML artifact is generated for browser presentation.
@@ -76,3 +82,9 @@ proposal:
 ```
 
 Once approved, proceed to Step 11 (Link).
+
+## Done-when
+
+Open questions are resolved or explicitly retained, the current Markdown and HTML are synchronized, user feedback is incorporated, and explicit approval applies to the presented version.
+
+**Advance:** proceed to Step 11 (Link).

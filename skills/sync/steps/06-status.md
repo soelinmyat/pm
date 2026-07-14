@@ -56,3 +56,9 @@ Status:    {ok ? "OK" : "Failed"}
 Never show raw JSON to the user.
 
 Say: "What would you like to do next?"
+
+## Done-when
+
+The user has a readable backend, remote, branch, divergence, dirty-state, and last-sync summary, including the safest next action for any non-zero state.
+
+Offer `/pm:sync` for safe bidirectional recovery, an explicit one-way override when intentionally requested, or no action when everything is synced.

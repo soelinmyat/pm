@@ -498,7 +498,11 @@ test("buildContext reads the valid fixture tree correctly", () => {
 test("runPack on valid fixture yields zero errors", () => {
   const root = path.join(__dirname, "fixtures", "plugin-contract", "valid");
   const report = runPack(root);
-  assert.equal(report.issues.length, 0, JSON.stringify(report.issues, null, 2));
+  assert.equal(
+    report.issues.filter((issue) => issue.severity === "error").length,
+    0,
+    JSON.stringify(report.issues, null, 2)
+  );
   assert.equal(report.packVersion, "1.0.0");
 });
 
@@ -545,6 +549,14 @@ test("pack stability: exact rule-ID set + severity is stable across runs (AC2.5)
     "D1-STEP-002": "error",
     "D1-STEP-003": "error",
     "D1-TOOLS-001": "error",
+    "D2-CMD-001-surface-parity": "error",
+    "D2-SKILL-001-contract-sections": "error",
+    "D2-SKILL-002-reference-directives": "error",
+    "D2-SKILL-003-iron-law": "error",
+    "D2-SKILL-004-self-checks": "error",
+    "D2-SKILL-005-class-contract": "error",
+    "D2-STEP-001-execution-contract": "error",
+    "D2-STEP-002-transition": "error",
   };
   const actual = {};
   for (const r of rules) actual[r.id] = r.severity;

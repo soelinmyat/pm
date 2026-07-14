@@ -1,6 +1,6 @@
 ---
 name: start
-description: "Use to bootstrap PM in a new repo or resume active work. Auto-invoked at session start by using-pm."
+description: "Use when the user says start PM, open PM, resume active work, show the project pulse, or bootstrap PM in a new repository; it resolves paths before routing."
 ---
 
 # pm:start
@@ -17,17 +17,26 @@ Use it to do one of two things:
 `pm:start` should feel like "start PM here" — not "run a setup wizard."
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions.
+Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
-**Workflow:** `start`
+**Workflow:** `start` | **Telemetry steps:** `detect`, `bootstrap`, `resume`, `pulse`
 
 **Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/start/steps/` in numeric filename order. If `.pm/workflows/start/` exists, same-named files there override defaults.
 
-**When NOT to use:** When the user has a specific task in mind — route to the relevant skill directly. Start is for bootstrapping or resuming, not for "I want to build X" or "research Y."
+## Iron Law
+
+**NEVER GUESS A PM PATH.**
+
+## When NOT to use
+
+When the user has a specific task in mind, route to the relevant skill directly. Start is for bootstrapping or resuming, not for "I want to build X" or "research Y."
 
 ## Hard rules
 
 - Never guess PM paths — resolve `pm_dir`, `pm_state_dir`, and `source_dir` here before any other skill reads or writes. If resolution is uncertain, stop and resolve it first.
 - Never `mkdir` `pm_dir` itself; skills verify `{pm_dir}` exists before writing, so nothing lands in the wrong repo. Session files (groom, rfc, dev) always live source-side at `{source_dir}/.pm/*-sessions/`, never in the PM repo.
+- Bootstrap is an operational effect: require explicit authority, report partial
+  state, and offer a recovery path instead of retrying setup silently.
 - Detect the situation (bootstrap vs resume vs pulse) and show the session brief before routing — don't hand off blind.
 
 ## Escalation Paths
@@ -35,6 +44,26 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and
 - **PM is not initialized and the user did not ask to initialize it:** "PM isn’t initialized in this repo yet. Want to run `/pm:start` to set it up, or continue without PM?"
 - **Resolved PM repo path is missing:** "The configured PM repo path doesn’t exist anymore. Want to update separate-repo config with `/pm:setup`, or fall back to bootstrap here?"
 - **Resolved source repo path is missing:** "The linked source repo path can’t be found. PM can still open the knowledge base, but code-aware flows will be degraded until `/pm:setup separate-repo` is fixed."
+
+## Red Flags — Self-Check
+
+- **"The current directory must be the PM repo."** Stop and use the resolver before reading or writing.
+- **"Auto-invocation means permission to bootstrap."** Ask before any setup effect unless `/pm:start` was explicit.
+- **"I can scan session files myself."** Use the shared status emitter so empty and error states stay consistent.
+- **"A generic menu is always useful."** Route to the user's concrete lane when intent is already clear.
+
+## Common Rationalizations
+
+| Excuse | Reality |
+|---|---|
+| "The conventional paths probably apply." | Separate-repo and worktree layouts make guesses unsafe. |
+| "Bootstrap is harmless." | It creates durable files and needs explicit user intent. |
+
+## Before Marking Done
+
+- [ ] `pm_dir`, `pm_state_dir`, and `source_dir` were resolved and surfaced.
+- [ ] Bootstrap effects occurred only with explicit authority; resume and pulse stayed read-only.
+- [ ] Missing, empty, and error states produced a concrete next action.
 
 ## Resolve Paths
 

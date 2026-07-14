@@ -8,7 +8,11 @@ description: Self-healing merge loop with gate monitoring, auto-merge, cleanup, 
 
 <!-- telemetry step: merge-monitor -->
 
-**Goal:** Drive the PR through all readiness gates to a confirmed merge, then clean up.
+## Goal
+
+Drive the PR through all readiness gates to a confirmed merge, then clean up.
+
+## How
 
 Read and validate `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/delivery-contract.md`. Before arming auto-merge or issuing a manual merge, require canonical and snapshotted `merge: true`. If merge was not explicitly requested and persisted before the action, stop at the green PR boundary. `preferences.ship.auto_merge` alone is never merge authority.
 
@@ -90,6 +94,8 @@ Before cleanup, verify the backlog entry was written:
 - Check: `test -f {pm_dir}/backlog/{slug}.md`
 - If missing and `linear_id` is set: warn the user that product memory was not created.
 
-**Done-when:** The exact contracted PR is confirmed merged, every delivery-loop fix was recertified before push, required Product Memory updates are complete, and cleanup is done or intentionally skipped.
+## Done-when
+
+The exact contracted PR is confirmed merged, every delivery-loop fix was recertified before push, required Product Memory updates are complete, and cleanup is done or intentionally skipped.
 
 Say: "Ship complete. PR merged and cleanup finished. What would you like to work on next?"

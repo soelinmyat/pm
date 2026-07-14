@@ -7,6 +7,12 @@ applies_to: [quick, standard, full]
 
 ### Step 1: Intake
 
+## Goal
+
+Capture a confirmed product idea, derive its canonical slug, classify KB maturity and codebase context, and create resumable session state.
+
+## How
+
 This step has two phases: **context gathering** (varies by entry path) and **shared initialization** (always runs). Every entry path must complete both phases before advancing.
 
 ---
@@ -147,3 +153,9 @@ kb_signals:
 ```
 
 Only after state is written may the workflow advance to Step 2.
+
+## Done-when
+
+The idea, audience, outcome, slug, eligible tier, runtime, KB signals, codebase context, and initial phase are confirmed and saved without overwriting another session.
+
+**Advance:** proceed to Step 2 (Strategy Check).
