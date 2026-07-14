@@ -53,6 +53,11 @@ test("prepare-release commits version files without creating a feature tag and r
   const item = fixture();
   try {
     const before = git(item.root, "rev-list", "--count", "HEAD");
+    const currentVersion = JSON.parse(
+      fs.readFileSync(path.join(item.root, "plugin.config.json"), "utf8")
+    ).version;
+    const [major, minor, patch] = currentVersion.split(".").map(Number);
+    const expectedVersion = `${major}.${minor}.${patch + 1}`;
     const result = spawnSync(
       process.execPath,
       [script, "patch", "--root", item.root, "--session", sessionRel],
@@ -62,13 +67,13 @@ test("prepare-release commits version files without creating a feature tag and r
     const prepared = JSON.parse(result.stdout);
     assert.equal(prepared.status, "prepared");
     assert.equal(prepared.transaction.release.tag_created, false);
-    assert.equal(prepared.transaction.release.next_version, "1.13.27");
+    assert.equal(prepared.transaction.release.next_version, expectedVersion);
     assert.equal(git(item.root, "rev-list", "--count", "HEAD"), String(Number(before) + 1));
     assert.equal(git(item.root, "tag", "--points-at", "HEAD"), "");
     assert.equal(git(item.root, "status", "--porcelain", "--untracked-files=no"), "");
     assert.equal(
       JSON.parse(fs.readFileSync(path.join(item.root, "plugin.config.json"))).version,
-      "1.13.27"
+      expectedVersion
     );
 
     const resumed = spawnSync(
