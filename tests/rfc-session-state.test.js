@@ -36,6 +36,10 @@ const {
   createSession: createDevSession,
   validateResult: validateDevResult,
 } = require("../scripts/lib/dev-session-schema");
+const {
+  buildApproval: buildProposalApproval,
+  proposalContentHash,
+} = require("../scripts/lib/proposal-schema");
 
 test("RFC session separates technical review from explicit human approval", () => {
   const repo = makeRepo();
@@ -684,6 +688,71 @@ test("intake rejects untraceable sources and non-string acceptance criteria", ()
           acceptance_criteria: ["AC"],
         }),
       /requires linear_id/
+    );
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("intake derives RFC scope from trusted canonical proposal and rejects stale or contradictory input", () => {
+  const repo = makeRepo();
+  try {
+    const proposal = JSON.parse(
+      fs.readFileSync(path.join(__dirname, "fixtures", "proposals", "strong-v1.json"), "utf8")
+    );
+    proposal.lifecycle = "approved";
+    proposal.review = {
+      status: "passed",
+      revision: proposal.revision,
+      content_sha256: proposalContentHash(proposal),
+      completed_at: "2026-07-14T02:00:00.000Z",
+    };
+    const proposalPath = path.join(
+      repo.root,
+      "pm",
+      "backlog",
+      "proposals",
+      `${proposal.slug}.json`
+    );
+    const approvalPath = proposalPath.replace(/\.json$/, ".approval.json");
+    fs.mkdirSync(path.dirname(proposalPath), { recursive: true });
+    fs.writeFileSync(proposalPath, `${JSON.stringify(proposal, null, 2)}\n`);
+    const approval = buildProposalApproval(proposal, fs.readFileSync(proposalPath), {
+      approvedBy: "user:owner",
+      approvedAt: "2026-07-14T03:00:00.000Z",
+      decisionId: "groom-approval:groom_test",
+      decisionSha256: `sha256:${"5".repeat(64)}`,
+    });
+    fs.writeFileSync(approvalPath, `${JSON.stringify(approval, null, 2)}\n`);
+
+    const configured = applyContext(createSession({ slug: proposal.slug, sourceDir: repo.root }), {
+      source_kind: "proposal",
+      proposal_path: proposalPath,
+    });
+    assert.equal(configured.context.size, "L");
+    assert.deepEqual(configured.context.acceptance_criteria, [
+      "ac:approval: Given a reviewed proposal, when a user explicitly approves it, then the audit binds its exact bytes, content hash, revision, and approver",
+    ]);
+    assert.equal(configured.context.proposal_identity.trusted_approval, true);
+    assert.equal(configured.context.proposal_identity.decision_id, "groom-approval:groom_test");
+
+    assert.throws(
+      () =>
+        applyContext(createSession({ slug: "contradiction", sourceDir: repo.root }), {
+          source_kind: "proposal",
+          proposal_path: proposalPath,
+          size: "M",
+        }),
+      /contradicts canonical proposal size/
+    );
+    fs.unlinkSync(approvalPath);
+    assert.throws(
+      () =>
+        applyContext(createSession({ slug: "missing-audit", sourceDir: repo.root }), {
+          source_kind: "proposal",
+          proposal_path: proposalPath,
+        }),
+      /ENOENT/
     );
   } finally {
     repo.cleanup();

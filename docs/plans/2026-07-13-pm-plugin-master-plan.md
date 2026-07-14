@@ -24,9 +24,12 @@ Completion means every shipped skill has an explicit contract, proportionate eva
 | v1.13.12 | Shared HTML artifact foundation | Released |
 | v1.13.13 | Blind output-quality evaluation harness | Released |
 | v1.13.14 | Evidence-bound `pm:design-critique` | Released |
-| v1.13.15 / Wave 3B | Evidence-bound adaptive `pm:review` | Release commit and tag prepared locally; delivery pending |
+| v1.13.15 / Wave 3B | Evidence-bound adaptive `pm:review` | Released |
+| v1.13.17 / Wave 4A | Executable skill-authoring contract and audit | Released |
+| v1.13.25 / Wave 4B | Shared provider-neutral workflow runtime primitives | Released |
+| vNext / Wave 5 | Groom v2, canonical proposal contract, and quality calibration | Implementation and certification in progress |
 
-The next work starts only after Wave 3B lands. New waves must not be stacked onto its reviewed commit.
+Wave 5 is the active release. Wave 6 begins only after its reviewed release commit lands on main.
 
 ## Operating laws
 
@@ -113,7 +116,7 @@ Then remediate the plugin in small clusters. Do not make one 24-skill rewrite. P
 
 ### Wave 4B — Shared runtime primitives
 
-**State:** implemented and locally verified on `codex/shared-runtime-primitives`; release pending.
+**State:** released as v1.13.25 through PR #354.
 
 Extract only the stable boundaries already proven by Dev, RFC, Review, and Design Critique:
 
@@ -129,6 +132,8 @@ Keep routing tables, approval policy, findings, artifact schemas, and gate rules
 **Exit:** existing lifecycle suites pass against shared primitives; duplicated implementations are removed; legacy migration/resume fixtures remain green; prompt and result bytes stay provider-neutral.
 
 ### Wave 5 — Groom v2 and proposal quality
+
+**State:** implementation and certification active on `codex/groom-v2`; detailed plan in `docs/plans/2026-07-14-groom-v2-wave-5.md`.
 
 Make Groom the next full lifecycle migration:
 

@@ -9,7 +9,15 @@ const { isRfc3339DateTime } = require("./lib/iso-time");
 const { parseCliArgs } = require("./loop-args");
 
 const MAX_HTML_BYTES = 1_572_864;
-const LIFECYCLES = new Set(["draft", "reviewed", "approved", "superseded"]);
+const LIFECYCLES = new Set([
+  "draft",
+  "reviewed",
+  "approved",
+  "planned",
+  "in-progress",
+  "done",
+  "superseded",
+]);
 const KINDS = new Set(["proposal", "rfc", "report"]);
 const META_FIELDS = new Set([
   "schema_version",

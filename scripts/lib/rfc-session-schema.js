@@ -9,6 +9,7 @@ const { loadPhaseStep } = require("../step-loader.js");
 const { findGitRoot, gitRelativePath, readGitFile, runGit } = require("../loop-git.js");
 const { isRfc3339DateTime: isIsoDate } = require("./iso-time.js");
 const { markdownTableValue } = require("./session-scan.js");
+const { readApprovedProposal } = require("./proposal-schema.js");
 const { grantActions } = require("./workflow-runtime/authority.js");
 const {
   createTransition,
@@ -62,6 +63,7 @@ function createSession(options) {
       configured: false,
       source_kind: null,
       proposal_path: null,
+      proposal_identity: null,
       linear_id: null,
       size: null,
       acceptance_criteria: [],
@@ -122,20 +124,65 @@ function applyContext(session, facts, options = {}) {
   if (!new Set(["proposal", "linear-issue"]).has(facts.source_kind)) {
     throw new Error("source_kind must be proposal or linear-issue");
   }
-  if (!["M", "L", "XL"].includes(facts.size)) {
-    throw new Error("RFC size must be M, L, or XL; route XS/S directly to pm:dev");
-  }
-  if (!Array.isArray(facts.acceptance_criteria) || facts.acceptance_criteria.length === 0) {
-    throw new Error("RFC context requires acceptance_criteria");
-  }
-  if (facts.acceptance_criteria.some((criterion) => !nonEmpty(criterion))) {
-    throw new Error("every acceptance criterion must be a non-empty string");
-  }
   if (facts.source_kind === "proposal" && !nonEmpty(facts.proposal_path)) {
     throw new Error("proposal source requires proposal_path");
   }
   if (facts.source_kind === "proposal" && !fs.existsSync(path.resolve(facts.proposal_path))) {
     throw new Error(`proposal_path does not exist: ${path.resolve(facts.proposal_path)}`);
+  }
+  let canonical = null;
+  let proposalIdentity = null;
+  let effectiveSize = facts.size;
+  let effectiveAcceptanceCriteria = facts.acceptance_criteria;
+  if (
+    facts.source_kind === "proposal" &&
+    path.extname(facts.proposal_path).toLowerCase() === ".json"
+  ) {
+    const absoluteProposal = fs.realpathSync(path.resolve(facts.proposal_path));
+    let proposalRoot;
+    try {
+      proposalRoot = fs.realpathSync(findGitRoot(path.dirname(absoluteProposal)));
+    } catch {
+      throw new Error(`canonical proposal is not inside a Git worktree: ${absoluteProposal}`);
+    }
+    canonical = readApprovedProposal(absoluteProposal, { projectRoot: proposalRoot });
+    const contractCriteria = canonical.contract.acceptance_criteria.map(formatAcceptanceCriterion);
+    if (facts.size !== undefined && facts.size !== canonical.contract.size)
+      throw new Error(
+        `RFC size ${facts.size} contradicts canonical proposal size ${canonical.contract.size}`
+      );
+    if (
+      facts.acceptance_criteria !== undefined &&
+      JSON.stringify(facts.acceptance_criteria) !== JSON.stringify(contractCriteria)
+    )
+      throw new Error(
+        "RFC acceptance_criteria contradict the canonical proposal execution contract"
+      );
+    effectiveSize = canonical.contract.size;
+    effectiveAcceptanceCriteria = contractCriteria;
+    proposalIdentity = {
+      kind: canonical.kind,
+      trusted_approval: true,
+      proposal_id: canonical.contract.proposal_id,
+      slug: canonical.contract.slug,
+      revision: canonical.contract.revision,
+      lifecycle: canonical.contract.lifecycle,
+      content_sha256: canonical.contract.content_sha256,
+      approved_proposal_sha256: canonical.approval.proposal_sha256,
+      current_proposal_sha256: canonical.source.bytesSha256,
+      decision_id: canonical.approval.decision_id,
+      decision_sha256: canonical.approval.decision_sha256,
+      exact_approved_bytes_current: canonical.exactBytesCurrent,
+    };
+  }
+  if (!["M", "L", "XL"].includes(effectiveSize)) {
+    throw new Error("RFC size must be M, L, or XL; route XS/S directly to pm:dev");
+  }
+  if (!Array.isArray(effectiveAcceptanceCriteria) || effectiveAcceptanceCriteria.length === 0) {
+    throw new Error("RFC context requires acceptance_criteria");
+  }
+  if (effectiveAcceptanceCriteria.some((criterion) => !nonEmpty(criterion))) {
+    throw new Error("every acceptance criterion must be a non-empty string");
   }
   if (facts.source_kind === "linear-issue" && !nonEmpty(facts.linear_id)) {
     throw new Error("linear-issue source requires linear_id");
@@ -156,14 +203,19 @@ function applyContext(session, facts, options = {}) {
     configured: true,
     source_kind: facts.source_kind,
     proposal_path: facts.proposal_path ? path.resolve(facts.proposal_path) : null,
+    proposal_identity: proposalIdentity,
     linear_id: facts.linear_id || null,
-    size: facts.size,
-    acceptance_criteria: [...facts.acceptance_criteria],
+    size: effectiveSize,
+    acceptance_criteria: [...effectiveAcceptanceCriteria],
     artifact_repo_root: artifactRepoRoot,
   };
   next.updated_at = options.now || new Date().toISOString();
   assertValidSession(next);
   return next;
+}
+
+function formatAcceptanceCriterion(criterion) {
+  return `${criterion.id}: Given ${criterion.given}, when ${criterion.when}, then ${criterion.then}`;
 }
 
 function nextDecision(session, sessionPath) {
@@ -1075,6 +1127,7 @@ function validateSession(session) {
       "configured",
       "source_kind",
       "proposal_path",
+      "proposal_identity",
       "linear_id",
       "size",
       "acceptance_criteria",
@@ -1092,6 +1145,7 @@ function validateSession(session) {
       if (value.artifact_repo_root !== null && !nonEmpty(value.artifact_repo_root)) {
         errors.push(issue(`${objectPath}.artifact_repo_root`, "must be null or a path"));
       }
+      validateProposalIdentity(value.proposal_identity, `${objectPath}.proposal_identity`, errors);
       if (
         !Array.isArray(value.acceptance_criteria) ||
         value.acceptance_criteria.some((item) => !nonEmpty(item))
@@ -1220,6 +1274,49 @@ function validateRuntimeRecord(value, objectPath, errors) {
   if (value.session_id !== null && !nonEmpty(value.session_id)) {
     errors.push(issue(`${objectPath}.session_id`, "must be null or string"));
   }
+}
+
+function validateProposalIdentity(value, objectPath, errors) {
+  if (value === null) return;
+  const fields = [
+    "kind",
+    "trusted_approval",
+    "proposal_id",
+    "slug",
+    "revision",
+    "lifecycle",
+    "content_sha256",
+    "approved_proposal_sha256",
+    "current_proposal_sha256",
+    "decision_id",
+    "decision_sha256",
+    "exact_approved_bytes_current",
+  ];
+  validateRecordObject(value, fields, objectPath, errors);
+  if (!isObject(value)) return;
+  if (value.kind !== "approved-canonical-json")
+    errors.push(issue(`${objectPath}.kind`, "must identify approved canonical JSON"));
+  if (value.trusted_approval !== true)
+    errors.push(issue(`${objectPath}.trusted_approval`, "must be true"));
+  for (const field of ["proposal_id", "slug"]) {
+    if (!nonEmpty(value[field])) errors.push(issue(`${objectPath}.${field}`, "required"));
+  }
+  if (!Number.isInteger(value.revision) || value.revision < 1)
+    errors.push(issue(`${objectPath}.revision`, "must be a positive integer"));
+  if (!["approved", "planned", "in-progress", "done"].includes(value.lifecycle))
+    errors.push(issue(`${objectPath}.lifecycle`, "must preserve approved lineage"));
+  for (const field of ["content_sha256", "approved_proposal_sha256", "current_proposal_sha256"]) {
+    if (!/^sha256:[0-9a-f]{64}$/.test(value[field] || ""))
+      errors.push(issue(`${objectPath}.${field}`, "must be sha256"));
+  }
+  if ((value.decision_id === null) !== (value.decision_sha256 === null))
+    errors.push(issue(objectPath, "decision identity and hash must both be null or both be bound"));
+  if (value.decision_id !== null && !nonEmpty(value.decision_id))
+    errors.push(issue(`${objectPath}.decision_id`, "must be null or a string"));
+  if (value.decision_sha256 !== null && !/^sha256:[0-9a-f]{64}$/.test(value.decision_sha256 || ""))
+    errors.push(issue(`${objectPath}.decision_sha256`, "must be null or sha256"));
+  if (typeof value.exact_approved_bytes_current !== "boolean")
+    errors.push(issue(`${objectPath}.exact_approved_bytes_current`, "must be boolean"));
 }
 
 function validateHistory(value, index, errors) {
@@ -1397,6 +1494,14 @@ function assertValidSession(session) {
   return session;
 }
 
+function upgradeCompatibleSession(input) {
+  if (!isObject(input) || input.schema_version !== 2) return input;
+  const session = structuredClone(input);
+  if (isObject(session.context) && !Object.hasOwn(session.context, "proposal_identity"))
+    session.context.proposal_identity = null;
+  return session;
+}
+
 function normalizeSlug(value) {
   const slug = String(value)
     .trim()
@@ -1458,6 +1563,7 @@ module.exports = {
   resumeBlocked,
   reviseSession,
   validateSession,
+  upgradeCompatibleSession,
   verifyArtifact,
   artifactFingerprint,
 };

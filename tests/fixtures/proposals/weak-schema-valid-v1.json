@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "id": "proposal:generic-groom",
+  "slug": "generic-groom",
+  "lifecycle": "draft",
+  "revision": 1,
+  "created_at": "2026-07-14T00:00:00.000Z",
+  "updated_at": "2026-07-14T01:30:00.000Z",
+  "title": "Improve the experience",
+  "outcome": "Improve the experience",
+  "priority": "high",
+  "size": "L",
+  "labels": ["groom", "workflow"],
+  "source": {
+    "kind": "groom-session",
+    "session_id": "groom_migration_01",
+    "lineage": [
+      {
+        "id": "source:research",
+        "path": "pm/research/groom-evidence.md",
+        "sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+      }
+    ]
+  },
+  "decision_brief": {
+    "problem": "Improve the experience",
+    "recommendation": "Improve the experience",
+    "why_now": "Improve the experience"
+  },
+  "audience": [
+    {
+      "id": "audience:product-team",
+      "name": "Product delivery team",
+      "description": "Improve the experience"
+    }
+  ],
+  "jobs_to_be_done": [
+    {
+      "id": "jtbd:approve",
+      "audience_ids": ["audience:product-team"],
+      "situation": "When a proposal is ready for delivery",
+      "motivation": "I want to approve exact reviewed content",
+      "outcome": "so downstream work cannot consume stale intent."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "evidence:baseline",
+      "kind": "research",
+      "path": "pm/research/groom-evidence.md",
+      "summary": "Improve the experience",
+      "observed_at": "2026-07-14T01:00:00.000Z"
+    }
+  ],
+  "assumptions": [
+    {
+      "id": "assumption:json-readable",
+      "statement": "Improve the experience",
+      "confidence": "high",
+      "validation": "Improve the experience"
+    }
+  ],
+  "confidence": "high",
+  "scope": {
+    "in_scope": [
+      {
+        "id": "scope:contract",
+        "statement": "Improve the experience"
+      }
+    ],
+    "non_goals": [
+      {
+        "id": "non-goal:auto-approve",
+        "statement": "Improve the experience"
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "req:approval",
+      "statement": "Improve the experience",
+      "priority": "must"
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "ac:approval",
+      "requirement_ids": ["req:approval"],
+      "given": "Improve the experience",
+      "when": "Improve the experience",
+      "then": "Improve the experience"
+    }
+  ],
+  "edge_cases": [
+    {
+      "id": "edge:stale-approval",
+      "scenario": "Improve the experience",
+      "expected_behavior": "Improve the experience"
+    }
+  ],
+  "design_requirements": [
+    {
+      "id": "design:state",
+      "requirement": "Improve the experience"
+    }
+  ],
+  "success_metrics": [
+    {
+      "id": "metric:drift",
+      "metric": "Improve the experience",
+      "baseline": "Improve the experience",
+      "target": "Improve the experience",
+      "window": "Improve the experience"
+    }
+  ],
+  "alternatives": [
+    {
+      "id": "alternative:twins",
+      "name": "Improve the experience",
+      "reason_rejected": "Improve the experience"
+    }
+  ],
+  "risks": [
+    {
+      "id": "risk:migration",
+      "risk": "Improve the experience",
+      "likelihood": "medium",
+      "impact": "high",
+      "mitigation": "Improve the experience"
+    }
+  ],
+  "open_decisions": [],
+  "resolved_decisions": [
+    {
+      "id": "decision:canonical-json",
+      "question": "Improve the experience",
+      "decision": "Improve the experience",
+      "rationale": "Improve the experience"
+    }
+  ],
+  "question_reviews": [
+    {
+      "id": "review:problem",
+      "question": "Improve the experience",
+      "outcome": "pass",
+      "evidence_refs": ["evidence:baseline"],
+      "advisory_debt_ids": []
+    }
+  ],
+  "advisory_debt": [],
+  "review": {
+    "status": "pending",
+    "revision": null,
+    "content_sha256": null,
+    "completed_at": null
+  },
+  "presentation": {
+    "summary": "Improve the experience",
+    "audience": "Improve the experience",
+    "sections": ["decision-brief", "execution-contract", "appendix"]
+  },
+  "handoff": {
+    "rfc_required": true,
+    "implementation_ready": false,
+    "dependencies": [],
+    "constraints": ["No automatic approval", "Preserve legacy inspection"]
+  }
+}

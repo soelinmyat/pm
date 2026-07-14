@@ -23,6 +23,7 @@ const {
   createSession,
   grantAuthority,
   migrateLegacyMarkdown,
+  nextDecision,
   readSession,
   recertifyEvidence,
   recordResult,
@@ -34,6 +35,10 @@ const {
   writeJsonAtomic,
   writeSession,
 } = require("../scripts/lib/dev-session-schema");
+const {
+  buildApproval: buildProposalApproval,
+  proposalContentHash,
+} = require("../scripts/lib/proposal-schema");
 
 test("decision version advances are explicit, audited, and compare-and-swap guarded", () => {
   const repo = makeRepo();
@@ -105,6 +110,72 @@ test("applyRouting rejects invalid work-unit dependencies before persisting inta
         }),
       /unknown dependency missing/
     );
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("Dev intake derives execution scope from approved canonical proposal and detects later drift", () => {
+  const repo = makeRepo();
+  try {
+    const proposal = JSON.parse(
+      fs.readFileSync(path.join(__dirname, "fixtures", "proposals", "strong-v1.json"), "utf8")
+    );
+    proposal.lifecycle = "approved";
+    proposal.review = {
+      status: "passed",
+      revision: proposal.revision,
+      content_sha256: proposalContentHash(proposal),
+      completed_at: "2026-07-14T02:00:00.000Z",
+    };
+    const proposalPath = path.join(
+      repo.root,
+      "pm",
+      "backlog",
+      "proposals",
+      `${proposal.slug}.json`
+    );
+    const approvalPath = proposalPath.replace(/\.json$/, ".approval.json");
+    fs.mkdirSync(path.dirname(proposalPath), { recursive: true });
+    fs.writeFileSync(proposalPath, `${JSON.stringify(proposal, null, 2)}\n`);
+    const approval = buildProposalApproval(proposal, fs.readFileSync(proposalPath), {
+      approvedBy: "user:owner",
+      approvedAt: "2026-07-14T03:00:00.000Z",
+      decisionId: "groom-approval:groom_test",
+      decisionSha256: `sha256:${"6".repeat(64)}`,
+    });
+    fs.writeFileSync(approvalPath, `${JSON.stringify(approval, null, 2)}\n`);
+    proposal.lifecycle = "planned";
+    proposal.updated_at = "2026-07-14T04:00:00.000Z";
+    fs.writeFileSync(proposalPath, `${JSON.stringify(proposal, null, 2)}\n`);
+
+    const session = applyRouting(createSession({ slug: proposal.slug, sourceDir: repo.root }), {
+      kind: "proposal",
+      risk: {},
+      proposal_path: proposalPath,
+    });
+    assert.equal(session.task.size, "L");
+    assert.equal(session.task.reference, fs.realpathSync(proposalPath));
+    assert.equal(session.task.proposal.trusted_approval, true);
+    assert.equal(session.task.proposal.lifecycle, "planned");
+    assert.deepEqual(session.task.acceptance_criteria, [
+      "ac:approval: Given a reviewed proposal, when a user explicitly approves it, then the audit binds its exact bytes, content hash, revision, and approver",
+    ]);
+    assert.doesNotThrow(() => nextDecision(session));
+
+    assert.throws(
+      () =>
+        applyRouting(createSession({ slug: "contradiction", sourceDir: repo.root }), {
+          kind: "proposal",
+          risk: {},
+          proposal_path: proposalPath,
+          size: "M",
+        }),
+      /contradicts canonical proposal size/
+    );
+    proposal.requirements[0].statement += " Unapproved drift.";
+    fs.writeFileSync(proposalPath, `${JSON.stringify(proposal, null, 2)}\n`);
+    assert.throws(() => nextDecision(session), /proposal identity is no longer trusted/);
   } finally {
     repo.cleanup();
   }

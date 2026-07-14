@@ -5,7 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const { loadWorkflow, selectWorkflowStep } = require("../step-loader");
-const { runGit: sharedRunGit } = require("../loop-git");
+const { findGitRoot, runGit: sharedRunGit } = require("../loop-git");
 const { writeJsonAtomic: writeAtomicJson } = require("./atomic-file");
 const { markdownTableValue } = require("./session-scan");
 const { routeDevWork } = require("./dev-risk");
@@ -22,6 +22,7 @@ const {
 } = require("./workflow-runtime/records");
 const { evidenceRecordIssues, runtimeRecordIssues } = require("./workflow-runtime/result-envelope");
 const { bindEffectReceipt } = require("./workflow-runtime/effect-receipt");
+const { readApprovedProposal } = require("./proposal-schema");
 const {
   approvalTransitionDigest,
   validateSession: validateRfcSession,
@@ -227,6 +228,7 @@ function validateTask(task, errors) {
   const fields = new Set([
     "reference",
     "rfc_sidecar",
+    "proposal",
     "kind",
     "size",
     "risk",
@@ -236,7 +238,8 @@ function validateTask(task, errors) {
   ]);
   validateExactFields(task, fields, "$.task", errors);
   for (const field of fields) {
-    if (field !== "rfc_sidecar") requireField(task, field, "$.task", errors);
+    if (!new Set(["rfc_sidecar", "proposal"]).has(field))
+      requireField(task, field, "$.task", errors);
   }
   if (task.reference !== null && typeof task.reference !== "string") {
     errors.push(issue("$.task.reference", "must be null or a string"));
@@ -264,6 +267,7 @@ function validateTask(task, errors) {
       errors.push(issue("$.task.rfc_sidecar.slug", "required"));
     }
   }
+  validateProposalIdentity(task.proposal, errors);
   if (typeof task.kind !== "string" || !task.kind) errors.push(issue("$.task.kind", "required"));
   if (!new Set(["XS", "S", "M", "L", "XL", "unknown"]).has(task.size)) {
     errors.push(issue("$.task.size", "invalid size"));
@@ -286,6 +290,56 @@ function validateTask(task, errors) {
       errors.push(issue("$.task.work_units", error.message));
     }
   }
+}
+
+function validateProposalIdentity(value, errors) {
+  if (value === undefined || value === null) return;
+  const objectPath = "$.task.proposal";
+  const fields = new Set([
+    "path",
+    "kind",
+    "trusted_approval",
+    "proposal_id",
+    "slug",
+    "revision",
+    "lifecycle",
+    "content_sha256",
+    "approved_proposal_sha256",
+    "decision_id",
+    "decision_sha256",
+  ]);
+  if (!isObject(value)) {
+    errors.push(issue(objectPath, "must be null or an object"));
+    return;
+  }
+  validateExactFields(value, fields, objectPath, errors);
+  for (const field of fields) requireField(value, field, objectPath, errors);
+  if (!isAbsolutePath(value.path)) errors.push(issue(`${objectPath}.path`, "must be absolute"));
+  if (value.kind !== "approved-canonical-json")
+    errors.push(issue(`${objectPath}.kind`, "must identify approved canonical JSON"));
+  if (value.trusted_approval !== true)
+    errors.push(issue(`${objectPath}.trusted_approval`, "must be true"));
+  for (const field of ["proposal_id", "slug"]) {
+    if (typeof value[field] !== "string" || !value[field].trim())
+      errors.push(issue(`${objectPath}.${field}`, "required"));
+  }
+  if (!Number.isInteger(value.revision) || value.revision < 1)
+    errors.push(issue(`${objectPath}.revision`, "must be a positive integer"));
+  if (!["approved", "planned", "in-progress", "done"].includes(value.lifecycle))
+    errors.push(issue(`${objectPath}.lifecycle`, "must preserve approved lineage"));
+  for (const field of ["content_sha256", "approved_proposal_sha256"]) {
+    if (!/^sha256:[0-9a-f]{64}$/.test(value[field] || ""))
+      errors.push(issue(`${objectPath}.${field}`, "must be sha256"));
+  }
+  if ((value.decision_id === null) !== (value.decision_sha256 === null))
+    errors.push(issue(objectPath, "decision identity and hash must both be null or both be bound"));
+  if (
+    value.decision_id !== null &&
+    (typeof value.decision_id !== "string" || !value.decision_id.trim())
+  )
+    errors.push(issue(`${objectPath}.decision_id`, "must be null or a string"));
+  if (value.decision_sha256 !== null && !/^sha256:[0-9a-f]{64}$/.test(value.decision_sha256 || ""))
+    errors.push(issue(`${objectPath}.decision_sha256`, "must be null or sha256"));
 }
 
 function validateRisk(risk, errors) {
@@ -1085,6 +1139,7 @@ function createSession(options) {
     task: {
       reference: options.task || null,
       rfc_sidecar: null,
+      proposal: null,
       kind: options.kind || "unknown",
       size: options.size || "unknown",
       risk: defaultRisk(),
@@ -1132,9 +1187,48 @@ function applyRouting(session, facts, options = {}) {
   if (session.status !== "active" || session.phase !== "intake") {
     throw new Error("routing can only be recorded during an active intake phase");
   }
-  const route = routeDevWork(facts);
+  let effectiveFacts = facts;
+  let proposalIdentity = null;
+  if (typeof facts.proposal_path === "string" && facts.proposal_path.trim()) {
+    const proposalPath = fs.realpathSync(path.resolve(facts.proposal_path));
+    const projectRoot = fs.realpathSync(findGitRoot(path.dirname(proposalPath)));
+    const canonical = readApprovedProposal(proposalPath, { projectRoot });
+    const contractCriteria = canonical.contract.acceptance_criteria.map(formatProposalCriterion);
+    if (facts.size !== undefined && facts.size !== canonical.contract.size)
+      throw new Error(
+        `Dev size ${facts.size} contradicts canonical proposal size ${canonical.contract.size}`
+      );
+    if (
+      facts.acceptance_criteria !== undefined &&
+      JSON.stringify(facts.acceptance_criteria) !== JSON.stringify(contractCriteria)
+    )
+      throw new Error(
+        "Dev acceptance_criteria contradict the canonical proposal execution contract"
+      );
+    effectiveFacts = {
+      ...facts,
+      reference: proposalPath,
+      size: canonical.contract.size,
+      acceptance_criteria: contractCriteria,
+    };
+    proposalIdentity = {
+      path: proposalPath,
+      kind: canonical.kind,
+      trusted_approval: true,
+      proposal_id: canonical.contract.proposal_id,
+      slug: canonical.contract.slug,
+      revision: canonical.contract.revision,
+      lifecycle: canonical.contract.lifecycle,
+      content_sha256: canonical.contract.content_sha256,
+      approved_proposal_sha256: canonical.approval.proposal_sha256,
+      decision_id: canonical.approval.decision_id,
+      decision_sha256: canonical.approval.decision_sha256,
+    };
+  }
+  const route = routeDevWork(effectiveFacts);
   const next = structuredClone(session);
-  next.task.reference = facts.reference ?? next.task.reference;
+  next.task.reference = effectiveFacts.reference ?? next.task.reference;
+  next.task.proposal = proposalIdentity;
   next.task.kind = route.kind;
   next.task.size = route.size;
   next.task.risk = {
@@ -1142,11 +1236,11 @@ function applyRouting(session, facts, options = {}) {
     destructive_data: route.risk.destructive_data,
   };
   next.task.risk_tier = route.risk_tier;
-  if (facts.acceptance_criteria !== undefined) {
-    if (!Array.isArray(facts.acceptance_criteria)) {
+  if (effectiveFacts.acceptance_criteria !== undefined) {
+    if (!Array.isArray(effectiveFacts.acceptance_criteria)) {
       throw new TypeError("acceptance_criteria must be an array");
     }
-    next.task.acceptance_criteria = structuredClone(facts.acceptance_criteria);
+    next.task.acceptance_criteria = structuredClone(effectiveFacts.acceptance_criteria);
   }
   if (facts.work_units !== undefined) {
     if (!Array.isArray(facts.work_units)) throw new TypeError("work_units must be an array");
@@ -1167,6 +1261,10 @@ function applyRouting(session, facts, options = {}) {
   next.updated_at = options.now || new Date().toISOString();
   assertValidSession(next);
   return next;
+}
+
+function formatProposalCriterion(criterion) {
+  return `${criterion.id}: Given ${criterion.given}, when ${criterion.when}, then ${criterion.then}`;
 }
 
 function transitionWorkUnit(session, input, options = {}) {
@@ -1436,6 +1534,8 @@ function upgradeCompatibleSession(input) {
     }
   }
   if (isObject(session.execution)) delete session.execution.capabilities;
+  if (isObject(session.task) && !Object.hasOwn(session.task, "proposal"))
+    session.task.proposal = null;
   if (isObject(session.evidence)) {
     for (const evidence of Object.values(session.evidence)) {
       if (!isObject(evidence)) continue;
@@ -1535,6 +1635,7 @@ function writeJsonAtomic(filePath, value) {
 function nextDecision(session, sessionPath = null, options = {}) {
   assertValidSession(session);
   verifyRfcSidecarIdentity(session.task.rfc_sidecar);
+  verifyProposalIdentity(session.task.proposal);
   const metadata = resolvePhaseContract(session, options);
   return {
     schema_version: 1,
@@ -1553,12 +1654,53 @@ function nextDecision(session, sessionPath = null, options = {}) {
     input_paths: [
       session.task.reference,
       session.task.rfc_sidecar?.path,
+      session.task.proposal?.path,
       session.source.worktree,
     ].filter(Boolean),
     allowed_modes: session.status === "active" ? [...metadata.allowed_modes] : [],
     requires: [...metadata.requires],
     result_schema: metadata.result_schema,
   };
+}
+
+function verifyProposalIdentity(identity) {
+  if (!identity) return;
+  let projectRoot;
+  try {
+    projectRoot = fs.realpathSync(findGitRoot(path.dirname(identity.path)));
+  } catch (error) {
+    throw new Error(`proposal identity cannot resolve its Git worktree: ${error.message}`);
+  }
+  let trusted;
+  try {
+    trusted = readApprovedProposal(identity.path, {
+      projectRoot,
+      expectedDecision:
+        identity.decision_id === null
+          ? undefined
+          : { id: identity.decision_id, sha256: identity.decision_sha256 },
+    });
+  } catch (error) {
+    throw new Error(`proposal identity is no longer trusted: ${error.message}`);
+  }
+  const observed = {
+    proposal_id: trusted.contract.proposal_id,
+    slug: trusted.contract.slug,
+    revision: trusted.contract.revision,
+    content_sha256: trusted.contract.content_sha256,
+    approved_proposal_sha256: trusted.approval.proposal_sha256,
+  };
+  for (const [field, value] of Object.entries(observed)) {
+    if (identity[field] !== value)
+      throw new Error(
+        `proposal identity ${field} drifted; re-run Dev intake against the approved proposal`
+      );
+  }
+  const order = { approved: 0, planned: 1, "in-progress": 2, done: 3 };
+  if (order[trusted.contract.lifecycle] < order[identity.lifecycle])
+    throw new Error(
+      "proposal lifecycle moved backwards; re-run Dev intake against the approved proposal"
+    );
 }
 
 function verifyRfcSidecarIdentity(identity) {
