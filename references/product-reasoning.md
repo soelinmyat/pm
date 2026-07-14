@@ -59,7 +59,7 @@ Rules:
 - A confirmed decision has at least two materially distinct alternatives and chooses one by ID.
 - No evidence means `confidence.level: low`. Hypothesis is an evidence-strength label, not a source.
 - Confidence basis names both support and meaningful uncertainty; it is not a restatement of the enum.
-- Promotion becomes `promoted` only after the canonical Groom proposal and sibling approval audit validate against the exact approved bytes and expected Groom decision. Then bind its `{pm_dir}`-relative path and RFC3339 confirmation time.
+- Promotion becomes `promoted` only after `backlog/proposals/{slug}.json`, its sibling approval audit, and the proposal's exact source-lineage row for the origin decision companion all validate against current bytes and the expected Groom decision. The RFC3339 confirmation time must not precede either the origin's current `updated_at` or the approval timestamp.
 - `not-offered` and `offered` record intent only: all target and confirmation fields remain `null` until promotion succeeds.
 - Hash the final Markdown bytes before writing the JSON companion. Any later Markdown edit requires refreshing the binding and `updated_at`.
 - Validate companions with `node "${CLAUDE_PLUGIN_ROOT}/scripts/product-reasoning.js" validate --input <path>`.
@@ -88,7 +88,7 @@ After Groom has written and approved its canonical proposal, perform the origin 
 node "${CLAUDE_PLUGIN_ROOT}/scripts/product-reasoning.js" promote --root "${pm_dir}" --request <private-request.json>
 ```
 
-The target, sibling `.approval.json` audit, and canonical origin Markdown derived from the decision kind/slug must be among at most 16 unique binding paths with no more than 64 MiB in aggregate. The command requires the exact current `approved` proposal bytes, validates the audit against `approval_decision`, hashes the bytes returned by those validated reads, and reattests every binding immediately before atomically replacing the canonical origin companion. Update the bound Markdown projection before this single final command. This refresh is required for Ideate origins because Groom replaces the old idea Markdown with the generated proposal projection.
+The canonical target, sibling `.approval.json` audit, and canonical origin Markdown derived from the decision kind/slug must be among at most 16 unique binding paths with no more than 64 MiB in aggregate. The command requires the exact current `approved` proposal bytes and a proposal lineage row binding the pre-promotion origin decision bytes, validates the audit against `approval_decision`, and hashes only bytes returned by those validated reads. Its writer makes the temporary replacement durable, reattests immutable bindings, and compares the origin companion last immediately before rename. Update the bound Markdown projection before this single final command. This refresh is required for Ideate origins because Groom replaces the old idea Markdown with the generated proposal projection.
 
 ## Deterministic idea ranking
 

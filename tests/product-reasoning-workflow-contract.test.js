@@ -44,6 +44,12 @@ test("Features reconciles identity before review and writes both readers from on
   assert.match(reference, /Render `features\.md` from the approved in-memory record/);
   assert.match(reference, /features\.json/);
   assert.match(reference, /product-reasoning-quality-check/);
+  assert.match(reference, /git ls-tree -r --name-only <commit>/);
+  assert.match(reference, /git show <commit>:<path>/);
+  assert.match(reference, /never from working-tree paths/i);
+  assert.doesNotMatch(reference, /`pm\/product\/features\.(?:md|json)`/);
+  assert.match(reference, /`\{pm_dir\}\/product\/features\.md`/);
+  assert.match(reference, /`\{pm_dir\}\/product\/features\.json`/);
 });
 
 test("Groom consumes and closes Think or Ideate lineage only after approval", () => {

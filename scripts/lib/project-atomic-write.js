@@ -24,6 +24,11 @@ function writeProjectFileAtomic(root, relativePath, content, options = {}) {
     throw new Error(`output exceeds ${maxBytes}-byte budget`);
   const rootStat = fs.statSync(projectRoot);
   const attestations = normalizeAttestations(options.attestations || []);
+  const finalAttestation = options.finalAttestation
+    ? normalizeAttestations([options.finalAttestation])[0]
+    : null;
+  if (finalAttestation && finalAttestation.path !== relativePath)
+    throw new Error("atomic write final attestation must target the output path");
   if (typeof options.beforeSpawn === "function") options.beforeSpawn();
   const result = spawnSync(
     process.execPath,
@@ -37,6 +42,7 @@ function writeProjectFileAtomic(root, relativePath, content, options = {}) {
       String(rootStat.dev),
       String(rootStat.ino),
       Buffer.from(JSON.stringify(attestations)).toString("base64"),
+      Buffer.from(JSON.stringify(finalAttestation)).toString("base64"),
     ],
     {
       cwd: projectRoot,
@@ -101,6 +107,7 @@ function writeProjectTextAtomic(root, relativePath, value, options = {}) {
 
 function writeFromAnchoredRoot(relativePath, content, options = {}) {
   validateRelative(relativePath);
+  const projectRoot = fs.realpathSync(".");
   const rootStat = fs.statSync(".");
   if (
     options.expectedRootDev !== undefined &&
@@ -108,8 +115,6 @@ function writeFromAnchoredRoot(relativePath, content, options = {}) {
       String(rootStat.ino) !== String(options.expectedRootIno))
   )
     throw new Error("project root changed before anchored output write");
-  attestProjectInputs(".", options.attestations || []);
-
   const parts = relativePath.split(/[\\/]+/);
   const basename = parts.pop();
   for (const part of parts) enterDirectory(part, options.directoryMode ?? 0o777);
@@ -129,7 +134,13 @@ function writeFromAnchoredRoot(relativePath, content, options = {}) {
     const opened = fs.fstatSync(descriptor);
     fs.writeFileSync(descriptor, content);
     fs.fsyncSync(descriptor);
+    const anchoredRoot = fs.statSync(projectRoot);
+    if (anchoredRoot.dev !== rootStat.dev || anchoredRoot.ino !== rootStat.ino)
+      throw new Error("project root changed before input attestation");
+    attestProjectInputs(projectRoot, options.attestations || []);
     if (typeof options.beforeCommit === "function") options.beforeCommit();
+    if (options.finalAttestation)
+      attestProjectInputs(".", [{ ...options.finalAttestation, path: basename }]);
     if (options.replace === false) {
       fs.linkSync(temporary, basename);
     } else fs.renameSync(temporary, basename);
@@ -286,6 +297,7 @@ function childMain(argv) {
       expectedRootDev,
       expectedRootIno,
       attestationsBase64,
+      finalAttestationBase64,
     ] = argv;
     if (!new Set(["replace", "exclusive"]).has(policy)) throw new Error("invalid write policy");
     const content = fs.readFileSync(0);
@@ -297,6 +309,9 @@ function childMain(argv) {
       expectedRootIno,
       attestations: JSON.parse(
         Buffer.from(attestationsBase64 || "W10=", "base64").toString("utf8")
+      ),
+      finalAttestation: JSON.parse(
+        Buffer.from(finalAttestationBase64 || "bnVsbA==", "base64").toString("utf8")
       ),
     });
     process.stdout.write(`${JSON.stringify(state)}\n`);

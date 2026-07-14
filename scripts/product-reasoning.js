@@ -119,6 +119,9 @@ function promote(root, request, options = {}) {
     throw new Error(`promotion decision_path must equal ${canonical.decision}`);
   if (!request.binding_paths.includes(canonical.markdown))
     throw new Error(`promotion binding_paths must include canonical origin ${canonical.markdown}`);
+  const canonicalTarget = `backlog/proposals/${brief.slug}.json`;
+  if (request.target_ref !== canonicalTarget)
+    throw new Error(`promotion target_ref must equal ${canonicalTarget}`);
   const approved = readApprovedProposal(path.resolve(root, request.target_ref), {
     projectRoot: root,
     expectedSlug: brief.slug,
@@ -126,6 +129,13 @@ function promote(root, request, options = {}) {
   });
   if (!approved.exactBytesCurrent || approved.source.proposal.lifecycle !== "approved")
     throw new Error("promotion requires the exact current approved proposal bytes");
+  const originSha256 = sha256(decisionInput.bytes);
+  if (
+    !approved.source.proposal.source.lineage.some(
+      (entry) => entry.path === decisionInput.relative && entry.sha256 === originSha256
+    )
+  )
+    throw new Error("approved proposal source lineage must bind the exact origin decision bytes");
   const captured = new Map([
     [request.target_ref, approved.source.bytes],
     [approvalRef, approved.approvalSource.bytes],
@@ -145,6 +155,13 @@ function promote(root, request, options = {}) {
       sha256: `sha256:${crypto.createHash("sha256").update(input.bytes).digest("hex")}`,
     };
   });
+  const confirmedAt = Date.parse(request.confirmed_at);
+  const chronologyFloor = Math.max(
+    Date.parse(brief.updated_at),
+    Date.parse(approved.approval.approved_at)
+  );
+  if (!Number.isFinite(confirmedAt) || confirmedAt < chronologyFloor)
+    throw new Error("promotion confirmed_at cannot precede origin update or Groom approval");
   const promoted = promoteDecisionBrief(
     brief,
     request.target_ref,
@@ -157,17 +174,17 @@ function promote(root, request, options = {}) {
       if (typeof options.beforeReattest === "function") options.beforeReattest();
     },
     attestations: [
-      {
-        path: decisionInput.relative,
-        sha256: sha256(decisionInput.bytes),
-        maxBytes: 4 * 1024 * 1024,
-      },
       ...sourceArtifacts.map((artifact) => ({
         path: artifact.path,
         sha256: artifact.sha256,
         maxBytes: 16 * 1024 * 1024,
       })),
     ],
+    finalAttestation: {
+      path: decisionInput.relative,
+      sha256: originSha256,
+      maxBytes: 4 * 1024 * 1024,
+    },
   });
   return {
     promoted: true,

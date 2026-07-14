@@ -2,6 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -83,6 +84,12 @@ test("promote requires exact approved Groom lineage and atomically closes origin
   );
   proposal.slug = "guided-evidence-refresh";
   proposal.id = "proposal:guided-evidence-refresh";
+  const originBytes = fs.readFileSync(path.join(root, decisionPath));
+  proposal.source.lineage.push({
+    id: "source:idea-origin",
+    path: decisionPath,
+    sha256: `sha256:${crypto.createHash("sha256").update(originBytes).digest("hex")}`,
+  });
   fs.writeFileSync(path.join(root, targetRef), `${JSON.stringify(proposal, null, 2)}\n`);
   const requestPath = path.join(root, "request.json");
   const approvalDecision = { id: "groom-decision-01", sha256: `sha256:${"2".repeat(64)}` };
@@ -110,6 +117,20 @@ test("promote requires exact approved Groom lineage and atomically closes origin
   assert.match(result.stderr, /canonical origin/);
   fs.writeFileSync(requestPath, JSON.stringify(requestValue));
 
+  assert.throws(
+    () =>
+      promote(root, {
+        ...requestValue,
+        target_ref: "backlog/proposals/alternate/guided-evidence-refresh.json",
+        binding_paths: [
+          "backlog/proposals/alternate/guided-evidence-refresh.json",
+          "backlog/proposals/alternate/guided-evidence-refresh.approval.json",
+          markdownPath,
+        ],
+      }),
+    /target_ref must equal/
+  );
+
   result = run(["promote", "--root", root, "--request", requestPath]);
   assert.equal(result.status, 1);
   assert.match(result.stderr, /not approved/);
@@ -134,6 +155,55 @@ test("promote requires exact approved Groom lineage and atomically closes origin
     decisionSha256: approvalDecision.sha256,
   });
   fs.writeFileSync(path.join(root, approvalRef), `${JSON.stringify(approval, null, 2)}\n`);
+  const exactLineage = proposal.source.lineage.at(-1);
+  proposal.source.lineage.pop();
+  proposal.review.content_sha256 = proposalContentHash(proposal);
+  let variantBytes = Buffer.from(`${JSON.stringify(proposal, null, 2)}\n`);
+  fs.writeFileSync(path.join(root, targetRef), variantBytes);
+  fs.writeFileSync(
+    path.join(root, approvalRef),
+    `${JSON.stringify(
+      buildApproval(proposal, variantBytes, {
+        approvedBy: "user:owner",
+        approvedAt: "2026-07-14T01:30:00.000Z",
+        decisionId: approvalDecision.id,
+        decisionSha256: approvalDecision.sha256,
+      }),
+      null,
+      2
+    )}\n`
+  );
+  assert.throws(() => promote(root, requestValue), /source lineage must bind/);
+  proposal.source.lineage.push({ ...exactLineage, sha256: `sha256:${"f".repeat(64)}` });
+  proposal.review.content_sha256 = proposalContentHash(proposal);
+  variantBytes = Buffer.from(`${JSON.stringify(proposal, null, 2)}\n`);
+  fs.writeFileSync(path.join(root, targetRef), variantBytes);
+  fs.writeFileSync(
+    path.join(root, approvalRef),
+    `${JSON.stringify(
+      buildApproval(proposal, variantBytes, {
+        approvedBy: "user:owner",
+        approvedAt: "2026-07-14T01:30:00.000Z",
+        decisionId: approvalDecision.id,
+        decisionSha256: approvalDecision.sha256,
+      }),
+      null,
+      2
+    )}\n`
+  );
+  assert.throws(() => promote(root, requestValue), /source lineage must bind/);
+  proposal.source.lineage[proposal.source.lineage.length - 1] = exactLineage;
+  fs.writeFileSync(path.join(root, targetRef), proposalBytes);
+  fs.writeFileSync(path.join(root, approvalRef), `${JSON.stringify(approval, null, 2)}\n`);
+  assert.throws(
+    () => promote(root, { ...requestValue, confirmed_at: "2026-07-13T23:59:59Z" }),
+    /cannot precede/
+  );
+  assert.throws(
+    () => promote(root, { ...requestValue, confirmed_at: "2026-07-14T01:15:00Z" }),
+    /cannot precede/
+  );
+  proposal.review = JSON.parse(proposalBytes.toString("utf8")).review;
   proposal.lifecycle = "planned";
   fs.writeFileSync(path.join(root, targetRef), `${JSON.stringify(proposal, null, 2)}\n`);
   result = run(["promote", "--root", root, "--request", requestPath]);

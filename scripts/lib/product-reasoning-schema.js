@@ -248,7 +248,7 @@ function validateAlignment(alignment, evidenceRefs, issues) {
     "decision.alignment",
     issues
   );
-  if (!(alignment.strength in STRATEGIC_ALIGNMENT))
+  if (!Object.hasOwn(STRATEGIC_ALIGNMENT, alignment.strength))
     issues.push("decision.alignment.strength is invalid");
   stringArray(alignment.priority_ids, "decision.alignment.priority_ids", issues, {
     slug: true,
@@ -258,7 +258,7 @@ function validateAlignment(alignment, evidenceRefs, issues) {
     slug: true,
     unique: true,
   });
-  if (!(alignment.evidence_strength in EVIDENCE_STRENGTH))
+  if (!Object.hasOwn(EVIDENCE_STRENGTH, alignment.evidence_strength))
     issues.push("decision.alignment.evidence_strength is invalid");
   const evidenceCount = new Set(
     (Array.isArray(evidenceRefs) ? evidenceRefs : [])
@@ -269,10 +269,10 @@ function validateAlignment(alignment, evidenceRefs, issues) {
     issues.push("strong idea evidence requires at least three distinct signals");
   if (alignment.evidence_strength === "moderate" && (evidenceCount < 1 || evidenceCount > 2))
     issues.push("moderate idea evidence requires one or two distinct signals");
-  if (!(alignment.competitor_gap in COMPETITOR_GAP))
+  if (!Object.hasOwn(COMPETITOR_GAP, alignment.competitor_gap))
     issues.push("decision.alignment.competitor_gap is invalid");
   stringArray(alignment.dependencies, "decision.alignment.dependencies", issues, { unique: true });
-  if (!(alignment.scope_signal in SCOPE_EFFICIENCY))
+  if (!Object.hasOwn(SCOPE_EFFICIENCY, alignment.scope_signal))
     issues.push("decision.alignment.scope_signal is invalid");
 }
 

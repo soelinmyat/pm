@@ -211,6 +211,17 @@ test("idea evidence labels are calibrated to distinct cited signals", () => {
   assert.deepEqual(validateDecisionBrief(inflated), []);
 });
 
+test("idea alignment enums reject inherited object keys", () => {
+  const fields = ["strength", "evidence_strength", "competitor_gap", "scope_signal"];
+  for (const field of fields)
+    for (const inherited of ["toString", "constructor", "__proto__"]) {
+      const candidate = brief("idea", `invalid-${field}-${inherited}`);
+      candidate.alignment[field] = inherited;
+      assert.match(validateDecisionBrief(candidate).join("\n"), new RegExp(field));
+      assert.throws(() => rankIdeaBriefs([candidate]), /invalid idea brief/);
+    }
+});
+
 test("timestamps reject normalized calendar overflow", () => {
   const invalid = brief("think", "invalid-date", { updated_at: "2026-02-30T00:00:00Z" });
   assert.match(validateDecisionBrief(invalid).join("\n"), /updated_at must be RFC 3339/);

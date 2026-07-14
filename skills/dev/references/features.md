@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`pm:features` scans the codebase and produces a readable feature inventory at `pm/product/features.md` plus a machine companion at `pm/product/features.json`. The inventory describes what the product does in user-facing terms — not code modules or file structures.
+`pm:features` scans the codebase and produces a readable feature inventory at `{pm_dir}/product/features.md` plus a machine companion at `{pm_dir}/product/features.json`. The inventory describes what the product does in user-facing terms — not code modules or file structures.
 
 The output feeds one consumer:
 - **Groom intake** — reads existing capabilities to inform scope review
@@ -13,10 +13,10 @@ Ask ONE question at a time. Wait for the user's answer before asking the next.
 
 ## Overwrite Guard
 
-Before scanning, check if `pm/product/features.md` already exists.
+Before scanning, check if `{pm_dir}/product/features.md` already exists.
 
 If it exists:
-1. Parse frontmatter to get `feature_count` and load `pm/product/features.json` when present.
+1. Parse frontmatter to get `feature_count` and load `{pm_dir}/product/features.json` when present.
 2. Prompt: "This will replace your existing inventory (N features). Continue?"
 3. If the user declines, stop. Do not scan or overwrite.
 
@@ -28,7 +28,7 @@ Scan the codebase in one pass — discover the files, read the high-signal ones,
 
 ### Discover files
 
-- Use `git ls-files` to list tracked/unignored files and record the exact full commit object ID as `scan.commit` with `scan.mode: git`.
+- In a Git repository, freeze the exact full `HEAD` commit object ID before scanning. Enumerate files from that commit with `git ls-tree -r --name-only <commit>` and read high-signal content from its blobs (for example, `git show <commit>:<path>`), never from working-tree paths. Record that object ID as `scan.commit` with `scan.mode: git`.
 - **Fallback:** If not a git repo (`git ls-files` fails), walk the file tree but exclude common vendor directories (`node_modules`, `vendor`, `.venv`, `dist`, `build`, `target`, `__pycache__`) and hidden directories (starting with `.`). Log a note: "Not a git repository — using heuristic file filtering." Record `scan.mode: filesystem` and calculate the final deterministic `snapshot_sha256` with the shared `feature-snapshot` command after source refs are finalized.
 
 Build a directory map (file counts per directory) and flag key entry points:
@@ -41,7 +41,7 @@ Build a directory map (file counts per directory) and flag key entry points:
 
 ### Read the high-signal files
 
-Read the flagged entry points and their neighbors: route handlers and page components, component directory indexes, config and manifest files, README and API definitions, model/schema files. On a large codebase, read in priority order — route files/pages/API handlers first, then components and views, then models/schemas/types, then config, then README/docs — and record how many files you read for the `files_scanned` frontmatter field.
+Read the flagged entry points and their neighbors from the frozen Git commit (or from the bounded filesystem walk in fallback mode): route handlers and page components, component directory indexes, config and manifest files, README and API definitions, model/schema files. On a large codebase, read in priority order — route files/pages/API handlers first, then components and views, then models/schemas/types, then config, then README/docs — and record how many files you read for the `files_scanned` frontmatter field.
 
 Extract the concrete artifacts: route definitions, component names, API endpoints, data models, configuration patterns. Retain `{source_dir}`-relative source refs for every proposed feature; source refs support confidence and identity reconciliation, but never appear as implementation prose in the feature description.
 
@@ -115,7 +115,7 @@ Accept all, or tell me what to change (merge, rename, split, remove, regroup).
 
 ### Accept Path
 
-User says "looks good" / "accept all" / "yes" — write to `pm/product/features.md`.
+User says "looks good" / "accept all" / "yes" — write to `{pm_dir}/product/features.md`.
 
 ### Edit Path
 
@@ -129,7 +129,7 @@ Apply edits to the in-memory feature list. Re-present the updated list. Repeat u
 
 ## Output Format
 
-Write `pm/product/features.md` with this structure:
+Write `{pm_dir}/product/features.md` with this structure:
 
 ```yaml
 ---
@@ -195,7 +195,7 @@ After the user approves the reconciled inventory:
 ## Completion
 
 After writing the file:
-1. Confirm: "Feature inventory written to pm/product/features.md and pm/product/features.json ({N} features, {M} areas)."
+1. Confirm: "Feature inventory written to {pm_dir}/product/features.md and {pm_dir}/product/features.json ({N} features, {M} areas)."
 2. Suggest: "Run /pm:groom to use it in feature discovery."
 
 ## Notes
