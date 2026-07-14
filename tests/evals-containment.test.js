@@ -236,6 +236,7 @@ test("escape guard: mutating-verb false positives stay clean (commit message, /d
     "git commit -am x > /dev/null 2>&1",
     "git push -qu origin main",
     "git init -q -b main . && git add -A && git commit -qm seed",
+    `${process.execPath} -e 'void 0'; /usr/bin/git remote get-url --push --all -- origin`,
   ];
   for (const command of clean) {
     assert.equal(

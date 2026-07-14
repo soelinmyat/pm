@@ -139,9 +139,11 @@ function commandEscapesRunDir(command, root) {
   // actually EXISTS. Quoted segments are stripped first so a path inside a commit
   // message or heredoc-style arg is not read as a target, and the existence check
   // keeps message fragments like "/api/users" from tripping the guard.
-  const mutating =
-    (/\bgit\b/.test(command) && /\b(?:push|commit)\b/.test(command)) ||
-    /\brm\b[^\n]*\s-[a-z]*[rf]/.test(command);
+  const gitMutation =
+    /(?:^|[\s;&|])(?:git|\/[^\s;&|]+\/git)\s+(?:-[^\s;&|]+\s+)*(?:push|commit)(?:\s|$)/.test(
+      command
+    );
+  const mutating = gitMutation || /\brm\b[^\n]*\s-[a-z]*[rf]/.test(command);
   if (mutating) {
     const scannable = stripQuotedSegments(command);
     for (const match of scannable.matchAll(/(?:^|[\s"'=(])(\/[^\s"';&|)]+)/g)) {
