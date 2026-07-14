@@ -2,8 +2,16 @@
 
 const fs = require("fs");
 const path = require("path");
+const crypto = require("node:crypto");
 const { parseFrontmatter } = require("./kb-frontmatter.js");
 const { writeAtomic, todayIso } = require("./kb-utils.js");
+const { writeJsonAtomic, writeTextAtomic } = require("./lib/atomic-file");
+const { acquireOwnedLock } = require("./lib/owned-lock");
+const {
+  createEvidenceRecord,
+  emptyEvidenceLedger,
+  registerEvidence,
+} = require("./lib/evidence-schema");
 
 // ---------------------------------------------------------------------------
 // writeNote — append a note to the monthly log file
@@ -17,10 +25,12 @@ const { writeAtomic, todayIso } = require("./kb-utils.js");
  * @param {string} text — note content (one sentence)
  * @param {string} [source] — source type (e.g. "sales call", "support thread"). Defaults to "observation".
  * @param {string} [tags] — comma-separated tags (e.g. "competitor, integration")
- * @returns {{ filePath: string, timestamp: string }}
+ * @param {object} [options] — deterministic clock/locator and privacy overrides for tests and imports
+ * @returns {{ filePath: string, timestamp: string, evidence_id: string }}
  */
-function writeNote(pmDir, text, source, tags) {
-  const now = new Date();
+function writeNote(pmDir, text, source, tags, options = {}) {
+  const now = options.now ? new Date(options.now) : new Date();
+  if (!Number.isFinite(now.getTime())) throw new Error("note capture time is invalid");
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, "0");
   const day = String(now.getDate()).padStart(2, "0");
@@ -37,36 +47,70 @@ function writeNote(pmDir, text, source, tags) {
   fs.mkdirSync(notesDir, { recursive: true });
 
   const filePath = path.join(notesDir, `${monthStr}.md`);
+  const artifactPath = path.relative(pmDir, filePath).split(path.sep).join("/");
   const tagsLine = tags && tags.trim() ? `Tags: ${tags.trim()}` : "";
+  const locator =
+    options.locator ||
+    `entry:${now.toISOString()}:${process.pid}:${crypto.randomBytes(6).toString("hex")}`;
+  const privacy = options.privacy || privacyForSource(sourceType);
+  const record = createEvidenceRecord(
+    {
+      source_type: "note",
+      source_label: `notes/${monthStr}.md`,
+      source_format: "md",
+      locator,
+      captured_at: now.toISOString(),
+      content: text,
+      privacy,
+      transformation: { stage: "captured", parents: [], method: "pm:note" },
+      artifact_path: artifactPath,
+    },
+    { now: now.toISOString() }
+  );
 
-  let entry = `\n### ${timestamp} — ${sourceType}\n${text}\n`;
+  let entry = `\n### ${timestamp} — ${sourceType}\n${text}\nEvidence-ID: ${record.evidence_id}\n`;
   if (tagsLine) {
     entry += `${tagsLine}\n`;
   }
 
-  if (fs.existsSync(filePath)) {
-    // Read existing file, update frontmatter, append entry
-    const existing = fs.readFileSync(filePath, "utf8");
-    const parsed = parseFrontmatter(existing);
-    const currentCount = parseInt(parsed.data.note_count, 10) || 0;
-    const digestedThrough = parsed.data.digested_through || "null";
-
-    const newFrontmatter = buildFrontmatter(monthStr, dateStr, currentCount + 1, digestedThrough);
-    const body = parsed.body || "";
-
-    fs.writeFileSync(filePath, newFrontmatter + body + entry);
-  } else {
-    // Create new file
-    const frontmatter = buildFrontmatter(monthStr, dateStr, 1, "null");
-    fs.writeFileSync(filePath, frontmatter + entry);
+  const ledgerPath = path.join(pmDir, "evidence", "provenance.json");
+  const release = acquireOwnedLock(path.join(pmDir, "evidence", ".write.lock"), {
+    attempts: 400,
+    waitMs: 25,
+    invalidGraceMs: 1000,
+    timeoutMessage: "timed out waiting for evidence capture lock",
+  });
+  try {
+    let noteContent;
+    if (fs.existsSync(filePath)) {
+      const existing = fs.readFileSync(filePath, "utf8");
+      const parsed = parseFrontmatter(existing);
+      const currentCount = parseInt(parsed.data.note_count, 10) || 0;
+      const digestedThrough = parsed.data.digested_through || "null";
+      noteContent =
+        buildFrontmatter(monthStr, dateStr, currentCount + 1, digestedThrough) +
+        (parsed.body || "") +
+        entry;
+    } else {
+      noteContent = buildFrontmatter(monthStr, dateStr, 1, "null") + entry;
+    }
+    const ledger = fs.existsSync(ledgerPath)
+      ? JSON.parse(fs.readFileSync(ledgerPath, "utf8"))
+      : emptyEvidenceLedger(now.toISOString());
+    const registered = registerEvidence(ledger, record, { now: now.toISOString() });
+    writeTextAtomic(filePath, noteContent, { fileMode: 0o644 });
+    writeJsonAtomic(ledgerPath, registered.ledger, { fileMode: 0o644 });
+  } finally {
+    release();
   }
 
-  return { filePath, timestamp };
+  return { filePath, timestamp, evidence_id: record.evidence_id };
 }
 
 function buildFrontmatter(month, updated, noteCount, digestedThrough) {
   return `---
 type: notes
+provenance_version: 2
 month: ${month}
 updated: ${updated}
 note_count: ${noteCount}
@@ -105,6 +149,7 @@ function parseNotesFile(filePath) {
     let bodyText = "";
     let tagsStr = "";
     let promotedTo;
+    let evidenceId;
     const enrichment = [];
 
     for (const line of lines) {
@@ -112,6 +157,8 @@ function parseNotesFile(filePath) {
         tagsStr = line.replace("Tags:", "").trim();
       } else if (line.startsWith("Promoted-to:")) {
         promotedTo = line.replace("Promoted-to:", "").trim();
+      } else if (line.startsWith("Evidence-ID:")) {
+        evidenceId = line.replace("Evidence-ID:", "").trim();
       } else if (line.startsWith("- **")) {
         enrichment.push(line);
       } else {
@@ -125,6 +172,7 @@ function parseNotesFile(filePath) {
       body: bodyText.trim(),
       tags: tagsStr,
       promoted_to: promotedTo,
+      evidence_id: evidenceId,
       enrichment,
     });
   }
@@ -133,6 +181,14 @@ function parseNotesFile(filePath) {
     frontmatter: parsed.data,
     entries,
   };
+}
+
+function privacyForSource(source) {
+  const normalized = source.toLowerCase();
+  if (/customer|support|interview|sales|prospect/.test(normalized)) {
+    return { classification: "customer-sensitive", pii_review: "pending" };
+  }
+  return { classification: "internal", pii_review: "not-required" };
 }
 
 // ---------------------------------------------------------------------------

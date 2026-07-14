@@ -17,6 +17,21 @@ This guide is followed by both the parent `pm:research` skill (inline profiling)
 
 Never write to `{pm_dir}/evidence/competitors/index.md` — that is owned by the parent skill.
 
+## Evidence v2 contract
+
+Before writing a durable claim, register its source through `${CLAUDE_PLUGIN_ROOT}/scripts/evidence.js register` using the exact target file in `artifact_path` and the file-specific freshness kind (`profile`, `features`, `api`, `seo`, or `sentiment`). The same Evidence-ID may accumulate several `artifact_paths`; never create a fake locator merely to duplicate a source.
+
+Every new or materially updated profile file includes `provenance_version: 2` in frontmatter, adds `evidence_id` beside each source entry, and places `[evidence:ev_...]` after important factual claims and representative review themes. Label analyst judgment `Inference:`. Preserve disagreement as `Contradiction:` rather than selecting the tidier source.
+
+After each file write, run:
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/evidence.js validate \
+  --pm-dir "{pm_dir}" --artifact "{target-file}" --json
+```
+
+Legacy files remain readable. Upgrade only the file and sources materially touched in this run.
+
 ---
 
 ## profile.md
@@ -39,6 +54,7 @@ company: {Company Name}
 slug: {slug}
 domain: {domain.com}
 profiled: YYYY-MM-DD
+provenance_version: 2
 sources:
   - url: ...
     accessed: YYYY-MM-DD
@@ -104,6 +120,7 @@ type: competitor-features
 company: {Company Name}
 slug: {slug}
 profiled: YYYY-MM-DD
+provenance_version: 2
 sources:
   - url: ...
     accessed: YYYY-MM-DD
@@ -147,6 +164,7 @@ type: competitor-api
 company: {Company Name}
 slug: {slug}
 profiled: YYYY-MM-DD
+provenance_version: 2
 sources:
   - url: ...
     accessed: YYYY-MM-DD
@@ -205,6 +223,7 @@ type: competitor-seo
 company: {Company Name}
 slug: {slug}
 profiled: YYYY-MM-DD
+provenance_version: 2
 seo_data_available: true/false
 sources:
   - url: ...
@@ -271,6 +290,7 @@ type: competitor-sentiment
 company: {Company Name}
 slug: {slug}
 profiled: YYYY-MM-DD
+provenance_version: 2
 review_count_sampled: {N}
 sources:
   - platform: G2
@@ -325,3 +345,4 @@ Before marking a competitor complete, verify all five files exist and contain:
 - [ ] `api.md` — auth model documented, entity model present (or "No public API" noted)
 - [ ] `seo.md` — top keywords table present (or "SEO data unavailable" noted with reason)
 - [ ] `sentiment.md` — at least 2 praise themes and 2 complaint themes present
+- [ ] Every materially touched file passes Evidence v2 citation binding and standard PM validation

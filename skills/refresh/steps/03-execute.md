@@ -25,6 +25,19 @@ Before execution, ask the user to choose a mode:
 
 All updates are patches. Existing content is never deleted or overwritten without approval.
 
+### Evidence v2 compare-and-swap gate
+
+For each registered source being refreshed, create a private JSON request containing its Evidence-ID, the audit snapshot's `observed_content_sha256`, the exact newly observed source content, new capture timestamp, and the artifact snapshot's `observed_artifact_sha256`. Include the proposed artifact text privately so a rejected update can be reconciled. Before changing the reader artifact, run:
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/evidence.js refresh \
+  --pm-dir "{pm_dir}" --private-dir "{pm_state_dir}" \
+  --request "{pm_state_dir}/evidence/requests/{request}.json" \
+  --artifact "{artifact}" --json
+```
+
+Exit code 3 means either the ledger record or artifact changed after audit. Do not retry with the new hash, overwrite the file, or discard either version. Leave current state untouched, report the preserved conflict path under `{pm_state_dir}/evidence/conflicts/`, and continue only with unrelated artifacts. A successful source refresh appends the prior content revision; then apply the already-reviewed patch and validate it. If several sources support one artifact, refresh all of their leases before writing that artifact.
+
 **Incomplete files (missing sections):**
 - Run only the data collection for the missing sections.
 - Insert new sections in their canonical position relative to existing sections. Find the nearest existing section that comes after the insertion point in the methodology template and insert before it. If no later section exists, append before any user-added custom sections or at the end of the file.
@@ -83,7 +96,7 @@ Read `{pm_state_dir}/config.json` for the `seo.provider` value.
 
 ### Parallel Execution
 
-When refreshing multiple competitors, dispatch one refresh agent per competitor:
+When refreshing multiple competitors, delegated agents may collect sources and prepare proposed patches per competitor, but the parent owns every Evidence v2 refresh command and artifact write. This keeps the audited leases, shared ledger, user approvals, and conflict reporting in one authority. Agents write proposals only under disjoint `{pm_state_dir}/evidence/proposals/{slug}/` paths; they do not mutate `{pm_dir}`, the provenance ledger, indexes, or logs.
 
 ```
 Agent tool: name="refresh-{slug}",
@@ -98,12 +111,12 @@ RULES:
 - For STALE files: re-run data collection for existing sections. {If interactive: present diffs to user for approval before writing. If auto-accept: apply changes and report what changed.}
 - Add 'refreshed: {today}' to frontmatter. Never modify 'profiled:' or 'created:'.
 - Preserve all user-added custom sections (sections not in the methodology template).
-- Write only to {pm_dir}/evidence/competitors/{slug}/. Do NOT touch shared indexes; the parent skill owns them.
+- Write proposed patch/source request files only to {pm_state_dir}/evidence/proposals/{slug}/. Do NOT touch {pm_dir}, provenance.json, shared indexes, or logs; the parent verifies leases and applies approved patches.
 - Follow methodology in `skills/research/references/competitor-profiling.md` for section content.
 - If an Ahrefs call fails, log the error and continue."
 ```
 
-Parent skill handles: audit report, trust level selection, synthesis files, and the final summary.
+Parent skill handles: audit report, trust level selection, source/artifact compare-and-swap, approved artifact writes, synthesis files, validation, and the final summary.
 
 ### Post-patch Insight Routing
 
@@ -129,13 +142,16 @@ Only run the relevant index and log sync steps for domains or evidence pools tha
 After updating any `{pm_dir}/` artifacts, run:
 
 ```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/evidence.js validate --pm-dir "{pm_dir}" --json
+node ${CLAUDE_PLUGIN_ROOT}/scripts/evidence.js validate \
+  --pm-dir "{pm_dir}" --artifact "{touched-v2-evidence-artifact}" --json
 node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "{pm_dir}"
 ```
 
-If validation fails, fix the frontmatter errors before proceeding. Do not surface the validation step to the user — just fix silently and move on.
+Run the artifact-specific command for every touched v2 evidence artifact. If validation fails, repair provenance, citations, or frontmatter before proceeding; never remove user content or revision history to silence the error.
 
 ## Done-when
 
-Only confirmed stale or incomplete sections are patched, origin ownership and custom content are preserved, touched indexes/logs are synchronized, routing is bounded to changed evidence, and validation passes.
+Only confirmed stale or incomplete sections with valid observed-hash leases are patched; conflicts preserve both versions, origin ownership and custom content remain intact, touched indexes/logs are synchronized, routing is bounded to changed evidence, and both evidence and PM validation pass.
 
 **Advance:** proceed to Step 4 (Consolidation).

@@ -31,6 +31,9 @@ After execution, show what changed:
 
 ### Skipped ({N} files)
   All profile, features, API, and sentiment files — fresh.
+
+### Conflicts ({N} files)
+  pricing.md — changed after audit; proposal preserved at .pm/evidence/conflicts/...
 ```
 
 ## Edge Cases
@@ -49,9 +52,10 @@ After execution, show what changed:
 12. **`{pm_state_dir}/config.json` does not exist:** Use hardcoded defaults. Treat SEO provider as `"none"`.
 13. **Topic research with `source_origin: internal`:** Skip entirely. Show in audit as "[Internal — skipped, owned by $pm-ingest]". Never modify internal evidence files.
 14. **Topic research with `source_origin: mixed`:** Refresh only external evidence. Preserve Representative Quotes, internal findings, and `[internal]`-prefixed entries. Rewrite shared sections to reflect both sources.
+15. **Evidence or artifact hash conflict:** Leave current files untouched, preserve the proposed request privately, count it under Conflicts, and require explicit reconciliation rather than silently rebasing.
 
 Say: "Refresh complete. {N} files updated, {M} unchanged. Run `/pm:groom` or `/pm:ideate` to use the refreshed evidence. What would you like to do next?"
 
 ## Done-when
 
-Updated, synthesized, unchanged, skipped, failed, and human-decision items reconcile to the audited scope, and the user has `/pm:groom` or `/pm:ideate` as a concrete next action.
+Updated, synthesized, unchanged, skipped, failed, conflict, and human-decision items reconcile to the audited scope; each conflict includes its preserved private path, and the user has `/pm:groom` or `/pm:ideate` as a concrete next action.

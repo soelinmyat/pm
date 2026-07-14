@@ -1,5 +1,5 @@
 ---
-description: "Audit research for staleness and missing sections, then patch without losing existing content."
+description: "Audit ledger-backed freshness and missing sections, then conflict-safe patch without losing existing content."
 argument-hint: "[seo|landscape|topics|<competitor-slug>]"
 ---
 

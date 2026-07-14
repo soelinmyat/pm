@@ -1,0 +1,22 @@
+{
+  "schema_version": 2,
+  "updated_at": "2026-07-14T00:00:00.000Z",
+  "records": [
+    {
+      "evidence_id": "ev_035b87bf0e50234296c58cf1",
+      "source_type": "web",
+      "source_label": "example.com/batch-workflows",
+      "source_format": "html",
+      "freshness_kind": "topic",
+      "locator": "section:survey-results",
+      "captured_at": "2026-07-10T00:00:00.000Z",
+      "content_sha256": "sha256:fbbe0bcc4b81aba049b7733845b5c8c14c485d10f1254619e983f49473959b5b",
+      "privacy": { "classification": "public", "pii_review": "not-required" },
+      "transformation": { "stage": "captured", "parents": [], "method": "pm:research" },
+      "artifact_paths": ["evidence/research/bulk-editing.md"],
+      "revisions": [],
+      "created_at": "2026-07-14T00:00:00.000Z",
+      "updated_at": "2026-07-14T00:00:00.000Z"
+    }
+  ]
+}

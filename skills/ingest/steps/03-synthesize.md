@@ -33,6 +33,8 @@ fi
 
 Cluster records into **problem clusters**, not just filenames or raw keywords.
 
+Before writing each topic, ensure every normalized record contributing to it is registered with `artifact_path: evidence/research/{slug}.md`. Keep each returned Evidence-ID with the claim it supports. A finding may cite multiple IDs; do not cite a whole source bundle when only one record supports the claim.
+
 Granularity rule:
 - cluster by the outcome the user wants
 - not by broad category ("onboarding")
@@ -126,6 +128,7 @@ topic: Bulk Editing
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
 source_origin: internal|external|mixed
+provenance_version: 2
 cited_by: []
 sources:
   - label: support-export.csv
@@ -144,7 +147,8 @@ confidence: high
 2-3 sentences on what this theme is and why it matters.
 
 ## Findings
-Numbered findings. Prefix customer-evidence findings with `[internal]`.
+- [internal] Evidence-backed finding. [evidence:ev_0123456789abcdef01234567]
+- [internal] Weaker or contradictory signal, labeled with bounded confidence. [evidence:ev_89abcdef0123456789abcdef]
 
 ## Representative Quotes
 > "Editing 50 rows one by one is painful."
@@ -160,8 +164,10 @@ What this means for the product.
 What this research still does not answer.
 
 ## Source References
-- support-export.csv (rows 12, 14, 31) — imported 2026-03-12
+- `ev_0123456789abcdef01234567` — support-export.csv (row 14), imported 2026-03-12
 ```
+
+Keep facts, hypotheses, and contradictions distinguishable. Prefix inference with `Hypothesis:` and retain conflicting evidence instead of averaging it away. `evidence_count` is the number of distinct cited Evidence-IDs, not the number of files or quotes.
 
 ### Mixed-origin write contract
 
@@ -172,13 +178,15 @@ When a topic already exists from `pm:research`, read and follow `${CLAUDE_PLUGIN
 After writing or updating any `{pm_dir}/` artifacts, run:
 
 ```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/evidence.js validate \
+  --pm-dir "{pm_dir}" --artifact "{pm_dir}/evidence/research/{slug}.md" --json
 node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "{pm_dir}"
 ```
 
-If validation fails, fix the frontmatter errors before proceeding. Do not surface the validation step to the user — just fix silently and move on.
+If either validation fails, repair the ledger, citation binding, or artifact before proceeding. Do not delete a finding merely to make validation pass; register its source correctly or move unsupported interpretation to Open Questions.
 
 ## Done-when
 
-Evidence clusters are synthesized into canonical, provenance-rich artifacts; mixed-origin ownership is preserved; touched indexes and logs are current; validation passes.
+Evidence clusters are synthesized into canonical v2 artifacts with claim-level Evidence-ID citations; mixed-origin ownership is preserved; touched indexes and logs are current; evidence and PM validation pass.
 
 **Advance:** proceed to Step 4 (Route Insights).

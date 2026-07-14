@@ -40,7 +40,8 @@ For targeted deep dives not covered by landscape or competitor profiling.
    - Check SERP overview — see who currently ranks and what the SERP looks like. Reveals content competition and opportunity.
    - If volume is significant, note it in findings. If zero volume, the topic may be too niche for SEO-driven content — note that too.
 4. **Web search.** Search for the topic directly. Fill gaps with follow-up searches.
-5. **Write findings** to `{pm_dir}/evidence/research/{topic-slug}.md` using the shared topic schema:
+5. **Register durable sources.** For every source that supports a saved claim, write a JSON request under `{pm_state_dir}/evidence/requests/` and run `scripts/evidence.js register` as documented in `${CLAUDE_PLUGIN_ROOT}/references/evidence-system.md`. Use a portable host/path label, the specific page/section/result as locator, `freshness_kind: topic`, and `artifact_path: evidence/research/{topic-slug}.md`. Keep the returned Evidence-ID with the exact claim it supports. Reuse the same ID when the same source supports multiple claims or artifacts; registration adds artifact bindings idempotently.
+6. **Write findings** to `{pm_dir}/evidence/research/{topic-slug}.md` using the shared topic schema:
 
 ```markdown
 ---
@@ -50,6 +51,7 @@ topic: {Topic Name}
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
 source_origin: external|mixed
+provenance_version: 2
 cited_by: []
 sources:
   - url: ...
@@ -67,8 +69,9 @@ confidence: high
 2-3 sentences. The key answer to "what did we learn?"
 
 ## Findings
-Numbered findings with supporting evidence and source references.
-Prefix external findings with `[external]` when the topic is mixed.
+- [external] Directly supported finding. [evidence:ev_0123456789abcdef01234567]
+- Hypothesis: bounded inference and its basis. [evidence:ev_89abcdef0123456789abcdef]
+- Contradiction: sources disagree on this point; preserve both interpretations. [evidence:ev_0123456789abcdef01234567] [evidence:ev_89abcdef0123456789abcdef]
 
 ## Representative Quotes
 Present only if the topic already contains internal evidence. Do not delete it.
@@ -84,24 +87,34 @@ What this means for the product. Link to strategy sections if relevant.
 What this research did NOT answer.
 
 ## Source References
-- https://example.com/article — accessed YYYY-MM-DD
+- `ev_0123456789abcdef01234567` — https://example.com/article — accessed YYYY-MM-DD
 ```
 
    **Mixed-origin write rules:** if the topic file already exists with internal evidence (`source_origin: internal` or `mixed`), do not overwrite it — read and follow `${CLAUDE_PLUGIN_ROOT}/references/mixed-origin.md` for the full ownership and merge protocol (switch `internal` → `mixed`, append `[external]` findings and external sources without deleting internal evidence, rewrite only the shared sections).
 
-6. **Route findings to insight topics.**
+7. **Validate before routing.** Run both validators; v2 citation validation is a hard gate:
+
+   ```bash
+   node ${CLAUDE_PLUGIN_ROOT}/scripts/evidence.js validate \
+     --pm-dir "{pm_dir}" --artifact "{pm_dir}/evidence/research/{topic-slug}.md" --json
+   node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "{pm_dir}"
+   ```
+
+   Missing, unknown, or cross-artifact citations must be repaired. Do not erase a finding to hide a provenance failure; register the correct source or move unsupported interpretation to Open Questions. A legacy topic without `provenance_version: 2` remains readable, but a material update upgrades the touched sources and findings incrementally.
+
+8. **Route findings to insight topics.**
    Read and follow `${CLAUDE_PLUGIN_ROOT}/references/insight-routing.md`.
    Pass the evidence file path (`{pm_dir}/evidence/research/{topic-slug}.md`)
    and the key findings from Step 5 as input.
    If no insight domains exist and no `{pm_dir}/strategy.md` exists, skip this step.
 
-7. **Update evidence indexes**:
+9. **Update evidence indexes**:
    - `{pm_dir}/evidence/research/index.md` — add or update the topic row with description, updated date, and `external` or `mixed` status.
    - `{pm_dir}/evidence/index.md` — keep the top-level Research Evidence list in sync with the topic file.
-8. **Update evidence logs**:
+10. **Update evidence logs**:
    - append the topic write to `{pm_dir}/evidence/research/log.md`
    - append the topic write to `{pm_dir}/evidence/log.md`
 
 ## Done-when
 
-The evidence file exists at `{pm_dir}/evidence/research/{topic-slug}.md` with all template sections populated and sourced, routing has run or been explicitly skipped, and both evidence indexes and logs are updated. Then offer `/pm:groom {topic-slug}` or `/pm:ideate` as the concrete next action.
+The evidence file exists at `{pm_dir}/evidence/research/{topic-slug}.md` with claim-level Evidence-ID citations, hypotheses and contradictions are explicit, both validators pass, routing has run or been explicitly skipped, and evidence indexes/logs are updated. Then offer `/pm:groom {topic-slug}` or `/pm:ideate` as the concrete next action.

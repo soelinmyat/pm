@@ -13,6 +13,7 @@ const {
   parseFrontmatter,
 } = require("./kb-frontmatter.js");
 const { CANONICAL_CARD_STATUSES } = require("./loop-card-state.js");
+const { validateCitationBindings, validateEvidenceLedger } = require("./lib/evidence-schema.js");
 
 // ========== Config ==========
 
@@ -148,6 +149,48 @@ function readParsedFrontmatter(filePath, relativeFile, errors) {
     return null;
   }
   return parsed;
+}
+
+function validateEvidenceV2(pmDir, errors) {
+  const ledgerPath = path.join(pmDir, "evidence", "provenance.json");
+  let ledger = null;
+
+  if (fs.existsSync(ledgerPath)) {
+    try {
+      ledger = JSON.parse(fs.readFileSync(ledgerPath, "utf8"));
+    } catch (error) {
+      pushIssue(errors, "evidence/provenance.json", "-", `invalid JSON: ${error.message}`);
+      return;
+    }
+
+    const ledgerIssues = validateEvidenceLedger(ledger);
+    for (const issue of ledgerIssues) {
+      pushIssue(errors, "evidence/provenance.json", "provenance", issue);
+    }
+    if (ledgerIssues.length > 0) return;
+  }
+
+  for (const filePath of walkMarkdownFiles(path.join(pmDir, "evidence"))) {
+    const markdown = fs.readFileSync(filePath, "utf8");
+    if (!/\bprovenance_version:\s*2\b/.test(markdown)) continue;
+    const relativeFile = relativeToPm(pmDir, filePath);
+    if (!ledger) {
+      pushIssue(
+        errors,
+        relativeFile,
+        "provenance_version",
+        "v2 evidence artifact requires evidence/provenance.json"
+      );
+      continue;
+    }
+    for (const issue of validateCitationBindings({
+      markdown,
+      ledger,
+      artifactPath: relativeFile,
+    })) {
+      pushIssue(errors, relativeFile, "provenance", issue);
+    }
+  }
 }
 
 function folderEvidenceType(folderName) {
@@ -1130,6 +1173,7 @@ function validate(pmDir) {
   }
 
   validateBidirectionalCitations(errors, kbState);
+  validateEvidenceV2(pmDir, errors);
 
   const featuresPath = path.join(pmDir, "product", "features.md");
   if (fs.existsSync(featuresPath)) {
