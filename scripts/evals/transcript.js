@@ -373,17 +373,24 @@ function qualityRevalidationCommand(events, workflow) {
   const script = String.raw`(?:"[^"]*quality-resume\.js"|'[^']*quality-resume\.js'|\S*quality-resume\.js)`;
   const root = String.raw`(?:"[^"]+"|'[^']+'|\S+)`;
   const pattern = new RegExp(
-    String.raw`^\s*(?:node|\S*[\\/]node)\s+${script}\s+revalidate\s+${workflow}\s+${root}\s*$`
+    String.raw`(?:^|[;\n]\s*)(?:node|\S*[\\/]node)\s+${script}\s+revalidate\s+${workflow}\s+${root}\s*(?=$|[;\n])`
   );
   return events.some(
     (event) =>
       event.type === "tool" &&
       event.tool_class === "run-command" &&
       Number(event.exit_code) === 0 &&
-      pattern.test(String(event.command || ""))
+      pattern.test(unwrapShellCommand(String(event.command || "")))
   )
     ? pass()
     : fail(`exact quality revalidation command not observed for ${workflow}`);
+}
+
+function unwrapShellCommand(command) {
+  const match = command.match(
+    /^\s*(?:\S*[\\/])?(?:bash|zsh|sh)\s+(?:-[A-Za-z]+\s+)*(["'])([\s\S]*)\1\s*$/
+  );
+  return match ? match[2] : command;
 }
 
 function findSkillIndex(events, skill) {
