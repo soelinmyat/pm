@@ -62,7 +62,7 @@ Rules:
 - Promotion becomes `promoted` only after `backlog/proposals/{slug}.json`, its sibling approval audit, and the proposal's exact source-lineage row for the origin decision companion all validate against current bytes and the expected Groom decision. The RFC3339 confirmation time must not precede either the origin's current `updated_at` or the approval timestamp.
 - `not-offered` and `offered` record intent only: all target and confirmation fields remain `null` until promotion succeeds.
 - Hash the final Markdown bytes before writing the JSON companion. Any later Markdown edit requires refreshing the binding and `updated_at`.
-- Validate companions with `node "${CLAUDE_PLUGIN_ROOT}/scripts/product-reasoning.js" validate --input <path>`.
+- Validate companions with `node "${CLAUDE_PLUGIN_ROOT}/scripts/product-reasoning.js" validate --root "${pm_dir}" --input <path>`.
 - Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/product-reasoning-quality-check.js" <path>` after validation. A score below 7/10 is a quality failure: improve the weakest dimensions with substantive evidence, alternatives, reasoning, or traceability rather than filler.
 
 After Groom has written and approved its canonical proposal, perform the origin transition atomically with a private request:
@@ -130,7 +130,7 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/product-reasoning.js" feature-snapshot --sou
 Render `features.md` from the reconciled in-memory record, hash it, bind it as `product/features.md` in `features.json`, then validate the companion and its source snapshot:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/product-reasoning.js" validate --input "${pm_dir}/product/features.json" --source-root "${source_dir}"
+node "${CLAUDE_PLUGIN_ROOT}/scripts/product-reasoning.js" validate --root "${pm_dir}" --input "${pm_dir}/product/features.json" --source-root "${source_dir}"
 ```
 
 Validation proves every Git source ref exists at an exact commit object, or that every non-Git source ref still matches the bounded deterministic filesystem snapshot. Markdown feature headings should visibly include the stable ID, e.g. `### Turn ideas into specs <!-- feat-... -->`, so diffs and manual review retain identity without cluttering the rendered page.

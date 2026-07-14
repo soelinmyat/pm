@@ -30,7 +30,7 @@ test("validate dispatches only known product reasoning document types", (t) => {
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const unknown = path.join(root, "unknown.json");
   fs.writeFileSync(unknown, JSON.stringify({ document_type: "other" }));
-  const result = run(["validate", "--input", unknown]);
+  const result = run(["validate", "--root", root, "--input", unknown]);
   assert.equal(result.status, 1);
   assert.match(result.stderr, /document_type must be decision-brief or feature-inventory/);
 });
@@ -42,9 +42,39 @@ test("JSON inputs reject symbolic links", (t) => {
   const link = path.join(root, "link.json");
   fs.writeFileSync(target, "{}");
   fs.symlinkSync(target, link);
-  const result = run(["validate", "--input", link]);
+  const result = run(["validate", "--root", root, "--input", link]);
   assert.equal(result.status, 1);
   assert.ok(result.stderr.length > 0);
+});
+
+test("decision validation authenticates canonical Markdown binding bytes", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reasoning-binding-cli-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, "backlog"));
+  const markdown = Buffer.from("# Guided evidence refresh\n");
+  fs.writeFileSync(path.join(root, "backlog", "guided-evidence-refresh.md"), markdown);
+  const brief = JSON.parse(
+    fs.readFileSync(
+      path.join(__dirname, "..", "evals", "product-reasoning-quality", "strong", "decision.json"),
+      "utf8"
+    )
+  );
+  brief.source_artifacts[0].sha256 = `sha256:${crypto
+    .createHash("sha256")
+    .update(markdown)
+    .digest("hex")}`;
+  const input = path.join(root, "backlog", "guided-evidence-refresh.decision.json");
+  fs.writeFileSync(input, JSON.stringify(brief));
+  let result = run(["validate", "--root", root, "--input", input]);
+  assert.equal(result.status, 0, result.stderr);
+  fs.writeFileSync(path.join(root, "backlog", "guided-evidence-refresh.md"), "# Changed\n");
+  result = run(["validate", "--root", root, "--input", input]);
+  assert.equal(result.status, 2);
+  assert.match(result.stdout, /SHA-256 does not match/);
+  fs.rmSync(path.join(root, "backlog", "guided-evidence-refresh.md"));
+  result = run(["validate", "--root", root, "--input", input]);
+  assert.equal(result.status, 2);
+  assert.match(result.stdout, /existing regular file|ENOENT/);
 });
 
 test("feature-snapshot publishes deterministic bounded non-Git provenance", (t) => {

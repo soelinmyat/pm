@@ -7,6 +7,7 @@ const { readProjectInput } = require("./lib/safe-project-output");
 const { readBoundedJsonFile } = require("./lib/safe-json-file");
 const { writeProjectJsonAtomic } = require("./lib/project-atomic-write");
 const { readApprovedProposal } = require("./lib/proposal-schema");
+const { verifyArtifactBindings } = require("./lib/product-reasoning-bindings");
 const {
   decisionId,
   featureId,
@@ -29,15 +30,25 @@ function main(argv = process.argv.slice(2)) {
     else if (command === "feature-id")
       result = { feature_id: featureId(required(args, "project"), required(args, "key")) };
     else if (command === "validate") {
-      const value = readBoundedJsonFile(required(args, "input"));
+      const root = path.resolve(required(args, "root"));
+      const inputPath = path.resolve(required(args, "input"));
+      const inputRelative = path.relative(root, inputPath).split(path.sep).join("/");
+      const value = JSON.parse(
+        readProjectInput(root, inputRelative, 4 * 1024 * 1024).bytes.toString("utf8")
+      );
       let issues;
-      if (value.document_type === "decision-brief") issues = validateDecisionBrief(value);
-      else if (value.document_type === "feature-inventory") {
-        issues = validateFeatureInventory(value);
+      if (value.document_type === "decision-brief") {
+        issues = validateDecisionBrief(value);
         if (issues.length === 0)
+          issues.push(...verifyArtifactBindings(root, value.source_artifacts));
+      } else if (value.document_type === "feature-inventory") {
+        issues = validateFeatureInventory(value);
+        if (issues.length === 0) {
+          issues.push(...verifyArtifactBindings(root, [value.markdown_binding]));
           issues.push(
             ...validateFeatureSourceRefs(value, path.resolve(required(args, "source_root")))
           );
+        }
       } else throw new Error("input document_type must be decision-brief or feature-inventory");
       result = { ok: issues.length === 0, issues };
       if (issues.length) process.exitCode = 2;
@@ -143,9 +154,18 @@ function promote(root, request, options = {}) {
   let aggregateBytes = 0;
   const sourceArtifacts = request.binding_paths.map((bindingPath) => {
     const bytes = captured.get(bindingPath);
-    const input = bytes
-      ? { relative: bindingPath, bytes }
-      : readProjectInput(root, bindingPath, 16 * 1024 * 1024);
+    const remaining = 64 * 1024 * 1024 - aggregateBytes;
+    if (remaining <= 0) throw new Error("promotion bindings exceed the 64 MiB aggregate budget");
+    let input;
+    try {
+      input = bytes
+        ? { relative: bindingPath, bytes }
+        : readProjectInput(root, bindingPath, Math.min(16 * 1024 * 1024, remaining));
+    } catch (error) {
+      if (remaining < 16 * 1024 * 1024 && /input exceeds/.test(error.message))
+        throw new Error("promotion bindings exceed the 64 MiB aggregate budget");
+      throw error;
+    }
     captured.set(bindingPath, input.bytes);
     aggregateBytes += input.bytes.length;
     if (aggregateBytes > 64 * 1024 * 1024)

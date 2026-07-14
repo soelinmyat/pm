@@ -118,6 +118,9 @@ function validateDecisionBrief(value) {
   );
   if (value.source_artifacts?.length > MAX_BINDINGS)
     issues.push(`decision.source_artifacts cannot exceed ${MAX_BINDINGS} entries`);
+  const canonicalReader = canonicalDecisionReader(value.kind, value.slug);
+  if (canonicalReader && !artifactPaths.has(canonicalReader))
+    issues.push(`decision.source_artifacts must bind canonical reader ${canonicalReader}`);
   if (value.kind === "strategy") validateStrategyContext(value.strategy_context, issues);
   else if (value.strategy_context !== undefined)
     issues.push("decision.strategy_context is strategy-only");
@@ -140,7 +143,33 @@ function validateDecisionBrief(value) {
   }
   if (value.kind === "idea" && value.evidence_refs?.length === 0)
     issues.push("idea decision requires at least one evidence source signal");
+  if (value.promotion?.status === "promoted") {
+    if (!new Set(["think", "idea"]).has(value.kind))
+      issues.push("only Think and Ideate decisions can be promoted to Groom");
+    const canonicalTarget = value.slug ? `backlog/proposals/${value.slug}.json` : null;
+    if (canonicalTarget && value.promotion.target_ref !== canonicalTarget)
+      issues.push(`promoted decision target_ref must equal ${canonicalTarget}`);
+    if (
+      timestampValue(value.promotion.confirmed_at) !== null &&
+      timestampValue(value.updated_at) !== null &&
+      timestampValue(value.promotion.confirmed_at) !== timestampValue(value.updated_at)
+    )
+      issues.push("promoted decision confirmation must equal updated_at");
+  }
   return issues;
+}
+
+function canonicalDecisionReader(kind, slugValue) {
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slugValue || "")) return null;
+  if (kind === "think") return `thinking/${slugValue}.md`;
+  if (kind === "idea") return `backlog/${slugValue}.md`;
+  if (kind === "strategy") return "strategy.md";
+  return null;
+}
+
+function timestampValue(value) {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function validateDecision(decision, alternatives, issues) {
@@ -543,10 +572,18 @@ function featureSourceSnapshot(sourceRoot, sourceRefs) {
   const root = fs.realpathSync(path.resolve(sourceRoot));
   let totalBytes = 0;
   const files = [...sourceRefs].sort().map((ref) => {
-    const input = readProjectInput(root, ref, MAX_SOURCE_FILE_BYTES);
-    totalBytes += input.bytes.length;
-    if (totalBytes > MAX_SOURCE_SNAPSHOT_BYTES)
+    const remaining = MAX_SOURCE_SNAPSHOT_BYTES - totalBytes;
+    if (remaining <= 0)
       throw new Error("feature source snapshot exceeds the 64 MiB aggregate budget");
+    let input;
+    try {
+      input = readProjectInput(root, ref, Math.min(MAX_SOURCE_FILE_BYTES, remaining));
+    } catch (error) {
+      if (remaining < MAX_SOURCE_FILE_BYTES && /input exceeds/.test(error.message))
+        throw new Error("feature source snapshot exceeds the 64 MiB aggregate budget");
+      throw error;
+    }
+    totalBytes += input.bytes.length;
     return {
       path: input.relative,
       bytes: input.bytes.length,
@@ -605,6 +642,7 @@ function reconcileFeatureInventory(previous, proposed) {
     }
   }
   const used = new Set();
+  const ambiguousCandidates = new Set();
   const ambiguous = [];
   const resolved = new Map();
   for (const analysis of analyses) {
@@ -612,6 +650,7 @@ function reconcileFeatureInventory(previous, proposed) {
       (candidate) => (claims.get(candidate.feature.feature_id) || []).length > 1
     );
     if (analysis.top.length > 1 || collision) {
+      for (const candidate of analysis.top) ambiguousCandidates.add(candidate.feature.feature_id);
       ambiguous.push({
         key: analysis.feature.key,
         candidates: analysis.top.map((item) => item.feature.feature_id).sort(),
@@ -637,7 +676,7 @@ function reconcileFeatureInventory(previous, proposed) {
     inventory: { ...proposed, areas },
     ambiguous,
     retired: priorFeatures
-      .filter((item) => !used.has(item.feature_id))
+      .filter((item) => !used.has(item.feature_id) && !ambiguousCandidates.has(item.feature_id))
       .map((item) => item.feature_id),
   };
 }

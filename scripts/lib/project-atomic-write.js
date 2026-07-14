@@ -138,9 +138,15 @@ function writeFromAnchoredRoot(relativePath, content, options = {}) {
     if (anchoredRoot.dev !== rootStat.dev || anchoredRoot.ino !== rootStat.ino)
       throw new Error("project root changed before input attestation");
     attestProjectInputs(projectRoot, options.attestations || []);
+    const recheckedRoot = fs.statSync(projectRoot);
+    if (recheckedRoot.dev !== rootStat.dev || recheckedRoot.ino !== rootStat.ino)
+      throw new Error("project root changed during input attestation");
     if (typeof options.beforeCommit === "function") options.beforeCommit();
     if (options.finalAttestation)
       attestProjectInputs(".", [{ ...options.finalAttestation, path: basename }]);
+    const commitRoot = fs.statSync(projectRoot);
+    if (commitRoot.dev !== rootStat.dev || commitRoot.ino !== rootStat.ino)
+      throw new Error("project root changed before atomic commit");
     if (options.replace === false) {
       fs.linkSync(temporary, basename);
     } else fs.renameSync(temporary, basename);

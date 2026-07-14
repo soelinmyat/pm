@@ -19,6 +19,12 @@ const {
 } = require("../scripts/lib/product-reasoning-schema");
 
 function brief(kind, slug, overrides = {}) {
+  const reader =
+    kind === "think"
+      ? `thinking/${slug}.md`
+      : kind === "idea"
+        ? `backlog/${slug}.md`
+        : "strategy.md";
   const value = {
     schema_version: 1,
     document_type: "decision-brief",
@@ -50,7 +56,7 @@ function brief(kind, slug, overrides = {}) {
     non_goals: ["Solve adjacent workflows"],
     next_trigger: { lane: "groom", condition: "User confirms scope", target: null },
     promotion: { status: "not-offered", target_kind: null, target_ref: null, confirmed_at: null },
-    source_artifacts: [{ path: "thinking/example.md", sha256: `sha256:${"a".repeat(64)}` }],
+    source_artifacts: [{ path: reader, sha256: `sha256:${"a".repeat(64)}` }],
     created_at: "2026-07-14T00:00:00Z",
     updated_at: "2026-07-14T00:00:00Z",
     ...overrides,
@@ -109,6 +115,10 @@ test("promotion transition refreshes target and binding state as one validated r
       {
         path: "backlog/proposals/promotion-transition.json",
         sha256: `sha256:${"c".repeat(64)}`,
+      },
+      {
+        path: "backlog/promotion-transition.md",
+        sha256: `sha256:${"d".repeat(64)}`,
       },
     ],
     "2026-07-14T01:00:00Z"
@@ -181,6 +191,47 @@ test("promoted decision validation is total and artifact bindings are bounded", 
     { path: "backlog/same.md", sha256: `sha256:${"a".repeat(64)}` },
   ];
   assert.match(validateDecisionBrief(promoted).join("\n"), /path is duplicated/);
+});
+
+test("decision cross-fields bind canonical readers and promotion lineage", () => {
+  const missingReader = brief("idea", "canonical-reader");
+  missingReader.source_artifacts[0].path = "backlog/unrelated.md";
+  assert.match(validateDecisionBrief(missingReader).join("\n"), /canonical reader/);
+
+  const promoted = brief("idea", "canonical-reader", {
+    promotion: {
+      status: "promoted",
+      target_kind: "groom",
+      target_ref: "backlog/unrelated.json",
+      confirmed_at: "2026-07-14T00:00:00Z",
+    },
+  });
+  promoted.source_artifacts.push({
+    path: "backlog/unrelated.json",
+    sha256: `sha256:${"b".repeat(64)}`,
+  });
+  assert.match(validateDecisionBrief(promoted).join("\n"), /target_ref must equal/);
+  promoted.promotion.target_ref = "backlog/proposals/canonical-reader.json";
+  promoted.source_artifacts.push({
+    path: promoted.promotion.target_ref,
+    sha256: `sha256:${"c".repeat(64)}`,
+  });
+  promoted.promotion.confirmed_at = "2026-07-14T01:00:00Z";
+  assert.match(validateDecisionBrief(promoted).join("\n"), /confirmation must equal updated_at/);
+
+  const strategy = brief("strategy", "product-direction", {
+    promotion: {
+      status: "promoted",
+      target_kind: "groom",
+      target_ref: "backlog/proposals/product-direction.json",
+      confirmed_at: "2026-07-14T00:00:00Z",
+    },
+  });
+  strategy.source_artifacts.push({
+    path: strategy.promotion.target_ref,
+    sha256: `sha256:${"c".repeat(64)}`,
+  });
+  assert.match(validateDecisionBrief(strategy).join("\n"), /only Think and Ideate/);
 });
 
 test("idea decisions retain at least one source signal", () => {
@@ -408,6 +459,8 @@ test("feature reconciliation fails closed on equally plausible source matches", 
   const result = reconcileFeatureInventory(previous, proposed);
   assert.equal(result.ambiguous.length, 1);
   assert.equal(result.ambiguous[0].key, "replacement");
+  assert.ok(!result.retired.includes(priorFeatures[0].feature_id));
+  assert.ok(!result.retired.includes(priorFeatures[1].feature_id));
 });
 
 test("feature reconciliation reports many-to-one collisions independent of proposal order", () => {
@@ -429,4 +482,5 @@ test("feature reconciliation reports many-to-one collisions independent of propo
   assert.ok(
     first.ambiguous.every((entry) => entry.candidates.includes(priorFeatures[0].feature_id))
   );
+  assert.ok(!first.retired.includes(priorFeatures[0].feature_id));
 });

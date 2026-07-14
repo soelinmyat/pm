@@ -50,6 +50,10 @@ test("Features reconciles identity before review and writes both readers from on
   assert.doesNotMatch(reference, /`pm\/product\/features\.(?:md|json)`/);
   assert.match(reference, /`\{pm_dir\}\/product\/features\.md`/);
   assert.match(reference, /`\{pm_dir\}\/product\/features\.json`/);
+  const entry = read("skills/features/SKILL.md");
+  assert.doesNotMatch(entry, /`pm\/product\/features\.(?:md|json)`/);
+  assert.match(entry, /`\{pm_dir\}\/product\/features\.md`/);
+  assert.match(entry, /`\{pm_dir\}\/product\/features\.json`/);
 });
 
 test("Groom consumes and closes Think or Ideate lineage only after approval", () => {

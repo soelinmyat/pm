@@ -6,7 +6,6 @@
 
 const fs = require("fs");
 const path = require("path");
-const crypto = require("node:crypto");
 const {
   inspectKbPath,
   isIsoDate,
@@ -20,6 +19,7 @@ const {
   validateFeatureInventory,
 } = require("./lib/product-reasoning-schema.js");
 const { readProjectInput } = require("./lib/safe-project-output.js");
+const { verifyArtifactBindings } = require("./lib/product-reasoning-bindings.js");
 
 // ========== Config ==========
 
@@ -934,25 +934,8 @@ function validateProductReasoningJson(pmDir, filePath, errors, expectedType) {
   if (issues.length) return;
   const bindings =
     expectedType === "decision-brief" ? value.source_artifacts : [value.markdown_binding];
-  const observedBindings = new Map();
-  let aggregateBindingBytes = 0;
-  for (const binding of bindings) {
-    try {
-      const input =
-        observedBindings.get(binding.path) ||
-        readProjectInput(pmDir, binding.path, 16 * 1024 * 1024);
-      if (!observedBindings.has(binding.path)) {
-        observedBindings.set(binding.path, input);
-        aggregateBindingBytes += input.bytes.length;
-        if (aggregateBindingBytes > 64 * 1024 * 1024)
-          throw new Error("aggregate binding bytes exceed 64 MiB");
-      }
-      const observed = `sha256:${crypto.createHash("sha256").update(input.bytes).digest("hex")}`;
-      if (observed !== binding.sha256) throw new Error("SHA-256 does not match current bytes");
-    } catch (error) {
-      pushIssue(errors, relativeFile, "binding", `${binding.path}: ${error.message}`);
-    }
-  }
+  for (const issue of verifyArtifactBindings(pmDir, bindings))
+    pushIssue(errors, relativeFile, "binding", issue);
 }
 
 function validateMemoryEntry(relativeFile, entry, index, errors, requireArchivedAt) {

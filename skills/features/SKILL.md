@@ -1,13 +1,13 @@
 ---
 name: features
-description: "Scan the codebase, extract user-facing features, and write a structured feature inventory to pm/product/features.md. Use when the user says 'features', 'feature inventory', 'scan features', 'what does this product do', or 'product capabilities'."
+description: "Scan the codebase, extract user-facing features, and write a structured feature inventory to the resolved PM knowledge base. Use when the user says 'features', 'feature inventory', 'scan features', 'what does this product do', or 'product capabilities'."
 ---
 
 # pm:features
 
 ## Purpose
 
-`pm:features` scans the codebase and writes a readable feature inventory to `pm/product/features.md` plus a stable, source-bound machine inventory at `pm/product/features.json`.
+`pm:features` scans the codebase and writes a readable feature inventory to `{pm_dir}/product/features.md` plus a stable, source-bound machine inventory at `{pm_dir}/product/features.json`.
 
 The primary consumer is PM itself. Groom intake reads the inventory so scope review starts from what the product already does today, not from memory.
 
@@ -27,7 +27,7 @@ Read and follow `${CLAUDE_PLUGIN_ROOT}/references/product-reasoning.md` for stab
 - **Never write code structure as product features.** The output describes user-facing capabilities, not routes, modules, controllers, or implementation details — those are implementation seams, not user value.
 - **Don't over-split.** Subsystems are usually highlights inside a larger capability, not standalone features; over-splitting turns the file into a code map instead of a product artifact.
 - **Translate, don't mirror.** Even a messy codebase gets clean capability language — internal consumers (groom) still need user-facing wording, and the inventory only compounds if the base pass is already usable.
-- **User review before the final write.** Present the extracted features for review, then write `pm/product/features.md` with valid frontmatter and a completion message pointing to `pm:groom` as the next consumer.
+- **User review before the final write.** Present the extracted features for review, then write `{pm_dir}/product/features.md` with valid frontmatter and a completion message pointing to `pm:groom` as the next consumer.
 - **Reconcile identity before review.** Preserve exact semantic keys and uniquely strong source-continuity matches; surface ambiguous merge/split/rename cases instead of minting silent replacements.
 
 ## Red Flags — Self-Check

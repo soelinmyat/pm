@@ -189,7 +189,7 @@ After the user approves the reconciled inventory:
 1. Render `features.md` from the approved in-memory record.
 2. Hash the final Markdown bytes.
 3. For filesystem mode, run `scripts/product-reasoning.js feature-snapshot --source-root "${source_dir}" --request <source-refs.json>`. Write `features.json` using the v2 contract in `references/product-reasoning.md`, including the Git commit or filesystem snapshot identity and Markdown binding.
-4. Run `scripts/product-reasoning.js validate --input "${pm_dir}/product/features.json" --source-root "${source_dir}"`, `scripts/product-reasoning-quality-check.js "${pm_dir}/product/features.json"`, and normal `pm validate`.
+4. Run `scripts/product-reasoning.js validate --root "${pm_dir}" --input "${pm_dir}/product/features.json" --source-root "${source_dir}"`, `scripts/product-reasoning-quality-check.js "${pm_dir}/product/features.json"`, and normal `pm validate`.
 5. If schema, the 7/10 quality gate, or project validation fails, fix the weakest shared-record dimensions and regenerate both artifacts. Do not add filler or patch one reader independently.
 
 ## Completion

@@ -104,7 +104,13 @@ test("binding validation rejects an ancestor symlink", (t) => {
       "utf8"
     )
   );
-  brief.source_artifacts = [{ path: "bindings/bound.md", sha256: sha(markdown) }];
+  fs.mkdirSync(path.join(pm, "backlog"), { recursive: true });
+  const canonical = Buffer.from("# Guided evidence refresh\n");
+  fs.writeFileSync(path.join(pm, "backlog", "guided-evidence-refresh.md"), canonical);
+  brief.source_artifacts = [
+    { path: "backlog/guided-evidence-refresh.md", sha256: sha(canonical) },
+    { path: "bindings/bound.md", sha256: sha(markdown) },
+  ];
   fs.writeFileSync(path.join(pm, "thinking", "symlink.decision.json"), JSON.stringify(brief));
   const result = validate(pm);
   assert.ok(result.errors.some((entry) => entry.msg.includes("contains symlink")));
@@ -127,11 +133,18 @@ test("binding validation enforces a 64 MiB aggregate budget", (t) => {
       "utf8"
     )
   );
-  brief.source_artifacts = Array.from({ length: 5 }, (_, index) => ({
-    path: `bindings/binding-${index}.bin`,
-    sha256: sha(bytes),
-  }));
+  const canonical = Buffer.from("# Guided evidence refresh\n");
+  fs.writeFileSync(path.join(pm, "backlog", "guided-evidence-refresh.md"), canonical);
+  brief.source_artifacts = [
+    { path: "backlog/guided-evidence-refresh.md", sha256: sha(canonical) },
+    ...Array.from({ length: 5 }, (_, index) => ({
+      path: `bindings/binding-${index}.bin`,
+      sha256: sha(bytes),
+    })),
+    { path: "bindings/must-not-open.bin", sha256: `sha256:${"f".repeat(64)}` },
+  ];
   fs.writeFileSync(path.join(pm, "backlog", "aggregate.decision.json"), JSON.stringify(brief));
   const result = validate(pm);
   assert.ok(result.errors.some((entry) => entry.msg.includes("aggregate binding bytes")));
+  assert.ok(result.errors.every((entry) => !entry.msg.includes("must-not-open")));
 });
