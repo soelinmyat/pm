@@ -117,11 +117,17 @@ test("promotion transition refreshes target and binding state as one validated r
         sha256: `sha256:${"c".repeat(64)}`,
       },
       {
+        path: "backlog/proposals/promotion-transition.approval.json",
+        sha256: `sha256:${"e".repeat(64)}`,
+      },
+      {
         path: "backlog/promotion-transition.md",
         sha256: `sha256:${"d".repeat(64)}`,
       },
     ],
-    "2026-07-14T01:00:00Z"
+    "2026-07-14T01:00:00Z",
+    { id: "groom-decision", sha256: `sha256:${"f".repeat(64)}` },
+    `sha256:${"1".repeat(64)}`
   );
   assert.equal(promoted.promotion.status, "promoted");
   assert.equal(promoted.updated_at, "2026-07-14T01:00:00Z");
@@ -215,6 +221,11 @@ test("decision cross-fields bind canonical readers and promotion lineage", () =>
   promoted.source_artifacts.push({
     path: promoted.promotion.target_ref,
     sha256: `sha256:${"c".repeat(64)}`,
+  });
+  assert.match(validateDecisionBrief(promoted).join("\n"), /approval audit/);
+  promoted.source_artifacts.push({
+    path: "backlog/proposals/canonical-reader.approval.json",
+    sha256: `sha256:${"d".repeat(64)}`,
   });
   promoted.promotion.confirmed_at = "2026-07-14T01:00:00Z";
   assert.match(validateDecisionBrief(promoted).join("\n"), /confirmation must equal updated_at/);
@@ -483,4 +494,43 @@ test("feature reconciliation reports many-to-one collisions independent of propo
     first.ambiguous.every((entry) => entry.candidates.includes(priorFeatures[0].feature_id))
   );
   assert.ok(!first.retired.includes(priorFeatures[0].feature_id));
+});
+
+test("feature reconciliation applies explicit rename, merge, split, and new resolutions", () => {
+  const priorFeatures = [
+    feature("shared-a", ["src/shared.js"]),
+    feature("shared-b", ["src/shared.js"]),
+    ...["three", "four", "five", "six", "seven", "eight"].map((key) => feature(key)),
+  ];
+  const previous = inventory(priorFeatures);
+  const proposed = inventory([
+    feature("replacement", ["src/shared.js"]),
+    feature("split", ["src/shared.js"]),
+    ...priorFeatures.slice(2),
+  ]);
+  const unresolved = reconcileFeatureInventory(previous, proposed);
+  assert.equal(unresolved.ambiguous.length, 2);
+  const resolved = reconcileFeatureInventory(previous, proposed, {
+    replacement: priorFeatures[0].feature_id,
+    split: "new",
+  });
+  assert.deepEqual(resolved.ambiguous, []);
+  const byKey = new Map(
+    resolved.inventory.areas.flatMap((area) => area.features).map((entry) => [entry.key, entry])
+  );
+  assert.equal(byKey.get("replacement").feature_id, priorFeatures[0].feature_id);
+  assert.equal(byKey.get("split").feature_id, featureId(proposed.source_project, "split"));
+  assert.throws(
+    () =>
+      reconcileFeatureInventory(previous, proposed, {
+        replacement: priorFeatures[0].feature_id,
+        split: priorFeatures[0].feature_id,
+      }),
+    /reuses claimed identity/
+  );
+  assert.throws(
+    () =>
+      reconcileFeatureInventory(previous, proposed, { replacement: "feat-00000000000000000000" }),
+    /reported candidate/
+  );
 });

@@ -19,7 +19,10 @@ const {
   validateFeatureInventory,
 } = require("./lib/product-reasoning-schema.js");
 const { readProjectInput } = require("./lib/safe-project-output.js");
-const { verifyArtifactBindings } = require("./lib/product-reasoning-bindings.js");
+const {
+  verifyArtifactBindings,
+  verifyDecisionBriefBindings,
+} = require("./lib/product-reasoning-bindings.js");
 
 // ========== Config ==========
 
@@ -145,6 +148,15 @@ function pushIssue(list, file, field, msg) {
 
 function relativeToPm(pmDir, filePath) {
   return toPosix(path.relative(pmDir, filePath));
+}
+
+function pathEntryExists(filePath) {
+  try {
+    fs.lstatSync(filePath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function readParsedFrontmatter(filePath, relativeFile, errors) {
@@ -932,10 +944,50 @@ function validateProductReasoningJson(pmDir, filePath, errors, expectedType) {
       : validateFeatureInventory(value);
   for (const issue of issues) pushIssue(errors, relativeFile, "contract", issue);
   if (issues.length) return;
-  const bindings =
-    expectedType === "decision-brief" ? value.source_artifacts : [value.markdown_binding];
-  for (const issue of verifyArtifactBindings(pmDir, bindings))
-    pushIssue(errors, relativeFile, "binding", issue);
+  const bindingIssues =
+    expectedType === "decision-brief"
+      ? verifyDecisionBriefBindings(pmDir, value)
+      : verifyArtifactBindings(pmDir, [value.markdown_binding]);
+  for (const issue of bindingIssues) pushIssue(errors, relativeFile, "binding", issue);
+}
+
+function validateReasoningFrontmatter(pmDir, markdownPath, data, errors, kind) {
+  const relativeMarkdown = relativeToPm(pmDir, markdownPath);
+  const hasVersion = Object.prototype.hasOwnProperty.call(data, "reasoning_version");
+  const hasBrief = Object.prototype.hasOwnProperty.call(data, "decision_brief");
+  if (!hasVersion && !hasBrief) return;
+  if (String(data.reasoning_version) !== "2")
+    pushIssue(errors, relativeMarkdown, "reasoning_version", "must equal 2");
+  const slug = path.basename(markdownPath, ".md");
+  const expectedBrief =
+    kind === "strategy"
+      ? "strategy.decision.json"
+      : `${kind === "think" ? "thinking" : "backlog"}/${slug}.decision.json`;
+  if (data.decision_brief !== expectedBrief) {
+    pushIssue(
+      errors,
+      relativeMarkdown,
+      "decision_brief",
+      `must equal canonical companion ${expectedBrief}`
+    );
+    return;
+  }
+  let brief;
+  try {
+    brief = JSON.parse(
+      readProjectInput(pmDir, expectedBrief, 4 * 1024 * 1024).bytes.toString("utf8")
+    );
+  } catch (error) {
+    pushIssue(errors, relativeMarkdown, "decision_brief", `invalid companion: ${error.message}`);
+    return;
+  }
+  const issues = validateDecisionBrief(brief);
+  if (brief.kind !== kind) issues.push(`decision kind must equal ${kind}`);
+  if (kind !== "strategy" && brief.slug !== slug) issues.push(`decision slug must equal ${slug}`);
+  for (const issue of issues) pushIssue(errors, relativeMarkdown, "decision_brief", issue);
+  if (issues.length) return;
+  for (const issue of verifyDecisionBriefBindings(pmDir, brief))
+    pushIssue(errors, relativeMarkdown, "decision_brief", issue);
 }
 
 function validateMemoryEntry(relativeFile, entry, index, errors, requireArchivedAt) {
@@ -1073,6 +1125,7 @@ function validate(pmDir) {
       }
 
       validateBacklogItem(filePath, parsed.data, errors, warnings);
+      validateReasoningFrontmatter(pmDir, filePath, parsed.data, errors, "idea");
 
       if (parsed.data.id) {
         if (backlogIds.has(parsed.data.id)) {
@@ -1127,6 +1180,7 @@ function validate(pmDir) {
     const parsed = readParsedFrontmatter(strategyPath, "strategy.md", errors);
     if (parsed) {
       validateStrategy(strategyPath, parsed.data, errors);
+      validateReasoningFrontmatter(pmDir, strategyPath, parsed.data, errors, "strategy");
     }
   }
 
@@ -1145,6 +1199,7 @@ function validate(pmDir) {
     }
 
     validateThinkingFile(pmDir, filePath, parsed.data, errors, warnings);
+    validateReasoningFrontmatter(pmDir, filePath, parsed.data, errors, "think");
   }
 
   const insightsDir = path.join(pmDir, "insights");
@@ -1213,13 +1268,13 @@ function validate(pmDir) {
   for (const directory of [path.join(pmDir, "thinking"), path.join(pmDir, "backlog")]) {
     if (!fs.existsSync(directory)) continue;
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-      if (entry.isFile() && entry.name.endsWith(".decision.json")) {
+      if (entry.name.endsWith(".decision.json")) {
         decisionCandidates.push(path.join(directory, entry.name));
       }
     }
   }
   for (const candidate of decisionCandidates) {
-    if (fs.existsSync(candidate))
+    if (pathEntryExists(candidate))
       validateProductReasoningJson(pmDir, candidate, errors, "decision-brief");
   }
   const featureInventoryPath = path.join(pmDir, "product", "features.json");

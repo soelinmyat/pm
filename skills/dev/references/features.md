@@ -87,7 +87,7 @@ Before presentation, build a proposed `feature-inventory` v2 record and run `scr
 - Preserve exact keys.
 - Preserve a prior ID for a uniquely strong source-continuity match, including a wording-only rename.
 - Show new and retired identities in the review summary.
-- If `ambiguous` is non-empty, ask the user whether the candidate is a rename, merge, split, or genuinely new feature. Update the in-memory record and rerun reconciliation. Never write an ambiguous inventory.
+- If `ambiguous` is non-empty, ask the user whether the candidate is a rename, merge, split, or genuinely new feature. Add a closed `resolutions` map to the private request: each ambiguous feature key maps to one reported candidate ID or the literal `"new"`. A prior identity can be selected only once; for a merge or split, choose which resulting feature retains it and resolve the others as `"new"`. Rerun reconciliation and never write an ambiguous inventory.
 
 ## User Review
 

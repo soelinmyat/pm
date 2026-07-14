@@ -7,7 +7,10 @@ const { readProjectInput } = require("./lib/safe-project-output");
 const { readBoundedJsonFile } = require("./lib/safe-json-file");
 const { writeProjectJsonAtomic } = require("./lib/project-atomic-write");
 const { readApprovedProposal } = require("./lib/proposal-schema");
-const { verifyArtifactBindings } = require("./lib/product-reasoning-bindings");
+const {
+  verifyArtifactBindings,
+  verifyDecisionBriefBindings,
+} = require("./lib/product-reasoning-bindings");
 const {
   decisionId,
   featureId,
@@ -39,8 +42,7 @@ function main(argv = process.argv.slice(2)) {
       let issues;
       if (value.document_type === "decision-brief") {
         issues = validateDecisionBrief(value);
-        if (issues.length === 0)
-          issues.push(...verifyArtifactBindings(root, value.source_artifacts));
+        if (issues.length === 0) issues.push(...verifyDecisionBriefBindings(root, value));
       } else if (value.document_type === "feature-inventory") {
         issues = validateFeatureInventory(value);
         if (issues.length === 0) {
@@ -57,7 +59,20 @@ function main(argv = process.argv.slice(2)) {
       result = { rankings: rankIdeaBriefs(request.ideas || [], request.strategy || null) };
     } else if (command === "reconcile-features") {
       const request = readBoundedJsonFile(required(args, "request"));
-      result = reconcileFeatureInventory(request.previous || null, request.proposed);
+      if (
+        !request ||
+        typeof request !== "object" ||
+        Array.isArray(request) ||
+        Object.keys(request).some(
+          (field) => !["previous", "proposed", "resolutions"].includes(field)
+        )
+      )
+        throw new Error("feature reconciliation request contains unknown fields");
+      result = reconcileFeatureInventory(
+        request.previous || null,
+        request.proposed,
+        request.resolutions || {}
+      );
       if (result.ambiguous.length) process.exitCode = 3;
     } else if (command === "feature-snapshot") {
       const request = readBoundedJsonFile(required(args, "request"));
@@ -186,7 +201,9 @@ function promote(root, request, options = {}) {
     brief,
     request.target_ref,
     sourceArtifacts,
-    request.confirmed_at
+    request.confirmed_at,
+    request.approval_decision,
+    originSha256
   );
   writeProjectJsonAtomic(root, request.decision_path, promoted, {
     maxBytes: 4 * 1024 * 1024,

@@ -259,7 +259,17 @@ test("promote requires exact approved Groom lineage and atomically closes origin
   const promoted = JSON.parse(fs.readFileSync(path.join(root, decisionPath), "utf8"));
   assert.equal(promoted.promotion.status, "promoted");
   assert.equal(promoted.promotion.target_ref, targetRef);
+  assert.deepEqual(promoted.promotion.approval_decision, approvalDecision);
+  assert.match(promoted.promotion.origin_decision_sha256, /^sha256:[a-f0-9]{64}$/);
   assert.equal(promoted.source_artifacts[0].path, targetRef);
+  result = run(["validate", "--root", root, "--input", path.join(root, decisionPath)]);
+  assert.equal(result.status, 0, result.stderr);
+
+  promoted.promotion.approval_decision.id = "different-groom-decision";
+  fs.writeFileSync(path.join(root, decisionPath), JSON.stringify(promoted));
+  result = run(["validate", "--root", root, "--input", path.join(root, decisionPath)]);
+  assert.equal(result.status, 2);
+  assert.match(result.stdout, /does not match the session approval decision/);
 });
 
 test("promote rejects duplicate binding work before reading artifacts", (t) => {

@@ -319,6 +319,8 @@ Files in `pm/thinking/*.md`. Product thinking artifacts produced by the `think` 
 | `reasoning_version` | integer | optional | `2` | Enables the product-reasoning companion contract |
 | `decision_brief` | string | optional | — | KB-relative decision companion path, such as thinking/{slug}.decision.json |
 
+When either `reasoning_version` or `decision_brief` is present on an Ideate, Strategy, or Think artifact, both participate in the v2 lineage contract. `reasoning_version` must be `2`; `decision_brief` must equal the canonical companion path for that Markdown file; and normal validation authenticates the companion's kind, slug, stable identity, canonical Markdown binding, and any persisted promotion evidence. Artifacts without either field remain valid legacy artifacts.
+
 ### Constraints
 
 - `promoted_to` must be a kebab-case slug — not a file path, Linear ID, or free text

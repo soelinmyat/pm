@@ -43,7 +43,7 @@ The companion uses this shape:
   "confidence": { "level": "medium", "basis": ["Specific support", "Specific uncertainty"] },
   "non_goals": ["Explicit exclusion"],
   "next_trigger": { "lane": "groom", "condition": "Observable condition for advancing", "target": null },
-  "promotion": { "status": "not-offered", "target_kind": null, "target_ref": null, "confirmed_at": null },
+  "promotion": { "status": "not-offered", "target_kind": null, "target_ref": null, "confirmed_at": null, "approval_decision": null, "origin_decision_sha256": null },
   "source_artifacts": [
     { "path": "thinking/semantic-slug.md", "sha256": "sha256:..." }
   ],
@@ -59,7 +59,7 @@ Rules:
 - A confirmed decision has at least two materially distinct alternatives and chooses one by ID.
 - No evidence means `confidence.level: low`. Hypothesis is an evidence-strength label, not a source.
 - Confidence basis names both support and meaningful uncertainty; it is not a restatement of the enum.
-- Promotion becomes `promoted` only after `backlog/proposals/{slug}.json`, its sibling approval audit, and the proposal's exact source-lineage row for the origin decision companion all validate against current bytes and the expected Groom decision. The RFC3339 confirmation time must not precede either the origin's current `updated_at` or the approval timestamp.
+- Promotion becomes `promoted` only after `backlog/proposals/{slug}.json`, its sibling approval audit, and the proposal's exact source-lineage row for the origin decision companion all validate against current bytes and the expected Groom decision. Persist `approval_decision` and the pre-promotion `origin_decision_sha256` in the promotion record so standalone and normal validation can replay those checks. The RFC3339 confirmation time must not precede either the origin's current `updated_at` or the approval timestamp.
 - `not-offered` and `offered` record intent only: all target and confirmation fields remain `null` until promotion succeeds.
 - Hash the final Markdown bytes before writing the JSON companion. Any later Markdown edit requires refreshing the binding and `updated_at`.
 - Validate companions with `node "${CLAUDE_PLUGIN_ROOT}/scripts/product-reasoning.js" validate --root "${pm_dir}" --input <path>`.
@@ -119,7 +119,7 @@ Generate IDs for new capabilities with `feature-id`. Before review, reconcile a 
 node "${CLAUDE_PLUGIN_ROOT}/scripts/product-reasoning.js" reconcile-features --request <private-request.json>
 ```
 
-Exact keys preserve identity. A rename can preserve identity when source continuity is uniquely strong. Equal plausible matches and many-to-one collisions are returned as order-independent `ambiguous` records and require user resolution. Do not silently merge, split, or retire an ambiguous feature.
+Exact keys preserve identity. A rename can preserve identity when source continuity is uniquely strong. Equal plausible matches and many-to-one collisions are returned as order-independent `ambiguous` records and require user resolution. Rerun with a closed `resolutions` object mapping each ambiguous feature key to one of its reported candidate IDs or the literal `"new"`; candidate identities may be claimed only once. This makes rename, merge, split, and genuinely-new choices explicit and deterministic. Do not silently merge, split, or retire an ambiguous feature.
 
 For a non-Git project, calculate the deterministic snapshot after source refs are final and store the returned `snapshot_sha256`:
 

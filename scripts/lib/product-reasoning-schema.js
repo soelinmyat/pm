@@ -149,6 +149,9 @@ function validateDecisionBrief(value) {
     const canonicalTarget = value.slug ? `backlog/proposals/${value.slug}.json` : null;
     if (canonicalTarget && value.promotion.target_ref !== canonicalTarget)
       issues.push(`promoted decision target_ref must equal ${canonicalTarget}`);
+    const canonicalApproval = value.slug ? `backlog/proposals/${value.slug}.approval.json` : null;
+    if (canonicalApproval && !artifactPaths.has(canonicalApproval))
+      issues.push(`promoted decision must bind canonical approval audit ${canonicalApproval}`);
     if (
       timestampValue(value.promotion.confirmed_at) !== null &&
       timestampValue(value.updated_at) !== null &&
@@ -214,7 +217,14 @@ function validatePromotion(promotion, sourceArtifacts, issues) {
   if (!record(promotion)) return issues.push("decision.promotion must be an object");
   closed(
     promotion,
-    ["status", "target_kind", "target_ref", "confirmed_at"],
+    [
+      "status",
+      "target_kind",
+      "target_ref",
+      "confirmed_at",
+      "approval_decision",
+      "origin_decision_sha256",
+    ],
     "decision.promotion",
     issues
   );
@@ -226,6 +236,21 @@ function validatePromotion(promotion, sourceArtifacts, issues) {
       issues.push("promoted decision target_kind must be groom");
     kbPath(promotion.target_ref, "decision.promotion.target_ref", issues);
     timestamp(promotion.confirmed_at, "decision.promotion.confirmed_at", issues);
+    if (!record(promotion.approval_decision)) {
+      issues.push("promoted decision approval_decision must be an object");
+    } else {
+      closed(
+        promotion.approval_decision,
+        ["id", "sha256"],
+        "decision.promotion.approval_decision",
+        issues
+      );
+      text(promotion.approval_decision.id, "decision.promotion.approval_decision.id", issues);
+      if (!/^sha256:[a-f0-9]{64}$/.test(promotion.approval_decision.sha256 || ""))
+        issues.push("decision.promotion.approval_decision.sha256 is invalid");
+    }
+    if (!/^sha256:[a-f0-9]{64}$/.test(promotion.origin_decision_sha256 || ""))
+      issues.push("promoted decision origin_decision_sha256 is invalid");
     if (
       !(Array.isArray(sourceArtifacts) ? sourceArtifacts : []).some(
         (artifact) => artifact?.path === promotion.target_ref
@@ -236,6 +261,10 @@ function validatePromotion(promotion, sourceArtifacts, issues) {
     if (promotion.target_kind !== null) issues.push("unpromoted decision target_kind must be null");
     if (promotion.target_ref !== null || promotion.confirmed_at !== null)
       issues.push("unpromoted decision cannot bind a target or confirmation time");
+    if (promotion.approval_decision !== undefined && promotion.approval_decision !== null)
+      issues.push("unpromoted decision cannot bind an approval decision");
+    if (promotion.origin_decision_sha256 !== undefined && promotion.origin_decision_sha256 !== null)
+      issues.push("unpromoted decision cannot bind an origin decision hash");
   }
 }
 
@@ -357,7 +386,14 @@ function rankIdeaBriefs(briefs, strategyBrief = null) {
     }));
 }
 
-function promoteDecisionBrief(brief, targetRef, sourceArtifacts, confirmedAt) {
+function promoteDecisionBrief(
+  brief,
+  targetRef,
+  sourceArtifacts,
+  confirmedAt,
+  approvalDecision,
+  originDecisionSha256
+) {
   const existingIssues = validateDecisionBrief(brief);
   if (existingIssues.length)
     throw new Error(`invalid decision brief: ${existingIssues.join("; ")}`);
@@ -368,6 +404,8 @@ function promoteDecisionBrief(brief, targetRef, sourceArtifacts, confirmedAt) {
       target_kind: "groom",
       target_ref: targetRef,
       confirmed_at: confirmedAt,
+      approval_decision: approvalDecision,
+      origin_decision_sha256: originDecisionSha256,
     },
     source_artifacts: sourceArtifacts,
     updated_at: confirmedAt,
@@ -600,7 +638,7 @@ function featureSourceSnapshot(sourceRoot, sourceRefs) {
   };
 }
 
-function reconcileFeatureInventory(previous, proposed) {
+function reconcileFeatureInventory(previous, proposed, resolutions = {}) {
   const proposedIssues = validateFeatureInventory(proposed);
   if (proposedIssues.length)
     throw new Error(`invalid proposed feature inventory: ${proposedIssues.join("; ")}`);
@@ -611,6 +649,13 @@ function reconcileFeatureInventory(previous, proposed) {
   }
   const priorFeatures = flattenFeatures(previous);
   const proposedFeatures = flattenFeatures(proposed);
+  if (!record(resolutions)) throw new Error("feature resolutions must be an object");
+  const proposedKeys = new Set(proposedFeatures.map((feature) => feature.key));
+  for (const [key, choice] of Object.entries(resolutions)) {
+    if (!proposedKeys.has(key)) throw new Error(`feature resolution key ${key} is unknown`);
+    if (choice !== "new" && !/^feat-[a-f0-9]{20}$/.test(choice || ""))
+      throw new Error(`feature resolution ${key} must be a candidate feature ID or new`);
+  }
   const analyses = proposedFeatures.map((feature) => {
     const exact = priorFeatures.find((old) => old.key === feature.key);
     const candidates = exact
@@ -649,20 +694,49 @@ function reconcileFeatureInventory(previous, proposed) {
     const collision = analysis.top.some(
       (candidate) => (claims.get(candidate.feature.feature_id) || []).length > 1
     );
+    const choice = resolutions[analysis.feature.key];
     if (analysis.top.length > 1 || collision) {
+      const candidateIds = analysis.top.map((item) => item.feature.feature_id).sort();
+      if (choice !== undefined) {
+        if (choice !== "new" && !candidateIds.includes(choice))
+          throw new Error(
+            `feature resolution ${analysis.feature.key} must select a reported candidate or new`
+          );
+        const selected =
+          choice === "new" ? featureId(proposed.source_project, analysis.feature.key) : choice;
+        if (used.has(selected))
+          throw new Error(
+            `feature resolution ${analysis.feature.key} reuses claimed identity ${selected}`
+          );
+        used.add(selected);
+        resolved.set(analysis.feature.key, selected);
+        continue;
+      }
       for (const candidate of analysis.top) ambiguousCandidates.add(candidate.feature.feature_id);
       ambiguous.push({
         key: analysis.feature.key,
-        candidates: analysis.top.map((item) => item.feature.feature_id).sort(),
+        candidates: candidateIds,
       });
       continue;
     }
     const match = analysis.top[0]?.feature || null;
-    if (match) used.add(match.feature_id);
-    resolved.set(
-      analysis.feature.key,
-      match?.feature_id || featureId(proposed.source_project, analysis.feature.key)
-    );
+    if (choice !== undefined) {
+      const allowed = match ? [match.feature_id] : [];
+      if (choice !== "new" && !allowed.includes(choice))
+        throw new Error(
+          `feature resolution ${analysis.feature.key} must select a reported candidate or new`
+        );
+    }
+    const selected =
+      choice === "new"
+        ? featureId(proposed.source_project, analysis.feature.key)
+        : choice || match?.feature_id || featureId(proposed.source_project, analysis.feature.key);
+    if (used.has(selected))
+      throw new Error(
+        `feature resolution ${analysis.feature.key} reuses claimed identity ${selected}`
+      );
+    if (match || choice !== undefined) used.add(selected);
+    resolved.set(analysis.feature.key, selected);
   }
   ambiguous.sort((left, right) => left.key.localeCompare(right.key));
   const areas = proposed.areas.map((area) => ({

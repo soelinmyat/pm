@@ -1,7 +1,9 @@
 "use strict";
 
 const crypto = require("node:crypto");
+const path = require("node:path");
 const { readProjectInput } = require("./safe-project-output");
+const { readApprovedProposal } = require("./proposal-schema");
 
 const MAX_BINDING_FILE_BYTES = 16 * 1024 * 1024;
 const MAX_BINDING_TOTAL_BYTES = 64 * 1024 * 1024;
@@ -40,8 +42,48 @@ function verifyArtifactBindings(root, bindings, options = {}) {
   return issues;
 }
 
+function verifyDecisionBriefBindings(root, brief) {
+  const cache = new Map();
+  const issues = verifyArtifactBindings(root, brief.source_artifacts, { cache });
+  if (issues.length || brief.promotion?.status !== "promoted") return issues;
+  const targetRef = brief.promotion.target_ref;
+  try {
+    const approved = readApprovedProposal(path.resolve(root, targetRef), {
+      projectRoot: root,
+      expectedSlug: brief.slug,
+      expectedDecision: brief.promotion.approval_decision,
+    });
+    if (!approved.exactBytesCurrent)
+      issues.push(`${targetRef}: approval does not bind the exact current proposal bytes`);
+    const verifiedProposal = cache.get(targetRef)?.bytes;
+    const approvalRef = targetRef.replace(/\.json$/, ".approval.json");
+    const verifiedApproval = cache.get(approvalRef)?.bytes;
+    if (!verifiedProposal?.equals(approved.source.bytes))
+      issues.push(`${targetRef}: proposal bytes changed during validation`);
+    if (!verifiedApproval?.equals(approved.approvalSource.bytes))
+      issues.push(`${approvalRef}: approval bytes changed during validation`);
+    const decisionPath =
+      brief.kind === "think"
+        ? `thinking/${brief.slug}.decision.json`
+        : `backlog/${brief.slug}.decision.json`;
+    if (
+      !approved.source.proposal.source.lineage.some(
+        (entry) =>
+          entry.path === decisionPath && entry.sha256 === brief.promotion.origin_decision_sha256
+      )
+    )
+      issues.push(`${targetRef}: proposal lineage does not bind the promoted origin decision`);
+    if (Date.parse(brief.promotion.confirmed_at) < Date.parse(approved.approval.approved_at))
+      issues.push(`${targetRef}: promotion confirmation predates approval`);
+  } catch (error) {
+    issues.push(`${targetRef}: ${error.message}`);
+  }
+  return issues;
+}
+
 module.exports = {
   MAX_BINDING_FILE_BYTES,
   MAX_BINDING_TOTAL_BYTES,
   verifyArtifactBindings,
+  verifyDecisionBriefBindings,
 };

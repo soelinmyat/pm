@@ -59,10 +59,94 @@ test("normal validation checks present decision companions without requiring the
   result = validate(pm);
   assert.equal(result.errors.length, 0, JSON.stringify(result.details));
 
+  const linkedMarkdown = Buffer.from(
+    "---\ntype: thinking\ntopic: Test\nslug: test\ncreated: 2026-07-14\nupdated: 2026-07-14\nstatus: active\nreasoning_version: 2\ndecision_brief: thinking/test.decision.json\n---\n\n# Test\n"
+  );
+  fs.writeFileSync(path.join(pm, "thinking", "test.md"), linkedMarkdown);
+  brief.source_artifacts[0].sha256 = sha(linkedMarkdown);
+  fs.writeFileSync(path.join(pm, "thinking", "test.decision.json"), JSON.stringify(brief));
+  result = validate(pm);
+  assert.equal(result.errors.length, 0, JSON.stringify(result.errors));
+
+  fs.writeFileSync(
+    path.join(pm, "thinking", "test.md"),
+    linkedMarkdown
+      .toString("utf8")
+      .replace("decision_brief: thinking/test.decision.json", "decision_brief: ../outside.json")
+  );
+  result = validate(pm);
+  assert.ok(result.errors.some((entry) => entry.msg.includes("canonical companion")));
+
+  fs.writeFileSync(path.join(pm, "thinking", "test.md"), linkedMarkdown);
+  brief.kind = "idea";
+  brief.decision_id = decisionId("idea", "test");
+  brief.alignment = {
+    strength: "partial",
+    priority_ids: [],
+    non_goal_conflicts: [],
+    evidence_strength: "moderate",
+    competitor_gap: "partial",
+    dependencies: [],
+    scope_signal: "small",
+  };
+  fs.writeFileSync(path.join(pm, "thinking", "test.decision.json"), JSON.stringify(brief));
+  result = validate(pm);
+  assert.ok(result.errors.some((entry) => entry.msg.includes("decision kind must equal think")));
+
+  brief.kind = "think";
+  brief.decision_id = decisionId("think", "test");
+  delete brief.alignment;
   brief.source_artifacts[0].sha256 = `sha256:${"f".repeat(64)}`;
   fs.writeFileSync(path.join(pm, "thinking", "test.decision.json"), JSON.stringify(brief));
   result = validate(pm);
   assert.ok(result.errors.some((entry) => entry.msg.includes("SHA-256 does not match")));
+});
+
+test("normal validation rejects decision companion symlinks", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reasoning-symlink-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const pm = path.join(root, "pm");
+  fs.mkdirSync(path.join(pm, "thinking"), { recursive: true });
+  fs.writeFileSync(
+    path.join(pm, "thinking", "linked.md"),
+    "---\ntype: thinking\ntopic: Linked\nslug: linked\ncreated: 2026-07-14\nupdated: 2026-07-14\nstatus: active\n---\n"
+  );
+  fs.writeFileSync(path.join(root, "outside.json"), "{}\n");
+  fs.symlinkSync(
+    path.join(root, "outside.json"),
+    path.join(pm, "thinking", "linked.decision.json")
+  );
+  const result = validate(pm);
+  assert.ok(result.errors.some((entry) => entry.msg.includes("symlink")));
+});
+
+test("lineage frontmatter requires canonical companions in Strategy, Think, and Ideate", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reasoning-frontmatter-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const pm = path.join(root, "pm");
+  fs.mkdirSync(path.join(pm, "thinking"), { recursive: true });
+  fs.mkdirSync(path.join(pm, "backlog"), { recursive: true });
+  fs.writeFileSync(
+    path.join(pm, "strategy.md"),
+    "---\ntype: strategy\ncreated: 2026-07-14\nupdated: 2026-07-14\nreasoning_version: 2\ndecision_brief: strategy.decision.json\n---\n"
+  );
+  fs.writeFileSync(
+    path.join(pm, "thinking", "choice.md"),
+    "---\ntype: thinking\ntopic: Choice\nslug: choice\ncreated: 2026-07-14\nupdated: 2026-07-14\nstatus: active\nreasoning_version: 2\ndecision_brief: thinking/choice.decision.json\n---\n"
+  );
+  fs.writeFileSync(
+    path.join(pm, "backlog", "idea.md"),
+    "---\ntype: backlog\nid: PM-001\ntitle: Idea\noutcome: Test the idea\nstatus: idea\npriority: medium\ncreated: 2026-07-14\nupdated: 2026-07-14\nreasoning_version: 2\ndecision_brief: backlog/idea.decision.json\n---\n"
+  );
+  const result = validate(pm);
+  for (const artifact of ["strategy.md", "thinking/choice.md", "backlog/idea.md"]) {
+    assert.ok(
+      result.errors.some(
+        (entry) => entry.file === artifact && entry.msg.includes("invalid companion")
+      ),
+      `${artifact} did not require its companion: ${JSON.stringify(result.errors)}`
+    );
+  }
 });
 
 test("KB-relative feature bindings validate in nested and flat PM layouts", (t) => {
