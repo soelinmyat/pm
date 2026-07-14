@@ -27,9 +27,9 @@ Completion means every shipped skill has an explicit contract, proportionate eva
 | v1.13.15 / Wave 3B | Evidence-bound adaptive `pm:review` | Released |
 | v1.13.17 / Wave 4A | Executable skill-authoring contract and audit | Released |
 | v1.13.25 / Wave 4B | Shared provider-neutral workflow runtime primitives | Released |
-| vNext / Wave 5 | Groom v2, canonical proposal contract, and quality calibration | Implementation and certification in progress |
+| vNext / Wave 5 | Groom v2, canonical proposal contract, and quality calibration | Certified; release PR pending |
 
-Wave 5 is the active release. Wave 6 begins only after its reviewed release commit lands on main.
+Wave 5 is certified and awaiting its release merge. Wave 6 is next and begins from the reviewed Wave 5 commit after it lands on main.
 
 ## Operating laws
 
@@ -133,7 +133,7 @@ Keep routing tables, approval policy, findings, artifact schemas, and gate rules
 
 ### Wave 5 — Groom v2 and proposal quality
 
-**State:** implementation and certification active on `codex/groom-v2`; detailed plan in `docs/plans/2026-07-14-groom-v2-wave-5.md`.
+**State:** implementation, remediation, and certification complete on `codex/groom-v2`; release PR pending. Detailed plan in `docs/plans/2026-07-14-groom-v2-wave-5.md`.
 
 Make Groom the next full lifecycle migration:
 
