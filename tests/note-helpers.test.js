@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const { spawn } = require("node:child_process");
 
 const { writeNote, parseNotesFile, promoteNoteToIdea } = require("../scripts/note-helpers.js");
 
@@ -138,6 +139,63 @@ test("writeNote source type appears in heading", (t) => {
     /###\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s+—\s+user interview/.test(content),
     "heading must contain source type 'user interview'"
   );
+});
+
+test("writeNote binds the entry to the shared evidence ledger", (t) => {
+  const { pmDir, cleanup } = withTempPmDir();
+  t.after(cleanup);
+
+  const result = writeNote(pmDir, "Customer needs bulk editing", "support thread", "editing");
+  assert.match(result.evidence_id, /^ev_[a-f0-9]{24}$/);
+  const note = fs.readFileSync(result.filePath, "utf8");
+  assert.match(note, /provenance_version: 2/);
+  assert.match(note, new RegExp(`Evidence-ID: ${result.evidence_id}`));
+
+  const ledger = JSON.parse(
+    fs.readFileSync(path.join(pmDir, "evidence", "provenance.json"), "utf8")
+  );
+  assert.equal(ledger.records.length, 1);
+  assert.equal(ledger.records[0].evidence_id, result.evidence_id);
+  assert.deepEqual(ledger.records[0].artifact_paths, [path.relative(pmDir, result.filePath)]);
+  assert.equal(ledger.records[0].privacy.classification, "customer-sensitive");
+  assert.equal(ledger.records[0].privacy.pii_review, "pending");
+});
+
+test("concurrent note captures do not lose entries or ledger records", async (t) => {
+  const { pmDir, cleanup } = withTempPmDir();
+  t.after(cleanup);
+  const helper = path.resolve(__dirname, "../scripts/note-helpers.js");
+  const children = Array.from(
+    { length: 6 },
+    (_, index) =>
+      new Promise((resolve, reject) => {
+        const child = spawn(
+          process.execPath,
+          [
+            "-e",
+            "const {writeNote}=require(process.argv[1]);writeNote(process.argv[2],process.argv[3],'observation','concurrency')",
+            helper,
+            pmDir,
+            `Concurrent note ${index}`,
+          ],
+          { stdio: ["ignore", "ignore", "pipe"] }
+        );
+        let stderr = "";
+        child.stderr.on("data", (chunk) => (stderr += chunk));
+        child.on("error", reject);
+        child.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(stderr))));
+      })
+  );
+  await Promise.all(children);
+
+  const noteFile = fs.readdirSync(path.join(pmDir, "evidence", "notes"))[0];
+  const parsed = parseNotesFile(path.join(pmDir, "evidence", "notes", noteFile));
+  assert.equal(parsed.entries.length, 6);
+  assert.equal(new Set(parsed.entries.map((entry) => entry.evidence_id)).size, 6);
+  const ledger = JSON.parse(
+    fs.readFileSync(path.join(pmDir, "evidence", "provenance.json"), "utf8")
+  );
+  assert.equal(ledger.records.length, 6);
 });
 
 // ---------------------------------------------------------------------------

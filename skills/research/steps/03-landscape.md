@@ -38,6 +38,8 @@ First research activity in a new project. Produces the market overview that make
    - Market segments and buyer types
    - Analyst or press coverage
 
+   Register every source that supports a durable landscape claim through `scripts/evidence.js register` using `freshness_kind: landscape`. Use portable labels and keep its Evidence-ID beside the source entry. Because the landscape is an insight artifact rather than an evidence artifact, leave `artifact_paths` empty; downstream routed evidence files establish strict claim bindings.
+
 4. **Present findings for validation.** Show a structured summary before writing. Ask:
    > "Does this look like the right landscape? Anything to add or correct before I write the file?"
 
@@ -58,6 +60,7 @@ confidence: medium
 sources:
   - url: ...
     accessed: YYYY-MM-DD
+    evidence_id: ev_0123456789abcdef01234567
 ---
 
 # Market Landscape: {Space}
@@ -127,4 +130,4 @@ When `{pm_dir}/insights/business/landscape.md` exists and user runs landscape mo
 
 ## Done-when
 
-`{pm_dir}/insights/business/landscape.md` has all template sections populated, the user has validated the findings, insight routing has run or been explicitly skipped, and indexes/logs are updated. Offer competitor profiling as the next action when appropriate; do not execute another research mode in this invocation.
+`{pm_dir}/insights/business/landscape.md` has all template sections populated with registered source IDs, the user has validated the findings, the shared ledger and PM project validate, insight routing has run or been explicitly skipped, and indexes/logs are updated. Offer competitor profiling as the next action when appropriate; do not execute another research mode in this invocation.

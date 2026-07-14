@@ -1,168 +1,95 @@
 ---
 name: Normalize
 order: 2
-description: Write normalized evidence records into .pm/ with dedup, manifest tracking, and PII redaction
+description: Normalize private evidence records and register portable Evidence v2 provenance
 ---
 
 ## Normalize Evidence
 
 ## Goal
 
-Convert raw evidence inputs into normalized `.pm/` records and manifest entries with enough provenance to support safe synthesis.
+Convert accepted inputs into private normalized records plus idempotent, portable Evidence v2 ledger entries that synthesis can cite without exposing customer content or local paths.
 
 ## How
 
-Write normalized evidence into `.pm/`.
-
-Structure:
+Read `${CLAUDE_PLUGIN_ROOT}/references/evidence-system.md` and use its request-file CLI contract. Keep the existing `.pm/imports/manifest.json` for file-level SHA, column mappings, and import state; Evidence v2 adds record-level identity, lineage, revisions, privacy state, and citation bindings.
 
 ```text
 .pm/
   imports/
-    manifest.json
+    manifest.json                  # private file-level import state
   evidence/
-    source-0001.json
-    source-0002.json
+    records/
+      ev_<id>.json                 # private normalized content and local locator
+    conflicts/                     # rejected refresh proposals
+    requests/                      # transient JSON command requests
     transcripts/
-      prospect-interview-20260402.txt   # raw diarized transcript (gitignored)
+      interview.txt                # raw transcript
 {pm_dir}/
   evidence/
+    provenance.json                # portable committed ledger
     transcripts/
-      prospect-interview-20260402.md    # redacted transcript (committed)
+      interview.md                 # redacted reader artifact
 ```
 
-Rules:
-- raw files stay at their original path
-- `.pm/` stays gitignored
-- one normalized JSON record per evidence item
-- manifest tracks imports and synthesis state
+Private normalized records are written to `{pm_state_dir}/evidence/records/` with mode `0600`; the CLI creates this path. For each reliable evidence item:
 
-#### Audio normalization
+1. Preserve the extracted fields privately: `topic`, `pain_point`, `summary`, a short quote when useful, local source path, and raw row/section/timestamp locator.
+2. Choose portable source labels via `source_label`, such as a basename or host/path; never put an absolute path, account name, or raw quote in the ledger.
+3. Build one JSON request under `{pm_state_dir}/evidence/requests/` with:
+   - `source_type`: `interview|support|sales|feedback|unknown` (`notes` from legacy ingest maps to `feedback`);
+   - `source_format`: `md|txt|csv|json|audio|unknown`;
+   - stable `locator`: `row:14`, `section:Pain points`, `timestamp:00:01:45`, or a joined combination;
+   - ISO `captured_at` and the exact normalized `content` used for synthesis;
+   - `privacy.classification: customer-sensitive` and `privacy.pii_review: pending` by default for customer evidence;
+   - `transformation: {"stage":"normalized","parents":[],"method":"pm:ingest"}`;
+   - `artifact_path` for the research topic this item will support, when already known;
+   - optional private-only `local_source_path` and `raw_locator` (these are written only to `.pm/`).
+4. Register it through deterministic code:
 
-For audio-sourced evidence, read and follow `${CLAUDE_PLUGIN_ROOT}/skills/ingest/references/audio-pipeline.md` for the full audio normalization flow (speaker role inference, PII redaction, redacted transcript generation, and evidence record extraction).
-
-### Required record fields
-
-Every evidence item becomes one JSON record. These fields are the minimum needed to trace a finding back to its source and cluster it by topic — without them, synthesis has nothing to work with.
-
-```json
-{
-  "id": "uuid-or-stable-hash",
-  "source_path": "/absolute/path/to/file",
-  "source_type": "interview|support|sales|notes|feedback|unknown",
-  "source_format": "md|txt|csv|json|audio",
-  "imported_at": "2026-03-12T10:00:00Z",
-  "topic": "bulk editing",
-  "pain_point": "editing many rows is slow",
-  "summary": "Customer requested batch edits for repetitive workflows.",
-  "quote": "Editing 50 rows one by one is painful.",
-  "raw_ref": {
-    "file": "/absolute/path/to/file",
-    "row": 14,
-    "section": "Pain points"
-  }
-}
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/evidence.js" register \
+  --pm-dir "{pm_dir}" --private-dir "{pm_state_dir}" \
+  --request "{pm_state_dir}/evidence/requests/{request}.json" --json
 ```
 
-**Additional fields for audio-sourced records:**
+Capture the returned `evidence_id` on the normalized item. Re-registering identical source identity and content is `unchanged`; changed content keeps the ID and appends the prior hash to `revisions`.
 
-```json
-{
-  "speaker_role": "customer|interviewer|unknown",
-  "transcript_ref": "{pm_dir}/evidence/transcripts/prospect-interview-20260402.md",
-  "timestamp": "00:01:45"
-}
+### Legacy v1 records
+
+Do not eagerly rewrite `.pm/imports/manifest.json` or all old records. When an existing v1 normalized record is touched, migrate that record incrementally:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/evidence.js" migrate \
+  --pm-dir "{pm_dir}" --private-dir "{pm_state_dir}" \
+  --request "{pm_state_dir}/evidence/source-0001.json" --json
 ```
 
-Optional fields are best-effort only:
-- `event_date`
-- `title`
-- `account`
-- `segment`
-- `persona`
-- `requested_outcome`
-- `severity`
-- `confidence`
-- `tags`
+The migration keeps the original record and manifest readable, writes a private v2 record, and publishes no machine-local path.
 
-Do not hallucinate optional values. Leave them null or omit them when the source is unclear.
+### Quality and ambiguity
 
-If `topic`, `pain_point`, or `summary` cannot be extracted reliably:
-- skip that item
-- report it as a parse warning
+Do not invent optional structure. Leave unclear optional values absent. If `topic`, `pain_point`, or `summary` cannot be extracted reliably, skip the item and report a parse warning. Confirm ambiguous CSV mappings before registration because a deterministic ID cannot make a semantically wrong mapping correct.
 
-### Import manifest
+For audio evidence, read and follow `${CLAUDE_PLUGIN_ROOT}/skills/ingest/references/audio-pipeline.md`; use timestamp locators and prefer customer speech over interviewer prompts.
 
-Maintain `.pm/imports/manifest.json`:
+### Replacement behavior
 
-```json
-{
-  "version": 1,
-  "last_synthesis_at": "2026-03-12T10:05:00Z",
-  "imports": [
-    {
-      "path": "/absolute/path/to/support-export.csv",
-      "kind": "file",
-      "sha256": "abc123",
-      "imported_at": "2026-03-12T10:00:00Z",
-      "record_count": 143,
-      "format_hint": "csv-support",
-      "column_mapping": {
-        "title": "Subject",
-        "description": "Body",
-        "priority": "Severity",
-        "date": "Created At"
-      }
-    },
-    {
-      "path": "/absolute/path/to/prospect-interview.m4a",
-      "kind": "file",
-      "sha256": "def456",
-      "imported_at": "2026-04-02T10:00:00Z",
-      "record_count": 8,
-      "format_hint": "audio-interview",
-      "transcript_path": "{pm_dir}/evidence/transcripts/prospect-interview.md"
-    }
-  ]
-}
-```
+- **Unchanged file and records:** skip or accept `unchanged`; do not duplicate.
+- **Changed file at the same path:** register changed normalized records, retain prior revisions, and re-synthesize only affected artifacts.
+- **Deleted or moved file:** report it; never delete ledger records or revisions automatically.
+- **Ambiguous incremental state:** offer a full rebuild; never guess which evidence to discard.
 
-### Replacement and refresh behavior
+### Privacy gate
 
-- **Unchanged file:** skip unless the user explicitly asks to re-import
-- **Modified file at same path:** replace old records for that file, then re-synthesize affected themes
-- **Deleted or moved file:** report it; do not delete evidence automatically
-- **No-arg refresh:** process new/changed imports and re-synthesize affected themes only
-- **Full rebuild:** if the manifest or evidence state looks stale, offer:
-  > "Rebuild research from all normalized evidence?"
+Do not promise perfect redaction. Redact obvious names/account identifiers when safe, keep quotes short, and tell the user:
 
-Use full rebuild as the fallback when incremental state is ambiguous.
+> Review these findings before committing. Automatic PII detection is not reliable enough to guarantee safe redaction.
 
-### Provenance and privacy
-
-Committed research must use **portable source labels**, not machine-specific absolute paths.
-
-Good committed reference:
-- `support-export.csv (rows 12, 14, 31)`
-- `interview-ops-lead.md (section: Pain points)`
-- `prospect-interview-20260402.m4a (transcript: {pm_dir}/evidence/transcripts/prospect-interview-20260402.md, 00:01:45)`
-
-Absolute local paths belong only in:
-- `.pm/imports/manifest.json`
-- `.pm/evidence/*.json`
-
-### PII rule
-
-Do **not** promise perfect redaction.
-
-Instead:
-- redact obvious names or account identifiers when safe
-- keep quotes short and relevant
-- warn the user explicitly:
-  > "Review these findings before committing. Automatic PII detection is not reliable enough to guarantee safe redaction."
+A `pending` record may be normalized privately, but reader artifacts containing customer material still require that explicit warning before commit.
 
 ## Done-when
 
-Every accepted item has a private normalized record and manifest entry with stable identity, required fields, provenance, dedup state, and an explicit PII review warning; unreliable items remain parse warnings.
+Every accepted item has a stable Evidence-ID, private mode-0600 normalized record, portable ledger entry, explicit privacy/PII state, and manifest dedup state; unchanged imports are idempotent, changed imports preserve revisions, and unreliable items remain warnings.
 
 **Advance:** proceed to Step 3 (Synthesize).

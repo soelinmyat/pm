@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pm-plugin.local/schemas/evidence-ledger-v2.json",
+  "title": "PM Evidence Ledger v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "updated_at", "records"],
+  "properties": {
+    "schema_version": { "const": 2 },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "records": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/record" }
+    }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "id": { "type": "string", "pattern": "^ev_[a-f0-9]{24}$" },
+    "record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_id",
+        "source_type",
+        "source_label",
+        "source_format",
+        "freshness_kind",
+        "locator",
+        "captured_at",
+        "content_sha256",
+        "privacy",
+        "transformation",
+        "artifact_paths",
+        "revisions",
+        "created_at",
+        "updated_at"
+      ],
+      "properties": {
+        "evidence_id": { "$ref": "#/$defs/id" },
+        "source_type": {
+          "enum": [
+            "note",
+            "interview",
+            "support",
+            "sales",
+            "feedback",
+            "web",
+            "competitor",
+            "research",
+            "unknown"
+          ]
+        },
+        "source_label": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "source_format": {
+          "enum": ["md", "txt", "csv", "json", "audio", "html", "api", "observation", "unknown"]
+        },
+        "freshness_kind": {
+          "enum": [
+            "seo",
+            "profile",
+            "sentiment",
+            "landscape",
+            "features",
+            "api",
+            "topic",
+            "customer-evidence",
+            "note",
+            "unknown"
+          ]
+        },
+        "locator": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "pattern": "^(?![A-Za-z]:[\\\\/])(?!/)(?!~)(?![Ff][Ii][Ll][Ee]:)(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$)).+$"
+        },
+        "captured_at": { "type": "string", "format": "date-time" },
+        "content_sha256": { "$ref": "#/$defs/hash" },
+        "privacy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["classification", "pii_review"],
+          "properties": {
+            "classification": {
+              "enum": ["public", "internal", "customer-sensitive", "restricted"]
+            },
+            "pii_review": { "enum": ["not-required", "pending", "reviewed"] }
+          }
+        },
+        "transformation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["stage", "parents", "method"],
+          "properties": {
+            "stage": { "enum": ["captured", "normalized", "synthesized"] },
+            "parents": { "type": "array", "items": { "$ref": "#/$defs/id" }, "uniqueItems": true },
+            "method": { "type": "string", "minLength": 1 }
+          }
+        },
+        "artifact_paths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^evidence/(?!.*(?:^|/)\\.\\.(?:/|$)).+"
+          },
+          "uniqueItems": true
+        },
+        "revisions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["content_sha256", "captured_at", "replaced_at"],
+            "properties": {
+              "content_sha256": { "$ref": "#/$defs/hash" },
+              "captured_at": { "type": "string", "format": "date-time" },
+              "replaced_at": { "type": "string", "format": "date-time" }
+            }
+          }
+        },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

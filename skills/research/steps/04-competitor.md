@@ -37,7 +37,7 @@ The goal is to find **genuinely close competitors** — not just well-known play
 
 ### Phase 2: Profile
 
-**5-file completeness check (used throughout this phase and the synthesis gate):** every competitor slug must have all five files under `{pm_dir}/evidence/competitors/{slug}/` — `profile.md`, `features.md`, `api.md`, `seo.md` (note if SEO data is unavailable per provider config), `sentiment.md`. If any is missing, re-run only that section of research before proceeding.
+**5-file completeness check (used throughout this phase and the synthesis gate):** every competitor slug must have all five files under `{pm_dir}/evidence/competitors/{slug}/` — `profile.md`, `features.md`, `api.md`, `seo.md` (note if SEO data is unavailable per provider config), `sentiment.md`. Every materially touched file must also pass `evidence.js validate --artifact` and standard PM validation. If any file is missing or its provenance fails, re-run only that section before proceeding.
 
 Determine dispatch strategy based on candidate count and runtime capability. Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` and `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` for the runtime-neutral dispatch mechanics — do not hardcode any one runtime's dispatch syntax.
 
@@ -96,4 +96,4 @@ Only continue after explicit confirmation.
 
 ## Done-when
 
-All confirmed competitors pass the 5-file completeness check, the competitor index is updated with links and market gaps, the landscape reflects new players, routing is complete or skipped, and logs are appended. Offer strategy, ideation, or grooming as the next action; do not execute another research mode.
+All confirmed competitors pass the 5-file and Evidence v2 checks, the competitor index is updated with links and market gaps, the landscape reflects new players, standard PM validation passes, routing is complete or skipped, and logs are appended. Offer strategy, ideation, or grooming as the next action; do not execute another research mode.

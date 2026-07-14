@@ -12,6 +12,7 @@ Re-run data collection on existing research to backfill gaps from newly added to
 Refresh patches. Research creates. Don't confuse them.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
+Read `${CLAUDE_PLUGIN_ROOT}/references/evidence-system.md` before auditing; Evidence v2 is the authority for freshness snapshots, revisions, and refresh conflict handling.
 
 **Workflow:** `refresh` | **Telemetry steps:** `mode_routing`, `audit`, `execute`, `consolidation`, `summary`
 
@@ -34,6 +35,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and
 - Run the audit (Step 2) before patching — it defines scope, freshness, and API cost. Skipping it burns budget and misses adjacent stale state.
 - Before an SEO refresh, project the Ahrefs call count and confirm scope with the user when it's high. If no SEO provider is configured, skip SEO and report it — never improvise pseudo-refresh data.
 - Every patch retains source provenance and access dates, records refreshed sections, and writes back only after staleness and origin ownership are verified.
+- Every Evidence v2 mutation uses the audited `observed_content_sha256`; a mismatch is a conflict, not permission to overwrite.
 
 ## Red Flags — Self-Check
 
@@ -70,4 +72,4 @@ The following reference files provide detailed guidance for specific refresh pha
 
 - [ ] Canonical evidence artifacts are patched in place with provenance and refreshed timestamps; user-authored content remains intact.
 - [ ] The user confirmed high-cost scope and any ambiguous origin or consolidation decision.
-- [ ] Audit, staleness, origin, provider-cost, patch, writeback, and post-refresh validation gates passed.
+- [ ] Audit, staleness, origin, provider-cost, compare-and-swap, patch, writeback, and post-refresh validation gates passed.

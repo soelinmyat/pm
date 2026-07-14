@@ -57,6 +57,7 @@ PM writes committed product context to `pm/` and runtime state to `.pm/`.
 pm/
   strategy.md                  # ICP, positioning, priorities, non-goals
   evidence/
+    provenance.json            # portable Evidence-ID ledger and revision history
     research/                  # market landscape, topic research
     competitors/               # competitor profiles and intel
     transcripts/               # ingested interview/call transcripts
@@ -73,6 +74,7 @@ pm/
 
 .pm/
   config.json                  # integration config (Linear, Ahrefs)
+  evidence/                    # private normalized records, requests, conflicts
   dev-sessions/                # active dev session state
   groom-sessions/              # active groom session state
   rfc-sessions/                # active RFC session state
@@ -101,13 +103,15 @@ updated: 2026-04-01
 ---
 ```
 
-A research finding:
+A research finding (reader Markdown stays concise; the ledger carries portable hashes, privacy state, revisions, and artifact bindings):
 
 ```yaml
 ---
-type: research
-topic: dashboard-filtering
-source_origin: web
+type: evidence
+evidence_type: research
+topic: Dashboard Filtering
+source_origin: external
+provenance_version: 2
 created: 2026-04-01
 updated: 2026-04-01
 sources:
@@ -115,11 +119,13 @@ sources:
     title: "Analytics Dashboard Trends 2026"
 ---
 
-## Key Findings
+## Findings
 
-1. 78% of analytics users filter by team or department daily
-2. Most competitors offer 3-5 filter dimensions; power users want saved filters
+- Teams repeatedly narrow shared dashboards by ownership. [evidence:ev_0123456789abcdef01234567]
+- Hypothesis: saved team views will reduce repeated filter setup. [evidence:ev_0123456789abcdef01234567]
 ```
+
+Evidence v2 keeps raw customer inputs and machine-local paths under `.pm/`. `/pm:note`, `/pm:ingest`, and `/pm:research` publish stable Evidence-IDs into `pm/evidence/provenance.json`; changed sources retain revision history, and `/pm:refresh` rejects stale ledger or artifact snapshots instead of overwriting newer work. Legacy research remains readable and upgrades incrementally when touched.
 
 ## Install
 
@@ -148,7 +154,7 @@ PM officially supports Claude Code and Codex. Community contributions for other 
 |---|---|
 | `/pm:start` | Bootstrap the knowledge base or resume where you left off |
 | `/pm:think` | Structured product thinking — challenge assumptions, explore tradeoffs |
-| `/pm:research <topic>` | Market landscape, competitor profiling, or focused topic research |
+| `/pm:research <topic>` | Source-register market landscape, competitor profiles, or claim-level cited topic research |
 | `/pm:strategy` | Create or update ICP, positioning, priorities, and non-goals |
 | `/pm:groom [idea]` | Build a resumable, evidence-backed product proposal with canonical JSON, generated HTML/Markdown readers, quality calibration, and explicit hash-bound approval |
 | `/pm:ideate` | Mine the knowledge base for evidence-backed feature ideas |
@@ -208,9 +214,9 @@ shutdown grace, with timestamps and signals persisted in the ledger and durable 
 | Command | What it does |
 |---|---|
 | `/pm:features` | Scan the codebase and write `pm/product/features.md` so PM knows what the product already does |
-| `/pm:ingest <path>` | Import customer evidence from files or folders |
-| `/pm:note` | Quick-capture product observations and customer signals |
-| `/pm:refresh [scope]` | Audit research for staleness and patch gaps |
+| `/pm:ingest <path>` | Normalize customer evidence privately and publish portable, ledger-backed findings |
+| `/pm:note` | Atomically capture a product signal with a stable Evidence-ID |
+| `/pm:refresh [scope]` | Audit exact source freshness and conflict-safe patch stale research |
 | `/pm:setup` | Enable or disable integrations (Linear, Ahrefs) |
 
 ## How PM Fits a Team

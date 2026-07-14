@@ -16,6 +16,19 @@ Read `${CLAUDE_PLUGIN_ROOT}/skills/refresh/references/staleness-thresholds.md` f
 
 Read `${CLAUDE_PLUGIN_ROOT}/skills/refresh/references/origin-rules.md` for topic research origin handling.
 
+### Evidence v2 snapshot
+
+If `{pm_dir}/evidence/provenance.json` exists, validate and audit it before inferring dates from Markdown:
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/evidence.js validate --pm-dir "{pm_dir}" --json
+node ${CLAUDE_PLUGIN_ROOT}/scripts/evidence.js audit --pm-dir "{pm_dir}" --json
+```
+
+The audit result is authoritative for each registered source's `observed_at`, threshold, age, and state. Join records to scope through `artifact_paths`, and retain each current `content_sha256`. Also hash every selected artifact exactly as read (`sha256:<64 hex>`) and keep that `observed_artifact_sha256` in the private audit snapshot. Those two observed hashes are the refresh lease.
+
+For untouched legacy files or sources not yet registered, use the Markdown/frontmatter rules below. Label those rows `Legacy — inferred freshness`; when a material refresh occurs, register the touched sources and add `provenance_version: 2` incrementally. Never invent ledger state for a legacy file.
+
 ### Load Hot Index (pre-step)
 
 Before scanning individual files, load the hot index for a quick overview of insight health.
@@ -46,7 +59,7 @@ Missing files should be created during Phase 2 execution using the same methodol
 
 Scan all in-scope `{pm_dir}/` files with frontmatter. For each file:
 
-1. Read the file age using the date priority rules from the staleness-thresholds reference.
+1. Use the Evidence v2 audit state for registered sources; otherwise read file age using the legacy date-priority rules from the staleness-thresholds reference.
 2. Compare against the staleness threshold for that file type.
 3. For files with fixed expected sections: compare existing h2 headings against the expected list. Detect missing sections.
 4. Classify each file:
@@ -120,6 +133,6 @@ Only continue after explicit confirmation.
 
 ## Done-when
 
-Every in-scope artifact is classified with its canonical threshold and missing sections, provider/web cost is projected, and the user has confirmed the execution scope.
+Every in-scope artifact is classified with its exact observed timestamp, canonical threshold, age, state, and legacy/v2 basis; content and artifact hashes are snapshotted privately, provider/web cost is projected, and the user has confirmed execution scope.
 
 **Advance:** proceed to Step 3 (Execute).

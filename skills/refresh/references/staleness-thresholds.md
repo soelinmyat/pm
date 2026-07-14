@@ -1,5 +1,7 @@
 # Staleness Thresholds
 
+The executable defaults live in `${CLAUDE_PLUGIN_ROOT}/scripts/lib/evidence-schema.js` as `STALENESS_DAYS`. This file documents those values and artifact routing. If the table and runtime ever differ, stop and fix the mismatch before refreshing evidence.
+
 ## Default Thresholds
 
 | Data Type | File Pattern | Threshold |
@@ -11,6 +13,8 @@
 | Features | `*/features.md` | 90 days |
 | API | `*/api.md` | 90 days |
 | Topic research | `{pm_dir}/evidence/research/*.md` | 90 days |
+| Customer evidence | ledger `freshness_kind: customer-evidence` | 180 days |
+| Product notes | ledger `freshness_kind: note` | 365 days |
 
 ## Override Schema
 

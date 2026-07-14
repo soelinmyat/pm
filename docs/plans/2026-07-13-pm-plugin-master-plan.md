@@ -163,6 +163,8 @@ Resolve the delivery boundary exposed during Wave 3B:
 
 ### Wave 7 — Evidence system v2
 
+**State:** implementation and local certification complete on `codex/evidence-v2`; release preparation pending. Detailed plan in `docs/plans/2026-07-14-evidence-system-v2-wave-7.md`.
+
 Modernize `note`, `ingest`, `research`, and `refresh` as one provenance-compatible family:
 
 - shared evidence IDs, source type, capture time, customer/privacy classification, and content hashes;

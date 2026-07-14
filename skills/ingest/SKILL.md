@@ -10,6 +10,7 @@ description: "Use when importing customer evidence from files or folders: suppor
 Import customer evidence into PM.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
+Read `${CLAUDE_PLUGIN_ROOT}/references/evidence-system.md` before normalization; it is the shared executable provenance and privacy contract.
 
 **Workflow:** `ingest` | **Telemetry steps:** `intake`, `normalize`, `synthesize`, `route_insights`, `report`
 
@@ -36,7 +37,8 @@ mkdir -p {pm_dir}/evidence/research
 mkdir -p {pm_dir}/evidence/transcripts
 mkdir -p {pm_dir}/evidence/user-feedback
 mkdir -p .pm/imports
-mkdir -p .pm/evidence
+mkdir -p .pm/evidence/records
+mkdir -p .pm/evidence/conflicts
 mkdir -p .pm/sessions
 ```
 
@@ -49,9 +51,9 @@ Do not block on setup just because the user wants to import evidence first.
 - Never commit raw customer evidence into `{pm_dir}` — raw imports stay in `.pm/` (gitignored). Committed artifacts must be normalized, redacted where possible, and use portable source labels, never absolute paths.
 - Warn about PII on every import, even when the data looks clean — automatic detection is not reliable enough to skip the review warning.
 - Confirm ambiguous CSV/column mappings before creating records — mapping errors are the top cause of bad evidence and poison every downstream synthesis step.
-- The manifest deduplicates by SHA, so re-import is safe; prefer a full rebuild over a silent, incorrect incremental merge.
+- The import manifest detects source-file changes; the Evidence v2 ledger makes record registration idempotent and preserves changed content as revisions. Prefer an explicit rebuild over a guessed incremental merge.
 - Don't invent structure for sparse or messy evidence, and don't overwrite external research sections in mixed topic files.
-- Every committed record carries the required fields: id, source_path, source_type, topic, pain_point, summary.
+- Private normalized records retain local paths and content under `.pm/evidence/records/`; the committed ledger carries only portable identity, hashes, privacy state, lineage, and artifact bindings.
 
 ## Red Flags — Self-Check
 
@@ -78,4 +80,4 @@ Do not block on setup just because the user wants to import evidence first.
 
 - [ ] Raw imports and manifests stay private while normalized, redacted evidence artifacts are saved under the correct PM paths.
 - [ ] The user confirmed ambiguous mappings and received the PII review warning.
-- [ ] Deduplication, required-field, provenance, privacy, synthesis, routing, and validation gates passed.
+- [ ] Deduplication, required-field, Evidence v2 ledger/citation, privacy, synthesis, routing, and standard PM validation gates passed.

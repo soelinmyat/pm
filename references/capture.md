@@ -14,7 +14,7 @@ Route out when it doesn't fit: user-visible feature work with product decisions 
 
 ## Notes — writeNote
 
-Call `writeNote(pmDir, text, source, tags)` from `scripts/note-helpers.js`. It creates/appends the monthly file with correct frontmatter and returns `{ filePath, timestamp }`. Pass values as argv — never interpolate note text into the script body:
+Call `writeNote(pmDir, text, source, tags)` from `scripts/note-helpers.js`. It creates/appends the monthly file and its Evidence v2 ledger record under one owned lock, uses atomic file replacement, and returns `{ filePath, timestamp, evidence_id }`. Pass values as argv — never interpolate note text into the script body:
 
 ```bash
 node -e 'const {writeNote}=require(process.env.CLAUDE_PLUGIN_ROOT+"/scripts/note-helpers.js");console.log(JSON.stringify(writeNote(process.argv[1],process.argv[2],process.argv[3],process.argv[4])))' "{pm_dir}" "<text>" "<source>" "<tags>"
@@ -22,6 +22,7 @@ node -e 'const {writeNote}=require(process.env.CLAUDE_PLUGIN_ROOT+"/scripts/note
 
 - `source` defaults to `observation`; infer from cues like "sales call:", "support thread:", "user interview:", "from a customer", or an explicit `--source`.
 - Infer `tags` (comma-separated) from content: competitor name → `competitor`; speed/timeout → `performance`; API/plugin/integration → `integration`; cost/pricing → `pricing`; cancel/leave/churn → `churn`; feature request → `feature-request`. A user `--tags` value overrides inference.
+- Confirm the saved entry includes `Evidence-ID: ev_...`; customer/support/interview/sales/prospect sources remain `pii_review: pending` in the ledger until reviewed.
 
 ## Tasks and bugs — capture-backlog.js
 

@@ -1,6 +1,6 @@
 ---
 name: note
-description: "Quick-capture notes for the shared product brain — customer signals, product observations, and evidence worth remembering."
+description: "Quick-capture an evidence-ID-backed customer signal or product observation into the shared product brain."
 argument-hint: "<signal or observation>"
 ---
 

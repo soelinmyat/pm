@@ -12,6 +12,7 @@ Build and maintain the product knowledge base with durable, sourced research art
 Three modes: **landscape** (market overview and positioning map), **competitors** (discovery, profiling, and synthesis), **topic** (targeted deep dives). Only one mode runs per invocation.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`. Functional references (`capability-gates.md`, `kb-search.md`) are loaded by the steps that need them.
+Read `${CLAUDE_PLUGIN_ROOT}/references/evidence-system.md` before durable writeback; it defines source registration, portable provenance, citation binding, and incremental legacy upgrades.
 
 **Workflow:** `research` | **Telemetry steps:** `note_digest`, `mode_routing`, `landscape`, `competitor`, `topic`
 
@@ -31,7 +32,7 @@ Atomically write the version-1 envelope to `PM_LOOP_RESULT_FILE`. Exact statuses
 
 - **Check existing KB before searching.** Every mode reads current `{pm_dir}/` state first. Update stale knowledge in place — never create parallel or duplicate files for the same topic.
 - **Three sources make a finding; one is an anecdote.** Follow threads until convergence or explicit contradiction — no artificial depth limit. Check the `updated:` date before citing — staleness thresholds vary by data type (SEO ages fastest at 30 days, profiles/sentiment 60, landscape/topic 90); see `${CLAUDE_PLUGIN_ROOT}/skills/refresh/references/staleness-thresholds.md` for the canonical table.
-- **Separate facts from inferences.** Save findings with full source URLs and access dates; label inferences `Hypothesis:`. When a source contradicts existing knowledge, note the conflict explicitly — don't silently overwrite.
+- **Separate facts from inferences.** Register durable sources in Evidence v2, cite their IDs on v2 findings, keep full source URLs and access dates in reader artifacts, and label inferences `Hypothesis:`. When a source contradicts existing knowledge, note the conflict explicitly — don't silently overwrite.
 - **Use SEO tools when the provider is configured.** Web search shows what's loud; SEO shows what users actually search for.
 - **Synthesis is not optional.** Raw profiles are data; synthesis is what makes them usable by strategy, ideate, and groom — enforced by the competitor-mode HARD-GATE.
 - **Landscape before competitors.** Profiling without a market frame produces profiles disconnected from broader dynamics.
@@ -73,9 +74,9 @@ Factual questions that don't need a research file ("what's React Server Componen
 
 ## Before Marking Done
 
-- [ ] The canonical research artifact is saved with full source URLs, access dates, provenance, and explicit hypotheses.
+- [ ] The canonical research artifact is saved with full source URLs, access dates, Evidence v2 citations, and explicit hypotheses.
 - [ ] The user confirmed ambiguous mode/scope decisions and any high-cost provider use.
-- [ ] Existing-KB, source convergence, staleness, synthesis, contradiction, writeback, and output verification gates passed.
+- [ ] Existing-KB, source convergence, staleness, synthesis, contradiction, provenance, writeback, and standard PM validation gates passed.
 
 ## References
 

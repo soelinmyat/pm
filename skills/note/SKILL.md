@@ -10,6 +10,7 @@ description: "Use when capturing a customer signal, product observation, or evid
 Capture one durable product observation into the shared evidence pool in a single pass — lightweight by design, so downstream research and grooming can synthesize it later. Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions, and `${CLAUDE_PLUGIN_ROOT}/references/capture.md` for the `writeNote` contract, tag inference, and capture-vs-ingest-vs-research routing. Extract the observation (ask "What did you observe?" if none is given), infer source and tags, write it with `writeNote`, then offer optional enrichment.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
+Read `${CLAUDE_PLUGIN_ROOT}/references/evidence-system.md` for the shared evidence identity, privacy, and ledger contract.
 
 ## Iron Law
 
@@ -51,4 +52,5 @@ Do not use for bulk imports (`pm:ingest`), research synthesis (`pm:research`), c
 
 - [ ] The note was appended atomically without rewriting existing entries.
 - [ ] The original observation, source, and routing tags are preserved.
+- [ ] The entry has an Evidence-ID and the shared provenance ledger validates.
 - [ ] The user saw confirmation and the appropriate enrichment or synthesis next action.

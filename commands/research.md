@@ -1,5 +1,5 @@
 ---
-description: "Competitive intelligence and market research. Modes: landscape (industry overview), competitors (deep profiling), or a specific topic."
+description: "Durable, source-registered market research. Modes: landscape, competitors, or an evidence-cited topic."
 argument-hint: "<mode-or-topic>"
 ---
 

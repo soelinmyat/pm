@@ -1,5 +1,5 @@
 ---
-description: "Import customer evidence from a file or folder path, normalize it into .pm/, and update shared evidence artifacts under pm/evidence/."
+description: "Import customer evidence, keep raw records private, and publish portable ledger-backed findings under pm/evidence/."
 argument-hint: "<path>"
 ---
 
