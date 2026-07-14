@@ -9,16 +9,8 @@ const { parseFrontmatter } = require("./kb-frontmatter.js");
 const { parseNotesFile } = require("./note-helpers.js");
 const { resolvePmDir } = require("./resolve-pm-dir.js");
 const { emitListRows } = require("./lib/list-rows.js");
-const {
-  listGroomSessions,
-  listDevSessions,
-  pickMostRecent,
-  safeRead,
-  fileExists,
-  frontmatterValue,
-  dateToEpoch,
-  listMarkdownFiles,
-} = require("./lib/session-scan.js");
+const { buildOperationalSnapshot } = require("./lib/operational-read-model.js");
+const { safeRead, fileExists, frontmatterValue, dateToEpoch } = require("./lib/session-scan.js");
 
 function parseArgs(argv) {
   const options = {
@@ -439,19 +431,6 @@ function analyzeLegacyKnowledgeBase(pmDir, staleThreshold) {
   };
 }
 
-function backlogEntries(pmDir) {
-  const backlogDir = path.join(pmDir, "backlog");
-  return listMarkdownFiles(backlogDir).map((filePath) => {
-    const text = safeRead(filePath);
-    return {
-      filePath,
-      status: frontmatterValue(text, "status"),
-      updated: frontmatterValue(text, "updated"),
-      title: frontmatterValue(text, "title"),
-    };
-  });
-}
-
 function attentionSummary(staleCount, agingCount) {
   if (staleCount === 0 && agingCount === 0) {
     return "no attention needed";
@@ -604,14 +583,6 @@ function timeAgo(isoString) {
   return `${diffDays}d ago`;
 }
 
-function detectGroomSession(sourceDir) {
-  return pickMostRecent(listGroomSessions({ sourceDir }));
-}
-
-function detectDevSession(sourceDir) {
-  return pickMostRecent(listDevSessions({ sourceDir }));
-}
-
 function buildStatus(projectDir, options) {
   const opts = options || {};
   const runtimeDir = path.join(projectDir, ".pm");
@@ -619,6 +590,8 @@ function buildStatus(projectDir, options) {
   const kbLayout = detectKnowledgeBaseLayout(pmDir);
   const initialized =
     fileExists(pmDir) && (fileExists(path.join(runtimeDir, "config.json")) || kbLayout !== "none");
+  const operationalSnapshot =
+    opts.snapshot || (initialized ? buildOperationalSnapshot(projectDir, { now: opts.now }) : null);
 
   const installedPluginVersion = (() => {
     const pluginJsonPath = path.join(__dirname, "..", ".claude-plugin", "plugin.json");
@@ -668,6 +641,7 @@ function buildStatus(projectDir, options) {
         opportunityNotes: 0,
       },
       opportunityNotes: [],
+      operational: null,
     };
   }
 
@@ -699,43 +673,43 @@ function buildStatus(projectDir, options) {
   let oldestIdea = null;
   let oldestPlanned = null;
 
-  for (const entry of backlogEntries(pmDir)) {
-    const status = entry.status;
-    if (status === "idea" || status === "drafted" || status === "proposed") {
+  for (const entry of operationalSnapshot.work_items) {
+    const lifecycle = entry.lifecycle;
+    if (lifecycle === "inbox" || lifecycle === "needs_research") {
       ideas += 1;
-      const updatedEpoch = dateToEpoch(entry.updated);
-      if (status === "idea" && updatedEpoch > 0 && updatedEpoch < agingThreshold) {
+      const updatedEpoch = entry.updatedEpoch;
+      if (lifecycle === "inbox" && updatedEpoch > 0 && updatedEpoch < agingThreshold) {
         agingIdeas += 1;
       }
       const candidateEpoch = updatedEpoch > 0 ? updatedEpoch : Number.MAX_SAFE_INTEGER;
       if (!oldestIdea || candidateEpoch < oldestIdea.updatedEpoch) {
         oldestIdea = {
-          slug: path.basename(entry.filePath, ".md"),
-          title: entry.title || path.basename(entry.filePath, ".md"),
+          slug: entry.slug,
+          title: entry.title,
           updatedEpoch: candidateEpoch,
         };
       }
-    } else if (status === "planned") {
+    } else if (["needs_rfc", "ready_for_dev", "needs_human"].includes(lifecycle)) {
       planned += 1;
-      const updatedEpoch = dateToEpoch(entry.updated);
+      const updatedEpoch = entry.updatedEpoch;
       const candidateEpoch = updatedEpoch > 0 ? updatedEpoch : Number.MAX_SAFE_INTEGER;
       if (!oldestPlanned || candidateEpoch < oldestPlanned.updatedEpoch) {
         oldestPlanned = {
-          slug: path.basename(entry.filePath, ".md"),
-          title: entry.title || path.basename(entry.filePath, ".md"),
+          slug: entry.slug,
+          title: entry.title,
           updatedEpoch: candidateEpoch,
         };
       }
-    } else if (status === "approved" || status === "in-progress") {
+    } else if (["implementing", "reviewing", "shipping"].includes(lifecycle)) {
       inProgress += 1;
-      const updatedEpoch = dateToEpoch(entry.updated);
+      const updatedEpoch = entry.updatedEpoch;
       if (!oldestInProgress || (updatedEpoch > 0 && updatedEpoch < oldestInProgress.updatedEpoch)) {
         oldestInProgress = {
-          title: entry.title || path.basename(entry.filePath, ".md"),
+          title: entry.title,
           updatedEpoch,
         };
       }
-    } else if (status === "done") {
+    } else if (lifecycle === "done") {
       shipped += 1;
     }
   }
@@ -752,7 +726,8 @@ function buildStatus(projectDir, options) {
     evidenceCount === 0 &&
     ideas === 0 &&
     inProgress === 0 &&
-    shipped === 0;
+    shipped === 0 &&
+    planned === 0;
 
   // Scan for un-promoted opportunity notes in the current month
   const opportunityNotes = [];
@@ -773,14 +748,17 @@ function buildStatus(projectDir, options) {
     }
   }
 
-  const groomSession = detectGroomSession(projectDir);
-  const devSession = detectDevSession(projectDir);
-  const active = (() => {
-    if (devSession && groomSession) {
-      return devSession.updatedEpoch >= groomSession.updatedEpoch ? devSession : groomSession;
-    }
-    return devSession || groomSession;
-  })();
+  const activeSession = operationalSnapshot.sessions[0] || null;
+  const active = activeSession
+    ? {
+        kind: activeSession.kind,
+        topic: activeSession.topic,
+        stage: activeSession.phase,
+        updatedEpoch: activeSession.updated_epoch,
+        summary: activeSession.summary,
+        next: activeSession.action,
+      }
+    : null;
 
   const suggestions = [];
   const pushSuggestion = (action) => {
@@ -873,6 +851,14 @@ function buildStatus(projectDir, options) {
     },
     opportunityNotes,
     signalTargets,
+    operational: {
+      observation_id: operationalSnapshot.meta.observation_id,
+      counts: operationalSnapshot.counts,
+      leases: operationalSnapshot.leases,
+      loop: operationalSnapshot.loop,
+      recovery_actions: operationalSnapshot.recovery_actions,
+      recent_delivery: operationalSnapshot.recent_delivery,
+    },
     ...(knowledgeBase.kbHealth ? { kbHealth: knowledgeBase.kbHealth } : {}),
   };
 }

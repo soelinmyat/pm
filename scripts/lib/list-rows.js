@@ -1,23 +1,9 @@
 "use strict";
 
-const path = require("path");
-
-const { resolvePmPaths } = require("../resolve-pm-dir.js");
-const { parseFrontmatter } = require("../kb-frontmatter.js");
-const { resolveKind } = require("../validate.js");
-const {
-  listGroomSessions,
-  listRfcSessions,
-  listDevSessions,
-  listThinkSessions,
-  listMarkdownFiles,
-  safeRead,
-  safeStat,
-  dateToEpoch,
-} = require("./session-scan.js");
 const { classifyListAge } = require("../list-thresholds.js");
 const { phaseLabel } = require("../phase-labels.js");
-const { deriveShortId, disambiguateShortIds } = require("./derive-short-id.js");
+const { disambiguateShortIds } = require("./derive-short-id.js");
+const { buildOperationalSnapshot } = require("./operational-read-model.js");
 
 const SHIPPED_CAP = 3;
 
@@ -33,31 +19,10 @@ function formatAgeRelative(ageSecs) {
   return `${days}d ago`;
 }
 
-function resumeHintForSession(kind, id) {
-  if (kind === "groom") return `/pm:groom resume ${id}`;
-  if (kind === "rfc") return `/pm:rfc resume ${id}`;
-  if (kind === "dev") return `/pm:dev resume ${id}`;
-  if (kind === "think") return `/pm:think resume ${id}`;
-  return `resume ${id}`;
-}
-
 function resumeHintForBacklog(kind, id) {
   if (kind === "shipped") return `view ${id}`;
   if (kind === "rfc") return `/pm:dev ${id}`;
   return `/pm:rfc ${id}`;
-}
-
-function readBacklogFrontmatter(filePath) {
-  const { data } = parseFrontmatter(safeRead(filePath));
-  return {
-    status: data.status || "",
-    title: data.title || "",
-    updated: data.updated || "",
-    rfc: data.rfc || "",
-    branch: data.branch || "",
-    linear_id: data.linear_id || data.id || "",
-    backlogKind: resolveKind(data),
-  };
 }
 
 function linkageForBacklog(fm) {
@@ -67,84 +32,6 @@ function linkageForBacklog(fm) {
   return Object.keys(linkage).length ? linkage : null;
 }
 
-function buildSessionRow(descriptor, nowSecs) {
-  const { kind, filePath, updatedEpoch } = descriptor;
-  const shortId = deriveShortId(
-    kind,
-    { linear_id: descriptor.linearId || "", slug: descriptor.slug || "" },
-    filePath
-  );
-  const phase = descriptor.stage || "active";
-  return {
-    shortId,
-    topic: descriptor.topic,
-    kind,
-    phase,
-    phaseLabel: phaseLabel(kind, phase),
-    updatedEpoch,
-    ageRelative: formatAgeRelative(nowSecs - updatedEpoch),
-    staleness: classifyListAge(updatedEpoch, nowSecs),
-    resumeHint: resumeHintForSession(kind, shortId),
-    linkage: null,
-    sourcePath: filePath,
-  };
-}
-
-function buildBacklogRow(kind, filePath, fm, nowSecs) {
-  // Fall back to mtime only when frontmatter lacks `updated` — saves a stat
-  // call per row on backlogs where every file has proper frontmatter.
-  let updatedEpoch = dateToEpoch(fm.updated);
-  if (!updatedEpoch) {
-    const stat = safeStat(filePath);
-    updatedEpoch = stat ? Math.floor(stat.mtimeMs / 1000) : 0;
-  }
-  const shortId = deriveShortId(kind, { linear_id: fm.linear_id, slug: "" }, filePath);
-  const phase = fm.status || "active";
-  return {
-    shortId,
-    topic: fm.title || path.basename(filePath, ".md"),
-    kind,
-    backlogKind: fm.backlogKind,
-    phase,
-    phaseLabel: phaseLabel(kind, phase),
-    updatedEpoch,
-    ageRelative: formatAgeRelative(nowSecs - updatedEpoch),
-    staleness: classifyListAge(updatedEpoch, nowSecs),
-    resumeHint: resumeHintForBacklog(kind, shortId),
-    linkage: linkageForBacklog(fm),
-    sourcePath: filePath,
-  };
-}
-
-function collectActive(sourceDir, nowSecs) {
-  const descriptors = [
-    ...listGroomSessions({ sourceDir }),
-    ...listRfcSessions({ sourceDir }),
-    ...listDevSessions({ sourceDir }),
-    ...listThinkSessions({ sourceDir }),
-  ];
-  return descriptors.map((d) => buildSessionRow(d, nowSecs));
-}
-
-function collectBacklog(pmDir, nowSecs) {
-  const backlogDir = path.join(pmDir, "backlog");
-  const files = listMarkdownFiles(backlogDir);
-  const proposals = [];
-  const rfcs = [];
-  const shipped = [];
-  for (const filePath of files) {
-    const fm = readBacklogFrontmatter(filePath);
-    if (fm.status === "shipped") {
-      shipped.push(buildBacklogRow("shipped", filePath, fm, nowSecs));
-    } else if (fm.rfc) {
-      rfcs.push(buildBacklogRow("rfc", filePath, fm, nowSecs));
-    } else {
-      proposals.push(buildBacklogRow("proposal", filePath, fm, nowSecs));
-    }
-  }
-  return { proposals, rfcs, shipped };
-}
-
 function byUpdatedDesc(a, b) {
   return b.updatedEpoch - a.updatedEpoch;
 }
@@ -152,12 +39,67 @@ function byUpdatedDesc(a, b) {
 function emitListRows(projectDir, options = {}) {
   const now = options.now instanceof Date ? options.now : new Date();
   const nowSecs = Math.floor(now.getTime() / 1000);
+  const snapshot = options.snapshot || buildOperationalSnapshot(projectDir, { now });
+  const { pm_dir: pmDir, pm_state_dir: pmStateDir, source_dir: sourceDir } = snapshot.meta;
 
-  const { pmDir, pmStateDir } = resolvePmPaths(projectDir);
-  const sourceDir = projectDir;
-
-  const active = collectActive(sourceDir, nowSecs).sort(byUpdatedDesc);
-  const { proposals, rfcs, shipped } = collectBacklog(pmDir, nowSecs);
+  const active = snapshot.sessions
+    .map((session) => {
+      const kind = session.kind;
+      const shortId = session.linear_id || session.id;
+      const phase = session.phase || "active";
+      return {
+        id: session.id,
+        shortId,
+        topic: session.topic,
+        kind,
+        phase,
+        phaseLabel: phaseLabel(kind, phase),
+        lifecycle: "active_session",
+        artifactKind: kind,
+        updatedEpoch: session.updated_epoch,
+        ageRelative: formatAgeRelative(nowSecs - session.updated_epoch),
+        staleness: classifyListAge(session.updated_epoch, nowSecs),
+        resumeHint: session.action,
+        linkage: null,
+        sourcePath: session.source_path,
+      };
+    })
+    .sort(byUpdatedDesc);
+  const projectItem = (item) => {
+    const kind =
+      item.list_section === "shipped"
+        ? "shipped"
+        : item.list_section === "rfcs"
+          ? "rfc"
+          : "proposal";
+    const phase = item.status || item.lifecycle;
+    return {
+      id: item.id,
+      shortId: item.id,
+      topic: item.title,
+      kind,
+      backlogKind: item.kind,
+      artifactKind: item.artifact_kind,
+      lifecycle: item.lifecycle,
+      phase,
+      phaseLabel: phaseLabel(kind, phase),
+      updatedEpoch: item.updatedEpoch,
+      ageRelative: formatAgeRelative(nowSecs - item.updatedEpoch),
+      staleness: classifyListAge(item.updatedEpoch, nowSecs),
+      resumeHint: resumeHintForBacklog(kind, item.id),
+      linkage: linkageForBacklog(item),
+      recoveryAction:
+        snapshot.recovery_actions.find((action) => action.target_id === item.id) || null,
+      sourcePath: item.source_path,
+    };
+  };
+  const proposals = snapshot.work_items
+    .filter((item) => item.list_section === "proposals")
+    .map(projectItem);
+  const rfcs = snapshot.work_items.filter((item) => item.list_section === "rfcs").map(projectItem);
+  const shipped = snapshot.work_items
+    .filter((item) => item.list_section === "shipped")
+    .map(projectItem);
   proposals.sort(byUpdatedDesc);
   rfcs.sort(byUpdatedDesc);
   shipped.sort(byUpdatedDesc);
@@ -175,6 +117,13 @@ function emitListRows(projectDir, options = {}) {
       pmStateDir,
       sourceDir,
       generatedAt: new Date(nowSecs * 1000).toISOString(),
+      observationId: snapshot.meta.observation_id,
+    },
+    operational: {
+      observationId: snapshot.meta.observation_id,
+      leases: snapshot.leases,
+      loop: snapshot.loop,
+      recoveryActions: snapshot.recovery_actions,
     },
   };
 }

@@ -1,7 +1,7 @@
 ---
 title: "PM plugin master plan"
 created: 2026-07-13
-updated: 2026-07-13
+updated: 2026-07-14
 status: active
 owners:
   - pm-plugin
@@ -27,9 +27,11 @@ Completion means every shipped skill has an explicit contract, proportionate eva
 | v1.13.15 / Wave 3B | Evidence-bound adaptive `pm:review` | Released |
 | v1.13.17 / Wave 4A | Executable skill-authoring contract and audit | Released |
 | v1.13.25 / Wave 4B | Shared provider-neutral workflow runtime primitives | Released |
-| vNext / Wave 5 | Groom v2, canonical proposal contract, and quality calibration | Certified; release PR pending |
-
-Wave 5 shipped as v1.13.26 in PR #355. Wave 6 is implementing the Ship and release transaction v2 from that released main commit.
+| v1.13.26 / Wave 5 | Groom v2, canonical proposal contract, and quality calibration | Released |
+| v1.13.27 / Wave 6 | Resumable Ship and release transaction v2 | Released |
+| v1.13.28 / Wave 7 | Evidence provenance and conflict-safe refresh v2 | Released |
+| v1.13.29 / Wave 8 | Product reasoning and deterministic feature inventory v2 | Released |
+| vNext / Wave 9 | Canonical operational read model and effect journals | In progress |
 
 ## Operating laws
 
@@ -177,7 +179,7 @@ Modernize `note`, `ingest`, `research`, and `refresh` as one provenance-compatib
 
 ### Wave 8 — Product reasoning and inventory v2
 
-**State:** implementation and local quality calibration complete on `codex/product-reasoning-v2`; canonical review and release pending. Detailed plan in `docs/plans/2026-07-14-product-reasoning-inventory-v2-wave-8.md`.
+**State:** complete — merged in PR #358 and released as `v1.13.29`. Detailed plan in `docs/plans/2026-07-14-product-reasoning-inventory-v2-wave-8.md`.
 
 Improve `think`, `ideate`, `strategy`, and `features` without over-engineering them:
 
@@ -189,6 +191,8 @@ Improve `think`, `ideate`, `strategy`, and `features` without over-engineering t
 **Exit:** conversational workflows remain conversational, but their durable outputs are traceable and consumable without prose reconstruction.
 
 ### Wave 9 — Operational read models and effects
+
+**State:** in progress on `codex/operational-read-models-v2`. Detailed plan in `docs/plans/2026-07-14-operational-read-models-effects-v2-wave-9.md`.
 
 Align `start`, `list`, `board`, `setup`, `sync`, and `loop`:
 

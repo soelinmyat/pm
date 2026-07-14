@@ -13,10 +13,10 @@ const path = require("node:path");
 const { parseCliArgs } = require("./loop-args.js");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
 const { loadLoopConfig, loadTrustedLoopConfig, configPath } = require("./loop-config.js");
-const { buildLoopBoard } = require("./loop-board.js");
+const { buildOperationalSnapshot } = require("./lib/operational-read-model.js");
 const { buildInstallExposure, launchdLabel } = require("./loop-install.js");
 const { evaluateCurrentCanaryReleaseGate } = require("./loop-canary.js");
-const { isStopped, killSwitchPath, countRunsToday, runsDirFor } = require("./loop-worker.js");
+const { killSwitchPath } = require("./loop-worker.js");
 
 // State precedence, as implemented (config is the precondition for every other
 // state, so it's checked first): unconfigured > paused > in-progress >
@@ -48,28 +48,25 @@ function assessSituation(projectDir, options = {}) {
     }
   }
 
-  const paused = safe(() => isStopped(pmDir), false);
+  let snapshot;
+  try {
+    snapshot =
+      options.snapshot ||
+      buildOperationalSnapshot(projectDir, { ...options, pmDir, sourceDir: projectDir });
+  } catch (err) {
+    return unconfigured(`Operational status is unavailable: ${err.message}`, { configured });
+  }
+  const paused = snapshot.loop.paused;
   const installed =
     typeof options.installedProbe === "function"
       ? safe(() => Boolean(options.installedProbe(projectDir)), false)
       : detectInstalled(projectDir);
 
-  let board = emptyBoardView();
-  try {
-    board = summarizeBoard(buildLoopBoard(projectDir, { ...options, pmDir }));
-  } catch (err) {
-    board = { ...emptyBoardView(), note: `Board unavailable: ${err.message}` };
-  }
-
-  const budget = safe(
-    () => ({
-      runs_today: countRunsToday(runsDirFor({ pmDir, pmStateDir })),
-      ship_cycles_today: countRunsToday(runsDirFor({ pmDir, pmStateDir }), undefined, {
-        stage: "ship",
-      }),
-    }),
-    { runs_today: null, ship_cycles_today: null }
-  );
+  const board = summarizeBoard(snapshot);
+  const budget = {
+    runs_today: snapshot.loop.budgets.runs_today,
+    ship_cycles_today: snapshot.loop.budgets.ship_cycles_today,
+  };
 
   const needsReleaseGate = Boolean(
     config && (paused || (installed && board.activeLeases.length === 0))
@@ -102,6 +99,8 @@ function assessSituation(projectDir, options = {}) {
     config: config ? summarizeConfig(config) : null,
     releaseGate,
     killSwitch: paused ? safe(() => killSwitchPath(pmDir), null) : null,
+    observationId: snapshot.meta.observation_id,
+    recoveryActions: snapshot.recovery_actions,
     note: "",
   };
 
@@ -129,22 +128,24 @@ function assessSituation(projectDir, options = {}) {
   return { ...summary, state: "no-work" };
 }
 
-function summarizeBoard(full) {
-  const columns = full.columns || {};
-  const counts = {};
-  for (const [name, cards] of Object.entries(columns)) counts[name] = cards.length;
-  const ready = (columns.ready_for_dev || []).map((c) => ({
-    id: c.id,
-    title: c.title,
-    slug: c.slug,
-    parent: c.parent || null,
-  }));
-  const active = (full.leases && full.leases.active) || [];
+function summarizeBoard(snapshot) {
+  const counts = snapshot.counts.lifecycle;
+  const byId = new Map(snapshot.work_items.map((item) => [item.id, item]));
+  const ready = (snapshot.columns.ready_for_dev || [])
+    .map((id) => byId.get(id))
+    .filter(Boolean)
+    .map((c) => ({
+      id: c.id,
+      title: c.title,
+      slug: c.slug,
+      parent: c.parent || null,
+    }));
+  const active = snapshot.leases.active || [];
   return {
     counts,
     ready,
-    needsRfc: (columns.needs_rfc || []).length,
-    needsHuman: (columns.needs_human || []).length,
+    needsRfc: counts.needs_rfc,
+    needsHuman: counts.needs_human,
     activeLeases: active.map((l) => ({
       card_id: l.card_id,
       stage: l.stage,
@@ -155,7 +156,7 @@ function summarizeBoard(full) {
       // The card may have been deleted at retro close-out while its lease
       // lingers (TTL-bounded). Surface whether the card still exists so the
       // router can flag a stale claim rather than present it as live work.
-      cardExists: Boolean((full.cards || []).find((c) => c.id === l.card_id)),
+      cardExists: byId.has(l.card_id),
     })),
     note: "",
   };

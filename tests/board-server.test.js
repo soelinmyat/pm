@@ -451,7 +451,7 @@ test("B1: a malformed pm/loop/config.json degrades the loop section, never crash
   project.cleanup();
 });
 
-test("E2: git freshness reports how far behind origin the branch is (read-only fetch)", async () => {
+test("read-only board requests never fetch or mutate remote-tracking refs", async () => {
   const project = createProject();
   project.write("pm/backlog/task.md", approvedCard("PM-001", "Task"));
   const remote = initGitWithRemote(project);
@@ -467,23 +467,24 @@ test("E2: git freshness reports how far behind origin the branch is (read-only f
   git(clone, ["push", "-q"]);
 
   const headBefore = git(project.root, ["rev-parse", "HEAD"]);
+  const originBefore = git(project.root, ["rev-parse", "refs/remotes/origin/main"]);
   const server = createServer({ pmDir: project.pmDir });
   const { port } = await listen(server);
 
-  const ok = await until(async () => {
-    const r = await request(port, "GET", "/api/board");
-    return r.json.git && r.json.git.available && r.json.git.behind === 1;
-  });
+  const response = await request(port, "GET", "/api/board");
 
   server.close();
   const headAfter = git(project.root, ["rev-parse", "HEAD"]);
+  const originAfter = git(project.root, ["rev-parse", "refs/remotes/origin/main"]);
   fs.rmSync(clone, { recursive: true, force: true });
   fs.rmSync(remote, { recursive: true, force: true });
   project.cleanup();
 
-  assert.ok(ok, "board should report 1 commit behind origin after the background fetch");
-  // Fetch is READ-ONLY: the working tree / HEAD must be untouched.
-  assert.equal(headAfter, headBefore, "git fetch must not move HEAD or mutate the working tree");
+  assert.equal(response.json.git.available, true);
+  assert.equal(response.json.git.observation, "local-refs-only");
+  assert.equal(response.json.git.refresh_action, "/pm:sync status");
+  assert.equal(headAfter, headBefore, "GET must not move HEAD or mutate the working tree");
+  assert.equal(originAfter, originBefore, "GET must not fetch or move remote-tracking refs");
 });
 
 test("A3: toggle pushes the kill switch to origin and surfaces the push result", async () => {

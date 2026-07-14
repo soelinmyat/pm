@@ -18,21 +18,19 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 
-const { buildLoopBoard, COLUMN_ORDER } = require("./loop-board.js");
-const { loadLoopConfig, configPath } = require("./loop-config.js");
+const { COLUMN_ORDER } = require("./loop-board.js");
+const { buildOperationalSnapshot } = require("./lib/operational-read-model.js");
 const { parseCliArgs } = require("./loop-args.js");
 const { findGitRoot, runGit } = require("./loop-git.js");
 const { writeKillSwitchFile, pushKillSwitch } = require("./loop-install.js");
-const { isStopped, readLedgers, runsDirFor, countRunsInLedgers } = require("./loop-worker.js");
+const { isStopped } = require("./loop-worker.js");
 
 const DEFAULT_PORT = 4400;
 const POLL_MS = 5000;
-const MAX_RUNS_SHOWN = 10;
 // git that runs off the request path (kill-switch push, background fetch) is
 // bounded so a hang can never freeze the single-threaded server.
 const PUSH_TIMEOUT_MS = 15000;
-const FETCH_TIMEOUT_MS = 20000;
-const FETCH_INTERVAL_MS = 30000;
+const GIT_STATUS_TIMEOUT_MS = 5000;
 
 // Left-to-right pipeline order for display. Any column the model adds later
 // that we don't list here is appended so the board never silently drops one.
@@ -173,62 +171,6 @@ function enrichCard(card, remote, now) {
 
 // --- Ledger / budget summary ---------------------------------------------
 
-function ledgerDuration(record) {
-  const start = Date.parse(record.started_at || "");
-  const end = Date.parse(record.ended_at || "");
-  if (Number.isNaN(start) || Number.isNaN(end)) return null;
-  return Math.max(0, Math.round((end - start) / 1000));
-}
-
-function recentRuns(ledgers) {
-  return ledgers
-    .filter((record) => record.run_id || record.started_at)
-    .sort((a, b) => String(b.started_at || "").localeCompare(String(a.started_at || "")))
-    .slice(0, MAX_RUNS_SHOWN)
-    .map((record) => ({
-      run_id: record.run_id || null,
-      card_id: (record.card && record.card.id) || null,
-      card_title: (record.card && record.card.title) || null,
-      stage: record.stage || null,
-      outcome: record.status || null,
-      started_at: record.started_at || null,
-      ended_at: record.ended_at || null,
-      duration_seconds: ledgerDuration(record),
-    }));
-}
-
-function loopSummary(pmDir, pmStateDir, now, sync) {
-  const summary = {
-    installed: fs.existsSync(configPath(pmDir)),
-    paused: isStopped(pmDir),
-    runs: [],
-    budgets: {
-      runs_today: 0,
-      max_runs_per_day: 12,
-      ship_cycles_today: 0,
-      max_ship_cycles_per_day: 24,
-    },
-    sync: sync || null,
-  };
-
-  // A malformed pm/loop/config.json must degrade the loop section, never crash
-  // the server (the /api/board contract is "never throws").
-  try {
-    const budgets = loadLoopConfig(pmDir).budgets || {};
-    summary.budgets.max_runs_per_day = Number(budgets.max_runs_per_day) || 12;
-    summary.budgets.max_ship_cycles_per_day = Number(budgets.max_ship_cycles_per_day) || 24;
-  } catch (err) {
-    summary.error = `loop config unreadable: ${err.message}`;
-  }
-
-  // C2: read the ledger directory ONCE; derive runs + both budget counters.
-  const ledgers = readLedgers(runsDirFor({ pmStateDir }));
-  summary.runs = recentRuns(ledgers);
-  summary.budgets.runs_today = countRunsInLedgers(ledgers, now);
-  summary.budgets.ship_cycles_today = countRunsInLedgers(ledgers, now, { stage: "ship" });
-  return summary;
-}
-
 // --- Board payload -------------------------------------------------------
 
 function stateDirFor(pmDir, sourceDir) {
@@ -248,13 +190,18 @@ function buildBoardPayload(options = {}) {
     };
   }
 
-  const pmStateDir = options.pmStateDir || stateDirFor(pmDir, options.sourceDir);
   const remote =
     options.remote !== undefined ? options.remote : parseGitHubRemote(resolveRemoteUrl(pmDir));
 
-  let board;
+  let snapshot;
   try {
-    board = buildLoopBoard(path.dirname(pmDir), { pmDir, sourceDir: options.sourceDir, now });
+    snapshot =
+      options.snapshot ||
+      buildOperationalSnapshot(path.dirname(pmDir), {
+        pmDir,
+        sourceDir: options.sourceDir,
+        now,
+      });
   } catch (err) {
     return {
       error: `Could not read the board at ${pmDir}: ${err.message}`,
@@ -263,17 +210,18 @@ function buildBoardPayload(options = {}) {
     };
   }
 
-  const cards = board.cards.map((card) => enrichCard(card, remote, now));
+  const cards = snapshot.work_items.map((card) => enrichCard(card, remote, now));
   const columns = displayColumnOrder().map((name) => ({
     name,
-    cards: (board.columns[name] || []).map((card) => card.id),
+    cards: snapshot.columns[name] || [],
   }));
 
   // Belt-and-suspenders: loopSummary already degrades a bad config internally,
   // but anything unexpected here still degrades the loop section, never throws.
   let loop;
   try {
-    loop = loopSummary(pmDir, pmStateDir, now, options.killSwitchSync);
+    loop = structuredClone(snapshot.loop);
+    loop.sync = options.killSwitchSync || null;
   } catch (err) {
     loop = {
       installed: false,
@@ -291,12 +239,15 @@ function buildBoardPayload(options = {}) {
   }
 
   return {
-    generated_at: board.meta.generatedAt,
+    generated_at: snapshot.meta.generated_at,
+    observation_id: snapshot.meta.observation_id,
     pm_dir: pmDir,
     columns,
     cards,
     loop,
     git: options.git || null,
+    recovery_actions: snapshot.recovery_actions,
+    recent_delivery: snapshot.recent_delivery,
   };
 }
 
@@ -363,49 +314,53 @@ function sendJson(res, status, value) {
   res.end(body);
 }
 
-// Cross-machine freshness: the board reads the LOCAL working tree, so another
-// machine's pushed leases/cards are invisible until git syncs. A read-only
-// `git fetch` (never pull/reset — never mutate the working tree under a running
-// worker) updates remote-tracking refs; we then report how far behind origin
-// the current branch is. Throttled + bounded + async so it never blocks a poll.
+// The board is a strictly read-only projection. Even `git fetch` moves
+// remote-tracking refs, so GET requests inspect only already-present local refs
+// and point operators to an explicit Sync command for a fresh remote view.
 function makeGitFreshness(pmDir) {
-  let status = null; // {available, branch, behind, fetched_at, error}
-  let fetching = false;
-  let lastAttempt = 0;
+  let status = null;
 
   function refresh() {
-    const nowMs = Date.now();
-    if (fetching || nowMs - lastAttempt < FETCH_INTERVAL_MS) return;
-    fetching = true;
-    lastAttempt = nowMs;
-    setImmediate(() => {
-      const opts = { timeout: FETCH_TIMEOUT_MS };
-      try {
-        const gitRoot = findGitRoot(pmDir);
-        if (!gitRoot) {
-          status = { available: false };
-          return;
-        }
-        const branch = runGit(["rev-parse", "--abbrev-ref", "HEAD"], gitRoot, opts);
-        runGit(["fetch", "--quiet"], gitRoot, opts); // read-only: refs only
-        let behind = null;
-        try {
-          const upstream = runGit(
-            ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
-            gitRoot,
-            opts
-          );
-          behind = Number(runGit(["rev-list", "--count", `HEAD..${upstream}`], gitRoot, opts)) || 0;
-        } catch {
-          behind = null; // no upstream configured
-        }
-        status = { available: true, branch, behind, fetched_at: new Date().toISOString() };
-      } catch (err) {
-        status = { available: false, error: String((err && err.message) || err).slice(0, 300) };
-      } finally {
-        fetching = false;
+    const opts = { timeout: GIT_STATUS_TIMEOUT_MS };
+    try {
+      const gitRoot = findGitRoot(pmDir);
+      if (!gitRoot) {
+        status = { available: false, observation: "local-refs-only" };
+        return;
       }
-    });
+      const branch = runGit(["rev-parse", "--abbrev-ref", "HEAD"], gitRoot, opts);
+      let upstream = null;
+      let behind = null;
+      let ahead = null;
+      try {
+        upstream = runGit(
+          ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+          gitRoot,
+          opts
+        );
+        behind = Number(runGit(["rev-list", "--count", `HEAD..${upstream}`], gitRoot, opts)) || 0;
+        ahead = Number(runGit(["rev-list", "--count", `${upstream}..HEAD`], gitRoot, opts)) || 0;
+      } catch {
+        upstream = null;
+      }
+      status = {
+        available: true,
+        branch,
+        upstream,
+        behind,
+        ahead,
+        observation: "local-refs-only",
+        observed_at: new Date().toISOString(),
+        refresh_action: "/pm:sync status",
+      };
+    } catch (err) {
+      status = {
+        available: false,
+        observation: "local-refs-only",
+        refresh_action: "/pm:sync status",
+        error: String((err && err.message) || err).slice(0, 300),
+      };
+    }
   }
 
   return {
