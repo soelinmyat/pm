@@ -673,6 +673,7 @@ test("legacy targets remain readable without change anchors", () => {
   const fixture = makeFixture({ maxWorkers: 2 });
   const target = structuredClone(fixture.target);
   delete target.relevance_policy;
+  delete target.generator;
   const finding = validFinding("bug");
   delete finding.change_anchors;
   const issues = [];
@@ -688,6 +689,7 @@ test("legacy targets cannot publish an authoritative final passing report", () =
   const fixture = makeFixture({ maxWorkers: 2 });
   const target = structuredClone(fixture.target);
   delete target.relevance_policy;
+  delete target.generator;
   write(fixture.root, fixture.targetPath, target);
   const targetBinding = binding(fixture.root, fixture.targetPath);
   for (const resultPath of fixture.resultPaths) {
@@ -2204,6 +2206,42 @@ test("prior-round evidence remains valid in a consumer project after cited sourc
     outputPath: fixture.roundHtmlPath,
   });
   const priorHtmlPath = path.join(fixture.root, fixture.roundHtmlPath);
+  const currentHtml = fs.readFileSync(priorHtmlPath, "utf8");
+  const legacyTarget = structuredClone(fixture.target);
+  delete legacyTarget.generator;
+  write(fixture.root, fixture.targetPath, legacyTarget);
+  const legacyTargetBinding = binding(fixture.root, fixture.targetPath);
+  for (const resultPath of fixture.resultPaths) {
+    const result = JSON.parse(fs.readFileSync(path.join(fixture.root, resultPath), "utf8"));
+    result.target = legacyTargetBinding;
+    write(fixture.root, resultPath, result);
+  }
+  fs.rmSync(path.join(fixture.root, fixture.roundReportPath));
+  const legacyRound = generate(fixture, {
+    reportPath: fixture.roundReportPath,
+    htmlPath: fixture.roundHtmlPath,
+  });
+  assert.equal(legacyRound.ok, true, JSON.stringify(legacyRound.issues));
+  const metadataMatch = currentHtml.match(
+    /(<script id="pm-artifact" type="application\/json">)([\s\S]*?)(<\/script>)/
+  );
+  const legacyMetadata = JSON.parse(metadataMatch[2]);
+  legacyMetadata.generator.version = "1.13.21";
+  legacyMetadata.source.sha256 = `sha256:${binding(fixture.root, fixture.roundReportPath).sha256}`;
+  legacyMetadata.evidence = [
+    legacyRound.report.target,
+    ...legacyRound.report.results,
+    legacyRound.report.decisions,
+  ]
+    .filter(Boolean)
+    .map((item) => ({ path: item.path, sha256: `sha256:${item.sha256}` }));
+  fs.writeFileSync(
+    priorHtmlPath,
+    currentHtml.replace(
+      metadataMatch[0],
+      `${metadataMatch[1]}${JSON.stringify(legacyMetadata)}${metadataMatch[3]}`
+    )
+  );
   const strictPrior = checkReview(
     expandFromReport({
       root: fixture.root,

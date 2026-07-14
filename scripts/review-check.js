@@ -53,6 +53,15 @@ const EVIDENCE_KINDS = new Set([
   "upstream-gate",
 ]);
 const FIX_KINDS = new Set(["mechanical", "behavioral", "decision"]);
+const LEGACY_TARGET_GENERATOR_VERSIONS = new Set([
+  "1.13.15",
+  "1.13.16",
+  "1.13.17",
+  "1.13.18",
+  "1.13.19",
+  "1.13.20",
+  "1.13.21",
+]);
 const SIGNAL_DISPOSITIONS = new Set(["open"]);
 const REQUIRED_EVIDENCE = Object.freeze({
   bug: new Set(["source", "test", "trace", "contract"]),
@@ -167,12 +176,12 @@ function checkReview(options) {
   if (
     reportStage === "final" &&
     report.outcome === "passed" &&
-    target.relevance_policy !== CHANGE_HUNK_ANCHOR_POLICY
+    (target.relevance_policy !== CHANGE_HUNK_ANCHOR_POLICY || !target.generator)
   )
     add(
       issues,
       "target.relevance_policy",
-      `final passing review evidence requires ${CHANGE_HUNK_ANCHOR_POLICY}; legacy targets are inspection-only`
+      `final passing review evidence requires ${CHANGE_HUNK_ANCHOR_POLICY} and a target-bound generator; legacy targets are inspection-only`
     );
   if (reviewRoot && options.validateOnly !== true) {
     if (!new Set(["draft", "final"]).has(reportStage))
@@ -282,9 +291,10 @@ function validateTarget(target, issues) {
   if (target.iteration_cap !== 3) add(issues, "target.iteration_cap", "must equal 3");
   if (!new Set(["full", "code-scan"]).has(target.mode)) add(issues, "target.mode", "is invalid");
   if (
-    !object(target.generator) ||
-    target.generator.name !== "pm:review" ||
-    !/^\d+\.\d+\.\d+$/.test(target.generator.version || "")
+    target.generator !== undefined &&
+    (!object(target.generator) ||
+      target.generator.name !== "pm:review" ||
+      !/^\d+\.\d+\.\d+$/.test(target.generator.version || ""))
   )
     add(issues, "target.generator", "must bind pm:review to an exact semantic version");
   validateSource(target.source, "target.source", issues);
@@ -1586,7 +1596,9 @@ function validateHumanReport(root, human, report, reportFile, options, issues) {
     add(issues, `report.human_report${item.path || ""}`, item.message);
   const metadata = inspected.metadata;
   const expectedGeneratorVersion = report.generator?.version;
-  const generatorVersionValid = metadata?.generator?.version === expectedGeneratorVersion;
+  const generatorVersionValid = expectedGeneratorVersion
+    ? metadata?.generator?.version === expectedGeneratorVersion
+    : LEGACY_TARGET_GENERATOR_VERSIONS.has(metadata?.generator?.version);
   if (
     metadata &&
     (metadata.generator?.name !== "pm:review" ||
