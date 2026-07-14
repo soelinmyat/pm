@@ -862,7 +862,12 @@ function text(value, label, issues) {
     issues.push(`${label} must be non-empty text`);
 }
 function projectionText(value, label, issues) {
-  if (typeof value !== "string" || !value || value !== value.trim() || /[\0\r\n]/.test(value))
+  if (
+    typeof value !== "string" ||
+    !value ||
+    value !== value.trim() ||
+    /[\0\r\n\u0085\u2028\u2029]/u.test(value)
+  )
     issues.push(`${label} must be canonical single-line text`);
 }
 function slug(value, label, issues) {
