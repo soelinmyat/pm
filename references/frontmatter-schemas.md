@@ -39,6 +39,7 @@ Files in `pm/backlog/*.md`. Every groomed or proposed feature, bug, or task.
 | `labels` | string[] | required | At least one entry | Categorization tags. Must be non-empty. |
 | `created` | date | required | `YYYY-MM-DD` | Creation date |
 | `updated` | date | required | `YYYY-MM-DD` | Last modification date |
+| `reasoning_version` | integer | optional | `2` | Enables the product-reasoning companion contract for Ideate-created ideas |
 | `decision_brief` | string | optional | — | KB-relative decision companion path for Ideate-created ideas, such as backlog/{slug}.decision.json |
 | `prd` | string\|null | optional | — | Relative path to PRD HTML, or null when PRD content is inline in this file |
 | `rfc` | string\|null | optional | — | Relative path to RFC HTML (e.g., `"rfcs/foo.html"`) |

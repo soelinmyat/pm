@@ -8,6 +8,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { validate } = require("../scripts/validate");
 const { decisionId, featureSourceSnapshot } = require("../scripts/lib/product-reasoning-schema");
+const { verifyArtifactBindings } = require("../scripts/lib/product-reasoning-bindings");
 
 function sha(bytes) {
   return `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`;
@@ -65,8 +66,20 @@ test("normal validation checks present decision companions without requiring the
   fs.writeFileSync(path.join(pm, "thinking", "test.md"), linkedMarkdown);
   brief.source_artifacts[0].sha256 = sha(linkedMarkdown);
   fs.writeFileSync(path.join(pm, "thinking", "test.decision.json"), JSON.stringify(brief));
-  result = validate(pm);
+  const originalOpen = fs.openSync;
+  let companionOpens = 0;
+  const companionRealPath = fs.realpathSync(path.join(pm, "thinking", "test.decision.json"));
+  fs.openSync = function countedOpen(filePath, ...args) {
+    if (path.resolve(filePath) === companionRealPath) companionOpens += 1;
+    return originalOpen.call(fs, filePath, ...args);
+  };
+  try {
+    result = validate(pm);
+  } finally {
+    fs.openSync = originalOpen;
+  }
   assert.equal(result.errors.length, 0, JSON.stringify(result.errors));
+  assert.equal(companionOpens, 1);
 
   fs.writeFileSync(
     path.join(pm, "thinking", "test.md"),
@@ -118,6 +131,15 @@ test("normal validation rejects decision companion symlinks", (t) => {
   );
   const result = validate(pm);
   assert.ok(result.errors.some((entry) => entry.msg.includes("symlink")));
+
+  fs.mkdirSync(path.join(pm, "product"));
+  fs.symlinkSync(path.join(root, "missing.json"), path.join(pm, "product", "features.json"));
+  const withFeatureLink = validate(pm);
+  assert.ok(
+    withFeatureLink.errors.some(
+      (entry) => entry.file === "product/features.json" && entry.msg.includes("symlink")
+    )
+  );
 });
 
 test("lineage frontmatter requires canonical companions in Strategy, Think, and Ideate", (t) => {
@@ -254,4 +276,30 @@ test("binding validation enforces a 64 MiB aggregate budget", (t) => {
   const result = validate(pm);
   assert.ok(result.errors.some((entry) => entry.msg.includes("aggregate binding bytes")));
   assert.ok(result.errors.every((entry) => !entry.msg.includes("must-not-open")));
+});
+
+test("binding validation shares one aggregate budget across sequential reads", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reasoning-shared-budget-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const first = Buffer.alloc(1024, 0x61);
+  const second = Buffer.alloc(1024, 0x62);
+  fs.writeFileSync(path.join(root, "first.bin"), first);
+  fs.writeFileSync(path.join(root, "second.bin"), second);
+  const budgetState = { remaining: 1536 };
+  assert.deepEqual(
+    verifyArtifactBindings(root, [{ path: "first.bin", sha256: sha(first) }], {
+      maxFileBytes: 1024,
+      maxTotalBytes: 1536,
+      budgetState,
+    }),
+    []
+  );
+  assert.match(
+    verifyArtifactBindings(root, [{ path: "second.bin", sha256: sha(second) }], {
+      maxFileBytes: 1024,
+      maxTotalBytes: 1536,
+      budgetState,
+    }).join("\n"),
+    /aggregate binding bytes/
+  );
 });

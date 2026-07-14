@@ -11,9 +11,10 @@ const MAX_BINDING_TOTAL_BYTES = 64 * 1024 * 1024;
 function verifyArtifactBindings(root, bindings, options = {}) {
   const maxFileBytes = options.maxFileBytes ?? MAX_BINDING_FILE_BYTES;
   const maxTotalBytes = options.maxTotalBytes ?? MAX_BINDING_TOTAL_BYTES;
+  const budgetState = options.budgetState || { remaining: maxTotalBytes };
   const cache = options.cache || new Map();
   const issues = [];
-  let remaining = maxTotalBytes;
+  let remaining = budgetState.remaining;
   for (const binding of bindings || []) {
     let input = cache.get(binding.path);
     if (!input) {
@@ -33,6 +34,7 @@ function verifyArtifactBindings(root, bindings, options = {}) {
         continue;
       }
       remaining -= input.bytes.length;
+      budgetState.remaining = remaining;
       cache.set(binding.path, input);
     }
     const observed = `sha256:${crypto.createHash("sha256").update(input.bytes).digest("hex")}`;
@@ -44,14 +46,33 @@ function verifyArtifactBindings(root, bindings, options = {}) {
 
 function verifyDecisionBriefBindings(root, brief) {
   const cache = new Map();
+  const budgetState = { remaining: MAX_BINDING_TOTAL_BYTES };
   const promoted = brief.promotion?.status === "promoted";
   const targetRef = promoted ? brief.promotion.target_ref : null;
   const exactBindings = promoted
     ? brief.source_artifacts.filter((artifact) => artifact.path !== targetRef)
     : brief.source_artifacts;
-  const issues = verifyArtifactBindings(root, exactBindings, { cache });
+  const issues = verifyArtifactBindings(root, exactBindings, { cache, budgetState });
   if (issues.length || !promoted) return issues;
   try {
+    if (budgetState.remaining <= 0)
+      return [...issues, `${targetRef}: aggregate binding bytes exceed 64 MiB`];
+    let verifiedProposal;
+    try {
+      verifiedProposal = readProjectInput(
+        root,
+        targetRef,
+        Math.min(MAX_BINDING_FILE_BYTES, budgetState.remaining)
+      ).bytes;
+    } catch (error) {
+      const aggregate =
+        budgetState.remaining < MAX_BINDING_FILE_BYTES && /input exceeds/.test(error.message);
+      issues.push(
+        `${targetRef}: ${aggregate ? "aggregate binding bytes exceed 64 MiB" : error.message}`
+      );
+      return issues;
+    }
+    budgetState.remaining -= verifiedProposal.length;
     const approved = readApprovedProposal(path.resolve(root, targetRef), {
       projectRoot: root,
       expectedSlug: brief.slug,
@@ -60,7 +81,6 @@ function verifyDecisionBriefBindings(root, brief) {
     const targetBinding = brief.source_artifacts.find((artifact) => artifact.path === targetRef);
     if (targetBinding?.sha256 !== approved.approval.proposal_sha256)
       issues.push(`${targetRef}: persisted promotion does not bind the approved proposal revision`);
-    const verifiedProposal = readProjectInput(root, targetRef, MAX_BINDING_FILE_BYTES).bytes;
     const approvalRef = targetRef.replace(/\.json$/, ".approval.json");
     const verifiedApproval = cache.get(approvalRef)?.bytes;
     if (!verifiedProposal.equals(approved.source.bytes))

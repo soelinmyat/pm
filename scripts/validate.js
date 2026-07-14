@@ -929,38 +929,63 @@ function validateFeaturesFile(pmDir, filePath, content, errors) {
   }
 }
 
-function validateProductReasoningJson(pmDir, filePath, errors, expectedType, sourceDir = null) {
+function inspectProductReasoningJson(pmDir, filePath, expectedType, cache) {
   const relativeFile = relativeToPm(pmDir, filePath);
-  let bytes;
-  let value;
+  const key = `${expectedType}:${relativeFile}`;
+  if (cache?.has(key)) return cache.get(key);
+  let result;
   try {
-    bytes = readProjectInput(pmDir, relativeFile, 4 * 1024 * 1024).bytes;
-    value = JSON.parse(bytes.toString("utf8"));
+    const bytes = readProjectInput(pmDir, relativeFile, 4 * 1024 * 1024).bytes;
+    const value = JSON.parse(bytes.toString("utf8"));
+    const issues =
+      expectedType === "decision-brief"
+        ? validateDecisionBrief(value)
+        : validateFeatureInventory(value);
+    const bindingIssues =
+      issues.length > 0
+        ? []
+        : expectedType === "decision-brief"
+          ? verifyDecisionBriefBindings(pmDir, value)
+          : verifyArtifactBindings(pmDir, [value.markdown_binding]);
+    result = { value, issues, bindingIssues, readError: null };
   } catch (error) {
-    return pushIssue(errors, relativeFile, "-", `invalid product reasoning JSON: ${error.message}`);
+    result = { value: null, issues: [], bindingIssues: [], readError: error.message };
   }
-  const issues =
-    expectedType === "decision-brief"
-      ? validateDecisionBrief(value)
-      : validateFeatureInventory(value);
-  for (const issue of issues) pushIssue(errors, relativeFile, "contract", issue);
-  if (issues.length) return;
-  const bindingIssues =
-    expectedType === "decision-brief"
-      ? verifyDecisionBriefBindings(pmDir, value)
-      : verifyArtifactBindings(pmDir, [value.markdown_binding]);
-  for (const issue of bindingIssues) pushIssue(errors, relativeFile, "binding", issue);
+  if (cache) cache.set(key, result);
+  return result;
+}
+
+function validateProductReasoningJson(
+  pmDir,
+  filePath,
+  errors,
+  expectedType,
+  sourceDir = null,
+  cache = null
+) {
+  const relativeFile = relativeToPm(pmDir, filePath);
+  const inspected = inspectProductReasoningJson(pmDir, filePath, expectedType, cache);
+  if (inspected.readError)
+    return pushIssue(
+      errors,
+      relativeFile,
+      "-",
+      `invalid product reasoning JSON: ${inspected.readError}`
+    );
+  for (const issue of inspected.issues) pushIssue(errors, relativeFile, "contract", issue);
+  if (inspected.issues.length) return;
+  for (const issue of inspected.bindingIssues) pushIssue(errors, relativeFile, "binding", issue);
   if (expectedType === "feature-inventory") {
     if (!sourceDir) {
       pushIssue(errors, relativeFile, "source_refs", "source directory is required for validation");
     } else {
-      for (const issue of validateFeatureSourceRefs(value, sourceDir))
+      for (const issue of validateFeatureSourceRefs(inspected.value, sourceDir))
         pushIssue(errors, relativeFile, "source_refs", issue);
     }
   }
 }
 
-function validateReasoningFrontmatter(pmDir, markdownPath, data, errors, kind) {
+function validateReasoningFrontmatter(pmDir, markdownPath, data, errors, kind, cache) {
   const relativeMarkdown = relativeToPm(pmDir, markdownPath);
   const hasVersion = Object.prototype.hasOwnProperty.call(data, "reasoning_version");
   const hasBrief = Object.prototype.hasOwnProperty.call(data, "decision_brief");
@@ -981,21 +1006,28 @@ function validateReasoningFrontmatter(pmDir, markdownPath, data, errors, kind) {
     );
     return;
   }
-  let brief;
-  try {
-    brief = JSON.parse(
-      readProjectInput(pmDir, expectedBrief, 4 * 1024 * 1024).bytes.toString("utf8")
+  const inspected = inspectProductReasoningJson(
+    pmDir,
+    path.join(pmDir, expectedBrief),
+    "decision-brief",
+    cache
+  );
+  if (inspected.readError) {
+    pushIssue(
+      errors,
+      relativeMarkdown,
+      "decision_brief",
+      `invalid companion: ${inspected.readError}`
     );
-  } catch (error) {
-    pushIssue(errors, relativeMarkdown, "decision_brief", `invalid companion: ${error.message}`);
     return;
   }
-  const issues = validateDecisionBrief(brief);
+  const brief = inspected.value;
+  const issues = [...inspected.issues];
   if (brief.kind !== kind) issues.push(`decision kind must equal ${kind}`);
   if (kind !== "strategy" && brief.slug !== slug) issues.push(`decision slug must equal ${slug}`);
   for (const issue of issues) pushIssue(errors, relativeMarkdown, "decision_brief", issue);
   if (issues.length) return;
-  for (const issue of verifyDecisionBriefBindings(pmDir, brief))
+  for (const issue of inspected.bindingIssues)
     pushIssue(errors, relativeMarkdown, "decision_brief", issue);
 }
 
@@ -1117,6 +1149,7 @@ function validate(pmDir, options = {}) {
     insights: new Map(),
     evidence: new Map(),
   };
+  const productReasoningCache = new Map();
 
   const backlogDir = path.join(pmDir, "backlog");
   if (fs.existsSync(backlogDir)) {
@@ -1134,7 +1167,14 @@ function validate(pmDir, options = {}) {
       }
 
       validateBacklogItem(filePath, parsed.data, errors, warnings);
-      validateReasoningFrontmatter(pmDir, filePath, parsed.data, errors, "idea");
+      validateReasoningFrontmatter(
+        pmDir,
+        filePath,
+        parsed.data,
+        errors,
+        "idea",
+        productReasoningCache
+      );
 
       if (parsed.data.id) {
         if (backlogIds.has(parsed.data.id)) {
@@ -1189,7 +1229,14 @@ function validate(pmDir, options = {}) {
     const parsed = readParsedFrontmatter(strategyPath, "strategy.md", errors);
     if (parsed) {
       validateStrategy(strategyPath, parsed.data, errors);
-      validateReasoningFrontmatter(pmDir, strategyPath, parsed.data, errors, "strategy");
+      validateReasoningFrontmatter(
+        pmDir,
+        strategyPath,
+        parsed.data,
+        errors,
+        "strategy",
+        productReasoningCache
+      );
     }
   }
 
@@ -1208,7 +1255,14 @@ function validate(pmDir, options = {}) {
     }
 
     validateThinkingFile(pmDir, filePath, parsed.data, errors, warnings);
-    validateReasoningFrontmatter(pmDir, filePath, parsed.data, errors, "think");
+    validateReasoningFrontmatter(
+      pmDir,
+      filePath,
+      parsed.data,
+      errors,
+      "think",
+      productReasoningCache
+    );
   }
 
   const insightsDir = path.join(pmDir, "insights");
@@ -1284,16 +1338,24 @@ function validate(pmDir, options = {}) {
   }
   for (const candidate of decisionCandidates) {
     if (pathEntryExists(candidate))
-      validateProductReasoningJson(pmDir, candidate, errors, "decision-brief");
+      validateProductReasoningJson(
+        pmDir,
+        candidate,
+        errors,
+        "decision-brief",
+        null,
+        productReasoningCache
+      );
   }
   const featureInventoryPath = path.join(pmDir, "product", "features.json");
-  if (fs.existsSync(featureInventoryPath)) {
+  if (pathEntryExists(featureInventoryPath)) {
     validateProductReasoningJson(
       pmDir,
       featureInventoryPath,
       errors,
       "feature-inventory",
-      options.sourceDir || null
+      options.sourceDir || null,
+      productReasoningCache
     );
   }
 

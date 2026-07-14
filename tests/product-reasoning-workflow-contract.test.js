@@ -25,10 +25,12 @@ test("Think preserves conversational beats while publishing a bound decision com
 
 test("Ideate delegates ordering and conflict checks to the shared deterministic ranker", () => {
   const skill = read("skills/ideate/SKILL.md");
+  const schemas = read("references/frontmatter-schemas.md");
   assert.match(skill, /rank-ideas/);
   assert.match(skill, /non-goal conflicts block saving/i);
   assert.match(skill, /decision\.json/);
   assert.match(skill, /reasoning_version:\s*2/);
+  assert.match(schemas, /Backlog[\s\S]*`reasoning_version`[\s\S]*`decision_brief`/);
 });
 
 test("Strategy exposes stable tokens without expanding the interview ceremony", () => {
