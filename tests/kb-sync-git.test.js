@@ -225,16 +225,47 @@ test("setup returns error for nonexistent pm directory", (t) => {
   assert.ok(result.error.includes("does not exist"));
 });
 
-test("setup rejects shell-bearing remote URLs before invoking git", (t) => {
+test("setup rejects option-shaped remote URLs before invoking git", (t) => {
   const { pmDir, cleanup } = withTempProject({ "pm/strategy.md": "# Strategy\n" });
   t.after(cleanup);
 
   const { setup } = require(KB_SYNC_GIT_PATH);
-  const result = setup(pmDir, "https://example.com/repo.git;touch-pwned");
+  const result = setup(pmDir, "--upload-pack=touch-pwned");
 
   assert.equal(result.ok, false);
-  assert.match(result.error, /unsafe characters/);
+  assert.match(result.error, /unsupported or unsafe/);
   assert.equal(fs.existsSync(path.join(pmDir, ".git")), false);
+});
+
+test("setup treats shell metacharacters as literal remote text", (t) => {
+  const { pmDir, cleanup } = withTempProject({ "pm/strategy.md": "# Strategy\n" });
+  const sentinel = path.join(path.dirname(pmDir), "pwned");
+  t.after(cleanup);
+
+  const { setup } = require(KB_SYNC_GIT_PATH);
+  const result = setup(pmDir, `invalid;touch ${sentinel}`);
+
+  assert.equal(result.ok, false);
+  assert.equal(fs.existsSync(sentinel), false);
+});
+
+test("setup supports a local remote path containing spaces", (t) => {
+  const { pmDir, cleanup } = withTempProject({ "pm/strategy.md": "# Strategy\n" });
+  const remoteRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kb remote parent-"));
+  const remotePath = path.join(remoteRoot, "knowledge base.git");
+  fs.mkdirSync(remotePath);
+  gitExec("git init --bare", { cwd: remotePath });
+  gitExec("git symbolic-ref HEAD refs/heads/main", { cwd: remotePath });
+  t.after(() => {
+    cleanup();
+    fs.rmSync(remoteRoot, { recursive: true, force: true });
+  });
+
+  const { setup, getRemoteUrl } = require(KB_SYNC_GIT_PATH);
+  const result = setup(pmDir, remotePath);
+
+  assert.equal(result.ok, true, result.error);
+  assert.equal(getRemoteUrl(pmDir), remotePath);
 });
 
 test("setup updates remote URL when already configured", (t) => {
@@ -565,6 +596,58 @@ test("CLI setup routes initialization through the guarded helper", (t) => {
   assert.equal(result.ok, true);
   assert.equal(result.mode, "setup");
   assert.equal(require(KB_SYNC_GIT_PATH).getRemoteUrl(pmDir), remote.url);
+});
+
+test("CLI setup never reconfigures the consumer source repository", (t) => {
+  const kbRemote = withBareRemote();
+  const sourceRemote = withBareRemote();
+  const { root, pmDir, cleanup } = withTempProject({ "pm/strategy.md": "# Strategy\n" });
+  t.after(() => {
+    cleanup();
+    kbRemote.cleanup();
+    sourceRemote.cleanup();
+  });
+  gitExec("git init", { cwd: root });
+  gitExec(`git remote add origin "${sourceRemote.url}"`, { cwd: root });
+
+  gitExec(`node "${KB_SYNC_GIT_PATH}" setup "${kbRemote.url}"`, {
+    cwd: root,
+    env: { CLAUDE_PROJECT_DIR: root },
+  });
+
+  assert.equal(
+    gitExec("git remote get-url origin", { cwd: root, encoding: "utf8" }).trim(),
+    sourceRemote.url
+  );
+  assert.equal(require(KB_SYNC_GIT_PATH).getRemoteUrl(pmDir), kbRemote.url);
+});
+
+test("CLI clone targets empty pm/ when the consumer source is a Git repository", (t) => {
+  const seeded = withTempProject({ "pm/strategy.md": "# Remote Strategy\n" });
+  const kbRemote = withBareRemote();
+  const sourceRemote = withBareRemote();
+  const { root, pmDir, cleanup } = withTempProject({});
+  const { setup } = require(KB_SYNC_GIT_PATH);
+  assert.equal(setup(seeded.pmDir, kbRemote.url).ok, true);
+  t.after(() => {
+    seeded.cleanup();
+    cleanup();
+    kbRemote.cleanup();
+    sourceRemote.cleanup();
+  });
+  gitExec("git init", { cwd: root });
+  gitExec(`git remote add origin "${sourceRemote.url}"`, { cwd: root });
+
+  gitExec(`node "${KB_SYNC_GIT_PATH}" clone "${kbRemote.url}"`, {
+    cwd: root,
+    env: { CLAUDE_PROJECT_DIR: root },
+  });
+
+  assert.equal(fs.readFileSync(path.join(pmDir, "strategy.md"), "utf8"), "# Remote Strategy\n");
+  assert.equal(
+    gitExec("git remote get-url origin", { cwd: root, encoding: "utf8" }).trim(),
+    sourceRemote.url
+  );
 });
 
 // ---------------------------------------------------------------------------

@@ -78,6 +78,13 @@ module.exports = {
         }
         if (index < ordered.length - 1) {
           const next = Number(ordered[index + 1].frontmatter.order);
+          const backward = targets.filter((target) => target <= current);
+          if (backward.length > 0) {
+            issues.push({
+              file: step.relPath,
+              message: `non-routed step cannot advance backward or circularly to Step ${backward[0]}`,
+            });
+          }
           if (!targets.includes(next)) {
             issues.push({
               file: step.relPath,
@@ -95,10 +102,10 @@ module.exports = {
             });
           }
         } else {
-          if (targets.includes(current)) {
+          if (targets.length > 0) {
             issues.push({
               file: step.relPath,
-              message: "final step cannot advance circularly to itself",
+              message: "final step cannot advance to a numbered workflow step",
             });
           }
           if (!hasNextAction(step.body)) {

@@ -252,5 +252,6 @@ Implemented in seven bounded slices on `codex/skill-authoring-contract`:
 - the canonical valid fixture demonstrates the complete authoring contract, while thin, drifting, mutating, and invalid-transition fixtures fail with stable D2 rule IDs;
 - `skill-audit --json` reports `enforcement: enforced`, 24 clean skills, and zero issues;
 - operational, evidence, conversational, capture, projection, redirect, reviewer, and lifecycle contracts were remediated without generic suppressions.
+- Review round 1 exposed seven concrete enforcement and Sync boundaries; the remediation adds fence-aware parsing, monotonic transition checks, full telemetry/completion semantics, argv-safe Git execution, and same-repo PM destination protection with regressions.
 
 Release status remains pending until the patch release is merged and its version tag is moved to the main merge commit.

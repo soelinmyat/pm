@@ -14,10 +14,23 @@ function sections(markdown) {
   const lines = String(markdown || "").split(/\r?\n/);
   let current = null;
   let buffer = [];
+  let fence = null;
   function flush() {
     if (current !== null) result.set(current, buffer.join("\n").trim());
   }
   for (const line of lines) {
+    const fenceMatch = line.match(/^\s*(`{3,}|~{3,})/);
+    if (fenceMatch) {
+      const marker = fenceMatch[1][0];
+      if (fence === null) fence = marker;
+      else if (fence === marker) fence = null;
+      if (current !== null) buffer.push(line);
+      continue;
+    }
+    if (fence !== null) {
+      if (current !== null) buffer.push(line);
+      continue;
+    }
     const match = line.match(/^#{2,3}\s+(.+?)\s*$/);
     if (match) {
       flush();

@@ -6,6 +6,50 @@ const {
   substantive,
   tableDataRows,
 } = require("../../lib/skill-authoring/markdown.js");
+const { classForSkill } = require("../../lib/skill-authoring/classification.js");
+
+const DONE_REQUIREMENTS = {
+  lifecycle: [
+    /\b(artifact|report|session|receipt|evidence|proposal|rfc|contract)\b/i,
+    /\b(user|approval|authority|granted|confirmed)\b/i,
+    /\b(gate|pass|valid|check|verif)\w*\b/i,
+  ],
+  "evidence-pipeline": [
+    /\b(artifact|evidence|inventory|output|saved|writeback)\b/i,
+    /\b(user|confirm|approved|received)\w*\b/i,
+    /\b(gate|pass|valid|check|provenance|coverage)\w*\b/i,
+  ],
+  "reviewer-gate": [
+    /\b(report|artifact|result|evidence)\b/i,
+    /\b(user|scope|session|calling)\b/i,
+    /\b(gate|pass|check|coverage|resolved)\w*\b/i,
+  ],
+  "operational-effect": [
+    /\b(artifact|outcome|state|status|path|dir|result)\w*\b/i,
+    /\b(user|authority|explicit|read-only)\b/i,
+    /\b(gate|valid|recovery|error|failed closed|verification)\w*\b/i,
+  ],
+  "read-only-projection": [
+    /\b(payload|output|emitter|project file)\b/i,
+    /\b(read-only|mutat)\w*\b/i,
+    /\b(empty|missing|error|cap|ordering|gate)\w*\b/i,
+  ],
+  conversational: [
+    /\b(artifact|idea|strategy|thinking|saved)\b/i,
+    /\b(user|confirm|approved)\w*\b/i,
+    /\b(gate|filter|rank|valid|bounds|review)\w*\b/i,
+  ],
+  capture: [
+    /\b(artifact|file|note|backlog|saved|append)\w*\b/i,
+    /\b(user|requested|received|saw|confirm)\w*\b/i,
+    /\b(valid|schema|protect|overwrite|routing)\w*\b/i,
+  ],
+  redirect: [
+    /\b(redirect|loaded|destination|review)\b/i,
+    /\b(user|result|received|next action)\b/i,
+    /\b(legacy|duplicate|evidence|gate)\b/i,
+  ],
+};
 
 module.exports = {
   id: "D2-SKILL-004-self-checks",
@@ -55,6 +99,14 @@ module.exports = {
         issues.push({
           file,
           message: "Before Marking Done needs at least three explicit checklist items",
+        });
+      }
+      const requirements = DONE_REQUIREMENTS[classForSkill(skill)] || [];
+      const missingSignals = requirements.filter((pattern) => !pattern.test(done));
+      if (missingSignals.length > 0) {
+        issues.push({
+          file,
+          message: `Before Marking Done is missing ${missingSignals.length} applicable completion signals`,
         });
       }
     }

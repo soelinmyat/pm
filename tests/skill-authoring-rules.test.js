@@ -10,6 +10,7 @@ const root = path.resolve(__dirname, "..");
 const fixtures = path.join(__dirname, "fixtures", "skill-authoring");
 const { buildContext, loadRules } = require("../scripts/rules/plugin/index.js");
 const { SKILL_CLASSIFICATION } = require("../scripts/lib/skill-authoring/classification.js");
+const { sections } = require("../scripts/lib/skill-authoring/markdown.js");
 
 function d2Rules() {
   return loadRules().filter((rule) => rule.id.startsWith("D2-"));
@@ -40,6 +41,82 @@ test("thin boilerplate fails skill and step substance checks", () => {
   assert.ok(byId.get("D2-SKILL-004-self-checks").check(ctx).length > 0);
   assert.ok(byId.get("D2-STEP-001-execution-contract").check(ctx).length > 0);
   assert.ok(byId.get("D2-STEP-002-transition").check(ctx).length > 0);
+});
+
+test("fenced heading examples cannot satisfy operative section contracts", () => {
+  const parsed = sections("Before\n\n```markdown\n## Goal\nOnly an example body.\n```\n");
+  assert.equal(parsed.has("goal"), false);
+});
+
+test("workflow without telemetry steps fails the entry-point contract", () => {
+  const ctx = {
+    skills: [
+      {
+        name: "fixture",
+        skillFmExists: true,
+        skillFm: {
+          description: "Use when a fixture needs a complete workflow declaration.",
+        },
+        skillBody: [
+          "## Purpose\nA substantive purpose for validation.",
+          "## Iron Law\n**NEVER OMIT THE REQUIRED DECLARATION.**",
+          "## When NOT to use\nRoute unrelated work elsewhere.",
+          "**Workflow:** `fixture`",
+          "## Red Flags\nA substantive self-check section.",
+          "## Escalation Paths\nStop and ask the user.",
+          "## Common Rationalizations\nA substantive rationale table.",
+          "## Before Marking Done\nA substantive completion list.",
+        ].join("\n\n"),
+        steps: [],
+      },
+    ],
+  };
+  const rule = d2Rules().find((entry) => entry.id === "D2-SKILL-001-contract-sections");
+  assert.match(
+    rule
+      .check(ctx)
+      .map((issue) => issue.message)
+      .join("\n"),
+    /Workflow\/telemetry/
+  );
+});
+
+test("capture completion rejects three unrelated checklist rows", () => {
+  const ctx = {
+    skills: [
+      {
+        name: "fixture",
+        skillFm: { "skill-class": "capture" },
+        skillBody: [
+          "## Red Flags — Self-Check",
+          '- **"One."** Stop and check.',
+          '- **"Two."** Instead validate.',
+          '- **"Three."** Route correctly.',
+          '- **"Four."** Ask first.',
+          "## Escalation Paths",
+          "Stop and ask the user before continuing.",
+          "## Common Rationalizations",
+          "| Excuse | Reality |",
+          "|---|---|",
+          "| One | Reality one |",
+          "| Two | Reality two |",
+          "## Before Marking Done",
+          "- [ ] The colors are pleasant.",
+          "- [ ] The prose is concise.",
+          "- [ ] The headings are short.",
+        ].join("\n"),
+        steps: [],
+      },
+    ],
+  };
+  const rule = d2Rules().find((entry) => entry.id === "D2-SKILL-004-self-checks");
+  assert.match(
+    rule
+      .check(ctx)
+      .map((issue) => issue.message)
+      .join("\n"),
+    /completion signals/
+  );
 });
 
 test("command parity catches a redirect whose destination drifted", () => {
@@ -106,6 +183,37 @@ test("branched Advance may name later existing steps when the branch is explicit
   };
   const rule = d2Rules().find((entry) => entry.id === "D2-STEP-002-transition");
   assert.deepEqual(rule.check(ctx), []);
+});
+
+test("linear workflows reject backward and terminal numbered advances", () => {
+  const ctx = {
+    skills: [
+      {
+        name: "fixture",
+        steps: [
+          {
+            frontmatter: { order: 1 },
+            relPath: "steps/01-start.md",
+            body: "**Advance:** proceed to Step 2.",
+          },
+          {
+            frontmatter: { order: 2 },
+            relPath: "steps/02-work.md",
+            body: "**Advance:** proceed to Step 3, or Step 1 if retrying.",
+          },
+          {
+            frontmatter: { order: 3 },
+            relPath: "steps/03-done.md",
+            body: "Summarize the result. **Advance:** proceed to Step 1.",
+          },
+        ],
+      },
+    ],
+  };
+  const rule = d2Rules().find((entry) => entry.id === "D2-STEP-002-transition");
+  const messages = rule.check(ctx).map((issue) => issue.message);
+  assert.ok(messages.some((message) => /backward or circular/.test(message)));
+  assert.ok(messages.some((message) => /final step cannot advance/.test(message)));
 });
 
 test("routed workflows do not invent linear transitions between subcommands", () => {

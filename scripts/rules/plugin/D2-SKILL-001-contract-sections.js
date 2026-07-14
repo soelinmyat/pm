@@ -37,7 +37,11 @@ module.exports = {
           message: "description must be trigger-rich and include a concrete `Use when...` phrase",
         });
       }
-      if (!/\*\*Workflow:\*\*\s*`[^`]+`/i.test(skill.skillBody)) {
+      if (
+        !/\*\*Workflow:\*\*\s*`[^`]+`\s*\|\s*\*\*Telemetry steps:\*\*\s*`[^`]+`/i.test(
+          skill.skillBody
+        )
+      ) {
         issues.push({
           file: `skills/${skill.name}/SKILL.md`,
           message: "missing Workflow/telemetry declaration",
