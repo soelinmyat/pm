@@ -3,7 +3,7 @@ const profiles = require("../../skills/dev/references/model-profiles.json");
 const { buildCodexLaunch, extractCodexResult } = require("./codex");
 const { buildClaudeLaunch, extractClaudeResult } = require("./claude");
 const { buildInlinePackage } = require("./inline");
-const { requireCapabilities } = require("./capabilities");
+const { requireCapabilities } = require("../lib/workflow-runtime/capabilities");
 const { validateWorkerResult } = require("./result");
 const { resolveModelProfile } = require("../lib/workflow-runtime/model-profile");
 
