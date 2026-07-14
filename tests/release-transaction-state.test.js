@@ -318,6 +318,49 @@ test("effect targets are bound to the release transaction identity", () => {
   );
 });
 
+test("persisted transactions revalidate target, key, and verified receipt identity", () => {
+  let value = planEffect(transaction(), {
+    effect: "push",
+    target: {
+      remote: "origin",
+      repository: "acme/widget",
+      branch: "codex/release-example",
+      commit: COMMIT,
+    },
+  });
+  value = beginEffect(value, {
+    effect: "push",
+    authority: { push_feature_branch: true },
+    actor: "root",
+  }).transaction;
+  const receipt = { remote_tip: COMMIT };
+  value = reconcileEffect(value, {
+    effect: "push",
+    outcome: "matched",
+    receipt,
+    observation: { target: value.effects.push.target, receipt },
+  }).transaction;
+  assert.deepEqual(transactionIssues(value), []);
+
+  const wrongReceipt = structuredClone(value);
+  wrongReceipt.effects.push.verified_receipt.receipt.remote_tip = "e".repeat(40);
+  wrongReceipt.effects.push.verified_receipt.verification.receipt.remote_tip = "e".repeat(40);
+  assert.ok(
+    transactionIssues(wrongReceipt).some((issue) =>
+      /verified receipt identity is invalid/.test(issue)
+    )
+  );
+
+  const wrongTarget = structuredClone(value);
+  wrongTarget.effects.push.target.branch = "other-branch";
+  wrongTarget.effects.push.verified_receipt.target.branch = "other-branch";
+  wrongTarget.effects.push.verified_receipt.verification.target.branch = "other-branch";
+  assert.ok(
+    transactionIssues(wrongTarget).some((issue) => /target identity is invalid/.test(issue))
+  );
+  assert.ok(transactionIssues(wrongTarget).some((issue) => /idempotency key/.test(issue)));
+});
+
 test("release readiness consumes current canonical Review, QA, and verification evidence", () => {
   let value = transaction();
   for (const [kind, artifact, hashByte] of [

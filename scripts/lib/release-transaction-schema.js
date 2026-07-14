@@ -339,7 +339,10 @@ function transactionIssues(value) {
   else {
     for (const [name, effect] of Object.entries(value.effects)) {
       if (!EFFECT_DEFINITIONS[name]) issues.push(`unknown effect ${name}`);
-      else validateEffect(effect, name, issues);
+      else {
+        validateEffect(effect, name, issues);
+        validateEffectConsistency(value, effect, name, issues);
+      }
     }
   }
   if (!Number.isInteger(value.generation) || value.generation < 1) {
@@ -473,6 +476,58 @@ function validateEffect(effect, name, issues) {
   }
   if (effect.status !== "verified" && effect.verified_receipt !== null) {
     issues.push(`${name} non-verified effect cannot retain a verified receipt`);
+  }
+}
+
+function validateEffectConsistency(transaction, effect, name, issues) {
+  if (!isObject(effect) || !isObject(effect.target)) return;
+  try {
+    validateEffectTarget(name, effect.target, transaction);
+  } catch (error) {
+    issues.push(`${name} target identity is invalid: ${error.message}`);
+  }
+  if (effect.idempotency_key !== effectKey(transaction, name, effect.target)) {
+    issues.push(`${name} idempotency key does not bind the planned target`);
+  }
+  const lastAttempt = Array.isArray(effect.attempts) ? effect.attempts.at(-1) : null;
+  const expectedLastStatus = {
+    attempting: "attempting",
+    verified: "verified",
+    denied: "denied",
+    blocked: "blocked",
+    failed: "failed",
+  }[effect.status];
+  if (expectedLastStatus && lastAttempt?.status !== expectedLastStatus) {
+    issues.push(`${name} effect status does not match its final attempt`);
+  }
+  if (effect.status !== "verified" || !isObject(effect.verified_receipt)) return;
+  const bound = effect.verified_receipt;
+  if (bound.effect !== name) issues.push(`${name} verified receipt effect mismatch`);
+  if (stableStringify(bound.target) !== stableStringify(effect.target)) {
+    issues.push(`${name} verified receipt target mismatch`);
+  }
+  if (
+    !Array.isArray(bound.authority?.actions) ||
+    !bound.authority.actions.includes(effect.required_authority)
+  ) {
+    issues.push(`${name} verified receipt authority mismatch`);
+  }
+  if (bound.attempt !== lastAttempt?.number) {
+    issues.push(`${name} verified receipt attempt mismatch`);
+  }
+  if (
+    !isObject(bound.receipt) ||
+    !isObject(bound.verification) ||
+    stableStringify(bound.verification.target) !== stableStringify(effect.target) ||
+    stableStringify(bound.verification.receipt) !== stableStringify(bound.receipt)
+  ) {
+    issues.push(`${name} verified receipt observation mismatch`);
+    return;
+  }
+  try {
+    validateMatchedReceipt(name, effect.target, bound.receipt);
+  } catch (error) {
+    issues.push(`${name} verified receipt identity is invalid: ${error.message}`);
   }
 }
 
