@@ -13,6 +13,7 @@ const {
 const { MAX_CHANGED_FILE_BYTES, MAX_JSON_BYTES } = require("./lib/review-limits");
 const projectFile = require("./lib/project-file");
 const { readProjectInput } = projectFile;
+const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 const {
   expectedPriorReportPath,
   expectedReviewPath,
@@ -104,6 +105,7 @@ function buildReviewTarget(options) {
     iteration_cap: 3,
     created_at: new Date().toISOString(),
     mode,
+    generator: { name: "pm:review", version: PLUGIN_VERSION },
     source: {
       commit,
       base_ref: baseRef,

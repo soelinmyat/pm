@@ -9,7 +9,6 @@ const { readProjectInput } = projectFiles;
 const { MAX_HTML_BYTES, MAX_JSON_BYTES } = require("./lib/review-limits");
 const { expectedReviewPath, reviewPathContext } = require("./lib/review-paths");
 const { changeAnchorText } = require("./lib/review-contract");
-const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 function renderReviewReport(options) {
   const root = fs.realpathSync(path.resolve(options.root || process.cwd()));
@@ -39,6 +38,11 @@ function renderReviewReport(options) {
     throw new Error(`human report path must equal ${expectedHuman}`);
   if (report.human_report?.path !== relativeOutput)
     throw new Error("report.human_report.path must equal the requested output path");
+  if (
+    report.generator?.name !== "pm:review" ||
+    !/^\d+\.\d+\.\d+$/.test(report.generator?.version || "")
+  )
+    throw new Error("report.generator must bind pm:review to an exact semantic version");
   const evidence = [report.target, ...(report.results || []), report.decisions]
     .filter(Boolean)
     .map((item) => ({ path: item.path, sha256: `sha256:${item.sha256}` }));
@@ -50,7 +54,7 @@ function renderReviewReport(options) {
     lifecycle: "reviewed",
     title: "Source Review Report",
     generated_at: report.checked_at,
-    generator: { name: "pm:review", version: PLUGIN_VERSION },
+    generator: structuredClone(report.generator),
     source: { path: relativeReport, sha256: `sha256:${digest(bytes)}` },
     evidence,
   };
@@ -93,7 +97,7 @@ function renderReviewReport(options) {
     report.auto_fix_eligible
   )}</p></article></div>`;
   const replacements = {
-    PLUGIN_VERSION,
+    PLUGIN_VERSION: report.generator.version,
     TITLE: "Source Review Report",
     SUMMARY: `Evidence-bound review of ${report.source?.commit || "unknown commit"} against ${report.source?.base_ref || "unknown base"}.`,
     OUTCOME: report.outcome,

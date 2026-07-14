@@ -1059,6 +1059,7 @@ test("review target CLI can start a fresh Dev run after a canonical pass", () =>
   });
   assert.equal(currentValidation.ok, false);
   assert.match(JSON.stringify(currentValidation.issues), /metadata must bind/);
+  fs.writeFileSync(historicalHtmlPath, historicalHtml);
 
   const targetScript = path.join(__dirname, "..", "scripts", "review-target.js");
   const nextPath = ".pm/dev-sessions/example/review/runs/dev-release/round-1/target.json";
@@ -2189,8 +2190,8 @@ test("later rounds reject a shallow hand-written prior report", () => {
   );
 });
 
-test("prior-round evidence remains valid after the cited source is removed", () => {
-  const fixture = makeFixture({ maxWorkers: 6 });
+test("prior-round evidence remains valid in a consumer project after cited source is removed", () => {
+  const fixture = makeFixture({ maxWorkers: 6, includePluginConfig: false });
   setFindingForLens(fixture, "bug", validFinding("bug"));
   const roundOne = generate(fixture, {
     reportPath: fixture.roundReportPath,
@@ -2783,15 +2784,17 @@ function makeFixture({
   runScoped = true,
   multiline = false,
   remote = "origin",
+  includePluginConfig = true,
 }) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-check-"));
   fs.mkdirSync(path.join(root, "src"), { recursive: true });
   fs.mkdirSync(path.join(root, "skills/dev/references"), { recursive: true });
   fs.writeFileSync(path.join(root, ".gitignore"), ".pm/\n");
-  fs.writeFileSync(
-    path.join(root, "plugin.config.json"),
-    `${JSON.stringify({ version: PLUGIN_VERSION })}\n`
-  );
+  if (includePluginConfig)
+    fs.writeFileSync(
+      path.join(root, "plugin.config.json"),
+      `${JSON.stringify({ version: PLUGIN_VERSION })}\n`
+    );
   fs.writeFileSync(
     path.join(root, "src/example.js"),
     removeLine

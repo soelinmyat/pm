@@ -42,7 +42,6 @@ const {
   readCommittedBlob,
   resolveTrustedBase,
 } = require("./review-target");
-const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 const EVIDENCE_KINDS = new Set([
   "source",
@@ -256,6 +255,7 @@ function validateTarget(target, issues) {
       "iteration_cap",
       "created_at",
       "mode",
+      "generator",
       "source",
       "changed_files",
       "dev_context",
@@ -281,6 +281,12 @@ function validateTarget(target, issues) {
     add(issues, "target.review_round", "must be 1 through 3");
   if (target.iteration_cap !== 3) add(issues, "target.iteration_cap", "must equal 3");
   if (!new Set(["full", "code-scan"]).has(target.mode)) add(issues, "target.mode", "is invalid");
+  if (
+    !object(target.generator) ||
+    target.generator.name !== "pm:review" ||
+    !/^\d+\.\d+\.\d+$/.test(target.generator.version || "")
+  )
+    add(issues, "target.generator", "must bind pm:review to an exact semantic version");
   validateSource(target.source, "target.source", issues);
   validateDevContext(target.dev_context, issues);
   validateBindingShape(target.acceptance, "target.acceptance", issues, true);
@@ -449,12 +455,6 @@ function validateTargetBindings(root, target, reviewRoot, options, issues) {
       }
     }
     if (value && object(value) && value.outcome !== "passed") {
-      const expectedGeneratorVersion = frozenPluginVersion(
-        root,
-        target,
-        value.source?.commit,
-        issues
-      );
       try {
         const prior = checkReview(
           expandFromReport({
@@ -464,7 +464,6 @@ function validateTargetBindings(root, target, reviewRoot, options, issues) {
             verifyGit: false,
             verifyFrozenGit: true,
             verifyBrowser: false,
-            expectedGeneratorVersion,
           })
         );
         if (!prior.ok)
@@ -483,31 +482,6 @@ function validateTargetBindings(root, target, reviewRoot, options, issues) {
         );
       }
     }
-  }
-}
-
-function frozenPluginVersion(root, target, commit, issues) {
-  if (!sha(commit)) {
-    add(issues, "target.prior_report.source.commit", "must be a Git commit");
-    return null;
-  }
-  try {
-    const config = JSON.parse(readFrozenBlob(root, target, commit, "plugin.config.json"));
-    if (
-      !object(config) ||
-      typeof config.version !== "string" ||
-      !/^\d+\.\d+\.\d+$/.test(config.version)
-    ) {
-      throw new Error("plugin.config.json requires a semantic version");
-    }
-    return config.version;
-  } catch (error) {
-    add(
-      issues,
-      "target.prior_report",
-      `cannot resolve generator version from frozen source: ${error.message}`
-    );
-    return null;
   }
 }
 
@@ -1527,6 +1501,7 @@ function buildCanonicalReport(
     schema_version: 1,
     run_id: target.run_id,
     review_round: target.review_round,
+    generator: structuredClone(target.generator),
     source: structuredClone(target.source),
     target: binding(targetFile),
     results: resultFiles.map(binding).sort((left, right) => left.path.localeCompare(right.path)),
@@ -1562,6 +1537,7 @@ function validateReport(root, report, canonical, reportFile, options, issues) {
       "schema_version",
       "run_id",
       "review_round",
+      "generator",
       "source",
       "target",
       "results",
@@ -1609,7 +1585,7 @@ function validateHumanReport(root, human, report, reportFile, options, issues) {
   for (const item of inspected.issues || [])
     add(issues, `report.human_report${item.path || ""}`, item.message);
   const metadata = inspected.metadata;
-  const expectedGeneratorVersion = options.expectedGeneratorVersion || PLUGIN_VERSION;
+  const expectedGeneratorVersion = report.generator?.version;
   const generatorVersionValid = metadata?.generator?.version === expectedGeneratorVersion;
   if (
     metadata &&
