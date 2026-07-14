@@ -95,7 +95,9 @@ function main(argv = process.argv.slice(2)) {
   if (!input) throw new Error("usage: product-reasoning-quality-check <artifact.json>");
   const brief = readBoundedJsonFile(input);
   let result;
-  if (brief.document_type === "decision-brief") result = scoreDecisionBrief(brief);
+  if (brief === null || typeof brief !== "object" || Array.isArray(brief))
+    result = scoreDecisionBrief(brief);
+  else if (brief.document_type === "decision-brief") result = scoreDecisionBrief(brief);
   else if (brief.document_type === "feature-inventory") result = scoreFeatureInventory(brief);
   else throw new Error("document_type must be decision-brief or feature-inventory");
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);

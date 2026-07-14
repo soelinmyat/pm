@@ -75,7 +75,9 @@ test("decision validation authenticates canonical Markdown binding bytes", (t) =
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reasoning-binding-cli-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   fs.mkdirSync(path.join(root, "backlog"));
-  const markdown = Buffer.from("# Guided evidence refresh\n");
+  const markdown = Buffer.from(
+    "---\nreasoning_version: 2\ndecision_brief: backlog/guided-evidence-refresh.decision.json\n---\n\n# Guided evidence refresh\n"
+  );
   fs.writeFileSync(path.join(root, "backlog", "guided-evidence-refresh.md"), markdown);
   const brief = JSON.parse(
     fs.readFileSync(
@@ -91,6 +93,16 @@ test("decision validation authenticates canonical Markdown binding bytes", (t) =
   fs.writeFileSync(input, JSON.stringify(brief));
   let result = run(["validate", "--root", root, "--input", input]);
   assert.equal(result.status, 0, result.stderr);
+  const markerless = Buffer.from("# Guided evidence refresh\n");
+  fs.writeFileSync(path.join(root, "backlog", "guided-evidence-refresh.md"), markerless);
+  brief.source_artifacts[0].sha256 = sha(markerless);
+  fs.writeFileSync(input, JSON.stringify(brief));
+  result = run(["validate", "--root", root, "--input", input]);
+  assert.equal(result.status, 2);
+  assert.match(result.stdout, /companion requires v2 canonical reader/);
+  fs.writeFileSync(path.join(root, "backlog", "guided-evidence-refresh.md"), markdown);
+  brief.source_artifacts[0].sha256 = sha(markdown);
+  fs.writeFileSync(input, JSON.stringify(brief));
   fs.writeFileSync(path.join(root, "backlog", "guided-evidence-refresh.md"), "# Changed\n");
   result = run(["validate", "--root", root, "--input", input]);
   assert.equal(result.status, 2);
@@ -118,7 +130,9 @@ test("feature-snapshot publishes deterministic bounded non-Git provenance", (t) 
 test("rank-ideas authenticates the canonical Strategy companion before ordering", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-ranking-strategy-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const markdown = Buffer.from("# Strategy\n");
+  const markdown = Buffer.from(
+    "---\nreasoning_version: 2\ndecision_brief: strategy.decision.json\n---\n\n# Strategy\n"
+  );
   fs.writeFileSync(path.join(root, "strategy.md"), markdown);
   const strategy = JSON.parse(
     fs.readFileSync(
@@ -157,6 +171,16 @@ test("rank-ideas authenticates the canonical Strategy companion before ordering"
     request,
   ]);
   assert.equal(result.status, 0, result.stderr);
+  const markerless = Buffer.from("# Strategy\n");
+  fs.writeFileSync(path.join(root, "strategy.md"), markerless);
+  strategy.source_artifacts[0].sha256 = sha(markerless);
+  fs.writeFileSync(strategyPath, JSON.stringify(strategy));
+  result = run(["rank-ideas", "--root", root, "--strategy", strategyPath, "--request", request]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /companion requires v2 canonical reader/);
+  fs.writeFileSync(path.join(root, "strategy.md"), markdown);
+  strategy.source_artifacts[0].sha256 = sha(markdown);
+  fs.writeFileSync(strategyPath, JSON.stringify(strategy));
   fs.writeFileSync(path.join(root, "strategy.md"), "# Changed Strategy\n");
   result = run(["rank-ideas", "--root", root, "--strategy", strategyPath, "--request", request]);
   assert.equal(result.status, 1);
@@ -199,7 +223,10 @@ test("promote requires exact approved Groom lineage and atomically closes origin
     "decision.json"
   );
   fs.copyFileSync(sourceFixture, path.join(root, decisionPath));
-  fs.writeFileSync(path.join(root, markdownPath), "# Guided evidence refresh\n");
+  fs.writeFileSync(
+    path.join(root, markdownPath),
+    "---\nreasoning_version: 2\ndecision_brief: backlog/guided-evidence-refresh.decision.json\n---\n\n# Guided evidence refresh\n"
+  );
   const proposal = JSON.parse(
     fs.readFileSync(path.join(__dirname, "fixtures", "proposals", "strong-v1.json"), "utf8")
   );
@@ -356,6 +383,18 @@ test("promote requires exact approved Groom lineage and atomically closes origin
   result = run(["validate", "--root", root, "--input", path.join(root, decisionPath)]);
   assert.equal(result.status, 0, result.stderr);
 
+  const lifecycleReader = fs
+    .readFileSync(path.join(root, markdownPath), "utf8")
+    .replace("# Guided evidence refresh", "status: done\n\n# Guided evidence refresh");
+  fs.writeFileSync(path.join(root, markdownPath), lifecycleReader);
+  result = run(["validate", "--root", root, "--input", path.join(root, decisionPath)]);
+  assert.equal(result.status, 2);
+  assert.match(result.stdout, /SHA-256 does not match/);
+  result = run(["refresh-reader", "--root", root, "--decision", decisionPath]);
+  assert.equal(result.status, 0, result.stderr);
+  result = run(["validate", "--root", root, "--input", path.join(root, decisionPath)]);
+  assert.equal(result.status, 0, result.stderr);
+
   proposal.lifecycle = "planned";
   proposal.updated_at = "2026-07-14T03:00:00.000Z";
   const plannedProposalBytes = Buffer.from(`${JSON.stringify(proposal, null, 2)}\n`);
@@ -371,8 +410,9 @@ test("promote requires exact approved Groom lineage and atomically closes origin
   assert.match(result.stdout, /content hash/);
   fs.writeFileSync(path.join(root, targetRef), plannedProposalBytes);
 
-  promoted.promotion.approval_decision.id = "different-groom-decision";
-  fs.writeFileSync(path.join(root, decisionPath), JSON.stringify(promoted));
+  const refreshedPromoted = JSON.parse(fs.readFileSync(path.join(root, decisionPath), "utf8"));
+  refreshedPromoted.promotion.approval_decision.id = "different-groom-decision";
+  fs.writeFileSync(path.join(root, decisionPath), JSON.stringify(refreshedPromoted));
   result = run(["validate", "--root", root, "--input", path.join(root, decisionPath)]);
   assert.equal(result.status, 2);
   assert.match(result.stdout, /does not match the session approval decision/);

@@ -2,6 +2,7 @@
 
 const crypto = require("node:crypto");
 const path = require("node:path");
+const { parseFrontmatter } = require("../kb-frontmatter");
 const { readProjectInput } = require("./safe-project-output");
 const { readApprovedProposal } = require("./proposal-schema");
 
@@ -54,26 +55,32 @@ function verifyArtifactBindings(root, bindings, options = {}) {
   return issues;
 }
 
-function verifyDecisionBriefBindings(root, brief) {
-  const cache = new Map();
-  const budgetState = { remaining: MAX_BINDING_TOTAL_BYTES };
+function verifyDecisionBriefBindings(root, brief, options = {}) {
+  const cache = options.cache || new Map();
+  const budgetState = options.budgetState || { remaining: MAX_BINDING_TOTAL_BYTES };
   const promoted = brief.promotion?.status === "promoted";
   const targetRef = promoted ? brief.promotion.target_ref : null;
   const exactBindings = promoted
     ? brief.source_artifacts.filter((artifact) => artifact.path !== targetRef)
     : brief.source_artifacts;
   const issues = verifyArtifactBindings(root, exactBindings, { cache, budgetState });
+  if (!issues.length) issues.push(...verifyCanonicalReaderMarker(brief, cache));
   if (issues.length || !promoted) return issues;
   try {
     if (budgetState.remaining <= 0)
       return [...issues, `${targetRef}: aggregate binding bytes exceed 64 MiB`];
-    let verifiedProposal;
+    let verifiedProposal = cache.get(targetRef)?.bytes;
     try {
-      verifiedProposal = readProjectInput(
-        root,
-        targetRef,
-        Math.min(MAX_BINDING_FILE_BYTES, budgetState.remaining)
-      ).bytes;
+      if (!verifiedProposal) {
+        const input = readProjectInput(
+          root,
+          targetRef,
+          Math.min(MAX_BINDING_FILE_BYTES, budgetState.remaining)
+        );
+        verifiedProposal = input.bytes;
+        cache.set(targetRef, input);
+        budgetState.remaining -= verifiedProposal.length;
+      }
     } catch (error) {
       const aggregate =
         budgetState.remaining < MAX_BINDING_FILE_BYTES && /input exceeds/.test(error.message);
@@ -82,7 +89,6 @@ function verifyDecisionBriefBindings(root, brief) {
       );
       return issues;
     }
-    budgetState.remaining -= verifiedProposal.length;
     const approved = readApprovedProposal(path.resolve(root, targetRef), {
       projectRoot: root,
       expectedSlug: brief.slug,
@@ -117,10 +123,49 @@ function verifyDecisionBriefBindings(root, brief) {
   return issues;
 }
 
+function canonicalReaderPaths(brief) {
+  if (brief.kind === "think")
+    return {
+      markdown: `thinking/${brief.slug}.md`,
+      decision: `thinking/${brief.slug}.decision.json`,
+    };
+  if (brief.kind === "idea")
+    return {
+      markdown: `backlog/${brief.slug}.md`,
+      decision: `backlog/${brief.slug}.decision.json`,
+    };
+  if (brief.kind === "strategy")
+    return { markdown: "strategy.md", decision: "strategy.decision.json" };
+  return null;
+}
+
+function verifyCanonicalReaderMarker(brief, cache) {
+  const canonical = canonicalReaderPaths(brief);
+  if (!canonical) return [];
+  const source = cache.get(canonical.markdown);
+  if (!source) return [`${canonical.markdown}: canonical reader bytes were not authenticated`];
+  let parsed;
+  try {
+    parsed = parseFrontmatter(source.bytes.toString("utf8"));
+  } catch (error) {
+    return [`${canonical.markdown}: invalid canonical reader frontmatter: ${error.message}`];
+  }
+  if (!parsed.hasFrontmatter)
+    return [`${canonical.markdown}: companion requires v2 canonical reader frontmatter`];
+  const issues = [];
+  if (String(parsed.data.reasoning_version) !== "2")
+    issues.push(`${canonical.markdown}: reasoning_version must equal 2`);
+  if (parsed.data.decision_brief !== canonical.decision)
+    issues.push(`${canonical.markdown}: decision_brief must equal ${canonical.decision}`);
+  return issues;
+}
+
 module.exports = {
   MAX_BINDING_FILE_BYTES,
   MAX_BINDING_TOTAL_BYTES,
+  canonicalReaderPaths,
   lineagePathMatches,
   verifyArtifactBindings,
+  verifyCanonicalReaderMarker,
   verifyDecisionBriefBindings,
 };

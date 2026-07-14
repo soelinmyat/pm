@@ -160,8 +160,22 @@ function pathEntryExists(filePath) {
   }
 }
 
-function readParsedFrontmatter(filePath, relativeFile, errors) {
-  const content = fs.readFileSync(filePath, "utf8");
+function readParsedFrontmatter(filePath, relativeFile, errors, options = {}) {
+  let content;
+  try {
+    if (options.pmDir) {
+      const bindingPath = relativeToPm(options.pmDir, filePath);
+      let input = options.cache?.get(bindingPath);
+      if (!input) {
+        input = readProjectInput(options.pmDir, bindingPath, 4 * 1024 * 1024);
+        options.cache?.set(bindingPath, input);
+      }
+      content = input.bytes.toString("utf8");
+    } else content = fs.readFileSync(filePath, "utf8");
+  } catch (error) {
+    pushIssue(errors, relativeFile, "-", `cannot read regular Markdown file: ${error.message}`);
+    return null;
+  }
   const parsed = parseFrontmatter(content);
   if (!parsed.hasFrontmatter) {
     pushIssue(errors, relativeFile, "-", "no YAML frontmatter found");
@@ -1080,8 +1094,8 @@ function inspectProductReasoningJson(pmDir, filePath, expectedType, cache) {
       issues.length > 0
         ? []
         : expectedType === "decision-brief"
-          ? verifyDecisionBriefBindings(pmDir, value)
-          : verifyArtifactBindings(pmDir, [value.markdown_binding]);
+          ? verifyDecisionBriefBindings(pmDir, value, { cache })
+          : verifyArtifactBindings(pmDir, [value.markdown_binding], { cache });
     result = { value, issues, bindingIssues, readError: null };
   } catch (error) {
     result = { value: null, issues: [], bindingIssues: [], readError: error.message };
@@ -1298,7 +1312,10 @@ function validate(pmDir, options = {}) {
         continue;
       }
 
-      const parsed = readParsedFrontmatter(filePath, file, errors);
+      const parsed = readParsedFrontmatter(filePath, file, errors, {
+        pmDir,
+        cache: productReasoningCache,
+      });
       if (!parsed) {
         continue;
       }
@@ -1363,7 +1380,10 @@ function validate(pmDir, options = {}) {
 
   const strategyPath = path.join(pmDir, "strategy.md");
   if (fs.existsSync(strategyPath)) {
-    const parsed = readParsedFrontmatter(strategyPath, "strategy.md", errors);
+    const parsed = readParsedFrontmatter(strategyPath, "strategy.md", errors, {
+      pmDir,
+      cache: productReasoningCache,
+    });
     if (parsed) {
       validateStrategy(strategyPath, parsed.data, errors);
       validateReasoningFrontmatter(
@@ -1386,7 +1406,10 @@ function validate(pmDir, options = {}) {
     }
 
     const relativeFile = relativeToPm(pmDir, filePath);
-    const parsed = readParsedFrontmatter(filePath, relativeFile, errors);
+    const parsed = readParsedFrontmatter(filePath, relativeFile, errors, {
+      pmDir,
+      cache: productReasoningCache,
+    });
     if (!parsed) {
       continue;
     }
@@ -1460,8 +1483,28 @@ function validate(pmDir, options = {}) {
 
   const featuresPath = path.join(pmDir, "product", "features.md");
   if (fs.existsSync(featuresPath)) {
-    const content = fs.readFileSync(featuresPath, "utf8");
-    validateFeaturesFile(pmDir, featuresPath, content, errors, productReasoningCache);
+    try {
+      const relative = relativeToPm(pmDir, featuresPath);
+      let input = productReasoningCache.get(relative);
+      if (!input) {
+        input = readProjectInput(pmDir, relative, 4 * 1024 * 1024);
+        productReasoningCache.set(relative, input);
+      }
+      validateFeaturesFile(
+        pmDir,
+        featuresPath,
+        input.bytes.toString("utf8"),
+        errors,
+        productReasoningCache
+      );
+    } catch (error) {
+      pushIssue(
+        errors,
+        "product/features.md",
+        "-",
+        `cannot read regular Markdown file: ${error.message}`
+      );
+    }
   }
 
   const decisionCandidates = [path.join(pmDir, "strategy.decision.json")];

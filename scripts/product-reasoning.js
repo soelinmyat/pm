@@ -8,6 +8,7 @@ const { readBoundedJsonFile } = require("./lib/safe-json-file");
 const { writeProjectJsonAtomic } = require("./lib/project-atomic-write");
 const { readApprovedProposal } = require("./lib/proposal-schema");
 const {
+  canonicalReaderPaths,
   lineagePathMatches,
   verifyArtifactBindings,
   verifyDecisionBriefBindings,
@@ -120,15 +121,66 @@ function main(argv = process.argv.slice(2)) {
       const root = path.resolve(required(args, "root"));
       const request = readBoundedJsonFile(required(args, "request"));
       result = promote(root, request);
+    } else if (command === "refresh-reader") {
+      const root = path.resolve(required(args, "root"));
+      result = refreshReader(root, required(args, "decision"));
     } else
       throw new Error(
-        "command must be decision-id, feature-id, validate, rank-ideas, reconcile-features, feature-snapshot, or promote"
+        "command must be decision-id, feature-id, validate, rank-ideas, reconcile-features, feature-snapshot, promote, or refresh-reader"
       );
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
   } catch (error) {
     process.stderr.write(`${error.message}\n`);
     process.exitCode = 1;
   }
+}
+
+function refreshReader(root, decisionPath) {
+  const decisionInput = readProjectInput(root, decisionPath, 4 * 1024 * 1024);
+  const brief = JSON.parse(decisionInput.bytes.toString("utf8"));
+  const schemaIssues = validateDecisionBrief(brief);
+  if (schemaIssues.length)
+    throw new Error(`invalid decision companion: ${schemaIssues.join("; ")}`);
+  const canonical = canonicalReaderPaths(brief);
+  if (!canonical || decisionInput.relative !== canonical.decision)
+    throw new Error(
+      `refresh decision must equal ${canonical?.decision || "a canonical companion"}`
+    );
+  const reader = readProjectInput(root, canonical.markdown, 16 * 1024 * 1024);
+  const readerSha256 = sha256(reader.bytes);
+  const refreshed = structuredClone(brief);
+  const binding = refreshed.source_artifacts.find(
+    (artifact) => artifact.path === canonical.markdown
+  );
+  if (!binding) throw new Error(`decision companion must bind ${canonical.markdown}`);
+  binding.sha256 = readerSha256;
+  const cache = new Map([[canonical.markdown, reader]]);
+  const bindingIssues = verifyDecisionBriefBindings(root, refreshed, { cache });
+  if (bindingIssues.length)
+    throw new Error(`cannot refresh canonical reader: ${bindingIssues.join("; ")}`);
+  writeProjectJsonAtomic(root, canonical.decision, refreshed, {
+    maxBytes: 4 * 1024 * 1024,
+    attestations: refreshed.source_artifacts.map((artifact) => {
+      const input = cache.get(artifact.path);
+      if (!input) throw new Error(`refresh did not authenticate ${artifact.path}`);
+      return {
+        path: artifact.path,
+        sha256: sha256(input.bytes),
+        maxBytes: 16 * 1024 * 1024,
+      };
+    }),
+    finalAttestation: {
+      path: decisionInput.relative,
+      sha256: sha256(decisionInput.bytes),
+      maxBytes: 4 * 1024 * 1024,
+    },
+  });
+  return {
+    refreshed: true,
+    decision_path: canonical.decision,
+    markdown_path: canonical.markdown,
+    markdown_sha256: readerSha256,
+  };
 }
 
 function promote(root, request, options = {}) {
@@ -294,4 +346,4 @@ function required(args, key) {
   return args[key];
 }
 if (require.main === module) main();
-module.exports = { main, promote };
+module.exports = { main, promote, refreshReader };

@@ -80,7 +80,14 @@ test("normal validation checks present decision companions without requiring the
   };
   fs.writeFileSync(path.join(pm, "thinking", "test.decision.json"), JSON.stringify(brief));
   result = validate(pm);
-  assert.equal(result.errors.length, 0, JSON.stringify(result.details));
+  assert.ok(
+    result.errors.some(
+      (entry) =>
+        entry.msg.includes("companion requires v2 canonical reader") ||
+        entry.msg.includes("reasoning_version must equal 2")
+    ),
+    JSON.stringify(result.errors)
+  );
 
   const linkedMarkdown = Buffer.from(
     "---\ntype: thinking\ntopic: Test\nslug: test\ncreated: 2026-07-14\nupdated: 2026-07-14\nstatus: active\nreasoning_version: 2\ndecision_brief: thinking/test.decision.json\n---\n\n# Test\n"
@@ -90,9 +97,12 @@ test("normal validation checks present decision companions without requiring the
   fs.writeFileSync(path.join(pm, "thinking", "test.decision.json"), JSON.stringify(brief));
   const originalOpen = fs.openSync;
   let companionOpens = 0;
+  let readerOpens = 0;
   const companionRealPath = fs.realpathSync(path.join(pm, "thinking", "test.decision.json"));
+  const readerRealPath = fs.realpathSync(path.join(pm, "thinking", "test.md"));
   fs.openSync = function countedOpen(filePath, ...args) {
     if (path.resolve(filePath) === companionRealPath) companionOpens += 1;
+    if (path.resolve(filePath) === readerRealPath) readerOpens += 1;
     return originalOpen.call(fs, filePath, ...args);
   };
   try {
@@ -102,6 +112,7 @@ test("normal validation checks present decision companions without requiring the
   }
   assert.equal(result.errors.length, 0, JSON.stringify(result.errors));
   assert.equal(companionOpens, 1);
+  assert.equal(readerOpens, 1);
 
   fs.writeFileSync(
     path.join(pm, "thinking", "test.md"),
