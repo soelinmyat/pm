@@ -720,6 +720,45 @@ test("session validation rejects unknown fields and missing nested contracts", (
   }
 });
 
+test("phase results reject blank runtime session identifiers", () => {
+  const repo = makeRepo();
+  try {
+    const session = routedSession(repo);
+    for (const sessionId of ["", "   "]) {
+      assert.throws(
+        () =>
+          recordResult(
+            session,
+            passed(session, {
+              runtime: {
+                provider: "inline",
+                model: "test",
+                reasoning: "high",
+                session_id: sessionId,
+              },
+            })
+          ),
+        /runtime\.session_id must be null or string/
+      );
+    }
+    assert.doesNotThrow(() =>
+      recordResult(
+        session,
+        passed(session, {
+          runtime: {
+            provider: "inline",
+            model: "test",
+            reasoning: "high",
+            session_id: "rfc-run-123",
+          },
+        })
+      )
+    );
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test(
   "published RFC session schema and runtime reject malformed nested audit records",
   { skip: !Ajv2020 && "Ajv 2020 dev dependency is not installed in this snapshot" },

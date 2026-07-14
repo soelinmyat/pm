@@ -147,6 +147,27 @@ test("result record validation is shared without choosing workflow statuses or p
     ),
     []
   );
+  assert.deepEqual(
+    runtimeRecordIssues(
+      { provider: "codex", model: "gpt-5.6-sol", reasoning: "high", session_id: "run-123" },
+      "$.runtime",
+      { requireSessionId: true }
+    ),
+    []
+  );
+  for (const sessionId of ["", "   "]) {
+    assert.ok(
+      runtimeRecordIssues(
+        { provider: "codex", model: "gpt-5.6-sol", reasoning: "high", session_id: sessionId },
+        "$.runtime",
+        { requireSessionId: true }
+      ).some(
+        (item) =>
+          item.path === "$.runtime.session_id" &&
+          item.message === "must be null or a non-empty string"
+      )
+    );
+  }
 });
 
 test("external effect receipts bind target, authority, attempt, receipt, and observation", () => {

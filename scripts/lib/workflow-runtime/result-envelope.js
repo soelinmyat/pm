@@ -40,9 +40,9 @@ function runtimeRecordIssues(runtime, runtimePath = "$.runtime", options = {}) {
   if (
     runtime.session_id !== undefined &&
     runtime.session_id !== null &&
-    typeof runtime.session_id !== "string"
+    (typeof runtime.session_id !== "string" || runtime.session_id.trim().length === 0)
   ) {
-    errors.push(issue(`${runtimePath}.session_id`, "must be null or a string"));
+    errors.push(issue(`${runtimePath}.session_id`, "must be null or a non-empty string"));
   }
   return errors;
 }
