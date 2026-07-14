@@ -1,7 +1,7 @@
 # Wave 6 — Ship and Release Transaction v2
 
 **Date:** 2026-07-14  
-**Status:** implementation  
+**Status:** certified; release preparation pending  
 **Base:** `origin/main` at `12177f26063176b64b36b2aef2e99bf787a4e3fa` (`v1.13.26`)  
 **Branch:** `codex/ship-v2`
 
@@ -176,3 +176,11 @@ Run plugin validation, the full suite, Ship behavioral fixtures, installed-cache
 - Granting external-effect authority from preferences or prior successful releases.
 - Moving external mutations into implementation/review workers.
 - Redesigning tracker-specific APIs beyond the shared journal contract.
+
+## Certification record
+
+- Full quality suite: 1,882 tests; 1,881 passed, 1 dependency-sensitive skip, 0 failures.
+- Eval tree and plugin contract: clean; all 21 plugin rules passed in source, Claude cache, and Codex cache.
+- GPT-5.6 Sol High live Ship resume: passed (`20260714T061122Z--quality-ship-resume--codex`). It observed the ambiguous Push, reconciled attempt 1, issued no duplicate push, preserved user state, and stopped at the authorized boundary.
+- Opus 4.8 xHigh live Ship resume: unavailable because the isolated Claude runner had no authenticated session. No workflow verdict was inferred from the authentication failure.
+- The live run exposed and drove two eval-harness remediations: `git remote get-url --push` no longer trips the mutation detector, and an exact successful revalidation invocation may be one segment of a compound shell command without accepting echoed mentions.

@@ -148,7 +148,7 @@ Make Groom the next full lifecycle migration:
 
 ### Wave 6 — Ship and release transaction v2
 
-**State:** implementation in progress on `codex/ship-v2`. Detailed plan in `docs/plans/2026-07-14-ship-release-transaction-v2-wave-6.md`.
+**State:** implementation and certification complete on `codex/ship-v2`; release preparation pending. Detailed plan in `docs/plans/2026-07-14-ship-release-transaction-v2-wave-6.md`.
 
 Resolve the delivery boundary exposed during Wave 3B:
 
