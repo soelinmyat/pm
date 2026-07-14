@@ -104,6 +104,7 @@ Stop.
    strategic_fit: "{which priority}"
    competitor_gap: {unique|partial|parity}
    dependencies: [] | ["{dependency}"]
+   reasoning_version: 2
    decision_brief: "backlog/{idea-slug}.decision.json"
    created: YYYY-MM-DD
    updated: YYYY-MM-DD

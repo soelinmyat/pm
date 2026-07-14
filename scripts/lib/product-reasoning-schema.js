@@ -650,9 +650,7 @@ function reconcileFeatureInventory(previous, proposed, resolutions = {}) {
   const priorFeatures = flattenFeatures(previous);
   const proposedFeatures = flattenFeatures(proposed);
   if (!record(resolutions)) throw new Error("feature resolutions must be an object");
-  const proposedKeys = new Set(proposedFeatures.map((feature) => feature.key));
   for (const [key, choice] of Object.entries(resolutions)) {
-    if (!proposedKeys.has(key)) throw new Error(`feature resolution key ${key} is unknown`);
     if (choice !== "new" && !/^feat-[a-f0-9]{20}$/.test(choice || ""))
       throw new Error(`feature resolution ${key} must be a candidate feature ID or new`);
   }
@@ -686,6 +684,20 @@ function reconcileFeatureInventory(previous, proposed, resolutions = {}) {
       claims.set(candidate.feature.feature_id, rows);
     }
   }
+  const ambiguousKeys = new Set(
+    analyses
+      .filter(
+        (analysis) =>
+          analysis.top.length > 1 ||
+          analysis.top.some(
+            (candidate) => (claims.get(candidate.feature.feature_id) || []).length > 1
+          )
+      )
+      .map((analysis) => analysis.feature.key)
+  );
+  for (const key of Object.keys(resolutions))
+    if (!ambiguousKeys.has(key))
+      throw new Error(`feature resolution key ${key} is not an unresolved ambiguity`);
   const used = new Set();
   const ambiguousCandidates = new Set();
   const ambiguous = [];
@@ -694,10 +706,11 @@ function reconcileFeatureInventory(previous, proposed, resolutions = {}) {
     const collision = analysis.top.some(
       (candidate) => (claims.get(candidate.feature.feature_id) || []).length > 1
     );
-    const choice = resolutions[analysis.feature.key];
+    const hasChoice = Object.hasOwn(resolutions, analysis.feature.key);
+    const choice = hasChoice ? resolutions[analysis.feature.key] : undefined;
     if (analysis.top.length > 1 || collision) {
       const candidateIds = analysis.top.map((item) => item.feature.feature_id).sort();
-      if (choice !== undefined) {
+      if (hasChoice) {
         if (choice !== "new" && !candidateIds.includes(choice))
           throw new Error(
             `feature resolution ${analysis.feature.key} must select a reported candidate or new`
@@ -720,22 +733,12 @@ function reconcileFeatureInventory(previous, proposed, resolutions = {}) {
       continue;
     }
     const match = analysis.top[0]?.feature || null;
-    if (choice !== undefined) {
-      const allowed = match ? [match.feature_id] : [];
-      if (choice !== "new" && !allowed.includes(choice))
-        throw new Error(
-          `feature resolution ${analysis.feature.key} must select a reported candidate or new`
-        );
-    }
-    const selected =
-      choice === "new"
-        ? featureId(proposed.source_project, analysis.feature.key)
-        : choice || match?.feature_id || featureId(proposed.source_project, analysis.feature.key);
+    const selected = match?.feature_id || featureId(proposed.source_project, analysis.feature.key);
     if (used.has(selected))
       throw new Error(
         `feature resolution ${analysis.feature.key} reuses claimed identity ${selected}`
       );
-    if (match || choice !== undefined) used.add(selected);
+    if (match) used.add(selected);
     resolved.set(analysis.feature.key, selected);
   }
   ambiguous.sort((left, right) => left.key.localeCompare(right.key));

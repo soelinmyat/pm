@@ -133,7 +133,7 @@ If `linear_id` is set in `.pm/dev-sessions/{slug}/session.json` (or RFC metadata
 
   Originated from Linear issue {linear_id}. Product memory created at ship.
   ```
-- Run `node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir pm` to verify. Fix errors before proceeding.
+- Run `node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "{pm_dir}" --source-dir "{source_dir}"` to verify. Fix errors before proceeding.
 - Log: `Backlog created: {pm_dir}/backlog/{slug}.md (id: {linear_id})`
 
 **Step 2: Update local backlog item(s) to done.**

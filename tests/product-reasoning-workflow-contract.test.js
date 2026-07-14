@@ -28,6 +28,7 @@ test("Ideate delegates ordering and conflict checks to the shared deterministic 
   assert.match(skill, /rank-ideas/);
   assert.match(skill, /non-goal conflicts block saving/i);
   assert.match(skill, /decision\.json/);
+  assert.match(skill, /reasoning_version:\s*2/);
 });
 
 test("Strategy exposes stable tokens without expanding the interview ceremony", () => {
@@ -41,6 +42,7 @@ test("Features reconciles identity before review and writes both readers from on
   const reference = read("skills/dev/references/features.md");
   assert.match(reference, /reconcile-features/);
   assert.match(reference, /Never write an ambiguous inventory/i);
+  assert.match(reference, /Immediately before rendering, run reconciliation once more/i);
   assert.match(reference, /Render `features\.md` from the approved in-memory record/);
   assert.match(reference, /features\.json/);
   assert.match(reference, /product-reasoning-quality-check/);

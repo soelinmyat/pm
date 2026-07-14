@@ -7,7 +7,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { validate } = require("../scripts/validate");
-const { decisionId } = require("../scripts/lib/product-reasoning-schema");
+const { decisionId, featureSourceSnapshot } = require("../scripts/lib/product-reasoning-schema");
 
 function sha(bytes) {
   return `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`;
@@ -152,6 +152,8 @@ test("lineage frontmatter requires canonical companions in Strategy, Think, and 
 test("KB-relative feature bindings validate in nested and flat PM layouts", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reasoning-layouts-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const sourceDir = path.join(root, "source");
+  fs.mkdirSync(sourceDir);
   for (const pm of [path.join(root, "nested", "pm"), path.join(root, "flat-kb")]) {
     fs.mkdirSync(path.join(pm, "product"), { recursive: true });
     const inventory = JSON.parse(
@@ -161,14 +163,35 @@ test("KB-relative feature bindings validate in nested and flat PM layouts", (t) 
       )
     );
     const features = inventory.areas.flatMap((area) => area.features);
+    for (const sourceRef of new Set(features.flatMap((feature) => feature.source_refs))) {
+      const sourcePath = path.join(sourceDir, sourceRef);
+      fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
+      if (!fs.existsSync(sourcePath)) fs.writeFileSync(sourcePath, `${sourceRef}\n`);
+    }
+    const snapshot = featureSourceSnapshot(
+      sourceDir,
+      features.flatMap((feature) => feature.source_refs)
+    );
+    inventory.scan = {
+      mode: "filesystem",
+      files_scanned: snapshot.file_count,
+      files_total: snapshot.file_count,
+      commit: null,
+      snapshot_sha256: snapshot.snapshot_sha256,
+    };
     const markdown = Buffer.from(
       `---\ngenerated: 2026-07-14\nsource_project: example\nfiles_scanned: 20\nfeature_count: ${features.length}\narea_count: ${inventory.areas.length}\nareas:\n${inventory.areas.map((area) => `  - ${area.name}`).join("\n")}\n---\n\n# Features\n\n${features.map((feature) => `### ${feature.name}`).join("\n\n")}\n`
     );
     fs.writeFileSync(path.join(pm, "product", "features.md"), markdown);
     inventory.markdown_binding.sha256 = sha(markdown);
     fs.writeFileSync(path.join(pm, "product", "features.json"), JSON.stringify(inventory));
-    const result = validate(pm);
+    const result = validate(pm, { sourceDir });
     assert.equal(result.errors.length, 0, JSON.stringify(result.details));
+    const staleRef = features[0].source_refs[0];
+    fs.writeFileSync(path.join(sourceDir, staleRef), "changed\n");
+    const stale = validate(pm, { sourceDir });
+    assert.ok(stale.errors.some((entry) => entry.msg.includes("snapshot does not match")));
+    fs.writeFileSync(path.join(sourceDir, staleRef), `${staleRef}\n`);
   }
 });
 

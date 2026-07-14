@@ -16,6 +16,7 @@ const { CANONICAL_CARD_STATUSES } = require("./loop-card-state.js");
 const { validateCitationBindings, validateEvidenceLedger } = require("./lib/evidence-schema.js");
 const {
   validateDecisionBrief,
+  validateFeatureSourceRefs,
   validateFeatureInventory,
 } = require("./lib/product-reasoning-schema.js");
 const { readProjectInput } = require("./lib/safe-project-output.js");
@@ -928,7 +929,7 @@ function validateFeaturesFile(pmDir, filePath, content, errors) {
   }
 }
 
-function validateProductReasoningJson(pmDir, filePath, errors, expectedType) {
+function validateProductReasoningJson(pmDir, filePath, errors, expectedType, sourceDir = null) {
   const relativeFile = relativeToPm(pmDir, filePath);
   let bytes;
   let value;
@@ -949,6 +950,14 @@ function validateProductReasoningJson(pmDir, filePath, errors, expectedType) {
       ? verifyDecisionBriefBindings(pmDir, value)
       : verifyArtifactBindings(pmDir, [value.markdown_binding]);
   for (const issue of bindingIssues) pushIssue(errors, relativeFile, "binding", issue);
+  if (expectedType === "feature-inventory") {
+    if (!sourceDir) {
+      pushIssue(errors, relativeFile, "source_refs", "source directory is required for validation");
+    } else {
+      for (const issue of validateFeatureSourceRefs(value, sourceDir))
+        pushIssue(errors, relativeFile, "source_refs", issue);
+    }
+  }
 }
 
 function validateReasoningFrontmatter(pmDir, markdownPath, data, errors, kind) {
@@ -1100,7 +1109,7 @@ function validateConfig(configPath) {
   return { errors };
 }
 
-function validate(pmDir) {
+function validate(pmDir, options = {}) {
   const errors = [];
   const warnings = [];
   const backlogIds = new Map();
@@ -1279,7 +1288,13 @@ function validate(pmDir) {
   }
   const featureInventoryPath = path.join(pmDir, "product", "features.json");
   if (fs.existsSync(featureInventoryPath)) {
-    validateProductReasoningJson(pmDir, featureInventoryPath, errors, "feature-inventory");
+    validateProductReasoningJson(
+      pmDir,
+      featureInventoryPath,
+      errors,
+      "feature-inventory",
+      options.sourceDir || null
+    );
   }
 
   validateMemoryDocument(pmDir, "memory.md", "project-memory", false, errors);
@@ -1326,10 +1341,14 @@ function main() {
     return;
   }
   let pmDir = null;
+  let sourceDir = process.cwd();
 
   for (let index = 0; index < args.length; index++) {
     if (args[index] === "--dir" && args[index + 1]) {
       pmDir = args[index + 1];
+      index++;
+    } else if (args[index] === "--source-dir" && args[index + 1]) {
+      sourceDir = args[index + 1];
       index++;
     }
   }
@@ -1343,7 +1362,7 @@ function main() {
     process.exit(1);
   }
 
-  const { errors, warnings, backlogCount } = validate(pmDir);
+  const { errors, warnings, backlogCount } = validate(pmDir, { sourceDir });
   const result = {
     ok: errors.length === 0,
     backlog_items: backlogCount,

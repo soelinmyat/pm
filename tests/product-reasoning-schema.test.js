@@ -534,3 +534,28 @@ test("feature reconciliation applies explicit rename, merge, split, and new reso
     /reported candidate/
   );
 });
+
+test("feature resolutions are own-property and ambiguity-only", () => {
+  const exactFeatures = [
+    "constructor",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+  ].map((key) => feature(key));
+  const previous = inventory(exactFeatures);
+  const proposed = inventory(structuredClone(exactFeatures));
+  const unchanged = reconcileFeatureInventory(previous, proposed);
+  assert.equal(unchanged.inventory.areas[0].features[0].feature_id, exactFeatures[0].feature_id);
+  assert.throws(
+    () => reconcileFeatureInventory(previous, proposed, { constructor: "new" }),
+    /not an unresolved ambiguity/
+  );
+  assert.throws(
+    () => reconcileFeatureInventory(previous, proposed, { two: exactFeatures[1].feature_id }),
+    /not an unresolved ambiguity/
+  );
+});

@@ -9,6 +9,7 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { buildApproval, proposalContentHash } = require("../scripts/lib/proposal-schema");
 const { promote } = require("../scripts/product-reasoning");
+const { validate } = require("../scripts/validate");
 
 const CLI = path.join(__dirname, "..", "scripts", "product-reasoning.js");
 
@@ -264,6 +265,21 @@ test("promote requires exact approved Groom lineage and atomically closes origin
   assert.equal(promoted.source_artifacts[0].path, targetRef);
   result = run(["validate", "--root", root, "--input", path.join(root, decisionPath)]);
   assert.equal(result.status, 0, result.stderr);
+
+  proposal.lifecycle = "planned";
+  proposal.updated_at = "2026-07-14T03:00:00.000Z";
+  const plannedProposalBytes = Buffer.from(`${JSON.stringify(proposal, null, 2)}\n`);
+  fs.writeFileSync(path.join(root, targetRef), plannedProposalBytes);
+  result = run(["validate", "--root", root, "--input", path.join(root, decisionPath)]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.ok(validate(root).errors.every((entry) => entry.file !== decisionPath));
+
+  proposal.requirements[0].statement += " Substantive unapproved change.";
+  fs.writeFileSync(path.join(root, targetRef), `${JSON.stringify(proposal, null, 2)}\n`);
+  result = run(["validate", "--root", root, "--input", path.join(root, decisionPath)]);
+  assert.equal(result.status, 2);
+  assert.match(result.stdout, /content hash/);
+  fs.writeFileSync(path.join(root, targetRef), plannedProposalBytes);
 
   promoted.promotion.approval_decision.id = "different-groom-decision";
   fs.writeFileSync(path.join(root, decisionPath), JSON.stringify(promoted));

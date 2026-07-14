@@ -44,21 +44,26 @@ function verifyArtifactBindings(root, bindings, options = {}) {
 
 function verifyDecisionBriefBindings(root, brief) {
   const cache = new Map();
-  const issues = verifyArtifactBindings(root, brief.source_artifacts, { cache });
-  if (issues.length || brief.promotion?.status !== "promoted") return issues;
-  const targetRef = brief.promotion.target_ref;
+  const promoted = brief.promotion?.status === "promoted";
+  const targetRef = promoted ? brief.promotion.target_ref : null;
+  const exactBindings = promoted
+    ? brief.source_artifacts.filter((artifact) => artifact.path !== targetRef)
+    : brief.source_artifacts;
+  const issues = verifyArtifactBindings(root, exactBindings, { cache });
+  if (issues.length || !promoted) return issues;
   try {
     const approved = readApprovedProposal(path.resolve(root, targetRef), {
       projectRoot: root,
       expectedSlug: brief.slug,
       expectedDecision: brief.promotion.approval_decision,
     });
-    if (!approved.exactBytesCurrent)
-      issues.push(`${targetRef}: approval does not bind the exact current proposal bytes`);
-    const verifiedProposal = cache.get(targetRef)?.bytes;
+    const targetBinding = brief.source_artifacts.find((artifact) => artifact.path === targetRef);
+    if (targetBinding?.sha256 !== approved.approval.proposal_sha256)
+      issues.push(`${targetRef}: persisted promotion does not bind the approved proposal revision`);
+    const verifiedProposal = readProjectInput(root, targetRef, MAX_BINDING_FILE_BYTES).bytes;
     const approvalRef = targetRef.replace(/\.json$/, ".approval.json");
     const verifiedApproval = cache.get(approvalRef)?.bytes;
-    if (!verifiedProposal?.equals(approved.source.bytes))
+    if (!verifiedProposal.equals(approved.source.bytes))
       issues.push(`${targetRef}: proposal bytes changed during validation`);
     if (!verifiedApproval?.equals(approved.approvalSource.bytes))
       issues.push(`${approvalRef}: approval bytes changed during validation`);
