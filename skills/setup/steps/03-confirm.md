@@ -22,6 +22,8 @@ Print a short confirmation based on the action taken:
 | `disable ahrefs` | "Ahrefs SEO disabled." |
 | `separate-repo` | "Config written to both repos. Run `pm:start` to activate separate-repo mode." |
 
+Base the confirmation on the verified receipt, not on the command having run. If the effect was replayed, say the requested value was already verified. If it stopped blocked or ambiguous, report the recovery action instead of a success message.
+
 ## Constraints
 
 - This skill toggles integrations and configures separate-repo mode. It does not initialize the project — that is `/pm:start`.
@@ -30,6 +32,6 @@ Print a short confirmation based on the action taken:
 
 ## Done-when
 
-The user has a plain-language summary of the verified config effect, its owning repo, and any action still required to activate it.
+The user has a plain-language summary of the verified config effect and receipt, its owning repo, and any action still required to activate it.
 
 Offer the concrete next action: run `/pm:start` after repo-linking changes, invoke the enabled integration's workflow, or stop when no further activation is needed.

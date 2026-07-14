@@ -12,7 +12,7 @@ Apply exactly one supported config change without disturbing unrelated config st
 
 ## How
 
-Validate the owning config first, then patch only the selected field and re-read the saved JSON before advancing.
+Validate the owning config first, then run the receipt-backed config effect for only the selected field. Do not write `.pm/config.json` directly.
 
 ### Check config exists
 
@@ -20,7 +20,25 @@ Read `.pm/config.json` from the project root. If it does not exist, tell the use
 
 ### Update the config
 
-Read the full JSON, update only the relevant field (see integration table in Step 1), and write the file back. Preserve all other fields. Do not delete existing config fields when writing back.
+Map the action through the integration table in Step 1, encode its value as JSON, and run:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/config-effect.js" \
+  --project-dir "$PWD" \
+  --field "{config.path}" \
+  --value-json '{json-value}' \
+  --authorize update_config
+```
+
+The explicit `/pm:setup enable|disable {integration}` request grants only `update_config` for the named field. The script plans against the current config hash, atomically preserves unrelated fields, re-reads the target, and stores a private journal under `.pm/effects/`.
+
+Read its JSON result:
+
+- `state: verified` — continue. `replayed: true` means the intended value was already verified and no write was repeated.
+- `state: blocked` — stop and show `recovery.code`, its reason, and `recovery.command`.
+- `state: ambiguous` — do not retry. Show the journal path and exact recovery action so the target can be inspected first.
+
+Never treat process exit alone as success and never repair the file with an ad hoc second write.
 
 ### Config Schema v2 Fields
 
@@ -39,10 +57,10 @@ Rules:
 
 ### Linear enable extras
 
-When enabling Linear (`enable linear`), after setting `integrations.linear.enabled` to `true`, check if `integrations.linear.team` and `integrations.linear.project` are already set. If not, ask the user for their Linear team slug and project name, then write those to the config.
+When enabling Linear (`enable linear`), after the enabled effect verifies, check if `integrations.linear.team` and `integrations.linear.project` are already set. If not, ask the user for their Linear team slug and project name. Apply each confirmed field through the same command and authority action; each receives its own exact intent and receipt.
 
 ## Done-when
 
-The requested field and any user-confirmed Linear details are durably written, unrelated fields are preserved, and the saved JSON parses successfully.
+Every requested field has a `verified` effect result, unrelated fields are preserved, the saved JSON parses successfully, and any non-verified result has stopped with its journal-backed recovery action.
 
 **Advance:** proceed to Step 3 (Confirm).
