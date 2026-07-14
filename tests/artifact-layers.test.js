@@ -25,20 +25,20 @@ test("proposal format documents the three layered reader paths", () => {
   const content = read("skills/groom/references/proposal-format.md");
 
   assertInOrder(content, ["Decision Brief", "Execution Contract", "Appendix"]);
-  assert.match(content, /Contract wins/i);
-  assert.match(content, /Target <= 400 words/);
-  assert.match(content, /Target <= 900 words/);
-  assert.match(content, /warn first/i);
+  assert.match(content, /canonical product source/i);
+  assert.match(content, /deterministically generates/i);
+  assert.match(content, /RFC and Dev consume the structured scope/i);
+  assert.match(content, /offline, inert, accessible, responsive, and printable/i);
 });
 
 test("groom draft step instructs authors to fill the brief and execution contract", () => {
-  const content = read("skills/groom/steps/07-draft-proposal.md");
+  const content = read("skills/groom/steps/06-draft.md");
 
-  assert.match(content, /coherent layered proposal/i);
-  assert.match(content, /Decision Brief/);
-  assert.match(content, /Execution Contract/);
-  assert.match(content, /contract wins/i);
-  assert.match(content, /execution-contract/);
+  assert.match(content, /one canonical proposal JSON/i);
+  assert.match(content, /proposal-render\.js/);
+  assert.match(content, /proposal-check\.js/);
+  assert.match(content, /proposal-quality-check\.js/);
+  assert.match(content, /generated projections/i);
 });
 
 test("RFC template puts brief and contract before appendix detail", () => {

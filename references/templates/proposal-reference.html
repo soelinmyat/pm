@@ -482,6 +482,7 @@
   table {
     width: 100%;
     max-width: var(--wide);
+    table-layout: fixed;
     border-collapse: collapse;
     margin: var(--space-4) 0;
     font-family: var(--serif);
@@ -648,11 +649,17 @@
 
   @media (max-width: 640px) {
     body { font-size: 1rem; }
+    .page { padding-left: var(--space-4); padding-right: var(--space-4); }
+    .masthead { align-items: flex-start; flex-direction: column; gap: var(--space-2); }
+    .masthead-meta { gap: var(--space-2) var(--space-3); }
+    .masthead-meta span:not(:last-child)::after { margin-left: var(--space-3); }
     .tldr dl { grid-template-columns: 1fr; gap: var(--space-1); }
     .tldr dt { margin-top: var(--space-2); }
     .usecase dl, .pipeline-row { grid-template-columns: 1fr; margin-left: 0; gap: var(--space-1); }
     .open-q-rec, .open-q-meta { margin-left: 0; }
     .hero-prototype-preview { min-height: 8rem; padding: var(--space-5); }
+    th, td, dd, p, li, code { overflow-wrap: anywhere; word-break: normal; }
+    .execution-contract th { width: 7rem; }
   }
   .skip-link { position: fixed; left: 1rem; top: -4rem; z-index: 1000; padding: .6rem .8rem; background: var(--ink); color: var(--bg); font-family: var(--sans); }
   .skip-link:focus { top: 1rem; }
