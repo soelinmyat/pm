@@ -17,6 +17,7 @@
     "validate:plugin": "node scripts/validate.js --plugin",
     "skill:audit": "node scripts/skill-audit.js",
     "quality": "npm run lint && npm run format && npm run test && npm run eval:check",
+    "prepare-release": "node scripts/prepare-release.js",
     "bump": "node scripts/bump-version.js"
   },
   "devDependencies": {

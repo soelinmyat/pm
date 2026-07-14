@@ -1,0 +1,214 @@
+"use strict";
+
+const test = require("node:test");
+const assert = require("node:assert/strict");
+
+const {
+  bindReleaseEvidence,
+  beginEffect,
+  createReleaseTransaction,
+  planEffect,
+  reconcileEffect,
+  releaseReadiness,
+  transactionIssues,
+} = require("../scripts/lib/release-transaction-schema");
+
+const COMMIT = "a".repeat(40);
+const MERGE = "b".repeat(40);
+
+function transaction() {
+  return createReleaseTransaction({
+    runId: "dev_release_1",
+    slug: "release-example",
+    repository: "acme/widget",
+    deliveryRemote: "origin",
+    headBranch: "codex/release-example",
+    baseBranch: "main",
+    pushUrlSha256: `sha256:${"c".repeat(64)}`,
+    currentVersion: "1.2.3",
+    nextVersion: "1.2.4",
+    preparedCommit: COMMIT,
+    manifestHashes: [{ path: "plugin.config.json", sha256: `sha256:${"d".repeat(64)}` }],
+    timestamp: "2026-07-14T00:00:00.000Z",
+  });
+}
+
+test("release transaction binds a tagless prepared commit before final evidence", () => {
+  const value = transaction();
+  assert.equal(value.release.tag, "v1.2.4");
+  assert.equal(value.release.prepared_commit, COMMIT);
+  assert.equal(value.release.tag_created, false);
+  assert.deepEqual(value.evidence, { review: null, qa: null, verification: null });
+  assert.deepEqual(transactionIssues(value), []);
+});
+
+test("effects are dependency ordered and root-owned", () => {
+  let value = transaction();
+  value = planEffect(value, {
+    effect: "create-pr",
+    target: { repository: "acme/widget", head: "codex/release-example", base: "main" },
+    timestamp: "2026-07-14T00:01:00.000Z",
+  });
+  assert.throws(
+    () =>
+      beginEffect(value, {
+        effect: "create-pr",
+        authority: { create_pr: true },
+        actor: "root",
+        timestamp: "2026-07-14T00:02:00.000Z",
+      }),
+    /requires verified effect push/
+  );
+  assert.throws(
+    () =>
+      beginEffect(value, {
+        effect: "create-pr",
+        authority: { create_pr: true },
+        actor: "worker",
+      }),
+    /root-owned/
+  );
+});
+
+test("missing authority is a durable denial, not an environment failure", () => {
+  let value = planEffect(transaction(), {
+    effect: "push",
+    target: { remote: "origin", branch: "codex/release-example", commit: COMMIT },
+    timestamp: "2026-07-14T00:01:00.000Z",
+  });
+  const result = beginEffect(value, {
+    effect: "push",
+    authority: { push_feature_branch: false },
+    actor: "root",
+    timestamp: "2026-07-14T00:02:00.000Z",
+  });
+  value = result.transaction;
+  assert.equal(result.decision, "denied");
+  assert.equal(value.effects.push.status, "denied");
+  assert.equal(value.effects.push.attempts[0].classification, "authority");
+  assert.equal(value.effects.push.attempts[0].error, "missing authority push_feature_branch");
+});
+
+test("ambiguous outcome observes before retry and verified effects never replay", () => {
+  let value = planEffect(transaction(), {
+    effect: "push",
+    target: { remote: "origin", branch: "codex/release-example", commit: COMMIT },
+    timestamp: "2026-07-14T00:01:00.000Z",
+  });
+  let begun = beginEffect(value, {
+    effect: "push",
+    authority: { push_feature_branch: true },
+    actor: "root",
+    timestamp: "2026-07-14T00:02:00.000Z",
+  });
+  value = begun.transaction;
+  assert.equal(begun.decision, "execute");
+  const resumed = beginEffect(value, {
+    effect: "push",
+    authority: { push_feature_branch: true },
+    actor: "root",
+  });
+  assert.equal(resumed.decision, "observe-first");
+  assert.equal(resumed.transaction.effects.push.attempts.length, 1);
+
+  const safe = reconcileEffect(value, {
+    effect: "push",
+    outcome: "absent",
+    observation: { remote_tip: null },
+    timestamp: "2026-07-14T00:03:00.000Z",
+  });
+  assert.equal(safe.decision, "retry-safe");
+  value = safe.transaction;
+  assert.equal(value.effects.push.status, "planned");
+
+  begun = beginEffect(value, {
+    effect: "push",
+    authority: { push_feature_branch: true },
+    actor: "root",
+    timestamp: "2026-07-14T00:04:00.000Z",
+  });
+  value = begun.transaction;
+  assert.equal(value.effects.push.attempts.length, 2);
+  const receipt = { remote_tip: COMMIT };
+  const verified = reconcileEffect(value, {
+    effect: "push",
+    outcome: "matched",
+    receipt,
+    observation: { target: value.effects.push.target, receipt },
+    timestamp: "2026-07-14T00:05:00.000Z",
+  });
+  assert.equal(verified.decision, "verified");
+  value = verified.transaction;
+  assert.equal(value.effects.push.status, "verified");
+  const noReplay = beginEffect(value, {
+    effect: "push",
+    authority: { push_feature_branch: true },
+    actor: "root",
+  });
+  assert.equal(noReplay.decision, "already-verified");
+  assert.equal(noReplay.transaction.effects.push.attempts.length, 2);
+});
+
+test("conflicting observation blocks instead of replaying", () => {
+  let value = planEffect(transaction(), {
+    effect: "push",
+    target: { remote: "origin", branch: "codex/release-example", commit: COMMIT },
+  });
+  value = beginEffect(value, {
+    effect: "push",
+    authority: { push_feature_branch: true },
+    actor: "root",
+  }).transaction;
+  const result = reconcileEffect(value, {
+    effect: "push",
+    outcome: "conflict",
+    observation: { remote_tip: "e".repeat(40) },
+    reason: "remote branch points to a different commit",
+  });
+  assert.equal(result.decision, "blocked");
+  assert.equal(result.transaction.effects.push.status, "blocked");
+});
+
+test("main tag cannot begin until merge is verified and conflicts never force move", () => {
+  let value = planEffect(transaction(), {
+    effect: "place-main-tag",
+    target: { remote: "origin", tag: "v1.2.4", merge_sha: MERGE, base: "main" },
+  });
+  assert.throws(
+    () =>
+      beginEffect(value, {
+        effect: "place-main-tag",
+        authority: { merge: true },
+        actor: "root",
+      }),
+    /requires verified effect merge/
+  );
+});
+
+test("release readiness consumes current canonical Review, QA, and verification evidence", () => {
+  let value = transaction();
+  for (const [kind, artifact, hashByte] of [
+    ["review", ".pm/dev-sessions/release-example/review/report.json", "1"],
+    ["qa", ".pm/dev-sessions/release-example/qa-result.json", "2"],
+    ["verification", ".pm/dev-sessions/release-example/gates.json", "3"],
+  ]) {
+    value = bindReleaseEvidence(value, {
+      kind,
+      commit: COMMIT,
+      artifact,
+      sha256: `sha256:${hashByte.repeat(64)}`,
+      checkedAt: "2026-07-14T00:10:00.000Z",
+    });
+  }
+  assert.deepEqual(releaseReadiness(value), { ok: true, issues: [] });
+  assert.throws(
+    () =>
+      bindReleaseEvidence(transaction(), {
+        kind: "review",
+        commit: "f".repeat(40),
+        artifact: "review.json",
+        sha256: `sha256:${"f".repeat(64)}`,
+      }),
+    /prepared commit/
+  );
+});

@@ -4,9 +4,28 @@
 const fs = require("fs");
 const path = require("path");
 
-const repoRoot = path.join(__dirname, "..");
+const cli = parseCli(process.argv.slice(2));
+const repoRoot = cli.root ? path.resolve(cli.root) : path.join(__dirname, "..");
 const configPath = path.join(repoRoot, "plugin.config.json");
-const checkMode = process.argv.includes("--check");
+const checkMode = cli.check;
+
+function parseCli(argv) {
+  const result = { check: false, root: null };
+  for (let index = 0; index < argv.length; index += 1) {
+    if (argv[index] === "--check") {
+      result.check = true;
+      continue;
+    }
+    if (argv[index] === "--root") {
+      const value = argv[++index];
+      if (!value || value.startsWith("--")) throw new Error("--root requires a value");
+      result.root = value;
+      continue;
+    }
+    throw new Error(`unknown argument ${argv[index]}`);
+  }
+  return result;
+}
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));

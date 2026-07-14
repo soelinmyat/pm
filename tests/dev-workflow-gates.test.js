@@ -351,6 +351,10 @@ test("source repo pre-push hook uses the shared gate checker for PM runtime chan
   assert.doesNotMatch(text, /for prefix in "codex\/" "feat\/" "fix\/" "chore\/" "release\/"/);
   assert.doesNotMatch(text, /tr '\[:upper:\]' '\[:lower:\]'/);
   assert.match(text, /verify_pm_commit_inventory/);
+  assert.match(text, /verify_release_preparation/);
+  assert.match(text, /release-transaction\.json/);
+  assert.match(text, /prepared release lacks current \$\{kind\} evidence/);
+  assert.doesNotMatch(text, /Git tag v\$version does not exist/);
   assert.match(text, /run_commit_tests/);
   assert.match(text, /git worktree add --detach --quiet "\$test_tmp" "\$commit"/);
   assert.match(text, /git worktree remove --force "\$test_tmp"/);

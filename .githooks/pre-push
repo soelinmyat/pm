@@ -187,6 +187,72 @@ verify_pm_commit_inventory() {
   return "$missing"
 }
 
+verify_release_preparation() {
+  local commit="$1"
+  local base_commit="$2"
+  local slug="$3"
+  local version=""
+  local base_version=""
+  local transaction=".pm/dev-sessions/${slug}/ship/release-transaction.json"
+  local session=".pm/dev-sessions/${slug}/session.json"
+
+  version=$(git show "$commit:plugin.config.json" 2>/dev/null | node -e '
+    let input = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", chunk => { input += chunk; });
+    process.stdin.on("end", () => process.stdout.write(JSON.parse(input).version || ""));
+  ') || return 1
+  base_version=$(git show "$base_commit:plugin.config.json" 2>/dev/null | node -e '
+    let input = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", chunk => { input += chunk; });
+    process.stdin.on("end", () => process.stdout.write(JSON.parse(input).version || ""));
+  ') || return 1
+  if [[ -z "$version" || "$version" == "$base_version" ]]; then
+    return 0
+  fi
+
+  # One-release compatibility: the legacy bump command created a feature tag.
+  # New releases use the prepared transaction and create the installable tag only on main.
+  if git tag -l "v$version" | grep -qx "v$version"; then
+    return 0
+  fi
+  if [[ ! -f "$transaction" || ! -f "$session" || -L "$transaction" || -L "$session" ]]; then
+    echo "ERROR: release version $version requires canonical prepared-release evidence."
+    echo "Expected $transaction and sibling session.json; feature-commit tags are not required."
+    return 1
+  fi
+  if ! node - "$transaction" "$session" "$commit" "$version" <<'NODE'
+const fs = require("node:fs");
+const [transactionPath, sessionPath, commit, version] = process.argv.slice(2);
+const transaction = JSON.parse(fs.readFileSync(transactionPath, "utf8"));
+const session = JSON.parse(fs.readFileSync(sessionPath, "utf8"));
+if (
+  transaction.schema_version !== 1 ||
+  transaction.run_id !== session.run_id ||
+  transaction.slug !== session.slug ||
+  transaction.owner?.role !== "root" ||
+  transaction.release?.next_version !== version ||
+  transaction.release?.tag !== `v${version}` ||
+  transaction.release?.prepared_commit !== commit ||
+  transaction.release?.tag_created !== false ||
+  transaction.source?.head_branch !== session.source?.branch ||
+  transaction.source?.base_branch !== session.source?.default_branch
+) {
+  throw new Error("prepared-release identity does not match pushed commit/session");
+}
+for (const kind of ["review", "qa", "verification"]) {
+  if (transaction.evidence?.[kind]?.commit !== commit) {
+    throw new Error(`prepared release lacks current ${kind} evidence`);
+  }
+}
+NODE
+  then
+    echo "ERROR: prepared-release evidence is invalid or stale for $commit."
+    return 1
+  fi
+}
+
 run_commit_tests() {
   local commit="$1"
   local branch="$2"
@@ -223,20 +289,6 @@ while read -r local_ref local_oid remote_ref remote_oid; do
     exit 1
   fi
 done
-
-# --- Version tag check ---
-manifest=".claude-plugin/plugin.json"
-if [[ -f "$manifest" ]]; then
-  version=$(python3 -c "import json; print(json.load(open('$manifest'))['version'])" 2>/dev/null)
-  if [[ -n "$version" ]]; then
-    if ! git tag -l "v$version" | grep -q "v$version"; then
-      echo "ERROR: Git tag v$version does not exist."
-      echo "The manifest version is $version but no matching tag was found."
-      echo "Run: git tag v$version"
-      exit 1
-    fi
-  fi
-fi
 
 # --- PM dev gate backstop ---
 zero_oid="0000000000000000000000000000000000000000"
@@ -305,6 +357,9 @@ for push_ref_line in "${push_ref_lines[@]}"; do
     if ! verify_pm_commit_inventory "$local_oid"; then
       exit 1
     fi
+  fi
+  if ! verify_release_preparation "$local_oid" "$authoritative_base_commit" "$gate_slug"; then
+    exit 1
   fi
 
   if [[ -f "$gate_manifest" ]]; then
