@@ -57,6 +57,6 @@ Do not use this skill when the user wants code explanation, architecture review,
 
 ## Before Marking Done
 
-- [ ] The reviewed Markdown and hash-bound v2 JSON inventory are saved with stable feature IDs, `{source_dir}`-relative source refs verified at `scan.commit`, a `{pm_dir}`-relative Markdown binding, and valid contracts.
+- [ ] The reviewed Markdown and hash-bound v2 JSON inventory are saved with stable feature IDs, `{source_dir}`-relative source refs verified at an exact Git commit or deterministic filesystem snapshot, a `{pm_dir}`-relative Markdown binding, and valid contracts.
 - [ ] The user confirmed capability grouping, calibration, and the final overwrite.
 - [ ] Overwrite guard, scan coverage, evidence, calibration bounds, user review, and validation gates passed.

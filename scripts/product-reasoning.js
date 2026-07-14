@@ -10,6 +10,7 @@ const { readApprovedProposal } = require("./lib/proposal-schema");
 const {
   decisionId,
   featureId,
+  featureSourceSnapshot,
   promoteDecisionBrief,
   rankIdeaBriefs,
   reconcileFeatureInventory,
@@ -47,13 +48,26 @@ function main(argv = process.argv.slice(2)) {
       const request = readBoundedJsonFile(required(args, "request"));
       result = reconcileFeatureInventory(request.previous || null, request.proposed);
       if (result.ambiguous.length) process.exitCode = 3;
+    } else if (command === "feature-snapshot") {
+      const request = readBoundedJsonFile(required(args, "request"));
+      if (
+        !request ||
+        typeof request !== "object" ||
+        Array.isArray(request) ||
+        Object.keys(request).some((field) => field !== "source_refs")
+      )
+        throw new Error("feature snapshot request must contain only source_refs");
+      result = featureSourceSnapshot(
+        path.resolve(required(args, "source_root")),
+        request.source_refs
+      );
     } else if (command === "promote") {
       const root = path.resolve(required(args, "root"));
       const request = readBoundedJsonFile(required(args, "request"));
       result = promote(root, request);
     } else
       throw new Error(
-        "command must be decision-id, feature-id, validate, rank-ideas, reconcile-features, or promote"
+        "command must be decision-id, feature-id, validate, rank-ideas, reconcile-features, feature-snapshot, or promote"
       );
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
   } catch (error) {
@@ -62,7 +76,7 @@ function main(argv = process.argv.slice(2)) {
   }
 }
 
-function promote(root, request) {
+function promote(root, request, options = {}) {
   if (!request || typeof request !== "object" || Array.isArray(request))
     throw new Error("promotion request must be an object");
   const fields = new Set([
@@ -100,16 +114,32 @@ function promote(root, request) {
 
   const decisionInput = readProjectInput(root, request.decision_path, 4 * 1024 * 1024);
   const brief = JSON.parse(decisionInput.bytes.toString("utf8"));
+  const canonical = canonicalOriginPaths(brief);
+  if (request.decision_path !== canonical.decision)
+    throw new Error(`promotion decision_path must equal ${canonical.decision}`);
+  if (!request.binding_paths.includes(canonical.markdown))
+    throw new Error(`promotion binding_paths must include canonical origin ${canonical.markdown}`);
   const approved = readApprovedProposal(path.resolve(root, request.target_ref), {
     projectRoot: root,
     expectedSlug: brief.slug,
     expectedDecision: request.approval_decision,
   });
+  if (!approved.exactBytesCurrent || approved.source.proposal.lifecycle !== "approved")
+    throw new Error("promotion requires the exact current approved proposal bytes");
+  const captured = new Map([
+    [request.target_ref, approved.source.bytes],
+    [approvalRef, approved.approvalSource.bytes],
+  ]);
+  let aggregateBytes = 0;
   const sourceArtifacts = request.binding_paths.map((bindingPath) => {
-    const input =
-      bindingPath === request.target_ref
-        ? { relative: bindingPath, bytes: approved.source.bytes }
-        : readProjectInput(root, bindingPath, 16 * 1024 * 1024);
+    const bytes = captured.get(bindingPath);
+    const input = bytes
+      ? { relative: bindingPath, bytes }
+      : readProjectInput(root, bindingPath, 16 * 1024 * 1024);
+    captured.set(bindingPath, input.bytes);
+    aggregateBytes += input.bytes.length;
+    if (aggregateBytes > 64 * 1024 * 1024)
+      throw new Error("promotion bindings exceed the 64 MiB aggregate budget");
     return {
       path: input.relative,
       sha256: `sha256:${crypto.createHash("sha256").update(input.bytes).digest("hex")}`,
@@ -123,6 +153,21 @@ function promote(root, request) {
   );
   writeProjectJsonAtomic(root, request.decision_path, promoted, {
     maxBytes: 4 * 1024 * 1024,
+    beforeSpawn() {
+      if (typeof options.beforeReattest === "function") options.beforeReattest();
+    },
+    attestations: [
+      {
+        path: decisionInput.relative,
+        sha256: sha256(decisionInput.bytes),
+        maxBytes: 4 * 1024 * 1024,
+      },
+      ...sourceArtifacts.map((artifact) => ({
+        path: artifact.path,
+        sha256: artifact.sha256,
+        maxBytes: 16 * 1024 * 1024,
+      })),
+    ],
   });
   return {
     promoted: true,
@@ -130,6 +175,24 @@ function promote(root, request) {
     target_ref: request.target_ref,
     bindings: sourceArtifacts,
   };
+}
+
+function canonicalOriginPaths(brief) {
+  if (brief.kind === "think")
+    return {
+      decision: `thinking/${brief.slug}.decision.json`,
+      markdown: `thinking/${brief.slug}.md`,
+    };
+  if (brief.kind === "idea")
+    return {
+      decision: `backlog/${brief.slug}.decision.json`,
+      markdown: `backlog/${brief.slug}.md`,
+    };
+  throw new Error("only Think and Ideate decision briefs can be promoted to Groom");
+}
+
+function sha256(bytes) {
+  return `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`;
 }
 
 function parse(argv) {
@@ -147,4 +210,4 @@ function required(args, key) {
   return args[key];
 }
 if (require.main === module) main();
-module.exports = { main };
+module.exports = { main, promote };

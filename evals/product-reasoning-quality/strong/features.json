@@ -4,9 +4,11 @@
   "generated_at": "2026-07-14T00:00:00Z",
   "source_project": "strong-product",
   "scan": {
+    "mode": "git",
     "files_scanned": 80,
     "files_total": 100,
-    "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "snapshot_sha256": null
   },
   "areas": [
     {

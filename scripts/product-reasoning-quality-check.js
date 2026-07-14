@@ -53,7 +53,12 @@ function scoreFeatureInventory(inventory) {
   const confidenceLevels = new Set(features.map((feature) => feature.confidence));
   const checks = [
     ["scan_coverage", inventory.scan.files_scanned / inventory.scan.files_total >= 0.6],
-    ["commit_bound", inventory.scan.commit !== null],
+    [
+      "source_snapshot_bound",
+      inventory.scan.mode === "git"
+        ? inventory.scan.commit !== null
+        : inventory.scan.snapshot_sha256 !== null,
+    ],
     ["concrete_outcomes", features.every((feature) => feature.outcome.length >= 50)],
     [
       "detailed_highlights",

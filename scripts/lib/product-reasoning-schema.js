@@ -1,8 +1,10 @@
 "use strict";
 
 const crypto = require("node:crypto");
+const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const { readProjectInput } = require("./safe-project-output");
 
 const DECISION_KINDS = new Set(["think", "idea", "strategy"]);
 const DECISION_STATUSES = new Set(["exploring", "confirmed", "parked"]);
@@ -13,6 +15,9 @@ const EVIDENCE_STRENGTH = Object.freeze({ hypothesis: 0, moderate: 1, strong: 2 
 const STRATEGIC_ALIGNMENT = Object.freeze({ weak: 0, partial: 1, strong: 2 });
 const COMPETITOR_GAP = Object.freeze({ parity: 0, partial: 1, unique: 2 });
 const SCOPE_EFFICIENCY = Object.freeze({ large: 0, medium: 1, small: 2 });
+const MAX_BINDINGS = 16;
+const MAX_SOURCE_FILE_BYTES = 4 * 1024 * 1024;
+const MAX_SOURCE_SNAPSHOT_BYTES = 64 * 1024 * 1024;
 
 function stableId(prefix, ...parts) {
   const canonical = parts.map((part) => normalizeToken(part)).join("\0");
@@ -96,6 +101,7 @@ function validateDecisionBrief(value) {
   stringArray(value.non_goals, "decision.non_goals", issues, { unique: true });
   validateTrigger(value.next_trigger, issues);
   validatePromotion(value.promotion, value.source_artifacts, issues);
+  const artifactPaths = new Set();
   array(
     value.source_artifacts,
     "decision.source_artifacts",
@@ -104,14 +110,18 @@ function validateDecisionBrief(value) {
       if (!record(entry)) return issues.push(`${at} must be an object`);
       closed(entry, ["path", "sha256"], at, issues);
       kbPath(entry.path, `${at}.path`, issues);
+      if (artifactPaths.has(entry.path)) issues.push(`${at}.path is duplicated`);
+      artifactPaths.add(entry.path);
       if (!/^sha256:[a-f0-9]{64}$/.test(entry.sha256 || "")) issues.push(`${at}.sha256 is invalid`);
     },
     { nonEmpty: true }
   );
+  if (value.source_artifacts?.length > MAX_BINDINGS)
+    issues.push(`decision.source_artifacts cannot exceed ${MAX_BINDINGS} entries`);
   if (value.kind === "strategy") validateStrategyContext(value.strategy_context, issues);
   else if (value.strategy_context !== undefined)
     issues.push("decision.strategy_context is strategy-only");
-  if (value.kind === "idea") validateAlignment(value.alignment, issues);
+  if (value.kind === "idea") validateAlignment(value.alignment, value.evidence_refs, issues);
   else if (value.alignment !== undefined) issues.push("decision.alignment is idea-only");
   timestamp(value.created_at, "decision.created_at", issues);
   timestamp(value.updated_at, "decision.updated_at", issues);
@@ -187,7 +197,11 @@ function validatePromotion(promotion, sourceArtifacts, issues) {
       issues.push("promoted decision target_kind must be groom");
     kbPath(promotion.target_ref, "decision.promotion.target_ref", issues);
     timestamp(promotion.confirmed_at, "decision.promotion.confirmed_at", issues);
-    if (!(sourceArtifacts || []).some((artifact) => artifact?.path === promotion.target_ref))
+    if (
+      !(Array.isArray(sourceArtifacts) ? sourceArtifacts : []).some(
+        (artifact) => artifact?.path === promotion.target_ref
+      )
+    )
       issues.push("promoted decision target_ref must be a source artifact binding");
   } else {
     if (promotion.target_kind !== null) issues.push("unpromoted decision target_kind must be null");
@@ -218,7 +232,7 @@ function validateStrategyContext(context, issues) {
   }
 }
 
-function validateAlignment(alignment, issues) {
+function validateAlignment(alignment, evidenceRefs, issues) {
   if (!record(alignment)) return issues.push("idea decision requires alignment");
   closed(
     alignment,
@@ -246,6 +260,15 @@ function validateAlignment(alignment, issues) {
   });
   if (!(alignment.evidence_strength in EVIDENCE_STRENGTH))
     issues.push("decision.alignment.evidence_strength is invalid");
+  const evidenceCount = new Set(
+    (Array.isArray(evidenceRefs) ? evidenceRefs : [])
+      .map((entry) => entry?.evidence_id || entry?.ref)
+      .filter(Boolean)
+  ).size;
+  if (alignment.evidence_strength === "strong" && evidenceCount < 3)
+    issues.push("strong idea evidence requires at least three distinct signals");
+  if (alignment.evidence_strength === "moderate" && (evidenceCount < 1 || evidenceCount > 2))
+    issues.push("moderate idea evidence requires one or two distinct signals");
   if (!(alignment.competitor_gap in COMPETITOR_GAP))
     issues.push("decision.alignment.competitor_gap is invalid");
   stringArray(alignment.dependencies, "decision.alignment.dependencies", issues, { unique: true });
@@ -362,7 +385,14 @@ function validateFeatureInventory(value) {
   slug(value.source_project, "inventory.source_project", issues);
   if (!record(value.scan)) issues.push("inventory.scan must be an object");
   else {
-    closed(value.scan, ["files_scanned", "files_total", "commit"], "inventory.scan", issues);
+    closed(
+      value.scan,
+      ["mode", "files_scanned", "files_total", "commit", "snapshot_sha256"],
+      "inventory.scan",
+      issues
+    );
+    if (!new Set(["git", "filesystem"]).has(value.scan.mode))
+      issues.push("inventory.scan.mode must be git or filesystem");
     integer(value.scan.files_scanned, "inventory.scan.files_scanned", issues, 1);
     integer(
       value.scan.files_total,
@@ -370,8 +400,16 @@ function validateFeatureInventory(value) {
       issues,
       value.scan.files_scanned || 1
     );
-    if (value.scan.commit !== null && !/^[a-f0-9]{40,64}$/.test(value.scan.commit || ""))
-      issues.push("inventory.scan.commit is invalid");
+    if (value.scan.mode === "git") {
+      if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(value.scan.commit || ""))
+        issues.push("git inventory.scan.commit must be a full object ID");
+      if (value.scan.snapshot_sha256 !== null)
+        issues.push("git inventory.scan.snapshot_sha256 must be null");
+    } else if (value.scan.mode === "filesystem") {
+      if (value.scan.commit !== null) issues.push("filesystem inventory.scan.commit must be null");
+      if (!/^sha256:[a-f0-9]{64}$/.test(value.scan.snapshot_sha256 || ""))
+        issues.push("filesystem inventory.scan.snapshot_sha256 is invalid");
+    }
   }
   const ids = new Set();
   const keys = new Set();
@@ -450,11 +488,9 @@ function validateFeatureInventory(value) {
 function validateFeatureSourceRefs(inventory, sourceRoot) {
   const issues = validateFeatureInventory(inventory);
   if (issues.length) return issues;
-  if (!inventory.scan.commit)
-    return ["inventory.scan.commit is required to verify feature source refs"];
   let root;
   try {
-    root = require("node:fs").realpathSync(path.resolve(sourceRoot));
+    root = fs.realpathSync(path.resolve(sourceRoot));
   } catch (error) {
     return [`source root is unavailable: ${error.message}`];
   }
@@ -463,6 +499,23 @@ function validateFeatureSourceRefs(inventory, sourceRoot) {
       inventory.areas.flatMap((area) => area.features.flatMap((feature) => feature.source_refs))
     ),
   ];
+  if (inventory.scan.mode === "filesystem") {
+    try {
+      const snapshot = featureSourceSnapshot(root, refs);
+      if (snapshot.snapshot_sha256 !== inventory.scan.snapshot_sha256)
+        issues.push("filesystem feature source snapshot does not match current source bytes");
+    } catch (error) {
+      issues.push(error.message);
+    }
+    return issues;
+  }
+  const commitType = spawnSync("git", ["-C", root, "cat-file", "-t", inventory.scan.commit], {
+    encoding: "utf8",
+    timeout: 10_000,
+    maxBuffer: 1024 * 1024,
+  });
+  if (commitType.error || commitType.status !== 0 || commitType.stdout.trim() !== "commit")
+    return ["inventory.scan.commit must resolve to an exact commit object"];
   const result = spawnSync("git", ["-C", root, "cat-file", "--batch-check=%(objecttype)"], {
     input: `${refs.map((ref) => `${inventory.scan.commit}:${ref}`).join("\n")}\n`,
     encoding: "utf8",
@@ -477,6 +530,39 @@ function validateFeatureSourceRefs(inventory, sourceRoot) {
   return issues;
 }
 
+function featureSourceSnapshot(sourceRoot, sourceRefs) {
+  if (!Array.isArray(sourceRefs) || sourceRefs.length === 0)
+    throw new Error("feature snapshot source_refs must be non-empty");
+  if (sourceRefs.length > 320) throw new Error("feature snapshot source_refs cannot exceed 320");
+  const validationIssues = [];
+  stringArray(sourceRefs, "feature snapshot source_refs", validationIssues, {
+    sourcePath: true,
+    unique: true,
+  });
+  if (validationIssues.length) throw new Error(validationIssues.join("; "));
+  const root = fs.realpathSync(path.resolve(sourceRoot));
+  let totalBytes = 0;
+  const files = [...sourceRefs].sort().map((ref) => {
+    const input = readProjectInput(root, ref, MAX_SOURCE_FILE_BYTES);
+    totalBytes += input.bytes.length;
+    if (totalBytes > MAX_SOURCE_SNAPSHOT_BYTES)
+      throw new Error("feature source snapshot exceeds the 64 MiB aggregate budget");
+    return {
+      path: input.relative,
+      bytes: input.bytes.length,
+      sha256: `sha256:${crypto.createHash("sha256").update(input.bytes).digest("hex")}`,
+    };
+  });
+  const digest = crypto.createHash("sha256");
+  for (const file of files) digest.update(`${file.path}\0${file.sha256}\0${file.bytes}\n`);
+  return {
+    snapshot_sha256: `sha256:${digest.digest("hex")}`,
+    file_count: files.length,
+    total_bytes: totalBytes,
+    files,
+  };
+}
+
 function reconcileFeatureInventory(previous, proposed) {
   const proposedIssues = validateFeatureInventory(proposed);
   if (proposedIssues.length)
@@ -487,40 +573,65 @@ function reconcileFeatureInventory(previous, proposed) {
       throw new Error(`invalid previous feature inventory: ${previousIssues.join("; ")}`);
   }
   const priorFeatures = flattenFeatures(previous);
+  const proposedFeatures = flattenFeatures(proposed);
+  const analyses = proposedFeatures.map((feature) => {
+    const exact = priorFeatures.find((old) => old.key === feature.key);
+    const candidates = exact
+      ? [{ feature: exact, overlap: 1, exact: true }]
+      : priorFeatures
+          .map((old) => ({
+            feature: old,
+            overlap: jaccard(old.source_refs, feature.source_refs),
+            exact: false,
+          }))
+          .filter((item) => item.overlap >= 0.6)
+          .sort(
+            (left, right) =>
+              right.overlap - left.overlap ||
+              left.feature.feature_id.localeCompare(right.feature.feature_id)
+          );
+    const best = candidates[0]?.overlap;
+    return {
+      feature,
+      top: candidates.filter((item) => item.overlap === best),
+    };
+  });
+  const claims = new Map();
+  for (const analysis of analyses) {
+    for (const candidate of analysis.top) {
+      const rows = claims.get(candidate.feature.feature_id) || [];
+      rows.push(analysis.feature.key);
+      claims.set(candidate.feature.feature_id, rows);
+    }
+  }
   const used = new Set();
   const ambiguous = [];
+  const resolved = new Map();
+  for (const analysis of analyses) {
+    const collision = analysis.top.some(
+      (candidate) => (claims.get(candidate.feature.feature_id) || []).length > 1
+    );
+    if (analysis.top.length > 1 || collision) {
+      ambiguous.push({
+        key: analysis.feature.key,
+        candidates: analysis.top.map((item) => item.feature.feature_id).sort(),
+      });
+      continue;
+    }
+    const match = analysis.top[0]?.feature || null;
+    if (match) used.add(match.feature_id);
+    resolved.set(
+      analysis.feature.key,
+      match?.feature_id || featureId(proposed.source_project, analysis.feature.key)
+    );
+  }
+  ambiguous.sort((left, right) => left.key.localeCompare(right.key));
   const areas = proposed.areas.map((area) => ({
     ...area,
-    features: area.features.map((feature) => {
-      const exact = priorFeatures.find(
-        (old) => !used.has(old.feature_id) && old.key === feature.key
-      );
-      const candidates = exact
-        ? [exact]
-        : priorFeatures
-            .filter((old) => !used.has(old.feature_id))
-            .map((old) => ({ ...old, overlap: jaccard(old.source_refs, feature.source_refs) }))
-            .filter((old) => old.overlap >= 0.6)
-            .sort((a, b) => b.overlap - a.overlap || a.feature_id.localeCompare(b.feature_id));
-      if (!exact && candidates.length > 1 && candidates[0].overlap === candidates[1].overlap) {
-        ambiguous.push({
-          key: feature.key,
-          candidates: candidates
-            .filter((item) => item.overlap === candidates[0].overlap)
-            .map((item) => item.feature_id),
-        });
-      }
-      const match =
-        exact ||
-        (candidates.length === 1 || candidates[0]?.overlap > candidates[1]?.overlap
-          ? candidates[0]
-          : null);
-      if (match) used.add(match.feature_id);
-      return {
-        ...feature,
-        feature_id: match?.feature_id || featureId(proposed.source_project, feature.key),
-      };
-    }),
+    features: area.features.map((feature) => ({
+      ...feature,
+      feature_id: resolved.get(feature.key) || featureId(proposed.source_project, feature.key),
+    })),
   }));
   return {
     inventory: { ...proposed, areas },
@@ -554,7 +665,7 @@ function normalizeProse(value) {
   return String(value || "")
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
 }
 
@@ -658,6 +769,7 @@ function stringArray(value, label, issues, options = {}) {
 module.exports = {
   decisionId,
   featureId,
+  featureSourceSnapshot,
   promoteDecisionBrief,
   rankIdeaBriefs,
   reconcileFeatureInventory,

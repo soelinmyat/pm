@@ -974,6 +974,7 @@ function readApprovedProposal(filePath, options = {}) {
     trustedApproval: true,
     source,
     approval: approvalSource.approval,
+    approvalSource,
     contract: executionContract(source.proposal),
     exactBytesCurrent: approvalResult.exact_bytes_current,
     approvalBasis: approvalResult.approval_basis,

@@ -7,6 +7,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { buildApproval, proposalContentHash } = require("../scripts/lib/proposal-schema");
+const { promote } = require("../scripts/product-reasoning");
 
 const CLI = path.join(__dirname, "..", "scripts", "product-reasoning.js");
 
@@ -43,6 +44,20 @@ test("JSON inputs reject symbolic links", (t) => {
   const result = run(["validate", "--input", link]);
   assert.equal(result.status, 1);
   assert.ok(result.stderr.length > 0);
+});
+
+test("feature-snapshot publishes deterministic bounded non-Git provenance", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-feature-snapshot-cli-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, "src"));
+  fs.writeFileSync(path.join(root, "src", "feature.js"), "export const feature = true;\n");
+  const request = path.join(root, "request.json");
+  fs.writeFileSync(request, JSON.stringify({ source_refs: ["src/feature.js"] }));
+  const first = run(["feature-snapshot", "--source-root", root, "--request", request]);
+  const second = run(["feature-snapshot", "--source-root", root, "--request", request]);
+  assert.equal(first.status, 0, first.stderr);
+  assert.equal(first.stdout, second.stdout);
+  assert.match(first.stdout, /"snapshot_sha256": "sha256:[a-f0-9]{64}"/);
 });
 
 test("promote requires exact approved Groom lineage and atomically closes origin lineage", (t) => {
@@ -82,7 +97,20 @@ test("promote requires exact approved Groom lineage and atomically closes origin
     })
   );
 
+  const requestValue = JSON.parse(fs.readFileSync(requestPath, "utf8"));
+  fs.writeFileSync(
+    requestPath,
+    JSON.stringify({
+      ...requestValue,
+      binding_paths: requestValue.binding_paths.filter((entry) => entry !== markdownPath),
+    })
+  );
   let result = run(["promote", "--root", root, "--request", requestPath]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /canonical origin/);
+  fs.writeFileSync(requestPath, JSON.stringify(requestValue));
+
+  result = run(["promote", "--root", root, "--request", requestPath]);
   assert.equal(result.status, 1);
   assert.match(result.stderr, /not approved/);
 
@@ -105,6 +133,26 @@ test("promote requires exact approved Groom lineage and atomically closes origin
     decisionId: approvalDecision.id,
     decisionSha256: approvalDecision.sha256,
   });
+  fs.writeFileSync(path.join(root, approvalRef), `${JSON.stringify(approval, null, 2)}\n`);
+  proposal.lifecycle = "planned";
+  fs.writeFileSync(path.join(root, targetRef), `${JSON.stringify(proposal, null, 2)}\n`);
+  result = run(["promote", "--root", root, "--request", requestPath]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /exact current approved proposal bytes/);
+  proposal.lifecycle = "approved";
+  fs.writeFileSync(path.join(root, targetRef), proposalBytes);
+
+  assert.throws(
+    () =>
+      promote(root, requestValue, {
+        beforeReattest() {
+          fs.writeFileSync(path.join(root, approvalRef), "{}\n");
+        },
+      }),
+    /atomic write attestation changed/
+  );
+  const unpromoted = JSON.parse(fs.readFileSync(path.join(root, decisionPath), "utf8"));
+  assert.equal(unpromoted.promotion.status, "not-offered");
   fs.writeFileSync(path.join(root, approvalRef), `${JSON.stringify(approval, null, 2)}\n`);
   result = run(["promote", "--root", root, "--request", requestPath]);
   assert.equal(result.status, 0, result.stderr);

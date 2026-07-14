@@ -11,7 +11,7 @@ This reference is the shared machine contract for `pm:think`, `pm:ideate`, `pm:s
 | `{pm_dir}/strategy.md` | `{pm_dir}/strategy.decision.json` |
 | `{pm_dir}/product/features.md` | `{pm_dir}/product/features.json` |
 
-Decision evidence, source-artifact, promotion, trigger-target, and Markdown-binding paths are relative to `{pm_dir}` and therefore never include a leading `pm/`. Feature `source_refs` are the exception: they identify code and are relative to `{source_dir}` at `scan.commit`. This two-root contract works unchanged in same-repo, nested separate-repo, and flat separate-repo layouts. Never publish absolute paths, home-relative paths, raw prompts, private customer text, credentials, or local cache locations.
+Decision evidence, source-artifact, promotion, trigger-target, and Markdown-binding paths are relative to `{pm_dir}` and therefore never include a leading `pm/`. Feature `source_refs` are the exception: they identify code and are relative to `{source_dir}` at an exact Git commit or deterministic filesystem snapshot. This two-root contract works unchanged in same-repo, nested separate-repo, and flat separate-repo layouts. Never publish absolute paths, home-relative paths, raw prompts, private customer text, credentials, or local cache locations.
 
 ## Decision brief v1
 
@@ -88,7 +88,7 @@ After Groom has written and approved its canonical proposal, perform the origin 
 node "${CLAUDE_PLUGIN_ROOT}/scripts/product-reasoning.js" promote --root "${pm_dir}" --request <private-request.json>
 ```
 
-The target and its sibling `.approval.json` audit must be among at most 16 unique binding paths. The command validates the canonical proposal and audit against `approval_decision`, verifies every path without following symlinks, hashes the exact final bytes, validates the complete transition, and atomically replaces the origin companion. Update any bound Markdown projection before this single final command. This refresh is required for Ideate origins because Groom replaces the old idea Markdown with the generated proposal projection.
+The target, sibling `.approval.json` audit, and canonical origin Markdown derived from the decision kind/slug must be among at most 16 unique binding paths with no more than 64 MiB in aggregate. The command requires the exact current `approved` proposal bytes, validates the audit against `approval_decision`, hashes the bytes returned by those validated reads, and reattests every binding immediately before atomically replacing the canonical origin companion. Update the bound Markdown projection before this single final command. This refresh is required for Ideate origins because Groom replaces the old idea Markdown with the generated proposal projection.
 
 ## Deterministic idea ranking
 
@@ -98,11 +98,11 @@ Write a private request containing `strategy` plus the candidate `ideas`, then r
 node "${CLAUDE_PLUGIN_ROOT}/scripts/product-reasoning.js" rank-ideas --request <private-request.json>
 ```
 
-The runtime orders categorical inputs by strategic alignment, evidence strength, competitor gap, dependency efficiency, scope efficiency, then stable ID. It also returns unknown priorities, confirmed non-goal conflicts, and stale/unknown non-goal tokens. Unknown tokens require correction. A confirmed non-goal conflict is shown to the user and blocks saving until they explicitly revise Strategy or drop/reshape the idea.
+The runtime orders categorical inputs by strategic alignment, evidence strength, competitor gap, dependency efficiency, scope efficiency, then stable ID. `strong` evidence requires at least three distinct cited signals; `moderate` requires one or two; `hypothesis` remains explicitly provisional. It also returns unknown priorities, confirmed non-goal conflicts, and stale/unknown non-goal tokens. Unknown tokens require correction. A confirmed non-goal conflict is shown to the user and blocks saving until they explicitly revise Strategy or drop/reshape the idea.
 
 ## Feature inventory v2
 
-`features.json` contains `schema_version: 2`, `document_type: feature-inventory`, generation time, source project, scan counts/commit, 3–6 areas, 8–20 features, and a hash binding to `features.md`.
+`features.json` contains `schema_version: 2`, `document_type: feature-inventory`, generation time, source project, scan mode and identity, 3–6 areas, 8–20 features, and a hash binding to `features.md`. Git mode records `mode: git`, a full commit object ID, and `snapshot_sha256: null`. Non-Git mode records `mode: filesystem`, `commit: null`, and a deterministic source snapshot hash.
 
 Each feature contains:
 
@@ -119,7 +119,13 @@ Generate IDs for new capabilities with `feature-id`. Before review, reconcile a 
 node "${CLAUDE_PLUGIN_ROOT}/scripts/product-reasoning.js" reconcile-features --request <private-request.json>
 ```
 
-Exact keys preserve identity. A rename can preserve identity when source continuity is uniquely strong. Equal plausible matches are returned as `ambiguous` and require user resolution. Do not silently merge, split, or retire an ambiguous feature.
+Exact keys preserve identity. A rename can preserve identity when source continuity is uniquely strong. Equal plausible matches and many-to-one collisions are returned as order-independent `ambiguous` records and require user resolution. Do not silently merge, split, or retire an ambiguous feature.
+
+For a non-Git project, calculate the deterministic snapshot after source refs are final and store the returned `snapshot_sha256`:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/product-reasoning.js" feature-snapshot --source-root "${source_dir}" --request <source-refs.json>
+```
 
 Render `features.md` from the reconciled in-memory record, hash it, bind it as `product/features.md` in `features.json`, then validate the companion and its source snapshot:
 
@@ -127,4 +133,4 @@ Render `features.md` from the reconciled in-memory record, hash it, bind it as `
 node "${CLAUDE_PLUGIN_ROOT}/scripts/product-reasoning.js" validate --input "${pm_dir}/product/features.json" --source-root "${source_dir}"
 ```
 
-Validation proves every source ref exists at `scan.commit`, not merely in the current worktree. Markdown feature headings should visibly include the stable ID, e.g. `### Turn ideas into specs <!-- feat-... -->`, so diffs and manual review retain identity without cluttering the rendered page.
+Validation proves every Git source ref exists at an exact commit object, or that every non-Git source ref still matches the bounded deterministic filesystem snapshot. Markdown feature headings should visibly include the stable ID, e.g. `### Turn ideas into specs <!-- feat-... -->`, so diffs and manual review retain identity without cluttering the rendered page.

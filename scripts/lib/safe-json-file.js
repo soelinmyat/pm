@@ -2,6 +2,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { readDescriptorBounded } = require("./bounded-descriptor-read");
 
 function readBoundedJsonFile(filePath, maxBytes = 4 * 1024 * 1024) {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 0)
@@ -13,25 +14,14 @@ function readBoundedJsonFile(filePath, maxBytes = 4 * 1024 * 1024) {
     const stat = fs.fstatSync(descriptor);
     if (!stat.isFile() || stat.size > maxBytes)
       throw new Error("input must be a bounded regular JSON file");
-    return JSON.parse(readDescriptorBounded(descriptor, maxBytes).toString("utf8"));
+    return JSON.parse(
+      readDescriptorBounded(descriptor, maxBytes, {
+        overflowMessage: "input must be a bounded regular JSON file",
+      }).toString("utf8")
+    );
   } finally {
     if (descriptor !== undefined) fs.closeSync(descriptor);
   }
-}
-
-function readDescriptorBounded(descriptor, maxBytes) {
-  const chunks = [];
-  let total = 0;
-  while (true) {
-    const remaining = maxBytes - total;
-    const buffer = Buffer.allocUnsafe(Math.min(64 * 1024, remaining + 1));
-    const count = fs.readSync(descriptor, buffer, 0, buffer.length, null);
-    if (count === 0) break;
-    total += count;
-    if (total > maxBytes) throw new Error("input must be a bounded regular JSON file");
-    chunks.push(buffer.subarray(0, count));
-  }
-  return Buffer.concat(chunks, total);
 }
 
 module.exports = { readBoundedJsonFile };

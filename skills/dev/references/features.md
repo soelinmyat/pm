@@ -28,8 +28,8 @@ Scan the codebase in one pass — discover the files, read the high-signal ones,
 
 ### Discover files
 
-- Use `git ls-files` to list tracked/unignored files.
-- **Fallback:** If not a git repo (`git ls-files` fails), walk the file tree but exclude common vendor directories (`node_modules`, `vendor`, `.venv`, `dist`, `build`, `target`, `__pycache__`) and hidden directories (starting with `.`). Log a note: "Not a git repository — using heuristic file filtering."
+- Use `git ls-files` to list tracked/unignored files and record the exact full commit object ID as `scan.commit` with `scan.mode: git`.
+- **Fallback:** If not a git repo (`git ls-files` fails), walk the file tree but exclude common vendor directories (`node_modules`, `vendor`, `.venv`, `dist`, `build`, `target`, `__pycache__`) and hidden directories (starting with `.`). Log a note: "Not a git repository — using heuristic file filtering." Record `scan.mode: filesystem` and calculate the final deterministic `snapshot_sha256` with the shared `feature-snapshot` command after source refs are finalized.
 
 Build a directory map (file counts per directory) and flag key entry points:
 - Package manifests: `package.json`, `Cargo.toml`, `pyproject.toml`, `go.mod`, `Gemfile`
@@ -188,7 +188,7 @@ After the user approves the reconciled inventory:
 
 1. Render `features.md` from the approved in-memory record.
 2. Hash the final Markdown bytes.
-3. Write `features.json` using the v2 contract in `references/product-reasoning.md`, including the Markdown binding.
+3. For filesystem mode, run `scripts/product-reasoning.js feature-snapshot --source-root "${source_dir}" --request <source-refs.json>`. Write `features.json` using the v2 contract in `references/product-reasoning.md`, including the Git commit or filesystem snapshot identity and Markdown binding.
 4. Run `scripts/product-reasoning.js validate --input "${pm_dir}/product/features.json" --source-root "${source_dir}"`, `scripts/product-reasoning-quality-check.js "${pm_dir}/product/features.json"`, and normal `pm validate`.
 5. If schema, the 7/10 quality gate, or project validation fails, fix the weakest shared-record dimensions and regenerate both artifacts. Do not add filler or patch one reader independently.
 

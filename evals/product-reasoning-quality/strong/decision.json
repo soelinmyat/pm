@@ -16,6 +16,11 @@
       "ref": "insights/product/research-trust.md#staleness",
       "evidence_id": null,
       "note": "The synthesized insight is high confidence and current."
+    },
+    {
+      "ref": "evidence/user-feedback/refresh-requests.md#signal-3",
+      "evidence_id": "ev-22222222222222222222",
+      "note": "Recent feedback independently confirms that stale inputs delay active decisions."
     }
   ],
   "alternatives": [

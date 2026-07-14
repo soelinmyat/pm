@@ -3,7 +3,13 @@
   "document_type": "feature-inventory",
   "generated_at": "2026-07-14T00:00:00Z",
   "source_project": "weak-product",
-  "scan": { "files_scanned": 1, "files_total": 100, "commit": null },
+  "scan": {
+    "mode": "filesystem",
+    "files_scanned": 1,
+    "files_total": 100,
+    "commit": null,
+    "snapshot_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
   "areas": [
     {
       "name": "Core",

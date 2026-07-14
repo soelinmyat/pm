@@ -2,6 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -61,6 +62,28 @@ test("project writer rejects an ancestor swap before its child anchors the root"
     /not a real directory/
   );
   assert.equal(fs.readFileSync(path.join(outside, "report.json"), "utf8"), "outside-sentinel");
+});
+
+test("project writer verifies input attestations inside the anchored child", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-write-attestation-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, "inputs"));
+  fs.writeFileSync(path.join(root, "inputs", "source.json"), '{"version":1}\n');
+  const expected = `sha256:${crypto
+    .createHash("sha256")
+    .update(fs.readFileSync(path.join(root, "inputs", "source.json")))
+    .digest("hex")}`;
+  assert.throws(
+    () =>
+      writeProjectTextAtomic(root, "output/result.json", "unsafe", {
+        attestations: [{ path: "inputs/source.json", sha256: expected, maxBytes: 1024 }],
+        beforeSpawn() {
+          fs.writeFileSync(path.join(root, "inputs", "source.json"), '{"version":2}\n');
+        },
+      }),
+    /atomic write attestation changed/
+  );
+  assert.equal(fs.existsSync(path.join(root, "output", "result.json")), false);
 });
 
 test("anchored rename stays in the opened directory when its project path is swapped", (t) => {

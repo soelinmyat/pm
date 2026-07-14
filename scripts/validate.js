@@ -934,9 +934,19 @@ function validateProductReasoningJson(pmDir, filePath, errors, expectedType) {
   if (issues.length) return;
   const bindings =
     expectedType === "decision-brief" ? value.source_artifacts : [value.markdown_binding];
+  const observedBindings = new Map();
+  let aggregateBindingBytes = 0;
   for (const binding of bindings) {
     try {
-      const input = readProjectInput(pmDir, binding.path, 16 * 1024 * 1024);
+      const input =
+        observedBindings.get(binding.path) ||
+        readProjectInput(pmDir, binding.path, 16 * 1024 * 1024);
+      if (!observedBindings.has(binding.path)) {
+        observedBindings.set(binding.path, input);
+        aggregateBindingBytes += input.bytes.length;
+        if (aggregateBindingBytes > 64 * 1024 * 1024)
+          throw new Error("aggregate binding bytes exceed 64 MiB");
+      }
       const observed = `sha256:${crypto.createHash("sha256").update(input.bytes).digest("hex")}`;
       if (observed !== binding.sha256) throw new Error("SHA-256 does not match current bytes");
     } catch (error) {

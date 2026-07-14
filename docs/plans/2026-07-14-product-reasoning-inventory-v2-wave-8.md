@@ -91,7 +91,7 @@ Reconciliation preserves an existing ID on exact key matches or strong source co
 - Preserve the user-facing scan and approval flow.
 - Emit the v2 JSON inventory and render Markdown from the same in-memory record.
 - Reconcile against the prior inventory before user review, surfacing new, retained, and ambiguous identities.
-- Require `{source_dir}`-relative source refs, verify them at the recorded scan commit, and retain calibrated confidence without claiming behavior that source inspection did not establish.
+- Require `{source_dir}`-relative source refs, verify them at an exact Git commit or deterministic non-Git filesystem snapshot, and retain calibrated confidence without claiming behavior that source inspection did not establish.
 
 ## Validation and quality
 

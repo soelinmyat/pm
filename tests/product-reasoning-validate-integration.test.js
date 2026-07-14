@@ -109,3 +109,29 @@ test("binding validation rejects an ancestor symlink", (t) => {
   const result = validate(pm);
   assert.ok(result.errors.some((entry) => entry.msg.includes("contains symlink")));
 });
+
+test("binding validation enforces a 64 MiB aggregate budget", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reasoning-aggregate-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const pm = path.join(root, "pm");
+  fs.mkdirSync(path.join(pm, "backlog"), { recursive: true });
+  fs.mkdirSync(path.join(pm, "bindings"));
+  const first = path.join(pm, "bindings", "binding-0.bin");
+  fs.writeFileSync(first, Buffer.alloc(14 * 1024 * 1024, 0x61));
+  for (let index = 1; index < 5; index += 1)
+    fs.linkSync(first, path.join(pm, "bindings", `binding-${index}.bin`));
+  const bytes = fs.readFileSync(first);
+  const brief = JSON.parse(
+    fs.readFileSync(
+      path.join(__dirname, "..", "evals", "product-reasoning-quality", "strong", "decision.json"),
+      "utf8"
+    )
+  );
+  brief.source_artifacts = Array.from({ length: 5 }, (_, index) => ({
+    path: `bindings/binding-${index}.bin`,
+    sha256: sha(bytes),
+  }));
+  fs.writeFileSync(path.join(pm, "backlog", "aggregate.decision.json"), JSON.stringify(brief));
+  const result = validate(pm);
+  assert.ok(result.errors.some((entry) => entry.msg.includes("aggregate binding bytes")));
+});

@@ -9,6 +9,7 @@ const { spawnSync } = require("node:child_process");
 const {
   decisionId,
   featureId,
+  featureSourceSnapshot,
   promoteDecisionBrief,
   rankIdeaBriefs,
   reconcileFeatureInventory,
@@ -64,7 +65,7 @@ function brief(kind, slug, overrides = {}) {
       strength: "strong",
       priority_ids: ["retention"],
       non_goal_conflicts: [],
-      evidence_strength: "strong",
+      evidence_strength: "moderate",
       competitor_gap: "unique",
       dependencies: [],
       scope_signal: "small",
@@ -154,12 +155,60 @@ test("decision validation is total for malformed alternative collections", () =>
   assert.match(validateDecisionBrief(malformed).join("\n"), /must be an array/);
 });
 
+test("promoted decision validation is total and artifact bindings are bounded", () => {
+  const promoted = brief("think", "bounded-bindings", {
+    promotion: {
+      status: "promoted",
+      target_kind: "groom",
+      target_ref: "backlog/proposals/bounded-bindings.json",
+      confirmed_at: "2026-07-14T01:00:00Z",
+    },
+  });
+  for (const malformed of [true, 1, "bindings", {}]) {
+    const value = { ...promoted, source_artifacts: malformed };
+    assert.doesNotThrow(() => validateDecisionBrief(value));
+    assert.match(validateDecisionBrief(value).join("\n"), /must be an array/);
+  }
+  promoted.source_artifacts = Array.from({ length: 17 }, (_, index) => ({
+    path: `backlog/binding-${index}.md`,
+    sha256: `sha256:${"a".repeat(64)}`,
+  }));
+  assert.match(validateDecisionBrief(promoted).join("\n"), /cannot exceed 16/);
+  promoted.source_artifacts = promoted.source_artifacts.slice(0, 16);
+  assert.doesNotMatch(validateDecisionBrief(promoted).join("\n"), /cannot exceed 16/);
+  promoted.source_artifacts = [
+    { path: "backlog/same.md", sha256: `sha256:${"a".repeat(64)}` },
+    { path: "backlog/same.md", sha256: `sha256:${"a".repeat(64)}` },
+  ];
+  assert.match(validateDecisionBrief(promoted).join("\n"), /path is duplicated/);
+});
+
 test("idea decisions retain at least one source signal", () => {
   const unsupported = brief("idea", "unsupported-idea", {
     evidence_refs: [],
     confidence: { level: "low", basis: ["Unverified hypothesis"] },
   });
   assert.match(validateDecisionBrief(unsupported).join("\n"), /source signal/);
+});
+
+test("idea evidence labels are calibrated to distinct cited signals", () => {
+  const inflated = brief("idea", "inflated-evidence", {
+    alignment: {
+      strength: "strong",
+      priority_ids: ["retention"],
+      non_goal_conflicts: [],
+      evidence_strength: "strong",
+      competitor_gap: "unique",
+      dependencies: [],
+      scope_signal: "small",
+    },
+  });
+  assert.match(validateDecisionBrief(inflated).join("\n"), /at least three distinct signals/);
+  inflated.evidence_refs.push(
+    { ref: "evidence/research/two.md", evidence_id: null, note: "Second signal" },
+    { ref: "evidence/research/three.md", evidence_id: null, note: "Third signal" }
+  );
+  assert.deepEqual(validateDecisionBrief(inflated), []);
 });
 
 test("timestamps reject normalized calendar overflow", () => {
@@ -214,7 +263,13 @@ function inventory(features) {
     document_type: "feature-inventory",
     generated_at: "2026-07-14T00:00:00Z",
     source_project: "example",
-    scan: { files_scanned: 12, files_total: 20, commit: "a".repeat(40) },
+    scan: {
+      mode: "git",
+      files_scanned: 12,
+      files_total: 20,
+      commit: "a".repeat(40),
+      snapshot_sha256: null,
+    },
     areas: [
       { name: "Discover", features: features.slice(0, 3) },
       { name: "Build", features: features.slice(3, 6) },
@@ -271,8 +326,50 @@ test("feature source refs resolve at the recorded scan commit", (t) => {
   );
   value.scan.commit = commit;
   assert.deepEqual(validateFeatureSourceRefs(value, root), []);
+  value.scan.commit = spawnSync("git", ["rev-parse", "HEAD^{tree}"], {
+    cwd: root,
+    encoding: "utf8",
+  }).stdout.trim();
+  assert.match(validateFeatureSourceRefs(value, root).join("\n"), /exact commit object/);
+  assert.equal(
+    spawnSync("git", ["tag", "-a", "snapshot-tag", "-m", "snapshot"], {
+      cwd: root,
+      encoding: "utf8",
+    }).status,
+    0
+  );
+  value.scan.commit = spawnSync("git", ["rev-parse", "refs/tags/snapshot-tag"], {
+    cwd: root,
+    encoding: "utf8",
+  }).stdout.trim();
+  assert.match(validateFeatureSourceRefs(value, root).join("\n"), /exact commit object/);
+  value.scan.commit = commit;
   value.areas[0].features[0].source_refs = ["src/missing.js"];
   assert.match(validateFeatureSourceRefs(value, root).join("\n"), /absent at scan.commit/);
+});
+
+test("non-Git feature refs bind a deterministic filesystem snapshot", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-feature-filesystem-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, "src"), { recursive: true });
+  fs.writeFileSync(path.join(root, "src", "capability.js"), "export const capability = true;\n");
+  const refs = ["src/capability.js"];
+  const snapshot = featureSourceSnapshot(root, refs);
+  const value = inventory(
+    ["one", "two", "three", "four", "five", "six", "seven", "eight"].map((key) =>
+      feature(key, refs)
+    )
+  );
+  value.scan = {
+    mode: "filesystem",
+    files_scanned: 1,
+    files_total: 1,
+    commit: null,
+    snapshot_sha256: snapshot.snapshot_sha256,
+  };
+  assert.deepEqual(validateFeatureSourceRefs(value, root), []);
+  fs.writeFileSync(path.join(root, "src", "capability.js"), "export const capability = false;\n");
+  assert.match(validateFeatureSourceRefs(value, root).join("\n"), /snapshot does not match/);
 });
 
 test("feature reconciliation preserves identity across rename with strong source continuity", () => {
@@ -300,4 +397,25 @@ test("feature reconciliation fails closed on equally plausible source matches", 
   const result = reconcileFeatureInventory(previous, proposed);
   assert.equal(result.ambiguous.length, 1);
   assert.equal(result.ambiguous[0].key, "replacement");
+});
+
+test("feature reconciliation reports many-to-one collisions independent of proposal order", () => {
+  const priorFeatures = [
+    feature("shared-prior", ["src/a.js", "src/b.js", "src/c.js", "src/d.js"]),
+    ...["two", "three", "four", "five", "six", "seven", "eight"].map((key) => feature(key)),
+  ];
+  const previous = inventory(priorFeatures);
+  const stronger = feature("stronger-rename", ["src/a.js", "src/b.js", "src/c.js", "src/d.js"]);
+  const weaker = feature("weaker-rename", ["src/a.js", "src/b.js", "src/c.js"]);
+  const tail = priorFeatures.slice(1);
+  const first = reconcileFeatureInventory(previous, inventory([stronger, weaker, ...tail]));
+  const second = reconcileFeatureInventory(previous, inventory([weaker, stronger, ...tail]));
+  assert.deepEqual(first.ambiguous, second.ambiguous);
+  assert.deepEqual(
+    first.ambiguous.map((entry) => entry.key),
+    ["stronger-rename", "weaker-rename"]
+  );
+  assert.ok(
+    first.ambiguous.every((entry) => entry.candidates.includes(priorFeatures[0].feature_id))
+  );
 });
