@@ -309,7 +309,7 @@
           "type": "resume",
           "prompt_ref": "evals/quality/cases/ship.md",
           "scenario_ref": "quality-ship-resume",
-          "scenario_contract_hash": "sha256:16d0acf7c752541b63e179f30fa846cece6eada7ef4502e942cc851c68b2ea09"
+          "scenario_contract_hash": "sha256:307f1d7edc17a43aa4d2f43c03a971e565f18de6114f6626a8a50e932a953400"
         },
         {
           "id": "ship-blocked-and-recovery",

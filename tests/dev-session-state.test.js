@@ -39,6 +39,12 @@ const {
   buildApproval: buildProposalApproval,
   proposalContentHash,
 } = require("../scripts/lib/proposal-schema");
+const {
+  beginEffect,
+  createReleaseTransaction,
+  planEffect,
+  reconcileEffect,
+} = require("../scripts/lib/release-transaction-schema");
 
 test("decision version advances are explicit, audited, and compare-and-swap guarded", () => {
   const repo = makeRepo();
@@ -658,7 +664,7 @@ test("ship requires explicit authority and independently verified merged PR evid
       pr_number: 42,
       pr_url: "https://github.com/example/repo/pull/42",
       state: "MERGED",
-      merge_sha: "merge42",
+      merge_sha: "b".repeat(40),
       head_branch: "main",
       feature_commit: commit,
     };
@@ -683,7 +689,7 @@ test("ship requires explicit authority and independently verified merged PR evid
       state: "MERGED",
       headRefName: "main",
       headRefOid: commit,
-      mergeCommit: { oid: "merge42" },
+      mergeCommit: { oid: "b".repeat(40) },
     };
     assert.deepEqual(validateResult(session, result, { verifyDelivery: () => observed }), []);
     assert.ok(
@@ -695,6 +701,139 @@ test("ship requires explicit authority and independently verified merged PR evid
       validateResult(session, result, {
         verifyDelivery: () => ({ ...observed, headRefOid: "older-commit" }),
       }).some((error) => /does not match observed/.test(error.message))
+    );
+  } finally {
+    fs.rmSync(receiptPath, { force: true });
+    repo.cleanup();
+  }
+});
+
+test("delivery receipt is cryptographically bound to the verified release transaction", () => {
+  const repo = makeRepo();
+  const receiptPath = path.join(
+    os.tmpdir(),
+    `pm-transaction-delivery-${process.pid}-${Date.now()}.json`
+  );
+  try {
+    let session = createSession({ slug: "transaction-delivery", sourceDir: repo.root });
+    session.phase = "ship";
+    session.routing.required_phases = ["ship", "retro"];
+    session.routing.required_gates = [];
+    session = grantAuthority(
+      session,
+      ["push_feature_branch", "create_pr", "merge"],
+      "User authorized transaction delivery"
+    );
+    const commit = repo.head();
+    let transaction = createReleaseTransaction({
+      releaseMode: "delivery-only",
+      runId: session.run_id,
+      slug: session.slug,
+      repository: "example/repo",
+      deliveryRemote: "origin",
+      headBranch: session.source.branch,
+      baseBranch: session.source.default_branch,
+      pushUrlSha256: `sha256:${"a".repeat(64)}`,
+      preparedCommit: commit,
+      manifestHashes: [],
+    });
+    const effects = [
+      {
+        name: "push",
+        authority: { push_feature_branch: true },
+        target: {
+          remote: "origin",
+          repository: "example/repo",
+          branch: session.source.branch,
+          commit,
+        },
+        receipt: { remote_tip: commit },
+      },
+      {
+        name: "create-pr",
+        authority: { create_pr: true },
+        target: {
+          repository: "example/repo",
+          head: session.source.branch,
+          base: "main",
+          commit,
+        },
+        receipt: { pr_number: 42, state: "OPEN", head_oid: commit },
+      },
+      {
+        name: "merge",
+        authority: { merge: true },
+        target: {
+          repository: "example/repo",
+          pr_number: 42,
+          head_commit: commit,
+          base: "main",
+          method: "squash",
+        },
+        receipt: {
+          state: "MERGED",
+          pr_number: 42,
+          merge_sha: "b".repeat(40),
+          head_oid: commit,
+        },
+      },
+    ];
+    for (const effect of effects) {
+      transaction = planEffect(transaction, { effect: effect.name, target: effect.target });
+      transaction = beginEffect(transaction, {
+        effect: effect.name,
+        authority: effect.authority,
+        actor: "root",
+      }).transaction;
+      transaction = reconcileEffect(transaction, {
+        effect: effect.name,
+        outcome: "matched",
+        receipt: effect.receipt,
+        observation: { target: effect.target, receipt: effect.receipt },
+      }).transaction;
+    }
+    const transactionPath = path.join(
+      repo.root,
+      ".pm/dev-sessions/transaction-delivery/ship/release-transaction.json"
+    );
+    fs.mkdirSync(path.dirname(transactionPath), { recursive: true });
+    const transactionBytes = Buffer.from(`${JSON.stringify(transaction, null, 2)}\n`);
+    fs.writeFileSync(transactionPath, transactionBytes);
+    const receipt = {
+      schema_version: 1,
+      pr_number: 42,
+      pr_url: "https://github.com/example/repo/pull/42",
+      state: "MERGED",
+      merge_sha: "b".repeat(40),
+      head_branch: session.source.branch,
+      feature_commit: commit,
+      release_transaction_sha256: `sha256:${crypto.createHash("sha256").update(transactionBytes).digest("hex")}`,
+      release_tag: null,
+    };
+    fs.writeFileSync(receiptPath, JSON.stringify(receipt));
+    const result = passedResult(session, {
+      commit,
+      evidence: [
+        { kind: "delivery", command: "gh pr view 42", exit_code: 0, artifact: receiptPath },
+      ],
+    });
+    const observed = {
+      number: 42,
+      url: receipt.pr_url,
+      state: "MERGED",
+      headRefName: session.source.branch,
+      headRefOid: commit,
+      mergeCommit: { oid: "b".repeat(40) },
+    };
+    assert.deepEqual(validateResult(session, result, { verifyDelivery: () => observed }), []);
+    fs.writeFileSync(
+      receiptPath,
+      JSON.stringify({ ...receipt, release_transaction_sha256: `sha256:${"f".repeat(64)}` })
+    );
+    assert.ok(
+      validateResult(session, result, { verifyDelivery: () => observed }).some((error) =>
+        /does not match the verified release transaction/.test(error.message)
+      )
     );
   } finally {
     fs.rmSync(receiptPath, { force: true });

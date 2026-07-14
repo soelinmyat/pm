@@ -1,10 +1,12 @@
 # Ship Delivery Contract
 
-Use this contract before Ship performs any network mutation. It binds the user's action-specific authority to the exact reviewed Git destination and gives every later step one repository identity to use.
+Use this contract before Ship performs any network mutation. It binds the user's action-specific authority to the exact reviewed Git destination and gives every later step one repository identity to use. The delivery contract answers **where and under whose authority**; the sibling release transaction answers **which prepared commit/effect generation ran and what was observed**. Both must agree.
 
 ## Goal
 
 Persist and continuously revalidate the authority, remote, repository, head branch, and base branch that Ship is allowed to deliver.
+
+Read `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/release-transaction.md` first. A valid delivery contract without a ready current release transaction cannot authorize Push, PR creation, or Merge.
 
 ## 1. Record action-specific authority
 
@@ -116,19 +118,23 @@ After detecting or creating a PR, fetch its identity from `repos/$GH_OWNER/$GH_R
 
 Reject fork PRs and every head/base mismatch. Persist `PR_NUMBER` only after this check passes; every later PR command supplies both `--repo "$GH_REPO"` and that explicit number.
 
+Also require the PR's observed head OID to equal `release.prepared_commit` in the current transaction generation. Delivery-contract identity without prepared-commit identity is stale.
+
 ## 4. Recertify after any delivery-loop commit
 
 Any commit created after the final Review invalidates delivery authority, including a pre-push-hook fix, CI fix, review-feedback fix, generated-file update, conflict resolution, rebase, or merge of the base branch. Before retrying `git push`:
 
-1. Run the relevant tests and verification for the changed surface.
-2. Invoke `pm:review` against current HEAD and the same validated delivery contract. Publish a new canonical Review JSON/HTML report and retained-render manifest for the current commit.
-3. Rerun every routed quality gate whose relevant surface changed. Regenerate its canonical artifact. Use `dev-session recertify` only for a gate whose existing evidence was actually rechecked and remains applicable; never advance `verified_commit` by inspection alone.
-4. Confirm `.pm/dev-sessions/{slug}/gates.json` contains current, machine-valid Review and routed-gate evidence.
-5. Revalidate the delivery contract, then run `scripts/dev-gate-check.js` with current HEAD, explicit branch, reviewed remote, reviewed base, and `--require-authority push_feature_branch` before retrying a push.
-6. Only after the checker exits zero may Ship retry the explicit push to `DELIVERY_REMOTE`.
+1. Run `release-transaction.js advance --commit "$(git rev-parse HEAD)" --reason "..."`. It archives the prior generation and invalidates current evidence/effect plans. Advancing after verified merge is forbidden.
+2. Run the relevant tests and verification for the changed surface.
+3. Invoke `pm:review` against current HEAD and the same validated delivery contract. Publish a new canonical Review JSON/HTML report and retained-render manifest for the current commit.
+4. Rerun every routed quality gate whose relevant surface changed. Regenerate its canonical artifact. Use `dev-session recertify` only for a gate whose existing evidence was actually rechecked and remains applicable; never advance `verified_commit` by inspection alone.
+5. Bind current Review, QA, and verification evidence into the new transaction generation and require `release-transaction.js status` to report `ready: true`.
+6. Confirm `.pm/dev-sessions/{slug}/gates.json` contains current, machine-valid Review and routed-gate evidence.
+7. Revalidate the delivery contract, regenerate exact effect targets, then run `scripts/dev-gate-check.js` with current HEAD, explicit branch, reviewed remote, reviewed base, and `--require-authority push_feature_branch` before retrying a push.
+8. Only after the checker exits zero may Ship retry by beginning a new numbered Push attempt to `DELIVERY_REMOTE`.
 
 This is one indivisible **post-mutation recertification protocol**. Green CI for an older commit, a PR label, or a prior report cannot substitute for it.
 
 ## Done-when
 
-The action has explicit canonical authority, the delivery contract matches the live reviewed destination and exact head/base, PR identity (when present) matches that contract, and any post-Review commit has regenerated current Review/gate artifacts and passed `dev-gate-check` before push.
+The action has explicit canonical authority, the delivery contract matches the live reviewed destination and current transaction generation, PR identity (when present) matches both contracts, and any post-Review commit has advanced the generation, regenerated current Review/gate artifacts, rebound transaction evidence, and passed `dev-gate-check` before push.

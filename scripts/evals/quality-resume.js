@@ -7,6 +7,11 @@ const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const rfc = require("../lib/rfc-session-schema.js");
 const dev = require("../lib/dev-session-schema.js");
+const {
+  beginEffect,
+  createReleaseTransaction,
+  planEffect,
+} = require("../lib/release-transaction-schema.js");
 const { writeSession: writeRfcSession } = require("../rfc-session.js");
 
 function seed(workflow, sourceDir) {
@@ -43,6 +48,7 @@ function seed(workflow, sourceDir) {
     session = dev.recordResult(session, devResult(session, "intake"));
     session = dev.recordResult(session, devResult(session, "workspace"));
     dev.writeSession(nativePath, session);
+    if (workflow === "ship") seedAmbiguousShipEffect(root, session);
   }
 
   const genericPath = path.join(root, ".pm", "quality", "resume-session.json");
@@ -143,7 +149,71 @@ function check(workflow, sourceDir) {
   for (const item of invariants.accepted) {
     if (!accepted.includes(item)) throw new Error(`accepted decision was not preserved: ${item}`);
   }
+  if (workflow === "ship") checkAmbiguousShipEffect(root, invariants);
   return true;
+}
+
+function seedAmbiguousShipEffect(root, session) {
+  const commit = git(root, ["rev-parse", "HEAD"]);
+  const remote = git(root, ["remote", "get-url", "--push", "origin"]);
+  let transaction = createReleaseTransaction({
+    releaseMode: "delivery-only",
+    runId: session.run_id,
+    slug: session.slug,
+    repository: "quality/ship-resume",
+    deliveryRemote: "origin",
+    headBranch: session.source.branch,
+    baseBranch: session.source.default_branch,
+    pushUrlSha256: sha(Buffer.from(remote)),
+    preparedCommit: commit,
+    manifestHashes: [],
+  });
+  const target = { remote: "origin", branch: session.source.branch, commit };
+  transaction = planEffect(transaction, { effect: "push", target });
+  transaction = beginEffect(transaction, {
+    effect: "push",
+    authority: { push_feature_branch: true },
+    actor: "root",
+  }).transaction;
+  const transactionPath = path.join(
+    root,
+    ".pm",
+    "dev-sessions",
+    session.slug,
+    "ship",
+    "release-transaction.json"
+  );
+  fs.mkdirSync(path.dirname(transactionPath), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(transactionPath, `${JSON.stringify(transaction, null, 2)}\n`, { mode: 0o600 });
+  execFileSync("git", ["push", "--quiet", "origin", `HEAD:refs/heads/${session.source.branch}`], {
+    cwd: root,
+  });
+}
+
+function checkAmbiguousShipEffect(root, invariants) {
+  const transactionPath = path.join(
+    root,
+    ".pm",
+    "dev-sessions",
+    invariants.slug,
+    "ship",
+    "release-transaction.json"
+  );
+  const transaction = JSON.parse(fs.readFileSync(transactionPath, "utf8"));
+  const push = transaction.effects.push;
+  const remoteTip = git(root, [
+    "--git-dir=.pm/quality/origin.git",
+    "rev-parse",
+    `refs/heads/${invariants.source.branch}`,
+  ]);
+  if (
+    push.status !== "verified" ||
+    push.attempts.length !== 1 ||
+    push.verified_receipt?.receipt?.remote_tip !== invariants.source.base_commit ||
+    remoteTip !== invariants.source.base_commit
+  ) {
+    throw new Error("Ship resume replayed or failed to reconcile the ambiguous Push attempt");
+  }
 }
 
 function revalidate(workflow, sourceDir) {

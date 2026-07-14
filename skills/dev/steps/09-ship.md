@@ -33,14 +33,18 @@ Take the implemented branch through PR creation, merge, cleanup, and status writ
 Push the branch, create the PR, and merge via the merge-loop. Then clean up worktrees and update all status trackers.
 
 Invoke `pm:ship` to handle the PR creation and merge-loop. The ship skill manages:
+- Prepare the final delivery/release commit before freezing Review
 - Push branch to remote
 - Create PR with summary from the RFC
 - Monitor CI, code review, and merge readiness
 - Squash merge when all gates pass
+- Place any versioned release tag on the verified `main` merge SHA
+
+Ship maintains `.pm/dev-sessions/{slug}/ship/release-transaction.json`. Every external effect is planned and marked attempting before mutation, then verified from observed remote state. On resume, an ambiguous Push, PR, Merge, tag, or tracker outcome is observed before retry. A verified effect is never replayed; missing authority is recorded as `denied`, not as an environment failure.
 
 Before any external effect, read the canonical authority envelope. Push/PR, merge, and tracker updates run only when their corresponding booleans are true. In interactive mode, missing merge authority stops at the reviewed PR boundary with a structured blocker naming the exact grant required. In headless `PM_LOOP_WORKER=1` mode, that reviewed open-PR boundary is the required successful terminal: do not request merge authority and do not treat the mandated handoff as a blocker.
 
-After delivery is verified but **before** deleting the feature branch or removing its worktree, write a strict `delivery-receipt.schema.json` artifact containing the PR number/URL/state, merge SHA (null only for the headless OPEN boundary), head branch, and feature commit. Record the ship phase result using the verified feature HEAD as `commit` and that receipt as `delivery` evidence. The runner independently reads current PR state and head OID with `gh`; a claimed receipt cannot advance the phase by itself. Interactive mode requires `MERGED` plus the observed merge SHA and advances to retro. Headless mode requires `OPEN` at the exact feature commit and terminates as a durable `handoff`. Only after interactive mode advances to retro may cleanup remove the feature worktree.
+After delivery is verified but **before** deleting the feature branch or removing its worktree, write a strict `delivery-receipt.schema.json` artifact containing the PR number/URL/state, merge SHA (null only for the headless OPEN boundary), head branch, feature commit, exact `release_transaction_sha256`, and `release_tag` (null for delivery-only). The receipt must agree with the verified Merge effect and, for a versioned transaction, the verified main-tag receipt. Record the ship phase result using the verified prepared feature HEAD as `commit` and that receipt as `delivery` evidence. The runner independently reads current PR state and head OID with `gh`; a claimed receipt cannot advance the phase by itself. Interactive mode requires `MERGED` plus the observed merge SHA and advances to retro. Headless mode requires `OPEN` at the exact feature commit and terminates as a durable `handoff`. Only after interactive mode advances to retro may cleanup remove the feature worktree.
 
 ### Worktree Cleanup
 

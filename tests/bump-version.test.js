@@ -17,6 +17,7 @@ describe("bump-version.js", () => {
       "must run generate-platform-files.js to sync manifests"
     );
     assert.ok(src.includes("git tag"), "must create a git tag");
+    assert.match(src, /LEGACY.*prepare-release/s);
   });
 
   it("all 4 version files reference the same version", () => {
@@ -45,5 +46,13 @@ describe("bump-version.js", () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
     assert.ok(pkg.scripts.bump, "package.json must have a bump script");
     assert.ok(pkg.scripts.bump.includes("bump-version.js"), "bump script must run bump-version.js");
+  });
+
+  it("npm run prepare-release is the current tagless release path", () => {
+    const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
+    assert.match(pkg.scripts["prepare-release"], /prepare-release\.js/);
+    const source = fs.readFileSync(path.join(repoRoot, "scripts", "prepare-release.js"), "utf8");
+    assert.doesNotMatch(source, /run\(root, "git", \["tag"/);
+    assert.match(source, /must not create a feature-commit tag/);
   });
 });

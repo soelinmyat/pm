@@ -101,6 +101,9 @@ const CRITICAL_KEYWORDS = [
   "lockfile",
 
   // Step 3: Review
+  "prepare-release",
+  "release-transaction.js",
+  "ready: true",
   "review",
   "pm:review",
   "Review gate",
@@ -176,7 +179,7 @@ test("ship steps: step names match expected phase structure", () => {
     const expectedNames = [
       "Pre-flight",
       "Conflict Check",
-      "Review Gate",
+      "Prepare Release and Review Gate",
       "Push",
       "Create or Detect PR",
       "CI Monitor",
@@ -200,7 +203,12 @@ test("ship steps: reference paths use ${CLAUDE_PLUGIN_ROOT} template variable", 
     const steps = loadWorkflow("ship", pmDir, PLUGIN_ROOT);
     const prompt = buildPrompt(steps);
 
-    const references = ["merge-loop.md", "skills/review/SKILL.md", "handling-feedback.md"];
+    const references = [
+      "merge-loop.md",
+      "skills/review/SKILL.md",
+      "handling-feedback.md",
+      "release-transaction.md",
+    ];
 
     for (const ref of references) {
       assert.ok(
@@ -303,4 +311,21 @@ test("CI and merge-loop fix commits recertify before retry push", () => {
   assert.match(contract, /Only after the checker exits zero may Ship retry/);
   assert.match(ci, /git push -- "\$DELIVERY_REMOTE" HEAD/);
   assert.doesNotMatch(ci, /Push: `git push`/);
+});
+
+test("Ship journals ambiguous effects and places version tags only after verified merge", () => {
+  const skill = read("skills/ship/SKILL.md");
+  const reference = read("skills/ship/references/release-transaction.md");
+  const push = read("skills/ship/steps/04-push.md");
+  const merge = read("skills/ship/steps/07-merge-loop.md");
+
+  assert.match(skill, /Observe before replay/);
+  assert.match(reference, /attempting.*Observe first/s);
+  assert.match(reference, /denied.*authority boundary/s);
+  assert.match(reference, /verified.*never replay/s);
+  assert.match(reference, /push → create-pr → merge → place-main-tag/);
+  assert.match(push, /observe-first/);
+  assert.match(push, /timeout or connection loss stays `attempting`/);
+  assert.match(merge, /plan `place-main-tag`/);
+  assert.match(merge, /never force-moved automatically/);
 });

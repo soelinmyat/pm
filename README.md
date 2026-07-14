@@ -163,7 +163,7 @@ PM officially supports Claude Code and Codex. Community contributions for other 
 | `/pm:dev [ticket]` | Routes by canonical proposal scope and observed risk, resumes phase-local state, implements with TDD, and verifies delivery evidence |
 | `/pm:design-critique` | Review product UI or PM HTML artifacts with commit-bound captures, accessibility/viewport/print evidence, structured findings, and an accessible report |
 | `/pm:review` | Run evidence-bound source review with adaptive six-lens coverage, disagreement handling, bounded fix rounds, and a checked HTML report |
-| `/pm:ship [PR]` | Review, push, create PR, monitor CI, and merge |
+| `/pm:ship [PR]` | Prepare the final tree, review it, and resumably push, reconcile/create a PR, monitor CI, merge, and place any release tag on the verified main SHA |
 | `/pm:loop status` | Show the git-backed loop board and scheduler-safe orchestration; unattended stages use validated stage results and park contract or approval failures at non-dispatchable `needs-human` |
 | `/pm:loop reconcile` | Dry-run stale-card classification from durable run/recovery and repository-pinned PR evidence; `--apply` requires Git readiness and isolated PM transactions |
 

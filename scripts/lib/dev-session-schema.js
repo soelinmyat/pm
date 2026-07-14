@@ -22,6 +22,7 @@ const {
 } = require("./workflow-runtime/records");
 const { evidenceRecordIssues, runtimeRecordIssues } = require("./workflow-runtime/result-envelope");
 const { bindEffectReceipt } = require("./workflow-runtime/effect-receipt");
+const { transactionIssues } = require("./release-transaction-schema");
 const { readApprovedProposal } = require("./proposal-schema");
 const {
   approvalTransitionDigest,
@@ -968,13 +969,51 @@ function validateDeliveryEvidence(session, result, options, errors) {
     "head_branch",
     "feature_commit",
   ];
+  const optional = ["release_transaction_sha256", "release_tag"];
   if (
     !isObject(receipt) ||
     required.some((field) => !Object.hasOwn(receipt, field)) ||
-    Object.keys(receipt).some((field) => !required.includes(field))
+    Object.keys(receipt).some((field) => !required.includes(field) && !optional.includes(field))
   ) {
     errors.push(issue("$.evidence", "delivery receipt is missing required fields"));
     return;
+  }
+  const transactionPath = path.join(
+    session.source.repo_root,
+    ".pm",
+    "dev-sessions",
+    session.slug,
+    "ship",
+    "release-transaction.json"
+  );
+  if (fs.existsSync(transactionPath)) {
+    try {
+      const transactionBytes = fs.readFileSync(transactionPath);
+      const transaction = JSON.parse(transactionBytes.toString("utf8"));
+      const issues = transactionIssues(transaction);
+      const requiredEffects = headless ? ["push", "create-pr"] : ["push", "create-pr", "merge"];
+      if (
+        issues.length > 0 ||
+        transaction.run_id !== session.run_id ||
+        transaction.release.prepared_commit !== result.commit ||
+        receipt.release_transaction_sha256 !== `sha256:${sha256Hex(transactionBytes)}` ||
+        receipt.release_tag !== transaction.release.tag ||
+        requiredEffects.some((name) => transaction.effects[name]?.status !== "verified") ||
+        (!headless &&
+          transaction.effects.merge?.verified_receipt?.receipt?.merge_sha !== receipt.merge_sha) ||
+        (transaction.release.mode === "versioned" &&
+          !headless &&
+          transaction.effects["place-main-tag"]?.status !== "verified")
+      ) {
+        errors.push(
+          issue("$.evidence", "delivery receipt does not match the verified release transaction")
+        );
+        return;
+      }
+    } catch (error) {
+      errors.push(issue("$.evidence", `could not verify release transaction: ${error.message}`));
+      return;
+    }
   }
   if (
     receipt.schema_version !== 1 ||

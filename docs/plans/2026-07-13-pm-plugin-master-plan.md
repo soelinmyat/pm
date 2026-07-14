@@ -29,7 +29,7 @@ Completion means every shipped skill has an explicit contract, proportionate eva
 | v1.13.25 / Wave 4B | Shared provider-neutral workflow runtime primitives | Released |
 | vNext / Wave 5 | Groom v2, canonical proposal contract, and quality calibration | Certified; release PR pending |
 
-Wave 5 is certified and awaiting its release merge. Wave 6 is next and begins from the reviewed Wave 5 commit after it lands on main.
+Wave 5 shipped as v1.13.26 in PR #355. Wave 6 is implementing the Ship and release transaction v2 from that released main commit.
 
 ## Operating laws
 
@@ -133,7 +133,7 @@ Keep routing tables, approval policy, findings, artifact schemas, and gate rules
 
 ### Wave 5 — Groom v2 and proposal quality
 
-**State:** implementation, remediation, and certification complete on `codex/groom-v2`; release PR pending. Detailed plan in `docs/plans/2026-07-14-groom-v2-wave-5.md`.
+**State:** released as v1.13.26 via PR #355. Detailed plan in `docs/plans/2026-07-14-groom-v2-wave-5.md`.
 
 Make Groom the next full lifecycle migration:
 
@@ -147,6 +147,8 @@ Make Groom the next full lifecycle migration:
 **Exit:** no HTML twin maintenance or hash repair by model; RFC consumes the proposal contract directly; weak-but-valid proposal fixtures score materially below strong fixtures.
 
 ### Wave 6 — Ship and release transaction v2
+
+**State:** implementation and certification complete on `codex/ship-v2`; release preparation pending. Detailed plan in `docs/plans/2026-07-14-ship-release-transaction-v2-wave-6.md`.
 
 Resolve the delivery boundary exposed during Wave 3B:
 

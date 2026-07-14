@@ -61,7 +61,17 @@ test("quality revalidation requires the exact successful helper invocation", () 
       exit_code: 0,
     },
   ]);
+  const chained = normalizeEvents([
+    {
+      type: "tool",
+      name: "functions.exec_command",
+      command:
+        '/bin/zsh -c \'/opt/homebrew/bin/node "$PM_PLUGIN_ROOT/scripts/evals/quality-resume.js" revalidate dev "$(pwd)"; node verify.js\'',
+      exit_code: 0,
+    },
+  ]);
   assert.equal(checkTranscript(exact, "quality-revalidation", "dev").status, "pass");
+  assert.equal(checkTranscript(chained, "quality-revalidation", "dev").status, "pass");
   assert.equal(checkTranscript(echoed, "quality-revalidation", "dev").status, "fail");
 });
 

@@ -1,5 +1,5 @@
 ---
-description: "Review, push, create PR, monitor CI, and auto-merge. Also resolves review comments and fixes CI on existing PRs."
+description: "Prepare the final release tree, review it, and resumably push, create or reconcile a PR, monitor CI, merge, and place any main release tag. Also resumes existing PRs without replaying verified effects."
 argument-hint: "[PR-number]"
 ---
 

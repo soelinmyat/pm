@@ -1,28 +1,20 @@
 ---
-name: Review Gate
+name: Prepare Release and Review Gate
 order: 3
-description: Run review for M/L/XL changes or code scan for XS/S before pushing
+description: Freeze the prepared delivery tree, bind final evidence, and run Review before pushing
 ---
 
-## Review
+## Prepare Release and Review
 
 <!-- telemetry step: review -->
 
 ## Goal
 
-Run the required pre-push review gate and ensure anything leaving the machine has already survived the appropriate quality check.
+Prepare the exact tree that will be delivered, then run the required pre-push review and bind all current gate evidence to that same commit.
 
 ## How
 
-Read `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/delivery-contract.md` before this step. This step owns creation of the run-scoped delivery contract; later steps may validate it but must not silently replace it.
-
-The review gate is the last quality check before code leaves your machine. Bugs caught here cost minutes to fix; bugs caught in production cost hours.
-
-### Skip check
-
-**Verify review ran (standalone invocation guard):** Resolve the branch sidecar and its `review` row. The row must be `passed`, equal current HEAD, and point to project-relative `.pm/dev-sessions/{slug}/review/report.html`. Read sibling `review/report.json`, then run `node "$PM_PLUGIN_ROOT/scripts/review-check.js" --root "$PWD" --report "{REPORT_PATH}" --from-report`. Only a passing current check may skip a new review. Log: "Review gate already passed with current checked evidence — skipping."
-
-If the row, report, any bound result, current SHA, remote base, diff, or browser-checked HTML fails, the state is stale — do NOT skip. Re-run Review so what ships is what was reviewed.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/release-transaction.md` and `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/delivery-contract.md` before this step. This step owns preparation of the release transaction and creation of the run-scoped delivery contract; later steps validate them but must not silently replace either identity.
 
 If no canonical `session.json` exists (standalone Ship invocation), create it before Review:
 
@@ -54,6 +46,25 @@ For standalone Ship, persist action-specific user authority through `dev-session
 
 After authority is settled, resolve the remote's sole push URL, normalize its exact GitHub `OWNER/REPO`, and persist its SHA-256, current head/default-base identity, and canonical authority snapshot in `.pm/dev-sessions/{slug}/ship/delivery-contract.json` exactly as specified by `delivery-contract.md`. Multiple push URLs, a non-GitHub destination, or an unparseable owner/repo blocks Ship.
 
+### Prepare the final tree before Review
+
+With session bootstrap, routing, authority, delivery-remote resolution, and the delivery contract complete, select exactly one transaction mode:
+
+- **Versioned:** when AGENTS.md, the task, or repository scripts require a version bump, run the documented `npm run prepare-release -- {patch|minor|major|x.y.z} --session ...`. This commits the mutation and creates no tag.
+- **Delivery-only:** when no version mutation is required, run `release-transaction.js initialize` for current HEAD.
+
+Do not infer a bump level. Repository policy or explicit user scope chooses it. If a version mutation is required but the level is absent, stop before Review for that release decision. Never use legacy `bump-version.js` inside this workflow.
+
+Read the transaction back and require its prepared commit to equal `git rev-parse HEAD`, its branch/remote/base to equal the canonical session, and `tag_created: false`. The prepared commit is the only commit Review may freeze.
+
+The review gate is the last quality check before code leaves your machine. Bugs caught here cost minutes to fix; bugs caught in production cost hours. A report from before `prepare-release` is stale even when implementation files are unchanged.
+
+### Skip check
+
+**Verify review ran (standalone invocation guard):** Resolve the branch sidecar and its `review` row. The row must be `passed`, equal the prepared commit, and point to project-relative `.pm/dev-sessions/{slug}/review/report.html`. Read sibling `review/report.json`, then run `node "$PM_PLUGIN_ROOT/scripts/review-check.js" --root "$PWD" --report "{REPORT_PATH}" --from-report`. Only a passing current check may skip a new review. Log: "Review gate already passed with current checked evidence — skipping."
+
+If the row, report, any bound result, prepared SHA, remote base, diff, or browser-checked HTML fails, the state is stale — do NOT skip. Re-run Review so what ships is what was reviewed.
+
 ### Run the review
 
 Invoke `pm:review` in branch mode (no PR number argument):
@@ -71,6 +82,12 @@ If `pm:review` reports "No changes to review", stop — there's nothing to push.
 `pm:review` writes a current checked report and points the sidecar `review` row to its HTML artifact. The report binds target, commit, remote base, binary diff, reviewer results, decisions, findings, and human projection. Any later commit, rebase, merge-loop fix, or evidence mutation invalidates the check and requires a new round.
 
 Confirm the report checker and sidecar row pass before proceeding. A Markdown line alone is never review evidence.
+
+### Bind canonical evidence into the transaction
+
+Run every routed gate at the prepared commit. Bind canonical Review, QA, and verification artifacts with `release-transaction.js bind-evidence` following `release-transaction.md`. Design Critique remains enforced through the canonical gate sidecar and Dev evidence; Review's target carries the upstream critique binding when UI applies.
+
+Run `release-transaction.js status` and require `ready: true`. Then run `dev-gate-check.js` at current HEAD with the exact delivery remote, base, and `--require-authority push_feature_branch,create_pr`. A passing prose summary, prior review report, or CI status cannot replace either executable check.
 
 ### What "passing" means
 
@@ -106,6 +123,6 @@ For handling review feedback after PR creation, see `${CLAUDE_PLUGIN_ROOT}/skill
 
 ## Done-when
 
-The correct review path has run against the frozen delivery remote, blocking findings are fixed or the flow has stopped, all routed gates are current, the delivery contract validates, and explicit authority for the next requested action is persisted.
+The required version mutation (if any) is committed without a feature tag, the correct review path has run against that prepared commit and frozen remote, all routed gates are current, Review/QA/verification evidence is bound into a ready transaction, the delivery contract validates, and explicit authority for the next action is persisted.
 
 **Advance:** proceed to Step 04 (Push).

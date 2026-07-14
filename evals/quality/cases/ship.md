@@ -7,7 +7,7 @@ Ship a reviewed branch through push, PR, hosted CI, and authorized merge, then v
 Interpret “send it” when branch state, review state, and merge authority differ; establish the authorized terminal state before mutating remote state.
 
 ## resume
-Resume after a PR exists and some checks passed, refresh the current head and hosted state, and avoid duplicating or bypassing completed gates.
+Resume with an `attempting` Push whose terminal result was lost. Revalidate the checkpoint, ask the release transaction for its decision, observe the exact remote target before replay, and reconcile the existing attempt without a duplicate push when the remote already matches.
 
 ## blocked-and-recovery
 Handle a hosted CI failure after push by diagnosing the failing check, preserving PR state, and stopping at the correct recovery boundary.
