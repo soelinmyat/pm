@@ -664,7 +664,7 @@ test("ship requires explicit authority and independently verified merged PR evid
       pr_number: 42,
       pr_url: "https://github.com/example/repo/pull/42",
       state: "MERGED",
-      merge_sha: "merge42",
+      merge_sha: "b".repeat(40),
       head_branch: "main",
       feature_commit: commit,
     };
@@ -689,7 +689,7 @@ test("ship requires explicit authority and independently verified merged PR evid
       state: "MERGED",
       headRefName: "main",
       headRefOid: commit,
-      mergeCommit: { oid: "merge42" },
+      mergeCommit: { oid: "b".repeat(40) },
     };
     assert.deepEqual(validateResult(session, result, { verifyDelivery: () => observed }), []);
     assert.ok(
@@ -741,13 +741,23 @@ test("delivery receipt is cryptographically bound to the verified release transa
       {
         name: "push",
         authority: { push_feature_branch: true },
-        target: { remote: "origin", branch: session.source.branch, commit },
+        target: {
+          remote: "origin",
+          repository: "example/repo",
+          branch: session.source.branch,
+          commit,
+        },
         receipt: { remote_tip: commit },
       },
       {
         name: "create-pr",
         authority: { create_pr: true },
-        target: { repository: "example/repo", head: session.source.branch, base: "main" },
+        target: {
+          repository: "example/repo",
+          head: session.source.branch,
+          base: "main",
+          commit,
+        },
         receipt: { pr_number: 42, state: "OPEN", head_oid: commit },
       },
       {
@@ -756,11 +766,16 @@ test("delivery receipt is cryptographically bound to the verified release transa
         target: {
           repository: "example/repo",
           pr_number: 42,
-          prepared_commit: commit,
+          head_commit: commit,
           base: "main",
           method: "squash",
         },
-        receipt: { state: "MERGED", merge_sha: "merge42", head_oid: commit },
+        receipt: {
+          state: "MERGED",
+          pr_number: 42,
+          merge_sha: "b".repeat(40),
+          head_oid: commit,
+        },
       },
     ];
     for (const effect of effects) {
@@ -789,7 +804,7 @@ test("delivery receipt is cryptographically bound to the verified release transa
       pr_number: 42,
       pr_url: "https://github.com/example/repo/pull/42",
       state: "MERGED",
-      merge_sha: "merge42",
+      merge_sha: "b".repeat(40),
       head_branch: session.source.branch,
       feature_commit: commit,
       release_transaction_sha256: `sha256:${crypto.createHash("sha256").update(transactionBytes).digest("hex")}`,
@@ -808,7 +823,7 @@ test("delivery receipt is cryptographically bound to the verified release transa
       state: "MERGED",
       headRefName: session.source.branch,
       headRefOid: commit,
-      mergeCommit: { oid: "merge42" },
+      mergeCommit: { oid: "b".repeat(40) },
     };
     assert.deepEqual(validateResult(session, result, { verifyDelivery: () => observed }), []);
     fs.writeFileSync(

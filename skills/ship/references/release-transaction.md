@@ -130,25 +130,27 @@ Timeout, lost terminal output, connection reset, and process interruption are no
 
 ## Canonical targets and observations
 
+The runtime validates these canonical field names and refuses a target or matched receipt whose identity does not equal the transaction and its verified upstream receipts.
+
 ### Push
 
-Target fields: delivery remote, normalized repository, head branch, prepared commit. Observe with `git ls-remote` against the contracted remote. Matching remote tip verifies; missing ref is `absent`; any other tip is `conflict`.
+Target fields: `remote`, `repository`, `branch`, `commit`. The receipt field `remote_tip` must equal `commit`. Observe with `git ls-remote` against the contracted remote. Missing ref is `absent`; any other tip is `conflict`.
 
 ### Create PR
 
-Target fields: repository, head branch, base branch, prepared commit. Observe through the exact GitHub owner/repository and require zero or one matching PR. The receipt records number, URL, state, and head OID. Multiple matches, a fork, wrong base, or wrong head OID is `conflict`.
+Target fields: `repository`, `head`, `base`, `commit`. Observe through the exact GitHub owner/repository and require zero or one matching PR. The receipt records `pr_number`, URL, `state: OPEN`, and `head_oid`; the head OID must equal `commit`. Multiple matches, a fork, wrong base, or wrong head OID is `conflict`.
 
 ### Merge
 
-Target fields: repository, verified PR number, prepared head commit, base branch, and merge method. Receipt records `MERGED`, merge SHA, merged time, and observed head OID. An OPEN PR is not an absent merge and must remain in monitoring; CLOSED without merge is `conflict`.
+Target fields: `repository`, verified `pr_number`, `head_commit`, `base`, and `method`. Receipt records the same `pr_number`, `state: MERGED`, `merge_sha`, merged time, and `head_oid`; the head OID must equal `head_commit`. An OPEN PR is not an absent merge and must remain in monitoring; CLOSED without merge is `conflict`.
 
 ### Place main tag
 
-Target fields: contracted remote, release tag, verified merge SHA, and authoritative base branch. Before attempting, fetch the base and require the merge SHA to be the authoritative base tip or an allowed ancestor under repository policy. Observe the remote tag with peeling. Matching SHA verifies; no tag is `absent`; any other SHA is `conflict`. Never force-move a conflicting tag automatically.
+Target fields: `remote`, `tag`, verified `merge_sha`, and authoritative `base`. Before attempting, fetch the base and require the merge SHA to be the authoritative base tip or an allowed ancestor under repository policy. Observe the remote tag with peeling. The receipt's `tag` and `peeled_sha` must match the target. No tag is `absent`; any other SHA is `conflict`. Never force-move a conflicting tag automatically.
 
 ### Tracker update
 
-Target fields: provider, issue ID, terminal state, and stable comment identity. Receipt records the observed state and comment. Missing authority is `denied`; unavailable provider is `failed`/environment; mismatched issue identity is `conflict`.
+Target fields: `provider`, `issue_id`, `terminal_state`, and `comment_identity`. Receipt fields `provider`, `issue_id`, `state`, and `comment_identity` must match. Missing authority is `denied`; unavailable provider is `failed`/environment; mismatched issue identity is `conflict`.
 
 ## Post-preparation commits
 

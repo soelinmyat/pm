@@ -249,6 +249,7 @@ function reconcileEffect(transaction, input) {
   attempt.finished_at = timestamp;
   if (input.outcome === "matched") {
     requireObject(input.receipt, "effect receipt");
+    validateMatchedReceipt(input.effect, effect.target, input.receipt);
     const receipt = bindEffectReceipt({
       effect: input.effect,
       target: effect.target,
@@ -498,8 +499,31 @@ function validateAttempt(attempt, name, index, issues) {
 }
 
 function validateEffectTarget(name, target, transaction) {
-  if (name === "push" && target.commit !== transaction.release.prepared_commit) {
-    throw new Error("push target must equal prepared commit");
+  if (name === "push") {
+    requireTargetMatch(target, "remote", transaction.source.delivery_remote, "delivery remote");
+    requireTargetMatch(target, "repository", transaction.source.repository, "repository");
+    requireTargetMatch(target, "branch", transaction.source.head_branch, "head branch");
+    requireTargetMatch(target, "commit", transaction.release.prepared_commit, "prepared commit");
+  }
+  if (name === "create-pr") {
+    requireTargetMatch(target, "repository", transaction.source.repository, "repository");
+    requireTargetMatch(target, "head", transaction.source.head_branch, "head branch");
+    requireTargetMatch(target, "base", transaction.source.base_branch, "base branch");
+    requireTargetMatch(target, "commit", transaction.release.prepared_commit, "prepared commit");
+  }
+  if (name === "merge") {
+    const prReceipt = transaction.effects["create-pr"]?.verified_receipt?.receipt;
+    if (!prReceipt) throw new Error("merge target requires a verified create-pr receipt");
+    requireTargetMatch(target, "repository", transaction.source.repository, "repository");
+    requireTargetMatch(target, "pr_number", receiptPrNumber(prReceipt), "verified PR number");
+    requireTargetMatch(
+      target,
+      "head_commit",
+      transaction.release.prepared_commit,
+      "prepared commit"
+    );
+    requireTargetMatch(target, "base", transaction.source.base_branch, "base branch");
+    requireString(target.method, "merge target method");
   }
   if (name === "place-main-tag") {
     if (transaction.release.mode !== "versioned") {
@@ -508,10 +532,75 @@ function validateEffectTarget(name, target, transaction) {
     if (target.tag !== transaction.release.tag)
       throw new Error("tag target must equal release tag");
     if (!SHA.test(target.merge_sha || "")) throw new Error("tag target requires merge SHA");
+    const mergeReceipt = transaction.effects.merge?.verified_receipt?.receipt;
+    if (!mergeReceipt || target.merge_sha !== mergeReceipt.merge_sha) {
+      throw new Error("tag target must equal the verified merge SHA");
+    }
+    if (target.remote !== transaction.source.delivery_remote) {
+      throw new Error("tag target must use the delivery remote");
+    }
     if (target.base !== transaction.source.base_branch) {
       throw new Error("tag target must use the authoritative base branch");
     }
   }
+  if (name === "tracker-update") {
+    for (const field of ["provider", "issue_id", "terminal_state", "comment_identity"]) {
+      requireString(target[field], `tracker target ${field}`);
+    }
+  }
+}
+
+function validateMatchedReceipt(name, target, receipt) {
+  if (name === "push") {
+    requireReceiptMatch(receipt, "remote_tip", target.commit, "prepared commit");
+    return;
+  }
+  if (name === "create-pr") {
+    const number = receiptPrNumber(receipt);
+    if (!Number.isInteger(number) || number < 1) {
+      throw new Error("create-pr receipt requires a positive PR number");
+    }
+    requireReceiptMatch(receipt, "state", "OPEN", "OPEN PR state");
+    requireReceiptMatch(receipt, "head_oid", target.commit, "prepared commit");
+    return;
+  }
+  if (name === "merge") {
+    requireReceiptMatch(receipt, "state", "MERGED", "MERGED PR state");
+    requireReceiptMatch(receipt, "head_oid", target.head_commit, "prepared commit");
+    requireReceiptMatch(receipt, "pr_number", target.pr_number, "planned PR number");
+    if (!SHA.test(receipt.merge_sha || "")) {
+      throw new Error("merge receipt requires a valid merge SHA");
+    }
+    return;
+  }
+  if (name === "place-main-tag") {
+    requireReceiptMatch(receipt, "tag", target.tag, "release tag");
+    requireReceiptMatch(receipt, "peeled_sha", target.merge_sha, "verified merge SHA");
+    return;
+  }
+  if (name === "tracker-update") {
+    requireReceiptMatch(receipt, "provider", target.provider, "tracker provider");
+    requireReceiptMatch(receipt, "issue_id", target.issue_id, "tracker issue");
+    requireReceiptMatch(receipt, "state", target.terminal_state, "terminal tracker state");
+    requireReceiptMatch(
+      receipt,
+      "comment_identity",
+      target.comment_identity,
+      "stable tracker comment"
+    );
+  }
+}
+
+function requireTargetMatch(target, field, expected, label) {
+  if (target[field] !== expected) throw new Error(`${field} target must equal ${label}`);
+}
+
+function requireReceiptMatch(receipt, field, expected, label) {
+  if (receipt[field] !== expected) throw new Error(`${field} receipt must equal ${label}`);
+}
+
+function receiptPrNumber(receipt) {
+  return receipt.pr_number ?? receipt.number;
 }
 
 function emptyAttempt(number, timestamp) {

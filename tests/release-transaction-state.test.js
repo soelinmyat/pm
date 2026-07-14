@@ -72,7 +72,12 @@ test("effects are dependency ordered and root-owned", () => {
   let value = transaction();
   value = planEffect(value, {
     effect: "create-pr",
-    target: { repository: "acme/widget", head: "codex/release-example", base: "main" },
+    target: {
+      repository: "acme/widget",
+      head: "codex/release-example",
+      base: "main",
+      commit: COMMIT,
+    },
     timestamp: "2026-07-14T00:01:00.000Z",
   });
   assert.throws(
@@ -99,7 +104,12 @@ test("effects are dependency ordered and root-owned", () => {
 test("missing authority is a durable denial, not an environment failure", () => {
   let value = planEffect(transaction(), {
     effect: "push",
-    target: { remote: "origin", branch: "codex/release-example", commit: COMMIT },
+    target: {
+      remote: "origin",
+      repository: "acme/widget",
+      branch: "codex/release-example",
+      commit: COMMIT,
+    },
     timestamp: "2026-07-14T00:01:00.000Z",
   });
   const result = beginEffect(value, {
@@ -118,7 +128,12 @@ test("missing authority is a durable denial, not an environment failure", () => 
 test("ambiguous outcome observes before retry and verified effects never replay", () => {
   let value = planEffect(transaction(), {
     effect: "push",
-    target: { remote: "origin", branch: "codex/release-example", commit: COMMIT },
+    target: {
+      remote: "origin",
+      repository: "acme/widget",
+      branch: "codex/release-example",
+      commit: COMMIT,
+    },
     timestamp: "2026-07-14T00:01:00.000Z",
   });
   let begun = beginEffect(value, {
@@ -178,7 +193,12 @@ test("ambiguous outcome observes before retry and verified effects never replay"
 test("conflicting observation blocks instead of replaying", () => {
   let value = planEffect(transaction(), {
     effect: "push",
-    target: { remote: "origin", branch: "codex/release-example", commit: COMMIT },
+    target: {
+      remote: "origin",
+      repository: "acme/widget",
+      branch: "codex/release-example",
+      commit: COMMIT,
+    },
   });
   value = beginEffect(value, {
     effect: "push",
@@ -198,7 +218,12 @@ test("conflicting observation blocks instead of replaying", () => {
 test("post-preparation commits preserve the old journal and invalidate current evidence", () => {
   let value = planEffect(transaction(), {
     effect: "push",
-    target: { remote: "origin", branch: "codex/release-example", commit: COMMIT },
+    target: {
+      remote: "origin",
+      repository: "acme/widget",
+      branch: "codex/release-example",
+      commit: COMMIT,
+    },
   });
   value = beginEffect(value, {
     effect: "push",
@@ -226,18 +251,70 @@ test("post-preparation commits preserve the old journal and invalidate current e
 });
 
 test("main tag cannot begin until merge is verified and conflicts never force move", () => {
-  const value = planEffect(transaction(), {
-    effect: "place-main-tag",
-    target: { remote: "origin", tag: "v1.2.4", merge_sha: MERGE, base: "main" },
-  });
   assert.throws(
     () =>
-      beginEffect(value, {
+      planEffect(transaction(), {
         effect: "place-main-tag",
-        authority: { merge: true },
-        actor: "root",
+        target: { remote: "origin", tag: "v1.2.4", merge_sha: MERGE, base: "main" },
       }),
-    /requires verified effect merge/
+    /verified merge SHA/
+  );
+});
+
+test("matched observations must prove the planned effect identity", () => {
+  let value = planEffect(transaction(), {
+    effect: "push",
+    target: {
+      remote: "origin",
+      repository: "acme/widget",
+      branch: "codex/release-example",
+      commit: COMMIT,
+    },
+  });
+  value = beginEffect(value, {
+    effect: "push",
+    authority: { push_feature_branch: true },
+    actor: "root",
+  }).transaction;
+  const receipt = { remote_tip: "e".repeat(40) };
+  assert.throws(
+    () =>
+      reconcileEffect(value, {
+        effect: "push",
+        outcome: "matched",
+        receipt,
+        observation: { target: value.effects.push.target, receipt },
+      }),
+    /remote_tip receipt must equal prepared commit/
+  );
+});
+
+test("effect targets are bound to the release transaction identity", () => {
+  assert.throws(
+    () =>
+      planEffect(transaction(), {
+        effect: "push",
+        target: {
+          remote: "upstream",
+          repository: "acme/widget",
+          branch: "codex/release-example",
+          commit: COMMIT,
+        },
+      }),
+    /remote target must equal delivery remote/
+  );
+  assert.throws(
+    () =>
+      planEffect(transaction(), {
+        effect: "create-pr",
+        target: {
+          repository: "other/repo",
+          head: "codex/release-example",
+          base: "main",
+          commit: COMMIT,
+        },
+      }),
+    /repository target must equal repository/
   );
 });
 

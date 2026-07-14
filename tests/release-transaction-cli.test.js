@@ -66,7 +66,12 @@ test("CLI validates, plans, and durably records authority denial", () => {
     const target = ".pm/dev-sessions/example/ship/push-target.json";
     fs.writeFileSync(
       path.join(item.root, target),
-      `${JSON.stringify({ remote: "origin", branch: "codex/example", commit: COMMIT })}\n`
+      `${JSON.stringify({
+        remote: "origin",
+        repository: "acme/widget",
+        branch: "codex/example",
+        commit: COMMIT,
+      })}\n`
     );
     const planned = run(
       item.root,
