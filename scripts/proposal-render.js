@@ -185,6 +185,8 @@ function renderMarkdown(proposal, identity) {
   const researchRefs = proposal.evidence
     .filter((item) => item.kind === "research")
     .map((item) => item.path.replace(/^pm\//, ""));
+  const ideaDecisionPath = `backlog/${proposal.slug}.decision.json`;
+  const ideaOrigin = proposal.source.lineage.some((entry) => entry.path === ideaDecisionPath);
   return `---
 type: backlog
 id: "${yaml(proposal.id)}"
@@ -196,7 +198,7 @@ labels:
 ${proposal.labels.map((label) => `  - "${yaml(label)}"`).join("\n")}
 created: ${created}
 updated: ${date}
-prd: "proposals/${proposal.slug}.html"
+${ideaOrigin ? `reasoning_version: 2\ndecision_brief: "${yaml(ideaDecisionPath)}"\n` : ""}prd: "proposals/${proposal.slug}.html"
 rfc: null
 kind: proposal
 size: ${proposal.size}

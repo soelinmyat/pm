@@ -40,7 +40,9 @@ function main(argv = process.argv.slice(2)) {
         readProjectInput(root, inputRelative, 4 * 1024 * 1024).bytes.toString("utf8")
       );
       let issues;
-      if (value.document_type === "decision-brief") {
+      if (value === null || typeof value !== "object" || Array.isArray(value)) {
+        issues = validateDecisionBrief(value);
+      } else if (value.document_type === "decision-brief") {
         issues = validateDecisionBrief(value);
         if (issues.length === 0) issues.push(...verifyDecisionBriefBindings(root, value));
       } else if (value.document_type === "feature-inventory") {

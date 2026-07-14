@@ -36,6 +36,24 @@ test("validate dispatches only known product reasoning document types", (t) => {
   assert.match(result.stderr, /document_type must be decision-brief or feature-inventory/);
 });
 
+test("standalone validation returns schema diagnostics for malformed JSON roots", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reasoning-total-cli-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  for (const [name, value] of [
+    ["null", null],
+    ["number", 1],
+    ["string", "invalid"],
+    ["array", []],
+  ]) {
+    const input = path.join(root, `${name}.json`);
+    fs.writeFileSync(input, JSON.stringify(value));
+    const result = run(["validate", "--root", root, "--input", input]);
+    assert.equal(result.status, 2, `${name}: ${result.stderr}`);
+    assert.match(result.stdout, /must be an object/);
+    assert.equal(result.stderr, "");
+  }
+});
+
 test("JSON inputs reject symbolic links", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reasoning-link-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

@@ -899,7 +899,7 @@ const REQUIRED_FEATURES_FIELDS = [
   "areas",
 ];
 
-function validateFeaturesFile(pmDir, filePath, content, errors) {
+function validateFeaturesFile(pmDir, filePath, content, errors, cache) {
   const relativeFile = relativeToPm(pmDir, filePath);
   const parsed = parseFrontmatter(content);
   if (!parsed.hasFrontmatter) {
@@ -927,6 +927,36 @@ function validateFeaturesFile(pmDir, filePath, content, errors) {
       );
     }
   }
+
+  const hasVersion = Object.prototype.hasOwnProperty.call(data, "inventory_version");
+  const hasFile = Object.prototype.hasOwnProperty.call(data, "inventory_file");
+  if (!hasVersion && !hasFile) return;
+  if (String(data.inventory_version) !== "2")
+    pushIssue(errors, relativeFile, "inventory_version", "must equal 2");
+  const expectedInventory = "product/features.json";
+  if (data.inventory_file !== expectedInventory) {
+    pushIssue(
+      errors,
+      relativeFile,
+      "inventory_file",
+      `must equal canonical companion ${expectedInventory}`
+    );
+    return;
+  }
+  const inspected = inspectProductReasoningJson(
+    pmDir,
+    path.join(pmDir, expectedInventory),
+    "feature-inventory",
+    cache
+  );
+  if (inspected.readError) {
+    pushIssue(errors, relativeFile, "inventory_file", `invalid companion: ${inspected.readError}`);
+    return;
+  }
+  for (const issue of inspected.issues) pushIssue(errors, relativeFile, "inventory_file", issue);
+  if (inspected.issues.length) return;
+  for (const issue of inspected.bindingIssues)
+    pushIssue(errors, relativeFile, "inventory_file", issue);
 }
 
 function inspectProductReasoningJson(pmDir, filePath, expectedType, cache) {
@@ -1023,8 +1053,10 @@ function validateReasoningFrontmatter(pmDir, markdownPath, data, errors, kind, c
   }
   const brief = inspected.value;
   const issues = [...inspected.issues];
-  if (brief.kind !== kind) issues.push(`decision kind must equal ${kind}`);
-  if (kind !== "strategy" && brief.slug !== slug) issues.push(`decision slug must equal ${slug}`);
+  if (brief !== null && typeof brief === "object" && !Array.isArray(brief)) {
+    if (brief.kind !== kind) issues.push(`decision kind must equal ${kind}`);
+    if (kind !== "strategy" && brief.slug !== slug) issues.push(`decision slug must equal ${slug}`);
+  }
   for (const issue of issues) pushIssue(errors, relativeMarkdown, "decision_brief", issue);
   if (issues.length) return;
   for (const issue of inspected.bindingIssues)
@@ -1324,7 +1356,7 @@ function validate(pmDir, options = {}) {
   const featuresPath = path.join(pmDir, "product", "features.md");
   if (fs.existsSync(featuresPath)) {
     const content = fs.readFileSync(featuresPath, "utf8");
-    validateFeaturesFile(pmDir, featuresPath, content, errors);
+    validateFeaturesFile(pmDir, featuresPath, content, errors, productReasoningCache);
   }
 
   const decisionCandidates = [path.join(pmDir, "strategy.decision.json")];

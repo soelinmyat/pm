@@ -133,13 +133,13 @@ test("normal validation rejects decision companion symlinks", (t) => {
   assert.ok(result.errors.some((entry) => entry.msg.includes("symlink")));
 
   fs.mkdirSync(path.join(pm, "product"));
+  fs.writeFileSync(
+    path.join(pm, "product", "features.md"),
+    "---\ngenerated: 2026-07-14\ninventory_version: 2\ninventory_file: product/features.json\nsource_project: example\nfiles_scanned: 1\nfeature_count: 1\narea_count: 1\nareas:\n  - Core\n---\n\n### Feature\n"
+  );
   fs.symlinkSync(path.join(root, "missing.json"), path.join(pm, "product", "features.json"));
   const withFeatureLink = validate(pm);
-  assert.ok(
-    withFeatureLink.errors.some(
-      (entry) => entry.file === "product/features.json" && entry.msg.includes("symlink")
-    )
-  );
+  assert.ok(withFeatureLink.errors.some((entry) => entry.msg.includes("symlink")));
 });
 
 test("lineage frontmatter requires canonical companions in Strategy, Think, and Ideate", (t) => {
@@ -169,6 +169,44 @@ test("lineage frontmatter requires canonical companions in Strategy, Think, and 
       `${artifact} did not require its companion: ${JSON.stringify(result.errors)}`
     );
   }
+});
+
+test("malformed linked decision roots return bounded validation errors without throwing", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reasoning-linked-total-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const pm = path.join(root, "pm");
+  fs.mkdirSync(path.join(pm, "thinking"), { recursive: true });
+  fs.writeFileSync(
+    path.join(pm, "thinking", "choice.md"),
+    "---\ntype: thinking\ntopic: Choice\nslug: choice\ncreated: 2026-07-14\nupdated: 2026-07-14\nstatus: active\nreasoning_version: 2\ndecision_brief: thinking/choice.decision.json\n---\n"
+  );
+  for (const value of [null, 1, "invalid", []]) {
+    fs.writeFileSync(path.join(pm, "thinking", "choice.decision.json"), JSON.stringify(value));
+    let result;
+    assert.doesNotThrow(() => {
+      result = validate(pm);
+    });
+    assert.ok(result.errors.some((entry) => entry.msg.includes("must be an object")));
+  }
+});
+
+test("v2 feature Markdown requires its canonical regular companion", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-features-linked-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const pm = path.join(root, "pm");
+  fs.mkdirSync(path.join(pm, "product"), { recursive: true });
+  const markdown =
+    "---\ngenerated: 2026-07-14\ninventory_version: 2\ninventory_file: product/features.json\nsource_project: example\nfiles_scanned: 1\nfeature_count: 1\narea_count: 1\nareas:\n  - Core\n---\n\n### Feature\n";
+  fs.writeFileSync(path.join(pm, "product", "features.md"), markdown);
+  let result = validate(pm, { sourceDir: root });
+  assert.ok(result.errors.some((entry) => entry.msg.includes("invalid companion")));
+
+  fs.writeFileSync(
+    path.join(pm, "product", "features.md"),
+    markdown.replace("product/features.json", "product/inventory.json")
+  );
+  result = validate(pm, { sourceDir: root });
+  assert.ok(result.errors.some((entry) => entry.msg.includes("canonical companion")));
 });
 
 test("KB-relative feature bindings validate in nested and flat PM layouts", (t) => {
@@ -202,7 +240,7 @@ test("KB-relative feature bindings validate in nested and flat PM layouts", (t) 
       snapshot_sha256: snapshot.snapshot_sha256,
     };
     const markdown = Buffer.from(
-      `---\ngenerated: 2026-07-14\nsource_project: example\nfiles_scanned: 20\nfeature_count: ${features.length}\narea_count: ${inventory.areas.length}\nareas:\n${inventory.areas.map((area) => `  - ${area.name}`).join("\n")}\n---\n\n# Features\n\n${features.map((feature) => `### ${feature.name}`).join("\n\n")}\n`
+      `---\ngenerated: 2026-07-14\ninventory_version: 2\ninventory_file: product/features.json\nsource_project: example\nfiles_scanned: 20\nfeature_count: ${features.length}\narea_count: ${inventory.areas.length}\nareas:\n${inventory.areas.map((area) => `  - ${area.name}`).join("\n")}\n---\n\n# Features\n\n${features.map((feature) => `### ${feature.name}`).join("\n\n")}\n`
     );
     fs.writeFileSync(path.join(pm, "product", "features.md"), markdown);
     inventory.markdown_binding.sha256 = sha(markdown);
