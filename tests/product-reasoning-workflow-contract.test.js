@@ -27,6 +27,9 @@ test("Ideate delegates ordering and conflict checks to the shared deterministic 
   const skill = read("skills/ideate/SKILL.md");
   const schemas = read("references/frontmatter-schemas.md");
   assert.match(skill, /rank-ideas/);
+  assert.match(skill, /immediately before[^.]*writ/i);
+  assert.match(skill, /rerun[^.]*rank-ideas/i);
+  assert.match(skill, /current Strategy[^.]*authenticated/i);
   assert.match(skill, /non-goal conflicts block saving/i);
   assert.match(skill, /decision\.json/);
   assert.match(skill, /reasoning_version:\s*2/);

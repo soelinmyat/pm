@@ -10,6 +10,7 @@ const {
   proposalContentHash,
   resolveProposalPaths,
 } = require("./lib/proposal-schema.js");
+const { lineagePathMatches } = require("./lib/product-reasoning-bindings.js");
 
 function parseArgs(argv) {
   const options = { projectRoot: process.cwd(), pmDir: "pm", json: false };
@@ -186,7 +187,9 @@ function renderMarkdown(proposal, identity) {
     .filter((item) => item.kind === "research")
     .map((item) => item.path.replace(/^pm\//, ""));
   const ideaDecisionPath = `backlog/${proposal.slug}.decision.json`;
-  const ideaOrigin = proposal.source.lineage.some((entry) => entry.path === ideaDecisionPath);
+  const ideaOrigin = proposal.source.lineage.some((entry) =>
+    lineagePathMatches(entry.path, ideaDecisionPath)
+  );
   return `---
 type: backlog
 id: "${yaml(proposal.id)}"

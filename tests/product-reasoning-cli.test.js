@@ -8,6 +8,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { buildApproval, proposalContentHash } = require("../scripts/lib/proposal-schema");
+const { decisionId } = require("../scripts/lib/product-reasoning-schema");
 const { promote } = require("../scripts/product-reasoning");
 const { validate } = require("../scripts/validate");
 
@@ -15,6 +16,10 @@ const CLI = path.join(__dirname, "..", "scripts", "product-reasoning.js");
 
 function run(args) {
   return spawnSync(process.execPath, [CLI, ...args], { encoding: "utf8" });
+}
+
+function sha(bytes) {
+  return `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`;
 }
 
 test("identity commands are deterministic and reject incomplete arguments", () => {
@@ -110,6 +115,54 @@ test("feature-snapshot publishes deterministic bounded non-Git provenance", (t) 
   assert.match(first.stdout, /"snapshot_sha256": "sha256:[a-f0-9]{64}"/);
 });
 
+test("rank-ideas authenticates the canonical Strategy companion before ordering", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-ranking-strategy-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const markdown = Buffer.from("# Strategy\n");
+  fs.writeFileSync(path.join(root, "strategy.md"), markdown);
+  const strategy = JSON.parse(
+    fs.readFileSync(
+      path.join(__dirname, "..", "evals", "product-reasoning-quality", "strong", "decision.json"),
+      "utf8"
+    )
+  );
+  strategy.kind = "strategy";
+  strategy.slug = "strategy";
+  strategy.title = "Strategy";
+  strategy.decision_id = decisionId("strategy", "strategy");
+  strategy.source_artifacts = [{ path: "strategy.md", sha256: sha(markdown) }];
+  strategy.strategy_context = {
+    priorities: [{ id: "decision-trust", title: "Improve decision trust" }],
+    non_goals: [{ id: "enterprise", title: "Enterprise administration" }],
+  };
+  delete strategy.alignment;
+  const strategyPath = path.join(root, "strategy.decision.json");
+  fs.writeFileSync(strategyPath, JSON.stringify(strategy));
+  const idea = JSON.parse(
+    fs.readFileSync(
+      path.join(__dirname, "..", "evals", "product-reasoning-quality", "strong", "decision.json"),
+      "utf8"
+    )
+  );
+  const request = path.join(root, "request.json");
+  fs.writeFileSync(request, JSON.stringify({ ideas: [idea] }));
+
+  let result = run([
+    "rank-ideas",
+    "--root",
+    root,
+    "--strategy",
+    strategyPath,
+    "--request",
+    request,
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  fs.writeFileSync(path.join(root, "strategy.md"), "# Changed Strategy\n");
+  result = run(["rank-ideas", "--root", root, "--strategy", strategyPath, "--request", request]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /SHA-256 does not match/);
+});
+
 test("promote requires exact approved Groom lineage and atomically closes origin lineage", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reasoning-promote-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -136,7 +189,7 @@ test("promote requires exact approved Groom lineage and atomically closes origin
   const originBytes = fs.readFileSync(path.join(root, decisionPath));
   proposal.source.lineage.push({
     id: "source:idea-origin",
-    path: decisionPath,
+    path: `pm/${decisionPath}`,
     sha256: `sha256:${crypto.createHash("sha256").update(originBytes).digest("hex")}`,
   });
   fs.writeFileSync(path.join(root, targetRef), `${JSON.stringify(proposal, null, 2)}\n`);

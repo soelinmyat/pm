@@ -8,6 +8,7 @@ const { readBoundedJsonFile } = require("./lib/safe-json-file");
 const { writeProjectJsonAtomic } = require("./lib/project-atomic-write");
 const { readApprovedProposal } = require("./lib/proposal-schema");
 const {
+  lineagePathMatches,
   verifyArtifactBindings,
   verifyDecisionBriefBindings,
 } = require("./lib/product-reasoning-bindings");
@@ -58,7 +59,31 @@ function main(argv = process.argv.slice(2)) {
       if (issues.length) process.exitCode = 2;
     } else if (command === "rank-ideas") {
       const request = readBoundedJsonFile(required(args, "request"));
-      result = { rankings: rankIdeaBriefs(request.ideas || [], request.strategy || null) };
+      if (
+        !request ||
+        typeof request !== "object" ||
+        Array.isArray(request) ||
+        Object.keys(request).some((field) => field !== "ideas")
+      )
+        throw new Error("idea ranking request must contain only ideas");
+      let strategy = null;
+      if (args.strategy || args.root) {
+        const root = path.resolve(required(args, "root"));
+        const strategyPath = path.resolve(required(args, "strategy"));
+        const relative = path.relative(root, strategyPath).split(path.sep).join("/");
+        if (relative !== "strategy.decision.json")
+          throw new Error("--strategy must name the canonical strategy.decision.json companion");
+        const bytes = readProjectInput(root, relative, 4 * 1024 * 1024).bytes;
+        strategy = JSON.parse(bytes.toString("utf8"));
+        const strategyIssues = validateDecisionBrief(strategy);
+        if (strategy?.kind !== "strategy")
+          strategyIssues.push("strategy input must be a strategy decision brief");
+        if (strategyIssues.length === 0)
+          strategyIssues.push(...verifyDecisionBriefBindings(root, strategy));
+        if (strategyIssues.length)
+          throw new Error(`invalid strategy companion: ${strategyIssues.join("; ")}`);
+      }
+      result = { rankings: rankIdeaBriefs(request.ideas || [], strategy) };
     } else if (command === "reconcile-features") {
       const request = readBoundedJsonFile(required(args, "request"));
       if (
@@ -160,7 +185,8 @@ function promote(root, request, options = {}) {
   const originSha256 = sha256(decisionInput.bytes);
   if (
     !approved.source.proposal.source.lineage.some(
-      (entry) => entry.path === decisionInput.relative && entry.sha256 === originSha256
+      (entry) =>
+        lineagePathMatches(entry.path, decisionInput.relative) && entry.sha256 === originSha256
     )
   )
     throw new Error("approved proposal source lineage must bind the exact origin decision bytes");

@@ -8,6 +8,16 @@ const { readApprovedProposal } = require("./proposal-schema");
 const MAX_BINDING_FILE_BYTES = 16 * 1024 * 1024;
 const MAX_BINDING_TOTAL_BYTES = 64 * 1024 * 1024;
 
+function lineagePathMatches(observed, expected) {
+  if (typeof observed !== "string" || typeof expected !== "string") return false;
+  const normalizedObserved = observed.replaceAll("\\", "/");
+  const normalizedExpected = expected.replaceAll("\\", "/");
+  return (
+    normalizedObserved === normalizedExpected ||
+    normalizedObserved.endsWith(`/${normalizedExpected}`)
+  );
+}
+
 function verifyArtifactBindings(root, bindings, options = {}) {
   const maxFileBytes = options.maxFileBytes ?? MAX_BINDING_FILE_BYTES;
   const maxTotalBytes = options.maxTotalBytes ?? MAX_BINDING_TOTAL_BYTES;
@@ -94,7 +104,8 @@ function verifyDecisionBriefBindings(root, brief) {
     if (
       !approved.source.proposal.source.lineage.some(
         (entry) =>
-          entry.path === decisionPath && entry.sha256 === brief.promotion.origin_decision_sha256
+          lineagePathMatches(entry.path, decisionPath) &&
+          entry.sha256 === brief.promotion.origin_decision_sha256
       )
     )
       issues.push(`${targetRef}: proposal lineage does not bind the promoted origin decision`);
@@ -109,6 +120,7 @@ function verifyDecisionBriefBindings(root, brief) {
 module.exports = {
   MAX_BINDING_FILE_BYTES,
   MAX_BINDING_TOTAL_BYTES,
+  lineagePathMatches,
   verifyArtifactBindings,
   verifyDecisionBriefBindings,
 };

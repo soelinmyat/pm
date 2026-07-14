@@ -42,7 +42,7 @@ test("Ideate-origin proposals preserve the v2 companion marker in the generated 
   const input = source();
   input.proposal.source.lineage.push({
     id: "source:idea-origin",
-    path: "backlog/structured-groom.decision.json",
+    path: "pm/backlog/structured-groom.decision.json",
     sha256: `sha256:${"a".repeat(64)}`,
   });
   const rendered = renderProposal(input.proposal, {

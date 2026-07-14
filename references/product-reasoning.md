@@ -11,7 +11,7 @@ This reference is the shared machine contract for `pm:think`, `pm:ideate`, `pm:s
 | `{pm_dir}/strategy.md` | `{pm_dir}/strategy.decision.json` |
 | `{pm_dir}/product/features.md` | `{pm_dir}/product/features.json` |
 
-Decision evidence, source-artifact, promotion, trigger-target, and Markdown-binding paths are relative to `{pm_dir}` and therefore never include a leading `pm/`. Feature `source_refs` are the exception: they identify code and are relative to `{source_dir}` at an exact Git commit or deterministic filesystem snapshot. This two-root contract works unchanged in same-repo, nested separate-repo, and flat separate-repo layouts. Never publish absolute paths, home-relative paths, raw prompts, private customer text, credentials, or local cache locations.
+Decision evidence, source-artifact, proposal-lineage, promotion, trigger-target, and Markdown-binding paths are relative to `{pm_dir}` and therefore never include a leading `pm/`. Validation accepts an existing project-relative proposal-lineage prefix for compatibility, but new proposal lineage uses the canonical `{pm_dir}`-relative form. Feature `source_refs` are the exception: they identify code and are relative to `{source_dir}` at an exact Git commit or deterministic filesystem snapshot. This two-root contract works unchanged in same-repo, nested separate-repo, and flat separate-repo layouts. Never publish absolute paths, home-relative paths, raw prompts, private customer text, credentials, or local cache locations.
 
 ## Decision brief v1
 
@@ -92,13 +92,13 @@ The canonical target, sibling `.approval.json` audit, and canonical origin Markd
 
 ## Deterministic idea ranking
 
-Write a private request containing `strategy` plus the candidate `ideas`, then run:
+Write a private request containing only the candidate `ideas`. When Strategy exists, authenticate its canonical companion while ranking:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/product-reasoning.js" rank-ideas --request <private-request.json>
+node "${CLAUDE_PLUGIN_ROOT}/scripts/product-reasoning.js" rank-ideas --root "${pm_dir}" --strategy "${pm_dir}/strategy.decision.json" --request <private-request.json>
 ```
 
-The runtime orders categorical inputs by strategic alignment, evidence strength, competitor gap, dependency efficiency, scope efficiency, then stable ID. `strong` evidence requires at least three distinct cited signals; `moderate` requires one or two; `hypothesis` remains explicitly provisional. It also returns unknown priorities, confirmed non-goal conflicts, and stale/unknown non-goal tokens. Unknown tokens require correction. A confirmed non-goal conflict is shown to the user and blocks saving until they explicitly revise Strategy or drop/reshape the idea.
+The runtime verifies Strategy's schema and current Markdown binding before it orders categorical inputs by strategic alignment, evidence strength, competitor gap, dependency efficiency, scope efficiency, then stable ID. Omit both `--root` and `--strategy` only when no Strategy companion exists. `strong` evidence requires at least three distinct cited signals; `moderate` requires one or two; `hypothesis` remains explicitly provisional. It also returns unknown priorities, confirmed non-goal conflicts, and stale/unknown non-goal tokens. Unknown tokens require correction. A confirmed non-goal conflict is shown to the user and blocks saving until they explicitly revise Strategy or drop/reshape the idea. Rerun this authenticated check over the final edited candidates immediately before saving.
 
 ## Feature inventory v2
 
