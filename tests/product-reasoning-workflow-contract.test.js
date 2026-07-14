@@ -58,6 +58,8 @@ test("shared artifact reference keeps Markdown primary and machine fields portab
   const reference = read("references/product-reasoning.md");
   assert.match(reference, /Markdown remains the canonical human reader/);
   assert.match(reference, /Never publish absolute paths/);
+  assert.match(reference, /relative to `\{pm_dir\}`/);
+  assert.match(reference, /relative to `\{source_dir\}` at `scan\.commit`/);
   assert.match(reference, /confirmed decision has at least two materially distinct alternatives/i);
   assert.match(reference, /equal plausible matches[\s\S]*require user resolution/i);
   assert.match(reference, /score below 7\/10 is a quality failure/i);

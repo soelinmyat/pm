@@ -14,7 +14,7 @@ Create one canonical Groom session with a confirmed problem, audience, outcome, 
 
 ## How
 
-1. Resolve `{source_dir}`, `{pm_dir}`, and an existing backlog/thinking/Linear source without creating a workspace implicitly. When source frontmatter names a decision companion, validate and record its project-relative path as origin lineage; legacy sources without one remain valid.
+1. Resolve `{source_dir}`, `{pm_dir}`, and an existing backlog/thinking/Linear source without creating a workspace implicitly. When source frontmatter names a decision companion, validate and record its `{pm_dir}`-relative path as origin lineage; legacy sources without one remain valid.
 2. Confirm the problem and intended outcome; ask only the smallest question not answered by supplied context or the KB.
 3. Derive a stable slug and reject collisions unless the user is resuming that exact proposal.
 4. Detect codebase context, strategy/evidence freshness, and tier eligibility using `references/tier-gating.md`. `agent` uses stricter evidence gates but is not provider-locked.

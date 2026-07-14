@@ -6,12 +6,12 @@ This reference is the shared machine contract for `pm:think`, `pm:ideate`, `pm:s
 
 | Human artifact | Machine companion |
 |---|---|
-| `pm/thinking/{slug}.md` | `pm/thinking/{slug}.decision.json` |
-| `pm/backlog/{slug}.md` from Ideate | `pm/backlog/{slug}.decision.json` |
-| `pm/strategy.md` | `pm/strategy.decision.json` |
-| `pm/product/features.md` | `pm/product/features.json` |
+| `{pm_dir}/thinking/{slug}.md` | `{pm_dir}/thinking/{slug}.decision.json` |
+| `{pm_dir}/backlog/{slug}.md` from Ideate | `{pm_dir}/backlog/{slug}.decision.json` |
+| `{pm_dir}/strategy.md` | `{pm_dir}/strategy.decision.json` |
+| `{pm_dir}/product/features.md` | `{pm_dir}/product/features.json` |
 
-All stored paths are project-relative. Never publish absolute paths, home-relative paths, raw prompts, private customer text, credentials, or local cache locations.
+Decision evidence, source-artifact, promotion, trigger-target, and Markdown-binding paths are relative to `{pm_dir}` and therefore never include a leading `pm/`. Feature `source_refs` are the exception: they identify code and are relative to `{source_dir}` at `scan.commit`. This two-root contract works unchanged in same-repo, nested separate-repo, and flat separate-repo layouts. Never publish absolute paths, home-relative paths, raw prompts, private customer text, credentials, or local cache locations.
 
 ## Decision brief v1
 
@@ -33,7 +33,7 @@ The companion uses this shape:
   "title": "Reader title",
   "problem": "The confirmed problem or opportunity",
   "evidence_refs": [
-    { "ref": "pm/evidence/research/topic.md#finding-1", "evidence_id": "ev-...", "note": "What it supports" }
+    { "ref": "evidence/research/topic.md#finding-1", "evidence_id": "ev-...", "note": "What it supports" }
   ],
   "alternatives": [
     { "id": "focused", "title": "Focused path", "tradeoff": "What this gains and gives up" },
@@ -45,7 +45,7 @@ The companion uses this shape:
   "next_trigger": { "lane": "groom", "condition": "Observable condition for advancing", "target": null },
   "promotion": { "status": "not-offered", "target_kind": null, "target_ref": null, "confirmed_at": null },
   "source_artifacts": [
-    { "path": "pm/thinking/semantic-slug.md", "sha256": "sha256:..." }
+    { "path": "thinking/semantic-slug.md", "sha256": "sha256:..." }
   ],
   "created_at": "RFC3339",
   "updated_at": "RFC3339"
@@ -59,7 +59,7 @@ Rules:
 - A confirmed decision has at least two materially distinct alternatives and chooses one by ID.
 - No evidence means `confidence.level: low`. Hypothesis is an evidence-strength label, not a source.
 - Confidence basis names both support and meaningful uncertainty; it is not a restatement of the enum.
-- Promotion becomes `promoted` only after the target groom artifact exists. Then bind its project-relative path and RFC3339 confirmation time.
+- Promotion becomes `promoted` only after the canonical Groom proposal and sibling approval audit validate against the exact approved bytes and expected Groom decision. Then bind its `{pm_dir}`-relative path and RFC3339 confirmation time.
 - `not-offered` and `offered` record intent only: all target and confirmation fields remain `null` until promotion succeeds.
 - Hash the final Markdown bytes before writing the JSON companion. Any later Markdown edit requires refreshing the binding and `updated_at`.
 - Validate companions with `node "${CLAUDE_PLUGIN_ROOT}/scripts/product-reasoning.js" validate --input <path>`.
@@ -69,21 +69,26 @@ After Groom has written and approved its canonical proposal, perform the origin 
 
 ```json
 {
-  "decision_path": "pm/backlog/example.decision.json",
-  "target_ref": "pm/backlog/proposals/example.json",
+  "decision_path": "backlog/example.decision.json",
+  "target_ref": "backlog/proposals/example.json",
   "confirmed_at": "RFC3339",
+  "approval_decision": {
+    "id": "decision:...",
+    "sha256": "sha256:..."
+  },
   "binding_paths": [
-    "pm/backlog/proposals/example.json",
-    "pm/backlog/example.md"
+    "backlog/proposals/example.json",
+    "backlog/proposals/example.approval.json",
+    "backlog/example.md"
   ]
 }
 ```
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/product-reasoning.js" promote --project "${source_dir}" --request <private-request.json>
+node "${CLAUDE_PLUGIN_ROOT}/scripts/product-reasoning.js" promote --root "${pm_dir}" --request <private-request.json>
 ```
 
-The target must be one of the binding paths. The command verifies every path without following symlinks, hashes the exact bytes, validates the complete transition, and atomically replaces the origin companion. This refresh is required for Ideate origins because Groom replaces the old idea Markdown with the generated proposal projection.
+The target and its sibling `.approval.json` audit must be among at most 16 unique binding paths. The command validates the canonical proposal and audit against `approval_decision`, verifies every path without following symlinks, hashes the exact final bytes, validates the complete transition, and atomically replaces the origin companion. Update any bound Markdown projection before this single final command. This refresh is required for Ideate origins because Groom replaces the old idea Markdown with the generated proposal projection.
 
 ## Deterministic idea ranking
 
@@ -106,7 +111,7 @@ Each feature contains:
 - `name` and user-outcome description;
 - 2–4 concrete highlights;
 - `confidence`: `low`, `medium`, or `high`;
-- one or more project-relative source refs.
+- one or more `{source_dir}`-relative source refs.
 
 Generate IDs for new capabilities with `feature-id`. Before review, reconcile a proposed inventory against the prior companion:
 
@@ -116,4 +121,10 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/product-reasoning.js" reconcile-features --r
 
 Exact keys preserve identity. A rename can preserve identity when source continuity is uniquely strong. Equal plausible matches are returned as `ambiguous` and require user resolution. Do not silently merge, split, or retire an ambiguous feature.
 
-Render `features.md` from the reconciled in-memory record, hash it, bind it in `features.json`, then validate the companion. Markdown feature headings should visibly include the stable ID, e.g. `### Turn ideas into specs <!-- feat-... -->`, so diffs and manual review retain identity without cluttering the rendered page.
+Render `features.md` from the reconciled in-memory record, hash it, bind it as `product/features.md` in `features.json`, then validate the companion and its source snapshot:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/product-reasoning.js" validate --input "${pm_dir}/product/features.json" --source-root "${source_dir}"
+```
+
+Validation proves every source ref exists at `scan.commit`, not merely in the current worktree. Markdown feature headings should visibly include the stable ID, e.g. `### Turn ideas into specs <!-- feat-... -->`, so diffs and manual review retain identity without cluttering the rendered page.

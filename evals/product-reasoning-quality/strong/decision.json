@@ -8,12 +8,12 @@
   "problem": "Product teams cannot tell which decision inputs are stale, so they either trust expired evidence or repeat broad research that wastes time.",
   "evidence_refs": [
     {
-      "ref": "pm/evidence/research/refresh-friction.md#finding-1",
+      "ref": "evidence/research/refresh-friction.md#finding-1",
       "evidence_id": "ev-11111111111111111111",
       "note": "Six of eight interviews described uncertainty about evidence age."
     },
     {
-      "ref": "pm/insights/product/research-trust.md#staleness",
+      "ref": "insights/product/research-trust.md#staleness",
       "evidence_id": null,
       "note": "The synthesized insight is high confidence and current."
     }
@@ -64,7 +64,7 @@
   },
   "source_artifacts": [
     {
-      "path": "pm/backlog/guided-evidence-refresh.md",
+      "path": "backlog/guided-evidence-refresh.md",
       "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     }
   ],

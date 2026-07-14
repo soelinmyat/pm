@@ -94,7 +94,7 @@
     }
   ],
   "markdown_binding": {
-    "path": "pm/product/features.md",
+    "path": "product/features.md",
     "sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
   }
 }

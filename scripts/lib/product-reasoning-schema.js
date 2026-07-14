@@ -2,6 +2,7 @@
 
 const crypto = require("node:crypto");
 const path = require("node:path");
+const { spawnSync } = require("node:child_process");
 
 const DECISION_KINDS = new Set(["think", "idea", "strategy"]);
 const DECISION_STATUSES = new Set(["exploring", "confirmed", "parked"]);
@@ -77,6 +78,7 @@ function validateDecisionBrief(value) {
     text(entry.note, `${at}.note`, issues);
   });
   const alternativeIds = new Set();
+  const alternativeContent = new Set();
   array(value.alternatives, "decision.alternatives", issues, (entry, at) => {
     if (!record(entry)) return issues.push(`${at} must be an object`);
     closed(entry, ["id", "title", "tradeoff"], at, issues);
@@ -85,6 +87,9 @@ function validateDecisionBrief(value) {
     alternativeIds.add(entry.id);
     text(entry.title, `${at}.title`, issues);
     text(entry.tradeoff, `${at}.tradeoff`, issues);
+    const signature = `${normalizeProse(entry.title)}\0${normalizeProse(entry.tradeoff)}`;
+    if (alternativeContent.has(signature)) issues.push(`${at} duplicates another alternative`);
+    alternativeContent.add(signature);
   });
   validateDecision(value.decision, value.alternatives, issues);
   validateConfidence(value.confidence, issues);
@@ -98,7 +103,7 @@ function validateDecisionBrief(value) {
     (entry, at) => {
       if (!record(entry)) return issues.push(`${at} must be an object`);
       closed(entry, ["path", "sha256"], at, issues);
-      portablePath(entry.path, `${at}.path`, issues);
+      kbPath(entry.path, `${at}.path`, issues);
       if (!/^sha256:[a-f0-9]{64}$/.test(entry.sha256 || "")) issues.push(`${at}.sha256 is invalid`);
     },
     { nonEmpty: true }
@@ -123,6 +128,8 @@ function validateDecisionBrief(value) {
   if (value.evidence_refs?.length === 0 && value.confidence?.level !== "low") {
     issues.push("decision without evidence must have low confidence");
   }
+  if (value.kind === "idea" && value.evidence_refs?.length === 0)
+    issues.push("idea decision requires at least one evidence source signal");
   return issues;
 }
 
@@ -135,7 +142,11 @@ function validateDecision(decision, alternatives, issues) {
   text(decision.rationale, "decision.decision.rationale", issues);
   if (decision.status === "confirmed") {
     if (!decision.choice) issues.push("confirmed decision requires a choice");
-    else if (!(alternatives || []).some((entry) => entry?.id === decision.choice)) {
+    else if (
+      !(Array.isArray(alternatives) ? alternatives : []).some(
+        (entry) => entry?.id === decision.choice
+      )
+    ) {
       issues.push("decision choice must reference an alternative");
     }
   }
@@ -157,7 +168,7 @@ function validateTrigger(trigger, issues) {
   if (!TRIGGER_LANES.has(trigger.lane)) issues.push("decision.next_trigger.lane is invalid");
   text(trigger.condition, "decision.next_trigger.condition", issues);
   if (trigger.target !== null && trigger.target !== undefined)
-    portablePath(trigger.target, "decision.next_trigger.target", issues);
+    kbPath(trigger.target, "decision.next_trigger.target", issues);
 }
 
 function validatePromotion(promotion, sourceArtifacts, issues) {
@@ -174,7 +185,7 @@ function validatePromotion(promotion, sourceArtifacts, issues) {
   if (promoted) {
     if (promotion.target_kind !== "groom")
       issues.push("promoted decision target_kind must be groom");
-    portablePath(promotion.target_ref, "decision.promotion.target_ref", issues);
+    kbPath(promotion.target_ref, "decision.promotion.target_ref", issues);
     timestamp(promotion.confirmed_at, "decision.promotion.confirmed_at", issues);
     if (!(sourceArtifacts || []).some((artifact) => artifact?.path === promotion.target_ref))
       issues.push("promoted decision target_ref must be a source artifact binding");
@@ -260,13 +271,14 @@ function rankIdeaBriefs(briefs, strategyBrief = null) {
       if (issues.length) throw new Error(`invalid idea brief: ${issues.join("; ")}`);
       if (brief.kind !== "idea") throw new Error("ranking accepts only idea briefs");
       const a = brief.alignment;
-      const unknownPriorities = priorities.size
+      const hasStrategy = Boolean(strategyBrief);
+      const unknownPriorities = hasStrategy
         ? a.priority_ids.filter((id) => !priorities.has(id))
-        : [];
-      const conflicts = a.non_goal_conflicts.filter((id) => !nonGoals.size || nonGoals.has(id));
-      const unknownNonGoals = nonGoals.size
+        : [...a.priority_ids];
+      const conflicts = hasStrategy ? a.non_goal_conflicts.filter((id) => nonGoals.has(id)) : [];
+      const unknownNonGoals = hasStrategy
         ? a.non_goal_conflicts.filter((id) => !nonGoals.has(id))
-        : [];
+        : [...a.non_goal_conflicts];
       const components = {
         strategic_alignment: STRATEGIC_ALIGNMENT[a.strength],
         evidence_strength: EVIDENCE_STRENGTH[a.evidence_strength],
@@ -409,9 +421,11 @@ function validateFeatureInventory(value) {
             issues.push(`${featureAt}.confidence is invalid`);
           stringArray(feature.source_refs, `${featureAt}.source_refs`, issues, {
             nonEmpty: true,
-            portablePath: true,
+            sourcePath: true,
             unique: true,
           });
+          if (feature.source_refs?.length > 16)
+            issues.push(`${featureAt}.source_refs cannot exceed 16 entries`);
         },
         { nonEmpty: true }
       );
@@ -424,10 +438,42 @@ function validateFeatureInventory(value) {
   if (!record(value.markdown_binding)) issues.push("inventory.markdown_binding must be an object");
   else {
     closed(value.markdown_binding, ["path", "sha256"], "inventory.markdown_binding", issues);
-    portablePath(value.markdown_binding.path, "inventory.markdown_binding.path", issues);
+    kbPath(value.markdown_binding.path, "inventory.markdown_binding.path", issues);
+    if (value.markdown_binding.path !== "product/features.md")
+      issues.push("inventory.markdown_binding.path must equal product/features.md");
     if (!/^sha256:[a-f0-9]{64}$/.test(value.markdown_binding.sha256 || ""))
       issues.push("inventory.markdown_binding.sha256 is invalid");
   }
+  return issues;
+}
+
+function validateFeatureSourceRefs(inventory, sourceRoot) {
+  const issues = validateFeatureInventory(inventory);
+  if (issues.length) return issues;
+  if (!inventory.scan.commit)
+    return ["inventory.scan.commit is required to verify feature source refs"];
+  let root;
+  try {
+    root = require("node:fs").realpathSync(path.resolve(sourceRoot));
+  } catch (error) {
+    return [`source root is unavailable: ${error.message}`];
+  }
+  const refs = [
+    ...new Set(
+      inventory.areas.flatMap((area) => area.features.flatMap((feature) => feature.source_refs))
+    ),
+  ];
+  const result = spawnSync("git", ["-C", root, "cat-file", "--batch-check=%(objecttype)"], {
+    input: `${refs.map((ref) => `${inventory.scan.commit}:${ref}`).join("\n")}\n`,
+    encoding: "utf8",
+    timeout: 10_000,
+    maxBuffer: 1024 * 1024,
+  });
+  const observed = result.status === 0 ? result.stdout.trim().split("\n") : [];
+  refs.forEach((ref, index) => {
+    if (result.error || result.status !== 0 || observed[index] !== "blob")
+      issues.push(`feature source ref is absent at scan.commit: ${ref}`);
+  });
   return issues;
 }
 
@@ -504,6 +550,14 @@ function normalizeToken(value) {
     .replace(/\s+/g, "-");
 }
 
+function normalizeProse(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
 function evidenceRef(value, label, issues) {
   if (typeof value === "string" && /^https:\/\//i.test(value)) {
     try {
@@ -514,7 +568,12 @@ function evidenceRef(value, label, issues) {
       // Fall through to the common invalid-reference issue.
     }
   }
-  portablePath(value, label, issues, "evidence reference");
+  kbPath(value, label, issues, "evidence reference");
+}
+function kbPath(value, label, issues, noun = "knowledge-base path") {
+  portablePath(value, label, issues, noun);
+  if (typeof value === "string" && (value === "pm" || value.startsWith("pm/")))
+    issues.push(`${label} must be relative to pm_dir without a pm/ prefix`);
 }
 function portablePath(value, label, issues, noun = "project path") {
   if (
@@ -586,7 +645,7 @@ function stringArray(value, label, issues, options = {}) {
     (entry, at) => {
       if (typeof entry !== "string" || !entry.trim()) issues.push(`${at} must be non-empty text`);
       else if (options.slug) slug(entry, at, issues);
-      else if (options.portablePath) portablePath(entry, at, issues);
+      else if (options.sourcePath) portablePath(entry, at, issues, "source-project path");
       if (options.unique && typeof entry === "string") {
         if (seen.has(entry)) issues.push(`${at} is duplicated`);
         seen.add(entry);
@@ -603,5 +662,6 @@ module.exports = {
   rankIdeaBriefs,
   reconcileFeatureInventory,
   validateDecisionBrief,
+  validateFeatureSourceRefs,
   validateFeatureInventory,
 };

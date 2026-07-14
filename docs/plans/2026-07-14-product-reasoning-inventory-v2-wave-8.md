@@ -58,7 +58,7 @@ The shared runtime emits the score components and final rank so two models canno
 - 3–6 journey-oriented areas;
 - 8–20 user-facing features;
 - stable feature IDs and semantic keys;
-- outcome, highlights, confidence, and project-relative source references;
+- outcome, highlights, confidence, and `{source_dir}`-relative source references;
 - generation timestamp and Markdown binding.
 
 Reconciliation preserves an existing ID on exact key matches or strong source continuity. Ambiguous matches fail closed for user review instead of silently merging capabilities.
@@ -91,7 +91,7 @@ Reconciliation preserves an existing ID on exact key matches or strong source co
 - Preserve the user-facing scan and approval flow.
 - Emit the v2 JSON inventory and render Markdown from the same in-memory record.
 - Reconcile against the prior inventory before user review, surfacing new, retained, and ambiguous identities.
-- Require project-relative source refs and calibrated confidence without claiming runtime verification.
+- Require `{source_dir}`-relative source refs, verify them at the recorded scan commit, and retain calibrated confidence without claiming behavior that source inspection did not establish.
 
 ## Validation and quality
 

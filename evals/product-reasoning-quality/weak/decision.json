@@ -7,7 +7,7 @@
   "title": "AI dashboard",
   "problem": "Users need a better dashboard.",
   "evidence_refs": [
-    { "ref": "pm/notes/idea.md", "evidence_id": null, "note": "A plausible observation" }
+    { "ref": "notes/idea.md", "evidence_id": null, "note": "A plausible observation" }
   ],
   "alternatives": [
     { "id": "dashboard", "title": "Dashboard", "tradeoff": "A dashboard has UI work." },
@@ -25,7 +25,7 @@
   },
   "source_artifacts": [
     {
-      "path": "pm/backlog/ai-dashboard.md",
+      "path": "backlog/ai-dashboard.md",
       "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     }
   ],

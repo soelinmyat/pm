@@ -19,6 +19,7 @@ const {
   validateDecisionBrief,
   validateFeatureInventory,
 } = require("./lib/product-reasoning-schema.js");
+const { readProjectInput } = require("./lib/safe-project-output.js");
 
 // ========== Config ==========
 
@@ -920,11 +921,7 @@ function validateProductReasoningJson(pmDir, filePath, errors, expectedType) {
   let bytes;
   let value;
   try {
-    const stat = fs.lstatSync(filePath);
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 4 * 1024 * 1024) {
-      return pushIssue(errors, relativeFile, "-", "must be a bounded regular JSON file");
-    }
-    bytes = fs.readFileSync(filePath);
+    bytes = readProjectInput(pmDir, relativeFile, 4 * 1024 * 1024).bytes;
     value = JSON.parse(bytes.toString("utf8"));
   } catch (error) {
     return pushIssue(errors, relativeFile, "-", `invalid product reasoning JSON: ${error.message}`);
@@ -935,40 +932,15 @@ function validateProductReasoningJson(pmDir, filePath, errors, expectedType) {
       : validateFeatureInventory(value);
   for (const issue of issues) pushIssue(errors, relativeFile, "contract", issue);
   if (issues.length) return;
-  const projectRoot = path.dirname(pmDir);
   const bindings =
     expectedType === "decision-brief" ? value.source_artifacts : [value.markdown_binding];
   for (const binding of bindings) {
-    const target = path.resolve(projectRoot, binding.path);
-    if (target !== projectRoot && !target.startsWith(`${projectRoot}${path.sep}`)) {
-      pushIssue(errors, relativeFile, "binding", `binding escapes project root: ${binding.path}`);
-      continue;
-    }
     try {
-      const stat = fs.lstatSync(target);
-      if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("not a regular file");
-      const observed = `sha256:${crypto.createHash("sha256").update(fs.readFileSync(target)).digest("hex")}`;
+      const input = readProjectInput(pmDir, binding.path, 16 * 1024 * 1024);
+      const observed = `sha256:${crypto.createHash("sha256").update(input.bytes).digest("hex")}`;
       if (observed !== binding.sha256) throw new Error("SHA-256 does not match current bytes");
     } catch (error) {
       pushIssue(errors, relativeFile, "binding", `${binding.path}: ${error.message}`);
-    }
-  }
-  if (expectedType === "decision-brief" && value.promotion?.status === "promoted") {
-    const target = path.resolve(projectRoot, value.promotion.target_ref);
-    try {
-      if (target !== projectRoot && !target.startsWith(`${projectRoot}${path.sep}`)) {
-        throw new Error("promotion target escapes project root");
-      }
-      const stat = fs.lstatSync(target);
-      if (!stat.isFile() || stat.isSymbolicLink())
-        throw new Error("promotion target is not a regular file");
-    } catch (error) {
-      pushIssue(
-        errors,
-        relativeFile,
-        "promotion",
-        `${value.promotion.target_ref}: ${error.message}`
-      );
     }
   }
 }

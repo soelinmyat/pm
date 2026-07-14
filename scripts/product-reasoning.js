@@ -2,10 +2,11 @@
 "use strict";
 
 const crypto = require("node:crypto");
-const fs = require("node:fs");
 const path = require("node:path");
 const { readProjectInput } = require("./lib/safe-project-output");
+const { readBoundedJsonFile } = require("./lib/safe-json-file");
 const { writeProjectJsonAtomic } = require("./lib/project-atomic-write");
+const { readApprovedProposal } = require("./lib/proposal-schema");
 const {
   decisionId,
   featureId,
@@ -13,6 +14,7 @@ const {
   rankIdeaBriefs,
   reconcileFeatureInventory,
   validateDecisionBrief,
+  validateFeatureSourceRefs,
   validateFeatureInventory,
 } = require("./lib/product-reasoning-schema");
 
@@ -26,25 +28,29 @@ function main(argv = process.argv.slice(2)) {
     else if (command === "feature-id")
       result = { feature_id: featureId(required(args, "project"), required(args, "key")) };
     else if (command === "validate") {
-      const value = readJson(required(args, "input"));
+      const value = readBoundedJsonFile(required(args, "input"));
       let issues;
       if (value.document_type === "decision-brief") issues = validateDecisionBrief(value);
-      else if (value.document_type === "feature-inventory")
+      else if (value.document_type === "feature-inventory") {
         issues = validateFeatureInventory(value);
-      else throw new Error("input document_type must be decision-brief or feature-inventory");
+        if (issues.length === 0)
+          issues.push(
+            ...validateFeatureSourceRefs(value, path.resolve(required(args, "source_root")))
+          );
+      } else throw new Error("input document_type must be decision-brief or feature-inventory");
       result = { ok: issues.length === 0, issues };
       if (issues.length) process.exitCode = 2;
     } else if (command === "rank-ideas") {
-      const request = readJson(required(args, "request"));
+      const request = readBoundedJsonFile(required(args, "request"));
       result = { rankings: rankIdeaBriefs(request.ideas || [], request.strategy || null) };
     } else if (command === "reconcile-features") {
-      const request = readJson(required(args, "request"));
+      const request = readBoundedJsonFile(required(args, "request"));
       result = reconcileFeatureInventory(request.previous || null, request.proposed);
       if (result.ambiguous.length) process.exitCode = 3;
     } else if (command === "promote") {
-      const project = path.resolve(required(args, "project"));
-      const request = readJson(required(args, "request"));
-      result = promote(project, request);
+      const root = path.resolve(required(args, "root"));
+      const request = readBoundedJsonFile(required(args, "request"));
+      result = promote(root, request);
     } else
       throw new Error(
         "command must be decision-id, feature-id, validate, rank-ideas, reconcile-features, or promote"
@@ -56,10 +62,16 @@ function main(argv = process.argv.slice(2)) {
   }
 }
 
-function promote(project, request) {
+function promote(root, request) {
   if (!request || typeof request !== "object" || Array.isArray(request))
     throw new Error("promotion request must be an object");
-  const fields = new Set(["decision_path", "target_ref", "confirmed_at", "binding_paths"]);
+  const fields = new Set([
+    "decision_path",
+    "target_ref",
+    "confirmed_at",
+    "binding_paths",
+    "approval_decision",
+  ]);
   for (const field of Object.keys(request))
     if (!fields.has(field)) throw new Error(`promotion request field ${field} is unknown`);
   for (const field of ["decision_path", "target_ref", "confirmed_at"])
@@ -67,13 +79,37 @@ function promote(project, request) {
       throw new Error(`promotion request ${field} is required`);
   if (!Array.isArray(request.binding_paths) || request.binding_paths.length === 0)
     throw new Error("promotion request binding_paths must be non-empty");
+  if (request.binding_paths.length > 16)
+    throw new Error("promotion request binding_paths cannot exceed 16 entries");
+  if (new Set(request.binding_paths).size !== request.binding_paths.length)
+    throw new Error("promotion request binding_paths must be unique");
   if (!request.binding_paths.includes(request.target_ref))
     throw new Error("promotion target_ref must also be a binding path");
+  const approvalRef = request.target_ref.replace(/\.json$/, ".approval.json");
+  if (approvalRef === request.target_ref || !request.binding_paths.includes(approvalRef))
+    throw new Error("promotion binding_paths must include the sibling approval audit");
+  if (
+    !request.approval_decision ||
+    typeof request.approval_decision !== "object" ||
+    Array.isArray(request.approval_decision) ||
+    Object.keys(request.approval_decision).some((field) => !["id", "sha256"].includes(field)) ||
+    typeof request.approval_decision.id !== "string" ||
+    !/^sha256:[a-f0-9]{64}$/.test(request.approval_decision.sha256 || "")
+  )
+    throw new Error("promotion request approval_decision must bind id and sha256");
 
-  const decisionInput = readProjectInput(project, request.decision_path, 4 * 1024 * 1024);
+  const decisionInput = readProjectInput(root, request.decision_path, 4 * 1024 * 1024);
   const brief = JSON.parse(decisionInput.bytes.toString("utf8"));
+  const approved = readApprovedProposal(path.resolve(root, request.target_ref), {
+    projectRoot: root,
+    expectedSlug: brief.slug,
+    expectedDecision: request.approval_decision,
+  });
   const sourceArtifacts = request.binding_paths.map((bindingPath) => {
-    const input = readProjectInput(project, bindingPath, 16 * 1024 * 1024);
+    const input =
+      bindingPath === request.target_ref
+        ? { relative: bindingPath, bytes: approved.source.bytes }
+        : readProjectInput(root, bindingPath, 16 * 1024 * 1024);
     return {
       path: input.relative,
       sha256: `sha256:${crypto.createHash("sha256").update(input.bytes).digest("hex")}`,
@@ -85,7 +121,7 @@ function promote(project, request) {
     sourceArtifacts,
     request.confirmed_at
   );
-  writeProjectJsonAtomic(project, request.decision_path, promoted, {
+  writeProjectJsonAtomic(root, request.decision_path, promoted, {
     maxBytes: 4 * 1024 * 1024,
   });
   return {
@@ -110,19 +146,5 @@ function required(args, key) {
   if (!args[key]) throw new Error(`--${key.replaceAll("_", "-")} is required`);
   return args[key];
 }
-function readJson(file) {
-  const resolved = path.resolve(file);
-  let descriptor;
-  try {
-    descriptor = fs.openSync(resolved, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
-    const stat = fs.fstatSync(descriptor);
-    if (!stat.isFile() || stat.size > 4 * 1024 * 1024)
-      throw new Error("input must be a bounded regular JSON file");
-    return JSON.parse(fs.readFileSync(descriptor, "utf8"));
-  } finally {
-    if (descriptor !== undefined) fs.closeSync(descriptor);
-  }
-}
-
 if (require.main === module) main();
 module.exports = { main };

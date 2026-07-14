@@ -2,6 +2,10 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { spawnSync } = require("node:child_process");
 const {
   decisionId,
   featureId,
@@ -9,6 +13,7 @@ const {
   rankIdeaBriefs,
   reconcileFeatureInventory,
   validateDecisionBrief,
+  validateFeatureSourceRefs,
   validateFeatureInventory,
 } = require("../scripts/lib/product-reasoning-schema");
 
@@ -23,7 +28,7 @@ function brief(kind, slug, overrides = {}) {
     problem: "A concrete product problem needs a deliberate decision.",
     evidence_refs: [
       {
-        ref: "pm/evidence/research/source.md#finding-1",
+        ref: "evidence/research/source.md#finding-1",
         evidence_id: null,
         note: "Observed signal",
       },
@@ -44,7 +49,7 @@ function brief(kind, slug, overrides = {}) {
     non_goals: ["Solve adjacent workflows"],
     next_trigger: { lane: "groom", condition: "User confirms scope", target: null },
     promotion: { status: "not-offered", target_kind: null, target_ref: null, confirmed_at: null },
-    source_artifacts: [{ path: "pm/thinking/example.md", sha256: `sha256:${"a".repeat(64)}` }],
+    source_artifacts: [{ path: "thinking/example.md", sha256: `sha256:${"a".repeat(64)}` }],
     created_at: "2026-07-14T00:00:00Z",
     updated_at: "2026-07-14T00:00:00Z",
     ...overrides,
@@ -98,10 +103,10 @@ test("promotion cannot claim success without a verified target binding", () => {
 test("promotion transition refreshes target and binding state as one validated record", () => {
   const promoted = promoteDecisionBrief(
     brief("idea", "promotion-transition"),
-    "pm/backlog/proposals/promotion-transition.json",
+    "backlog/proposals/promotion-transition.json",
     [
       {
-        path: "pm/backlog/proposals/promotion-transition.json",
+        path: "backlog/proposals/promotion-transition.json",
         sha256: `sha256:${"c".repeat(64)}`,
       },
     ],
@@ -112,7 +117,7 @@ test("promotion transition refreshes target and binding state as one validated r
   assert.deepEqual(validateDecisionBrief(promoted), []);
 });
 
-test("artifact paths are project-relative while HTTPS evidence locators remain portable", () => {
+test("artifact paths are KB-relative while HTTPS evidence locators remain portable", () => {
   const externalEvidence = brief("think", "external-evidence", {
     evidence_refs: [
       { ref: "https://example.com/research", evidence_id: null, note: "Public source" },
@@ -120,19 +125,41 @@ test("artifact paths are project-relative while HTTPS evidence locators remain p
   });
   assert.deepEqual(validateDecisionBrief(externalEvidence), []);
   externalEvidence.source_artifacts[0].path = "https://example.com/artifact.md";
-  assert.match(validateDecisionBrief(externalEvidence).join("\n"), /portable project path/);
+  assert.match(validateDecisionBrief(externalEvidence).join("\n"), /portable knowledge-base path/);
+  externalEvidence.source_artifacts[0].path = "pm/thinking/example.md";
+  assert.match(validateDecisionBrief(externalEvidence).join("\n"), /without a pm\/ prefix/);
 });
 
 test("decision comparison and inventory presentation reject ambiguous duplicates", () => {
   const duplicated = brief("think", "duplicate-alternative");
   duplicated.alternatives[1].id = duplicated.alternatives[0].id;
   assert.match(validateDecisionBrief(duplicated).join("\n"), /duplicated/);
+  duplicated.alternatives[1] = {
+    id: "different-id",
+    title: duplicated.alternatives[0].title.toUpperCase(),
+    tradeoff: `${duplicated.alternatives[0].tradeoff} `,
+  };
+  assert.match(validateDecisionBrief(duplicated).join("\n"), /duplicates another alternative/);
 
   const features = ["one", "two", "three", "four", "five", "six", "seven", "eight"].map((key) =>
     feature(key)
   );
   features[0].highlights = ["Only one"];
   assert.match(validateFeatureInventory(inventory(features)).join("\n"), /2 through 4/);
+});
+
+test("decision validation is total for malformed alternative collections", () => {
+  const malformed = brief("think", "malformed-alternatives", { alternatives: {} });
+  assert.doesNotThrow(() => validateDecisionBrief(malformed));
+  assert.match(validateDecisionBrief(malformed).join("\n"), /must be an array/);
+});
+
+test("idea decisions retain at least one source signal", () => {
+  const unsupported = brief("idea", "unsupported-idea", {
+    evidence_refs: [],
+    confidence: { level: "low", basis: ["Unverified hypothesis"] },
+  });
+  assert.match(validateDecisionBrief(unsupported).join("\n"), /source signal/);
 });
 
 test("timestamps reject normalized calendar overflow", () => {
@@ -163,6 +190,24 @@ test("idea ranking is deterministic and exposes strategy conflicts", () => {
   assert.deepEqual(first[1].unknown_non_goals, ["stale-token"]);
 });
 
+test("idea ranking does not call unverified strategy tokens confirmed conflicts", () => {
+  const candidate = brief("idea", "unbound-strategy", {
+    alignment: {
+      strength: "partial",
+      priority_ids: ["possible-priority"],
+      non_goal_conflicts: ["possible-conflict"],
+      evidence_strength: "moderate",
+      competitor_gap: "partial",
+      dependencies: [],
+      scope_signal: "small",
+    },
+  });
+  const [ranked] = rankIdeaBriefs([candidate]);
+  assert.deepEqual(ranked.unknown_priorities, ["possible-priority"]);
+  assert.deepEqual(ranked.non_goal_conflicts, []);
+  assert.deepEqual(ranked.unknown_non_goals, ["possible-conflict"]);
+});
+
 function inventory(features) {
   return {
     schema_version: 2,
@@ -175,7 +220,7 @@ function inventory(features) {
       { name: "Build", features: features.slice(3, 6) },
       { name: "Learn", features: features.slice(6, 8) },
     ],
-    markdown_binding: { path: "pm/product/features.md", sha256: `sha256:${"b".repeat(64)}` },
+    markdown_binding: { path: "product/features.md", sha256: `sha256:${"b".repeat(64)}` },
   };
 }
 
@@ -198,6 +243,36 @@ test("feature inventory validates stable IDs, source refs, and calibrated bounds
   assert.deepEqual(validateFeatureInventory(value), []);
   value.areas[0].features[0].source_refs = ["/private/source.js"];
   assert.match(validateFeatureInventory(value).join("\n"), /portable/);
+});
+
+test("feature source refs resolve at the recorded scan commit", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-feature-source-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, "src"), { recursive: true });
+  fs.writeFileSync(path.join(root, "src", "capability.js"), "export const capability = true;\n");
+  for (const args of [
+    ["init", "-q"],
+    ["config", "user.email", "test@example.com"],
+    ["config", "user.name", "Test"],
+    ["add", "src/capability.js"],
+    ["commit", "-qm", "fixture"],
+  ]) {
+    const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+  }
+  const commit = spawnSync("git", ["rev-parse", "HEAD"], {
+    cwd: root,
+    encoding: "utf8",
+  }).stdout.trim();
+  const value = inventory(
+    ["one", "two", "three", "four", "five", "six", "seven", "eight"].map((key) =>
+      feature(key, ["src/capability.js"])
+    )
+  );
+  value.scan.commit = commit;
+  assert.deepEqual(validateFeatureSourceRefs(value, root), []);
+  value.areas[0].features[0].source_refs = ["src/missing.js"];
+  assert.match(validateFeatureSourceRefs(value, root).join("\n"), /absent at scan.commit/);
 });
 
 test("feature reconciliation preserves identity across rename with strong source continuity", () => {

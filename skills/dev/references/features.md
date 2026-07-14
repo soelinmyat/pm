@@ -43,7 +43,7 @@ Build a directory map (file counts per directory) and flag key entry points:
 
 Read the flagged entry points and their neighbors: route handlers and page components, component directory indexes, config and manifest files, README and API definitions, model/schema files. On a large codebase, read in priority order — route files/pages/API handlers first, then components and views, then models/schemas/types, then config, then README/docs — and record how many files you read for the `files_scanned` frontmatter field.
 
-Extract the concrete artifacts: route definitions, component names, API endpoints, data models, configuration patterns. Retain project-relative source refs for every proposed feature; source refs support confidence and identity reconciliation, but never appear as implementation prose in the feature description.
+Extract the concrete artifacts: route definitions, component names, API endpoints, data models, configuration patterns. Retain `{source_dir}`-relative source refs for every proposed feature; source refs support confidence and identity reconciliation, but never appear as implementation prose in the feature description.
 
 ### Translate to features
 
@@ -189,7 +189,7 @@ After the user approves the reconciled inventory:
 1. Render `features.md` from the approved in-memory record.
 2. Hash the final Markdown bytes.
 3. Write `features.json` using the v2 contract in `references/product-reasoning.md`, including the Markdown binding.
-4. Run `scripts/product-reasoning.js validate --input pm/product/features.json`, `scripts/product-reasoning-quality-check.js pm/product/features.json`, and normal `pm validate`.
+4. Run `scripts/product-reasoning.js validate --input "${pm_dir}/product/features.json" --source-root "${source_dir}"`, `scripts/product-reasoning-quality-check.js "${pm_dir}/product/features.json"`, and normal `pm validate`.
 5. If schema, the 7/10 quality gate, or project validation fails, fix the weakest shared-record dimensions and regenerate both artifacts. Do not add filler or patch one reader independently.
 
 ## Completion

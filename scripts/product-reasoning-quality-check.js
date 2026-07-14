@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 "use strict";
 
-const fs = require("node:fs");
-const path = require("node:path");
+const { readBoundedJsonFile } = require("./lib/safe-json-file");
 const {
   validateDecisionBrief,
   validateFeatureInventory,
@@ -75,7 +74,7 @@ function scoreFeatureInventory(inventory) {
       "distinct_outcomes",
       new Set(features.map((feature) => feature.outcome)).size === features.length,
     ],
-    ["reader_binding", inventory.markdown_binding.path === "pm/product/features.md"],
+    ["reader_binding", inventory.markdown_binding.path === "product/features.md"],
   ];
   return {
     valid: true,
@@ -89,18 +88,7 @@ function scoreFeatureInventory(inventory) {
 function main(argv = process.argv.slice(2)) {
   const input = argv[0];
   if (!input) throw new Error("usage: product-reasoning-quality-check <artifact.json>");
-  const resolved = path.resolve(input);
-  let descriptor;
-  let brief;
-  try {
-    descriptor = fs.openSync(resolved, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
-    const stat = fs.fstatSync(descriptor);
-    if (!stat.isFile() || stat.size > 4 * 1024 * 1024)
-      throw new Error("input must be a bounded regular JSON file");
-    brief = JSON.parse(fs.readFileSync(descriptor, "utf8"));
-  } finally {
-    if (descriptor !== undefined) fs.closeSync(descriptor);
-  }
+  const brief = readBoundedJsonFile(input);
   let result;
   if (brief.document_type === "decision-brief") result = scoreDecisionBrief(brief);
   else if (brief.document_type === "feature-inventory") result = scoreFeatureInventory(brief);

@@ -51,7 +51,7 @@ test("normal validation checks present decision companions without requiring the
       target: null,
     },
     promotion: { status: "not-offered", target_kind: null, target_ref: null, confirmed_at: null },
-    source_artifacts: [{ path: "pm/thinking/test.md", sha256: sha(markdown) }],
+    source_artifacts: [{ path: "thinking/test.md", sha256: sha(markdown) }],
     created_at: "2026-07-14T00:00:00Z",
     updated_at: "2026-07-14T00:00:00Z",
   };
@@ -63,4 +63,49 @@ test("normal validation checks present decision companions without requiring the
   fs.writeFileSync(path.join(pm, "thinking", "test.decision.json"), JSON.stringify(brief));
   result = validate(pm);
   assert.ok(result.errors.some((entry) => entry.msg.includes("SHA-256 does not match")));
+});
+
+test("KB-relative feature bindings validate in nested and flat PM layouts", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reasoning-layouts-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  for (const pm of [path.join(root, "nested", "pm"), path.join(root, "flat-kb")]) {
+    fs.mkdirSync(path.join(pm, "product"), { recursive: true });
+    const inventory = JSON.parse(
+      fs.readFileSync(
+        path.join(__dirname, "..", "evals", "product-reasoning-quality", "strong", "features.json"),
+        "utf8"
+      )
+    );
+    const features = inventory.areas.flatMap((area) => area.features);
+    const markdown = Buffer.from(
+      `---\ngenerated: 2026-07-14\nsource_project: example\nfiles_scanned: 20\nfeature_count: ${features.length}\narea_count: ${inventory.areas.length}\nareas:\n${inventory.areas.map((area) => `  - ${area.name}`).join("\n")}\n---\n\n# Features\n\n${features.map((feature) => `### ${feature.name}`).join("\n\n")}\n`
+    );
+    fs.writeFileSync(path.join(pm, "product", "features.md"), markdown);
+    inventory.markdown_binding.sha256 = sha(markdown);
+    fs.writeFileSync(path.join(pm, "product", "features.json"), JSON.stringify(inventory));
+    const result = validate(pm);
+    assert.equal(result.errors.length, 0, JSON.stringify(result.details));
+  }
+});
+
+test("binding validation rejects an ancestor symlink", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reasoning-symlink-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const pm = path.join(root, "pm");
+  const outside = path.join(root, "outside");
+  fs.mkdirSync(path.join(pm, "thinking"), { recursive: true });
+  fs.mkdirSync(outside, { recursive: true });
+  const markdown = Buffer.from("# Outside\n");
+  fs.writeFileSync(path.join(outside, "bound.md"), markdown);
+  fs.symlinkSync(outside, path.join(pm, "bindings"));
+  const brief = JSON.parse(
+    fs.readFileSync(
+      path.join(__dirname, "..", "evals", "product-reasoning-quality", "strong", "decision.json"),
+      "utf8"
+    )
+  );
+  brief.source_artifacts = [{ path: "bindings/bound.md", sha256: sha(markdown) }];
+  fs.writeFileSync(path.join(pm, "thinking", "symlink.decision.json"), JSON.stringify(brief));
+  const result = validate(pm);
+  assert.ok(result.errors.some((entry) => entry.msg.includes("contains symlink")));
 });
