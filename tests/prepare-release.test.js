@@ -24,10 +24,31 @@ function git(cwd, ...args) {
 function fixture() {
   const parent = fs.mkdtempSync(path.join(os.tmpdir(), "pm-prepare-release-"));
   const root = path.join(parent, "project");
-  command(parent, "git", ["clone", "-q", "--no-local", "--branch", "codex/ship-v2", source, root]);
+  fs.mkdirSync(root);
+  const archive = spawnSync("git", ["archive", "--format=tar", "HEAD"], {
+    cwd: source,
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  assert.equal(
+    archive.status,
+    0,
+    archive.error?.message || archive.stderr?.toString() || "git archive failed"
+  );
+  const extracted = spawnSync("tar", ["-xf", "-", "-C", root], {
+    input: archive.stdout,
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  assert.equal(
+    extracted.status,
+    0,
+    extracted.error?.message || extracted.stderr?.toString() || "tar extraction failed"
+  );
+  git(root, "init", "-q", "-b", "codex/ship-v2");
   git(root, "config", "user.email", "release-test@example.com");
   git(root, "config", "user.name", "Release Test");
-  git(root, "remote", "set-url", "origin", "https://github.com/acme/widget.git");
+  git(root, "add", ".");
+  git(root, "commit", "-q", "-m", "fixture baseline");
+  git(root, "remote", "add", "origin", "https://github.com/acme/widget.git");
   fs.mkdirSync(path.join(root, path.dirname(sessionRel)), { recursive: true });
   fs.writeFileSync(
     path.join(root, sessionRel),
