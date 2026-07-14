@@ -22,4 +22,4 @@ Record a strict retro result. The runner marks the session complete and archives
 
 Required learnings validate, the runner reports `status: complete`, the approved proposal remains independently verifiable, and the user receives the RFC command as the next action.
 
-**Next action:** report the approved proposal paths and offer `pm:rfc {slug}`.
+**Next action:** report the approved proposal paths. Next, run `pm:rfc {slug}` when an RFC is required; otherwise offer the appropriate downstream implementation action.

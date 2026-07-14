@@ -490,7 +490,7 @@ function writeFakeCodex(binDir, logPath, opts) {
   const script = path.join(binDir, "codex");
   fs.writeFileSync(
     script,
-    `#!/usr/bin/env node
+    `#!${process.execPath}
 const fs = require("node:fs");
 const path = require("node:path");
 let input = "";

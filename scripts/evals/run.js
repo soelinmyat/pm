@@ -478,7 +478,12 @@ function runCheckPhase(paths, phase) {
 
 function phaseEnv(paths) {
   return {
-    PATH: process.env.PATH || "/usr/bin:/bin",
+    // Check helpers invoke `node`. Put the exact runtime executing this
+    // harness first so isolated HOME/XDG state cannot redirect Node through a
+    // version-manager shim whose trust/config lives outside the run.
+    PATH: [path.dirname(process.execPath), process.env.PATH || "/usr/bin:/bin"].join(
+      path.delimiter
+    ),
     HOME: paths.homeDir,
     TMPDIR: paths.tmpDir,
     XDG_CACHE_HOME: paths.xdgCacheDir,

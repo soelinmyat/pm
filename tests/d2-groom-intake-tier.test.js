@@ -1,5 +1,13 @@
 "use strict";
 
+/**
+ * D2 assertion manifest.
+ * stub_boundaries: []
+ * prose_reference: Groom intake delegates tier eligibility to the canonical tier-gating reference.
+ * adjudicated: step-file-path: skills/groom/steps/01-intake.md, line-range: 17-22
+ * additive_cost: 0 (content assertions use direct filesystem reads)
+ */
+
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
