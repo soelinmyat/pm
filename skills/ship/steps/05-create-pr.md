@@ -14,7 +14,9 @@ Create or detect the one PR whose repository, head, and base exactly match the r
 
 ## How
 
-Read and validate `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/delivery-contract.md`. Export `GH_OWNER`, `GH_REPOSITORY`, `GH_REPO`, `HEAD_BRANCH`, and `BASE_BRANCH` only from that current contract.
+Read and validate `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/release-transaction.md` and `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/delivery-contract.md`. Export `GH_OWNER`, `GH_REPOSITORY`, `GH_REPO`, `HEAD_BRANCH`, and `BASE_BRANCH` only from those matching current records.
+
+Build and plan the exact `create-pr` target with repository, head, base, and prepared head commit. The runtime will refuse it until `push` is verified. Observe existing PRs by all target dimensions before deciding whether creation is needed. Record a matching existing PR through `begin` plus `reconcile matched`; it is an idempotent success, not a reason to create another PR.
 
 ### Check for existing PR
 
@@ -29,6 +31,7 @@ Require zero or one result. Multiple matches are ambiguous and block Ship. For o
 
 **If PR exists and is open:**
 - Report: "PR #N already exists: [URL]"
+- Reconcile the `create-pr` effect with a receipt containing number, URL, state, and exact head OID.
 - Continue to the CI monitoring step
 
 **If no PR exists:**
@@ -55,7 +58,9 @@ Require zero or one result. Multiple matches are ambiguous and block Ship. For o
 
 4. Read the returned PR number, re-run the exact API identity validation, and persist `PR_NUMBER` only if repository/head/base all match. Then report the PR URL.
 
-5. **Request Codex review (if configured):**
+5. Reconcile the attempted effect only after the independent API observation matches the planned target and prepared head OID. Zero matches after an ambiguous attempt is `absent`/retry-safe; multiple matches, a fork, wrong base, or wrong head OID is `conflict`/blocked.
+
+6. **Request Codex review (if configured):**
    Check CLAUDE.md or AGENTS.md for `codex_review: true`. If enabled:
    ```bash
    gh pr comment "$PR_NUMBER" --repo "$GH_REPO" --body "@codex review"
@@ -98,6 +103,6 @@ Then run the Product Memory steps (backlog `prs` write is skipped — no merge y
 
 ## Done-when
 
-Exactly one PR has passed the contracted repository/head/base identity check, any PR mutation had explicit `create_pr` authority, and merge behavior is resolved without treating a preference as consent.
+Exactly one PR has passed the contracted repository/head/base/prepared-commit identity check, the `create-pr` effect is observed as `verified`, any PR mutation had explicit `create_pr` authority, and merge behavior is resolved without treating a preference as consent.
 
 **Advance:** proceed to Step 6 (CI Monitor), then Step 7 only according to the explicit merge-authority and auto-merge branch; otherwise emit the green-PR early-exit report.

@@ -14,7 +14,16 @@ Push the branch to the remote, diagnosing and fixing any hook failures along the
 
 ## How
 
-Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/delivery-contract.md`. Before every push attempt, reload and validate the contract and require both canonical and snapshotted `push_feature_branch: true`. If authority is absent, stop before the external action and request that exact grant.
+Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/release-transaction.md` and `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/delivery-contract.md`. Before every push attempt, reload and validate both records.
+
+Build the exact Push target from the transaction's repository, delivery remote, head branch, and prepared commit. Plan `push`, then call `begin` with the canonical session and `--actor root`.
+
+- `denied`: stop without calling Git and report the missing `push_feature_branch` grant as an authority boundary, never an environment failure.
+- `observe-first`: inspect the remote branch tip before any retry.
+- `already-verified`: re-observe the saved exact remote tip and do not push again.
+- `execute`: continue only when both canonical and snapshotted `push_feature_branch: true` remain current.
+
+After the command, observe with the contracted remote rather than trusting exit text. Reconcile a matching remote tip as `matched`, a provably absent ref as `absent`, and any other tip as `conflict`. A timeout or connection loss stays `attempting` until observation resolves it.
 
 ### Pre-push hook preparation
 
@@ -82,7 +91,7 @@ git worktree remove /tmp/check-default-$$ --force 2>/dev/null || true
 
 **In both cases:** Retry push (max 3 attempts).
 
-Every hook fix, generated-file update, amend, or new commit triggers the complete post-mutation recertification protocol in `delivery-contract.md`: rerun current Review and changed routed gates, regenerate their artifacts, validate the delivery contract, and pass `dev-gate-check` on current HEAD before the next push attempt. Do not retry directly after committing a fix.
+Every hook fix, generated-file update, amend, or new commit triggers the complete post-mutation recertification protocol: run `release-transaction.js advance` to archive the prior generation, rerun current Review and changed routed gates, bind fresh evidence, regenerate effect targets, validate the delivery contract, and pass `dev-gate-check` on current HEAD before the next push attempt. Do not retry directly after committing a fix.
 
 After 3 failed push attempts: stop, report the error details with actionable diagnosis, ask user for guidance.
 
@@ -92,6 +101,6 @@ NEVER use `--no-verify` to bypass hook failures. All failures must be fixed.
 
 ## Done-when
 
-`git push` exits 0, the pushed branch has an upstream on the exact contracted `{DELIVERY_REMOTE}`, and no local commit exists after the Review/gate evidence accepted by `dev-gate-check`.
+The Push effect is independently observed as `verified`, the branch has an upstream on the exact contracted `{DELIVERY_REMOTE}`, and no local commit exists after the prepared Review/gate evidence accepted by `dev-gate-check`.
 
 **Advance:** proceed to Step 05 (Create or Detect PR).

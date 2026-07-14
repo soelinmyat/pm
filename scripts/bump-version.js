@@ -33,6 +33,7 @@ Examples:
   node scripts/bump-version.js 2.0.0   # explicit version
 
 What it does:
+  LEGACY COMPATIBILITY PATH — new Ship flows use scripts/prepare-release.js before final Review.
   1. Updates version in plugin.config.json (source of truth)
   2. Runs generate-platform-files.js to sync all 3 platform manifests
   3. Stages all changed files
@@ -68,6 +69,9 @@ if (next === current) {
   process.exit(1);
 }
 
+console.warn(
+  "LEGACY: bump-version creates a feature-commit tag. New Ship flows must use prepare-release before final Review."
+);
 console.log(`Bumping ${current} → ${next}\n`);
 
 // --- Step 1: Update plugin.config.json ---

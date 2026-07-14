@@ -7,6 +7,7 @@ const {
   bindReleaseEvidence,
   beginEffect,
   createReleaseTransaction,
+  advancePreparedCommit,
   planEffect,
   reconcileEffect,
   releaseReadiness,
@@ -40,6 +41,31 @@ test("release transaction binds a tagless prepared commit before final evidence"
   assert.equal(value.release.tag_created, false);
   assert.deepEqual(value.evidence, { review: null, qa: null, verification: null });
   assert.deepEqual(transactionIssues(value), []);
+});
+
+test("delivery-only transactions keep the same effect journal without inventing a tag", () => {
+  const value = createReleaseTransaction({
+    releaseMode: "delivery-only",
+    runId: "dev_delivery_1",
+    slug: "feature",
+    repository: "acme/widget",
+    deliveryRemote: "origin",
+    headBranch: "codex/feature",
+    baseBranch: "main",
+    pushUrlSha256: `sha256:${"c".repeat(64)}`,
+    preparedCommit: COMMIT,
+    manifestHashes: [],
+  });
+  assert.equal(value.release.mode, "delivery-only");
+  assert.equal(value.release.tag, null);
+  assert.throws(
+    () =>
+      planEffect(value, {
+        effect: "place-main-tag",
+        target: { remote: "origin", tag: "v1.0.0", merge_sha: MERGE, base: "main" },
+      }),
+    /cannot place a release tag/
+  );
 });
 
 test("effects are dependency ordered and root-owned", () => {
@@ -167,6 +193,36 @@ test("conflicting observation blocks instead of replaying", () => {
   });
   assert.equal(result.decision, "blocked");
   assert.equal(result.transaction.effects.push.status, "blocked");
+});
+
+test("post-preparation commits preserve the old journal and invalidate current evidence", () => {
+  let value = planEffect(transaction(), {
+    effect: "push",
+    target: { remote: "origin", branch: "codex/release-example", commit: COMMIT },
+  });
+  value = beginEffect(value, {
+    effect: "push",
+    authority: { push_feature_branch: true },
+    actor: "root",
+  }).transaction;
+  const receipt = { remote_tip: COMMIT };
+  value = reconcileEffect(value, {
+    effect: "push",
+    outcome: "matched",
+    receipt,
+    observation: { target: value.effects.push.target, receipt },
+  }).transaction;
+  const nextCommit = "e".repeat(40);
+  value = advancePreparedCommit(value, {
+    commit: nextCommit,
+    reason: "CI fix",
+    timestamp: "2026-07-14T00:20:00.000Z",
+  });
+  assert.equal(value.generation, 2);
+  assert.equal(value.release.prepared_commit, nextCommit);
+  assert.equal(value.history[0].effects.push.status, "verified");
+  assert.deepEqual(value.effects, {});
+  assert.deepEqual(value.evidence, { review: null, qa: null, verification: null });
 });
 
 test("main tag cannot begin until merge is verified and conflicts never force move", () => {

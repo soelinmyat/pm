@@ -114,3 +114,54 @@ test("CLI refuses transaction and session paths outside private state", () => {
     item.cleanup();
   }
 });
+
+test("CLI initializes a delivery-only transaction for repositories without version mutation", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-release-init-"));
+  try {
+    const git = (...args) => {
+      const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout.trim();
+    };
+    git("init", "-q");
+    git("config", "user.email", "test@example.com");
+    git("config", "user.name", "Test User");
+    fs.writeFileSync(path.join(root, "README.md"), "delivery\n");
+    git("add", "README.md");
+    git("commit", "-q", "-m", "delivery");
+    git("branch", "-M", "codex/example");
+    git("remote", "add", "origin", "https://github.com/acme/widget.git");
+    const sessionDir = path.join(root, ".pm/dev-sessions/example");
+    fs.mkdirSync(sessionDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sessionDir, "session.json"),
+      `${JSON.stringify({
+        run_id: "dev_delivery_cli",
+        slug: "example",
+        source: {
+          branch: "codex/example",
+          default_branch: "main",
+          delivery_remote: "origin",
+        },
+      })}\n`
+    );
+    const result = run(
+      root,
+      "initialize",
+      "--transaction",
+      ".pm/dev-sessions/example/ship/release-transaction.json",
+      "--session",
+      ".pm/dev-sessions/example/session.json",
+      "--json"
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).decision, "initialized");
+    const transaction = JSON.parse(
+      fs.readFileSync(path.join(sessionDir, "ship/release-transaction.json"), "utf8")
+    );
+    assert.equal(transaction.release.mode, "delivery-only");
+    assert.equal(transaction.release.tag, null);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

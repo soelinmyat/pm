@@ -14,7 +14,7 @@ Drive the PR through all readiness gates to a confirmed merge, then clean up.
 
 ## How
 
-Read and validate `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/delivery-contract.md`. Before arming auto-merge or issuing a manual merge, require canonical and snapshotted `merge: true`. If merge was not explicitly requested and persisted before the action, stop at the green PR boundary. `preferences.ship.auto_merge` alone is never merge authority.
+Read and validate `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/release-transaction.md` and `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/delivery-contract.md`. Require verified `push` and `create-pr` effects. Before arming auto-merge or issuing a manual merge, plan `merge` for the exact PR/prepared commit/base/method, call `begin`, and require canonical and snapshotted `merge: true`. If merge was not explicitly requested and persisted before the action, the transaction records `denied` and Ship stops at the green PR boundary. `preferences.ship.auto_merge` alone is never merge authority.
 
 ### Pre-merge gate attestation (HARD-GATE)
 
@@ -30,6 +30,10 @@ Before arming auto-merge or invoking `gh pr merge`, re-verify the gate attestati
 This enforces ship's Iron Law — "NEVER MERGE WITHOUT READING THE DIFF" — structurally. A stale review SHA means code is about to ship that no review ever read.
 
 Read and follow `${CLAUDE_PLUGIN_ROOT}/references/merge-loop.md` for the full procedure. Supply its variables only from the validated delivery contract. Every repository-aware `gh pr` / `gh run` call passes `--repo "$GH_REPO"` and the explicit `PR_NUMBER`; API calls use the persisted owner/repository. Wrap every network call with `gh_retry` so a transient 5xx / gateway / timeout does not abort the merge.
+
+After the merge command or auto-merge, independently observe the PR. Reconcile `merge` as matched only when state is `MERGED`, observed head OID equals the prepared commit, and a merge SHA is present. OPEN remains `attempting` while monitoring; CLOSED without merge or a different head is `conflict`.
+
+For a versioned transaction, immediately plan `place-main-tag` for the release tag and verified merge SHA. Fetch the authoritative base, observe the remote tag first, and follow the effect protocol. Create and push the tag only when it is absent and `begin` returns `execute`. A matching tag is idempotent success; a tag at any other commit blocks and is never force-moved automatically. Delivery-only transactions skip this effect by schema.
 
 **Ship-specific additions** (on top of the shared merge loop):
 
@@ -96,6 +100,6 @@ Before cleanup, verify the backlog entry was written:
 
 ## Done-when
 
-The exact contracted PR is confirmed merged, every delivery-loop fix was recertified before push, required Product Memory updates are complete, and cleanup is done or intentionally skipped.
+The exact contracted PR and merge effects are verified, every delivery-loop fix was advanced and recertified before push, any versioned main-tag effect is verified at the merge SHA, required Product Memory updates are complete, and cleanup is done or intentionally skipped.
 
 Say: "Ship complete. PR merged and cleanup finished. What would you like to work on next?"

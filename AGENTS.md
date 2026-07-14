@@ -53,12 +53,13 @@ The **cache** is what Claude Code actually loads at runtime. The **marketplace**
 **Never push directly to main.** All changes go through a PR.
 
 ```
-feature branch: commit → commit → npm run bump patch (last commit) → PR → merge to main
+feature branch: commit → prepare-release → final gates → PR → merge → tag main
 ```
 
 - Create a feature branch for all work
-- Commit freely on the branch — no version bumps until ready
-- **Run `npm run bump patch` as the last step** on the branch before creating the PR
+- Commit implementation freely on the branch until the tree is ready for release preparation
+- Run `npm run prepare-release -- patch --session .pm/dev-sessions/<slug>/session.json` **before final Review/QA/verification**
+- Do not create a feature-commit release tag; Ship places the tag only after the merge SHA is verified on `main`
 - Create a PR, merge to main
 - After merge, delete the remote branch (`gh pr merge` does this by default) and clean up locally:
   ```bash
@@ -115,7 +116,7 @@ git config core.hooksPath .githooks
 
 | Hook | What it does |
 |---|---|
-| `pre-push` | Blocks direct pushes to main; verifies git tag exists for manifest version |
+| `pre-push` | Blocks direct pushes to main; requires current gates and prepared-release evidence when the manifest version changes |
 | `pre-commit` | Validates JSON, version consistency across all 3 manifests, and `pm/` artifact schemas when a project knowledge base is present |
 
 ## Development Flow
@@ -126,7 +127,7 @@ git config core.hooksPath .githooks
 2. **Sync to cache** to test immediately (see sync command below)
 3. **Verify** the change works (run the skill, check tests, etc.)
 4. **Commit** to the source repo when satisfied
-5. **Run `npm run bump patch`** as the last step on the branch, then create a PR (see version bump rules below)
+5. Run `npm run prepare-release -- patch --session .pm/dev-sessions/<slug>/session.json`, then run final Review/QA/verification against that prepared commit before creating the PR
 
 ### Sync command (dev only)
 
@@ -169,47 +170,45 @@ Planning notes are maintained privately outside this repository.
 - Keep command names and examples aligned across `README.md`, `commands/`, and `skills/`.
 - **After editing scripts or skills, sync to cache before testing.** Do not edit the cache directly.
 
-## Version Bump Rules
+## Release Preparation Rules
 
-**Always use the bump script.** Do not manually edit version files.
+**Always use the prepare-release script in new Ship flows.** Do not manually edit version files and do not run a post-review bump.
 
 ```bash
-npm run bump patch    # 1.0.5 → 1.0.6 (default, most common)
-npm run bump minor    # 1.0.5 → 1.1.0
-npm run bump major    # 1.0.5 → 2.0.0
-npm run bump 2.0.0    # explicit version
+npm run prepare-release -- patch --session .pm/dev-sessions/<slug>/session.json
+npm run prepare-release -- minor --session .pm/dev-sessions/<slug>/session.json
+npm run prepare-release -- major --session .pm/dev-sessions/<slug>/session.json
+npm run prepare-release -- 2.0.0 --session .pm/dev-sessions/<slug>/session.json
 ```
 
-The script handles everything: updates `plugin.config.json` (source of truth), syncs all 3 platform manifests via `generate-platform-files.js`, verifies consistency, commits, and creates the git tag. No manual file edits needed.
+The script requires a clean feature branch and canonical Dev session. It updates `plugin.config.json` (source of truth), syncs all platform manifests via `generate-platform-files.js`, verifies consistency, commits `Prepare release vX.Y.Z`, creates **no tag**, and initializes `.pm/dev-sessions/<slug>/ship/release-transaction.json`. Final gates run after this commit, so the version mutation cannot stale Review.
 
 | User says | Command |
 |---|---|
-| "bump version" / "bump patch" | `npm run bump patch` |
-| "bump minor" | `npm run bump minor` |
-| "bump major" | `npm run bump major` |
+| "bump version" / "bump patch" | `npm run prepare-release -- patch --session ...` |
+| "bump minor" | `npm run prepare-release -- minor --session ...` |
+| "bump major" | `npm run prepare-release -- major --session ...` |
 
-The pre-push hook will block pushes if the tag is missing.
+`npm run bump ...` is a one-release compatibility path for branches already using the legacy flow. Do not use it for new work.
+
+The pre-push hook permits an unchanged released version, a legacy tagged bump during the compatibility window, or a changed version with current prepared-release plus Review/QA/verification evidence.
 
 ### Tag placement rule
 
 **Tags must only exist on commits that are on `main`.** Never tag a commit on a feature branch. The Claude Desktop app resolves plugin versions from git tags — a tag on a dangling branch commit causes the app to install a stale version.
 
-After the bump script creates the commit + tag on a feature branch, ship via PR then re-tag on main:
+After Ship verifies the PR merge, place the tag on the observed `main` merge commit:
 
 ```bash
-# Ship the bump commit
-git checkout -b release/v{version}
-git push -u origin release/v{version}
-gh pr create && gh pr merge --squash --auto
-
-# Re-tag on the main merge commit
-git checkout main && git pull
-git tag -d v{version}
-git tag v{version}
-git push origin --force v{version}
+git fetch origin main
+git tag v{version} {verified_merge_sha}
+git push origin refs/tags/v{version}
+git ls-remote origin refs/tags/v{version}
 ```
 
-If a tag was accidentally placed on a non-main commit, fix it:
+If the remote tag already resolves to `{verified_merge_sha}`, record it as idempotently complete and do not replay. If it points elsewhere, stop; never force-move a conflicting tag automatically.
+
+Legacy remediation only: if a tag from the pre-transaction workflow was accidentally placed on a non-main commit, a maintainer may repair it explicitly after verifying the intended main SHA. Ship never performs this force move automatically:
 
 ```bash
 git tag -d v{version}

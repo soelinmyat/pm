@@ -21,6 +21,7 @@ post() {
   file-exists .pm/dev-sessions/release/session.json
   command-succeeds "node \"$PM_PLUGIN_ROOT/scripts/dev-session.js\" validate --session .pm/dev-sessions/release/session.json --json"
   file-exists user-owned-dirt.txt
+  file-matches .pm/dev-sessions/release/ship/release-transaction.json "\"status\": \"verified\""
   check-transcript quality-revalidation ship
   command-succeeds "node \"$PM_PLUGIN_ROOT/scripts/evals/quality-resume.js\" check ship \"$(pwd)\""
 }

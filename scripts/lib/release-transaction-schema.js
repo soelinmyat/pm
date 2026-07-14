@@ -37,15 +37,24 @@ function createReleaseTransaction(input) {
   ]) {
     requireString(value, name);
   }
-  if (!VERSION.test(input.currentVersion || "")) throw new Error("invalid current version");
-  if (!VERSION.test(input.nextVersion || "")) throw new Error("invalid next version");
-  if (compareVersions(input.nextVersion, input.currentVersion) <= 0) {
-    throw new Error("next version must be greater than current version");
+  const releaseMode = input.releaseMode || "versioned";
+  if (!new Set(["versioned", "delivery-only"]).has(releaseMode)) {
+    throw new Error(`invalid release mode: ${releaseMode}`);
+  }
+  if (releaseMode === "versioned") {
+    if (!VERSION.test(input.currentVersion || "")) throw new Error("invalid current version");
+    if (!VERSION.test(input.nextVersion || "")) throw new Error("invalid next version");
+    if (compareVersions(input.nextVersion, input.currentVersion) <= 0) {
+      throw new Error("next version must be greater than current version");
+    }
+  } else if (input.currentVersion !== undefined || input.nextVersion !== undefined) {
+    throw new Error("delivery-only transaction cannot declare versions");
   }
   if (!SHA.test(input.preparedCommit || "")) throw new Error("invalid prepared commit");
   if (!SHA256.test(input.pushUrlSha256 || "")) throw new Error("invalid push URL SHA-256");
-  if (!Array.isArray(input.manifestHashes) || input.manifestHashes.length === 0) {
-    throw new Error("prepared release requires manifest hashes");
+  if (!Array.isArray(input.manifestHashes)) throw new Error("manifest hashes must be an array");
+  if (releaseMode === "versioned" && input.manifestHashes.length === 0) {
+    throw new Error("versioned release requires manifest hashes");
   }
   const manifestHashes = input.manifestHashes.map((item, index) => {
     requireObject(item, `manifest hash ${index}`);
@@ -66,9 +75,10 @@ function createReleaseTransaction(input) {
       base_branch: input.baseBranch,
     },
     release: {
-      current_version: input.currentVersion,
-      next_version: input.nextVersion,
-      tag: `v${input.nextVersion}`,
+      mode: releaseMode,
+      current_version: releaseMode === "versioned" ? input.currentVersion : null,
+      next_version: releaseMode === "versioned" ? input.nextVersion : null,
+      tag: releaseMode === "versioned" ? `v${input.nextVersion}` : null,
       prepared_commit: input.preparedCommit,
       tag_created: false,
       manifests: manifestHashes,
@@ -76,11 +86,50 @@ function createReleaseTransaction(input) {
     },
     evidence: { review: null, qa: null, verification: null },
     effects: {},
+    generation: 1,
+    history: [],
     created_at: timestamp,
     updated_at: timestamp,
   };
   assertValid(transaction);
   return transaction;
+}
+
+function advancePreparedCommit(transaction, input) {
+  const next = cloneAndValidate(transaction);
+  requireObject(input, "prepared commit advance");
+  if (!SHA.test(input.commit || "")) throw new Error("invalid advanced prepared commit");
+  if (input.commit === next.release.prepared_commit) return next;
+  requireString(input.reason, "prepared commit advance reason");
+  if (["merge", "place-main-tag"].some((name) => next.effects[name]?.status === "verified")) {
+    throw new Error("cannot advance the prepared commit after merge verification");
+  }
+  const timestamp = input.timestamp || new Date().toISOString();
+  next.history.push({
+    generation: next.generation,
+    prepared_commit: next.release.prepared_commit,
+    evidence: structuredClone(next.evidence),
+    effects: structuredClone(next.effects),
+    superseded_at: timestamp,
+    reason: input.reason.trim(),
+  });
+  next.generation += 1;
+  next.release.prepared_commit = input.commit;
+  if (input.manifestHashes !== undefined) {
+    if (!Array.isArray(input.manifestHashes)) throw new Error("manifest hashes must be an array");
+    next.release.manifests = input.manifestHashes.map((item, index) => {
+      if (!isObject(item) || !nonEmpty(item.path) || !SHA256.test(item.sha256 || "")) {
+        throw new Error(`invalid manifest hash ${index}`);
+      }
+      return structuredClone(item);
+    });
+  }
+  next.release.prepared_at = timestamp;
+  next.evidence = { review: null, qa: null, verification: null };
+  next.effects = {};
+  next.updated_at = timestamp;
+  assertValid(next);
+  return next;
 }
 
 function bindReleaseEvidence(transaction, input) {
@@ -265,6 +314,8 @@ function transactionIssues(value) {
       "release",
       "evidence",
       "effects",
+      "generation",
+      "history",
       "created_at",
       "updated_at",
     ],
@@ -290,7 +341,30 @@ function transactionIssues(value) {
       else validateEffect(effect, name, issues);
     }
   }
+  if (!Number.isInteger(value.generation) || value.generation < 1) {
+    issues.push("generation must be a positive integer");
+  }
+  if (!Array.isArray(value.history)) issues.push("history must be an array");
+  else value.history.forEach((entry, index) => validateHistory(entry, index, issues));
   return issues;
+}
+
+function validateHistory(entry, index, issues) {
+  if (!isObject(entry)) return issues.push(`history ${index} must be an object`);
+  exactKeys(
+    entry,
+    ["generation", "prepared_commit", "evidence", "effects", "superseded_at", "reason"],
+    `$.history[${index}]`,
+    issues
+  );
+  if (entry.generation !== index + 1) issues.push(`history ${index} generation is invalid`);
+  if (!SHA.test(entry.prepared_commit || "")) issues.push(`history ${index} commit is invalid`);
+  if (!isObject(entry.evidence) || !isObject(entry.effects)) {
+    issues.push(`history ${index} evidence/effects are invalid`);
+  }
+  if (!nonEmpty(entry.superseded_at) || !nonEmpty(entry.reason)) {
+    issues.push(`history ${index} transition metadata is required`);
+  }
 }
 
 function validateSource(source, issues) {
@@ -315,6 +389,7 @@ function validateRelease(release, issues) {
       "current_version",
       "next_version",
       "tag",
+      "mode",
       "prepared_commit",
       "tag_created",
       "manifests",
@@ -323,13 +398,26 @@ function validateRelease(release, issues) {
     "$.release",
     issues
   );
-  if (!VERSION.test(release.current_version || "")) issues.push("current version is invalid");
-  if (!VERSION.test(release.next_version || "")) issues.push("next version is invalid");
-  if (release.tag !== `v${release.next_version}`) issues.push("release tag does not match version");
+  if (!new Set(["versioned", "delivery-only"]).has(release.mode)) {
+    issues.push("release mode is invalid");
+  } else if (release.mode === "versioned") {
+    if (!VERSION.test(release.current_version || "")) issues.push("current version is invalid");
+    if (!VERSION.test(release.next_version || "")) issues.push("next version is invalid");
+    if (release.tag !== `v${release.next_version}`)
+      issues.push("release tag does not match version");
+  } else if (
+    release.current_version !== null ||
+    release.next_version !== null ||
+    release.tag !== null
+  ) {
+    issues.push("delivery-only release cannot declare version or tag");
+  }
   if (!SHA.test(release.prepared_commit || "")) issues.push("prepared commit is invalid");
   if (release.tag_created !== false) issues.push("prepared release must not create a tag");
-  if (!Array.isArray(release.manifests) || release.manifests.length === 0) {
-    issues.push("release manifests are required");
+  if (!Array.isArray(release.manifests)) {
+    issues.push("release manifests must be an array");
+  } else if (release.mode === "versioned" && release.manifests.length === 0) {
+    issues.push("versioned release manifests are required");
   } else {
     for (const item of release.manifests) {
       if (!isObject(item) || !nonEmpty(item.path) || !SHA256.test(item.sha256 || "")) {
@@ -414,6 +502,9 @@ function validateEffectTarget(name, target, transaction) {
     throw new Error("push target must equal prepared commit");
   }
   if (name === "place-main-tag") {
+    if (transaction.release.mode !== "versioned") {
+      throw new Error("delivery-only transaction cannot place a release tag");
+    }
     if (target.tag !== transaction.release.tag)
       throw new Error("tag target must equal release tag");
     if (!SHA.test(target.merge_sha || "")) throw new Error("tag target requires merge SHA");
@@ -503,6 +594,7 @@ function nonEmpty(value) {
 
 module.exports = {
   EFFECT_DEFINITIONS,
+  advancePreparedCommit,
   bindReleaseEvidence,
   beginEffect,
   createReleaseTransaction,

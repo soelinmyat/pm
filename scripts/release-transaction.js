@@ -3,11 +3,15 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const crypto = require("node:crypto");
+const { spawnSync } = require("node:child_process");
 const { writeJsonAtomic } = require("./lib/atomic-file");
 const { acquireOwnedLock } = require("./lib/owned-lock");
 const {
   bindReleaseEvidence,
   beginEffect,
+  createReleaseTransaction,
+  advancePreparedCommit,
   planEffect,
   reconcileEffect,
   releaseReadiness,
@@ -37,6 +41,9 @@ function parseArgs(argv) {
 function runCommand(args, options = {}) {
   const cwd = path.resolve(options.cwd || process.cwd());
   const transactionPath = resolvePrivateFile(args.transaction, cwd, "transaction");
+  if (args.command === "initialize") {
+    return initializeDeliveryTransaction(args, cwd, transactionPath);
+  }
   if (["validate", "status"].includes(args.command)) {
     const transaction = readJson(transactionPath, "release transaction");
     const issues = transactionIssues(transaction);
@@ -92,8 +99,58 @@ function runCommand(args, options = {}) {
         decision: "evidence-bound",
       };
     }
+    if (args.command === "advance") {
+      return {
+        transaction: advancePreparedCommit(transaction, {
+          commit: args.commit || git(cwd, ["rev-parse", "HEAD"]),
+          reason: args.reason,
+        }),
+        decision: "advanced",
+      };
+    }
     throw new Error(`unknown release transaction command: ${args.command}`);
   });
+}
+
+function initializeDeliveryTransaction(args, cwd, transactionPath) {
+  if (fs.existsSync(transactionPath)) {
+    const existing = readJson(transactionPath, "release transaction");
+    const issues = transactionIssues(existing);
+    if (issues.length > 0) throw new Error(`invalid release transaction: ${issues.join("; ")}`);
+    return {
+      ok: true,
+      decision: "already-initialized",
+      status: statusView(existing, relative(cwd, transactionPath)),
+    };
+  }
+  const session = readJson(resolvePrivateFile(args.session, cwd, "session"), "Dev session");
+  const branch = git(cwd, ["branch", "--show-current"]);
+  const commit = git(cwd, ["rev-parse", "HEAD"]);
+  if (branch !== session.source?.branch)
+    throw new Error("Dev session branch does not match current branch");
+  const remote = session.source?.delivery_remote;
+  const urls = git(cwd, ["remote", "get-url", "--push", "--all", "--", remote])
+    .split(/\r?\n/)
+    .filter(Boolean);
+  if (urls.length !== 1) throw new Error("delivery remote must have exactly one push URL");
+  const transaction = createReleaseTransaction({
+    releaseMode: "delivery-only",
+    runId: session.run_id,
+    slug: session.slug,
+    repository: githubRepository(urls[0]),
+    deliveryRemote: remote,
+    headBranch: branch,
+    baseBranch: session.source.default_branch,
+    pushUrlSha256: digestText(urls[0]),
+    preparedCommit: commit,
+    manifestHashes: [],
+  });
+  writeJsonAtomic(transactionPath, transaction, { directoryMode: 0o700, fileMode: 0o600 });
+  return {
+    ok: true,
+    decision: "initialized",
+    status: statusView(transaction, relative(cwd, transactionPath)),
+  };
 }
 
 function mutateTransaction(transactionPath, mutation) {
@@ -129,7 +186,9 @@ function statusView(transaction, transactionPath) {
     schema_version: 1,
     transaction_path: transactionPath,
     run_id: transaction.run_id,
+    generation: transaction.generation,
     release: {
+      mode: transaction.release.mode,
       version: transaction.release.next_version,
       tag: transaction.release.tag,
       prepared_commit: transaction.release.prepared_commit,
@@ -148,6 +207,28 @@ function statusView(transaction, transactionPath) {
       ])
     ),
   };
+}
+
+function githubRepository(url) {
+  for (const pattern of [
+    /^git@github\.com:([^/]+)\/([^/]+?)(?:\.git)?$/,
+    /^ssh:\/\/git@github\.com\/([^/]+)\/([^/]+?)(?:\.git)?$/,
+    /^https:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?$/,
+  ]) {
+    const match = url.match(pattern);
+    if (match) return `${match[1]}/${match[2]}`;
+  }
+  throw new Error("delivery remote is not a supported GitHub repository URL");
+}
+
+function digestText(value) {
+  return `sha256:${crypto.createHash("sha256").update(value).digest("hex")}`;
+}
+
+function git(cwd, args) {
+  const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+  if (result.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${result.stderr.trim()}`);
+  return result.stdout.trim();
 }
 
 function resolvePrivateFile(value, cwd, label) {

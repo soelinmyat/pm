@@ -129,6 +129,10 @@ function fixtureFor(workflow, type, caseId, state) {
       type === "resume"
         ? `Resume revalidation command: node "$PM_PLUGIN_ROOT/scripts/evals/quality-resume.js" revalidate ${workflow} "$(pwd)"\n`
         : ""
+    }${
+      workflow === "ship" && type === "resume"
+        ? "Ship resume condition: the Push effect is durably `attempting`, terminal output was lost, and the remote branch may already match. Call `release-transaction.js begin` to obtain `observe-first`, inspect the exact remote target, reconcile the existing attempt, and never issue another push when it already matches.\n"
+        : ""
     }`,
     ".pm/quality/input-lock.json": `${JSON.stringify({ case_id: caseId, frozen: true }, null, 2)}\n`,
   };
@@ -204,6 +208,11 @@ function fixtureFor(workflow, type, caseId, state) {
       );
     }
     post.push("file-exists user-owned-dirt.txt");
+    if (workflow === "ship") {
+      post.push(
+        'file-matches .pm/dev-sessions/release/ship/release-transaction.json "\\"status\\": \\"verified\\""'
+      );
+    }
     post.push(`check-transcript quality-revalidation ${workflow}`);
     post.push(
       `command-succeeds "node \\\"$PM_PLUGIN_ROOT/scripts/evals/quality-resume.js\\\" check ${workflow} \\\"$(pwd)\\\""`

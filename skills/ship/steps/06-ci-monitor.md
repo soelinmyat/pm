@@ -14,7 +14,7 @@ Monitor CI to green, auto-fixing failures up to 3 rounds.
 
 ## How
 
-Read and validate `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/delivery-contract.md`. Use only its `GH_REPO`, `HEAD_BRANCH`, `BASE_BRANCH`, and the already identity-checked `PR_NUMBER`; never use ambient `gh` repository discovery.
+Read and validate `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/release-transaction.md` and `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/delivery-contract.md`. Require verified `push` and `create-pr` effects, then use only their bound `GH_REPO`, `HEAD_BRANCH`, `BASE_BRANCH`, prepared commit, and PR number; never use ambient `gh` repository discovery.
 
 When CI concludes `success` on the latest run, proceed to the merge loop; if 3 fix attempts are exhausted, stop and ask the user for guidance.
 
@@ -48,7 +48,7 @@ When CI concludes `success` on the latest run, proceed to the merge loop; if 3 f
 2. Categorize failures: test failures, lint errors, build errors, security issues
 3. Fix each issue using project-appropriate tools (check AGENTS.md for lint/fix commands)
 4. Commit fixes with descriptive message
-5. Run the full post-mutation recertification protocol from `delivery-contract.md`: rerun `pm:review`, regenerate Review and changed routed-gate artifacts for current HEAD, revalidate repository identity, and pass `dev-gate-check`.
+5. Run the full post-mutation recertification protocol: advance the release transaction to current HEAD with the concrete CI-fix reason, rerun `pm:review`, regenerate and bind Review/QA/verification artifacts, replan effects for the new generation, revalidate repository identity, and pass `dev-gate-check`.
 6. Only after recertification exits cleanly, push explicitly to the contracted remote with `git push -- "$DELIVERY_REMOTE" HEAD` (use `timeout: 600000`). Never use an ambient `git push` here.
 7. Return to the watch procedure at the top of this step.
 

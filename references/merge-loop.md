@@ -6,7 +6,7 @@ Shared reference for the self-healing PR merge flow. Used by the ship skill's ga
 
 ## Delivery identity and authority
 
-Before this reference, read and follow `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/delivery-contract.md`. Enter only with a freshly validated contract, exact `PR_NUMBER`, and explicit canonical plus snapshotted `merge: true`. Set `GH_OWNER`, `GH_REPOSITORY`, `GH_REPO`, `HEAD_BRANCH`, `BASE_BRANCH`, and `DELIVERY_REMOTE` from that contract. A preference or ambient `gh` repository is not authority.
+Before this reference, read and follow `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/release-transaction.md` and `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/delivery-contract.md`. Enter only with matching current contracts, verified Push and Create PR effects, exact `PR_NUMBER`, and explicit canonical plus snapshotted `merge: true`. Set `GH_OWNER`, `GH_REPOSITORY`, `GH_REPO`, `HEAD_BRANCH`, `BASE_BRANCH`, and `DELIVERY_REMOTE` from those records. A preference or ambient `gh` repository is not authority.
 
 Before every PR mutation, revalidate both authority and contract identity. Every `gh pr` and `gh run` call below supplies `--repo "$GH_REPO"`; every PR call supplies the explicit `PR_NUMBER` except the already completed head/base discovery in Ship Step 05. `gh api` has no `--repo` flag, so its REST endpoint or GraphQL owner/repository variables must use the exact contracted `$GH_OWNER/$GH_REPOSITORY`. Re-fetch the PR through `repos/$GH_OWNER/$GH_REPOSITORY/pulls/$PR_NUMBER` and reject any repository, head, or base mismatch before continuing.
 
@@ -103,7 +103,9 @@ Do NOT guess — query each one. (Gate 3 explains why unresolved conversations, 
 
 ---
 
-## Step 2: Try Auto-Merge
+## Step 2: Begin Merge Effect and Try Auto-Merge
+
+Plan `merge` for the exact repository, PR number, prepared head commit, base, and squash method. Call `release-transaction.js begin` before any auto-merge or manual merge mutation. `denied` stops at the green PR boundary; `observe-first` queries PR state before replay; `already-verified` skips the mutation after revalidation; only `execute` may continue below.
 
 Attempt to arm GitHub auto-merge. If the repo supports it, GitHub will merge automatically once all branch protection rules pass.
 
@@ -399,6 +401,18 @@ After merge command, verify state is `"MERGED"`. If still `"OPEN"`, loop back to
 
 If merge fails: report the error and STOP. Do NOT force through.
 
+Independently fetch the final PR identity and reconcile the Merge effect as `matched` only when the PR is `MERGED`, its observed head OID equals the prepared commit, and the merge SHA is present. A lost command result remains `attempting` until this observation. A closed-unmerged PR or different head is `conflict`, not a retryable environment failure.
+
+### Versioned main-tag placement
+
+If the current transaction is `versioned`, plan `place-main-tag` using the release tag, verified merge SHA, contracted remote, and base branch. Observe the remote tag before mutation:
+
+- tag peels to merge SHA → reconcile `matched`; do not replay;
+- tag absent → call `begin`, then create/push the tag and observe again;
+- tag points elsewhere → reconcile `conflict` and stop; never force-move it automatically.
+
+The effect runtime refuses tag placement before verified Merge. Delivery-only transactions have no tag effect.
+
 ---
 
 ## Step 5: Close the Loop (issue tracker + backlog)
@@ -410,6 +424,8 @@ This step runs IMMEDIATELY after merge is confirmed — before cleanup, before t
 **5a. Issue tracker (Linear/Jira)**
 
 If an issue tracker is configured (Linear/Jira via MCP) and the PR title or branch name contains an issue identifier (e.g., `CLE-1380`, `PM-044`):
+
+Plan and begin `tracker-update` for the exact provider, issue, terminal state, and stable comment identity before mutation. Missing `tracker_updates` authority is a durable `denied` boundary and must not be described as an outage. After updates, re-read the issue/comment and reconcile from observed state.
 
 1. Set the issue status to **Done**
 2. Add a comment with the merge SHA and PR link
@@ -451,8 +467,7 @@ git merge --ff-only "$DELIVERY_REMOTE/$BASE_BRANCH"
 # Remove worktree if applicable
 if [ -n "$WORKTREE_PATH" ]; then
   git worktree remove "$WORKTREE_PATH" 2>/dev/null || \
-    git worktree remove "$WORKTREE_PATH" --force 2>/dev/null || \
-    echo "WARN: Could not remove worktree at $WORKTREE_PATH"
+    echo "WARN: Could not remove cleanly; preserved worktree at $WORKTREE_PATH"
 fi
 
 # Delete local feature branch + prune

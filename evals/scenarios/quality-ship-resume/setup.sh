@@ -5,7 +5,7 @@ node - <<'NODE'
 const fs = require("node:fs");
 const path = require("node:path");
 const files = {
-  "case-state.md": "# Quality case state\n\nWorkflow: pm:ship\nCase: resume\nState: A partial session exists with accepted decisions; source identity must be revalidated before continuing.\nResume revalidation command: node \"$PM_PLUGIN_ROOT/scripts/evals/quality-resume.js\" revalidate ship \"$(pwd)\"\n",
+  "case-state.md": "# Quality case state\n\nWorkflow: pm:ship\nCase: resume\nState: A partial session exists with accepted decisions; source identity must be revalidated before continuing.\nResume revalidation command: node \"$PM_PLUGIN_ROOT/scripts/evals/quality-resume.js\" revalidate ship \"$(pwd)\"\nShip resume condition: the Push effect is durably `attempting`, terminal output was lost, and the remote branch may already match. Call `release-transaction.js begin` to obtain `observe-first`, inspect the exact remote target, reconcile the existing attempt, and never issue another push when it already matches.\n",
   ".pm/quality/input-lock.json": "{\n  \"case_id\": \"ship-resume\",\n  \"frozen\": true\n}\n",
   ".pm/quality/hosted-state.json": "{\n  \"pr\": 42,\n  \"head\": \"release\",\n  \"checks\": \"green\",\n  \"merge_authorized\": true,\n  \"tag\": \"v9.9.9\"\n}\n",
   "release.txt": "release candidate\n",
