@@ -449,6 +449,12 @@ function validateTargetBindings(root, target, reviewRoot, options, issues) {
       }
     }
     if (value && object(value) && value.outcome !== "passed") {
+      const expectedGeneratorVersion = frozenPluginVersion(
+        root,
+        target,
+        value.source?.commit,
+        issues
+      );
       try {
         const prior = checkReview(
           expandFromReport({
@@ -458,10 +464,7 @@ function validateTargetBindings(root, target, reviewRoot, options, issues) {
             verifyGit: false,
             verifyFrozenGit: true,
             verifyBrowser: false,
-            // A bound prior round is immutable and may have been produced before a
-            // remediation bump. Accept only an older-or-equal semantic version here;
-            // the current report still requires the current generator by default.
-            allowHistoricalGeneratorVersion: true,
+            expectedGeneratorVersion,
           })
         );
         if (!prior.ok)
@@ -480,6 +483,31 @@ function validateTargetBindings(root, target, reviewRoot, options, issues) {
         );
       }
     }
+  }
+}
+
+function frozenPluginVersion(root, target, commit, issues) {
+  if (!sha(commit)) {
+    add(issues, "target.prior_report.source.commit", "must be a Git commit");
+    return null;
+  }
+  try {
+    const config = JSON.parse(readFrozenBlob(root, target, commit, "plugin.config.json"));
+    if (
+      !object(config) ||
+      typeof config.version !== "string" ||
+      !/^\d+\.\d+\.\d+$/.test(config.version)
+    ) {
+      throw new Error("plugin.config.json requires a semantic version");
+    }
+    return config.version;
+  } catch (error) {
+    add(
+      issues,
+      "target.prior_report",
+      `cannot resolve generator version from frozen source: ${error.message}`
+    );
+    return null;
   }
 }
 
@@ -1581,10 +1609,8 @@ function validateHumanReport(root, human, report, reportFile, options, issues) {
   for (const item of inspected.issues || [])
     add(issues, `report.human_report${item.path || ""}`, item.message);
   const metadata = inspected.metadata;
-  const generatorVersionValid =
-    metadata?.generator?.version === PLUGIN_VERSION ||
-    (options.allowHistoricalGeneratorVersion === true &&
-      historicalPluginVersion(metadata?.generator?.version));
+  const expectedGeneratorVersion = options.expectedGeneratorVersion || PLUGIN_VERSION;
+  const generatorVersionValid = metadata?.generator?.version === expectedGeneratorVersion;
   if (
     metadata &&
     (metadata.generator?.name !== "pm:review" ||
@@ -1633,21 +1659,6 @@ function validateHumanReport(root, human, report, reportFile, options, issues) {
     }
   }
   return { path: htmlFile.relative, sha256: htmlFile.sha256 };
-}
-
-function historicalPluginVersion(value) {
-  const parse = (version) => {
-    const match = String(version || "").match(/^(\d+)\.(\d+)\.(\d+)$/);
-    return match ? match.slice(1).map(Number) : null;
-  };
-  const candidate = parse(value);
-  const current = parse(PLUGIN_VERSION);
-  if (!candidate || !current) return false;
-  for (let index = 0; index < current.length; index += 1) {
-    if (candidate[index] < current[index]) return true;
-    if (candidate[index] > current[index]) return false;
-  }
-  return true;
 }
 
 function validateRenderedReportMarkers(markers, report, issues) {

@@ -389,12 +389,14 @@ function approveSession(session, input, options = {}) {
   next.phase = "handoff";
   next.phase_attempt = 1;
   next.updated_at = now;
-  next.history.push({
-    prior_phase: "approval",
-    next_phase: "handoff",
-    reason: "explicit human approval recorded",
-    timestamp: now,
-  });
+  next.history.push(
+    createTransition({
+      priorPhase: "approval",
+      nextPhase: "handoff",
+      reason: "explicit human approval recorded",
+      timestamp: now,
+    })
+  );
   assertValidSession(next);
   return next;
 }
@@ -427,12 +429,14 @@ function reviseSession(session, input, options = {}) {
     artifact_hash: null,
   };
   next.updated_at = now;
-  next.history.push({
-    prior_phase: session.phase,
-    next_phase: "review",
-    reason: `review invalidated: ${input.reason}`,
-    timestamp: now,
-  });
+  next.history.push(
+    createTransition({
+      priorPhase: session.phase,
+      nextPhase: "review",
+      reason: `review invalidated: ${input.reason}`,
+      timestamp: now,
+    })
+  );
   assertValidSession(next);
   return next;
 }
@@ -451,12 +455,14 @@ function resumeBlocked(session, input, options = {}) {
   next.status = "active";
   next.phase_attempt = 1;
   next.updated_at = now;
-  next.history.push({
-    prior_phase: session.phase,
-    next_phase: session.phase,
-    reason: `blocker resolved: ${input.resolution}`,
-    timestamp: now,
-  });
+  next.history.push(
+    createTransition({
+      priorPhase: session.phase,
+      nextPhase: session.phase,
+      reason: `blocker resolved: ${input.resolution}`,
+      timestamp: now,
+    })
+  );
   assertValidSession(next);
   return next;
 }
@@ -509,12 +515,14 @@ function migrateLegacyMarkdown(legacyPath, options = {}) {
     approval_trusted: false,
     reason: "legacy workflow could write approved before explicit human approval",
   };
-  session.history.push({
-    prior_phase: "legacy",
-    next_phase: "intake",
-    reason: "legacy RFC state requires context, artifact, review, and approval recertification",
-    timestamp: session.migration.migrated_at,
-  });
+  session.history.push(
+    createTransition({
+      priorPhase: "legacy",
+      nextPhase: "intake",
+      reason: "legacy RFC state requires context, artifact, review, and approval recertification",
+      timestamp: session.migration.migrated_at,
+    })
+  );
   assertValidSession(session);
   return session;
 }

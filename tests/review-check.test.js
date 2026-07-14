@@ -48,6 +48,7 @@ const { renderArtifact, resolveBrowser } = require("../scripts/artifact-render-c
 const projectWriter = require("../scripts/lib/project-file");
 const { writeProjectTextAtomic } = projectWriter;
 const { readProjectInput } = require("../scripts/lib/safe-project-output");
+const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 let installedBrowser = null;
 try {
@@ -2202,14 +2203,6 @@ test("prior-round evidence remains valid after the cited source is removed", () 
     outputPath: fixture.roundHtmlPath,
   });
   const priorHtmlPath = path.join(fixture.root, fixture.roundHtmlPath);
-  const priorHtml = fs.readFileSync(priorHtmlPath, "utf8");
-  fs.writeFileSync(
-    priorHtmlPath,
-    priorHtml.replace(
-      /("generator":\{"name":"pm:review","version":")[^"]+/,
-      (_match, prefix) => `${prefix}0.0.0`
-    )
-  );
   const strictPrior = checkReview(
     expandFromReport({
       root: fixture.root,
@@ -2218,8 +2211,7 @@ test("prior-round evidence remains valid after the cited source is removed", () 
       verifyBrowser: false,
     })
   );
-  assert.equal(strictPrior.ok, false);
-  assert.match(JSON.stringify(strictPrior.issues), /metadata must bind/);
+  assert.equal(strictPrior.ok, true, JSON.stringify(strictPrior.issues));
   fs.rmSync(path.join(fixture.root, "src/example.js"));
   git(fixture.root, ["add", "-A"]);
   git(fixture.root, ["commit", "-qm", "remove cited source"]);
@@ -2246,6 +2238,26 @@ test("prior-round evidence remains valid after the cited source is removed", () 
   assert.equal(checked.ok, false);
   assert.doesNotMatch(JSON.stringify(checked.issues), /target\.prior_report|frozen evidence/);
   assert.match(JSON.stringify(checked.issues), /missing planned reviewer/);
+
+  const priorHtml = fs.readFileSync(priorHtmlPath, "utf8");
+  fs.writeFileSync(
+    priorHtmlPath,
+    priorHtml.replace(
+      /("generator":\{"name":"pm:review","version":")[^"]+/,
+      (_match, prefix) => `${prefix}0.0.0`
+    )
+  );
+  const forged = checkReview({
+    root: fixture.root,
+    targetPath,
+    resultPaths: [],
+    reportPath: ".pm/dev-sessions/example/review/runs/review-test/round-2/draft-report.json",
+    humanReportPath: ".pm/dev-sessions/example/review/runs/review-test/round-2/draft-report.html",
+    reportStage: "draft",
+    writeReport: true,
+    verifyBrowser: false,
+  });
+  assert.match(JSON.stringify(forged.issues), /target\.prior_report.*metadata must bind/);
 });
 
 test("later rounds authenticate prior frozen Git evidence on a diverged deleted-file diff", () => {
@@ -2776,6 +2788,10 @@ function makeFixture({
   fs.mkdirSync(path.join(root, "src"), { recursive: true });
   fs.mkdirSync(path.join(root, "skills/dev/references"), { recursive: true });
   fs.writeFileSync(path.join(root, ".gitignore"), ".pm/\n");
+  fs.writeFileSync(
+    path.join(root, "plugin.config.json"),
+    `${JSON.stringify({ version: PLUGIN_VERSION })}\n`
+  );
   fs.writeFileSync(
     path.join(root, "src/example.js"),
     removeLine

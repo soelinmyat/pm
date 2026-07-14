@@ -57,3 +57,12 @@ test("legacy Dev capability path is a compatibility export of the shared primiti
     require("../scripts/lib/workflow-runtime/capabilities")
   );
 });
+
+test("RFC lifecycle transitions use the shared common-field constructor", () => {
+  const source = fs.readFileSync(
+    path.join(root, "scripts", "lib", "rfc-session-schema.js"),
+    "utf8"
+  );
+  assert.doesNotMatch(source, /\.history\.push\(\{/);
+  assert.match(source, /createTransition/);
+});
