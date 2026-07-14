@@ -10,9 +10,10 @@ const {
   deriveLensApplicability,
   devReviewContext,
 } = require("./lib/review-contract");
-const projectWriter = require("./lib/project-atomic-write");
 const { MAX_CHANGED_FILE_BYTES, MAX_JSON_BYTES } = require("./lib/review-limits");
-const { readProjectInput } = require("./lib/safe-project-output");
+const projectFile = require("./lib/project-file");
+const { readProjectInput } = projectFile;
+const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 const {
   expectedPriorReportPath,
   expectedReviewPath,
@@ -104,6 +105,7 @@ function buildReviewTarget(options) {
     iteration_cap: 3,
     created_at: new Date().toISOString(),
     mode,
+    generator: { name: "pm:review", version: PLUGIN_VERSION },
     source: {
       commit,
       base_ref: baseRef,
@@ -572,7 +574,7 @@ function main(argv = process.argv.slice(2)) {
       "target"
     );
     try {
-      const publication = projectWriter.writeProjectJsonAtomic(
+      const publication = projectFile.writeProjectJsonAtomic(
         options.root || process.cwd(),
         options.outPath,
         target,

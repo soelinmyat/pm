@@ -7,8 +7,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { inspectHtmlArtifact } = require("./artifact-check");
 const { probeDataMarkerVisibility, resolveBrowser } = require("./artifact-render-check");
-const projectWriter = require("./lib/project-atomic-write");
-const { readProjectInput } = require("./lib/safe-project-output");
+const projectFile = require("./lib/project-file");
+const { readProjectInput } = projectFile;
 const {
   expectedPriorReportPath,
   expectedReviewPath,
@@ -54,6 +54,15 @@ const EVIDENCE_KINDS = new Set([
   "upstream-gate",
 ]);
 const FIX_KINDS = new Set(["mechanical", "behavioral", "decision"]);
+const LEGACY_TARGET_GENERATOR_VERSIONS = new Set([
+  "1.13.15",
+  "1.13.16",
+  "1.13.17",
+  "1.13.18",
+  "1.13.19",
+  "1.13.20",
+  "1.13.21",
+]);
 const SIGNAL_DISPOSITIONS = new Set(["open"]);
 const REQUIRED_EVIDENCE = Object.freeze({
   bug: new Set(["source", "test", "trace", "contract"]),
@@ -168,12 +177,12 @@ function checkReview(options) {
   if (
     reportStage === "final" &&
     report.outcome === "passed" &&
-    target.relevance_policy !== CHANGE_HUNK_ANCHOR_POLICY
+    (target.relevance_policy !== CHANGE_HUNK_ANCHOR_POLICY || !target.generator)
   )
     add(
       issues,
       "target.relevance_policy",
-      `final passing review evidence requires ${CHANGE_HUNK_ANCHOR_POLICY}; legacy targets are inspection-only`
+      `final passing review evidence requires ${CHANGE_HUNK_ANCHOR_POLICY} and a target-bound generator; legacy targets are inspection-only`
     );
   if (reviewRoot && options.validateOnly !== true) {
     if (!new Set(["draft", "final"]).has(reportStage))
@@ -212,7 +221,7 @@ function checkReview(options) {
       try {
         const immutable =
           (options.reportStage || "final") === "final" && report.outcome !== "passed";
-        const publication = projectWriter.writeProjectJsonAtomic(root, options.reportPath, report, {
+        const publication = projectFile.writeProjectJsonAtomic(root, options.reportPath, report, {
           fileMode: 0o600,
           directoryMode: 0o700,
           replace: !immutable,
@@ -256,6 +265,7 @@ function validateTarget(target, issues) {
       "iteration_cap",
       "created_at",
       "mode",
+      "generator",
       "source",
       "changed_files",
       "dev_context",
@@ -281,6 +291,17 @@ function validateTarget(target, issues) {
     add(issues, "target.review_round", "must be 1 through 3");
   if (target.iteration_cap !== 3) add(issues, "target.iteration_cap", "must equal 3");
   if (!new Set(["full", "code-scan"]).has(target.mode)) add(issues, "target.mode", "is invalid");
+  if (
+    target.generator !== undefined &&
+    (!object(target.generator) ||
+      target.generator.name !== "pm:review" ||
+      !boundTargetGeneratorVersion(target.generator.version))
+  )
+    add(
+      issues,
+      "target.generator",
+      `must bind pm:review to a released bound-generator version from 1.13.22 through ${PLUGIN_VERSION}`
+    );
   validateSource(target.source, "target.source", issues);
   validateDevContext(target.dev_context, issues);
   validateBindingShape(target.acceptance, "target.acceptance", issues, true);
@@ -458,7 +479,6 @@ function validateTargetBindings(root, target, reviewRoot, options, issues) {
             verifyGit: false,
             verifyFrozenGit: true,
             verifyBrowser: false,
-            allowHistoricalGeneratorVersion: options.allowHistoricalGeneratorVersion === true,
           })
         );
         if (!prior.ok)
@@ -1496,6 +1516,7 @@ function buildCanonicalReport(
     schema_version: 1,
     run_id: target.run_id,
     review_round: target.review_round,
+    generator: structuredClone(target.generator),
     source: structuredClone(target.source),
     target: binding(targetFile),
     results: resultFiles.map(binding).sort((left, right) => left.path.localeCompare(right.path)),
@@ -1531,6 +1552,7 @@ function validateReport(root, report, canonical, reportFile, options, issues) {
       "schema_version",
       "run_id",
       "review_round",
+      "generator",
       "source",
       "target",
       "results",
@@ -1578,10 +1600,10 @@ function validateHumanReport(root, human, report, reportFile, options, issues) {
   for (const item of inspected.issues || [])
     add(issues, `report.human_report${item.path || ""}`, item.message);
   const metadata = inspected.metadata;
-  const generatorVersionValid =
-    metadata?.generator?.version === PLUGIN_VERSION ||
-    (options.allowHistoricalGeneratorVersion === true &&
-      historicalPluginVersion(metadata?.generator?.version));
+  const expectedGeneratorVersion = report.generator?.version;
+  const generatorVersionValid = expectedGeneratorVersion
+    ? metadata?.generator?.version === expectedGeneratorVersion
+    : LEGACY_TARGET_GENERATOR_VERSIONS.has(metadata?.generator?.version);
   if (
     metadata &&
     (metadata.generator?.name !== "pm:review" ||
@@ -1630,21 +1652,6 @@ function validateHumanReport(root, human, report, reportFile, options, issues) {
     }
   }
   return { path: htmlFile.relative, sha256: htmlFile.sha256 };
-}
-
-function historicalPluginVersion(value) {
-  const parse = (version) => {
-    const match = String(version || "").match(/^(\d+)\.(\d+)\.(\d+)$/);
-    return match ? match.slice(1).map(Number) : null;
-  };
-  const candidate = parse(value);
-  const current = parse(PLUGIN_VERSION);
-  if (!candidate || !current) return false;
-  for (let index = 0; index < current.length; index += 1) {
-    if (candidate[index] < current[index]) return true;
-    if (candidate[index] > current[index]) return false;
-  }
-  return true;
 }
 
 function validateRenderedReportMarkers(markers, report, issues) {
@@ -1934,6 +1941,22 @@ function sha(value) {
 }
 function sha256(value) {
   return typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+}
+function boundTargetGeneratorVersion(value) {
+  const canonical = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+  const candidate = String(value || "").match(canonical);
+  const current = PLUGIN_VERSION.match(canonical);
+  if (!candidate || !current) return false;
+  const [major, minor, patchVersion] = candidate.slice(1).map(Number);
+  const [currentMajor, currentMinor, currentPatch] = current.slice(1).map(Number);
+  return (
+    major === 1 &&
+    minor === 13 &&
+    currentMajor === 1 &&
+    currentMinor === 13 &&
+    patchVersion >= 22 &&
+    patchVersion <= currentPatch
+  );
 }
 function slug(value) {
   return typeof value === "string" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);

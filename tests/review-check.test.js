@@ -45,9 +45,10 @@ const {
   reviewRootFromTargetPath,
 } = require("../scripts/lib/review-paths");
 const { renderArtifact, resolveBrowser } = require("../scripts/artifact-render-check");
-const projectWriter = require("../scripts/lib/project-atomic-write");
+const projectWriter = require("../scripts/lib/project-file");
 const { writeProjectTextAtomic } = projectWriter;
 const { readProjectInput } = require("../scripts/lib/safe-project-output");
+const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 let installedBrowser = null;
 try {
@@ -672,6 +673,7 @@ test("legacy targets remain readable without change anchors", () => {
   const fixture = makeFixture({ maxWorkers: 2 });
   const target = structuredClone(fixture.target);
   delete target.relevance_policy;
+  delete target.generator;
   const finding = validFinding("bug");
   delete finding.change_anchors;
   const issues = [];
@@ -687,6 +689,7 @@ test("legacy targets cannot publish an authoritative final passing report", () =
   const fixture = makeFixture({ maxWorkers: 2 });
   const target = structuredClone(fixture.target);
   delete target.relevance_policy;
+  delete target.generator;
   write(fixture.root, fixture.targetPath, target);
   const targetBinding = binding(fixture.root, fixture.targetPath);
   for (const resultPath of fixture.resultPaths) {
@@ -698,6 +701,25 @@ test("legacy targets cannot publish an authoritative final passing report", () =
   const checked = generate(fixture);
   assert.equal(checked.ok, false);
   assert.match(JSON.stringify(checked.issues), /legacy targets are inspection-only/);
+});
+
+test("forged pre-binding and future target generators cannot publish a final pass", () => {
+  const fixture = makeFixture({ maxWorkers: 2 });
+  for (const version of ["1.13.21", "999.0.0", "1.13.022", "01.13.22", "1.013.22", "1.13.999"]) {
+    const target = structuredClone(fixture.target);
+    target.generator = { name: "pm:review", version };
+    write(fixture.root, fixture.targetPath, target);
+    const targetBinding = binding(fixture.root, fixture.targetPath);
+    for (const resultPath of fixture.resultPaths) {
+      const absolute = path.join(fixture.root, resultPath);
+      const result = JSON.parse(fs.readFileSync(absolute, "utf8"));
+      result.target = targetBinding;
+      fs.writeFileSync(absolute, `${JSON.stringify(result, null, 2)}\n`);
+    }
+    const checked = generate(fixture);
+    assert.equal(checked.ok, false, version);
+    assert.match(JSON.stringify(checked.issues), /released bound-generator version/, version);
+  }
 });
 
 test("Git-backed evidence rejects the phantom line after a trailing newline", () => {
@@ -1058,6 +1080,7 @@ test("review target CLI can start a fresh Dev run after a canonical pass", () =>
   });
   assert.equal(currentValidation.ok, false);
   assert.match(JSON.stringify(currentValidation.issues), /metadata must bind/);
+  fs.writeFileSync(historicalHtmlPath, historicalHtml);
 
   const targetScript = path.join(__dirname, "..", "scripts", "review-target.js");
   const nextPath = ".pm/dev-sessions/example/review/runs/dev-release/round-1/target.json";
@@ -2188,8 +2211,8 @@ test("later rounds reject a shallow hand-written prior report", () => {
   );
 });
 
-test("prior-round evidence remains valid after the cited source is removed", () => {
-  const fixture = makeFixture({ maxWorkers: 6 });
+test("prior-round evidence remains valid in a consumer project after cited source is removed", () => {
+  const fixture = makeFixture({ maxWorkers: 6, includePluginConfig: false });
   setFindingForLens(fixture, "bug", validFinding("bug"));
   const roundOne = generate(fixture, {
     reportPath: fixture.roundReportPath,
@@ -2202,12 +2225,40 @@ test("prior-round evidence remains valid after the cited source is removed", () 
     outputPath: fixture.roundHtmlPath,
   });
   const priorHtmlPath = path.join(fixture.root, fixture.roundHtmlPath);
-  const priorHtml = fs.readFileSync(priorHtmlPath, "utf8");
+  const currentHtml = fs.readFileSync(priorHtmlPath, "utf8");
+  const legacyTarget = structuredClone(fixture.target);
+  delete legacyTarget.generator;
+  write(fixture.root, fixture.targetPath, legacyTarget);
+  const legacyTargetBinding = binding(fixture.root, fixture.targetPath);
+  for (const resultPath of fixture.resultPaths) {
+    const result = JSON.parse(fs.readFileSync(path.join(fixture.root, resultPath), "utf8"));
+    result.target = legacyTargetBinding;
+    write(fixture.root, resultPath, result);
+  }
+  fs.rmSync(path.join(fixture.root, fixture.roundReportPath));
+  const legacyRound = generate(fixture, {
+    reportPath: fixture.roundReportPath,
+    htmlPath: fixture.roundHtmlPath,
+  });
+  assert.equal(legacyRound.ok, true, JSON.stringify(legacyRound.issues));
+  const metadataMatch = currentHtml.match(
+    /(<script id="pm-artifact" type="application\/json">)([\s\S]*?)(<\/script>)/
+  );
+  const legacyMetadata = JSON.parse(metadataMatch[2]);
+  legacyMetadata.generator.version = "1.13.21";
+  legacyMetadata.source.sha256 = `sha256:${binding(fixture.root, fixture.roundReportPath).sha256}`;
+  legacyMetadata.evidence = [
+    legacyRound.report.target,
+    ...legacyRound.report.results,
+    legacyRound.report.decisions,
+  ]
+    .filter(Boolean)
+    .map((item) => ({ path: item.path, sha256: `sha256:${item.sha256}` }));
   fs.writeFileSync(
     priorHtmlPath,
-    priorHtml.replace(
-      /("generator":\{"name":"pm:review","version":")[^"]+/,
-      (_match, prefix) => `${prefix}0.0.0`
+    currentHtml.replace(
+      metadataMatch[0],
+      `${metadataMatch[1]}${JSON.stringify(legacyMetadata)}${metadataMatch[3]}`
     )
   );
   const strictPrior = checkReview(
@@ -2218,8 +2269,7 @@ test("prior-round evidence remains valid after the cited source is removed", () 
       verifyBrowser: false,
     })
   );
-  assert.equal(strictPrior.ok, false);
-  assert.match(JSON.stringify(strictPrior.issues), /metadata must bind/);
+  assert.equal(strictPrior.ok, true, JSON.stringify(strictPrior.issues));
   fs.rmSync(path.join(fixture.root, "src/example.js"));
   git(fixture.root, ["add", "-A"]);
   git(fixture.root, ["commit", "-qm", "remove cited source"]);
@@ -2242,11 +2292,30 @@ test("prior-round evidence remains valid after the cited source is removed", () 
     reportStage: "draft",
     writeReport: true,
     verifyBrowser: false,
-    allowHistoricalGeneratorVersion: true,
   });
   assert.equal(checked.ok, false);
   assert.doesNotMatch(JSON.stringify(checked.issues), /target\.prior_report|frozen evidence/);
   assert.match(JSON.stringify(checked.issues), /missing planned reviewer/);
+
+  const priorHtml = fs.readFileSync(priorHtmlPath, "utf8");
+  fs.writeFileSync(
+    priorHtmlPath,
+    priorHtml.replace(
+      /("generator":\{"name":"pm:review","version":")[^"]+/,
+      (_match, prefix) => `${prefix}0.0.0`
+    )
+  );
+  const forged = checkReview({
+    root: fixture.root,
+    targetPath,
+    resultPaths: [],
+    reportPath: ".pm/dev-sessions/example/review/runs/review-test/round-2/draft-report.json",
+    humanReportPath: ".pm/dev-sessions/example/review/runs/review-test/round-2/draft-report.html",
+    reportStage: "draft",
+    writeReport: true,
+    verifyBrowser: false,
+  });
+  assert.match(JSON.stringify(forged.issues), /target\.prior_report.*metadata must bind/);
 });
 
 test("later rounds authenticate prior frozen Git evidence on a diverged deleted-file diff", () => {
@@ -2772,11 +2841,17 @@ function makeFixture({
   runScoped = true,
   multiline = false,
   remote = "origin",
+  includePluginConfig = true,
 }) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-check-"));
   fs.mkdirSync(path.join(root, "src"), { recursive: true });
   fs.mkdirSync(path.join(root, "skills/dev/references"), { recursive: true });
   fs.writeFileSync(path.join(root, ".gitignore"), ".pm/\n");
+  if (includePluginConfig)
+    fs.writeFileSync(
+      path.join(root, "plugin.config.json"),
+      `${JSON.stringify({ version: PLUGIN_VERSION })}\n`
+    );
   fs.writeFileSync(
     path.join(root, "src/example.js"),
     removeLine

@@ -2,6 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 
 const { MAX_PROMPT_BYTES, MAX_SECTION_BYTES, buildRfcPrompt } = require("../scripts/rfc-prompt");
 
@@ -43,6 +44,15 @@ test("RFC prompt contains a bounded current-phase packet without future workflow
     /Linear issue creation|Wait for user approval|Continue to implementation/
   );
   assert.doesNotMatch(prompt, /GPT-5\.6|Opus|Claude|Codex/);
+});
+
+test("RFC canonical packet bytes remain stable across runtime refactors", () => {
+  const prompt = buildRfcPrompt(packet());
+  assert.equal(Buffer.byteLength(prompt, "utf8"), 550);
+  assert.equal(
+    crypto.createHash("sha256").update(prompt).digest("hex"),
+    "10bfbbd0a29308a60509ed037a39bd403caf3aad2b9eee47b6819ea44e946ec1"
+  );
 });
 
 test("RFC prompt validates required fields", () => {

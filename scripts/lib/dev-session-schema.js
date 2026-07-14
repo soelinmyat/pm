@@ -13,6 +13,15 @@ const { deriveSessionSlug } = require("./session-slug");
 const { extractSidecarHash, sha256Hex, validateRfcSidecar } = require("../rfc-sidecar-check");
 const { analyzeWorkUnits, validateWorkUnitResult, validateWorkUnits } = require("./dev-work-units");
 const { isRfc3339DateTime } = require("./iso-time");
+const { grantActions } = require("./workflow-runtime/authority");
+const {
+  appendTransition,
+  currentEvidenceRecords,
+  hashResult,
+  isObject: isRecordObject,
+} = require("./workflow-runtime/records");
+const { evidenceRecordIssues, runtimeRecordIssues } = require("./workflow-runtime/result-envelope");
+const { bindEffectReceipt } = require("./workflow-runtime/effect-receipt");
 const {
   approvalTransitionDigest,
   validateSession: validateRfcSession,
@@ -52,6 +61,13 @@ const RESULT_TOP_LEVEL_FIELDS = new Set([
   "blocker",
   "runtime",
 ]);
+const GATE_EVIDENCE_CONTRACTS = Object.freeze({
+  tdd: Object.freeze({ phase: "implementation", kind: "test" }),
+  "design-critique": Object.freeze({ phase: "design-critique", kind: "review" }),
+  qa: Object.freeze({ phase: "qa", kind: "test" }),
+  review: Object.freeze({ phase: "review", kind: "review" }),
+  verification: Object.freeze({ phase: "review", kind: "test" }),
+});
 const SESSION_TOP_LEVEL_FIELDS = new Set([
   "schema_version",
   "run_id",
@@ -101,7 +117,7 @@ function issue(pathValue, message) {
 }
 
 function isObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
+  return isRecordObject(value);
 }
 
 function isIsoDate(value) {
@@ -672,50 +688,11 @@ function validateResultEnvelope(result) {
 }
 
 function validateEvidenceRecord(record, index, errors, basePath = "$.evidence") {
-  const recordPath = `${basePath}[${index}]`;
-  if (!isObject(record)) {
-    errors.push(issue(recordPath, "must be an object"));
-    return;
-  }
-  const fields = new Set(["kind", "command", "exit_code", "artifact"]);
-  validateExactFields(record, fields, recordPath, errors);
-  for (const field of fields) {
-    requireField(record, field, recordPath, errors);
-  }
-  if (typeof record.kind !== "string" || !record.kind)
-    errors.push(issue(`${recordPath}.kind`, "required"));
-  if (record.command !== null && typeof record.command !== "string") {
-    errors.push(issue(`${recordPath}.command`, "must be null or a string"));
-  }
-  if (!Number.isInteger(record.exit_code))
-    errors.push(issue(`${recordPath}.exit_code`, "must be integer"));
-  if (record.artifact !== null && typeof record.artifact !== "string") {
-    errors.push(issue(`${recordPath}.artifact`, "must be null or a string"));
-  }
+  errors.push(...evidenceRecordIssues(record, index, basePath));
 }
 
 function validateResultRuntime(runtime, errors, runtimePath = "$.runtime") {
-  if (!isObject(runtime)) {
-    errors.push(issue(runtimePath, "must be an object"));
-    return;
-  }
-  const fields = new Set(["provider", "model", "reasoning", "session_id"]);
-  validateExactFields(runtime, fields, runtimePath, errors);
-  for (const field of ["provider", "model", "reasoning"]) {
-    requireField(runtime, field, runtimePath, errors);
-  }
-  for (const field of ["provider", "model", "reasoning"]) {
-    if (typeof runtime[field] !== "string" || !runtime[field]) {
-      errors.push(issue(`${runtimePath}.${field}`, "must be a non-empty string"));
-    }
-  }
-  if (
-    runtime.session_id !== undefined &&
-    runtime.session_id !== null &&
-    typeof runtime.session_id !== "string"
-  ) {
-    errors.push(issue(`${runtimePath}.session_id`, "must be null or a string"));
-  }
+  errors.push(...runtimeRecordIssues(runtime, runtimePath));
 }
 
 function validateResult(session, result, options = {}) {
@@ -965,14 +942,32 @@ function validateDeliveryEvidence(session, result, options, errors) {
   }
   try {
     const observed = (options.verifyDelivery || defaultVerifyDelivery)(receipt, session);
-    if (
-      observed.number !== receipt.pr_number ||
-      observed.url !== receipt.pr_url ||
-      observed.state !== receipt.state ||
-      observed.headRefName !== session.source.branch ||
-      observed.headRefOid !== receipt.feature_commit ||
-      (!headless && observed.mergeCommit?.oid !== receipt.merge_sha)
-    ) {
+    try {
+      bindEffectReceipt({
+        effect: "pull-request-delivery",
+        target: {
+          number: receipt.pr_number,
+          url: receipt.pr_url,
+          head_branch: receipt.head_branch,
+          feature_commit: receipt.feature_commit,
+        },
+        authorityActions: requiredActions,
+        attempt: result.attempt,
+        receipt: { state: receipt.state, merge_sha: receipt.merge_sha },
+        observation: {
+          target: {
+            number: observed.number,
+            url: observed.url,
+            head_branch: observed.headRefName,
+            feature_commit: observed.headRefOid,
+          },
+          receipt: {
+            state: observed.state,
+            merge_sha: headless ? null : observed.mergeCommit?.oid,
+          },
+        },
+      });
+    } catch {
       errors.push(
         issue("$.evidence", "delivery receipt does not match observed pull-request state")
       );
@@ -1313,6 +1308,14 @@ function recertifyEvidence(session, phases, commit, verificationByPhase, options
         `recertification evidence for ${phase} must recheck an original evidence kind`
       );
     }
+    const requiredKinds = requiredRecertificationKinds(session, phase);
+    const observedKinds = new Set(records.map((record) => record.kind));
+    const missingKinds = [...requiredKinds].filter((kind) => !observedKinds.has(kind));
+    if (missingKinds.length > 0) {
+      throw new Error(
+        `recertification evidence for ${phase} is missing required kinds: ${missingKinds.join(", ")}`
+      );
+    }
     evidence.verified_commit = commit;
     evidence.verified_at = timestamp;
     evidence.verification_records = structuredClone(records);
@@ -1320,6 +1323,19 @@ function recertifyEvidence(session, phases, commit, verificationByPhase, options
   next.updated_at = timestamp;
   assertValidSession(next);
   return next;
+}
+
+function requiredRecertificationKinds(session, phase) {
+  return new Set(
+    session.routing.required_gates
+      .map(resolveGateEvidenceContract)
+      .filter((contract) => contract.phase === phase)
+      .map((contract) => contract.kind)
+  );
+}
+
+function resolveGateEvidenceContract(gate) {
+  return GATE_EVIDENCE_CONTRACTS[gate] || { phase: gate, kind: gate };
 }
 
 function defaultRisk() {
@@ -1656,13 +1672,13 @@ function recordResult(session, result, options = {}) {
   }
 
   next.updated_at = timestamp;
-  next.history.push({
-    prior_phase: priorPhase,
-    next_phase: nextPhase,
+  appendTransition(next.history, {
+    priorPhase,
+    nextPhase,
     reason,
-    result_hash: hashResult(result),
+    result,
     timestamp,
-    runner_version: RUNNER_VERSION,
+    runnerVersion: RUNNER_VERSION,
   });
   assertValidSession(next);
   return next;
@@ -1674,17 +1690,12 @@ function assertFinalGates(session, resultCommit, options) {
     .find((attempt) => attempt.commit)?.commit;
   const head =
     resultCommit || latestRecordedCommit || (options.branchHead || defaultBranchHead)(session);
-  const contracts = {
-    tdd: { phase: "implementation", kind: "test" },
-    review: { phase: "review", kind: "review" },
-    verification: { phase: "review", kind: "test" },
-  };
   const missing = [];
   for (const gate of session.routing.required_gates) {
-    const contract = contracts[gate] || { phase: gate, kind: gate };
+    const contract = resolveGateEvidenceContract(gate);
     const phase = contract.phase;
     const record = session.evidence[phase];
-    const currentRecords = record?.commit === head ? record.records : record?.verification_records;
+    const currentRecords = currentEvidenceRecords(record, head);
     if (
       !record ||
       !record.commit ||
@@ -1701,21 +1712,6 @@ function assertFinalGates(session, resultCommit, options) {
       issue("$.evidence", `required gates: ${missing.join(", ")}`),
     ]);
   }
-}
-
-function hashResult(result) {
-  return `sha256:${crypto.createHash("sha256").update(stableStringify(result)).digest("hex")}`;
-}
-
-function stableStringify(value) {
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  if (isObject(value)) {
-    return `{${Object.keys(value)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
 }
 
 function resumeBlocked(session, resolution, options = {}) {
@@ -1745,18 +1741,19 @@ function grantAuthority(session, actions, reason, options = {}) {
   if (typeof reason !== "string" || !reason.trim()) {
     throw new TypeError("authority grant requires a non-empty reason");
   }
-  const next = structuredClone(session);
-  for (const action of [...new Set(actions)]) {
-    if (!GRANTABLE_AUTHORITY.has(action))
-      throw new Error(`authority action is not externally grantable: ${action}`);
-    next.authority[action] = true;
-  }
   const grantedAt = options.now || new Date().toISOString();
-  next.authority_log.push({
-    actions: [...new Set(actions)],
-    reason: reason.trim(),
-    granted_at: grantedAt,
+  const granted = grantActions({
+    authority: session.authority,
+    log: session.authority_log,
+    actions,
+    allowedActions: GRANTABLE_AUTHORITY,
+    reason,
+    timestamp: grantedAt,
+    notGrantableMessage: (action) => `authority action is not externally grantable: ${action}`,
   });
+  const next = structuredClone(session);
+  next.authority = granted.authority;
+  next.authority_log = granted.log;
   next.updated_at = grantedAt;
   assertValidSession(next);
   return next;
@@ -1945,6 +1942,7 @@ module.exports = {
   MAX_PHASE_ATTEMPTS,
   PHASES,
   resolvePhaseContract,
+  resolveGateEvidenceContract,
   RUNNER_VERSION,
   advanceDecisionVersion,
   applyRouting,

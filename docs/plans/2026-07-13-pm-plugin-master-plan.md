@@ -97,6 +97,8 @@ The terminal release pass covered all six lenses with zero blockers or disputes.
 
 ### Wave 4A — Authoring contract and plugin-wide audit
 
+**State:** released as v1.13.17 through PR #353.
+
 Turn the authoring rules in `AGENTS.md` into executable plugin validation:
 
 - validate required SKILL sections, runtime/writing directives, trigger-rich descriptions, and bounded SKILL size;
@@ -110,6 +112,8 @@ Then remediate the plugin in small clusters. Do not make one 24-skill rewrite. P
 **Exit:** validator fails on representative thin/misaligned fixtures; every shipped skill either passes or has a justified coded exemption; no behavior change is claimed from prose-only presence tests.
 
 ### Wave 4B — Shared runtime primitives
+
+**State:** implemented and locally verified on `codex/shared-runtime-primitives`; release pending.
 
 Extract only the stable boundaries already proven by Dev, RFC, Review, and Design Critique:
 

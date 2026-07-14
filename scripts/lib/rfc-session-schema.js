@@ -9,6 +9,17 @@ const { loadPhaseStep } = require("../step-loader.js");
 const { findGitRoot, gitRelativePath, readGitFile, runGit } = require("../loop-git.js");
 const { isRfc3339DateTime: isIsoDate } = require("./iso-time.js");
 const { markdownTableValue } = require("./session-scan.js");
+const { grantActions } = require("./workflow-runtime/authority.js");
+const {
+  createTransition,
+  hashResult,
+  isObject: isRecordObject,
+  stableStringify,
+} = require("./workflow-runtime/records.js");
+const {
+  evidenceRecordIssues,
+  runtimeRecordIssues,
+} = require("./workflow-runtime/result-envelope.js");
 
 const PHASES = ["intake", "generation", "review", "approval", "handoff"];
 const STATUSES = new Set(["active", "awaiting_approval", "approved", "blocked", "complete"]);
@@ -245,12 +256,14 @@ function recordResult(session, result, options = {}) {
     }
   }
   next.updated_at = now;
-  next.history.push({
-    prior_phase: session.phase,
-    next_phase: next.phase,
-    reason,
-    timestamp: now,
-  });
+  next.history.push(
+    createTransition({
+      priorPhase: session.phase,
+      nextPhase: next.phase,
+      reason,
+      timestamp: now,
+    })
+  );
   assertValidSession(next);
   return next;
 }
@@ -376,12 +389,14 @@ function approveSession(session, input, options = {}) {
   next.phase = "handoff";
   next.phase_attempt = 1;
   next.updated_at = now;
-  next.history.push({
-    prior_phase: "approval",
-    next_phase: "handoff",
-    reason: "explicit human approval recorded",
-    timestamp: now,
-  });
+  next.history.push(
+    createTransition({
+      priorPhase: "approval",
+      nextPhase: "handoff",
+      reason: "explicit human approval recorded",
+      timestamp: now,
+    })
+  );
   assertValidSession(next);
   return next;
 }
@@ -414,12 +429,14 @@ function reviseSession(session, input, options = {}) {
     artifact_hash: null,
   };
   next.updated_at = now;
-  next.history.push({
-    prior_phase: session.phase,
-    next_phase: "review",
-    reason: `review invalidated: ${input.reason}`,
-    timestamp: now,
-  });
+  next.history.push(
+    createTransition({
+      priorPhase: session.phase,
+      nextPhase: "review",
+      reason: `review invalidated: ${input.reason}`,
+      timestamp: now,
+    })
+  );
   assertValidSession(next);
   return next;
 }
@@ -438,12 +455,14 @@ function resumeBlocked(session, input, options = {}) {
   next.status = "active";
   next.phase_attempt = 1;
   next.updated_at = now;
-  next.history.push({
-    prior_phase: session.phase,
-    next_phase: session.phase,
-    reason: `blocker resolved: ${input.resolution}`,
-    timestamp: now,
-  });
+  next.history.push(
+    createTransition({
+      priorPhase: session.phase,
+      nextPhase: session.phase,
+      reason: `blocker resolved: ${input.resolution}`,
+      timestamp: now,
+    })
+  );
   assertValidSession(next);
   return next;
 }
@@ -455,15 +474,24 @@ function grantAuthority(session, input, options = {}) {
     throw new Error(`unknown RFC authority action: ${String(input?.action)}`);
   }
   if (!nonEmpty(input.reason)) throw new Error("authority grant requires a reason");
-  const next = structuredClone(session);
   const now = options.now || new Date().toISOString();
-  next.authority[input.action] = true;
-  next.authority_log.push({
-    action: input.action,
-    granted: true,
+  const granted = grantActions({
+    authority: session.authority,
+    log: session.authority_log,
+    actions: [input.action],
+    allowedActions: new Set(AUTHORITY_ACTIONS),
     reason: input.reason,
-    recorded_at: now,
+    timestamp: now,
+    entryBuilder: (entry) => ({
+      action: entry.actions[0],
+      granted: true,
+      reason: entry.reason,
+      recorded_at: entry.granted_at,
+    }),
   });
+  const next = structuredClone(session);
+  next.authority = granted.authority;
+  next.authority_log = granted.log;
   next.updated_at = now;
   assertValidSession(next);
   return next;
@@ -487,12 +515,14 @@ function migrateLegacyMarkdown(legacyPath, options = {}) {
     approval_trusted: false,
     reason: "legacy workflow could write approved before explicit human approval",
   };
-  session.history.push({
-    prior_phase: "legacy",
-    next_phase: "intake",
-    reason: "legacy RFC state requires context, artifact, review, and approval recertification",
-    timestamp: session.migration.migrated_at,
-  });
+  session.history.push(
+    createTransition({
+      priorPhase: "legacy",
+      nextPhase: "intake",
+      reason: "legacy RFC state requires context, artifact, review, and approval recertification",
+      timestamp: session.migration.migrated_at,
+    })
+  );
   assertValidSession(session);
   return session;
 }
@@ -531,42 +561,57 @@ function validateResultIdentity(session, result) {
   if (!RESULT_STATUSES.has(result.status)) throw new Error("phase result status is invalid");
   if (!nonEmpty(result.summary)) throw new Error("phase result summary is required");
   if (!Array.isArray(result.evidence)) throw new Error("phase result evidence must be an array");
-  for (const evidence of result.evidence) {
-    if (!isObject(evidence)) throw new Error("phase result evidence entries must be objects");
-    const fields = ["kind", "command", "exit_code", "artifact"];
-    if (Object.keys(evidence).some((field) => !fields.includes(field))) {
+  for (const [index, evidence] of result.evidence.entries()) {
+    const evidenceIssues = evidenceRecordIssues(evidence, index);
+    if (evidenceIssues.some((item) => item.message === "must be an object")) {
+      throw new Error("phase result evidence entries must be objects");
+    }
+    if (evidenceIssues.some((item) => item.message === "unknown field")) {
       throw new Error("phase result evidence has unknown fields");
     }
-    if (fields.some((field) => !Object.hasOwn(evidence, field))) {
+    if (evidenceIssues.some((item) => item.message === "required field is missing")) {
       throw new Error("phase result evidence requires kind, command, exit_code, and artifact");
     }
-    if (!nonEmpty(evidence.kind) || !Number.isInteger(evidence.exit_code)) {
+    if (
+      evidenceIssues.some((item) => item.path.endsWith(".kind") || item.path.endsWith(".exit_code"))
+    ) {
       throw new Error("phase result evidence requires kind and integer exit_code");
     }
-    for (const field of ["command", "artifact"]) {
-      if (evidence[field] !== null && typeof evidence[field] !== "string") {
-        throw new Error(`phase result evidence.${field} must be null or string`);
-      }
+    const nullableIssue = evidenceIssues.find(
+      (item) =>
+        item.message === "must be null or a string" &&
+        (item.path.endsWith(".command") || item.path.endsWith(".artifact"))
+    );
+    if (nullableIssue) {
+      throw new Error(
+        `phase result evidence.${nullableIssue.path.split(".").at(-1)} must be null or string`
+      );
     }
   }
   if (!Array.isArray(result.reviewer_verdicts)) {
     throw new Error("phase result reviewer_verdicts must be an array");
   }
-  if (!isObject(result.runtime) || !nonEmpty(result.runtime.provider)) {
+  const runtimeIssues = runtimeRecordIssues(result.runtime, "$.runtime", {
+    requireSessionId: true,
+  });
+  if (runtimeIssues.some((item) => item.path === "$.runtime" || item.path.endsWith(".provider"))) {
     throw new Error("phase result runtime is required");
   }
-  const runtimeFields = ["provider", "model", "reasoning", "session_id"];
-  if (Object.keys(result.runtime).some((field) => !runtimeFields.includes(field))) {
+  if (runtimeIssues.some((item) => item.message === "unknown field")) {
     throw new Error("phase result runtime has unknown fields");
   }
   for (const field of ["provider", "model", "reasoning"]) {
-    if (!nonEmpty(result.runtime[field]))
+    if (runtimeIssues.some((item) => item.path.endsWith(`.${field}`)))
       throw new Error(`phase result runtime.${field} is required`);
   }
-  if (runtimeFields.some((field) => !Object.hasOwn(result.runtime, field))) {
+  if (
+    runtimeIssues.some(
+      (item) => item.path.endsWith(".session_id") && item.message === "required field is missing"
+    )
+  ) {
     throw new Error("phase result runtime requires provider, model, reasoning, and session_id");
   }
-  if (result.runtime.session_id !== null && !nonEmpty(result.runtime.session_id)) {
+  if (runtimeIssues.some((item) => item.path.endsWith(".session_id"))) {
     throw new Error("phase result runtime.session_id must be null or string");
   }
   if (
@@ -1388,26 +1433,11 @@ function issue(pathValue, message) {
 }
 
 function isObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
+  return isRecordObject(value);
 }
 
 function nonEmpty(value) {
   return typeof value === "string" && value.trim().length > 0;
-}
-
-function stableStringify(value) {
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  if (isObject(value)) {
-    return `{${Object.keys(value)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
-}
-
-function hashResult(result) {
-  return `sha256:${crypto.createHash("sha256").update(stableStringify(result)).digest("hex")}`;
 }
 
 module.exports = {

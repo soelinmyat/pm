@@ -3,8 +3,9 @@ const profiles = require("../../skills/dev/references/model-profiles.json");
 const { buildCodexLaunch, extractCodexResult } = require("./codex");
 const { buildClaudeLaunch, extractClaudeResult } = require("./claude");
 const { buildInlinePackage } = require("./inline");
-const { requireCapabilities } = require("./capabilities");
+const { requireCapabilities } = require("../lib/workflow-runtime/capabilities");
 const { validateWorkerResult } = require("./result");
+const { resolveModelProfile } = require("../lib/workflow-runtime/model-profile");
 
 const BROAD = {
   codex: new Set(["danger-full-access"]),
@@ -12,13 +13,13 @@ const BROAD = {
 };
 
 function resolveProfile({ provider, profileName, overrides = {}, env = process.env }) {
-  const selected = profileName ?? profiles.defaults[provider];
-  const base = profiles.profiles[selected];
-  if (!base || base.provider !== provider) {
-    throw new Error(`unknown ${provider} model profile: ${selected}`);
-  }
   const environment = environmentOverrides(provider, env);
-  const resolved = { name: selected, ...base, ...environment, ...overrides };
+  const resolved = resolveModelProfile({
+    data: profiles,
+    provider,
+    profileName,
+    overrides: { ...environment, ...overrides },
+  });
   delete resolved.allowBroadPermissions;
   const permission = provider === "codex" ? resolved.sandbox : resolved.permissionMode;
   if (BROAD[provider]?.has(permission) && !overrides.allowBroadPermissions) {

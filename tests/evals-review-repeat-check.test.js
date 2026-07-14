@@ -17,6 +17,7 @@ const {
 const { checkReview } = require("../scripts/review-check");
 const { renderReviewReport } = require("../scripts/review-report");
 const { deriveLensApplicability, findingId } = require("../scripts/lib/review-contract");
+const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 test("review repeat comparison binds three complete independent result sets", (t) => {
   const root = temporaryRoot(t, "pm-review-repeats-");
@@ -518,6 +519,7 @@ function seedRun(root, runId, source, finding = null) {
     iteration_cap: 3,
     created_at: "2026-07-12T00:00:00Z",
     mode: "full",
+    generator: { name: "pm:review", version: PLUGIN_VERSION },
     source,
     changed_files: [
       {

@@ -2,8 +2,8 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { writeTextAtomic } = require("./lib/atomic-file");
 const { parseCliArgs } = require("./loop-args");
+const { publishPrompt, renderSections } = require("./lib/workflow-runtime/prompt-packet");
 
 const SECTION_NAMES = Object.freeze([
   "Outcome",
@@ -86,11 +86,10 @@ function buildWorkerPrompt(input) {
 }
 
 function section(name, body) {
-  return `## ${name}\n\n${demoteEmbeddedHeadings(body)}`;
-}
-
-function demoteEmbeddedHeadings(value) {
-  return String(value).replace(/^#{1,2}(?=\s)/gmu, "###");
+  return renderSections([{ title: name, value: body }], {
+    demoteHeadings: true,
+    renderValue: (value) => String(value),
+  });
 }
 
 function requiredText(value, name) {
@@ -140,10 +139,7 @@ function main(argv = process.argv.slice(2)) {
   const input = JSON.parse(fs.readFileSync(path.resolve(options.input), "utf8"));
   const result = buildWorkerPrompt(input);
   const outputPath = path.resolve(options.output);
-  writeTextAtomic(outputPath, `${result.prompt}\n`, {
-    directoryMode: 0o700,
-    fileMode: 0o600,
-  });
+  publishPrompt(outputPath, `${result.prompt}\n`);
   process.stdout.write(`${JSON.stringify({ output: outputPath, ...result.metrics })}\n`);
   return 0;
 }

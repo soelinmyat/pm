@@ -368,6 +368,71 @@ test("recertification rejects a bare commit or unrelated evidence kind", () => {
   }
 });
 
+test("review recertification must preserve every gate kind needed for final archival", () => {
+  const repo = makeRepo();
+  try {
+    const session = createSession({ slug: "recertify-review-gates", sourceDir: repo.root });
+    session.phase = "review";
+    session.routing.required_phases = ["review", "retro"];
+    session.routing.required_gates = ["review", "verification"];
+    session.evidence.review = {
+      commit: repo.head(),
+      records: [
+        { kind: "review", command: "review-check", exit_code: 0, artifact: null },
+        { kind: "test", command: "node --test", exit_code: 0, artifact: null },
+      ],
+      recorded_at: "2026-07-14T00:00:00.000Z",
+    };
+    assert.throws(
+      () =>
+        recertifyEvidence(session, ["review"], repo.head(), {
+          review: [{ kind: "review", command: "review-check", exit_code: 0, artifact: null }],
+        }),
+      /missing required kinds: test/
+    );
+    const recertified = recertifyEvidence(session, ["review"], repo.head(), {
+      review: [
+        { kind: "review", command: "review-check", exit_code: 0, artifact: null },
+        { kind: "test", command: "node --test", exit_code: 0, artifact: null },
+      ],
+    });
+    assert.deepEqual(
+      recertified.evidence.review.verification_records.map((record) => record.kind),
+      ["review", "test"]
+    );
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("UI gate recertification requires Design Critique review and QA test evidence", () => {
+  const repo = makeRepo();
+  try {
+    const session = createSession({ slug: "recertify-ui-gates", sourceDir: repo.root });
+    session.phase = "review";
+    session.routing.required_phases = ["design-critique", "qa", "review", "retro"];
+    session.routing.required_gates = ["design-critique", "qa"];
+    session.evidence["design-critique"] = {
+      commit: repo.head(),
+      records: [{ kind: "review", command: "critique", exit_code: 0, artifact: null }],
+      recorded_at: "2026-07-14T00:00:00.000Z",
+    };
+    session.evidence.qa = {
+      commit: repo.head(),
+      records: [{ kind: "test", command: "qa", exit_code: 0, artifact: null }],
+      recorded_at: "2026-07-14T00:00:00.000Z",
+    };
+    const recertified = recertifyEvidence(session, ["design-critique", "qa"], repo.head(), {
+      "design-critique": [{ kind: "review", command: "critique", exit_code: 0, artifact: null }],
+      qa: [{ kind: "test", command: "qa", exit_code: 0, artifact: null }],
+    });
+    assert.equal(recertified.evidence["design-critique"].verification_records[0].kind, "review");
+    assert.equal(recertified.evidence.qa.verification_records[0].kind, "test");
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test("blocked sessions resume only through an audited resolution", () => {
   const repo = makeRepo();
   try {

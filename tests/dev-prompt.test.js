@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const crypto = require("node:crypto");
 
 const { buildWorkerPrompt, countWords } = require("../scripts/dev-prompt");
 
@@ -59,6 +60,15 @@ test("buildWorkerPrompt: reports exact UTF-8 byte and word counts", () => {
   assert.equal(result.metrics.bytes, Buffer.byteLength(result.prompt, "utf8"));
   assert.equal(result.metrics.words, countWords(result.prompt));
   assert.ok(result.metrics.words > 0);
+});
+
+test("buildWorkerPrompt: canonical packet bytes remain stable across runtime refactors", () => {
+  const prompt = buildWorkerPrompt(validInput()).prompt;
+  assert.equal(Buffer.byteLength(prompt, "utf8"), 748);
+  assert.equal(
+    crypto.createHash("sha256").update(prompt).digest("hex"),
+    "99e9ce86c2b123e7ad016a07dca8f6624a88aa253e83524227fba9050c7802a3"
+  );
 });
 
 test("buildWorkerPrompt: formats authority explicitly, including denied actions", () => {

@@ -43,6 +43,7 @@ Review JSON bindings (targets, results, decisions, reports, gate-row references,
 Generate `target.json` with `scripts/review-target.js`. It freezes:
 
 - run ID, round 1–3, iteration cap 3, mode, timestamp;
+- the exact `pm:review` generator version that created the frozen target;
 - additive relevance policy `changed-hunk-anchor-v1` for newly generated targets; legacy targets without it remain readable only for inspection and cannot publish an authoritative final pass;
 - current commit, authoritative remote base ref/object, and binary diff SHA-256;
 - for Dev-routed work, canonical Dev run/slug, routed mode/version, and acceptance-criteria digest;
@@ -52,7 +53,7 @@ Generate `target.json` with `scripts/review-target.js`. It freezes:
 - every logical lens with applicability deterministically derived from the frozen changed files;
 - every physical reviewer with exact profile, runtime, and assigned lenses.
 
-Rounds after 1 bind the immediately prior non-passing report for the same run. Round 1 cannot bind a prior report. For Dev-routed work, target creation scans the bounded review inventory and rejects a new run ID while the latest matching Dev decision-version lineage is unfinished.
+Rounds after 1 bind the immediately prior non-passing report for the same run. Nested validation derives the historical report generator version from that prior report's hash-bound target, never from the consumer repository. Targets from the released pre-binding Review schema (v1.13.15–v1.13.21) remain inspection-readable and may continue their existing bounded lineage only when the HTML names one of those exact legacy versions; grafting one of those versions into a target is rejected. Present target bindings accept only canonical, exact patch versions in the v1.13.22-through-current bound-generator window. Leading-zero aliases, pre-binding versions, later patch versions, and a future minor/major line all fail closed until compatibility membership is deliberately extended. Legacy targets cannot publish an authoritative pass until the new round freezes the current generator. This keeps remediation valid when the project has no plugin source and rejects versions outside the released compatibility windows. Round 1 cannot bind a prior report. For Dev-routed work, target creation scans the bounded review inventory and rejects a new run ID while the latest matching Dev decision-version lineage is unfinished.
 
 ## Results
 
@@ -112,7 +113,7 @@ Design Critique and QA handoffs require a trusted external approval channel. Rev
 
 Generate canonical `report.json` with `review-check.js --write-report`. It binds target, every result, decisions, prior report, source identity, coverage, findings/signals, blockers, disputes, auto-fix eligibility, handoffs, top issue, and next action.
 
-Render `report.html` with `scripts/review-report.js`, which uses `references/templates/review-report.html`. Metadata generator is exactly `pm:review` plus `plugin.config.json` version. Metadata source binds `report.json`; evidence binds target, every result, and decisions. Unresolved tokens fail.
+Render `report.html` with `scripts/review-report.js`, which uses `references/templates/review-report.html`. Metadata generator exactly matches the hash-bound generator recorded by `target.json` and propagated into `report.json`. Metadata source binds `report.json`; evidence binds target, every result, and decisions. Unresolved tokens fail.
 
 The first screenful visibly binds outcome, round, blocker count, top issue, and next action. The top issue ranks gate blockers and disputes first, then every residual finding by severity and confidence; a passing report cannot claim there is no issue while lower-severity findings remain. Every finding marker visibly includes issue, impact, fix, owner, evidence refs, signals, dispute/decision state, and the advisory, non-executable verification plan. Structural and locally observed browser validation ignore hidden/offscreen/clipped text.
 

@@ -578,6 +578,106 @@ test("delivery authority requires both canonical state and a matching grant log"
   assert.equal(allowed.ok, true, JSON.stringify(allowed.issues));
 });
 
+test("delivery and archival use the same current phase evidence kinds", () => {
+  const currentCommit = "abc123";
+  const canonicalSession = {
+    run_id: "run-1",
+    slug: "feature",
+    source: { branch: "feat/feature" },
+    routing: {
+      review_mode: "code-scan",
+      required_gates: ["tdd", "verification"],
+    },
+    authority: { push_feature_branch: true },
+    authority_log: [
+      {
+        actions: ["push_feature_branch"],
+        reason: "User requested delivery",
+        granted_at: "2026-07-13T00:00:00Z",
+      },
+    ],
+    evidence: {
+      implementation: {
+        commit: "old",
+        records: [{ kind: "test", exit_code: 0 }],
+        verified_commit: currentCommit,
+        verification_records: [{ kind: "test", exit_code: 0 }],
+      },
+      review: {
+        commit: "old",
+        records: [{ kind: "test", exit_code: 0 }],
+        verified_commit: currentCommit,
+        verification_records: [{ kind: "review", exit_code: 0 }],
+      },
+    },
+  };
+  const options = {
+    currentCommit,
+    currentBranch: "feat/feature",
+    requiredGates: ["tdd", "verification"],
+    requiredAuthorities: ["push_feature_branch"],
+    manifestPath: ".pm/dev-sessions/feature/gates.json",
+    canonicalSession,
+  };
+  const stale = checkGateManifest(
+    manifest([gate("tdd"), gate("verification")], { run_id: "run-1" }),
+    options
+  );
+  assert.equal(stale.ok, false);
+  assert.match(JSON.stringify(stale.issues), /evidence for verification is missing or stale/);
+
+  canonicalSession.evidence.review.verification_records.push({ kind: "test", exit_code: 0 });
+  const current = checkGateManifest(
+    manifest([gate("tdd"), gate("verification")], { run_id: "run-1" }),
+    options
+  );
+  assert.equal(current.ok, true, JSON.stringify(current.issues));
+});
+
+test("delivery uses Design Critique and QA phase evidence kinds for UI routes", () => {
+  const currentCommit = "abc123";
+  const canonicalSession = {
+    run_id: "run-ui",
+    slug: "ui-feature",
+    source: { branch: "feat/ui-feature" },
+    routing: {
+      review_mode: "full",
+      required_gates: ["design-critique", "qa"],
+    },
+    authority: { push_feature_branch: true },
+    authority_log: [
+      {
+        actions: ["push_feature_branch"],
+        reason: "User requested delivery",
+        granted_at: "2026-07-13T00:00:00Z",
+      },
+    ],
+    evidence: {
+      "design-critique": {
+        commit: currentCommit,
+        records: [{ kind: "review", exit_code: 0 }],
+      },
+      qa: {
+        commit: currentCommit,
+        records: [{ kind: "test", exit_code: 0 }],
+      },
+    },
+  };
+  const result = checkGateManifest(
+    manifest([gate("design-critique"), gate("qa")], { run_id: canonicalSession.run_id }),
+    {
+      currentCommit,
+      currentBranch: canonicalSession.source.branch,
+      changedFiles: ["src/component.tsx"],
+      requiredGates: canonicalSession.routing.required_gates,
+      requiredAuthorities: ["push_feature_branch"],
+      manifestPath: ".pm/dev-sessions/ui-feature/gates.json",
+      canonicalSession,
+    }
+  );
+  assert.equal(result.ok, true, JSON.stringify(result.issues));
+});
+
 test("review render evidence rejects forged retained-render boundaries", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-render-forgery-"));
   const outside = `${root}-outside.png`;
