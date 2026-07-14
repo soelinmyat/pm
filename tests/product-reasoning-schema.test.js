@@ -474,6 +474,26 @@ test("feature reconciliation fails closed on equally plausible source matches", 
   assert.ok(!result.retired.includes(priorFeatures[1].feature_id));
 });
 
+test("feature reconciliation requires resolution for unequal plausible merge inputs", () => {
+  const priorFeatures = [
+    feature("one", ["src/a.js", "src/b.js", "src/c.js", "src/d.js"]),
+    feature("two", ["src/a.js", "src/b.js", "src/c.js"]),
+    ...["three", "four", "five", "six", "seven", "eight"].map((key) => feature(key)),
+  ];
+  const previous = inventory(priorFeatures);
+  const merged = feature("merged", ["src/a.js", "src/b.js", "src/c.js", "src/d.js", "src/e.js"]);
+  const proposed = inventory([merged, ...priorFeatures.slice(2), feature("nine")]);
+  const unresolved = reconcileFeatureInventory(previous, proposed);
+  assert.deepEqual(unresolved.ambiguous, [
+    {
+      key: "merged",
+      candidates: [priorFeatures[0].feature_id, priorFeatures[1].feature_id].sort(),
+    },
+  ]);
+  assert.ok(!unresolved.retired.includes(priorFeatures[0].feature_id));
+  assert.ok(!unresolved.retired.includes(priorFeatures[1].feature_id));
+});
+
 test("feature reconciliation reports many-to-one collisions independent of proposal order", () => {
   const priorFeatures = [
     feature("shared-prior", ["src/a.js", "src/b.js", "src/c.js", "src/d.js"]),

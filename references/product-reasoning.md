@@ -104,6 +104,8 @@ The runtime verifies Strategy's schema and current Markdown binding before it or
 
 `features.json` contains `schema_version: 2`, `document_type: feature-inventory`, generation time, source project, scan mode and identity, 3–6 areas, 8–20 features, and a hash binding to `features.md`. Git mode records `mode: git`, a full commit object ID, and `snapshot_sha256: null`. Non-Git mode records `mode: filesystem`, `commit: null`, and a deterministic source snapshot hash.
 
+The Markdown projection carries the same generation date, source project, scan counts, ordered area names, feature keys, feature names, and stable `feat-*` IDs. Normal validation checks those semantic fields as well as the byte hash, so a freshly rehashed but contradictory reader pair is invalid.
+
 Each feature contains:
 
 - `feature_id`: stable `feat-...` identity;

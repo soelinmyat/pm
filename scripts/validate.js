@@ -899,6 +899,108 @@ const REQUIRED_FEATURES_FIELDS = [
   "areas",
 ];
 
+function unquoteYamlScalar(value) {
+  return String(value || "")
+    .trim()
+    .replace(/^(?:"([\s\S]*)"|'([\s\S]*)')$/, (_, double, single) => double ?? single);
+}
+
+function parseFeatureFrontmatterAreas(content) {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!match) return null;
+  const lines = match[1].split(/\r?\n/);
+  const start = lines.findIndex((line) => /^areas:\s*$/.test(line));
+  if (start < 0) return null;
+  const areas = [];
+  let current = null;
+  let inFeatures = false;
+  for (const line of lines.slice(start + 1)) {
+    if (/^[A-Za-z_][A-Za-z0-9_-]*:/.test(line)) break;
+    const area = line.match(/^ {2}- name:\s*(.+)$/);
+    if (area) {
+      current = { name: unquoteYamlScalar(area[1]), features: [] };
+      areas.push(current);
+      inFeatures = false;
+      continue;
+    }
+    if (/^ {4}features:\s*$/.test(line) && current) {
+      inFeatures = true;
+      continue;
+    }
+    const feature = line.match(/^ {6}-\s*(.+)$/);
+    if (feature && current && inFeatures) {
+      current.features.push(unquoteYamlScalar(feature[1]));
+      continue;
+    }
+    if (line.trim()) return null;
+  }
+  return areas.length ? areas : null;
+}
+
+function parseFeatureBodyAreas(body) {
+  const areas = [];
+  const issues = [];
+  let current = null;
+  for (const line of String(body || "").split(/\r?\n/)) {
+    const area = line.match(/^##\s+([^#].*?)\s*$/);
+    if (area) {
+      current = { name: area[1], features: [] };
+      areas.push(current);
+      continue;
+    }
+    if (!/^###\s+/.test(line)) continue;
+    const feature = line.match(/^###\s+(.+?)\s+<!--\s*(feat-[a-f0-9]{20})\s*-->\s*$/);
+    if (!feature) {
+      issues.push("every feature heading must include its canonical feat-* marker");
+      continue;
+    }
+    if (!current) {
+      issues.push("feature headings must belong to a product area");
+      continue;
+    }
+    current.features.push({ name: feature[1], feature_id: feature[2] });
+  }
+  return { areas, issues };
+}
+
+function validateFeatureProjection(data, body, content, inventory) {
+  const issues = [];
+  const features = inventory.areas.flatMap((area) => area.features);
+  const scalarChecks = [
+    ["generated", data.generated, inventory.generated_at.slice(0, 10)],
+    ["source_project", data.source_project, inventory.source_project],
+    ["files_scanned", Number(data.files_scanned), inventory.scan.files_scanned],
+    ["files_total", Number(data.files_total ?? data.files_scanned), inventory.scan.files_total],
+    ["feature_count", Number(data.feature_count), features.length],
+    ["area_count", Number(data.area_count), inventory.areas.length],
+  ];
+  for (const [field, observed, expected] of scalarChecks)
+    if (observed !== expected) issues.push(`${field} does not match product/features.json`);
+
+  const frontmatterAreas = parseFeatureFrontmatterAreas(content);
+  const expectedFrontmatterAreas = inventory.areas.map((area) => ({
+    name: area.name,
+    features: area.features.map((feature) => feature.key),
+  }));
+  if (JSON.stringify(frontmatterAreas) !== JSON.stringify(expectedFrontmatterAreas))
+    issues.push("frontmatter areas and feature keys do not match product/features.json");
+
+  const parsedBody = parseFeatureBodyAreas(body);
+  issues.push(...parsedBody.issues);
+  const expectedBodyAreas = inventory.areas.map((area) => ({
+    name: area.name,
+    features: area.features.map((feature) => ({
+      name: feature.name,
+      feature_id: feature.feature_id,
+    })),
+  }));
+  if (JSON.stringify(parsedBody.areas) !== JSON.stringify(expectedBodyAreas))
+    issues.push(
+      "body area names, feature names, or feature IDs do not match product/features.json"
+    );
+  return issues;
+}
+
 function validateFeaturesFile(pmDir, filePath, content, errors, cache) {
   const relativeFile = relativeToPm(pmDir, filePath);
   const parsed = parseFrontmatter(content);
@@ -956,6 +1058,9 @@ function validateFeaturesFile(pmDir, filePath, content, errors, cache) {
   for (const issue of inspected.issues) pushIssue(errors, relativeFile, "inventory_file", issue);
   if (inspected.issues.length) return;
   for (const issue of inspected.bindingIssues)
+    pushIssue(errors, relativeFile, "inventory_file", issue);
+  if (inspected.bindingIssues.length) return;
+  for (const issue of validateFeatureProjection(data, parsed.body, content, inspected.value))
     pushIssue(errors, relativeFile, "inventory_file", issue);
 }
 

@@ -66,6 +66,8 @@ function main(argv = process.argv.slice(2)) {
         Object.keys(request).some((field) => field !== "ideas")
       )
         throw new Error("idea ranking request must contain only ideas");
+      if (!Array.isArray(request.ideas) || request.ideas.length === 0)
+        throw new Error("idea ranking request must contain a non-empty ideas array");
       let strategy = null;
       if (args.strategy || args.root) {
         const root = path.resolve(required(args, "root"));
@@ -83,7 +85,7 @@ function main(argv = process.argv.slice(2)) {
         if (strategyIssues.length)
           throw new Error(`invalid strategy companion: ${strategyIssues.join("; ")}`);
       }
-      result = { rankings: rankIdeaBriefs(request.ideas || [], strategy) };
+      result = { rankings: rankIdeaBriefs(request.ideas, strategy) };
     } else if (command === "reconcile-features") {
       const request = readBoundedJsonFile(required(args, "request"));
       if (

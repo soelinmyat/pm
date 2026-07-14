@@ -670,15 +670,14 @@ function reconcileFeatureInventory(previous, proposed, resolutions = {}) {
               right.overlap - left.overlap ||
               left.feature.feature_id.localeCompare(right.feature.feature_id)
           );
-    const best = candidates[0]?.overlap;
     return {
       feature,
-      top: candidates.filter((item) => item.overlap === best),
+      candidates,
     };
   });
   const claims = new Map();
   for (const analysis of analyses) {
-    for (const candidate of analysis.top) {
+    for (const candidate of analysis.candidates) {
       const rows = claims.get(candidate.feature.feature_id) || [];
       rows.push(analysis.feature.key);
       claims.set(candidate.feature.feature_id, rows);
@@ -688,8 +687,8 @@ function reconcileFeatureInventory(previous, proposed, resolutions = {}) {
     analyses
       .filter(
         (analysis) =>
-          analysis.top.length > 1 ||
-          analysis.top.some(
+          analysis.candidates.length > 1 ||
+          analysis.candidates.some(
             (candidate) => (claims.get(candidate.feature.feature_id) || []).length > 1
           )
       )
@@ -703,13 +702,13 @@ function reconcileFeatureInventory(previous, proposed, resolutions = {}) {
   const ambiguous = [];
   const resolved = new Map();
   for (const analysis of analyses) {
-    const collision = analysis.top.some(
+    const collision = analysis.candidates.some(
       (candidate) => (claims.get(candidate.feature.feature_id) || []).length > 1
     );
     const hasChoice = Object.hasOwn(resolutions, analysis.feature.key);
     const choice = hasChoice ? resolutions[analysis.feature.key] : undefined;
-    if (analysis.top.length > 1 || collision) {
-      const candidateIds = analysis.top.map((item) => item.feature.feature_id).sort();
+    if (analysis.candidates.length > 1 || collision) {
+      const candidateIds = analysis.candidates.map((item) => item.feature.feature_id).sort();
       if (hasChoice) {
         if (choice !== "new" && !candidateIds.includes(choice))
           throw new Error(
@@ -725,14 +724,15 @@ function reconcileFeatureInventory(previous, proposed, resolutions = {}) {
         resolved.set(analysis.feature.key, selected);
         continue;
       }
-      for (const candidate of analysis.top) ambiguousCandidates.add(candidate.feature.feature_id);
+      for (const candidate of analysis.candidates)
+        ambiguousCandidates.add(candidate.feature.feature_id);
       ambiguous.push({
         key: analysis.feature.key,
         candidates: candidateIds,
       });
       continue;
     }
-    const match = analysis.top[0]?.feature || null;
+    const match = analysis.candidates[0]?.feature || null;
     const selected = match?.feature_id || featureId(proposed.source_project, analysis.feature.key);
     if (used.has(selected))
       throw new Error(

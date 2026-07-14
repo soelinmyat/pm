@@ -14,6 +14,28 @@ function sha(bytes) {
   return `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`;
 }
 
+function renderFeatureMarkdown(inventory) {
+  const features = inventory.areas.flatMap((area) => area.features);
+  return Buffer.from(
+    `---\ngenerated: ${inventory.generated_at.slice(0, 10)}\ninventory_version: 2\ninventory_file: product/features.json\nsource_project: ${inventory.source_project}\nfiles_scanned: ${inventory.scan.files_scanned}\nfiles_total: ${inventory.scan.files_total}\nfeature_count: ${features.length}\narea_count: ${inventory.areas.length}\nareas:\n${inventory.areas
+      .map(
+        (area) =>
+          `  - name: "${area.name}"\n    features:\n${area.features.map((feature) => `      - "${feature.key}"`).join("\n")}`
+      )
+      .join("\n")}\n---\n\n# Features\n\n${inventory.areas
+      .map(
+        (area) =>
+          `## ${area.name}\n\n${area.features
+            .map(
+              (feature) =>
+                `### ${feature.name} <!-- ${feature.feature_id} -->\n\n${feature.outcome}`
+            )
+            .join("\n\n")}`
+      )
+      .join("\n\n")}\n`
+  );
+}
+
 test("normal validation checks present decision companions without requiring them for legacy artifacts", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reasoning-validate-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -239,14 +261,23 @@ test("KB-relative feature bindings validate in nested and flat PM layouts", (t) 
       commit: null,
       snapshot_sha256: snapshot.snapshot_sha256,
     };
-    const markdown = Buffer.from(
-      `---\ngenerated: 2026-07-14\ninventory_version: 2\ninventory_file: product/features.json\nsource_project: example\nfiles_scanned: 20\nfeature_count: ${features.length}\narea_count: ${inventory.areas.length}\nareas:\n${inventory.areas.map((area) => `  - ${area.name}`).join("\n")}\n---\n\n# Features\n\n${features.map((feature) => `### ${feature.name}`).join("\n\n")}\n`
-    );
+    const markdown = renderFeatureMarkdown(inventory);
     fs.writeFileSync(path.join(pm, "product", "features.md"), markdown);
     inventory.markdown_binding.sha256 = sha(markdown);
     fs.writeFileSync(path.join(pm, "product", "features.json"), JSON.stringify(inventory));
     const result = validate(pm, { sourceDir });
     assert.equal(result.errors.length, 0, JSON.stringify(result.details));
+    const driftedMarkdown = Buffer.from(
+      markdown.toString("utf8").replace(features[0].feature_id, `feat-${"f".repeat(20)}`)
+    );
+    fs.writeFileSync(path.join(pm, "product", "features.md"), driftedMarkdown);
+    inventory.markdown_binding.sha256 = sha(driftedMarkdown);
+    fs.writeFileSync(path.join(pm, "product", "features.json"), JSON.stringify(inventory));
+    const semanticallyDrifted = validate(pm, { sourceDir });
+    assert.ok(semanticallyDrifted.errors.some((entry) => entry.msg.includes("feature IDs")));
+    fs.writeFileSync(path.join(pm, "product", "features.md"), markdown);
+    inventory.markdown_binding.sha256 = sha(markdown);
+    fs.writeFileSync(path.join(pm, "product", "features.json"), JSON.stringify(inventory));
     const staleRef = features[0].source_refs[0];
     fs.writeFileSync(path.join(sourceDir, staleRef), "changed\n");
     const stale = validate(pm, { sourceDir });

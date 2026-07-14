@@ -163,6 +163,25 @@ test("rank-ideas authenticates the canonical Strategy companion before ordering"
   assert.match(result.stderr, /SHA-256 does not match/);
 });
 
+test("rank-ideas rejects malformed or empty idea collections with stable diagnostics", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-ranking-total-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  for (const [name, ideas] of [
+    ["missing", undefined],
+    ["null", null],
+    ["object", {}],
+    ["scalar", 1],
+    ["empty", []],
+  ]) {
+    const request = path.join(root, `${name}.json`);
+    fs.writeFileSync(request, JSON.stringify(ideas === undefined ? {} : { ideas }));
+    const result = run(["rank-ideas", "--request", request]);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /non-empty ideas array/);
+    assert.doesNotMatch(result.stderr, /\.map is not a function/);
+  }
+});
+
 test("promote requires exact approved Groom lineage and atomically closes origin lineage", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reasoning-promote-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
