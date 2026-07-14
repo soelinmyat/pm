@@ -509,7 +509,7 @@ function validateFeatureInventory(value) {
     (area, at) => {
       if (!record(area)) return issues.push(`${at} must be an object`);
       closed(area, ["name", "features"], at, issues);
-      text(area.name, `${at}.name`, issues);
+      projectionText(area.name, `${at}.name`, issues);
       const normalizedArea = normalizeToken(area.name);
       if (areaNames.has(normalizedArea)) issues.push(`${at}.name is duplicated`);
       areaNames.add(normalizedArea);
@@ -534,11 +534,12 @@ function validateFeatureInventory(value) {
           if (keys.has(feature.key)) issues.push(`${featureAt}.key is duplicated`);
           ids.add(feature.feature_id);
           keys.add(feature.key);
-          text(feature.name, `${featureAt}.name`, issues);
-          text(feature.outcome, `${featureAt}.outcome`, issues);
+          projectionText(feature.name, `${featureAt}.name`, issues);
+          projectionText(feature.outcome, `${featureAt}.outcome`, issues);
           stringArray(feature.highlights, `${featureAt}.highlights`, issues, {
             nonEmpty: true,
             unique: true,
+            projectionText: true,
           });
           if (feature.highlights?.length < 2 || feature.highlights?.length > 4)
             issues.push(`${featureAt}.highlights must contain 2 through 4 items`);
@@ -860,6 +861,10 @@ function text(value, label, issues) {
   if (typeof value !== "string" || !value.trim() || /[\0\r]/.test(value))
     issues.push(`${label} must be non-empty text`);
 }
+function projectionText(value, label, issues) {
+  if (typeof value !== "string" || !value || value !== value.trim() || /[\0\r\n]/.test(value))
+    issues.push(`${label} must be canonical single-line text`);
+}
 function slug(value, label, issues) {
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value || "")) issues.push(`${label} must be kebab-case`);
 }
@@ -905,6 +910,7 @@ function stringArray(value, label, issues, options = {}) {
       if (typeof entry !== "string" || !entry.trim()) issues.push(`${at} must be non-empty text`);
       else if (options.slug) slug(entry, at, issues);
       else if (options.sourcePath) portablePath(entry, at, issues, "source-project path");
+      else if (options.projectionText) projectionText(entry, at, issues);
       if (options.unique && typeof entry === "string") {
         if (seen.has(entry)) issues.push(`${at} is duplicated`);
         seen.add(entry);

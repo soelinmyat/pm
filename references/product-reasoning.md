@@ -106,7 +106,7 @@ The runtime verifies Strategy's schema and current Markdown binding before it or
 
 Decision collections are deliberately bounded for predictable validation: at most 128 evidence references, 16 alternatives, 32 confidence-basis entries, and 32 non-goals. Feature reconciliation only compares inventories with the same `source_project`; cross-project input is rejected rather than carrying another product's stable identities forward.
 
-The Markdown projection carries the same generation date, source project, scan counts, ordered area names, feature keys, feature names, stable `feat-*` IDs, outcome prose, and ordered highlights. Normal validation checks those semantic fields from the same bounded byte snapshot as the hash, so a freshly rehashed but contradictory reader pair is invalid. One 64 MiB aggregate budget covers every unique product-reasoning JSON, Markdown reader, and bound artifact read during a normal validation run.
+The Markdown projection carries the same generation date, source project, scan counts, ordered area names, feature keys, feature names, stable `feat-*` IDs, outcome prose, and ordered highlights. Area names, feature names, outcomes, and highlights are canonical single-line projection text with no surrounding whitespace or line breaks, so every schema-valid value is exactly representable. Normal validation checks those semantic fields from the same bounded byte snapshot as the hash, so a freshly rehashed but contradictory reader pair is invalid. One 64 MiB aggregate budget covers every unique product-reasoning JSON, Markdown reader, and bound artifact read during a normal validation run.
 
 Each feature contains:
 

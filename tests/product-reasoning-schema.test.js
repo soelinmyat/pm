@@ -383,6 +383,23 @@ test("feature inventory validates stable IDs, source refs, and calibrated bounds
   assert.match(validateFeatureInventory(value).join("\n"), /portable/);
 });
 
+test("feature projection text is canonical and line-safe", () => {
+  const base = inventory(
+    ["one", "two", "three", "four", "five", "six", "seven", "eight"].map((key) => feature(key))
+  );
+  for (const mutate of [
+    (value) => (value.areas[0].name = " Area"),
+    (value) => (value.areas[0].name = "Area\nInjected"),
+    (value) => (value.areas[0].features[0].name = "Feature "),
+    (value) => (value.areas[0].features[0].outcome = "Outcome\nInjected"),
+    (value) => (value.areas[0].features[0].highlights[0] = " Highlight"),
+  ]) {
+    const value = structuredClone(base);
+    mutate(value);
+    assert.match(validateFeatureInventory(value).join("\n"), /canonical single-line text/);
+  }
+});
+
 test("feature source refs resolve at the recorded scan commit", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-feature-source-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
