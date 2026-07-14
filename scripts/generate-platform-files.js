@@ -194,7 +194,7 @@ PM now ships a native Codex plugin manifest at \`.codex-plugin/plugin.json\`.
 
 Until your Codex install loads this repository as a plugin directly, the generated skill-symlink flow below remains the compatible fallback. It uses the same canonical plugin metadata and current skill inventory as the other platform manifests.
 
-When Codex loads PM as a native plugin, product skills appear under the plugin namespace as \`pm:groom\`, \`pm:research\`, \`pm:strategy\`, \`pm:ingest\`, and \`pm:refresh\`.
+When Codex loads PM as a native plugin, product skills appear under the plugin namespace, including \`pm:think\`, \`pm:ideate\`, \`pm:strategy\`, \`pm:features\`, \`pm:groom\`, \`pm:research\`, \`pm:ingest\`, and \`pm:refresh\`. Product-reasoning skills keep Markdown as the primary reader while writing small validated JSON companions for stable decisions, ranking, promotion, and feature identity.
 
 The fallback symlink flow below creates explicit \`pm-*\` aliases on disk for every PM workflow, including build and ship flows. Codex discovers user-installed skills from \`~/.agents/skills\` and project-local skills from \`<project>/.agents/skills\`.
 

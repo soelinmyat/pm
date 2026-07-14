@@ -6,6 +6,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const crypto = require("node:crypto");
 const {
   inspectKbPath,
   isIsoDate,
@@ -14,12 +15,16 @@ const {
 } = require("./kb-frontmatter.js");
 const { CANONICAL_CARD_STATUSES } = require("./loop-card-state.js");
 const { validateCitationBindings, validateEvidenceLedger } = require("./lib/evidence-schema.js");
+const {
+  validateDecisionBrief,
+  validateFeatureInventory,
+} = require("./lib/product-reasoning-schema.js");
 
 // ========== Config ==========
 
 const VALID_STATUSES = CANONICAL_CARD_STATUSES;
 const VALID_PRIORITIES = ["critical", "high", "medium", "low"];
-const VALID_EVIDENCE = ["strong", "moderate", "weak"];
+const VALID_EVIDENCE = ["strong", "moderate", "weak", "hypothesis"];
 const VALID_SCOPE = ["small", "medium", "large"];
 const VALID_GAP = ["unique", "partial", "parity", "behind"];
 const VALID_BACKLOG_KINDS = ["proposal", "task", "bug"];
@@ -910,6 +915,64 @@ function validateFeaturesFile(pmDir, filePath, content, errors) {
   }
 }
 
+function validateProductReasoningJson(pmDir, filePath, errors, expectedType) {
+  const relativeFile = relativeToPm(pmDir, filePath);
+  let bytes;
+  let value;
+  try {
+    const stat = fs.lstatSync(filePath);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 4 * 1024 * 1024) {
+      return pushIssue(errors, relativeFile, "-", "must be a bounded regular JSON file");
+    }
+    bytes = fs.readFileSync(filePath);
+    value = JSON.parse(bytes.toString("utf8"));
+  } catch (error) {
+    return pushIssue(errors, relativeFile, "-", `invalid product reasoning JSON: ${error.message}`);
+  }
+  const issues =
+    expectedType === "decision-brief"
+      ? validateDecisionBrief(value)
+      : validateFeatureInventory(value);
+  for (const issue of issues) pushIssue(errors, relativeFile, "contract", issue);
+  if (issues.length) return;
+  const projectRoot = path.dirname(pmDir);
+  const bindings =
+    expectedType === "decision-brief" ? value.source_artifacts : [value.markdown_binding];
+  for (const binding of bindings) {
+    const target = path.resolve(projectRoot, binding.path);
+    if (target !== projectRoot && !target.startsWith(`${projectRoot}${path.sep}`)) {
+      pushIssue(errors, relativeFile, "binding", `binding escapes project root: ${binding.path}`);
+      continue;
+    }
+    try {
+      const stat = fs.lstatSync(target);
+      if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("not a regular file");
+      const observed = `sha256:${crypto.createHash("sha256").update(fs.readFileSync(target)).digest("hex")}`;
+      if (observed !== binding.sha256) throw new Error("SHA-256 does not match current bytes");
+    } catch (error) {
+      pushIssue(errors, relativeFile, "binding", `${binding.path}: ${error.message}`);
+    }
+  }
+  if (expectedType === "decision-brief" && value.promotion?.status === "promoted") {
+    const target = path.resolve(projectRoot, value.promotion.target_ref);
+    try {
+      if (target !== projectRoot && !target.startsWith(`${projectRoot}${path.sep}`)) {
+        throw new Error("promotion target escapes project root");
+      }
+      const stat = fs.lstatSync(target);
+      if (!stat.isFile() || stat.isSymbolicLink())
+        throw new Error("promotion target is not a regular file");
+    } catch (error) {
+      pushIssue(
+        errors,
+        relativeFile,
+        "promotion",
+        `${value.promotion.target_ref}: ${error.message}`
+      );
+    }
+  }
+}
+
 function validateMemoryEntry(relativeFile, entry, index, errors, requireArchivedAt) {
   const prefix = `entries[${index}]`;
   const requiredFields = ["date", "source", "category", "learning"];
@@ -1179,6 +1242,24 @@ function validate(pmDir) {
   if (fs.existsSync(featuresPath)) {
     const content = fs.readFileSync(featuresPath, "utf8");
     validateFeaturesFile(pmDir, featuresPath, content, errors);
+  }
+
+  const decisionCandidates = [path.join(pmDir, "strategy.decision.json")];
+  for (const directory of [path.join(pmDir, "thinking"), path.join(pmDir, "backlog")]) {
+    if (!fs.existsSync(directory)) continue;
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith(".decision.json")) {
+        decisionCandidates.push(path.join(directory, entry.name));
+      }
+    }
+  }
+  for (const candidate of decisionCandidates) {
+    if (fs.existsSync(candidate))
+      validateProductReasoningJson(pmDir, candidate, errors, "decision-brief");
+  }
+  const featureInventoryPath = path.join(pmDir, "product", "features.json");
+  if (fs.existsSync(featureInventoryPath)) {
+    validateProductReasoningJson(pmDir, featureInventoryPath, errors, "feature-inventory");
   }
 
   validateMemoryDocument(pmDir, "memory.md", "project-memory", false, errors);

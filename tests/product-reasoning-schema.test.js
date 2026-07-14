@@ -1,0 +1,228 @@
+"use strict";
+
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const {
+  decisionId,
+  featureId,
+  promoteDecisionBrief,
+  rankIdeaBriefs,
+  reconcileFeatureInventory,
+  validateDecisionBrief,
+  validateFeatureInventory,
+} = require("../scripts/lib/product-reasoning-schema");
+
+function brief(kind, slug, overrides = {}) {
+  const value = {
+    schema_version: 1,
+    document_type: "decision-brief",
+    decision_id: decisionId(kind, slug),
+    kind,
+    slug,
+    title: slug,
+    problem: "A concrete product problem needs a deliberate decision.",
+    evidence_refs: [
+      {
+        ref: "pm/evidence/research/source.md#finding-1",
+        evidence_id: null,
+        note: "Observed signal",
+      },
+    ],
+    alternatives: [
+      { id: "focused", title: "Focused", tradeoff: "Lower reach for faster learning." },
+      { id: "broad", title: "Broad", tradeoff: "More reach with higher delivery risk." },
+    ],
+    decision: {
+      status: "confirmed",
+      choice: "focused",
+      rationale: "Tests the riskiest assumption first.",
+    },
+    confidence: {
+      level: "medium",
+      basis: ["One current research signal", "Delivery feasibility is verified"],
+    },
+    non_goals: ["Solve adjacent workflows"],
+    next_trigger: { lane: "groom", condition: "User confirms scope", target: null },
+    promotion: { status: "not-offered", target_kind: null, target_ref: null, confirmed_at: null },
+    source_artifacts: [{ path: "pm/thinking/example.md", sha256: `sha256:${"a".repeat(64)}` }],
+    created_at: "2026-07-14T00:00:00Z",
+    updated_at: "2026-07-14T00:00:00Z",
+    ...overrides,
+  };
+  if (kind === "strategy")
+    value.strategy_context = overrides.strategy_context || {
+      priorities: [{ id: "retention", title: "Improve retention" }],
+      non_goals: [{ id: "enterprise", title: "Enterprise administration" }],
+    };
+  if (kind === "idea")
+    value.alignment = overrides.alignment || {
+      strength: "strong",
+      priority_ids: ["retention"],
+      non_goal_conflicts: [],
+      evidence_strength: "strong",
+      competitor_gap: "unique",
+      dependencies: [],
+      scope_signal: "small",
+    };
+  return value;
+}
+
+test("decision identity is provider-neutral and schema validation is closed", () => {
+  const value = brief("think", "retention-loop");
+  assert.equal(value.decision_id, decisionId("think", "retention-loop"));
+  assert.deepEqual(validateDecisionBrief(value), []);
+  assert.match(validateDecisionBrief({ ...value, raw_prompt: "private" }).join("\n"), /unknown/);
+});
+
+test("confirmed decisions require real alternatives and low evidence caps confidence", () => {
+  const noAlternatives = brief("think", "one-way", { alternatives: [] });
+  assert.match(validateDecisionBrief(noAlternatives).join("\n"), /at least two alternatives/);
+  const unsupported = brief("think", "unsupported", {
+    evidence_refs: [],
+    confidence: { level: "high", basis: ["intuition"] },
+  });
+  assert.match(validateDecisionBrief(unsupported).join("\n"), /low confidence/);
+});
+
+test("promotion cannot claim success without a verified target binding", () => {
+  const value = brief("think", "promotion", {
+    promotion: { status: "promoted", target_kind: "groom", target_ref: null, confirmed_at: null },
+  });
+  assert.match(validateDecisionBrief(value).join("\n"), /portable|RFC 3339/);
+  const offered = brief("think", "offered", {
+    promotion: { status: "offered", target_kind: "groom", target_ref: null, confirmed_at: null },
+  });
+  assert.match(validateDecisionBrief(offered).join("\n"), /target_kind must be null/);
+});
+
+test("promotion transition refreshes target and binding state as one validated record", () => {
+  const promoted = promoteDecisionBrief(
+    brief("idea", "promotion-transition"),
+    "pm/backlog/proposals/promotion-transition.json",
+    [
+      {
+        path: "pm/backlog/proposals/promotion-transition.json",
+        sha256: `sha256:${"c".repeat(64)}`,
+      },
+    ],
+    "2026-07-14T01:00:00Z"
+  );
+  assert.equal(promoted.promotion.status, "promoted");
+  assert.equal(promoted.updated_at, "2026-07-14T01:00:00Z");
+  assert.deepEqual(validateDecisionBrief(promoted), []);
+});
+
+test("artifact paths are project-relative while HTTPS evidence locators remain portable", () => {
+  const externalEvidence = brief("think", "external-evidence", {
+    evidence_refs: [
+      { ref: "https://example.com/research", evidence_id: null, note: "Public source" },
+    ],
+  });
+  assert.deepEqual(validateDecisionBrief(externalEvidence), []);
+  externalEvidence.source_artifacts[0].path = "https://example.com/artifact.md";
+  assert.match(validateDecisionBrief(externalEvidence).join("\n"), /portable project path/);
+});
+
+test("decision comparison and inventory presentation reject ambiguous duplicates", () => {
+  const duplicated = brief("think", "duplicate-alternative");
+  duplicated.alternatives[1].id = duplicated.alternatives[0].id;
+  assert.match(validateDecisionBrief(duplicated).join("\n"), /duplicated/);
+
+  const features = ["one", "two", "three", "four", "five", "six", "seven", "eight"].map((key) =>
+    feature(key)
+  );
+  features[0].highlights = ["Only one"];
+  assert.match(validateFeatureInventory(inventory(features)).join("\n"), /2 through 4/);
+});
+
+test("timestamps reject normalized calendar overflow", () => {
+  const invalid = brief("think", "invalid-date", { updated_at: "2026-02-30T00:00:00Z" });
+  assert.match(validateDecisionBrief(invalid).join("\n"), /updated_at must be RFC 3339/);
+});
+
+test("idea ranking is deterministic and exposes strategy conflicts", () => {
+  const strategy = brief("strategy", "product-direction");
+  const strong = brief("idea", "strong-idea");
+  const conflicted = brief("idea", "conflicted-idea", {
+    alignment: {
+      strength: "partial",
+      priority_ids: ["unknown-priority"],
+      non_goal_conflicts: ["enterprise", "stale-token"],
+      evidence_strength: "moderate",
+      competitor_gap: "partial",
+      dependencies: ["foundation"],
+      scope_signal: "large",
+    },
+  });
+  const first = rankIdeaBriefs([conflicted, strong], strategy);
+  const second = rankIdeaBriefs([strong, conflicted], strategy);
+  assert.deepEqual(first, second);
+  assert.equal(first[0].decision_id, strong.decision_id);
+  assert.deepEqual(first[1].unknown_priorities, ["unknown-priority"]);
+  assert.deepEqual(first[1].non_goal_conflicts, ["enterprise"]);
+  assert.deepEqual(first[1].unknown_non_goals, ["stale-token"]);
+});
+
+function inventory(features) {
+  return {
+    schema_version: 2,
+    document_type: "feature-inventory",
+    generated_at: "2026-07-14T00:00:00Z",
+    source_project: "example",
+    scan: { files_scanned: 12, files_total: 20, commit: "a".repeat(40) },
+    areas: [
+      { name: "Discover", features: features.slice(0, 3) },
+      { name: "Build", features: features.slice(3, 6) },
+      { name: "Learn", features: features.slice(6, 8) },
+    ],
+    markdown_binding: { path: "pm/product/features.md", sha256: `sha256:${"b".repeat(64)}` },
+  };
+}
+
+function feature(key, refs = [`src/${key}.js`]) {
+  return {
+    feature_id: featureId("example", key),
+    key,
+    name: key,
+    outcome: `Users can complete ${key} without manual reconstruction.`,
+    highlights: ["Complete the main user outcome", "See actionable status"],
+    confidence: "high",
+    source_refs: refs,
+  };
+}
+
+test("feature inventory validates stable IDs, source refs, and calibrated bounds", () => {
+  const value = inventory(
+    ["one", "two", "three", "four", "five", "six", "seven", "eight"].map((key) => feature(key))
+  );
+  assert.deepEqual(validateFeatureInventory(value), []);
+  value.areas[0].features[0].source_refs = ["/private/source.js"];
+  assert.match(validateFeatureInventory(value).join("\n"), /portable/);
+});
+
+test("feature reconciliation preserves identity across rename with strong source continuity", () => {
+  const priorFeatures = ["one", "two", "three", "four", "five", "six", "seven", "eight"].map(
+    (key) => feature(key)
+  );
+  const previous = inventory(priorFeatures);
+  const renamed = feature("renamed-one", ["src/one.js"]);
+  const proposed = inventory([renamed, ...priorFeatures.slice(1)]);
+  const result = reconcileFeatureInventory(previous, proposed);
+  assert.deepEqual(result.ambiguous, []);
+  assert.equal(result.inventory.areas[0].features[0].feature_id, priorFeatures[0].feature_id);
+  assert.deepEqual(validateFeatureInventory(result.inventory), []);
+});
+
+test("feature reconciliation fails closed on equally plausible source matches", () => {
+  const priorFeatures = [
+    feature("one", ["src/shared.js"]),
+    feature("two", ["src/shared.js"]),
+    ...["three", "four", "five", "six", "seven", "eight"].map((key) => feature(key)),
+  ];
+  const previous = inventory(priorFeatures);
+  const proposedFeatures = [feature("replacement", ["src/shared.js"]), ...priorFeatures.slice(2)];
+  const proposed = inventory([...proposedFeatures, feature("nine")]);
+  const result = reconcileFeatureInventory(previous, proposed);
+  assert.equal(result.ambiguous.length, 1);
+  assert.equal(result.ambiguous[0].key, "replacement");
+});

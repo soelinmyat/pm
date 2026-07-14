@@ -7,7 +7,7 @@ description: "Scan the codebase, extract user-facing features, and write a struc
 
 ## Purpose
 
-`pm:features` scans the codebase and writes a structured feature inventory to `pm/product/features.md`.
+`pm:features` scans the codebase and writes a readable feature inventory to `pm/product/features.md` plus a stable, source-bound machine inventory at `pm/product/features.json`.
 
 The primary consumer is PM itself. Groom intake reads the inventory so scope review starts from what the product already does today, not from memory.
 
@@ -20,6 +20,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and
 **NEVER CONFUSE CODE WITH CAPABILITY.**
 
 Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/features.md` — the executable contract for the overwrite guard, scanning pipeline, calibration bounds, user review, output format, and completion behavior.
+Read and follow `${CLAUDE_PLUGIN_ROOT}/references/product-reasoning.md` for stable feature identity, reconciliation, source refs, and JSON validation.
 
 ## Hard rules
 
@@ -27,6 +28,7 @@ Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/features.md` — th
 - **Don't over-split.** Subsystems are usually highlights inside a larger capability, not standalone features; over-splitting turns the file into a code map instead of a product artifact.
 - **Translate, don't mirror.** Even a messy codebase gets clean capability language — internal consumers (groom) still need user-facing wording, and the inventory only compounds if the base pass is already usable.
 - **User review before the final write.** Present the extracted features for review, then write `pm/product/features.md` with valid frontmatter and a completion message pointing to `pm:groom` as the next consumer.
+- **Reconcile identity before review.** Preserve exact semantic keys and uniquely strong source-continuity matches; surface ambiguous merge/split/rename cases instead of minting silent replacements.
 
 ## Red Flags — Self-Check
 
@@ -55,6 +57,6 @@ Do not use this skill when the user wants code explanation, architecture review,
 
 ## Before Marking Done
 
-- [ ] The reviewed feature inventory artifact is saved at `pm/product/features.md` with source provenance and valid frontmatter.
+- [ ] The reviewed Markdown and hash-bound v2 JSON inventory are saved with stable feature IDs, project-relative source refs, and valid contracts.
 - [ ] The user confirmed capability grouping, calibration, and the final overwrite.
 - [ ] Overwrite guard, scan coverage, evidence, calibration bounds, user review, and validation gates passed.

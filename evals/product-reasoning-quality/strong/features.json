@@ -1,0 +1,128 @@
+{
+  "schema_version": 2,
+  "document_type": "feature-inventory",
+  "generated_at": "2026-07-14T00:00:00Z",
+  "source_project": "strong-product",
+  "scan": {
+    "files_scanned": 80,
+    "files_total": 100,
+    "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "areas": [
+    {
+      "name": "Understand the market",
+      "features": [
+        {
+          "feature_id": "feat-e499de7cf2609a22234b",
+          "key": "discover-insights",
+          "name": "Discover durable insights",
+          "outcome": "Product teams can find current market and customer insights without reconstructing source history.",
+          "highlights": [
+            "Preserves claim-level evidence lineage",
+            "Separates current findings from stale context"
+          ],
+          "confidence": "high",
+          "source_refs": ["skills/research/SKILL.md", "scripts/lib/evidence-schema.js"]
+        },
+        {
+          "feature_id": "feat-3a15fc6cbd8216a10fa6",
+          "key": "capture-evidence",
+          "name": "Capture evidence safely",
+          "outcome": "Product teams can preserve customer signals as portable evidence without exposing private raw material.",
+          "highlights": [
+            "Assigns stable evidence identities",
+            "Publishes only bounded portable findings"
+          ],
+          "confidence": "high",
+          "source_refs": ["skills/ingest/SKILL.md", "scripts/evidence.js"]
+        },
+        {
+          "feature_id": "feat-15f226d3272029c70690",
+          "key": "shape-strategy",
+          "name": "Shape product strategy",
+          "outcome": "Product leaders can turn evidence into explicit priorities and non-goals that constrain later decisions.",
+          "highlights": [
+            "Keeps strategic tokens stable across edits",
+            "Makes assumptions and confidence visible"
+          ],
+          "confidence": "medium",
+          "source_refs": ["skills/strategy/SKILL.md", "references/product-reasoning.md"]
+        }
+      ]
+    },
+    {
+      "name": "Choose what to build",
+      "features": [
+        {
+          "feature_id": "feat-7ff371643543b623026f",
+          "key": "rank-ideas",
+          "name": "Rank evidence-backed ideas",
+          "outcome": "Product teams can compare candidate ideas consistently and see strategy conflicts before saving them.",
+          "highlights": [
+            "Uses deterministic categorical ordering",
+            "Shows unknown priorities and non-goal conflicts"
+          ],
+          "confidence": "high",
+          "source_refs": ["skills/ideate/SKILL.md", "scripts/product-reasoning.js"]
+        },
+        {
+          "feature_id": "feat-72591bce76bc85647506",
+          "key": "scope-proposals",
+          "name": "Scope approved proposals",
+          "outcome": "Product teams can convert validated ideas into approved execution contracts with explicit boundaries.",
+          "highlights": [
+            "Binds approval to exact proposal bytes",
+            "Generates synchronized human readers"
+          ],
+          "confidence": "high",
+          "source_refs": ["skills/groom/SKILL.md", "scripts/proposal-check.js"]
+        },
+        {
+          "feature_id": "feat-c6e45c854a558f3291bd",
+          "key": "deliver-work",
+          "name": "Deliver verified work",
+          "outcome": "Engineering teams can implement and release approved scope through resumable evidence-bound gates.",
+          "highlights": [
+            "Routes work by risk and artifact state",
+            "Verifies effects before replay or completion"
+          ],
+          "confidence": "medium",
+          "source_refs": ["skills/dev/SKILL.md", "skills/ship/SKILL.md"]
+        }
+      ]
+    },
+    {
+      "name": "Improve the system",
+      "features": [
+        {
+          "feature_id": "feat-2bf4d27ce71cb5164d63",
+          "key": "review-quality",
+          "name": "Review decision quality",
+          "outcome": "Teams can identify evidence-bound implementation and artifact defects without review-count theater.",
+          "highlights": [
+            "Calibrates severity against exact evidence",
+            "Separates blocking findings from advisory debt"
+          ],
+          "confidence": "high",
+          "source_refs": ["skills/review/SKILL.md", "scripts/review-check.js"]
+        },
+        {
+          "feature_id": "feat-7ef42d36a23547eeea0d",
+          "key": "learn-outcomes",
+          "name": "Retain workflow learnings",
+          "outcome": "Teams can preserve reusable process lessons while keeping product decisions in their source artifacts.",
+          "highlights": [
+            "Separates process memory from product truth",
+            "Caps retained context to durable lessons"
+          ],
+          "confidence": "medium",
+          "source_refs": ["references/memory-cap.md", "references/knowledge-writeback.md"]
+        }
+      ]
+    }
+  ],
+  "markdown_binding": {
+    "path": "pm/product/features.md",
+    "sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  }
+}

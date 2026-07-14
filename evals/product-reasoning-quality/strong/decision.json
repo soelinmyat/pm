@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "document_type": "decision-brief",
+  "decision_id": "dec-4a2a5048c144ccb5dec5",
+  "kind": "idea",
+  "slug": "guided-evidence-refresh",
+  "title": "Guided evidence refresh",
+  "problem": "Product teams cannot tell which decision inputs are stale, so they either trust expired evidence or repeat broad research that wastes time.",
+  "evidence_refs": [
+    {
+      "ref": "pm/evidence/research/refresh-friction.md#finding-1",
+      "evidence_id": "ev-11111111111111111111",
+      "note": "Six of eight interviews described uncertainty about evidence age."
+    },
+    {
+      "ref": "pm/insights/product/research-trust.md#staleness",
+      "evidence_id": null,
+      "note": "The synthesized insight is high confidence and current."
+    }
+  ],
+  "alternatives": [
+    {
+      "id": "manual-audit",
+      "title": "Manual audit checklist",
+      "tradeoff": "Fast to ship but still requires users to inspect every source."
+    },
+    {
+      "id": "guided-refresh",
+      "title": "Guided refresh queue",
+      "tradeoff": "More implementation work but focuses effort on evidence that affects active decisions."
+    },
+    {
+      "id": "automatic-refresh",
+      "title": "Automatic refresh",
+      "tradeoff": "Lowest user effort but creates cost, trust, and conflict-resolution risks."
+    }
+  ],
+  "decision": {
+    "status": "confirmed",
+    "choice": "guided-refresh",
+    "rationale": "A guided queue addresses the trust problem while keeping source selection and conflict decisions under human control."
+  },
+  "confidence": {
+    "level": "high",
+    "basis": [
+      "Two independent current evidence paths support the problem",
+      "The narrower mechanism avoids the main automatic-refresh risk"
+    ]
+  },
+  "non_goals": [
+    "Refresh every source automatically",
+    "Replace research judgment with a freshness score"
+  ],
+  "next_trigger": {
+    "lane": "groom",
+    "condition": "The owner confirms the first supported source types and acceptable refresh latency.",
+    "target": null
+  },
+  "promotion": {
+    "status": "not-offered",
+    "target_kind": null,
+    "target_ref": null,
+    "confirmed_at": null
+  },
+  "source_artifacts": [
+    {
+      "path": "pm/backlog/guided-evidence-refresh.md",
+      "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "alignment": {
+    "strength": "strong",
+    "priority_ids": ["decision-trust"],
+    "non_goal_conflicts": [],
+    "evidence_strength": "strong",
+    "competitor_gap": "unique",
+    "dependencies": [],
+    "scope_signal": "medium"
+  },
+  "created_at": "2026-07-14T00:00:00Z",
+  "updated_at": "2026-07-14T00:00:00Z"
+}

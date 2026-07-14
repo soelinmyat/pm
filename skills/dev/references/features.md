@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`pm:features` scans the codebase and produces a structured feature inventory at `pm/product/features.md`. The inventory describes what the product does in user-facing terms — not code modules or file structures.
+`pm:features` scans the codebase and produces a readable feature inventory at `pm/product/features.md` plus a machine companion at `pm/product/features.json`. The inventory describes what the product does in user-facing terms — not code modules or file structures.
 
 The output feeds one consumer:
 - **Groom intake** — reads existing capabilities to inform scope review
@@ -16,7 +16,7 @@ Ask ONE question at a time. Wait for the user's answer before asking the next.
 Before scanning, check if `pm/product/features.md` already exists.
 
 If it exists:
-1. Parse frontmatter to get `feature_count`.
+1. Parse frontmatter to get `feature_count` and load `pm/product/features.json` when present.
 2. Prompt: "This will replace your existing inventory (N features). Continue?"
 3. If the user declines, stop. Do not scan or overwrite.
 
@@ -43,7 +43,7 @@ Build a directory map (file counts per directory) and flag key entry points:
 
 Read the flagged entry points and their neighbors: route handlers and page components, component directory indexes, config and manifest files, README and API definitions, model/schema files. On a large codebase, read in priority order — route files/pages/API handlers first, then components and views, then models/schemas/types, then config, then README/docs — and record how many files you read for the `files_scanned` frontmatter field.
 
-Extract the concrete artifacts: route definitions, component names, API endpoints, data models, configuration patterns.
+Extract the concrete artifacts: route definitions, component names, API endpoints, data models, configuration patterns. Retain project-relative source refs for every proposed feature; source refs support confidence and identity reconciliation, but never appear as implementation prose in the feature description.
 
 ### Translate to features
 
@@ -78,11 +78,20 @@ Do not split by internal architecture boundaries (plugin/server, frontend/backen
 - Target 3–6 areas. Fewer than 3 means you're grouping unrelated things. More than 6 means you're slicing too thin.
 - Each area should have 2–5 features. A single-feature area should be merged into an adjacent one.
 
-**Output:** Structured feature list grouped by product area.
+**Output:** Structured feature list grouped by product area. Each in-memory feature also carries a semantic `key`, confidence, and source refs as defined in `references/product-reasoning.md`.
+
+### Reconcile identity
+
+Before presentation, build a proposed `feature-inventory` v2 record and run `scripts/product-reasoning.js reconcile-features` against the prior companion when one exists.
+
+- Preserve exact keys.
+- Preserve a prior ID for a uniquely strong source-continuity match, including a wording-only rename.
+- Show new and retired identities in the review summary.
+- If `ambiguous` is non-empty, ask the user whether the candidate is a rename, merge, split, or genuinely new feature. Update the in-memory record and rerun reconciliation. Never write an ambiguous inventory.
 
 ## User Review
 
-After the scan completes, present the extracted features for user review before writing to disk.
+After the scan and identity reconciliation complete, present the extracted features for user review before writing to disk.
 
 ### Presentation Format
 
@@ -94,7 +103,7 @@ Feature inventory for {project name} ({N} features, {M} areas):
 {Product summary sentence}
 
   {Area 1}
-    1. {Feature name} — {one-line what it does}
+    1. {Feature name} [{short feature ID}] — {one-line what it does}
     2. {Feature name} — {one-line what it does}
 
   {Area 2}
@@ -125,6 +134,8 @@ Write `pm/product/features.md` with this structure:
 ```yaml
 ---
 generated: YYYY-MM-DD
+inventory_version: 2
+inventory_file: product/features.json
 source_project: {project root directory name}
 files_scanned: {number of source files read}
 files_total: {total files in project, when not every file was read}
@@ -153,7 +164,7 @@ The markdown body follows this structure:
 
 ## {Area Name}
 
-### {Feature name}
+### {Feature name} <!-- {feature-id} -->
 {What problem this solves and what the user gets. 2-3 sentences, plain language. Lead with the situation ("You have a rough idea..."), then the outcome ("...this turns it into a clear spec ready to build"). Never describe internal mechanics.}
 
 **Highlights:**
@@ -171,14 +182,24 @@ The markdown body follows this structure:
 - Do **not** include an "Integration points" line. If a feature connects to another, mention it naturally in the description ("After research, your strategy doc updates automatically") — but only when the connection is something the user experiences, not internal wiring.
 - Do **not** add section headers like "Part 1: Plugin" or "Part 2: Server". The split should be invisible.
 
+## Machine companion
+
+After the user approves the reconciled inventory:
+
+1. Render `features.md` from the approved in-memory record.
+2. Hash the final Markdown bytes.
+3. Write `features.json` using the v2 contract in `references/product-reasoning.md`, including the Markdown binding.
+4. Run `scripts/product-reasoning.js validate --input pm/product/features.json`, `scripts/product-reasoning-quality-check.js pm/product/features.json`, and normal `pm validate`.
+5. If schema, the 7/10 quality gate, or project validation fails, fix the weakest shared-record dimensions and regenerate both artifacts. Do not add filler or patch one reader independently.
+
 ## Completion
 
 After writing the file:
-1. Confirm: "Feature inventory written to pm/product/features.md ({N} features, {M} areas)."
+1. Confirm: "Feature inventory written to pm/product/features.md and pm/product/features.json ({N} features, {M} areas)."
 2. Suggest: "Run /pm:groom to use it in feature discovery."
 
 ## Notes
 
-- Re-running `pm:features` regenerates the entire inventory from scratch. Manual edits are replaced.
+- Re-running `pm:features` regenerates descriptions from the scan but reconciles stable identities from the previous companion. Manual prose edits are replaced after confirmation.
 - The feature inventory is a snapshot — it reflects the codebase at scan time.
 - Quality varies by codebase structure. Well-named routes and components produce better results than deeply nested legacy code.
