@@ -14,6 +14,7 @@ const {
 } = require("./artifact-render-check");
 const { isRfc3339DateTime } = require("./lib/iso-time");
 const { inspectPdfBytes, inspectPngBytes } = require("./lib/media-inspect");
+const { readProjectInput } = require("./lib/project-file");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 const MODES = new Set(["product-ui", "pm-artifact"]);
@@ -1272,31 +1273,28 @@ function readBoundFile(root, rel, label, issues) {
     return null;
   }
   try {
-    const stat = fs.lstatSync(resolved);
-    if (!stat.isFile() || stat.isSymbolicLink())
-      throw new Error("must be a regular non-symlink file");
-    if (stat.size > MAX_EVIDENCE_BYTES)
-      throw new Error(`exceeds the ${MAX_EVIDENCE_BYTES}-byte evidence budget`);
-    const real = fs.realpathSync(resolved);
-    if (real !== root && !real.startsWith(`${fs.realpathSync(root)}${path.sep}`))
-      throw new Error("resolves outside project root");
-    const cached = activeReadCache?.files.get(real);
-    const file = cached || {
-      path: real,
-      bytes: fs.readFileSync(real),
-    };
+    const cacheKey = path.relative(root, resolved).split(path.sep).join("/");
+    const cached = activeReadCache?.files.get(cacheKey);
+    const loaded = cached || readProjectInput(root, cacheKey, MAX_EVIDENCE_BYTES);
+    const file = cached || { path: loaded.path, bytes: loaded.bytes };
     if (!cached) {
       file.sha256 = digest(file.bytes);
       if (activeReadCache) {
         if (activeReadCache.bytes + file.bytes.length > MAX_CACHE_BYTES)
           throw new Error(`aggregate evidence exceeds the ${MAX_CACHE_BYTES}-byte cache budget`);
-        activeReadCache.files.set(real, file);
+        activeReadCache.files.set(cacheKey, file);
         activeReadCache.bytes += file.bytes.length;
       }
     }
-    return { ...file, relative: path.relative(root, real).split(path.sep).join("/") };
+    return { ...file, relative: cacheKey };
   } catch (error) {
-    add(issues, label, error.message);
+    const message = /^input exceeds (\d+)-byte budget$/.test(error.message)
+      ? error.message.replace(
+          /^input exceeds (\d+)-byte budget$/,
+          "exceeds the $1-byte evidence budget"
+        )
+      : error.message;
+    add(issues, label, message);
     return null;
   }
 }

@@ -4,8 +4,8 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const projectWriter = require("./lib/project-atomic-write");
-const { readProjectInput } = require("./lib/safe-project-output");
+const projectFiles = require("./lib/project-file");
+const { readProjectInput } = projectFiles;
 const { MAX_HTML_BYTES, MAX_JSON_BYTES } = require("./lib/review-limits");
 const { expectedReviewPath, reviewPathContext } = require("./lib/review-paths");
 const { changeAnchorText } = require("./lib/review-contract");
@@ -133,7 +133,7 @@ function renderReviewReport(options) {
   );
   let publication;
   try {
-    publication = projectWriter.writeProjectTextAtomic(root, options.outputPath, html, {
+    publication = projectFiles.writeProjectTextAtomic(root, options.outputPath, html, {
       fileMode: 0o600,
       directoryMode: 0o700,
       replace: !(reportStage === "final" && report.outcome !== "passed"),

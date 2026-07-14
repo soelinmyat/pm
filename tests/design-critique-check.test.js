@@ -565,20 +565,21 @@ test("reads a large bound capture only once per validation run", () => {
   rewrite(fixture.root, fixture.capturesPath, fixture.captures);
   fixture.report.captures = binding(fixture.root, fixture.capturesPath);
   rewriteReportAndHtml(fixture);
-  const original = fs.readFileSync;
+  const target = fs.realpathSync(path.join(fixture.root, capture.path));
+  const original = fs.openSync;
   let reads = 0;
-  fs.readFileSync = function counted(file, ...args) {
+  fs.openSync = function counted(file, ...args) {
     try {
-      if (fs.statSync(file).size > 4 * 1024 * 1024) reads += 1;
+      if (fs.realpathSync(String(file)) === target) reads += 1;
     } catch {
-      // Non-file reads cannot be the large capture under observation.
+      // A missing/non-path open cannot be the retained capture under observation.
     }
     return original.call(this, file, ...args);
   };
   try {
     assert.deepEqual(check(fixture), { ok: true, issues: [] });
   } finally {
-    fs.readFileSync = original;
+    fs.openSync = original;
   }
   assert.equal(reads, 1);
 });

@@ -13,6 +13,13 @@ const { deriveSessionSlug } = require("./session-slug");
 const { extractSidecarHash, sha256Hex, validateRfcSidecar } = require("../rfc-sidecar-check");
 const { analyzeWorkUnits, validateWorkUnitResult, validateWorkUnits } = require("./dev-work-units");
 const { isRfc3339DateTime } = require("./iso-time");
+const { grantActions } = require("./workflow-runtime/authority");
+const {
+  appendTransition,
+  currentEvidenceRecords,
+  hashResult,
+  isObject: isRecordObject,
+} = require("./workflow-runtime/records");
 const {
   approvalTransitionDigest,
   validateSession: validateRfcSession,
@@ -101,7 +108,7 @@ function issue(pathValue, message) {
 }
 
 function isObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
+  return isRecordObject(value);
 }
 
 function isIsoDate(value) {
@@ -1313,6 +1320,14 @@ function recertifyEvidence(session, phases, commit, verificationByPhase, options
         `recertification evidence for ${phase} must recheck an original evidence kind`
       );
     }
+    const requiredKinds = requiredRecertificationKinds(session, phase);
+    const observedKinds = new Set(records.map((record) => record.kind));
+    const missingKinds = [...requiredKinds].filter((kind) => !observedKinds.has(kind));
+    if (missingKinds.length > 0) {
+      throw new Error(
+        `recertification evidence for ${phase} is missing required kinds: ${missingKinds.join(", ")}`
+      );
+    }
     evidence.verified_commit = commit;
     evidence.verified_at = timestamp;
     evidence.verification_records = structuredClone(records);
@@ -1320,6 +1335,20 @@ function recertifyEvidence(session, phases, commit, verificationByPhase, options
   next.updated_at = timestamp;
   assertValidSession(next);
   return next;
+}
+
+function requiredRecertificationKinds(session, phase) {
+  const contracts = {
+    tdd: { phase: "implementation", kind: "test" },
+    review: { phase: "review", kind: "review" },
+    verification: { phase: "review", kind: "test" },
+  };
+  return new Set(
+    session.routing.required_gates
+      .map((gate) => contracts[gate] || { phase: gate, kind: gate })
+      .filter((contract) => contract.phase === phase)
+      .map((contract) => contract.kind)
+  );
 }
 
 function defaultRisk() {
@@ -1656,13 +1685,13 @@ function recordResult(session, result, options = {}) {
   }
 
   next.updated_at = timestamp;
-  next.history.push({
-    prior_phase: priorPhase,
-    next_phase: nextPhase,
+  appendTransition(next.history, {
+    priorPhase,
+    nextPhase,
     reason,
-    result_hash: hashResult(result),
+    result,
     timestamp,
-    runner_version: RUNNER_VERSION,
+    runnerVersion: RUNNER_VERSION,
   });
   assertValidSession(next);
   return next;
@@ -1684,7 +1713,7 @@ function assertFinalGates(session, resultCommit, options) {
     const contract = contracts[gate] || { phase: gate, kind: gate };
     const phase = contract.phase;
     const record = session.evidence[phase];
-    const currentRecords = record?.commit === head ? record.records : record?.verification_records;
+    const currentRecords = currentEvidenceRecords(record, head);
     if (
       !record ||
       !record.commit ||
@@ -1701,21 +1730,6 @@ function assertFinalGates(session, resultCommit, options) {
       issue("$.evidence", `required gates: ${missing.join(", ")}`),
     ]);
   }
-}
-
-function hashResult(result) {
-  return `sha256:${crypto.createHash("sha256").update(stableStringify(result)).digest("hex")}`;
-}
-
-function stableStringify(value) {
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  if (isObject(value)) {
-    return `{${Object.keys(value)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
 }
 
 function resumeBlocked(session, resolution, options = {}) {
@@ -1745,18 +1759,19 @@ function grantAuthority(session, actions, reason, options = {}) {
   if (typeof reason !== "string" || !reason.trim()) {
     throw new TypeError("authority grant requires a non-empty reason");
   }
-  const next = structuredClone(session);
-  for (const action of [...new Set(actions)]) {
-    if (!GRANTABLE_AUTHORITY.has(action))
-      throw new Error(`authority action is not externally grantable: ${action}`);
-    next.authority[action] = true;
-  }
   const grantedAt = options.now || new Date().toISOString();
-  next.authority_log.push({
-    actions: [...new Set(actions)],
-    reason: reason.trim(),
-    granted_at: grantedAt,
+  const granted = grantActions({
+    authority: session.authority,
+    log: session.authority_log,
+    actions,
+    allowedActions: GRANTABLE_AUTHORITY,
+    reason,
+    timestamp: grantedAt,
+    notGrantableMessage: (action) => `authority action is not externally grantable: ${action}`,
   });
+  const next = structuredClone(session);
+  next.authority = granted.authority;
+  next.authority_log = granted.log;
   next.updated_at = grantedAt;
   assertValidSession(next);
   return next;

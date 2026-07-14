@@ -9,6 +9,12 @@ const { loadPhaseStep } = require("../step-loader.js");
 const { findGitRoot, gitRelativePath, readGitFile, runGit } = require("../loop-git.js");
 const { isRfc3339DateTime: isIsoDate } = require("./iso-time.js");
 const { markdownTableValue } = require("./session-scan.js");
+const { grantActions } = require("./workflow-runtime/authority.js");
+const {
+  hashResult,
+  isObject: isRecordObject,
+  stableStringify,
+} = require("./workflow-runtime/records.js");
 
 const PHASES = ["intake", "generation", "review", "approval", "handoff"];
 const STATUSES = new Set(["active", "awaiting_approval", "approved", "blocked", "complete"]);
@@ -455,15 +461,24 @@ function grantAuthority(session, input, options = {}) {
     throw new Error(`unknown RFC authority action: ${String(input?.action)}`);
   }
   if (!nonEmpty(input.reason)) throw new Error("authority grant requires a reason");
-  const next = structuredClone(session);
   const now = options.now || new Date().toISOString();
-  next.authority[input.action] = true;
-  next.authority_log.push({
-    action: input.action,
-    granted: true,
+  const granted = grantActions({
+    authority: session.authority,
+    log: session.authority_log,
+    actions: [input.action],
+    allowedActions: new Set(AUTHORITY_ACTIONS),
     reason: input.reason,
-    recorded_at: now,
+    timestamp: now,
+    entryBuilder: (entry) => ({
+      action: entry.actions[0],
+      granted: true,
+      reason: entry.reason,
+      recorded_at: entry.granted_at,
+    }),
   });
+  const next = structuredClone(session);
+  next.authority = granted.authority;
+  next.authority_log = granted.log;
   next.updated_at = now;
   assertValidSession(next);
   return next;
@@ -1388,26 +1403,11 @@ function issue(pathValue, message) {
 }
 
 function isObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
+  return isRecordObject(value);
 }
 
 function nonEmpty(value) {
   return typeof value === "string" && value.trim().length > 0;
-}
-
-function stableStringify(value) {
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  if (isObject(value)) {
-    return `{${Object.keys(value)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
-}
-
-function hashResult(result) {
-  return `sha256:${crypto.createHash("sha256").update(stableStringify(result)).digest("hex")}`;
 }
 
 module.exports = {

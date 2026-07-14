@@ -2,6 +2,12 @@
 "use strict";
 
 const fs = require("node:fs");
+const path = require("node:path");
+const {
+  publishPrompt,
+  renderSections,
+  renderValue,
+} = require("./lib/workflow-runtime/prompt-packet");
 
 const SECTIONS = [
   ["Objective", "objective"],
@@ -36,38 +42,16 @@ function buildRfcPrompt(packet) {
       throw new Error(`RFC prompt packet requires ${field}`);
     }
   }
-  const sections = SECTIONS.map(([title, field]) => {
-    const rendered = render(packet[field]);
-    const bytes = Buffer.byteLength(rendered, "utf8");
-    if (bytes > MAX_SECTION_BYTES) {
-      throw new Error(
-        `RFC prompt section ${field} is ${bytes} bytes; limit is ${MAX_SECTION_BYTES}`
-      );
+  return renderSections(
+    SECTIONS.map(([title, field]) => ({ title, key: field, value: packet[field] })),
+    {
+      finalNewline: true,
+      label: "RFC prompt",
+      maxSectionBytes: MAX_SECTION_BYTES,
+      maxPromptBytes: MAX_PROMPT_BYTES,
+      renderValue,
     }
-    return `## ${title}\n\n${rendered}`;
-  });
-  const prompt = `${sections.join("\n\n")}\n`;
-  const totalBytes = Buffer.byteLength(prompt, "utf8");
-  if (totalBytes > MAX_PROMPT_BYTES) {
-    throw new Error(`RFC prompt is ${totalBytes} bytes; limit is ${MAX_PROMPT_BYTES}`);
-  }
-  return prompt;
-}
-
-function render(value) {
-  if (Array.isArray(value)) return value.map((item) => `- ${renderScalar(item)}`).join("\n");
-  if (value && typeof value === "object") {
-    return Object.entries(value)
-      .map(([key, item]) => `- ${key}: ${renderScalar(item)}`)
-      .join("\n");
-  }
-  return String(value);
-}
-
-function renderScalar(value) {
-  if (Array.isArray(value)) return value.join(", ");
-  if (value && typeof value === "object") return JSON.stringify(value);
-  return String(value);
+  );
 }
 
 function main(argv = process.argv.slice(2)) {
@@ -81,7 +65,7 @@ function main(argv = process.argv.slice(2)) {
     const packet = JSON.parse(fs.readFileSync(argv[inputIndex + 1], "utf8"));
     const prompt = buildRfcPrompt(packet);
     if (outputIndex >= 0 && argv[outputIndex + 1])
-      fs.writeFileSync(argv[outputIndex + 1], prompt, { mode: 0o600 });
+      publishPrompt(path.resolve(argv[outputIndex + 1]), prompt);
     else process.stdout.write(prompt);
     return 0;
   } catch (error) {
