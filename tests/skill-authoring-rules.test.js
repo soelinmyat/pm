@@ -48,6 +48,26 @@ test("fenced heading examples cannot satisfy operative section contracts", () =>
   assert.equal(parsed.has("goal"), false);
 });
 
+test("shorter nested fences do not close a longer outer fence", () => {
+  const parsed = sections(
+    [
+      "````markdown",
+      "```markdown",
+      "## Goal",
+      "Still inside the outer example.",
+      "```",
+      "## How",
+      "Also still inside the outer example.",
+      "````",
+      "## Done-when",
+      "This heading is operative.",
+    ].join("\n")
+  );
+  assert.equal(parsed.has("goal"), false);
+  assert.equal(parsed.has("how"), false);
+  assert.equal(parsed.has("done-when"), true);
+});
+
 test("workflow without telemetry steps fails the entry-point contract", () => {
   const ctx = {
     skills: [
@@ -61,7 +81,7 @@ test("workflow without telemetry steps fails the entry-point contract", () => {
           "## Purpose\nA substantive purpose for validation.",
           "## Iron Law\n**NEVER OMIT THE REQUIRED DECLARATION.**",
           "## When NOT to use\nRoute unrelated work elsewhere.",
-          "**Workflow:** `fixture`",
+          "```markdown\n**Workflow:** `fixture` | **Telemetry steps:** `intake`\n```",
           "## Red Flags\nA substantive self-check section.",
           "## Escalation Paths\nStop and ask the user.",
           "## Common Rationalizations\nA substantive rationale table.",
@@ -141,6 +161,31 @@ test("command parity catches a redirect whose destination drifted", () => {
   assert.match(rule.check(ctx)[0].message, /same exact destination/);
 });
 
+test("fenced directives and dispatch examples do not satisfy live contracts", () => {
+  const skill = {
+    name: "fixture",
+    skillFmExists: true,
+    skillFm: {},
+    skillBody: [
+      "```markdown",
+      "Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md`.",
+      "Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.",
+      "Dispatch to `skills/fixture/SKILL.md`.",
+      "```",
+    ].join("\n"),
+    steps: [],
+  };
+  const byId = new Map(d2Rules().map((rule) => [rule.id, rule]));
+  assert.equal(byId.get("D2-SKILL-002-reference-directives").check({ skills: [skill] }).length, 2);
+  assert.match(
+    byId.get("D2-CMD-001-surface-parity").check({
+      skills: [skill],
+      commands: [{ name: "fixture", frontmatter: {}, body: skill.skillBody }],
+    })[0].message,
+    /must dispatch/
+  );
+});
+
 test("read-only class rejects executable mutation commands", () => {
   const ctx = {
     skills: [
@@ -154,6 +199,29 @@ test("read-only class rejects executable mutation commands", () => {
   };
   const rule = d2Rules().find((entry) => entry.id === "D2-SKILL-005-class-contract");
   assert.match(rule.check(ctx)[0].message, /mutation command/);
+});
+
+test("fenced class signals do not satisfy boundaries but fenced mutations remain unsafe", () => {
+  const ctx = {
+    skills: [
+      {
+        name: "list",
+        skillFm: {},
+        skillBody: [
+          "This is a read-only view.",
+          "```text",
+          "Handle an empty or missing source as an error.",
+          "const fs = require('node:fs'); fs.mkdirSync('.pm/cache');",
+          "```",
+        ].join("\n"),
+        steps: [],
+      },
+    ],
+  };
+  const rule = d2Rules().find((entry) => entry.id === "D2-SKILL-005-class-contract");
+  const messages = rule.check(ctx).map((issue) => issue.message);
+  assert.ok(messages.some((message) => /class boundary/.test(message)));
+  assert.ok(messages.some((message) => /mutation command/.test(message)));
 });
 
 test("branched Advance may name later existing steps when the branch is explicit", () => {
@@ -214,6 +282,32 @@ test("linear workflows reject backward and terminal numbered advances", () => {
   const messages = rule.check(ctx).map((issue) => issue.message);
   assert.ok(messages.some((message) => /backward or circular/.test(message)));
   assert.ok(messages.some((message) => /final step cannot advance/.test(message)));
+});
+
+test("fenced transition examples cannot satisfy live step transitions", () => {
+  const ctx = {
+    skills: [
+      {
+        name: "fixture",
+        steps: [
+          {
+            frontmatter: { order: 1 },
+            relPath: "steps/01-start.md",
+            body: "```markdown\n**Advance:** proceed to Step 2.\n```",
+          },
+          {
+            frontmatter: { order: 2 },
+            relPath: "steps/02-done.md",
+            body: "```markdown\nOffer the next action.\n```",
+          },
+        ],
+      },
+    ],
+  };
+  const rule = d2Rules().find((entry) => entry.id === "D2-STEP-002-transition");
+  const messages = rule.check(ctx).map((issue) => issue.message);
+  assert.ok(messages.some((message) => /non-final step must advance/.test(message)));
+  assert.ok(messages.some((message) => /final step must summarize/.test(message)));
 });
 
 test("routed workflows do not invent linear transitions between subcommands", () => {

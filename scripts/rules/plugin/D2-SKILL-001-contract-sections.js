@@ -1,6 +1,11 @@
 "use strict";
 
-const { sectionByPrefix, sections, substantive } = require("../../lib/skill-authoring/markdown.js");
+const {
+  operativeMarkdown,
+  sectionByPrefix,
+  sections,
+  substantive,
+} = require("../../lib/skill-authoring/markdown.js");
 
 const REQUIRED = [
   "Purpose",
@@ -39,7 +44,7 @@ module.exports = {
       }
       if (
         !/\*\*Workflow:\*\*\s*`[^`]+`\s*\|\s*\*\*Telemetry steps:\*\*\s*`[^`]+`/i.test(
-          skill.skillBody
+          operativeMarkdown(skill.skillBody)
         )
       ) {
         issues.push({

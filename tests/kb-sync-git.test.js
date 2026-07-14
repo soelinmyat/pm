@@ -142,6 +142,8 @@ test("setup ignores inherited git hook env", (t) => {
     "pm/strategy.md": "# Strategy\n",
   });
   const remote = withBareRemote();
+  const poisonObjectDir = fs.mkdtempSync(path.join(os.tmpdir(), "kb-poison-object-"));
+  const poisonAlternateDir = fs.mkdtempSync(path.join(os.tmpdir(), "kb-poison-alternate-"));
   const repoRoot = path.join(__dirname, "..");
   const hookGitDir = gitExec("git rev-parse --git-dir", { cwd: repoRoot, encoding: "utf8" }).trim();
   const originalEnv = {};
@@ -156,11 +158,15 @@ test("setup ignores inherited git hook env", (t) => {
     }
     cleanup();
     remote.cleanup();
+    fs.rmSync(poisonObjectDir, { recursive: true, force: true });
+    fs.rmSync(poisonAlternateDir, { recursive: true, force: true });
   });
 
   process.env.GIT_DIR = hookGitDir;
   process.env.GIT_WORK_TREE = repoRoot;
   process.env.GIT_INDEX_FILE = path.join(hookGitDir, "index");
+  process.env.GIT_OBJECT_DIRECTORY = poisonObjectDir;
+  process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES = poisonAlternateDir;
 
   const { setup, hasRemote, getRemoteUrl } = require(KB_SYNC_GIT_PATH);
   const result = setup(pmDir, remote.url);

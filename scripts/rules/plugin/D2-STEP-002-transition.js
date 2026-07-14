@@ -1,10 +1,11 @@
 "use strict";
 
 const { STEP_TRANSITIONS } = require("../../lib/skill-authoring/classification.js");
+const { operativeMarkdown } = require("../../lib/skill-authoring/markdown.js");
 
 function hasNextAction(body) {
   return /(next action|offer|proceed to|continue with|advance:|next,|then end|close by)/i.test(
-    body || ""
+    operativeMarkdown(body)
   );
 }
 
@@ -22,7 +23,7 @@ module.exports = {
       );
       for (let index = 0; index < ordered.length; index++) {
         const step = ordered[index];
-        const advanceLines = String(step.body || "")
+        const advanceLines = operativeMarkdown(step.body)
           .split(/\r?\n/)
           .filter((line) => /\*\*Advance:\*\*/i.test(line));
         const targets = advanceLines.flatMap((line) =>

@@ -1,6 +1,7 @@
 "use strict";
 
 const { SKILL_CLASSES, classForSkill } = require("../../lib/skill-authoring/classification.js");
+const { operativeMarkdown } = require("../../lib/skill-authoring/markdown.js");
 
 const REQUIREMENTS = {
   lifecycle: [/authority/i, /evidence/i, /(advance|transition)/i],
@@ -38,7 +39,7 @@ module.exports = {
         issues.push({ file, message: "skill is missing a validator-owned class" });
         continue;
       }
-      const body = skill.skillBody || "";
+      const body = operativeMarkdown(skill.skillBody || "");
       const missing = REQUIREMENTS[skillClass].filter((pattern) => !pattern.test(body));
       if (missing.length > 0) {
         issues.push({

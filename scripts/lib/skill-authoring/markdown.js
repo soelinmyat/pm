@@ -9,28 +9,48 @@ function normalizeHeading(value) {
     .trim();
 }
 
+function openingFence(line) {
+  const match = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+  if (!match) return null;
+  const marker = match[1][0];
+  if (marker === "`" && match[2].includes("`")) return null;
+  return { marker, length: match[1].length };
+}
+
+function closesFence(line, fence) {
+  const match = line.match(/^ {0,3}(`+|~+)\s*$/);
+  return Boolean(match && match[1][0] === fence.marker && match[1].length >= fence.length);
+}
+
+function operativeMarkdown(markdown) {
+  const output = [];
+  let fence = null;
+  for (const line of String(markdown || "").split(/\r?\n/)) {
+    if (fence === null) {
+      const opening = openingFence(line);
+      if (opening) {
+        fence = opening;
+        output.push("");
+      } else {
+        output.push(line);
+      }
+      continue;
+    }
+    if (closesFence(line, fence)) fence = null;
+    output.push("");
+  }
+  return output.join("\n");
+}
+
 function sections(markdown) {
   const result = new Map();
-  const lines = String(markdown || "").split(/\r?\n/);
+  const lines = operativeMarkdown(markdown).split(/\r?\n/);
   let current = null;
   let buffer = [];
-  let fence = null;
   function flush() {
     if (current !== null) result.set(current, buffer.join("\n").trim());
   }
   for (const line of lines) {
-    const fenceMatch = line.match(/^\s*(`{3,}|~{3,})/);
-    if (fenceMatch) {
-      const marker = fenceMatch[1][0];
-      if (fence === null) fence = marker;
-      else if (fence === marker) fence = null;
-      if (current !== null) buffer.push(line);
-      continue;
-    }
-    if (fence !== null) {
-      if (current !== null) buffer.push(line);
-      continue;
-    }
     const match = line.match(/^#{2,3}\s+(.+?)\s*$/);
     if (match) {
       flush();
@@ -70,4 +90,11 @@ function tableDataRows(body) {
     .slice(1);
 }
 
-module.exports = { normalizeHeading, sectionByPrefix, sections, substantive, tableDataRows };
+module.exports = {
+  normalizeHeading,
+  operativeMarkdown,
+  sectionByPrefix,
+  sections,
+  substantive,
+  tableDataRows,
+};

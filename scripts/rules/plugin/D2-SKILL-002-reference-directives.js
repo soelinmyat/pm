@@ -1,5 +1,7 @@
 "use strict";
 
+const { operativeMarkdown } = require("../../lib/skill-authoring/markdown.js");
+
 module.exports = {
   id: "D2-SKILL-002-reference-directives",
   severity: "error",
@@ -8,7 +10,7 @@ module.exports = {
     const issues = [];
     for (const skill of ctx.skills) {
       if (!skill.skillFmExists) continue;
-      const body = skill.skillBody || "";
+      const body = operativeMarkdown(skill.skillBody || "");
       const file = `skills/${skill.name}/SKILL.md`;
       if (!body.includes("${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md")) {
         issues.push({ file, message: "missing shared skill-runtime.md directive" });

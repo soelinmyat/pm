@@ -253,5 +253,6 @@ Implemented in seven bounded slices on `codex/skill-authoring-contract`:
 - `skill-audit --json` reports `enforcement: enforced`, 24 clean skills, and zero issues;
 - operational, evidence, conversational, capture, projection, redirect, reviewer, and lifecycle contracts were remediated without generic suppressions.
 - Review round 1 exposed seven concrete enforcement and Sync boundaries; the remediation adds fence-aware parsing, monotonic transition checks, full telemetry/completion semantics, argv-safe Git execution, and same-repo PM destination protection with regressions.
+- Review round 2 exposed three boundary variants: inherited Git object stores, CommonMark fence-length semantics, and raw-text D2 scans. The remediation clears the remaining repository-shaping Git environment, makes one operative-Markdown view authoritative across D2 rules, and covers nested fences plus fenced telemetry, directives, and transitions.
 
 Release status remains pending until the patch release is merged and its version tag is moved to the main merge commit.
