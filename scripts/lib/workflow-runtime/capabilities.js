@@ -71,7 +71,7 @@ function probeCapabilitiesCached(provider, options = {}) {
     .slice(0, 20);
   const cacheDir =
     options.cacheDir ||
-    path.join(os.tmpdir(), `pm-dev-capabilities-${process.getuid?.() ?? "user"}`);
+    path.join(os.tmpdir(), `pm-runtime-capabilities-${process.getuid?.() ?? "user"}`);
   const cachePath = path.join(cacheDir, `${provider}-${fingerprint}.json`);
   fs.mkdirSync(cacheDir, { recursive: true, mode: 0o700 });
   const readCached = () => readCapabilityCache(cachePath, provider, fingerprint);
