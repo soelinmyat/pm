@@ -2242,7 +2242,6 @@ test("prior-round evidence remains valid after the cited source is removed", () 
     reportStage: "draft",
     writeReport: true,
     verifyBrowser: false,
-    allowHistoricalGeneratorVersion: true,
   });
   assert.equal(checked.ok, false);
   assert.doesNotMatch(JSON.stringify(checked.issues), /target\.prior_report|frozen evidence/);

@@ -458,7 +458,10 @@ function validateTargetBindings(root, target, reviewRoot, options, issues) {
             verifyGit: false,
             verifyFrozenGit: true,
             verifyBrowser: false,
-            allowHistoricalGeneratorVersion: options.allowHistoricalGeneratorVersion === true,
+            // A bound prior round is immutable and may have been produced before a
+            // remediation bump. Accept only an older-or-equal semantic version here;
+            // the current report still requires the current generator by default.
+            allowHistoricalGeneratorVersion: true,
           })
         );
         if (!prior.ok)
