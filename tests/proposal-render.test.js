@@ -9,7 +9,6 @@ const { inspectHtmlArtifact } = require("../scripts/artifact-check.js");
 const { renderProposal, main } = require("../scripts/proposal-render.js");
 const { check } = require("../scripts/proposal-check.js");
 
-const ROOT = path.resolve(__dirname, "..");
 const FIXTURE = path.join(__dirname, "fixtures", "proposals", "strong-v1.json");
 
 function source() {

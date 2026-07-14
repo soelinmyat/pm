@@ -310,7 +310,9 @@ function recoverTerminalRetry(sessionPath, result) {
     const completion = readJson(path.join(activeDir, "completion.json"));
     if (completion.run_id === result.run_id && completion.result_hash === resultHash)
       return completion;
-  } catch {}
+  } catch {
+    // Completion lookup is best-effort before immutable archive discovery.
+  }
   const archivePath = path.join(
     path.dirname(activeDir),
     "completed",
