@@ -76,12 +76,27 @@ Skills persist state in `.pm/` session files. Think is different — it has no s
 
 | Skill | Type | Location |
 |-------|------|----------|
-| dev | session state | `.pm/dev-sessions/{slug}.md` |
+| dev | canonical JSON session | `.pm/dev-sessions/{slug}/session.json` |
 | groom | session state | `.pm/groom-sessions/{slug}.md` |
-| rfc | session state | `.pm/rfc-sessions/{slug}.md` |
+| rfc | canonical JSON session | `.pm/rfc-sessions/{slug}/session.json` |
 | think | output artifact | `{pm_dir}/thinking/{slug}.md` |
 
-Session state files use YAML-in-markdown. They're the single source of truth for resume — not conversation history. Think resumes by reopening the saved artifact and asking what changed.
+Dev and RFC use strict JSON state written only by their lifecycle runners. Their phase results, transition history, evidence, recertification, runtime identity, and authority logs are the resume source of truth—not conversation history. Older Markdown sessions remain migration inputs. Legacy workflows still use YAML-in-Markdown until their migration wave. Think resumes by reopening the saved artifact and asking what changed.
+
+### Shared Runtime Primitives
+
+`scripts/lib/workflow-runtime/` owns mechanics that must be identical across lifecycle skills:
+
+- stable result hashing, transition construction, and current/recertified evidence selection;
+- closed evidence/runtime record validation;
+- allowlisted authority grants;
+- bounded prompt-section rendering and atomic private publication;
+- data-injected model-profile resolution;
+- external-effect receipt binding to target, authority, attempt, result, and observation.
+
+`scripts/lib/project-file.js` is the public project-file boundary. It combines descriptor-bound, byte-bounded input with anchored atomic output. The historical input/output modules remain compatibility implementations beneath that facade.
+
+These modules are deliberately policy-free. Dev and RFC retain routing, statuses, approval, gates, and completion. Review and Design Critique retain findings, artifact schemas, remediation rules, and verdicts. Ship retains the policy for when a push, PR, merge, or tag is legal. A generic workflow engine is not part of the architecture.
 
 ### Agent Dispatch
 
@@ -92,7 +107,7 @@ Skills dispatch fresh `Agent()` calls at phase boundaries. Each agent gets:
 - A persona overlay (for review agents)
 - The RFC or proposal as the handoff contract
 
-Agents are always fresh — no persistent workers. The RFC/state file is the contract between phases.
+Workers receive phase-local packets. A CLI runtime may resume its provider session only for the same work unit and authority envelope; otherwise dispatch starts fresh. The canonical RFC/session state remains the contract between phases.
 
 ### References (Shared vs Skill-Scoped)
 

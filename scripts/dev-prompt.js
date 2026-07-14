@@ -92,10 +92,6 @@ function section(name, body) {
   });
 }
 
-function demoteEmbeddedHeadings(value) {
-  return String(value).replace(/^#{1,2}(?=\s)/gmu, "###");
-}
-
 function requiredText(value, name) {
   if (typeof value !== "string" || !value.trim()) throw new TypeError(`${name} is required`);
   return value.trim();

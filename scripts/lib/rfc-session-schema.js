@@ -15,6 +15,10 @@ const {
   isObject: isRecordObject,
   stableStringify,
 } = require("./workflow-runtime/records.js");
+const {
+  evidenceRecordIssues,
+  runtimeRecordIssues,
+} = require("./workflow-runtime/result-envelope.js");
 
 const PHASES = ["intake", "generation", "review", "approval", "handoff"];
 const STATUSES = new Set(["active", "awaiting_approval", "approved", "blocked", "complete"]);
@@ -546,42 +550,57 @@ function validateResultIdentity(session, result) {
   if (!RESULT_STATUSES.has(result.status)) throw new Error("phase result status is invalid");
   if (!nonEmpty(result.summary)) throw new Error("phase result summary is required");
   if (!Array.isArray(result.evidence)) throw new Error("phase result evidence must be an array");
-  for (const evidence of result.evidence) {
-    if (!isObject(evidence)) throw new Error("phase result evidence entries must be objects");
-    const fields = ["kind", "command", "exit_code", "artifact"];
-    if (Object.keys(evidence).some((field) => !fields.includes(field))) {
+  for (const [index, evidence] of result.evidence.entries()) {
+    const evidenceIssues = evidenceRecordIssues(evidence, index);
+    if (evidenceIssues.some((item) => item.message === "must be an object")) {
+      throw new Error("phase result evidence entries must be objects");
+    }
+    if (evidenceIssues.some((item) => item.message === "unknown field")) {
       throw new Error("phase result evidence has unknown fields");
     }
-    if (fields.some((field) => !Object.hasOwn(evidence, field))) {
+    if (evidenceIssues.some((item) => item.message === "required field is missing")) {
       throw new Error("phase result evidence requires kind, command, exit_code, and artifact");
     }
-    if (!nonEmpty(evidence.kind) || !Number.isInteger(evidence.exit_code)) {
+    if (
+      evidenceIssues.some((item) => item.path.endsWith(".kind") || item.path.endsWith(".exit_code"))
+    ) {
       throw new Error("phase result evidence requires kind and integer exit_code");
     }
-    for (const field of ["command", "artifact"]) {
-      if (evidence[field] !== null && typeof evidence[field] !== "string") {
-        throw new Error(`phase result evidence.${field} must be null or string`);
-      }
+    const nullableIssue = evidenceIssues.find(
+      (item) =>
+        item.message === "must be null or a string" &&
+        (item.path.endsWith(".command") || item.path.endsWith(".artifact"))
+    );
+    if (nullableIssue) {
+      throw new Error(
+        `phase result evidence.${nullableIssue.path.split(".").at(-1)} must be null or string`
+      );
     }
   }
   if (!Array.isArray(result.reviewer_verdicts)) {
     throw new Error("phase result reviewer_verdicts must be an array");
   }
-  if (!isObject(result.runtime) || !nonEmpty(result.runtime.provider)) {
+  const runtimeIssues = runtimeRecordIssues(result.runtime, "$.runtime", {
+    requireSessionId: true,
+  });
+  if (runtimeIssues.some((item) => item.path === "$.runtime" || item.path.endsWith(".provider"))) {
     throw new Error("phase result runtime is required");
   }
-  const runtimeFields = ["provider", "model", "reasoning", "session_id"];
-  if (Object.keys(result.runtime).some((field) => !runtimeFields.includes(field))) {
+  if (runtimeIssues.some((item) => item.message === "unknown field")) {
     throw new Error("phase result runtime has unknown fields");
   }
   for (const field of ["provider", "model", "reasoning"]) {
-    if (!nonEmpty(result.runtime[field]))
+    if (runtimeIssues.some((item) => item.path.endsWith(`.${field}`)))
       throw new Error(`phase result runtime.${field} is required`);
   }
-  if (runtimeFields.some((field) => !Object.hasOwn(result.runtime, field))) {
+  if (
+    runtimeIssues.some(
+      (item) => item.path.endsWith(".session_id") && item.message === "required field is missing"
+    )
+  ) {
     throw new Error("phase result runtime requires provider, model, reasoning, and session_id");
   }
-  if (result.runtime.session_id !== null && !nonEmpty(result.runtime.session_id)) {
+  if (runtimeIssues.some((item) => item.path.endsWith(".session_id"))) {
     throw new Error("phase result runtime.session_id must be null or string");
   }
   if (

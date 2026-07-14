@@ -20,6 +20,8 @@ const {
   hashResult,
   isObject: isRecordObject,
 } = require("./workflow-runtime/records");
+const { evidenceRecordIssues, runtimeRecordIssues } = require("./workflow-runtime/result-envelope");
+const { bindEffectReceipt } = require("./workflow-runtime/effect-receipt");
 const {
   approvalTransitionDigest,
   validateSession: validateRfcSession,
@@ -679,50 +681,11 @@ function validateResultEnvelope(result) {
 }
 
 function validateEvidenceRecord(record, index, errors, basePath = "$.evidence") {
-  const recordPath = `${basePath}[${index}]`;
-  if (!isObject(record)) {
-    errors.push(issue(recordPath, "must be an object"));
-    return;
-  }
-  const fields = new Set(["kind", "command", "exit_code", "artifact"]);
-  validateExactFields(record, fields, recordPath, errors);
-  for (const field of fields) {
-    requireField(record, field, recordPath, errors);
-  }
-  if (typeof record.kind !== "string" || !record.kind)
-    errors.push(issue(`${recordPath}.kind`, "required"));
-  if (record.command !== null && typeof record.command !== "string") {
-    errors.push(issue(`${recordPath}.command`, "must be null or a string"));
-  }
-  if (!Number.isInteger(record.exit_code))
-    errors.push(issue(`${recordPath}.exit_code`, "must be integer"));
-  if (record.artifact !== null && typeof record.artifact !== "string") {
-    errors.push(issue(`${recordPath}.artifact`, "must be null or a string"));
-  }
+  errors.push(...evidenceRecordIssues(record, index, basePath));
 }
 
 function validateResultRuntime(runtime, errors, runtimePath = "$.runtime") {
-  if (!isObject(runtime)) {
-    errors.push(issue(runtimePath, "must be an object"));
-    return;
-  }
-  const fields = new Set(["provider", "model", "reasoning", "session_id"]);
-  validateExactFields(runtime, fields, runtimePath, errors);
-  for (const field of ["provider", "model", "reasoning"]) {
-    requireField(runtime, field, runtimePath, errors);
-  }
-  for (const field of ["provider", "model", "reasoning"]) {
-    if (typeof runtime[field] !== "string" || !runtime[field]) {
-      errors.push(issue(`${runtimePath}.${field}`, "must be a non-empty string"));
-    }
-  }
-  if (
-    runtime.session_id !== undefined &&
-    runtime.session_id !== null &&
-    typeof runtime.session_id !== "string"
-  ) {
-    errors.push(issue(`${runtimePath}.session_id`, "must be null or a string"));
-  }
+  errors.push(...runtimeRecordIssues(runtime, runtimePath));
 }
 
 function validateResult(session, result, options = {}) {
@@ -972,14 +935,32 @@ function validateDeliveryEvidence(session, result, options, errors) {
   }
   try {
     const observed = (options.verifyDelivery || defaultVerifyDelivery)(receipt, session);
-    if (
-      observed.number !== receipt.pr_number ||
-      observed.url !== receipt.pr_url ||
-      observed.state !== receipt.state ||
-      observed.headRefName !== session.source.branch ||
-      observed.headRefOid !== receipt.feature_commit ||
-      (!headless && observed.mergeCommit?.oid !== receipt.merge_sha)
-    ) {
+    try {
+      bindEffectReceipt({
+        effect: "pull-request-delivery",
+        target: {
+          number: receipt.pr_number,
+          url: receipt.pr_url,
+          head_branch: receipt.head_branch,
+          feature_commit: receipt.feature_commit,
+        },
+        authorityActions: requiredActions,
+        attempt: result.attempt,
+        receipt: { state: receipt.state, merge_sha: receipt.merge_sha },
+        observation: {
+          target: {
+            number: observed.number,
+            url: observed.url,
+            head_branch: observed.headRefName,
+            feature_commit: observed.headRefOid,
+          },
+          receipt: {
+            state: observed.state,
+            merge_sha: headless ? null : observed.mergeCommit?.oid,
+          },
+        },
+      });
+    } catch {
       errors.push(
         issue("$.evidence", "delivery receipt does not match observed pull-request state")
       );

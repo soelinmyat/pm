@@ -14,10 +14,11 @@ const {
   validateMetrics,
 } = require("./artifact-render-check");
 const { inspectPdfBytes, inspectPngBytes } = require("./lib/media-inspect");
-const { readProjectInput } = require("./lib/safe-project-output");
+const { readProjectInput } = require("./lib/project-file");
 const { MAX_HTML_BYTES, MAX_JSON_BYTES } = require("./lib/review-limits");
 const { isUiImpactPath } = require("./lib/ui-impact");
 const { deriveSessionSlug } = require("./lib/session-slug");
+const { hasCurrentEvidence } = require("./lib/workflow-runtime/records");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 const DEFAULT_MANIFEST_PATH = ".pm/dev-sessions/current.gates.json";
@@ -116,6 +117,18 @@ function checkGateManifest(manifest, opts = {}) {
     if (canonicalSession.authority?.[action] !== true || !logged)
       issues.push(issue(manifestPath, `canonical session does not grant authority ${action}`));
   }
+  if (
+    (opts.requiredAuthorities || []).length > 0 &&
+    Array.isArray(canonicalSession?.routing?.required_gates)
+  ) {
+    validateCanonicalDeliveryEvidence(
+      canonicalSession,
+      requiredGates,
+      currentCommit,
+      manifestPath,
+      issues
+    );
+  }
 
   const legacySimplifyTolerated = !requiredGates.includes("simplify");
   const byName = new Map();
@@ -189,6 +202,41 @@ function checkGateManifest(manifest, opts = {}) {
       issues,
     };
   return { ok: issues.length === 0, issues };
+}
+
+function validateCanonicalDeliveryEvidence(
+  session,
+  requestedGates,
+  currentCommit,
+  manifestPath,
+  issues
+) {
+  const contracts = {
+    tdd: { phase: "implementation", kind: "test" },
+    review: { phase: "review", kind: "review" },
+    verification: { phase: "review", kind: "test" },
+  };
+  for (const gate of session.routing.required_gates) {
+    if (!requestedGates.includes(gate)) {
+      issues.push(issue(manifestPath, `delivery check omitted routed gate ${gate}`));
+      continue;
+    }
+    const contract = contracts[gate] || { phase: gate, kind: gate };
+    if (
+      !hasCurrentEvidence(
+        session.evidence?.[contract.phase],
+        currentCommit,
+        (record) => record.kind === contract.kind
+      )
+    ) {
+      issues.push(
+        issue(
+          manifestPath,
+          `canonical session evidence for ${gate} is missing or stale at current commit`
+        )
+      );
+    }
+  }
 }
 
 function validateReviewReportArtifact(

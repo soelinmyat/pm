@@ -4,6 +4,8 @@
 
 `session.json` is the lifecycle source of truth. Markdown files are compatibility inputs and optional human projections; they never advance a v2 session.
 
+Provider-neutral record mechanics live in `scripts/lib/workflow-runtime/`; this Dev adapter owns phase routing, risk, gate-to-evidence mapping, commit reachability, delivery policy, and completion. Recertification is accepted only when its phase-local records preserve every evidence kind required by the routed final gates.
+
 Create and update v2 sessions only through `${PM_PLUGIN_ROOT}/scripts/dev-session.js`:
 
 ```text

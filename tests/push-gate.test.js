@@ -112,10 +112,14 @@ function runHook(command, payloadOverrides = {}, envOverrides = {}) {
     tool_input: { command },
     ...payloadOverrides,
   });
+  const stableEnvironment = Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => !key.startsWith("MISE_"))
+  );
+  stableEnvironment.PATH = `${path.dirname(process.execPath)}:${stableEnvironment.PATH || ""}`;
   return spawnSync(HOOK, {
     input: payload,
     encoding: "utf8",
-    env: { ...process.env, PM_PLUGIN_ROOT: ROOT, ...envOverrides },
+    env: { ...stableEnvironment, PM_PLUGIN_ROOT: ROOT, ...envOverrides },
   });
 }
 

@@ -15,6 +15,11 @@ const {
 const { grantActions } = require("../scripts/lib/workflow-runtime/authority");
 const { publishPrompt, renderSections } = require("../scripts/lib/workflow-runtime/prompt-packet");
 const { resolveModelProfile } = require("../scripts/lib/workflow-runtime/model-profile");
+const {
+  evidenceRecordIssues,
+  runtimeRecordIssues,
+} = require("../scripts/lib/workflow-runtime/result-envelope");
+const { bindEffectReceipt } = require("../scripts/lib/workflow-runtime/effect-receipt");
 
 test("workflow records are provider-neutral and byte-stable", () => {
   const value = { z: 1, a: { y: true, x: [2, "one"] } };
@@ -113,4 +118,60 @@ test("model profile resolution is data-injected and preserves explicit overrides
     }
   );
   assert.throws(() => resolveModelProfile({ data, provider: "claude" }), /unknown runtime/);
+});
+
+test("result record validation is shared without choosing workflow statuses or policy", () => {
+  assert.deepEqual(
+    evidenceRecordIssues({ kind: "test", command: null, exit_code: 0, artifact: null }, 0),
+    []
+  );
+  const issues = evidenceRecordIssues({ kind: "test", exit_code: "zero" }, 0);
+  assert.ok(
+    issues.some(
+      (item) => item.path.endsWith(".command") && item.message === "required field is missing"
+    )
+  );
+  assert.ok(
+    issues.some((item) => item.path.endsWith(".exit_code") && item.message === "must be integer")
+  );
+  assert.ok(
+    issues.some(
+      (item) => item.path.endsWith(".artifact") && item.message === "required field is missing"
+    )
+  );
+  assert.deepEqual(
+    runtimeRecordIssues(
+      { provider: "codex", model: "gpt-5.6-sol", reasoning: "high", session_id: null },
+      "$.runtime",
+      { requireSessionId: true }
+    ),
+    []
+  );
+});
+
+test("external effect receipts bind target, authority, attempt, receipt, and observation", () => {
+  const target = { pr: 353, head: "abc" };
+  const receipt = { state: "MERGED", merge_sha: "def" };
+  const bound = bindEffectReceipt({
+    effect: "pull-request-delivery",
+    target,
+    authorityActions: ["push", "merge", "merge"],
+    attempt: 1,
+    receipt,
+    observation: { target: { head: "abc", pr: 353 }, receipt },
+    observedAt: "2026-07-14T00:00:00.000Z",
+  });
+  assert.deepEqual(bound.authority.actions, ["push", "merge"]);
+  assert.throws(
+    () =>
+      bindEffectReceipt({
+        effect: "pull-request-delivery",
+        target,
+        authorityActions: ["merge"],
+        attempt: 1,
+        receipt,
+        observation: { target: { ...target, head: "other" }, receipt },
+      }),
+    /target does not match/
+  );
 });

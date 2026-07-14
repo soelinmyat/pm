@@ -5,7 +5,7 @@ const crypto = require("node:crypto");
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
-const { readProjectInput } = require("../lib/safe-project-output");
+const { readProjectInput } = require("../lib/project-file");
 const { MAX_JSON_BYTES } = require("../lib/review-limits");
 const { checkReview, expandFromReport } = require("../review-check");
 

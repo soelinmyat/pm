@@ -45,7 +45,7 @@ const {
   reviewRootFromTargetPath,
 } = require("../scripts/lib/review-paths");
 const { renderArtifact, resolveBrowser } = require("../scripts/artifact-render-check");
-const projectWriter = require("../scripts/lib/project-atomic-write");
+const projectWriter = require("../scripts/lib/project-file");
 const { writeProjectTextAtomic } = projectWriter;
 const { readProjectInput } = require("../scripts/lib/safe-project-output");
 
