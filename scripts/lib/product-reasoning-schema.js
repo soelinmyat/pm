@@ -16,6 +16,10 @@ const STRATEGIC_ALIGNMENT = Object.freeze({ weak: 0, partial: 1, strong: 2 });
 const COMPETITOR_GAP = Object.freeze({ parity: 0, partial: 1, unique: 2 });
 const SCOPE_EFFICIENCY = Object.freeze({ large: 0, medium: 1, small: 2 });
 const MAX_BINDINGS = 16;
+const MAX_EVIDENCE_REFS = 128;
+const MAX_ALTERNATIVES = 16;
+const MAX_CONFIDENCE_BASIS = 32;
+const MAX_NON_GOALS = 32;
 const MAX_SOURCE_FILE_BYTES = 4 * 1024 * 1024;
 const MAX_SOURCE_SNAPSHOT_BYTES = 64 * 1024 * 1024;
 
@@ -70,35 +74,50 @@ function validateDecisionBrief(value) {
   }
   text(value.title, "decision.title", issues);
   text(value.problem, "decision.problem", issues);
-  array(value.evidence_refs, "decision.evidence_refs", issues, (entry, at) => {
-    if (!record(entry)) return issues.push(`${at} must be an object`);
-    closed(entry, ["ref", "evidence_id", "note"], at, issues);
-    evidenceRef(entry.ref, `${at}.ref`, issues);
-    if (
-      entry.evidence_id !== null &&
-      entry.evidence_id !== undefined &&
-      !/^ev-[a-f0-9]{20}$/.test(entry.evidence_id)
-    )
-      issues.push(`${at}.evidence_id is invalid`);
-    text(entry.note, `${at}.note`, issues);
-  });
+  array(
+    value.evidence_refs,
+    "decision.evidence_refs",
+    issues,
+    (entry, at) => {
+      if (!record(entry)) return issues.push(`${at} must be an object`);
+      closed(entry, ["ref", "evidence_id", "note"], at, issues);
+      evidenceRef(entry.ref, `${at}.ref`, issues);
+      if (
+        entry.evidence_id !== null &&
+        entry.evidence_id !== undefined &&
+        !/^ev-[a-f0-9]{20}$/.test(entry.evidence_id)
+      )
+        issues.push(`${at}.evidence_id is invalid`);
+      text(entry.note, `${at}.note`, issues);
+    },
+    { maxItems: MAX_EVIDENCE_REFS }
+  );
   const alternativeIds = new Set();
   const alternativeContent = new Set();
-  array(value.alternatives, "decision.alternatives", issues, (entry, at) => {
-    if (!record(entry)) return issues.push(`${at} must be an object`);
-    closed(entry, ["id", "title", "tradeoff"], at, issues);
-    slug(entry.id, `${at}.id`, issues);
-    if (alternativeIds.has(entry.id)) issues.push(`${at}.id is duplicated`);
-    alternativeIds.add(entry.id);
-    text(entry.title, `${at}.title`, issues);
-    text(entry.tradeoff, `${at}.tradeoff`, issues);
-    const signature = `${normalizeProse(entry.title)}\0${normalizeProse(entry.tradeoff)}`;
-    if (alternativeContent.has(signature)) issues.push(`${at} duplicates another alternative`);
-    alternativeContent.add(signature);
-  });
+  array(
+    value.alternatives,
+    "decision.alternatives",
+    issues,
+    (entry, at) => {
+      if (!record(entry)) return issues.push(`${at} must be an object`);
+      closed(entry, ["id", "title", "tradeoff"], at, issues);
+      slug(entry.id, `${at}.id`, issues);
+      if (alternativeIds.has(entry.id)) issues.push(`${at}.id is duplicated`);
+      alternativeIds.add(entry.id);
+      text(entry.title, `${at}.title`, issues);
+      text(entry.tradeoff, `${at}.tradeoff`, issues);
+      const signature = `${normalizeProse(entry.title)}\0${normalizeProse(entry.tradeoff)}`;
+      if (alternativeContent.has(signature)) issues.push(`${at} duplicates another alternative`);
+      alternativeContent.add(signature);
+    },
+    { maxItems: MAX_ALTERNATIVES }
+  );
   validateDecision(value.decision, value.alternatives, issues);
   validateConfidence(value.confidence, issues);
-  stringArray(value.non_goals, "decision.non_goals", issues, { unique: true });
+  stringArray(value.non_goals, "decision.non_goals", issues, {
+    unique: true,
+    maxItems: MAX_NON_GOALS,
+  });
   validateTrigger(value.next_trigger, issues);
   validatePromotion(value.promotion, value.source_artifacts, issues);
   const artifactPaths = new Set();
@@ -201,6 +220,7 @@ function validateConfidence(confidence, issues) {
   stringArray(confidence.basis, "decision.confidence.basis", issues, {
     nonEmpty: true,
     unique: true,
+    maxItems: MAX_CONFIDENCE_BASIS,
   });
 }
 
@@ -646,6 +666,8 @@ function reconcileFeatureInventory(previous, proposed, resolutions = {}) {
     const previousIssues = validateFeatureInventory(previous);
     if (previousIssues.length)
       throw new Error(`invalid previous feature inventory: ${previousIssues.join("; ")}`);
+    if (previous.source_project !== proposed.source_project)
+      throw new Error("feature inventories must have the same source_project for reconciliation");
   }
   const priorFeatures = flattenFeatures(previous);
   const proposedFeatures = flattenFeatures(proposed);
@@ -869,6 +891,8 @@ function integer(value, label, issues, minimum) {
 function array(value, label, issues, check, options = {}) {
   if (!Array.isArray(value)) return issues.push(`${label} must be an array`);
   if (options.nonEmpty && value.length === 0) issues.push(`${label} must be non-empty`);
+  if (options.maxItems && value.length > options.maxItems)
+    issues.push(`${label} cannot exceed ${options.maxItems} entries`);
   value.forEach((entry, index) => check(entry, `${label}[${index}]`));
 }
 function stringArray(value, label, issues, options = {}) {

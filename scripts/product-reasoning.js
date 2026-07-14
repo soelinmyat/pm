@@ -3,6 +3,7 @@
 
 const crypto = require("node:crypto");
 const path = require("node:path");
+const { parseFrontmatter } = require("./kb-frontmatter");
 const { readProjectInput } = require("./lib/safe-project-output");
 const { readBoundedJsonFile } = require("./lib/safe-json-file");
 const { writeProjectJsonAtomic } = require("./lib/project-atomic-write");
@@ -11,6 +12,7 @@ const {
   canonicalReaderPaths,
   lineagePathMatches,
   verifyArtifactBindings,
+  verifyCanonicalReaderMarker,
   verifyDecisionBriefBindings,
 } = require("./lib/product-reasoning-bindings");
 const {
@@ -228,7 +230,9 @@ function promote(root, request, options = {}) {
 
   const decisionInput = readProjectInput(root, decisionPath, 4 * 1024 * 1024);
   const brief = JSON.parse(decisionInput.bytes.toString("utf8"));
-  const canonical = canonicalOriginPaths(brief);
+  if (!new Set(["think", "idea"]).has(brief.kind))
+    throw new Error("only Think and Ideate decision briefs can be promoted to Groom");
+  const canonical = canonicalReaderPaths(brief);
   if (decisionPath !== canonical.decision)
     throw new Error(`promotion decision_path must equal ${canonical.decision}`);
   if (!bindingPaths.includes(canonical.markdown))
@@ -252,25 +256,24 @@ function promote(root, request, options = {}) {
   )
     throw new Error("approved proposal source lineage must bind the exact origin decision bytes");
   const captured = new Map([
-    [request.target_ref, approved.source.bytes],
-    [approvalRef, approved.approvalSource.bytes],
+    [request.target_ref, { relative: request.target_ref, bytes: approved.source.bytes }],
+    [approvalRef, { relative: approvalRef, bytes: approved.approvalSource.bytes }],
   ]);
   let aggregateBytes = 0;
   const sourceArtifacts = bindingPaths.map((bindingPath) => {
-    const bytes = captured.get(bindingPath);
+    const capturedInput = captured.get(bindingPath);
     const remaining = 64 * 1024 * 1024 - aggregateBytes;
     if (remaining <= 0) throw new Error("promotion bindings exceed the 64 MiB aggregate budget");
     let input;
     try {
-      input = bytes
-        ? { relative: bindingPath, bytes }
-        : readProjectInput(root, bindingPath, Math.min(16 * 1024 * 1024, remaining));
+      input =
+        capturedInput || readProjectInput(root, bindingPath, Math.min(16 * 1024 * 1024, remaining));
     } catch (error) {
       if (remaining < 16 * 1024 * 1024 && /input exceeds/.test(error.message))
         throw new Error("promotion bindings exceed the 64 MiB aggregate budget");
       throw error;
     }
-    captured.set(bindingPath, input.bytes);
+    captured.set(bindingPath, input);
     aggregateBytes += input.bytes.length;
     if (aggregateBytes > 64 * 1024 * 1024)
       throw new Error("promotion bindings exceed the 64 MiB aggregate budget");
@@ -279,6 +282,7 @@ function promote(root, request, options = {}) {
       sha256: `sha256:${crypto.createHash("sha256").update(input.bytes).digest("hex")}`,
     };
   });
+  validatePromotionReader(brief, captured);
   const confirmedAt = Date.parse(request.confirmed_at);
   const chronologyFloor = Math.max(
     Date.parse(brief.updated_at),
@@ -340,18 +344,17 @@ function canonicalRequestPath(value, label) {
   return normalized;
 }
 
-function canonicalOriginPaths(brief) {
-  if (brief.kind === "think")
-    return {
-      decision: `thinking/${brief.slug}.decision.json`,
-      markdown: `thinking/${brief.slug}.md`,
-    };
-  if (brief.kind === "idea")
-    return {
-      decision: `backlog/${brief.slug}.decision.json`,
-      markdown: `backlog/${brief.slug}.md`,
-    };
-  throw new Error("only Think and Ideate decision briefs can be promoted to Groom");
+function validatePromotionReader(brief, captured) {
+  const canonical = canonicalReaderPaths(brief);
+  const readerIssues = verifyCanonicalReaderMarker(brief, captured);
+  if (readerIssues.length)
+    throw new Error(`promotion reader is invalid: ${readerIssues.join("; ")}`);
+  const reader = parseFrontmatter(captured.get(canonical.markdown).bytes.toString("utf8")).data;
+  const expectedStatus = brief.kind === "think" ? "promoted" : "proposed";
+  if (reader.status !== expectedStatus)
+    throw new Error(`promotion canonical reader status must equal ${expectedStatus}`);
+  if (brief.kind === "think" && reader.promoted_to !== brief.slug)
+    throw new Error(`promotion canonical reader promoted_to must equal ${brief.slug}`);
 }
 
 function sha256(bytes) {
@@ -373,4 +376,4 @@ function required(args, key) {
   return args[key];
 }
 if (require.main === module) main();
-module.exports = { main, promote, refreshReader };
+module.exports = { main, promote, refreshReader, validatePromotionReader };

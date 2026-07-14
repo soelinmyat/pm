@@ -157,14 +157,14 @@ function substantive(value, minLength, minTokens, minUnique) {
 }
 
 function allDistinctSubstantive(values, minLength, minTokens, minUnique) {
+  if (!values.every((value) => substantive(value, minLength, minTokens, minUnique))) return false;
   const normalized = values.map((value) => normalizedTokens(value).join(" "));
-  return (
-    values.every((value) => substantive(value, minLength, minTokens, minUnique)) &&
-    new Set(normalized).size === normalized.length &&
-    normalized.every((value, index) =>
-      normalized.slice(index + 1).every((other) => tokenJaccard(value, other) < 0.7)
-    )
-  );
+  if (new Set(normalized).size !== normalized.length) return false;
+  const tokenSets = normalized.map((value) => new Set(normalizedTokens(value)));
+  for (let left = 0; left < tokenSets.length; left += 1)
+    for (let right = left + 1; right < tokenSets.length; right += 1)
+      if (tokenJaccardSets(tokenSets[left], tokenSets[right]) >= 0.7) return false;
+  return true;
 }
 
 function hasRepeatedNgram(tokens, width) {
@@ -178,9 +178,7 @@ function hasRepeatedNgram(tokens, width) {
   return false;
 }
 
-function tokenJaccard(left, right) {
-  const leftTokens = new Set(normalizedTokens(left));
-  const rightTokens = new Set(normalizedTokens(right));
+function tokenJaccardSets(leftTokens, rightTokens) {
   const union = new Set([...leftTokens, ...rightTokens]);
   if (!union.size) return 0;
   let intersection = 0;

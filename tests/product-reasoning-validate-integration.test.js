@@ -444,3 +444,52 @@ test("normal validation shares one aggregate budget across companions", (t) => {
   assert.ok(result.errors.some((entry) => entry.msg.includes("aggregate product reasoning bytes")));
   assert.equal(betaOpens, 0);
 });
+
+test("cached bindings still obey the stricter decision JSON byte limit", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reasoning-cached-limit-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const pm = path.join(root, "pm");
+  fs.mkdirSync(path.join(pm, "backlog"), { recursive: true });
+  const fixture = JSON.parse(
+    fs.readFileSync(
+      path.join(__dirname, "..", "evals", "product-reasoning-quality", "strong", "decision.json"),
+      "utf8"
+    )
+  );
+  const markdown = (slug) =>
+    Buffer.from(
+      `---\ntype: backlog\nid: PM-${slug}\ntitle: ${slug}\noutcome: Bound cached reasoning inputs\nstatus: idea\npriority: medium\ncreated: 2026-07-14\nupdated: 2026-07-14\nreasoning_version: 2\ndecision_brief: backlog/${slug}.decision.json\n---\n\n# ${slug}\n`
+    );
+  const zetaMarkdown = markdown("zeta");
+  const zeta = structuredClone(fixture);
+  zeta.slug = "zeta";
+  zeta.title = "zeta";
+  zeta.decision_id = decisionId("idea", "zeta");
+  zeta.source_artifacts = [{ path: "backlog/zeta.md", sha256: sha(zetaMarkdown) }];
+  const zetaJson = Buffer.concat([
+    Buffer.from(JSON.stringify(zeta)),
+    Buffer.alloc(4 * 1024 * 1024, 0x20),
+  ]);
+  const alphaMarkdown = markdown("alpha");
+  const alpha = structuredClone(fixture);
+  alpha.slug = "alpha";
+  alpha.title = "alpha";
+  alpha.decision_id = decisionId("idea", "alpha");
+  alpha.source_artifacts = [
+    { path: "backlog/alpha.md", sha256: sha(alphaMarkdown) },
+    { path: "backlog/zeta.decision.json", sha256: sha(zetaJson) },
+  ];
+  fs.writeFileSync(path.join(pm, "backlog", "alpha.md"), alphaMarkdown);
+  fs.writeFileSync(path.join(pm, "backlog", "alpha.decision.json"), JSON.stringify(alpha));
+  fs.writeFileSync(path.join(pm, "backlog", "zeta.md"), zetaMarkdown);
+  fs.writeFileSync(path.join(pm, "backlog", "zeta.decision.json"), zetaJson);
+
+  const result = validate(pm);
+  assert.ok(
+    result.errors.some(
+      (entry) =>
+        entry.file === "backlog/zeta.md" && entry.msg.includes("input exceeds 4194304 bytes")
+    ),
+    JSON.stringify(result.errors)
+  );
+});

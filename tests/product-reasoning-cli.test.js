@@ -9,7 +9,7 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { buildApproval, proposalContentHash } = require("../scripts/lib/proposal-schema");
 const { decisionId } = require("../scripts/lib/product-reasoning-schema");
-const { promote } = require("../scripts/product-reasoning");
+const { promote, validatePromotionReader } = require("../scripts/product-reasoning");
 const { validate } = require("../scripts/validate");
 
 const CLI = path.join(__dirname, "..", "scripts", "product-reasoning.js");
@@ -213,6 +213,8 @@ test("promote requires exact approved Groom lineage and atomically closes origin
   const targetRef = "backlog/proposals/guided-evidence-refresh.json";
   const approvalRef = "backlog/proposals/guided-evidence-refresh.approval.json";
   const markdownPath = "backlog/guided-evidence-refresh.md";
+  const canonicalReader =
+    "---\nstatus: proposed\nreasoning_version: 2\ndecision_brief: backlog/guided-evidence-refresh.decision.json\n---\n\n# Guided evidence refresh\n";
   fs.mkdirSync(path.join(root, "backlog", "proposals"), { recursive: true });
   const sourceFixture = path.join(
     __dirname,
@@ -223,10 +225,7 @@ test("promote requires exact approved Groom lineage and atomically closes origin
     "decision.json"
   );
   fs.copyFileSync(sourceFixture, path.join(root, decisionPath));
-  fs.writeFileSync(
-    path.join(root, markdownPath),
-    "---\nreasoning_version: 2\ndecision_brief: backlog/guided-evidence-refresh.decision.json\n---\n\n# Guided evidence refresh\n"
-  );
+  fs.writeFileSync(path.join(root, markdownPath), canonicalReader);
   const proposal = JSON.parse(
     fs.readFileSync(path.join(__dirname, "fixtures", "proposals", "strong-v1.json"), "utf8")
   );
@@ -396,6 +395,20 @@ test("promote requires exact approved Groom lineage and atomically closes origin
   const unpromoted = JSON.parse(fs.readFileSync(path.join(root, decisionPath), "utf8"));
   assert.equal(unpromoted.promotion.status, "not-offered");
   fs.writeFileSync(path.join(root, approvalRef), `${JSON.stringify(approval, null, 2)}\n`);
+  const beforeInvalidReaders = fs.readFileSync(path.join(root, decisionPath));
+  for (const [reader, expected] of [
+    ["# Markerless\n", /canonical reader frontmatter/],
+    [
+      canonicalReader.replace("guided-evidence-refresh.decision.json", "other.decision.json"),
+      /decision_brief/,
+    ],
+    [canonicalReader.replace("status: proposed", "status: idea"), /status must equal proposed/],
+  ]) {
+    fs.writeFileSync(path.join(root, markdownPath), reader);
+    assert.throws(() => promote(root, requestValue), expected);
+    assert.deepEqual(fs.readFileSync(path.join(root, decisionPath)), beforeInvalidReaders);
+  }
+  fs.writeFileSync(path.join(root, markdownPath), canonicalReader);
   result = run(["promote", "--root", root, "--request", requestPath]);
   assert.equal(result.status, 0, result.stderr);
   const promoted = JSON.parse(fs.readFileSync(path.join(root, decisionPath), "utf8"));
@@ -459,4 +472,31 @@ test("promote rejects duplicate binding work before reading artifacts", (t) => {
   const result = run(["promote", "--root", root, "--request", request]);
   assert.equal(result.status, 1);
   assert.match(result.stderr, /must be unique/);
+});
+
+test("Think promotion requires its final promoted reader projection", () => {
+  const brief = { kind: "think", slug: "bounded-choice" };
+  const readerPath = "thinking/bounded-choice.md";
+  const decisionPath = "thinking/bounded-choice.decision.json";
+  const captured = (status, promotedTo) =>
+    new Map([
+      [
+        readerPath,
+        {
+          relative: readerPath,
+          bytes: Buffer.from(
+            `---\nstatus: ${status}\npromoted_to: ${promotedTo}\nreasoning_version: 2\ndecision_brief: ${decisionPath}\n---\n`
+          ),
+        },
+      ],
+    ]);
+  assert.throws(
+    () => validatePromotionReader(brief, captured("active", brief.slug)),
+    /status must equal promoted/
+  );
+  assert.throws(
+    () => validatePromotionReader(brief, captured("promoted", "other")),
+    /promoted_to must equal/
+  );
+  assert.doesNotThrow(() => validatePromotionReader(brief, captured("promoted", brief.slug)));
 });

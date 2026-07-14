@@ -67,9 +67,9 @@ function verifyDecisionBriefBindings(root, brief, options = {}) {
   if (!issues.length) issues.push(...verifyCanonicalReaderMarker(brief, cache));
   if (issues.length || !promoted) return issues;
   try {
-    if (budgetState.remaining <= 0)
-      return [...issues, `${targetRef}: aggregate binding bytes exceed 64 MiB`];
     let verifiedProposal = cache.get(targetRef)?.bytes;
+    if (!verifiedProposal && budgetState.remaining <= 0)
+      return [...issues, `${targetRef}: aggregate binding bytes exceed 64 MiB`];
     try {
       if (!verifiedProposal) {
         const input = readProjectInput(

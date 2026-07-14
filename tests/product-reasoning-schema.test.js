@@ -86,6 +86,16 @@ test("decision identity is provider-neutral and schema validation is closed", ()
   assert.match(validateDecisionBrief({ ...value, raw_prompt: "private" }).join("\n"), /unknown/);
 });
 
+test("decision collections have explicit resource bounds", () => {
+  const value = brief("think", "bounded-reasoning");
+  value.evidence_refs = Array.from({ length: 129 }, (_, index) => ({
+    ref: `evidence/research/source-${index}.md`,
+    evidence_id: null,
+    note: `Observed bounded signal ${index}`,
+  }));
+  assert.match(validateDecisionBrief(value).join("\n"), /evidence_refs cannot exceed 128 entries/);
+});
+
 test("confirmed decisions require real alternatives and low evidence caps confidence", () => {
   const noAlternatives = brief("think", "one-way", { alternatives: [] });
   assert.match(validateDecisionBrief(noAlternatives).join("\n"), /at least two alternatives/);
@@ -617,5 +627,20 @@ test("feature resolutions are own-property and ambiguity-only", () => {
   assert.throws(
     () => reconcileFeatureInventory(previous, proposed, { two: exactFeatures[1].feature_id }),
     /not an unresolved ambiguity/
+  );
+});
+
+test("feature reconciliation rejects identities from another source project", () => {
+  const features = ["one", "two", "three", "four", "five", "six", "seven", "eight"].map((key) =>
+    feature(key)
+  );
+  const previous = inventory(features);
+  const proposed = inventory(structuredClone(features));
+  proposed.source_project = "different-product";
+  for (const entry of proposed.areas.flatMap((area) => area.features))
+    entry.feature_id = featureId(proposed.source_project, entry.key);
+  assert.throws(
+    () => reconcileFeatureInventory(previous, proposed),
+    /same source_project for reconciliation/
   );
 });

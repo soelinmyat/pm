@@ -212,7 +212,11 @@ function cacheProductReasoningInput(relative, input, cache, budgetState) {
 
 function readProductReasoningInput(pmDir, relative, cache, budgetState, maxFileBytes) {
   const cached = cache?.get(relative);
-  if (cached) return cached;
+  if (cached) {
+    if (cached.bytes.length > maxFileBytes)
+      throw new Error(`${relative}: input exceeds ${maxFileBytes} bytes`);
+    return cached;
+  }
   const remaining = budgetState?.remaining ?? maxFileBytes;
   if (remaining <= 0)
     throw new Error(`${relative}: aggregate product reasoning bytes exceed 64 MiB`);
