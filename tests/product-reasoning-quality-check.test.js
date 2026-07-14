@@ -55,6 +55,42 @@ test("schema-valid code-map inventory scores materially lower", () => {
   assert.ok(result.score <= 4, JSON.stringify(result));
 });
 
+test("schema-valid padded reasoning cannot clear the quality gate", () => {
+  const padded = fixture("strong");
+  padded.problem = "problem ".repeat(12).trim();
+  padded.evidence_refs.forEach((entry, index) => {
+    entry.note = `${String.fromCharCode(97 + index)} `.repeat(30).trim();
+  });
+  padded.alternatives.forEach((entry, index) => {
+    entry.tradeoff = `${String.fromCharCode(100 + index)} `.repeat(30).trim();
+  });
+  padded.decision.rationale = "guided ".repeat(12).trim();
+  padded.confidence.basis = ["basis ".repeat(8).trim(), "reason ".repeat(8).trim()];
+  padded.non_goals = ["exclude ".repeat(6).trim(), "avoid ".repeat(6).trim()];
+  padded.next_trigger.condition = "trigger ".repeat(8).trim();
+  const result = scoreDecisionBrief(padded);
+  assert.equal(result.valid, true);
+  assert.equal(result.passed, false);
+  assert.ok(result.score < 7, JSON.stringify(result));
+});
+
+test("schema-valid padded feature prose cannot clear the quality gate", () => {
+  const padded = inventoryFixture("strong");
+  padded.areas
+    .flatMap((area) => area.features)
+    .forEach((feature, index) => {
+      feature.outcome = `outcome${index} `.repeat(10).trim();
+      feature.highlights = [
+        `highlight${index} `.repeat(5).trim(),
+        `detail${index} `.repeat(5).trim(),
+      ];
+    });
+  const result = scoreFeatureInventory(padded);
+  assert.equal(result.valid, true);
+  assert.equal(result.passed, false);
+  assert.ok(result.score < 7, JSON.stringify(result));
+});
+
 test("quality CLI returns structured schema diagnostics for every malformed JSON root", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reasoning-quality-total-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

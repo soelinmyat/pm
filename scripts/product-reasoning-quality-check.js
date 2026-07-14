@@ -12,19 +12,46 @@ function scoreDecisionBrief(brief) {
   if (schemaIssues.length)
     return { valid: false, passed: false, score: 0, max_score: 10, issues: schemaIssues };
   const checks = [
-    ["specific_problem", brief.problem.length >= 60],
-    ["multiple_evidence_refs", brief.evidence_refs.length >= 2],
+    ["specific_problem", substantive(brief.problem, 60, 8, 6)],
+    [
+      "multiple_evidence_refs",
+      brief.evidence_refs.length >= 2 &&
+        allDistinctSubstantive(
+          brief.evidence_refs.map((item) => item.note),
+          20,
+          4,
+          3
+        ),
+    ],
     ["ledger_bound_evidence", brief.evidence_refs.some((item) => item.evidence_id)],
-    ["distinct_alternatives", new Set(brief.alternatives.map((item) => item.tradeoff)).size >= 2],
+    [
+      "distinct_alternatives",
+      brief.alternatives.length >= 2 &&
+        allDistinctSubstantive(
+          brief.alternatives.map((item) => item.tradeoff),
+          20,
+          5,
+          4
+        ),
+    ],
     [
       "confirmed_decision",
-      brief.decision.status === "confirmed" && brief.decision.rationale.length >= 40,
+      brief.decision.status === "confirmed" &&
+        substantive(brief.decision.rationale, 40, 7, 5) &&
+        rationaleNamesChoice(brief),
     ],
-    ["confidence_basis", brief.confidence.basis.length >= 2],
-    ["explicit_non_goals", brief.non_goals.length >= 2],
+    [
+      "confidence_basis",
+      brief.confidence.basis.length >= 2 &&
+        allDistinctSubstantive(brief.confidence.basis, 20, 4, 3),
+    ],
+    [
+      "explicit_non_goals",
+      brief.non_goals.length >= 2 && allDistinctSubstantive(brief.non_goals, 15, 3, 3),
+    ],
     [
       "actionable_trigger",
-      brief.next_trigger.lane !== "none" && brief.next_trigger.condition.length >= 20,
+      brief.next_trigger.lane !== "none" && substantive(brief.next_trigger.condition, 20, 5, 4),
     ],
     ["artifact_binding", brief.source_artifacts.length >= 1],
     [
@@ -59,10 +86,13 @@ function scoreFeatureInventory(inventory) {
         ? inventory.scan.commit !== null
         : inventory.scan.snapshot_sha256 !== null,
     ],
-    ["concrete_outcomes", features.every((feature) => feature.outcome.length >= 50)],
+    ["concrete_outcomes", features.every((feature) => substantive(feature.outcome, 50, 8, 6))],
     [
       "detailed_highlights",
-      features.every((feature) => feature.highlights.every((highlight) => highlight.length >= 20)),
+      features.every(
+        (feature) =>
+          feature.highlights.length >= 2 && allDistinctSubstantive(feature.highlights, 20, 4, 3)
+      ),
     ],
     [
       "multi_source_evidence",
@@ -77,9 +107,22 @@ function scoreFeatureInventory(inventory) {
     ],
     [
       "distinct_outcomes",
-      new Set(features.map((feature) => feature.outcome)).size === features.length,
+      allDistinctSubstantive(
+        features.map((feature) => feature.outcome),
+        50,
+        8,
+        6
+      ),
     ],
-    ["reader_binding", inventory.markdown_binding.path === "product/features.md"],
+    [
+      "nonduplicative_highlights",
+      allDistinctSubstantive(
+        features.flatMap((feature) => feature.highlights),
+        20,
+        4,
+        3
+      ),
+    ],
   ];
   return {
     valid: true,
@@ -88,6 +131,45 @@ function scoreFeatureInventory(inventory) {
     max_score: checks.length,
     checks: Object.fromEntries(checks),
   };
+}
+
+function normalizedTokens(value) {
+  return (
+    String(value || "")
+      .toLowerCase()
+      .match(/[\p{L}\p{N}]+/gu) || []
+  );
+}
+
+function substantive(value, minLength, minTokens, minUnique) {
+  const text = String(value || "").trim();
+  const tokens = normalizedTokens(text);
+  const uniqueTokens = new Set(tokens);
+  const uniqueCharacters = new Set(text.toLowerCase().match(/[\p{L}\p{N}]/gu) || []).size;
+  return (
+    text.length >= minLength &&
+    tokens.length >= minTokens &&
+    uniqueTokens.size >= minUnique &&
+    uniqueTokens.size / tokens.length >= 0.35 &&
+    uniqueCharacters >= 8
+  );
+}
+
+function allDistinctSubstantive(values, minLength, minTokens, minUnique) {
+  const normalized = values.map((value) => normalizedTokens(value).join(" "));
+  return (
+    values.every((value) => substantive(value, minLength, minTokens, minUnique)) &&
+    new Set(normalized).size === normalized.length
+  );
+}
+
+function rationaleNamesChoice(brief) {
+  const choice = brief.alternatives.find((item) => item.id === brief.decision.choice);
+  if (!choice) return false;
+  const rationale = new Set(normalizedTokens(brief.decision.rationale));
+  return normalizedTokens(`${choice.id} ${choice.title}`)
+    .filter((token) => token.length >= 4)
+    .some((token) => rationale.has(token));
 }
 
 function main(argv = process.argv.slice(2)) {

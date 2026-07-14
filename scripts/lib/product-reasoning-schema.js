@@ -656,20 +656,19 @@ function reconcileFeatureInventory(previous, proposed, resolutions = {}) {
   }
   const analyses = proposedFeatures.map((feature) => {
     const exact = priorFeatures.find((old) => old.key === feature.key);
-    const candidates = exact
-      ? [{ feature: exact, overlap: 1, exact: true }]
-      : priorFeatures
-          .map((old) => ({
-            feature: old,
-            overlap: jaccard(old.source_refs, feature.source_refs),
-            exact: false,
-          }))
-          .filter((item) => item.overlap >= 0.6)
-          .sort(
-            (left, right) =>
-              right.overlap - left.overlap ||
-              left.feature.feature_id.localeCompare(right.feature.feature_id)
-          );
+    const candidates = priorFeatures
+      .map((old) => ({
+        feature: old,
+        overlap: sourceContinuity(old.source_refs, feature.source_refs),
+        exact: old === exact,
+      }))
+      .filter((item) => item.exact || item.overlap >= 0.6)
+      .sort(
+        (left, right) =>
+          Number(right.exact) - Number(left.exact) ||
+          right.overlap - left.overlap ||
+          left.feature.feature_id.localeCompare(right.feature.feature_id)
+      );
     return {
       feature,
       candidates,
@@ -768,6 +767,15 @@ function jaccard(left = [], right = []) {
   const union = new Set([...a, ...b]);
   if (!union.size) return 0;
   return [...a].filter((item) => b.has(item)).length / union.size;
+}
+
+function sourceContinuity(left = [], right = []) {
+  const leftSet = new Set(left);
+  const rightSet = new Set(right);
+  let intersection = 0;
+  for (const item of leftSet) if (rightSet.has(item)) intersection += 1;
+  if (intersection === 0) return 0;
+  return Math.max(jaccard(left, right), intersection / leftSet.size, intersection / rightSet.size);
 }
 
 function normalizeToken(value) {

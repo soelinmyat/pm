@@ -494,6 +494,46 @@ test("feature reconciliation requires resolution for unequal plausible merge inp
   assert.ok(!unresolved.retired.includes(priorFeatures[1].feature_id));
 });
 
+test("feature reconciliation preserves balanced merge and split lineage for explicit resolution", () => {
+  const mergedPrior = [
+    feature("left", ["src/left-a.js", "src/left-b.js"]),
+    feature("right", ["src/right-a.js", "src/right-b.js"]),
+    ...["three", "four", "five", "six", "seven", "eight"].map((key) => feature(key)),
+  ];
+  const mergedProposed = inventory([
+    feature("combined", ["src/left-a.js", "src/left-b.js", "src/right-a.js", "src/right-b.js"]),
+    ...mergedPrior.slice(2),
+    feature("nine"),
+  ]);
+  const merge = reconcileFeatureInventory(inventory(mergedPrior), mergedProposed);
+  const mergeAmbiguity = merge.ambiguous.find((entry) => entry.key === "combined");
+  assert.deepEqual(
+    mergeAmbiguity.candidates,
+    [mergedPrior[0].feature_id, mergedPrior[1].feature_id].sort()
+  );
+  assert.ok(!merge.retired.includes(mergedPrior[0].feature_id));
+  assert.ok(!merge.retired.includes(mergedPrior[1].feature_id));
+
+  const splitPrior = [
+    feature("whole", ["src/a.js", "src/b.js", "src/c.js", "src/d.js"]),
+    ...["two", "three", "four", "five", "six", "seven", "eight"].map((key) => feature(key)),
+  ];
+  const splitProposed = inventory([
+    feature("first-half", ["src/a.js", "src/b.js"]),
+    feature("second-half", ["src/c.js", "src/d.js"]),
+    ...splitPrior.slice(1, 7),
+  ]);
+  const split = reconcileFeatureInventory(inventory(splitPrior), splitProposed);
+  assert.deepEqual(
+    split.ambiguous
+      .filter((entry) => ["first-half", "second-half"].includes(entry.key))
+      .map((entry) => entry.key)
+      .sort(),
+    ["first-half", "second-half"]
+  );
+  assert.ok(!split.retired.includes(splitPrior[0].feature_id));
+});
+
 test("feature reconciliation reports many-to-one collisions independent of proposal order", () => {
   const priorFeatures = [
     feature("shared-prior", ["src/a.js", "src/b.js", "src/c.js", "src/d.js"]),

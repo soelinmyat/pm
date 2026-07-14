@@ -253,6 +253,16 @@ test("promote requires exact approved Groom lineage and atomically closes origin
   );
 
   const requestValue = JSON.parse(fs.readFileSync(requestPath, "utf8"));
+  const beforeSelfBindingAttempt = fs.readFileSync(path.join(root, decisionPath));
+  assert.throws(
+    () =>
+      promote(root, {
+        ...requestValue,
+        binding_paths: [...requestValue.binding_paths, decisionPath],
+      }),
+    /cannot include the mutable decision_path/
+  );
+  assert.deepEqual(fs.readFileSync(path.join(root, decisionPath)), beforeSelfBindingAttempt);
   fs.writeFileSync(
     requestPath,
     JSON.stringify({

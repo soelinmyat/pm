@@ -28,7 +28,7 @@ function renderFeatureMarkdown(inventory) {
           `## ${area.name}\n\n${area.features
             .map(
               (feature) =>
-                `### ${feature.name} <!-- ${feature.feature_id} -->\n\n${feature.outcome}`
+                `### ${feature.name} <!-- ${feature.feature_id} -->\n\n${feature.outcome}\n\n**Highlights:**\n${feature.highlights.map((highlight) => `- ${highlight}`).join("\n")}`
             )
             .join("\n\n")}`
       )
@@ -277,7 +277,7 @@ test("KB-relative feature bindings validate in nested and flat PM layouts", (t) 
     inventory.markdown_binding.sha256 = sha(markdown);
     fs.writeFileSync(path.join(pm, "product", "features.json"), JSON.stringify(inventory));
     const result = validate(pm, { sourceDir });
-    assert.equal(result.errors.length, 0, JSON.stringify(result.details));
+    assert.equal(result.errors.length, 0, JSON.stringify(result.errors));
     const driftedMarkdown = Buffer.from(
       markdown.toString("utf8").replace(features[0].feature_id, `feat-${"f".repeat(20)}`)
     );
@@ -286,6 +286,20 @@ test("KB-relative feature bindings validate in nested and flat PM layouts", (t) 
     fs.writeFileSync(path.join(pm, "product", "features.json"), JSON.stringify(inventory));
     const semanticallyDrifted = validate(pm, { sourceDir });
     assert.ok(semanticallyDrifted.errors.some((entry) => entry.msg.includes("feature IDs")));
+    for (const [label, original, replacement] of [
+      ["outcomes", features[0].outcome, "Readers see a contradictory outcome in this projection."],
+      ["highlights", features[0].highlights[0], "A contradictory reader-only highlight"],
+    ]) {
+      const proseDrift = Buffer.from(markdown.toString("utf8").replace(original, replacement));
+      fs.writeFileSync(path.join(pm, "product", "features.md"), proseDrift);
+      inventory.markdown_binding.sha256 = sha(proseDrift);
+      fs.writeFileSync(path.join(pm, "product", "features.json"), JSON.stringify(inventory));
+      const result = validate(pm, { sourceDir });
+      assert.ok(
+        result.errors.some((entry) => entry.msg.includes(label)),
+        `${label}: ${JSON.stringify(result.errors)}`
+      );
+    }
     fs.writeFileSync(path.join(pm, "product", "features.md"), markdown);
     inventory.markdown_binding.sha256 = sha(markdown);
     fs.writeFileSync(path.join(pm, "product", "features.json"), JSON.stringify(inventory));
@@ -382,4 +396,51 @@ test("binding validation shares one aggregate budget across sequential reads", (
     }).join("\n"),
     /aggregate binding bytes/
   );
+});
+
+test("normal validation shares one aggregate budget across companions", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reasoning-run-budget-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const pm = path.join(root, "pm");
+  fs.mkdirSync(path.join(pm, "backlog"), { recursive: true });
+  const fixture = JSON.parse(
+    fs.readFileSync(
+      path.join(__dirname, "..", "evals", "product-reasoning-quality", "strong", "decision.json"),
+      "utf8"
+    )
+  );
+  const artifacts = [];
+  for (const [index, slug] of ["alpha", "beta"].entries()) {
+    const markdown = Buffer.from(
+      `---\ntype: backlog\nid: PM-00${index + 1}\ntitle: ${slug}\noutcome: Validate shared reasoning budget\nstatus: idea\npriority: medium\ncreated: 2026-07-14\nupdated: 2026-07-14\nreasoning_version: 2\ndecision_brief: backlog/${slug}.decision.json\n---\n\n# ${slug}\n`
+    );
+    const brief = structuredClone(fixture);
+    brief.slug = slug;
+    brief.title = slug;
+    brief.decision_id = decisionId("idea", slug);
+    brief.source_artifacts = [{ path: `backlog/${slug}.md`, sha256: sha(markdown) }];
+    const json = Buffer.from(JSON.stringify(brief));
+    fs.writeFileSync(path.join(pm, "backlog", `${slug}.md`), markdown);
+    fs.writeFileSync(path.join(pm, "backlog", `${slug}.decision.json`), json);
+    artifacts.push({ markdown, json });
+  }
+  const betaDecision = fs.realpathSync(path.join(pm, "backlog", "beta.decision.json"));
+  const originalOpen = fs.openSync;
+  let betaOpens = 0;
+  fs.openSync = function countedOpen(filePath, ...args) {
+    if (path.resolve(filePath) === betaDecision) betaOpens += 1;
+    return originalOpen.call(fs, filePath, ...args);
+  };
+  let result;
+  try {
+    result = validate(pm, {
+      sourceDir: root,
+      productReasoningBudgetBytes:
+        artifacts[0].markdown.length + artifacts[1].markdown.length + artifacts[0].json.length,
+    });
+  } finally {
+    fs.openSync = originalOpen;
+  }
+  assert.ok(result.errors.some((entry) => entry.msg.includes("aggregate product reasoning bytes")));
+  assert.equal(betaOpens, 0);
 });

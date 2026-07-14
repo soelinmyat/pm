@@ -63,7 +63,7 @@ Rules:
 - `not-offered` and `offered` record intent only: all target and confirmation fields remain `null` until promotion succeeds.
 - Hash the final Markdown bytes before writing the JSON companion. Authentication is reciprocal: the companion hashes the reader, while the authenticated Markdown must declare `reasoning_version: 2` and the exact canonical `decision_brief` path. A companion beside markerless legacy Markdown is invalid; a genuinely Markdown-only legacy workspace remains supported. Any later Markdown edit requires refreshing the binding. For promoted Ideate backlog lifecycle or PR-metadata edits, run `product-reasoning.js refresh-reader --root "{pm_dir}" --decision "backlog/{slug}.decision.json"`; it revalidates the reciprocal marker and durable promotion lineage before atomically refreshing the reader binding.
 - Validate companions with `node "${CLAUDE_PLUGIN_ROOT}/scripts/product-reasoning.js" validate --root "${pm_dir}" --input <path>`.
-- Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/product-reasoning-quality-check.js" <path>` after validation. A score below 7/10 is a quality failure: improve the weakest dimensions with substantive evidence, alternatives, reasoning, or traceability rather than filler.
+- Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/product-reasoning-quality-check.js" <path>` after validation. A score below 7/10 is a quality failure. The gate checks lexical diversity, distinct evidence and tradeoff prose, choice-linked rationale, and concrete non-duplicative outcomes/highlights in addition to length and counts; repeated-token padding cannot earn a substantive point.
 
 After Groom has written and approved its canonical proposal, perform the origin transition atomically with a private request:
 
@@ -88,7 +88,7 @@ After Groom has written and approved its canonical proposal, perform the origin 
 node "${CLAUDE_PLUGIN_ROOT}/scripts/product-reasoning.js" promote --root "${pm_dir}" --request <private-request.json>
 ```
 
-The canonical target, sibling `.approval.json` audit, and canonical origin Markdown derived from the decision kind/slug must be among at most 16 unique binding paths with no more than 64 MiB in aggregate. The command requires the exact current `approved` proposal bytes and a proposal lineage row binding the pre-promotion origin decision bytes, validates the audit against `approval_decision`, and hashes only bytes returned by those validated reads. Its writer makes the temporary replacement durable, reattests immutable bindings, and compares the origin companion last immediately before rename. Update the bound Markdown projection before this single final command. This refresh is required for Ideate origins because Groom replaces the old idea Markdown with the generated proposal projection.
+The canonical target, sibling `.approval.json` audit, and canonical origin Markdown derived from the decision kind/slug must be among at most 16 unique binding paths with no more than 64 MiB in aggregate. `binding_paths` must not contain `decision_path`, because that companion is the mutable atomic output; the final attestation is its sole pre-promotion byte comparison. The command requires the exact current `approved` proposal bytes and a proposal lineage row binding the pre-promotion origin decision bytes, validates the audit against `approval_decision`, and hashes only bytes returned by those validated reads. Its writer makes the temporary replacement durable, reattests immutable bindings, and compares the origin companion last immediately before rename. Update the bound Markdown projection before this single final command. This refresh is required for Ideate origins because Groom replaces the old idea Markdown with the generated proposal projection.
 
 ## Deterministic idea ranking
 
@@ -104,7 +104,7 @@ The runtime verifies Strategy's schema and current Markdown binding before it or
 
 `features.json` contains `schema_version: 2`, `document_type: feature-inventory`, generation time, source project, scan mode and identity, 3–6 areas, 8–20 features, and a hash binding to `features.md`. Git mode records `mode: git`, a full commit object ID, and `snapshot_sha256: null`. Non-Git mode records `mode: filesystem`, `commit: null`, and a deterministic source snapshot hash.
 
-The Markdown projection carries the same generation date, source project, scan counts, ordered area names, feature keys, feature names, and stable `feat-*` IDs. Normal validation checks those semantic fields as well as the byte hash, so a freshly rehashed but contradictory reader pair is invalid.
+The Markdown projection carries the same generation date, source project, scan counts, ordered area names, feature keys, feature names, stable `feat-*` IDs, outcome prose, and ordered highlights. Normal validation checks those semantic fields from the same bounded byte snapshot as the hash, so a freshly rehashed but contradictory reader pair is invalid. One 64 MiB aggregate budget covers every unique product-reasoning JSON, Markdown reader, and bound artifact read during a normal validation run.
 
 Each feature contains:
 
@@ -121,7 +121,7 @@ Generate IDs for new capabilities with `feature-id`. Before review, reconcile a 
 node "${CLAUDE_PLUGIN_ROOT}/scripts/product-reasoning.js" reconcile-features --request <private-request.json>
 ```
 
-Exact keys preserve identity. A rename can preserve identity when source continuity is uniquely strong. Equal plausible matches and many-to-one collisions are returned as order-independent `ambiguous` records and require user resolution. Rerun with a closed `resolutions` object mapping each ambiguous feature key to one of its reported candidate IDs or the literal `"new"`; candidate identities may be claimed only once. This makes rename, merge, split, and genuinely-new choices explicit and deterministic. Do not silently merge, split, or retire an ambiguous feature.
+Exact keys preserve identity unless their expanded sources also plausibly contain another prior feature. Continuity considers Jaccard overlap plus old-in-new and new-in-old containment, so balanced merges and splits remain visible even when union overlap falls below 60%. Equal plausible matches, multiple contributor matches, and many-to-one collisions are returned as order-independent `ambiguous` records and require user resolution. Rerun with a closed `resolutions` object mapping each ambiguous feature key to one of its reported candidate IDs or the literal `"new"`; candidate identities may be claimed only once. This makes rename, merge, split, and genuinely-new choices explicit and deterministic. Do not silently merge, split, or retire an ambiguous feature.
 
 For a non-Git project, calculate the deterministic snapshot after source refs are final and store the returned `snapshot_sha256`:
 

@@ -204,6 +204,8 @@ function promote(root, request, options = {}) {
     throw new Error("promotion request binding_paths cannot exceed 16 entries");
   if (new Set(request.binding_paths).size !== request.binding_paths.length)
     throw new Error("promotion request binding_paths must be unique");
+  if (request.binding_paths.includes(request.decision_path))
+    throw new Error("promotion binding_paths cannot include the mutable decision_path output");
   if (!request.binding_paths.includes(request.target_ref))
     throw new Error("promotion target_ref must also be a binding path");
   const approvalRef = request.target_ref.replace(/\.json$/, ".approval.json");
