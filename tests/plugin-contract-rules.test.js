@@ -549,14 +549,14 @@ test("pack stability: exact rule-ID set + severity is stable across runs (AC2.5)
     "D1-STEP-002": "error",
     "D1-STEP-003": "error",
     "D1-TOOLS-001": "error",
-    "D2-CMD-001-surface-parity": "warning",
-    "D2-SKILL-001-contract-sections": "warning",
-    "D2-SKILL-002-reference-directives": "warning",
-    "D2-SKILL-003-iron-law": "warning",
-    "D2-SKILL-004-self-checks": "warning",
-    "D2-SKILL-005-class-contract": "warning",
-    "D2-STEP-001-execution-contract": "warning",
-    "D2-STEP-002-transition": "warning",
+    "D2-CMD-001-surface-parity": "error",
+    "D2-SKILL-001-contract-sections": "error",
+    "D2-SKILL-002-reference-directives": "error",
+    "D2-SKILL-003-iron-law": "error",
+    "D2-SKILL-004-self-checks": "error",
+    "D2-SKILL-005-class-contract": "error",
+    "D2-STEP-001-execution-contract": "error",
+    "D2-STEP-002-transition": "error",
   };
   const actual = {};
   for (const r of rules) actual[r.id] = r.severity;

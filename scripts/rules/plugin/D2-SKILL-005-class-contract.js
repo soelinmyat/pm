@@ -27,7 +27,7 @@ function mutationCommand(skill) {
 
 module.exports = {
   id: "D2-SKILL-005-class-contract",
-  severity: "warning",
+  severity: "error",
   description: "Every skill is classified and carries its class-specific safety boundaries",
   check(ctx) {
     const issues = [];

@@ -4,7 +4,7 @@ const { classForSkill } = require("../../lib/skill-authoring/classification.js")
 
 module.exports = {
   id: "D2-CMD-001-surface-parity",
-  severity: "warning",
+  severity: "error",
   description: "Commands and skills preserve name, destination, and deprecation parity",
   check(ctx) {
     const issues = [];

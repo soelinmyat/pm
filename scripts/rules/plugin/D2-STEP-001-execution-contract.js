@@ -4,7 +4,7 @@ const { sectionByPrefix, sections, substantive } = require("../../lib/skill-auth
 
 module.exports = {
   id: "D2-STEP-001-execution-contract",
-  severity: "warning",
+  severity: "error",
   description: "Procedural steps state a substantive Goal, How, and Done-when contract",
   check(ctx) {
     const issues = [];

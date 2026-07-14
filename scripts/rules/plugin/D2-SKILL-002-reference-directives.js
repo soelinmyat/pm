@@ -2,7 +2,7 @@
 
 module.exports = {
   id: "D2-SKILL-002-reference-directives",
-  severity: "warning",
+  severity: "error",
   description: "Skills declare shared runtime, writing, and step-resolution directives",
   check(ctx) {
     const issues = [];

@@ -14,7 +14,7 @@ const REQUIRED = [
 
 module.exports = {
   id: "D2-SKILL-001-contract-sections",
-  severity: "warning",
+  severity: "error",
   description: "Skill entry points contain the required substantive contract sections",
   check(ctx) {
     const issues = [];

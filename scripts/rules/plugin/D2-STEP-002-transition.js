@@ -10,7 +10,7 @@ function hasNextAction(body) {
 
 module.exports = {
   id: "D2-STEP-002-transition",
-  severity: "warning",
+  severity: "error",
   description:
     "Step transitions advance to the next existing step and final steps offer a next action",
   check(ctx) {

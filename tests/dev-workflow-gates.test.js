@@ -77,7 +77,10 @@ test("review absorbed the simplify lenses (v1.9)", () => {
   const stub = read("skills/simplify/SKILL.md");
   assert.match(stub, /absorbed into `pm:review`/);
   assert.match(stub, /skills\/review\/SKILL\.md/);
-  assert.ok(stub.length < 1000, "simplify stub must stay a pointer, not a workflow");
+  assert.ok(
+    !fs.existsSync(path.join(repoRoot, "skills/simplify/steps")),
+    "simplify stub must stay a pointer with no workflow steps of its own"
+  );
   assert.ok(
     !fs.existsSync(path.join(repoRoot, "skills/dev/steps/06-simplify.md")),
     "06-simplify step must be deleted"

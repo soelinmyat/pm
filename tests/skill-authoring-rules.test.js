@@ -137,7 +137,7 @@ test("routed workflows do not invent linear transitions between subcommands", ()
   assert.deepEqual(rule.check(ctx), []);
 });
 
-test("skill audit JSON is deterministic and remains non-blocking during remediation", () => {
+test("skill audit JSON is deterministic and reports the enforced clean baseline", () => {
   const command = path.join(root, "scripts", "skill-audit.js");
   const first = execFileSync(process.execPath, [command, "--root", root, "--json"], {
     encoding: "utf8",
@@ -148,7 +148,8 @@ test("skill audit JSON is deterministic and remains non-blocking during remediat
   assert.equal(first, second);
   const parsed = JSON.parse(first);
   assert.equal(parsed.schema_version, 1);
-  assert.equal(parsed.enforcement, "advisory");
+  assert.equal(parsed.enforcement, "enforced");
   assert.equal(parsed.skills.length, Object.keys(SKILL_CLASSIFICATION).length);
-  assert.ok(parsed.summary.issue_count > 0);
+  assert.equal(parsed.summary.issue_count, 0);
+  assert.equal(parsed.summary.clean_skill_count, parsed.summary.skill_count);
 });

@@ -1,8 +1,8 @@
 ---
 title: "Skill authoring contract — Wave 4A"
 created: 2026-07-13
-updated: 2026-07-13
-status: planned
+updated: 2026-07-14
+status: implemented
 depends_on:
   - Wave 3B released on main
 ---
@@ -242,3 +242,15 @@ Use representative prompts for one conversational skill, one capture skill, one 
 - The released tag is on the main merge commit.
 
 **Advance:** proceed to Wave 4B (shared runtime primitives).
+
+## Implementation evidence
+
+Implemented in seven bounded slices on `codex/skill-authoring-contract`:
+
+- all 24 runtime skills have exactly one deterministic class;
+- all eight D2 rules are enforced by `validate:plugin`, bringing the authoritative pack to 21 rules;
+- the canonical valid fixture demonstrates the complete authoring contract, while thin, drifting, mutating, and invalid-transition fixtures fail with stable D2 rule IDs;
+- `skill-audit --json` reports `enforcement: enforced`, 24 clean skills, and zero issues;
+- operational, evidence, conversational, capture, projection, redirect, reviewer, and lifecycle contracts were remediated without generic suppressions.
+
+Release status remains pending until the patch release is merged and its version tag is moved to the main merge commit.

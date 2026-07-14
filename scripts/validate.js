@@ -1156,10 +1156,9 @@ function runPluginMode(args) {
     console.log(JSON.stringify({ ok: false, error: `plugin root not found: ${rootDir}` }));
     process.exit(1);
   }
-  // Advisory rules are intentionally visible through scripts/skill-audit.js
-  // while their remediation slices are in flight. Promotion to `error` is the
-  // single enforcement switch; validate:plugin never emits a giant warning
-  // payload that can overflow CI subprocess buffers.
+  // Only enforced rules enter the authoritative plugin check. The authoring
+  // contract graduated to error severity after the runtime tree reached a
+  // zero-issue baseline; skill-audit remains the grouped presentation view.
   const enforcedRules = loadRules().filter((rule) => rule.severity === "error");
   const result = runPack(rootDir, { rules: enforcedRules });
   const hasError = result.issues.some((i) => i.severity === "error");

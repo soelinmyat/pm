@@ -10,6 +10,7 @@ cd pm
 npm install
 npm test                        # 511+ tests, all must pass
 npm run quality                 # lint + format + tests (matches CI)
+npm run validate:plugin         # structural and authoring contracts
 ```
 
 ## How the Repo is Organized
@@ -34,10 +35,12 @@ npm run quality                 # lint + format + tests (matches CI)
 
 ## Adding a Skill
 
-1. Create `skills/{name}/SKILL.md` with `name:` and `description:` in frontmatter
-2. Add the skill to the appropriate alias list in `plugin.config.json` under `codex.fallbackSkillAliases`
-3. Run `node scripts/generate-platform-files.js`
-4. Run `npm test`
+1. Create `skills/{name}/SKILL.md` with trigger-rich `name:` and `description:` frontmatter
+2. Follow the entry-point and step authoring contracts in `AGENTS.md`, including the skill class, safety boundaries, Goal/How/Done-when sections, and explicit transitions
+3. Add the skill to the validator-owned classification map in `scripts/lib/skill-authoring/classification.js`
+4. Add the skill to the appropriate alias list in `plugin.config.json` under `codex.fallbackSkillAliases`
+5. Run `node scripts/generate-platform-files.js`
+6. Run `npm run skill:audit`, `npm run validate:plugin`, and `npm test`
 
 ## Adding Platform Support
 
@@ -56,10 +59,12 @@ To add a new platform:
 ```bash
 npm test                        # run the full test suite
 npm run quality                 # lint + format + tests (same as CI)
+npm run skill:audit             # grouped, read-only authoring audit
+npm run validate:plugin         # authoritative plugin contract gate
 node scripts/generate-platform-files.js --check   # verify manifests are in sync
 ```
 
-CI runs all three checks. Your PR must pass all of them.
+CI enforces the plugin contract as well as the test, lint, formatting, and generated-file checks. Your PR must pass all of them.
 
 ## Submitting a PR
 
@@ -75,7 +80,7 @@ Keep PRs focused. One concern per PR. If you're fixing a bug and noticed an unre
 
 - JavaScript: ESLint + Prettier (configured in repo)
 - Shell: ShellCheck
-- Markdown skill files: frontmatter with `name:` and `description:` required
+- Markdown skill files: follow the skill and step authoring contracts in `AGENTS.md`; `npm run validate:plugin` is authoritative
 
 ## Reporting Issues
 

@@ -4,7 +4,7 @@ const { sectionByPrefix, sections } = require("../../lib/skill-authoring/markdow
 
 module.exports = {
   id: "D2-SKILL-003-iron-law",
-  severity: "warning",
+  severity: "error",
   description: "Each skill has one bright-line imperative Iron Law",
   check(ctx) {
     const issues = [];

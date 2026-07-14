@@ -9,7 +9,7 @@ const {
 
 module.exports = {
   id: "D2-SKILL-004-self-checks",
-  severity: "warning",
+  severity: "error",
   description: "Self-check, escalation, rationalization, and done sections have useful shape",
   check(ctx) {
     const issues = [];

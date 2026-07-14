@@ -48,7 +48,7 @@ function buildAudit(rootDir) {
     });
   return {
     schema_version: 1,
-    enforcement: "advisory",
+    enforcement: "enforced",
     summary: {
       skill_count: skills.length,
       issue_count: d2.length,
