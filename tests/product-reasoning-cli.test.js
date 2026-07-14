@@ -263,6 +263,20 @@ test("promote requires exact approved Groom lineage and atomically closes origin
     /cannot include the mutable decision_path/
   );
   assert.deepEqual(fs.readFileSync(path.join(root, decisionPath)), beforeSelfBindingAttempt);
+  for (const aliasedDecisionPath of [
+    "backlog//guided-evidence-refresh.decision.json",
+    "backlog/./guided-evidence-refresh.decision.json",
+  ]) {
+    assert.throws(
+      () =>
+        promote(root, {
+          ...requestValue,
+          binding_paths: [...requestValue.binding_paths, aliasedDecisionPath],
+        }),
+      /canonical project-relative path/
+    );
+    assert.deepEqual(fs.readFileSync(path.join(root, decisionPath)), beforeSelfBindingAttempt);
+  }
   fs.writeFileSync(
     requestPath,
     JSON.stringify({

@@ -151,7 +151,8 @@ function substantive(value, minLength, minTokens, minUnique) {
     tokens.length >= minTokens &&
     uniqueTokens.size >= minUnique &&
     uniqueTokens.size / tokens.length >= 0.35 &&
-    uniqueCharacters >= 8
+    uniqueCharacters >= 8 &&
+    !hasRepeatedNgram(tokens, 3)
   );
 }
 
@@ -159,16 +160,45 @@ function allDistinctSubstantive(values, minLength, minTokens, minUnique) {
   const normalized = values.map((value) => normalizedTokens(value).join(" "));
   return (
     values.every((value) => substantive(value, minLength, minTokens, minUnique)) &&
-    new Set(normalized).size === normalized.length
+    new Set(normalized).size === normalized.length &&
+    normalized.every((value, index) =>
+      normalized.slice(index + 1).every((other) => tokenJaccard(value, other) < 0.7)
+    )
   );
+}
+
+function hasRepeatedNgram(tokens, width) {
+  if (tokens.length < width * 2) return false;
+  const seen = new Set();
+  for (let index = 0; index <= tokens.length - width; index += 1) {
+    const gram = tokens.slice(index, index + width).join("\u0000");
+    if (seen.has(gram)) return true;
+    seen.add(gram);
+  }
+  return false;
+}
+
+function tokenJaccard(left, right) {
+  const leftTokens = new Set(normalizedTokens(left));
+  const rightTokens = new Set(normalizedTokens(right));
+  const union = new Set([...leftTokens, ...rightTokens]);
+  if (!union.size) return 0;
+  let intersection = 0;
+  for (const token of leftTokens) if (rightTokens.has(token)) intersection += 1;
+  return intersection / union.size;
 }
 
 function rationaleNamesChoice(brief) {
   const choice = brief.alternatives.find((item) => item.id === brief.decision.choice);
   if (!choice) return false;
   const rationale = new Set(normalizedTokens(brief.decision.rationale));
+  const otherTokens = new Set(
+    brief.alternatives
+      .filter((item) => item.id !== choice.id)
+      .flatMap((item) => normalizedTokens(`${item.id} ${item.title}`))
+  );
   return normalizedTokens(`${choice.id} ${choice.title}`)
-    .filter((token) => token.length >= 4)
+    .filter((token) => token.length >= 4 && !otherTokens.has(token))
     .some((token) => rationale.has(token));
 }
 

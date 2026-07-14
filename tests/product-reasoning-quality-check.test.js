@@ -91,6 +91,41 @@ test("schema-valid padded feature prose cannot clear the quality gate", () => {
   assert.ok(result.score < 7, JSON.stringify(result));
 });
 
+test("superficially varied repeated phrases cannot clear either quality gate", () => {
+  const phrase = (prefix) => `${prefix} alpha beta gamma delta epsilon `.repeat(2).trim();
+  const decision = fixture("strong");
+  decision.problem = phrase("problem");
+  decision.evidence_refs.forEach((entry, index) => (entry.note = phrase(`evidence${index}`)));
+  decision.alternatives.forEach((entry, index) => (entry.tradeoff = phrase(`tradeoff${index}`)));
+  decision.decision.rationale = phrase("guided");
+  decision.confidence.basis = [phrase("basis-one"), phrase("basis-two")];
+  decision.non_goals = [phrase("exclude-one"), phrase("exclude-two")];
+  decision.next_trigger.condition = phrase("trigger");
+  const decisionResult = scoreDecisionBrief(decision);
+  assert.equal(decisionResult.valid, true);
+  assert.ok(decisionResult.score < 7, JSON.stringify(decisionResult));
+
+  const inventory = inventoryFixture("strong");
+  inventory.areas
+    .flatMap((area) => area.features)
+    .forEach((feature, index) => {
+      feature.outcome = phrase(`outcome${index}`);
+      feature.highlights = [phrase(`highlight${index}-a`), phrase(`highlight${index}-b`)];
+    });
+  const inventoryResult = scoreFeatureInventory(inventory);
+  assert.equal(inventoryResult.valid, true);
+  assert.ok(inventoryResult.score < 7, JSON.stringify(inventoryResult));
+});
+
+test("decision rationale must name a token specific to the chosen alternative", () => {
+  const decision = fixture("strong");
+  decision.decision.rationale =
+    "Refresh keeps source selection and conflict decisions under careful human control.";
+  const result = scoreDecisionBrief(decision);
+  assert.equal(result.valid, true);
+  assert.equal(result.checks.confirmed_decision, false);
+});
+
 test("quality CLI returns structured schema diagnostics for every malformed JSON root", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reasoning-quality-total-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

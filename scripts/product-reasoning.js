@@ -202,14 +202,19 @@ function promote(root, request, options = {}) {
     throw new Error("promotion request binding_paths must be non-empty");
   if (request.binding_paths.length > 16)
     throw new Error("promotion request binding_paths cannot exceed 16 entries");
-  if (new Set(request.binding_paths).size !== request.binding_paths.length)
+  const decisionPath = canonicalRequestPath(request.decision_path, "decision_path");
+  const targetRef = canonicalRequestPath(request.target_ref, "target_ref");
+  const bindingPaths = request.binding_paths.map((bindingPath) =>
+    canonicalRequestPath(bindingPath, "binding path")
+  );
+  if (new Set(bindingPaths).size !== bindingPaths.length)
     throw new Error("promotion request binding_paths must be unique");
-  if (request.binding_paths.includes(request.decision_path))
+  if (bindingPaths.includes(decisionPath))
     throw new Error("promotion binding_paths cannot include the mutable decision_path output");
-  if (!request.binding_paths.includes(request.target_ref))
+  if (!bindingPaths.includes(targetRef))
     throw new Error("promotion target_ref must also be a binding path");
-  const approvalRef = request.target_ref.replace(/\.json$/, ".approval.json");
-  if (approvalRef === request.target_ref || !request.binding_paths.includes(approvalRef))
+  const approvalRef = targetRef.replace(/\.json$/, ".approval.json");
+  if (approvalRef === targetRef || !bindingPaths.includes(approvalRef))
     throw new Error("promotion binding_paths must include the sibling approval audit");
   if (
     !request.approval_decision ||
@@ -221,12 +226,12 @@ function promote(root, request, options = {}) {
   )
     throw new Error("promotion request approval_decision must bind id and sha256");
 
-  const decisionInput = readProjectInput(root, request.decision_path, 4 * 1024 * 1024);
+  const decisionInput = readProjectInput(root, decisionPath, 4 * 1024 * 1024);
   const brief = JSON.parse(decisionInput.bytes.toString("utf8"));
   const canonical = canonicalOriginPaths(brief);
-  if (request.decision_path !== canonical.decision)
+  if (decisionPath !== canonical.decision)
     throw new Error(`promotion decision_path must equal ${canonical.decision}`);
-  if (!request.binding_paths.includes(canonical.markdown))
+  if (!bindingPaths.includes(canonical.markdown))
     throw new Error(`promotion binding_paths must include canonical origin ${canonical.markdown}`);
   const canonicalTarget = `backlog/proposals/${brief.slug}.json`;
   if (request.target_ref !== canonicalTarget)
@@ -251,7 +256,7 @@ function promote(root, request, options = {}) {
     [approvalRef, approved.approvalSource.bytes],
   ]);
   let aggregateBytes = 0;
-  const sourceArtifacts = request.binding_paths.map((bindingPath) => {
+  const sourceArtifacts = bindingPaths.map((bindingPath) => {
     const bytes = captured.get(bindingPath);
     const remaining = 64 * 1024 * 1024 - aggregateBytes;
     if (remaining <= 0) throw new Error("promotion bindings exceed the 64 MiB aggregate budget");
@@ -313,6 +318,26 @@ function promote(root, request, options = {}) {
     target_ref: request.target_ref,
     bindings: sourceArtifacts,
   };
+}
+
+function canonicalRequestPath(value, label) {
+  if (
+    typeof value !== "string" ||
+    !value ||
+    path.isAbsolute(value) ||
+    value.includes("\\") ||
+    /[\0\r\n]/.test(value)
+  )
+    throw new Error(`promotion ${label} must be a canonical project-relative path`);
+  const normalized = path.posix.normalize(value);
+  if (
+    normalized !== value ||
+    normalized === "." ||
+    normalized === ".." ||
+    normalized.startsWith("../")
+  )
+    throw new Error(`promotion ${label} must be a canonical project-relative path`);
+  return normalized;
 }
 
 function canonicalOriginPaths(brief) {
