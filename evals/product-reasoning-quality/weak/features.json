@@ -1,0 +1,106 @@
+{
+  "schema_version": 2,
+  "document_type": "feature-inventory",
+  "generated_at": "2026-07-14T00:00:00Z",
+  "source_project": "weak-product",
+  "scan": {
+    "mode": "filesystem",
+    "files_scanned": 1,
+    "files_total": 100,
+    "commit": null,
+    "snapshot_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "areas": [
+    {
+      "name": "Core",
+      "features": [
+        {
+          "feature_id": "feat-8644b1de6c9df3560bda",
+          "key": "discover-insights",
+          "name": "Insights",
+          "outcome": "Users can use this.",
+          "highlights": ["Works", "Fast"],
+          "confidence": "low",
+          "source_refs": ["src/index.js"]
+        },
+        {
+          "feature_id": "feat-dbc4bc5574b2d09dbeb4",
+          "key": "capture-evidence",
+          "name": "Evidence",
+          "outcome": "Users can use this.",
+          "highlights": ["Works", "Fast"],
+          "confidence": "low",
+          "source_refs": ["src/index.js"]
+        },
+        {
+          "feature_id": "feat-5ae5fd3aa84e50ed219f",
+          "key": "shape-strategy",
+          "name": "Strategy",
+          "outcome": "Users can use this.",
+          "highlights": ["Works", "Fast"],
+          "confidence": "low",
+          "source_refs": ["src/index.js"]
+        }
+      ]
+    },
+    {
+      "name": "Backend",
+      "features": [
+        {
+          "feature_id": "feat-52d6f5d78fd3245c8374",
+          "key": "rank-ideas",
+          "name": "Ranker",
+          "outcome": "Users can use this.",
+          "highlights": ["Works", "Fast"],
+          "confidence": "low",
+          "source_refs": ["src/index.js"]
+        },
+        {
+          "feature_id": "feat-80306bf08b26c75f20cf",
+          "key": "scope-proposals",
+          "name": "Proposals",
+          "outcome": "Users can use this.",
+          "highlights": ["Works", "Fast"],
+          "confidence": "low",
+          "source_refs": ["src/index.js"]
+        },
+        {
+          "feature_id": "feat-dee9986d7b890430d0c9",
+          "key": "deliver-work",
+          "name": "Delivery",
+          "outcome": "Users can use this.",
+          "highlights": ["Works", "Fast"],
+          "confidence": "low",
+          "source_refs": ["src/index.js"]
+        }
+      ]
+    },
+    {
+      "name": "Other",
+      "features": [
+        {
+          "feature_id": "feat-39b9c2022aa2d97239c5",
+          "key": "review-quality",
+          "name": "Review",
+          "outcome": "Users can use this.",
+          "highlights": ["Works", "Fast"],
+          "confidence": "low",
+          "source_refs": ["src/index.js"]
+        },
+        {
+          "feature_id": "feat-08dc951fd3241b15f20f",
+          "key": "learn-outcomes",
+          "name": "Learning",
+          "outcome": "Users can use this.",
+          "highlights": ["Works", "Fast"],
+          "confidence": "low",
+          "source_refs": ["src/index.js"]
+        }
+      ]
+    }
+  ],
+  "markdown_binding": {
+    "path": "product/features.md",
+    "sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  }
+}

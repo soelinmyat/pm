@@ -2,6 +2,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { readDescriptorBounded } = require("./bounded-descriptor-read");
 
 function projectPath(root, relativePath) {
   if (
@@ -70,21 +71,6 @@ function readProjectInput(root, relativePath, maxBytes = Number.MAX_SAFE_INTEGER
   } finally {
     if (descriptor !== undefined) fs.closeSync(descriptor);
   }
-}
-
-function readDescriptorBounded(descriptor, maxBytes) {
-  const chunks = [];
-  let total = 0;
-  while (true) {
-    const remaining = maxBytes - total;
-    const buffer = Buffer.allocUnsafe(Math.min(64 * 1024, remaining + 1));
-    const count = fs.readSync(descriptor, buffer, 0, buffer.length, null);
-    if (count === 0) break;
-    total += count;
-    if (total > maxBytes) throw new Error(`input exceeds ${maxBytes}-byte budget`);
-    chunks.push(buffer.subarray(0, count));
-  }
-  return Buffer.concat(chunks, total);
 }
 
 module.exports = { readProjectInput };

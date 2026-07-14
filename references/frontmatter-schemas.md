@@ -8,15 +8,15 @@ Type-dispatch table mapping `type` value to file location and schema section.
 
 | Type Value | Location | Required Fields | Schema Section |
 |---|---|---|---|
-| `backlog` | `pm/backlog/*.md` | 9 required + 11 optional | [1. Backlog](#1-backlog) |
-| `strategy` | `pm/strategy.md` | 3 required | [2. Strategy](#2-strategy) |
+| `backlog` | `pm/backlog/*.md` | 9 required + optional fields | [1. Backlog](#1-backlog) |
+| `strategy` | `pm/strategy.md` | 3 required + 2 optional | [2. Strategy](#2-strategy) |
 | `evidence` (`research`) | `pm/evidence/research/*.md` | 6 required + 2 optional | [3. Evidence — Research](#3-evidence--research) |
 | `competitor-*` | `pm/evidence/competitors/{slug}/*.md` | 5 required + 1 optional | [4. Evidence — Competitor](#4-evidence--competitor) |
 | `evidence` (`transcript`) | `pm/evidence/transcripts/*.md` | 6 required | [5. Evidence — Transcript](#5-evidence--transcript) |
 | `evidence` (`user-feedback`) | `pm/evidence/user-feedback/*.md` | 6 required | [6. Evidence — User Feedback](#6-evidence--user-feedback) |
 | `insight` | `pm/insights/{domain}/*.md` | 7 required | [7. Insight](#7-insight) |
 | `notes` | `pm/evidence/**/*.md` | 5 required | [8. Notes](#8-notes) |
-| `thinking` | `pm/thinking/*.md` | 6 required + 1 optional | [9. Thinking](#9-thinking) |
+| `thinking` | `pm/thinking/*.md` | 6 required + 3 optional | [9. Thinking](#9-thinking) |
 | ~~`backlog-issue`~~ | — | — | [Deprecated Types](#deprecated-types) |
 | ~~`proposal`~~ | — | — | [Deprecated Types](#deprecated-types) |
 | ~~`idea`~~ | — | — | [Deprecated Types](#deprecated-types) |
@@ -39,6 +39,8 @@ Files in `pm/backlog/*.md`. Every groomed or proposed feature, bug, or task.
 | `labels` | string[] | required | At least one entry | Categorization tags. Must be non-empty. |
 | `created` | date | required | `YYYY-MM-DD` | Creation date |
 | `updated` | date | required | `YYYY-MM-DD` | Last modification date |
+| `reasoning_version` | integer | optional | `2` | Enables the product-reasoning companion contract for Ideate-created ideas |
+| `decision_brief` | string | optional | — | KB-relative decision companion path for Ideate-created ideas, such as backlog/{slug}.decision.json |
 | `prd` | string\|null | optional | — | Relative path to PRD HTML, or null when PRD content is inline in this file |
 | `rfc` | string\|null | optional | — | Relative path to RFC HTML (e.g., `"rfcs/foo.html"`) |
 | `linear_id` | string\|null | optional | — | Linear issue ID for external tracking |
@@ -48,7 +50,7 @@ Files in `pm/backlog/*.md`. Every groomed or proposed feature, bug, or task.
 | `children` | string[] | optional | — | Ordered child-item slugs. Order = implementation order: the loop dispatches a child only when every earlier sibling is done, and never dispatches a card that has open children (epic umbrella). A referenced slug with no card file counts as done (completed cards are deleted at retro close-out). |
 | `prs` | string[] | optional | — | PR references (e.g., `"#188"`) |
 | `research_refs` | string[] | optional | — | KB paths to research evidence |
-| `evidence_strength` | enum\|null | optional | `"strong"` \| `"moderate"` \| `"weak"` | Strength of supporting evidence |
+| `evidence_strength` | enum\|null | optional | `"strong"` \| `"moderate"` \| `"weak"` \| `"hypothesis"` | Strength of supporting evidence; hypothesis still requires at least one source signal |
 | `scope_signal` | enum\|null | optional | `"small"` \| `"medium"` \| `"large"` | Estimated implementation scope |
 | `competitor_gap` | enum\|null | optional | `"unique"` \| `"partial"` \| `"parity"` \| `"behind"` | Competitive positioning |
 | `kind` | enum\|null | optional | `"proposal"` \| `"task"` \| `"bug"` | Sub-type discriminator. Defaults to `"proposal"` when absent/null. Drives `pm:dev` lifecycle depth: `proposal` runs groom/RFC; `task`/`bug` skip both and force `pm:review`. |
@@ -89,6 +91,8 @@ Single file: `pm/strategy.md`. The product strategy document.
 | `type` | string | required | `"strategy"` | Document type discriminator |
 | `created` | date | required | `YYYY-MM-DD` | Creation date |
 | `updated` | date | required | `YYYY-MM-DD` | Last modification date |
+| `reasoning_version` | integer | optional | `2` | Enables the product-reasoning companion contract |
+| `decision_brief` | string | optional | — | KB-relative decision companion path, normally strategy.decision.json |
 
 Body sections (ICP, positioning, priorities, non-goals) are enforced by prose convention, not frontmatter.
 
@@ -313,6 +317,10 @@ Files in `pm/thinking/*.md`. Product thinking artifacts produced by the `think` 
 | `updated` | date | required | `YYYY-MM-DD` | Last modification date |
 | `status` | enum | required | `"active"` \| `"parked"` \| `"promoted"` | Lifecycle stage |
 | `promoted_to` | string\|null | optional | — | Downstream slug when `status: promoted`, otherwise `null` |
+| `reasoning_version` | integer | optional | `2` | Enables the product-reasoning companion contract |
+| `decision_brief` | string | optional | — | KB-relative decision companion path, such as thinking/{slug}.decision.json |
+
+When either `reasoning_version` or `decision_brief` is present on an Ideate, Strategy, or Think artifact, both participate in the v2 lineage contract. `reasoning_version` must be `2`; `decision_brief` must equal the canonical companion path for that Markdown file; and normal validation authenticates the companion's kind, slug, stable identity, canonical Markdown binding, and any persisted promotion evidence. Artifacts without either field remain valid legacy artifacts.
 
 ### Constraints
 

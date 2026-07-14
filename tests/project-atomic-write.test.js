@@ -2,6 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -61,6 +62,135 @@ test("project writer rejects an ancestor swap before its child anchors the root"
     /not a real directory/
   );
   assert.equal(fs.readFileSync(path.join(outside, "report.json"), "utf8"), "outside-sentinel");
+});
+
+test("project writer verifies input attestations inside the anchored child", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-write-attestation-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, "inputs"));
+  fs.writeFileSync(path.join(root, "inputs", "source.json"), '{"version":1}\n');
+  const expected = `sha256:${crypto
+    .createHash("sha256")
+    .update(fs.readFileSync(path.join(root, "inputs", "source.json")))
+    .digest("hex")}`;
+  assert.throws(
+    () =>
+      writeProjectTextAtomic(root, "output/result.json", "unsafe", {
+        attestations: [{ path: "inputs/source.json", sha256: expected, maxBytes: 1024 }],
+        beforeSpawn() {
+          fs.writeFileSync(path.join(root, "inputs", "source.json"), '{"version":2}\n');
+        },
+      }),
+    /atomic write attestation changed/
+  );
+  assert.equal(fs.existsSync(path.join(root, "output", "result.json")), false);
+});
+
+test("project writer rejects a project-root path swap during input attestation", (t) => {
+  if (process.platform === "win32") return t.skip("directory rename semantics differ on Windows");
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-root-attestation-"));
+  const root = path.join(parent, "project");
+  const originalRoot = path.join(parent, "project-original");
+  t.after(() => fs.rmSync(parent, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, "inputs"), { recursive: true });
+  fs.mkdirSync(path.join(root, "output"));
+  fs.writeFileSync(path.join(root, "inputs", "source.json"), '{"version":1}\n');
+  const expected = `sha256:${crypto
+    .createHash("sha256")
+    .update(fs.readFileSync(path.join(root, "inputs", "source.json")))
+    .digest("hex")}`;
+  const preload = path.join(parent, "swap-root-preload.cjs");
+  fs.writeFileSync(
+    preload,
+    `
+      const fs = require("node:fs");
+      const path = require("node:path");
+      const originalOpen = fs.openSync;
+      let swapped = false;
+      fs.openSync = function(file, ...args) {
+        if (
+          !swapped &&
+          process.argv.includes("--child") &&
+          typeof file === "string" &&
+          file.endsWith("/inputs/source.json")
+        ) {
+          swapped = true;
+          fs.renameSync(process.env.PM_TEST_ROOT, process.env.PM_TEST_ORIGINAL_ROOT);
+          fs.mkdirSync(path.join(process.env.PM_TEST_ROOT, "inputs"), { recursive: true });
+          fs.writeFileSync(process.env.PM_TEST_INPUT, '{"version":1}\\n');
+        }
+        return originalOpen.call(fs, file, ...args);
+      };
+    `
+  );
+  const script = `
+    const [root, writer, expected] = process.argv.slice(1);
+    const { writeProjectTextAtomic } = require(writer);
+    writeProjectTextAtomic(root, "output/result.json", "unsafe", {
+      attestations: [{ path: "inputs/source.json", sha256: expected, maxBytes: 1024 }]
+    });
+  `;
+  const result = spawnSync(process.execPath, ["-e", script, root, writerModule, expected], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      NODE_OPTIONS: `--require=${preload}`,
+      PM_TEST_ROOT: root,
+      PM_TEST_ORIGINAL_ROOT: originalRoot,
+      PM_TEST_INPUT: path.join(root, "inputs", "source.json"),
+    },
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /project root changed during input attestation/);
+  assert.equal(fs.existsSync(path.join(originalRoot, "output", "result.json")), false);
+  assert.equal(fs.existsSync(path.join(root, "output", "result.json")), false);
+});
+
+test("project writer compares the replace target after temporary output is durable", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-write-cas-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, "output"));
+  const target = path.join(root, "output", "result.json");
+  fs.writeFileSync(target, '{"version":1}\n');
+  const expected = `sha256:${crypto
+    .createHash("sha256")
+    .update(fs.readFileSync(target))
+    .digest("hex")}`;
+  const preload = path.join(root, "mutate-after-fsync.cjs");
+  fs.writeFileSync(
+    preload,
+    `
+      const fs = require("node:fs");
+      const originalFsync = fs.fsyncSync;
+      let mutated = false;
+      fs.fsyncSync = function(descriptor) {
+        const result = originalFsync.call(fs, descriptor);
+        if (!mutated && process.argv.includes("--child")) {
+          mutated = true;
+          fs.writeFileSync(process.env.PM_TEST_CAS_TARGET, '{"version":2}\\n');
+        }
+        return result;
+      };
+    `
+  );
+  const script = `
+    const [root, writer, expected] = process.argv.slice(1);
+    const { writeProjectTextAtomic } = require(writer);
+    writeProjectTextAtomic(root, "output/result.json", '{"version":3}\\n', {
+      finalAttestation: { path: "output/result.json", sha256: expected, maxBytes: 1024 }
+    });
+  `;
+  const result = spawnSync(process.execPath, ["-e", script, root, writerModule, expected], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      NODE_OPTIONS: `--require=${preload}`,
+      PM_TEST_CAS_TARGET: target,
+    },
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /atomic write attestation changed/);
+  assert.equal(fs.readFileSync(target, "utf8"), '{"version":2}\n');
 });
 
 test("anchored rename stays in the opened directory when its project path is swapped", (t) => {

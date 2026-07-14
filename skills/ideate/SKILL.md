@@ -26,6 +26,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and
 - **Apply all 5 filters to every candidate.** Show the filtered-out list with a rejection reason for each — the user can override, but you never silently drop or skip filters.
 - **Quality over quantity.** 5 well-sourced ideas beat 15 thin ones. Cut the weakest to a defensible 5-10.
 - **Ideate shapes ideas, it doesn't scope them.** For depth on one idea, hand off to `pm:think` or `pm:groom`.
+- **Ranking is computed, not improvised.** Models supply bounded judgment inputs; the shared ranker owns ordering and strategy-conflict output.
 
 ## Red Flags — Self-Check
 
@@ -70,7 +71,7 @@ Stop.
    - **Filter 4 — Is this needed now?** Drop ideas solving hypothetical future problems or optimizing non-bottlenecks.
    - **Filter 5 — Non-goal conflict?** Check against `{pm_dir}/strategy.md` § 7. Flag conflicts explicitly — do not silently drop them.
 
-4. **Shape.** For each surviving idea, capture a comparable idea card (don't over-scope). Target 5-10; if more survive, cut the weakest.
+4. **Shape.** Read and follow `${CLAUDE_PLUGIN_ROOT}/references/product-reasoning.md`. For each surviving idea, capture a comparable idea card plus a v1 idea decision brief (don't over-scope). Target 5-10; if more survive, cut the weakest.
 
    - **Name** — short and descriptive (3-5 words)
    - **One-liner** — what it does for the user (outcome, not implementation)
@@ -81,11 +82,11 @@ Stop.
    - **Scope signal** — `small` (< 1 day) / `medium` (1-3 days) / `large` (1+ week)
    - **Evidence strength** — `strong` (3+ signals) / `moderate` (1-2) / `hypothesis`
 
-5. **Rank.** Sort by, in order: strategic alignment → evidence strength → competitor gap → dependency count → scope efficiency. When two ideas are close, prefer fewer dependencies and stronger evidence.
+5. **Rank.** Run the shared `rank-ideas` command over the exact candidate briefs. When Strategy exists, pass `{pm_dir}` as the root and its canonical `strategy.decision.json`; the command authenticates that companion against current Strategy Markdown before ranking. Without one, state that token-level strategy verification is unavailable. Use the runtime ordering and show its score components. Unknown priority or non-goal tokens require correction; confirmed non-goal conflicts block saving until the user drops/reshapes the idea or explicitly updates Strategy.
 
 6. **Present.** Show a ranked table (# / Idea / One-liner / Supports / Gap / Evidence / Deps / Scope), a count of how many were filtered out with brief reasons, and quick-wins vs big-bets callouts. Then ask how to proceed: (a) groom one now, (b) add their own ideas, (c) go deeper on one, (d) save all to backlog.
 
-7. **Write.** Only when the user confirms they want ideas saved. Write each approved idea to `{pm_dir}/backlog/{idea-slug}.md`. **ID rule:** use the Linear identifier as `id` if an issue was created; otherwise fall back to the local `PM-{NNN}` sequence (scan `{pm_dir}/backlog/*.md` for the highest `id`, increment by 1). Then tell the user the count, path, and that `/pm:groom {slug}` promotes any idea to a scoped proposal.
+7. **Write.** Only when the user confirms they want ideas saved. Immediately before writing, rebuild the exact final candidate briefs after every user addition or reshape, require the current Strategy companion to be authenticated, and rerun `rank-ideas`. Do not save while any unknown token or confirmed non-goal conflict remains unresolved. Then write each approved idea to `{pm_dir}/backlog/{idea-slug}.md`, hash it, and write and validate `{pm_dir}/backlog/{idea-slug}.decision.json`. **ID rule:** use the Linear identifier as `id` if an issue was created; otherwise fall back to the local `PM-{NNN}` sequence. Preserve the decision ID across ranking and wording changes. Then tell the user the count, paths, and that `/pm:groom {slug}` consumes this lineage and atomically marks it promoted only after approved Groom artifacts exist.
 
    ```markdown
    ---
@@ -103,6 +104,8 @@ Stop.
    strategic_fit: "{which priority}"
    competitor_gap: {unique|partial|parity}
    dependencies: [] | ["{dependency}"]
+   reasoning_version: 2
+   decision_brief: "backlog/{idea-slug}.decision.json"
    created: YYYY-MM-DD
    updated: YYYY-MM-DD
    ---
@@ -142,6 +145,6 @@ When the user already knows what to build and wants to scope it — use `pm:groo
 
 ## Before Marking Done
 
-- [ ] User-approved idea artifacts are saved with stable IDs, source paths, and comparable fields; unapproved ideas remain unwritten.
+- [ ] User-approved Markdown and decision companions are saved with stable IDs, Evidence/source refs, deterministic ranks, and comparable fields; unapproved ideas remain unwritten.
 - [ ] The user confirmed which ideas to save and whether to think, groom, or stop.
 - [ ] Capability audit, signal provenance, five-filter, ranking, deduplication, and write validation gates passed.

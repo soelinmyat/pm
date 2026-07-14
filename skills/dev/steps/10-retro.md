@@ -207,7 +207,7 @@ If this writeback fails after you decided it should happen, preserve the session
 
 **6b. Validate.** Run:
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "{pm_dir}"
+node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "{pm_dir}" --source-dir "{source_dir}"
 ```
 If validation fails, fix the entries and re-validate before proceeding.
 

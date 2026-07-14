@@ -133,7 +133,7 @@ If `linear_id` is set in `.pm/dev-sessions/{slug}/session.json` (or RFC metadata
 
   Originated from Linear issue {linear_id}. Product memory created at ship.
   ```
-- Run `node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir pm` to verify. Fix errors before proceeding.
+- Run `node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "{pm_dir}" --source-dir "{source_dir}"` to verify. Fix errors before proceeding.
 - Log: `Backlog created: {pm_dir}/backlog/{slug}.md (id: {linear_id})`
 
 **Step 2: Update local backlog item(s) to done.**
@@ -143,6 +143,14 @@ Read `{pm_dir}/backlog/{slug}.md`. Update frontmatter:
 - Set `updated: {today's date}`
 - If `linear_id` is available in session state and not already in frontmatter, add it
 - If `prs` field exists, append `"#{pr_number}"` if not already listed
+
+If the backlog frontmatter contains `reasoning_version: 2`, refresh its companion from the final Markdown bytes after all status and PR metadata edits:
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/product-reasoning.js" refresh-reader \
+  --root "{pm_dir}" \
+  --decision "backlog/{slug}.decision.json"
+```
+This command validates the reciprocal marker, durable promotion bindings, and exact final reader bytes before atomically replacing the companion. A refresh failure blocks validation and ship.
 
 Verify the file was written: read it back and confirm `status: done`.
 

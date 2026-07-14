@@ -7,7 +7,7 @@ description: "Use when creating or maintaining a product strategy document. Cove
 
 ## Purpose
 
-The strategy doc is the alignment filter for all grooming decisions. Every feature idea gets evaluated against it. Without one, grooming drifts.
+The strategy doc is the alignment filter for all grooming decisions. Its compact decision companion exposes stable priority and non-goal tokens so every feature idea can be checked without reparsing prose.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
 
@@ -24,6 +24,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and
 - **Surface missing market context, don't ignore it.** Optional landscape context is not irrelevant context.
 - **Existing docs drift.** Reuse prior strategy selectively, but verify what changed before carrying it forward — a doc unreviewed in 30 days is a historical document, not a strategy.
 - **Accept short answers.** They're still inputs. Write clearly from them instead of interrogating the user into verbosity.
+- **Preserve strategic identity.** Wording may change without minting new priority/non-goal tokens; genuine decision changes stay legible in the companion.
 
 ## Red Flags — Self-Check
 
@@ -56,13 +57,15 @@ Stop.
    - If `{pm_dir}/evidence/research/` holds internal or mixed findings from `pm:ingest`, use them to sharpen ICP, segmentation, priorities, and non-goals.
    - After Essentials, ask: "Want to go deeper on any area, or is this enough to write the strategy doc?"
 
-4. **Write strategy.** Write or update `{pm_dir}/strategy.md` in the standard structure below (frontmatter must conform to the `type: strategy` schema in `${CLAUDE_PLUGIN_ROOT}/references/frontmatter-schemas.md`). Then tell the user next steps: "Strategy complete. Next: run `/pm:research competitors` to profile competitors, then `/pm:ideate` to surface feature ideas. If you have un-ingested customer evidence, run `/pm:ingest <path>` before bigger prioritization calls. What would you like to do next?"
+4. **Write strategy.** Read and follow `${CLAUDE_PLUGIN_ROOT}/references/product-reasoning.md`. Write or update `{pm_dir}/strategy.md`, hash its final bytes, then write and validate `{pm_dir}/strategy.decision.json`. The companion captures the strategic problem, evidence/assumptions, alternatives considered, confirmed decision, confidence basis, explicit non-goals, next review trigger, and stable priority/non-goal tokens. On surgical updates preserve the decision ID and unchanged tokens. Then tell the user next steps: "Strategy complete. Next: run `/pm:research competitors` to profile competitors, then `/pm:ideate` to surface feature ideas. If you have un-ingested customer evidence, run `/pm:ingest <path>` before bigger prioritization calls. What would you like to do next?"
 
    ```markdown
    ---
    type: strategy
    created: YYYY-MM-DD
    updated: YYYY-MM-DD
+   reasoning_version: 2
+   decision_brief: "strategy.decision.json"
    ---
 
    # Product Strategy
@@ -123,6 +126,6 @@ Quick strategic questions ("who's our ICP?") — just read `{pm_dir}/strategy.md
 
 ## Before Marking Done
 
-- [ ] The canonical strategy artifact is saved with confirmed decisions, explicit assumptions, evidence context, and an updated date.
+- [ ] The canonical strategy Markdown and hash-bound decision companion are saved with confirmed decisions, stable tokens, explicit assumptions, evidence context, and an updated date.
 - [ ] The user confirmed adopted material, changed sections, priorities, non-goals, and final wording.
 - [ ] Workspace, landscape choice, existing-doc, interview-depth, schema, overwrite, and next-lane gates passed.

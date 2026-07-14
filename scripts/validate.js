@@ -14,12 +14,22 @@ const {
 } = require("./kb-frontmatter.js");
 const { CANONICAL_CARD_STATUSES } = require("./loop-card-state.js");
 const { validateCitationBindings, validateEvidenceLedger } = require("./lib/evidence-schema.js");
+const {
+  validateDecisionBrief,
+  validateFeatureSourceRefs,
+  validateFeatureInventory,
+} = require("./lib/product-reasoning-schema.js");
+const { readProjectInput } = require("./lib/safe-project-output.js");
+const {
+  verifyArtifactBindings,
+  verifyDecisionBriefBindings,
+} = require("./lib/product-reasoning-bindings.js");
 
 // ========== Config ==========
 
 const VALID_STATUSES = CANONICAL_CARD_STATUSES;
 const VALID_PRIORITIES = ["critical", "high", "medium", "low"];
-const VALID_EVIDENCE = ["strong", "moderate", "weak"];
+const VALID_EVIDENCE = ["strong", "moderate", "weak", "hypothesis"];
 const VALID_SCOPE = ["small", "medium", "large"];
 const VALID_GAP = ["unique", "partial", "parity", "behind"];
 const VALID_BACKLOG_KINDS = ["proposal", "task", "bug"];
@@ -43,6 +53,7 @@ const VALID_COMPETITOR_TYPES = [
   "competitor-seo",
 ];
 const REQUIRED_COMPETITOR_FIELDS = ["type", "company", "slug", "profiled", "sources"];
+const PRODUCT_REASONING_INSPECTION_CACHES = new WeakMap();
 
 const VALID_MEMORY_CATEGORIES = ["scope", "research", "review", "process", "quality"];
 const VALID_INSIGHT_STATUSES = ["active", "stale", "draft"];
@@ -141,14 +152,83 @@ function relativeToPm(pmDir, filePath) {
   return toPosix(path.relative(pmDir, filePath));
 }
 
-function readParsedFrontmatter(filePath, relativeFile, errors) {
-  const content = fs.readFileSync(filePath, "utf8");
+function pathEntryExists(filePath) {
+  try {
+    fs.lstatSync(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readParsedFrontmatter(filePath, relativeFile, errors, options = {}) {
+  let content;
+  let input = null;
+  let bindingPath = null;
+  try {
+    if (options.pmDir) {
+      bindingPath = relativeToPm(options.pmDir, filePath);
+      input = options.cache?.get(bindingPath);
+      if (!input) {
+        input = readProjectInput(options.pmDir, bindingPath, 4 * 1024 * 1024);
+      }
+      content = input.bytes.toString("utf8");
+    } else content = fs.readFileSync(filePath, "utf8");
+  } catch (error) {
+    pushIssue(errors, relativeFile, "-", `cannot read regular Markdown file: ${error.message}`);
+    return null;
+  }
   const parsed = parseFrontmatter(content);
+  if (
+    input &&
+    options.cache &&
+    (options.hasCompanion ||
+      Object.hasOwn(parsed.data || {}, "reasoning_version") ||
+      Object.hasOwn(parsed.data || {}, "decision_brief"))
+  ) {
+    try {
+      cacheProductReasoningInput(bindingPath, input, options.cache, options.budgetState);
+    } catch (error) {
+      pushIssue(errors, relativeFile, "-", error.message);
+      return null;
+    }
+  }
   if (!parsed.hasFrontmatter) {
     pushIssue(errors, relativeFile, "-", "no YAML frontmatter found");
     return null;
   }
   return parsed;
+}
+
+function cacheProductReasoningInput(relative, input, cache, budgetState) {
+  if (cache.has(relative)) return cache.get(relative);
+  if (budgetState) {
+    if (input.bytes.length > budgetState.remaining)
+      throw new Error(`${relative}: aggregate product reasoning bytes exceed 64 MiB`);
+    budgetState.remaining -= input.bytes.length;
+  }
+  cache.set(relative, input);
+  return input;
+}
+
+function readProductReasoningInput(pmDir, relative, cache, budgetState, maxFileBytes) {
+  const cached = cache?.get(relative);
+  if (cached) {
+    if (cached.bytes.length > maxFileBytes)
+      throw new Error(`${relative}: input exceeds ${maxFileBytes} bytes`);
+    return cached;
+  }
+  const remaining = budgetState?.remaining ?? maxFileBytes;
+  if (remaining <= 0)
+    throw new Error(`${relative}: aggregate product reasoning bytes exceed 64 MiB`);
+  try {
+    const input = readProjectInput(pmDir, relative, Math.min(maxFileBytes, remaining));
+    return cacheProductReasoningInput(relative, input, cache, budgetState);
+  } catch (error) {
+    if (remaining < maxFileBytes && /input exceeds/.test(error.message))
+      throw new Error(`${relative}: aggregate product reasoning bytes exceed 64 MiB`);
+    throw error;
+  }
 }
 
 function validateEvidenceV2(pmDir, errors) {
@@ -880,7 +960,161 @@ const REQUIRED_FEATURES_FIELDS = [
   "areas",
 ];
 
-function validateFeaturesFile(pmDir, filePath, content, errors) {
+function unquoteYamlScalar(value) {
+  return String(value || "")
+    .trim()
+    .replace(/^(?:"([\s\S]*)"|'([\s\S]*)')$/, (_, double, single) => double ?? single);
+}
+
+function parseFeatureFrontmatterAreas(content) {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!match) return null;
+  const lines = match[1].split(/\r?\n/);
+  const start = lines.findIndex((line) => /^areas:\s*$/.test(line));
+  if (start < 0) return null;
+  const areas = [];
+  let current = null;
+  let inFeatures = false;
+  for (const line of lines.slice(start + 1)) {
+    if (/^[A-Za-z_][A-Za-z0-9_-]*:/.test(line)) break;
+    const area = line.match(/^ {2}- name:\s*(.+)$/);
+    if (area) {
+      current = { name: unquoteYamlScalar(area[1]), features: [] };
+      areas.push(current);
+      inFeatures = false;
+      continue;
+    }
+    if (/^ {4}features:\s*$/.test(line) && current) {
+      inFeatures = true;
+      continue;
+    }
+    const feature = line.match(/^ {6}-\s*(.+)$/);
+    if (feature && current && inFeatures) {
+      current.features.push(unquoteYamlScalar(feature[1]));
+      continue;
+    }
+    if (line.trim()) return null;
+  }
+  return areas.length ? areas : null;
+}
+
+function parseFeatureBodyAreas(body) {
+  const areas = [];
+  const issues = [];
+  let current = null;
+  let activeFeature = null;
+  let mode = "outcome";
+  const finishFeature = () => {
+    if (!activeFeature) return;
+    activeFeature.outcome = activeFeature.outcome_lines
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .join(" ");
+    delete activeFeature.outcome_lines;
+    if (!activeFeature.outcome) issues.push("every feature must include its rendered outcome");
+    if (activeFeature.highlights.length === 0)
+      issues.push("every feature must include its rendered Highlights list");
+    activeFeature = null;
+  };
+  for (const line of String(body || "").split(/\r?\n/)) {
+    const area = line.match(/^##\s+([^#].*?)\s*$/);
+    if (area) {
+      finishFeature();
+      current = { name: area[1], features: [] };
+      areas.push(current);
+      continue;
+    }
+    if (/^###\s+/.test(line)) {
+      finishFeature();
+      const feature = line.match(/^###\s+(.+?)\s+<!--\s*(feat-[a-f0-9]{20})\s*-->\s*$/);
+      if (!feature) {
+        issues.push("every feature heading must include its canonical feat-* marker");
+        continue;
+      }
+      if (!current) {
+        issues.push("feature headings must belong to a product area");
+        continue;
+      }
+      activeFeature = {
+        name: feature[1],
+        feature_id: feature[2],
+        outcome_lines: [],
+        highlights: [],
+      };
+      current.features.push(activeFeature);
+      mode = "outcome";
+      continue;
+    }
+    if (!activeFeature) continue;
+    if (/^\*\*Highlights:\*\*\s*$/.test(line)) {
+      mode = "highlights";
+      continue;
+    }
+    const highlight = line.match(/^-\s+(.+?)\s*$/);
+    if (mode === "highlights" && highlight) {
+      activeFeature.highlights.push(highlight[1]);
+      continue;
+    }
+    if (line.trim()) {
+      if (mode === "highlights")
+        issues.push("feature Highlights must contain only Markdown list items");
+      else activeFeature.outcome_lines.push(line);
+    }
+  }
+  finishFeature();
+  return { areas, issues };
+}
+
+function validateFeatureProjection(data, body, content, inventory) {
+  const issues = [];
+  const features = inventory.areas.flatMap((area) => area.features);
+  const scalarChecks = [
+    ["generated", data.generated, inventory.generated_at.slice(0, 10)],
+    ["source_project", data.source_project, inventory.source_project],
+    ["files_scanned", Number(data.files_scanned), inventory.scan.files_scanned],
+    ["files_total", Number(data.files_total ?? data.files_scanned), inventory.scan.files_total],
+    ["feature_count", Number(data.feature_count), features.length],
+    ["area_count", Number(data.area_count), inventory.areas.length],
+  ];
+  for (const [field, observed, expected] of scalarChecks)
+    if (observed !== expected) issues.push(`${field} does not match product/features.json`);
+
+  const frontmatterAreas = parseFeatureFrontmatterAreas(content);
+  const expectedFrontmatterAreas = inventory.areas.map((area) => ({
+    name: area.name,
+    features: area.features.map((feature) => feature.key),
+  }));
+  if (JSON.stringify(frontmatterAreas) !== JSON.stringify(expectedFrontmatterAreas))
+    issues.push("frontmatter areas and feature keys do not match product/features.json");
+
+  const parsedBody = parseFeatureBodyAreas(body);
+  issues.push(...parsedBody.issues);
+  const observedBodyAreas = parsedBody.areas.map((area) => ({
+    name: area.name,
+    features: area.features.map((feature) => ({
+      name: feature.name,
+      feature_id: feature.feature_id,
+      outcome: feature.outcome,
+      highlights: feature.highlights,
+    })),
+  }));
+  const expectedBodyAreas = inventory.areas.map((area) => ({
+    name: area.name,
+    features: area.features.map((feature) => ({
+      name: feature.name,
+      feature_id: feature.feature_id,
+      outcome: feature.outcome.replace(/\s+/g, " ").trim(),
+      highlights: feature.highlights,
+    })),
+  }));
+  if (JSON.stringify(observedBodyAreas) !== JSON.stringify(expectedBodyAreas))
+    issues.push(
+      "body area names, feature names, feature IDs, outcomes, or highlights do not match product/features.json"
+    );
+  return issues;
+}
+
+function validateFeaturesFile(pmDir, filePath, content, errors, cache, budgetState) {
   const relativeFile = relativeToPm(pmDir, filePath);
   const parsed = parseFrontmatter(content);
   if (!parsed.hasFrontmatter) {
@@ -908,6 +1142,160 @@ function validateFeaturesFile(pmDir, filePath, content, errors) {
       );
     }
   }
+
+  const hasVersion = Object.prototype.hasOwnProperty.call(data, "inventory_version");
+  const hasFile = Object.prototype.hasOwnProperty.call(data, "inventory_file");
+  if (!hasVersion && !hasFile) return;
+  if (String(data.inventory_version) !== "2")
+    pushIssue(errors, relativeFile, "inventory_version", "must equal 2");
+  const expectedInventory = "product/features.json";
+  if (data.inventory_file !== expectedInventory) {
+    pushIssue(
+      errors,
+      relativeFile,
+      "inventory_file",
+      `must equal canonical companion ${expectedInventory}`
+    );
+    return;
+  }
+  const inspected = inspectProductReasoningJson(
+    pmDir,
+    path.join(pmDir, expectedInventory),
+    "feature-inventory",
+    cache,
+    budgetState
+  );
+  if (inspected.readError) {
+    pushIssue(errors, relativeFile, "inventory_file", `invalid companion: ${inspected.readError}`);
+    return;
+  }
+  for (const issue of inspected.issues) pushIssue(errors, relativeFile, "inventory_file", issue);
+  if (inspected.issues.length) return;
+  for (const issue of inspected.bindingIssues)
+    pushIssue(errors, relativeFile, "inventory_file", issue);
+  if (inspected.bindingIssues.length) return;
+  for (const issue of validateFeatureProjection(data, parsed.body, content, inspected.value))
+    pushIssue(errors, relativeFile, "inventory_file", issue);
+}
+
+function inspectProductReasoningJson(pmDir, filePath, expectedType, cache, budgetState) {
+  const relativeFile = relativeToPm(pmDir, filePath);
+  const key = `${expectedType}:${relativeFile}`;
+  let inspectionCache = null;
+  if (cache) {
+    inspectionCache = PRODUCT_REASONING_INSPECTION_CACHES.get(cache);
+    if (!inspectionCache) {
+      inspectionCache = new Map();
+      PRODUCT_REASONING_INSPECTION_CACHES.set(cache, inspectionCache);
+    }
+  }
+  if (inspectionCache?.has(key)) return inspectionCache.get(key);
+  let result;
+  try {
+    const bytes = readProductReasoningInput(
+      pmDir,
+      relativeFile,
+      cache,
+      budgetState,
+      4 * 1024 * 1024
+    ).bytes;
+    const value = JSON.parse(bytes.toString("utf8"));
+    const issues =
+      expectedType === "decision-brief"
+        ? validateDecisionBrief(value)
+        : validateFeatureInventory(value);
+    const bindingIssues =
+      issues.length > 0
+        ? []
+        : expectedType === "decision-brief"
+          ? verifyDecisionBriefBindings(pmDir, value, { cache, budgetState })
+          : verifyArtifactBindings(pmDir, [value.markdown_binding], { cache, budgetState });
+    result = { value, issues, bindingIssues, readError: null };
+  } catch (error) {
+    result = { value: null, issues: [], bindingIssues: [], readError: error.message };
+  }
+  if (inspectionCache) inspectionCache.set(key, result);
+  return result;
+}
+
+function validateProductReasoningJson(
+  pmDir,
+  filePath,
+  errors,
+  expectedType,
+  sourceDir = null,
+  cache = null,
+  budgetState = null
+) {
+  const relativeFile = relativeToPm(pmDir, filePath);
+  const inspected = inspectProductReasoningJson(pmDir, filePath, expectedType, cache, budgetState);
+  if (inspected.readError)
+    return pushIssue(
+      errors,
+      relativeFile,
+      "-",
+      `invalid product reasoning JSON: ${inspected.readError}`
+    );
+  for (const issue of inspected.issues) pushIssue(errors, relativeFile, "contract", issue);
+  if (inspected.issues.length) return;
+  for (const issue of inspected.bindingIssues) pushIssue(errors, relativeFile, "binding", issue);
+  if (expectedType === "feature-inventory") {
+    if (!sourceDir) {
+      pushIssue(errors, relativeFile, "source_refs", "source directory is required for validation");
+    } else {
+      for (const issue of validateFeatureSourceRefs(inspected.value, sourceDir))
+        pushIssue(errors, relativeFile, "source_refs", issue);
+    }
+  }
+}
+
+function validateReasoningFrontmatter(pmDir, markdownPath, data, errors, kind, cache, budgetState) {
+  const relativeMarkdown = relativeToPm(pmDir, markdownPath);
+  const hasVersion = Object.prototype.hasOwnProperty.call(data, "reasoning_version");
+  const hasBrief = Object.prototype.hasOwnProperty.call(data, "decision_brief");
+  if (!hasVersion && !hasBrief) return;
+  if (String(data.reasoning_version) !== "2")
+    pushIssue(errors, relativeMarkdown, "reasoning_version", "must equal 2");
+  const slug = path.basename(markdownPath, ".md");
+  const expectedBrief =
+    kind === "strategy"
+      ? "strategy.decision.json"
+      : `${kind === "think" ? "thinking" : "backlog"}/${slug}.decision.json`;
+  if (data.decision_brief !== expectedBrief) {
+    pushIssue(
+      errors,
+      relativeMarkdown,
+      "decision_brief",
+      `must equal canonical companion ${expectedBrief}`
+    );
+    return;
+  }
+  const inspected = inspectProductReasoningJson(
+    pmDir,
+    path.join(pmDir, expectedBrief),
+    "decision-brief",
+    cache,
+    budgetState
+  );
+  if (inspected.readError) {
+    pushIssue(
+      errors,
+      relativeMarkdown,
+      "decision_brief",
+      `invalid companion: ${inspected.readError}`
+    );
+    return;
+  }
+  const brief = inspected.value;
+  const issues = [...inspected.issues];
+  if (brief !== null && typeof brief === "object" && !Array.isArray(brief)) {
+    if (brief.kind !== kind) issues.push(`decision kind must equal ${kind}`);
+    if (kind !== "strategy" && brief.slug !== slug) issues.push(`decision slug must equal ${slug}`);
+  }
+  for (const issue of issues) pushIssue(errors, relativeMarkdown, "decision_brief", issue);
+  if (issues.length) return;
+  for (const issue of inspected.bindingIssues)
+    pushIssue(errors, relativeMarkdown, "decision_brief", issue);
 }
 
 function validateMemoryEntry(relativeFile, entry, index, errors, requireArchivedAt) {
@@ -1020,13 +1408,17 @@ function validateConfig(configPath) {
   return { errors };
 }
 
-function validate(pmDir) {
+function validate(pmDir, options = {}) {
   const errors = [];
   const warnings = [];
   const backlogIds = new Map();
   const kbState = {
     insights: new Map(),
     evidence: new Map(),
+  };
+  const productReasoningCache = new Map();
+  const productReasoningBudget = {
+    remaining: options.productReasoningBudgetBytes ?? 64 * 1024 * 1024,
   };
 
   const backlogDir = path.join(pmDir, "backlog");
@@ -1039,12 +1431,28 @@ function validate(pmDir) {
         continue;
       }
 
-      const parsed = readParsedFrontmatter(filePath, file, errors);
+      const parsed = readParsedFrontmatter(filePath, file, errors, {
+        pmDir,
+        cache: productReasoningCache,
+        budgetState: productReasoningBudget,
+        hasCompanion: pathEntryExists(
+          path.join(backlogDir, `${path.basename(file, ".md")}.decision.json`)
+        ),
+      });
       if (!parsed) {
         continue;
       }
 
       validateBacklogItem(filePath, parsed.data, errors, warnings);
+      validateReasoningFrontmatter(
+        pmDir,
+        filePath,
+        parsed.data,
+        errors,
+        "idea",
+        productReasoningCache,
+        productReasoningBudget
+      );
 
       if (parsed.data.id) {
         if (backlogIds.has(parsed.data.id)) {
@@ -1096,9 +1504,23 @@ function validate(pmDir) {
 
   const strategyPath = path.join(pmDir, "strategy.md");
   if (fs.existsSync(strategyPath)) {
-    const parsed = readParsedFrontmatter(strategyPath, "strategy.md", errors);
+    const parsed = readParsedFrontmatter(strategyPath, "strategy.md", errors, {
+      pmDir,
+      cache: productReasoningCache,
+      budgetState: productReasoningBudget,
+      hasCompanion: pathEntryExists(path.join(pmDir, "strategy.decision.json")),
+    });
     if (parsed) {
       validateStrategy(strategyPath, parsed.data, errors);
+      validateReasoningFrontmatter(
+        pmDir,
+        strategyPath,
+        parsed.data,
+        errors,
+        "strategy",
+        productReasoningCache,
+        productReasoningBudget
+      );
     }
   }
 
@@ -1111,12 +1533,28 @@ function validate(pmDir) {
     }
 
     const relativeFile = relativeToPm(pmDir, filePath);
-    const parsed = readParsedFrontmatter(filePath, relativeFile, errors);
+    const parsed = readParsedFrontmatter(filePath, relativeFile, errors, {
+      pmDir,
+      cache: productReasoningCache,
+      budgetState: productReasoningBudget,
+      hasCompanion: pathEntryExists(
+        path.join(path.dirname(filePath), `${path.basename(filePath, ".md")}.decision.json`)
+      ),
+    });
     if (!parsed) {
       continue;
     }
 
     validateThinkingFile(pmDir, filePath, parsed.data, errors, warnings);
+    validateReasoningFrontmatter(
+      pmDir,
+      filePath,
+      parsed.data,
+      errors,
+      "think",
+      productReasoningCache,
+      productReasoningBudget
+    );
   }
 
   const insightsDir = path.join(pmDir, "insights");
@@ -1177,8 +1615,72 @@ function validate(pmDir) {
 
   const featuresPath = path.join(pmDir, "product", "features.md");
   if (fs.existsSync(featuresPath)) {
-    const content = fs.readFileSync(featuresPath, "utf8");
-    validateFeaturesFile(pmDir, featuresPath, content, errors);
+    try {
+      const relative = relativeToPm(pmDir, featuresPath);
+      const uncachedInput = readProjectInput(pmDir, relative, 4 * 1024 * 1024);
+      const preview = parseFrontmatter(uncachedInput.bytes.toString("utf8"));
+      const relevant =
+        pathEntryExists(path.join(pmDir, "product", "features.json")) ||
+        Object.hasOwn(preview.data || {}, "inventory_version") ||
+        Object.hasOwn(preview.data || {}, "inventory_file");
+      const input = relevant
+        ? cacheProductReasoningInput(
+            relative,
+            uncachedInput,
+            productReasoningCache,
+            productReasoningBudget
+          )
+        : uncachedInput;
+      validateFeaturesFile(
+        pmDir,
+        featuresPath,
+        input.bytes.toString("utf8"),
+        errors,
+        productReasoningCache,
+        productReasoningBudget
+      );
+    } catch (error) {
+      pushIssue(
+        errors,
+        "product/features.md",
+        "-",
+        `cannot read regular Markdown file: ${error.message}`
+      );
+    }
+  }
+
+  const decisionCandidates = [path.join(pmDir, "strategy.decision.json")];
+  for (const directory of [path.join(pmDir, "thinking"), path.join(pmDir, "backlog")]) {
+    if (!fs.existsSync(directory)) continue;
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      if (entry.name.endsWith(".decision.json")) {
+        decisionCandidates.push(path.join(directory, entry.name));
+      }
+    }
+  }
+  for (const candidate of decisionCandidates) {
+    if (pathEntryExists(candidate))
+      validateProductReasoningJson(
+        pmDir,
+        candidate,
+        errors,
+        "decision-brief",
+        null,
+        productReasoningCache,
+        productReasoningBudget
+      );
+  }
+  const featureInventoryPath = path.join(pmDir, "product", "features.json");
+  if (pathEntryExists(featureInventoryPath)) {
+    validateProductReasoningJson(
+      pmDir,
+      featureInventoryPath,
+      errors,
+      "feature-inventory",
+      options.sourceDir || null,
+      productReasoningCache,
+      productReasoningBudget
+    );
   }
 
   validateMemoryDocument(pmDir, "memory.md", "project-memory", false, errors);
@@ -1225,10 +1727,14 @@ function main() {
     return;
   }
   let pmDir = null;
+  let sourceDir = process.cwd();
 
   for (let index = 0; index < args.length; index++) {
     if (args[index] === "--dir" && args[index + 1]) {
       pmDir = args[index + 1];
+      index++;
+    } else if (args[index] === "--source-dir" && args[index + 1]) {
+      sourceDir = args[index + 1];
       index++;
     }
   }
@@ -1242,7 +1748,7 @@ function main() {
     process.exit(1);
   }
 
-  const { errors, warnings, backlogCount } = validate(pmDir);
+  const { errors, warnings, backlogCount } = validate(pmDir, { sourceDir });
   const result = {
     ok: errors.length === 0,
     backlog_items: backlogCount,

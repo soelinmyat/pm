@@ -148,7 +148,7 @@ Make Groom the next full lifecycle migration:
 
 ### Wave 6 — Ship and release transaction v2
 
-**State:** implementation and certification complete on `codex/ship-v2`; release preparation pending. Detailed plan in `docs/plans/2026-07-14-ship-release-transaction-v2-wave-6.md`.
+**State:** complete — merged in PR #356 and released as `v1.13.27`. Detailed plan in `docs/plans/2026-07-14-ship-release-transaction-v2-wave-6.md`.
 
 Resolve the delivery boundary exposed during Wave 3B:
 
@@ -163,7 +163,7 @@ Resolve the delivery boundary exposed during Wave 3B:
 
 ### Wave 7 — Evidence system v2
 
-**State:** implementation and local certification complete on `codex/evidence-v2`; release preparation pending. Detailed plan in `docs/plans/2026-07-14-evidence-system-v2-wave-7.md`.
+**State:** complete — merged in PR #357 and released as `v1.13.28`. Detailed plan in `docs/plans/2026-07-14-evidence-system-v2-wave-7.md`.
 
 Modernize `note`, `ingest`, `research`, and `refresh` as one provenance-compatible family:
 
@@ -176,6 +176,8 @@ Modernize `note`, `ingest`, `research`, and `refresh` as one provenance-compatib
 **Exit:** every research claim can trace to evidence; refresh never silently deletes prior evidence; private/raw inputs remain outside committed artifacts; representative ingestion and research quality fixtures pass.
 
 ### Wave 8 — Product reasoning and inventory v2
+
+**State:** implementation and local quality calibration complete on `codex/product-reasoning-v2`; canonical review and release pending. Detailed plan in `docs/plans/2026-07-14-product-reasoning-inventory-v2-wave-8.md`.
 
 Improve `think`, `ideate`, `strategy`, and `features` without over-engineering them:
 

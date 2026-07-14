@@ -45,7 +45,7 @@ The executable schema lives in `scripts/lib/proposal-schema.js`; this reference 
   "source": {
     "kind": "groom-session",
     "session_id": "groom_...",
-    "lineage": [{ "id": "source:...", "path": "pm/...", "sha256": "sha256:..." }]
+    "lineage": [{ "id": "source:...", "path": "backlog/...", "sha256": "sha256:..." }]
   },
   "decision_brief": {
     "problem": "Evidence-backed pain and audience",

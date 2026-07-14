@@ -38,6 +38,21 @@ test("proposal renderer is byte-deterministic and binds both projections to cano
   assert.match(first.markdown, /Do not edit by hand/);
 });
 
+test("Ideate-origin proposals preserve the v2 companion marker in the generated projection", () => {
+  const input = source();
+  input.proposal.source.lineage.push({
+    id: "source:idea-origin",
+    path: "pm/backlog/structured-groom.decision.json",
+    sha256: `sha256:${"a".repeat(64)}`,
+  });
+  const rendered = renderProposal(input.proposal, {
+    sourceBytes: Buffer.from(`${JSON.stringify(input.proposal, null, 2)}\n`),
+    version: "test",
+  });
+  assert.match(rendered.markdown, /reasoning_version: 2/);
+  assert.match(rendered.markdown, /decision_brief: "backlog\/structured-groom\.decision\.json"/);
+});
+
 test("generated proposal reader passes the shared offline artifact contract", () => {
   const input = source();
   const rendered = renderProposal(input.proposal, {

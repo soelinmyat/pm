@@ -1,5 +1,5 @@
 ---
-description: "Structured product thinking — challenge assumptions, explore approaches, weigh tradeoffs. No ceremony."
+description: "Structured product thinking with a traceable decision brief — challenge assumptions, compare approaches, and choose the next trigger."
 argument-hint: "<idea or question>"
 ---
 

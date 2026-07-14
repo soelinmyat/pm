@@ -23,6 +23,12 @@ function writeProjectFileAtomic(root, relativePath, content, options = {}) {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 0 || bytes.length > maxBytes)
     throw new Error(`output exceeds ${maxBytes}-byte budget`);
   const rootStat = fs.statSync(projectRoot);
+  const attestations = normalizeAttestations(options.attestations || []);
+  const finalAttestation = options.finalAttestation
+    ? normalizeAttestations([options.finalAttestation])[0]
+    : null;
+  if (finalAttestation && finalAttestation.path !== relativePath)
+    throw new Error("atomic write final attestation must target the output path");
   if (typeof options.beforeSpawn === "function") options.beforeSpawn();
   const result = spawnSync(
     process.execPath,
@@ -35,6 +41,8 @@ function writeProjectFileAtomic(root, relativePath, content, options = {}) {
       options.replace === false ? "exclusive" : "replace",
       String(rootStat.dev),
       String(rootStat.ino),
+      Buffer.from(JSON.stringify(attestations)).toString("base64"),
+      Buffer.from(JSON.stringify(finalAttestation)).toString("base64"),
     ],
     {
       cwd: projectRoot,
@@ -99,6 +107,7 @@ function writeProjectTextAtomic(root, relativePath, value, options = {}) {
 
 function writeFromAnchoredRoot(relativePath, content, options = {}) {
   validateRelative(relativePath);
+  const projectRoot = fs.realpathSync(".");
   const rootStat = fs.statSync(".");
   if (
     options.expectedRootDev !== undefined &&
@@ -106,7 +115,6 @@ function writeFromAnchoredRoot(relativePath, content, options = {}) {
       String(rootStat.ino) !== String(options.expectedRootIno))
   )
     throw new Error("project root changed before anchored output write");
-
   const parts = relativePath.split(/[\\/]+/);
   const basename = parts.pop();
   for (const part of parts) enterDirectory(part, options.directoryMode ?? 0o777);
@@ -126,7 +134,19 @@ function writeFromAnchoredRoot(relativePath, content, options = {}) {
     const opened = fs.fstatSync(descriptor);
     fs.writeFileSync(descriptor, content);
     fs.fsyncSync(descriptor);
+    const anchoredRoot = fs.statSync(projectRoot);
+    if (anchoredRoot.dev !== rootStat.dev || anchoredRoot.ino !== rootStat.ino)
+      throw new Error("project root changed before input attestation");
+    attestProjectInputs(projectRoot, options.attestations || []);
+    const recheckedRoot = fs.statSync(projectRoot);
+    if (recheckedRoot.dev !== rootStat.dev || recheckedRoot.ino !== rootStat.ino)
+      throw new Error("project root changed during input attestation");
     if (typeof options.beforeCommit === "function") options.beforeCommit();
+    if (options.finalAttestation)
+      attestProjectInputs(".", [{ ...options.finalAttestation, path: basename }]);
+    const commitRoot = fs.statSync(projectRoot);
+    if (commitRoot.dev !== rootStat.dev || commitRoot.ino !== rootStat.ino)
+      throw new Error("project root changed before atomic commit");
     if (options.replace === false) {
       fs.linkSync(temporary, basename);
     } else fs.renameSync(temporary, basename);
@@ -235,10 +255,56 @@ function validateRelative(relativePath) {
     throw new Error("output path must be project-relative without traversal");
 }
 
+function normalizeAttestations(attestations) {
+  if (!Array.isArray(attestations) || attestations.length > 32)
+    throw new Error("atomic write attestations must be an array of at most 32 entries");
+  const seen = new Set();
+  return attestations.map((attestation) => {
+    if (
+      !attestation ||
+      typeof attestation !== "object" ||
+      Array.isArray(attestation) ||
+      Object.keys(attestation).some((field) => !["path", "sha256", "maxBytes"].includes(field))
+    )
+      throw new Error("atomic write attestation is invalid");
+    validateRelative(attestation.path);
+    if (seen.has(attestation.path))
+      throw new Error("atomic write attestation paths must be unique");
+    seen.add(attestation.path);
+    if (!/^sha256:[a-f0-9]{64}$/.test(attestation.sha256 || ""))
+      throw new Error("atomic write attestation sha256 is invalid");
+    if (!Number.isSafeInteger(attestation.maxBytes) || attestation.maxBytes < 0)
+      throw new Error("atomic write attestation maxBytes is invalid");
+    return {
+      path: attestation.path,
+      sha256: attestation.sha256,
+      maxBytes: attestation.maxBytes,
+    };
+  });
+}
+
+function attestProjectInputs(root, attestations) {
+  for (const attestation of normalizeAttestations(attestations)) {
+    const input = readProjectInput(root, attestation.path, attestation.maxBytes);
+    const observed = `sha256:${crypto.createHash("sha256").update(input.bytes).digest("hex")}`;
+    if (observed !== attestation.sha256)
+      throw new Error(`atomic write attestation changed: ${attestation.path}`);
+  }
+}
+
 function childMain(argv) {
   try {
-    const [, relativePath, fileMode, directoryMode, policy, expectedRootDev, expectedRootIno] =
-      argv;
+    const [
+      ,
+      relativePath,
+      fileMode,
+      directoryMode,
+      policy,
+      expectedRootDev,
+      expectedRootIno,
+      attestationsBase64,
+      finalAttestationBase64,
+    ] = argv;
     if (!new Set(["replace", "exclusive"]).has(policy)) throw new Error("invalid write policy");
     const content = fs.readFileSync(0);
     const state = writeFromAnchoredRoot(relativePath, content, {
@@ -247,6 +313,12 @@ function childMain(argv) {
       replace: policy === "replace",
       expectedRootDev,
       expectedRootIno,
+      attestations: JSON.parse(
+        Buffer.from(attestationsBase64 || "W10=", "base64").toString("utf8")
+      ),
+      finalAttestation: JSON.parse(
+        Buffer.from(finalAttestationBase64 || "bnVsbA==", "base64").toString("utf8")
+      ),
     });
     process.stdout.write(`${JSON.stringify(state)}\n`);
     return 0;

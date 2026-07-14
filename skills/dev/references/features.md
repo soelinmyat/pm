@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`pm:features` scans the codebase and produces a structured feature inventory at `pm/product/features.md`. The inventory describes what the product does in user-facing terms — not code modules or file structures.
+`pm:features` scans the codebase and produces a readable feature inventory at `{pm_dir}/product/features.md` plus a machine companion at `{pm_dir}/product/features.json`. The inventory describes what the product does in user-facing terms — not code modules or file structures.
 
 The output feeds one consumer:
 - **Groom intake** — reads existing capabilities to inform scope review
@@ -13,10 +13,10 @@ Ask ONE question at a time. Wait for the user's answer before asking the next.
 
 ## Overwrite Guard
 
-Before scanning, check if `pm/product/features.md` already exists.
+Before scanning, check if `{pm_dir}/product/features.md` already exists.
 
 If it exists:
-1. Parse frontmatter to get `feature_count`.
+1. Parse frontmatter to get `feature_count` and load `{pm_dir}/product/features.json` when present.
 2. Prompt: "This will replace your existing inventory (N features). Continue?"
 3. If the user declines, stop. Do not scan or overwrite.
 
@@ -28,8 +28,8 @@ Scan the codebase in one pass — discover the files, read the high-signal ones,
 
 ### Discover files
 
-- Use `git ls-files` to list tracked/unignored files.
-- **Fallback:** If not a git repo (`git ls-files` fails), walk the file tree but exclude common vendor directories (`node_modules`, `vendor`, `.venv`, `dist`, `build`, `target`, `__pycache__`) and hidden directories (starting with `.`). Log a note: "Not a git repository — using heuristic file filtering."
+- In a Git repository, freeze the exact full `HEAD` commit object ID before scanning. Enumerate files from that commit with `git ls-tree -r --name-only <commit>` and read high-signal content from its blobs (for example, `git show <commit>:<path>`), never from working-tree paths. Record that object ID as `scan.commit` with `scan.mode: git`.
+- **Fallback:** If not a git repo (`git ls-files` fails), walk the file tree but exclude common vendor directories (`node_modules`, `vendor`, `.venv`, `dist`, `build`, `target`, `__pycache__`) and hidden directories (starting with `.`). Log a note: "Not a git repository — using heuristic file filtering." Record `scan.mode: filesystem` and calculate the final deterministic `snapshot_sha256` with the shared `feature-snapshot` command after source refs are finalized.
 
 Build a directory map (file counts per directory) and flag key entry points:
 - Package manifests: `package.json`, `Cargo.toml`, `pyproject.toml`, `go.mod`, `Gemfile`
@@ -41,9 +41,9 @@ Build a directory map (file counts per directory) and flag key entry points:
 
 ### Read the high-signal files
 
-Read the flagged entry points and their neighbors: route handlers and page components, component directory indexes, config and manifest files, README and API definitions, model/schema files. On a large codebase, read in priority order — route files/pages/API handlers first, then components and views, then models/schemas/types, then config, then README/docs — and record how many files you read for the `files_scanned` frontmatter field.
+Read the flagged entry points and their neighbors from the frozen Git commit (or from the bounded filesystem walk in fallback mode): route handlers and page components, component directory indexes, config and manifest files, README and API definitions, model/schema files. On a large codebase, read in priority order — route files/pages/API handlers first, then components and views, then models/schemas/types, then config, then README/docs — and record how many files you read for the `files_scanned` frontmatter field.
 
-Extract the concrete artifacts: route definitions, component names, API endpoints, data models, configuration patterns.
+Extract the concrete artifacts: route definitions, component names, API endpoints, data models, configuration patterns. Retain `{source_dir}`-relative source refs for every proposed feature; source refs support confidence and identity reconciliation, but never appear as implementation prose in the feature description.
 
 ### Translate to features
 
@@ -78,11 +78,21 @@ Do not split by internal architecture boundaries (plugin/server, frontend/backen
 - Target 3–6 areas. Fewer than 3 means you're grouping unrelated things. More than 6 means you're slicing too thin.
 - Each area should have 2–5 features. A single-feature area should be merged into an adjacent one.
 
-**Output:** Structured feature list grouped by product area.
+**Output:** Structured feature list grouped by product area. Each in-memory feature also carries a semantic `key`, confidence, and source refs as defined in `references/product-reasoning.md`.
+
+### Reconcile identity
+
+Before presentation, build a proposed `feature-inventory` v2 record and run `scripts/product-reasoning.js reconcile-features` against the prior companion when one exists.
+
+- Preserve exact keys.
+- Preserve a prior ID for a uniquely strong source-continuity match, including a wording-only rename.
+- Show new and retired identities in the review summary.
+- If `ambiguous` is non-empty, ask the user whether the candidate is a rename, merge, split, or genuinely new feature. Add a closed `resolutions` map to the private request: each ambiguous feature key maps to one reported candidate ID or the literal `"new"`. A prior identity can be selected only once; for a merge or split, choose which resulting feature retains it and resolve the others as `"new"`. Rerun reconciliation and never write an ambiguous inventory.
+- After every user-requested merge, split, remove, or rename, rebuild the proposed inventory and rerun reconciliation before presenting the revision. Immediately before rendering, run reconciliation once more against the prior companion and require `ambiguous` to be empty. The written inventory must be that final reconciler output, never a subsequently edited copy.
 
 ## User Review
 
-After the scan completes, present the extracted features for user review before writing to disk.
+After the scan and identity reconciliation complete, present the extracted features for user review before writing to disk.
 
 ### Presentation Format
 
@@ -94,7 +104,7 @@ Feature inventory for {project name} ({N} features, {M} areas):
 {Product summary sentence}
 
   {Area 1}
-    1. {Feature name} — {one-line what it does}
+    1. {Feature name} [{short feature ID}] — {one-line what it does}
     2. {Feature name} — {one-line what it does}
 
   {Area 2}
@@ -106,7 +116,7 @@ Accept all, or tell me what to change (merge, rename, split, remove, regroup).
 
 ### Accept Path
 
-User says "looks good" / "accept all" / "yes" — write to `pm/product/features.md`.
+User says "looks good" / "accept all" / "yes" — write to `{pm_dir}/product/features.md`.
 
 ### Edit Path
 
@@ -120,11 +130,13 @@ Apply edits to the in-memory feature list. Re-present the updated list. Repeat u
 
 ## Output Format
 
-Write `pm/product/features.md` with this structure:
+Write `{pm_dir}/product/features.md` with this structure:
 
 ```yaml
 ---
 generated: YYYY-MM-DD
+inventory_version: 2
+inventory_file: product/features.json
 source_project: {project root directory name}
 files_scanned: {number of source files read}
 files_total: {total files in project, when not every file was read}
@@ -153,7 +165,7 @@ The markdown body follows this structure:
 
 ## {Area Name}
 
-### {Feature name}
+### {Feature name} <!-- {feature-id} -->
 {What problem this solves and what the user gets. 2-3 sentences, plain language. Lead with the situation ("You have a rough idea..."), then the outcome ("...this turns it into a clear spec ready to build"). Never describe internal mechanics.}
 
 **Highlights:**
@@ -171,14 +183,24 @@ The markdown body follows this structure:
 - Do **not** include an "Integration points" line. If a feature connects to another, mention it naturally in the description ("After research, your strategy doc updates automatically") — but only when the connection is something the user experiences, not internal wiring.
 - Do **not** add section headers like "Part 1: Plugin" or "Part 2: Server". The split should be invisible.
 
+## Machine companion
+
+After the user approves the reconciled inventory:
+
+1. Render `features.md` from the approved in-memory record.
+2. Hash the final Markdown bytes.
+3. For filesystem mode, run `scripts/product-reasoning.js feature-snapshot --source-root "${source_dir}" --request <source-refs.json>`. Write `features.json` using the v2 contract in `references/product-reasoning.md`, including the Git commit or filesystem snapshot identity and Markdown binding.
+4. Run `scripts/product-reasoning.js validate --root "${pm_dir}" --input "${pm_dir}/product/features.json" --source-root "${source_dir}"`, `scripts/product-reasoning-quality-check.js "${pm_dir}/product/features.json"`, and normal `pm validate`.
+5. If schema, the 7/10 quality gate, or project validation fails, fix the weakest shared-record dimensions and regenerate both artifacts. Do not add filler or patch one reader independently.
+
 ## Completion
 
 After writing the file:
-1. Confirm: "Feature inventory written to pm/product/features.md ({N} features, {M} areas)."
+1. Confirm: "Feature inventory written to {pm_dir}/product/features.md and {pm_dir}/product/features.json ({N} features, {M} areas)."
 2. Suggest: "Run /pm:groom to use it in feature discovery."
 
 ## Notes
 
-- Re-running `pm:features` regenerates the entire inventory from scratch. Manual edits are replaced.
+- Re-running `pm:features` regenerates descriptions from the scan but reconciles stable identities from the previous companion. Manual prose edits are replaced after confirmation.
 - The feature inventory is a snapshot — it reflects the codebase at scan time.
 - Quality varies by codebase structure. Well-named routes and components produce better results than deeply nested legacy code.

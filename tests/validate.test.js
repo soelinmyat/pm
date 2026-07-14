@@ -303,6 +303,17 @@ test("valid optional enum fields pass", (t) => {
   assert.equal(result.errors, 0);
 });
 
+test("hypothesis evidence strength passes for product reasoning ideas", (t) => {
+  const { pmDir, cleanup } = withPmDir({
+    "pm/backlog/hypothesis.md": makeBacklogItem({ evidence_strength: "hypothesis" }),
+  });
+  t.after(cleanup);
+
+  const result = runValidate(pmDir);
+  assert.equal(result.ok, true);
+  assert.equal(result.errors, 0);
+});
+
 test("no frontmatter reports error", (t) => {
   const { pmDir, cleanup } = withPmDir({
     "pm/backlog/no-fm.md": "# Just a heading\n\nNo frontmatter here.\n",

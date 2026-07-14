@@ -1,5 +1,5 @@
 ---
-description: "Scan the codebase and generate a structured feature inventory at pm/product/features.md."
+description: "Scan the codebase and generate readable plus machine-consumable feature inventories with stable source-bound IDs."
 argument-hint: ""
 ---
 

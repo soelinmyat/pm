@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "document_type": "decision-brief",
+  "decision_id": "dec-456ec8412ad43d1bfef9",
+  "kind": "idea",
+  "slug": "ai-dashboard",
+  "title": "AI dashboard",
+  "problem": "Users need a better dashboard.",
+  "evidence_refs": [
+    { "ref": "notes/idea.md", "evidence_id": null, "note": "A plausible observation" }
+  ],
+  "alternatives": [
+    { "id": "dashboard", "title": "Dashboard", "tradeoff": "A dashboard has UI work." },
+    { "id": "report", "title": "Report", "tradeoff": "A report has UI work." }
+  ],
+  "decision": { "status": "exploring", "choice": null, "rationale": "Explore this later." },
+  "confidence": { "level": "low", "basis": ["One weak note"] },
+  "non_goals": [],
+  "next_trigger": { "lane": "none", "condition": "Decide later.", "target": null },
+  "promotion": {
+    "status": "not-offered",
+    "target_kind": null,
+    "target_ref": null,
+    "confirmed_at": null
+  },
+  "source_artifacts": [
+    {
+      "path": "backlog/ai-dashboard.md",
+      "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "alignment": {
+    "strength": "partial",
+    "priority_ids": [],
+    "non_goal_conflicts": ["focus"],
+    "evidence_strength": "hypothesis",
+    "competitor_gap": "parity",
+    "dependencies": ["analytics", "design-system"],
+    "scope_signal": "large"
+  },
+  "created_at": "2026-07-14T00:00:00Z",
+  "updated_at": "2026-07-14T00:00:00Z"
+}

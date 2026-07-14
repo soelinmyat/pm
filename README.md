@@ -153,11 +153,11 @@ PM officially supports Claude Code and Codex. Community contributions for other 
 | Command | What it does |
 |---|---|
 | `/pm:start` | Bootstrap the knowledge base or resume where you left off |
-| `/pm:think` | Structured product thinking — challenge assumptions, explore tradeoffs |
+| `/pm:think` | Structured product thinking with a traceable decision brief and verified promotion |
 | `/pm:research <topic>` | Source-register market landscape, competitor profiles, or claim-level cited topic research |
-| `/pm:strategy` | Create or update ICP, positioning, priorities, and non-goals |
+| `/pm:strategy` | Create or update strategy plus stable priority/non-goal tokens for downstream checks |
 | `/pm:groom [idea]` | Build a resumable, evidence-backed product proposal with canonical JSON, generated HTML/Markdown readers, quality calibration, and explicit hash-bound approval |
-| `/pm:ideate` | Mine the knowledge base for evidence-backed feature ideas |
+| `/pm:ideate` | Mine evidence-backed ideas, rank them deterministically, and flag strategy conflicts |
 
 ### Development and delivery
 
@@ -213,7 +213,7 @@ shutdown grace, with timestamps and signals persisted in the ledger and durable 
 
 | Command | What it does |
 |---|---|
-| `/pm:features` | Scan the codebase and write `pm/product/features.md` so PM knows what the product already does |
+| `/pm:features` | Write `features.md` plus a stable, source-bound `features.json` inventory |
 | `/pm:ingest <path>` | Normalize customer evidence privately and publish portable, ledger-backed findings |
 | `/pm:note` | Atomically capture a product signal with a stable Evidence-ID |
 | `/pm:refresh [scope]` | Audit exact source freshness and conflict-safe patch stale research |

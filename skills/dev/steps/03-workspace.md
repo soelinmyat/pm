@@ -63,8 +63,15 @@ Set up an isolated git worktree for every task — including XS. Worktree isolat
       - Set `status: in-progress` in frontmatter
       - Set `updated: {today's date}` in frontmatter
       - If `linear_id` is available in session state and not already in frontmatter, add it
+      - If its frontmatter contains `reasoning_version: 2`, refresh the authenticated reader binding from the final Markdown bytes before validation:
+        ```bash
+        node "${CLAUDE_PLUGIN_ROOT}/scripts/product-reasoning.js" refresh-reader \
+          --root "{pm_dir}" \
+          --decision "backlog/{slug}.decision.json"
+        ```
 
    b. If the backlog item has a `parent` field, find `{pm_dir}/backlog/{parent-slug}.md` and set its `status: in-progress` too (if not already `in-progress` or `done`).
+      Apply the same `refresh-reader` command to the parent's canonical companion when the parent is a v2 reasoning artifact.
 
    Log: `Backlog: {pm_dir}/backlog/{slug}.md → in-progress`
 

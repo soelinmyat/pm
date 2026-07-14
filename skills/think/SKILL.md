@@ -9,7 +9,7 @@ description: "Use when exploring a product idea, reasoning through a decision, o
 
 Structured product thinking before commitment. Explore ideas, challenge assumptions, weigh tradeoffs, and reach clarity — without the ceremony of grooming.
 
-Think is the conversation you have *before* deciding whether to build. It produces a thinking artifact, not backlog issues. Think is the whiteboard conversation; groom is the meeting that produces action items.
+Think is the conversation you have *before* deciding whether to build. It produces a readable thinking artifact plus a compact decision companion, not backlog issues. Think is the whiteboard conversation; groom is the meeting that produces action items.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
 
@@ -26,6 +26,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and
 - **Not research.** At most 2 insight files + 2 web searches. Need more → escalate to `pm:research` rather than turning thinking into a research session.
 - **Not a spec.** Think produces a one-page summary, not a design doc. If you're writing more than a page, you've crossed into groom territory.
 - **Converge or surface.** After 4+ exchanges on one beat without convergence, synthesize what you have and name the sticking point as an open question.
+- **One decision, two synchronized readers.** Save Markdown for people and the v1 decision companion for downstream workflows; never make another skill reconstruct the decision from prose.
 
 ## Red Flags — Self-Check
 
@@ -51,7 +52,7 @@ Run these as conversational beats — natural rhythm, no announcing or state-tra
 
 1. **Capture.** If the user already described the idea, don't ask "what's the idea?" — summarize in 2-3 bullets naming *who* benefits, *what* changes, and *why now*, then confirm. If any of those three is missing or the idea is vague, ask ONE clarifying question (prefer yes/no over open-ended). Once confirmed, derive a canonical kebab-case slug (max 4 words) — reuse the existing slug if resuming. This slug is the single identifier for the thinking file, index row, and any groom handoff.
 
-2. **Ground.** Load just enough context to reframe with grounding instead of guessing — a 30-second check, not research. Search existing thinking (index: `{pm_dir}/thinking/index.md`; rebuild it via `${CLAUDE_PLUGIN_ROOT}/references/kb-search.md` if missing) and offer resume on a match. Always read `{pm_dir}/strategy.md` for ICP / priorities / non-goals (note its absence, not a blocker). Scan insights via the search protocol in `${CLAUDE_PLUGIN_ROOT}/references/kb-search.md` (index: `{pm_dir}/insights/.hot.md`), noting confidence and evidence count; deep-read at most 2 insight files. Never read raw evidence files — the insight layer exists so you don't have to. 1-2 web searches only if the KB has gaps. Surface significant gaps as output rather than trying to fill them here.
+2. **Ground.** Load just enough context to reframe with grounding instead of guessing — a 30-second check, not research. Search existing thinking (index: `{pm_dir}/thinking/index.md`; rebuild it via `${CLAUDE_PLUGIN_ROOT}/references/kb-search.md` if missing) and offer resume on a match. Always read `{pm_dir}/strategy.md` and its decision companion when present for ICP / priorities / non-goals (note absence, not a blocker). Scan insights via the search protocol in `${CLAUDE_PLUGIN_ROOT}/references/kb-search.md` (index: `{pm_dir}/insights/.hot.md`), noting confidence and Evidence IDs; deep-read at most 2 insight files. Never read raw private evidence. Retain the portable paths and Evidence IDs that materially affect the decision. Use 1-2 web searches only if the KB has gaps, and surface significant gaps rather than filling them here.
 
 3. **Reframe.** Shift from the user's framing to the underlying problem or a higher-leverage angle — the most valuable beat, because a good reframe changes what gets built. Pick the lens that opens the biggest gap:
    - **Jobs to Be Done:** strip the solution away — *"When [situation], I want to [motivation], so I can [outcome]."*
@@ -65,10 +66,10 @@ Run these as conversational beats — natural rhythm, no announcing or state-tra
 
 5. **Pressure-test.** Find the weakest points before commitment. Surface the 2-3 risks that would *kill* the idea if wrong, not merely complicate it — demand, usability, feasibility, viability, dependencies. Lead with your sharpest concern as a direct question. Push back when the user hand-waves a real risk; accept "we'll figure it out" for manageable unknowns. Done when you can state "we're going with X, despite Y, because Z."
 
-6. **Synthesize.** Draft the summary in the artifact format below and confirm: *"Here's the summary. Did I capture it correctly?"* Revise until confirmed — this is the only question in this beat. Then write `{pm_dir}/thinking/{slug}.md` (validate frontmatter against `${CLAUDE_PLUGIN_ROOT}/references/frontmatter-schemas.md`, set `updated` to today), and add/update the index row (slug, topic, 2-4 tags, date, status), following the index maintenance rules in `${CLAUDE_PLUGIN_ROOT}/references/kb-search.md`. Finally offer promotion:
+6. **Synthesize.** Draft the summary in the artifact format below and confirm: *"Here's the summary. Did I capture it correctly?"* Revise until confirmed — this is the only question in this beat. Read and follow `${CLAUDE_PLUGIN_ROOT}/references/product-reasoning.md`. Write `{pm_dir}/thinking/{slug}.md`, hash its final bytes, then write and validate `{pm_dir}/thinking/{slug}.decision.json` with the problem, evidence, alternatives, confirmed/parked decision, confidence basis, non-goals, and next trigger. Add/update the index row following `${CLAUDE_PLUGIN_ROOT}/references/kb-search.md`. Finally offer promotion:
    > "Want to groom this into a proposal? (lightweight scoping, ~5-10 min)"
 
-   On yes, invoke `pm:groom` with `groom_tier: quick`, the summary as context, and the slug. **Only after** `.pm/groom-sessions/{slug}.md` is confirmed to exist, set the artifact's `status: promoted` and `promoted_to: {slug}`, refresh `updated`, and update the index row to `promoted`. If groom is abandoned, leave the artifact `active`.
+   On yes, invoke `pm:groom` with `groom_tier: quick`, the summary and decision companion as context, and the slug. Groom owns the verified origin transition during its approved handoff. After approval, first set the Markdown `status: promoted` / `promoted_to` and update the index row, then run the atomic `promote` command in `references/product-reasoning.md` once so it hashes those final bytes and validates both artifacts. Never mutate bound Markdown after promotion. If Groom is abandoned or unapproved, leave both artifacts active and unpromoted.
 
 Handle multiple ideas sequentially — finish one (synthesize + save) before starting the next; don't interleave.
 
@@ -110,6 +111,8 @@ created: YYYY-MM-DD
 updated: YYYY-MM-DD
 status: active | parked | promoted
 promoted_to: "{groom-session-slug}" | null
+reasoning_version: 2
+decision_brief: "thinking/{slug}.decision.json"
 ---
 
 # {Topic}
@@ -141,6 +144,6 @@ promoted_to: "{groom-session-slug}" | null
 
 ## Before Marking Done
 
-- [ ] The confirmed thinking artifact is saved, indexed, and remains the single canonical slug.
+- [ ] The confirmed Markdown and hash-bound decision companion are saved, validated, indexed, and share one canonical slug.
 - [ ] The user confirmed the reframe, direction, summary, and any promotion decision.
 - [ ] Grounding bounds, reframe, pressure-test, convergence, artifact validation, and promotion gates passed.

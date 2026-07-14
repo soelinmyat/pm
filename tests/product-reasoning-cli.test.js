@@ -1,0 +1,540 @@
+"use strict";
+
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { spawnSync } = require("node:child_process");
+const { buildApproval, proposalContentHash } = require("../scripts/lib/proposal-schema");
+const { decisionId } = require("../scripts/lib/product-reasoning-schema");
+const { verifyCanonicalReaderMarker } = require("../scripts/lib/product-reasoning-bindings");
+const { promote, validatePromotionReader } = require("../scripts/product-reasoning");
+const { validate } = require("../scripts/validate");
+
+const CLI = path.join(__dirname, "..", "scripts", "product-reasoning.js");
+
+function run(args) {
+  return spawnSync(process.execPath, [CLI, ...args], { encoding: "utf8" });
+}
+
+function sha(bytes) {
+  return `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`;
+}
+
+test("identity commands are deterministic and reject incomplete arguments", () => {
+  const first = run(["decision-id", "--kind", "think", "--slug", "retention-loop"]);
+  const second = run(["decision-id", "--kind", "think", "--slug", "retention-loop"]);
+  assert.equal(first.status, 0, first.stderr);
+  assert.equal(first.stdout, second.stdout);
+  assert.match(first.stdout, /dec-[a-f0-9]{20}/);
+  assert.equal(run(["feature-id", "--project", "example"]).status, 1);
+});
+
+test("validate dispatches only known product reasoning document types", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reasoning-cli-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const unknown = path.join(root, "unknown.json");
+  fs.writeFileSync(unknown, JSON.stringify({ document_type: "other" }));
+  const result = run(["validate", "--root", root, "--input", unknown]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /document_type must be decision-brief or feature-inventory/);
+});
+
+test("standalone validation returns schema diagnostics for malformed JSON roots", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reasoning-total-cli-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  for (const [name, value] of [
+    ["null", null],
+    ["number", 1],
+    ["string", "invalid"],
+    ["array", []],
+  ]) {
+    const input = path.join(root, `${name}.json`);
+    fs.writeFileSync(input, JSON.stringify(value));
+    const result = run(["validate", "--root", root, "--input", input]);
+    assert.equal(result.status, 2, `${name}: ${result.stderr}`);
+    assert.match(result.stdout, /must be an object/);
+    assert.equal(result.stderr, "");
+  }
+});
+
+test("JSON inputs reject symbolic links", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reasoning-link-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const target = path.join(root, "target.json");
+  const link = path.join(root, "link.json");
+  fs.writeFileSync(target, "{}");
+  fs.symlinkSync(target, link);
+  const result = run(["validate", "--root", root, "--input", link]);
+  assert.equal(result.status, 1);
+  assert.ok(result.stderr.length > 0);
+});
+
+test("decision validation authenticates canonical Markdown binding bytes", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reasoning-binding-cli-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, "backlog"));
+  const markdown = Buffer.from(
+    "---\nreasoning_version: 2\ndecision_brief: backlog/guided-evidence-refresh.decision.json\n---\n\n# Guided evidence refresh\n"
+  );
+  fs.writeFileSync(path.join(root, "backlog", "guided-evidence-refresh.md"), markdown);
+  const brief = JSON.parse(
+    fs.readFileSync(
+      path.join(__dirname, "..", "evals", "product-reasoning-quality", "strong", "decision.json"),
+      "utf8"
+    )
+  );
+  brief.source_artifacts[0].sha256 = `sha256:${crypto
+    .createHash("sha256")
+    .update(markdown)
+    .digest("hex")}`;
+  const input = path.join(root, "backlog", "guided-evidence-refresh.decision.json");
+  fs.writeFileSync(input, JSON.stringify(brief));
+  let result = run(["validate", "--root", root, "--input", input]);
+  assert.equal(result.status, 0, result.stderr);
+  const markerless = Buffer.from("# Guided evidence refresh\n");
+  fs.writeFileSync(path.join(root, "backlog", "guided-evidence-refresh.md"), markerless);
+  brief.source_artifacts[0].sha256 = sha(markerless);
+  fs.writeFileSync(input, JSON.stringify(brief));
+  result = run(["validate", "--root", root, "--input", input]);
+  assert.equal(result.status, 2);
+  assert.match(result.stdout, /companion requires v2 canonical reader/);
+  fs.writeFileSync(path.join(root, "backlog", "guided-evidence-refresh.md"), markdown);
+  brief.source_artifacts[0].sha256 = sha(markdown);
+  fs.writeFileSync(input, JSON.stringify(brief));
+  fs.writeFileSync(path.join(root, "backlog", "guided-evidence-refresh.md"), "# Changed\n");
+  result = run(["validate", "--root", root, "--input", input]);
+  assert.equal(result.status, 2);
+  assert.match(result.stdout, /SHA-256 does not match/);
+  fs.rmSync(path.join(root, "backlog", "guided-evidence-refresh.md"));
+  result = run(["validate", "--root", root, "--input", input]);
+  assert.equal(result.status, 2);
+  assert.match(result.stdout, /existing regular file|ENOENT/);
+});
+
+test("feature-snapshot publishes deterministic bounded non-Git provenance", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-feature-snapshot-cli-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, "src"));
+  fs.writeFileSync(path.join(root, "src", "feature.js"), "export const feature = true;\n");
+  const request = path.join(root, "request.json");
+  fs.writeFileSync(request, JSON.stringify({ source_refs: ["src/feature.js"] }));
+  const first = run(["feature-snapshot", "--source-root", root, "--request", request]);
+  const second = run(["feature-snapshot", "--source-root", root, "--request", request]);
+  assert.equal(first.status, 0, first.stderr);
+  assert.equal(first.stdout, second.stdout);
+  assert.match(first.stdout, /"snapshot_sha256": "sha256:[a-f0-9]{64}"/);
+});
+
+test("rank-ideas authenticates the canonical Strategy companion before ordering", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-ranking-strategy-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const markdown = Buffer.from(
+    "---\nreasoning_version: 2\ndecision_brief: strategy.decision.json\n---\n\n# Strategy\n"
+  );
+  fs.writeFileSync(path.join(root, "strategy.md"), markdown);
+  const strategy = JSON.parse(
+    fs.readFileSync(
+      path.join(__dirname, "..", "evals", "product-reasoning-quality", "strong", "decision.json"),
+      "utf8"
+    )
+  );
+  strategy.kind = "strategy";
+  strategy.slug = "strategy";
+  strategy.title = "Strategy";
+  strategy.decision_id = decisionId("strategy", "strategy");
+  strategy.source_artifacts = [{ path: "strategy.md", sha256: sha(markdown) }];
+  strategy.strategy_context = {
+    priorities: [{ id: "decision-trust", title: "Improve decision trust" }],
+    non_goals: [{ id: "enterprise", title: "Enterprise administration" }],
+  };
+  delete strategy.alignment;
+  const strategyPath = path.join(root, "strategy.decision.json");
+  fs.writeFileSync(strategyPath, JSON.stringify(strategy));
+  const idea = JSON.parse(
+    fs.readFileSync(
+      path.join(__dirname, "..", "evals", "product-reasoning-quality", "strong", "decision.json"),
+      "utf8"
+    )
+  );
+  const request = path.join(root, "request.json");
+  fs.writeFileSync(request, JSON.stringify({ ideas: [idea] }));
+
+  let result = run([
+    "rank-ideas",
+    "--root",
+    root,
+    "--strategy",
+    strategyPath,
+    "--request",
+    request,
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  const markerless = Buffer.from("# Strategy\n");
+  fs.writeFileSync(path.join(root, "strategy.md"), markerless);
+  strategy.source_artifacts[0].sha256 = sha(markerless);
+  fs.writeFileSync(strategyPath, JSON.stringify(strategy));
+  result = run(["rank-ideas", "--root", root, "--strategy", strategyPath, "--request", request]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /companion requires v2 canonical reader/);
+  fs.writeFileSync(path.join(root, "strategy.md"), markdown);
+  strategy.source_artifacts[0].sha256 = sha(markdown);
+  fs.writeFileSync(strategyPath, JSON.stringify(strategy));
+  fs.writeFileSync(path.join(root, "strategy.md"), "# Changed Strategy\n");
+  result = run(["rank-ideas", "--root", root, "--strategy", strategyPath, "--request", request]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /SHA-256 does not match/);
+});
+
+test("rank-ideas rejects malformed or empty idea collections with stable diagnostics", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-ranking-total-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  for (const [name, ideas] of [
+    ["missing", undefined],
+    ["null", null],
+    ["object", {}],
+    ["scalar", 1],
+    ["empty", []],
+  ]) {
+    const request = path.join(root, `${name}.json`);
+    fs.writeFileSync(request, JSON.stringify(ideas === undefined ? {} : { ideas }));
+    const result = run(["rank-ideas", "--request", request]);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /non-empty ideas array/);
+    assert.doesNotMatch(result.stderr, /\.map is not a function/);
+  }
+});
+
+test("promote requires exact approved Groom lineage and atomically closes origin lineage", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reasoning-promote-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const decisionPath = "backlog/guided-evidence-refresh.decision.json";
+  const targetRef = "backlog/proposals/guided-evidence-refresh.json";
+  const approvalRef = "backlog/proposals/guided-evidence-refresh.approval.json";
+  const markdownPath = "backlog/guided-evidence-refresh.md";
+  const canonicalReader =
+    "---\nstatus: proposed\nreasoning_version: 2\ndecision_brief: backlog/guided-evidence-refresh.decision.json\n---\n\n# Guided evidence refresh\n";
+  fs.mkdirSync(path.join(root, "backlog", "proposals"), { recursive: true });
+  const sourceFixture = path.join(
+    __dirname,
+    "..",
+    "evals",
+    "product-reasoning-quality",
+    "strong",
+    "decision.json"
+  );
+  fs.copyFileSync(sourceFixture, path.join(root, decisionPath));
+  fs.writeFileSync(path.join(root, markdownPath), canonicalReader);
+  const proposal = JSON.parse(
+    fs.readFileSync(path.join(__dirname, "fixtures", "proposals", "strong-v1.json"), "utf8")
+  );
+  proposal.slug = "guided-evidence-refresh";
+  proposal.id = "proposal:guided-evidence-refresh";
+  const originBytes = fs.readFileSync(path.join(root, decisionPath));
+  proposal.source.lineage.push({
+    id: "source:idea-origin",
+    path: `pm/${decisionPath}`,
+    sha256: `sha256:${crypto.createHash("sha256").update(originBytes).digest("hex")}`,
+  });
+  fs.writeFileSync(path.join(root, targetRef), `${JSON.stringify(proposal, null, 2)}\n`);
+  const requestPath = path.join(root, "request.json");
+  const approvalDecision = { id: "groom-decision-01", sha256: `sha256:${"2".repeat(64)}` };
+  fs.writeFileSync(
+    requestPath,
+    JSON.stringify({
+      decision_path: decisionPath,
+      target_ref: targetRef,
+      confirmed_at: "2026-07-14T02:00:00Z",
+      approval_decision: approvalDecision,
+      binding_paths: [targetRef, approvalRef, markdownPath],
+    })
+  );
+
+  const requestValue = JSON.parse(fs.readFileSync(requestPath, "utf8"));
+  const beforeSelfBindingAttempt = fs.readFileSync(path.join(root, decisionPath));
+  assert.throws(
+    () =>
+      promote(root, {
+        ...requestValue,
+        binding_paths: [...requestValue.binding_paths, decisionPath],
+      }),
+    /cannot include the mutable decision_path/
+  );
+  assert.deepEqual(fs.readFileSync(path.join(root, decisionPath)), beforeSelfBindingAttempt);
+  for (const aliasedDecisionPath of [
+    "backlog//guided-evidence-refresh.decision.json",
+    "backlog/./guided-evidence-refresh.decision.json",
+  ]) {
+    assert.throws(
+      () =>
+        promote(root, {
+          ...requestValue,
+          binding_paths: [...requestValue.binding_paths, aliasedDecisionPath],
+        }),
+      /canonical project-relative path/
+    );
+    assert.deepEqual(fs.readFileSync(path.join(root, decisionPath)), beforeSelfBindingAttempt);
+  }
+  fs.writeFileSync(
+    requestPath,
+    JSON.stringify({
+      ...requestValue,
+      binding_paths: requestValue.binding_paths.filter((entry) => entry !== markdownPath),
+    })
+  );
+  let result = run(["promote", "--root", root, "--request", requestPath]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /canonical origin/);
+  fs.writeFileSync(requestPath, JSON.stringify(requestValue));
+
+  assert.throws(
+    () =>
+      promote(root, {
+        ...requestValue,
+        target_ref: "backlog/proposals/alternate/guided-evidence-refresh.json",
+        binding_paths: [
+          "backlog/proposals/alternate/guided-evidence-refresh.json",
+          "backlog/proposals/alternate/guided-evidence-refresh.approval.json",
+          markdownPath,
+        ],
+      }),
+    /target_ref must equal/
+  );
+
+  result = run(["promote", "--root", root, "--request", requestPath]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /not approved/);
+
+  proposal.lifecycle = "approved";
+  proposal.review = {
+    status: "passed",
+    revision: proposal.revision,
+    content_sha256: proposalContentHash(proposal),
+    completed_at: "2026-07-14T01:00:00.000Z",
+  };
+  const proposalBytes = Buffer.from(`${JSON.stringify(proposal, null, 2)}\n`);
+  fs.writeFileSync(path.join(root, targetRef), proposalBytes);
+  result = run(["promote", "--root", root, "--request", requestPath]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /approval/);
+
+  const approval = buildApproval(proposal, proposalBytes, {
+    approvedBy: "user:owner",
+    approvedAt: "2026-07-14T01:30:00.000Z",
+    decisionId: approvalDecision.id,
+    decisionSha256: approvalDecision.sha256,
+  });
+  fs.writeFileSync(path.join(root, approvalRef), `${JSON.stringify(approval, null, 2)}\n`);
+  const exactLineage = proposal.source.lineage.at(-1);
+  proposal.source.lineage.pop();
+  proposal.review.content_sha256 = proposalContentHash(proposal);
+  let variantBytes = Buffer.from(`${JSON.stringify(proposal, null, 2)}\n`);
+  fs.writeFileSync(path.join(root, targetRef), variantBytes);
+  fs.writeFileSync(
+    path.join(root, approvalRef),
+    `${JSON.stringify(
+      buildApproval(proposal, variantBytes, {
+        approvedBy: "user:owner",
+        approvedAt: "2026-07-14T01:30:00.000Z",
+        decisionId: approvalDecision.id,
+        decisionSha256: approvalDecision.sha256,
+      }),
+      null,
+      2
+    )}\n`
+  );
+  assert.throws(() => promote(root, requestValue), /source lineage must bind/);
+  proposal.source.lineage.push({ ...exactLineage, sha256: `sha256:${"f".repeat(64)}` });
+  proposal.review.content_sha256 = proposalContentHash(proposal);
+  variantBytes = Buffer.from(`${JSON.stringify(proposal, null, 2)}\n`);
+  fs.writeFileSync(path.join(root, targetRef), variantBytes);
+  fs.writeFileSync(
+    path.join(root, approvalRef),
+    `${JSON.stringify(
+      buildApproval(proposal, variantBytes, {
+        approvedBy: "user:owner",
+        approvedAt: "2026-07-14T01:30:00.000Z",
+        decisionId: approvalDecision.id,
+        decisionSha256: approvalDecision.sha256,
+      }),
+      null,
+      2
+    )}\n`
+  );
+  assert.throws(() => promote(root, requestValue), /source lineage must bind/);
+  proposal.source.lineage[proposal.source.lineage.length - 1] = exactLineage;
+  fs.writeFileSync(path.join(root, targetRef), proposalBytes);
+  fs.writeFileSync(path.join(root, approvalRef), `${JSON.stringify(approval, null, 2)}\n`);
+  assert.throws(
+    () => promote(root, { ...requestValue, confirmed_at: "2026-07-13T23:59:59Z" }),
+    /cannot precede/
+  );
+  assert.throws(
+    () => promote(root, { ...requestValue, confirmed_at: "2026-07-14T01:15:00Z" }),
+    /cannot precede/
+  );
+  proposal.review = JSON.parse(proposalBytes.toString("utf8")).review;
+  proposal.lifecycle = "planned";
+  fs.writeFileSync(path.join(root, targetRef), `${JSON.stringify(proposal, null, 2)}\n`);
+  result = run(["promote", "--root", root, "--request", requestPath]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /exact current approved proposal bytes/);
+  proposal.lifecycle = "approved";
+  fs.writeFileSync(path.join(root, targetRef), proposalBytes);
+
+  assert.throws(
+    () =>
+      promote(root, requestValue, {
+        beforeReattest() {
+          fs.writeFileSync(path.join(root, approvalRef), "{}\n");
+        },
+      }),
+    /atomic write attestation changed/
+  );
+  const unpromoted = JSON.parse(fs.readFileSync(path.join(root, decisionPath), "utf8"));
+  assert.equal(unpromoted.promotion.status, "not-offered");
+  fs.writeFileSync(path.join(root, approvalRef), `${JSON.stringify(approval, null, 2)}\n`);
+  const beforeInvalidReaders = fs.readFileSync(path.join(root, decisionPath));
+  for (const [reader, expected] of [
+    ["# Markerless\n", /canonical reader frontmatter/],
+    [
+      canonicalReader.replace("guided-evidence-refresh.decision.json", "other.decision.json"),
+      /decision_brief/,
+    ],
+    [canonicalReader.replace("status: proposed", "status: idea"), /status must equal proposed/],
+  ]) {
+    fs.writeFileSync(path.join(root, markdownPath), reader);
+    assert.throws(() => promote(root, requestValue), expected);
+    assert.deepEqual(fs.readFileSync(path.join(root, decisionPath)), beforeInvalidReaders);
+  }
+  fs.writeFileSync(path.join(root, markdownPath), canonicalReader);
+  result = run(["promote", "--root", root, "--request", requestPath]);
+  assert.equal(result.status, 0, result.stderr);
+  const promoted = JSON.parse(fs.readFileSync(path.join(root, decisionPath), "utf8"));
+  assert.equal(promoted.promotion.status, "promoted");
+  assert.equal(promoted.promotion.target_ref, targetRef);
+  assert.deepEqual(promoted.promotion.approval_decision, approvalDecision);
+  assert.match(promoted.promotion.origin_decision_sha256, /^sha256:[a-f0-9]{64}$/);
+  assert.equal(promoted.source_artifacts[0].path, targetRef);
+  result = run(["validate", "--root", root, "--input", path.join(root, decisionPath)]);
+  assert.equal(result.status, 0, result.stderr);
+
+  const lifecycleReader = fs
+    .readFileSync(path.join(root, markdownPath), "utf8")
+    .replace("# Guided evidence refresh", "status: done\n\n# Guided evidence refresh");
+  fs.writeFileSync(path.join(root, markdownPath), lifecycleReader);
+  result = run(["validate", "--root", root, "--input", path.join(root, decisionPath)]);
+  assert.equal(result.status, 2);
+  assert.match(result.stdout, /SHA-256 does not match/);
+  result = run(["refresh-reader", "--root", root, "--decision", decisionPath]);
+  assert.equal(result.status, 0, result.stderr);
+  result = run(["validate", "--root", root, "--input", path.join(root, decisionPath)]);
+  assert.equal(result.status, 0, result.stderr);
+
+  proposal.lifecycle = "planned";
+  proposal.updated_at = "2026-07-14T03:00:00.000Z";
+  const plannedProposalBytes = Buffer.from(`${JSON.stringify(proposal, null, 2)}\n`);
+  fs.writeFileSync(path.join(root, targetRef), plannedProposalBytes);
+  result = run(["validate", "--root", root, "--input", path.join(root, decisionPath)]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.ok(validate(root).errors.every((entry) => entry.file !== decisionPath));
+
+  proposal.requirements[0].statement += " Substantive unapproved change.";
+  fs.writeFileSync(path.join(root, targetRef), `${JSON.stringify(proposal, null, 2)}\n`);
+  result = run(["validate", "--root", root, "--input", path.join(root, decisionPath)]);
+  assert.equal(result.status, 2);
+  assert.match(result.stdout, /content hash/);
+  fs.writeFileSync(path.join(root, targetRef), plannedProposalBytes);
+
+  const refreshedPromoted = JSON.parse(fs.readFileSync(path.join(root, decisionPath), "utf8"));
+  refreshedPromoted.promotion.approval_decision.id = "different-groom-decision";
+  fs.writeFileSync(path.join(root, decisionPath), JSON.stringify(refreshedPromoted));
+  result = run(["validate", "--root", root, "--input", path.join(root, decisionPath)]);
+  assert.equal(result.status, 2);
+  assert.match(result.stdout, /does not match the session approval decision/);
+});
+
+test("promote rejects duplicate binding work before reading artifacts", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reasoning-duplicate-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const request = path.join(root, "request.json");
+  fs.writeFileSync(
+    request,
+    JSON.stringify({
+      decision_path: "missing.json",
+      target_ref: "target.json",
+      confirmed_at: "2026-07-14T02:00:00Z",
+      approval_decision: { id: "decision", sha256: `sha256:${"1".repeat(64)}` },
+      binding_paths: ["target.json", "target.json"],
+    })
+  );
+  const result = run(["promote", "--root", root, "--request", request]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /must be unique/);
+});
+
+test("Think promotion requires its final promoted reader projection", () => {
+  const brief = { kind: "think", slug: "bounded-choice" };
+  const readerPath = "thinking/bounded-choice.md";
+  const decisionPath = "thinking/bounded-choice.decision.json";
+  const captured = (status, promotedTo) =>
+    new Map([
+      [
+        readerPath,
+        {
+          relative: readerPath,
+          bytes: Buffer.from(
+            `---\nstatus: ${status}\npromoted_to: ${promotedTo}\nreasoning_version: 2\ndecision_brief: ${decisionPath}\n---\n`
+          ),
+        },
+      ],
+    ]);
+  assert.throws(
+    () => validatePromotionReader(brief, captured("active", brief.slug)),
+    /status must equal promoted/
+  );
+  assert.throws(
+    () => validatePromotionReader(brief, captured("promoted", "other")),
+    /promoted_to must equal/
+  );
+  assert.doesNotThrow(() => validatePromotionReader(brief, captured("promoted", brief.slug)));
+});
+
+test("promoted reader lifecycle invariants replay after the initial transition", () => {
+  const marker = (kind, slug, status, promotedTo) => {
+    const directory = kind === "think" ? "thinking" : "backlog";
+    const markdown = `${directory}/${slug}.md`;
+    return {
+      brief: { kind, slug, promotion: { status: "promoted" } },
+      cache: new Map([
+        [
+          markdown,
+          {
+            relative: markdown,
+            bytes: Buffer.from(
+              `---\nstatus: ${status}\npromoted_to: ${promotedTo}\nreasoning_version: 2\ndecision_brief: ${directory}/${slug}.decision.json\n---\n`
+            ),
+          },
+        ],
+      ]),
+    };
+  };
+  const activeThink = marker("think", "bounded-choice", "active", "bounded-choice");
+  assert.match(
+    verifyCanonicalReaderMarker(activeThink.brief, activeThink.cache).join("\n"),
+    /promoted Think status must equal promoted/
+  );
+  const validThink = marker("think", "bounded-choice", "promoted", "bounded-choice");
+  assert.deepEqual(verifyCanonicalReaderMarker(validThink.brief, validThink.cache), []);
+  for (const status of ["proposed", "planned", "in-progress", "done"]) {
+    const idea = marker("idea", "bounded-choice", status, "null");
+    assert.deepEqual(verifyCanonicalReaderMarker(idea.brief, idea.cache), []);
+  }
+  const regressedIdea = marker("idea", "bounded-choice", "idea", "null");
+  assert.match(
+    verifyCanonicalReaderMarker(regressedIdea.brief, regressedIdea.cache).join("\n"),
+    /not a downstream lifecycle/
+  );
+});
