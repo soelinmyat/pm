@@ -705,6 +705,16 @@ function proposalContentHash(proposal) {
   return proposalBytesHash(Buffer.from(canonicalStringify(content)));
 }
 
+// Human approval is granted while the proposal is `reviewed`; the audit is
+// written after the sole allowed lifecycle flip to `approved`. Bind every
+// other canonical field so review metadata or timestamps cannot be swapped in
+// between those two operations.
+function proposalApprovalSnapshotHash(proposal) {
+  const snapshot = structuredClone(proposal);
+  delete snapshot.lifecycle;
+  return proposalBytesHash(Buffer.from(canonicalStringify(snapshot)));
+}
+
 function validateRevisionTransition(previous, next) {
   const issues = [];
   const previousResult = validateProposal(previous, { path: "$previous" });
@@ -835,6 +845,11 @@ function validateApproval(proposal, approval, options = {}) {
     if (!SHA256.test(approval.decision_sha256 || ""))
       issues.push(issue(`${at}.decision_sha256`, "must be a sha256 hash"));
   }
+  if (
+    options.requireDecision &&
+    (approval.decision_id === null || approval.decision_sha256 === null)
+  )
+    issues.push(issue(at, "trusted approval requires a bound Groom decision identity"));
   if (options.expectedDecision) {
     if (approval.decision_id !== options.expectedDecision.id)
       issues.push(issue(`${at}.decision_id`, "does not match the session approval decision"));
@@ -946,6 +961,7 @@ function readApprovedProposal(filePath, options = {}) {
     path: approvalSource.path,
     expectedDecision: options.expectedDecision,
     allowLifecycleAdvance: true,
+    requireDecision: true,
   });
   if (!approvalResult.ok)
     throw new Error(
@@ -1161,6 +1177,7 @@ module.exports = {
   MAX_PROPOSAL_BYTES,
   canonicalStringify,
   proposalContentHash,
+  proposalApprovalSnapshotHash,
   proposalBytesHash,
   validateProposal,
   validateApproval,

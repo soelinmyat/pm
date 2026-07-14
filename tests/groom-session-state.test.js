@@ -172,6 +172,13 @@ test("approval audit binds approved bytes after a lifecycle-only transition", ()
       { now: "2026-07-14T01:00:00Z" }
     );
 
+    const reviewedUpdatedAt = proposal.updated_at;
+    proposal.updated_at = "2026-07-14T01:30:00Z";
+    proposal.lifecycle = "approved";
+    fs.writeFileSync(proposalPath, `${JSON.stringify(proposal, null, 2)}\n`);
+    assert.throws(() => buildApprovalAudit(session), /proposal changed after approval/);
+
+    proposal.updated_at = reviewedUpdatedAt;
     proposal.lifecycle = "approved";
     fs.writeFileSync(proposalPath, `${JSON.stringify(proposal, null, 2)}\n`);
     assert.deepEqual(approveSession(session, { approvedBy: "product-owner" }), session);
@@ -213,6 +220,21 @@ test("legacy Groom markdown migration is bounded and never trusts approval", () 
     assert.equal(session.phase, "intake");
     assert.equal(session.migration.approval_trusted, false);
     assert.deepEqual(validateSession(session), []);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("session validation rejects phases outside the route and incoherent approval status", () => {
+  const repo = makeRepo();
+  try {
+    const standard = createSession({ slug: "coherence", sourceDir: repo, tier: "standard" });
+    standard.phase = "presentation";
+    assert.match(JSON.stringify(validateSession(standard)), /selected tier route/);
+
+    const approval = createSession({ slug: "approval-coherence", sourceDir: repo });
+    approval.phase = "approval";
+    assert.match(JSON.stringify(validateSession(approval)), /must be awaiting_approval/);
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
   }

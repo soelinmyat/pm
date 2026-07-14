@@ -64,6 +64,7 @@ Tier routing is defined in `tier-gating.md`. Approval is never a normal phase re
     "approved_at": null,
     "proposal_hash": null,
     "proposal_revision": null,
+    "proposal_snapshot_sha256": null,
     "decision_id": null,
     "decision_sha256": null
   },

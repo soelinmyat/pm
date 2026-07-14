@@ -54,11 +54,15 @@ function renderHtml(proposal, identity) {
   const css = referenceCss();
   const lifecycle = proposal.lifecycle;
   const approval =
-    lifecycle === "approved"
-      ? "Approved"
-      : lifecycle === "reviewed"
-        ? "Reviewed · approval pending"
-        : "Draft";
+    {
+      approved: "Approved",
+      planned: "Approved · planned",
+      "in-progress": "Approved · in progress",
+      done: "Approved · done",
+      reviewed: "Reviewed · approval pending",
+      draft: "Draft",
+    }[lifecycle] || lifecycle;
+  const approvalTrusted = ["approved", "planned", "in-progress", "done"].includes(lifecycle);
   const metadata = {
     schema_version: 1,
     id: proposal.id,
@@ -159,7 +163,7 @@ function renderHtml(proposal, identity) {
   <section class="execution-contract" id="execution-contract"><div class="execution-contract-label">Execution Contract</div>${tableHtml(["Field", "Contract"], contractRows)}</section>
   <nav class="toc" aria-label="Proposal sections">${tocHtml()}</nav>
   <div id="appendix">${sections}</div>
-  <p class="closing">${lifecycle === "approved" ? `Approved for technical design. Run <code>pm:rfc ${h(proposal.slug)}</code>.` : "Approval is still required before technical design."}</p>
+  <p class="closing">${approvalTrusted ? `Product approval remains valid. Current lifecycle: <strong>${h(lifecycle)}</strong>.` : "Approval is still required before technical design."}</p>
   <footer><span>Content ${h(identity.contentSha256.slice(0, 22))}…</span><span>Source revision ${proposal.revision}</span></footer>
 </main>
 </body>
@@ -397,8 +401,8 @@ function statusHtml(proposal, identity) {
   const rows = proposal.question_reviews.map((item) => [item.question, item.outcome]);
   rows.push([
     "Approval",
-    proposal.lifecycle === "approved"
-      ? "Exact-byte audit required and verified by proposal-check"
+    ["approved", "planned", "in-progress", "done"].includes(proposal.lifecycle)
+      ? `Approval verified; current lifecycle ${proposal.lifecycle}`
       : "Pending explicit user decision",
   ]);
   return `${tableHtml(["Question", "Outcome"], rows)}<p>Revision ${proposal.revision}. Semantic content <code>${h(identity.contentSha256)}</code>.</p>`;

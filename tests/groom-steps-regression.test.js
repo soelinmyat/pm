@@ -132,3 +132,23 @@ test("Groom proposal format declares canonical JSON and generated projections", 
   assert.match(text, /generated.*Markdown/i);
   assert.match(text, /approval/i);
 });
+
+test("Groom review and approval steps close the canonical lifecycle mechanically", () => {
+  const review = fs.readFileSync(
+    path.join(ROOT, "skills", "groom", "steps", "07-review.md"),
+    "utf8"
+  );
+  const approval = fs.readFileSync(
+    path.join(ROOT, "skills", "groom", "steps", "09-approval.md"),
+    "utf8"
+  );
+
+  assert.match(review, /review\.status: passed/i);
+  assert.match(review, /draft` to `reviewed/i);
+  assert.match(review, /proposal-check\.js --projections/i);
+  assert.match(approval, /review:quick-integrity/i);
+  assert.match(approval, /draft → reviewed/i);
+  assert.match(approval, /reviewed` to `approved/i);
+  assert.match(approval, /exact approved bytes/i);
+  assert.match(approval, /session decision ID\/hash/i);
+});

@@ -411,6 +411,14 @@ test("approved reader preserves trust after lifecycle-only downstream transition
     });
     fs.writeFileSync(paths.approval, `${JSON.stringify(approval, null, 2)}\n`);
 
+    const unbound = { ...approval, decision_id: null, decision_sha256: null };
+    fs.writeFileSync(paths.approval, `${JSON.stringify(unbound, null, 2)}\n`);
+    assert.throws(
+      () => readApprovedProposal(paths.json, { projectRoot: project.dir }),
+      /bound Groom decision identity/
+    );
+    fs.writeFileSync(paths.approval, `${JSON.stringify(approval, null, 2)}\n`);
+
     const exact = readApprovedProposal(paths.json, { projectRoot: project.dir });
     assert.equal(exact.exactBytesCurrent, true);
     assert.equal(exact.approvalBasis, "exact-approved-bytes");

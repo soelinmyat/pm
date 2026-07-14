@@ -717,6 +717,7 @@ test("intake derives RFC scope from trusted canonical proposal and rejects stale
     const approvalPath = proposalPath.replace(/\.json$/, ".approval.json");
     fs.mkdirSync(path.dirname(proposalPath), { recursive: true });
     fs.writeFileSync(proposalPath, `${JSON.stringify(proposal, null, 2)}\n`);
+    const approvedProposalBytes = fs.readFileSync(proposalPath);
     const approval = buildProposalApproval(proposal, fs.readFileSync(proposalPath), {
       approvedBy: "user:owner",
       approvedAt: "2026-07-14T03:00:00.000Z",
@@ -745,6 +746,10 @@ test("intake derives RFC scope from trusted canonical proposal and rejects stale
         }),
       /contradicts canonical proposal size/
     );
+    proposal.requirements[0].statement += " Drifted after RFC intake.";
+    fs.writeFileSync(proposalPath, `${JSON.stringify(proposal, null, 2)}\n`);
+    assert.throws(() => nextDecision(configured, "/tmp/session.json"), /no longer trusted/);
+    fs.writeFileSync(proposalPath, approvedProposalBytes);
     fs.unlinkSync(approvalPath);
     assert.throws(
       () =>

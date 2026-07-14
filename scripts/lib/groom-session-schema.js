@@ -13,7 +13,12 @@ const {
   evidenceRecordIssues,
   runtimeRecordIssues,
 } = require("./workflow-runtime/result-envelope.js");
-const { buildApproval, proposalBytesHash, proposalContentHash } = require("./proposal-schema.js");
+const {
+  buildApproval,
+  proposalApprovalSnapshotHash,
+  proposalBytesHash,
+  proposalContentHash,
+} = require("./proposal-schema.js");
 
 const PHASES = [
   "intake",
@@ -127,6 +132,7 @@ function createSession(options) {
       approved_at: null,
       proposal_hash: null,
       proposal_revision: null,
+      proposal_snapshot_sha256: null,
       decision_id: null,
       decision_sha256: null,
     },
@@ -352,7 +358,8 @@ function approveSession(session, input, options = {}) {
     }
     if (
       current.content_hash !== session.approval.proposal_hash ||
-      current.revision !== session.approval.proposal_revision
+      current.revision !== session.approval.proposal_revision ||
+      current.approval_snapshot_sha256 !== session.approval.proposal_snapshot_sha256
     )
       throw new Error("proposal changed after approval; revise and approve again");
     return structuredClone(session);
@@ -370,12 +377,14 @@ function approveSession(session, input, options = {}) {
     throw new Error("proposal must pass current question review before approval");
   const next = structuredClone(session);
   const now = options.now || new Date().toISOString();
+  const current = proposalIdentityFromPath(session.proposal.json_path, session.source.repo_root);
   const decisionId = `groom-approval:${session.run_id}`;
   const decisionSha256 = hashResult({
     schema_version: 1,
     decision_id: decisionId,
     proposal_hash: session.proposal.content_hash,
     proposal_revision: session.proposal.revision,
+    proposal_snapshot_sha256: current.approval_snapshot_sha256,
     approved_by: input.approvedBy.trim(),
     approved_at: now,
   });
@@ -385,6 +394,7 @@ function approveSession(session, input, options = {}) {
     approved_at: now,
     proposal_hash: session.proposal.content_hash,
     proposal_revision: session.proposal.revision,
+    proposal_snapshot_sha256: current.approval_snapshot_sha256,
     decision_id: decisionId,
     decision_sha256: decisionSha256,
   };
@@ -445,6 +455,7 @@ function reviseSession(session, input, options = {}) {
     approved_at: null,
     proposal_hash: null,
     proposal_revision: null,
+    proposal_snapshot_sha256: null,
     decision_id: null,
     decision_sha256: null,
   };
@@ -522,7 +533,8 @@ function buildApprovalAudit(session) {
   const proposal = proposalIdentityFromPath(session.proposal.json_path, session.source.repo_root);
   if (
     proposal.content_hash !== session.approval.proposal_hash ||
-    proposal.revision !== session.approval.proposal_revision
+    proposal.revision !== session.approval.proposal_revision ||
+    proposal.approval_snapshot_sha256 !== session.approval.proposal_snapshot_sha256
   )
     throw new Error("proposal changed after approval");
   if (proposal.lifecycle !== "approved")
@@ -539,16 +551,15 @@ function buildApprovalAudit(session) {
 function proposalIdentityFromPath(jsonPath, repoRoot) {
   const bytes = fs.readFileSync(jsonPath);
   const parsed = JSON.parse(bytes);
-  return verifyProposal(
-    {
-      json_path: path.resolve(jsonPath),
-      proposal_sha256: proposalBytesHash(bytes),
-      content_hash: proposalContentHash(parsed),
-      revision: parsed.revision,
-      lifecycle: parsed.lifecycle,
-    },
-    repoRoot
-  );
+  const identity = {
+    json_path: path.resolve(jsonPath),
+    proposal_sha256: proposalBytesHash(bytes),
+    content_hash: proposalContentHash(parsed),
+    revision: parsed.revision,
+    lifecycle: parsed.lifecycle,
+  };
+  verifyProposal(identity, repoRoot);
+  return { ...identity, approval_snapshot_sha256: proposalApprovalSnapshotHash(parsed) };
 }
 
 function migrateLegacyMarkdown(legacyPath, options = {}) {
@@ -866,6 +877,7 @@ function validateSession(session) {
       "approved_at",
       "proposal_hash",
       "proposal_revision",
+      "proposal_snapshot_sha256",
       "decision_id",
       "decision_sha256",
     ],
@@ -882,6 +894,7 @@ function validateSession(session) {
         !/^sha256:[0-9a-f]{64}$/.test(session.approval.proposal_hash || "") ||
         !Number.isInteger(session.approval.proposal_revision) ||
         session.approval.proposal_revision < 1 ||
+        !/^sha256:[0-9a-f]{64}$/.test(session.approval.proposal_snapshot_sha256 || "") ||
         !nonEmpty(session.approval.decision_id) ||
         !/^sha256:[0-9a-f]{64}$/.test(session.approval.decision_sha256 || ""))
     )
@@ -893,6 +906,7 @@ function validateSession(session) {
         session.approval.approved_at,
         session.approval.proposal_hash,
         session.approval.proposal_revision,
+        session.approval.proposal_snapshot_sha256,
         session.approval.decision_id,
         session.approval.decision_sha256,
       ].some((value) => value !== null)
@@ -995,6 +1009,18 @@ function validateSession(session) {
   }
   if (session.status === "awaiting_approval" && session.phase !== "approval")
     errors.push(issue("$.status", "awaiting_approval requires approval phase"));
+  if (
+    isObject(session.routing) &&
+    Array.isArray(session.routing.required_phases) &&
+    !session.routing.required_phases.includes(session.phase)
+  )
+    errors.push(issue("$.phase", "must belong to the selected tier route"));
+  if (session.phase === "approval" && session.status !== "awaiting_approval")
+    errors.push(issue("$.status", "approval phase must be awaiting_approval"));
+  if (session.status === "approved" && !["handoff", "retro"].includes(session.phase))
+    errors.push(issue("$.status", "approved status requires handoff or retro phase"));
+  if (["handoff", "retro"].includes(session.phase) && session.status === "active")
+    errors.push(issue("$.status", `${session.phase} phase cannot be active`));
   if (["approved", "complete"].includes(session.status) && session.approval?.status !== "approved")
     errors.push(issue("$.approval", "explicit approval required"));
   if (session.status === "complete" && session.phase !== "retro")

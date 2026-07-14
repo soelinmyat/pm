@@ -220,6 +220,8 @@ function formatAcceptanceCriterion(criterion) {
 
 function nextDecision(session, sessionPath) {
   assertValidSession(session);
+  verifySourceIdentity(session);
+  verifyProposalIdentity(session);
   const pluginRoot = path.resolve(__dirname, "..", "..");
   const step = loadPhaseStep("rfc", session.phase, session.source.repo_root, pluginRoot);
   const instructionPath =
@@ -244,6 +246,7 @@ function nextDecision(session, sessionPath) {
 function recordResult(session, result, options = {}) {
   assertValidSession(session);
   verifySourceIdentity(session);
+  verifyProposalIdentity(session);
   if (session.phase === "approval") {
     throw new Error("approval phase requires the explicit approval command");
   }
@@ -391,6 +394,7 @@ function validatePassedResult(session, result, options) {
 function approveSession(session, input, options = {}) {
   assertValidSession(session);
   verifySourceIdentity(session);
+  verifyProposalIdentity(session);
   if (session.execution.headless || options.loopWorker || process.env.PM_LOOP_WORKER === "1") {
     throw new Error("headless RFC sessions cannot record human approval");
   }
@@ -456,6 +460,7 @@ function approveSession(session, input, options = {}) {
 function reviseSession(session, input, options = {}) {
   assertValidSession(session);
   verifySourceIdentity(session);
+  verifyProposalIdentity(session);
   if (!new Set(["approval", "handoff"]).has(session.phase) || session.status === "complete") {
     throw new Error(
       "RFC revision is allowed only while awaiting approval or before handoff completes"
@@ -496,6 +501,7 @@ function reviseSession(session, input, options = {}) {
 function resumeBlocked(session, input, options = {}) {
   assertValidSession(session);
   verifySourceIdentity(session);
+  verifyProposalIdentity(session);
   if (session.status !== "blocked") throw new Error("RFC session is not blocked");
   if (!nonEmpty(input?.resolution)) throw new Error("blocked resume requires a resolution");
   const next = structuredClone(session);
@@ -522,6 +528,7 @@ function resumeBlocked(session, input, options = {}) {
 function grantAuthority(session, input, options = {}) {
   assertValidSession(session);
   verifySourceIdentity(session);
+  verifyProposalIdentity(session);
   if (!AUTHORITY_ACTIONS.includes(input?.action)) {
     throw new Error(`unknown RFC authority action: ${String(input?.action)}`);
   }
@@ -1003,6 +1010,7 @@ function approvalTransitionDigest(session, artifact = session.artifact) {
 function buildApprovalAudit(session, artifact, options = {}) {
   assertValidSession(session);
   verifySourceIdentity(session);
+  verifyProposalIdentity(session);
   if (session.phase !== "handoff" || session.approval.status !== "approved") {
     throw new Error("approval audit requires an explicitly approved handoff session");
   }
@@ -1531,6 +1539,48 @@ function verifySourceIdentity(session) {
       `source branch changed: expected ${session.source.branch}, observed ${branch}; reinitialize or recertify workspace`
     );
   }
+}
+
+function verifyProposalIdentity(session) {
+  const identity = session.context?.proposal_identity;
+  if (!identity) return;
+  let projectRoot;
+  try {
+    projectRoot = fs.realpathSync(findGitRoot(path.dirname(session.context.proposal_path)));
+  } catch (error) {
+    throw new Error(`proposal identity cannot resolve its Git worktree: ${error.message}`);
+  }
+  let trusted;
+  try {
+    trusted = readApprovedProposal(session.context.proposal_path, {
+      projectRoot,
+      expectedDecision: {
+        id: identity.decision_id,
+        sha256: identity.decision_sha256,
+      },
+    });
+  } catch (error) {
+    throw new Error(`proposal identity is no longer trusted: ${error.message}`);
+  }
+  const observed = {
+    proposal_id: trusted.contract.proposal_id,
+    slug: trusted.contract.slug,
+    revision: trusted.contract.revision,
+    content_sha256: trusted.contract.content_sha256,
+    approved_proposal_sha256: trusted.approval.proposal_sha256,
+    decision_id: trusted.approval.decision_id,
+    decision_sha256: trusted.approval.decision_sha256,
+  };
+  for (const [field, value] of Object.entries(observed)) {
+    if (identity[field] !== value)
+      throw new Error(`proposal identity ${field} drifted; re-run RFC intake`);
+  }
+  const order = { approved: 0, planned: 1, "in-progress": 2, done: 3 };
+  if (
+    !(trusted.contract.lifecycle in order) ||
+    order[trusted.contract.lifecycle] < order[identity.lifecycle]
+  )
+    throw new Error("proposal lifecycle moved backwards; re-run RFC intake");
 }
 
 function issue(pathValue, message) {

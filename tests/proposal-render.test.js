@@ -54,6 +54,31 @@ test("generated proposal reader passes the shared offline artifact contract", ()
   assert.equal(result.metadata.source.sha256, rendered.source_sha256);
 });
 
+test("post-approval lifecycle readers preserve approval and show the current state", () => {
+  for (const lifecycle of ["planned", "in-progress", "done"]) {
+    const input = source();
+    input.proposal.lifecycle = lifecycle;
+    input.proposal.review = {
+      status: "passed",
+      revision: input.proposal.revision,
+      content_sha256: require("../scripts/lib/proposal-schema.js").proposalContentHash(
+        input.proposal
+      ),
+      completed_at: "2026-07-14T02:00:00.000Z",
+    };
+    const rendered = renderProposal(input.proposal, {
+      sourceBytes: Buffer.from(`${JSON.stringify(input.proposal, null, 2)}\n`),
+      version: "test",
+    });
+    assert.match(
+      rendered.html,
+      new RegExp(`Approved[^<]*.*${lifecycle.replace("-", "[ -]")}`, "i")
+    );
+    assert.match(rendered.html, /Product approval remains valid/);
+    assert.doesNotMatch(rendered.html, /Approval is still required/);
+  }
+});
+
 test("CLI atomically writes canonical HTML and Markdown locations", () => {
   const project = fs.mkdtempSync(path.join(os.tmpdir(), "proposal-render-"));
   try {

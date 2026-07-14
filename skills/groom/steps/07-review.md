@@ -18,8 +18,10 @@ Read `references/review-questions.md`. Freeze proposal identity, select tier-req
 
 Blocking revisions increment the proposal revision, invalidate prior review/approval, regenerate projections, rerun `proposal-quality-check.js`, and rerun every affected question. A run lineage has at most three remediation rounds. Advisory debt remains visible without inventing another round.
 
+When all routed questions pass, persist their answers in `question_reviews`, set `review.status: passed` with the current revision, semantic content hash, and completion time, and transition the canonical lifecycle from `draft` to `reviewed`. Regenerate both projections and run `proposal-check.js --projections` before recording the Review phase result. The session proposal identity recorded by that result must point to these reviewed canonical bytes.
+
 ## Done-when
 
-Every required question has a current answer, no blocking finding or unresolved dispute remains, and review evidence binds the exact current proposal hash/revision.
+Every required question has a current answer, no blocking finding or unresolved dispute remains, and both canonical proposal review metadata and session review evidence bind the exact current proposal hash/revision.
 
 **Advance:** if tier is `full` or `agent`, proceed to Step 8 (Presentation); otherwise proceed to Step 9 (Approval).
