@@ -226,7 +226,7 @@ test("post-preparation commits preserve the old journal and invalidate current e
 });
 
 test("main tag cannot begin until merge is verified and conflicts never force move", () => {
-  let value = planEffect(transaction(), {
+  const value = planEffect(transaction(), {
     effect: "place-main-tag",
     target: { remote: "origin", tag: "v1.2.4", merge_sha: MERGE, base: "main" },
   });
