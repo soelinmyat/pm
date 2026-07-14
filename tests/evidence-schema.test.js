@@ -150,6 +150,7 @@ test("ledger validation rejects private paths, invalid privacy, dangling parents
   assert.deepEqual(validateEvidenceLedger(ledger), []);
 
   const unsafe = structuredClone(ledger);
+  unsafe.records[0].content = "raw customer content must never enter the ledger";
   unsafe.records[0].source_label = "/Users/alice/private/support.csv";
   unsafe.records[0].locator = "/Users/alice/private/support.csv:14";
   unsafe.records[0].privacy.pii_review = "not-required";
@@ -157,6 +158,7 @@ test("ledger validation rejects private paths, invalid privacy, dangling parents
   const issues = validateEvidenceLedger(unsafe).join("\n");
   assert.match(issues, /portable/i);
   assert.match(issues, /locator/i);
+  assert.match(issues, /unknown field content/i);
   assert.match(issues, /PII review/i);
   assert.match(issues, /parent/i);
   assert.match(issues, /derived identity/i);
@@ -187,6 +189,17 @@ test("citation validation binds every v2 finding to this artifact and a current 
   assert.match(
     validateCitationBindings({
       markdown: valid.replace(` [evidence:${record.evidence_id}]`, ""),
+      ledger,
+      artifactPath: "evidence/research/bulk-editing.md",
+    }).join("\n"),
+    /finding.*citation/i
+  );
+  assert.match(
+    validateCitationBindings({
+      markdown: valid.replace(
+        `- Batch editing is painful. [evidence:${record.evidence_id}]`,
+        "1. Batch editing is painful."
+      ),
       ledger,
       artifactPath: "evidence/research/bulk-editing.md",
     }).join("\n"),
@@ -236,6 +249,9 @@ test("staleness audit reports observed timestamp, threshold, age, and state", ()
   const audit = auditEvidence(ledger, { now: "2026-07-14T00:00:00.000Z" });
   assert.deepEqual(audit.records[0], {
     evidence_id: record.evidence_id,
+    freshness_kind: "topic",
+    content_sha256: record.content_sha256,
+    artifact_paths: ["evidence/research/bulk-editing.md"],
     observed_at: "2026-03-01T00:00:00.000Z",
     threshold_days: 90,
     age_days: 135,

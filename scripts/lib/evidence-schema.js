@@ -44,6 +44,26 @@ const STALENESS_DAYS = Object.freeze({
   unknown: 90,
 });
 const FRESHNESS_KINDS = new Set(Object.keys(STALENESS_DAYS));
+const LEDGER_FIELDS = new Set(["schema_version", "updated_at", "records"]);
+const RECORD_FIELDS = new Set([
+  "evidence_id",
+  "source_type",
+  "source_label",
+  "source_format",
+  "freshness_kind",
+  "locator",
+  "captured_at",
+  "content_sha256",
+  "privacy",
+  "transformation",
+  "artifact_paths",
+  "revisions",
+  "created_at",
+  "updated_at",
+]);
+const PRIVACY_FIELDS = new Set(["classification", "pii_review"]);
+const TRANSFORMATION_FIELDS = new Set(["stage", "parents", "method"]);
+const REVISION_FIELDS = new Set(["content_sha256", "captured_at", "replaced_at"]);
 
 function normalizeIdentityPart(value, label) {
   if (typeof value !== "string" || !value.trim()) throw new Error(`${label} is required`);
@@ -195,6 +215,7 @@ function validateEvidenceLedger(ledger) {
   if (!ledger || typeof ledger !== "object" || Array.isArray(ledger)) {
     return ["ledger must be an object"];
   }
+  issues.push(...unknownFieldIssues(ledger, LEDGER_FIELDS, "ledger"));
   if (ledger.schema_version !== SCHEMA_VERSION)
     issues.push(`schema_version must be ${SCHEMA_VERSION}`);
   if (!isIso(ledger.updated_at)) issues.push("updated_at must be an ISO timestamp");
@@ -214,6 +235,7 @@ function validateEvidenceLedger(ledger) {
 function validateEvidenceRecord(record, knownIds) {
   const issues = [];
   if (!record || typeof record !== "object" || Array.isArray(record)) return ["must be an object"];
+  issues.push(...unknownFieldIssues(record, RECORD_FIELDS, "record"));
   if (!EVIDENCE_ID.test(record.evidence_id || "")) issues.push("evidence_id is invalid");
   if (!SOURCE_TYPES.has(record.source_type)) issues.push("source_type is invalid");
   if (!SOURCE_FORMATS.has(record.source_format)) issues.push("source_format is invalid");
@@ -239,6 +261,9 @@ function validateEvidenceRecord(record, knownIds) {
   if (!PRIVACY.has(record.privacy?.classification))
     issues.push("privacy classification is invalid");
   if (!PII_REVIEW.has(record.privacy?.pii_review)) issues.push("PII review state is invalid");
+  if (record.privacy && typeof record.privacy === "object" && !Array.isArray(record.privacy)) {
+    issues.push(...unknownFieldIssues(record.privacy, PRIVACY_FIELDS, "privacy"));
+  }
   if (
     ["customer-sensitive", "restricted"].includes(record.privacy?.classification) &&
     record.privacy?.pii_review === "not-required"
@@ -246,13 +271,25 @@ function validateEvidenceRecord(record, knownIds) {
     issues.push("customer-sensitive or restricted evidence requires PII review");
   }
   if (!STAGES.has(record.transformation?.stage)) issues.push("transformation stage is invalid");
+  if (
+    record.transformation &&
+    typeof record.transformation === "object" &&
+    !Array.isArray(record.transformation)
+  ) {
+    issues.push(
+      ...unknownFieldIssues(record.transformation, TRANSFORMATION_FIELDS, "transformation")
+    );
+  }
   if (!Array.isArray(record.transformation?.parents)) {
     issues.push("transformation parents must be an array");
   } else {
+    const parents = new Set();
     for (const parent of record.transformation.parents) {
       if (!EVIDENCE_ID.test(parent)) issues.push("transformation parent is invalid");
       else if (!knownIds.has(parent)) issues.push(`transformation has unknown parent ${parent}`);
       if (parent === record.evidence_id) issues.push("transformation cannot parent itself");
+      if (parents.has(parent)) issues.push("transformation parents must be unique");
+      parents.add(parent);
     }
   }
   if (typeof record.transformation?.method !== "string" || !record.transformation.method.trim()) {
@@ -274,12 +311,17 @@ function validateEvidenceRecord(record, knownIds) {
   else {
     const hashes = new Set();
     record.revisions.forEach((revision, index) => {
+      if (revision && typeof revision === "object" && !Array.isArray(revision)) {
+        issues.push(...unknownFieldIssues(revision, REVISION_FIELDS, `revision[${index}]`));
+      }
       if (!HASH.test(revision?.content_sha256 || ""))
         issues.push(`revision[${index}] hash is invalid`);
       if (!isIso(revision?.captured_at)) issues.push(`revision[${index}] captured_at is invalid`);
       if (!isIso(revision?.replaced_at)) issues.push(`revision[${index}] replaced_at is invalid`);
       if (hashes.has(revision?.content_sha256))
         issues.push(`revision[${index}] duplicates a revision hash`);
+      if (revision?.content_sha256 === record.content_sha256)
+        issues.push(`revision[${index}] duplicates the current content hash`);
       hashes.add(revision?.content_sha256);
     });
   }
@@ -318,7 +360,7 @@ function validateCitationBindings({ markdown, ledger, artifactPath }) {
   const findingSection =
     markdown.match(/(?:^|\n)## Findings\s*\n([\s\S]*?)(?=\n## |$)/i)?.[1] || "";
   for (const line of findingSection.split(/\r?\n/)) {
-    if (/^\s*[-*]\s+\S/.test(line) && !/\[evidence:ev_[a-f0-9]{24}\]/.test(line)) {
+    if (/^\s*(?:[-*]|\d+[.)])\s+\S/.test(line) && !/\[evidence:ev_[a-f0-9]{24}\]/.test(line)) {
       issues.push("finding is missing an evidence citation");
     }
   }
@@ -338,6 +380,9 @@ function auditEvidence(ledger, options = {}) {
       const thresholdDays = thresholds[record.freshness_kind] ?? thresholds.unknown;
       return {
         evidence_id: record.evidence_id,
+        freshness_kind: record.freshness_kind,
+        content_sha256: record.content_sha256,
+        artifact_paths: [...record.artifact_paths],
         observed_at: record.captured_at,
         threshold_days: thresholdDays,
         age_days: ageDays,
@@ -438,6 +483,7 @@ function defaultFreshnessKind(sourceType) {
 function isPortableLabel(value) {
   if (typeof value !== "string" || !value.trim() || value.length > 240) return false;
   const label = value.trim();
+  if (hasControlCharacter(label)) return false;
   if (path.posix.isAbsolute(label) || path.win32.isAbsolute(label) || label.startsWith("~"))
     return false;
   return !label.split(/[\\/]/).includes("..");
@@ -446,6 +492,7 @@ function isPortableLabel(value) {
 function isPortableLocator(value) {
   if (typeof value !== "string" || !value.trim() || value.length > 500) return false;
   const locator = value.trim();
+  if (hasControlCharacter(locator)) return false;
   if (
     path.posix.isAbsolute(locator) ||
     path.win32.isAbsolute(locator) ||
@@ -467,7 +514,24 @@ function isEvidenceArtifactPath(value) {
     return false;
   }
   const normalized = value.replaceAll("\\", "/");
-  return normalized.startsWith("evidence/") && !normalized.split("/").includes("..");
+  return (
+    !hasControlCharacter(normalized) &&
+    normalized.startsWith("evidence/") &&
+    !normalized.split("/").includes("..")
+  );
+}
+
+function unknownFieldIssues(value, allowed, label) {
+  return Object.keys(value)
+    .filter((key) => !allowed.has(key))
+    .map((key) => `${label} contains unknown field ${key}`);
+}
+
+function hasControlCharacter(value) {
+  return [...value].some((character) => {
+    const code = character.charCodeAt(0);
+    return code <= 0x1f || code === 0x7f;
+  });
 }
 
 function isIso(value) {

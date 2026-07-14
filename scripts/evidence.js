@@ -67,6 +67,9 @@ function run(command, options) {
   const ledgerPath = path.join(pmDir, "evidence", "provenance.json");
   if (command === "register" || command === "migrate" || command === "refresh") {
     if (!options.request) throw new Error("--request is required");
+    if (command === "refresh" && !options.privateDir) {
+      throw new Error("--private-dir is required for refresh conflict preservation");
+    }
     const request = readJson(path.resolve(options.request), "request");
     const release = acquireOwnedLock(`${ledgerPath}.lock`, {
       attempts: 200,
@@ -98,9 +101,9 @@ function run(command, options) {
         }
       } else {
         try {
+          result = refreshEvidence(ledger, request, { now: options.now });
           if (options.artifact)
             assertObservedArtifact(resolveEvidenceArtifact(pmDir, options.artifact), request);
-          result = refreshEvidence(ledger, request, { now: options.now });
         } catch (error) {
           error.options = options;
           error.request = request;
@@ -225,7 +228,12 @@ function readBoundedRegularFile(filePath, label, maxBytes, encoding = "utf8") {
   const descriptor = fs.openSync(filePath, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
   try {
     const opened = fs.fstatSync(descriptor);
-    if (!opened.isFile() || opened.size !== stat.size)
+    if (
+      !opened.isFile() ||
+      opened.size !== stat.size ||
+      opened.dev !== stat.dev ||
+      opened.ino !== stat.ino
+    )
       throw new Error(`${label} changed while reading`);
     return fs.readFileSync(descriptor, encoding === null ? undefined : { encoding });
   } finally {
