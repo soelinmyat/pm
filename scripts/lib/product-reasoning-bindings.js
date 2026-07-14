@@ -28,6 +28,10 @@ function verifyArtifactBindings(root, bindings, options = {}) {
   let remaining = budgetState.remaining;
   for (const binding of bindings || []) {
     let input = cache.get(binding.path);
+    if (input && input.bytes.length > maxFileBytes) {
+      issues.push(`${binding.path}: input exceeds ${maxFileBytes} bytes`);
+      continue;
+    }
     if (!input) {
       if (remaining <= 0) {
         issues.push(`${binding.path}: aggregate binding bytes exceed 64 MiB`);
@@ -157,6 +161,19 @@ function verifyCanonicalReaderMarker(brief, cache) {
     issues.push(`${canonical.markdown}: reasoning_version must equal 2`);
   if (parsed.data.decision_brief !== canonical.decision)
     issues.push(`${canonical.markdown}: decision_brief must equal ${canonical.decision}`);
+  if (brief.promotion?.status === "promoted") {
+    if (brief.kind === "think") {
+      if (parsed.data.status !== "promoted")
+        issues.push(`${canonical.markdown}: promoted Think status must equal promoted`);
+      if (parsed.data.promoted_to !== brief.slug)
+        issues.push(`${canonical.markdown}: promoted_to must equal ${brief.slug}`);
+    } else if (
+      brief.kind === "idea" &&
+      !new Set(["proposed", "planned", "in-progress", "done"]).has(parsed.data.status)
+    ) {
+      issues.push(`${canonical.markdown}: promoted Ideate status is not a downstream lifecycle`);
+    }
+  }
   return issues;
 }
 

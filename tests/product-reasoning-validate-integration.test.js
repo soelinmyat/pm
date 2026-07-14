@@ -398,6 +398,18 @@ test("binding validation shares one aggregate budget across sequential reads", (
   );
 });
 
+test("cached binding inputs obey a stricter caller byte limit", () => {
+  const bytes = Buffer.alloc(2048, 0x61);
+  const cache = new Map([["cached.bin", { relative: "cached.bin", bytes }]]);
+  assert.match(
+    verifyArtifactBindings("/unused", [{ path: "cached.bin", sha256: sha(bytes) }], {
+      cache,
+      maxFileBytes: 1024,
+    }).join("\n"),
+    /input exceeds 1024 bytes/
+  );
+});
+
 test("normal validation shares one aggregate budget across companions", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reasoning-run-budget-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -475,16 +487,22 @@ test("cached bindings still obey the stricter decision JSON byte limit", (t) => 
   alpha.slug = "alpha";
   alpha.title = "alpha";
   alpha.decision_id = decisionId("idea", "alpha");
+  const collidingPath = "decision-brief:backlog/zeta.decision.json";
+  const collidingBytes = Buffer.from("cache namespace sentinel");
   alpha.source_artifacts = [
     { path: "backlog/alpha.md", sha256: sha(alphaMarkdown) },
     { path: "backlog/zeta.decision.json", sha256: sha(zetaJson) },
+    { path: collidingPath, sha256: sha(collidingBytes) },
   ];
+  fs.mkdirSync(path.join(pm, "decision-brief:backlog"), { recursive: true });
+  fs.writeFileSync(path.join(pm, collidingPath), collidingBytes);
   fs.writeFileSync(path.join(pm, "backlog", "alpha.md"), alphaMarkdown);
   fs.writeFileSync(path.join(pm, "backlog", "alpha.decision.json"), JSON.stringify(alpha));
   fs.writeFileSync(path.join(pm, "backlog", "zeta.md"), zetaMarkdown);
   fs.writeFileSync(path.join(pm, "backlog", "zeta.decision.json"), zetaJson);
 
-  const result = validate(pm);
+  let result;
+  assert.doesNotThrow(() => (result = validate(pm)));
   assert.ok(
     result.errors.some(
       (entry) =>

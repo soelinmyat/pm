@@ -9,6 +9,7 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { buildApproval, proposalContentHash } = require("../scripts/lib/proposal-schema");
 const { decisionId } = require("../scripts/lib/product-reasoning-schema");
+const { verifyCanonicalReaderMarker } = require("../scripts/lib/product-reasoning-bindings");
 const { promote, validatePromotionReader } = require("../scripts/product-reasoning");
 const { validate } = require("../scripts/validate");
 
@@ -499,4 +500,41 @@ test("Think promotion requires its final promoted reader projection", () => {
     /promoted_to must equal/
   );
   assert.doesNotThrow(() => validatePromotionReader(brief, captured("promoted", brief.slug)));
+});
+
+test("promoted reader lifecycle invariants replay after the initial transition", () => {
+  const marker = (kind, slug, status, promotedTo) => {
+    const directory = kind === "think" ? "thinking" : "backlog";
+    const markdown = `${directory}/${slug}.md`;
+    return {
+      brief: { kind, slug, promotion: { status: "promoted" } },
+      cache: new Map([
+        [
+          markdown,
+          {
+            relative: markdown,
+            bytes: Buffer.from(
+              `---\nstatus: ${status}\npromoted_to: ${promotedTo}\nreasoning_version: 2\ndecision_brief: ${directory}/${slug}.decision.json\n---\n`
+            ),
+          },
+        ],
+      ]),
+    };
+  };
+  const activeThink = marker("think", "bounded-choice", "active", "bounded-choice");
+  assert.match(
+    verifyCanonicalReaderMarker(activeThink.brief, activeThink.cache).join("\n"),
+    /promoted Think status must equal promoted/
+  );
+  const validThink = marker("think", "bounded-choice", "promoted", "bounded-choice");
+  assert.deepEqual(verifyCanonicalReaderMarker(validThink.brief, validThink.cache), []);
+  for (const status of ["proposed", "planned", "in-progress", "done"]) {
+    const idea = marker("idea", "bounded-choice", status, "null");
+    assert.deepEqual(verifyCanonicalReaderMarker(idea.brief, idea.cache), []);
+  }
+  const regressedIdea = marker("idea", "bounded-choice", "idea", "null");
+  assert.match(
+    verifyCanonicalReaderMarker(regressedIdea.brief, regressedIdea.cache).join("\n"),
+    /not a downstream lifecycle/
+  );
 });

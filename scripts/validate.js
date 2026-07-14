@@ -53,6 +53,7 @@ const VALID_COMPETITOR_TYPES = [
   "competitor-seo",
 ];
 const REQUIRED_COMPETITOR_FIELDS = ["type", "company", "slug", "profiled", "sources"];
+const PRODUCT_REASONING_INSPECTION_CACHES = new WeakMap();
 
 const VALID_MEMORY_CATEGORIES = ["scope", "research", "review", "process", "quality"];
 const VALID_INSIGHT_STATUSES = ["active", "stale", "draft"];
@@ -1180,7 +1181,15 @@ function validateFeaturesFile(pmDir, filePath, content, errors, cache, budgetSta
 function inspectProductReasoningJson(pmDir, filePath, expectedType, cache, budgetState) {
   const relativeFile = relativeToPm(pmDir, filePath);
   const key = `${expectedType}:${relativeFile}`;
-  if (cache?.has(key)) return cache.get(key);
+  let inspectionCache = null;
+  if (cache) {
+    inspectionCache = PRODUCT_REASONING_INSPECTION_CACHES.get(cache);
+    if (!inspectionCache) {
+      inspectionCache = new Map();
+      PRODUCT_REASONING_INSPECTION_CACHES.set(cache, inspectionCache);
+    }
+  }
+  if (inspectionCache?.has(key)) return inspectionCache.get(key);
   let result;
   try {
     const bytes = readProductReasoningInput(
@@ -1205,7 +1214,7 @@ function inspectProductReasoningJson(pmDir, filePath, expectedType, cache, budge
   } catch (error) {
     result = { value: null, issues: [], bindingIssues: [], readError: error.message };
   }
-  if (cache) cache.set(key, result);
+  if (inspectionCache) inspectionCache.set(key, result);
   return result;
 }
 
