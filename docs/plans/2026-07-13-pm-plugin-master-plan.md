@@ -24,7 +24,8 @@ Completion means every shipped skill has an explicit contract, proportionate eva
 | v1.13.12 | Shared HTML artifact foundation | Released |
 | v1.13.13 | Blind output-quality evaluation harness | Released |
 | v1.13.14 | Evidence-bound `pm:design-critique` | Released |
-| v1.13.15 / Wave 3B | Evidence-bound adaptive `pm:review` | Released |
+| v1.13.15 / Wave 3B | Evidence-bound adaptive `pm:review` | Released; initial hosted CI exposed portability defects |
+| v1.13.16 / Wave 3B closure | Hosted-CI portability remediation | Released through PR #352 with all five checks green |
 | v1.13.17 / Wave 4A | Executable skill-authoring contract and audit | Released |
 | v1.13.25 / Wave 4B | Shared provider-neutral workflow runtime primitives | Released |
 | v1.13.26 / Wave 5 | Groom v2, canonical proposal contract, and quality calibration | Released |
@@ -33,6 +34,7 @@ Completion means every shipped skill has an explicit contract, proportionate eva
 | v1.13.29 / Wave 8 | Product reasoning and deterministic feature inventory v2 | Released |
 | v1.13.39 / Wave 9 | Canonical operational read model and effect journals | Released |
 | v1.13.40 / Wave 10 | Atomic capture, compatibility cleanup, and product polish | Released |
+| v1.13.42 / Closure audit | Master-plan evidence closure and Chromium startup hardening | Released through PR #361 with all five checks green |
 
 ## Operating laws
 
@@ -56,7 +58,7 @@ The master plan is complete only when all of the following are evidenced on main
 - Core workflows pass all committed behavioral and quality cases; supporting workflows pass their declared contract fixtures.
 - Sol High and Opus xHigh can execute the same provider-neutral contracts, with capability downgrades recorded rather than inferred.
 - Both installed plugin caches pass plugin validation and their representative smoke suites.
-- Every release PR passes hosted CI, merges to main, and has its version tag on the main merge commit.
+- Every wave closes on a hosted-CI-green release PR merged to main, with its final version tag on the main merge commit. A failed release attempt is not completion evidence and must be followed by an explicitly recorded green remediation release.
 - No open P0/P1, unresolved reviewer dispute, or unowned deferred P2 remains.
 
 ## Whole-plugin inventory and destination
@@ -90,16 +92,16 @@ The master plan is complete only when all of the following are evidenced on main
 
 ### Wave 3B — Review quality gate
 
-**State:** implemented and locally verified on `codex/review-quality-gate`.
+**State:** complete — the Review implementation shipped as `v1.13.15` through PR #351; its failed hosted checks were remediated by PR #352 and the wave closed on green CI as `v1.13.16`.
 
 Land the adaptive six-lens evidence contract, immutable review rounds, strict synthesis, browser-verified report, and non-resettable remediation budget. Preserve the two non-blocking medium findings as owned follow-up debt rather than reopening review:
 
 - attest an already-installed atomic output after a child crashes between installation and receipt serialization;
 - make historical nested-prior validation available through the documented Review CLI path while keeping current-report version checks strict.
 
-The terminal release pass covered all six lenses with zero blockers or disputes. The exact `v1.13.15` source commit passed 1,800 tests with zero failures and one intentional skip; both installed workhorse caches passed plugin validation and a 91-test Review smoke suite.
+The terminal release pass covered all six lenses with zero blockers or disputes. The exact `v1.13.15` source commit passed 1,800 local tests with zero failures and one intentional skip; both installed workhorse caches passed plugin validation and a 91-test Review smoke suite. PR #351 nevertheless failed hosted formatting and portability checks, so it is not used as the wave's CI completion evidence. PR #352 fixed those defects, passed all five hosted checks, merged as `d8030ed389e275d907e4c8affd23b2278b22427b`, and placed `v1.13.16` on that main commit.
 
-**Exit:** patch release on main, both workhorse caches verified, CI green, tag moved to the main merge commit.
+**Exit:** satisfied by the green `v1.13.16` remediation release on main after the initial `v1.13.15` hosted-CI failure; both workhorse caches were verified and the final wave tag is on the main merge commit.
 
 ### Wave 4A — Authoring contract and plugin-wide audit
 
@@ -233,8 +235,8 @@ The audit below was completed from the released `v1.13.40` main tree. It closes 
 | Behavioral and quality cases | The release tree passes 2,076 tests: 2,070 passed, 0 failed, and 6 declared dependency skips. Core gate contracts and supporting fixtures remain green. | Passed |
 | Provider-neutral workhorse contracts | Capability profiles and prompt/result envelopes remain provider-neutral and record explicit downgrades. The installed Codex and Claude workhorse copies each pass plugin validation and the same 74-test representative suite; this is contract/runtime evidence, not a claim that every release ran a live two-model certification matrix. | Passed |
 | Installed-copy verification | Both `~/.codex/plugins/cache/pm/pm/1.13.40` and `~/.claude/plugins/cache/pm/pm/1.13.40` pass plugin validation and the representative capture, lock, docs/artifact, Review contract, dispatch, and authoring tests. | Passed |
-| Release integrity | PR #360 passed all five hosted CI jobs and merged to main; `v1.13.40` resolves to the exact merge commit `d07a1ff322bd333374248bd849c941d6745820b6`. | Passed |
-| Finding and dispute closure | The final bounded Review round covered all five required logical lenses and passed with no findings, disputes, open P0/P1, or deferred unowned P2. | Passed |
+| Release integrity | PRs #346–#350 and #352–#361 closed their waves or closure audits with green hosted CI and main-commit tags. PR #351's failed hosted checks are explicitly retained as a non-completing attempt; green remediation PR #352 closed Wave 3B as `v1.13.16`. PR #360 closed Wave 10 as `v1.13.40`; PR #361 closed the first whole-plan audit as `v1.13.42`. Both tags resolve to their exact main merge commits. | Passed |
+| Finding and dispute closure | The final bounded Review round covered all five required logical lenses and passed with no findings, disputes, open P0/P1, or deferred unowned P2. A later independent completion audit found three closure-quality gaps—incorrectly summarized Wave 3B CI history, two moderate dev-tool advisories, and 11 lint warnings—and remediated all three in-tree rather than leaving them as unowned debt. | Passed |
 
 ## Evaluation policy
 
