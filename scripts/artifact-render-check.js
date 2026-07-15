@@ -614,7 +614,11 @@ function runBrowserProbe(configuration, label, runtime = {}) {
     }
     if (!result.error && result.status === 0) return result;
     const detail = `${result.stderr || ""}${result.stdout || ""}`;
-    if (!detail.includes("Chromium did not expose a page target") || attempt === 3) break;
+    const retryableStartupFailure = [
+      "Chromium did not expose a debugging endpoint",
+      "Chromium did not expose a page target",
+    ].some((message) => detail.includes(message));
+    if (!retryableStartupFailure || attempt === 3) break;
   }
   if (result?.error) throw new Error(`${label} failed: ${result.error.message}`);
   throw new Error(

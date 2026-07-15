@@ -573,6 +573,35 @@ setInterval(() => {}, 1000);
   }
 });
 
+test("browser probe retries a transient missing debugging endpoint", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-browser-endpoint-retry-"));
+  try {
+    const probePath = path.join(root, "retrying-probe.js");
+    const counterPath = path.join(root, "attempts.txt");
+    fs.writeFileSync(
+      probePath,
+      `"use strict";
+const fs = require("node:fs");
+const config = JSON.parse(fs.readFileSync(0, "utf8"));
+const attempt = fs.existsSync(config.counterPath)
+  ? Number(fs.readFileSync(config.counterPath, "utf8")) + 1
+  : 1;
+fs.writeFileSync(config.counterPath, String(attempt));
+if (attempt < 3) {
+  process.stderr.write("Chromium did not expose a debugging endpoint\\n");
+  process.exit(1);
+}
+process.stdout.write(JSON.stringify({ attempt }));
+`
+    );
+    const result = runBrowserProbe({ counterPath }, "browser probe", { probePath });
+    assert.deepEqual(JSON.parse(result.stdout), { attempt: 3 });
+    assert.equal(fs.readFileSync(counterPath, "utf8"), "3");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("browser probe enables the Node 20 WebSocket runtime explicitly", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-browser-websocket-runtime-"));
   try {
