@@ -565,7 +565,7 @@ function runSyncEffect(options) {
   const serialization = sharedGitRepositorySerialization(pmDir);
   let before;
   const recovery = { code: "inspect-sync-effect", command: "/pm:sync status" };
-  const operations = { setup, clone, sync, push, pull };
+  const operations = { setup, clone, sync, push, pull, ...(options.operations || {}) };
   const requiresFreshRemoteObservation = mode === "pull" || mode === "sync";
   let mutationStarted = false;
   let routeStatus = null;
@@ -592,7 +592,7 @@ function runSyncEffect(options) {
     lockTimeoutMs: options.lockTimeoutMs,
     observe({ journal, recovery: recovering }) {
       if (requiresFreshRemoteObservation && !mutationStarted) {
-        if (recovering && (journal.state === "attempting" || journal.state === "ambiguous")) {
+        if (recovering && ["attempting", "ambiguous", "blocked"].includes(journal.state)) {
           return {
             state: "ambiguous",
             reason: "interrupted sync outcome requires explicit Git recovery inspection",
@@ -612,9 +612,12 @@ function runSyncEffect(options) {
       routeStatus = mutationStatus(mode, result);
       if (!result.ok) {
         return {
-          blocked: true,
+          ambiguous: true,
           reason: result.error || (result.errors || []).join("; ") || `${mode} failed`,
-          recovery: { code: "sync-operation-failed", command: "/pm:sync status" },
+          recoveryEvidence: {
+            code: "sync-operation-indeterminate",
+            reason: result.error || (result.errors || []).join("; ") || `${mode} failed`,
+          },
         };
       }
     },

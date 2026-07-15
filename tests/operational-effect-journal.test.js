@@ -108,6 +108,56 @@ test("a verified effect is observed and reused without replay", (t) => {
   assert.equal(fs.statSync(first.journal_path).mode & 0o777, 0o600);
 });
 
+test("verified replay refreshes changed observation metadata without mutation", (t) => {
+  const root = stateDir(t);
+  let mutations = 0;
+  let observedHash = `sha256:${"d".repeat(64)}`;
+  const execute = () =>
+    runOperationalEffect({
+      ...input(root),
+      mutate() {
+        mutations += 1;
+      },
+      observe() {
+        return { state: "verified", receipt: { config_sha256: observedHash } };
+      },
+    });
+
+  execute();
+  observedHash = `sha256:${"e".repeat(64)}`;
+  const second = execute();
+  const journal = JSON.parse(fs.readFileSync(second.journal_path, "utf8"));
+
+  assert.equal(second.replayed, true);
+  assert.equal(second.receipt_refreshed, true);
+  assert.equal(second.verified_receipt.receipt.config_sha256, observedHash);
+  assert.equal(journal.verified_receipt_history.length, 1);
+  assert.equal(mutations, 1);
+});
+
+test("a blocked journal is observed before another mutation attempt", (t) => {
+  const root = stateDir(t);
+  let mutations = 0;
+  let observations = 0;
+  const execute = () =>
+    runOperationalEffect({
+      ...input(root),
+      mutate() {
+        mutations += 1;
+        return { blocked: true, reason: "precondition changed" };
+      },
+      observe() {
+        observations += 1;
+        return { state: "ambiguous", reason: "target state must be inspected" };
+      },
+    });
+
+  assert.equal(execute().state, "blocked");
+  assert.equal(execute().state, "ambiguous");
+  assert.equal(mutations, 1);
+  assert.equal(observations, 1);
+});
+
 test("an ambiguous replay preserves the verified receipt and never mutates again", (t) => {
   const root = stateDir(t);
   let mutations = 0;

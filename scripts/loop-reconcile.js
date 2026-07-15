@@ -838,6 +838,34 @@ function reconcileReceipt(plan, result) {
   };
 }
 
+function pendingReconcilePlanHash(pmStateDir) {
+  const effectsDir = path.join(pmStateDir, "effects");
+  if (!fs.existsSync(effectsDir)) return null;
+  const stat = fs.lstatSync(effectsDir);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) {
+    throw new Error("operational effect journal directory is unsafe");
+  }
+  const pending = [];
+  for (const entry of fs.readdirSync(effectsDir, { withFileTypes: true })) {
+    if (!entry.name.endsWith(".json") || !entry.isFile() || entry.isSymbolicLink()) continue;
+    const filePath = path.join(effectsDir, entry.name);
+    const journal = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    if (
+      journal.workflow === "loop" &&
+      journal.effect === "apply-loop-reconciliation" &&
+      ["attempting", "ambiguous", "blocked"].includes(journal.state) &&
+      typeof journal.intent?.plan_sha256 === "string"
+    ) {
+      pending.push(journal.intent.plan_sha256);
+    }
+  }
+  const identities = [...new Set(pending)];
+  if (identities.length > 1) {
+    throw new Error("multiple unresolved reconciliation effects require explicit inspection");
+  }
+  return identities[0] || null;
+}
+
 function runReconcileEffect(projectDir, options = {}) {
   const resolvedProjectDir = path.resolve(projectDir);
   const paths = resolvePmPaths(resolvedProjectDir);
@@ -845,10 +873,11 @@ function runReconcileEffect(projectDir, options = {}) {
   const pmStateDir = path.resolve(options.pmStateDir || paths.pmStateDir);
   const planBuilder = options.planBuilder || buildPlan;
   const execute = options.execute || runReconcile;
-  let executionMap;
-  let plan;
-  let originalPlanHash;
   const serialization = sharedGitRepositorySerialization(pmDir);
+  const executionMap = new Map();
+  const plan = planBuilder(resolvedProjectDir, { ...options, pmDir, executionMap });
+  const originalPlanHash = reconcilePlanHash(plan);
+  const effectPlanHash = pendingReconcilePlanHash(pmStateDir) || originalPlanHash;
 
   const observe = ({ journal, mutation }) => {
     if (mutation?.result?.ok === true) {
@@ -912,11 +941,8 @@ function runReconcileEffect(projectDir, options = {}) {
     serializationRoot: serialization.root,
     serializationScope: serialization.scope,
     target: { repository: "pm-knowledge-base", operation: "loop-reconciliation" },
-    intent: { mode: "apply" },
+    intent: { mode: "apply", plan_sha256: effectPlanHash },
     precondition() {
-      executionMap = new Map();
-      plan = planBuilder(resolvedProjectDir, { ...options, pmDir, executionMap });
-      originalPlanHash = reconcilePlanHash(plan);
       return {
         pm_head_oid: plan.pm_head_oid,
         plan_sha256: originalPlanHash,

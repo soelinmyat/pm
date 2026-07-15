@@ -563,7 +563,7 @@ test("apply requires Git readiness, uses isolated PM transactions, and reports e
   assert.match(git(fixture.project, ["log", "-1", "--format=%s", "origin/main"]), /reconcile/i);
 });
 
-test("reconciliation apply has a durable receipt and replays from the resulting PM head", (t) => {
+test("reconciliation apply journals the resulting empty plan independently", (t) => {
   const fixture = makeFixture(t);
   const options = {
     pmDir: fixture.pmDir,
@@ -578,14 +578,63 @@ test("reconciliation apply has a durable receipt and replays from the resulting 
   const second = runReconcileEffect(fixture.project, options);
   assert.equal(first.state, "verified", JSON.stringify(first));
   assert.equal(second.state, "verified", JSON.stringify(second));
-  assert.equal(second.replayed, true);
+  assert.notEqual(second.replayed, true);
   assert.equal(first.applied_changes.length, 1);
-  assert.equal(second.applied_changes.length, 1);
-  assert.equal(
-    first.verified_receipt.receipt.final_head,
-    second.verified_receipt.receipt.final_head
-  );
+  assert.equal(second.applied_changes.length, 0);
+  assert.notEqual(second.effect_id, first.effect_id);
   assert.equal(fs.statSync(first.journal_path).mode & 0o777, 0o600);
+});
+
+test("distinct reconciliation plans receive distinct durable effect journals", (t) => {
+  const fixture = makeFixture(t);
+  const options = {
+    pmDir: fixture.pmDir,
+    pmStateDir: path.join(fixture.project, ".pm"),
+    now: NOW,
+    expectedRepository: "openai/pm",
+    expectedBase: "main",
+    inspectPullRequest: mergedInspector,
+    authorityActions: ["reconcile_loop_state"],
+  };
+  const first = runReconcileEffect(fixture.project, options);
+  git(fixture.project, ["pull", "--ff-only"]);
+  fs.writeFileSync(
+    path.join(fixture.pmDir, "backlog", "failed-second.md"),
+    [
+      "---",
+      'id: "PM-405"',
+      'title: "Second stale card"',
+      "kind: task",
+      "status: in-progress",
+      `loop_run_id: "${RUN_ID_2}"`,
+      "---",
+      "",
+      "body",
+      "",
+    ].join("\n")
+  );
+  fs.writeFileSync(
+    path.join(fixture.pmDir, "loop", "events", `${RUN_ID_2}.json`),
+    JSON.stringify({
+      schema_version: 1,
+      run_id: RUN_ID_2,
+      card_id: "PM-405",
+      stage: "dev",
+      terminal: true,
+      status: "failed",
+      outcome: "dev-failed",
+    })
+  );
+  git(fixture.project, ["add", "pm"]);
+  git(fixture.project, ["commit", "-m", "second reconciliation plan"]);
+  git(fixture.project, ["push"]);
+
+  const second = runReconcileEffect(fixture.project, options);
+  assert.equal(first.state, "verified", JSON.stringify(first));
+  assert.equal(second.state, "verified", JSON.stringify(second));
+  assert.notEqual(second.effect_id, first.effect_id);
+  assert.notEqual(second.journal_path, first.journal_path);
+  assert.ok(second.applied_changes.some((change) => change.card_id === "PM-405"));
 });
 
 test("reconciliation refuses an executor result from a different frozen plan", (t) => {

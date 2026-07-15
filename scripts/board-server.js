@@ -481,18 +481,7 @@ function createServer(serverOptions = {}) {
             reject(new Error(String(stderr || error?.message || "loop control failed").trim()));
             return;
           }
-          resolve({
-            paused: isStopped(pmDir),
-            requested_paused: intent.paused,
-            sync: {
-              state: effect.state,
-              stopped: intent.paused,
-              effect_id: effect.effect_id,
-              verified_receipt: effect.verified_receipt,
-              recovery: effect.recovery,
-              at: new Date().toISOString(),
-            },
-          });
+          resolve(loopToggleResult(pmDir, intent.paused, effect));
         }
       );
     });

@@ -867,6 +867,40 @@ test("interrupted sync remains ambiguous instead of starting another Git mutatio
   assert.equal(headAfter, headBefore);
 });
 
+test("an indeterminate push is observed before replay and recovers without a second mutation", (t) => {
+  const remote = withBareRemote();
+  const { pmDir, dotPm, cleanup } = withTempProject({ "pm/strategy.md": "# Strategy\n" });
+  const { setup, push, runSyncEffect } = require(KB_SYNC_GIT_PATH);
+  assert.equal(setup(pmDir, remote.url).ok, true);
+  fs.writeFileSync(path.join(pmDir, "after-send.md"), "# After send\n");
+  t.after(() => {
+    cleanup();
+    remote.cleanup();
+  });
+  let mutations = 0;
+  const options = {
+    mode: "push",
+    pmDir,
+    dotPmDir: dotPm,
+    authorityActions: ["push_knowledge_base"],
+    operations: {
+      push(target) {
+        mutations += 1;
+        const applied = push(target);
+        assert.equal(applied.ok, true);
+        return { ...applied, ok: false, error: "connection closed after send" };
+      },
+    },
+  };
+
+  const first = runSyncEffect(options);
+  const second = runSyncEffect(options);
+  assert.equal(first.state, "ambiguous");
+  assert.equal(second.state, "verified");
+  assert.equal(second.recovered, true);
+  assert.equal(mutations, 1);
+});
+
 for (const mode of ["pull", "sync"]) {
   test(`journaled ${mode} refreshes the remote on every explicit invocation`, (t) => {
     const remote = withBareRemote();

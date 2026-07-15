@@ -292,6 +292,25 @@ function runClaimedOperationalEffect(input, plan, journalPath, authorityActions)
   if (journal.state === "verified") {
     const observation = input.observe({ plan, journal, recovery: true });
     if (observation?.state === "verified") {
+      const refreshed = observationReceipt(
+        plan,
+        observation,
+        journal.verified_receipt?.attempt || journal.attempts.at(-1)?.attempt || 1,
+        authorityActions
+      );
+      if (
+        stableStringify(refreshed.receipt) !== stableStringify(journal.verified_receipt?.receipt)
+      ) {
+        journal.verified_receipt_history = [
+          ...(Array.isArray(journal.verified_receipt_history)
+            ? journal.verified_receipt_history
+            : []),
+          journal.verified_receipt,
+        ].filter(Boolean);
+        journal.verified_receipt = refreshed;
+        persist(journalPath, journal);
+        return publicResult(journal, journalPath, { replayed: true, receipt_refreshed: true });
+      }
       return publicResult(journal, journalPath, { replayed: true });
     }
     if (observation?.state !== "absent" || observation.safe_to_retry !== true) {
@@ -314,7 +333,11 @@ function runClaimedOperationalEffect(input, plan, journalPath, authorityActions)
     journal.verified_receipt = null;
   }
 
-  if (journal.state === "attempting" || journal.state === "ambiguous") {
+  if (
+    journal.state === "attempting" ||
+    journal.state === "ambiguous" ||
+    journal.state === "blocked"
+  ) {
     const observation = input.observe({ plan, journal, recovery: true });
     if (observation?.state === "verified") {
       return finishVerified(journal, plan, observation, authorityActions, journalPath, {
