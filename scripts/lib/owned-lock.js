@@ -7,17 +7,28 @@ const { writeJsonAtomic } = require("./atomic-file");
 function acquireOwnedLock(lockPath, options = {}) {
   const attempts = options.attempts ?? 2;
   const waitMs = options.waitMs ?? 0;
+  const recoveryPath = `${lockPath}.reclaim`;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (pathExists(recoveryPath)) {
+      synchronousWait(waitMs);
+      continue;
+    }
+
     const token = crypto.randomBytes(16).toString("hex");
     const candidatePath = `${lockPath}.candidate-${process.pid}-${token}`;
     try {
-      writeJsonAtomic(
-        candidatePath,
-        { pid: process.pid, token, created_at: new Date().toISOString() },
-        { directoryMode: options.directoryMode ?? 0o700, fileMode: options.fileMode ?? 0o600 }
-      );
+      writeLockCandidate(candidatePath, token, options);
       fs.linkSync(candidatePath, lockPath);
       fs.rmSync(candidatePath, { force: true });
+
+      // A reclaimer can publish its guard after the check above but before this
+      // link. Do not enter the critical section while reclamation is active.
+      if (pathExists(recoveryPath)) {
+        releaseOwnedLock(lockPath, token);
+        synchronousWait(waitMs);
+        continue;
+      }
+
       const release = () => releaseOwnedLock(lockPath, token);
       release.cached = null;
       return release;
@@ -37,6 +48,29 @@ function acquireOwnedLock(lockPath, options = {}) {
   throw new Error(options.timeoutMessage || `timed out waiting for owned lock: ${lockPath}`);
 }
 
+function writeLockCandidate(candidatePath, token, options) {
+  writeJsonAtomic(
+    candidatePath,
+    { pid: process.pid, token, created_at: new Date().toISOString() },
+    { directoryMode: options.directoryMode ?? 0o700, fileMode: options.fileMode ?? 0o600 }
+  );
+}
+
+function tryAcquireRecoveryGuard(recoveryPath, options) {
+  const token = crypto.randomBytes(16).toString("hex");
+  const candidatePath = `${recoveryPath}.candidate-${process.pid}-${token}`;
+  try {
+    writeLockCandidate(candidatePath, token, options);
+    fs.linkSync(candidatePath, recoveryPath);
+    fs.rmSync(candidatePath, { force: true });
+    return () => releaseOwnedLock(recoveryPath, token);
+  } catch (error) {
+    fs.rmSync(candidatePath, { force: true });
+    if (error.code === "EEXIST") return null;
+    throw error;
+  }
+}
+
 function releaseOwnedLock(lockPath, token) {
   try {
     if (readLockOwner(lockPath).token === token) fs.rmSync(lockPath, { force: true });
@@ -46,78 +80,90 @@ function releaseOwnedLock(lockPath, token) {
 }
 
 function reclaimAbandonedLock(lockPath, options = {}) {
-  const invalidGraceMs = options.invalidGraceMs ?? 1000;
-  let observed;
+  const initial = inspectAbandonedLock(lockPath, options.invalidGraceMs ?? 1000);
+  if (!initial) return false;
+
+  options.beforeReclaimRename?.({
+    lockPath,
+    observed: structuredClone(initial.owner || { token: null }),
+  });
+
+  const recoveryPath = `${lockPath}.reclaim`;
+  const releaseRecovery = tryAcquireRecoveryGuard(recoveryPath, options);
+  if (!releaseRecovery) return false;
+
   try {
-    observed = readLockOwner(lockPath);
+    const current = inspectAbandonedLock(lockPath, options.invalidGraceMs ?? 1000);
+    if (!sameObservedLock(initial, current)) return false;
+
+    options.afterReclaimSnapshot?.({
+      lockPath,
+      recoveryPath,
+      observed: structuredClone(initial.owner || { token: null }),
+    });
+
+    // Test hooks and external actors may have changed the pathname. Missing is
+    // already reclaimed; a different inode belongs to a new owner and must stay.
+    let finalStat;
     try {
-      process.kill(observed.pid, 0);
-      return false;
+      finalStat = fs.lstatSync(lockPath);
     } catch (error) {
-      if (error.code !== "ESRCH") return false;
+      return error.code === "ENOENT";
     }
-  } catch {
-    try {
-      if (Date.now() - fs.statSync(lockPath).mtimeMs < invalidGraceMs) return false;
-      observed = { token: null };
-    } catch {
-      return false;
-    }
-  }
-  options.beforeReclaimRename?.({ lockPath, observed: structuredClone(observed) });
-  const quarantine = `${lockPath}.stale-${process.pid}-${crypto.randomBytes(8).toString("hex")}`;
-  let snapshotKind = "hard-link";
-  try {
-    fs.linkSync(lockPath, quarantine);
-  } catch {
-    // A malformed directory cannot be hard-linked. Preserve the legacy recovery
-    // path only for that invalid shape; every valid owned lock uses the
-    // descriptor-stable hard-link path below.
-    let stat;
-    try {
-      stat = fs.lstatSync(lockPath);
-    } catch {
-      return false;
-    }
-    if (observed.token || !stat.isDirectory()) return false;
-    try {
-      fs.renameSync(lockPath, quarantine);
-      snapshotKind = "moved-directory";
-    } catch {
-      return false;
-    }
-  }
-  try {
-    options.afterReclaimSnapshot?.({ lockPath, quarantine, observed: structuredClone(observed) });
-    if (snapshotKind === "hard-link") {
-      let snapshotOwner = null;
-      try {
-        snapshotOwner = readLockOwner(quarantine);
-      } catch {
-        // An invalid regular-file owner is reclaimable after the grace period.
-      }
-      if (
-        (observed.token && snapshotOwner?.token !== observed.token) ||
-        (!observed.token && snapshotOwner)
-      ) {
-        return false;
-      }
-      let fixed;
-      let snapshot;
-      try {
-        fixed = fs.lstatSync(lockPath);
-        snapshot = fs.lstatSync(quarantine);
-      } catch {
-        return false;
-      }
-      if (fixed.dev !== snapshot.dev || fixed.ino !== snapshot.ino) return false;
+    if (!sameInode(initial.stat, finalStat)) return false;
+
+    if (initial.kind === "directory") {
+      fs.rmSync(lockPath, { recursive: true });
+    } else {
       fs.unlinkSync(lockPath);
-    } else if (!fs.lstatSync(quarantine).isDirectory()) {
-      return false;
     }
     return true;
   } finally {
-    fs.rmSync(quarantine, { recursive: true, force: true });
+    releaseRecovery();
+  }
+}
+
+function inspectAbandonedLock(lockPath, invalidGraceMs) {
+  let stat;
+  try {
+    stat = fs.lstatSync(lockPath);
+  } catch {
+    return null;
+  }
+
+  try {
+    const owner = readLockOwner(lockPath);
+    try {
+      process.kill(owner.pid, 0);
+      return null;
+    } catch (error) {
+      if (error.code !== "ESRCH") return null;
+    }
+    return { kind: "owned-file", owner, stat };
+  } catch {
+    if (Date.now() - stat.mtimeMs < invalidGraceMs) return null;
+    return { kind: stat.isDirectory() ? "directory" : "invalid-file", owner: null, stat };
+  }
+}
+
+function sameObservedLock(initial, current) {
+  if (!current || initial.kind !== current.kind || !sameInode(initial.stat, current.stat)) {
+    return false;
+  }
+  if (initial.owner) return current.owner?.token === initial.owner.token;
+  return current.owner === null;
+}
+
+function sameInode(left, right) {
+  return left.dev === right.dev && left.ino === right.ino;
+}
+
+function pathExists(targetPath) {
+  try {
+    fs.lstatSync(targetPath);
+    return true;
+  } catch (error) {
+    return error.code !== "ENOENT";
   }
 }
 
