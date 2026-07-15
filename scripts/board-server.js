@@ -276,8 +276,12 @@ function toggleLoop(pmDir, desiredPaused, options = {}) {
     timeout: options.timeout || PUSH_TIMEOUT_MS,
     loadReleaseGateState: options.loadReleaseGateState,
   });
+  return loopToggleResult(resolved, nextStopped, effect);
+}
+
+function loopToggleResult(pmDir, nextStopped, effect) {
   return {
-    paused: isStopped(resolved),
+    paused: isStopped(pmDir),
     requested_paused: nextStopped,
     sync: {
       state: effect.state,
@@ -414,7 +418,7 @@ function makeGitFreshness(pmDir) {
       ["-C", pmDir, "status", "--porcelain=v2", "--branch"],
       {
         encoding: "utf8",
-        env: cleanGitEnv(),
+        env: cleanGitEnv({ GIT_OPTIONAL_LOCKS: "0" }),
         timeout: GIT_STATUS_TIMEOUT_MS,
         maxBuffer: 1024 * 1024,
       },
@@ -435,6 +439,64 @@ function createServer(serverOptions = {}) {
   const page = renderPage();
   const gitFreshness = makeGitFreshness(pmDir);
   const toggleRequests = new Map();
+
+  function runToggleAsync(intent) {
+    if (typeof serverOptions.runLoopControlEffect === "function") {
+      return Promise.resolve()
+        .then(() =>
+          serverOptions.runLoopControlEffect(pmDir, intent.paused, {
+            pmStateDir,
+            authorityActions: ["control_loop"],
+            requestKey: intent.key,
+            loadReleaseGateState: serverOptions.loadReleaseGateState,
+            timeout: PUSH_TIMEOUT_MS,
+          })
+        )
+        .then((effect) => loopToggleResult(pmDir, intent.paused, effect));
+    }
+    return new Promise((resolve, reject) => {
+      execFile(
+        process.execPath,
+        [
+          path.join(__dirname, "board-toggle-worker.js"),
+          JSON.stringify({
+            pmDir,
+            pmStateDir,
+            paused: intent.paused,
+            requestKey: intent.key,
+            timeout: PUSH_TIMEOUT_MS,
+          }),
+        ],
+        {
+          encoding: "utf8",
+          env: cleanGitEnv(),
+          timeout: PUSH_TIMEOUT_MS + 2000,
+          maxBuffer: 1024 * 1024,
+        },
+        (error, stdout, stderr) => {
+          let effect;
+          try {
+            effect = JSON.parse(String(stdout || "").trim());
+          } catch {
+            reject(new Error(String(stderr || error?.message || "loop control failed").trim()));
+            return;
+          }
+          resolve({
+            paused: isStopped(pmDir),
+            requested_paused: intent.paused,
+            sync: {
+              state: effect.state,
+              stopped: intent.paused,
+              effect_id: effect.effect_id,
+              verified_receipt: effect.verified_receipt,
+              recovery: effect.recovery,
+              at: new Date().toISOString(),
+            },
+          });
+        }
+      );
+    });
+  }
 
   // Last kill-switch sync result, surfaced on the board so a failed push shows
   // "paused locally — push failed" instead of a silent false guarantee.
@@ -507,28 +569,34 @@ function createServer(serverOptions = {}) {
         if (prior) {
           if (prior.requested_paused !== intent.paused) {
             sendJson(res, 409, { error: "idempotency key was already used for another state" });
+          } else if (prior.promise) {
+            prior.promise.then(
+              (result) => sendJson(res, 200, result),
+              (failure) => sendJson(res, 500, { error: failure.message })
+            );
           } else sendJson(res, 200, prior);
           return;
         }
-        let result;
-        try {
-          result = toggleLoop(pmDir, intent.paused, {
-            pmStateDir,
-            requestKey: intent.key,
-            runControl: serverOptions.runLoopControlEffect,
-            loadReleaseGateState: serverOptions.loadReleaseGateState,
-            timeout: PUSH_TIMEOUT_MS,
-          });
-        } catch (err) {
-          sendJson(res, 500, { error: err.message });
-          return;
-        }
-        if (result.sync?.state === "verified") {
-          killSwitchSync = result.sync;
-          toggleRequests.set(intent.key, result);
-          if (toggleRequests.size > 128) toggleRequests.delete(toggleRequests.keys().next().value);
-        }
-        sendJson(res, 200, result);
+        const promise = runToggleAsync(intent);
+        toggleRequests.set(intent.key, {
+          requested_paused: intent.paused,
+          promise,
+        });
+        promise.then(
+          (result) => {
+            if (result.sync?.state === "verified") {
+              killSwitchSync = result.sync;
+              toggleRequests.set(intent.key, result);
+              if (toggleRequests.size > 128)
+                toggleRequests.delete(toggleRequests.keys().next().value);
+            } else toggleRequests.delete(intent.key);
+            sendJson(res, 200, result);
+          },
+          (failure) => {
+            toggleRequests.delete(intent.key);
+            sendJson(res, 500, { error: failure.message });
+          }
+        );
       });
       return;
     }

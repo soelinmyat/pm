@@ -7,6 +7,7 @@ const { execSync } = require("child_process");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
 const { runGit } = require("./loop-git.js");
 const { writeJsonAtomic } = require("./lib/atomic-file.js");
+const { cleanGitEnv } = require("./lib/git-env.js");
 const {
   runOperationalEffect,
   sharedGitRepositorySerialization,
@@ -16,24 +17,8 @@ const {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const GIT_ENV_KEYS_TO_CLEAR = [
-  "GIT_DIR",
-  "GIT_WORK_TREE",
-  "GIT_INDEX_FILE",
-  "GIT_OBJECT_DIRECTORY",
-  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-  "GIT_COMMON_DIR",
-  "GIT_PREFIX",
-  "GIT_SUPER_PREFIX",
-];
-
 function buildGitEnv(extraEnv = {}) {
-  const env = { ...process.env, ...extraEnv };
-  // Git hooks export repo-scoped env vars that can hijack child git commands.
-  for (const key of GIT_ENV_KEYS_TO_CLEAR) {
-    delete env[key];
-  }
-  return env;
+  return cleanGitEnv(extraEnv);
 }
 
 function run(cmd, opts = {}) {
@@ -72,12 +57,16 @@ function sha256(value) {
 // ---------------------------------------------------------------------------
 
 function isGitRepo(pmDir) {
-  const gitDir = path.join(pmDir, ".git");
-  try {
-    return fs.statSync(gitDir).isDirectory();
-  } catch {
-    return false;
-  }
+  const topLevel = runGitSafe(["rev-parse", "--show-toplevel"], pmDir);
+  if (!topLevel.ok || !topLevel.output) return false;
+  const canonical = (value) => {
+    try {
+      return fs.realpathSync(value);
+    } catch {
+      return path.resolve(value);
+    }
+  };
+  return canonical(topLevel.output) === canonical(pmDir);
 }
 
 function hasRemote(pmDir) {

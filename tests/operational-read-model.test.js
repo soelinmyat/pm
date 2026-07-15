@@ -187,6 +187,51 @@ test("one snapshot owns lifecycle, leases, budgets, delivery, and recovery", (t)
   assert.equal(Object.hasOwn(leased.lease, "filePath"), false);
 });
 
+test("non-verified effect journals become canonical recovery actions", (t) => {
+  const project = makeProject();
+  t.after(() => fs.rmSync(project.root, { recursive: true, force: true }));
+  const effectsDir = path.join(project.root, ".pm", "effects");
+  fs.mkdirSync(effectsDir, { recursive: true });
+  const writeJournal = (letter, state, recoveryCode) => {
+    const effectId = `effect_${letter.repeat(64)}`;
+    project.write(
+      `.pm/effects/${effectId}.json`,
+      JSON.stringify({
+        schema_version: 1,
+        effect_id: effectId,
+        state,
+        authority_action: "sync_knowledge_base",
+        attempts: [{ attempt: 1, state, error: state === "blocked" ? "remote rejected" : null }],
+        recovery: {
+          code: recoveryCode,
+          command: "/pm:sync status",
+          mutation_authority_required: state === "blocked",
+        },
+        last_observation: state === "ambiguous" ? { reason: "remote state is unknown" } : null,
+      })
+    );
+    return effectId;
+  };
+  const attempting = writeJournal("a", "attempting", "inspect-attempting-effect");
+  const ambiguous = writeJournal("b", "ambiguous", "inspect-ambiguous-effect");
+  const blocked = writeJournal("c", "blocked", "repair-blocked-effect");
+  const verified = writeJournal("d", "verified", "ignore-verified-effect");
+  const planned = writeJournal("e", "planned", "inspect-planned-effect");
+  project.write(".pm/effects/malformed.json", "not json");
+
+  const snapshot = buildOperationalSnapshot(project.root, { now: NOW });
+  const actions = Object.fromEntries(
+    snapshot.recovery_actions.map((action) => [action.target_id, action])
+  );
+  assert.equal(actions[verified], undefined);
+  assert.equal(actions[attempting].effect_state, "attempting");
+  assert.equal(actions[ambiguous].reason, "remote state is unknown");
+  assert.equal(actions[blocked].mutation_authority_required, true);
+  assert.equal(actions[planned].code, "inspect-planned-effect");
+  assert.equal(actions.malformed.code, "inspect-effect-journal");
+  assert.equal(actions[attempting].authority_action, "sync_knowledge_base");
+});
+
 test("explicit separate-repo paths keep operational ledgers in the consumer state directory", (t) => {
   const source = makeProject();
   const knowledgeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pm-operational-kb-"));

@@ -19,6 +19,7 @@ const GIT_ENV_KEYS_TO_CLEAR = [
   "GIT_ALTERNATE_OBJECT_DIRECTORIES",
   "GIT_COMMON_DIR",
   "GIT_PREFIX",
+  "GIT_NAMESPACE",
   "GIT_SUPER_PREFIX",
 ];
 
@@ -107,6 +108,25 @@ test("isGitRepo returns true after git init", (t) => {
   assert.equal(isGitRepo(pmDir), true);
 });
 
+test("linked Git worktrees are recognized as knowledge-base repositories", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kb-linked-worktree-"));
+  const primary = path.join(root, "primary");
+  const linked = path.join(root, "linked");
+  fs.mkdirSync(primary, { recursive: true });
+  gitExec("git init -b main", { cwd: primary });
+  gitExec("git config user.name 'PM Test'", { cwd: primary });
+  gitExec("git config user.email 'pm@example.com'", { cwd: primary });
+  fs.writeFileSync(path.join(primary, "strategy.md"), "# Strategy\n");
+  gitExec("git add strategy.md && git commit -m initial", { cwd: primary });
+  gitExec(`git worktree add ${JSON.stringify(linked)} -b linked`, { cwd: primary });
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const { isGitRepo, localGitState } = require(KB_SYNC_GIT_PATH);
+  assert.equal(fs.statSync(path.join(linked, ".git")).isFile(), true);
+  assert.equal(isGitRepo(linked), true);
+  assert.equal(localGitState(linked).repository, "present");
+});
+
 // ---------------------------------------------------------------------------
 // Test: hasRemote / getRemoteUrl
 // ---------------------------------------------------------------------------
@@ -167,6 +187,7 @@ test("setup ignores inherited git hook env", (t) => {
   process.env.GIT_INDEX_FILE = path.join(hookGitDir, "index");
   process.env.GIT_OBJECT_DIRECTORY = poisonObjectDir;
   process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES = poisonAlternateDir;
+  process.env.GIT_NAMESPACE = "poisoned-hook-namespace";
 
   const { setup, hasRemote, getRemoteUrl } = require(KB_SYNC_GIT_PATH);
   const result = setup(pmDir, remote.url);

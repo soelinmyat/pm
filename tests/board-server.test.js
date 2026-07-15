@@ -442,6 +442,48 @@ test("POST /api/loop/toggle retries a transient result with the same request key
   project.cleanup();
 });
 
+test("a stalled toggle does not block concurrent Board reads", async () => {
+  const project = createProject();
+  project.write("pm/backlog/task.md", approvedCard("PM-001", "Task"));
+  let release;
+  let started;
+  const startedPromise = new Promise((resolve) => {
+    started = resolve;
+  });
+  const server = createServer({
+    pmDir: project.pmDir,
+    async runLoopControlEffect(pmDir, stopped) {
+      started();
+      await new Promise((resolve) => {
+        release = resolve;
+      });
+      fs.mkdirSync(path.join(pmDir, "loop"), { recursive: true });
+      fs.writeFileSync(path.join(pmDir, "loop", "STOP"), "paused\n");
+      return {
+        state: "verified",
+        effect_id: `effect_${"f".repeat(64)}`,
+        verified_receipt: { stopped },
+        recovery: null,
+      };
+    },
+  });
+  const { port } = await listen(server);
+  const toggle = request(port, "POST", "/api/loop/toggle", TRUSTED, {
+    paused: true,
+    idempotency_key: "stalled-toggle",
+  });
+  await startedPromise;
+  const board = await Promise.race([
+    request(port, "GET", "/api/board"),
+    new Promise((_, reject) => setTimeout(() => reject(new Error("Board GET was blocked")), 500)),
+  ]);
+  assert.equal(board.status, 200);
+  release();
+  assert.equal((await toggle).json.sync.state, "verified");
+  server.close();
+  project.cleanup();
+});
+
 test("POST /api/loop/toggle rejects cross-origin and header-less requests (CSRF)", async () => {
   const project = createProject();
   project.write("pm/backlog/task.md", approvedCard("PM-001", "Task"));
@@ -552,6 +594,11 @@ test("read-only board requests never fetch or mutate remote-tracking refs", asyn
 
   const headBefore = git(project.root, ["rev-parse", "HEAD"]);
   const originBefore = git(project.root, ["rev-parse", "refs/remotes/origin/main"]);
+  const indexPath = path.join(project.root, ".git", "index");
+  const indexBefore = fs.readFileSync(indexPath);
+  const trackedPath = path.join(project.root, "pm", "backlog", "task.md");
+  const trackedStat = fs.statSync(trackedPath);
+  fs.utimesSync(trackedPath, trackedStat.atime, new Date(trackedStat.mtimeMs + 2000));
   const server = createServer({ pmDir: project.pmDir });
   const { port } = await listen(server);
 
@@ -565,6 +612,7 @@ test("read-only board requests never fetch or mutate remote-tracking refs", asyn
   server.close();
   const headAfter = git(project.root, ["rev-parse", "HEAD"]);
   const originAfter = git(project.root, ["rev-parse", "refs/remotes/origin/main"]);
+  const indexAfter = fs.readFileSync(indexPath);
   fs.rmSync(clone, { recursive: true, force: true });
   fs.rmSync(remote, { recursive: true, force: true });
   project.cleanup();
@@ -574,6 +622,7 @@ test("read-only board requests never fetch or mutate remote-tracking refs", asyn
   assert.equal(response.json.git.refresh_action, "/pm:sync status");
   assert.equal(headAfter, headBefore, "GET must not move HEAD or mutate the working tree");
   assert.equal(originAfter, originBefore, "GET must not fetch or move remote-tracking refs");
+  assert.deepEqual(indexAfter, indexBefore, "GET must not refresh or rewrite the Git index");
 });
 
 test("A3: toggle pushes the kill switch to origin and surfaces the push result", async () => {

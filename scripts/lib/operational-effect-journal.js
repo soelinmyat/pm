@@ -7,6 +7,7 @@ const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 
 const { writeJsonAtomic } = require("./atomic-file.js");
+const { cleanGitEnv } = require("./git-env.js");
 const { bindEffectReceipt } = require("./workflow-runtime/effect-receipt.js");
 const { isObject, stableStringify } = require("./workflow-runtime/records.js");
 
@@ -134,26 +135,13 @@ function sharedGitRepositorySerialization(resourcePath) {
   } catch {
     canonicalPath = path.resolve(resourcePath);
   }
-  const env = { ...process.env };
-  for (const key of [
-    "GIT_DIR",
-    "GIT_WORK_TREE",
-    "GIT_INDEX_FILE",
-    "GIT_OBJECT_DIRECTORY",
-    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-    "GIT_COMMON_DIR",
-    "GIT_PREFIX",
-    "GIT_SUPER_PREFIX",
-  ]) {
-    delete env[key];
-  }
   try {
     const commonDir = execFileSync(
       "git",
       ["-C", canonicalPath, "rev-parse", "--path-format=absolute", "--git-common-dir"],
       {
         encoding: "utf8",
-        env,
+        env: cleanGitEnv(),
         stdio: ["ignore", "pipe", "ignore"],
         timeout: 5000,
       }
