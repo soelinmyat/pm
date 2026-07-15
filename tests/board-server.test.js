@@ -126,16 +126,6 @@ function listen(server) {
   });
 }
 
-// Poll an async predicate a bounded number of times (for background work like
-// the off-request-path kill-switch push).
-async function until(fn, tries = 40) {
-  for (let i = 0; i < tries; i++) {
-    if (await fn()) return true;
-    await new Promise((r) => setTimeout(r, 15));
-  }
-  return false;
-}
-
 test("GET /api/board payload shape: columns, cards, parent grouping, lease detection", () => {
   const project = createProject();
 
@@ -325,7 +315,22 @@ test("GET /api/board over HTTP returns JSON; missing pm dir returns error shape"
 test("POST /api/loop/toggle flips the kill switch and GET reflects it", async () => {
   const project = createProject();
   project.write("pm/backlog/task.md", approvedCard("PM-001", "Task"));
-  const server = createServer({ pmDir: project.pmDir });
+  const server = createServer({
+    pmDir: project.pmDir,
+    runLoopControlEffect(pmDir, stopped) {
+      const stopPath = path.join(pmDir, "loop", "STOP");
+      if (stopped) {
+        fs.mkdirSync(path.dirname(stopPath), { recursive: true });
+        fs.writeFileSync(stopPath, "stop\n");
+      } else fs.rmSync(stopPath, { force: true });
+      return {
+        state: "verified",
+        effect_id: `effect_${"a".repeat(64)}`,
+        verified_receipt: { stopped, authoritative_remote: true },
+        recovery: { code: "inspect-loop-control-effect", command: "/pm:loop status" },
+      };
+    },
+  });
   const { port } = await listen(server);
 
   const before = await request(port, "GET", "/api/board");
@@ -333,20 +338,12 @@ test("POST /api/loop/toggle flips the kill switch and GET reflects it", async ()
 
   const toggled = await request(port, "POST", "/api/loop/toggle", TRUSTED);
   assert.equal(toggled.json.paused, true);
-  // A3: local STOP file is written synchronously; the push runs off-request.
-  assert.equal(toggled.json.sync.state, "pending");
+  assert.equal(toggled.json.sync.state, "verified");
+  assert.equal(toggled.json.sync.verified_receipt.authoritative_remote, true);
   assert.ok(fs.existsSync(path.join(project.pmDir, "loop", "STOP")));
 
   const paused = await request(port, "GET", "/api/board");
   assert.equal(paused.json.loop.paused, true);
-
-  // The background push settles and its result is surfaced (no git here → not
-  // pushed, but reported honestly rather than hanging the request).
-  const settled = await until(async () => {
-    const r = await request(port, "GET", "/api/board");
-    return r.json.loop.sync && r.json.loop.sync.state === "done";
-  });
-  assert.ok(settled, "kill-switch sync should settle to done");
 
   const resumed = await request(port, "POST", "/api/loop/toggle", TRUSTED);
   assert.equal(resumed.json.paused, false);
@@ -497,14 +494,8 @@ test("A3: toggle pushes the kill switch to origin and surfaces the push result",
 
   const toggled = await request(port, "POST", "/api/loop/toggle", TRUSTED);
   assert.equal(toggled.json.paused, true);
-  assert.equal(toggled.json.sync.state, "pending");
-
-  const pushed = await until(async () => {
-    const r = await request(port, "GET", "/api/board");
-    return (
-      r.json.loop.sync && r.json.loop.sync.state === "done" && r.json.loop.sync.pushed === true
-    );
-  });
+  assert.equal(toggled.json.sync.state, "verified");
+  assert.equal(toggled.json.sync.verified_receipt.receipt.authoritative_remote, true);
 
   server.close();
   // The kill switch actually reached origin — the "halt every machine" guarantee.
@@ -512,7 +503,6 @@ test("A3: toggle pushes the kill switch to origin and surfaces the push result",
   fs.rmSync(remote, { recursive: true, force: true });
   project.cleanup();
 
-  assert.ok(pushed, "toggle push should settle to done+pushed");
   assert.match(tree, /pm\/loop\/STOP/);
 });
 

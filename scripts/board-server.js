@@ -22,13 +22,14 @@ const { COLUMN_ORDER } = require("./loop-board.js");
 const { buildOperationalSnapshot } = require("./lib/operational-read-model.js");
 const { parseCliArgs } = require("./loop-args.js");
 const { findGitRoot, runGit } = require("./loop-git.js");
-const { writeKillSwitchFile, pushKillSwitch } = require("./loop-install.js");
+const { runLoopControlEffect } = require("./loop-install.js");
+const { loadLoopConfig } = require("./loop-config.js");
 const { isStopped } = require("./loop-worker.js");
 
 const DEFAULT_PORT = 4400;
 const POLL_MS = 5000;
-// git that runs off the request path (kill-switch push, background fetch) is
-// bounded so a hang can never freeze the single-threaded server.
+// Explicit mutation requests are bounded so a hung push cannot freeze the
+// single-threaded server indefinitely.
 const PUSH_TIMEOUT_MS = 15000;
 const GIT_STATUS_TIMEOUT_MS = 5000;
 
@@ -253,20 +254,32 @@ function buildBoardPayload(options = {}) {
 
 // --- Toggle (the only mutation) ------------------------------------------
 
-// Flip the LOCAL kill-switch file synchronously and return immediately. The
-// commit+push (the "halt every machine" half) is done off the request path by
-// the caller so a hung push can never freeze the server; its result is surfaced
-// on the next board poll via loop.sync.
-function toggleLoop(pmDir, at) {
+// Execute the same journaled, authoritative control effect as pm:loop. The
+// board never reports a local flip as a durable all-machine stop.
+function toggleLoop(pmDir, options = {}) {
   const resolved = path.resolve(pmDir);
   if (!fs.existsSync(resolved)) {
     return { error: `No pm/ directory found at ${resolved}.` };
   }
   const nextStopped = !isStopped(resolved);
-  writeKillSwitchFile(resolved, nextStopped);
+  const runControl = options.runControl || runLoopControlEffect;
+  const effect = runControl(resolved, nextStopped, {
+    pmStateDir: options.pmStateDir,
+    authorityActions: ["control_loop"],
+    timeout: options.timeout || PUSH_TIMEOUT_MS,
+    ...(nextStopped ? {} : { config: loadLoopConfig(resolved) }),
+  });
   return {
-    paused: nextStopped,
-    sync: { state: "pending", stopped: nextStopped, at: at || new Date().toISOString() },
+    paused: isStopped(resolved),
+    requested_paused: nextStopped,
+    sync: {
+      state: effect.state,
+      stopped: nextStopped,
+      effect_id: effect.effect_id,
+      verified_receipt: effect.verified_receipt,
+      recovery: effect.recovery,
+      at: new Date().toISOString(),
+    },
   };
 }
 
@@ -441,7 +454,11 @@ function createServer(serverOptions = {}) {
       req.resume(); // drain any body
       let result;
       try {
-        result = toggleLoop(pmDir);
+        result = toggleLoop(pmDir, {
+          pmStateDir,
+          runControl: serverOptions.runLoopControlEffect,
+          timeout: PUSH_TIMEOUT_MS,
+        });
       } catch (err) {
         sendJson(res, 500, { error: err.message });
         return;
@@ -450,19 +467,8 @@ function createServer(serverOptions = {}) {
         sendJson(res, 200, result);
         return;
       }
-      // Respond immediately with the local flip; push in the background.
       killSwitchSync = result.sync;
-      const stopped = result.paused;
       sendJson(res, 200, result);
-      setImmediate(() => {
-        let push;
-        try {
-          push = pushKillSwitch(pmDir, stopped, { timeout: PUSH_TIMEOUT_MS });
-        } catch (err) {
-          push = { committed: false, pushed: false, error: String((err && err.message) || err) };
-        }
-        killSwitchSync = { state: "done", stopped, at: new Date().toISOString(), ...push };
-      });
       return;
     }
 
@@ -767,17 +773,23 @@ function renderPage() {
   function renderSync(loop) {
     var s = loop.sync;
     if (!s) { syncEl.textContent = ""; syncEl.className = "note"; return; }
-    if (s.state === "pending") { syncEl.textContent = "syncing…"; syncEl.className = "note"; }
-    else if (s.pushed) { syncEl.textContent = "synced to origin"; syncEl.className = "note ok"; }
-    else if (s.error) { syncEl.textContent = "push failed — change is local only"; syncEl.className = "note bad"; }
-    else { syncEl.textContent = ""; syncEl.className = "note"; }
+    if (s.state === "verified") {
+      syncEl.textContent = s.stopped ? "pause verified on origin" : "resume verified on origin";
+      syncEl.className = "note ok";
+    } else if (s.state === "ambiguous") {
+      syncEl.textContent = "origin state is ambiguous — inspect before retrying";
+      syncEl.className = "note bad";
+    } else if (s.state === "blocked") {
+      syncEl.textContent = "loop control blocked — " + ((s.recovery && s.recovery.command) || "run /pm:loop status");
+      syncEl.className = "note bad";
+    } else { syncEl.textContent = ""; syncEl.className = "note"; }
   }
 
   function renderGit(git) {
     if (git && git.available) {
-      var when = git.fetched_at ? relAge(git.fetched_at) : "just now";
-      var behind = git.behind == null ? "" : (git.behind > 0 ? " · " + git.behind + " behind origin" : " · up to date");
-      gitEl.textContent = "synced " + when + behind + (git.branch ? " · " + git.branch : "");
+      var when = git.observed_at ? relAge(git.observed_at) : "just now";
+      var behind = git.behind == null ? "" : (git.behind > 0 ? " · " + git.behind + " behind observed origin" : " · aligned with observed origin");
+      gitEl.textContent = "local refs observed " + when + behind + (git.branch ? " · " + git.branch : "") + " · /pm:sync for remote truth";
     } else if (git && git.error) {
       gitEl.textContent = "git unavailable";
     } else {

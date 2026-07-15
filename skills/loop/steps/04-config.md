@@ -22,6 +22,10 @@ For explicit initialization:
 node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-config.js --pm-dir "$(node ${CLAUDE_PLUGIN_ROOT}/scripts/resolve-pm-dir.js "$PWD")" --init
 ```
 
+The explicit initialization is the `configure_loop` authority grant. The
+script journals the exact config hash and must return `verified` before setup
+is reported complete.
+
 Highlight these fields when explaining the output:
 
 - `version: 2` enables exact-plan preflight and trusted host configuration.
@@ -62,6 +66,11 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/loop-config.js \
   --approve-host
 ```
 
+The approval command is the separate `approve_loop_host` authority grant. It
+journals the exact resolved execution-config hash in machine-local state,
+observes before retrying, and returns a verified receipt. A blocked or
+ambiguous result must surface `/pm:loop status` recovery instead of being rerun.
+
 Changing an engine binary/argument, bootstrap command, service check,
 `codex_add_dirs`, Claude bypass mode, or Codex `danger-full-access` changes the
 hash and requires a new explicit approval.
@@ -75,6 +84,8 @@ Do not modify `implementation_approved`, `approved_by`, or `approved_at` on back
 
 ## Done-when
 
-The current or initialized config is validated, calculated exposure and TTL margins are visible, broad permissions have explicit local approval, and backlog approvals remain untouched.
+The current or initialized config is validated, calculated exposure and TTL
+margins are visible, mutations have verified action-specific receipts, broad
+permissions have explicit local approval, and backlog approvals remain untouched.
 
 Offer host approval, supervised canaries, or scheduler installation as the next action only when its prerequisites are satisfied.

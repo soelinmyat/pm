@@ -15,6 +15,7 @@ const {
   recoveryMutationManifest,
   resumeRecovery,
   runReconcile,
+  runReconcileEffect,
 } = require("../scripts/loop-reconcile.js");
 
 const NOW = new Date("2026-07-10T12:00:00Z");
@@ -560,6 +561,31 @@ test("apply requires Git readiness, uses isolated PM transactions, and reports e
   assert.equal(data.pr_merge_sha, "b".repeat(40));
   assert.equal(data.pr_merged_at, "2026-07-10T11:00:00Z");
   assert.match(git(fixture.project, ["log", "-1", "--format=%s", "origin/main"]), /reconcile/i);
+});
+
+test("reconciliation apply has a durable receipt and replays from the resulting PM head", (t) => {
+  const fixture = makeFixture(t);
+  const options = {
+    pmDir: fixture.pmDir,
+    pmStateDir: path.join(fixture.project, ".pm"),
+    now: NOW,
+    expectedRepository: "openai/pm",
+    expectedBase: "main",
+    inspectPullRequest: mergedInspector,
+    authorityActions: ["reconcile_loop_state"],
+  };
+  const first = runReconcileEffect(fixture.project, options);
+  const second = runReconcileEffect(fixture.project, options);
+  assert.equal(first.state, "verified", JSON.stringify(first));
+  assert.equal(second.state, "verified", JSON.stringify(second));
+  assert.equal(second.replayed, true);
+  assert.equal(first.applied_changes.length, 1);
+  assert.equal(second.applied_changes.length, 1);
+  assert.equal(
+    first.verified_receipt.receipt.final_head,
+    second.verified_receipt.receipt.final_head
+  );
+  assert.equal(fs.statSync(first.journal_path).mode & 0o777, 0o600);
 });
 
 test("apply pins the planned PM head and aborts when durable evidence changes", (t) => {

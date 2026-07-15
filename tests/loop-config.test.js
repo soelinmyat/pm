@@ -16,6 +16,7 @@ const {
   loadTrustedLoopConfig,
   normalizeLoopConfig,
   requiresLocalApproval,
+  runLoopConfigEffect,
 } = require("../scripts/loop-config.js");
 
 test("lease TTL covers the complete bounded claim-to-final-push envelope", () => {
@@ -217,4 +218,32 @@ test("executable and broad-permission config requires a matching machine-local a
   const changedHash = executionConfigHash(loadLoopConfig(pmDir));
   assert.notEqual(changedHash, firstHash);
   assert.throws(() => loadTrustedLoopConfig(pmDir, pmStateDir), /local approval/i);
+});
+
+test("host approval is journaled and a verified approval replays without rewriting", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-config-effect-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const pmDir = path.join(root, "pm");
+  const pmStateDir = path.join(root, ".pm");
+  fs.mkdirSync(path.join(pmDir, "loop"), { recursive: true });
+  fs.writeFileSync(
+    path.join(pmDir, "loop", "config.json"),
+    JSON.stringify({ version: 2, worker: { bootstrap_command: "npm test" } })
+  );
+  const options = {
+    action: "approve-host",
+    pmDir,
+    pmStateDir,
+    authorityActions: ["approve_loop_host"],
+  };
+  const first = runLoopConfigEffect(options);
+  const hostPath = path.join(pmStateDir, "loop-host.json");
+  const firstMtime = fs.statSync(hostPath).mtimeMs;
+  const second = runLoopConfigEffect(options);
+
+  assert.equal(first.state, "verified");
+  assert.equal(second.replayed, true);
+  assert.equal(fs.statSync(hostPath).mtimeMs, firstMtime);
+  assert.equal(fs.statSync(first.journal_path).mode & 0o777, 0o600);
+  assert.equal(second.verified_receipt.effect, "approve-loop-host");
 });

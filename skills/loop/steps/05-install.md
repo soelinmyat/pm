@@ -116,6 +116,13 @@ previews only; they do not silently enable unattended scheduling.
 Unmarked worker CLI invocations also default to scheduler-safe gating for legacy
 scheduler entries; explicitly supervised one-off runs use `--manual`.
 
+Each explicit command grants only its named effect: scheduler installation
+grants `install_loop_scheduler`; stop/resume grants `control_loop`. The adapter
+journals exact generated scheduler content or authoritative Git STOP state,
+observes before retrying, and reports success only with a verified receipt.
+The Board toggle uses this same adapter—it never labels a local-only STOP as an
+all-machine pause. On `blocked` or `ambiguous`, show the returned recovery action.
+
 The interval comes from `scheduler_interval_minutes` (default 30) or
 `--interval <minutes>`.
 
@@ -123,4 +130,6 @@ Close by telling the user the interval, the log path, and the kill-switch comman
 
 ## Done-when
 
-The scheduler is either left as a reviewed preview or installed after explicit confirmation with fresh same-identity canaries, host approval, and safe config; the user has its interval, log path, kill switch, and next action.
+The scheduler is either left as a reviewed preview or installed with a verified
+effect receipt after explicit confirmation, fresh same-identity canaries, host
+approval, and safe config; the user has its interval, log path, kill switch, and next action.

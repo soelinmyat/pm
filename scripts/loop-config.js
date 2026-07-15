@@ -6,6 +6,8 @@ const path = require("path");
 const crypto = require("crypto");
 
 const { parseCliArgs } = require("./loop-args.js");
+const { writeJsonAtomic } = require("./lib/atomic-file.js");
+const { runOperationalEffect } = require("./lib/operational-effect-journal.js");
 
 const DEFAULT_LOOP_CONFIG = Object.freeze({
   version: 2,
@@ -427,11 +429,7 @@ function approveExecutionConfig(pmStateDir, config, options = {}) {
     approved_execution_config_hash: hash,
     approved_at: (options.now instanceof Date ? options.now : new Date()).toISOString(),
   };
-  fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
-  const tempPath = `${filePath}.${process.pid}.tmp`;
-  fs.writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
-  fs.chmodSync(tempPath, 0o600);
-  fs.renameSync(tempPath, filePath);
+  writeJsonAtomic(filePath, value, { fileMode: 0o600, directoryMode: 0o700 });
   return value;
 }
 
@@ -468,12 +466,106 @@ function initLoopConfig(pmDir, options = {}) {
     };
   }
 
-  fs.writeFileSync(filePath, `${JSON.stringify(DEFAULT_LOOP_CONFIG, null, 2)}\n`);
+  writeJsonAtomic(filePath, DEFAULT_LOOP_CONFIG);
   return {
     created: true,
     filePath,
     config: clone(DEFAULT_LOOP_CONFIG),
   };
+}
+
+function fileHash(filePath) {
+  return fs.existsSync(filePath) ? sha256(fs.readFileSync(filePath)) : "absent";
+}
+
+function runLoopConfigEffect(options) {
+  const action = options.action;
+  if (!["init", "approve-host"].includes(action)) {
+    throw new Error(`unsupported loop config effect: ${action}`);
+  }
+  const pmDir = path.resolve(options.pmDir);
+  const pmStateDir = path.resolve(options.pmStateDir);
+  const loopConfigPath = configPath(pmDir);
+  const approvalPath = hostConfigPath(pmStateDir);
+  const force = options.force === true;
+  const authorityAction = action === "init" ? "configure_loop" : "approve_loop_host";
+  const recovery = { code: "inspect-loop-config-effect", command: "/pm:loop status" };
+
+  if (action === "init") {
+    const currentHash = fileHash(loopConfigPath);
+    const desiredHash =
+      currentHash !== "absent" && !force
+        ? currentHash
+        : sha256(`${JSON.stringify(DEFAULT_LOOP_CONFIG, null, 2)}\n`);
+    const observe = () => {
+      const observedHash = fileHash(loopConfigPath);
+      if (observedHash !== desiredHash) {
+        return { state: "absent", safe_to_retry: true, reason: "loop config is not initialized" };
+      }
+      const config = loadLoopConfig(pmDir);
+      return {
+        state: "verified",
+        receipt: {
+          config_sha256: observedHash,
+          execution_config_hash: executionConfigHash(config),
+        },
+      };
+    };
+    return runOperationalEffect({
+      pmStateDir,
+      workflow: "loop",
+      effect: "initialize-loop-config",
+      authorityAction,
+      authorityActions: options.authorityActions,
+      target: { file: "pm/loop/config.json", config_sha256: desiredHash },
+      intent: { action, force },
+      precondition: { config_sha256: currentHash },
+      recovery,
+      observe,
+      mutate() {
+        initLoopConfig(pmDir, { force });
+        return { receipt: observe().receipt };
+      },
+    });
+  }
+
+  const config = loadLoopConfig(pmDir);
+  const desiredApprovalHash = executionConfigHash(config);
+  const beforeHash = fileHash(approvalPath);
+  const observe = () => {
+    let host;
+    try {
+      host = readHostConfig(pmStateDir);
+    } catch (error) {
+      return { state: "ambiguous", reason: error.message };
+    }
+    if (!host || host.approved_execution_config_hash !== desiredApprovalHash) {
+      return { state: "absent", safe_to_retry: true, reason: "host approval is absent or stale" };
+    }
+    return {
+      state: "verified",
+      receipt: {
+        approved_execution_config_hash: desiredApprovalHash,
+        host_config_sha256: fileHash(approvalPath),
+      },
+    };
+  };
+  return runOperationalEffect({
+    pmStateDir,
+    workflow: "loop",
+    effect: "approve-loop-host",
+    authorityAction,
+    authorityActions: options.authorityActions,
+    target: { file: ".pm/loop-host.json", execution_config_hash: desiredApprovalHash },
+    intent: { action, execution_config_hash: desiredApprovalHash },
+    precondition: { host_config_sha256: beforeHash },
+    recovery,
+    observe,
+    mutate() {
+      approveExecutionConfig(pmStateDir, config, options);
+      return { receipt: observe().receipt };
+    },
+  });
 }
 
 function parseArgs(argv) {
@@ -508,14 +600,24 @@ function main() {
   const args = parseArgs(process.argv.slice(2));
   try {
     if (args.init) {
-      const result = initLoopConfig(args.pmDir, { force: args.force });
+      const result = runLoopConfigEffect({
+        action: "init",
+        pmDir: args.pmDir,
+        pmStateDir: args.pmStateDir,
+        force: args.force,
+        authorityActions: ["configure_loop"],
+      });
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
       return;
     }
 
     if (args.approveHost) {
-      const config = loadLoopConfig(args.pmDir);
-      const approval = approveExecutionConfig(args.pmStateDir, config);
+      const approval = runLoopConfigEffect({
+        action: "approve-host",
+        pmDir: args.pmDir,
+        pmStateDir: args.pmStateDir,
+        authorityActions: ["approve_loop_host"],
+      });
       process.stdout.write(`${JSON.stringify(approval, null, 2)}\n`);
       return;
     }
@@ -555,6 +657,7 @@ module.exports = {
   normalizeLoopConfig,
   readHostConfig,
   requiresLocalApproval,
+  runLoopConfigEffect,
   sha256,
   stableValue,
   validateLoopConfig,

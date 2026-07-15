@@ -19,6 +19,8 @@ const {
   parseArgs,
   projectSlug,
   resumeScheduler,
+  runLoopControlEffect,
+  runSchedulerInstallEffect,
   setKillSwitch,
   stopScheduler,
 } = require("../scripts/loop-install.js");
@@ -782,4 +784,66 @@ test("setKillSwitch writes and removes the STOP file", () => {
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("loop control effects replay a verified durable STOP without a second mutation", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-control-effect-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const pmDir = path.join(root, "pm");
+  const pmStateDir = path.join(root, ".pm");
+  fs.mkdirSync(path.join(pmDir, "loop"), { recursive: true });
+  let stopped = false;
+  let mutations = 0;
+  const options = {
+    pmStateDir,
+    authorityActions: ["control_loop"],
+    observeControl() {
+      return stopped
+        ? { state: "verified", receipt: { stopped: true, authoritative_remote: true } }
+        : { state: "absent", safe_to_retry: true, reason: "STOP is absent" };
+    },
+    setStop(_pmDir, nextStopped) {
+      mutations += 1;
+      stopped = nextStopped;
+      return { stopped, pushed: true, committed: true };
+    },
+  };
+  const first = runLoopControlEffect(pmDir, true, options);
+  const second = runLoopControlEffect(pmDir, true, options);
+  assert.equal(first.state, "verified");
+  assert.equal(second.replayed, true);
+  assert.equal(mutations, 1);
+});
+
+test("scheduler installation is journaled against exact generated content", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-scheduler-effect-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  let installed = false;
+  let mutations = 0;
+  const generated = {
+    kind: "cron",
+    content: "*/30 * * * * node worker\n",
+    logPath: path.join(root, "loop.log"),
+    exposure: null,
+  };
+  const options = {
+    pmStateDir: path.join(root, ".pm"),
+    authorityActions: ["install_loop_scheduler"],
+    observeScheduler() {
+      return installed
+        ? { state: "verified", receipt: { kind: "cron", content_sha256: "fixture" } }
+        : { state: "absent", safe_to_retry: true, reason: "scheduler is absent" };
+    },
+    install() {
+      mutations += 1;
+      installed = true;
+      return "crontab";
+    },
+    writeError() {},
+  };
+  const first = runSchedulerInstallEffect(generated, 30, options);
+  const second = runSchedulerInstallEffect(generated, 30, options);
+  assert.equal(first.state, "verified");
+  assert.equal(second.replayed, true);
+  assert.equal(mutations, 1);
 });

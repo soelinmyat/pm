@@ -30,6 +30,8 @@ const { inspectPullRequest } = require("./pr-state.js");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
 const { validatePrArtifact } = require("./loop-result.js");
 const { defaultBranchName, sourceRepository } = require("./source-identity.js");
+const { runOperationalEffect } = require("./lib/operational-effect-journal.js");
+const { stableStringify } = require("./lib/workflow-runtime/records.js");
 
 const STALE_STATUSES = new Set([
   "in-progress",
@@ -803,6 +805,116 @@ function runReconcile(projectDir, options = {}) {
   return { ok: true, ...base };
 }
 
+function reconcilePlanIdentity(plan) {
+  return {
+    expected_repository: plan.expected_repository,
+    expected_base: plan.expected_base,
+    pm_head_oid: plan.pm_head_oid,
+    proposed_changes: plan.proposed_changes,
+  };
+}
+
+function reconcilePlanHash(plan) {
+  return sha256(stableStringify(reconcilePlanIdentity(plan)));
+}
+
+function reconcileReceipt(plan, result) {
+  const applied = (result.applied_changes || []).map((change) => ({
+    card_id: change.card_id,
+    operation: change.operation,
+    classification: change.classification,
+    commit_oid: change.commit_oid,
+    paths: change.paths,
+  }));
+  return {
+    plan_sha256: reconcilePlanHash(plan),
+    initial_head: plan.pm_head_oid,
+    final_head: applied.at(-1)?.commit_oid || plan.pm_head_oid,
+    applied_changes_sha256: sha256(stableStringify(applied)),
+    applied_changes: applied,
+  };
+}
+
+function runReconcileEffect(projectDir, options = {}) {
+  const resolvedProjectDir = path.resolve(projectDir);
+  const paths = resolvePmPaths(resolvedProjectDir);
+  const pmDir = path.resolve(options.pmDir || paths.pmDir);
+  const pmStateDir = path.resolve(options.pmStateDir || paths.pmStateDir);
+  const planBuilder = options.planBuilder || buildPlan;
+  const execute = options.execute || runReconcile;
+  const plan = planBuilder(resolvedProjectDir, { ...options, pmDir });
+  const originalPlanHash = reconcilePlanHash(plan);
+
+  const observe = ({ journal, mutation }) => {
+    if (mutation?.result?.ok === true) {
+      return { state: "verified", receipt: reconcileReceipt(plan, mutation.result) };
+    }
+    const prior = journal.verified_receipt?.receipt;
+    let current;
+    try {
+      current = planBuilder(resolvedProjectDir, { ...options, pmDir });
+    } catch (error) {
+      return { state: "ambiguous", reason: `reconciliation state is unreadable: ${error.message}` };
+    }
+    const currentHash = reconcilePlanHash(current);
+    if (
+      prior &&
+      current.proposed_changes.length === 0 &&
+      current.pm_head_oid === prior.final_head
+    ) {
+      return { state: "verified", receipt: prior };
+    }
+    if (plan.proposed_changes.length === 0 && currentHash === originalPlanHash) {
+      return { state: "verified", receipt: reconcileReceipt(plan, { applied_changes: [] }) };
+    }
+    if (currentHash === originalPlanHash) {
+      return { state: "absent", safe_to_retry: true, reason: "reconciliation plan is unchanged" };
+    }
+    return {
+      state: "ambiguous",
+      reason: "reconciliation plan changed without a verified effect receipt",
+    };
+  };
+
+  const effect = runOperationalEffect({
+    pmStateDir,
+    workflow: "loop",
+    effect: "apply-loop-reconciliation",
+    authorityAction: "reconcile_loop_state",
+    authorityActions: options.authorityActions,
+    target: { repository: "pm-knowledge-base", operation: "loop-reconciliation" },
+    intent: { mode: "apply" },
+    precondition: {
+      pm_head_oid: plan.pm_head_oid,
+      plan_sha256: originalPlanHash,
+      proposed_changes_sha256: sha256(stableStringify(plan.proposed_changes)),
+    },
+    recovery: { code: "inspect-loop-reconcile-effect", command: "/pm:loop reconcile --dry-run" },
+    observe,
+    mutate() {
+      const result = execute(resolvedProjectDir, { ...options, pmDir, apply: true });
+      if (!result.ok) {
+        return {
+          blocked: true,
+          reason: result.reason || result.code || "loop reconciliation failed",
+          recovery: {
+            code: result.code || "loop-reconcile-failed",
+            command: "/pm:loop reconcile --dry-run",
+          },
+        };
+      }
+      return { receipt: reconcileReceipt(plan, result), result };
+    },
+  });
+  const receipt = effect.verified_receipt?.receipt;
+  return {
+    ...effect,
+    ok: effect.state === "verified",
+    mode: "apply",
+    applied_changes: receipt?.applied_changes || [],
+  };
+}
+
 function parseArgs(argv) {
   const defaults = {
     projectDir: process.cwd(),
@@ -833,7 +945,12 @@ function parseArgs(argv) {
 function main() {
   try {
     const args = parseArgs(process.argv.slice(2));
-    const result = runReconcile(args.projectDir, args);
+    const result = args.apply
+      ? runReconcileEffect(args.projectDir, {
+          ...args,
+          authorityActions: ["reconcile_loop_state"],
+        })
+      : runReconcile(args.projectDir, args);
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     process.exit(result.ok ? 0 : 2);
   } catch (err) {
@@ -849,6 +966,7 @@ module.exports = {
   recoveryMutationManifest,
   resumeRecovery,
   runReconcile,
+  runReconcileEffect,
 };
 
 if (require.main === module) main();

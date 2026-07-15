@@ -21,11 +21,13 @@ const {
   formatConfigExposure,
   loadLoopConfig,
   loadTrustedLoopConfig,
+  sha256,
 } = require("./loop-config.js");
 const { evaluateCurrentCanaryReleaseGate } = require("./loop-canary.js");
 const { runGit, findGitRoot, gitRelativePath } = require("./loop-git.js");
 const { withRemoteSnapshot } = require("./loop-pm-transaction.js");
 const { resolvePmPaths, resolvePmStateDir } = require("./resolve-pm-dir.js");
+const { runOperationalEffect } = require("./lib/operational-effect-journal.js");
 
 function projectSlug(projectDir) {
   return path
@@ -414,13 +416,144 @@ function resumeScheduler(pmDir, config, options = {}) {
   return { ...result, exposure };
 }
 
+function observeLoopControl(pmDir, stopped, options = {}) {
+  if (typeof options.observeControl === "function") {
+    return options.observeControl(pmDir, stopped);
+  }
+  const localStopped = fs.existsSync(killSwitchFilePath(pmDir));
+  if (localStopped !== stopped) {
+    return {
+      state: "absent",
+      safe_to_retry: true,
+      reason: stopped ? "local STOP is absent" : "local STOP is still present",
+    };
+  }
+  let remoteStopped;
+  try {
+    remoteStopped = probeAuthoritativeStop(pmDir, options);
+  } catch (error) {
+    return { state: "ambiguous", reason: `authoritative STOP is unreadable: ${error.message}` };
+  }
+  if (remoteStopped !== stopped) {
+    return {
+      state: "absent",
+      safe_to_retry: true,
+      reason: "authoritative STOP does not match the requested state",
+    };
+  }
+  const gitRoot = findGitRoot(pmDir);
+  let head = null;
+  try {
+    head = gitRoot ? runGit(["rev-parse", "HEAD"], gitRoot) : null;
+  } catch {
+    head = null;
+  }
+  return {
+    state: "verified",
+    receipt: { stopped, authoritative_remote: true, head },
+  };
+}
+
+function runLoopControlEffect(pmDir, stopped, options = {}) {
+  const resolvedPmDir = path.resolve(pmDir);
+  const pmStateDir = path.resolve(options.pmStateDir || resolvePmStateDir(resolvedPmDir));
+  const observe = () => observeLoopControl(resolvedPmDir, stopped, options);
+  return runOperationalEffect({
+    pmStateDir,
+    workflow: "loop",
+    effect: stopped ? "stop-loop" : "resume-loop",
+    authorityAction: "control_loop",
+    authorityActions: options.authorityActions,
+    target: { control: "pm/loop/STOP", authoritative: "git-upstream" },
+    intent: { stopped },
+    precondition: { local_stopped: fs.existsSync(killSwitchFilePath(resolvedPmDir)) },
+    recovery: { code: "inspect-loop-control-effect", command: "/pm:loop status" },
+    observe,
+    mutate() {
+      if (stopped) stopScheduler(resolvedPmDir, options);
+      else {
+        if (!options.config) throw new Error("resume effect requires trusted loop config");
+        resumeScheduler(resolvedPmDir, options.config, options);
+      }
+      const observation = observe();
+      if (observation.state !== "verified") {
+        throw new Error(observation.reason || "loop control outcome could not be verified");
+      }
+      return { receipt: observation.receipt };
+    },
+  });
+}
+
+function observeScheduler(generated, options = {}) {
+  if (typeof options.observeScheduler === "function") {
+    return options.observeScheduler(generated);
+  }
+  const contentHash = sha256(generated.content);
+  if (generated.kind === "launchd") {
+    const target = plistInstallPath(generated.label);
+    if (!fs.existsSync(target) || sha256(fs.readFileSync(target)) !== contentHash) {
+      return { state: "absent", safe_to_retry: true, reason: "launchd plist is absent or stale" };
+    }
+    try {
+      execFileSync("launchctl", ["print", `gui/${process.getuid()}/${generated.label}`], {
+        stdio: "ignore",
+      });
+    } catch (error) {
+      return { state: "absent", safe_to_retry: true, reason: "launchd job is not loaded" };
+    }
+    return { state: "verified", receipt: { kind: "launchd", content_sha256: contentHash } };
+  }
+  let existing;
+  try {
+    existing = String(execFileSync("crontab", ["-l"], { encoding: "utf8" }) || "");
+  } catch (error) {
+    if (Number(error?.status) === 1) existing = "";
+    else return { state: "ambiguous", reason: `crontab is unreadable: ${error.message}` };
+  }
+  if (!existing.split(/\r?\n/).includes(generated.content)) {
+    return { state: "absent", safe_to_retry: true, reason: "cron entry is absent" };
+  }
+  return { state: "verified", receipt: { kind: "cron", content_sha256: contentHash } };
+}
+
+function runSchedulerInstallEffect(generated, intervalMinutes, options = {}) {
+  const pmStateDir = path.resolve(options.pmStateDir);
+  const observe = () => observeScheduler(generated, options);
+  return runOperationalEffect({
+    pmStateDir,
+    workflow: "loop",
+    effect: "install-loop-scheduler",
+    authorityAction: "install_loop_scheduler",
+    authorityActions: options.authorityActions,
+    target: { scheduler: generated.kind, identity: generated.label || "pm-loop-cron" },
+    intent: {
+      interval_minutes: intervalMinutes,
+      content_sha256: sha256(generated.content),
+    },
+    precondition: { observed_state: observe().state },
+    recovery: { code: "inspect-loop-scheduler-effect", command: "/pm:loop status" },
+    observe,
+    mutate() {
+      installGenerated(generated, intervalMinutes, options);
+      const observation = observe();
+      if (observation.state !== "verified") {
+        throw new Error(observation.reason || "scheduler installation could not be verified");
+      }
+      return { receipt: observation.receipt };
+    },
+  });
+}
+
 function main() {
   const args = parseArgs(process.argv.slice(2));
   try {
     const paths = installPaths(args.projectDir, args.pmDir);
 
     if (args.stop) {
-      const result = stopScheduler(paths.pmDir);
+      const result = runLoopControlEffect(paths.pmDir, true, {
+        pmStateDir: paths.pmStateDir,
+        authorityActions: ["control_loop"],
+      });
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
       return;
     }
@@ -436,7 +569,11 @@ function main() {
         );
       }
       if (args.resume) {
-        const result = resumeScheduler(paths.pmDir, config);
+        const result = runLoopControlEffect(paths.pmDir, false, {
+          pmStateDir: paths.pmStateDir,
+          config,
+          authorityActions: ["control_loop"],
+        });
         process.stdout.write(
           `${JSON.stringify({ ...result, release_gate: releaseGate }, null, 2)}\n`
         );
@@ -447,7 +584,10 @@ function main() {
     const generated = generate({ ...args, intervalMinutes, config });
 
     if (args.install) {
-      const installed = installGenerated(generated, intervalMinutes);
+      const installed = runSchedulerInstallEffect(generated, intervalMinutes, {
+        pmStateDir: paths.pmStateDir,
+        authorityActions: ["install_loop_scheduler"],
+      });
       process.stdout.write(`${JSON.stringify(installed, null, 2)}\n`);
       return;
     }
@@ -476,6 +616,8 @@ module.exports = {
   probeAuthoritativeStop,
   pushKillSwitch,
   resumeScheduler,
+  runLoopControlEffect,
+  runSchedulerInstallEffect,
   setKillSwitch,
   stopScheduler,
   writeKillSwitchFile,
