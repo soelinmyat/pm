@@ -203,7 +203,7 @@ function mockTransportAlways429(retryAfter) {
 // ---------------------------------------------------------------------------
 
 test("Ahrefs getKeywords constructs correct URL and auth header", async () => {
-  const { dir, cleanup } = withTmpDir(AHREFS_CONFIG);
+  const { cleanup } = withTmpDir(AHREFS_CONFIG);
   try {
     const { getKeywords } = loadProvider();
     const { transport, calls } = mockTransport(200, { keywords: [] });
@@ -226,7 +226,7 @@ test("Ahrefs getKeywords constructs correct URL and auth header", async () => {
 // ---------------------------------------------------------------------------
 
 test("Ahrefs getTraffic constructs correct URL and auth header", async () => {
-  const { dir, cleanup } = withTmpDir(AHREFS_CONFIG);
+  const { cleanup } = withTmpDir(AHREFS_CONFIG);
   try {
     const { getTraffic } = loadProvider();
     const { transport, calls } = mockTransport(200, { metrics: {} });
@@ -249,7 +249,7 @@ test("Ahrefs getTraffic constructs correct URL and auth header", async () => {
 // ---------------------------------------------------------------------------
 
 test("Ahrefs getBacklinks constructs correct URL and auth header", async () => {
-  const { dir, cleanup } = withTmpDir(AHREFS_CONFIG);
+  const { cleanup } = withTmpDir(AHREFS_CONFIG);
   try {
     const { getBacklinks } = loadProvider();
     const { transport, calls } = mockTransport(200, { backlinks: [] });
@@ -272,7 +272,7 @@ test("Ahrefs getBacklinks constructs correct URL and auth header", async () => {
 // ---------------------------------------------------------------------------
 
 test("Ahrefs response parsing extracts keyword data correctly", async () => {
-  const { dir, cleanup } = withTmpDir(AHREFS_CONFIG);
+  const { cleanup } = withTmpDir(AHREFS_CONFIG);
   try {
     const { getKeywords } = loadProvider();
     const rawResponse = {
@@ -305,7 +305,7 @@ test("CLI interface routes getKeywords command to correct function", async () =>
   // routing logic directly by checking that main() dispatches correctly.
   // This is covered by the unit tests above. We instead verify the module
   // exports all expected CLI-routable functions.
-  const { dir, cleanup } = withTmpDir(AHREFS_CONFIG);
+  const { cleanup } = withTmpDir(AHREFS_CONFIG);
   try {
     const mod = loadProvider();
     assert.equal(typeof mod.getKeywords, "function", "getKeywords must be exported");
@@ -325,7 +325,7 @@ test("CLI interface routes getKeywords command to correct function", async () =>
 // ---------------------------------------------------------------------------
 
 test("verify returns { ok: true } on valid credentials", async () => {
-  const { dir, cleanup } = withTmpDir(AHREFS_CONFIG);
+  const { cleanup } = withTmpDir(AHREFS_CONFIG);
   try {
     const { verify } = loadProvider();
     // A 200 response means credentials are valid
@@ -344,7 +344,7 @@ test("verify returns { ok: true } on valid credentials", async () => {
 // ---------------------------------------------------------------------------
 
 test('verify returns { error: "..." } on auth failure', async () => {
-  const { dir, cleanup } = withTmpDir(AHREFS_CONFIG);
+  const { cleanup } = withTmpDir(AHREFS_CONFIG);
   try {
     const { verify } = loadProvider();
     const { transport } = mockTransport(401, { error: "Unauthorized" });
@@ -363,7 +363,7 @@ test('verify returns { error: "..." } on auth failure', async () => {
 // ---------------------------------------------------------------------------
 
 test('verify returns { error: "no config" } when .pm/config.json is missing', async () => {
-  const { dir, cleanup } = withTmpDir(); // no config file
+  const { cleanup } = withTmpDir(); // no config file
   try {
     const { verify } = loadProvider();
     // Pass null config (as loadConfig() would return when file missing)
@@ -380,7 +380,7 @@ test('verify returns { error: "no config" } when .pm/config.json is missing', as
 // ---------------------------------------------------------------------------
 
 test("429 response triggers one retry after delay, returns data on second success", async () => {
-  const { dir, cleanup } = withTmpDir(AHREFS_CONFIG);
+  const { cleanup } = withTmpDir(AHREFS_CONFIG);
   try {
     const { getKeywords } = loadProvider();
     const successBody = { keywords: [{ keyword: "test", volume: 100, difficulty: 10 }] };
@@ -402,7 +402,7 @@ test("429 response triggers one retry after delay, returns data on second succes
 // ---------------------------------------------------------------------------
 
 test('429 on both attempts returns { error: "rate_limited", retry_after: N }', async () => {
-  const { dir, cleanup } = withTmpDir(AHREFS_CONFIG);
+  const { cleanup } = withTmpDir(AHREFS_CONFIG);
   try {
     const { getKeywords } = loadProvider();
     const { transport } = mockTransportAlways429(30);
@@ -422,7 +422,7 @@ test('429 on both attempts returns { error: "rate_limited", retry_after: N }', a
 // ---------------------------------------------------------------------------
 
 test("getKeywords passes limit option to Ahrefs request", async () => {
-  const { dir, cleanup } = withTmpDir(AHREFS_CONFIG);
+  const { cleanup } = withTmpDir(AHREFS_CONFIG);
   try {
     const { getKeywords } = loadProvider();
     const { transport, calls } = mockTransport(200, { keywords: [] });

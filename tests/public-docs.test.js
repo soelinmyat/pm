@@ -54,3 +54,12 @@ test("generated Codex installation docs explain the Simplify compatibility alias
   const install = read(".codex/INSTALL.md");
   assert.match(install, /`pm:simplify`.*compatibility.*`pm:review`/i);
 });
+
+test("master plan distinguishes the failed Wave 3B release attempt from its green closure", () => {
+  const plan = read("docs/plans/2026-07-13-pm-plugin-master-plan.md");
+  assert.match(plan, /v1\.13\.15.*initial hosted CI exposed portability defects/i);
+  assert.match(plan, /v1\.13\.16.*PR #352.*all five checks green/i);
+  assert.match(plan, /v1\.13\.42.*PR #361.*all five checks green/i);
+  assert.match(plan, /PR #351.*failed hosted.*checks.*not used.*completion evidence/i);
+  assert.match(plan, /failed release attempt is not completion evidence/i);
+});
