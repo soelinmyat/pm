@@ -5,6 +5,10 @@ const path = require("path");
 const crypto = require("node:crypto");
 const { parseFrontmatter } = require("./kb-frontmatter.js");
 const { writeAtomic, todayIso } = require("./kb-utils.js");
+const {
+  createBacklogRecordAtomic,
+  nextBacklogId: nextAtomicBacklogId,
+} = require("./capture-backlog.js");
 const { writeJsonAtomic, writeTextAtomic } = require("./lib/atomic-file");
 const { acquireOwnedLock } = require("./lib/owned-lock");
 const {
@@ -206,32 +210,7 @@ function slugify(text, maxWords) {
 }
 
 function nextBacklogId(pmDir) {
-  const backlogDir = path.join(pmDir, "backlog");
-
-  let names;
-  try {
-    names = fs.readdirSync(backlogDir);
-  } catch {
-    return "PM-001";
-  }
-
-  // Quotes: either, neither, mismatched — all valid YAML for a string id.
-  // Trailing: allow \r (CRLF) before EOL. Leading BOM tolerated via TrimStart.
-  const ID_LINE = /^id:\s*['"]?PM-(\d+)['"]?\s*\r?$/m;
-
-  let max = 0;
-  for (const name of names) {
-    if (!name.endsWith(".md")) continue;
-    const raw = fs.readFileSync(path.join(backlogDir, name), "utf8");
-    const content = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
-    const match = content.match(ID_LINE);
-    if (match) {
-      const num = parseInt(match[1], 10);
-      if (num > max) max = num;
-    }
-  }
-
-  return `PM-${String(max + 1).padStart(3, "0")}`;
+  return nextAtomicBacklogId(pmDir);
 }
 
 /**
@@ -259,16 +238,7 @@ function promoteNoteToIdea(pmDir, noteFilePath, entryTimestamp) {
     throw new Error("Cannot derive slug from empty note body");
   }
 
-  const id = nextBacklogId(pmDir);
   const today = todayIso();
-
-  const backlogDir = path.join(pmDir, "backlog");
-  fs.mkdirSync(backlogDir, { recursive: true });
-  const backlogPath = path.join(backlogDir, `${slug}.md`);
-
-  if (fs.existsSync(backlogPath)) {
-    throw new Error(`Backlog item already exists at ${backlogPath} — slug collision`);
-  }
 
   const tags = entry.tags
     ? entry.tags
@@ -278,7 +248,12 @@ function promoteNoteToIdea(pmDir, noteFilePath, entryTimestamp) {
     : [];
   const labelsYaml = tags.length > 0 ? tags.map((t) => `  - ${t}`).join("\n") : "  - uncategorized";
 
-  const backlogContent = `---
+  let captured;
+  try {
+    captured = createBacklogRecordAtomic(pmDir, {
+      slug,
+      render(id) {
+        return `---
 type: backlog
 id: ${id}
 title: ${entry.body.split(/[.!?]/)[0].trim()}
@@ -298,8 +273,25 @@ Promoted from note: ${entryTimestamp} — ${entry.source}
 
 ${entry.body}
 `;
-
-  writeAtomic(backlogPath, backlogContent);
+      },
+      validate(parsed) {
+        if (
+          !parsed.hasFrontmatter ||
+          parsed.data.type !== "backlog" ||
+          parsed.data.status !== "idea" ||
+          parsed.data.id === undefined
+        ) {
+          throw new Error("promoted note did not publish a valid backlog idea");
+        }
+      },
+    });
+  } catch (error) {
+    if (error.code === "BACKLOG_SLUG_COLLISION") {
+      throw new Error(`Backlog item already exists for ${slug} — slug collision`);
+    }
+    throw error;
+  }
+  const { id, filePath: backlogPath } = captured;
 
   // Rewrite the note file to add Promoted-to line to the matching entry
   const raw = fs.readFileSync(noteFilePath, "utf8");

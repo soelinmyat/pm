@@ -11,7 +11,7 @@ The strategy doc is the alignment filter for all grooming decisions. Its compact
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
 
-**Workflow:** `strategy` | **Telemetry steps:** `prerequisite_check`, `detect_existing`, `interview`, `write_strategy`
+**Workflow:** `strategy` | **Telemetry steps:** `prerequisite-check`, `detect-existing`, `interview`, `write-strategy`
 
 ## Iron Law
 

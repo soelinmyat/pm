@@ -1,54 +1,56 @@
 ---
 name: task
-description: "Use when the user wants a lightweight capture that skips groom/RFC — file a task, add a chore, capture a todo, bump version, small cleanup. Writes a backlog item with `kind: task` that `pm:dev` routes straight to implementation."
+description: "Use when the user wants a lightweight tracked action that skips Groom and RFC: file a task, add a chore, capture a todo, bump a version, update a dependency, or record a small cleanup. Atomically writes a `kind: task` backlog item with medium/chore defaults and routes it directly to pm:dev. Do not use for regressions, feature discovery, or customer evidence."
 ---
 
 # pm:task
 
 ## Purpose
 
-Capture a lightweight chore or todo into the backlog in one pass — no grooming, no RFC. The item gets `kind: task` and `pm:dev` picks it up on a lean path (skips groom/RFC, still runs `pm:review`). Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions, and `${CLAUDE_PLUGIN_ROOT}/references/capture.md` for the `capture-backlog.js` contract and task-vs-bug-vs-groom routing. Extract the title (ask if missing) and a one-sentence outcome (fall back to the title if the user declines), run the helper with `--kind task`, confirm with slug + id + a `/pm:dev {slug}` hint, then offer optional priority/label enrichment.
-
-Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
+Capture one bounded chore or todo as a durable backlog item without product-definition ceremony. Task keeps its own medium-priority/chore policy while sharing the atomic backlog transaction with Bug.
 
 ## Iron Law
 
-**NEVER OVERWRITE AN EXISTING CAPTURE.**
+**NEVER OVERWRITE OR DIRECTLY EDIT A CAPTURE.**
 
 ## When NOT to use
 
-Do not use for regressions (`pm:bug`), product evidence (`pm:note`), or feature discovery (`pm:groom`).
+Use `pm:bug` for broken behavior, `pm:note` for product evidence, and `pm:groom` when the outcome or scope needs discovery. Answer inline when the user wants no durable tracking.
 
-**Workflow:** `task` | **Telemetry steps:** `capture`, `validate`
+**Workflow:** `task` | **Telemetry steps:** `capture`, `enrich`
 
-## Hard rules
+Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, and custom instructions.
+Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
+Read `${CLAUDE_PLUGIN_ROOT}/references/capture.md` for routing and the shared create/enrich receipt contract.
 
-- Capture is one pass — if the scope needs discovery it is feature work; route to `pm:groom`. Something broken routes to `pm:bug`; a product signal routes to `pm:note`.
-- Write through `capture-backlog.js` — it enforces the schema and refuses to overwrite an existing slug. Don't hand-edit frontmatter or add fields like `size`; `pm:dev` lets `kind` override size.
-- The written file must pass `node scripts/validate.js` (`npm run validate`).
-
-## Escalation Paths
-
-- **Work is larger than a chore:** "This looks like feature work — outcomes are unclear and it spans multiple concerns. Want to switch to `/pm:groom` so we can scope it properly?"
-- **User describes something broken:** "This sounds like a bug report rather than a chore. Want to use `/pm:bug` so we capture observed/expected/reproduction?"
-- **Title too vague:** "I can save it, but I need one concrete sentence for the outcome first. What changes when this ships?"
+**Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/task/steps/` in numeric filename order. If `.pm/workflows/task/` exists, same-named files there override defaults. Execute each applicable step in order.
 
 ## Red Flags — Self-Check
 
-- **"I can hand-edit the frontmatter."** Stop and use `capture-backlog.js` for atomic collision-safe writing.
-- **"This feature can be called a task."** Route unclear outcomes or multi-concern work to `pm:groom`.
-- **"The title is a sufficient outcome."** Include the requested change in one testable sentence.
-- **"Validation can happen later."** Validate the saved artifact before confirming capture.
+- **"A feature can be called a task to move faster."** Route unclear outcomes and multi-concern work to `pm:groom`.
+- **"The title is enough even though it says nothing will change."** Stop and ask for one concrete outcome.
+- **"I can patch the Markdown for a small refinement."** Use the helper's hash-guarded enrich action.
+- **"The slug probably does not exist."** Stop and use the locked exclusive-create helper to prove capture succeeded.
+- **"Validation can happen when Dev starts."** Validate the published bytes before confirming success.
+
+## Escalation Paths
+
+- **Feature-sized work:** "This needs product scoping rather than lightweight capture. I'll route it to `/pm:groom`."
+- **Broken behavior:** "This is a regression, so I'll use `/pm:bug` to preserve observed, expected, and reproduction details."
+- **Missing actionable outcome:** "What concrete result should be true when this task is done?"
 
 ## Common Rationalizations
 
 | Excuse | Reality |
 |---|---|
-| "It is only a chore." | A chore still needs stable identity, kind, and outcome. |
-| "The slug probably does not exist." | The helper must prove there is no collision. |
+| "It is only a chore." | Chores still need safe identity, a concrete outcome, and correct routing. |
+| "A direct edit is faster." | It can silently overwrite a concurrent refinement. |
+| "Medium is always fine." | It is the default, not a substitute for an explicit user priority. |
 
 ## Before Marking Done
 
-- [ ] The backlog artifact was saved atomically with `kind: task`.
-- [ ] The user-requested outcome and routing are accurate.
-- [ ] Schema validation and overwrite protection passed.
+- [ ] The artifact was saved through the shared atomic helper with `kind: task`.
+- [ ] The user-requested outcome and Task defaults or overrides are accurate.
+- [ ] The helper validated the exact published bytes and returned a receipt.
+- [ ] Any enrichment used the receipt hash and passed revalidation.
+- [ ] The user received the artifact path, ID, and `/pm:dev {slug}` next action.

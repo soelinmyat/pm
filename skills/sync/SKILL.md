@@ -12,7 +12,7 @@ Sync the project knowledge base. Bare `/pm:sync` is always bidirectional — if 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions.
 Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
-**Workflow:** `sync` | **Telemetry steps:** `parse_subcommand`, `setup`, `auth_check`, `pull`, `push`, `status`
+**Workflow:** `sync` | **Telemetry steps:** `parse-subcommand`, `setup`, `auth-check`, `pull`, `push`, `status`
 
 ## Iron Law
 

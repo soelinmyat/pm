@@ -42,15 +42,31 @@ module.exports = {
           message: "description must be trigger-rich and include a concrete `Use when...` phrase",
         });
       }
-      if (
-        !/\*\*Workflow:\*\*\s*`[^`]+`\s*\|\s*\*\*Telemetry steps:\*\*\s*`[^`]+`/i.test(
-          operativeMarkdown(skill.skillBody)
-        )
-      ) {
+      const operative = operativeMarkdown(skill.skillBody);
+      const declaration = operative.match(
+        /^\s*\*\*Workflow:\*\*\s*`([^`]+)`\s*\|\s*\*\*Telemetry steps:\*\*\s*(.+)$/im
+      );
+      if (!declaration) {
         issues.push({
           file: `skills/${skill.name}/SKILL.md`,
           message: "missing Workflow/telemetry declaration",
         });
+      } else {
+        const telemetry = [...declaration[2].matchAll(/`([^`]+)`/g)].map((match) => match[1]);
+        const invalid = telemetry.filter((token) => !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(token));
+        if (telemetry.length === 0) {
+          issues.push({
+            file: `skills/${skill.name}/SKILL.md`,
+            message:
+              "Workflow/telemetry declaration must list at least one backticked telemetry step",
+          });
+        }
+        if (invalid.length > 0) {
+          issues.push({
+            file: `skills/${skill.name}/SKILL.md`,
+            message: `telemetry step names must use lowercase kebab-case: ${invalid.join(", ")}`,
+          });
+        }
       }
     }
     return issues;

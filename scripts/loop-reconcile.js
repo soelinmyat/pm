@@ -31,6 +31,7 @@ const { resolvePmPaths } = require("./resolve-pm-dir.js");
 const { validatePrArtifact } = require("./loop-result.js");
 const { defaultBranchName, sourceRepository } = require("./source-identity.js");
 const {
+  readJournal,
   runOperationalEffect,
   sharedGitRepositorySerialization,
 } = require("./lib/operational-effect-journal.js");
@@ -849,7 +850,7 @@ function pendingReconcilePlanHash(pmStateDir) {
   for (const entry of fs.readdirSync(effectsDir, { withFileTypes: true })) {
     if (!entry.name.endsWith(".json") || !entry.isFile() || entry.isSymbolicLink()) continue;
     const filePath = path.join(effectsDir, entry.name);
-    const journal = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    const journal = readJournal(filePath);
     if (
       journal.workflow === "loop" &&
       journal.effect === "apply-loop-reconciliation" &&

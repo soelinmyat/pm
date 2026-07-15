@@ -101,6 +101,39 @@ test("workflow without telemetry steps fails the entry-point contract", () => {
   );
 });
 
+test("workflow telemetry step names must use lowercase kebab-case", () => {
+  const ctx = {
+    skills: [
+      {
+        name: "fixture",
+        skillFmExists: true,
+        skillFm: {
+          description: "Use when a fixture needs a complete workflow declaration.",
+        },
+        skillBody: [
+          "## Purpose\nA substantive purpose for validation.",
+          "## Iron Law\n**NEVER OMIT THE REQUIRED DECLARATION.**",
+          "## When NOT to use\nRoute unrelated work elsewhere.",
+          "**Workflow:** `fixture` | **Telemetry steps:** `mine_signals`, `Present`",
+          "## Red Flags\nA substantive self-check section.",
+          "## Escalation Paths\nStop and ask the user.",
+          "## Common Rationalizations\nA substantive rationale table.",
+          "## Before Marking Done\nA substantive completion list.",
+        ].join("\n\n"),
+        steps: [],
+      },
+    ],
+  };
+  const rule = d2Rules().find((entry) => entry.id === "D2-SKILL-001-contract-sections");
+  const messages = rule
+    .check(ctx)
+    .map((issue) => issue.message)
+    .join("\n");
+  assert.match(messages, /lowercase kebab-case/);
+  assert.match(messages, /mine_signals/);
+  assert.match(messages, /Present/);
+});
+
 test("capture completion rejects three unrelated checklist rows", () => {
   const ctx = {
     skills: [

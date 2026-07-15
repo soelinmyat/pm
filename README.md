@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/soelinmyat/pm/actions/workflows/ci.yml/badge.svg)](https://github.com/soelinmyat/pm/actions/workflows/ci.yml)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.1.3-brightgreen.svg)](plugin.config.json)
+[![Release](https://img.shields.io/github/v/release/soelinmyat/pm)](https://github.com/soelinmyat/pm/releases)
 
 PM is a free, open-source plugin for Claude Code and Codex. It keeps market research, strategy, competitor context, groomed work, and delivery state in one place inside the repo — context that compounds over time, not another doc that decays after the meeting.
 
@@ -148,6 +148,10 @@ PM officially supports Claude Code and Codex. Community contributions for other 
 
 ## Core Workflows
 
+See the [workflow map](docs/workflow-map.md) for routing from evidence through delivery,
+and the [artifact gallery](docs/artifact-gallery.md) for the source, reader, validation,
+and rendered-evidence contract behind PM's flagship reports.
+
 ### Product discovery
 
 | Command | What it does |
@@ -172,6 +176,8 @@ PM officially supports Claude Code and Codex. Community contributions for other 
 | `/pm:ship [PR]` | Prepare the final tree, review it, and resumably push, reconcile/create a PR, monitor CI, merge, and place any release tag on the verified main SHA |
 | `/pm:loop status` | Show the git-backed loop board and scheduler-safe orchestration; unattended stages use validated stage results and park contract or approval failures at non-dispatchable `needs-human` |
 | `/pm:loop reconcile` | Dry-run stale-card classification from durable run/recovery and repository-pinned PR evidence; `--apply` requires Git readiness and isolated PM transactions |
+| `/pm:board` | Open a visual Kanban view of backlog, leases, recent runs, and budget state |
+| `/pm:list` | Show the same in-flight PM state as a compact terminal-oriented inventory |
 
 ### Supervised loop rollout
 
@@ -218,6 +224,10 @@ shutdown grace, with timestamps and signals persisted in the ledger and durable 
 | `/pm:note` | Atomically capture a product signal with a stable Evidence-ID |
 | `/pm:refresh [scope]` | Audit exact source freshness and conflict-safe patch stale research |
 | `/pm:setup` | Enable or disable integrations (Linear, Ahrefs) |
+| `/pm:sync [pull\|push\|status]` | Bidirectionally synchronize the git-backed PM knowledge base, with explicit one-way and inspection modes |
+
+Compatibility: deprecated `/pm:simplify` redirects to `/pm:review`; Review owns its
+reuse, quality, and efficiency lenses, so Simplify is not a separate workflow or gate.
 
 ## How PM Fits a Team
 

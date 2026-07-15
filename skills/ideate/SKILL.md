@@ -13,7 +13,7 @@ Ideas are early-stage backlog items. They live in `{pm_dir}/backlog/` with `stat
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
 
-**Workflow:** `ideate` | **Telemetry steps:** `audit`, `mine_signals`, `filter`, `shape`, `rank`, `present`, `write`
+**Workflow:** `ideate` | **Telemetry steps:** `audit`, `mine-signals`, `filter`, `shape`, `rank`, `present`, `write`
 
 ## Iron Law
 

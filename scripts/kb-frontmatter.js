@@ -37,11 +37,9 @@ function parseFrontmatter(content) {
       } else if (inlineValue.startsWith("[") && inlineValue.endsWith("]")) {
         // Inline YAML array: [item1, item2, item3]
         const inner = inlineValue.slice(1, -1).trim();
-        data[key] = inner
-          ? inner.split(",").map((item) => item.trim().replace(/^["'](.*)["']$/, "$1"))
-          : [];
+        data[key] = inner ? inner.split(",").map((item) => parseScalar(item.trim())) : [];
       } else {
-        data[key] = inlineValue.replace(/^["'](.*)["']$/, "$1");
+        data[key] = parseScalar(inlineValue);
       }
       index++;
       continue;
@@ -57,13 +55,13 @@ function parseFrontmatter(content) {
 
       if (objectItemMatch) {
         const item = {};
-        item[objectItemMatch[1]] = objectItemMatch[2].trim().replace(/^["'](.*)["']$/, "$1");
+        item[objectItemMatch[1]] = parseScalar(objectItemMatch[2].trim());
         index++;
         while (index < lines.length) {
           const continuation = lines[index];
           const nestedMatch = continuation.match(/^[ \t]{2,}([a-zA-Z_][a-zA-Z0-9_-]*):\s*(.*)/);
           if (nestedMatch && !continuation.match(/^[ \t]+-\s/)) {
-            item[nestedMatch[1]] = nestedMatch[2].trim().replace(/^["'](.*)["']$/, "$1");
+            item[nestedMatch[1]] = parseScalar(nestedMatch[2].trim());
             index++;
           } else {
             break;
@@ -71,16 +69,14 @@ function parseFrontmatter(content) {
         }
         items.push(item);
       } else if (scalarItemMatch) {
-        items.push(scalarItemMatch[1].trim().replace(/^["'](.*)["']$/, "$1"));
+        items.push(parseScalar(scalarItemMatch[1].trim()));
         index++;
       } else if (
         continuationMatch &&
         items.length > 0 &&
         typeof items[items.length - 1] === "object"
       ) {
-        items[items.length - 1][continuationMatch[1]] = continuationMatch[2]
-          .trim()
-          .replace(/^["'](.*)["']$/, "$1");
+        items[items.length - 1][continuationMatch[1]] = parseScalar(continuationMatch[2].trim());
         index++;
       } else {
         break;
@@ -93,6 +89,18 @@ function parseFrontmatter(content) {
   }
 
   return { data, body, hasFrontmatter: true };
+}
+
+function parseScalar(value) {
+  if (value.startsWith('"') && value.endsWith('"')) {
+    try {
+      const parsed = JSON.parse(value);
+      if (typeof parsed === "string") return parsed;
+    } catch {
+      // Preserve the legacy permissive fallback for hand-authored YAML-like values.
+    }
+  }
+  return value.replace(/^["'](.*)["']$/, "$1");
 }
 
 function inspectKbPath(value) {

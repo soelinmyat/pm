@@ -198,6 +198,76 @@ test("concurrent note captures do not lose entries or ledger records", async (t)
   assert.equal(ledger.records.length, 6);
 });
 
+test("note promotion and Task capture share one backlog ID transaction", async (t) => {
+  const { pmDir, cleanup } = withTempPmDir();
+  t.after(cleanup);
+  const notesDir = path.join(pmDir, "evidence", "notes");
+  fs.mkdirSync(notesDir, { recursive: true });
+  const noteFile = path.join(notesDir, "2026-04.md");
+  fs.writeFileSync(
+    noteFile,
+    `---
+type: notes
+month: 2026-04
+updated: 2026-04-14
+note_count: 1
+digested_through: null
+---
+
+### 2026-04-14 09:00 — observation
+Promote this independent signal.
+Tags: insight
+`
+  );
+  const start = path.join(path.dirname(pmDir), "start");
+  const noteHelper = path.resolve(__dirname, "../scripts/note-helpers.js");
+  const captureHelper = path.resolve(__dirname, "../scripts/capture-backlog.js");
+  const waitPrefix =
+    "const fs=require('node:fs');while(!fs.existsSync(process.argv[1]))Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,5);";
+  const children = [
+    [
+      "-e",
+      `${waitPrefix}const write=fs.writeFileSync.bind(fs);fs.writeFileSync=(file,...rest)=>{if(String(file).includes('/backlog/')&&String(file).endsWith('.tmp'))Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,200);return write(file,...rest)};require(process.argv[2]).promoteNoteToIdea(process.argv[3],process.argv[4],'2026-04-14 09:00')`,
+      start,
+      noteHelper,
+      pmDir,
+      noteFile,
+    ],
+    ...Array.from({ length: 6 }, (_, index) => [
+      "-e",
+      `${waitPrefix}require(process.argv[2]).captureBacklogItem(process.argv[3],{kind:'task',title:process.argv[4]})`,
+      start,
+      captureHelper,
+      pmDir,
+      `Concurrent task ${index}`,
+    ]),
+  ].map(
+    (args) =>
+      new Promise((resolve, reject) => {
+        const child = spawn(process.execPath, args, { stdio: ["ignore", "ignore", "pipe"] });
+        let stderr = "";
+        child.stderr.on("data", (chunk) => (stderr += chunk));
+        child.on("error", reject);
+        child.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(stderr))));
+      })
+  );
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  fs.writeFileSync(start, "go");
+  await Promise.all(children);
+
+  const ids = fs
+    .readdirSync(path.join(pmDir, "backlog"))
+    .filter((name) => name.endsWith(".md"))
+    .map(
+      (name) =>
+        fs
+          .readFileSync(path.join(pmDir, "backlog", name), "utf8")
+          .match(/^id:\s*['"]?(PM-\d+)/m)?.[1]
+    );
+  assert.equal(ids.length, 7);
+  assert.equal(new Set(ids).size, 7);
+});
+
 // ---------------------------------------------------------------------------
 // parseNotesFile tests
 // ---------------------------------------------------------------------------

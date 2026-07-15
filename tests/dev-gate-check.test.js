@@ -57,7 +57,6 @@ function makeTmpManifest(content) {
 test("pm/ KB artifacts (generated RFC HTML) are not UI-impact paths", () => {
   const rows = [
     gate("tdd"),
-    gate("simplify"),
     gate("design-critique", "abc123", {
       status: "skipped",
       artifact: "",
@@ -82,7 +81,6 @@ test("dev gate checker accepts required gates tied to the current commit", () =>
   const result = checkGateManifest(
     manifest([
       gate("tdd"),
-      gate("simplify"),
       gate("design-critique"),
       gate("qa"),
       gate("review"),
@@ -91,7 +89,7 @@ test("dev gate checker accepts required gates tied to the current commit", () =>
     {
       currentCommit: "abc123",
       manifestPath: ".pm/dev-sessions/current.gates.json",
-      requiredGates: ["tdd", "simplify", "design-critique", "qa", "verification"],
+      requiredGates: ["tdd", "design-critique", "qa", "verification"],
     }
   );
   assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
@@ -1401,7 +1399,7 @@ test("dev gate checker rejects UI gate environment failures recorded as skipped"
   assert.match(text, /qa cannot be skipped for environment failure/);
 });
 
-test("dev gate checker rejects arbitrary tdd and simplify skip reasons", () => {
+test("dev gate checker rejects arbitrary tdd skip reasons", () => {
   const result = checkGateManifest(
     manifest([
       gate("tdd", "abc123", {
@@ -1409,22 +1407,16 @@ test("dev gate checker rejects arbitrary tdd and simplify skip reasons", () => {
         artifact: "",
         reason: "no time; tests not written",
       }),
-      gate("simplify", "abc123", {
-        status: "skipped",
-        artifact: "",
-        reason: "no time",
-      }),
     ]),
     {
       currentCommit: "abc123",
-      requiredGates: ["tdd", "simplify"],
+      requiredGates: ["tdd"],
       manifestPath: ".pm/dev-sessions/current.gates.json",
     }
   );
   assert.equal(result.ok, false);
   const text = result.issues.map((i) => i.message).join("\n");
   assert.match(text, /tdd skip reason is not allowed/);
-  assert.match(text, /simplify skip reason is not allowed/);
 });
 
 test("dev gate checker rejects tdd skips when behavior files changed", () => {
@@ -1455,121 +1447,14 @@ test("dev gate checker rejects tdd skips when behavior files changed", () => {
   );
 });
 
-test("dev gate checker rejects no-code simplify skips when runtime source changed", () => {
-  const result = checkGateManifest(
-    manifest([
-      gate("simplify", "abc123", {
-        status: "skipped",
-        artifact: "",
-        reason: "no code changes",
-      }),
-    ]),
-    {
-      currentCommit: "abc123",
-      requiredGates: ["simplify"],
-      changedFiles: [
-        "skills/dev/SKILL.md",
-        ".githooks/pre-push",
-        "plugin.config.json",
-        "app/page.mdx",
-        "src/app/docs/page.md",
-        "public/index.html",
-      ],
-      manifestPath: ".pm/dev-sessions/current.gates.json",
-    }
-  );
+test("dev gate checker rejects simplify as a current required gate", () => {
+  const result = checkGateManifest(manifest([gate("simplify", "abc123")]), {
+    currentCommit: "abc123",
+    requiredGates: ["simplify"],
+    manifestPath: ".pm/dev-sessions/current.gates.json",
+  });
   assert.equal(result.ok, false);
-  assert.match(
-    result.issues.map((i) => i.message).join("\n"),
-    /simplify cannot use no-code skip when runtime source files changed/
-  );
-});
-
-test("dev gate checker validates contextual simplify skip reasons", () => {
-  const xsWithoutSize = checkGateManifest(
-    manifest([
-      gate("simplify", "abc123", {
-        status: "skipped",
-        artifact: "",
-        reason: "XS size",
-      }),
-    ]),
-    {
-      currentCommit: "abc123",
-      requiredGates: ["simplify"],
-      changedFiles: ["scripts/dev-gate-check.js"],
-      manifestPath: ".pm/dev-sessions/current.gates.json",
-    }
-  );
-  assert.equal(xsWithoutSize.ok, false);
-  assert.match(
-    xsWithoutSize.issues.map((i) => i.message).join("\n"),
-    /simplify XS skip requires manifest size XS/
-  );
-
-  const xsWithSize = checkGateManifest(
-    manifest(
-      [
-        gate("simplify", "abc123", {
-          status: "skipped",
-          artifact: "",
-          reason: "XS size",
-        }),
-      ],
-      { size: "XS" }
-    ),
-    {
-      currentCommit: "abc123",
-      requiredGates: ["simplify"],
-      changedFiles: ["scripts/dev-gate-check.js"],
-      manifestPath: ".pm/dev-sessions/current.gates.json",
-    }
-  );
-  assert.equal(xsWithSize.ok, true, JSON.stringify(xsWithSize.issues, null, 2));
-
-  const kindWithoutMatch = checkGateManifest(
-    manifest(
-      [
-        gate("simplify", "abc123", {
-          status: "skipped",
-          artifact: "",
-          reason: "kind bug uses review gate instead",
-        }),
-      ],
-      { kind: "task" }
-    ),
-    {
-      currentCommit: "abc123",
-      requiredGates: ["simplify"],
-      changedFiles: ["skills/dev/SKILL.md"],
-      manifestPath: ".pm/dev-sessions/current.gates.json",
-    }
-  );
-  assert.equal(kindWithoutMatch.ok, false);
-  assert.match(
-    kindWithoutMatch.issues.map((i) => i.message).join("\n"),
-    /simplify kind skip requires manifest kind bug/
-  );
-
-  const kindWithMatch = checkGateManifest(
-    manifest(
-      [
-        gate("simplify", "abc123", {
-          status: "skipped",
-          artifact: "",
-          reason: "kind bug uses review gate instead",
-        }),
-      ],
-      { kind: "bug" }
-    ),
-    {
-      currentCommit: "abc123",
-      requiredGates: ["simplify"],
-      changedFiles: ["skills/dev/SKILL.md"],
-      manifestPath: ".pm/dev-sessions/current.gates.json",
-    }
-  );
-  assert.equal(kindWithMatch.ok, true, JSON.stringify(kindWithMatch.issues, null, 2));
+  assert.match(result.issues.map((i) => i.message).join("\n"), /unknown required gate simplify/);
 });
 
 test("dev gate checker rejects skipped review and verification gates by default", () => {
@@ -1654,11 +1539,14 @@ test("dev gate checker rejects stale gate commits", () => {
 });
 
 test("dev gate checker ignores stale rows for gates that are not required", () => {
-  const result = checkGateManifest(manifest([gate("tdd", "oldsha"), gate("simplify", "abc123")]), {
-    currentCommit: "abc123",
-    requiredGates: ["simplify"],
-    manifestPath: ".pm/dev-sessions/current.gates.json",
-  });
+  const result = checkGateManifest(
+    manifest([gate("tdd", "oldsha"), gate("verification", "abc123")]),
+    {
+      currentCommit: "abc123",
+      requiredGates: ["verification"],
+      manifestPath: ".pm/dev-sessions/current.gates.json",
+    }
+  );
   assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
 });
 
@@ -1847,6 +1735,7 @@ test("dev gate checker can explicitly allow only skippable gates", () => {
     () => parseArgs(["--allow-skip", "verification"]),
     /cannot include non-skippable gate verification/
   );
+  assert.throws(() => parseArgs(["--allow-skip", "simplify"]), /unknown current gate simplify/);
 
   const rejected = checkGateManifest(
     manifest([

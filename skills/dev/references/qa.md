@@ -54,7 +54,7 @@ Minimum coverage for this QA reference:
 
 **From /dev (persistent worker — preferred):**
 
-The dev orchestrator dispatches this as a persistent QA worker. See `implementation-flow.md` Step 5 for the spawn pattern. The worker receives all context in its prompt and stays resumable for re-verify iterations.
+The Dev root dispatches this as a persistent QA worker from `skills/dev/steps/07-qa.md`. The worker receives the bounded QA context in its prompt and stays resumable for re-verify iterations.
 
 **Manual reference run:**
 

@@ -18,9 +18,14 @@ Ask at most three follow-up questions, one at a time:
 2. **Labels** — "Any extra labels beyond `bug`? (comma-separated, or 'skip')"
 3. **Reproduction** — "Reproduction steps? (only ask if the reproduction stub is still pending)"
 
-If the user provides answers:
-- Update `priority` / `labels` / `updated` in the frontmatter via Edit.
-- Replace the pending stub under `## Reproduction` with the provided steps.
+If the user provides answers, compose the complete three-section body when body content changes, then write a private JSON request containing:
+
+- `action: "enrich"` and `kind: "bug"`;
+- the Step 1 receipt `slug` and `expectedSha256`;
+- only requested `priority` and `labels` changes;
+- the complete `body` when body content changes.
+
+Invoke the helper with `--request-file` and guarantee cleanup on success or failure. Do not interpolate user text into shell syntax or use Edit on the backlog Markdown. If the helper says the item changed since capture, stop and read the current item before offering a new refinement; never retry with a guessed hash.
 
 If the user says "skip" or declines, end cleanly without edits.
 
@@ -28,6 +33,6 @@ Say: "Bug captured. Run `/pm:dev {slug}` to fix when you want, or `/pm:list` to 
 
 ## Done-when
 
-Requested refinements are saved and revalidated, or the user declines enrichment without changing the original capture.
+Requested refinements have a new validated receipt, or the user declines enrichment without changing the original capture.
 
 Offer the concrete next action: run `/pm:dev {slug}` to fix or `/pm:list` to survey the backlog.

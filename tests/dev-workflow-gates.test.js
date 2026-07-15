@@ -218,6 +218,18 @@ test("implementation records red-green and post-integration evidence", () => {
   assert.match(text, /Accepted commits are reachable from the current worktree HEAD/);
 });
 
+test("implementation workers stop before root-owned integration and delivery", () => {
+  const text = read("skills/dev/references/implementation-flow.md");
+  assert.match(text, /A delegated worker may inspect, edit, test, and make its scoped commit/);
+  assert.match(
+    text,
+    /It never integrates another unit, runs aggregate gates, pushes, creates a PR, merges/
+  );
+  assert.match(text, /Do not return `merged`/);
+  assert.doesNotMatch(text, /Step\s+3:\s+Simplify/i);
+  assert.doesNotMatch(text, /multi-task agent owns.*merge/i);
+});
+
 test("multi-work-unit dispatch keeps integration and delivery authority at root", () => {
   const text = read("skills/dev/references/multi-task-dispatch.md");
   assert.match(text, /validateWorkUnits/);
@@ -275,23 +287,15 @@ test("phase-local review requires evidenced recertification before the full chec
   assert.match(text, /rerun the gate instead of recertifying/);
 });
 
-test("implementation flow runs the gate checker before push and PR creation", () => {
-  const text = read("skills/dev/references/implementation-flow.md");
-  const block = text.match(/### Push and create PR[\s\S]*?```bash\n([\s\S]*?)```/);
-  assert.ok(block, "implementation flow must include a push/create command block");
-  assert.match(text, /08-review\.md/);
-  assert.match(text, /fresh phase-keyed evidence/);
-  const checkerIndex = block[1].indexOf("scripts/dev-gate-check.js");
-  const pushIndex = block[1].indexOf("git push origin {BRANCH}");
-  const prIndex = block[1].indexOf("gh pr create");
-  assert.ok(checkerIndex > -1, "push block must run dev-gate-check");
-  assert.match(block[1], /--base origin\/\{DEFAULT_BRANCH\}/);
-  assert.match(block[1], /--review-evidence-mode enforce/);
-  assert.match(block[1], /--require-authority push_feature_branch,create_pr/);
-  assert.match(block[1], /--branch/);
-  assert.match(block[1], /\.pm\/dev-sessions\/\{slug\}\/gates\.json/);
-  assert.ok(pushIndex > checkerIndex, "checker must appear before git push");
-  assert.ok(prIndex > checkerIndex, "checker must appear before gh pr create");
+test("implementation flow hands delivery to the root-owned ship phase", () => {
+  const implementation = read("skills/dev/references/implementation-flow.md");
+  const ship = read("skills/dev/steps/09-ship.md");
+  assert.match(implementation, /skills\/dev\/steps\/08-review\.md/);
+  assert.match(implementation, /skills\/dev\/steps\/09-ship\.md/);
+  assert.match(implementation, /Root validates and integrates every unit, runs aggregate tests/);
+  assert.doesNotMatch(implementation, /### Push and create PR/);
+  assert.match(ship, /Ship is root-owned/);
+  assert.match(ship, /aggregate gates must pass on the integrated branch first/);
 });
 
 test("ship push step requires the full default gate contract before git push", () => {
