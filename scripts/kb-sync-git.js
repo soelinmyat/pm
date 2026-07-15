@@ -2,9 +2,12 @@
 
 const fs = require("fs");
 const path = require("path");
+const crypto = require("node:crypto");
 const { execSync } = require("child_process");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
 const { runGit } = require("./loop-git.js");
+const { writeJsonAtomic } = require("./lib/atomic-file.js");
+const { runOperationalEffect } = require("./lib/operational-effect-journal.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -55,6 +58,10 @@ function runGitSafe(args, cwd) {
   } catch (err) {
     return { ok: false, output: "", error: err.stderr || err.message || String(err) };
   }
+}
+
+function sha256(value) {
+  return `sha256:${crypto.createHash("sha256").update(String(value)).digest("hex")}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -374,7 +381,9 @@ function sync(pmDir) {
 
 /**
  * @param {string} pmDir
- * @returns {{ ok: boolean, remote?: string, branch?: string, uncommitted?: number, ahead?: number, behind?: number, error?: string }}
+ * This is deliberately a local observation. Refreshing remote-tracking refs is
+ * a network mutation and belongs to an explicit sync route, never status.
+ * @returns {{ ok: boolean, remote?: string, branch?: string, uncommitted?: number, ahead?: number, behind?: number, observation?: string, refresh_action?: string, error?: string }}
  */
 function status(pmDir) {
   if (!isGitRepo(pmDir)) {
@@ -392,8 +401,7 @@ function status(pmDir) {
   const uncommitted =
     statusResult.ok && statusResult.output ? statusResult.output.split("\n").length : 0;
 
-  // Ahead/behind — requires fetch first
-  runSafe("git fetch origin --quiet", { cwd: pmDir });
+  // Ahead/behind relative to the last locally observed remote-tracking ref.
   const abResult = runSafe(`git rev-list --left-right --count origin/${branch}...HEAD`, {
     cwd: pmDir,
   });
@@ -405,7 +413,16 @@ function status(pmDir) {
     ahead = parseInt(parts[1], 10) || 0;
   }
 
-  return { ok: true, remote, branch, uncommitted, ahead, behind };
+  return {
+    ok: true,
+    remote,
+    branch,
+    uncommitted,
+    ahead,
+    behind,
+    observation: "local-refs-only",
+    refresh_action: "/pm:sync",
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -423,8 +440,162 @@ function writeSyncStatus(dotPmDir, result) {
     ok: result.ok,
   };
 
-  fs.mkdirSync(dotPmDir, { recursive: true });
-  fs.writeFileSync(path.join(dotPmDir, "sync-status.json"), JSON.stringify(status, null, 2) + "\n");
+  writeJsonAtomic(path.join(dotPmDir, "sync-status.json"), status, {
+    fileMode: 0o600,
+    directoryMode: 0o700,
+  });
+}
+
+function bindSyncStatusToEffect(dotPmDir, effectResult) {
+  const statusPath = path.join(dotPmDir, "sync-status.json");
+  let status = {};
+  try {
+    status = JSON.parse(fs.readFileSync(statusPath, "utf8"));
+  } catch {
+    // A pre-authority block has no mutation status. Keep the effect evidence useful.
+  }
+  status.effect_id = effectResult.effect_id;
+  status.effect_state = effectResult.state;
+  status.verified_receipt = effectResult.verified_receipt || null;
+  status.recovery = effectResult.recovery;
+  writeJsonAtomic(statusPath, status, { fileMode: 0o600, directoryMode: 0o700 });
+  return status;
+}
+
+const SYNC_AUTHORITY = Object.freeze({
+  setup: "configure_sync",
+  clone: "configure_sync",
+  sync: "sync_knowledge_base",
+  push: "push_knowledge_base",
+  pull: "pull_knowledge_base",
+});
+
+function localGitState(pmDir) {
+  if (!isGitRepo(pmDir)) {
+    return {
+      repository: "absent",
+      head: null,
+      upstream: null,
+      branch: null,
+      worktree_sha256: sha256("absent"),
+      remote_url_sha256: null,
+    };
+  }
+  const head = runGitSafe(["rev-parse", "HEAD"], pmDir);
+  const upstream = runGitSafe(["rev-parse", "@{upstream}"], pmDir);
+  const branch = runGitSafe(["branch", "--show-current"], pmDir);
+  const worktree = runGitSafe(["status", "--porcelain"], pmDir);
+  const remoteUrl = getRemoteUrl(pmDir);
+  return {
+    repository: "present",
+    head: head.ok ? head.output : null,
+    upstream: upstream.ok ? upstream.output : null,
+    branch: branch.ok ? branch.output : null,
+    worktree_sha256: sha256(worktree.ok ? worktree.output : "unreadable"),
+    remote_url_sha256: remoteUrl ? sha256(remoteUrl) : null,
+  };
+}
+
+function syncObservation(mode, pmDir, expectedRemoteHash) {
+  const state = localGitState(pmDir);
+  if (state.repository !== "present") {
+    return { state: "absent", safe_to_retry: true, reason: "knowledge base repo is absent" };
+  }
+  if (expectedRemoteHash && state.remote_url_sha256 !== expectedRemoteHash) {
+    return { state: "absent", safe_to_retry: true, reason: "configured remote differs" };
+  }
+  if (!state.head || !state.upstream) {
+    return { state: "absent", safe_to_retry: true, reason: "git upstream is not established" };
+  }
+  const clean = state.worktree_sha256 === sha256("");
+  const aligned = state.head === state.upstream;
+  const verified = mode === "pull" ? aligned : aligned && clean;
+  if (!verified) {
+    return {
+      state: "absent",
+      safe_to_retry: true,
+      reason: clean ? "local and observed upstream refs differ" : "worktree has pending changes",
+    };
+  }
+  return {
+    state: "verified",
+    receipt: {
+      mode,
+      head: state.head,
+      upstream: state.upstream,
+      branch: state.branch,
+      worktree_clean: clean,
+      remote_url_sha256: state.remote_url_sha256,
+    },
+  };
+}
+
+function mutationStatus(mode, result) {
+  return {
+    mode,
+    uploaded: result.uploaded ?? result.committed ?? 0,
+    downloaded: result.downloaded ?? result.updated ?? 0,
+    errors: result.errors || (result.error ? [result.error] : []),
+    ok: result.ok,
+  };
+}
+
+/** Execute one action-specific, replay-safe knowledge-base mutation. */
+function runSyncEffect(options) {
+  const mode = options.mode || "sync";
+  if (!Object.hasOwn(SYNC_AUTHORITY, mode)) throw new Error(`unsupported sync effect: ${mode}`);
+  const pmDir = path.resolve(options.pmDir);
+  const dotPmDir = path.resolve(options.dotPmDir);
+  const remoteUrl = options.remoteUrl || null;
+  if ((mode === "setup" || mode === "clone") && !validateRemoteUrl(remoteUrl)) {
+    throw new Error("setup and clone effects require a valid remote URL");
+  }
+  const expectedRemoteHash = remoteUrl ? sha256(remoteUrl) : localGitState(pmDir).remote_url_sha256;
+  const before = localGitState(pmDir);
+  const recovery = { code: "inspect-sync-effect", command: "/pm:sync status" };
+  const operations = { setup, clone, sync, push, pull };
+
+  const effectResult = runOperationalEffect({
+    pmStateDir: dotPmDir,
+    workflow: "sync",
+    effect: `${mode}-knowledge-base`,
+    authorityAction: SYNC_AUTHORITY[mode],
+    authorityActions: options.authorityActions,
+    target: {
+      backend: "git",
+      repository: "pm-knowledge-base",
+      remote_url_sha256: expectedRemoteHash,
+    },
+    intent: { mode, branch: "main" },
+    precondition: before,
+    recovery,
+    observe() {
+      return syncObservation(mode, pmDir, expectedRemoteHash);
+    },
+    mutate() {
+      const result = remoteUrl ? operations[mode](pmDir, remoteUrl) : operations[mode](pmDir);
+      writeSyncStatus(dotPmDir, mutationStatus(mode, result));
+      if (!result.ok) {
+        return {
+          blocked: true,
+          reason: result.error || (result.errors || []).join("; ") || `${mode} failed`,
+          recovery: { code: "sync-operation-failed", command: "/pm:sync status" },
+        };
+      }
+      const observation = syncObservation(mode, pmDir, expectedRemoteHash);
+      if (observation.state !== "verified") {
+        throw new Error(observation.reason || `${mode} outcome could not be verified`);
+      }
+      return { receipt: observation.receipt };
+    },
+  });
+  const statusRecord = bindSyncStatusToEffect(dotPmDir, effectResult);
+  return {
+    ...effectResult,
+    mode,
+    ok: effectResult.state === "verified",
+    ...(statusRecord.errors?.length ? { error: statusRecord.errors.join("; ") } : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -469,44 +640,46 @@ if (require.main === module) {
       process.stderr.write(`Usage: kb-sync-git.js ${mode} <remote-url>\n`);
       process.exit(1);
     }
-    const result = mode === "setup" ? setup(pmDir, remoteUrl) : clone(pmDir, remoteUrl);
+    const result = runSyncEffect({
+      mode,
+      pmDir,
+      dotPmDir,
+      remoteUrl,
+      authorityActions: [SYNC_AUTHORITY[mode]],
+    });
     process.stdout.write(JSON.stringify({ ...result, mode }, null, 2) + "\n");
     if (!result.ok) {
       process.stderr.write(result.error + "\n");
       process.exit(1);
     }
   } else if (mode === "sync") {
-    const result = sync(pmDir);
-    writeSyncStatus(dotPmDir, {
-      mode: "sync",
-      uploaded: result.uploaded || 0,
-      downloaded: result.downloaded || 0,
-      errors: result.errors || [],
-      ok: result.ok,
+    const result = runSyncEffect({
+      mode,
+      pmDir,
+      dotPmDir,
+      authorityActions: [SYNC_AUTHORITY[mode]],
     });
     if (!result.ok) {
       process.stderr.write((result.error || result.errors.join("; ")) + "\n");
       process.exit(1);
     }
   } else if (mode === "push") {
-    const result = push(pmDir);
-    writeSyncStatus(dotPmDir, {
-      mode: "push",
-      uploaded: result.committed || 0,
-      errors: result.error ? [result.error] : [],
-      ok: result.ok,
+    const result = runSyncEffect({
+      mode,
+      pmDir,
+      dotPmDir,
+      authorityActions: [SYNC_AUTHORITY[mode]],
     });
     if (!result.ok) {
       process.stderr.write(result.error + "\n");
       process.exit(1);
     }
   } else if (mode === "pull") {
-    const result = pull(pmDir);
-    writeSyncStatus(dotPmDir, {
-      mode: "pull",
-      downloaded: result.updated || 0,
-      errors: result.error ? [result.error] : [],
-      ok: result.ok,
+    const result = runSyncEffect({
+      mode,
+      pmDir,
+      dotPmDir,
+      authorityActions: [SYNC_AUTHORITY[mode]],
     });
     if (!result.ok) {
       process.stderr.write(result.error + "\n");
@@ -539,5 +712,8 @@ module.exports = {
   pull,
   status,
   writeSyncStatus,
+  runSyncEffect,
+  localGitState,
+  SYNC_AUTHORITY,
   resolveCliPaths,
 };

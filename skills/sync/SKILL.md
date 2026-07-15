@@ -37,7 +37,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 - Bare `/pm:sync` is bidirectional (pull then push). Don't prompt for a push/pull choice unless the user explicitly asks for a one-way override.
 - When no backend is configured, route through the setup step — it needs user input (repo name/URL); never configure silently.
 - Report results as readable text, never raw JSON. On repeated failure, surface the real auth/config/remote cause rather than retrying blindly.
-- A bare or explicit sync command grants authority only for that route. Keep operations idempotent, bound automatic rebase/retry behavior to the helper, and surface a recovery choice when remote state cannot be reconciled safely.
+- A bare or explicit sync command grants authority only for that route. The helper must journal that action-specific grant, observe the target before retrying, and return a verified receipt or an explicit recovery state. Keep automatic rebase/retry behavior bounded to the helper.
 
 ## Red Flags — Self-Check
 
@@ -61,6 +61,6 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
 ## Before Marking Done
 
-- [ ] The sync-status artifact records the selected route and exact outcome.
+- [ ] The sync-status artifact records the selected route, effect identity, exact outcome, verified receipt, and recovery action.
 - [ ] The user confirmed setup/reconfiguration decisions before repo or remote effects ran.
 - [ ] Backend, auth, remote, conflict, and bounded recovery gates passed or the precise blocker was reported.

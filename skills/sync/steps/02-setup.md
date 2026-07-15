@@ -97,17 +97,24 @@ If the clone is empty (new repo), the `pm/` directory will be created with just 
 On either helper failure, report its structured error and stop. Do not fall back
 to raw Git or repeat the effect blindly.
 
+The explicit setup request is the action-specific `configure_sync` authority
+grant. The helper journals it in `{pm_state_dir}/effects/`, observes an existing
+matching remote before retrying, and reports `verified`, `blocked`, or
+`ambiguous`. Only proceed on `verified`; for any other state show the returned
+recovery action.
+
 ### 5. Write sync config
 
-Read `.pm/config.json`, set `sync.backend` to `"git"`, and write back. Preserve all other fields.
+Apply the sync fields as one atomic, journaled config effect. Preserve all other
+fields and require a verified receipt:
 
-```javascript
-// Conceptual — use actual file read/edit
-config.sync = config.sync || {};
-config.sync.backend = "git";
-config.sync.enabled = true;
-config.sync.auto_pull = true;
-config.sync.auto_push = true;
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/config-effect.js" \
+  --set-json sync.backend '"git"' \
+  --set-json sync.enabled 'true' \
+  --set-json sync.auto_pull 'true' \
+  --set-json sync.auto_push 'true' \
+  --authorize update_config
 ```
 
 ### 6. Confirm
@@ -122,6 +129,8 @@ config.sync.auto_push = true;
 
 ## Done-when
 
-Setup either stops safely on declined/missing authority or leaves a verified git backend, remote, upstream, preserved config, and readable confirmation.
+Setup either stops safely on declined/missing authority or leaves verified
+receipts for the git remote/upstream effect and the preserved config update,
+plus a readable confirmation.
 
 **Advance:** proceed to Step 3 (Auth Check); it skips when setup was the terminal route.

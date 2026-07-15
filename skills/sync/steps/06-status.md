@@ -31,6 +31,11 @@ Ahead:   {ahead} commit(s)
 Behind:  {behind} commit(s)
 ```
 
+Label ahead/behind as **locally observed remote refs**. Status is strictly
+effect-free: it never fetches, prompts for credentials, writes a journal, or
+refreshes refs. When the user needs current remote truth, offer the returned
+`refresh_action` (`/pm:sync`), which is an explicit mutation route.
+
 If `uncommitted > 0`, add: "Run `/pm:sync` to pull remote changes first, then push local changes. Use `/pm:sync push` only when you intentionally want the push-only override."
 
 If `behind > 0`, add: "Run `/pm:sync` to pull remote changes and then push any local changes. Use `/pm:sync pull` only when you intentionally want the pull-only override."
@@ -59,6 +64,7 @@ Say: "What would you like to do next?"
 
 ## Done-when
 
-The user has a readable backend, remote, branch, divergence, dirty-state, and last-sync summary, including the safest next action for any non-zero state.
+The user has a readable backend, remote, branch, locally observed divergence,
+dirty-state, and last-sync/effect summary, including the safest next action for any non-zero state.
 
 Offer `/pm:sync` for safe bidirectional recovery, an explicit one-way override when intentionally requested, or no action when everything is synced.
