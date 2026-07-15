@@ -751,7 +751,7 @@ test("journaled push observes and reuses a verified outcome before another mutat
   const { setup, runSyncEffect } = require(KB_SYNC_GIT_PATH);
   const {
     serializationLockPath,
-    sharedResourceSerialization,
+    sharedGitRepositorySerialization,
   } = require("../scripts/lib/operational-effect-journal.js");
   assert.equal(setup(pmDir, remote.url).ok, true);
   fs.writeFileSync(path.join(pmDir, "new.md"), "# New\n");
@@ -786,7 +786,7 @@ test("journaled push observes and reuses a verified outcome before another mutat
   assert.deepEqual(statusRecord.errors, []);
   assert.equal(statusRecord.effect_id, first.effect_id);
 
-  const serialization = sharedResourceSerialization("knowledge-base-git", pmDir);
+  const serialization = sharedGitRepositorySerialization(pmDir);
   const lockPath = serializationLockPath(serialization.root, serialization.scope);
   fs.mkdirSync(path.dirname(lockPath), { recursive: true });
   fs.writeFileSync(
@@ -805,6 +805,45 @@ test("journaled push observes and reuses a verified outcome before another mutat
   assert.equal(statusRecord.mode, "push");
   assert.equal(statusRecord.effect_state, "blocked");
   assert.equal(statusRecord.errors.length, 1);
+});
+
+test("interrupted sync remains ambiguous instead of starting another Git mutation", (t) => {
+  const remote = withBareRemote();
+  const { pmDir, dotPm, cleanup } = withTempProject({ "pm/strategy.md": "# Strategy\n" });
+  const { setup, runSyncEffect } = require(KB_SYNC_GIT_PATH);
+  assert.equal(setup(pmDir, remote.url).ok, true);
+  t.after(() => {
+    cleanup();
+    remote.cleanup();
+  });
+  const options = {
+    mode: "sync",
+    pmDir,
+    dotPmDir: dotPm,
+    authorityActions: ["sync_knowledge_base"],
+  };
+  const first = runSyncEffect(options);
+  const journal = JSON.parse(fs.readFileSync(first.journal_path, "utf8"));
+  journal.state = "attempting";
+  journal.verified_receipt = null;
+  journal.attempts.push({
+    attempt: 2,
+    state: "attempting",
+    started_at: new Date().toISOString(),
+    completed_at: null,
+    error: null,
+  });
+  fs.writeFileSync(first.journal_path, `${JSON.stringify(journal, null, 2)}\n`);
+  const headBefore = gitExec("git rev-parse HEAD", { cwd: pmDir, encoding: "utf8" }).trim();
+
+  const recovered = runSyncEffect(options);
+  const headAfter = gitExec("git rev-parse HEAD", { cwd: pmDir, encoding: "utf8" }).trim();
+  const after = JSON.parse(fs.readFileSync(first.journal_path, "utf8"));
+
+  assert.equal(recovered.state, "ambiguous");
+  assert.match(after.last_observation.reason, /explicit Git recovery inspection/);
+  assert.equal(after.attempts.length, 2);
+  assert.equal(headAfter, headBefore);
 });
 
 for (const mode of ["pull", "sync"]) {

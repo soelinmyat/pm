@@ -8,6 +8,7 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const {
   serializationLockPath,
+  sharedGitRepositorySerialization,
   sharedResourceSerialization,
 } = require("../scripts/lib/operational-effect-journal.js");
 
@@ -44,7 +45,7 @@ test("loop-install CLI exits nonzero when a control effect is blocked", (t) => {
   const pmDir = path.join(root, "pm");
   fs.mkdirSync(pmDir, { recursive: true });
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const serialization = sharedResourceSerialization("knowledge-base-git", pmDir);
+  const serialization = sharedGitRepositorySerialization(pmDir);
   const lockPath = serializationLockPath(serialization.root, serialization.scope);
   fs.mkdirSync(path.dirname(lockPath), { recursive: true });
   fs.writeFileSync(
@@ -883,7 +884,7 @@ test("loop control shares the knowledge-base mutation lock across consumers", (t
   const pmDir = path.join(root, "pm");
   fs.mkdirSync(pmDir, { recursive: true });
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const serialization = sharedResourceSerialization("knowledge-base-git", pmDir);
+  const serialization = sharedGitRepositorySerialization(pmDir);
   const lockPath = serializationLockPath(serialization.root, serialization.scope);
   fs.mkdirSync(path.dirname(lockPath), { recursive: true });
   fs.writeFileSync(

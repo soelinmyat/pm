@@ -32,7 +32,7 @@ const { validatePrArtifact } = require("./loop-result.js");
 const { defaultBranchName, sourceRepository } = require("./source-identity.js");
 const {
   runOperationalEffect,
-  sharedResourceSerialization,
+  sharedGitRepositorySerialization,
 } = require("./lib/operational-effect-journal.js");
 const { stableStringify } = require("./lib/workflow-runtime/records.js");
 
@@ -848,7 +848,7 @@ function runReconcileEffect(projectDir, options = {}) {
   let executionMap;
   let plan;
   let originalPlanHash;
-  const serialization = sharedResourceSerialization("knowledge-base-git", pmDir);
+  const serialization = sharedGitRepositorySerialization(pmDir);
 
   const observe = ({ journal, mutation }) => {
     if (mutation?.result?.ok === true) {

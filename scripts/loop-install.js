@@ -29,6 +29,7 @@ const { withRemoteSnapshot } = require("./loop-pm-transaction.js");
 const { resolvePmPaths, resolvePmStateDir } = require("./resolve-pm-dir.js");
 const {
   runOperationalEffect,
+  sharedGitRepositorySerialization,
   sharedResourceSerialization,
 } = require("./lib/operational-effect-journal.js");
 
@@ -460,7 +461,7 @@ function observeLoopControl(pmDir, stopped, options = {}) {
 function runLoopControlEffect(pmDir, stopped, options = {}) {
   const resolvedPmDir = path.resolve(pmDir);
   const pmStateDir = path.resolve(options.pmStateDir || resolvePmStateDir(resolvedPmDir));
-  const serialization = sharedResourceSerialization("knowledge-base-git", resolvedPmDir);
+  const serialization = sharedGitRepositorySerialization(resolvedPmDir);
   let resumeState = null;
   const observe = () => observeLoopControl(resolvedPmDir, stopped, options);
   const result = runOperationalEffect({

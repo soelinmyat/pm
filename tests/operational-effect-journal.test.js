@@ -5,13 +5,14 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { spawn } = require("node:child_process");
+const { execFileSync, spawn } = require("node:child_process");
 
 const {
   createEffectPlan,
   effectJournalPath,
   runOperationalEffect,
   serializationLockPath,
+  sharedGitRepositorySerialization,
   sharedResourceSerialization,
 } = require("../scripts/lib/operational-effect-journal.js");
 const { writeJsonAtomic } = require("../scripts/lib/atomic-file.js");
@@ -229,6 +230,22 @@ test("shared resource serialization is independent of caller state directories",
   assert.equal(
     serializationLockPath(left.root, left.scope),
     serializationLockPath(right.root, right.scope)
+  );
+});
+
+test("nested PM content and its Git root share one repository lock identity", (t) => {
+  const root = stateDir(t);
+  execFileSync("git", ["init", "-q", root]);
+  const nestedPm = path.join(root, "pm");
+  fs.mkdirSync(nestedPm);
+  const repository = sharedGitRepositorySerialization(root);
+  const content = sharedGitRepositorySerialization(nestedPm);
+
+  assert.equal(repository.root, content.root);
+  assert.deepEqual(repository.scope, content.scope);
+  assert.equal(
+    serializationLockPath(repository.root, repository.scope),
+    serializationLockPath(content.root, content.scope)
   );
 });
 

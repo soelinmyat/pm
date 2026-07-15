@@ -4,6 +4,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { execFileSync } = require("node:child_process");
 
 const { writeJsonAtomic } = require("./atomic-file.js");
 const { bindEffectReceipt } = require("./workflow-runtime/effect-receipt.js");
@@ -124,6 +125,44 @@ function sharedResourceSerialization(resource, resourcePath) {
     root: path.join(os.tmpdir(), `pm-operational-effects-${uid}`),
     scope: { resource: requireText(resource, "shared resource"), canonical_path: canonicalPath },
   };
+}
+
+function sharedGitRepositorySerialization(resourcePath) {
+  let canonicalPath;
+  try {
+    canonicalPath = fs.realpathSync(resourcePath);
+  } catch {
+    canonicalPath = path.resolve(resourcePath);
+  }
+  const env = { ...process.env };
+  for (const key of [
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_COMMON_DIR",
+    "GIT_PREFIX",
+    "GIT_SUPER_PREFIX",
+  ]) {
+    delete env[key];
+  }
+  try {
+    const commonDir = execFileSync(
+      "git",
+      ["-C", canonicalPath, "rev-parse", "--path-format=absolute", "--git-common-dir"],
+      {
+        encoding: "utf8",
+        env,
+        stdio: ["ignore", "pipe", "ignore"],
+        timeout: 5000,
+      }
+    ).trim();
+    if (commonDir) canonicalPath = fs.realpathSync(commonDir);
+  } catch {
+    // Setup can legitimately serialize a repository path before `git init`.
+  }
+  return sharedResourceSerialization("knowledge-base-git", canonicalPath);
 }
 
 function acquireEffectLock(lockTargetPath, timeoutMs = DEFAULT_LOCK_TIMEOUT_MS) {
@@ -443,5 +482,6 @@ module.exports = {
   readJournal,
   runOperationalEffect,
   serializationLockPath,
+  sharedGitRepositorySerialization,
   sharedResourceSerialization,
 };

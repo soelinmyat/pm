@@ -9,7 +9,7 @@ const { runGit } = require("./loop-git.js");
 const { writeJsonAtomic } = require("./lib/atomic-file.js");
 const {
   runOperationalEffect,
-  sharedResourceSerialization,
+  sharedGitRepositorySerialization,
 } = require("./lib/operational-effect-journal.js");
 
 // ---------------------------------------------------------------------------
@@ -573,7 +573,7 @@ function runSyncEffect(options) {
   }
   const configuredRemoteUrl = remoteUrl || getRemoteUrl(pmDir);
   const expectedRemoteHash = configuredRemoteUrl ? sha256(configuredRemoteUrl) : null;
-  const serialization = sharedResourceSerialization("knowledge-base-git", pmDir);
+  const serialization = sharedGitRepositorySerialization(pmDir);
   let before;
   const recovery = { code: "inspect-sync-effect", command: "/pm:sync status" };
   const operations = { setup, clone, sync, push, pull };
@@ -601,8 +601,14 @@ function runSyncEffect(options) {
     },
     recovery,
     lockTimeoutMs: options.lockTimeoutMs,
-    observe() {
+    observe({ journal, recovery: recovering }) {
       if (requiresFreshRemoteObservation && !mutationStarted) {
+        if (recovering && (journal.state === "attempting" || journal.state === "ambiguous")) {
+          return {
+            state: "ambiguous",
+            reason: "interrupted sync outcome requires explicit Git recovery inspection",
+          };
+        }
         return {
           state: "absent",
           safe_to_retry: true,
