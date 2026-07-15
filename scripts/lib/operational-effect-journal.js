@@ -100,19 +100,6 @@ function readLockOwner(lockPath) {
   }
 }
 
-function lockCanBeReclaimed(lockPath, owner) {
-  if (owner && Number.isSafeInteger(Number(owner.pid))) {
-    return !processIsAlive(Number(owner.pid));
-  }
-  try {
-    const stat = fs.lstatSync(lockPath);
-    if (!stat.isFile() || stat.isSymbolicLink()) return false;
-    return Date.now() - stat.mtimeMs > 30000;
-  } catch (error) {
-    return error?.code === "ENOENT";
-  }
-}
-
 function acquireEffectLock(journalPath, timeoutMs = DEFAULT_LOCK_TIMEOUT_MS) {
   const lockPath = `${journalPath}.lock`;
   const deadline = Date.now() + Math.max(0, Number(timeoutMs) || 0);
@@ -121,22 +108,15 @@ function acquireEffectLock(journalPath, timeoutMs = DEFAULT_LOCK_TIMEOUT_MS) {
   while (true) {
     try {
       const fd = fs.openSync(lockPath, "wx", 0o600);
+      const token = crypto.randomUUID();
       fs.writeFileSync(
         fd,
-        `${JSON.stringify({ pid: process.pid, acquired_at: new Date().toISOString() })}\n`
+        `${JSON.stringify({ pid: process.pid, token, acquired_at: new Date().toISOString() })}\n`
       );
-      return { fd, lockPath };
+      fs.fsyncSync(fd);
+      return { fd, lockPath, token };
     } catch (error) {
       if (error?.code !== "EEXIST") throw error;
-      const owner = readLockOwner(lockPath);
-      if (lockCanBeReclaimed(lockPath, owner)) {
-        try {
-          fs.unlinkSync(lockPath);
-        } catch (unlinkError) {
-          if (unlinkError?.code !== "ENOENT") throw unlinkError;
-        }
-        continue;
-      }
       if (Date.now() >= deadline) return null;
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, LOCK_POLL_MS);
     }
@@ -151,10 +131,15 @@ function releaseEffectLock(lock) {
   } catch (error) {
     failure = error;
   }
-  try {
-    fs.unlinkSync(lock.lockPath);
-  } catch (error) {
-    if (error?.code !== "ENOENT" && !failure) failure = error;
+  const owner = readLockOwner(lock.lockPath);
+  if (!owner || owner.token !== lock.token) {
+    if (!failure) failure = new Error("operational effect lock ownership changed before release");
+  } else {
+    try {
+      fs.unlinkSync(lock.lockPath);
+    } catch (error) {
+      if (error?.code !== "ENOENT" && !failure) failure = error;
+    }
   }
   if (failure) throw failure;
 }
@@ -355,15 +340,19 @@ function runOperationalEffect(input) {
   const lock = acquireEffectLock(journalPath, input.lockTimeoutMs);
   if (!lock) {
     const journal = readJournal(journalPath);
+    const owner = readLockOwner(`${journalPath}.lock`);
+    const staleOwner = owner && !processIsAlive(Number(owner.pid));
     return {
       effect_id: plan.effect_id,
       state: "blocked",
       journal_path: journalPath,
       verified_receipt: journal?.verified_receipt || null,
       recovery: {
-        code: "effect-in-progress",
+        code: staleOwner ? "effect-lock-recovery-required" : "effect-in-progress",
         command: input.recovery.command,
-        reason: "Another process still owns this effect. Retry after that attempt finishes.",
+        reason: staleOwner
+          ? `The effect lock owner is no longer running. Inspect ${journalPath}.lock before manual removal.`
+          : "Another process still owns this effect. Retry after that attempt finishes.",
       },
     };
   }

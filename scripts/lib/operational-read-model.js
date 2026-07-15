@@ -39,7 +39,6 @@ function portableMessage(message, roots) {
 }
 
 function artifactKind(card) {
-  if (card.rfc) return "rfc";
   if (["proposal", "task", "bug"].includes(card.kind)) return card.kind;
   return "proposal";
 }
@@ -206,26 +205,7 @@ function observationRecord(snapshot) {
         action,
       })
     ),
-    work_items: snapshot.work_items.map((item) => ({
-      id: item.id,
-      slug: item.slug,
-      title: item.title,
-      artifact_kind: item.artifact_kind,
-      lifecycle: item.lifecycle,
-      status: item.status,
-      parent: item.parent,
-      children: item.childrenSlugs,
-      blocker: item.blocker || null,
-      lease: item.lease
-        ? {
-            stage: item.lease.stage,
-            holder: item.lease.holder,
-            runtime: item.lease.runtime,
-            claimed_at: item.lease.claimed_at,
-            expires_at: item.lease.expires_at,
-          }
-        : null,
-    })),
+    work_items: snapshot.work_items.map((item) => structuredClone(item)),
     leases: {
       active: snapshot.leases.active.map((lease) => ({
         card_id: lease.card_id || null,

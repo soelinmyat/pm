@@ -118,7 +118,7 @@ function request(port, method, reqPath, headers, body) {
 
 // Same-origin browser fetch and CLI clients both send this header; a cross-site
 // page cannot set it without a CORS preflight the server never approves.
-const TRUSTED = { "x-pm-board": "1" };
+const TRUSTED = { "x-pm-board": "1", "content-type": "application/json" };
 
 function listen(server) {
   return new Promise((resolve) => {
@@ -315,9 +315,11 @@ test("GET /api/board over HTTP returns JSON; missing pm dir returns error shape"
 test("POST /api/loop/toggle flips the kill switch and GET reflects it", async () => {
   const project = createProject();
   project.write("pm/backlog/task.md", approvedCard("PM-001", "Task"));
+  let controlMutations = 0;
   const server = createServer({
     pmDir: project.pmDir,
     runLoopControlEffect(pmDir, stopped) {
+      controlMutations += 1;
       const stopPath = path.join(pmDir, "loop", "STOP");
       if (stopped) {
         fs.mkdirSync(path.dirname(stopPath), { recursive: true });
@@ -336,16 +338,24 @@ test("POST /api/loop/toggle flips the kill switch and GET reflects it", async ()
   const before = await request(port, "GET", "/api/board");
   assert.equal(before.json.loop.paused, false);
 
-  const toggled = await request(port, "POST", "/api/loop/toggle", TRUSTED);
+  const pauseIntent = { paused: true, idempotency_key: "pause-request-1" };
+  const toggled = await request(port, "POST", "/api/loop/toggle", TRUSTED, pauseIntent);
   assert.equal(toggled.json.paused, true);
   assert.equal(toggled.json.sync.state, "verified");
   assert.equal(toggled.json.sync.verified_receipt.authoritative_remote, true);
   assert.ok(fs.existsSync(path.join(project.pmDir, "loop", "STOP")));
 
+  const duplicate = await request(port, "POST", "/api/loop/toggle", TRUSTED, pauseIntent);
+  assert.equal(duplicate.json.paused, true);
+  assert.equal(controlMutations, 1);
+
   const paused = await request(port, "GET", "/api/board");
   assert.equal(paused.json.loop.paused, true);
 
-  const resumed = await request(port, "POST", "/api/loop/toggle", TRUSTED);
+  const resumed = await request(port, "POST", "/api/loop/toggle", TRUSTED, {
+    paused: false,
+    idempotency_key: "resume-request-1",
+  });
   assert.equal(resumed.json.paused, false);
   assert.ok(!fs.existsSync(path.join(project.pmDir, "loop", "STOP")));
 
@@ -493,7 +503,10 @@ test("A3: toggle pushes the kill switch to origin and surfaces the push result",
   const server = createServer({ pmDir: project.pmDir });
   const { port } = await listen(server);
 
-  const toggled = await request(port, "POST", "/api/loop/toggle", TRUSTED);
+  const toggled = await request(port, "POST", "/api/loop/toggle", TRUSTED, {
+    paused: true,
+    idempotency_key: "origin-pause-request",
+  });
   assert.equal(toggled.json.paused, true);
   assert.equal(toggled.json.sync.state, "verified");
   assert.equal(toggled.json.sync.verified_receipt.receipt.authoritative_remote, true);

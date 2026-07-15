@@ -580,7 +580,6 @@ function runLoopConfigEffect(options) {
     observe,
     mutate() {
       approveExecutionConfig(pmStateDir, config, options);
-      return { receipt: observe().receipt };
     },
   });
 }

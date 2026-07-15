@@ -47,12 +47,13 @@ function sourcePathFromSnapshot(portable, { pmDir, pmStateDir, sourceDir }) {
   return portable;
 }
 
-function withOperationalIdentity(row, id, lifecycle) {
-  Object.defineProperties(row, {
-    id: { value: id, enumerable: false },
-    lifecycle: { value: lifecycle, enumerable: false },
-  });
-  return row;
+function withOperationalIdentity(row, item) {
+  return {
+    ...row,
+    id: item.id,
+    lifecycle: item.lifecycle,
+    artifactKind: item.artifact_kind,
+  };
 }
 
 function linkageForBacklog(fm) {
@@ -133,7 +134,7 @@ function emitListRows(projectDir, options = {}) {
       linkage: linkageForBacklog(item),
       sourcePath,
     };
-    return withOperationalIdentity(row, item.id, item.lifecycle);
+    return withOperationalIdentity(row, item);
   };
   const proposals = snapshot.work_items
     .filter((item) => item.list_section === "proposals")

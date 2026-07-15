@@ -256,16 +256,20 @@ function buildBoardPayload(options = {}) {
 
 // Execute the same journaled, authoritative control effect as pm:loop. The
 // board never reports a local flip as a durable all-machine stop.
-function toggleLoop(pmDir, options = {}) {
+function toggleLoop(pmDir, desiredPaused, options = {}) {
   const resolved = path.resolve(pmDir);
   if (!fs.existsSync(resolved)) {
     return { error: `No pm/ directory found at ${resolved}.` };
   }
-  const nextStopped = !isStopped(resolved);
+  if (typeof desiredPaused !== "boolean") {
+    throw new TypeError("loop control requires an explicit paused state");
+  }
+  const nextStopped = desiredPaused;
   const runControl = options.runControl || runLoopControlEffect;
   const effect = runControl(resolved, nextStopped, {
     pmStateDir: options.pmStateDir,
     authorityActions: ["control_loop"],
+    requestKey: options.requestKey,
     timeout: options.timeout || PUSH_TIMEOUT_MS,
     ...(nextStopped ? {} : { config: loadLoopConfig(resolved) }),
   });
@@ -325,6 +329,34 @@ function sendJson(res, status, value) {
     "cache-control": "no-store",
   });
   res.end(body);
+}
+
+function readToggleIntent(req, callback) {
+  const chunks = [];
+  let bytes = 0;
+  req.on("data", (chunk) => {
+    bytes += chunk.length;
+    if (bytes > 4096) req.destroy(new Error("toggle request body is too large"));
+    else chunks.push(chunk);
+  });
+  req.on("error", (error) => callback(error));
+  req.on("end", () => {
+    try {
+      const value = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      if (!value || typeof value !== "object" || typeof value.paused !== "boolean") {
+        throw new Error("toggle request requires a boolean paused field");
+      }
+      if (
+        typeof value.idempotency_key !== "string" ||
+        !/^[a-zA-Z0-9._:-]{8,128}$/.test(value.idempotency_key)
+      ) {
+        throw new Error("toggle request requires a valid idempotency_key");
+      }
+      callback(null, { paused: value.paused, key: value.idempotency_key });
+    } catch (error) {
+      callback(error);
+    }
+  });
 }
 
 // The board is a strictly read-only projection. Even `git fetch` moves
@@ -388,6 +420,7 @@ function createServer(serverOptions = {}) {
   const pmStateDir = serverOptions.pmStateDir || stateDirFor(pmDir, sourceDir);
   const page = renderPage();
   const gitFreshness = makeGitFreshness(pmDir);
+  const toggleRequests = new Map();
 
   // Last kill-switch sync result, surfaced on the board so a failed push shows
   // "paused locally — push failed" instead of a silent false guarantee.
@@ -451,24 +484,37 @@ function createServer(serverOptions = {}) {
         });
         return;
       }
-      req.resume(); // drain any body
-      let result;
-      try {
-        result = toggleLoop(pmDir, {
-          pmStateDir,
-          runControl: serverOptions.runLoopControlEffect,
-          timeout: PUSH_TIMEOUT_MS,
-        });
-      } catch (err) {
-        sendJson(res, 500, { error: err.message });
-        return;
-      }
-      if (result.error) {
+      readToggleIntent(req, (error, intent) => {
+        if (error) {
+          sendJson(res, 400, { error: error.message });
+          return;
+        }
+        const prior = toggleRequests.get(intent.key);
+        if (prior) {
+          if (prior.requested_paused !== intent.paused) {
+            sendJson(res, 409, { error: "idempotency key was already used for another state" });
+          } else sendJson(res, 200, prior);
+          return;
+        }
+        let result;
+        try {
+          result = toggleLoop(pmDir, intent.paused, {
+            pmStateDir,
+            requestKey: intent.key,
+            runControl: serverOptions.runLoopControlEffect,
+            timeout: PUSH_TIMEOUT_MS,
+          });
+        } catch (err) {
+          sendJson(res, 500, { error: err.message });
+          return;
+        }
+        if (!result.error) {
+          killSwitchSync = result.sync;
+          toggleRequests.set(intent.key, result);
+          if (toggleRequests.size > 128) toggleRequests.delete(toggleRequests.keys().next().value);
+        }
         sendJson(res, 200, result);
-        return;
-      }
-      killSwitchSync = result.sync;
-      sendJson(res, 200, result);
+      });
       return;
     }
 
@@ -846,7 +892,14 @@ function renderPage() {
     if (busy) return;
     busy = true;
     toggleBtn.disabled = true;
-    fetch("/api/loop/toggle", { method: "POST", headers: { "x-pm-board": "1" } })
+    var key = window.crypto && window.crypto.randomUUID
+      ? window.crypto.randomUUID()
+      : Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
+    fetch("/api/loop/toggle", {
+      method: "POST",
+      headers: { "x-pm-board": "1", "content-type": "application/json" },
+      body: JSON.stringify({ paused: !paused, idempotency_key: key })
+    })
       .then(function (r) { return r.json(); })
       .then(function () { busy = false; refresh(); })
       .catch(function () { busy = false; refresh(); });

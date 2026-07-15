@@ -17,6 +17,9 @@ const result = runOperationalEffect({
   intent: { value: "done" },
   precondition: { value: fs.existsSync(mutationPath) ? "done" : "absent" },
   recovery: { code: "inspect-fixture", command: "retry fixture" },
+  lockTimeoutMs: process.env.PM_TEST_LOCK_TIMEOUT_MS
+    ? Number(process.env.PM_TEST_LOCK_TIMEOUT_MS)
+    : undefined,
   observe() {
     return fs.existsSync(mutationPath)
       ? { state: "verified", receipt: { value: "done" } }

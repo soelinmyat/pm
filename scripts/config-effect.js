@@ -94,7 +94,7 @@ function normalizeChanges(options) {
     throw new TypeError("config changes must contain 1 to 16 operations");
   }
   const seen = new Set();
-  return raw.map((change) => {
+  const normalized = raw.map((change) => {
     if (!change || typeof change !== "object" || Array.isArray(change)) {
       throw new TypeError("each config change must be an object");
     }
@@ -114,6 +114,19 @@ function normalizeChanges(options) {
       ...(change.operation === "set" ? { value: structuredClone(change.value) } : {}),
     };
   });
+  for (let left = 0; left < normalized.length; left += 1) {
+    for (let right = left + 1; right < normalized.length; right += 1) {
+      const a = normalized[left].segments;
+      const b = normalized[right].segments;
+      const prefixLength = Math.min(a.length, b.length);
+      if (a.slice(0, prefixLength).every((segment, index) => segment === b[index])) {
+        throw new Error(
+          `overlapping config fields: ${normalized[left].field} and ${normalized[right].field}`
+        );
+      }
+    }
+  }
+  return normalized;
 }
 
 function changeMatches(config, change) {
@@ -205,7 +218,6 @@ function applyConfigEffect(options) {
         else deleteValue(config, change.segments);
       }
       writeJsonAtomic(configPath, config, { fileMode: 0o600, directoryMode: 0o700 });
-      return { receipt: configReceipt(configPath, changes) };
     },
   });
 }

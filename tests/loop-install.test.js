@@ -820,6 +820,7 @@ test("scheduler installation is journaled against exact generated content", (t) 
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   let installed = false;
   let mutations = 0;
+  let observations = 0;
   const generated = {
     kind: "cron",
     content: "*/30 * * * * node worker\n",
@@ -830,6 +831,7 @@ test("scheduler installation is journaled against exact generated content", (t) 
     pmStateDir: path.join(root, ".pm"),
     authorityActions: ["install_loop_scheduler"],
     observeScheduler() {
+      observations += 1;
       return installed
         ? { state: "verified", receipt: { kind: "cron", content_sha256: "fixture" } }
         : { state: "absent", safe_to_retry: true, reason: "scheduler is absent" };
@@ -846,4 +848,5 @@ test("scheduler installation is journaled against exact generated content", (t) 
   assert.equal(first.state, "verified");
   assert.equal(second.replayed, true);
   assert.equal(mutations, 1);
+  assert.equal(observations, 4);
 });

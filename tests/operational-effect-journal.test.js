@@ -229,7 +229,7 @@ test("concurrent processes share one mutation attempt and the contender replays 
   assert.equal(fs.readFileSync(mutationPath, "utf8").trim().split("\n").length, 1);
 });
 
-test("a lock left by a dead process is reclaimed before mutation", (t) => {
+test("a lock left by a dead process fails closed with explicit recovery", (t) => {
   const root = stateDir(t);
   const plan = createEffectPlan(input(root));
   const journalPath = effectJournalPath(root, plan.effect_id);
@@ -241,6 +241,7 @@ test("a lock left by a dead process is reclaimed before mutation", (t) => {
   let mutations = 0;
   const result = runOperationalEffect({
     ...input(root),
+    lockTimeoutMs: 0,
     observe() {
       return mutations
         ? { state: "verified", receipt: { config_sha256: "done" } }
@@ -250,7 +251,48 @@ test("a lock left by a dead process is reclaimed before mutation", (t) => {
       mutations += 1;
     },
   });
-  assert.equal(result.state, "verified");
-  assert.equal(mutations, 1);
-  assert.equal(fs.existsSync(`${journalPath}.lock`), false);
+  assert.equal(result.state, "blocked");
+  assert.equal(result.recovery.code, "effect-lock-recovery-required");
+  assert.equal(mutations, 0);
+  assert.equal(fs.existsSync(`${journalPath}.lock`), true);
+});
+
+test("multiple contenders never mutate through one dead lock", async (t) => {
+  const root = stateDir(t);
+  const plan = createEffectPlan({
+    pmStateDir: root,
+    workflow: "test",
+    effect: "exclusive-mutation",
+    authorityAction: "mutate_fixture",
+    target: { file: "fixture" },
+    intent: { value: "done" },
+    precondition: { value: "absent" },
+    recovery: { code: "inspect-fixture", command: "retry fixture" },
+  });
+  const journalPath = effectJournalPath(root, plan.effect_id);
+  fs.mkdirSync(path.dirname(journalPath), { recursive: true });
+  fs.writeFileSync(
+    `${journalPath}.lock`,
+    JSON.stringify({ pid: 2147483647, token: "dead-owner", acquired_at: "2026-07-15T00:00:00Z" })
+  );
+  const markerPath = path.join(root, "mutation-started");
+  const releasePath = path.join(root, "release");
+  const mutationPath = path.join(root, "mutations.log");
+  fs.writeFileSync(releasePath, "release");
+  const workerPath = path.join(__dirname, "fixtures", "operational-effect-worker.js");
+  const args = [workerPath, root, markerPath, releasePath, mutationPath];
+  const workers = Array.from({ length: 3 }, () =>
+    collectChild(
+      spawn(process.execPath, args, {
+        stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env, PM_TEST_LOCK_TIMEOUT_MS: "0" },
+      })
+    )
+  );
+  const results = await Promise.all(workers);
+  assert.deepEqual(
+    results.map((result) => result.state),
+    ["blocked", "blocked", "blocked"]
+  );
+  assert.equal(fs.existsSync(mutationPath), false);
 });

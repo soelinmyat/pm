@@ -738,6 +738,13 @@ test("journaled push observes and reuses a verified outcome before another mutat
     authorityActions: ["push_knowledge_base"],
   };
   const first = runSyncEffect(options);
+  const { writeSyncStatus } = require(KB_SYNC_GIT_PATH);
+  writeSyncStatus(dotPm, {
+    mode: "pull",
+    downloaded: 7,
+    errors: ["stale failure"],
+    ok: false,
+  });
   const second = runSyncEffect(options);
   assert.equal(first.state, "verified");
   assert.equal(second.state, "verified");
@@ -745,6 +752,27 @@ test("journaled push observes and reuses a verified outcome before another mutat
   const journal = JSON.parse(fs.readFileSync(first.journal_path, "utf8"));
   assert.equal(journal.attempts.length, 1);
   assert.equal(fs.statSync(first.journal_path).mode & 0o777, 0o600);
+  let statusRecord = JSON.parse(fs.readFileSync(path.join(dotPm, "sync-status.json"), "utf8"));
+  assert.equal(statusRecord.mode, "push");
+  assert.deepEqual(statusRecord.errors, []);
+  assert.equal(statusRecord.effect_id, first.effect_id);
+
+  fs.writeFileSync(
+    `${first.journal_path}.lock`,
+    JSON.stringify({
+      pid: process.pid,
+      token: "live-test-lock",
+      acquired_at: new Date().toISOString(),
+    })
+  );
+  const blocked = runSyncEffect({ ...options, lockTimeoutMs: 0 });
+  fs.rmSync(`${first.journal_path}.lock`);
+  assert.equal(blocked.state, "blocked");
+  assert.equal(blocked.errors.length, 1);
+  statusRecord = JSON.parse(fs.readFileSync(path.join(dotPm, "sync-status.json"), "utf8"));
+  assert.equal(statusRecord.mode, "push");
+  assert.equal(statusRecord.effect_state, "blocked");
+  assert.equal(statusRecord.errors.length, 1);
 });
 
 for (const mode of ["pull", "sync"]) {

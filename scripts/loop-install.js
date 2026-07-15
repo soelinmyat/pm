@@ -465,7 +465,7 @@ function runLoopControlEffect(pmDir, stopped, options = {}) {
     authorityAction: "control_loop",
     authorityActions: options.authorityActions,
     target: { control: "pm/loop/STOP", authoritative: "git-upstream" },
-    intent: { stopped },
+    intent: { stopped, request_key: options.requestKey || null },
     precondition: { local_stopped: fs.existsSync(killSwitchFilePath(resolvedPmDir)) },
     recovery: { code: "inspect-loop-control-effect", command: "/pm:loop status" },
     observe,
@@ -475,11 +475,6 @@ function runLoopControlEffect(pmDir, stopped, options = {}) {
         if (!options.config) throw new Error("resume effect requires trusted loop config");
         resumeScheduler(resolvedPmDir, options.config, options);
       }
-      const observation = observe();
-      if (observation.state !== "verified") {
-        throw new Error(observation.reason || "loop control outcome could not be verified");
-      }
-      return { receipt: observation.receipt };
     },
   });
 }
@@ -535,11 +530,6 @@ function runSchedulerInstallEffect(generated, intervalMinutes, options = {}) {
     observe,
     mutate() {
       installGenerated(generated, intervalMinutes, options);
-      const observation = observe();
-      if (observation.state !== "verified") {
-        throw new Error(observation.reason || "scheduler installation could not be verified");
-      }
-      return { receipt: observation.receipt };
     },
   });
 }

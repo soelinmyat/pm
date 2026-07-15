@@ -11,6 +11,7 @@ const { emitListRows } = require("../scripts/lib/list-rows.js");
 const { buildStatus } = require("../scripts/start-status.js");
 const { buildBoardPayload } = require("../scripts/board-server.js");
 const { assessSituation } = require("../scripts/loop-situation.js");
+const { buildLoopBoard } = require("../scripts/loop-board.js");
 
 const NOW = new Date("2026-06-23T12:00:00.000Z");
 
@@ -199,6 +200,50 @@ test("observation identity is independent of generated time and absolute project
     now: new Date("2026-06-23T12:00:30.000Z"),
   });
   assert.equal(first.meta.observation_id, second.meta.observation_id);
+});
+
+test("observation identity covers every public work-item field", (t) => {
+  const project = makeProject();
+  t.after(() => fs.rmSync(project.root, { recursive: true, force: true }));
+  seedMixedState(project);
+  const board = buildLoopBoard(project.root, { now: NOW, includeLocal: false });
+  const baseline = buildOperationalSnapshot(project.root, { now: NOW, board }).meta.observation_id;
+  const mutations = {
+    priority: "high",
+    rfc: "rfcs/ready.html",
+    branch: "codex/ready",
+    prs: ["#123"],
+    size: "L",
+    command: "/pm:dev changed-command",
+    retryAfter: "2026-06-24T00:00:00Z",
+  };
+  for (const [field, value] of Object.entries(mutations)) {
+    const changed = structuredClone(board);
+    changed.cards.find((item) => item.id === "PM-003")[field] = value;
+    assert.notEqual(
+      buildOperationalSnapshot(project.root, { now: NOW, board: changed }).meta.observation_id,
+      baseline,
+      field
+    );
+  }
+});
+
+test("artifact kind remains independent from RFC linkage", (t) => {
+  const project = makeProject();
+  t.after(() => fs.rmSync(project.root, { recursive: true, force: true }));
+  project.write(
+    "pm/backlog/linked.md",
+    card({
+      id: "PM-006",
+      title: "Linked task",
+      kind: "task",
+      status: "planned",
+      rfc: "rfcs/x.html",
+    })
+  );
+  const item = buildOperationalSnapshot(project.root, { now: NOW }).work_items[0];
+  assert.equal(item.artifact_kind, "task");
+  assert.equal(item.list_section, "rfcs");
 });
 
 test("Start, List, and Board project the supplied snapshot without rescanning", (t) => {

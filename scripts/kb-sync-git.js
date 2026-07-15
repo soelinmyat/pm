@@ -446,18 +446,26 @@ function writeSyncStatus(dotPmDir, result) {
   });
 }
 
-function bindSyncStatusToEffect(dotPmDir, effectResult) {
+function bindSyncStatusToEffect(dotPmDir, mode, effectResult, routeStatus) {
   const statusPath = path.join(dotPmDir, "sync-status.json");
-  let status = {};
-  try {
-    status = JSON.parse(fs.readFileSync(statusPath, "utf8"));
-  } catch {
-    // A pre-authority block has no mutation status. Keep the effect evidence useful.
-  }
-  status.effect_id = effectResult.effect_id;
-  status.effect_state = effectResult.state;
-  status.verified_receipt = effectResult.verified_receipt || null;
-  status.recovery = effectResult.recovery;
+  const errors = routeStatus?.errors?.length
+    ? routeStatus.errors
+    : effectResult.state === "verified"
+      ? []
+      : [effectResult.recovery?.reason || `${mode} effect is ${effectResult.state}`];
+  const status = {
+    lastSync: new Date().toISOString(),
+    mode,
+    backend: "git",
+    uploaded: routeStatus?.uploaded || 0,
+    downloaded: routeStatus?.downloaded || 0,
+    errors,
+    ok: effectResult.state === "verified",
+    effect_id: effectResult.effect_id,
+    effect_state: effectResult.state,
+    verified_receipt: effectResult.verified_receipt || null,
+    recovery: effectResult.recovery,
+  };
   writeJsonAtomic(statusPath, status, { fileMode: 0o600, directoryMode: 0o700 });
   return status;
 }
@@ -556,6 +564,7 @@ function runSyncEffect(options) {
   const operations = { setup, clone, sync, push, pull };
   const requiresFreshRemoteObservation = mode === "pull" || mode === "sync";
   let mutationStarted = false;
+  let routeStatus = null;
 
   const effectResult = runOperationalEffect({
     pmStateDir: dotPmDir,
@@ -571,6 +580,7 @@ function runSyncEffect(options) {
     intent: { mode, branch: "main" },
     precondition: before,
     recovery,
+    lockTimeoutMs: options.lockTimeoutMs,
     observe() {
       if (requiresFreshRemoteObservation && !mutationStarted) {
         return {
@@ -584,7 +594,7 @@ function runSyncEffect(options) {
     mutate() {
       mutationStarted = true;
       const result = remoteUrl ? operations[mode](pmDir, remoteUrl) : operations[mode](pmDir);
-      writeSyncStatus(dotPmDir, mutationStatus(mode, result));
+      routeStatus = mutationStatus(mode, result);
       if (!result.ok) {
         return {
           blocked: true,
@@ -594,11 +604,12 @@ function runSyncEffect(options) {
       }
     },
   });
-  const statusRecord = bindSyncStatusToEffect(dotPmDir, effectResult);
+  const statusRecord = bindSyncStatusToEffect(dotPmDir, mode, effectResult, routeStatus);
   return {
     ...effectResult,
     mode,
     ok: effectResult.state === "verified",
+    errors: statusRecord.errors,
     ...(statusRecord.errors?.length ? { error: statusRecord.errors.join("; ") } : {}),
   };
 }

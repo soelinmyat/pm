@@ -116,3 +116,33 @@ test("one config effect can initialize and atomically apply a repo-link patch se
   assert.equal(config.source_repo, undefined);
   assert.equal(config.preferences.keep, true);
 });
+
+test("config patch sets reject ancestor and descendant fields before writing", (t) => {
+  const value = project(t);
+  const before = fs.readFileSync(value.configPath);
+  for (const changes of [
+    [
+      { operation: "set", field: "integrations", value: {} },
+      { operation: "set", field: "integrations.linear.enabled", value: true },
+    ],
+    [
+      { operation: "set", field: "integrations.linear.enabled", value: true },
+      { operation: "delete", field: "integrations" },
+    ],
+    [
+      { operation: "delete", field: "integrations.linear" },
+      { operation: "set", field: "integrations", value: {} },
+    ],
+  ]) {
+    assert.throws(
+      () =>
+        applyConfigEffect({
+          projectDir: value.root,
+          changes,
+          authorityActions: ["update_config"],
+        }),
+      /overlapping config fields/
+    );
+    assert.deepEqual(fs.readFileSync(value.configPath), before);
+  }
+});
