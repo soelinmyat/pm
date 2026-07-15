@@ -45,7 +45,14 @@ function artifactKind(card) {
 }
 
 function listSection(card) {
-  if (card.column === "done") return "shipped";
+  if (
+    String(card.status || "")
+      .trim()
+      .toLowerCase() === "shipped" ||
+    card.column === "done"
+  ) {
+    return "shipped";
+  }
   if (card.rfc) return "rfcs";
   return "proposals";
 }

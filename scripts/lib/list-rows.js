@@ -1,8 +1,10 @@
 "use strict";
 
+const path = require("node:path");
+
 const { classifyListAge } = require("../list-thresholds.js");
 const { phaseLabel } = require("../phase-labels.js");
-const { disambiguateShortIds } = require("./derive-short-id.js");
+const { deriveShortId, disambiguateShortIds } = require("./derive-short-id.js");
 const { buildOperationalSnapshot } = require("./operational-read-model.js");
 
 const SHIPPED_CAP = 3;
@@ -25,6 +27,34 @@ function resumeHintForBacklog(kind, id) {
   return `/pm:rfc ${id}`;
 }
 
+function resumeHintForSession(kind, id) {
+  if (["groom", "rfc", "dev", "think"].includes(kind)) return `/pm:${kind} resume ${id}`;
+  return `resume ${id}`;
+}
+
+function sourcePathFromSnapshot(portable, { pmDir, pmStateDir, sourceDir }) {
+  const prefixes = [
+    ["source/", sourceDir],
+    ["state/", pmStateDir],
+    ["pm/", pmDir],
+  ];
+  for (const [prefix, root] of prefixes) {
+    if (portable.startsWith(prefix)) return path.join(root, portable.slice(prefix.length));
+  }
+  if (portable === "source") return sourceDir;
+  if (portable === "state") return pmStateDir;
+  if (portable === "pm") return pmDir;
+  return portable;
+}
+
+function withOperationalIdentity(row, id, lifecycle) {
+  Object.defineProperties(row, {
+    id: { value: id, enumerable: false },
+    lifecycle: { value: lifecycle, enumerable: false },
+  });
+  return row;
+}
+
 function linkageForBacklog(fm) {
   const linkage = {};
   if (fm.rfc) linkage.rfc = fm.rfc;
@@ -45,23 +75,29 @@ function emitListRows(projectDir, options = {}) {
   const active = snapshot.sessions
     .map((session) => {
       const kind = session.kind;
-      const shortId = session.linear_id || session.id;
+      const sourcePath = sourcePathFromSnapshot(session.source_path, {
+        pmDir,
+        pmStateDir,
+        sourceDir,
+      });
+      const shortId = deriveShortId(
+        kind,
+        { linear_id: session.linear_id, slug: session.slug },
+        sourcePath
+      );
       const phase = session.phase || "active";
       return {
-        id: session.id,
         shortId,
         topic: session.topic,
         kind,
         phase,
         phaseLabel: phaseLabel(kind, phase),
-        lifecycle: "active_session",
-        artifactKind: kind,
         updatedEpoch: session.updated_epoch,
         ageRelative: formatAgeRelative(nowSecs - session.updated_epoch),
         staleness: classifyListAge(session.updated_epoch, nowSecs),
-        resumeHint: session.action,
+        resumeHint: resumeHintForSession(kind, shortId),
         linkage: null,
-        sourcePath: session.source_path,
+        sourcePath,
       };
     })
     .sort(byUpdatedDesc);
@@ -72,26 +108,32 @@ function emitListRows(projectDir, options = {}) {
         : item.list_section === "rfcs"
           ? "rfc"
           : "proposal";
-    const phase = item.status || item.lifecycle;
-    return {
-      id: item.id,
-      shortId: item.id,
+    const phase = item.status || (kind === "shipped" ? "shipped" : "active");
+    const sourcePath = sourcePathFromSnapshot(item.source_path, {
+      pmDir,
+      pmStateDir,
+      sourceDir,
+    });
+    const shortId = deriveShortId(
+      kind,
+      { linear_id: item.id === item.slug ? "" : item.id, slug: "" },
+      sourcePath
+    );
+    const row = {
+      shortId,
       topic: item.title,
       kind,
       backlogKind: item.kind,
-      artifactKind: item.artifact_kind,
-      lifecycle: item.lifecycle,
       phase,
       phaseLabel: phaseLabel(kind, phase),
       updatedEpoch: item.updatedEpoch,
       ageRelative: formatAgeRelative(nowSecs - item.updatedEpoch),
       staleness: classifyListAge(item.updatedEpoch, nowSecs),
-      resumeHint: resumeHintForBacklog(kind, item.id),
+      resumeHint: resumeHintForBacklog(kind, shortId),
       linkage: linkageForBacklog(item),
-      recoveryAction:
-        snapshot.recovery_actions.find((action) => action.target_id === item.id) || null,
-      sourcePath: item.source_path,
+      sourcePath,
     };
+    return withOperationalIdentity(row, item.id, item.lifecycle);
   };
   const proposals = snapshot.work_items
     .filter((item) => item.list_section === "proposals")
