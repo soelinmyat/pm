@@ -366,6 +366,43 @@ test("POST /api/loop/toggle flips the kill switch and GET reflects it", async ()
   project.cleanup();
 });
 
+test("POST /api/loop/toggle retries a transient result with the same request key", async () => {
+  const project = createProject();
+  let calls = 0;
+  const server = createServer({
+    pmDir: project.pmDir,
+    runLoopControlEffect(pmDir, stopped) {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          effect_id: "effect-transient",
+          state: "blocked",
+          verified_receipt: null,
+          recovery: { code: "effect-in-progress", command: "/pm:loop status" },
+        };
+      }
+      fs.mkdirSync(path.join(pmDir, "loop"), { recursive: true });
+      fs.writeFileSync(path.join(pmDir, "loop", "STOP"), "paused\n");
+      return {
+        effect_id: "effect-transient",
+        state: "verified",
+        verified_receipt: { receipt: { stopped } },
+        recovery: null,
+      };
+    },
+  });
+  const { port } = await listen(server);
+  const intent = { paused: true, idempotency_key: "transient-pause-request" };
+  const first = await request(port, "POST", "/api/loop/toggle", TRUSTED, intent);
+  const second = await request(port, "POST", "/api/loop/toggle", TRUSTED, intent);
+  assert.equal(first.json.sync.state, "blocked");
+  assert.equal(second.json.sync.state, "verified");
+  assert.equal(second.json.paused, true);
+  assert.equal(calls, 2);
+  server.close();
+  project.cleanup();
+});
+
 test("POST /api/loop/toggle rejects cross-origin and header-less requests (CSRF)", async () => {
   const project = createProject();
   project.write("pm/backlog/task.md", approvedCard("PM-001", "Task"));

@@ -697,8 +697,8 @@ function applyFailureReason(result, fallback) {
 
 function runReconcile(projectDir, options = {}) {
   const pmDir = options.pmDir || resolvePmPaths(projectDir).pmDir;
-  const executionMap = new Map();
-  const plan = buildPlan(projectDir, { ...options, pmDir, executionMap });
+  const executionMap = options.executionMap instanceof Map ? options.executionMap : new Map();
+  const plan = options.plan || buildPlan(projectDir, { ...options, pmDir, executionMap });
   const base = {
     ...plan,
     mode: options.apply === true ? "apply" : "dry-run",
@@ -842,8 +842,9 @@ function runReconcileEffect(projectDir, options = {}) {
   const pmStateDir = path.resolve(options.pmStateDir || paths.pmStateDir);
   const planBuilder = options.planBuilder || buildPlan;
   const execute = options.execute || runReconcile;
-  const plan = planBuilder(resolvedProjectDir, { ...options, pmDir });
-  const originalPlanHash = reconcilePlanHash(plan);
+  let executionMap;
+  let plan;
+  let originalPlanHash;
 
   const observe = ({ journal, mutation }) => {
     if (mutation?.result?.ok === true) {
@@ -882,23 +883,45 @@ function runReconcileEffect(projectDir, options = {}) {
     effect: "apply-loop-reconciliation",
     authorityAction: "reconcile_loop_state",
     authorityActions: options.authorityActions,
+    serializationScope: { resource: "knowledge-base-git", repository: "pm" },
     target: { repository: "pm-knowledge-base", operation: "loop-reconciliation" },
     intent: { mode: "apply" },
-    precondition: {
-      pm_head_oid: plan.pm_head_oid,
-      plan_sha256: originalPlanHash,
-      proposed_changes_sha256: sha256(stableStringify(plan.proposed_changes)),
+    precondition() {
+      executionMap = new Map();
+      plan = planBuilder(resolvedProjectDir, { ...options, pmDir, executionMap });
+      originalPlanHash = reconcilePlanHash(plan);
+      return {
+        pm_head_oid: plan.pm_head_oid,
+        plan_sha256: originalPlanHash,
+        proposed_changes_sha256: sha256(stableStringify(plan.proposed_changes)),
+      };
     },
     recovery: { code: "inspect-loop-reconcile-effect", command: "/pm:loop reconcile --dry-run" },
     observe,
     mutate() {
-      const result = execute(resolvedProjectDir, { ...options, pmDir, apply: true });
+      const result = execute(resolvedProjectDir, {
+        ...options,
+        pmDir,
+        apply: true,
+        plan,
+        executionMap,
+      });
       if (!result.ok) {
         return {
           blocked: true,
           reason: result.reason || result.code || "loop reconciliation failed",
           recovery: {
             code: result.code || "loop-reconcile-failed",
+            command: "/pm:loop reconcile --dry-run",
+          },
+        };
+      }
+      if (reconcilePlanHash(result) !== originalPlanHash) {
+        return {
+          blocked: true,
+          reason: "reconciliation executor returned a different plan than the journal precondition",
+          recovery: {
+            code: "loop-reconcile-plan-changed",
             command: "/pm:loop reconcile --dry-run",
           },
         };

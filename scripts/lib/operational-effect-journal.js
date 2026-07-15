@@ -38,7 +38,9 @@ function createEffectPlan(input) {
   requireObject(input, "effect input");
   requireObject(input.target, "effect target");
   requireObject(input.intent, "effect intent");
-  requireObject(input.precondition, "effect precondition");
+  const precondition =
+    typeof input.precondition === "function" ? input.precondition() : input.precondition;
+  requireObject(precondition, "effect precondition");
   requireObject(input.recovery, "effect recovery");
   requireText(input.recovery.code, "effect recovery code");
   requireText(input.recovery.command, "effect recovery command");
@@ -48,7 +50,7 @@ function createEffectPlan(input) {
     effect_id: `effect_${digest}`,
     idempotency_key: `sha256:${digest}`,
     ...identity,
-    precondition: structuredClone(input.precondition),
+    precondition: structuredClone(precondition),
   };
 }
 
@@ -100,10 +102,18 @@ function readLockOwner(lockPath) {
   }
 }
 
-function acquireEffectLock(journalPath, timeoutMs = DEFAULT_LOCK_TIMEOUT_MS) {
-  const lockPath = `${journalPath}.lock`;
+function serializationLockPath(pmStateDir, scope) {
+  requireText(pmStateDir, "PM state directory");
+  if (!isObject(scope))
+    throw new TypeError("operational effect serialization scope must be an object");
+  const digest = crypto.createHash("sha256").update(stableStringify(scope)).digest("hex");
+  return path.join(path.resolve(pmStateDir), "effects", "locks", `scope_${digest}.lock`);
+}
+
+function acquireEffectLock(lockTargetPath, timeoutMs = DEFAULT_LOCK_TIMEOUT_MS) {
+  const lockPath = lockTargetPath.endsWith(".lock") ? lockTargetPath : `${lockTargetPath}.lock`;
   const deadline = Date.now() + Math.max(0, Number(timeoutMs) || 0);
-  fs.mkdirSync(path.dirname(journalPath), { recursive: true, mode: 0o700 });
+  fs.mkdirSync(path.dirname(lockPath), { recursive: true, mode: 0o700 });
 
   while (true) {
     try {
@@ -227,10 +237,7 @@ function runClaimedOperationalEffect(input, plan, journalPath, authorityActions)
   if (journal.state === "verified") {
     const observation = input.observe({ plan, journal, recovery: true });
     if (observation?.state === "verified") {
-      return finishVerified(journal, plan, observation, authorityActions, journalPath, {
-        attempt: journal.verified_receipt?.attempt || journal.attempts.length || 1,
-        resultFlags: { replayed: true },
-      });
+      return publicResult(journal, journalPath, { replayed: true });
     }
     journal.state = "planned";
     journal.verified_receipt = null;
@@ -315,21 +322,26 @@ function runClaimedOperationalEffect(input, plan, journalPath, authorityActions)
 }
 
 function runOperationalEffect(input) {
-  const plan = createEffectPlan(input);
-  const journalPath = effectJournalPath(input.pmStateDir, plan.effect_id);
+  const identity = effectIdentity(input);
+  const identityDigest = crypto
+    .createHash("sha256")
+    .update(stableStringify(identity))
+    .digest("hex");
+  const effectId = `effect_${identityDigest}`;
+  const journalPath = effectJournalPath(input.pmStateDir, effectId);
   const authorityActions = Array.isArray(input.authorityActions)
     ? [...new Set(input.authorityActions)]
     : [];
-  if (!authorityActions.includes(plan.authority_action)) {
+  if (!authorityActions.includes(identity.authority_action)) {
     return {
-      effect_id: plan.effect_id,
+      effect_id: effectId,
       state: "blocked",
       journal_path: journalPath,
       verified_receipt: null,
       recovery: {
         code: "authority-required",
         command: input.recovery.command,
-        reason: `Explicit ${plan.authority_action} authority is required.`,
+        reason: `Explicit ${identity.authority_action} authority is required.`,
       },
     };
   }
@@ -337,13 +349,14 @@ function runOperationalEffect(input) {
     throw new TypeError("operational effect requires observe and mutate callbacks");
   }
 
-  const lock = acquireEffectLock(journalPath, input.lockTimeoutMs);
+  const lockPath = serializationLockPath(input.pmStateDir, input.serializationScope);
+  const lock = acquireEffectLock(lockPath, input.lockTimeoutMs);
   if (!lock) {
     const journal = readJournal(journalPath);
-    const owner = readLockOwner(`${journalPath}.lock`);
+    const owner = readLockOwner(lockPath);
     const staleOwner = owner && !processIsAlive(Number(owner.pid));
     return {
-      effect_id: plan.effect_id,
+      effect_id: effectId,
       state: "blocked",
       journal_path: journalPath,
       verified_receipt: journal?.verified_receipt || null,
@@ -351,12 +364,13 @@ function runOperationalEffect(input) {
         code: staleOwner ? "effect-lock-recovery-required" : "effect-in-progress",
         command: input.recovery.command,
         reason: staleOwner
-          ? `The effect lock owner is no longer running. Inspect ${journalPath}.lock before manual removal.`
+          ? `The resource lock owner is no longer running. Inspect ${lockPath} before manual removal.`
           : "Another process still owns this effect. Retry after that attempt finishes.",
       },
     };
   }
   try {
+    const plan = createEffectPlan(input);
     return runClaimedOperationalEffect(input, plan, journalPath, authorityActions);
   } finally {
     releaseEffectLock(lock);
@@ -370,4 +384,5 @@ module.exports = {
   effectJournalPath,
   readJournal,
   runOperationalEffect,
+  serializationLockPath,
 };

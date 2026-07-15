@@ -162,8 +162,7 @@ function applyConfigEffect(options) {
   if (!configExists && (!options.initialConfig || typeof options.initialConfig !== "object")) {
     throw new Error("config does not exist and no initialConfig scaffold was supplied");
   }
-  const initialBytes = configExists ? readConfigBytes(configPath) : null;
-  const initialHash = initialBytes ? sha256(initialBytes) : "absent";
+  let initialHash;
   const intentHash = sha256(
     stableStringify(changes.map(({ operation, field, value }) => ({ operation, field, value })))
   );
@@ -190,9 +189,14 @@ function applyConfigEffect(options) {
     effect: "update-config",
     authorityAction: "update_config",
     authorityActions: options.authorityActions,
+    serializationScope: { resource: "config", file: ".pm/config.json" },
     target: { file: ".pm/config.json", fields: changes.map((change) => change.field) },
     intent: { value_sha256: intentHash },
-    precondition: { config_sha256: initialHash },
+    precondition() {
+      const bytes = fs.existsSync(configPath) ? readConfigBytes(configPath) : null;
+      initialHash = bytes ? sha256(bytes) : "absent";
+      return { config_sha256: initialHash };
+    },
     recovery,
     observe,
     mutate() {

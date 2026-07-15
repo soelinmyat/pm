@@ -187,6 +187,49 @@ test("one snapshot owns lifecycle, leases, budgets, delivery, and recovery", (t)
   assert.equal(Object.hasOwn(leased.lease, "filePath"), false);
 });
 
+test("explicit separate-repo paths keep operational ledgers in the consumer state directory", (t) => {
+  const source = makeProject();
+  const knowledgeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pm-operational-kb-"));
+  const pmDir = path.join(knowledgeRoot, "pm");
+  fs.mkdirSync(path.join(pmDir, "backlog"), { recursive: true });
+  fs.writeFileSync(
+    path.join(pmDir, "backlog", "task.md"),
+    card({ id: "PM-900", title: "Separate", kind: "task", status: "done" })
+  );
+  source.write(
+    ".pm/loop-runs/separate-run.json",
+    JSON.stringify({
+      version: 1,
+      run_id: "separate-run",
+      status: "completed",
+      stage: "dev",
+      card: { id: "PM-900", title: "Separate" },
+      started_at: "2026-06-23T10:00:00.000Z",
+      ended_at: "2026-06-23T10:05:00.000Z",
+    })
+  );
+  t.after(() => {
+    fs.rmSync(source.root, { recursive: true, force: true });
+    fs.rmSync(knowledgeRoot, { recursive: true, force: true });
+  });
+  const pmStateDir = path.join(source.root, ".pm");
+  const snapshot = buildOperationalSnapshot(source.root, {
+    pmDir,
+    pmStateDir,
+    sourceDir: source.root,
+    now: NOW,
+  });
+  const board = buildBoardPayload({
+    pmDir,
+    pmStateDir,
+    sourceDir: source.root,
+    now: NOW,
+  });
+  assert.equal(snapshot.meta.pm_state_dir, pmStateDir);
+  assert.equal(snapshot.recent_delivery.runs[0].run_id, "separate-run");
+  assert.equal(board.recent_delivery.runs[0].run_id, "separate-run");
+});
+
 test("observation identity is independent of generated time and absolute project path", (t) => {
   const left = makeProject();
   const right = makeProject();

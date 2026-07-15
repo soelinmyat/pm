@@ -223,7 +223,32 @@ test("setup creates .gitignore with *.local-conflict", (t) => {
   assert.ok(gitignore.includes("*.local-conflict"));
 });
 
-test("setup returns error for nonexistent pm directory", (t) => {
+test("journaled setup commits the managed ignore file in an existing history", (t) => {
+  const remote = withBareRemote();
+  const { pmDir, dotPm, cleanup } = withTempProject({ "pm/strategy.md": "# Strategy\n" });
+  t.after(() => {
+    cleanup();
+    remote.cleanup();
+  });
+  gitExec("git init -b main", { cwd: pmDir });
+  gitExec("git add strategy.md && git commit -m initial", { cwd: pmDir });
+  const { runSyncEffect } = require(KB_SYNC_GIT_PATH);
+  const result = runSyncEffect({
+    mode: "setup",
+    pmDir,
+    dotPmDir: dotPm,
+    remoteUrl: remote.url,
+    authorityActions: ["configure_sync"],
+  });
+  assert.equal(result.state, "verified", JSON.stringify(result));
+  assert.equal(gitExec("git status --porcelain", { cwd: pmDir }).toString().trim(), "");
+  assert.match(
+    gitExec("git show origin/main:.gitignore", { cwd: pmDir }).toString(),
+    /local-conflict/
+  );
+});
+
+test("setup returns error for nonexistent pm directory", () => {
   const { setup } = require(KB_SYNC_GIT_PATH);
   const result = setup("/nonexistent/path/pm", "https://example.com/repo.git");
 
@@ -314,7 +339,7 @@ test("clone pulls remote content into pm/", (t) => {
   srcCleanup();
 
   // Now clone into a fresh project
-  const { root, pmDir, cleanup } = withTempProject({});
+  const { pmDir, cleanup } = withTempProject({});
   t.after(() => {
     cleanup();
     remote.cleanup();
@@ -353,7 +378,7 @@ test("clone fails when pm/ already has content", (t) => {
 // ---------------------------------------------------------------------------
 
 test("push commits and pushes new files", (t) => {
-  const { pmDir, dotPm, cleanup } = withTempProject({
+  const { pmDir, cleanup } = withTempProject({
     "pm/strategy.md": "# Strategy\n",
   });
   const remote = withBareRemote();
@@ -724,6 +749,7 @@ test("journaled push observes and reuses a verified outcome before another mutat
   const remote = withBareRemote();
   const { pmDir, dotPm, cleanup } = withTempProject({ "pm/strategy.md": "# Strategy\n" });
   const { setup, runSyncEffect } = require(KB_SYNC_GIT_PATH);
+  const { serializationLockPath } = require("../scripts/lib/operational-effect-journal.js");
   assert.equal(setup(pmDir, remote.url).ok, true);
   fs.writeFileSync(path.join(pmDir, "new.md"), "# New\n");
   t.after(() => {
@@ -757,8 +783,13 @@ test("journaled push observes and reuses a verified outcome before another mutat
   assert.deepEqual(statusRecord.errors, []);
   assert.equal(statusRecord.effect_id, first.effect_id);
 
+  const lockPath = serializationLockPath(dotPm, {
+    resource: "knowledge-base-git",
+    repository: "pm",
+  });
+  fs.mkdirSync(path.dirname(lockPath), { recursive: true });
   fs.writeFileSync(
-    `${first.journal_path}.lock`,
+    lockPath,
     JSON.stringify({
       pid: process.pid,
       token: "live-test-lock",
@@ -766,7 +797,7 @@ test("journaled push observes and reuses a verified outcome before another mutat
     })
   );
   const blocked = runSyncEffect({ ...options, lockTimeoutMs: 0 });
-  fs.rmSync(`${first.journal_path}.lock`);
+  fs.rmSync(lockPath);
   assert.equal(blocked.state, "blocked");
   assert.equal(blocked.errors.length, 1);
   statusRecord = JSON.parse(fs.readFileSync(path.join(dotPm, "sync-status.json"), "utf8"));

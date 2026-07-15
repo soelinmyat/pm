@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { spawn } = require("node:child_process");
 
 const { applyConfigEffect, readConfig } = require("../scripts/config-effect.js");
 
@@ -18,6 +19,32 @@ function project(t) {
   );
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   return { root, configPath };
+}
+
+function childResult(child) {
+  return new Promise((resolve, reject) => {
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => (stdout += chunk));
+    child.stderr.on("data", (chunk) => (stderr += chunk));
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      if (code !== 0) reject(new Error(stderr));
+      else resolve(JSON.parse(stdout));
+    });
+  });
+}
+
+function waitFor(filePath) {
+  return new Promise((resolve, reject) => {
+    const deadline = Date.now() + 3000;
+    const poll = () => {
+      if (fs.existsSync(filePath)) resolve();
+      else if (Date.now() >= deadline) reject(new Error(`timed out waiting for ${filePath}`));
+      else setTimeout(poll, 10);
+    };
+    poll();
+  });
 }
 
 test("config effect preserves unrelated fields and returns a verified private receipt", (t) => {
@@ -69,6 +96,43 @@ test("config preimage drift blocks instead of overwriting concurrent changes", (
   const current = readConfig(value.configPath);
   assert.equal(current.concurrent, "preserve me");
   assert.equal(current.integrations, undefined);
+});
+
+test("differently keyed config effects serialize and preserve both updates", async (t) => {
+  const value = project(t);
+  const markerPath = path.join(value.root, "first-started");
+  const releasePath = path.join(value.root, "release");
+  const worker = path.join(__dirname, "fixtures", "config-effect-worker.js");
+  const first = childResult(
+    spawn(
+      process.execPath,
+      [worker, value.root, "integrations.linear.enabled", "left", markerPath, releasePath],
+      {
+        stdio: ["ignore", "pipe", "pipe"],
+      }
+    )
+  );
+  await waitFor(markerPath);
+  const second = childResult(
+    spawn(
+      process.execPath,
+      [worker, value.root, "integrations.github.enabled", "right", markerPath, releasePath],
+      {
+        stdio: ["ignore", "pipe", "pipe"],
+      }
+    )
+  );
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(readConfig(value.configPath).integrations, undefined);
+  fs.writeFileSync(releasePath, "release");
+  const results = await Promise.all([first, second]);
+  assert.deepEqual(
+    results.map((result) => result.state),
+    ["verified", "verified"]
+  );
+  const config = readConfig(value.configPath);
+  assert.equal(config.integrations.linear.enabled, "left");
+  assert.equal(config.integrations.github.enabled, "right");
 });
 
 test("config field paths reject prototype keys and malformed segments", (t) => {

@@ -464,9 +464,10 @@ function runLoopControlEffect(pmDir, stopped, options = {}) {
     effect: stopped ? "stop-loop" : "resume-loop",
     authorityAction: "control_loop",
     authorityActions: options.authorityActions,
+    serializationScope: { resource: "loop-control", file: "pm/loop/STOP" },
     target: { control: "pm/loop/STOP", authoritative: "git-upstream" },
     intent: { stopped, request_key: options.requestKey || null },
-    precondition: { local_stopped: fs.existsSync(killSwitchFilePath(resolvedPmDir)) },
+    precondition: () => ({ local_stopped: fs.existsSync(killSwitchFilePath(resolvedPmDir)) }),
     recovery: { code: "inspect-loop-control-effect", command: "/pm:loop status" },
     observe,
     mutate() {
@@ -493,7 +494,7 @@ function observeScheduler(generated, options = {}) {
       execFileSync("launchctl", ["print", `gui/${process.getuid()}/${generated.label}`], {
         stdio: "ignore",
       });
-    } catch (error) {
+    } catch {
       return { state: "absent", safe_to_retry: true, reason: "launchd job is not loaded" };
     }
     return { state: "verified", receipt: { kind: "launchd", content_sha256: contentHash } };
@@ -520,12 +521,13 @@ function runSchedulerInstallEffect(generated, intervalMinutes, options = {}) {
     effect: "install-loop-scheduler",
     authorityAction: "install_loop_scheduler",
     authorityActions: options.authorityActions,
+    serializationScope: { resource: "loop-scheduler", scheduler: generated.kind },
     target: { scheduler: generated.kind, identity: generated.label || "pm-loop-cron" },
     intent: {
       interval_minutes: intervalMinutes,
       content_sha256: sha256(generated.content),
     },
-    precondition: { observed_state: observe().state },
+    precondition: () => ({ observed_state: observe().state }),
     recovery: { code: "inspect-loop-scheduler-effect", command: "/pm:loop status" },
     observe,
     mutate() {

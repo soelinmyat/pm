@@ -144,7 +144,8 @@ function setup(pmDir, remoteUrl, opts = {}) {
 
   // Create .gitignore for pm-internal files and common OS/IDE noise that shouldn't sync
   const gitignorePath = path.join(pmDir, ".gitignore");
-  if (!fs.existsSync(gitignorePath)) {
+  const createdGitignore = !fs.existsSync(gitignorePath);
+  if (createdGitignore) {
     fs.writeFileSync(
       gitignorePath,
       ["*.local-conflict", ".DS_Store", "Thumbs.db", ".trash/", ".idea/", ".vscode/", ""].join("\n")
@@ -158,6 +159,15 @@ function setup(pmDir, remoteUrl, opts = {}) {
     const commit = runSafe('git commit -m "Initial KB commit"', { cwd: pmDir });
     if (!commit.ok && !commit.error.includes("nothing to commit")) {
       return { ok: false, error: `initial commit failed: ${commit.error}` };
+    }
+  } else if (createdGitignore) {
+    const addIgnore = runGitSafe(["add", "--", ".gitignore"], pmDir);
+    if (!addIgnore.ok) return { ok: false, error: `git add .gitignore failed: ${addIgnore.error}` };
+    const commitIgnore = runSafe('git commit -m "Configure KB sync ignores" -- .gitignore', {
+      cwd: pmDir,
+    });
+    if (!commitIgnore.ok) {
+      return { ok: false, error: `gitignore commit failed: ${commitIgnore.error}` };
     }
   }
 
@@ -559,7 +569,7 @@ function runSyncEffect(options) {
     throw new Error("setup and clone effects require a valid remote URL");
   }
   const expectedRemoteHash = remoteUrl ? sha256(remoteUrl) : localGitState(pmDir).remote_url_sha256;
-  const before = localGitState(pmDir);
+  let before;
   const recovery = { code: "inspect-sync-effect", command: "/pm:sync status" };
   const operations = { setup, clone, sync, push, pull };
   const requiresFreshRemoteObservation = mode === "pull" || mode === "sync";
@@ -572,13 +582,17 @@ function runSyncEffect(options) {
     effect: `${mode}-knowledge-base`,
     authorityAction: SYNC_AUTHORITY[mode],
     authorityActions: options.authorityActions,
+    serializationScope: { resource: "knowledge-base-git", repository: "pm" },
     target: {
       backend: "git",
       repository: "pm-knowledge-base",
       remote_url_sha256: expectedRemoteHash,
     },
     intent: { mode, branch: "main" },
-    precondition: before,
+    precondition() {
+      before = localGitState(pmDir);
+      return before;
+    },
     recovery,
     lockTimeoutMs: options.lockTimeoutMs,
     observe() {

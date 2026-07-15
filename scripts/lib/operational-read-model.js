@@ -285,11 +285,13 @@ function buildOperationalSnapshot(projectDir, options = {}) {
     options.board ||
     buildLoopBoard(projectDir, {
       pmDir: options.pmDir,
+      pmStateDir: options.pmStateDir,
       sourceDir: options.sourceDir,
       now,
       includeLocal: false,
     });
-  const { pmDir, pmStateDir, sourceDir } = board.meta;
+  const { pmDir, sourceDir } = board.meta;
+  const pmStateDir = path.resolve(options.pmStateDir || board.meta.pmStateDir);
   const roots = [
     ["pm", pmDir],
     ["state", pmStateDir],

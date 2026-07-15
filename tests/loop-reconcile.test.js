@@ -588,6 +588,30 @@ test("reconciliation apply has a durable receipt and replays from the resulting 
   assert.equal(fs.statSync(first.journal_path).mode & 0o777, 0o600);
 });
 
+test("reconciliation refuses an executor result from a different frozen plan", (t) => {
+  const fixture = makeFixture(t);
+  const result = runReconcileEffect(fixture.project, {
+    pmDir: fixture.pmDir,
+    pmStateDir: path.join(fixture.project, ".pm"),
+    now: NOW,
+    expectedRepository: "openai/pm",
+    expectedBase: "main",
+    inspectPullRequest: mergedInspector,
+    authorityActions: ["reconcile_loop_state"],
+    execute(_projectDir, options) {
+      return {
+        ...structuredClone(options.plan),
+        ok: true,
+        pm_head_oid: "f".repeat(40),
+        applied_changes: [],
+      };
+    },
+  });
+  assert.equal(result.state, "blocked", JSON.stringify(result));
+  assert.equal(result.recovery.code, "loop-reconcile-plan-changed");
+  assert.equal(result.verified_receipt, null);
+});
+
 test("apply pins the planned PM head and aborts when durable evidence changes", (t) => {
   const fixture = makeFixture(t);
   const result = runReconcile(fixture.project, {

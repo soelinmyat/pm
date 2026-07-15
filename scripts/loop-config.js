@@ -535,9 +535,10 @@ function runLoopConfigEffect(options) {
       effect: "initialize-loop-config",
       authorityAction,
       authorityActions: options.authorityActions,
+      serializationScope: { resource: "loop-config", file: "pm/loop/config.json" },
       target: { file: "pm/loop/config.json", config_sha256: desiredHash },
       intent: { action, force },
-      precondition: { config_sha256: currentHash },
+      precondition: () => ({ config_sha256: fileHash(loopConfigPath) }),
       recovery,
       observe,
       mutate() {
@@ -548,7 +549,6 @@ function runLoopConfigEffect(options) {
 
   const config = loadLoopConfig(pmDir);
   const desiredApprovalHash = executionConfigHash(config);
-  const beforeHash = fileHash(approvalPath);
   const observe = () => {
     let host;
     try {
@@ -573,9 +573,10 @@ function runLoopConfigEffect(options) {
     effect: "approve-loop-host",
     authorityAction,
     authorityActions: options.authorityActions,
+    serializationScope: { resource: "loop-host-approval", file: ".pm/loop-host.json" },
     target: { file: ".pm/loop-host.json", execution_config_hash: desiredApprovalHash },
     intent: { action, execution_config_hash: desiredApprovalHash },
-    precondition: { host_config_sha256: beforeHash },
+    precondition: () => ({ host_config_sha256: fileHash(approvalPath) }),
     recovery,
     observe,
     mutate() {

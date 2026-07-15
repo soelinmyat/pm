@@ -200,6 +200,7 @@ function buildBoardPayload(options = {}) {
       options.snapshot ||
       buildOperationalSnapshot(path.dirname(pmDir), {
         pmDir,
+        pmStateDir: options.pmStateDir,
         sourceDir: options.sourceDir,
         now,
       });
@@ -508,7 +509,7 @@ function createServer(serverOptions = {}) {
           sendJson(res, 500, { error: err.message });
           return;
         }
-        if (!result.error) {
+        if (result.sync?.state === "verified") {
           killSwitchSync = result.sync;
           toggleRequests.set(intent.key, result);
           if (toggleRequests.size > 128) toggleRequests.delete(toggleRequests.keys().next().value);

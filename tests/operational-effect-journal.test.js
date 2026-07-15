@@ -11,6 +11,7 @@ const {
   createEffectPlan,
   effectJournalPath,
   runOperationalEffect,
+  serializationLockPath,
 } = require("../scripts/lib/operational-effect-journal.js");
 const { writeJsonAtomic } = require("../scripts/lib/atomic-file.js");
 
@@ -27,6 +28,7 @@ function input(root) {
     effect: "update-config",
     authorityAction: "update_config",
     authorityActions: ["update_config"],
+    serializationScope: { resource: "config", file: ".pm/config.json" },
     target: { file: ".pm/config.json", field: "integrations.linear.enabled" },
     intent: { value_sha256: `sha256:${"a".repeat(64)}` },
     precondition: { config_sha256: `sha256:${"b".repeat(64)}` },
@@ -98,6 +100,7 @@ test("a verified effect is observed and reused without replay", (t) => {
   assert.equal(first.state, "verified");
   assert.equal(second.state, "verified");
   assert.equal(second.replayed, true);
+  assert.deepEqual(second.verified_receipt, first.verified_receipt);
   assert.equal(mutations, 1);
   assert.equal(fs.statSync(first.journal_path).mode & 0o777, 0o600);
 });
@@ -229,13 +232,46 @@ test("concurrent processes share one mutation attempt and the contender replays 
   assert.equal(fs.readFileSync(mutationPath, "utf8").trim().split("\n").length, 1);
 });
 
+test("different effect identities serialize on one mutable resource", async (t) => {
+  const root = stateDir(t);
+  const markerPath = path.join(root, "mutation-started");
+  const releasePath = path.join(root, "release");
+  const mutationPath = path.join(root, "mutations.log");
+  const workerPath = path.join(__dirname, "fixtures", "operational-effect-worker.js");
+  const args = [workerPath, root, markerPath, releasePath, mutationPath];
+  const first = collectChild(
+    spawn(process.execPath, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, PM_TEST_EFFECT_VALUE: "left" },
+    })
+  );
+  await waitForFile(markerPath);
+  const second = collectChild(
+    spawn(process.execPath, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, PM_TEST_EFFECT_VALUE: "right" },
+    })
+  );
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.deepEqual(fs.readFileSync(mutationPath, "utf8").trim().split("\n"), ["left"]);
+  fs.writeFileSync(releasePath, "release");
+  const results = await Promise.all([first, second]);
+  assert.deepEqual(
+    results.map((result) => result.state),
+    ["verified", "verified"]
+  );
+  assert.deepEqual(fs.readFileSync(mutationPath, "utf8").trim().split("\n"), ["left", "right"]);
+});
+
 test("a lock left by a dead process fails closed with explicit recovery", (t) => {
   const root = stateDir(t);
   const plan = createEffectPlan(input(root));
   const journalPath = effectJournalPath(root, plan.effect_id);
   fs.mkdirSync(path.dirname(journalPath), { recursive: true });
+  const lockPath = serializationLockPath(root, input(root).serializationScope);
+  fs.mkdirSync(path.dirname(lockPath), { recursive: true });
   fs.writeFileSync(
-    `${journalPath}.lock`,
+    lockPath,
     JSON.stringify({ pid: 2147483647, acquired_at: "2026-07-15T00:00:00.000Z" })
   );
   let mutations = 0;
@@ -254,7 +290,7 @@ test("a lock left by a dead process fails closed with explicit recovery", (t) =>
   assert.equal(result.state, "blocked");
   assert.equal(result.recovery.code, "effect-lock-recovery-required");
   assert.equal(mutations, 0);
-  assert.equal(fs.existsSync(`${journalPath}.lock`), true);
+  assert.equal(fs.existsSync(lockPath), true);
 });
 
 test("multiple contenders never mutate through one dead lock", async (t) => {
@@ -271,8 +307,13 @@ test("multiple contenders never mutate through one dead lock", async (t) => {
   });
   const journalPath = effectJournalPath(root, plan.effect_id);
   fs.mkdirSync(path.dirname(journalPath), { recursive: true });
+  const lockPath = serializationLockPath(root, {
+    resource: "fixture",
+    file: "fixture",
+  });
+  fs.mkdirSync(path.dirname(lockPath), { recursive: true });
   fs.writeFileSync(
-    `${journalPath}.lock`,
+    lockPath,
     JSON.stringify({ pid: 2147483647, token: "dead-owner", acquired_at: "2026-07-15T00:00:00Z" })
   );
   const markerPath = path.join(root, "mutation-started");
