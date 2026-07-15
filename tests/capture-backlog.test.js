@@ -412,6 +412,7 @@ test("request-file captures adversarial text literally without shell evaluation"
       outcome: "Keep $() and backticks literal",
     })
   );
+  fs.chmodSync(requestPath, 0o600);
   const { stdout } = await execFileAsync(
     process.execPath,
     [captureCli, "--pm-dir", pmDir, "--request-file", requestPath],
@@ -421,6 +422,24 @@ test("request-file captures adversarial text literally without shell evaluation"
   const parsed = parseFrontmatter(fs.readFileSync(receipt.filePath, "utf8"));
   assert.equal(parsed.data.title, title);
   assert.equal(fs.existsSync(sentinel), false);
+});
+
+test("request-file input must be private and descriptor-bounded", async (t) => {
+  const { pmDir, cleanup } = makeTmpPm();
+  t.after(cleanup);
+  const requestPath = path.join(path.dirname(pmDir), "public-request.json");
+  fs.writeFileSync(
+    requestPath,
+    JSON.stringify({ action: "create", kind: "task", title: "Private request" }),
+    { mode: 0o644 }
+  );
+  fs.chmodSync(requestPath, 0o644);
+
+  await assert.rejects(
+    execFileAsync(process.execPath, [captureCli, "--pm-dir", pmDir, "--request-file", requestPath]),
+    /request-file path is not a restrictive regular file/
+  );
+  assert.deepEqual(fs.readdirSync(path.join(pmDir, "backlog")), []);
 });
 
 test("JS APIs reject unknown keys and enrich validates the complete existing artifact", (t) => {
@@ -490,6 +509,19 @@ test("enrichment uses expected content identity and preserves capture policy", (
     parseFrontmatter(fs.readFileSync(enriched.filePath, "utf8")).data.priority,
     "critical"
   );
+});
+
+test("bug enrichment preserves the kind-owned label when adding extras", (t) => {
+  const { pmDir, cleanup } = makeTmpPm();
+  t.after(cleanup);
+  const captured = captureBacklogItem(pmDir, { kind: "bug", title: "Keep bug label" });
+  enrichBacklogItem(pmDir, captured.slug, {
+    kind: "bug",
+    expectedSha256: captured.content_sha256,
+    labels: ["customer-impact"],
+  });
+  const parsed = parseFrontmatter(fs.readFileSync(captured.filePath, "utf8"));
+  assert.deepEqual(parsed.data.labels, ["bug", "customer-impact"]);
 });
 
 test("wrong-kind enrichment preserves the exact captured bytes", (t) => {

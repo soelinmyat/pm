@@ -15,6 +15,7 @@ const { parseFrontmatter } = require("./kb-frontmatter.js");
 const { serializeFrontmatter, todayIso } = require("./kb-utils.js");
 const { acquireOwnedLock } = require("./lib/owned-lock.js");
 const { readProjectInput, writeProjectTextAtomic } = require("./lib/project-file.js");
+const { readBoundedRegularFile: readSafeRegularFile } = require("./loop-safe-file.js");
 
 const VALID_KINDS = new Set(["task", "bug"]);
 const VALID_PRIORITIES = new Set(["critical", "high", "medium", "low"]);
@@ -226,7 +227,7 @@ function validateCreateInput(opts) {
     }
   );
   const priority = validatePriority(opts.priority ?? defaultPriorityForKind(kind));
-  const labels = validateLabels(opts.labels ?? defaultLabelsForKind(kind));
+  const labels = validateKindLabels(kind, opts.labels ?? defaultLabelsForKind(kind));
   const id = opts.id === undefined ? undefined : validateId(opts.id);
   const body = validateBody(opts.body ?? "", kind);
   return { kind, title, slug, outcome, priority, labels, id, body };
@@ -254,7 +255,7 @@ function validateEnrichInput(slug, opts) {
         ? undefined
         : boundedText(opts.outcome, "outcome", MAX_OUTCOME_CHARS, { required: true }),
     priority: opts.priority === undefined ? undefined : validatePriority(opts.priority),
-    labels: opts.labels === undefined ? undefined : validateLabels(opts.labels),
+    labels: opts.labels === undefined ? undefined : validateKindLabels(kind, opts.labels),
     body: opts.body === undefined ? undefined : validateBody(opts.body, kind),
   };
 }
@@ -316,6 +317,12 @@ function validateLabels(value) {
   );
   if (new Set(labels).size !== labels.length) throw new Error("labels must be unique");
   return labels;
+}
+
+function validateKindLabels(kind, value) {
+  const labels = validateLabels(value);
+  const required = defaultLabelsForKind(kind)[0];
+  return labels.includes(required) ? labels : validateLabels([required, ...labels]);
 }
 
 function validateBody(value, kind) {
@@ -541,25 +548,25 @@ function receipt(action, published, slug) {
 }
 
 function readBodyFile(filePath) {
-  const absolute = path.resolve(filePath);
-  const stat = fs.lstatSync(absolute);
-  if (stat.isSymbolicLink() || !stat.isFile()) throw new Error("body-file must be a regular file");
-  if (stat.size > MAX_BODY_BYTES)
-    throw new Error(`body-file exceeds ${MAX_BODY_BYTES}-byte budget`);
-  const descriptor = fs.openSync(absolute, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
-  try {
-    const opened = fs.fstatSync(descriptor);
-    if (!opened.isFile() || opened.dev !== stat.dev || opened.ino !== stat.ino) {
-      throw new Error("body-file changed during validation");
+  const result = readSafeRegularFile(path.resolve(filePath), MAX_BODY_BYTES, "body-file", {
+    requirePrivate: false,
+  });
+  if (!result.ok) {
+    if (result.code === "body-file-unsafe-path") {
+      throw new Error("body-file must be a regular file");
     }
-    return fs.readFileSync(descriptor, "utf8");
-  } finally {
-    fs.closeSync(descriptor);
+    if (result.code === "body-file-too-large") {
+      throw new Error(`body-file exceeds ${MAX_BODY_BYTES}-byte budget`);
+    }
+    throw new Error(result.reason);
   }
+  return result.content.toString("utf8");
 }
 
 function readRequestFile(filePath) {
-  const raw = readBoundedRegularFile(filePath, MAX_REQUEST_BYTES, "request-file");
+  const result = readSafeRegularFile(path.resolve(filePath), MAX_REQUEST_BYTES, "request-file");
+  if (!result.ok) throw new Error(result.reason);
+  const raw = result.content.toString("utf8");
   let request;
   try {
     request = JSON.parse(raw);
@@ -570,23 +577,6 @@ function readRequestFile(filePath) {
     throw new Error("request-file must contain one JSON object");
   }
   return request;
-}
-
-function readBoundedRegularFile(filePath, maxBytes, label) {
-  const absolute = path.resolve(filePath);
-  const stat = fs.lstatSync(absolute);
-  if (stat.isSymbolicLink() || !stat.isFile()) throw new Error(`${label} must be a regular file`);
-  if (stat.size > maxBytes) throw new Error(`${label} exceeds ${maxBytes}-byte budget`);
-  const descriptor = fs.openSync(absolute, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
-  try {
-    const opened = fs.fstatSync(descriptor);
-    if (!opened.isFile() || opened.dev !== stat.dev || opened.ino !== stat.ino) {
-      throw new Error(`${label} changed during validation`);
-    }
-    return fs.readFileSync(descriptor, "utf8");
-  } finally {
-    fs.closeSync(descriptor);
-  }
 }
 
 function parseArgs(argv) {

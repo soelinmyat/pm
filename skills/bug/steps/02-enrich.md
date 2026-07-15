@@ -22,7 +22,7 @@ If the user provides answers, compose the complete three-section body when body 
 
 - `action: "enrich"` and `kind: "bug"`;
 - the Step 1 receipt `slug` and `expectedSha256`;
-- only requested `priority` and `labels` changes;
+- only requested `priority` changes and, when labels change, the required `bug` label plus every requested extra label;
 - the complete `body` when body content changes.
 
 Invoke the helper with `--request-file` and guarantee cleanup on success or failure. Do not interpolate user text into shell syntax or use Edit on the backlog Markdown. If the helper says the item changed since capture, stop and read the current item before offering a new refinement; never retry with a guessed hash.
