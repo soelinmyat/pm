@@ -14,7 +14,7 @@ Route session-start behavior and teach the runtime how to use PM skills. **Never
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions.
 Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
-**Workflow:** `using-pm` | **Telemetry steps:** `classify_intent`, `route`, `handoff`
+**Workflow:** `using-pm` | **Telemetry steps:** `classify-intent`, `route`, `handoff`
 
 ## Iron Law
 

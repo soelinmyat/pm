@@ -24,13 +24,12 @@ const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 const DEFAULT_MANIFEST_PATH = ".pm/dev-sessions/current.gates.json";
 const DEFAULT_REQUIRED_GATES = ["tdd", "design-critique", "qa", "review", "verification"];
-// "simplify" was absorbed into review in v1.9. The name stays valid only so
-// legacy sidecars carrying old rows don't hard-fail; passed/skipped/stale rows
-// are tolerated, failed/blocked rows are not. Single-gate --require calls are
-// incremental checks, never a substitute for the default full-gate run.
-const VALID_GATE_NAMES = new Set([...DEFAULT_REQUIRED_GATES, "simplify"]);
+// "simplify" was absorbed into Review in v1.9. It remains readable only as a
+// legacy manifest row; current callers cannot require or produce that gate.
+const VALID_REQUIRED_GATE_NAMES = new Set(DEFAULT_REQUIRED_GATES);
+const VALID_MANIFEST_GATE_NAMES = new Set([...DEFAULT_REQUIRED_GATES, "simplify"]);
 const VALID_STATUSES = new Set(["passed", "skipped", "failed", "blocked"]);
-const DEFAULT_ALLOW_SKIPPED_GATES = ["tdd", "simplify", "design-critique", "qa"];
+const DEFAULT_ALLOW_SKIPPED_GATES = ["tdd", "design-critique", "qa"];
 const NEVER_SKIPPABLE_GATES = new Set(["review", "verification"]);
 const VALID_REQUIRED_AUTHORITIES = new Set(["push_feature_branch", "create_pr", "merge"]);
 const REQUIRED_GATE_FIELDS = ["name", "status", "commit", "artifact", "reason", "checked_at"];
@@ -41,13 +40,9 @@ const ENVIRONMENT_SKIP_REASON =
   /(server|environment|db|database|auth|login|seed|screenshot|artifact|can't start|cannot start|failed to start|not running)/i;
 const TDD_SKIP_REASON =
   /(docs-only|documentation-only|config-only|generated-only|lockfile-only|non-behavior|no behavior change|no runtime behavior)/i;
-const SIMPLIFY_SKIP_REASON =
-  /(xs size|kind (task|bug) uses review gate|no code changes|no runtime-source changes|no reviewable source)/i;
 const PM_RUNTIME_PATH_RE =
   /^(commands|skills|templates|hooks|scripts|tests|references|agents|\.githooks)\//;
 const PM_RUNTIME_FILE_RE = /^(plugin\.config\.json|\.claude-plugin\/|\.codex-plugin\/)/;
-const CODE_PATH_RE =
-  /\.(js|mjs|cjs|ts|tsx|jsx|py|rb|go|rs|java|kt|kts|swift|php|cs|cpp|cxx|cc|c|h|hpp|m|mm|sh|bash|zsh|fish|ps1|sql)$/i;
 const DOC_OR_CONFIG_PATH_RE =
   /(^|\/)(README|CHANGELOG|LICENSE)(\.[^/]*)?$|(^|\/)docs\/|\.md$|\.mdx$|\.txt$|\.ya?ml$|\.json$|\.toml$|\.ini$|\.env(\.|$)|(^|\/)(package-lock|pnpm-lock|yarn\.lock|Cargo\.lock|Gemfile\.lock|poetry\.lock|uv\.lock|composer\.lock)$/i;
 const GENERATED_PATH_RE =
@@ -131,11 +126,10 @@ function checkGateManifest(manifest, opts = {}) {
     );
   }
 
-  const legacySimplifyTolerated = !requiredGates.includes("simplify");
   const byName = new Map();
   manifest.gates.forEach((gate, index) => {
     const where = `${manifestPath}#gates[${index}]`;
-    const legacyRow = legacySimplifyTolerated && gate?.name === "simplify";
+    const legacyRow = gate?.name === "simplify";
     validateGateRow(gate, where, issues, { artifactRoot, skipArtifactExistence: legacyRow });
     if (!gate || typeof gate !== "object" || Array.isArray(gate)) return;
     if (byName.has(gate.name)) {
@@ -150,7 +144,7 @@ function checkGateManifest(manifest, opts = {}) {
   });
 
   for (const name of requiredGates) {
-    if (!VALID_GATE_NAMES.has(name)) {
+    if (!VALID_REQUIRED_GATE_NAMES.has(name)) {
       issues.push(issue(manifestPath, `unknown required gate ${name}`));
       continue;
     }
@@ -675,7 +669,7 @@ function validateGateRow(gate, where, issues, context = {}) {
   for (const field of REQUIRED_GATE_FIELDS) {
     if (!(field in gate)) issues.push(issue(where, `missing gate field ${field}`));
   }
-  if (!VALID_GATE_NAMES.has(gate.name)) {
+  if (!VALID_MANIFEST_GATE_NAMES.has(gate.name)) {
     issues.push(issue(where, `invalid gate name ${gate.name}`));
   }
   if (!VALID_STATUSES.has(gate.status)) {
@@ -722,9 +716,6 @@ function validateRequiredSkipReason(gate, manifestPath, context, issues) {
     validateTddSkipReason(reason, manifestPath, context, issues);
     return;
   }
-  if (gate.name === "simplify") {
-    validateSimplifySkipReason(reason, manifestPath, context, issues);
-  }
 }
 
 function validateUiSkipReason(gate, reason, manifestPath, context, issues) {
@@ -761,32 +752,6 @@ function validateTddSkipReason(reason, manifestPath, context, issues) {
   }
 }
 
-function validateSimplifySkipReason(reason, manifestPath, context, issues) {
-  if (!SIMPLIFY_SKIP_REASON.test(reason)) {
-    issues.push(issue(manifestPath, "required gate simplify skip reason is not allowed"));
-  }
-  if (/xs size/i.test(reason) && context.sessionSize !== "xs") {
-    issues.push(issue(manifestPath, "required gate simplify XS skip requires manifest size XS"));
-  }
-  const kindMatch = reason.match(/kind (task|bug) uses review gate/i);
-  if (kindMatch && context.sessionKind !== kindMatch[1].toLowerCase()) {
-    issues.push(
-      issue(manifestPath, `required gate simplify kind skip requires manifest kind ${kindMatch[1]}`)
-    );
-  }
-  const noCodeReason = /no code changes|no runtime-source changes|no reviewable source/i.test(
-    reason
-  );
-  if (noCodeReason && context.changedFiles.some(isReviewableSourcePath)) {
-    issues.push(
-      issue(
-        manifestPath,
-        "required gate simplify cannot use no-code skip when runtime source files changed"
-      )
-    );
-  }
-}
-
 function hasUiImpact(changedFiles) {
   return changedFiles.some(isUiImpactPath);
 }
@@ -809,13 +774,6 @@ function isTddSkippablePath(file) {
   if (isPmRuntimePath(file)) return false;
   if (isUiImpactPath(file)) return false;
   return DOC_OR_CONFIG_PATH_RE.test(file) || GENERATED_PATH_RE.test(file);
-}
-
-function isReviewableSourcePath(file) {
-  if (isPmRuntimePath(file)) return true;
-  if (GENERATED_PATH_RE.test(file)) return false;
-  if (isUiImpactPath(file)) return true;
-  return CODE_PATH_RE.test(file);
 }
 
 function isPmRuntimePath(file) {
@@ -911,6 +869,9 @@ function parseArgs(argv) {
     } else if (arg === "--allow-skip") {
       const gateNames = normalizeGateNames(requireValue(argv, ++index, arg));
       for (const gateName of gateNames) {
+        if (!VALID_REQUIRED_GATE_NAMES.has(gateName)) {
+          throw new Error(`${arg} includes unknown current gate ${gateName}`);
+        }
         if (NEVER_SKIPPABLE_GATES.has(gateName)) {
           throw new Error(`${arg} cannot include non-skippable gate ${gateName}`);
         }

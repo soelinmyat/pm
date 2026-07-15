@@ -1,6 +1,6 @@
 ---
 name: bug
-description: "File a bug report (regression, unexpected behavior, something broken) into the backlog."
+description: "Atomically file a bug report with observed, expected, and reproduction context, then route it directly to pm:dev."
 argument-hint: "<title>"
 ---
 

@@ -26,20 +26,44 @@ node -e 'const {writeNote}=require(process.env.CLAUDE_PLUGIN_ROOT+"/scripts/note
 
 ## Tasks and bugs — capture-backlog.js
 
-```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/capture-backlog.js \
-  --pm-dir {pm_dir} --kind task|bug --title "<title>" \
-  [--outcome "<one sentence>"] [--priority medium] [--labels a,b] [--body-file <path>]
+Task and Bug share one mechanical boundary, not one policy. The helper validates bounded inputs, rejects symlinked destinations, owns a backlog-wide lock across collision checking and ID allocation, publishes with exclusive atomic creation, validates the exact published bytes, and returns a content-bound receipt. Never pre-allocate an ID, hand-compose frontmatter, or write the destination directly.
+
+Write all user-controlled values to a private JSON request with the Write tool, then pass only paths through the shell:
+
+```json
+{
+  "action": "create",
+  "kind": "task",
+  "title": "Bump the parser dependency",
+  "outcome": "The parser uses the supported release",
+  "priority": "medium",
+  "labels": ["chore"],
+  "body": "Optional context"
+}
 ```
 
-The helper allocates the next `PM-NNN` id (scanning `{pm_dir}/backlog/*.md`), slugifies the title, and writes validated frontmatter (`type: backlog`, `status: proposed`, `created`/`updated` today). It refuses to overwrite an existing `{slug}.md`, and prints `{"filePath","id","slug"}`. Defaults: `--kind task` → `priority: medium`, `labels: [chore]`; `--kind bug` → `labels: [bug]` (pass `--priority high` — bugs are urgent by default, downgrade in enrich).
+```bash
+REQUEST_FILE=$(mktemp)
+trap 'rm -f "$REQUEST_FILE"' EXIT
+# Use the Write tool to write the JSON object to $REQUEST_FILE.
+node ${CLAUDE_PLUGIN_ROOT}/scripts/capture-backlog.js \
+  --pm-dir {pm_dir} --request-file "$REQUEST_FILE"
+```
+
+Omit `priority`, `labels`, and `body` to use alias defaults. Never interpolate title, outcome, labels, or body into a command string. The helper rejects unknown request fields and unsafe or oversized request files.
+
+The helper allocates the next `PM-NNN` ID and checks slug/ID uniqueness from the same locked snapshot. It writes validated frontmatter (`type: backlog`, `status: proposed`, `created`/`updated` today), refuses to overwrite an existing `{slug}.md`, and prints `{"action","filePath","id","slug","content_sha256"}`. Defaults: `--kind task` → `priority: medium`, `labels: [chore]`; `--kind bug` → `priority: high`, `labels: [bug]`.
 
 Bugs carry a body with three sections in order — `## Observed`, `## Expected`, `## Reproduction`. Write a stub (`_Pending — add before /pm:dev._`) under any the user skips.
 
-**Body safety:** never pass a bug body through a heredoc — a user's reproduction text can contain a line matching the sentinel and terminate it early. Create the file with the Write tool (`BODY_FILE=$(mktemp)`), pass `--body-file "$BODY_FILE"`, then `rm -f "$BODY_FILE"`.
+**Body safety:** put multiline content in the JSON `body` field through the Write tool; never pass it through a heredoc or interpolate it into shell syntax. The helper rejects symlinked, non-regular, or oversized request files and bounds the decoded body.
 
 ## Enrichment (optional)
 
 Capture succeeds first, then offer refinement — the saved item is never lost.
 - **Notes:** ask 2–4 follow-up questions (who / severity / context / compare) and append them under the same `### timestamp` entry; do not create a new entry or modify `note_count`/`digested_through`.
-- **Tasks/bugs:** adjust `priority`/`labels` (and fill a pending `## Reproduction`) via Edit, and bump `updated`.
+- **Tasks/bugs:** keep the create receipt and use its observed hash:
+
+  Write a new private request and invoke the same command. The request contains `action: "enrich"`, `kind`, `slug`, `expectedSha256`, and only the requested `outcome`, `priority`, `labels`, or `body` changes.
+
+  The helper preserves identity and creation fields, checks the expected kind, rejects a stale hash instead of overwriting concurrent work, atomically replaces the file, validates the exact intended bytes, and returns a new receipt. Never enrich via direct Edit. When a Bug body changes, supply all three ordered sections; the helper restores pending stubs for any omitted section.

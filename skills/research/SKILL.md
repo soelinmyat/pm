@@ -14,7 +14,7 @@ Three modes: **landscape** (market overview and positioning map), **competitors*
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`. Functional references (`capability-gates.md`, `kb-search.md`) are loaded by the steps that need them.
 Read `${CLAUDE_PLUGIN_ROOT}/references/evidence-system.md` before durable writeback; it defines source registration, portable provenance, citation binding, and incremental legacy upgrades.
 
-**Workflow:** `research` | **Telemetry steps:** `note_digest`, `mode_routing`, `landscape`, `competitor`, `topic`
+**Workflow:** `research` | **Telemetry steps:** `note-digest`, `mode-routing`, `landscape`, `competitor`, `topic`
 
 ## Iron Law
 

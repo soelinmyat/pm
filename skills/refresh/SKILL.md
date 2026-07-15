@@ -14,7 +14,7 @@ Refresh patches. Research creates. Don't confuse them.
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
 Read `${CLAUDE_PLUGIN_ROOT}/references/evidence-system.md` before auditing; Evidence v2 is the authority for freshness snapshots, revisions, and refresh conflict handling.
 
-**Workflow:** `refresh` | **Telemetry steps:** `mode_routing`, `audit`, `execute`, `consolidation`, `summary`
+**Workflow:** `refresh` | **Telemetry steps:** `mode-routing`, `audit`, `execute`, `consolidation`, `summary`
 
 ## Iron Law
 

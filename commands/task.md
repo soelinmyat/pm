@@ -1,6 +1,6 @@
 ---
 name: task
-description: "Capture a lightweight task (chore, version bump, small cleanup) into the backlog."
+description: "Atomically capture a lightweight task (chore, version bump, dependency update, small cleanup) and route it directly to pm:dev."
 argument-hint: "<title>"
 ---
 

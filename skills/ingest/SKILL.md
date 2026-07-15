@@ -12,7 +12,7 @@ Import customer evidence into PM.
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
 Read `${CLAUDE_PLUGIN_ROOT}/references/evidence-system.md` before normalization; it is the shared executable provenance and privacy contract.
 
-**Workflow:** `ingest` | **Telemetry steps:** `intake`, `normalize`, `synthesize`, `route_insights`, `report`
+**Workflow:** `ingest` | **Telemetry steps:** `intake`, `normalize`, `synthesize`, `route-insights`, `report`
 
 ## Iron Law
 

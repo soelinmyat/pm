@@ -13,7 +13,7 @@ Think is the conversation you have *before* deciding whether to build. It produc
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions. Output follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
 
-**Workflow:** `think` | **Telemetry steps:** `capture`, `ground`, `reframe`, `explore`, `pressure_test`, `synthesize`
+**Workflow:** `think` | **Telemetry steps:** `capture`, `ground`, `reframe`, `explore`, `pressure-test`, `synthesize`
 
 ## Iron Law
 

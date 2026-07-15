@@ -1,7 +1,7 @@
 ---
 title: "PM plugin master plan"
 created: 2026-07-13
-updated: 2026-07-14
+updated: 2026-07-15
 status: active
 owners:
   - pm-plugin
@@ -31,7 +31,8 @@ Completion means every shipped skill has an explicit contract, proportionate eva
 | v1.13.27 / Wave 6 | Resumable Ship and release transaction v2 | Released |
 | v1.13.28 / Wave 7 | Evidence provenance and conflict-safe refresh v2 | Released |
 | v1.13.29 / Wave 8 | Product reasoning and deterministic feature inventory v2 | Released |
-| vNext / Wave 9 | Canonical operational read model and effect journals | In progress |
+| v1.13.39 / Wave 9 | Canonical operational read model and effect journals | Released |
+| vNext / Wave 10 | Atomic capture, compatibility cleanup, and product polish | In progress |
 
 ## Operating laws
 
@@ -192,7 +193,7 @@ Improve `think`, `ideate`, `strategy`, and `features` without over-engineering t
 
 ### Wave 9 — Operational read models and effects
 
-**State:** in progress on `codex/operational-read-models-v2`. Detailed plan in `docs/plans/2026-07-14-operational-read-models-effects-v2-wave-9.md`.
+**State:** complete — merged in PR #359 at `387b0ce2f064324994c0534107c6ecd388d59d49` and released as `v1.13.39`. Detailed plan in `docs/plans/2026-07-14-operational-read-models-effects-v2-wave-9.md`.
 
 Align `start`, `list`, `board`, `setup`, `sync`, and `loop`:
 
@@ -205,6 +206,8 @@ Align `start`, `list`, `board`, `setup`, `sync`, and `loop`:
 **Exit:** status surfaces cannot disagree for the same snapshot; read-only commands remain effect-free; every mutation is authority-checked and resumable.
 
 ### Wave 10 — Capture aliases, compatibility, and product polish
+
+**State:** in progress on `codex/capture-compatibility-product-polish-v2`. Detailed plan in `docs/plans/2026-07-15-capture-compatibility-product-polish-wave-10.md`.
 
 Finish the remaining thin surfaces:
 
@@ -259,11 +262,12 @@ Do not duplicate the core matrix for aliases, redirects, or read-only projection
 
 ## Current concerns and decisions needed
 
-1. Wave 3B still requires explicit `push_feature_branch` and `create_pr` authority. No source work is blocked, but the release cannot be completed without those grants. `merge` remains a separate later decision.
-2. Wave 3B needed one bounded release-evidence refresh after its patch bump. That terminal pass is complete and must not be extended into another certification lineage; future waves prepare the version before final review.
-3. The current authoring rules are stronger than the plugin validator. Wave 4A should land before broad skill rewrites so regressions become executable rather than review conventions.
-4. Supporting skills should not inherit core-workflow ceremony. Their quality bar is contract clarity and artifact usefulness, not reviewer count.
+1. No implementation or delivery-authority blocker is open. The user has granted standing push, PR, and merge authority through completion of this plan.
+2. Wave 10 must preserve the Simplify install alias while removing every implication that it owns a current Dev phase or gate.
+3. Capture and note promotion now share ID-allocation state; concurrency, symlink, malformed-input, and stale-enrichment regressions must stay in the focused release suite.
+4. The final patch bump must precede frozen Review evidence, and the generated tag must be moved from the feature commit to the exact main merge commit.
+5. Completion remains evidence-based: do not mark this plan done until caches, hosted CI, merge/tag placement, and the final main audit all pass.
 
 ## Next action
 
-Land Wave 3B. Then implement Wave 4A as the first new branch: authoring validator, fixtures, machine-readable audit, and clustered remediation plan.
+Finish Wave 10 implementation and focused regression coverage, prepare the patch release, run the routed artifact/QA/Review gates, verify both installed workhorse copies, then ship and audit every completion-contract row on main.

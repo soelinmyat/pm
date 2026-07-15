@@ -1,27 +1,23 @@
 # Implementation Flow
 
-Shared implementation lifecycle for all dev work. Everything from "plan approved" through "merged and cleaned up" lives here.
+Shared implementation-phase guidance for inline and delegated Dev workers. Phase routing, quality gates, integration, delivery, and cleanup remain owned by the root Dev session.
 
-**Agent runtime:** Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` before dispatching QA or code-review agents. This file defines how persona intents map to Claude and Codex.
-
-**Context:** This flow is invoked by fresh agents dispatched from Step 05 (Implementation):
-- **Single-task:** A fresh @developer agent reads Steps 1–2 for setup and implementation. Steps 4+ (design critique, review, ship) are handled by the orchestrator via dev steps 07–09.
-- **Multi-task:** A fresh agent follows the full lifecycle (Steps 1–8) for each task. The agent owns implement through merge and returns "Merged" or "Blocked."
+**Context:** Step 05 (Implementation) uses this file for one assigned work unit or for root-owned inline work. A delegated worker may inspect, edit, test, and make its scoped commit. It never integrates another unit, runs aggregate gates, pushes, creates a PR, merges, updates trackers, or cleans the root worktree.
 
 ## Agent Scope
 
 The dispatching brief in Step 05 always specifies scope. This note is a cross-check:
 
-| Mode | Steps to execute | Who handles the rest |
-|------|-----------------|---------------------|
-| Single-task | Steps 1–2 only | Orchestrator (dev steps 07–09) |
-| Multi-task | Steps 1–8 (full lifecycle) | Agent is self-contained |
+| Mode | Worker scope | Root scope |
+|------|---|---|
+| Inline | Setup, implementation, targeted tests, scoped commit | Integration, aggregate verification, quality gates, delivery, retro |
+| Delegated work unit | Assigned paths, contract, tests, structured result | Result validation, integration, aggregate verification, quality gates, delivery, retro |
 
-If you're a single-task agent and you've finished Step 2, **stop** — return "Implementation complete" and let the orchestrator proceed.
+After implementation and scoped evidence, **stop** and return the structured work-unit result. Root asks the session runner for the next phase.
 
 ---
 
-## Lifecycle
+## Root-owned lifecycle context
 
 ```
 Setup -> Implement -> Design Critique (if UI) ->
@@ -30,6 +26,8 @@ Setup -> Implement -> Design Critique (if UI) ->
   Merge -> Cleanup -> Done
 
 ```
+
+Workers own only Setup and Implement in this diagram.
 
 ## Git Hygiene (HARD RULES)
 
@@ -221,105 +219,15 @@ Read AGENTS.md for E2E test locations, commands, and prerequisites.
 
 ---
 
-<!-- Steps 3-8: Quality gates and ship lifecycle.
-     The authoritative sources for quality gate logic are the phase-local steps 06-design-critique.md, 07-qa.md, and 08-review.md.
-     The authoritative source for ship/status logic is skills/dev/steps/09-ship.md.
-     This file only adds multi-task-specific orchestration on top. -->
+## Handoff to root
 
-<!-- Step 3 (Simplify) was absorbed into the review fan-out in v1.9; numbering keeps the gap so external Step-N references stay valid. -->
+Return a structured `completed`, `blocked`, or `failed` result as defined by `worker-contract.md`. Do not return `merged`. Root validates and integrates every unit, runs aggregate tests, and follows the current phase-local contracts:
 
-## Step 4: Design Critique + Step 5: QA + Step 6: Review + Verification
-
-Follow the phase-local quality contracts in `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/06-design-critique.md`, `07-qa.md`, and `08-review.md`. Those files are the source of truth for:
-- Design critique process (10-step closed-loop, skip conditions, size routing)
-- QA gate behavior (dispatch, verdict table, re-verify loop, state file update)
-- Code review (M/L/XL HARD GATE, conditional Design Review skip, code scan for XS)
-- Verification gate (mandatory for all sizes)
-
-Multi-task agents execute these gates **per task** within their own worktree. The orchestrator does not re-run them.
-
----
-
-## Step 7: Push + PR + Merge
-
-### Gate check before push
-
-Before any `git push` or `gh pr create`, run the shared checker against current HEAD:
-
-```bash
-PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"
-node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" \
-  --manifest .pm/dev-sessions/{slug}/gates.json \
-  --commit "$(git rev-parse HEAD)" \
-  --branch "$(git branch --show-current)" \
-  --review-evidence-mode enforce \
-  --require-authority push_feature_branch,create_pr \
-  --base origin/{DEFAULT_BRANCH}
-```
-
-If the checker fails, stop and run the missing gate. For stale rows, follow `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/08-review.md`: rerun gates whose relevant surface changed, or recertify with fresh phase-keyed evidence. Do not push, create a PR, or proceed to the merge loop until it passes.
-
-### Push and create PR
-
-```bash
-git fetch origin {DEFAULT_BRANCH} && git merge origin/{DEFAULT_BRANCH} --no-edit
-PM_PLUGIN_ROOT="${PM_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:?Set PM_PLUGIN_ROOT to the PM plugin root}}"
-node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" --manifest .pm/dev-sessions/{slug}/gates.json --commit "$(git rev-parse HEAD)" --branch "$(git branch --show-current)" --review-evidence-mode enforce --require-authority push_feature_branch,create_pr --base origin/{DEFAULT_BRANCH}
-git push origin {BRANCH}
-gh pr create --title "feat({ISSUE_ID}): {TITLE}" --body "..." --base {DEFAULT_BRANCH}
-```
-
-### PR flow
-
-**Multi-task (sequential mode):** Read and follow `${CLAUDE_PLUGIN_ROOT}/references/merge-loop.md` starting from Step 2 (Try Auto-Merge). The merge loop handles squash merge, CI failures, review threads, conflict resolution, and verifies `state == "MERGED"` before returning. Do NOT proceed to cleanup until the merge loop confirms MERGED.
-
-**Single-issue:** Invoke `/ship` — see `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/09-ship.md`.
-
-### Handling review feedback
-
-When review comments appear on the PR, use `ship/references/handling-feedback.md` before acting.
-
-**CI verification:** `gh run watch` can exit with failure due to transient GitHub API 502s. Always verify actual CI status with `gh pr view --json statusCheckRollup` before treating a failure as real.
-
----
-
-## Step 8: Cleanup + Status Updates
-
-Follow the cleanup and status update logic in `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/09-ship.md`. That file is the authoritative source for:
-- Worktree cleanup (removal, branch deletion)
-- Process cleanup (kill orphaned test runners)
-- Local backlog updates (create if missing, set done)
-- Linear issue closure (children first, verify, then parent)
-- User confirmation gate before Linear updates
-
-Multi-task agents complete cleanup per task. After ALL tasks finish, the orchestrator runs parent-level status updates per 09-ship.md's multi-task skip section.
-
----
-
-## Step 9: Report
-
-### Multi-task context
-
-<HARD-RULE>
-The only valid terminal messages are:
-- "Merged." (after squash-merge + cleanup) or "Blocked:"
-
-Do NOT report until the PR is squash-merged and cleanup is complete. "PR created" is NOT a terminal state.
-</HARD-RULE>
-
-**If merged:**
-```
-Merged. {ISSUE_ID} PR #{N}, sha {abc123}, {N} files changed.
-```
-
-**If blocked:**
-```
-Blocked: {ISSUE_ID} — {reason}
-```
-
-### Single-issue context
-
-Proceed to retro (`${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/10-retro.md`).
+- `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/06-design-critique.md`
+- `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/07-qa.md`
+- `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/08-review.md`
+- `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/09-ship.md`
+- `${CLAUDE_PLUGIN_ROOT}/skills/dev/steps/10-retro.md`
 
 ---
 

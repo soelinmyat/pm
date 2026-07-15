@@ -1,6 +1,6 @@
 ---
 name: bug
-description: "Use when something broke, a regression, unexpected behavior, or 'this is broken' — file a bug. Writes a backlog item with `kind: bug` that `pm:dev` routes straight to fix without grooming ceremony."
+description: "Use when something broke, a regression appeared, behavior is unexpected, or the user says 'this is broken', 'file a bug', or 'track this defect'. Atomically writes a `kind: bug` backlog item with high/bug defaults and Observed, Expected, and Reproduction sections, then routes directly to pm:dev without Groom or RFC. Do not use for feature gaps or chores."
 ---
 
 # pm:bug
@@ -11,11 +11,12 @@ Capture a bug report into the backlog in one pass — no grooming, no RFC. The r
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions.
 
-Document output (the backlog body) follows `${CLAUDE_PLUGIN_ROOT}/references/writing.md`.
+Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
+Read `${CLAUDE_PLUGIN_ROOT}/references/capture.md` for routing and the shared create/enrich receipt contract.
 
 ## Iron Law
 
-**NEVER LET A BUG REPORT EVAPORATE.**
+**NEVER LET A BUG REPORT EVAPORATE OR BYPASS THE CAPTURE SERVICE.**
 
 ## Hard rules
 
@@ -32,7 +33,7 @@ Document output (the backlog body) follows `${CLAUDE_PLUGIN_ROOT}/references/wri
 - **Product signal** (customer feedback, observation). Use `pm:note`.
 - **Immediate help** — the user wants you to investigate the bug *right now*, not track it. Investigate directly; capture after if the fix is non-trivial.
 
-**Workflow:** `bug` | **Telemetry steps:** `capture`, `enrich`, `validate`
+**Workflow:** `bug` | **Telemetry steps:** `capture`, `enrich`
 
 **Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/bug/steps/` in numeric filename order. If `.pm/workflows/bug/` exists, same-named files there override defaults. Execute each step in order — each step contains its own instructions.
 
@@ -47,7 +48,7 @@ Document output (the backlog body) follows `${CLAUDE_PLUGIN_ROOT}/references/wri
 - **"I should diagnose before capture."** Stop and capture the symptom while reproduction context is fresh.
 - **"A task is close enough."** Use `kind: bug` so routing and priority defaults remain correct.
 - **"Missing reproduction means no bug."** Capture a pending stub and keep the report actionable.
-- **"I can edit the file directly."** Use the atomic helper and validate its collision protection.
+- **"I can edit the file directly."** Use the helper's hash-guarded enrich action.
 
 ## Common Rationalizations
 
@@ -60,4 +61,5 @@ Document output (the backlog body) follows `${CLAUDE_PLUGIN_ROOT}/references/wri
 
 - [ ] The atomic backlog artifact exists with `kind: bug` and no overwritten file.
 - [ ] Observed, expected, and reproduction sections are present.
+- [ ] Creation and any enrichment returned validated receipts.
 - [ ] Validation passed and the user received the `/pm:dev` next-step hint.

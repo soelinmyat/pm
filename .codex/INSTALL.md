@@ -8,6 +8,8 @@ When Codex loads PM as a native plugin, product skills appear under the plugin n
 
 The fallback symlink flow below creates explicit `pm-*` aliases on disk for every PM workflow, including build and ship flows. Codex discovers user-installed skills from `~/.agents/skills` and project-local skills from `<project>/.agents/skills`.
 
+`pm:simplify` remains only as a compatibility alias and redirects to `pm:review`; it is not a separate workflow or delivery gate.
+
 In current Codex builds, fresh sessions still surface the usable PM workflows under skill names such as `pm:groom` and `pm:dev`. Treat the alias directory names as an installation detail, not the public skill names.
 
 Runtime note: PM skill text may still mention `${CLAUDE_PLUGIN_ROOT}` because the Claude command contract historically used that placeholder. In Codex, treat it as a legacy alias for the PM plugin root. For shell commands that run PM scripts, set `PM_PLUGIN_ROOT` to your PM clone or loaded plugin root, for example `export PM_PLUGIN_ROOT=~/.agents/vendor/pm`. PM subprocess dispatch exports both `PM_PLUGIN_ROOT` and `CLAUDE_PLUGIN_ROOT` automatically.

@@ -585,6 +585,44 @@ test("reconciliation apply journals the resulting empty plan independently", (t)
   assert.equal(fs.statSync(first.journal_path).mode & 0o777, 0o600);
 });
 
+test("reconciliation rejects malformed pending effect journals through the shared reader", (t) => {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reconcile-journal-"));
+  const pmDir = path.join(project, "pm");
+  const pmStateDir = path.join(project, ".pm");
+  const effectsDir = path.join(pmStateDir, "effects");
+  fs.mkdirSync(pmDir, { recursive: true });
+  fs.mkdirSync(effectsDir, { recursive: true });
+  t.after(() => fs.rmSync(project, { recursive: true, force: true }));
+  fs.writeFileSync(
+    path.join(effectsDir, "malformed.json"),
+    JSON.stringify({
+      workflow: "loop",
+      effect: "apply-loop-reconciliation",
+      state: "attempting",
+      intent: { plan_sha256: "a".repeat(64) },
+    })
+  );
+
+  assert.throws(
+    () =>
+      runReconcileEffect(project, {
+        pmDir,
+        pmStateDir,
+        authorityActions: ["reconcile_loop_state"],
+        planBuilder: () => ({
+          expected_repository: "openai/pm",
+          expected_base: "main",
+          pm_head_oid: "b".repeat(40),
+          proposed_changes: [],
+        }),
+        execute: () => {
+          throw new Error("executor must not run");
+        },
+      }),
+    /unsupported operational effect journal schema/
+  );
+});
+
 test("distinct reconciliation plans receive distinct durable effect journals", (t) => {
   const fixture = makeFixture(t);
   const options = {

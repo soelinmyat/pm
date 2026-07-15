@@ -12,7 +12,7 @@ Complete shipping lifecycle as a resumable transaction: prepare the final releas
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions.
 Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating the PR description or reports.
 
-**Workflow:** `ship` | **Telemetry steps:** `pre_flight`, `conflict_check`, `prepare_release`, `review`, `push`, `create_or_detect_pr`, `ci_monitor`, `merge_monitor`
+**Workflow:** `ship` | **Telemetry steps:** `pre-flight`, `conflict-check`, `prepare-release`, `review`, `push`, `create-or-detect-pr`, `ci-monitor`, `merge-monitor`
 
 ## Iron Law
 

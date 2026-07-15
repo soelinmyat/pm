@@ -13,7 +13,7 @@ Setup is the control panel. Start is the entry point. Don't confuse them.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions.
 
-**Workflow:** `setup` | **Telemetry steps:** `parse_args`, `update_config`, `confirm`
+**Workflow:** `setup` | **Telemetry steps:** `parse-args`, `update-config`, `confirm`
 
 ## Iron Law
 

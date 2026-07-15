@@ -29,36 +29,19 @@ Write a single bug report to `{pm_dir}/backlog/{slug}.md` with `kind: bug` and a
 
 5. **Resolve `{pm_dir}`** per `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md`.
 
-6. **Write the backlog item** using the capture helper. Pass the body via a temporary file so markdown escaping stays out of the shell:
-
-   Write the composed body to a tempfile directly (not via heredoc — a user's reproduction text might contain a line matching the heredoc sentinel and terminate early). The Write tool is safest:
-
-   1. `BODY_FILE=$(mktemp)` to get a unique path.
-   2. Use the Write tool to create `$BODY_FILE` with the composed body.
-   3. Invoke the helper:
-
-   ```bash
-   node ${CLAUDE_PLUGIN_ROOT}/scripts/capture-backlog.js \
-     --pm-dir {pm_dir} \
-     --kind bug \
-     --title "<title>" \
-     --outcome "<outcome>" \
-     --priority high \
-     --body-file "$BODY_FILE"
-   rm -f "$BODY_FILE"
-   ```
-
-   Note: the helper now defaults `labels` to `[bug]` when `--kind bug` is passed, so `--labels bug` is no longer required.
+6. **Write the backlog item** through the request-file contract in `${CLAUDE_PLUGIN_ROOT}/references/capture.md`. Use the Write tool to create a private JSON object with `action: "create"`, `kind: "bug"`, title, outcome, and the complete body. Omit priority and labels unless supplied so the helper owns Bug defaults (`high`, `[bug]`). Pass only `{pm_dir}` and the request-file path through the shell, and guarantee removal on success or failure. Never interpolate user-controlled values into shell syntax.
 
    The helper sets `type: backlog`, `kind: bug`, `status: proposed`, `priority: high` (bugs urgent by default — user can downgrade in enrich), `labels: [bug]`, and `created`/`updated` to today.
 
-7. **Confirm** in one line:
-   > `Captured: {pm_dir}/backlog/{slug}.md ({id}, kind=bug). Run /pm:dev {slug} when ready to fix.`
+7. Parse the JSON receipt and retain `slug` plus `content_sha256` for Step 2. Confirm only after the exact published file passes the project validator.
 
-8. **Offer enrichment.** If the user wants to refine priority/labels or fill in missing reproduction details, continue to Step 2 (Enrich). Otherwise end.
+8. **Confirm** in one line:
+> `Captured: {filePath} ({id}, kind=bug). Run /pm:dev {slug} when ready to fix.`
+
+9. **Offer enrichment.** If the user wants to refine priority/labels or fill in missing reproduction details, continue to Step 2 (Enrich). Otherwise end.
 
 ## Done-when
 
-The collision-safe helper has written and validated one bug artifact, the user has received its ID and fix hint, and any desired enrichment is known.
+The exclusive-create receipt identifies one validated Bug artifact, the user has received its ID and fix hint, and any desired enrichment is known.
 
 **Advance:** proceed to Step 2 (Enrich) when requested; otherwise summarize the capture and stop.
