@@ -9,7 +9,7 @@ function acquireOwnedLock(lockPath, options = {}) {
   const waitMs = options.waitMs ?? 0;
   const recoveryPath = `${lockPath}.reclaim`;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    if (pathExists(recoveryPath)) {
+    if (recoveryGuardState(recoveryPath).active) {
       synchronousWait(waitMs);
       continue;
     }
@@ -23,7 +23,7 @@ function acquireOwnedLock(lockPath, options = {}) {
 
       // A reclaimer can publish its guard after the check above but before this
       // link. Do not enter the critical section while reclamation is active.
-      if (pathExists(recoveryPath)) {
+      if (recoveryGuardState(recoveryPath).active) {
         releaseOwnedLock(lockPath, token);
         synchronousWait(waitMs);
         continue;
@@ -57,17 +57,62 @@ function writeLockCandidate(candidatePath, token, options) {
 }
 
 function tryAcquireRecoveryGuard(recoveryPath, options) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const state = recoveryGuardState(recoveryPath);
+    if (state.active) return null;
+    const release = tryPublishRecoveryGuard(state.vacantPath, options);
+    if (release) return release;
+  }
+  return null;
+}
+
+function tryPublishRecoveryGuard(guardPath, options) {
   const token = crypto.randomBytes(16).toString("hex");
-  const candidatePath = `${recoveryPath}.candidate-${process.pid}-${token}`;
+  const candidatePath = `${guardPath}.candidate-${process.pid}-${token}`;
   try {
     writeLockCandidate(candidatePath, token, options);
-    fs.linkSync(candidatePath, recoveryPath);
+    fs.linkSync(candidatePath, guardPath);
     fs.rmSync(candidatePath, { force: true });
-    return () => releaseOwnedLock(recoveryPath, token);
+    return () => releaseOwnedLock(guardPath, token);
   } catch (error) {
     fs.rmSync(candidatePath, { force: true });
     if (error.code === "EEXIST") return null;
     throw error;
+  }
+}
+
+function recoveryGuardState(recoveryPath) {
+  let currentPath = recoveryPath;
+  for (let depth = 0; depth < 32; depth += 1) {
+    let owner;
+    try {
+      owner = readLockOwner(currentPath);
+    } catch {
+      if (!pathExists(currentPath)) return { active: false, vacantPath: currentPath };
+      return { active: true, vacantPath: null };
+    }
+
+    if (ownerIsAlive(owner)) return { active: true, vacantPath: null };
+    currentPath = recoverySuccessorPath(recoveryPath, owner.token);
+  }
+  return { active: true, vacantPath: null };
+}
+
+function recoverySuccessorPath(recoveryPath, parentToken) {
+  const generation = crypto
+    .createHash("sha256")
+    .update(`${recoveryPath}\0${parentToken}`)
+    .digest("hex")
+    .slice(0, 32);
+  return `${recoveryPath}.next-${generation}`;
+}
+
+function ownerIsAlive(owner) {
+  try {
+    process.kill(owner.pid, 0);
+    return true;
+  } catch (error) {
+    return error.code !== "ESRCH";
   }
 }
 
