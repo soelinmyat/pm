@@ -536,6 +536,15 @@ function runSchedulerInstallEffect(generated, intervalMinutes, options = {}) {
   });
 }
 
+function effectExitCode(result) {
+  return result?.state === "verified" ? 0 : 2;
+}
+
+function writeEffectResult(result, extra = {}) {
+  process.stdout.write(`${JSON.stringify({ ...result, ...extra }, null, 2)}\n`);
+  process.exitCode = effectExitCode(result);
+}
+
 function main() {
   const args = parseArgs(process.argv.slice(2));
   try {
@@ -546,7 +555,7 @@ function main() {
         pmStateDir: paths.pmStateDir,
         authorityActions: ["control_loop"],
       });
-      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      writeEffectResult(result);
       return;
     }
 
@@ -566,9 +575,7 @@ function main() {
           config,
           authorityActions: ["control_loop"],
         });
-        process.stdout.write(
-          `${JSON.stringify({ ...result, release_gate: releaseGate }, null, 2)}\n`
-        );
+        writeEffectResult(result, { release_gate: releaseGate });
         return;
       }
     }
@@ -580,7 +587,7 @@ function main() {
         pmStateDir: paths.pmStateDir,
         authorityActions: ["install_loop_scheduler"],
       });
-      process.stdout.write(`${JSON.stringify(installed, null, 2)}\n`);
+      writeEffectResult(installed);
       return;
     }
 
@@ -596,6 +603,7 @@ module.exports = {
   buildInstallExposure,
   buildCronLine,
   buildLaunchdPlist,
+  effectExitCode,
   generate,
   installGenerated,
   installPaths,

@@ -749,7 +749,10 @@ test("journaled push observes and reuses a verified outcome before another mutat
   const remote = withBareRemote();
   const { pmDir, dotPm, cleanup } = withTempProject({ "pm/strategy.md": "# Strategy\n" });
   const { setup, runSyncEffect } = require(KB_SYNC_GIT_PATH);
-  const { serializationLockPath } = require("../scripts/lib/operational-effect-journal.js");
+  const {
+    serializationLockPath,
+    sharedResourceSerialization,
+  } = require("../scripts/lib/operational-effect-journal.js");
   assert.equal(setup(pmDir, remote.url).ok, true);
   fs.writeFileSync(path.join(pmDir, "new.md"), "# New\n");
   t.after(() => {
@@ -783,10 +786,8 @@ test("journaled push observes and reuses a verified outcome before another mutat
   assert.deepEqual(statusRecord.errors, []);
   assert.equal(statusRecord.effect_id, first.effect_id);
 
-  const lockPath = serializationLockPath(dotPm, {
-    resource: "knowledge-base-git",
-    repository: "pm",
-  });
+  const serialization = sharedResourceSerialization("knowledge-base-git", pmDir);
+  const lockPath = serializationLockPath(serialization.root, serialization.scope);
   fs.mkdirSync(path.dirname(lockPath), { recursive: true });
   fs.writeFileSync(
     lockPath,

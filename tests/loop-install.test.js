@@ -5,11 +5,14 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { spawnSync } = require("node:child_process");
+const { serializationLockPath } = require("../scripts/lib/operational-effect-journal.js");
 
 const {
   buildInstallExposure,
   buildCronLine,
   buildLaunchdPlist,
+  effectExitCode,
   generate,
   installGenerated,
   installPaths,
@@ -26,6 +29,38 @@ const {
 } = require("../scripts/loop-install.js");
 const { evaluateCanaryReleaseGate } = require("../scripts/loop-canary.js");
 const { normalizeLoopConfig } = require("../scripts/loop-config.js");
+
+test("effect CLIs reserve exit zero for verified outcomes", () => {
+  assert.equal(effectExitCode({ state: "verified" }), 0);
+  assert.equal(effectExitCode({ state: "blocked" }), 2);
+  assert.equal(effectExitCode({ state: "ambiguous" }), 2);
+});
+
+test("loop-install CLI exits nonzero when a control effect is blocked", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-install-cli-"));
+  const pmDir = path.join(root, "pm");
+  const pmStateDir = path.join(root, ".pm");
+  fs.mkdirSync(pmDir, { recursive: true });
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const lockPath = serializationLockPath(pmStateDir, {
+    resource: "loop-control",
+    file: "pm/loop/STOP",
+  });
+  fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+  fs.writeFileSync(
+    lockPath,
+    JSON.stringify({ pid: process.pid, token: "test-owner", acquired_at: new Date().toISOString() })
+  );
+
+  const child = spawnSync(
+    process.execPath,
+    [path.join(__dirname, "..", "scripts", "loop-install.js"), "--stop", "--pm-dir", pmDir],
+    { encoding: "utf8", timeout: 10000 }
+  );
+
+  assert.equal(child.status, 2, child.stderr);
+  assert.equal(JSON.parse(child.stdout).state, "blocked");
+});
 
 const REQUIRED_ASSERTIONS = {
   "preflight-failure": {

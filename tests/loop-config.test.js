@@ -5,6 +5,8 @@ const assert = require("node:assert/strict");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { spawnSync } = require("node:child_process");
+const { serializationLockPath } = require("../scripts/lib/operational-effect-journal.js");
 
 const {
   DEFAULT_LOOP_CONFIG,
@@ -18,6 +20,38 @@ const {
   requiresLocalApproval,
   runLoopConfigEffect,
 } = require("../scripts/loop-config.js");
+
+test("loop-config CLI exits nonzero when an effect is not verified", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-config-cli-"));
+  const pmDir = path.join(root, "pm");
+  const pmStateDir = path.join(root, ".pm");
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const lockPath = serializationLockPath(pmStateDir, {
+    resource: "loop-config",
+    file: "pm/loop/config.json",
+  });
+  fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+  fs.writeFileSync(
+    lockPath,
+    JSON.stringify({ pid: process.pid, token: "test-owner", acquired_at: new Date().toISOString() })
+  );
+
+  const child = spawnSync(
+    process.execPath,
+    [
+      path.join(__dirname, "..", "scripts", "loop-config.js"),
+      "--init",
+      "--pm-dir",
+      pmDir,
+      "--pm-state-dir",
+      pmStateDir,
+    ],
+    { encoding: "utf8", timeout: 10000 }
+  );
+
+  assert.equal(child.status, 2, child.stderr);
+  assert.equal(JSON.parse(child.stdout).state, "blocked");
+});
 
 test("lease TTL covers the complete bounded claim-to-final-push envelope", () => {
   const config = normalizeLoopConfig({});

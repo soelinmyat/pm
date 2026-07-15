@@ -7,7 +7,10 @@ const { execSync } = require("child_process");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
 const { runGit } = require("./loop-git.js");
 const { writeJsonAtomic } = require("./lib/atomic-file.js");
-const { runOperationalEffect } = require("./lib/operational-effect-journal.js");
+const {
+  runOperationalEffect,
+  sharedResourceSerialization,
+} = require("./lib/operational-effect-journal.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -568,7 +571,9 @@ function runSyncEffect(options) {
   if ((mode === "setup" || mode === "clone") && !validateRemoteUrl(remoteUrl)) {
     throw new Error("setup and clone effects require a valid remote URL");
   }
-  const expectedRemoteHash = remoteUrl ? sha256(remoteUrl) : localGitState(pmDir).remote_url_sha256;
+  const configuredRemoteUrl = remoteUrl || getRemoteUrl(pmDir);
+  const expectedRemoteHash = configuredRemoteUrl ? sha256(configuredRemoteUrl) : null;
+  const serialization = sharedResourceSerialization("knowledge-base-git", pmDir);
   let before;
   const recovery = { code: "inspect-sync-effect", command: "/pm:sync status" };
   const operations = { setup, clone, sync, push, pull };
@@ -582,7 +587,8 @@ function runSyncEffect(options) {
     effect: `${mode}-knowledge-base`,
     authorityAction: SYNC_AUTHORITY[mode],
     authorityActions: options.authorityActions,
-    serializationScope: { resource: "knowledge-base-git", repository: "pm" },
+    serializationRoot: serialization.root,
+    serializationScope: serialization.scope,
     target: {
       backend: "git",
       repository: "pm-knowledge-base",

@@ -318,6 +318,9 @@ test("POST /api/loop/toggle flips the kill switch and GET reflects it", async ()
   let controlMutations = 0;
   const server = createServer({
     pmDir: project.pmDir,
+    loadReleaseGateState() {
+      return { config: {}, releaseGate: { passed: true, reason: "test canary passed" } };
+    },
     runLoopControlEffect(pmDir, stopped) {
       controlMutations += 1;
       const stopPath = path.join(pmDir, "loop", "STOP");
@@ -362,6 +365,38 @@ test("POST /api/loop/toggle flips the kill switch and GET reflects it", async ()
   const active = await request(port, "GET", "/api/board");
   assert.equal(active.json.loop.paused, false);
 
+  server.close();
+  project.cleanup();
+});
+
+test("POST /api/loop/toggle keeps STOP when the resume release gate fails", async () => {
+  const project = createProject();
+  project.write("pm/loop/STOP", "stop\n");
+  let controlMutations = 0;
+  const server = createServer({
+    pmDir: project.pmDir,
+    loadReleaseGateState() {
+      return {
+        config: {},
+        releaseGate: { passed: false, reason: "host approval is missing" },
+      };
+    },
+    runLoopControlEffect() {
+      controlMutations += 1;
+      throw new Error("control mutation must not run");
+    },
+  });
+  const { port } = await listen(server);
+
+  const result = await request(port, "POST", "/api/loop/toggle", TRUSTED, {
+    paused: false,
+    idempotency_key: "resume-gate-failure",
+  });
+
+  assert.equal(result.status, 500);
+  assert.match(result.json.error, /host approval is missing/);
+  assert.equal(controlMutations, 0);
+  assert.equal(fs.existsSync(path.join(project.pmDir, "loop", "STOP")), true);
   server.close();
   project.cleanup();
 });

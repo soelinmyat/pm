@@ -2,6 +2,7 @@
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 
 const { writeJsonAtomic } = require("./atomic-file.js");
@@ -110,6 +111,21 @@ function serializationLockPath(pmStateDir, scope) {
   return path.join(path.resolve(pmStateDir), "effects", "locks", `scope_${digest}.lock`);
 }
 
+function sharedResourceSerialization(resource, resourcePath) {
+  const canonicalPath = (() => {
+    try {
+      return fs.realpathSync(resourcePath);
+    } catch {
+      return path.resolve(resourcePath);
+    }
+  })();
+  const uid = typeof process.getuid === "function" ? process.getuid() : "user";
+  return {
+    root: path.join(os.tmpdir(), `pm-operational-effects-${uid}`),
+    scope: { resource: requireText(resource, "shared resource"), canonical_path: canonicalPath },
+  };
+}
+
 function acquireEffectLock(lockTargetPath, timeoutMs = DEFAULT_LOCK_TIMEOUT_MS) {
   const lockPath = lockTargetPath.endsWith(".lock") ? lockTargetPath : `${lockTargetPath}.lock`;
   const deadline = Date.now() + Math.max(0, Number(timeoutMs) || 0);
@@ -189,7 +205,9 @@ function finishVerified(journal, plan, observation, authorityActions, journalPat
     options.observedAt
   );
   journal.state = "verified";
-  journal.precondition = structuredClone(plan.precondition);
+  if (!options.preservePrecondition) {
+    journal.precondition = structuredClone(plan.precondition);
+  }
   journal.verified_receipt = receipt;
   const attempt = journal.attempts.find((item) => item.attempt === attemptNumber);
   if (attempt) {
@@ -232,7 +250,6 @@ function runClaimedOperationalEffect(input, plan, journalPath, authorityActions)
     throw new Error("operational effect journal identity mismatch");
   }
   if (!journal) journal = newJournal(plan, input.recovery, now);
-  journal.precondition = structuredClone(plan.precondition);
 
   if (journal.state === "verified") {
     const observation = input.observe({ plan, journal, recovery: true });
@@ -248,6 +265,7 @@ function runClaimedOperationalEffect(input, plan, journalPath, authorityActions)
     if (observation?.state === "verified") {
       return finishVerified(journal, plan, observation, authorityActions, journalPath, {
         attempt: journal.attempts.at(-1)?.attempt || 1,
+        preservePrecondition: true,
         resultFlags: { recovered: true },
       });
     }
@@ -257,6 +275,10 @@ function runClaimedOperationalEffect(input, plan, journalPath, authorityActions)
   }
 
   const attemptNumber = journal.attempts.length + 1;
+  // Keep the precondition that belonged to an interrupted attempt until its
+  // recovery observation has completed. Only a genuinely new attempt may
+  // replace it with the freshly observed state.
+  journal.precondition = structuredClone(plan.precondition);
   journal.state = "attempting";
   journal.attempts.push({
     attempt: attemptNumber,
@@ -275,6 +297,7 @@ function runClaimedOperationalEffect(input, plan, journalPath, authorityActions)
     if (observation?.state === "verified") {
       return finishVerified(journal, plan, observation, authorityActions, journalPath, {
         attempt: attemptNumber,
+        preservePrecondition: true,
         resultFlags: { recovered: true },
       });
     }
@@ -349,7 +372,10 @@ function runOperationalEffect(input) {
     throw new TypeError("operational effect requires observe and mutate callbacks");
   }
 
-  const lockPath = serializationLockPath(input.pmStateDir, input.serializationScope);
+  const lockPath = serializationLockPath(
+    input.serializationRoot || input.pmStateDir,
+    input.serializationScope
+  );
   const lock = acquireEffectLock(lockPath, input.lockTimeoutMs);
   if (!lock) {
     const journal = readJournal(journalPath);
@@ -385,4 +411,5 @@ module.exports = {
   readJournal,
   runOperationalEffect,
   serializationLockPath,
+  sharedResourceSerialization,
 };

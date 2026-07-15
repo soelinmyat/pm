@@ -14,6 +14,7 @@ const result = runOperationalEffect({
   effect: "exclusive-mutation",
   authorityAction: "mutate_fixture",
   authorityActions: ["mutate_fixture"],
+  serializationRoot: process.env.PM_TEST_SERIALIZATION_ROOT || undefined,
   serializationScope: { resource: "fixture", file: "fixture" },
   target: { file: "fixture" },
   intent: { value },

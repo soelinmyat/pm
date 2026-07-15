@@ -764,3 +764,42 @@ test("apply-mode recovery resumes the exact durable run instead of executing the
   assert.equal(observed.input.cardId, "PM-404");
   assert.equal(observed.input.event, recovery.terminal_event);
 });
+
+test("interrupted reconciliation never certifies a retry-time empty plan", (t) => {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reconcile-interrupted-"));
+  const pmDir = path.join(project, "pm");
+  const pmStateDir = path.join(project, ".pm");
+  fs.mkdirSync(pmDir, { recursive: true });
+  t.after(() => fs.rmSync(project, { recursive: true, force: true }));
+
+  const nonEmptyPlan = {
+    expected_repository: "openai/pm",
+    expected_base: "main",
+    pm_head_oid: "a".repeat(40),
+    proposed_changes: [{ card_id: "PM-404", operation: "repair" }],
+  };
+  const emptyPlan = { ...nonEmptyPlan, pm_head_oid: "b".repeat(40), proposed_changes: [] };
+  let currentPlan = nonEmptyPlan;
+  let executions = 0;
+  const options = {
+    pmDir,
+    pmStateDir,
+    authorityActions: ["reconcile_loop_state"],
+    planBuilder() {
+      return currentPlan;
+    },
+    execute() {
+      executions += 1;
+      currentPlan = emptyPlan;
+      throw new Error("simulated exit after repository mutation");
+    },
+  };
+
+  const interrupted = runReconcileEffect(project, options);
+  const retried = runReconcileEffect(project, options);
+
+  assert.equal(interrupted.state, "ambiguous");
+  assert.equal(retried.state, "ambiguous");
+  assert.equal(retried.verified_receipt, null);
+  assert.equal(executions, 1);
+});

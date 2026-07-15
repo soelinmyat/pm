@@ -625,6 +625,7 @@ function main() {
         authorityActions: ["configure_loop"],
       });
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      process.exitCode = result.state === "verified" ? 0 : 2;
       return;
     }
 
@@ -636,6 +637,7 @@ function main() {
         authorityActions: ["approve_loop_host"],
       });
       process.stdout.write(`${JSON.stringify(approval, null, 2)}\n`);
+      process.exitCode = approval.state === "verified" ? 0 : 2;
       return;
     }
 

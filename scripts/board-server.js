@@ -22,8 +22,7 @@ const { COLUMN_ORDER } = require("./loop-board.js");
 const { buildOperationalSnapshot } = require("./lib/operational-read-model.js");
 const { parseCliArgs } = require("./loop-args.js");
 const { findGitRoot, runGit } = require("./loop-git.js");
-const { runLoopControlEffect } = require("./loop-install.js");
-const { loadLoopConfig } = require("./loop-config.js");
+const { loadReleaseGateState, runLoopControlEffect } = require("./loop-install.js");
 const { isStopped } = require("./loop-worker.js");
 
 const DEFAULT_PORT = 4400;
@@ -266,13 +265,24 @@ function toggleLoop(pmDir, desiredPaused, options = {}) {
     throw new TypeError("loop control requires an explicit paused state");
   }
   const nextStopped = desiredPaused;
+  const resolvedPmStateDir = path.resolve(options.pmStateDir || stateDirFor(resolved));
   const runControl = options.runControl || runLoopControlEffect;
+  let resumeState = null;
+  if (!nextStopped) {
+    const loadResumeState = options.loadReleaseGateState || loadReleaseGateState;
+    resumeState = loadResumeState({ pmDir: resolved, pmStateDir: resolvedPmStateDir });
+    if (!resumeState.releaseGate?.passed) {
+      throw new Error(
+        `loop remains paused until canary evidence passes: ${resumeState.releaseGate?.reason || "release gate did not pass"}`
+      );
+    }
+  }
   const effect = runControl(resolved, nextStopped, {
-    pmStateDir: options.pmStateDir,
+    pmStateDir: resolvedPmStateDir,
     authorityActions: ["control_loop"],
     requestKey: options.requestKey,
     timeout: options.timeout || PUSH_TIMEOUT_MS,
-    ...(nextStopped ? {} : { config: loadLoopConfig(resolved) }),
+    ...(nextStopped ? {} : { config: resumeState.config }),
   });
   return {
     paused: isStopped(resolved),
@@ -503,6 +513,7 @@ function createServer(serverOptions = {}) {
             pmStateDir,
             requestKey: intent.key,
             runControl: serverOptions.runLoopControlEffect,
+            loadReleaseGateState: serverOptions.loadReleaseGateState,
             timeout: PUSH_TIMEOUT_MS,
           });
         } catch (err) {

@@ -12,6 +12,7 @@ const {
   effectJournalPath,
   runOperationalEffect,
   serializationLockPath,
+  sharedResourceSerialization,
 } = require("../scripts/lib/operational-effect-journal.js");
 const { writeJsonAtomic } = require("../scripts/lib/atomic-file.js");
 
@@ -150,6 +151,57 @@ test("an interrupted attempting journal observes success before any retry", (t) 
   assert.equal(mutations, 0);
 });
 
+test("recovery observes the interrupted attempt's original precondition", (t) => {
+  const root = stateDir(t);
+  const original = input(root);
+  const plan = createEffectPlan(original);
+  const journalPath = effectJournalPath(root, plan.effect_id);
+  writeJsonAtomic(
+    journalPath,
+    {
+      schema_version: 1,
+      ...plan,
+      state: "attempting",
+      attempts: [{ attempt: 1, state: "attempting", started_at: "2026-07-15T00:00:00Z" }],
+      verified_receipt: null,
+      recovery: original.recovery,
+      updated_at: "2026-07-15T00:00:00Z",
+    },
+    { fileMode: 0o600, dirMode: 0o700 }
+  );
+
+  let observedPrecondition;
+  const result = runOperationalEffect({
+    ...original,
+    precondition: { config_sha256: `sha256:${"c".repeat(64)}` },
+    mutate() {
+      assert.fail("an ambiguous interrupted attempt must not retry");
+    },
+    observe({ journal }) {
+      observedPrecondition = journal.precondition;
+      return { state: "ambiguous", reason: "cannot reconstruct the prior effect" };
+    },
+  });
+
+  assert.equal(result.state, "ambiguous");
+  assert.deepEqual(observedPrecondition, plan.precondition);
+});
+
+test("shared resource serialization is independent of caller state directories", (t) => {
+  const root = stateDir(t);
+  const resource = path.join(root, "shared-repository");
+  fs.mkdirSync(resource);
+  const left = sharedResourceSerialization("knowledge-base-git", resource);
+  const right = sharedResourceSerialization("knowledge-base-git", path.join(resource, "."));
+
+  assert.equal(left.root, right.root);
+  assert.deepEqual(left.scope, right.scope);
+  assert.equal(
+    serializationLockPath(left.root, left.scope),
+    serializationLockPath(right.root, right.scope)
+  );
+});
+
 test("missing action-specific authority blocks before mutation", (t) => {
   const root = stateDir(t);
   let mutated = false;
@@ -250,6 +302,47 @@ test("different effect identities serialize on one mutable resource", async (t) 
     spawn(process.execPath, args, {
       stdio: ["ignore", "pipe", "pipe"],
       env: { ...process.env, PM_TEST_EFFECT_VALUE: "right" },
+    })
+  );
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.deepEqual(fs.readFileSync(mutationPath, "utf8").trim().split("\n"), ["left"]);
+  fs.writeFileSync(releasePath, "release");
+  const results = await Promise.all([first, second]);
+  assert.deepEqual(
+    results.map((result) => result.state),
+    ["verified", "verified"]
+  );
+  assert.deepEqual(fs.readFileSync(mutationPath, "utf8").trim().split("\n"), ["left", "right"]);
+});
+
+test("distinct journals serialize through one shared resource lock root", async (t) => {
+  const root = stateDir(t);
+  const leftState = path.join(root, "consumer-left");
+  const rightState = path.join(root, "consumer-right");
+  const sharedRoot = path.join(root, "shared-locks");
+  const markerPath = path.join(root, "mutation-started");
+  const releasePath = path.join(root, "release");
+  const mutationPath = path.join(root, "mutations.log");
+  const workerPath = path.join(__dirname, "fixtures", "operational-effect-worker.js");
+  const first = collectChild(
+    spawn(process.execPath, [workerPath, leftState, markerPath, releasePath, mutationPath], {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        PM_TEST_EFFECT_VALUE: "left",
+        PM_TEST_SERIALIZATION_ROOT: sharedRoot,
+      },
+    })
+  );
+  await waitForFile(markerPath);
+  const second = collectChild(
+    spawn(process.execPath, [workerPath, rightState, markerPath, releasePath, mutationPath], {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        PM_TEST_EFFECT_VALUE: "right",
+        PM_TEST_SERIALIZATION_ROOT: sharedRoot,
+      },
     })
   );
   await new Promise((resolve) => setTimeout(resolve, 100));

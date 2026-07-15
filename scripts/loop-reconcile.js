@@ -30,7 +30,10 @@ const { inspectPullRequest } = require("./pr-state.js");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
 const { validatePrArtifact } = require("./loop-result.js");
 const { defaultBranchName, sourceRepository } = require("./source-identity.js");
-const { runOperationalEffect } = require("./lib/operational-effect-journal.js");
+const {
+  runOperationalEffect,
+  sharedResourceSerialization,
+} = require("./lib/operational-effect-journal.js");
 const { stableStringify } = require("./lib/workflow-runtime/records.js");
 
 const STALE_STATUSES = new Set([
@@ -845,6 +848,7 @@ function runReconcileEffect(projectDir, options = {}) {
   let executionMap;
   let plan;
   let originalPlanHash;
+  const serialization = sharedResourceSerialization("knowledge-base-git", pmDir);
 
   const observe = ({ journal, mutation }) => {
     if (mutation?.result?.ok === true) {
@@ -858,6 +862,18 @@ function runReconcileEffect(projectDir, options = {}) {
       return { state: "ambiguous", reason: `reconciliation state is unreadable: ${error.message}` };
     }
     const currentHash = reconcilePlanHash(current);
+    const attemptedPlanHash = journal.precondition?.plan_sha256;
+    if (
+      !mutation &&
+      (journal.state === "attempting" || journal.state === "ambiguous") &&
+      attemptedPlanHash &&
+      attemptedPlanHash !== originalPlanHash
+    ) {
+      return {
+        state: "ambiguous",
+        reason: "the interrupted reconciliation plan cannot be reconstructed exactly",
+      };
+    }
     if (
       prior &&
       current.proposed_changes.length === 0 &&
@@ -883,7 +899,8 @@ function runReconcileEffect(projectDir, options = {}) {
     effect: "apply-loop-reconciliation",
     authorityAction: "reconcile_loop_state",
     authorityActions: options.authorityActions,
-    serializationScope: { resource: "knowledge-base-git", repository: "pm" },
+    serializationRoot: serialization.root,
+    serializationScope: serialization.scope,
     target: { repository: "pm-knowledge-base", operation: "loop-reconciliation" },
     intent: { mode: "apply" },
     precondition() {
