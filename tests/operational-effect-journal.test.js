@@ -16,6 +16,7 @@ const {
   sharedResourceSerialization,
 } = require("../scripts/lib/operational-effect-journal.js");
 const { writeJsonAtomic } = require("../scripts/lib/atomic-file.js");
+const { cleanGitEnv } = require("../scripts/lib/git-env.js");
 
 function stateDir(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-effect-journal-"));
@@ -247,6 +248,20 @@ test("nested PM content and its Git root share one repository lock identity", (t
     serializationLockPath(repository.root, repository.scope),
     serializationLockPath(content.root, content.scope)
   );
+});
+
+test("repository lock identity is stable across git initialization", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-effect-init-lock-"));
+  const repo = path.join(root, "knowledge-base");
+  fs.mkdirSync(repo, { recursive: true });
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const before = sharedGitRepositorySerialization(repo);
+  execFileSync("git", ["init", "-q", repo], { env: cleanGitEnv() });
+  const after = sharedGitRepositorySerialization(repo);
+
+  assert.deepEqual(after, before);
+  assert.equal(before.scope.canonical_path, fs.realpathSync(path.join(repo, ".git")));
 });
 
 test("missing action-specific authority blocks before mutation", (t) => {

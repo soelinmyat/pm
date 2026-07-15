@@ -135,10 +135,20 @@ function sharedGitRepositorySerialization(resourcePath) {
   } catch {
     canonicalPath = path.resolve(resourcePath);
   }
+  // A normal worktree's common directory is `<root>/.git`. Use that
+  // prospective identity before initialization so `git init` cannot change
+  // the lock key while the setup effect is still running.
+  canonicalPath = path.join(canonicalPath, ".git");
   try {
     const commonDir = execFileSync(
       "git",
-      ["-C", canonicalPath, "rev-parse", "--path-format=absolute", "--git-common-dir"],
+      [
+        "-C",
+        path.dirname(canonicalPath),
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-common-dir",
+      ],
       {
         encoding: "utf8",
         env: cleanGitEnv(),
@@ -148,7 +158,7 @@ function sharedGitRepositorySerialization(resourcePath) {
     ).trim();
     if (commonDir) canonicalPath = fs.realpathSync(commonDir);
   } catch {
-    // Setup can legitimately serialize a repository path before `git init`.
+    // Setup can legitimately serialize the prospective common dir before `git init`.
   }
   return sharedResourceSerialization("knowledge-base-git", canonicalPath);
 }
