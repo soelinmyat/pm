@@ -17,12 +17,13 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const { execFile } = require("node:child_process");
 
 const { COLUMN_ORDER } = require("./loop-board.js");
 const { buildOperationalSnapshot } = require("./lib/operational-read-model.js");
 const { parseCliArgs } = require("./loop-args.js");
-const { findGitRoot, runGit } = require("./loop-git.js");
-const { loadReleaseGateState, runLoopControlEffect } = require("./loop-install.js");
+const { cleanGitEnv, findGitRoot, runGit } = require("./loop-git.js");
+const { runLoopControlEffect } = require("./loop-install.js");
 const { isStopped } = require("./loop-worker.js");
 
 const DEFAULT_PORT = 4400;
@@ -31,6 +32,7 @@ const POLL_MS = 5000;
 // single-threaded server indefinitely.
 const PUSH_TIMEOUT_MS = 15000;
 const GIT_STATUS_TIMEOUT_MS = 5000;
+const GIT_FRESHNESS_INTERVAL_MS = 30000;
 
 // Left-to-right pipeline order for display. Any column the model adds later
 // that we don't list here is appended so the board never silently drops one.
@@ -267,22 +269,12 @@ function toggleLoop(pmDir, desiredPaused, options = {}) {
   const nextStopped = desiredPaused;
   const resolvedPmStateDir = path.resolve(options.pmStateDir || stateDirFor(resolved));
   const runControl = options.runControl || runLoopControlEffect;
-  let resumeState = null;
-  if (!nextStopped) {
-    const loadResumeState = options.loadReleaseGateState || loadReleaseGateState;
-    resumeState = loadResumeState({ pmDir: resolved, pmStateDir: resolvedPmStateDir });
-    if (!resumeState.releaseGate?.passed) {
-      throw new Error(
-        `loop remains paused until canary evidence passes: ${resumeState.releaseGate?.reason || "release gate did not pass"}`
-      );
-    }
-  }
   const effect = runControl(resolved, nextStopped, {
     pmStateDir: resolvedPmStateDir,
     authorityActions: ["control_loop"],
     requestKey: options.requestKey,
     timeout: options.timeout || PUSH_TIMEOUT_MS,
-    ...(nextStopped ? {} : { config: resumeState.config }),
+    loadReleaseGateState: options.loadReleaseGateState,
   });
   return {
     paused: isStopped(resolved),
@@ -374,49 +366,60 @@ function readToggleIntent(req, callback) {
 // remote-tracking refs, so GET requests inspect only already-present local refs
 // and point operators to an explicit Sync command for a fresh remote view.
 function makeGitFreshness(pmDir) {
-  let status = null;
+  let status = {
+    available: false,
+    refreshing: true,
+    observation: "local-refs-only",
+    refresh_action: "/pm:sync status",
+  };
+  let refreshing = false;
+  let lastStartedAt = 0;
 
-  function refresh() {
-    const opts = { timeout: GIT_STATUS_TIMEOUT_MS };
-    try {
-      const gitRoot = findGitRoot(pmDir);
-      if (!gitRoot) {
-        status = { available: false, observation: "local-refs-only" };
-        return;
-      }
-      const branch = runGit(["rev-parse", "--abbrev-ref", "HEAD"], gitRoot, opts);
-      let upstream = null;
-      let behind = null;
-      let ahead = null;
-      try {
-        upstream = runGit(
-          ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
-          gitRoot,
-          opts
-        );
-        behind = Number(runGit(["rev-list", "--count", `HEAD..${upstream}`], gitRoot, opts)) || 0;
-        ahead = Number(runGit(["rev-list", "--count", `${upstream}..HEAD`], gitRoot, opts)) || 0;
-      } catch {
-        upstream = null;
-      }
-      status = {
-        available: true,
-        branch,
-        upstream,
-        behind,
-        ahead,
-        observation: "local-refs-only",
-        observed_at: new Date().toISOString(),
-        refresh_action: "/pm:sync status",
-      };
-    } catch (err) {
+  function finish(error, stdout = "") {
+    refreshing = false;
+    if (error) {
       status = {
         available: false,
+        refreshing: false,
         observation: "local-refs-only",
         refresh_action: "/pm:sync status",
-        error: String((err && err.message) || err).slice(0, 300),
+        error: String(error.message || error).slice(0, 300),
       };
+      return;
     }
+    const lines = String(stdout).split(/\r?\n/);
+    const value = (prefix) => lines.find((line) => line.startsWith(prefix))?.slice(prefix.length);
+    const counts = /^\+(\d+) -(\d+)$/.exec(value("# branch.ab ") || "");
+    status = {
+      available: true,
+      refreshing: false,
+      branch: value("# branch.head ") || null,
+      upstream: value("# branch.upstream ") || null,
+      ahead: counts ? Number(counts[1]) : null,
+      behind: counts ? Number(counts[2]) : null,
+      observation: "local-refs-only",
+      observed_at: new Date().toISOString(),
+      refresh_action: "/pm:sync status",
+    };
+  }
+
+  function refresh() {
+    const now = Date.now();
+    if (refreshing || now - lastStartedAt < GIT_FRESHNESS_INTERVAL_MS) return;
+    refreshing = true;
+    lastStartedAt = now;
+    status = { ...status, refreshing: true };
+    execFile(
+      "git",
+      ["-C", pmDir, "status", "--porcelain=v2", "--branch"],
+      {
+        encoding: "utf8",
+        env: cleanGitEnv(),
+        timeout: GIT_STATUS_TIMEOUT_MS,
+        maxBuffer: 1024 * 1024,
+      },
+      finish
+    );
   }
 
   return {

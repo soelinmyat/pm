@@ -106,6 +106,36 @@ test("a verified effect is observed and reused without replay", (t) => {
   assert.equal(fs.statSync(first.journal_path).mode & 0o777, 0o600);
 });
 
+test("an ambiguous replay preserves the verified receipt and never mutates again", (t) => {
+  const root = stateDir(t);
+  let mutations = 0;
+  let readable = true;
+  const execute = () =>
+    runOperationalEffect({
+      ...input(root),
+      mutate() {
+        mutations += 1;
+        return { receipt: { config_sha256: "verified-value" } };
+      },
+      observe() {
+        return readable
+          ? { state: "verified", receipt: { config_sha256: "verified-value" } }
+          : { state: "ambiguous", reason: "target is temporarily unreadable" };
+      },
+    });
+
+  const verified = execute();
+  readable = false;
+  const replay = execute();
+  const journal = JSON.parse(fs.readFileSync(verified.journal_path, "utf8"));
+
+  assert.equal(replay.state, "ambiguous");
+  assert.equal(replay.replayed, true);
+  assert.equal(mutations, 1);
+  assert.equal(journal.state, "verified");
+  assert.deepEqual(journal.verified_receipt, verified.verified_receipt);
+});
+
 test("an interrupted attempting journal observes success before any retry", (t) => {
   const root = stateDir(t);
   const plan = createEffectPlan(input(root));

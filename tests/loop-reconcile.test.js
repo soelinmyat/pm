@@ -803,3 +803,60 @@ test("interrupted reconciliation never certifies a retry-time empty plan", (t) =
   assert.equal(retried.verified_receipt, null);
   assert.equal(executions, 1);
 });
+
+test("partial reconciliation failure retains durable applied-change evidence", (t) => {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reconcile-partial-"));
+  const pmDir = path.join(project, "pm");
+  const pmStateDir = path.join(project, ".pm");
+  fs.mkdirSync(pmDir, { recursive: true });
+  t.after(() => fs.rmSync(project, { recursive: true, force: true }));
+  const initialHead = "a".repeat(40);
+  const partialHead = "b".repeat(40);
+  const nonEmptyPlan = {
+    expected_repository: "openai/pm",
+    expected_base: "main",
+    pm_head_oid: initialHead,
+    proposed_changes: [{ card_id: "PM-404", operation: "resume-finalization" }],
+  };
+  const emptyPlan = { ...nonEmptyPlan, pm_head_oid: partialHead, proposed_changes: [] };
+  let currentPlan = nonEmptyPlan;
+  let executions = 0;
+  const options = {
+    pmDir,
+    pmStateDir,
+    authorityActions: ["reconcile_loop_state"],
+    planBuilder() {
+      return currentPlan;
+    },
+    execute() {
+      executions += 1;
+      currentPlan = emptyPlan;
+      return {
+        ...nonEmptyPlan,
+        ok: false,
+        code: "apply-failed",
+        reason: "second recovery failed",
+        applied_changes: [
+          {
+            card_id: "PM-404",
+            operation: "resume-finalization",
+            classification: "orphaned-run",
+            commit_oid: partialHead,
+            paths: ["backlog/pm-404.md"],
+          },
+        ],
+      };
+    },
+  };
+
+  const partial = runReconcileEffect(project, options);
+  const retried = runReconcileEffect(project, options);
+  const journal = JSON.parse(fs.readFileSync(partial.journal_path, "utf8"));
+
+  assert.equal(partial.state, "ambiguous");
+  assert.equal(partial.applied_changes[0].commit_oid, partialHead);
+  assert.equal(journal.recovery_evidence.partial_receipt.final_head, partialHead);
+  assert.equal(retried.state, "ambiguous");
+  assert.equal(retried.applied_changes[0].commit_oid, partialHead);
+  assert.equal(executions, 1);
+});

@@ -381,7 +381,11 @@ test("POST /api/loop/toggle keeps STOP when the resume release gate fails", asyn
         releaseGate: { passed: false, reason: "host approval is missing" },
       };
     },
-    runLoopControlEffect() {
+    runLoopControlEffect(_pmDir, _stopped, options) {
+      const gate = options.loadReleaseGateState();
+      if (!gate.releaseGate.passed) {
+        throw new Error(`loop remains paused: ${gate.releaseGate.reason}`);
+      }
       controlMutations += 1;
       throw new Error("control mutation must not run");
     },
@@ -551,7 +555,12 @@ test("read-only board requests never fetch or mutate remote-tracking refs", asyn
   const server = createServer({ pmDir: project.pmDir });
   const { port } = await listen(server);
 
-  const response = await request(port, "GET", "/api/board");
+  let response = await request(port, "GET", "/api/board");
+  const deadline = Date.now() + 3000;
+  while (response.json.git.available !== true && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    response = await request(port, "GET", "/api/board");
+  }
 
   server.close();
   const headAfter = git(project.root, ["rev-parse", "HEAD"]);

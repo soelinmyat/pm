@@ -862,6 +862,16 @@ function runReconcileEffect(projectDir, options = {}) {
       return { state: "ambiguous", reason: `reconciliation state is unreadable: ${error.message}` };
     }
     const currentHash = reconcilePlanHash(current);
+    const partialReceipt = journal.recovery_evidence?.partial_receipt;
+    if (partialReceipt) {
+      return {
+        state: "ambiguous",
+        reason:
+          current.pm_head_oid === partialReceipt.final_head
+            ? "reconciliation partially applied; exact recovery is required before retry"
+            : "repository head diverged after a partially applied reconciliation",
+      };
+    }
     const attemptedPlanHash = journal.precondition?.plan_sha256;
     if (
       !mutation &&
@@ -924,6 +934,17 @@ function runReconcileEffect(projectDir, options = {}) {
         executionMap,
       });
       if (!result.ok) {
+        if (Array.isArray(result.applied_changes) && result.applied_changes.length > 0) {
+          return {
+            ambiguous: true,
+            reason: result.reason || result.code || "loop reconciliation partially applied",
+            recoveryEvidence: {
+              code: result.code || "loop-reconcile-partial-apply",
+              reason: result.reason || "loop reconciliation partially applied",
+              partial_receipt: reconcileReceipt(plan, result),
+            },
+          };
+        }
         return {
           blocked: true,
           reason: result.reason || result.code || "loop reconciliation failed",
@@ -947,11 +968,12 @@ function runReconcileEffect(projectDir, options = {}) {
     },
   });
   const receipt = effect.verified_receipt?.receipt;
+  const partialReceipt = effect.recovery_evidence?.partial_receipt;
   return {
     ...effect,
     ok: effect.state === "verified",
     mode: "apply",
-    applied_changes: receipt?.applied_changes || [],
+    applied_changes: receipt?.applied_changes || partialReceipt?.applied_changes || [],
   };
 }
 

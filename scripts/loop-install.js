@@ -27,7 +27,10 @@ const { evaluateCurrentCanaryReleaseGate } = require("./loop-canary.js");
 const { runGit, findGitRoot, gitRelativePath } = require("./loop-git.js");
 const { withRemoteSnapshot } = require("./loop-pm-transaction.js");
 const { resolvePmPaths, resolvePmStateDir } = require("./resolve-pm-dir.js");
-const { runOperationalEffect } = require("./lib/operational-effect-journal.js");
+const {
+  runOperationalEffect,
+  sharedResourceSerialization,
+} = require("./lib/operational-effect-journal.js");
 
 function projectSlug(projectDir) {
   return path
@@ -457,27 +460,46 @@ function observeLoopControl(pmDir, stopped, options = {}) {
 function runLoopControlEffect(pmDir, stopped, options = {}) {
   const resolvedPmDir = path.resolve(pmDir);
   const pmStateDir = path.resolve(options.pmStateDir || resolvePmStateDir(resolvedPmDir));
+  const serialization = sharedResourceSerialization("knowledge-base-git", resolvedPmDir);
+  let resumeState = null;
   const observe = () => observeLoopControl(resolvedPmDir, stopped, options);
-  return runOperationalEffect({
+  const result = runOperationalEffect({
     pmStateDir,
     workflow: "loop",
     effect: stopped ? "stop-loop" : "resume-loop",
     authorityAction: "control_loop",
     authorityActions: options.authorityActions,
-    serializationScope: { resource: "loop-control", file: "pm/loop/STOP" },
+    serializationRoot: serialization.root,
+    serializationScope: serialization.scope,
     target: { control: "pm/loop/STOP", authoritative: "git-upstream" },
     intent: { stopped, request_key: options.requestKey || null },
-    precondition: () => ({ local_stopped: fs.existsSync(killSwitchFilePath(resolvedPmDir)) }),
+    precondition: () => {
+      if (!stopped) {
+        const loadResumeState = options.loadReleaseGateState || loadReleaseGateState;
+        resumeState = loadResumeState({ pmDir: resolvedPmDir, pmStateDir }, options);
+        if (!resumeState.releaseGate?.passed) {
+          throw new Error(
+            `loop remains paused until canary evidence passes: ${resumeState.releaseGate?.reason || "release gate did not pass"}`
+          );
+        }
+      }
+      return {
+        local_stopped: fs.existsSync(killSwitchFilePath(resolvedPmDir)),
+        execution_config_hash: resumeState?.config?.execution_config_hash || null,
+      };
+    },
     recovery: { code: "inspect-loop-control-effect", command: "/pm:loop status" },
+    lockTimeoutMs: options.lockTimeoutMs,
     observe,
     mutate() {
       if (stopped) stopScheduler(resolvedPmDir, options);
       else {
-        if (!options.config) throw new Error("resume effect requires trusted loop config");
-        resumeScheduler(resolvedPmDir, options.config, options);
+        if (!resumeState?.config) throw new Error("resume effect requires trusted loop config");
+        resumeScheduler(resolvedPmDir, resumeState.config, options);
       }
     },
   });
+  return resumeState ? { ...result, release_gate: resumeState.releaseGate } : result;
 }
 
 function observeScheduler(generated, options = {}) {
@@ -515,13 +537,18 @@ function observeScheduler(generated, options = {}) {
 function runSchedulerInstallEffect(generated, intervalMinutes, options = {}) {
   const pmStateDir = path.resolve(options.pmStateDir);
   const observe = () => observeScheduler(generated, options);
+  const serialization =
+    generated.kind === "cron"
+      ? sharedResourceSerialization("machine-user-crontab", os.homedir())
+      : sharedResourceSerialization("loop-scheduler-launchd", plistInstallPath(generated.label));
   return runOperationalEffect({
     pmStateDir,
     workflow: "loop",
     effect: "install-loop-scheduler",
     authorityAction: "install_loop_scheduler",
     authorityActions: options.authorityActions,
-    serializationScope: { resource: "loop-scheduler", scheduler: generated.kind },
+    serializationRoot: serialization.root,
+    serializationScope: serialization.scope,
     target: { scheduler: generated.kind, identity: generated.label || "pm-loop-cron" },
     intent: {
       interval_minutes: intervalMinutes,
@@ -529,6 +556,7 @@ function runSchedulerInstallEffect(generated, intervalMinutes, options = {}) {
     },
     precondition: () => ({ observed_state: observe().state }),
     recovery: { code: "inspect-loop-scheduler-effect", command: "/pm:loop status" },
+    lockTimeoutMs: options.lockTimeoutMs,
     observe,
     mutate() {
       installGenerated(generated, intervalMinutes, options);
@@ -560,23 +588,22 @@ function main() {
     }
 
     let config = loadLoopConfig(paths.pmDir);
-    if (args.resume || args.install) {
+    if (args.resume) {
+      const result = runLoopControlEffect(paths.pmDir, false, {
+        pmStateDir: paths.pmStateDir,
+        authorityActions: ["control_loop"],
+      });
+      writeEffectResult(result, { release_gate: result.release_gate });
+      return;
+    }
+    if (args.install) {
       const trusted = loadReleaseGateState(paths);
       config = trusted.config;
       const releaseGate = trusted.releaseGate;
       if (!releaseGate.passed) {
         throw new Error(
-          `scheduler remains ${args.resume ? "paused" : "uninstalled"} until canary evidence passes: ${releaseGate.reason}`
+          `scheduler remains uninstalled until canary evidence passes: ${releaseGate.reason}`
         );
-      }
-      if (args.resume) {
-        const result = runLoopControlEffect(paths.pmDir, false, {
-          pmStateDir: paths.pmStateDir,
-          config,
-          authorityActions: ["control_loop"],
-        });
-        writeEffectResult(result, { release_gate: releaseGate });
-        return;
       }
     }
     const intervalMinutes = args.intervalMinutes || Number(config.scheduler_interval_minutes) || 30;

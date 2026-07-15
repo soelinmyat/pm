@@ -191,6 +191,7 @@ function publicResult(journal, journalPath, extra = {}) {
     journal_path: journalPath,
     verified_receipt: journal.verified_receipt,
     recovery: journal.recovery,
+    ...(journal.recovery_evidence ? { recovery_evidence: journal.recovery_evidence } : {}),
     ...extra,
   };
 }
@@ -256,6 +257,22 @@ function runClaimedOperationalEffect(input, plan, journalPath, authorityActions)
     if (observation?.state === "verified") {
       return publicResult(journal, journalPath, { replayed: true });
     }
+    if (observation?.state !== "absent" || observation.safe_to_retry !== true) {
+      return publicResult(journal, journalPath, {
+        state: "ambiguous",
+        replayed: true,
+        replay_observation: {
+          state: "ambiguous",
+          reason: String(
+            observation?.reason || "verified target state could not be observed"
+          ).slice(0, 1000),
+        },
+      });
+    }
+    journal.verified_receipt_history = [
+      ...(Array.isArray(journal.verified_receipt_history) ? journal.verified_receipt_history : []),
+      journal.verified_receipt,
+    ].filter(Boolean);
     journal.state = "planned";
     journal.verified_receipt = null;
   }
@@ -320,6 +337,21 @@ function runClaimedOperationalEffect(input, plan, journalPath, authorityActions)
     if (mutation.recovery) journal.recovery = structuredClone(mutation.recovery);
     persist(journalPath, journal);
     return publicResult(journal, journalPath);
+  }
+
+  if (mutation?.ambiguous === true) {
+    const attempt = journal.attempts.at(-1);
+    attempt.state = "ambiguous";
+    attempt.completed_at = new Date().toISOString();
+    attempt.error = String(mutation.reason || "effect partially applied").slice(0, 1000);
+    journal.state = "ambiguous";
+    if (isObject(mutation.recoveryEvidence)) {
+      journal.recovery_evidence = structuredClone(mutation.recoveryEvidence);
+    }
+    persist(journalPath, journal);
+    return publicResult(journal, journalPath, {
+      recovery_evidence: journal.recovery_evidence || null,
+    });
   }
 
   const observation = input.observe({ plan, journal, mutation, recovery: false });

@@ -6,7 +6,10 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
-const { serializationLockPath } = require("../scripts/lib/operational-effect-journal.js");
+const {
+  serializationLockPath,
+  sharedResourceSerialization,
+} = require("../scripts/lib/operational-effect-journal.js");
 
 const {
   buildInstallExposure,
@@ -39,18 +42,16 @@ test("effect CLIs reserve exit zero for verified outcomes", () => {
 test("loop-install CLI exits nonzero when a control effect is blocked", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-install-cli-"));
   const pmDir = path.join(root, "pm");
-  const pmStateDir = path.join(root, ".pm");
   fs.mkdirSync(pmDir, { recursive: true });
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const lockPath = serializationLockPath(pmStateDir, {
-    resource: "loop-control",
-    file: "pm/loop/STOP",
-  });
+  const serialization = sharedResourceSerialization("knowledge-base-git", pmDir);
+  const lockPath = serializationLockPath(serialization.root, serialization.scope);
   fs.mkdirSync(path.dirname(lockPath), { recursive: true });
   fs.writeFileSync(
     lockPath,
     JSON.stringify({ pid: process.pid, token: "test-owner", acquired_at: new Date().toISOString() })
   );
+  t.after(() => fs.rmSync(lockPath, { force: true }));
 
   const child = spawnSync(
     process.execPath,
@@ -850,6 +851,62 @@ test("loop control effects replay a verified durable STOP without a second mutat
   assert.equal(mutations, 1);
 });
 
+test("resume evaluates its release gate inside the journaled effect", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-resume-gate-"));
+  const pmDir = path.join(root, "pm");
+  const pmStateDir = path.join(root, ".pm");
+  fs.mkdirSync(path.join(pmDir, "loop"), { recursive: true });
+  fs.writeFileSync(path.join(pmDir, "loop", "STOP"), "stop\n");
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  let mutations = 0;
+
+  assert.throws(
+    () =>
+      runLoopControlEffect(pmDir, false, {
+        pmStateDir,
+        authorityActions: ["control_loop"],
+        loadReleaseGateState() {
+          return { config: {}, releaseGate: { passed: false, reason: "stale canary" } };
+        },
+        setStop() {
+          mutations += 1;
+        },
+      }),
+    /stale canary/
+  );
+  assert.equal(mutations, 0);
+  assert.equal(fs.existsSync(path.join(pmDir, "loop", "STOP")), true);
+});
+
+test("loop control shares the knowledge-base mutation lock across consumers", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-control-lock-"));
+  const pmDir = path.join(root, "pm");
+  fs.mkdirSync(pmDir, { recursive: true });
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const serialization = sharedResourceSerialization("knowledge-base-git", pmDir);
+  const lockPath = serializationLockPath(serialization.root, serialization.scope);
+  fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+  fs.writeFileSync(
+    lockPath,
+    JSON.stringify({ pid: process.pid, token: "git-owner", acquired_at: new Date().toISOString() })
+  );
+  t.after(() => fs.rmSync(lockPath, { force: true }));
+  let mutations = 0;
+  const execute = (name) =>
+    runLoopControlEffect(pmDir, true, {
+      pmStateDir: path.join(root, name),
+      authorityActions: ["control_loop"],
+      lockTimeoutMs: 0,
+      setStop() {
+        mutations += 1;
+      },
+    });
+
+  assert.equal(execute("left").state, "blocked");
+  assert.equal(execute("right").state, "blocked");
+  assert.equal(mutations, 0);
+});
+
 test("scheduler installation is journaled against exact generated content", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-scheduler-effect-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -884,4 +941,34 @@ test("scheduler installation is journaled against exact generated content", (t) 
   assert.equal(second.replayed, true);
   assert.equal(mutations, 1);
   assert.equal(observations, 4);
+});
+
+test("cron installation uses one machine-user lock across project state directories", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-cron-lock-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const serialization = sharedResourceSerialization("machine-user-crontab", os.homedir());
+  const lockPath = serializationLockPath(serialization.root, serialization.scope);
+  fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+  fs.writeFileSync(
+    lockPath,
+    JSON.stringify({ pid: process.pid, token: "cron-owner", acquired_at: new Date().toISOString() })
+  );
+  t.after(() => fs.rmSync(lockPath, { force: true }));
+  const generated = {
+    kind: "cron",
+    content: "*/30 * * * * node worker\n",
+    logPath: path.join(root, "loop.log"),
+    exposure: null,
+  };
+  const execute = (name) =>
+    runSchedulerInstallEffect(generated, 30, {
+      pmStateDir: path.join(root, name),
+      authorityActions: ["install_loop_scheduler"],
+      lockTimeoutMs: 0,
+      observeScheduler: () => ({ state: "absent", safe_to_retry: true }),
+      install: () => assert.fail("the shared crontab lock must block mutation"),
+    });
+
+  assert.equal(execute("left").state, "blocked");
+  assert.equal(execute("right").state, "blocked");
 });
