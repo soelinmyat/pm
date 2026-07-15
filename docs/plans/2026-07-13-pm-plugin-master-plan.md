@@ -2,7 +2,7 @@
 title: "PM plugin master plan"
 created: 2026-07-13
 updated: 2026-07-15
-status: active
+status: complete
 owners:
   - pm-plugin
 ---
@@ -32,7 +32,7 @@ Completion means every shipped skill has an explicit contract, proportionate eva
 | v1.13.28 / Wave 7 | Evidence provenance and conflict-safe refresh v2 | Released |
 | v1.13.29 / Wave 8 | Product reasoning and deterministic feature inventory v2 | Released |
 | v1.13.39 / Wave 9 | Canonical operational read model and effect journals | Released |
-| vNext / Wave 10 | Atomic capture, compatibility cleanup, and product polish | In progress |
+| v1.13.40 / Wave 10 | Atomic capture, compatibility cleanup, and product polish | Released |
 
 ## Operating laws
 
@@ -207,7 +207,7 @@ Align `start`, `list`, `board`, `setup`, `sync`, and `loop`:
 
 ### Wave 10 — Capture aliases, compatibility, and product polish
 
-**State:** in progress on `codex/capture-compatibility-product-polish-v2`. Detailed plan in `docs/plans/2026-07-15-capture-compatibility-product-polish-wave-10.md`.
+**State:** complete — merged through PR #360 at `d07a1ff322bd333374248bd849c941d6745820b6` and released as `v1.13.40`. The tag resolves to that exact main merge commit. Detailed plan and release evidence are in `docs/plans/2026-07-15-capture-compatibility-product-polish-wave-10.md`.
 
 Finish the remaining thin surfaces:
 
@@ -218,6 +218,23 @@ Finish the remaining thin surfaces:
 - remove or archive superseded planning notes only after their completion evidence is on main.
 
 **Exit:** all plugin surfaces pass the authoring audit; docs match runtime; no deprecated command promises behavior it no longer owns.
+
+## Final completion audit
+
+The audit below was completed from the released `v1.13.40` main tree. It closes the completion contract without expanding lightweight skills into core-workflow ceremony.
+
+| Completion requirement | Main-branch evidence | Result |
+|---|---|---|
+| Skill authoring contracts | `npm run skill:audit` reports 0 issues across all 24 shipped skills; plugin validation enforces required sections, directives, triggers, exemptions, and command parity. | Passed |
+| Step decision and transition criteria | The authoring audit checks Goal, How, Done-when, and Advance semantics; all procedural steps pass, including the new Task/Bug sequences. | Passed |
+| Surface-semantic alignment | Manifest generation and plugin validation pass; `tests/public-docs.test.js` covers command, README, install-guide, workflow-map, artifact-gallery, and link parity. | Passed |
+| Bounded shared runtime reuse | Capture uses the shared owned-lock boundary; reconciliation uses the shared operational-effect-journal reader; focused import and behavior regressions pass without introducing a generic workflow engine. | Passed |
+| Durable artifact coverage and gates | `docs/artifact-gallery.md` covers every artifact-matrix row and intentional non-HTML case; artifact checks, link checks, and the routed rendered-report inspection pass. | Passed |
+| Behavioral and quality cases | The release tree passes 2,076 tests: 2,070 passed, 0 failed, and 6 declared dependency skips. Core gate contracts and supporting fixtures remain green. | Passed |
+| Provider-neutral workhorse contracts | Capability profiles and prompt/result envelopes remain provider-neutral and record explicit downgrades. The installed Codex and Claude workhorse copies each pass plugin validation and the same 74-test representative suite; this is contract/runtime evidence, not a claim that every release ran a live two-model certification matrix. | Passed |
+| Installed-copy verification | Both `~/.codex/plugins/cache/pm/pm/1.13.40` and `~/.claude/plugins/cache/pm/pm/1.13.40` pass plugin validation and the representative capture, lock, docs/artifact, Review contract, dispatch, and authoring tests. | Passed |
+| Release integrity | PR #360 passed all five hosted CI jobs and merged to main; `v1.13.40` resolves to the exact merge commit `d07a1ff322bd333374248bd849c941d6745820b6`. | Passed |
+| Finding and dispute closure | The final bounded Review round covered all five required logical lenses and passed with no findings, disputes, open P0/P1, or deferred unowned P2. | Passed |
 
 ## Evaluation policy
 
@@ -260,14 +277,14 @@ Do not duplicate the core matrix for aliases, redirects, or read-only projection
 9. Push a feature branch, open a PR, monitor hosted CI, and merge only with explicit authority.
 10. Place the version tag on the main merge commit, clean the worktree, and update the release map.
 
-## Current concerns and decisions needed
+## Final decisions and retained safeguards
 
-1. No implementation or delivery-authority blocker is open. The user has granted standing push, PR, and merge authority through completion of this plan.
-2. Wave 10 must preserve the Simplify install alias while removing every implication that it owns a current Dev phase or gate.
-3. Capture and note promotion now share ID-allocation state; concurrency, symlink, malformed-input, and stale-enrichment regressions must stay in the focused release suite.
-4. The final patch bump must precede frozen Review evidence, and the generated tag must be moved from the feature commit to the exact main merge commit.
-5. Completion remains evidence-based: do not mark this plan done until caches, hosted CI, merge/tag placement, and the final main audit all pass.
+1. Simplify remains an installable compatibility alias that redirects exactly to Review; it owns no current Dev phase or gate.
+2. Capture and note promotion retain shared, recovery-safe ID allocation. Concurrency, symlink, malformed-input, stale-enrichment, ABA, and abandoned-lock recovery stay in the committed regression suite.
+3. Review remains bounded to one lineage and at most three remediation rounds. The passing round closes the gate; advisory debt does not manufacture another certification cycle.
+4. Live-model runs remain release canaries rather than default CI. Provider-neutral schemas, explicit capability downgrades, installed-runtime verification, and deterministic behavioral eligibility are the durable contract.
+5. Future plugin changes follow routine maintenance and the release protocol; they do not reopen this master plan unless a completion invariant itself regresses.
 
 ## Next action
 
-Finish Wave 10 implementation and focused regression coverage, prepare the patch release, run the routed artifact/QA/Review gates, verify both installed workhorse copies, then ship and audit every completion-contract row on main.
+The master plan is closed. Continue with routine issue-led maintenance: preserve the completion invariants in CI, use proportionate gates for each change, and create a new dated plan only for genuinely new product scope.

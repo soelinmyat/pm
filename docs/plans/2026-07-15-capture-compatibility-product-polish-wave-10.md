@@ -2,7 +2,7 @@
 title: "Capture, compatibility, and product polish — Wave 10"
 created: 2026-07-15
 updated: 2026-07-15
-status: in-progress
+status: complete
 branch: codex/capture-compatibility-product-polish-v2
 base: v1.13.39
 ---
@@ -97,28 +97,28 @@ Link them from README and Codex installation guidance. Reconcile command names/d
 
 ## Acceptance matrix
 
-| Requirement | Evidence |
-|---|---|
-| Atomic create and enrich | focused unit/CLI concurrency, path, stale-write, and validator tests |
-| Distinct Task/Bug policy | skill contract tests plus captured frontmatter/body fixtures |
-| Pure Simplify redirect | redirect/current-route/migration/legacy-inspection tests |
-| Surface parity | plugin authoring audit, manifest/command/docs parity tests, link checks |
-| Artifact quality | artifact gallery schema/content checks; README/install rendering inspection |
-| Runtime reuse | reconciliation journal-reader regression test and shared-boundary import check |
-| Provider neutrality | prompt/result contracts contain no provider-specific workflow semantics; installed Sol/Opus cache smoke tests |
-| Release integrity | patch bump is final source commit before review; PR CI green; tag moved to exact main merge commit |
-| Master-plan completion | requirement-by-requirement audit on final main, with no open P0/P1 or unowned P2 |
+| Requirement | Released evidence | Result |
+|---|---|---|
+| Atomic create and enrich | Focused unit and CLI coverage exercises concurrency, path confinement, malformed input, stale writes, no-overwrite publication, stale-file ABA, invalid-directory ABA, and abandoned owned-lock recovery. | Passed |
+| Distinct Task/Bug policy | Skill contract tests and captured frontmatter/body fixtures preserve Task and Bug defaults, enrichment, confirmation, and routing. | Passed |
+| Pure Simplify redirect | Redirect, current-route exclusion, migration, and legacy-inspection tests pass; Simplify owns no current gate. | Passed |
+| Surface parity | The authoring audit reports 0 issues across 24 skills; manifest, command, docs, example, gallery, and link checks pass. | Passed |
+| Artifact quality | The gallery structural/content checks pass; the canonical Review HTML was rendered and inspected at desktop and narrow viewports with retained render evidence. | Passed |
+| Runtime reuse | Reconciliation uses the shared journal reader; focused valid/malformed journal tests and the shared-boundary import check pass. | Passed |
+| Provider neutrality | Prompt/result and capability contracts contain no provider-specific workflow policy. Installed Codex and Claude workhorse copies each pass validation and the same 74 representative tests, with downgrades represented explicitly. | Passed |
+| Release integrity | PR #360 passed all five hosted jobs and merged at `d07a1ff322bd333374248bd849c941d6745820b6`; `v1.13.40` names that exact main commit. | Passed |
+| Master-plan completion | The final main audit in `docs/plans/2026-07-13-pm-plugin-master-plan.md` closes every requirement; the passing Review has no findings, dispute, open P0/P1, or unowned P2. | Passed |
 
-## Verification sequence
+## Completed verification
 
-1. Observe focused tests fail before production changes.
-2. Make focused capture, gate, authoring, journal, and docs parity suites pass.
-3. Run `npm run validate:plugin`, formatting/lint checks, artifact/link checks, and `npm test`.
-4. Sync source to the installed Claude and Codex workhorse caches; validate and run representative Task/Bug/Simplify/Review smoke suites in each.
-5. Run the routed Design Critique and QA on materially changed reader surfaces.
-6. Run one bounded full Review lineage against the release-prepared final tree; remediate at most three rounds.
-7. Verify final gates and authority, push the feature branch, create the PR, monitor hosted CI, and merge.
-8. Move the patch tag to the exact main merge commit, clean the worktree/branch, and perform the final master-plan audit on main.
+1. TDD evidence captured the focused failures before production changes and the passing behavior after implementation.
+2. Focused capture, gate, authoring, journal, and public-docs suites pass on the release tree.
+3. Plugin validation and the full suite pass: 2,076 tests, 2,070 passed, 0 failed, and 6 declared dependency skips.
+4. The final Review lineage passed on round 3 after two concrete lock-recovery remediations. All five required logical lenses were covered with no findings or disputes.
+5. The canonical Review report passed its artifact check and retained render manifest; desktop and narrow screenshots were inspected.
+6. Both installed workhorse copies pass plugin validation and the same current 74-test representative suite.
+7. All five PR #360 hosted CI jobs passed before merge.
+8. The release merged at `d07a1ff322bd333374248bd849c941d6745820b6`, and `v1.13.40` was verified on that exact main commit.
 
 ## Done-when
 
@@ -127,4 +127,4 @@ Link them from README and Codex installation guidance. Reconcile command names/d
 - Hosted CI passes, the PR is merged, and the release tag names the main merge commit.
 - The master plan records Waves 1–10 as released and has no unresolved completion-contract item.
 
-**Advance:** implement Workstream 1 with observed red/green evidence, then proceed through the remaining workstreams and the bounded release sequence.
+All done-when conditions are satisfied. Wave 10 is closed; subsequent work follows routine issue-led maintenance rather than continuing this plan.
