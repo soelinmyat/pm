@@ -390,6 +390,7 @@ test("POST /api/loop/toggle rejects cross-origin and header-less requests (CSRF)
 test("renderPage output is inert HTML with no external references", () => {
   const html = renderPage();
   assert.match(html, /PM Board/i);
+  assert.match(html, /origin state is ambiguous.*recovery.*command.*\/pm:loop status/s);
   assert.doesNotMatch(html, /https?:\/\//);
   assert.doesNotMatch(html, /<script\s+src=/i);
   assert.doesNotMatch(html, /<link\b/i);

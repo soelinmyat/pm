@@ -777,7 +777,7 @@ function renderPage() {
       syncEl.textContent = s.stopped ? "pause verified on origin" : "resume verified on origin";
       syncEl.className = "note ok";
     } else if (s.state === "ambiguous") {
-      syncEl.textContent = "origin state is ambiguous — inspect before retrying";
+      syncEl.textContent = "origin state is ambiguous — " + ((s.recovery && s.recovery.command) || "/pm:loop status") + " before retrying";
       syncEl.className = "note bad";
     } else if (s.state === "blocked") {
       syncEl.textContent = "loop control blocked — " + ((s.recovery && s.recovery.command) || "run /pm:loop status");
