@@ -382,12 +382,31 @@ function boundedText(value, field, maxChars, options = {}) {
 function resolvePmRoot(pmDir) {
   if (typeof pmDir !== "string" || !pmDir.trim()) throw new Error("pmDir is required");
   const absolute = path.resolve(pmDir);
-  const stat = fs.lstatSync(absolute);
+  const real = attestPathComponents(absolute);
+  const stat = fs.lstatSync(real);
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
     throw new Error("pmDir must be a real directory");
   }
-  const real = fs.realpathSync(absolute);
   return real;
+}
+
+function attestPathComponents(absolute) {
+  const parsed = path.parse(absolute);
+  const components = absolute.slice(parsed.root.length).split(path.sep).filter(Boolean);
+  let current = parsed.root;
+  for (const [index, component] of components.entries()) {
+    current = path.join(current, component);
+    const stat = fs.lstatSync(current);
+    if (!stat.isSymbolicLink()) continue;
+    // macOS exposes system roots such as /var through one privileged root-level alias.
+    // Resolve that operating-system prefix, then reject every project-controlled symlink below it.
+    if (index === 0) {
+      current = fs.realpathSync(current);
+      continue;
+    }
+    throw new Error("pmDir contains a symlinked path component");
+  }
+  return current;
 }
 
 function attestBacklogDirectory(root, options = {}) {
@@ -483,7 +502,11 @@ function validateExistingDocument(parsed, expectedKind) {
   validateLabels(parsed.data.labels);
   validateDate(parsed.data.created, "created");
   validateDate(parsed.data.updated, "updated");
-  validateBody(parsed.body || "", expectedKind);
+  const body = parsed.body || "";
+  const normalizedBody = validateBody(body, expectedKind);
+  if (expectedKind === "bug" && body.trim() !== normalizedBody.trim()) {
+    throw new Error("bug body must use canonical Observed, Expected, and Reproduction sections");
+  }
 }
 
 function validateDate(value, field) {

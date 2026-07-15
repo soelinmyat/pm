@@ -159,7 +159,7 @@ Public product promise lives in:
 - `README.md`
 - platform install guides such as `.codex/INSTALL.md`
 
-Planning notes are maintained privately outside this repository.
+Planning notes live in `docs/plans/`; they are committed release evidence, not runtime behavior.
 
 ## Change Rules
 

@@ -201,7 +201,7 @@ test("capture rejects a symlinked PM root and existing Markdown symlinks", (t) =
   fs.symlinkSync(pmDir, linkedRoot);
   assert.throws(
     () => captureBacklogItem(linkedRoot, { kind: "task", title: "Root escape" }),
-    /pmDir must be a real directory/
+    /pmDir must be a real directory|symlinked path component/
   );
 
   const outside = path.join(path.dirname(pmDir), "outside.md");
@@ -212,6 +212,22 @@ test("capture rejects a symlinked PM root and existing Markdown symlinks", (t) =
     /symlink|regular file/i
   );
   assert.equal(fs.readFileSync(outside, "utf8"), "---\ntype: backlog\nid: PM-001\n---\n");
+});
+
+test("capture rejects a PM root reached through a symlinked parent", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "capture-backlog-parent-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const realParent = path.join(root, "real-parent");
+  const linkedParent = path.join(root, "linked-parent");
+  const pmDir = path.join(realParent, "pm");
+  fs.mkdirSync(path.join(pmDir, "backlog"), { recursive: true });
+  fs.symlinkSync(realParent, linkedParent);
+
+  assert.throws(
+    () => captureBacklogItem(path.join(linkedParent, "pm"), { kind: "task", title: "Escape" }),
+    /symlinked path component/
+  );
+  assert.deepEqual(fs.readdirSync(path.join(pmDir, "backlog")), []);
 });
 
 test("explicit IDs cannot duplicate an existing backlog ID", (t) => {
@@ -522,6 +538,28 @@ test("bug enrichment preserves the kind-owned label when adding extras", (t) => 
   });
   const parsed = parseFrontmatter(fs.readFileSync(captured.filePath, "utf8"));
   assert.deepEqual(parsed.data.labels, ["bug", "customer-impact"]);
+});
+
+test("metadata-only bug enrichment rejects a noncanonical existing body", (t) => {
+  const { pmDir, cleanup } = makeTmpPm();
+  t.after(cleanup);
+  const captured = captureBacklogItem(pmDir, { kind: "bug", title: "Malformed body" });
+  const malformed = fs
+    .readFileSync(captured.filePath, "utf8")
+    .replace(/\n## Observed[\s\S]*$/, "\nThis body has no canonical Bug sections.\n");
+  fs.writeFileSync(captured.filePath, malformed);
+  const malformedSha = `sha256:${crypto.createHash("sha256").update(malformed).digest("hex")}`;
+
+  assert.throws(
+    () =>
+      enrichBacklogItem(pmDir, captured.slug, {
+        kind: "bug",
+        expectedSha256: malformedSha,
+        priority: "critical",
+      }),
+    /bug body must use canonical Observed, Expected, and Reproduction sections/
+  );
+  assert.equal(fs.readFileSync(captured.filePath, "utf8"), malformed);
 });
 
 test("wrong-kind enrichment preserves the exact captured bytes", (t) => {
