@@ -13,6 +13,7 @@ const { isObject, stableStringify } = require("./workflow-runtime/records.js");
 
 const SCHEMA_VERSION = 1;
 const EFFECT_ID = /^effect_[a-f0-9]{64}$/;
+const JOURNAL_STATES = new Set(["planned", "attempting", "blocked", "ambiguous", "verified"]);
 const DEFAULT_LOCK_TIMEOUT_MS = 5000;
 const LOCK_POLL_MS = 25;
 
@@ -76,6 +77,11 @@ function readJournal(filePath) {
   }
   if (!EFFECT_ID.test(value.effect_id || "")) throw new Error("invalid journal effect id");
   if (!Array.isArray(value.attempts)) throw new Error("effect journal attempts must be an array");
+  if (!JOURNAL_STATES.has(value.state)) {
+    throw new Error(
+      `unsupported operational effect journal state ${JSON.stringify(value.state)}; inspect ${filePath}`
+    );
+  }
   return value;
 }
 
@@ -472,7 +478,7 @@ function runOperationalEffect(input) {
   if (!lock) {
     const journal = readJournal(journalPath);
     const owner = readLockOwner(lockPath);
-    const staleOwner = owner && !processIsAlive(Number(owner.pid));
+    const staleOwner = !owner || !processIsAlive(Number(owner.pid));
     return {
       effect_id: effectId,
       state: "blocked",

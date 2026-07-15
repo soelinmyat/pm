@@ -828,7 +828,7 @@ test("journaled push observes and reuses a verified outcome before another mutat
   assert.equal(statusRecord.errors.length, 1);
 });
 
-test("interrupted sync remains ambiguous instead of starting another Git mutation", (t) => {
+test("interrupted sync with changed local state remains ambiguous without another mutation", (t) => {
   const remote = withBareRemote();
   const { pmDir, dotPm, cleanup } = withTempProject({ "pm/strategy.md": "# Strategy\n" });
   const { setup, runSyncEffect } = require(KB_SYNC_GIT_PATH);
@@ -855,6 +855,7 @@ test("interrupted sync remains ambiguous instead of starting another Git mutatio
     error: null,
   });
   fs.writeFileSync(first.journal_path, `${JSON.stringify(journal, null, 2)}\n`);
+  fs.writeFileSync(path.join(pmDir, "unresolved-local-change.md"), "# Inspect first\n");
   const headBefore = gitExec("git rev-parse HEAD", { cwd: pmDir, encoding: "utf8" }).trim();
 
   const recovered = runSyncEffect(options);
@@ -862,10 +863,55 @@ test("interrupted sync remains ambiguous instead of starting another Git mutatio
   const after = JSON.parse(fs.readFileSync(first.journal_path, "utf8"));
 
   assert.equal(recovered.state, "ambiguous");
-  assert.match(after.last_observation.reason, /explicit Git recovery inspection/);
+  assert.match(after.last_observation.reason, /fresh Git observation found local changes/);
   assert.equal(after.attempts.length, 2);
   assert.equal(headAfter, headBefore);
 });
+
+for (const mode of ["pull", "sync"]) {
+  test(`a pre-mutation ${mode} failure can recover and make one safe retry`, (t) => {
+    const remote = withBareRemote();
+    const seeded = withTempProject({ "pm/strategy.md": "# Strategy\n" });
+    const machineBRoot = fs.mkdtempSync(path.join(os.tmpdir(), `kb-${mode}-recover-`));
+    const machineB = path.join(machineBRoot, "pm");
+    const machineBState = path.join(machineBRoot, ".pm");
+    const api = require(KB_SYNC_GIT_PATH);
+    assert.equal(api.setup(seeded.pmDir, remote.url).ok, true);
+    gitExec(`git clone ${remote.url} ${machineB}`);
+    fs.mkdirSync(machineBState, { recursive: true });
+    fs.writeFileSync(path.join(seeded.pmDir, `${mode}-recovered.md`), `# ${mode}\n`);
+    assert.equal(api.push(seeded.pmDir).ok, true);
+    t.after(() => {
+      seeded.cleanup();
+      remote.cleanup();
+      fs.rmSync(machineBRoot, { recursive: true, force: true });
+    });
+
+    let operationCalls = 0;
+    const operation = (target) => {
+      operationCalls += 1;
+      if (operationCalls === 1) {
+        return { ok: false, error: "authentication failed before Git mutation" };
+      }
+      return api[mode](target);
+    };
+    const options = {
+      mode,
+      pmDir: machineB,
+      dotPmDir: machineBState,
+      authorityActions: [mode === "pull" ? "pull_knowledge_base" : "sync_knowledge_base"],
+      operations: { [mode]: operation },
+    };
+
+    const failed = api.runSyncEffect(options);
+    const recovered = api.runSyncEffect(options);
+
+    assert.equal(failed.state, "ambiguous");
+    assert.equal(recovered.state, "verified");
+    assert.equal(operationCalls, 2);
+    assert.equal(fs.existsSync(path.join(machineB, `${mode}-recovered.md`)), true);
+  });
+}
 
 test("an indeterminate push is observed before replay and recovers without a second mutation", (t) => {
   const remote = withBareRemote();

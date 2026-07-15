@@ -540,6 +540,20 @@ function syncObservation(mode, pmDir, expectedRemoteHash) {
   };
 }
 
+function refreshRemoteForRecovery(pmDir) {
+  if (!isGitRepo(pmDir)) return { ok: false, error: "knowledge base repo is absent" };
+  if (!hasRemote(pmDir)) return { ok: false, error: "knowledge base remote is absent" };
+  const result = runSafe("git fetch origin main", { cwd: pmDir });
+  return result.ok ? { ok: true } : { ok: false, error: `recovery fetch failed: ${result.error}` };
+}
+
+function unchangedLocalMutationSurface(before, after) {
+  if (!before || !after) return false;
+  return ["repository", "head", "branch", "worktree_sha256", "remote_url_sha256"].every(
+    (field) => before[field] === after[field]
+  );
+}
+
 function mutationStatus(mode, result) {
   return {
     mode,
@@ -564,8 +578,19 @@ function runSyncEffect(options) {
   const expectedRemoteHash = configuredRemoteUrl ? sha256(configuredRemoteUrl) : null;
   const serialization = sharedGitRepositorySerialization(pmDir);
   let before;
-  const recovery = { code: "inspect-sync-effect", command: "/pm:sync status" };
-  const operations = { setup, clone, sync, push, pull, ...(options.operations || {}) };
+  const recovery = {
+    code: "inspect-sync-effect",
+    command: mode === "sync" ? "/pm:sync" : `/pm:sync ${mode}`,
+  };
+  const operations = {
+    setup,
+    clone,
+    sync,
+    push,
+    pull,
+    refreshRemoteForRecovery,
+    ...(options.operations || {}),
+  };
   const requiresFreshRemoteObservation = mode === "pull" || mode === "sync";
   let mutationStarted = false;
   let routeStatus = null;
@@ -593,9 +618,28 @@ function runSyncEffect(options) {
     observe({ journal, recovery: recovering }) {
       if (requiresFreshRemoteObservation && !mutationStarted) {
         if (recovering && ["attempting", "ambiguous", "blocked"].includes(journal.state)) {
+          const refresh = operations.refreshRemoteForRecovery(pmDir);
+          if (!refresh.ok) {
+            return {
+              state: "ambiguous",
+              reason: refresh.error || "interrupted sync outcome could not refresh Git state",
+            };
+          }
+          const observed = syncObservation(mode, pmDir, expectedRemoteHash);
+          if (observed.state === "verified") return observed;
+          const afterRefresh = localGitState(pmDir);
+          if (unchangedLocalMutationSurface(journal.precondition, afterRefresh)) {
+            return {
+              state: "absent",
+              safe_to_retry: true,
+              reason:
+                "fresh Git observation proved the interrupted attempt left local state unchanged",
+            };
+          }
           return {
             state: "ambiguous",
-            reason: "interrupted sync outcome requires explicit Git recovery inspection",
+            reason:
+              "fresh Git observation found local changes from the interrupted sync; inspect before retry",
           };
         }
         return {

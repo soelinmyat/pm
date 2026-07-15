@@ -158,6 +158,29 @@ test("a blocked journal is observed before another mutation attempt", (t) => {
   assert.equal(observations, 1);
 });
 
+test("an unknown journal state fails closed without mutation", (t) => {
+  const root = stateDir(t);
+  let mutations = 0;
+  const execute = () =>
+    runOperationalEffect({
+      ...input(root),
+      observe() {
+        return { state: "absent", safe_to_retry: true };
+      },
+      mutate() {
+        mutations += 1;
+      },
+    });
+
+  const first = execute();
+  const journal = JSON.parse(fs.readFileSync(first.journal_path, "utf8"));
+  journal.state = "future-state";
+  fs.writeFileSync(first.journal_path, JSON.stringify(journal));
+
+  assert.throws(execute, /unsupported operational effect journal state.*inspect/);
+  assert.equal(mutations, 1);
+});
+
 test("an ambiguous replay preserves the verified receipt and never mutates again", (t) => {
   const root = stateDir(t);
   let mutations = 0;
@@ -497,6 +520,42 @@ test("a lock left by a dead process fails closed with explicit recovery", (t) =>
   assert.equal(mutations, 0);
   assert.equal(fs.existsSync(lockPath), true);
 });
+
+for (const [label, contents] of [
+  ["empty", ""],
+  ["malformed", "{not-json"],
+]) {
+  test(`${label === "empty" ? "an" : "a"} ${label} lock owner fails closed with explicit recovery`, (t) => {
+    const root = stateDir(t);
+    const plan = createEffectPlan(input(root));
+    const journalPath = effectJournalPath(root, plan.effect_id);
+    fs.mkdirSync(path.dirname(journalPath), { recursive: true });
+    const lockPath = serializationLockPath(root, input(root).serializationScope);
+    fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+    fs.writeFileSync(lockPath, contents);
+    let mutations = 0;
+
+    const result = runOperationalEffect({
+      ...input(root),
+      lockTimeoutMs: 0,
+      observe() {
+        return { state: "absent", safe_to_retry: true };
+      },
+      mutate() {
+        mutations += 1;
+      },
+    });
+
+    assert.equal(result.state, "blocked");
+    assert.equal(result.recovery.code, "effect-lock-recovery-required");
+    assert.match(
+      result.recovery.reason,
+      new RegExp(lockPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    );
+    assert.equal(mutations, 0);
+    assert.equal(fs.existsSync(lockPath), true);
+  });
+}
 
 test("multiple contenders never mutate through one dead lock", async (t) => {
   const root = stateDir(t);
