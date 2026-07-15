@@ -30,7 +30,7 @@ function acquireOwnedLock(lockPath, options = {}) {
         release.cached = cached;
         return release;
       }
-      if (reclaimAbandonedLock(lockPath, options)) continue;
+      if (options.reclaimAbandoned !== false && reclaimAbandonedLock(lockPath, options)) continue;
       synchronousWait(waitMs);
     }
   }
@@ -66,26 +66,59 @@ function reclaimAbandonedLock(lockPath, options = {}) {
   }
   options.beforeReclaimRename?.({ lockPath, observed: structuredClone(observed) });
   const quarantine = `${lockPath}.stale-${process.pid}-${crypto.randomBytes(8).toString("hex")}`;
+  let snapshotKind = "hard-link";
   try {
-    fs.renameSync(lockPath, quarantine);
+    fs.linkSync(lockPath, quarantine);
   } catch {
-    return false;
-  }
-  try {
-    const moved = readLockOwner(quarantine);
-    if (!observed.token || moved.token !== observed.token) {
-      try {
-        fs.renameSync(quarantine, lockPath);
-      } catch {
-        // A newer owner already occupies the fixed path.
-      }
+    // A malformed directory cannot be hard-linked. Preserve the legacy recovery
+    // path only for that invalid shape; every valid owned lock uses the
+    // descriptor-stable hard-link path below.
+    let stat;
+    try {
+      stat = fs.lstatSync(lockPath);
+    } catch {
       return false;
     }
-  } catch {
-    if (observed.token) return false;
+    if (observed.token || !stat.isDirectory()) return false;
+    try {
+      fs.renameSync(lockPath, quarantine);
+      snapshotKind = "moved-directory";
+    } catch {
+      return false;
+    }
   }
-  fs.rmSync(quarantine, { recursive: true, force: true });
-  return true;
+  try {
+    options.afterReclaimSnapshot?.({ lockPath, quarantine, observed: structuredClone(observed) });
+    if (snapshotKind === "hard-link") {
+      let snapshotOwner = null;
+      try {
+        snapshotOwner = readLockOwner(quarantine);
+      } catch {
+        // An invalid regular-file owner is reclaimable after the grace period.
+      }
+      if (
+        (observed.token && snapshotOwner?.token !== observed.token) ||
+        (!observed.token && snapshotOwner)
+      ) {
+        return false;
+      }
+      let fixed;
+      let snapshot;
+      try {
+        fixed = fs.lstatSync(lockPath);
+        snapshot = fs.lstatSync(quarantine);
+      } catch {
+        return false;
+      }
+      if (fixed.dev !== snapshot.dev || fixed.ino !== snapshot.ino) return false;
+      fs.unlinkSync(lockPath);
+    } else if (!fs.lstatSync(quarantine).isDirectory()) {
+      return false;
+    }
+    return true;
+  } finally {
+    fs.rmSync(quarantine, { recursive: true, force: true });
+  }
 }
 
 function readLockOwner(lockPath) {
