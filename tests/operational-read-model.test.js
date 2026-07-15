@@ -140,6 +140,50 @@ test("one snapshot owns lifecycle, leases, budgets, delivery, and recovery", (t)
     "repair-invalid-lease",
   ]);
   assert.match(snapshot.meta.observation_id, /^op_[a-f0-9]{64}$/);
+  assert.deepEqual(Object.keys(snapshot.work_items[0]), [
+    "id",
+    "slug",
+    "title",
+    "kind",
+    "status",
+    "priority",
+    "rfc",
+    "branch",
+    "size",
+    "prs",
+    "prDispatchAt",
+    "blockerCode",
+    "blockerReason",
+    "blockerRemediation",
+    "loopRunId",
+    "loopLogPath",
+    "retryAfter",
+    "parent",
+    "childrenSlugs",
+    "implementationApproved",
+    "updatedEpoch",
+    "hasFrontmatter",
+    "origin",
+    "column",
+    "blocker",
+    "command",
+    "lease",
+    "artifact_kind",
+    "lifecycle",
+    "list_section",
+    "source_path",
+  ]);
+  assert.equal(Object.hasOwn(snapshot.work_items[0], "sourcePath"), false);
+  assert.equal(Object.hasOwn(snapshot.work_items[0], "relativePath"), false);
+  const leased = snapshot.work_items.find((item) => item.id === "PM-004");
+  assert.deepEqual(Object.keys(leased.lease), [
+    "stage",
+    "holder",
+    "runtime",
+    "claimed_at",
+    "expires_at",
+  ]);
+  assert.equal(Object.hasOwn(leased.lease, "filePath"), false);
 });
 
 test("observation identity is independent of generated time and absolute project path", (t) => {

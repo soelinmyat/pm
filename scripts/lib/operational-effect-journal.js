@@ -10,6 +10,8 @@ const { isObject, stableStringify } = require("./workflow-runtime/records.js");
 
 const SCHEMA_VERSION = 1;
 const EFFECT_ID = /^effect_[a-f0-9]{64}$/;
+const DEFAULT_LOCK_TIMEOUT_MS = 5000;
+const LOCK_POLL_MS = 25;
 
 function requireObject(value, label) {
   if (!isObject(value)) throw new TypeError(`${label} must be an object`);
@@ -75,6 +77,86 @@ function readJournal(filePath) {
 function persist(filePath, value) {
   value.updated_at = new Date().toISOString();
   writeJsonAtomic(filePath, value, { fileMode: 0o600, directoryMode: 0o700 });
+}
+
+function processIsAlive(pid) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
+function readLockOwner(lockPath) {
+  try {
+    const stat = fs.lstatSync(lockPath);
+    if (!stat.isFile() || stat.isSymbolicLink()) return null;
+    const owner = JSON.parse(fs.readFileSync(lockPath, "utf8"));
+    return isObject(owner) ? owner : null;
+  } catch {
+    return null;
+  }
+}
+
+function lockCanBeReclaimed(lockPath, owner) {
+  if (owner && Number.isSafeInteger(Number(owner.pid))) {
+    return !processIsAlive(Number(owner.pid));
+  }
+  try {
+    const stat = fs.lstatSync(lockPath);
+    if (!stat.isFile() || stat.isSymbolicLink()) return false;
+    return Date.now() - stat.mtimeMs > 30000;
+  } catch (error) {
+    return error?.code === "ENOENT";
+  }
+}
+
+function acquireEffectLock(journalPath, timeoutMs = DEFAULT_LOCK_TIMEOUT_MS) {
+  const lockPath = `${journalPath}.lock`;
+  const deadline = Date.now() + Math.max(0, Number(timeoutMs) || 0);
+  fs.mkdirSync(path.dirname(journalPath), { recursive: true, mode: 0o700 });
+
+  while (true) {
+    try {
+      const fd = fs.openSync(lockPath, "wx", 0o600);
+      fs.writeFileSync(
+        fd,
+        `${JSON.stringify({ pid: process.pid, acquired_at: new Date().toISOString() })}\n`
+      );
+      return { fd, lockPath };
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+      const owner = readLockOwner(lockPath);
+      if (lockCanBeReclaimed(lockPath, owner)) {
+        try {
+          fs.unlinkSync(lockPath);
+        } catch (unlinkError) {
+          if (unlinkError?.code !== "ENOENT") throw unlinkError;
+        }
+        continue;
+      }
+      if (Date.now() >= deadline) return null;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, LOCK_POLL_MS);
+    }
+  }
+}
+
+function releaseEffectLock(lock) {
+  if (!lock) return;
+  let failure = null;
+  try {
+    fs.closeSync(lock.fd);
+  } catch (error) {
+    failure = error;
+  }
+  try {
+    fs.unlinkSync(lock.lockPath);
+  } catch (error) {
+    if (error?.code !== "ENOENT" && !failure) failure = error;
+  }
+  if (failure) throw failure;
 }
 
 function observationReceipt(plan, observation, attempt, authorityActions, observedAt) {
@@ -148,29 +230,7 @@ function newJournal(plan, recovery, now) {
   };
 }
 
-function runOperationalEffect(input) {
-  const plan = createEffectPlan(input);
-  const journalPath = effectJournalPath(input.pmStateDir, plan.effect_id);
-  const authorityActions = Array.isArray(input.authorityActions)
-    ? [...new Set(input.authorityActions)]
-    : [];
-  if (!authorityActions.includes(plan.authority_action)) {
-    return {
-      effect_id: plan.effect_id,
-      state: "blocked",
-      journal_path: journalPath,
-      verified_receipt: null,
-      recovery: {
-        code: "authority-required",
-        command: input.recovery.command,
-        reason: `Explicit ${plan.authority_action} authority is required.`,
-      },
-    };
-  }
-  if (typeof input.observe !== "function" || typeof input.mutate !== "function") {
-    throw new TypeError("operational effect requires observe and mutate callbacks");
-  }
-
+function runClaimedOperationalEffect(input, plan, journalPath, authorityActions) {
   const now = input.now || new Date().toISOString();
   let journal = readJournal(journalPath);
   if (journal && journal.effect_id !== plan.effect_id) {
@@ -269,8 +329,54 @@ function runOperationalEffect(input) {
   });
 }
 
+function runOperationalEffect(input) {
+  const plan = createEffectPlan(input);
+  const journalPath = effectJournalPath(input.pmStateDir, plan.effect_id);
+  const authorityActions = Array.isArray(input.authorityActions)
+    ? [...new Set(input.authorityActions)]
+    : [];
+  if (!authorityActions.includes(plan.authority_action)) {
+    return {
+      effect_id: plan.effect_id,
+      state: "blocked",
+      journal_path: journalPath,
+      verified_receipt: null,
+      recovery: {
+        code: "authority-required",
+        command: input.recovery.command,
+        reason: `Explicit ${plan.authority_action} authority is required.`,
+      },
+    };
+  }
+  if (typeof input.observe !== "function" || typeof input.mutate !== "function") {
+    throw new TypeError("operational effect requires observe and mutate callbacks");
+  }
+
+  const lock = acquireEffectLock(journalPath, input.lockTimeoutMs);
+  if (!lock) {
+    const journal = readJournal(journalPath);
+    return {
+      effect_id: plan.effect_id,
+      state: "blocked",
+      journal_path: journalPath,
+      verified_receipt: journal?.verified_receipt || null,
+      recovery: {
+        code: "effect-in-progress",
+        command: input.recovery.command,
+        reason: "Another process still owns this effect. Retry after that attempt finishes.",
+      },
+    };
+  }
+  try {
+    return runClaimedOperationalEffect(input, plan, journalPath, authorityActions);
+  } finally {
+    releaseEffectLock(lock);
+  }
+}
+
 module.exports = {
   SCHEMA_VERSION,
+  acquireEffectLock,
   createEffectPlan,
   effectJournalPath,
   readJournal,

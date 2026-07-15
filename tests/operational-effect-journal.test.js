@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { spawn } = require("node:child_process");
 
 const {
   createEffectPlan,
@@ -34,6 +35,32 @@ function input(root) {
       command: "/pm:setup status",
     },
   };
+}
+
+function waitForFile(filePath, timeoutMs = 3000) {
+  const deadline = Date.now() + timeoutMs;
+  return new Promise((resolve, reject) => {
+    const poll = () => {
+      if (fs.existsSync(filePath)) return resolve();
+      if (Date.now() >= deadline) return reject(new Error(`timed out waiting for ${filePath}`));
+      setTimeout(poll, 10);
+    };
+    poll();
+  });
+}
+
+function collectChild(child) {
+  return new Promise((resolve, reject) => {
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => (stdout += chunk));
+    child.stderr.on("data", (chunk) => (stderr += chunk));
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      if (code !== 0) return reject(new Error(`worker exited ${code}: ${stderr}`));
+      resolve(JSON.parse(stdout));
+    });
+  });
 }
 
 test("effect plans have stable identity without folding mutable preconditions into the key", (t) => {
@@ -176,4 +203,54 @@ test("an indeterminate observation remains ambiguous and never retries", (t) => 
   assert.equal(result.state, "ambiguous");
   assert.equal(result.recovery.code, "inspect-config-effect");
   assert.equal(mutations, 0);
+});
+
+test("concurrent processes share one mutation attempt and the contender replays it", async (t) => {
+  const root = stateDir(t);
+  const markerPath = path.join(root, "mutation-started");
+  const releasePath = path.join(root, "release");
+  const mutationPath = path.join(root, "mutations.log");
+  const workerPath = path.join(__dirname, "fixtures", "operational-effect-worker.js");
+  const args = [workerPath, root, markerPath, releasePath, mutationPath];
+
+  const first = spawn(process.execPath, args, { stdio: ["ignore", "pipe", "pipe"] });
+  const firstResult = collectChild(first);
+  await waitForFile(markerPath);
+  const second = spawn(process.execPath, args, { stdio: ["ignore", "pipe", "pipe"] });
+  const secondResult = collectChild(second);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(fs.readFileSync(mutationPath, "utf8").trim().split("\n").length, 1);
+  fs.writeFileSync(releasePath, "release");
+
+  const [left, right] = await Promise.all([firstResult, secondResult]);
+  assert.equal(left.state, "verified");
+  assert.equal(right.state, "verified");
+  assert.equal(right.replayed, true);
+  assert.equal(fs.readFileSync(mutationPath, "utf8").trim().split("\n").length, 1);
+});
+
+test("a lock left by a dead process is reclaimed before mutation", (t) => {
+  const root = stateDir(t);
+  const plan = createEffectPlan(input(root));
+  const journalPath = effectJournalPath(root, plan.effect_id);
+  fs.mkdirSync(path.dirname(journalPath), { recursive: true });
+  fs.writeFileSync(
+    `${journalPath}.lock`,
+    JSON.stringify({ pid: 2147483647, acquired_at: "2026-07-15T00:00:00.000Z" })
+  );
+  let mutations = 0;
+  const result = runOperationalEffect({
+    ...input(root),
+    observe() {
+      return mutations
+        ? { state: "verified", receipt: { config_sha256: "done" } }
+        : { state: "absent", safe_to_retry: true };
+    },
+    mutate() {
+      mutations += 1;
+    },
+  });
+  assert.equal(result.state, "verified");
+  assert.equal(mutations, 1);
+  assert.equal(fs.existsSync(`${journalPath}.lock`), false);
 });

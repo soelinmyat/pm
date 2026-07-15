@@ -747,6 +747,43 @@ test("journaled push observes and reuses a verified outcome before another mutat
   assert.equal(fs.statSync(first.journal_path).mode & 0o777, 0o600);
 });
 
+for (const mode of ["pull", "sync"]) {
+  test(`journaled ${mode} refreshes the remote on every explicit invocation`, (t) => {
+    const remote = withBareRemote();
+    const seeded = withTempProject({ "pm/strategy.md": "# Strategy\n" });
+    const machineBRoot = fs.mkdtempSync(path.join(os.tmpdir(), `kb-${mode}-fresh-`));
+    const machineB = path.join(machineBRoot, "pm");
+    const machineBState = path.join(machineBRoot, ".pm");
+    const { setup, push, runSyncEffect } = require(KB_SYNC_GIT_PATH);
+    assert.equal(setup(seeded.pmDir, remote.url).ok, true);
+    gitExec(`git clone ${remote.url} ${machineB}`);
+    fs.mkdirSync(machineBState, { recursive: true });
+    t.after(() => {
+      seeded.cleanup();
+      remote.cleanup();
+      fs.rmSync(machineBRoot, { recursive: true, force: true });
+    });
+
+    const options = {
+      mode,
+      pmDir: machineB,
+      dotPmDir: machineBState,
+      authorityActions: [mode === "pull" ? "pull_knowledge_base" : "sync_knowledge_base"],
+    };
+    const first = runSyncEffect(options);
+    fs.writeFileSync(path.join(seeded.pmDir, `${mode}-remote.md`), `# ${mode}\n`);
+    assert.equal(push(seeded.pmDir).ok, true);
+    const second = runSyncEffect(options);
+
+    assert.equal(first.state, "verified");
+    assert.equal(second.state, "verified");
+    assert.notEqual(second.replayed, true);
+    assert.equal(fs.existsSync(path.join(machineB, `${mode}-remote.md`)), true);
+    const journal = JSON.parse(fs.readFileSync(second.journal_path, "utf8"));
+    assert.equal(journal.attempts.length, 2);
+  });
+}
+
 test("status reports uncommitted changes", (t) => {
   const { pmDir, cleanup } = withTempProject({
     "pm/strategy.md": "# Strategy\n",

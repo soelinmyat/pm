@@ -247,3 +247,31 @@ test("host approval is journaled and a verified approval replays without rewriti
   assert.equal(fs.statSync(first.journal_path).mode & 0o777, 0o600);
   assert.equal(second.verified_receipt.effect, "approve-loop-host");
 });
+
+test("loop init repairs missing storage directories instead of replaying config-only evidence", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-init-repair-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const pmDir = path.join(root, "pm");
+  const pmStateDir = path.join(root, ".pm");
+  const options = {
+    action: "init",
+    pmDir,
+    pmStateDir,
+    authorityActions: ["configure_loop"],
+  };
+  const first = runLoopConfigEffect(options);
+  const missing = path.join(pmDir, "loop", "recovery");
+  fs.rmSync(missing, { recursive: true, force: true });
+  const second = runLoopConfigEffect(options);
+
+  assert.equal(first.state, "verified");
+  assert.equal(second.state, "verified");
+  assert.notEqual(second.replayed, true);
+  assert.equal(fs.statSync(missing).isDirectory(), true);
+  assert.deepEqual(second.verified_receipt.receipt.storage_directories, [
+    "events",
+    "leases",
+    "recovery",
+    "session-snapshots",
+  ]);
+});

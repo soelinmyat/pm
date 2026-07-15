@@ -255,6 +255,50 @@ function observationRecord(snapshot) {
   };
 }
 
+function projectWorkItem(card, roots) {
+  return {
+    id: card.id,
+    slug: card.slug,
+    title: card.title,
+    kind: card.kind,
+    status: card.status,
+    priority: card.priority,
+    rfc: card.rfc,
+    branch: card.branch,
+    size: card.size,
+    prs: structuredClone(card.prs || []),
+    prDispatchAt: card.prDispatchAt || "",
+    blockerCode: card.blockerCode || "",
+    blockerReason: card.blockerReason || "",
+    blockerRemediation: card.blockerRemediation || "",
+    loopRunId: card.loopRunId || "",
+    loopLogPath: card.loopLogPath || "",
+    retryAfter: card.retryAfter || "",
+    parent: card.parent || null,
+    childrenSlugs: structuredClone(card.childrenSlugs || []),
+    implementationApproved: card.implementationApproved === true,
+    updatedEpoch: Number(card.updatedEpoch) || 0,
+    hasFrontmatter: card.hasFrontmatter !== false,
+    origin: card.origin || null,
+    column: card.column,
+    blocker: card.blocker || null,
+    command: card.command || null,
+    lease: card.lease
+      ? {
+          stage: card.lease.stage || null,
+          holder: card.lease.holder || null,
+          runtime: card.lease.runtime || null,
+          claimed_at: card.lease.claimed_at || null,
+          expires_at: card.lease.expires_at || null,
+        }
+      : null,
+    artifact_kind: artifactKind(card),
+    lifecycle: card.column,
+    list_section: listSection(card),
+    source_path: portablePath(card.sourcePath, roots),
+  };
+}
+
 function buildOperationalSnapshot(projectDir, options = {}) {
   const now = options.now instanceof Date ? options.now : new Date();
   const board =
@@ -274,13 +318,7 @@ function buildOperationalSnapshot(projectDir, options = {}) {
   const ledgers = options.ledgers || readLedgers(runsDirFor({ pmStateDir }));
   const loop = loopState(pmDir, pmStateDir, now, ledgers);
   const sessions = collectSessions(sourceDir, Math.floor(now.getTime() / 1000));
-  const workItems = board.cards.map((card) => ({
-    ...structuredClone(card),
-    artifact_kind: artifactKind(card),
-    lifecycle: card.column,
-    list_section: listSection(card),
-    source_path: portablePath(card.sourcePath, roots),
-  }));
+  const workItems = board.cards.map((card) => projectWorkItem(card, roots));
   const columns = Object.fromEntries(
     COLUMN_ORDER.map((name) => [
       name,
@@ -327,5 +365,6 @@ module.exports = {
   artifactKind,
   buildOperationalSnapshot,
   compatibilityCounts,
+  projectWorkItem,
   recentRuns,
 };

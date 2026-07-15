@@ -554,6 +554,8 @@ function runSyncEffect(options) {
   const before = localGitState(pmDir);
   const recovery = { code: "inspect-sync-effect", command: "/pm:sync status" };
   const operations = { setup, clone, sync, push, pull };
+  const requiresFreshRemoteObservation = mode === "pull" || mode === "sync";
+  let mutationStarted = false;
 
   const effectResult = runOperationalEffect({
     pmStateDir: dotPmDir,
@@ -570,9 +572,17 @@ function runSyncEffect(options) {
     precondition: before,
     recovery,
     observe() {
+      if (requiresFreshRemoteObservation && !mutationStarted) {
+        return {
+          state: "absent",
+          safe_to_retry: true,
+          reason: "this request has not refreshed the remote-tracking ref",
+        };
+      }
       return syncObservation(mode, pmDir, expectedRemoteHash);
     },
     mutate() {
+      mutationStarted = true;
       const result = remoteUrl ? operations[mode](pmDir, remoteUrl) : operations[mode](pmDir);
       writeSyncStatus(dotPmDir, mutationStatus(mode, result));
       if (!result.ok) {
@@ -582,11 +592,6 @@ function runSyncEffect(options) {
           recovery: { code: "sync-operation-failed", command: "/pm:sync status" },
         };
       }
-      const observation = syncObservation(mode, pmDir, expectedRemoteHash);
-      if (observation.state !== "verified") {
-        throw new Error(observation.reason || `${mode} outcome could not be verified`);
-      }
-      return { receipt: observation.receipt };
     },
   });
   const statusRecord = bindSyncStatusToEffect(dotPmDir, effectResult);

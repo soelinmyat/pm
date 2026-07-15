@@ -455,6 +455,16 @@ function ensureLoopDirs(pmDir) {
   }
 }
 
+function loopDirsPresent(pmDir) {
+  return ["events", "leases", "recovery", "session-snapshots"].every((child) => {
+    try {
+      return fs.statSync(path.join(pmDir, "loop", child)).isDirectory();
+    } catch {
+      return false;
+    }
+  });
+}
+
 function initLoopConfig(pmDir, options = {}) {
   ensureLoopDirs(pmDir);
   const filePath = configPath(pmDir);
@@ -502,12 +512,20 @@ function runLoopConfigEffect(options) {
       if (observedHash !== desiredHash) {
         return { state: "absent", safe_to_retry: true, reason: "loop config is not initialized" };
       }
+      if (!loopDirsPresent(pmDir)) {
+        return {
+          state: "absent",
+          safe_to_retry: true,
+          reason: "loop storage directories are incomplete",
+        };
+      }
       const config = loadLoopConfig(pmDir);
       return {
         state: "verified",
         receipt: {
           config_sha256: observedHash,
           execution_config_hash: executionConfigHash(config),
+          storage_directories: ["events", "leases", "recovery", "session-snapshots"],
         },
       };
     };
@@ -524,7 +542,6 @@ function runLoopConfigEffect(options) {
       observe,
       mutate() {
         initLoopConfig(pmDir, { force });
-        return { receipt: observe().receipt };
       },
     });
   }
