@@ -9,27 +9,8 @@ const { execFileSync } = require("child_process");
 
 const { parseCliArgs } = require("./loop-args.js");
 const { writeJsonAtomic } = require("./lib/atomic-file");
+const { cleanGitEnv } = require("./lib/git-env.js");
 const { DEFAULT_LOOP_CONFIG, leaseTtlSeconds, loadLoopConfig } = require("./loop-config.js");
-
-const GIT_ENV_KEYS_TO_CLEAR = [
-  "GIT_DIR",
-  "GIT_WORK_TREE",
-  "GIT_INDEX_FILE",
-  "GIT_OBJECT_DIRECTORY",
-  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-  "GIT_COMMON_DIR",
-  "GIT_PREFIX",
-  "GIT_NAMESPACE",
-  "GIT_SUPER_PREFIX",
-];
-
-function cleanGitEnv() {
-  const env = { ...process.env };
-  for (const key of GIT_ENV_KEYS_TO_CLEAR) {
-    delete env[key];
-  }
-  return env;
-}
 
 function runGit(args, cwd, options = {}) {
   return execFileSync("git", args, {

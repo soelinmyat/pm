@@ -388,7 +388,10 @@ function sortCards(cards) {
 function buildLoopBoard(projectDir, options = {}) {
   const now = options.now instanceof Date ? options.now : new Date();
   const { pmDir, pmStateDir } = options.pmDir
-    ? { pmDir: options.pmDir, pmStateDir: path.join(path.dirname(options.pmDir), ".pm") }
+    ? {
+        pmDir: options.pmDir,
+        pmStateDir: options.pmStateDir || path.join(path.dirname(options.pmDir), ".pm"),
+      }
     : resolvePmPaths(projectDir);
   const sourceDir = options.sourceDir || projectDir;
   const cards = readBacklogCards(pmDir, sourceDir);

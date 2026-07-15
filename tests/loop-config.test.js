@@ -5,6 +5,8 @@ const assert = require("node:assert/strict");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { spawnSync } = require("node:child_process");
+const { serializationLockPath } = require("../scripts/lib/operational-effect-journal.js");
 
 const {
   DEFAULT_LOOP_CONFIG,
@@ -16,7 +18,40 @@ const {
   loadTrustedLoopConfig,
   normalizeLoopConfig,
   requiresLocalApproval,
+  runLoopConfigEffect,
 } = require("../scripts/loop-config.js");
+
+test("loop-config CLI exits nonzero when an effect is not verified", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-config-cli-"));
+  const pmDir = path.join(root, "pm");
+  const pmStateDir = path.join(root, ".pm");
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const lockPath = serializationLockPath(pmStateDir, {
+    resource: "loop-config",
+    file: "pm/loop/config.json",
+  });
+  fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+  fs.writeFileSync(
+    lockPath,
+    JSON.stringify({ pid: process.pid, token: "test-owner", acquired_at: new Date().toISOString() })
+  );
+
+  const child = spawnSync(
+    process.execPath,
+    [
+      path.join(__dirname, "..", "scripts", "loop-config.js"),
+      "--init",
+      "--pm-dir",
+      pmDir,
+      "--pm-state-dir",
+      pmStateDir,
+    ],
+    { encoding: "utf8", timeout: 10000 }
+  );
+
+  assert.equal(child.status, 2, child.stderr);
+  assert.equal(JSON.parse(child.stdout).state, "blocked");
+});
 
 test("lease TTL covers the complete bounded claim-to-final-push envelope", () => {
   const config = normalizeLoopConfig({});
@@ -217,4 +252,60 @@ test("executable and broad-permission config requires a matching machine-local a
   const changedHash = executionConfigHash(loadLoopConfig(pmDir));
   assert.notEqual(changedHash, firstHash);
   assert.throws(() => loadTrustedLoopConfig(pmDir, pmStateDir), /local approval/i);
+});
+
+test("host approval is journaled and a verified approval replays without rewriting", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-config-effect-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const pmDir = path.join(root, "pm");
+  const pmStateDir = path.join(root, ".pm");
+  fs.mkdirSync(path.join(pmDir, "loop"), { recursive: true });
+  fs.writeFileSync(
+    path.join(pmDir, "loop", "config.json"),
+    JSON.stringify({ version: 2, worker: { bootstrap_command: "npm test" } })
+  );
+  const options = {
+    action: "approve-host",
+    pmDir,
+    pmStateDir,
+    authorityActions: ["approve_loop_host"],
+  };
+  const first = runLoopConfigEffect(options);
+  const hostPath = path.join(pmStateDir, "loop-host.json");
+  const firstMtime = fs.statSync(hostPath).mtimeMs;
+  const second = runLoopConfigEffect(options);
+
+  assert.equal(first.state, "verified");
+  assert.equal(second.replayed, true);
+  assert.equal(fs.statSync(hostPath).mtimeMs, firstMtime);
+  assert.equal(fs.statSync(first.journal_path).mode & 0o777, 0o600);
+  assert.equal(second.verified_receipt.effect, "approve-loop-host");
+});
+
+test("loop init repairs missing storage directories instead of replaying config-only evidence", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-init-repair-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const pmDir = path.join(root, "pm");
+  const pmStateDir = path.join(root, ".pm");
+  const options = {
+    action: "init",
+    pmDir,
+    pmStateDir,
+    authorityActions: ["configure_loop"],
+  };
+  const first = runLoopConfigEffect(options);
+  const missing = path.join(pmDir, "loop", "recovery");
+  fs.rmSync(missing, { recursive: true, force: true });
+  const second = runLoopConfigEffect(options);
+
+  assert.equal(first.state, "verified");
+  assert.equal(second.state, "verified");
+  assert.notEqual(second.replayed, true);
+  assert.equal(fs.statSync(missing).isDirectory(), true);
+  assert.deepEqual(second.verified_receipt.receipt.storage_directories, [
+    "events",
+    "leases",
+    "recovery",
+    "session-snapshots",
+  ]);
 });

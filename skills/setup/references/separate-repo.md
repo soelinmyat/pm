@@ -58,9 +58,9 @@ node -e "const path = require('path'); console.log(path.relative(path.join(proce
 
 Always store paths as relative — never absolute.
 
-### 5. Write Config to Both Repos
+### 5. Plan and Apply Config Effects to Both Repos
 
-For each repo, read `.pm/config.json` if it exists. If it does not exist, create `.pm/config.json` with a minimal scaffold:
+For each repo, read `.pm/config.json` if it exists. If it does not exist, the config-effect adapter can initialize this minimal scaffold from `--initial-project-name`:
 
 ```json
 {
@@ -76,13 +76,35 @@ For each repo, read `.pm/config.json` if it exists. If it does not exist, create
 
 Populate `project_name` from the repo directory name.
 
-**Source repo config:** Set `pm_repo` to `{ "type": "local", "path": "{relative-path-to-pm-repo}" }`. Remove `source_repo` if it was previously set (a config should have one pointer, not both). Preserve all other fields.
+**Source repo effect:** Set `pm_repo` to `{ "type": "local", "path": "{relative-path-to-pm-repo}" }`. Remove `source_repo` if it was previously set (a config should have one pointer, not both). Preserve all other fields.
 
-**PM repo config:** Set `source_repo` to `{ "type": "local", "path": "{relative-path-to-source-repo}" }`. Remove `pm_repo` if it was previously set. Preserve all other fields — especially `integrations` and `preferences`.
+**PM repo effect:** Set `source_repo` to `{ "type": "local", "path": "{relative-path-to-source-repo}" }`. Remove `pm_repo` if it was previously set. Preserve all other fields — especially `integrations` and `preferences`.
 
 Ensure `config_schema` is set to `2` in both configs. If an existing config has `config_schema: 1` or no `config_schema`, upgrade it to `2`.
 
-Create the `.pm/` directory (`mkdir -p .pm`) in either repo if it does not exist before writing the config file.
+Run exactly one atomic patch-set effect per repo. The user's explicit separate-repo confirmation grants `update_config` only for these two reciprocal pointer effects:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/config-effect.js" \
+  --project-dir "$SOURCE_REPO" \
+  --initial-project-name "$SOURCE_PROJECT_NAME" \
+  --set-number config_schema 2 \
+  --set-local-pointer pm_repo "$SOURCE_TO_PM" \
+  --delete-field source_repo \
+  --authorize update_config
+
+node "${CLAUDE_PLUGIN_ROOT}/scripts/config-effect.js" \
+  --project-dir "$PM_REPO" \
+  --initial-project-name "$PM_PROJECT_NAME" \
+  --set-number config_schema 2 \
+  --set-local-pointer source_repo "$PM_TO_SOURCE" \
+  --delete-field pm_repo \
+  --authorize update_config
+```
+
+The adapter creates `.pm/` when initialization is needed, plans against an exact preimage, writes each repo atomically, re-reads it, and records a private receipt in that repo's `.pm/effects/`. Both results must be `state: verified` before confirmation.
+
+If the first repo verifies and the second stops, do not replay the first effect or claim linking is complete. Report both journal paths and the second result's recovery action. A repeated invocation observes and reuses the first verified receipt while repairing only the incomplete side.
 
 ### 6. Confirm Success
 

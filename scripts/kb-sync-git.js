@@ -2,32 +2,23 @@
 
 const fs = require("fs");
 const path = require("path");
+const crypto = require("node:crypto");
 const { execSync } = require("child_process");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
 const { runGit } = require("./loop-git.js");
+const { writeJsonAtomic } = require("./lib/atomic-file.js");
+const { cleanGitEnv } = require("./lib/git-env.js");
+const {
+  runOperationalEffect,
+  sharedGitRepositorySerialization,
+} = require("./lib/operational-effect-journal.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-const GIT_ENV_KEYS_TO_CLEAR = [
-  "GIT_DIR",
-  "GIT_WORK_TREE",
-  "GIT_INDEX_FILE",
-  "GIT_OBJECT_DIRECTORY",
-  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-  "GIT_COMMON_DIR",
-  "GIT_PREFIX",
-  "GIT_SUPER_PREFIX",
-];
-
 function buildGitEnv(extraEnv = {}) {
-  const env = { ...process.env, ...extraEnv };
-  // Git hooks export repo-scoped env vars that can hijack child git commands.
-  for (const key of GIT_ENV_KEYS_TO_CLEAR) {
-    delete env[key];
-  }
-  return env;
+  return cleanGitEnv(extraEnv);
 }
 
 function run(cmd, opts = {}) {
@@ -57,17 +48,25 @@ function runGitSafe(args, cwd) {
   }
 }
 
+function sha256(value) {
+  return `sha256:${crypto.createHash("sha256").update(String(value)).digest("hex")}`;
+}
+
 // ---------------------------------------------------------------------------
 // Detection
 // ---------------------------------------------------------------------------
 
 function isGitRepo(pmDir) {
-  const gitDir = path.join(pmDir, ".git");
-  try {
-    return fs.statSync(gitDir).isDirectory();
-  } catch {
-    return false;
-  }
+  const topLevel = runGitSafe(["rev-parse", "--show-toplevel"], pmDir);
+  if (!topLevel.ok || !topLevel.output) return false;
+  const canonical = (value) => {
+    try {
+      return fs.realpathSync(value);
+    } catch {
+      return path.resolve(value);
+    }
+  };
+  return canonical(topLevel.output) === canonical(pmDir);
 }
 
 function hasRemote(pmDir) {
@@ -137,7 +136,8 @@ function setup(pmDir, remoteUrl, opts = {}) {
 
   // Create .gitignore for pm-internal files and common OS/IDE noise that shouldn't sync
   const gitignorePath = path.join(pmDir, ".gitignore");
-  if (!fs.existsSync(gitignorePath)) {
+  const createdGitignore = !fs.existsSync(gitignorePath);
+  if (createdGitignore) {
     fs.writeFileSync(
       gitignorePath,
       ["*.local-conflict", ".DS_Store", "Thumbs.db", ".trash/", ".idea/", ".vscode/", ""].join("\n")
@@ -151,6 +151,15 @@ function setup(pmDir, remoteUrl, opts = {}) {
     const commit = runSafe('git commit -m "Initial KB commit"', { cwd: pmDir });
     if (!commit.ok && !commit.error.includes("nothing to commit")) {
       return { ok: false, error: `initial commit failed: ${commit.error}` };
+    }
+  } else if (createdGitignore) {
+    const addIgnore = runGitSafe(["add", "--", ".gitignore"], pmDir);
+    if (!addIgnore.ok) return { ok: false, error: `git add .gitignore failed: ${addIgnore.error}` };
+    const commitIgnore = runSafe('git commit -m "Configure KB sync ignores" -- .gitignore', {
+      cwd: pmDir,
+    });
+    if (!commitIgnore.ok) {
+      return { ok: false, error: `gitignore commit failed: ${commitIgnore.error}` };
     }
   }
 
@@ -374,7 +383,9 @@ function sync(pmDir) {
 
 /**
  * @param {string} pmDir
- * @returns {{ ok: boolean, remote?: string, branch?: string, uncommitted?: number, ahead?: number, behind?: number, error?: string }}
+ * This is deliberately a local observation. Refreshing remote-tracking refs is
+ * a network mutation and belongs to an explicit sync route, never status.
+ * @returns {{ ok: boolean, remote?: string, branch?: string, uncommitted?: number, ahead?: number, behind?: number, observation?: string, refresh_action?: string, error?: string }}
  */
 function status(pmDir) {
   if (!isGitRepo(pmDir)) {
@@ -392,8 +403,7 @@ function status(pmDir) {
   const uncommitted =
     statusResult.ok && statusResult.output ? statusResult.output.split("\n").length : 0;
 
-  // Ahead/behind — requires fetch first
-  runSafe("git fetch origin --quiet", { cwd: pmDir });
+  // Ahead/behind relative to the last locally observed remote-tracking ref.
   const abResult = runSafe(`git rev-list --left-right --count origin/${branch}...HEAD`, {
     cwd: pmDir,
   });
@@ -405,7 +415,16 @@ function status(pmDir) {
     ahead = parseInt(parts[1], 10) || 0;
   }
 
-  return { ok: true, remote, branch, uncommitted, ahead, behind };
+  return {
+    ok: true,
+    remote,
+    branch,
+    uncommitted,
+    ahead,
+    behind,
+    observation: "local-refs-only",
+    refresh_action: "/pm:sync",
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -423,8 +442,238 @@ function writeSyncStatus(dotPmDir, result) {
     ok: result.ok,
   };
 
-  fs.mkdirSync(dotPmDir, { recursive: true });
-  fs.writeFileSync(path.join(dotPmDir, "sync-status.json"), JSON.stringify(status, null, 2) + "\n");
+  writeJsonAtomic(path.join(dotPmDir, "sync-status.json"), status, {
+    fileMode: 0o600,
+    directoryMode: 0o700,
+  });
+}
+
+function bindSyncStatusToEffect(dotPmDir, mode, effectResult, routeStatus) {
+  const statusPath = path.join(dotPmDir, "sync-status.json");
+  const errors = routeStatus?.errors?.length
+    ? routeStatus.errors
+    : effectResult.state === "verified"
+      ? []
+      : [effectResult.recovery?.reason || `${mode} effect is ${effectResult.state}`];
+  const status = {
+    lastSync: new Date().toISOString(),
+    mode,
+    backend: "git",
+    uploaded: routeStatus?.uploaded || 0,
+    downloaded: routeStatus?.downloaded || 0,
+    errors,
+    ok: effectResult.state === "verified",
+    effect_id: effectResult.effect_id,
+    effect_state: effectResult.state,
+    verified_receipt: effectResult.verified_receipt || null,
+    recovery: effectResult.recovery,
+  };
+  writeJsonAtomic(statusPath, status, { fileMode: 0o600, directoryMode: 0o700 });
+  return status;
+}
+
+const SYNC_AUTHORITY = Object.freeze({
+  setup: "configure_sync",
+  clone: "configure_sync",
+  sync: "sync_knowledge_base",
+  push: "push_knowledge_base",
+  pull: "pull_knowledge_base",
+});
+
+function localGitState(pmDir) {
+  if (!isGitRepo(pmDir)) {
+    return {
+      repository: "absent",
+      head: null,
+      upstream: null,
+      branch: null,
+      worktree_sha256: sha256("absent"),
+      remote_url_sha256: null,
+    };
+  }
+  const head = runGitSafe(["rev-parse", "HEAD"], pmDir);
+  const upstream = runGitSafe(["rev-parse", "@{upstream}"], pmDir);
+  const branch = runGitSafe(["branch", "--show-current"], pmDir);
+  const worktree = runGitSafe(["status", "--porcelain"], pmDir);
+  const remoteUrl = getRemoteUrl(pmDir);
+  return {
+    repository: "present",
+    head: head.ok ? head.output : null,
+    upstream: upstream.ok ? upstream.output : null,
+    branch: branch.ok ? branch.output : null,
+    worktree_sha256: sha256(worktree.ok ? worktree.output : "unreadable"),
+    remote_url_sha256: remoteUrl ? sha256(remoteUrl) : null,
+  };
+}
+
+function syncObservation(mode, pmDir, expectedRemoteHash) {
+  const state = localGitState(pmDir);
+  if (state.repository !== "present") {
+    return { state: "absent", safe_to_retry: true, reason: "knowledge base repo is absent" };
+  }
+  if (expectedRemoteHash && state.remote_url_sha256 !== expectedRemoteHash) {
+    return { state: "absent", safe_to_retry: true, reason: "configured remote differs" };
+  }
+  if (!state.head || !state.upstream) {
+    return { state: "absent", safe_to_retry: true, reason: "git upstream is not established" };
+  }
+  const clean = state.worktree_sha256 === sha256("");
+  const aligned = state.head === state.upstream;
+  const verified = mode === "pull" ? aligned : aligned && clean;
+  if (!verified) {
+    return {
+      state: "absent",
+      safe_to_retry: true,
+      reason: clean ? "local and observed upstream refs differ" : "worktree has pending changes",
+    };
+  }
+  return {
+    state: "verified",
+    receipt: {
+      mode,
+      head: state.head,
+      upstream: state.upstream,
+      branch: state.branch,
+      worktree_clean: clean,
+      remote_url_sha256: state.remote_url_sha256,
+    },
+  };
+}
+
+function refreshRemoteForRecovery(pmDir) {
+  if (!isGitRepo(pmDir)) return { ok: false, error: "knowledge base repo is absent" };
+  if (!hasRemote(pmDir)) return { ok: false, error: "knowledge base remote is absent" };
+  const result = runSafe("git fetch origin main", { cwd: pmDir });
+  return result.ok ? { ok: true } : { ok: false, error: `recovery fetch failed: ${result.error}` };
+}
+
+function unchangedLocalMutationSurface(before, after) {
+  if (!before || !after) return false;
+  return ["repository", "head", "branch", "worktree_sha256", "remote_url_sha256"].every(
+    (field) => before[field] === after[field]
+  );
+}
+
+function mutationStatus(mode, result) {
+  return {
+    mode,
+    uploaded: result.uploaded ?? result.committed ?? 0,
+    downloaded: result.downloaded ?? result.updated ?? 0,
+    errors: result.errors || (result.error ? [result.error] : []),
+    ok: result.ok,
+  };
+}
+
+/** Execute one action-specific, replay-safe knowledge-base mutation. */
+function runSyncEffect(options) {
+  const mode = options.mode || "sync";
+  if (!Object.hasOwn(SYNC_AUTHORITY, mode)) throw new Error(`unsupported sync effect: ${mode}`);
+  const pmDir = path.resolve(options.pmDir);
+  const dotPmDir = path.resolve(options.dotPmDir);
+  const remoteUrl = options.remoteUrl || null;
+  if ((mode === "setup" || mode === "clone") && !validateRemoteUrl(remoteUrl)) {
+    throw new Error("setup and clone effects require a valid remote URL");
+  }
+  const configuredRemoteUrl = remoteUrl || getRemoteUrl(pmDir);
+  const expectedRemoteHash = configuredRemoteUrl ? sha256(configuredRemoteUrl) : null;
+  const serialization = sharedGitRepositorySerialization(pmDir);
+  let before;
+  const recovery = {
+    code: "inspect-sync-effect",
+    command: mode === "sync" ? "/pm:sync" : `/pm:sync ${mode}`,
+  };
+  const operations = {
+    setup,
+    clone,
+    sync,
+    push,
+    pull,
+    refreshRemoteForRecovery,
+    ...(options.operations || {}),
+  };
+  const requiresFreshRemoteObservation = mode === "pull" || mode === "sync";
+  let mutationStarted = false;
+  let routeStatus = null;
+
+  const effectResult = runOperationalEffect({
+    pmStateDir: dotPmDir,
+    workflow: "sync",
+    effect: `${mode}-knowledge-base`,
+    authorityAction: SYNC_AUTHORITY[mode],
+    authorityActions: options.authorityActions,
+    serializationRoot: serialization.root,
+    serializationScope: serialization.scope,
+    target: {
+      backend: "git",
+      repository: "pm-knowledge-base",
+      remote_url_sha256: expectedRemoteHash,
+    },
+    intent: { mode, branch: "main" },
+    precondition() {
+      before = localGitState(pmDir);
+      return before;
+    },
+    recovery,
+    lockTimeoutMs: options.lockTimeoutMs,
+    observe({ journal, recovery: recovering }) {
+      if (requiresFreshRemoteObservation && !mutationStarted) {
+        if (recovering && ["attempting", "ambiguous", "blocked"].includes(journal.state)) {
+          const refresh = operations.refreshRemoteForRecovery(pmDir);
+          if (!refresh.ok) {
+            return {
+              state: "ambiguous",
+              reason: refresh.error || "interrupted sync outcome could not refresh Git state",
+            };
+          }
+          const observed = syncObservation(mode, pmDir, expectedRemoteHash);
+          if (observed.state === "verified") return observed;
+          const afterRefresh = localGitState(pmDir);
+          if (unchangedLocalMutationSurface(journal.precondition, afterRefresh)) {
+            return {
+              state: "absent",
+              safe_to_retry: true,
+              reason:
+                "fresh Git observation proved the interrupted attempt left local state unchanged",
+            };
+          }
+          return {
+            state: "ambiguous",
+            reason:
+              "fresh Git observation found local changes from the interrupted sync; inspect before retry",
+          };
+        }
+        return {
+          state: "absent",
+          safe_to_retry: true,
+          reason: "this request has not refreshed the remote-tracking ref",
+        };
+      }
+      return syncObservation(mode, pmDir, expectedRemoteHash);
+    },
+    mutate() {
+      mutationStarted = true;
+      const result = remoteUrl ? operations[mode](pmDir, remoteUrl) : operations[mode](pmDir);
+      routeStatus = mutationStatus(mode, result);
+      if (!result.ok) {
+        return {
+          ambiguous: true,
+          reason: result.error || (result.errors || []).join("; ") || `${mode} failed`,
+          recoveryEvidence: {
+            code: "sync-operation-indeterminate",
+            reason: result.error || (result.errors || []).join("; ") || `${mode} failed`,
+          },
+        };
+      }
+    },
+  });
+  const statusRecord = bindSyncStatusToEffect(dotPmDir, mode, effectResult, routeStatus);
+  return {
+    ...effectResult,
+    mode,
+    ok: effectResult.state === "verified",
+    errors: statusRecord.errors,
+    ...(statusRecord.errors?.length ? { error: statusRecord.errors.join("; ") } : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -469,44 +718,46 @@ if (require.main === module) {
       process.stderr.write(`Usage: kb-sync-git.js ${mode} <remote-url>\n`);
       process.exit(1);
     }
-    const result = mode === "setup" ? setup(pmDir, remoteUrl) : clone(pmDir, remoteUrl);
+    const result = runSyncEffect({
+      mode,
+      pmDir,
+      dotPmDir,
+      remoteUrl,
+      authorityActions: [SYNC_AUTHORITY[mode]],
+    });
     process.stdout.write(JSON.stringify({ ...result, mode }, null, 2) + "\n");
     if (!result.ok) {
       process.stderr.write(result.error + "\n");
       process.exit(1);
     }
   } else if (mode === "sync") {
-    const result = sync(pmDir);
-    writeSyncStatus(dotPmDir, {
-      mode: "sync",
-      uploaded: result.uploaded || 0,
-      downloaded: result.downloaded || 0,
-      errors: result.errors || [],
-      ok: result.ok,
+    const result = runSyncEffect({
+      mode,
+      pmDir,
+      dotPmDir,
+      authorityActions: [SYNC_AUTHORITY[mode]],
     });
     if (!result.ok) {
       process.stderr.write((result.error || result.errors.join("; ")) + "\n");
       process.exit(1);
     }
   } else if (mode === "push") {
-    const result = push(pmDir);
-    writeSyncStatus(dotPmDir, {
-      mode: "push",
-      uploaded: result.committed || 0,
-      errors: result.error ? [result.error] : [],
-      ok: result.ok,
+    const result = runSyncEffect({
+      mode,
+      pmDir,
+      dotPmDir,
+      authorityActions: [SYNC_AUTHORITY[mode]],
     });
     if (!result.ok) {
       process.stderr.write(result.error + "\n");
       process.exit(1);
     }
   } else if (mode === "pull") {
-    const result = pull(pmDir);
-    writeSyncStatus(dotPmDir, {
-      mode: "pull",
-      downloaded: result.updated || 0,
-      errors: result.error ? [result.error] : [],
-      ok: result.ok,
+    const result = runSyncEffect({
+      mode,
+      pmDir,
+      dotPmDir,
+      authorityActions: [SYNC_AUTHORITY[mode]],
     });
     if (!result.ok) {
       process.stderr.write(result.error + "\n");
@@ -539,5 +790,8 @@ module.exports = {
   pull,
   status,
   writeSyncStatus,
+  runSyncEffect,
+  localGitState,
+  SYNC_AUTHORITY,
   resolveCliPaths,
 };

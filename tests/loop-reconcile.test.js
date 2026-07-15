@@ -15,6 +15,7 @@ const {
   recoveryMutationManifest,
   resumeRecovery,
   runReconcile,
+  runReconcileEffect,
 } = require("../scripts/loop-reconcile.js");
 
 const NOW = new Date("2026-07-10T12:00:00Z");
@@ -562,6 +563,104 @@ test("apply requires Git readiness, uses isolated PM transactions, and reports e
   assert.match(git(fixture.project, ["log", "-1", "--format=%s", "origin/main"]), /reconcile/i);
 });
 
+test("reconciliation apply journals the resulting empty plan independently", (t) => {
+  const fixture = makeFixture(t);
+  const options = {
+    pmDir: fixture.pmDir,
+    pmStateDir: path.join(fixture.project, ".pm"),
+    now: NOW,
+    expectedRepository: "openai/pm",
+    expectedBase: "main",
+    inspectPullRequest: mergedInspector,
+    authorityActions: ["reconcile_loop_state"],
+  };
+  const first = runReconcileEffect(fixture.project, options);
+  const second = runReconcileEffect(fixture.project, options);
+  assert.equal(first.state, "verified", JSON.stringify(first));
+  assert.equal(second.state, "verified", JSON.stringify(second));
+  assert.notEqual(second.replayed, true);
+  assert.equal(first.applied_changes.length, 1);
+  assert.equal(second.applied_changes.length, 0);
+  assert.notEqual(second.effect_id, first.effect_id);
+  assert.equal(fs.statSync(first.journal_path).mode & 0o777, 0o600);
+});
+
+test("distinct reconciliation plans receive distinct durable effect journals", (t) => {
+  const fixture = makeFixture(t);
+  const options = {
+    pmDir: fixture.pmDir,
+    pmStateDir: path.join(fixture.project, ".pm"),
+    now: NOW,
+    expectedRepository: "openai/pm",
+    expectedBase: "main",
+    inspectPullRequest: mergedInspector,
+    authorityActions: ["reconcile_loop_state"],
+  };
+  const first = runReconcileEffect(fixture.project, options);
+  git(fixture.project, ["pull", "--ff-only"]);
+  fs.writeFileSync(
+    path.join(fixture.pmDir, "backlog", "failed-second.md"),
+    [
+      "---",
+      'id: "PM-405"',
+      'title: "Second stale card"',
+      "kind: task",
+      "status: in-progress",
+      `loop_run_id: "${RUN_ID_2}"`,
+      "---",
+      "",
+      "body",
+      "",
+    ].join("\n")
+  );
+  fs.writeFileSync(
+    path.join(fixture.pmDir, "loop", "events", `${RUN_ID_2}.json`),
+    JSON.stringify({
+      schema_version: 1,
+      run_id: RUN_ID_2,
+      card_id: "PM-405",
+      stage: "dev",
+      terminal: true,
+      status: "failed",
+      outcome: "dev-failed",
+    })
+  );
+  git(fixture.project, ["add", "pm"]);
+  git(fixture.project, ["commit", "-m", "second reconciliation plan"]);
+  git(fixture.project, ["push"]);
+
+  const second = runReconcileEffect(fixture.project, options);
+  assert.equal(first.state, "verified", JSON.stringify(first));
+  assert.equal(second.state, "verified", JSON.stringify(second));
+  assert.notEqual(second.effect_id, first.effect_id);
+  assert.notEqual(second.journal_path, first.journal_path);
+  assert.ok(second.applied_changes.some((change) => change.card_id === "PM-405"));
+});
+
+test("reconciliation refuses an executor result from a different frozen plan", (t) => {
+  const fixture = makeFixture(t);
+  const result = runReconcileEffect(fixture.project, {
+    pmDir: fixture.pmDir,
+    pmStateDir: path.join(fixture.project, ".pm"),
+    now: NOW,
+    expectedRepository: "openai/pm",
+    expectedBase: "main",
+    inspectPullRequest: mergedInspector,
+    authorityActions: ["reconcile_loop_state"],
+    execute(_projectDir, options) {
+      return {
+        ...structuredClone(options.plan),
+        ok: true,
+        pm_head_oid: "f".repeat(40),
+        applied_changes: [],
+      };
+    },
+  });
+  assert.equal(result.state, "blocked", JSON.stringify(result));
+  assert.equal(result.recovery.code, "loop-reconcile-plan-changed");
+  assert.equal(result.verified_receipt, null);
+});
+
 test("apply pins the planned PM head and aborts when durable evidence changes", (t) => {
   const fixture = makeFixture(t);
   const result = runReconcile(fixture.project, {
@@ -713,4 +812,100 @@ test("apply-mode recovery resumes the exact durable run instead of executing the
   assert.equal(observed.input.runId, RUN_ID);
   assert.equal(observed.input.cardId, "PM-404");
   assert.equal(observed.input.event, recovery.terminal_event);
+});
+
+test("interrupted reconciliation never certifies a retry-time empty plan", (t) => {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reconcile-interrupted-"));
+  const pmDir = path.join(project, "pm");
+  const pmStateDir = path.join(project, ".pm");
+  fs.mkdirSync(pmDir, { recursive: true });
+  t.after(() => fs.rmSync(project, { recursive: true, force: true }));
+
+  const nonEmptyPlan = {
+    expected_repository: "openai/pm",
+    expected_base: "main",
+    pm_head_oid: "a".repeat(40),
+    proposed_changes: [{ card_id: "PM-404", operation: "repair" }],
+  };
+  const emptyPlan = { ...nonEmptyPlan, pm_head_oid: "b".repeat(40), proposed_changes: [] };
+  let currentPlan = nonEmptyPlan;
+  let executions = 0;
+  const options = {
+    pmDir,
+    pmStateDir,
+    authorityActions: ["reconcile_loop_state"],
+    planBuilder() {
+      return currentPlan;
+    },
+    execute() {
+      executions += 1;
+      currentPlan = emptyPlan;
+      throw new Error("simulated exit after repository mutation");
+    },
+  };
+
+  const interrupted = runReconcileEffect(project, options);
+  const retried = runReconcileEffect(project, options);
+
+  assert.equal(interrupted.state, "ambiguous");
+  assert.equal(retried.state, "ambiguous");
+  assert.equal(retried.verified_receipt, null);
+  assert.equal(executions, 1);
+});
+
+test("partial reconciliation failure retains durable applied-change evidence", (t) => {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reconcile-partial-"));
+  const pmDir = path.join(project, "pm");
+  const pmStateDir = path.join(project, ".pm");
+  fs.mkdirSync(pmDir, { recursive: true });
+  t.after(() => fs.rmSync(project, { recursive: true, force: true }));
+  const initialHead = "a".repeat(40);
+  const partialHead = "b".repeat(40);
+  const nonEmptyPlan = {
+    expected_repository: "openai/pm",
+    expected_base: "main",
+    pm_head_oid: initialHead,
+    proposed_changes: [{ card_id: "PM-404", operation: "resume-finalization" }],
+  };
+  const emptyPlan = { ...nonEmptyPlan, pm_head_oid: partialHead, proposed_changes: [] };
+  let currentPlan = nonEmptyPlan;
+  let executions = 0;
+  const options = {
+    pmDir,
+    pmStateDir,
+    authorityActions: ["reconcile_loop_state"],
+    planBuilder() {
+      return currentPlan;
+    },
+    execute() {
+      executions += 1;
+      currentPlan = emptyPlan;
+      return {
+        ...nonEmptyPlan,
+        ok: false,
+        code: "apply-failed",
+        reason: "second recovery failed",
+        applied_changes: [
+          {
+            card_id: "PM-404",
+            operation: "resume-finalization",
+            classification: "orphaned-run",
+            commit_oid: partialHead,
+            paths: ["backlog/pm-404.md"],
+          },
+        ],
+      };
+    },
+  };
+
+  const partial = runReconcileEffect(project, options);
+  const retried = runReconcileEffect(project, options);
+  const journal = JSON.parse(fs.readFileSync(partial.journal_path, "utf8"));
+
+  assert.equal(partial.state, "ambiguous");
+  assert.equal(partial.applied_changes[0].commit_oid, partialHead);
+  assert.equal(journal.recovery_evidence.partial_receipt.final_head, partialHead);
+  assert.equal(retried.state, "ambiguous");
+  assert.equal(retried.applied_changes[0].commit_oid, partialHead);
+  assert.equal(executions, 1);
 });

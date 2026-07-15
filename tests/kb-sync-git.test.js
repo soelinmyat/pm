@@ -19,6 +19,7 @@ const GIT_ENV_KEYS_TO_CLEAR = [
   "GIT_ALTERNATE_OBJECT_DIRECTORIES",
   "GIT_COMMON_DIR",
   "GIT_PREFIX",
+  "GIT_NAMESPACE",
   "GIT_SUPER_PREFIX",
 ];
 
@@ -107,6 +108,25 @@ test("isGitRepo returns true after git init", (t) => {
   assert.equal(isGitRepo(pmDir), true);
 });
 
+test("linked Git worktrees are recognized as knowledge-base repositories", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kb-linked-worktree-"));
+  const primary = path.join(root, "primary");
+  const linked = path.join(root, "linked");
+  fs.mkdirSync(primary, { recursive: true });
+  gitExec("git init -b main", { cwd: primary });
+  gitExec("git config user.name 'PM Test'", { cwd: primary });
+  gitExec("git config user.email 'pm@example.com'", { cwd: primary });
+  fs.writeFileSync(path.join(primary, "strategy.md"), "# Strategy\n");
+  gitExec("git add strategy.md && git commit -m initial", { cwd: primary });
+  gitExec(`git worktree add ${JSON.stringify(linked)} -b linked`, { cwd: primary });
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const { isGitRepo, localGitState } = require(KB_SYNC_GIT_PATH);
+  assert.equal(fs.statSync(path.join(linked, ".git")).isFile(), true);
+  assert.equal(isGitRepo(linked), true);
+  assert.equal(localGitState(linked).repository, "present");
+});
+
 // ---------------------------------------------------------------------------
 // Test: hasRemote / getRemoteUrl
 // ---------------------------------------------------------------------------
@@ -167,6 +187,7 @@ test("setup ignores inherited git hook env", (t) => {
   process.env.GIT_INDEX_FILE = path.join(hookGitDir, "index");
   process.env.GIT_OBJECT_DIRECTORY = poisonObjectDir;
   process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES = poisonAlternateDir;
+  process.env.GIT_NAMESPACE = "poisoned-hook-namespace";
 
   const { setup, hasRemote, getRemoteUrl } = require(KB_SYNC_GIT_PATH);
   const result = setup(pmDir, remote.url);
@@ -223,7 +244,32 @@ test("setup creates .gitignore with *.local-conflict", (t) => {
   assert.ok(gitignore.includes("*.local-conflict"));
 });
 
-test("setup returns error for nonexistent pm directory", (t) => {
+test("journaled setup commits the managed ignore file in an existing history", (t) => {
+  const remote = withBareRemote();
+  const { pmDir, dotPm, cleanup } = withTempProject({ "pm/strategy.md": "# Strategy\n" });
+  t.after(() => {
+    cleanup();
+    remote.cleanup();
+  });
+  gitExec("git init -b main", { cwd: pmDir });
+  gitExec("git add strategy.md && git commit -m initial", { cwd: pmDir });
+  const { runSyncEffect } = require(KB_SYNC_GIT_PATH);
+  const result = runSyncEffect({
+    mode: "setup",
+    pmDir,
+    dotPmDir: dotPm,
+    remoteUrl: remote.url,
+    authorityActions: ["configure_sync"],
+  });
+  assert.equal(result.state, "verified", JSON.stringify(result));
+  assert.equal(gitExec("git status --porcelain", { cwd: pmDir }).toString().trim(), "");
+  assert.match(
+    gitExec("git show origin/main:.gitignore", { cwd: pmDir }).toString(),
+    /local-conflict/
+  );
+});
+
+test("setup returns error for nonexistent pm directory", () => {
   const { setup } = require(KB_SYNC_GIT_PATH);
   const result = setup("/nonexistent/path/pm", "https://example.com/repo.git");
 
@@ -314,7 +360,7 @@ test("clone pulls remote content into pm/", (t) => {
   srcCleanup();
 
   // Now clone into a fresh project
-  const { root, pmDir, cleanup } = withTempProject({});
+  const { pmDir, cleanup } = withTempProject({});
   t.after(() => {
     cleanup();
     remote.cleanup();
@@ -353,7 +399,7 @@ test("clone fails when pm/ already has content", (t) => {
 // ---------------------------------------------------------------------------
 
 test("push commits and pushes new files", (t) => {
-  const { pmDir, dotPm, cleanup } = withTempProject({
+  const { pmDir, cleanup } = withTempProject({
     "pm/strategy.md": "# Strategy\n",
   });
   const remote = withBareRemote();
@@ -581,6 +627,9 @@ test("CLI default sync writes combined sync-status.json", (t) => {
   assert.equal(syncStatus.ok, true);
   assert.equal(typeof syncStatus.downloaded, "number");
   assert.ok(syncStatus.uploaded > 0);
+  assert.match(syncStatus.effect_id, /^effect_[a-f0-9]{64}$/);
+  assert.equal(syncStatus.effect_state, "verified");
+  assert.equal(syncStatus.verified_receipt.effect, "sync-knowledge-base");
 });
 
 test("CLI setup routes initialization through the guarded helper", (t) => {
@@ -681,7 +730,259 @@ test("status returns repo info for configured git repo", (t) => {
   assert.equal(result.uncommitted, 0);
   assert.equal(result.ahead, 0);
   assert.equal(result.behind, 0);
+  assert.equal(result.observation, "local-refs-only");
+  assert.equal(result.refresh_action, "/pm:sync");
 });
+
+test("status is effect-free and never refreshes remote-tracking refs", (t) => {
+  const remote = withBareRemote();
+  const seeded = withTempProject({ "pm/strategy.md": "# Strategy\n" });
+  const machineBRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kb-status-local-refs-"));
+  const { setup, push, status } = require(KB_SYNC_GIT_PATH);
+  assert.equal(setup(seeded.pmDir, remote.url).ok, true);
+  gitExec(`git clone ${remote.url} ${machineBRoot}/pm`);
+  const machineB = path.join(machineBRoot, "pm");
+  const observedBefore = gitExec("git rev-parse refs/remotes/origin/main", {
+    cwd: machineB,
+    encoding: "utf8",
+  }).trim();
+  fs.writeFileSync(path.join(seeded.pmDir, "remote-only.md"), "# Remote\n");
+  assert.equal(push(seeded.pmDir).ok, true);
+
+  t.after(() => {
+    seeded.cleanup();
+    remote.cleanup();
+    fs.rmSync(machineBRoot, { recursive: true, force: true });
+  });
+
+  const result = status(machineB);
+  const observedAfter = gitExec("git rev-parse refs/remotes/origin/main", {
+    cwd: machineB,
+    encoding: "utf8",
+  }).trim();
+  assert.equal(result.ok, true);
+  assert.equal(result.behind, 0, "status reports divergence from locally observed refs only");
+  assert.equal(observedAfter, observedBefore, "status must not fetch or mutate refs");
+  assert.equal(fs.existsSync(path.join(machineBRoot, ".pm", "effects")), false);
+});
+
+test("journaled push observes and reuses a verified outcome before another mutation", (t) => {
+  const remote = withBareRemote();
+  const { pmDir, dotPm, cleanup } = withTempProject({ "pm/strategy.md": "# Strategy\n" });
+  const { setup, runSyncEffect } = require(KB_SYNC_GIT_PATH);
+  const {
+    serializationLockPath,
+    sharedGitRepositorySerialization,
+  } = require("../scripts/lib/operational-effect-journal.js");
+  assert.equal(setup(pmDir, remote.url).ok, true);
+  fs.writeFileSync(path.join(pmDir, "new.md"), "# New\n");
+  t.after(() => {
+    cleanup();
+    remote.cleanup();
+  });
+
+  const options = {
+    mode: "push",
+    pmDir,
+    dotPmDir: dotPm,
+    authorityActions: ["push_knowledge_base"],
+  };
+  const first = runSyncEffect(options);
+  const { writeSyncStatus } = require(KB_SYNC_GIT_PATH);
+  writeSyncStatus(dotPm, {
+    mode: "pull",
+    downloaded: 7,
+    errors: ["stale failure"],
+    ok: false,
+  });
+  const second = runSyncEffect(options);
+  assert.equal(first.state, "verified");
+  assert.equal(second.state, "verified");
+  assert.equal(second.replayed, true);
+  const journal = JSON.parse(fs.readFileSync(first.journal_path, "utf8"));
+  assert.equal(journal.attempts.length, 1);
+  assert.equal(fs.statSync(first.journal_path).mode & 0o777, 0o600);
+  let statusRecord = JSON.parse(fs.readFileSync(path.join(dotPm, "sync-status.json"), "utf8"));
+  assert.equal(statusRecord.mode, "push");
+  assert.deepEqual(statusRecord.errors, []);
+  assert.equal(statusRecord.effect_id, first.effect_id);
+
+  const serialization = sharedGitRepositorySerialization(pmDir);
+  const lockPath = serializationLockPath(serialization.root, serialization.scope);
+  fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+  fs.writeFileSync(
+    lockPath,
+    JSON.stringify({
+      pid: process.pid,
+      token: "live-test-lock",
+      acquired_at: new Date().toISOString(),
+    })
+  );
+  const blocked = runSyncEffect({ ...options, lockTimeoutMs: 0 });
+  fs.rmSync(lockPath);
+  assert.equal(blocked.state, "blocked");
+  assert.equal(blocked.errors.length, 1);
+  statusRecord = JSON.parse(fs.readFileSync(path.join(dotPm, "sync-status.json"), "utf8"));
+  assert.equal(statusRecord.mode, "push");
+  assert.equal(statusRecord.effect_state, "blocked");
+  assert.equal(statusRecord.errors.length, 1);
+});
+
+test("interrupted sync with changed local state remains ambiguous without another mutation", (t) => {
+  const remote = withBareRemote();
+  const { pmDir, dotPm, cleanup } = withTempProject({ "pm/strategy.md": "# Strategy\n" });
+  const { setup, runSyncEffect } = require(KB_SYNC_GIT_PATH);
+  assert.equal(setup(pmDir, remote.url).ok, true);
+  t.after(() => {
+    cleanup();
+    remote.cleanup();
+  });
+  const options = {
+    mode: "sync",
+    pmDir,
+    dotPmDir: dotPm,
+    authorityActions: ["sync_knowledge_base"],
+  };
+  const first = runSyncEffect(options);
+  const journal = JSON.parse(fs.readFileSync(first.journal_path, "utf8"));
+  journal.state = "attempting";
+  journal.verified_receipt = null;
+  journal.attempts.push({
+    attempt: 2,
+    state: "attempting",
+    started_at: new Date().toISOString(),
+    completed_at: null,
+    error: null,
+  });
+  fs.writeFileSync(first.journal_path, `${JSON.stringify(journal, null, 2)}\n`);
+  fs.writeFileSync(path.join(pmDir, "unresolved-local-change.md"), "# Inspect first\n");
+  const headBefore = gitExec("git rev-parse HEAD", { cwd: pmDir, encoding: "utf8" }).trim();
+
+  const recovered = runSyncEffect(options);
+  const headAfter = gitExec("git rev-parse HEAD", { cwd: pmDir, encoding: "utf8" }).trim();
+  const after = JSON.parse(fs.readFileSync(first.journal_path, "utf8"));
+
+  assert.equal(recovered.state, "ambiguous");
+  assert.match(after.last_observation.reason, /fresh Git observation found local changes/);
+  assert.equal(after.attempts.length, 2);
+  assert.equal(headAfter, headBefore);
+});
+
+for (const mode of ["pull", "sync"]) {
+  test(`a pre-mutation ${mode} failure can recover and make one safe retry`, (t) => {
+    const remote = withBareRemote();
+    const seeded = withTempProject({ "pm/strategy.md": "# Strategy\n" });
+    const machineBRoot = fs.mkdtempSync(path.join(os.tmpdir(), `kb-${mode}-recover-`));
+    const machineB = path.join(machineBRoot, "pm");
+    const machineBState = path.join(machineBRoot, ".pm");
+    const api = require(KB_SYNC_GIT_PATH);
+    assert.equal(api.setup(seeded.pmDir, remote.url).ok, true);
+    gitExec(`git clone ${remote.url} ${machineB}`);
+    fs.mkdirSync(machineBState, { recursive: true });
+    fs.writeFileSync(path.join(seeded.pmDir, `${mode}-recovered.md`), `# ${mode}\n`);
+    assert.equal(api.push(seeded.pmDir).ok, true);
+    t.after(() => {
+      seeded.cleanup();
+      remote.cleanup();
+      fs.rmSync(machineBRoot, { recursive: true, force: true });
+    });
+
+    let operationCalls = 0;
+    const operation = (target) => {
+      operationCalls += 1;
+      if (operationCalls === 1) {
+        return { ok: false, error: "authentication failed before Git mutation" };
+      }
+      return api[mode](target);
+    };
+    const options = {
+      mode,
+      pmDir: machineB,
+      dotPmDir: machineBState,
+      authorityActions: [mode === "pull" ? "pull_knowledge_base" : "sync_knowledge_base"],
+      operations: { [mode]: operation },
+    };
+
+    const failed = api.runSyncEffect(options);
+    const recovered = api.runSyncEffect(options);
+
+    assert.equal(failed.state, "ambiguous");
+    assert.equal(recovered.state, "verified");
+    assert.equal(operationCalls, 2);
+    assert.equal(fs.existsSync(path.join(machineB, `${mode}-recovered.md`)), true);
+  });
+}
+
+test("an indeterminate push is observed before replay and recovers without a second mutation", (t) => {
+  const remote = withBareRemote();
+  const { pmDir, dotPm, cleanup } = withTempProject({ "pm/strategy.md": "# Strategy\n" });
+  const { setup, push, runSyncEffect } = require(KB_SYNC_GIT_PATH);
+  assert.equal(setup(pmDir, remote.url).ok, true);
+  fs.writeFileSync(path.join(pmDir, "after-send.md"), "# After send\n");
+  t.after(() => {
+    cleanup();
+    remote.cleanup();
+  });
+  let mutations = 0;
+  const options = {
+    mode: "push",
+    pmDir,
+    dotPmDir: dotPm,
+    authorityActions: ["push_knowledge_base"],
+    operations: {
+      push(target) {
+        mutations += 1;
+        const applied = push(target);
+        assert.equal(applied.ok, true);
+        return { ...applied, ok: false, error: "connection closed after send" };
+      },
+    },
+  };
+
+  const first = runSyncEffect(options);
+  const second = runSyncEffect(options);
+  assert.equal(first.state, "ambiguous");
+  assert.equal(second.state, "verified");
+  assert.equal(second.recovered, true);
+  assert.equal(mutations, 1);
+});
+
+for (const mode of ["pull", "sync"]) {
+  test(`journaled ${mode} refreshes the remote on every explicit invocation`, (t) => {
+    const remote = withBareRemote();
+    const seeded = withTempProject({ "pm/strategy.md": "# Strategy\n" });
+    const machineBRoot = fs.mkdtempSync(path.join(os.tmpdir(), `kb-${mode}-fresh-`));
+    const machineB = path.join(machineBRoot, "pm");
+    const machineBState = path.join(machineBRoot, ".pm");
+    const { setup, push, runSyncEffect } = require(KB_SYNC_GIT_PATH);
+    assert.equal(setup(seeded.pmDir, remote.url).ok, true);
+    gitExec(`git clone ${remote.url} ${machineB}`);
+    fs.mkdirSync(machineBState, { recursive: true });
+    t.after(() => {
+      seeded.cleanup();
+      remote.cleanup();
+      fs.rmSync(machineBRoot, { recursive: true, force: true });
+    });
+
+    const options = {
+      mode,
+      pmDir: machineB,
+      dotPmDir: machineBState,
+      authorityActions: [mode === "pull" ? "pull_knowledge_base" : "sync_knowledge_base"],
+    };
+    const first = runSyncEffect(options);
+    fs.writeFileSync(path.join(seeded.pmDir, `${mode}-remote.md`), `# ${mode}\n`);
+    assert.equal(push(seeded.pmDir).ok, true);
+    const second = runSyncEffect(options);
+
+    assert.equal(first.state, "verified");
+    assert.equal(second.state, "verified");
+    assert.notEqual(second.replayed, true);
+    assert.equal(fs.existsSync(path.join(machineB, `${mode}-remote.md`)), true);
+    const journal = JSON.parse(fs.readFileSync(second.journal_path, "utf8"));
+    assert.equal(journal.attempts.length, 2);
+  });
+}
 
 test("status reports uncommitted changes", (t) => {
   const { pmDir, cleanup } = withTempProject({

@@ -20,7 +20,10 @@ Run the sync script:
 node "${CLAUDE_PLUGIN_ROOT}/scripts/kb-sync-git.js" push
 ```
 
-After it completes, read `{pm_state_dir}/sync-status.json`.
+The explicit command is the `push_knowledge_base` authority grant. After it
+completes, read `{pm_state_dir}/sync-status.json`. Report success only when
+`effect_state` is `verified` and `verified_receipt` is present. If the effect is
+`blocked` or `ambiguous`, show its recovery action and do not retry blindly.
 
 Parse the JSON and display:
 
@@ -39,6 +42,7 @@ Never display raw JSON to the user.
 
 ## Done-when
 
-The explicit push has one recorded outcome and any rejection, auth problem, or conflict is reported without an unsafe retry.
+The explicit push has one durable effect identity and verified receipt or
+recovery state; any rejection, auth problem, or conflict is reported without an unsafe retry.
 
 **Advance:** proceed to Step 6 (Status); it runs only for the selected status route.

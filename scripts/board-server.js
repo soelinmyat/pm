@@ -17,22 +17,22 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const { execFile } = require("node:child_process");
 
-const { buildLoopBoard, COLUMN_ORDER } = require("./loop-board.js");
-const { loadLoopConfig, configPath } = require("./loop-config.js");
+const { COLUMN_ORDER } = require("./loop-board.js");
+const { buildOperationalSnapshot } = require("./lib/operational-read-model.js");
 const { parseCliArgs } = require("./loop-args.js");
-const { findGitRoot, runGit } = require("./loop-git.js");
-const { writeKillSwitchFile, pushKillSwitch } = require("./loop-install.js");
-const { isStopped, readLedgers, runsDirFor, countRunsInLedgers } = require("./loop-worker.js");
+const { cleanGitEnv, findGitRoot, runGit } = require("./loop-git.js");
+const { runLoopControlEffect } = require("./loop-install.js");
+const { isStopped } = require("./loop-worker.js");
 
 const DEFAULT_PORT = 4400;
 const POLL_MS = 5000;
-const MAX_RUNS_SHOWN = 10;
-// git that runs off the request path (kill-switch push, background fetch) is
-// bounded so a hang can never freeze the single-threaded server.
+// Explicit mutation requests are bounded so a hung push cannot freeze the
+// single-threaded server indefinitely.
 const PUSH_TIMEOUT_MS = 15000;
-const FETCH_TIMEOUT_MS = 20000;
-const FETCH_INTERVAL_MS = 30000;
+const GIT_STATUS_TIMEOUT_MS = 5000;
+const GIT_FRESHNESS_INTERVAL_MS = 30000;
 
 // Left-to-right pipeline order for display. Any column the model adds later
 // that we don't list here is appended so the board never silently drops one.
@@ -173,62 +173,6 @@ function enrichCard(card, remote, now) {
 
 // --- Ledger / budget summary ---------------------------------------------
 
-function ledgerDuration(record) {
-  const start = Date.parse(record.started_at || "");
-  const end = Date.parse(record.ended_at || "");
-  if (Number.isNaN(start) || Number.isNaN(end)) return null;
-  return Math.max(0, Math.round((end - start) / 1000));
-}
-
-function recentRuns(ledgers) {
-  return ledgers
-    .filter((record) => record.run_id || record.started_at)
-    .sort((a, b) => String(b.started_at || "").localeCompare(String(a.started_at || "")))
-    .slice(0, MAX_RUNS_SHOWN)
-    .map((record) => ({
-      run_id: record.run_id || null,
-      card_id: (record.card && record.card.id) || null,
-      card_title: (record.card && record.card.title) || null,
-      stage: record.stage || null,
-      outcome: record.status || null,
-      started_at: record.started_at || null,
-      ended_at: record.ended_at || null,
-      duration_seconds: ledgerDuration(record),
-    }));
-}
-
-function loopSummary(pmDir, pmStateDir, now, sync) {
-  const summary = {
-    installed: fs.existsSync(configPath(pmDir)),
-    paused: isStopped(pmDir),
-    runs: [],
-    budgets: {
-      runs_today: 0,
-      max_runs_per_day: 12,
-      ship_cycles_today: 0,
-      max_ship_cycles_per_day: 24,
-    },
-    sync: sync || null,
-  };
-
-  // A malformed pm/loop/config.json must degrade the loop section, never crash
-  // the server (the /api/board contract is "never throws").
-  try {
-    const budgets = loadLoopConfig(pmDir).budgets || {};
-    summary.budgets.max_runs_per_day = Number(budgets.max_runs_per_day) || 12;
-    summary.budgets.max_ship_cycles_per_day = Number(budgets.max_ship_cycles_per_day) || 24;
-  } catch (err) {
-    summary.error = `loop config unreadable: ${err.message}`;
-  }
-
-  // C2: read the ledger directory ONCE; derive runs + both budget counters.
-  const ledgers = readLedgers(runsDirFor({ pmStateDir }));
-  summary.runs = recentRuns(ledgers);
-  summary.budgets.runs_today = countRunsInLedgers(ledgers, now);
-  summary.budgets.ship_cycles_today = countRunsInLedgers(ledgers, now, { stage: "ship" });
-  return summary;
-}
-
 // --- Board payload -------------------------------------------------------
 
 function stateDirFor(pmDir, sourceDir) {
@@ -248,13 +192,19 @@ function buildBoardPayload(options = {}) {
     };
   }
 
-  const pmStateDir = options.pmStateDir || stateDirFor(pmDir, options.sourceDir);
   const remote =
     options.remote !== undefined ? options.remote : parseGitHubRemote(resolveRemoteUrl(pmDir));
 
-  let board;
+  let snapshot;
   try {
-    board = buildLoopBoard(path.dirname(pmDir), { pmDir, sourceDir: options.sourceDir, now });
+    snapshot =
+      options.snapshot ||
+      buildOperationalSnapshot(path.dirname(pmDir), {
+        pmDir,
+        pmStateDir: options.pmStateDir,
+        sourceDir: options.sourceDir,
+        now,
+      });
   } catch (err) {
     return {
       error: `Could not read the board at ${pmDir}: ${err.message}`,
@@ -263,17 +213,18 @@ function buildBoardPayload(options = {}) {
     };
   }
 
-  const cards = board.cards.map((card) => enrichCard(card, remote, now));
+  const cards = snapshot.work_items.map((card) => enrichCard(card, remote, now));
   const columns = displayColumnOrder().map((name) => ({
     name,
-    cards: (board.columns[name] || []).map((card) => card.id),
+    cards: snapshot.columns[name] || [],
   }));
 
   // Belt-and-suspenders: loopSummary already degrades a bad config internally,
   // but anything unexpected here still degrades the loop section, never throws.
   let loop;
   try {
-    loop = loopSummary(pmDir, pmStateDir, now, options.killSwitchSync);
+    loop = structuredClone(snapshot.loop);
+    loop.sync = options.killSwitchSync || null;
   } catch (err) {
     loop = {
       installed: false,
@@ -291,31 +242,55 @@ function buildBoardPayload(options = {}) {
   }
 
   return {
-    generated_at: board.meta.generatedAt,
+    generated_at: snapshot.meta.generated_at,
+    observation_id: snapshot.meta.observation_id,
     pm_dir: pmDir,
     columns,
     cards,
     loop,
     git: options.git || null,
+    recovery_actions: snapshot.recovery_actions,
+    recent_delivery: snapshot.recent_delivery,
   };
 }
 
 // --- Toggle (the only mutation) ------------------------------------------
 
-// Flip the LOCAL kill-switch file synchronously and return immediately. The
-// commit+push (the "halt every machine" half) is done off the request path by
-// the caller so a hung push can never freeze the server; its result is surfaced
-// on the next board poll via loop.sync.
-function toggleLoop(pmDir, at) {
+// Execute the same journaled, authoritative control effect as pm:loop. The
+// board never reports a local flip as a durable all-machine stop.
+function toggleLoop(pmDir, desiredPaused, options = {}) {
   const resolved = path.resolve(pmDir);
   if (!fs.existsSync(resolved)) {
     return { error: `No pm/ directory found at ${resolved}.` };
   }
-  const nextStopped = !isStopped(resolved);
-  writeKillSwitchFile(resolved, nextStopped);
+  if (typeof desiredPaused !== "boolean") {
+    throw new TypeError("loop control requires an explicit paused state");
+  }
+  const nextStopped = desiredPaused;
+  const resolvedPmStateDir = path.resolve(options.pmStateDir || stateDirFor(resolved));
+  const runControl = options.runControl || runLoopControlEffect;
+  const effect = runControl(resolved, nextStopped, {
+    pmStateDir: resolvedPmStateDir,
+    authorityActions: ["control_loop"],
+    requestKey: options.requestKey,
+    timeout: options.timeout || PUSH_TIMEOUT_MS,
+    loadReleaseGateState: options.loadReleaseGateState,
+  });
+  return loopToggleResult(resolved, nextStopped, effect);
+}
+
+function loopToggleResult(pmDir, nextStopped, effect) {
   return {
-    paused: nextStopped,
-    sync: { state: "pending", stopped: nextStopped, at: at || new Date().toISOString() },
+    paused: isStopped(pmDir),
+    requested_paused: nextStopped,
+    sync: {
+      state: effect.state,
+      stopped: nextStopped,
+      effect_id: effect.effect_id,
+      verified_receipt: effect.verified_receipt,
+      recovery: effect.recovery,
+      at: new Date().toISOString(),
+    },
   };
 }
 
@@ -363,49 +338,92 @@ function sendJson(res, status, value) {
   res.end(body);
 }
 
-// Cross-machine freshness: the board reads the LOCAL working tree, so another
-// machine's pushed leases/cards are invisible until git syncs. A read-only
-// `git fetch` (never pull/reset — never mutate the working tree under a running
-// worker) updates remote-tracking refs; we then report how far behind origin
-// the current branch is. Throttled + bounded + async so it never blocks a poll.
+function readToggleIntent(req, callback) {
+  const chunks = [];
+  let bytes = 0;
+  req.on("data", (chunk) => {
+    bytes += chunk.length;
+    if (bytes > 4096) req.destroy(new Error("toggle request body is too large"));
+    else chunks.push(chunk);
+  });
+  req.on("error", (error) => callback(error));
+  req.on("end", () => {
+    try {
+      const value = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      if (!value || typeof value !== "object" || typeof value.paused !== "boolean") {
+        throw new Error("toggle request requires a boolean paused field");
+      }
+      if (
+        typeof value.idempotency_key !== "string" ||
+        !/^[a-zA-Z0-9._:-]{8,128}$/.test(value.idempotency_key)
+      ) {
+        throw new Error("toggle request requires a valid idempotency_key");
+      }
+      callback(null, { paused: value.paused, key: value.idempotency_key });
+    } catch (error) {
+      callback(error);
+    }
+  });
+}
+
+// The board is a strictly read-only projection. Even `git fetch` moves
+// remote-tracking refs, so GET requests inspect only already-present local refs
+// and point operators to an explicit Sync command for a fresh remote view.
 function makeGitFreshness(pmDir) {
-  let status = null; // {available, branch, behind, fetched_at, error}
-  let fetching = false;
-  let lastAttempt = 0;
+  let status = {
+    available: false,
+    refreshing: true,
+    observation: "local-refs-only",
+    refresh_action: "/pm:sync status",
+  };
+  let refreshing = false;
+  let lastStartedAt = 0;
+
+  function finish(error, stdout = "") {
+    refreshing = false;
+    if (error) {
+      status = {
+        available: false,
+        refreshing: false,
+        observation: "local-refs-only",
+        refresh_action: "/pm:sync status",
+        error: String(error.message || error).slice(0, 300),
+      };
+      return;
+    }
+    const lines = String(stdout).split(/\r?\n/);
+    const value = (prefix) => lines.find((line) => line.startsWith(prefix))?.slice(prefix.length);
+    const counts = /^\+(\d+) -(\d+)$/.exec(value("# branch.ab ") || "");
+    status = {
+      available: true,
+      refreshing: false,
+      branch: value("# branch.head ") || null,
+      upstream: value("# branch.upstream ") || null,
+      ahead: counts ? Number(counts[1]) : null,
+      behind: counts ? Number(counts[2]) : null,
+      observation: "local-refs-only",
+      observed_at: new Date().toISOString(),
+      refresh_action: "/pm:sync status",
+    };
+  }
 
   function refresh() {
-    const nowMs = Date.now();
-    if (fetching || nowMs - lastAttempt < FETCH_INTERVAL_MS) return;
-    fetching = true;
-    lastAttempt = nowMs;
-    setImmediate(() => {
-      const opts = { timeout: FETCH_TIMEOUT_MS };
-      try {
-        const gitRoot = findGitRoot(pmDir);
-        if (!gitRoot) {
-          status = { available: false };
-          return;
-        }
-        const branch = runGit(["rev-parse", "--abbrev-ref", "HEAD"], gitRoot, opts);
-        runGit(["fetch", "--quiet"], gitRoot, opts); // read-only: refs only
-        let behind = null;
-        try {
-          const upstream = runGit(
-            ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
-            gitRoot,
-            opts
-          );
-          behind = Number(runGit(["rev-list", "--count", `HEAD..${upstream}`], gitRoot, opts)) || 0;
-        } catch {
-          behind = null; // no upstream configured
-        }
-        status = { available: true, branch, behind, fetched_at: new Date().toISOString() };
-      } catch (err) {
-        status = { available: false, error: String((err && err.message) || err).slice(0, 300) };
-      } finally {
-        fetching = false;
-      }
-    });
+    const now = Date.now();
+    if (refreshing || now - lastStartedAt < GIT_FRESHNESS_INTERVAL_MS) return;
+    refreshing = true;
+    lastStartedAt = now;
+    status = { ...status, refreshing: true };
+    execFile(
+      "git",
+      ["-C", pmDir, "status", "--porcelain=v2", "--branch"],
+      {
+        encoding: "utf8",
+        env: cleanGitEnv({ GIT_OPTIONAL_LOCKS: "0" }),
+        timeout: GIT_STATUS_TIMEOUT_MS,
+        maxBuffer: 1024 * 1024,
+      },
+      finish
+    );
   }
 
   return {
@@ -420,6 +438,54 @@ function createServer(serverOptions = {}) {
   const pmStateDir = serverOptions.pmStateDir || stateDirFor(pmDir, sourceDir);
   const page = renderPage();
   const gitFreshness = makeGitFreshness(pmDir);
+  const toggleRequests = new Map();
+
+  function runToggleAsync(intent) {
+    if (typeof serverOptions.runLoopControlEffect === "function") {
+      return Promise.resolve()
+        .then(() =>
+          serverOptions.runLoopControlEffect(pmDir, intent.paused, {
+            pmStateDir,
+            authorityActions: ["control_loop"],
+            requestKey: intent.key,
+            loadReleaseGateState: serverOptions.loadReleaseGateState,
+            timeout: PUSH_TIMEOUT_MS,
+          })
+        )
+        .then((effect) => loopToggleResult(pmDir, intent.paused, effect));
+    }
+    return new Promise((resolve, reject) => {
+      execFile(
+        process.execPath,
+        [
+          path.join(__dirname, "board-toggle-worker.js"),
+          JSON.stringify({
+            pmDir,
+            pmStateDir,
+            paused: intent.paused,
+            requestKey: intent.key,
+            timeout: PUSH_TIMEOUT_MS,
+          }),
+        ],
+        {
+          encoding: "utf8",
+          env: cleanGitEnv(),
+          timeout: PUSH_TIMEOUT_MS + 2000,
+          maxBuffer: 1024 * 1024,
+        },
+        (error, stdout, stderr) => {
+          let effect;
+          try {
+            effect = JSON.parse(String(stdout || "").trim());
+          } catch {
+            reject(new Error(String(stderr || error?.message || "loop control failed").trim()));
+            return;
+          }
+          resolve(loopToggleResult(pmDir, intent.paused, effect));
+        }
+      );
+    });
+  }
 
   // Last kill-switch sync result, surfaced on the board so a failed push shows
   // "paused locally — push failed" instead of a silent false guarantee.
@@ -483,30 +549,43 @@ function createServer(serverOptions = {}) {
         });
         return;
       }
-      req.resume(); // drain any body
-      let result;
-      try {
-        result = toggleLoop(pmDir);
-      } catch (err) {
-        sendJson(res, 500, { error: err.message });
-        return;
-      }
-      if (result.error) {
-        sendJson(res, 200, result);
-        return;
-      }
-      // Respond immediately with the local flip; push in the background.
-      killSwitchSync = result.sync;
-      const stopped = result.paused;
-      sendJson(res, 200, result);
-      setImmediate(() => {
-        let push;
-        try {
-          push = pushKillSwitch(pmDir, stopped, { timeout: PUSH_TIMEOUT_MS });
-        } catch (err) {
-          push = { committed: false, pushed: false, error: String((err && err.message) || err) };
+      readToggleIntent(req, (error, intent) => {
+        if (error) {
+          sendJson(res, 400, { error: error.message });
+          return;
         }
-        killSwitchSync = { state: "done", stopped, at: new Date().toISOString(), ...push };
+        const prior = toggleRequests.get(intent.key);
+        if (prior) {
+          if (prior.requested_paused !== intent.paused) {
+            sendJson(res, 409, { error: "idempotency key was already used for another state" });
+          } else if (prior.promise) {
+            prior.promise.then(
+              (result) => sendJson(res, 200, result),
+              (failure) => sendJson(res, 500, { error: failure.message })
+            );
+          } else sendJson(res, 200, prior);
+          return;
+        }
+        const promise = runToggleAsync(intent);
+        toggleRequests.set(intent.key, {
+          requested_paused: intent.paused,
+          promise,
+        });
+        promise.then(
+          (result) => {
+            if (result.sync?.state === "verified") {
+              killSwitchSync = result.sync;
+              toggleRequests.set(intent.key, result);
+              if (toggleRequests.size > 128)
+                toggleRequests.delete(toggleRequests.keys().next().value);
+            } else toggleRequests.delete(intent.key);
+            sendJson(res, 200, result);
+          },
+          (failure) => {
+            toggleRequests.delete(intent.key);
+            sendJson(res, 500, { error: failure.message });
+          }
+        );
       });
       return;
     }
@@ -812,17 +891,23 @@ function renderPage() {
   function renderSync(loop) {
     var s = loop.sync;
     if (!s) { syncEl.textContent = ""; syncEl.className = "note"; return; }
-    if (s.state === "pending") { syncEl.textContent = "syncing…"; syncEl.className = "note"; }
-    else if (s.pushed) { syncEl.textContent = "synced to origin"; syncEl.className = "note ok"; }
-    else if (s.error) { syncEl.textContent = "push failed — change is local only"; syncEl.className = "note bad"; }
-    else { syncEl.textContent = ""; syncEl.className = "note"; }
+    if (s.state === "verified") {
+      syncEl.textContent = s.stopped ? "pause verified on origin" : "resume verified on origin";
+      syncEl.className = "note ok";
+    } else if (s.state === "ambiguous") {
+      syncEl.textContent = "origin state is ambiguous — " + ((s.recovery && s.recovery.command) || "/pm:loop status") + " before retrying";
+      syncEl.className = "note bad";
+    } else if (s.state === "blocked") {
+      syncEl.textContent = "loop control blocked — " + ((s.recovery && s.recovery.command) || "run /pm:loop status");
+      syncEl.className = "note bad";
+    } else { syncEl.textContent = ""; syncEl.className = "note"; }
   }
 
   function renderGit(git) {
     if (git && git.available) {
-      var when = git.fetched_at ? relAge(git.fetched_at) : "just now";
-      var behind = git.behind == null ? "" : (git.behind > 0 ? " · " + git.behind + " behind origin" : " · up to date");
-      gitEl.textContent = "synced " + when + behind + (git.branch ? " · " + git.branch : "");
+      var when = git.observed_at ? relAge(git.observed_at) : "just now";
+      var behind = git.behind == null ? "" : (git.behind > 0 ? " · " + git.behind + " behind observed origin" : " · aligned with observed origin");
+      gitEl.textContent = "local refs observed " + when + behind + (git.branch ? " · " + git.branch : "") + " · /pm:sync for remote truth";
     } else if (git && git.error) {
       gitEl.textContent = "git unavailable";
     } else {
@@ -879,7 +964,14 @@ function renderPage() {
     if (busy) return;
     busy = true;
     toggleBtn.disabled = true;
-    fetch("/api/loop/toggle", { method: "POST", headers: { "x-pm-board": "1" } })
+    var key = window.crypto && window.crypto.randomUUID
+      ? window.crypto.randomUUID()
+      : Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
+    fetch("/api/loop/toggle", {
+      method: "POST",
+      headers: { "x-pm-board": "1", "content-type": "application/json" },
+      body: JSON.stringify({ paused: !paused, idempotency_key: key })
+    })
       .then(function (r) { return r.json(); })
       .then(function () { busy = false; refresh(); })
       .catch(function () { busy = false; refresh(); });

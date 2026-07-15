@@ -118,22 +118,12 @@ function request(port, method, reqPath, headers, body) {
 
 // Same-origin browser fetch and CLI clients both send this header; a cross-site
 // page cannot set it without a CORS preflight the server never approves.
-const TRUSTED = { "x-pm-board": "1" };
+const TRUSTED = { "x-pm-board": "1", "content-type": "application/json" };
 
 function listen(server) {
   return new Promise((resolve) => {
     server.listen(0, "127.0.0.1", () => resolve(server.address()));
   });
-}
-
-// Poll an async predicate a bounded number of times (for background work like
-// the off-request-path kill-switch push).
-async function until(fn, tries = 40) {
-  for (let i = 0; i < tries; i++) {
-    if (await fn()) return true;
-    await new Promise((r) => setTimeout(r, 15));
-  }
-  return false;
 }
 
 test("GET /api/board payload shape: columns, cards, parent grouping, lease detection", () => {
@@ -325,36 +315,171 @@ test("GET /api/board over HTTP returns JSON; missing pm dir returns error shape"
 test("POST /api/loop/toggle flips the kill switch and GET reflects it", async () => {
   const project = createProject();
   project.write("pm/backlog/task.md", approvedCard("PM-001", "Task"));
-  const server = createServer({ pmDir: project.pmDir });
+  let controlMutations = 0;
+  const server = createServer({
+    pmDir: project.pmDir,
+    loadReleaseGateState() {
+      return { config: {}, releaseGate: { passed: true, reason: "test canary passed" } };
+    },
+    runLoopControlEffect(pmDir, stopped) {
+      controlMutations += 1;
+      const stopPath = path.join(pmDir, "loop", "STOP");
+      if (stopped) {
+        fs.mkdirSync(path.dirname(stopPath), { recursive: true });
+        fs.writeFileSync(stopPath, "stop\n");
+      } else fs.rmSync(stopPath, { force: true });
+      return {
+        state: "verified",
+        effect_id: `effect_${"a".repeat(64)}`,
+        verified_receipt: { stopped, authoritative_remote: true },
+        recovery: { code: "inspect-loop-control-effect", command: "/pm:loop status" },
+      };
+    },
+  });
   const { port } = await listen(server);
 
   const before = await request(port, "GET", "/api/board");
   assert.equal(before.json.loop.paused, false);
 
-  const toggled = await request(port, "POST", "/api/loop/toggle", TRUSTED);
+  const pauseIntent = { paused: true, idempotency_key: "pause-request-1" };
+  const toggled = await request(port, "POST", "/api/loop/toggle", TRUSTED, pauseIntent);
   assert.equal(toggled.json.paused, true);
-  // A3: local STOP file is written synchronously; the push runs off-request.
-  assert.equal(toggled.json.sync.state, "pending");
+  assert.equal(toggled.json.sync.state, "verified");
+  assert.equal(toggled.json.sync.verified_receipt.authoritative_remote, true);
   assert.ok(fs.existsSync(path.join(project.pmDir, "loop", "STOP")));
+
+  const duplicate = await request(port, "POST", "/api/loop/toggle", TRUSTED, pauseIntent);
+  assert.equal(duplicate.json.paused, true);
+  assert.equal(controlMutations, 1);
 
   const paused = await request(port, "GET", "/api/board");
   assert.equal(paused.json.loop.paused, true);
 
-  // The background push settles and its result is surfaced (no git here → not
-  // pushed, but reported honestly rather than hanging the request).
-  const settled = await until(async () => {
-    const r = await request(port, "GET", "/api/board");
-    return r.json.loop.sync && r.json.loop.sync.state === "done";
+  const resumed = await request(port, "POST", "/api/loop/toggle", TRUSTED, {
+    paused: false,
+    idempotency_key: "resume-request-1",
   });
-  assert.ok(settled, "kill-switch sync should settle to done");
-
-  const resumed = await request(port, "POST", "/api/loop/toggle", TRUSTED);
   assert.equal(resumed.json.paused, false);
   assert.ok(!fs.existsSync(path.join(project.pmDir, "loop", "STOP")));
 
   const active = await request(port, "GET", "/api/board");
   assert.equal(active.json.loop.paused, false);
 
+  server.close();
+  project.cleanup();
+});
+
+test("POST /api/loop/toggle keeps STOP when the resume release gate fails", async () => {
+  const project = createProject();
+  project.write("pm/loop/STOP", "stop\n");
+  let controlMutations = 0;
+  const server = createServer({
+    pmDir: project.pmDir,
+    loadReleaseGateState() {
+      return {
+        config: {},
+        releaseGate: { passed: false, reason: "host approval is missing" },
+      };
+    },
+    runLoopControlEffect(_pmDir, _stopped, options) {
+      const gate = options.loadReleaseGateState();
+      if (!gate.releaseGate.passed) {
+        throw new Error(`loop remains paused: ${gate.releaseGate.reason}`);
+      }
+      controlMutations += 1;
+      throw new Error("control mutation must not run");
+    },
+  });
+  const { port } = await listen(server);
+
+  const result = await request(port, "POST", "/api/loop/toggle", TRUSTED, {
+    paused: false,
+    idempotency_key: "resume-gate-failure",
+  });
+
+  assert.equal(result.status, 500);
+  assert.match(result.json.error, /host approval is missing/);
+  assert.equal(controlMutations, 0);
+  assert.equal(fs.existsSync(path.join(project.pmDir, "loop", "STOP")), true);
+  server.close();
+  project.cleanup();
+});
+
+test("POST /api/loop/toggle retries a transient result with the same request key", async () => {
+  const project = createProject();
+  let calls = 0;
+  const server = createServer({
+    pmDir: project.pmDir,
+    runLoopControlEffect(pmDir, stopped) {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          effect_id: "effect-transient",
+          state: "blocked",
+          verified_receipt: null,
+          recovery: { code: "effect-in-progress", command: "/pm:loop status" },
+        };
+      }
+      fs.mkdirSync(path.join(pmDir, "loop"), { recursive: true });
+      fs.writeFileSync(path.join(pmDir, "loop", "STOP"), "paused\n");
+      return {
+        effect_id: "effect-transient",
+        state: "verified",
+        verified_receipt: { receipt: { stopped } },
+        recovery: null,
+      };
+    },
+  });
+  const { port } = await listen(server);
+  const intent = { paused: true, idempotency_key: "transient-pause-request" };
+  const first = await request(port, "POST", "/api/loop/toggle", TRUSTED, intent);
+  const second = await request(port, "POST", "/api/loop/toggle", TRUSTED, intent);
+  assert.equal(first.json.sync.state, "blocked");
+  assert.equal(second.json.sync.state, "verified");
+  assert.equal(second.json.paused, true);
+  assert.equal(calls, 2);
+  server.close();
+  project.cleanup();
+});
+
+test("a stalled toggle does not block concurrent Board reads", async () => {
+  const project = createProject();
+  project.write("pm/backlog/task.md", approvedCard("PM-001", "Task"));
+  let release;
+  let started;
+  const startedPromise = new Promise((resolve) => {
+    started = resolve;
+  });
+  const server = createServer({
+    pmDir: project.pmDir,
+    async runLoopControlEffect(pmDir, stopped) {
+      started();
+      await new Promise((resolve) => {
+        release = resolve;
+      });
+      fs.mkdirSync(path.join(pmDir, "loop"), { recursive: true });
+      fs.writeFileSync(path.join(pmDir, "loop", "STOP"), "paused\n");
+      return {
+        state: "verified",
+        effect_id: `effect_${"f".repeat(64)}`,
+        verified_receipt: { stopped },
+        recovery: null,
+      };
+    },
+  });
+  const { port } = await listen(server);
+  const toggle = request(port, "POST", "/api/loop/toggle", TRUSTED, {
+    paused: true,
+    idempotency_key: "stalled-toggle",
+  });
+  await startedPromise;
+  const board = await Promise.race([
+    request(port, "GET", "/api/board"),
+    new Promise((_, reject) => setTimeout(() => reject(new Error("Board GET was blocked")), 500)),
+  ]);
+  assert.equal(board.status, 200);
+  release();
+  assert.equal((await toggle).json.sync.state, "verified");
   server.close();
   project.cleanup();
 });
@@ -393,6 +518,7 @@ test("POST /api/loop/toggle rejects cross-origin and header-less requests (CSRF)
 test("renderPage output is inert HTML with no external references", () => {
   const html = renderPage();
   assert.match(html, /PM Board/i);
+  assert.match(html, /origin state is ambiguous.*recovery.*command.*\/pm:loop status/s);
   assert.doesNotMatch(html, /https?:\/\//);
   assert.doesNotMatch(html, /<script\s+src=/i);
   assert.doesNotMatch(html, /<link\b/i);
@@ -451,7 +577,7 @@ test("B1: a malformed pm/loop/config.json degrades the loop section, never crash
   project.cleanup();
 });
 
-test("E2: git freshness reports how far behind origin the branch is (read-only fetch)", async () => {
+test("read-only board requests never fetch or mutate remote-tracking refs", async () => {
   const project = createProject();
   project.write("pm/backlog/task.md", approvedCard("PM-001", "Task"));
   const remote = initGitWithRemote(project);
@@ -467,23 +593,36 @@ test("E2: git freshness reports how far behind origin the branch is (read-only f
   git(clone, ["push", "-q"]);
 
   const headBefore = git(project.root, ["rev-parse", "HEAD"]);
+  const originBefore = git(project.root, ["rev-parse", "refs/remotes/origin/main"]);
+  const indexPath = path.join(project.root, ".git", "index");
+  const indexBefore = fs.readFileSync(indexPath);
+  const trackedPath = path.join(project.root, "pm", "backlog", "task.md");
+  const trackedStat = fs.statSync(trackedPath);
+  fs.utimesSync(trackedPath, trackedStat.atime, new Date(trackedStat.mtimeMs + 2000));
   const server = createServer({ pmDir: project.pmDir });
   const { port } = await listen(server);
 
-  const ok = await until(async () => {
-    const r = await request(port, "GET", "/api/board");
-    return r.json.git && r.json.git.available && r.json.git.behind === 1;
-  });
+  let response = await request(port, "GET", "/api/board");
+  const deadline = Date.now() + 3000;
+  while (response.json.git.available !== true && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    response = await request(port, "GET", "/api/board");
+  }
 
   server.close();
   const headAfter = git(project.root, ["rev-parse", "HEAD"]);
+  const originAfter = git(project.root, ["rev-parse", "refs/remotes/origin/main"]);
+  const indexAfter = fs.readFileSync(indexPath);
   fs.rmSync(clone, { recursive: true, force: true });
   fs.rmSync(remote, { recursive: true, force: true });
   project.cleanup();
 
-  assert.ok(ok, "board should report 1 commit behind origin after the background fetch");
-  // Fetch is READ-ONLY: the working tree / HEAD must be untouched.
-  assert.equal(headAfter, headBefore, "git fetch must not move HEAD or mutate the working tree");
+  assert.equal(response.json.git.available, true);
+  assert.equal(response.json.git.observation, "local-refs-only");
+  assert.equal(response.json.git.refresh_action, "/pm:sync status");
+  assert.equal(headAfter, headBefore, "GET must not move HEAD or mutate the working tree");
+  assert.equal(originAfter, originBefore, "GET must not fetch or move remote-tracking refs");
+  assert.deepEqual(indexAfter, indexBefore, "GET must not refresh or rewrite the Git index");
 });
 
 test("A3: toggle pushes the kill switch to origin and surfaces the push result", async () => {
@@ -494,16 +633,13 @@ test("A3: toggle pushes the kill switch to origin and surfaces the push result",
   const server = createServer({ pmDir: project.pmDir });
   const { port } = await listen(server);
 
-  const toggled = await request(port, "POST", "/api/loop/toggle", TRUSTED);
-  assert.equal(toggled.json.paused, true);
-  assert.equal(toggled.json.sync.state, "pending");
-
-  const pushed = await until(async () => {
-    const r = await request(port, "GET", "/api/board");
-    return (
-      r.json.loop.sync && r.json.loop.sync.state === "done" && r.json.loop.sync.pushed === true
-    );
+  const toggled = await request(port, "POST", "/api/loop/toggle", TRUSTED, {
+    paused: true,
+    idempotency_key: "origin-pause-request",
   });
+  assert.equal(toggled.json.paused, true);
+  assert.equal(toggled.json.sync.state, "verified");
+  assert.equal(toggled.json.sync.verified_receipt.receipt.authoritative_remote, true);
 
   server.close();
   // The kill switch actually reached origin — the "halt every machine" guarantee.
@@ -511,7 +647,6 @@ test("A3: toggle pushes the kill switch to origin and surfaces the push result",
   fs.rmSync(remote, { recursive: true, force: true });
   project.cleanup();
 
-  assert.ok(pushed, "toggle push should settle to done+pushed");
   assert.match(tree, /pm\/loop\/STOP/);
 });
 

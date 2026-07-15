@@ -61,6 +61,7 @@ Epics use the existing card relations — no loop-specific fields: a card with o
 - Reconciliation always defaults to dry-run. Apply requires the explicit `--apply` flag, verified Git sync readiness, and Issue 2's isolated PM transaction; UNKNOWN remote evidence never changes a card.
 - Never install or resume the scheduler until all three supervised canary records pass for the same plugin, source, config, and engine identity. Stale, missing, mixed, or failed evidence keeps scheduling paused/uninstalled, and canaries never merge.
 - Every mutating subcommand requires authority for that exact effect. Retries and recovery must resume from durable evidence; they never repeat an ambiguous dispatch or broaden host permission.
+- Config initialization, host approval, scheduler install, stop/resume, and reconciliation apply must use their journaled script adapters. Report only verified receipts as success; `blocked` and `ambiguous` states keep their named recovery action.
 
 ## Red Flags — Self-Check
 
@@ -88,5 +89,6 @@ Epics use the existing card relations — no loop-specific fields: a card with o
 ## Before Marking Done
 
 - [ ] Durable card, event, lease, recovery, and result artifacts match the reported outcome.
+- [ ] Every operational mutation has an action-specific journal and verified receipt, or a visible blocked/ambiguous recovery state.
 - [ ] The user confirmed every config, install, resume, apply, claim, or work effect that required a decision.
 - [ ] Authority, sync, lease, budget, canary, result-contract, and recovery gates passed or failed closed with evidence.

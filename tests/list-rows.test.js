@@ -46,10 +46,10 @@ function normalizeForFixture(payload, { sourceDir, pmDir, pmStateDir }) {
       .replace(pmDir, "<pmDir>")
       .replace(sourceDir, "<sourceDir>");
   };
-  const normRow = (row) => ({
-    ...row,
-    sourcePath: replace(row.sourcePath),
-  });
+  const normRow = (row) => {
+    const { id: _id, lifecycle: _lifecycle, artifactKind: _artifactKind, ...legacy } = row;
+    return { ...legacy, sourcePath: replace(row.sourcePath) };
+  };
   return {
     active: payload.active.map(normRow),
     proposals: payload.proposals.map(normRow),
@@ -331,6 +331,29 @@ test("PM-51 list-rows: backlogKind emits 'task' and 'bug' when set", () => {
     assert.equal(payload.proposals.length, 2);
     const kinds = payload.proposals.map((r) => r.backlogKind).sort();
     assert.deepEqual(kinds, ["bug", "task"]);
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("serialized backlog rows expose canonical identity, lifecycle, and artifact kind", () => {
+  const project = createProject();
+  try {
+    project.write(
+      "pm/backlog/linked.md",
+      fm({
+        type: "backlog",
+        id: "PM-103",
+        title: "Linked task",
+        kind: "task",
+        status: "planned",
+        rfc: "rfcs/linked.html",
+      }) + "body"
+    );
+    const payload = JSON.parse(JSON.stringify(emitListRows(project.root, { now: FIXED_NOW })));
+    assert.equal(payload.rfcs[0].id, "PM-103");
+    assert.equal(payload.rfcs[0].lifecycle, "needs_human");
+    assert.equal(payload.rfcs[0].artifactKind, "task");
   } finally {
     project.cleanup();
   }

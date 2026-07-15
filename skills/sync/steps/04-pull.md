@@ -26,7 +26,11 @@ For default bidirectional `sync`, run the sync script once:
 node "${CLAUDE_PLUGIN_ROOT}/scripts/kb-sync-git.js" sync
 ```
 
-After it completes, read `{pm_state_dir}/sync-status.json`.
+The selected command is the action-specific authority grant (`pull_knowledge_base`
+or `sync_knowledge_base`). After it completes, read
+`{pm_state_dir}/sync-status.json`. Treat the operation as successful only when
+`effect_state` is `verified` and `verified_receipt` is present. For `blocked` or
+`ambiguous`, show `recovery` and do not retry blindly.
 
 Parse the JSON and display:
 
@@ -53,6 +57,7 @@ Never display raw JSON to the user.
 
 ## Done-when
 
-Pull or bidirectional sync has one recorded success/failure outcome, and partial uploaded/downloaded counts plus recovery guidance are visible without raw JSON.
+Pull or bidirectional sync has one durable effect identity and verified receipt
+or recovery state, and partial uploaded/downloaded counts are visible without raw JSON.
 
 **Advance:** proceed to Step 5 (Push); it skips for pull and completed bidirectional routes.
