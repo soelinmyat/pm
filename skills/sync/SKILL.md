@@ -38,6 +38,8 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 - When no backend is configured, route through the setup step — it needs user input (repo name/URL); never configure silently.
 - Report results as readable text, never raw JSON. On repeated failure, surface the real auth/config/remote cause rather than retrying blindly.
 - A bare or explicit sync command grants authority only for that route. The helper must journal that action-specific grant, observe the target before retrying, and return a verified receipt or an explicit recovery state. Keep automatic rebase/retry behavior bounded to the helper.
+- Git sync follows the current branch's configured upstream; remote and branch names are not assumed to be `origin` and `main`. Detached HEAD and missing-upstream states stop with repair guidance.
+- Repository ownership is explicit. If `pm/` is tracked by the consumer project's parent repository, setup must not silently convert it into a nested repository. Keep parent ownership or configure a separate PM repository.
 
 ## Red Flags — Self-Check
 
@@ -45,12 +47,15 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 - **"I can run raw git for one small sync fix."** Use the sync helper so status and recovery evidence stay aligned.
 - **"Bare sync probably means push."** Use the documented pull-then-push route.
 - **"The same retry might work this time."** Check auth, remote, and conflict evidence before another attempt.
+- **"Every KB uses origin/main."** Use the attached branch's configured upstream; names are repository data, not defaults for established repos.
 
 ## Escalation Paths
 
 - **No PM workspace here yet:** "This project doesn't look initialized for PM. Want to run `/pm:start` first?"
 - **No sync backend configured:** Route to the setup step — don't tell the user to configure manually.
 - **Git push/pull fails:** Surface the error. Common causes: no remote access, diverged branches, merge conflicts.
+- **Detached branch or no upstream:** Stop and show the helper's checkout or `--set-upstream` remediation; do not guess a target.
+- **Parent repository owns `pm/`:** Keep same-repo ownership or offer `/pm:setup separate-repo`; never create a nested repository implicitly.
 
 ## Common Rationalizations
 

@@ -344,6 +344,25 @@ test("setup updates remote URL when already configured", (t) => {
   assert.equal(getRemoteUrl(pmDir), remote2.url);
 });
 
+test("setup refuses to turn a parent-repository-owned pm directory into a nested repo", (t) => {
+  const { root, pmDir, cleanup } = withTempProject({ "pm/strategy.md": "# Strategy\n" });
+  const remote = withBareRemote();
+  t.after(() => {
+    cleanup();
+    remote.cleanup();
+  });
+  gitExec("git init -b main", { cwd: root });
+  gitExec("git add pm/strategy.md && git commit -m initial", { cwd: root });
+
+  const { setup } = require(KB_SYNC_GIT_PATH);
+  const result = setup(pmDir, remote.url);
+
+  assert.equal(result.ok, false);
+  assert.match(result.error, /owned by the parent Git repository/i);
+  assert.match(result.error, /separate-repo/i);
+  assert.equal(fs.existsSync(path.join(pmDir, ".git")), false);
+});
+
 // ---------------------------------------------------------------------------
 // Test: clone
 // ---------------------------------------------------------------------------
@@ -485,6 +504,78 @@ test("push auto-rebases and retries when remote has new commits", (t) => {
   fs.rmSync(verify, { recursive: true, force: true });
 });
 
+test("push auto-rebases against the configured non-main upstream", (t) => {
+  const remote = withBareRemote();
+  const seeded = withTempProject({ "pm/strategy.md": "# v1\n" });
+  const { setup, push } = require(KB_SYNC_GIT_PATH);
+  assert.equal(setup(seeded.pmDir, remote.url, { branch: "release" }).ok, true);
+  gitExec("git remote rename origin shared", { cwd: seeded.pmDir });
+
+  const secondRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kb-upstream-release-"));
+  gitExec(`git clone --branch release ${remote.url} ${secondRoot}/pm`);
+  const second = path.join(secondRoot, "pm");
+  gitExec("git remote rename origin shared", { cwd: second });
+  t.after(() => {
+    seeded.cleanup();
+    remote.cleanup();
+    fs.rmSync(secondRoot, { recursive: true, force: true });
+  });
+
+  fs.writeFileSync(path.join(seeded.pmDir, "first.md"), "# first\n");
+  assert.equal(push(seeded.pmDir).ok, true);
+  fs.writeFileSync(path.join(second, "second.md"), "# second\n");
+
+  const result = push(second);
+  assert.equal(result.ok, true, result.error);
+  assert.equal(fs.existsSync(path.join(second, "first.md")), true);
+});
+
+test("push treats a legal branch name containing shell metacharacters as data", (t) => {
+  const remote = withBareRemote();
+  const { root, pmDir, cleanup } = withTempProject({ "pm/strategy.md": "# Strategy\n" });
+  const sentinel = path.join(root, "branch-command-ran");
+  const branch = `sync;touch\${IFS}${sentinel}`;
+  t.after(() => {
+    cleanup();
+    remote.cleanup();
+  });
+
+  const { setup, push } = require(KB_SYNC_GIT_PATH);
+  const configured = setup(pmDir, remote.url, { branch });
+  assert.equal(configured.ok, true, configured.error);
+  fs.writeFileSync(path.join(pmDir, "new.md"), "# New\n");
+  const result = push(pmDir);
+
+  assert.equal(result.ok, true, result.error);
+  assert.equal(fs.existsSync(sentinel), false);
+  assert.equal(
+    gitExec("git rev-parse --abbrev-ref --symbolic-full-name @{upstream}", {
+      cwd: pmDir,
+      encoding: "utf8",
+    }).trim(),
+    `origin/${branch}`
+  );
+});
+
+test("push fails closed when the current branch has no upstream", (t) => {
+  const { pmDir, cleanup } = withTempProject({ "pm/strategy.md": "# Strategy\n" });
+  const remote = withBareRemote();
+  t.after(() => {
+    cleanup();
+    remote.cleanup();
+  });
+  gitExec("git init -b local-only", { cwd: pmDir });
+  gitExec("git add strategy.md && git commit -m initial", { cwd: pmDir });
+  gitExec(`git remote add shared ${remote.url}`, { cwd: pmDir });
+
+  const { push } = require(KB_SYNC_GIT_PATH);
+  const result = push(pmDir);
+
+  assert.equal(result.ok, false);
+  assert.match(result.error, /has no upstream/i);
+  assert.match(result.error, /--set-upstream/);
+});
+
 test("push returns error when pm/ is not a git repo", (t) => {
   const { pmDir, cleanup } = withTempProject({
     "pm/strategy.md": "# Strategy\n",
@@ -533,6 +624,24 @@ test("pull fetches remote changes", (t) => {
 
   const content = fs.readFileSync(path.join(dest, "pm", "strategy.md"), "utf8");
   assert.equal(content, "# Strategy v2\n");
+});
+
+test("pull fails closed in detached HEAD state", (t) => {
+  const { pmDir, cleanup } = withTempProject({ "pm/strategy.md": "# Strategy\n" });
+  const remote = withBareRemote();
+  t.after(() => {
+    cleanup();
+    remote.cleanup();
+  });
+  const { setup, pull } = require(KB_SYNC_GIT_PATH);
+  assert.equal(setup(pmDir, remote.url).ok, true);
+  gitExec("git checkout --detach", { cwd: pmDir });
+
+  const result = pull(pmDir);
+
+  assert.equal(result.ok, false);
+  assert.match(result.error, /detached HEAD/i);
+  assert.match(result.error, /check out a branch/i);
 });
 
 test("pull returns error when pm/ is not a git repo", (t) => {
@@ -732,6 +841,31 @@ test("status returns repo info for configured git repo", (t) => {
   assert.equal(result.behind, 0);
   assert.equal(result.observation, "local-refs-only");
   assert.equal(result.refresh_action, "/pm:sync");
+});
+
+test("status uses the current branch's configured upstream instead of origin/main", (t) => {
+  const { pmDir, cleanup } = withTempProject({ "pm/strategy.md": "# Strategy\n" });
+  const remote = withBareRemote();
+  t.after(() => {
+    cleanup();
+    remote.cleanup();
+  });
+  const { setup, status } = require(KB_SYNC_GIT_PATH);
+  assert.equal(setup(pmDir, remote.url, { branch: "release" }).ok, true);
+  gitExec("git remote rename origin shared", { cwd: pmDir });
+
+  const result = status(pmDir);
+
+  assert.equal(result.ok, true, result.error);
+  assert.equal(result.branch, "release");
+  assert.equal(result.upstream, "shared/release");
+  assert.equal(result.remote, remote.url);
+});
+
+test("production sync Git calls do not use shell command strings", () => {
+  const source = fs.readFileSync(KB_SYNC_GIT_PATH, "utf8");
+  assert.doesNotMatch(source, /execSync/);
+  assert.doesNotMatch(source, /runSafe\(\s*[`\"']git\s/);
 });
 
 test("status is effect-free and never refreshes remote-tracking refs", (t) => {

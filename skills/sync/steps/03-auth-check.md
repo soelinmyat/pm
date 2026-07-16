@@ -28,18 +28,27 @@ node -e "
 
 **If backend is `"none"` or missing:** Tell the user "No sync backend configured. Run `/pm:sync setup` first." and stop.
 
-**If backend is `"git"`:** Verify `pm/` is a git repo with a remote:
+**If backend is `"git"`:** Ask the effect-free sync helper to verify repository,
+attached-branch, remote, and upstream state:
 
 ```bash
-test -d pm/.git && git -C pm remote get-url origin 2>/dev/null && echo "OK" || echo "MISSING"
+node "${CLAUDE_PLUGIN_ROOT}/scripts/kb-sync-git.js" status
 ```
 
-If `MISSING`: "pm/ is not set up as a git repo. Run `/pm:sync setup` to configure." and stop.
+If it reports no repository or remote: "pm/ is not set up as an independent KB
+repo. Run `/pm:sync setup` to configure." and stop.
 
-If `OK`: proceed to the selected subcommand step.
+If it reports detached HEAD, stop and relay the instruction to check out a
+branch. If it reports no upstream, stop and relay the `git push --set-upstream
+<remote> <branch>` or `/pm:sync setup` remediation. Never substitute
+`origin/main`.
+
+If `ok: true`: proceed to the selected subcommand step.
 
 ## Done-when
 
-The selected data route has a configured git backend and reachable origin, or execution has stopped with the exact setup remediation.
+The selected data route has a configured Git backend, attached branch, and
+reachable configured upstream, or execution has stopped with the helper's exact
+repair guidance.
 
 **Advance:** proceed to Step 4 (Pull / Sync); route-specific steps skip cleanly.

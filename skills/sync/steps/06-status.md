@@ -26,6 +26,7 @@ Parse the JSON output and display a formatted summary:
 Backend: git
 Remote:  {remote}
 Branch:  {branch}
+Upstream: {upstream}
 Uncommitted changes: {uncommitted}
 Ahead:   {ahead} commit(s)
 Behind:  {behind} commit(s)
@@ -41,6 +42,9 @@ If `uncommitted > 0`, add: "Run `/pm:sync` to pull remote changes first, then pu
 If `behind > 0`, add: "Run `/pm:sync` to pull remote changes and then push any local changes. Use `/pm:sync pull` only when you intentionally want the pull-only override."
 
 If everything is zero: "All synced."
+
+If status reports detached HEAD or a missing upstream, show its repair guidance
+and stop. Do not display zero ahead/behind values for an undefined comparison.
 
 ### No backend configured
 
