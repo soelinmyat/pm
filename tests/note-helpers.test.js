@@ -279,6 +279,64 @@ test("publishReviewedNote reconciles an artifact-only partial publication", (t) 
   assert.deepEqual(ledger.records[0].artifact_paths, ["evidence/notes/2026-07.md"]);
 });
 
+test("publishReviewedNote rejects conflicting duplicate Evidence-ID entries", (t) => {
+  const { pmDir, pmStateDir, cleanup } = withTempPmDir();
+  t.after(cleanup);
+  const captured = writeNote(
+    pmDir,
+    "Customer identity is private.",
+    "customer interview",
+    "privacy",
+    {
+      pmStateDir,
+      now: "2026-07-14T08:00:00.000Z",
+      locator: "entry:test-duplicate-publication",
+    }
+  );
+  const notePath = path.join(pmDir, "evidence", "notes", "2026-07.md");
+  fs.mkdirSync(path.dirname(notePath), { recursive: true });
+  fs.writeFileSync(
+    notePath,
+    [
+      "---",
+      "type: notes",
+      "provenance_version: 2",
+      "month: 2026-07",
+      "updated: 2026-07-14",
+      "note_count: 2",
+      "digested_through: null",
+      "---",
+      "",
+      `### ${captured.timestamp} — customer interview`,
+      "A customer reported a privacy concern.",
+      `Evidence-ID: ${captured.evidence_id}`,
+      "Tags: privacy",
+      "",
+      "### 2026-07-14 17:00 — conflicting entry",
+      "Different reviewed content.",
+      `Evidence-ID: ${captured.evidence_id}`,
+      "",
+    ].join("\n")
+  );
+
+  assert.throws(
+    () =>
+      publishReviewedNote(
+        pmDir,
+        pmStateDir,
+        captured.evidence_id,
+        "A customer reported a privacy concern.",
+        { source: "customer interview", tags: "privacy", now: "2026-07-14T09:00:00.000Z" }
+      ),
+    /duplicate evidence IDs/i
+  );
+  const ledger = JSON.parse(
+    fs.readFileSync(path.join(pmDir, "evidence", "provenance.json"), "utf8")
+  );
+  assert.equal(ledger.records[0].privacy.pii_review, "pending");
+  assert.deepEqual(ledger.records[0].artifact_paths, []);
+});
+
 test("concurrent note captures do not lose entries or ledger records", async (t) => {
   const { pmDir, cleanup } = withTempPmDir();
   t.after(cleanup);

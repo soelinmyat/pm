@@ -226,10 +226,13 @@ function hasExactPublishedNoteEntry(filePath, note) {
   if (!fs.existsSync(filePath)) return false;
   const raw = fs.readFileSync(filePath, "utf8");
   const expected = renderNoteEntry(note);
+  const evidenceLine = `Evidence-ID: ${note.evidenceId}`;
+  const evidenceCount = raw.split(/\r?\n/).filter((line) => line === evidenceLine).length;
+  if (evidenceCount > 1) throw new Error("published note artifact contains duplicate evidence IDs");
   const exactCount = raw.split(expected).length - 1;
   if (exactCount > 1) throw new Error("published note artifact contains duplicate evidence IDs");
   if (exactCount === 1) return true;
-  if (raw.includes(`\nEvidence-ID: ${note.evidenceId}\n`)) {
+  if (evidenceCount === 1) {
     throw new Error("published note artifact does not match reviewed content");
   }
   return false;
