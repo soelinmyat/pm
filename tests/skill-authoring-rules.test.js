@@ -9,7 +9,10 @@ const path = require("node:path");
 const root = path.resolve(__dirname, "..");
 const fixtures = path.join(__dirname, "fixtures", "skill-authoring");
 const { buildContext, loadRules } = require("../scripts/rules/plugin/index.js");
-const { SKILL_CLASSIFICATION } = require("../scripts/lib/skill-authoring/classification.js");
+const {
+  SKILL_CLASSES,
+  SKILL_CLASSIFICATION,
+} = require("../scripts/lib/skill-authoring/classification.js");
 const { sections } = require("../scripts/lib/skill-authoring/markdown.js");
 
 function d2Rules() {
@@ -24,6 +27,11 @@ test("every runtime skill is classified exactly once", () => {
     .sort();
   assert.deepEqual(Object.keys(SKILL_CLASSIFICATION).sort(), runtimeSkills);
   for (const value of Object.values(SKILL_CLASSIFICATION)) assert.equal(typeof value, "string");
+});
+
+test("using-pm is classified as a router rather than an operational effect", () => {
+  assert.ok(SKILL_CLASSES.includes("router"));
+  assert.equal(SKILL_CLASSIFICATION["using-pm"], "router");
 });
 
 test("concise capture fixture passes the entry-point contract rules", () => {

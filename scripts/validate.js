@@ -1691,6 +1691,10 @@ function validate(pmDir, options = {}) {
 
 function runPluginMode(args) {
   const { loadRules, runPack } = require("./rules/plugin/index.js");
+  const {
+    SEMANTIC_RULE_IDS,
+    validateSemanticContracts,
+  } = require("./lib/skill-authoring/semantic-contracts.js");
   let rootDir = process.cwd();
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--root" && args[i + 1]) {
@@ -1707,14 +1711,20 @@ function runPluginMode(args) {
   // zero-issue baseline; skill-audit remains the grouped presentation view.
   const enforcedRules = loadRules().filter((rule) => rule.severity === "error");
   const result = runPack(rootDir, { rules: enforcedRules });
-  const hasError = result.issues.some((i) => i.severity === "error");
+  const semanticIssues = validateSemanticContracts(rootDir);
+  const issues = [...result.issues, ...semanticIssues].sort((left, right) =>
+    [left.ruleId, left.file, left.message]
+      .join("\0")
+      .localeCompare([right.ruleId, right.file, right.message].join("\0"))
+  );
+  const hasError = issues.some((i) => i.severity === "error");
   const out = {
     ok: !hasError,
     mode: "plugin",
     pack_version: result.packVersion,
-    rules_run: result.rulesRun,
+    rules_run: result.rulesRun + SEMANTIC_RULE_IDS.length,
     files_scanned: result.filesScanned,
-    issues: result.issues,
+    issues,
   };
   console.log(JSON.stringify(out, null, 2));
   process.exit(hasError ? 1 : 0);

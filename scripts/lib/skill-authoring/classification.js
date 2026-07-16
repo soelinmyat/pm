@@ -24,7 +24,7 @@ const SKILL_CLASSIFICATION = Object.freeze({
   sync: "operational-effect",
   task: "capture",
   think: "conversational",
-  "using-pm": "operational-effect",
+  "using-pm": "router",
 });
 
 const SKILL_CLASSES = Object.freeze([
@@ -36,6 +36,7 @@ const SKILL_CLASSES = Object.freeze([
   "conversational",
   "capture",
   "redirect",
+  "router",
 ]);
 
 const STEP_TRANSITIONS = Object.freeze({
