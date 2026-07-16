@@ -49,6 +49,11 @@ const DONE_REQUIREMENTS = {
     /\b(user|result|received|next action)\b/i,
     /\b(legacy|duplicate|evidence|gate)\b/i,
   ],
+  router: [
+    /\b(artifact|output|route|routing)\b/i,
+    /\b(user|intent|direct)\b/i,
+    /\b(gate|authority|path|failure)\b/i,
+  ],
 };
 
 module.exports = {

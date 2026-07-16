@@ -104,9 +104,9 @@ All session state (groom, rfc, dev) lives source-side in `{source_dir}/.pm/`:
 
 | Session type | Location |
 |---|---|
-| Groom sessions | `{source_dir}/.pm/groom-sessions/*.md` |
-| RFC sessions | `{source_dir}/.pm/rfc-sessions/*.md` |
-| Dev sessions | `{source_dir}/.pm/dev-sessions/*.md` |
+| Groom sessions | `{source_dir}/.pm/groom-sessions/*/session.json` |
+| RFC sessions | `{source_dir}/.pm/rfc-sessions/*/session.json` |
+| Dev sessions | `{source_dir}/.pm/dev-sessions/*/session.json` |
 
 Session state is ephemeral machine-local scratchpad — it is gitignored and never written to the PM repo. Only the **artefacts** (proposals, RFCs, shipped code) live in their durable homes: proposals and RFCs in the PM repo under `{pm_dir}/`, shipped code in the source repo. Active work is only detectable when `pm:start` runs from the source repo; in same-repo mode, source_dir is the project root so this is unchanged.
 

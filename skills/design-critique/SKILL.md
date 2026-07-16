@@ -18,7 +18,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
 ## When NOT to use
 
-- Before an interface or artifact can be rendered. Use `pm:shape`, `pm:groom`, or `pm:rfc` for pre-implementation design work.
+- Before an interface or artifact can be rendered. Use `pm:think` for uncertain design direction, `pm:groom` for product scope and interaction requirements, or `pm:rfc` for implementation architecture.
 - For functional acceptance behavior, data integrity, or workflow correctness. Keep those in Dev QA.
 - For source correctness, security, reuse, maintainability, or runtime efficiency. Use `pm:review`.
 - For backend-only, docs-only, generated-only, lockfile-only, or non-UI configuration changes with proven no visual impact. Record the routed Dev skip instead.

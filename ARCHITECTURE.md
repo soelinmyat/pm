@@ -68,7 +68,7 @@ The step-loader (`scripts/step-loader.js`) reads `skills/{name}/steps/`, sorts b
 
 - Resolves persona references (injects persona content into agent dispatch prompts)
 - Substitutes `${CLAUDE_PLUGIN_ROOT}` with the actual plugin path
-- Supports user overrides: files in `.pm/{skill}-sessions/{session}/steps/` can replace default steps
+- Supports user overrides: same-named files in `.pm/workflows/{skill}/` can replace default steps
 
 ### State and Output Files
 
@@ -77,11 +77,11 @@ Skills persist state in `.pm/` session files. Think is different — it has no s
 | Skill | Type | Location |
 |-------|------|----------|
 | dev | canonical JSON session | `.pm/dev-sessions/{slug}/session.json` |
-| groom | session state | `.pm/groom-sessions/{slug}.md` |
+| groom | canonical JSON session | `.pm/groom-sessions/{slug}/session.json` |
 | rfc | canonical JSON session | `.pm/rfc-sessions/{slug}/session.json` |
 | think | output artifact | `{pm_dir}/thinking/{slug}.md` |
 
-Dev and RFC use strict JSON state written only by their lifecycle runners. Their phase results, transition history, evidence, recertification, runtime identity, and authority logs are the resume source of truth—not conversation history. Older Markdown sessions remain migration inputs. Legacy workflows still use YAML-in-Markdown until their migration wave. Think resumes by reopening the saved artifact and asking what changed.
+Dev, Groom, and RFC use strict JSON state written only by their lifecycle runners. Their phase results, transition history, evidence, recertification, runtime identity, and authority logs are the resume source of truth—not conversation history. Older Markdown sessions remain bounded migration inputs. Think resumes by reopening the saved artifact and asking what changed.
 
 ### Shared Runtime Primitives
 

@@ -865,7 +865,7 @@ test("status uses the current branch's configured upstream instead of origin/mai
 test("production sync Git calls do not use shell command strings", () => {
   const source = fs.readFileSync(KB_SYNC_GIT_PATH, "utf8");
   assert.doesNotMatch(source, /execSync/);
-  assert.doesNotMatch(source, /runSafe\(\s*[`\"']git\s/);
+  assert.doesNotMatch(source, /runSafe\(\s*[`"']git\s/);
 });
 
 test("status is effect-free and never refreshes remote-tracking refs", (t) => {

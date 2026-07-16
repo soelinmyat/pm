@@ -19,9 +19,9 @@ Check these signals using the resolved paths and the current user request:
 - Is the user explicitly asking to view PM?
 - Did the user pass a path argument after `/pm:start`?
 - Is there active work? All session state (groom, rfc, dev) lives source-side in `{source_dir}/.pm/`:
-  - Groom sessions: `{source_dir}/.pm/groom-sessions/*.md`
-  - RFC sessions: `{source_dir}/.pm/rfc-sessions/*.md`
-  - Dev sessions: `{source_dir}/.pm/dev-sessions/*.md`
+  - Groom sessions: `{source_dir}/.pm/groom-sessions/*/session.json`
+  - RFC sessions: `{source_dir}/.pm/rfc-sessions/*/session.json`
+  - Dev sessions: `{source_dir}/.pm/dev-sessions/*/session.json`
 
   Session files are ephemeral machine-local scratchpad state and are gitignored. In same-repo mode, `source_dir` is the project root. In separate-repo mode, `source_dir` is the source repo (where builds and branches live), not the PM repo. Active work is only detectable when `pm:start` runs from the source repo — this is an accepted limitation, since dev/rfc/groom work all happens source-side.
 
