@@ -54,6 +54,50 @@ test("resolvePmDir: no config, no worktree → returns projectDir/pm", () => {
   }
 });
 
+test("resolvePmPaths: no config permits a structured same-repo fallback", () => {
+  const project = makeTmp("pm-resolve-absent-");
+  try {
+    assert.deepEqual(resolvePmPaths(project.root, { gitCommonDir: noWorktree }), {
+      ok: true,
+      pmDir: path.join(project.root, "pm"),
+      pmStateDir: path.join(project.root, ".pm"),
+      sourceDir: project.root,
+      mode: "same-repo",
+      configPath: null,
+      warnings: [],
+    });
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("resolvePmPaths: malformed config fails closed instead of falling back", () => {
+  const project = makeTmp("pm-resolve-malformed-");
+  try {
+    project.write(".pm/config.json", "{not valid json");
+    assert.throws(
+      () => resolvePmPaths(project.root, { gitCommonDir: noWorktree }),
+      new RegExp(`Invalid JSON.*${path.basename(project.root)}.*\\.pm/config\\.json`)
+    );
+    assert.equal(fs.existsSync(path.join(project.root, "pm")), false);
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("resolvePmPaths: malformed configured pointer fails closed", () => {
+  const project = makeTmp("pm-resolve-malformed-pointer-");
+  try {
+    project.write(".pm/config.json", JSON.stringify({ config_schema: 2, pm_repo: null }));
+    assert.throws(
+      () => resolvePmPaths(project.root, { gitCommonDir: noWorktree }),
+      /Invalid pm_repo pointer/
+    );
+  } finally {
+    project.cleanup();
+  }
+});
+
 test("resolvePmDir: direct .pm/config.json with pm_repo wins", () => {
   const project = makeTmp("pm-resolve-direct-");
   const kb = makeTmp("pm-kb-direct-");
@@ -113,7 +157,7 @@ test("resolvePmDir: pm_repo type 'remote' throws", () => {
   }
 });
 
-test("resolvePmDir: pm_repo points to nonexistent dir → fallback", () => {
+test("resolvePmDir: pm_repo points to nonexistent dir → fails closed", () => {
   const project = makeTmp("pm-resolve-missing-");
   try {
     project.mkdir(".pm");
@@ -124,8 +168,11 @@ test("resolvePmDir: pm_repo points to nonexistent dir → fallback", () => {
         pm_repo: { type: "local", path: "/nonexistent/path/does/not/exist" },
       })
     );
-    const result = resolvePmDir(project.root, { gitCommonDir: noWorktree });
-    assert.equal(result, path.join(project.root, "pm"));
+    assert.throws(
+      () => resolvePmDir(project.root, { gitCommonDir: noWorktree }),
+      /Configured PM repository does not exist/
+    );
+    assert.equal(fs.existsSync(path.join(project.root, "pm")), false);
   } finally {
     project.cleanup();
   }
@@ -150,6 +197,36 @@ test("resolvePmDir: worktree with no local config, main repo has pm_repo → res
     const stub = () => path.join(mainRepo.root, ".git");
     const result = resolvePmDir(worktree.root, { gitCommonDir: stub });
     assert.equal(result, path.join(kb.root, "pm"));
+  } finally {
+    mainRepo.cleanup();
+    worktree.cleanup();
+    kb.cleanup();
+  }
+});
+
+test("resolvePmPaths: worktree main config returns all paths and worktree mode", () => {
+  const mainRepo = makeTmp("pm-resolve-main-paths-");
+  const worktree = makeTmp("pm-resolve-wt-paths-");
+  const kb = makeTmp("pm-resolve-kb-paths-");
+  try {
+    const configPath = mainRepo.write(
+      "pm.config.json",
+      JSON.stringify({ config_schema: 2, pm_repo: { type: "local", path: kb.root } })
+    );
+    kb.mkdir("pm");
+    kb.mkdir(".pm");
+    const result = resolvePmPaths(worktree.root, {
+      gitCommonDir: () => path.join(mainRepo.root, ".git"),
+    });
+    assert.deepEqual(result, {
+      ok: true,
+      pmDir: path.join(kb.root, "pm"),
+      pmStateDir: path.join(kb.root, ".pm"),
+      sourceDir: worktree.root,
+      mode: "worktree-main-config",
+      configPath,
+      warnings: [],
+    });
   } finally {
     mainRepo.cleanup();
     worktree.cleanup();
@@ -320,6 +397,10 @@ test("resolvePmPaths: nested layout returns pmStateDir at parent", () => {
     const result = resolvePmPaths(project.root, { gitCommonDir: noWorktree });
     assert.equal(result.pmDir, path.join(kb.root, "pm"));
     assert.equal(result.pmStateDir, path.join(kb.root, ".pm"));
+    assert.equal(result.sourceDir, project.root);
+    assert.equal(result.mode, "separate-nested");
+    assert.equal(result.configPath, path.join(project.root, ".pm", "config.json"));
+    assert.deepEqual(result.warnings, []);
   } finally {
     project.cleanup();
     kb.cleanup();
@@ -340,6 +421,8 @@ test("resolvePmPaths: flat layout returns pmStateDir inside pmDir", () => {
     const result = resolvePmPaths(project.root, { gitCommonDir: noWorktree });
     assert.equal(result.pmDir, kb.root);
     assert.equal(result.pmStateDir, path.join(kb.root, ".pm"));
+    assert.equal(result.sourceDir, project.root);
+    assert.equal(result.mode, "separate-flat");
   } finally {
     project.cleanup();
     kb.cleanup();
@@ -352,14 +435,64 @@ test("resolvePmPaths: same-repo mode returns {projectDir}/pm + {projectDir}/.pm"
     const result = resolvePmPaths(project.root, { gitCommonDir: noWorktree });
     assert.equal(result.pmDir, path.join(project.root, "pm"));
     assert.equal(result.pmStateDir, path.join(project.root, ".pm"));
+    assert.equal(result.sourceDir, project.root);
+    assert.equal(result.mode, "same-repo");
   } finally {
     project.cleanup();
   }
 });
 
+test("resolvePmPaths: PM-repo source pointer resolves sourceDir centrally", () => {
+  const pmRepo = makeTmp("pm-paths-source-pointer-");
+  const sourceRepo = makeTmp("pm-paths-source-target-");
+  try {
+    pmRepo.mkdir("pm");
+    pmRepo.mkdir(".pm");
+    const configPath = pmRepo.write(
+      ".pm/config.json",
+      JSON.stringify({
+        config_schema: 2,
+        source_repo: { type: "local", path: sourceRepo.root },
+      })
+    );
+    assert.deepEqual(resolvePmPaths(pmRepo.root, { gitCommonDir: noWorktree }), {
+      ok: true,
+      pmDir: path.join(pmRepo.root, "pm"),
+      pmStateDir: path.join(pmRepo.root, ".pm"),
+      sourceDir: sourceRepo.root,
+      mode: "separate-nested",
+      configPath,
+      warnings: [],
+    });
+  } finally {
+    pmRepo.cleanup();
+    sourceRepo.cleanup();
+  }
+});
+
+test("resolvePmPaths: missing configured source repo fails closed", () => {
+  const pmRepo = makeTmp("pm-paths-source-missing-");
+  try {
+    pmRepo.mkdir("pm");
+    pmRepo.write(
+      ".pm/config.json",
+      JSON.stringify({
+        config_schema: 2,
+        source_repo: { type: "local", path: "/missing/source/repository" },
+      })
+    );
+    assert.throws(
+      () => resolvePmPaths(pmRepo.root, { gitCommonDir: noWorktree }),
+      /Configured source repository does not exist/
+    );
+  } finally {
+    pmRepo.cleanup();
+  }
+});
+
 // --- CLI --json flag ---
 
-test("CLI: --json prints both pmDir and pmStateDir", () => {
+test("CLI: --json prints the complete structured path contract", () => {
   const project = makeTmp("pm-resolve-cli-json-");
   const kb = makeTmp("pm-resolve-cli-json-kb-");
   try {
@@ -376,18 +509,23 @@ test("CLI: --json prints both pmDir and pmStateDir", () => {
     const parsed = JSON.parse(out);
     assert.equal(parsed.pmDir, kb.root);
     assert.equal(parsed.pmStateDir, path.join(kb.root, ".pm"));
+    assert.equal(parsed.sourceDir, project.root);
+    assert.equal(parsed.mode, "separate-flat");
+    assert.equal(parsed.configPath, path.join(project.root, ".pm", "config.json"));
+    assert.deepEqual(parsed.warnings, []);
+    assert.equal(parsed.ok, true);
   } finally {
     project.cleanup();
     kb.cleanup();
   }
 });
 
-test("tryConfigBased: malformed JSON → null", () => {
+test("tryConfigBased: malformed JSON → throws", () => {
   const project = makeTmp("pm-resolve-bad-");
   try {
     project.mkdir(".pm");
     project.write(".pm/config.json", "{not valid json");
-    assert.equal(tryConfigBased(project.root), null);
+    assert.throws(() => tryConfigBased(project.root), /Invalid JSON/);
   } finally {
     project.cleanup();
   }
@@ -472,6 +610,25 @@ test("tryConfigBased: nested .pm/config.json wins when both present, warns once"
     project.cleanup();
     kbNested.cleanup();
     kbFlat.cleanup();
+  }
+});
+
+test("resolvePmPaths: both config forms surface the precedence warning", () => {
+  const project = makeTmp("pm-resolve-both-structured-");
+  const kb = makeTmp("pm-resolve-both-structured-kb-");
+  try {
+    project.write(
+      ".pm/config.json",
+      JSON.stringify({ config_schema: 2, pm_repo: { type: "local", path: kb.root } })
+    );
+    project.write("pm.config.json", JSON.stringify({ config_schema: 2 }));
+    const result = resolvePmPaths(project.root, { gitCommonDir: noWorktree });
+    assert.equal(result.configPath, path.join(project.root, ".pm", "config.json"));
+    assert.equal(result.warnings.length, 1);
+    assert.match(result.warnings[0], /both \.pm\/config\.json and pm\.config\.json/);
+  } finally {
+    project.cleanup();
+    kb.cleanup();
   }
 });
 

@@ -28,32 +28,32 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/evidence-system.md` before normalization;
 
 ## Setup Expectations
 
-`$pm-ingest` does **not** require full `$pm-setup`, but it does require the PM folder structure.
+`$pm-ingest` does **not** require full `$pm-setup`, but it does require a resolved, existing PM workspace.
 
-If the folders do not exist yet, bootstrap the minimum structure automatically:
+If the evidence subfolders do not exist yet under an existing `{pm_dir}`, create only the folders Ingest owns:
 
 ```bash
 mkdir -p {pm_dir}/evidence/research
 mkdir -p {pm_dir}/evidence/transcripts
 mkdir -p {pm_dir}/evidence/user-feedback
-mkdir -p .pm/imports
-mkdir -p .pm/evidence/records
-mkdir -p .pm/evidence/conflicts
-mkdir -p .pm/sessions
+mkdir -p {pm_state_dir}/imports
+mkdir -p {pm_state_dir}/evidence/records
+mkdir -p {pm_state_dir}/evidence/conflicts
+mkdir -p {pm_state_dir}/sessions
 ```
 
-Also ensure `.pm/` is present in the project root `.gitignore` without duplicating the line.
+Also ensure `.pm/` is present in `{source_dir}/.gitignore` without duplicating the line. Resolve all three paths first; if the resolver fails or `{pm_dir}` itself is absent, route to `pm:start` rather than creating a guessed PM root.
 
 Do not block on setup just because the user wants to import evidence first.
 
 ## Hard rules
 
-- Never commit raw customer evidence into `{pm_dir}` — raw imports stay in `.pm/` (gitignored). Committed artifacts must be normalized, redacted where possible, and use portable source labels, never absolute paths.
+- Never commit raw customer evidence into `{pm_dir}` — raw imports stay in `{pm_state_dir}/` (gitignored). Committed artifacts must be normalized, redacted where possible, and use portable source labels, never absolute paths.
 - Warn about PII on every import, even when the data looks clean — automatic detection is not reliable enough to skip the review warning.
 - Confirm ambiguous CSV/column mappings before creating records — mapping errors are the top cause of bad evidence and poison every downstream synthesis step.
 - The import manifest detects source-file changes; the Evidence v2 ledger makes record registration idempotent and preserves changed content as revisions. Prefer an explicit rebuild over a guessed incremental merge.
 - Don't invent structure for sparse or messy evidence, and don't overwrite external research sections in mixed topic files.
-- Private normalized records retain local paths and content under `.pm/evidence/records/`; the committed ledger carries only portable identity, hashes, privacy state, lineage, and artifact bindings.
+- Private normalized records retain local paths and content under `{pm_state_dir}/evidence/records/`; the committed ledger carries only portable identity, hashes, privacy state, lineage, and artifact bindings.
 
 ## Red Flags — Self-Check
 

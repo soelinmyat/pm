@@ -53,14 +53,18 @@ if [ -z "$PM_PLUGIN_ROOT" ]; then
   echo "Set PM_PLUGIN_ROOT to the PM plugin root." >&2
   exit 1
 fi
+PM_PATHS="$(node "$PM_PLUGIN_ROOT/scripts/resolve-pm-dir.js" --json "$PWD")" || exit 1
+PM_DIR="$(node -e 'console.log(JSON.parse(process.argv[1]).pmDir)' "$PM_PATHS")"
+SOURCE_DIR="$(node -e 'console.log(JSON.parse(process.argv[1]).sourceDir)' "$PM_PATHS")"
 node "$PM_PLUGIN_ROOT/scripts/board-server.js" \
-  --pm-dir "$(node "$PM_PLUGIN_ROOT/scripts/resolve-pm-dir.js" "$PWD")" \
+  --pm-dir "$PM_DIR" \
+  --source-dir "$SOURCE_DIR" \
   --port 4400
 ```
 
 It binds `127.0.0.1` only and prints `http://127.0.0.1:4400`. Flags:
 `--port` (default 4400), `--pm-dir` (default `./pm`), `--source-dir` (where
-`.pm/` loop state lives; defaults to the parent of `--pm-dir`). The server runs
+`.pm/` loop state lives; always pass the resolver's `sourceDir`). The server runs
 until stopped (Ctrl-C); tell the user the URL and that it refreshes itself.
 
 Graceful degradation: with no `pm/` directory the page shows setup guidance

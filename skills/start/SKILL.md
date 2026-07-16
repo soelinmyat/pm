@@ -77,9 +77,9 @@ Run the resolver and trust its output — it handles same-repo mode and separate
 
 ```bash
 node ${CLAUDE_PLUGIN_ROOT}/scripts/resolve-pm-dir.js --json
-# → {"pmDir":"...","pmStateDir":"..."}
+# → {"ok":true,"pmDir":"...","pmStateDir":"...","sourceDir":"...","mode":"...","configPath":"...","warnings":[]}
 ```
 
-`source_dir` is cwd, unless `.pm/config.json` has `source_repo.path` (running from a separate PM repo), in which case it is that resolved path. Output all three paths into the conversation in every mode.
+Use `pmDir`, `pmStateDir`, and `sourceDir` exactly as returned. Output all three paths and any warnings into the conversation in every mode. Do not inspect config files or derive one path from another after resolution.
 
-**Fallback if the resolver can't run:** if `pm/` exists at cwd, use it (same-repo mode); if not, tell the user "Run /pm:start first to configure paths" and stop. If a configured separate-repo path is missing, warn and offer `/pm:setup` — don't crash.
+If the resolver exits nonzero, surface its error, offer `/pm:setup separate-repo` to repair configured paths, and stop. Only the resolver may select same-repo fallback, and it does so only when no configuration exists.

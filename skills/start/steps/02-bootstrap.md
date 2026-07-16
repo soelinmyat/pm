@@ -29,11 +29,11 @@ mkdir -p {pm_dir}/evidence/{competitors,research,transcripts,user-feedback}
 mkdir -p {pm_dir}/backlog
 mkdir -p {pm_dir}/thinking
 mkdir -p {pm_dir}/product
-mkdir -p .pm/imports
-mkdir -p .pm/evidence
-mkdir -p .pm/sessions
-mkdir -p .pm/groom-sessions
-mkdir -p .pm/dev-sessions
+mkdir -p {pm_state_dir}/imports
+mkdir -p {pm_state_dir}/evidence
+mkdir -p {source_dir}/.pm/sessions
+mkdir -p {source_dir}/.pm/groom-sessions
+mkdir -p {source_dir}/.pm/dev-sessions
 ```
 
 Write each index and log file with a one-line heading (do not use `touch` — files should never be blank):
@@ -62,7 +62,7 @@ Default insight domains are `trends` and `business`. Competitor profiling lives 
 
 ### Step 2: Gitignore
 
-Append these entries to the project root `.gitignore` if they are not already present:
+Append these entries to `{source_dir}/.gitignore` if they are not already present:
 
 ```bash
 .pm/
@@ -71,7 +71,7 @@ pm/*.local.md
 
 ### Step 3: Write Minimal Config
 
-Write `.pm/config.json` with defaults that do not block the first workflow:
+Write `{pm_state_dir}/config.json` with defaults that do not block the first workflow:
 
 ```json
 {
@@ -129,7 +129,7 @@ Before asking the user to choose a workflow, give a brief orientation so they un
 
 > "PM is set up. Here's what was created:
 > - `{pm_dir}/` — your knowledge base (insights, evidence, backlog, thinking)
-> - `.pm/` — internal state (gitignored, you won't see this in commits)"
+> - `{pm_state_dir}/` — internal PM state (gitignored, you won't see this in commits)"
 
 Keep this brief — no more than 3 lines. The goal is orientation, not a tutorial.
 

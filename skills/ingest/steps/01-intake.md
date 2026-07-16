@@ -43,16 +43,16 @@ Validate the import target, understand what kind of evidence it contains, and de
      > "Skipping N audio file(s) — transcription deps not installed. Run: pip install -r ${CLAUDE_PLUGIN_ROOT}/scripts/requirements.txt"
    - **Base + diarization present** (`BASE_OK` and `DIARIZE_OK`): transcribe with speaker diarization (default):
      ```bash
-     python3 ${CLAUDE_PLUGIN_ROOT}/scripts/transcribe.py "<audio_file>" --output ".pm/evidence/transcripts/<slug>.txt"
+     python3 ${CLAUDE_PLUGIN_ROOT}/scripts/transcribe.py "<audio_file>" --output "{pm_state_dir}/evidence/transcripts/<slug>.txt"
      ```
    - **Base present, diarization missing** (`BASE_OK` but no `DIARIZE_OK`): transcribe **without** speaker separation rather than skip — you still get the transcript, just no per-speaker labels. Warn once, then pass `--no-diarize`:
      > "Transcribing N audio file(s) without speaker diarization — pyannote.audio or HF_TOKEN missing. Speaker roles will be unavailable. To enable: pip install pyannote.audio and set HF_TOKEN (see scripts/requirements.txt)."
      ```bash
-     python3 ${CLAUDE_PLUGIN_ROOT}/scripts/transcribe.py "<audio_file>" --no-diarize --output ".pm/evidence/transcripts/<slug>.txt"
+     python3 ${CLAUDE_PLUGIN_ROOT}/scripts/transcribe.py "<audio_file>" --no-diarize --output "{pm_state_dir}/evidence/transcripts/<slug>.txt"
      ```
    - If transcription fails for a single file (corrupt, too long, OOM), warn and skip that file — continue with the rest.
    - Default `source_type` for audio: `interview` (override if filename suggests otherwise, e.g., `sales-call-*` → `sales`).
-8. Before importing, check `.pm/imports/manifest.json`:
+8. Before importing, check `{pm_state_dir}/imports/manifest.json`:
    - unchanged file: skip by default and tell the user it was already imported
    - same path, different hash: ask whether to re-import and replace prior records for that file
    - missing prior source file on refresh: report it and offer to remove orphaned records

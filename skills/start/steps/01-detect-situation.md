@@ -15,7 +15,7 @@ Choose the correct start path for this repo: bootstrap, resume, or pulse.
 Check these signals using the resolved paths and the current user request:
 
 - Does `pm_dir` exist? (i.e., was `pm_dir` resolved above, and does the directory exist on disk?)
-- Does `.pm/config.json` exist at cwd?
+- Did the resolver return a non-null `configPath`?
 - Is the user explicitly asking to view PM?
 - Did the user pass a path argument after `/pm:start`?
 - Is there active work? All session state (groom, rfc, dev) lives source-side in `{source_dir}/.pm/`:
@@ -27,7 +27,7 @@ Check these signals using the resolved paths and the current user request:
 
 Routing:
 
-- If `pm_dir` does not exist or `.pm/config.json` is missing, use **Bootstrap Mode**
+- If `pm_dir` does not exist or `configPath` is null, use **Bootstrap Mode**
 - If the project is initialized and active work exists, use **Resume Mode**
 - Otherwise use **Pulse Mode**
 

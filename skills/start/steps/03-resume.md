@@ -18,7 +18,7 @@ Give the user a fast session kickoff with update status, active-work detection, 
 bash ${CLAUDE_PLUGIN_ROOT}/hooks/check-start.sh
 ```
 
-This refreshes `.pm/.update_status` and may print a one-line update notice at session start.
+This refreshes the resolved private update status and may print a one-line update notice at session start.
 
 2. Sync (handled automatically by the session hooks — no action in this step):
 
@@ -85,7 +85,7 @@ After ingestion or skip, continue to step 4 (session brief).
 4. Generate the canonical session brief:
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/start-status.js --project-dir "$PWD" --format json --include-update
+node ${CLAUDE_PLUGIN_ROOT}/scripts/start-status.js --project-dir "{source_dir}" --format json --include-update
 ```
 
 This script is the shared source of truth used by the runtime hook and should determine:

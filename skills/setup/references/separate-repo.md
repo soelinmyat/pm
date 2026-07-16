@@ -15,7 +15,7 @@ If the path argument is omitted, ask the user for the path to the other repo.
 
 ### 1. Detect Which Repo You Are In
 
-Check whether the current working directory is a **source repo** or a **PM repo**:
+Run the structured resolver first. If it succeeds with configured paths, use its `pmDir`, `sourceDir`, `mode`, and `configPath` to identify the current repo. If it returns `same-repo` with `configPath: null`, inspect only the current repository's PM content to decide which side is being linked:
 
 - If `pm/` exists at cwd and contains markdown files (e.g., `pm/backlog/`, `pm/evidence/`), this is a **PM repo**. The user needs to provide the path to the **source repo**.
 - Otherwise, this is a **source repo**. The user needs to provide the path to the **PM repo**.
@@ -45,7 +45,7 @@ Before writing any config:
 
 ### 4. Compute Relative Paths
 
-Compute relative paths from each config file's parent directory (`.pm/`), since `resolvePmDir()` in start-status.js resolves paths relative to the `.pm/` directory:
+Compute relative paths from each config file's parent directory (`.pm/`), matching the shared resolver's config-relative pointer contract:
 
 - **Source repo config** needs `pm_repo.path`: the relative path from the source repo's `.pm/` directory to the PM repo root.
 - **PM repo config** needs `source_repo.path`: the relative path from the PM repo's `.pm/` directory to the source repo root.
