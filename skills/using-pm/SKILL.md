@@ -9,7 +9,7 @@ If you were dispatched as a subagent to execute a specific task, skip this skill
 
 ## Purpose
 
-Route session-start behavior and teach the runtime how to use PM skills. **Never force a PM workflow on a direct user request** — `using-pm` routes and orients, it does not hijack straightforward tasks into ceremony.
+Route session-start behavior and teach the runtime how to use PM skills. `using-pm` selects a lane; it does not perform that lane’s work or grant its external effects.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and runtime conventions.
 Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
@@ -23,103 +23,99 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 ## When NOT to use
 
 - When dispatched as a subagent, obey `<SUBAGENT-STOP>` and execute the assigned lane.
-- When a concrete PM skill is already active, stay in that skill instead of routing again.
+- When a concrete PM skill is already active, stay in that skill unless its escalation contract calls for a switch.
 - When the user asks a direct question that needs no PM workflow, answer it directly.
 
 ## Hard rules
 
-- **When work matches a skill in the tables below, invoke that skill — never perform its workflow inline without invoking it.** The skill invocation is the auditable unit: gates, state, and review evidence all key off it. Reviewing code without invoking `pm:review`, or critiquing UI without `pm:design-critique`, leaves no gate evidence and does not count.
-- **Never force a PM workflow onto a direct question or an explicit user instruction** — routing discipline cuts both ways.
-- Skill routing grants authority only to enter the selected workflow. It does not grant that workflow's external effects; preserve its confirmation, retry, and recovery gates.
-
-## Red Flags — Self-Check
-
-- **"PM is installed, so I should start it."** Stop and classify the user's actual first-message intent.
-- **"I know the workflow well enough to do it inline."** Use the owning skill so its gates and evidence apply.
-- **"A general request must mean pm:start."** Route only when the user is genuinely asking for orientation or a project pulse.
-- **"Switching skills will make this more thorough."** Keep the active lane unless the user or its escalation contract calls for a switch.
+- When work matches a skill below, invoke that skill so its gates and evidence apply. Do not reproduce its workflow inline.
+- Never force PM state or ceremony onto a direct question or narrowly scoped instruction.
+- Routing grants no downstream effect authority. Preserve every confirmation, retry, recovery, and external-effect gate in the selected skill.
+- A request to push one commit or branch is a direct Git request unless the user clearly asks for the complete review, PR, CI, and merge lifecycle owned by `pm:ship`.
 
 ## Session Start
 
-When this skill loads at the beginning of a new session:
+1. Classify the first message before inspecting workspace state.
+2. **If it's a direct question or a concrete task** — answer or route directly. Do not invoke `pm:start` merely because PM is installed.
+3. **If it's a general session-opening request** such as “start PM,” “open PM,” “show the project pulse,” or “what should I do next”:
+   - run `node ${CLAUDE_PLUGIN_ROOT}/scripts/resolve-pm-dir.js --json`;
+   - if resolution fails, surface the exact configuration error and perform no write;
+   - if resolution succeeds, invoke `pm:start`, which owns bootstrap, resume, and pulse detection.
+4. Once a concrete lane is active, do not route through `using-pm` again.
 
-1. Check the user's first message.
-2. **If it's a direct question or a concrete task** — answer or route directly. Do **not** invoke `pm:start` just because `.pm/config.json` exists.
-3. **If it's a session-opening request** ("start PM", "open PM", "show research", "what should I do next", or similarly general session kickoff) — check whether `.pm/config.json` exists in the project root.
-4. **If `.pm/config.json` exists** — invoke `pm:start` before responding (Resume/Pulse path).
-5. **If `.pm/config.json` does not exist** — print: "PM not initialized. Run /pm:start to set up." Do not invoke `pm:start`.
+## Public routing map
 
-Once a concrete PM workflow is already active (`pm:groom`, `pm:dev`, `pm:research`, or another explicit lane), stay in that lane — don't bounce the user back through `using-pm`.
+| User says | Skill | Boundary |
+|---|---|---|
+| “Should we add X?” / “What if we?” / “Help me decide” | `pm:think` | Uncertain product decisions and approach tradeoffs |
+| “Research X” / “What is the market size?” / “Compare competitors” | `pm:research` | Factual investigation and saved research |
+| “Write a PRD” / “Spec this idea” / “Break down the product scope” | `pm:groom` | Product discovery and an approved proposal |
+| “Generate ideas” / “What should we build next?” | `pm:ideate` | Evidence-linked opportunity generation |
+| “Define our strategy” / “Clarify ICP or positioning” | `pm:strategy` | Product strategy and explicit non-goals |
+| “Feature inventory” / “What does this product do?” | `pm:features` | Source-bound user-facing capability inventory |
+| “Capture this customer signal” / “Save this observation” | `pm:note` | One lightweight evidence record |
+| “Import feedback files” / “Ingest interviews” | `pm:ingest` | Batch or file-based evidence import |
+| “Refresh stale research” / “What is outdated?” | `pm:refresh` | Patch existing knowledge without losing content |
+| “File a task” / “Add a chore or todo” | `pm:task` | Small tracked action without Groom or RFC |
+| “File a bug” / “Track this regression” | `pm:bug` | Capture an observed defect; fixing it routes to Dev |
+| “Write an RFC” / “Create the technical design” | `pm:rfc` | Architecture and executable work units for M+ work |
+| “Build this” / “Fix this bug” / “Debug this” | `pm:dev` | Implementation from supplied task context or an approved RFC when required |
+| “Review this diff or branch” | `pm:review` | Source review across logical bug, design, edge, reuse, quality, and efficiency lenses; worker count adapts to the runtime |
+| “Review the rendered proposal HTML” / “Run visual QA” | `pm:design-critique` | Rendered UI or PM-artifact evidence, not product-content approval |
+| “Ship this reviewed branch” / “Open the PR and take it through CI” | `pm:ship` | Full delivery lifecycle with separately authorized effects |
+| “Initialize PM” / “Open PM” / “Show the project pulse” | `pm:start` | Workspace bootstrap, resume, and project pulse |
+| “Enable Linear” / “Configure integrations” / “Set up separate-repo mode” | `pm:setup` | Integration and repository configuration, not workspace bootstrap |
+| “List active PM work” / “What is in flight?” | `pm:list` | Read-only terminal projection |
+| “Open the PM board” / “Show Kanban” | `pm:board` | Observational browser board with one explicit loop control |
+| “Configure unattended workers” / “Reconcile stale loop cards” | `pm:loop` | Loop scheduling, leases, budgets, and recovery |
+| “Sync the knowledge base” / “Pull or push PM memory” | `pm:sync` | Git-backed PM knowledge synchronization |
 
-# Using Plugin Skills
+Quick factual questions stay direct instead of creating Research artifacts. A plain “push my current commit” stays a direct Git request. `pm:simplify` is a compatibility alias that redirects to `pm:review`, not a primary lane.
 
-This plugin provides structured workflows for the product engineer — from discovery and strategy through implementation and merge. **Default to invoking the relevant skill before acting** — but user instructions always take precedence.
+## Orchestrated references
 
-## Entry Points (start here)
+These are loaded by their owning lifecycle rather than routed as primary skills:
 
-These are the skills you invoke directly. Most other capabilities are built into these as phases or references.
+| Reference or skill | Owner | Purpose |
+|---|---|---|
+| `dev/references/tdd.md` | Dev | Test-first implementation discipline |
+| `dev/references/debugging.md` | Dev | Root-cause investigation after a failure |
+| `dev/references/subagent-dev.md` | Dev | Dependency- and ownership-safe work-unit dispatch |
+| `pm:review` | Dev, Ship | Required source-review gate with logical lens coverage independent of worker count |
+| `pm:design-critique` | Dev | Required rendered-evidence gate for UI-impacting changes |
+| `dev/references/qa.md` | Dev | Functional acceptance gate for UI-impacting changes |
+| `ship/references/handling-feedback.md` | Dev, Ship | Verify review feedback before changing code |
 
-| User says | Skill | What it does |
-|-----------|-------|--------------|
-| "Let's think about X" / "What if we" / "Brainstorm" / "I'm wondering" | `pm:think` | Structured product thinking — challenge assumptions, explore approaches, weigh tradeoffs. Promotes to groom when ready |
-| "Build X" / "Fix this bug" / "Debug this" / "Not working" | `pm:dev` | Implements from an approved RFC. Prompts to run /rfc first for M+ work without one. Auto-grooms ungroomed work. |
-| "I have an idea" / "Spec this" / "Write a PRD" / "Break this down" | `pm:groom` | Product discovery → proposal (PRD). 4 tiers: quick, standard, full, agent (autonomous, mature-KB-only, claude-only). No issue splitting — that's dev's job via RFC. `pm:groom ideate` for idea generation |
-| "Design this" / "Write an RFC" / "Technical plan" | `pm:rfc` | Technical design (RFC) for M+ work. Generates architecture, issue breakdown, and review. Outputs an RFC. |
-| "Research Y" / "Look into" / "Analyze market" / "Should we do X?" | `pm:research` | Landscape, competitors, or a saved topic deep dive. For quick factual questions, answer directly instead of creating research artifacts |
-| "Strategy" / "Positioning" / "ICP" / "Product direction" | `pm:strategy` | Positioning, ICP, competitive positioning, priorities |
-| "Ship it" / "Push this" / "Create PR" / "Ready for review" | `pm:ship` | Review, push, PR, CI monitor, gate polling, auto-merge |
-| "Merge this PR" / "Land this" / "Fix PR comments" / "Resolve CI" | Merge workflow | Self-healing merge loop — fix CI, resolve review comments, handle conflicts, merge |
+## Instruction contract
 
-## Sub-Skills (called by orchestrators)
+Follow the host runtime’s instruction hierarchy. Within that hierarchy, explicit user intent may select, decline, or narrow a PM workflow. Routing never grants permission to bypass platform safety, repository instructions, a skill’s hard gates, or effect-specific confirmation.
 
-Rarely invoked directly — called by `dev`, `ship`, or `groom` at the right stage.
+## Red Flags — Self-Check
 
-| Skill | Called by | Purpose |
-|-------|----------|---------|
-| `dev/references/tdd.md` | dev (all sizes) | Test-first discipline |
-| `dev/references/subagent-dev.md` | dev (all sizes) | Dispatches parallel agents for plan execution |
-| `dev/references/debugging.md` | dev (when tests fail) | Root cause investigation before any fix |
-| `pm:review` | dev (M/L/XL), ship | Multi-agent review on the branch diff — 6-lens fan-out (bugs, design, edge cases, reuse, quality, efficiency; the last three absorbed from the former pm:simplify), tiers findings by confidence, auto-fixes high-confidence bugs, and commits. |
-| `ship/references/handling-feedback.md` | dev, ship | Verify feedback before implementing suggestions |
-| `rfc/references/spec-reviewers.md` | rfc (generation step) | Specialist reviewers for raw sub-issue specs before RFC |
-| `rfc/references/cross-cutting-reviewers.md` | rfc (review step) | Cross-cutting concern reviewers (security, perf, ops) |
-| `pm:design-critique` | dev (UI changes), standalone UI review | PM-native design review with screenshots, a11y snapshots, consistency audit, and gate manifest update |
-| `dev/references/qa.md` | dev (UI changes) | QA ship gate — assertion-driven testing via Playwright MCP, health score verdict |
-
-## Utilities
-
-| User says | Skill | What it does |
-|-----------|-------|--------------|
-| "Import feedback" / "Add evidence" / "Customer data" | `pm:ingest` | Import files, transcripts, feedback into pm/ |
-| "What's outdated?" / "Update research" / "Stale data" | `pm:refresh` | Check for staleness, patch without losing content |
-| "Open pm" / "View research" / "Show knowledge base" | `pm:start` | Project pulse, onboarding |
-| First-time setup | `pm:setup` | Bootstrap knowledge base and integrations |
-
-## Instruction Priority
-
-User instructions always take precedence over plugin skills:
-
-1. **User's explicit instructions** (CLAUDE.md, AGENTS.md, direct requests) — highest priority
-2. **Plugin skills** — override defaults where they conflict
-3. **Default system prompt** — lowest priority
-
-If the user asks a direct question or wants a quick answer, give them one. Don't force a skill flow when the user doesn't want one.
+- **"PM is installed, so I should start it."** Stop and classify the actual request first.
+- **"I know the workflow well enough to do it inline."** Use the owning skill so its contract applies.
+- **"Setup can bootstrap the product workspace."** Use Start for bootstrap; Setup owns integrations and repository configuration.
+- **"Should we means Research."** Use Think for a decision; use Research for factual investigation that informs it.
+- **"Push means Ship."** Stop and require clear full-delivery intent before entering Ship.
+- **"Six lenses means six agents."** Keep logical coverage while adapting worker shape to the runtime.
 
 ## Escalation Paths
 
-- **User wants general orientation, not a specific task:** "Want to open PM with `/pm:start`, or should I route you directly to the lane that matches what you want to do?"
-- **PM is not initialized in this project:** "PM isn’t initialized here yet. Want to run `/pm:start` to set it up, or continue without PM?"
-- **A concrete PM lane is clearly a better fit:** "This looks like `{skill}` work rather than session routing. I’ll switch there directly unless you want a broader PM overview first."
+- **General orientation:** “Want to open PM with `/pm:start`, or should I route you directly to the lane matching your task?”
+- **Path configuration failure:** “PM path resolution failed: {error}. Fix the configured path with `/pm:setup separate-repo`; I will not fall back to a new local workspace.”
+- **Concrete lane is clear:** “This is `{skill}` work. I’ll switch to that lane directly.”
 
 ## Common Rationalizations
 
 | Excuse | Reality |
 |---|---|
-| "A little ceremony cannot hurt." | Unrequested workflow state distracts from direct user intent. |
-| "Mentioning a skill is equivalent to invoking it." | Gates and evidence attach to the actual skill invocation. |
+| “A little ceremony cannot hurt.” | Unrequested workflow state distracts from the user’s intent. |
+| “Mentioning a skill is equivalent to invoking it.” | Gates and evidence attach to the actual invocation. |
+| “The router can simplify downstream confirmation.” | Routing selects a contract; it cannot weaken it. |
 
 ## Before Marking Done
 
-- [ ] No routing artifact was fabricated; any invoked workflow owns and saves its required artifact.
-- [ ] Ambiguous orientation was confirmed with the user before entering a stateful lane.
-- [ ] Active-lane, user-instruction, subagent-stop, and downstream authority gates were preserved.
+- [ ] No routing artifact was fabricated; the selected workflow owns its durable output.
+- [ ] Direct questions and direct Git requests remained direct.
+- [ ] Path failures stopped without fallback writes.
+- [ ] Active-lane, subagent-stop, host-hierarchy, and downstream-authority gates were preserved.
