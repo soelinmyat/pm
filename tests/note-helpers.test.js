@@ -337,6 +337,56 @@ test("publishReviewedNote rejects conflicting duplicate Evidence-ID entries", (t
   assert.deepEqual(ledger.records[0].artifact_paths, []);
 });
 
+test("publishReviewedNote rechecks duplicate Evidence-IDs after successful publication", (t) => {
+  const { pmDir, pmStateDir, cleanup } = withTempPmDir();
+  t.after(cleanup);
+  const captured = writeNote(
+    pmDir,
+    "Customer identity is private.",
+    "customer interview",
+    "privacy",
+    {
+      pmStateDir,
+      now: "2026-07-14T08:00:00.000Z",
+      locator: "entry:test-post-publication-duplicate",
+    }
+  );
+  const options = {
+    source: "customer interview",
+    tags: "privacy",
+    now: "2026-07-14T09:00:00.000Z",
+  };
+  const published = publishReviewedNote(
+    pmDir,
+    pmStateDir,
+    captured.evidence_id,
+    "A customer reported a privacy concern.",
+    options
+  );
+  fs.appendFileSync(
+    published.filePath,
+    [
+      "",
+      "### 2026-07-14 17:00 — conflicting entry",
+      "Different reviewed content.",
+      `Evidence-ID: ${captured.evidence_id}`,
+      "",
+    ].join("\n")
+  );
+
+  assert.throws(
+    () =>
+      publishReviewedNote(
+        pmDir,
+        pmStateDir,
+        captured.evidence_id,
+        "A customer reported a privacy concern.",
+        options
+      ),
+    /duplicate evidence IDs/i
+  );
+});
+
 test("concurrent note captures do not lose entries or ledger records", async (t) => {
   const { pmDir, cleanup } = withTempPmDir();
   t.after(cleanup);

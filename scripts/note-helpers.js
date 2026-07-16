@@ -191,17 +191,6 @@ function publishReviewedNote(pmDir, pmStateDir, evidenceId, sanitizedText, optio
     if (!fs.existsSync(ledgerPath)) throw new Error("evidence ledger does not exist");
     const ledger = JSON.parse(fs.readFileSync(ledgerPath, "utf8"));
     const current = ledger.records.find((item) => item.evidence_id === evidenceId);
-    if (
-      current?.content_sha256 === reviewed.content_sha256 &&
-      current.privacy?.pii_review === "reviewed" &&
-      current.artifact_paths?.includes(artifactPath)
-    ) {
-      return { filePath, privatePath, timestamp, evidence_id: evidenceId, pending_review: false };
-    }
-    if (!current || current.content_sha256 !== pending.content_sha256) {
-      throw new Error("pending note changed after private capture; review must be repeated");
-    }
-    const registered = registerEvidence(ledger, reviewed, { now: now.toISOString() });
     const note = {
       month: monthStr,
       updated: now.toISOString().slice(0, 10),
@@ -211,6 +200,20 @@ function publishReviewedNote(pmDir, pmStateDir, evidenceId, sanitizedText, optio
       tags: options.tags,
       evidenceId,
     };
+    if (
+      current?.content_sha256 === reviewed.content_sha256 &&
+      current.privacy?.pii_review === "reviewed" &&
+      current.artifact_paths?.includes(artifactPath)
+    ) {
+      if (!hasExactPublishedNoteEntry(filePath, note)) {
+        throw new Error("reviewed note artifact is missing");
+      }
+      return { filePath, privatePath, timestamp, evidence_id: evidenceId, pending_review: false };
+    }
+    if (!current || current.content_sha256 !== pending.content_sha256) {
+      throw new Error("pending note changed after private capture; review must be repeated");
+    }
+    const registered = registerEvidence(ledger, reviewed, { now: now.toISOString() });
     if (!hasExactPublishedNoteEntry(filePath, note)) {
       const noteContent = appendNoteContent(filePath, note);
       writeTextAtomic(filePath, noteContent, { fileMode: 0o644 });
