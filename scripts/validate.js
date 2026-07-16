@@ -20,6 +20,7 @@ const {
   validateFeatureInventory,
 } = require("./lib/product-reasoning-schema.js");
 const { readProjectInput } = require("./lib/safe-project-output.js");
+const { walkMarkdownFiles } = require("./lib/markdown-files.js");
 const {
   verifyArtifactBindings,
   verifyDecisionBriefBindings,
@@ -122,26 +123,6 @@ function validateEnum(relativeFile, field, value, validValues, errors) {
 
 function toPosix(value) {
   return value.split(path.sep).join("/");
-}
-
-function walkMarkdownFiles(dirPath, files = []) {
-  if (!fs.existsSync(dirPath)) {
-    return files;
-  }
-
-  for (const entry of fs.readdirSync(dirPath, { withFileTypes: true })) {
-    if (entry.name.startsWith(".")) {
-      continue;
-    }
-    const entryPath = path.join(dirPath, entry.name);
-    if (entry.isDirectory()) {
-      walkMarkdownFiles(entryPath, files);
-    } else if (entry.isFile() && entry.name.endsWith(".md")) {
-      files.push(entryPath);
-    }
-  }
-
-  return files;
 }
 
 function pushIssue(list, file, field, msg) {

@@ -220,6 +220,60 @@ test("publishReviewedNote publishes only sanitized reviewed content and binds it
   assert.equal(parseNotesFile(published.filePath).entries.length, 1);
 });
 
+test("publishReviewedNote reconciles an artifact-only partial publication", (t) => {
+  const { pmDir, pmStateDir, cleanup } = withTempPmDir();
+  t.after(cleanup);
+  const captured = writeNote(
+    pmDir,
+    "Customer identity is private.",
+    "customer interview",
+    "privacy",
+    {
+      pmStateDir,
+      now: "2026-07-14T08:00:00.000Z",
+      locator: "entry:test-partial-publication",
+    }
+  );
+  const notePath = path.join(pmDir, "evidence", "notes", "2026-07.md");
+  fs.mkdirSync(path.dirname(notePath), { recursive: true });
+  fs.writeFileSync(
+    notePath,
+    [
+      "---",
+      "type: notes",
+      "provenance_version: 2",
+      "month: 2026-07",
+      "updated: 2026-07-14",
+      "note_count: 1",
+      "digested_through: null",
+      "---",
+      "",
+      `### ${captured.timestamp} — customer interview`,
+      "A customer reported a privacy concern.",
+      `Evidence-ID: ${captured.evidence_id}`,
+      "Tags: privacy",
+      "",
+    ].join("\n")
+  );
+
+  const published = publishReviewedNote(
+    pmDir,
+    pmStateDir,
+    captured.evidence_id,
+    "A customer reported a privacy concern.",
+    { source: "customer interview", tags: "privacy", now: "2026-07-14T09:00:00.000Z" }
+  );
+
+  assert.equal(published.filePath, notePath);
+  assert.equal(parseNotesFile(notePath).entries.length, 1);
+  assert.equal(parseNotesFile(notePath).frontmatter.note_count, "1");
+  const ledger = JSON.parse(
+    fs.readFileSync(path.join(pmDir, "evidence", "provenance.json"), "utf8")
+  );
+  assert.equal(ledger.records[0].privacy.pii_review, "reviewed");
+  assert.deepEqual(ledger.records[0].artifact_paths, ["evidence/notes/2026-07.md"]);
+});
+
 test("concurrent note captures do not lose entries or ledger records", async (t) => {
   const { pmDir, cleanup } = withTempPmDir();
   t.after(cleanup);

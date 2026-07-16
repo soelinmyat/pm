@@ -100,6 +100,21 @@ function resolveUpstream(pmDir) {
         "Configure a remote upstream with `git push --set-upstream <remote> <branch>`, then retry.",
     };
   }
+  if (remote.output.startsWith("-") || /[\0\r\n]/.test(remote.output)) {
+    return {
+      ok: false,
+      branch: current.branch,
+      error: `Configured upstream remote '${remote.output}' has an unsafe name. Run \`/pm:sync setup\` to repair it.`,
+    };
+  }
+  const checkedMergeRef = runGitSafe(["check-ref-format", merge.output], pmDir);
+  if (!checkedMergeRef.ok) {
+    return {
+      ok: false,
+      branch: current.branch,
+      error: `Configured upstream ref '${merge.output}' is invalid. Run \`/pm:sync setup\` to repair it.`,
+    };
+  }
   const remoteUrl = runGitSafe(["remote", "get-url", remote.output], pmDir);
   if (!remoteUrl.ok) {
     return {
@@ -114,6 +129,7 @@ function resolveUpstream(pmDir) {
     branch: current.branch,
     remote: remote.output,
     remoteBranch,
+    mergeRef: merge.output,
     ref: `${remote.output}/${remoteBranch}`,
     remoteUrl: remoteUrl.output,
   };
@@ -127,8 +143,7 @@ function parentRepositoryOwnership(pmDir) {
   if (parentRoot === target) return { owned: false };
   const relative = path.relative(parentRoot, target);
   if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return { owned: false };
-  const tracked = runGitSafe(["ls-files", "--", relative.split(path.sep).join("/")], parentRoot);
-  return { owned: tracked.ok && Boolean(tracked.output), parentRoot };
+  return { owned: true, parentRoot };
 }
 
 function validateRemoteUrl(remoteUrl) {
@@ -347,7 +362,7 @@ function push(pmDir) {
 function pushWithAutoRebase(pmDir) {
   const upstream = resolveUpstream(pmDir);
   if (!upstream.ok) return { ok: false, error: upstream.error };
-  const pushArgs = ["push", upstream.remote, `HEAD:refs/heads/${upstream.remoteBranch}`];
+  const pushArgs = ["push", "--", upstream.remote, `HEAD:refs/heads/${upstream.remoteBranch}`];
   const first = runGitSafe(pushArgs, pmDir);
   if (first.ok || first.error.includes("Everything up-to-date")) {
     return { ok: true };
@@ -361,7 +376,7 @@ function pushWithAutoRebase(pmDir) {
 
   // Remote has new commits — rebase our local commits on top, then retry.
   const rebase = runGitSafe(
-    ["pull", "--rebase", "--autostash", upstream.remote, upstream.remoteBranch],
+    ["pull", "--rebase", "--autostash", "--", upstream.remote, upstream.mergeRef],
     pmDir
   );
   if (!rebase.ok) {
@@ -399,7 +414,7 @@ function pull(pmDir) {
   // --autostash: git stashes uncommitted changes, rebases, then pops automatically.
   // Cleaner than manual stash/pop and handles untracked files via .gitignore.
   const pullResult = runGitSafe(
-    ["pull", "--rebase", "--autostash", upstream.remote, upstream.remoteBranch],
+    ["pull", "--rebase", "--autostash", "--", upstream.remote, upstream.mergeRef],
     pmDir
   );
   if (!pullResult.ok) {
@@ -623,7 +638,7 @@ function refreshRemoteForRecovery(pmDir) {
   if (!hasRemote(pmDir)) return { ok: false, error: "knowledge base remote is absent" };
   const upstream = resolveUpstream(pmDir);
   if (!upstream.ok) return { ok: false, error: upstream.error };
-  const result = runGitSafe(["fetch", upstream.remote, upstream.remoteBranch], pmDir);
+  const result = runGitSafe(["fetch", "--", upstream.remote, upstream.mergeRef], pmDir);
   return result.ok ? { ok: true } : { ok: false, error: `recovery fetch failed: ${result.error}` };
 }
 

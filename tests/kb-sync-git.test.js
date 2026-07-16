@@ -363,6 +363,44 @@ test("setup refuses to turn a parent-repository-owned pm directory into a nested
   assert.equal(fs.existsSync(path.join(pmDir, ".git")), false);
 });
 
+test("setup refuses an untracked pm directory inside a parent repository", (t) => {
+  const { root, pmDir, cleanup } = withTempProject({ "pm/strategy.md": "# Strategy\n" });
+  const remote = withBareRemote();
+  t.after(() => {
+    cleanup();
+    remote.cleanup();
+  });
+  gitExec("git init -b main", { cwd: root });
+
+  const { setup } = require(KB_SYNC_GIT_PATH);
+  const result = setup(pmDir, remote.url);
+
+  assert.equal(result.ok, false);
+  assert.match(result.error, /parent Git repository/i);
+  assert.equal(fs.existsSync(path.join(pmDir, ".git")), false);
+});
+
+test("setup refuses an ignored pm directory inside a parent repository", (t) => {
+  const { root, pmDir, cleanup } = withTempProject({
+    ".gitignore": "pm/\n",
+    "pm/strategy.md": "# Strategy\n",
+  });
+  const remote = withBareRemote();
+  t.after(() => {
+    cleanup();
+    remote.cleanup();
+  });
+  gitExec("git init -b main", { cwd: root });
+  gitExec("git add .gitignore && git commit -m initial", { cwd: root });
+
+  const { setup } = require(KB_SYNC_GIT_PATH);
+  const result = setup(pmDir, remote.url);
+
+  assert.equal(result.ok, false);
+  assert.match(result.error, /parent Git repository/i);
+  assert.equal(fs.existsSync(path.join(pmDir, ".git")), false);
+});
+
 // ---------------------------------------------------------------------------
 // Test: clone
 // ---------------------------------------------------------------------------
@@ -576,6 +614,27 @@ test("push fails closed when the current branch has no upstream", (t) => {
   assert.match(result.error, /--set-upstream/);
 });
 
+test("pull treats an option-shaped upstream ref as data", (t) => {
+  const remote = withBareRemote();
+  const { root, pmDir, cleanup } = withTempProject({ "pm/strategy.md": "# Strategy\n" });
+  const helper = path.join(root, "upload-pack-helper");
+  const sentinel = path.join(root, "upload-pack-ran");
+  t.after(() => {
+    cleanup();
+    remote.cleanup();
+  });
+  fs.writeFileSync(helper, `#!/bin/sh\ntouch "${sentinel}"\nexit 1\n`, { mode: 0o755 });
+
+  const { setup, pull } = require(KB_SYNC_GIT_PATH);
+  assert.equal(setup(pmDir, remote.url).ok, true);
+  gitExec(`git config branch.main.merge refs/heads/--upload-pack=${helper}`, { cwd: pmDir });
+
+  const result = pull(pmDir);
+
+  assert.equal(result.ok, false);
+  assert.equal(fs.existsSync(sentinel), false);
+});
+
 test("push returns error when pm/ is not a git repo", (t) => {
   const { pmDir, cleanup } = withTempProject({
     "pm/strategy.md": "# Strategy\n",
@@ -762,7 +821,7 @@ test("CLI setup routes initialization through the guarded helper", (t) => {
   assert.equal(require(KB_SYNC_GIT_PATH).getRemoteUrl(pmDir), remote.url);
 });
 
-test("CLI setup never reconfigures the consumer source repository", (t) => {
+test("CLI setup refuses nested initialization without reconfiguring the consumer source repository", (t) => {
   const kbRemote = withBareRemote();
   const sourceRemote = withBareRemote();
   const { root, pmDir, cleanup } = withTempProject({ "pm/strategy.md": "# Strategy\n" });
@@ -774,16 +833,20 @@ test("CLI setup never reconfigures the consumer source repository", (t) => {
   gitExec("git init", { cwd: root });
   gitExec(`git remote add origin "${sourceRemote.url}"`, { cwd: root });
 
-  gitExec(`node "${KB_SYNC_GIT_PATH}" setup "${kbRemote.url}"`, {
-    cwd: root,
-    env: { CLAUDE_PROJECT_DIR: root },
-  });
+  assert.throws(
+    () =>
+      gitExec(`node "${KB_SYNC_GIT_PATH}" setup "${kbRemote.url}"`, {
+        cwd: root,
+        env: { CLAUDE_PROJECT_DIR: root },
+      }),
+    /parent Git repository/i
+  );
 
   assert.equal(
     gitExec("git remote get-url origin", { cwd: root, encoding: "utf8" }).trim(),
     sourceRemote.url
   );
-  assert.equal(require(KB_SYNC_GIT_PATH).getRemoteUrl(pmDir), kbRemote.url);
+  assert.equal(fs.existsSync(path.join(pmDir, ".git")), false);
 });
 
 test("CLI clone targets empty pm/ when the consumer source is a Git repository", (t) => {

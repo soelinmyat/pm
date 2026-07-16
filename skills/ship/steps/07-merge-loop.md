@@ -38,11 +38,11 @@ For a versioned transaction, immediately plan `place-main-tag` for the release t
 **Ship-specific additions** (on top of the shared merge loop):
 
 1. **Codex review gate:** If `codex_review: true` in CLAUDE.md or AGENTS.md, wait for Codex bot comment before merging. 5-minute cooldown after @codex comment. After 15 min total, ask user: proceed without or keep waiting.
-2. **State file updates:** Update `.pm/dev-sessions/{slug}.md` at every gate-check cycle with current status.
+2. **State updates:** Update canonical `.pm/dev-sessions/{slug}/session.json` and its ship sidecars at every gate-check cycle.
 
 ### State file during gate monitoring
 
-`.pm/dev-sessions/{slug}.md` must include:
+The canonical session and ship transaction must retain equivalent gate-monitoring state:
 
 ```markdown
 ## Ship

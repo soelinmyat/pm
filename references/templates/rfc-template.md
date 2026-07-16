@@ -200,6 +200,6 @@ Format: date + entry (e.g., "Apr 8 — RFC approved. All reviewers signed off.")
 - Dev writes the RFC directly as HTML to `{pm_dir}/backlog/rfcs/{slug}.html` where `{slug}` matches the proposal slug.
 - After RFC is written, dev updates the proposal's frontmatter: `rfc: rfcs/{slug}.html`.
 - RFC review (3 reviewers) happens before implementation begins.
-- During implementation, the dev state file (`.pm/dev-sessions/{slug}.md`) tracks per-issue progress. The RFC itself is not updated with status — it's the engineering plan, not a tracker.
+- During implementation, canonical dev state (`.pm/dev-sessions/{slug}/session.json`) tracks per-issue progress. The RFC itself is not updated with status — it's the engineering plan, not a tracker.
 - Issue sizes within the RFC inform the implementation approach (TDD depth, review gates) per the dev skill's size routing.
 - Developer agents read the HTML file directly during implementation — HTML sections are clearly structured with IDs and semantic markup.

@@ -31,7 +31,7 @@ If `gh auth status` fails, tell the user: "GitHub CLI is not authenticated. Run 
 
 ### Default Branch
 
-Read `{DEFAULT_BRANCH}` from `.pm/dev-sessions/{slug}.md` if available. Otherwise detect:
+Read `{DEFAULT_BRANCH}` from `.pm/dev-sessions/{slug}/session.json` if available. Otherwise detect:
 
 ```bash
 DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')

@@ -2,17 +2,10 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { walkMarkdownFiles } = require("../markdown-files.js");
 
 const SURFACE_PATHS = ["skills", "commands", "references"];
 const SURFACE_FILES = ["README.md", "ARCHITECTURE.md", ".codex/INSTALL.md"];
-const PATH_CONTRACT_FILES = new Set([
-  "ARCHITECTURE.md",
-  "references/skill-runtime.md",
-  "skills/start/SKILL.md",
-  "skills/start/steps/01-detect-situation.md",
-  "skills/start/steps/03-resume.md",
-  "skills/using-pm/SKILL.md",
-]);
 const INTERNAL_PM_LANES = new Set(["qa"]);
 const SEMANTIC_RULE_IDS = Object.freeze([
   "D3-AUTH-001",
@@ -36,6 +29,8 @@ const OBSOLETE_PATHS = [
     replacement: ".pm/workflows/{skill}/",
   },
 ];
+const LEGACY_MIGRATION_LINE =
+  /(?:compatibility-only|only legacy|legacy (?:path|state|session|migration|example)|migrate --legacy)/i;
 const ROUTING_SENTINELS = [
   { phrase: "Should we", expected: "pm:think" },
   { phrase: "Enable Linear", expected: "pm:setup" },
@@ -51,7 +46,7 @@ function validateSemanticContracts(rootDir) {
     const relative = toPosix(path.relative(rootDir, file));
     const body = fs.readFileSync(file, "utf8");
     validatePmReferences(relative, body, knownLanes, issues);
-    if (PATH_CONTRACT_FILES.has(relative)) validateCanonicalPaths(relative, body, issues);
+    validateCanonicalPaths(relative, body, issues);
   }
 
   const usingPm = readOptional(rootDir, "skills/using-pm/SKILL.md");
@@ -72,21 +67,12 @@ function validateSemanticContracts(rootDir) {
 
 function collectSurfaceFiles(rootDir) {
   const files = [];
-  for (const relative of SURFACE_PATHS) walkMarkdown(path.join(rootDir, relative), files);
+  for (const relative of SURFACE_PATHS) walkMarkdownFiles(path.join(rootDir, relative), files);
   for (const relative of SURFACE_FILES) {
     const target = path.join(rootDir, relative);
     if (isRegularFile(target)) files.push(target);
   }
   return files.sort();
-}
-
-function walkMarkdown(directory, files) {
-  if (!isDirectory(directory)) return;
-  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-    const target = path.join(directory, entry.name);
-    if (entry.isDirectory()) walkMarkdown(target, files);
-    else if (entry.isFile() && entry.name.endsWith(".md")) files.push(target);
-  }
 }
 
 function collectPmLanes(rootDir) {
@@ -122,6 +108,10 @@ function validateCanonicalPaths(file, body, issues) {
     for (const match of body.matchAll(
       new RegExp(contract.pattern.source, contract.pattern.flags)
     )) {
+      const lineStart = body.lastIndexOf("\n", match.index) + 1;
+      const lineEnd = body.indexOf("\n", match.index);
+      const line = body.slice(lineStart, lineEnd === -1 ? body.length : lineEnd);
+      if (LEGACY_MIGRATION_LINE.test(line)) continue;
       issues.push(
         issue("D3-PATH-001", file, `obsolete path ${match[0]}; use ${contract.replacement}`)
       );

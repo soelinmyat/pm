@@ -98,7 +98,7 @@ Fields marked "Not documented" are intentionally kept — review agents will fla
 
 ## State File Storage
 
-Store the full context block in the session state file (`.pm/dev-sessions/{slug}.md`) under `## Project Context`:
+Store the structured context in the canonical session state (`.pm/dev-sessions/{slug}/session.json`) under `context`:
 
 ```markdown
 ## Project Context

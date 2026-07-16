@@ -260,7 +260,7 @@ gh_retry gh pr checks "$PR_NUMBER" --repo "$GH_REPO" --json name,state,conclusio
 
 If any check failed:
 
-*Flake guard (first failure only):* Before investigating, check the retry table in `.pm/dev-sessions/{slug}.md` for this signature. If Attempts == 0 (brand new failure), run one automatic rerun of the failed jobs and wait for the result before treating the failure as real:
+*Flake guard (first failure only):* Before investigating, check retry state in `.pm/dev-sessions/{slug}/session.json` for this signature. If Attempts == 0 (brand new failure), run one automatic rerun of the failed jobs and wait for the result before treating the failure as real:
 
 ```bash
 gh_retry gh run rerun "$RUN_ID" --repo "$GH_REPO" --failed
@@ -314,7 +314,7 @@ The agent does NOT stop after an arbitrary number of attempts. It keeps going as
 
 #### Checkpointed retry budget
 
-Attempt counts are persisted to `.pm/dev-sessions/{slug}.md` under the **Merge Loop Retries** section (schema: `skills/dev/references/state-schema.md`). Each entry is keyed by `{gate}:{signature}` where signature is stable across iterations (e.g. failing test name, thread id, conflicted file path).
+Attempt counts are persisted to `.pm/dev-sessions/{slug}/session.json` under the merge-loop retry state (schema: `skills/dev/references/state-schema.md`). Each entry is keyed by `{gate}:{signature}` where signature is stable across iterations (e.g. failing test name, thread id, conflicted file path).
 
 Before each fix attempt:
 
@@ -440,7 +440,7 @@ If a backlog file exists in `{pm_dir}/backlog/` matching the issue slug:
 
 **5c. Dev session file**
 
-Delete or archive the `.pm/dev-sessions/{slug}.md` file. The session is complete.
+Mark `.pm/dev-sessions/{slug}/session.json` complete and retain its delivery receipt. The session is complete.
 
 ---
 

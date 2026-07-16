@@ -14,7 +14,7 @@ You are not here to approve. You are here to find problems.
 
 **Read before reviewing:**
 - {pm_dir}/backlog/{topic-slug}.md — the draft proposal (written in Step 7)
-- {source_dir}/.pm/groom-sessions/{topic-slug}.md — current state, scope definition, Step 5 findings, `strategy_check.context` for ICP/priorities/non-goals. Do NOT re-read `strategy.md`.
+- {source_dir}/.pm/groom-sessions/{topic-slug}/session.json — current state, scope definition, Step 5 findings, `strategy_check.context` for ICP/priorities/non-goals. Do NOT re-read `strategy.md`.
 - {pm_dir}/evidence/research/{topic-slug}.md — the research that should be reflected in the proposal
 - {pm_dir}/backlog/wireframes/{slug}.html — wireframes (if they exist)
 
@@ -51,7 +51,7 @@ You are not here to approve. You are here to find problems.
 You are a competitive strategist reviewing a product proposal. Your job is to ensure competitive intelligence gathered during research actually shapes the proposal — not as decoration, but as substance.
 
 **Read before reviewing:**
-- {source_dir}/.pm/groom-sessions/{topic-slug}.md — scope, 10x filter result, research location
+- {source_dir}/.pm/groom-sessions/{topic-slug}/session.json — scope, 10x filter result, research location
 - {pm_dir}/evidence/research/{topic-slug}.md — competitive findings
 - {pm_dir}/evidence/competitors/ — competitor profiles and feature analyses
 - {pm_dir}/insights/business/landscape.md — market positioning context
@@ -87,7 +87,7 @@ You are a competitive strategist reviewing a product proposal. Your job is to en
 You are an engineering manager reviewing a product proposal for technical feasibility. Your job is to ensure an engineering team could take this proposal and produce a solid RFC from it.
 
 **Read before reviewing:**
-- {source_dir}/.pm/groom-sessions/{topic-slug}.md — scope, EM findings from Step 5
+- {source_dir}/.pm/groom-sessions/{topic-slug}/session.json — scope, EM findings from Step 5
 - The project source code — explore the codebase structure relevant to this feature
 
 **Review from these angles:**
@@ -120,7 +120,7 @@ Only dispatch this agent if visual artifacts exist (UI or workflow feature type)
 You are a UX designer reviewing the visual artifacts — user flow diagrams and prototype — for a product proposal.
 
 **Read before reviewing:**
-- {source_dir}/.pm/groom-sessions/{topic-slug}.md — scope, feature type, codebase_available flag
+- {source_dir}/.pm/groom-sessions/{topic-slug}/session.json — scope, feature type, codebase_available flag
 - {pm_dir}/backlog/wireframes/{slug}.html (or {slug}/index.html + meta.json) — the prototype
 - ${CLAUDE_PLUGIN_ROOT}/skills/groom/references/prototype-format.md — the prototype spec
 - {pm_dir}/evidence/research/{topic-slug}.md — for UX-relevant findings
@@ -176,7 +176,7 @@ Three parallel reviewers challenge the scoped initiative before drafting: the pr
 You are a product manager reviewing a scoped feature initiative.
 
 **Read before reviewing:**
-- Groom session state `{source_dir}/.pm/groom-sessions/{topic-slug}.md` — read `strategy_check.context` for ICP, priorities, non-goals, positioning. Read scope, strategy check result, research location. Do NOT re-read `strategy.md`.
+- Groom session state `{source_dir}/.pm/groom-sessions/{topic-slug}/session.json` — read `strategy_check.context` for ICP, priorities, non-goals, positioning. Read scope, strategy check result, research location. Do NOT re-read `strategy.md`.
 - {pm_dir}/insights/business/landscape.md — market context
 - {pm_dir}/evidence/competitors/index.md — competitive landscape
 - Research files at the research location from groom state
@@ -206,7 +206,7 @@ Review from these angles:
 You are a competitive strategist reviewing a scoped feature initiative.
 
 **Read before reviewing:**
-- Groom session state `{source_dir}/.pm/groom-sessions/{topic-slug}.md` — read `strategy_check.context` for positioning, non-goals. Read scope, 10x filter result, research location. Do NOT re-read `strategy.md`.
+- Groom session state `{source_dir}/.pm/groom-sessions/{topic-slug}/session.json` — read `strategy_check.context` for positioning, non-goals. Read scope, 10x filter result, research location. Do NOT re-read `strategy.md`.
 - {pm_dir}/insights/business/landscape.md — market context and positioning map
 - {pm_dir}/evidence/competitors/ (all profile.md and features.md files) — competitor capabilities and weaknesses
 - Research files at the research location from groom state
@@ -233,7 +233,7 @@ Review from these angles:
 You are an engineering manager reviewing a scoped feature initiative by scanning the actual codebase for technical feasibility.
 
 **Read before reviewing:**
-- Groom session state `{source_dir}/.pm/groom-sessions/{topic-slug}.md` — read `strategy_check.context.non_goals` for boundaries, scope, codebase_context, research location.
+- Groom session state `{source_dir}/.pm/groom-sessions/{topic-slug}/session.json` — read `strategy_check.context.non_goals` for boundaries, scope, codebase_context, research location.
 - **Feature inventory:** If `product_features_available` is true in groom state, read `{pm_dir}/product/features.md`. Flag overlap between proposed feature and existing capabilities.
 - **Codebase:** Explore the project's source code structure for implementation relevant to the scoped feature. Start from `codebase_context` in state (captured in intake), then read specific files as needed.
 
@@ -284,7 +284,7 @@ CRITICAL: Do NOT read team review findings or groom state review sections. Form 
 - {pm_dir}/backlog/{topic-slug}.md — the draft proposal (written in Step 7)
 - {pm_dir}/strategy.md — product identity, ICP, positioning, priorities, non-goals. This is your evaluation framework.
 - {pm_dir}/insights/business/landscape.md — market context
-- {source_dir}/.pm/groom-sessions/{topic-slug}.md — read ONLY: topic, scope (in_scope, out_of_scope, filter_result), research_location, codebase_available. Do NOT read review sections.
+- {source_dir}/.pm/groom-sessions/{topic-slug}/session.json — read ONLY: topic, scope (in_scope, out_of_scope, filter_result), research_location, codebase_available. Do NOT read review sections.
 - {pm_dir}/backlog/wireframes/{slug}.html — visual artifacts (if they exist)
 - {pm_dir}/evidence/research/{topic-slug}.md — the underlying research
 - {pm_dir}/backlog/*.md — existing backlog items (for overlap check)
