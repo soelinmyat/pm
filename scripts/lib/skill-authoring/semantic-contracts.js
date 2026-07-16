@@ -29,8 +29,6 @@ const OBSOLETE_PATHS = [
     replacement: ".pm/workflows/{skill}/",
   },
 ];
-const LEGACY_MIGRATION_LINE =
-  /(?:compatibility-only|only legacy|legacy (?:path|state|session|migration|example)|migrate --legacy)/i;
 const ROUTING_SENTINELS = [
   { phrase: "Should we", expected: "pm:think" },
   { phrase: "Enable Linear", expected: "pm:setup" },
@@ -111,12 +109,23 @@ function validateCanonicalPaths(file, body, issues) {
       const lineStart = body.lastIndexOf("\n", match.index) + 1;
       const lineEnd = body.indexOf("\n", match.index);
       const line = body.slice(lineStart, lineEnd === -1 ? body.length : lineEnd);
-      if (LEGACY_MIGRATION_LINE.test(line)) continue;
+      if (isLegacyMigrationExample(line, match[0])) continue;
       issues.push(
         issue("D3-PATH-001", file, `obsolete path ${match[0]}; use ${contract.replacement}`)
       );
     }
   }
+}
+
+function isLegacyMigrationExample(line, obsoletePath) {
+  const plain = line.replace(/`/g, "");
+  const escapedPath = obsoletePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return (
+    new RegExp(`\\bmigrate\\s+--legacy\\s+${escapedPath}(?:\\s|$)`, "i").test(plain) ||
+    new RegExp(`\\bif\\s+only\\s+legacy\\s+${escapedPath}\\s+exists,?\\s+migrate\\b`, "i").test(
+      plain
+    )
+  );
 }
 
 function validateAuthorityClaims(file, body, issues) {

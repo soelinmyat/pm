@@ -202,27 +202,17 @@ function publishReviewedNote(pmDir, pmStateDir, evidenceId, sanitizedText, optio
       throw new Error("pending note changed after private capture; review must be repeated");
     }
     const registered = registerEvidence(ledger, reviewed, { now: now.toISOString() });
-    const existing = findPublishedNoteEntry(filePath, evidenceId);
-    if (existing) {
-      const expectedTags = options.tags?.trim() || "";
-      if (
-        existing.timestamp !== timestamp ||
-        existing.source !== sourceType ||
-        existing.body !== sanitizedText.trim() ||
-        existing.tags !== expectedTags
-      ) {
-        throw new Error("published note artifact does not match reviewed content");
-      }
-    } else {
-      const noteContent = appendNoteContent(filePath, {
-        month: monthStr,
-        updated: now.toISOString().slice(0, 10),
-        timestamp,
-        source: sourceType,
-        text: sanitizedText,
-        tags: options.tags,
-        evidenceId,
-      });
+    const note = {
+      month: monthStr,
+      updated: now.toISOString().slice(0, 10),
+      timestamp,
+      source: sourceType,
+      text: sanitizedText,
+      tags: options.tags,
+      evidenceId,
+    };
+    if (!hasExactPublishedNoteEntry(filePath, note)) {
+      const noteContent = appendNoteContent(filePath, note);
       writeTextAtomic(filePath, noteContent, { fileMode: 0o644 });
     }
     writeJsonAtomic(ledgerPath, registered.ledger, { fileMode: 0o644 });
@@ -232,20 +222,21 @@ function publishReviewedNote(pmDir, pmStateDir, evidenceId, sanitizedText, optio
   return { filePath, privatePath, timestamp, evidence_id: evidenceId, pending_review: false };
 }
 
-function findPublishedNoteEntry(filePath, evidenceId) {
-  if (!fs.existsSync(filePath)) return null;
-  const matches = parseNotesFile(filePath).entries.filter(
-    (entry) => entry.evidence_id === evidenceId
-  );
-  if (matches.length > 1)
-    throw new Error("published note artifact contains duplicate evidence IDs");
-  return matches[0] || null;
+function hasExactPublishedNoteEntry(filePath, note) {
+  if (!fs.existsSync(filePath)) return false;
+  const raw = fs.readFileSync(filePath, "utf8");
+  const expected = renderNoteEntry(note);
+  const exactCount = raw.split(expected).length - 1;
+  if (exactCount > 1) throw new Error("published note artifact contains duplicate evidence IDs");
+  if (exactCount === 1) return true;
+  if (raw.includes(`\nEvidence-ID: ${note.evidenceId}\n`)) {
+    throw new Error("published note artifact does not match reviewed content");
+  }
+  return false;
 }
 
 function appendNoteContent(filePath, note) {
-  const tagsLine = note.tags && note.tags.trim() ? `Tags: ${note.tags.trim()}` : "";
-  let entry = `\n### ${note.timestamp} — ${note.source}\n${note.text}\nEvidence-ID: ${note.evidenceId}\n`;
-  if (tagsLine) entry += `${tagsLine}\n`;
+  const entry = renderNoteEntry(note);
   if (!fs.existsSync(filePath)) {
     return buildFrontmatter(note.month, note.updated, 1, "null") + entry;
   }
@@ -257,6 +248,11 @@ function appendNoteContent(filePath, note) {
     (parsed.body || "") +
     entry
   );
+}
+
+function renderNoteEntry(note) {
+  const tagsLine = note.tags && note.tags.trim() ? `Tags: ${note.tags.trim()}\n` : "";
+  return `\n### ${note.timestamp} — ${note.source}\n${note.text}\nEvidence-ID: ${note.evidenceId}\n${tagsLine}`;
 }
 
 function privateNotePath(pmStateDir, evidenceId) {

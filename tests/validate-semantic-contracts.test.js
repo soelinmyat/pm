@@ -56,14 +56,19 @@ test("semantic contracts reject obsolete canonical session and override paths", 
 test("semantic contracts scan every runtime Markdown file and exempt explicit legacy migration examples", (t) => {
   const project = fixture({
     "skills/list/steps/01-discover.md": ".pm/dev-sessions/*.md\n",
-    "skills/dev/SKILL.md":
-      "If only legacy .pm/dev-sessions/{slug}.md exists, migrate it to session.json.\n",
+    "skills/dev/SKILL.md": [
+      "If only legacy .pm/dev-sessions/{slug}.md exists, migrate it to session.json.",
+      "Read the legacy path .pm/groom-sessions/{slug}.md before continuing.",
+    ].join("\n"),
   });
   t.after(project.cleanup);
 
   const issues = validateSemanticContracts(project.root);
-  assert.equal(issues.filter((issue) => issue.ruleId === "D3-PATH-001").length, 1);
-  assert.equal(issues[0].file, "skills/list/steps/01-discover.md");
+  assert.equal(issues.filter((issue) => issue.ruleId === "D3-PATH-001").length, 2);
+  assert.deepEqual(
+    issues.map((issue) => issue.file),
+    ["skills/dev/SKILL.md", "skills/list/steps/01-discover.md"]
+  );
 });
 
 test("semantic contracts reject host-precedence claims and mutation hidden behind read-only wording", (t) => {

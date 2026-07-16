@@ -236,6 +236,13 @@ test("publishReviewedNote reconciles an artifact-only partial publication", (t) 
   );
   const notePath = path.join(pmDir, "evidence", "notes", "2026-07.md");
   fs.mkdirSync(path.dirname(notePath), { recursive: true });
+  const sanitized = [
+    "A customer reported a privacy concern.",
+    "Tags: this line is reviewed content",
+    "### Embedded heading",
+    "Evidence-ID: this is also reviewed content",
+    "- **Not enrichment metadata**",
+  ].join("\n");
   fs.writeFileSync(
     notePath,
     [
@@ -249,23 +256,21 @@ test("publishReviewedNote reconciles an artifact-only partial publication", (t) 
       "---",
       "",
       `### ${captured.timestamp} — customer interview`,
-      "A customer reported a privacy concern.",
+      sanitized,
       `Evidence-ID: ${captured.evidence_id}`,
       "Tags: privacy",
       "",
     ].join("\n")
   );
 
-  const published = publishReviewedNote(
-    pmDir,
-    pmStateDir,
-    captured.evidence_id,
-    "A customer reported a privacy concern.",
-    { source: "customer interview", tags: "privacy", now: "2026-07-14T09:00:00.000Z" }
-  );
+  const published = publishReviewedNote(pmDir, pmStateDir, captured.evidence_id, sanitized, {
+    source: "customer interview",
+    tags: "privacy",
+    now: "2026-07-14T09:00:00.000Z",
+  });
 
   assert.equal(published.filePath, notePath);
-  assert.equal(parseNotesFile(notePath).entries.length, 1);
+  assert.equal((fs.readFileSync(notePath, "utf8").match(/^Evidence-ID: ev_/gm) || []).length, 1);
   assert.equal(parseNotesFile(notePath).frontmatter.note_count, "1");
   const ledger = JSON.parse(
     fs.readFileSync(path.join(pmDir, "evidence", "provenance.json"), "utf8")
