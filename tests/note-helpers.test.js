@@ -7,7 +7,12 @@ const path = require("path");
 const os = require("os");
 const { spawn } = require("node:child_process");
 
-const { writeNote, parseNotesFile, promoteNoteToIdea } = require("../scripts/note-helpers.js");
+const {
+  writeNote,
+  publishReviewedNote,
+  parseNotesFile,
+  promoteNoteToIdea,
+} = require("../scripts/note-helpers.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -16,8 +21,10 @@ const { writeNote, parseNotesFile, promoteNoteToIdea } = require("../scripts/not
 function withTempPmDir() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "note-test-"));
   const pmDir = path.join(root, "pm");
+  const pmStateDir = path.join(root, ".pm");
   return {
     pmDir,
+    pmStateDir,
     cleanup: () => fs.rmSync(root, { recursive: true, force: true }),
   };
 }
@@ -33,7 +40,7 @@ test("writeNote creates directory and file when notes/ does not exist", (t) => {
   const result = writeNote(
     pmDir,
     "Lost deal to CompetitorX",
-    "sales call",
+    "market observation",
     "competitor, integration"
   );
 
@@ -50,7 +57,7 @@ test("writeNote creates directory and file when notes/ does not exist", (t) => {
   assert.ok(content.includes("note_count: 1"), "note_count must be 1");
   assert.ok(content.includes("digested_through: null"), "digested_through must be null");
   assert.ok(content.includes("Lost deal to CompetitorX"), "must contain note text");
-  assert.ok(content.includes("sales call"), "heading must contain source type");
+  assert.ok(content.includes("market observation"), "heading must contain source type");
   assert.ok(content.includes("Tags: competitor, integration"), "must contain tags");
 
   // Result must include the file path
@@ -58,12 +65,12 @@ test("writeNote creates directory and file when notes/ does not exist", (t) => {
   assert.ok(result.timestamp, "must return timestamp");
 });
 
-test("writeNote appends second note to same month, increments note_count", (t) => {
+test("writeNote appends second ordinary note to same month, increments note_count", (t) => {
   const { pmDir, cleanup } = withTempPmDir();
   t.after(cleanup);
 
   writeNote(pmDir, "First note", "observation", "");
-  writeNote(pmDir, "Second note", "support thread", "performance");
+  writeNote(pmDir, "Second note", "product observation", "performance");
 
   const notesDir = path.join(pmDir, "evidence", "notes");
   const files = fs.readdirSync(notesDir).filter((f) => f.endsWith(".md"));
@@ -125,40 +132,92 @@ Tags: test
   assert.ok(content.includes("Old note here"), "old note must be preserved");
 });
 
-test("writeNote source type appears in heading", (t) => {
+test("writeNote source type appears in heading for an ordinary note", (t) => {
   const { pmDir, cleanup } = withTempPmDir();
   t.after(cleanup);
 
-  writeNote(pmDir, "Customer feedback", "user interview", "");
+  writeNote(pmDir, "Product feedback", "field observation", "");
 
   const notesDir = path.join(pmDir, "evidence", "notes");
   const files = fs.readdirSync(notesDir).filter((f) => f.endsWith(".md"));
   const content = fs.readFileSync(path.join(notesDir, files[0]), "utf8");
-  // The heading should be like ### 2026-04-09 14:32 — user interview
+  // The heading should be like ### 2026-04-09 14:32 — field observation
   assert.ok(
-    /###\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s+—\s+user interview/.test(content),
-    "heading must contain source type 'user interview'"
+    /###\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s+—\s+field observation/.test(content),
+    "heading must contain source type 'field observation'"
   );
 });
 
-test("writeNote binds the entry to the shared evidence ledger", (t) => {
-  const { pmDir, cleanup } = withTempPmDir();
+test("writeNote stores pending customer-sensitive text privately without an artifact binding", (t) => {
+  const { pmDir, pmStateDir, cleanup } = withTempPmDir();
   t.after(cleanup);
 
-  const result = writeNote(pmDir, "Customer needs bulk editing", "support thread", "editing");
+  const sensitiveText = "Customer alice@example.com needs bulk editing";
+  const result = writeNote(pmDir, sensitiveText, "support thread", "editing", {
+    pmStateDir,
+    now: "2026-07-14T08:00:00.000Z",
+    locator: "entry:test-sensitive",
+  });
   assert.match(result.evidence_id, /^ev_[a-f0-9]{24}$/);
-  const note = fs.readFileSync(result.filePath, "utf8");
-  assert.match(note, /provenance_version: 2/);
-  assert.match(note, new RegExp(`Evidence-ID: ${result.evidence_id}`));
+  assert.equal(result.filePath, null);
+  assert.equal(result.pending_review, true);
+  assert.equal(fs.existsSync(path.join(pmDir, "evidence", "notes")), false);
 
   const ledger = JSON.parse(
     fs.readFileSync(path.join(pmDir, "evidence", "provenance.json"), "utf8")
   );
   assert.equal(ledger.records.length, 1);
   assert.equal(ledger.records[0].evidence_id, result.evidence_id);
-  assert.deepEqual(ledger.records[0].artifact_paths, [path.relative(pmDir, result.filePath)]);
+  assert.deepEqual(ledger.records[0].artifact_paths, []);
   assert.equal(ledger.records[0].privacy.classification, "customer-sensitive");
   assert.equal(ledger.records[0].privacy.pii_review, "pending");
+  assert.doesNotMatch(JSON.stringify(ledger), /alice@example\.com/);
+
+  assert.ok(result.privatePath);
+  assert.equal(fs.statSync(result.privatePath).mode & 0o777, 0o600);
+  assert.match(fs.readFileSync(result.privatePath, "utf8"), /alice@example\.com/);
+});
+
+test("publishReviewedNote publishes only sanitized reviewed content and binds it", (t) => {
+  const { pmDir, pmStateDir, cleanup } = withTempPmDir();
+  t.after(cleanup);
+  const raw = "Customer alice@example.com cannot edit 50 rows.";
+  const captured = writeNote(pmDir, raw, "customer interview", "editing", {
+    pmStateDir,
+    now: "2026-07-14T08:00:00.000Z",
+    locator: "entry:test-reviewed",
+  });
+
+  const published = publishReviewedNote(
+    pmDir,
+    pmStateDir,
+    captured.evidence_id,
+    "A customer cannot efficiently edit 50 rows.",
+    { source: "customer interview", tags: "editing", now: "2026-07-14T09:00:00.000Z" }
+  );
+
+  const note = fs.readFileSync(published.filePath, "utf8");
+  assert.match(note, /A customer cannot efficiently edit 50 rows\./);
+  assert.doesNotMatch(note, /alice@example\.com/);
+  assert.match(note, new RegExp(`Evidence-ID: ${captured.evidence_id}`));
+  const ledger = JSON.parse(
+    fs.readFileSync(path.join(pmDir, "evidence", "provenance.json"), "utf8")
+  );
+  const record = ledger.records[0];
+  assert.equal(record.privacy.pii_review, "reviewed");
+  assert.deepEqual(record.artifact_paths, [path.relative(pmDir, published.filePath)]);
+  assert.equal(record.revisions.length, 1);
+  assert.doesNotMatch(JSON.stringify(ledger), /alice@example\.com/);
+
+  const retried = publishReviewedNote(
+    pmDir,
+    pmStateDir,
+    captured.evidence_id,
+    "A customer cannot efficiently edit 50 rows.",
+    { source: "customer interview", tags: "editing", now: "2026-07-14T09:05:00.000Z" }
+  );
+  assert.equal(retried.filePath, published.filePath);
+  assert.equal(parseNotesFile(published.filePath).entries.length, 1);
 });
 
 test("concurrent note captures do not lose entries or ledger records", async (t) => {

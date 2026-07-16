@@ -48,15 +48,18 @@ function writeNote(pmDir, text, source, tags, options = {}) {
   const sourceType = source && source.trim() ? source.trim() : "observation";
 
   const notesDir = path.join(pmDir, "evidence", "notes");
-  fs.mkdirSync(notesDir, { recursive: true });
-
   const filePath = path.join(notesDir, `${monthStr}.md`);
-  const artifactPath = path.relative(pmDir, filePath).split(path.sep).join("/");
-  const tagsLine = tags && tags.trim() ? `Tags: ${tags.trim()}` : "";
   const locator =
     options.locator ||
     `entry:${now.toISOString()}:${process.pid}:${crypto.randomBytes(6).toString("hex")}`;
   const privacy = options.privacy || privacyForSource(sourceType);
+  const pendingSensitive = isPendingSensitive(privacy);
+  if (pendingSensitive && !options.pmStateDir) {
+    throw new Error("pmStateDir is required for pending sensitive note capture");
+  }
+  const artifactPath = pendingSensitive
+    ? undefined
+    : path.relative(pmDir, filePath).split(path.sep).join("/");
   const record = createEvidenceRecord(
     {
       source_type: "note",
@@ -72,11 +75,6 @@ function writeNote(pmDir, text, source, tags, options = {}) {
     { now: now.toISOString() }
   );
 
-  let entry = `\n### ${timestamp} — ${sourceType}\n${text}\nEvidence-ID: ${record.evidence_id}\n`;
-  if (tagsLine) {
-    entry += `${tagsLine}\n`;
-  }
-
   const ledgerPath = path.join(pmDir, "evidence", "provenance.json");
   const release = acquireOwnedLock(path.join(pmDir, "evidence", ".write.lock"), {
     attempts: 400,
@@ -85,30 +83,179 @@ function writeNote(pmDir, text, source, tags, options = {}) {
     timeoutMessage: "timed out waiting for evidence capture lock",
   });
   try {
-    let noteContent;
-    if (fs.existsSync(filePath)) {
-      const existing = fs.readFileSync(filePath, "utf8");
-      const parsed = parseFrontmatter(existing);
-      const currentCount = parseInt(parsed.data.note_count, 10) || 0;
-      const digestedThrough = parsed.data.digested_through || "null";
-      noteContent =
-        buildFrontmatter(monthStr, dateStr, currentCount + 1, digestedThrough) +
-        (parsed.body || "") +
-        entry;
-    } else {
-      noteContent = buildFrontmatter(monthStr, dateStr, 1, "null") + entry;
-    }
     const ledger = fs.existsSync(ledgerPath)
       ? JSON.parse(fs.readFileSync(ledgerPath, "utf8"))
       : emptyEvidenceLedger(now.toISOString());
     const registered = registerEvidence(ledger, record, { now: now.toISOString() });
-    writeTextAtomic(filePath, noteContent, { fileMode: 0o644 });
+    if (pendingSensitive) {
+      const privatePath = privateNotePath(options.pmStateDir, record.evidence_id);
+      writeJsonAtomic(
+        privatePath,
+        {
+          schema_version: 2,
+          kind: "pending-note",
+          evidence_id: record.evidence_id,
+          content: text,
+          source: sourceType,
+          tags: tags && tags.trim() ? tags.trim() : "",
+          display_timestamp: timestamp,
+          portable_record: record,
+        },
+        { directoryMode: 0o700, fileMode: 0o600 }
+      );
+    } else {
+      const noteContent = appendNoteContent(filePath, {
+        month: monthStr,
+        updated: dateStr,
+        timestamp,
+        source: sourceType,
+        text,
+        tags,
+        evidenceId: record.evidence_id,
+      });
+      writeTextAtomic(filePath, noteContent, { fileMode: 0o644 });
+    }
     writeJsonAtomic(ledgerPath, registered.ledger, { fileMode: 0o644 });
   } finally {
     release();
   }
 
-  return { filePath, timestamp, evidence_id: record.evidence_id };
+  return pendingSensitive
+    ? {
+        filePath: null,
+        privatePath: privateNotePath(options.pmStateDir, record.evidence_id),
+        timestamp,
+        evidence_id: record.evidence_id,
+        pending_review: true,
+      }
+    : { filePath, timestamp, evidence_id: record.evidence_id, pending_review: false };
+}
+
+/**
+ * Publish a sanitized rendering of a privately captured note after PII review.
+ * The original remains private; only the reviewed content is written and bound.
+ */
+function publishReviewedNote(pmDir, pmStateDir, evidenceId, sanitizedText, options = {}) {
+  if (typeof sanitizedText !== "string" || !sanitizedText.trim()) {
+    throw new Error("sanitized note text is required");
+  }
+  const privatePath = privateNotePath(pmStateDir, evidenceId);
+  const privateRecord = readPrivateNote(privatePath);
+  if (privateRecord.evidence_id !== evidenceId || privateRecord.kind !== "pending-note") {
+    throw new Error("private pending note does not match the requested evidence ID");
+  }
+  const pending = privateRecord.portable_record;
+  if (!isPendingSensitive(pending?.privacy)) {
+    throw new Error("private note is not awaiting sensitive-content review");
+  }
+  if (!/^notes\/\d{4}-\d{2}\.md$/.test(pending.source_label || "")) {
+    throw new Error("private note has an invalid portable note label");
+  }
+  const now = options.now ? new Date(options.now) : new Date();
+  if (!Number.isFinite(now.getTime())) throw new Error("note publication time is invalid");
+  if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(privateRecord.display_timestamp || "")) {
+    throw new Error("private note has an invalid display timestamp");
+  }
+  const timestamp = privateRecord.display_timestamp;
+  const monthStr = pending.source_label.slice("notes/".length, -".md".length);
+  const filePath = path.join(pmDir, "evidence", "notes", `${monthStr}.md`);
+  const artifactPath = path.relative(pmDir, filePath).split(path.sep).join("/");
+  const sourceType =
+    typeof options.source === "string" && options.source.trim()
+      ? options.source.trim()
+      : "reviewed customer signal";
+  const reviewed = createEvidenceRecord(
+    {
+      evidence_id: evidenceId,
+      source_type: pending.source_type,
+      source_label: pending.source_label,
+      source_format: pending.source_format,
+      freshness_kind: pending.freshness_kind,
+      locator: pending.locator,
+      captured_at: pending.captured_at,
+      content: sanitizedText,
+      privacy: { classification: pending.privacy.classification, pii_review: "reviewed" },
+      transformation: pending.transformation,
+      artifact_path: artifactPath,
+    },
+    { now: now.toISOString() }
+  );
+  const ledgerPath = path.join(pmDir, "evidence", "provenance.json");
+  const release = acquireOwnedLock(path.join(pmDir, "evidence", ".write.lock"), {
+    attempts: 400,
+    waitMs: 25,
+    invalidGraceMs: 1000,
+    timeoutMessage: "timed out waiting for evidence publication lock",
+  });
+  try {
+    if (!fs.existsSync(ledgerPath)) throw new Error("evidence ledger does not exist");
+    const ledger = JSON.parse(fs.readFileSync(ledgerPath, "utf8"));
+    const current = ledger.records.find((item) => item.evidence_id === evidenceId);
+    if (
+      current?.content_sha256 === reviewed.content_sha256 &&
+      current.privacy?.pii_review === "reviewed" &&
+      current.artifact_paths?.includes(artifactPath)
+    ) {
+      return { filePath, privatePath, timestamp, evidence_id: evidenceId, pending_review: false };
+    }
+    if (!current || current.content_sha256 !== pending.content_sha256) {
+      throw new Error("pending note changed after private capture; review must be repeated");
+    }
+    const registered = registerEvidence(ledger, reviewed, { now: now.toISOString() });
+    const noteContent = appendNoteContent(filePath, {
+      month: monthStr,
+      updated: now.toISOString().slice(0, 10),
+      timestamp,
+      source: sourceType,
+      text: sanitizedText,
+      tags: options.tags,
+      evidenceId,
+    });
+    writeTextAtomic(filePath, noteContent, { fileMode: 0o644 });
+    writeJsonAtomic(ledgerPath, registered.ledger, { fileMode: 0o644 });
+  } finally {
+    release();
+  }
+  return { filePath, privatePath, timestamp, evidence_id: evidenceId, pending_review: false };
+}
+
+function appendNoteContent(filePath, note) {
+  const tagsLine = note.tags && note.tags.trim() ? `Tags: ${note.tags.trim()}` : "";
+  let entry = `\n### ${note.timestamp} — ${note.source}\n${note.text}\nEvidence-ID: ${note.evidenceId}\n`;
+  if (tagsLine) entry += `${tagsLine}\n`;
+  if (!fs.existsSync(filePath)) {
+    return buildFrontmatter(note.month, note.updated, 1, "null") + entry;
+  }
+  const parsed = parseFrontmatter(fs.readFileSync(filePath, "utf8"));
+  const currentCount = parseInt(parsed.data.note_count, 10) || 0;
+  const digestedThrough = parsed.data.digested_through || "null";
+  return (
+    buildFrontmatter(note.month, note.updated, currentCount + 1, digestedThrough) +
+    (parsed.body || "") +
+    entry
+  );
+}
+
+function privateNotePath(pmStateDir, evidenceId) {
+  if (typeof pmStateDir !== "string" || !pmStateDir.trim()) {
+    throw new Error("pmStateDir is required");
+  }
+  if (!/^ev_[a-f0-9]{24}$/.test(evidenceId || "")) throw new Error("evidence ID is invalid");
+  return path.join(path.resolve(pmStateDir), "evidence", "records", `${evidenceId}.json`);
+}
+
+function readPrivateNote(filePath) {
+  const stat = fs.lstatSync(filePath);
+  if (!stat.isFile() || stat.isSymbolicLink())
+    throw new Error("private note must be a regular file");
+  return JSON.parse(fs.readFileSync(filePath, "utf8"));
+}
+
+function isPendingSensitive(privacy) {
+  return (
+    ["customer-sensitive", "restricted"].includes(privacy?.classification) &&
+    privacy?.pii_review === "pending"
+  );
 }
 
 function buildFrontmatter(month, updated, noteCount, digestedThrough) {
@@ -323,6 +470,7 @@ ${entry.body}
 
 module.exports = {
   writeNote,
+  publishReviewedNote,
   parseNotesFile,
   promoteNoteToIdea,
   nextBacklogId,

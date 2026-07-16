@@ -91,6 +91,36 @@ test("CLI register, validate, and audit publish a portable atomic ledger", (t) =
   assert.equal(fs.statSync(privateRecord).mode & 0o777, 0o600);
 });
 
+test("CLI rejects pending sensitive evidence bound to a reader artifact", (t) => {
+  const fixtureValue = fixture(t);
+  const requestPath = path.join(fixtureValue.privateDir, "unsafe-pending.json");
+  write(
+    requestPath,
+    request({
+      source_type: "support",
+      source_label: "support-export.csv",
+      locator: "row:14",
+      privacy: { classification: "customer-sensitive", pii_review: "pending" },
+    })
+  );
+  const result = run(
+    [
+      "register",
+      "--pm-dir",
+      fixtureValue.pmDir,
+      "--private-dir",
+      fixtureValue.privateDir,
+      "--request",
+      requestPath,
+      "--json",
+    ],
+    fixtureValue.root
+  );
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /pending.*artifact|artifact.*pending/i);
+  assert.equal(fs.existsSync(path.join(fixtureValue.pmDir, "evidence", "provenance.json")), false);
+});
+
 test("CLI migrates one legacy ingest record without rewriting the legacy manifest", (t) => {
   const fixtureValue = fixture(t);
   const legacyPath = path.join(fixtureValue.privateDir, "legacy-record.json");
