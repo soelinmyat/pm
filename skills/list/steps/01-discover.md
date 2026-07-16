@@ -45,9 +45,9 @@ Run `scripts/start-status.js --format list-rows` against the current project dir
 
    | Session type | Location |
    |---|---|
-   | Groom sessions | `{source_dir}/.pm/groom-sessions/*.md` |
-   | RFC sessions   | `{source_dir}/.pm/rfc-sessions/*.md` |
-   | Dev sessions   | `{source_dir}/.pm/dev-sessions/*.md` |
+   | Groom sessions | `{source_dir}/.pm/groom-sessions/*/session.json` |
+   | RFC sessions   | `{source_dir}/.pm/rfc-sessions/*/session.json` |
+   | Dev sessions   | `{source_dir}/.pm/dev-sessions/*/session.json` |
    | Think sessions | `{source_dir}/.pm/think-sessions/*.md` |
 
    Backlog artefacts (proposals, RFCs, shipped) live in the PM repo under `{pm_dir}/backlog/`. In separate-repo mode `pm_dir` and `source_dir` differ; in same-repo mode they collapse. The emitter's `meta.pmDir` / `meta.sourceDir` reflect the resolved paths.

@@ -18,7 +18,7 @@ Give the user a fast session kickoff with update status, active-work detection, 
 bash ${CLAUDE_PLUGIN_ROOT}/hooks/check-start.sh
 ```
 
-This refreshes `.pm/.update_status` and may print a one-line update notice at session start.
+This refreshes the resolved private update status and may print a one-line update notice at session start.
 
 2. Sync (handled automatically by the session hooks — no action in this step):
 
@@ -85,7 +85,7 @@ After ingestion or skip, continue to step 4 (session brief).
 4. Generate the canonical session brief:
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/start-status.js --project-dir "$PWD" --format json --include-update
+node ${CLAUDE_PLUGIN_ROOT}/scripts/start-status.js --project-dir "{source_dir}" --format json --include-update
 ```
 
 This script is the shared source of truth used by the runtime hook and should determine:
@@ -104,9 +104,9 @@ All session state (groom, rfc, dev) lives source-side in `{source_dir}/.pm/`:
 
 | Session type | Location |
 |---|---|
-| Groom sessions | `{source_dir}/.pm/groom-sessions/*.md` |
-| RFC sessions | `{source_dir}/.pm/rfc-sessions/*.md` |
-| Dev sessions | `{source_dir}/.pm/dev-sessions/*.md` |
+| Groom sessions | `{source_dir}/.pm/groom-sessions/*/session.json` |
+| RFC sessions | `{source_dir}/.pm/rfc-sessions/*/session.json` |
+| Dev sessions | `{source_dir}/.pm/dev-sessions/*/session.json` |
 
 Session state is ephemeral machine-local scratchpad — it is gitignored and never written to the PM repo. Only the **artefacts** (proposals, RFCs, shipped code) live in their durable homes: proposals and RFCs in the PM repo under `{pm_dir}/`, shipped code in the source repo. Active work is only detectable when `pm:start` runs from the source repo; in same-repo mode, source_dir is the project root so this is unchanged.
 

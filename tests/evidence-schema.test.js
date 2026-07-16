@@ -164,6 +164,24 @@ test("ledger validation rejects private paths, invalid privacy, dangling parents
   assert.match(issues, /derived identity/i);
 });
 
+test("pending sensitive evidence cannot bind to a reader artifact", () => {
+  assert.throws(
+    () =>
+      createEvidenceRecord(
+        input({
+          privacy: { classification: "customer-sensitive", pii_review: "pending" },
+        }),
+        { now: NOW }
+      ),
+    /pending.*artifact|artifact.*pending/i
+  );
+
+  const reviewed = createEvidenceRecord(input(), { now: NOW });
+  const unsafe = registerEvidence(emptyEvidenceLedger(NOW), reviewed, { now: NOW }).ledger;
+  unsafe.records[0].privacy.pii_review = "pending";
+  assert.match(validateEvidenceLedger(unsafe).join("\n"), /pending.*artifact|artifact.*pending/i);
+});
+
 test("citation validation binds every v2 finding to this artifact and a current ledger record", () => {
   const record = createEvidenceRecord(input(), { now: NOW });
   const ledger = registerEvidence(emptyEvidenceLedger(NOW), record, { now: NOW }).ledger;

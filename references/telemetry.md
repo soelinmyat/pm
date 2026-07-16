@@ -43,7 +43,7 @@ crept in historically. Readers should fold all `activity-*.jsonl` /
   counts, correlated to the active run. Estimates reflect orchestrator I/O
   only, not the agent's internal consumption.
 - **Workflow phases/stages** — Write/Edit hooks (`state-pre`/`state-step`)
-  diff `.pm/groom-sessions/*.md` and `.pm/dev-sessions/*.md` writes and close
+  diff `.pm/groom-sessions/*/session.json` and `.pm/dev-sessions/*/session.json` writes and close
   the previous phase/stage span automatically. The final open span closes when
   the run changes or the session ends.
 

@@ -725,19 +725,19 @@ test("resolvePmDir (c) config with missing pm_repo field", () => {
   }
 });
 
-test("resolvePmDir (d) config with malformed JSON", () => {
+test("resolvePmDir (d) malformed configured JSON fails closed", () => {
   const project = createProject();
   try {
     project.write(".pm/config.json", "{ not valid json }}}");
 
-    const result = resolvePmDir(project.root);
-    assert.equal(result, path.join(project.root, "pm"));
+    assert.throws(() => resolvePmDir(project.root), /Invalid JSON/);
+    assert.equal(fs.existsSync(path.join(project.root, "pm")), false);
   } finally {
     project.cleanup();
   }
 });
 
-test("resolvePmDir (e) config pointing to nonexistent directory — falls back gracefully", () => {
+test("resolvePmDir (e) missing configured repository fails closed", () => {
   const project = createProject();
   try {
     project.write(
@@ -748,8 +748,8 @@ test("resolvePmDir (e) config pointing to nonexistent directory — falls back g
       })
     );
 
-    const result = resolvePmDir(project.root);
-    assert.equal(result, path.join(project.root, "pm"));
+    assert.throws(() => resolvePmDir(project.root), /Configured PM repository does not exist/);
+    assert.equal(fs.existsSync(path.join(project.root, "pm")), false);
   } finally {
     project.cleanup();
   }

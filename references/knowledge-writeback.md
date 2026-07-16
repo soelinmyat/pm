@@ -75,7 +75,7 @@ Notes:
   "strategicRelevance": "Why this matters later",
   "implications": ["Downstream implication"],
   "openQuestions": ["Remaining uncertainty"],
-  "sourceArtifacts": ["backlog/foo.md", ".pm/dev-sessions/foo.md"]
+  "sourceArtifacts": ["backlog/foo.md", ".pm/dev-sessions/foo/session.json"]
 }
 ```
 
@@ -123,8 +123,8 @@ Rules:
 - Prefer 2-4 high-signal findings over a long dump
 - Reference local source artifacts inline when useful, for example:
   - proposal: `{pm_dir}/backlog/{topic-slug}.md`
-  - state file: `{source_dir}/.pm/groom-sessions/{topic-slug}.md`
-  - dev state: `{source_dir}/.pm/dev-sessions/{slug}.md`
+  - state file: `{source_dir}/.pm/groom-sessions/{topic-slug}/session.json`
+  - dev state: `{source_dir}/.pm/dev-sessions/{slug}/session.json`
   - RFC: `{pm_dir}/backlog/rfcs/{slug}.html`
 
 ## Write Flow

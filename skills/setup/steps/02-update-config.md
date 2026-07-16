@@ -12,11 +12,11 @@ Apply exactly one supported config change without disturbing unrelated config st
 
 ## How
 
-Validate the owning config first, then run the receipt-backed config effect for only the selected field. Do not write `.pm/config.json` directly.
+Validate the owning config first, then run the receipt-backed config effect for only the selected field. Do not write the config directly.
 
 ### Check config exists
 
-Read `.pm/config.json` from the project root. If it does not exist, tell the user: "No config found. Run `/pm:start` first to initialize the project." and stop.
+Run `resolve-pm-dir.js --json` and use its `configPath` and `sourceDir`. If resolution fails, surface the error and stop. If `configPath` is null, tell the user: "No config found. Run `/pm:start` first to initialize the project." and stop. Do not substitute a cwd config check.
 
 ### Update the config
 
@@ -24,13 +24,13 @@ Map the action through the integration table in Step 1, encode its value as JSON
 
 ```bash
 node "${CLAUDE_PLUGIN_ROOT}/scripts/config-effect.js" \
-  --project-dir "$PWD" \
+  --project-dir "{config_owner_dir}" \
   --field "{config.path}" \
   --value-json '{json-value}' \
   --authorize update_config
 ```
 
-The explicit `/pm:setup enable|disable {integration}` request grants only `update_config` for the named field. The script plans against the current config hash, atomically preserves unrelated fields, re-reads the target, and stores a private journal under `.pm/effects/`.
+For `.pm/config.json`, set `{config_owner_dir}` to the directory that contains `.pm/`. The current config-effect adapter does not mutate tracked `pm.config.json`; if the resolver returns that form, stop and explain that setup must migrate it before updating integrations. The explicit `/pm:setup enable|disable {integration}` request grants only `update_config` for the named field. The script plans against the current config hash, atomically preserves unrelated fields, re-reads the target, and stores a private journal under the owning `.pm/effects/`.
 
 Read its JSON result:
 

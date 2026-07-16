@@ -1,6 +1,6 @@
 ---
 name: board
-description: "Use when the user wants a visual Kanban board of loop/backlog progress — columns of cards, in-flight leases, recent loop runs, and budget usage — served locally in the browser. Read-only surveying; the only action it offers is the loop kill switch."
+description: "Use when the user wants a visual Kanban board of loop/backlog progress — columns of cards, in-flight leases, recent loop runs, and budget usage — served locally in the browser. Observational surveying with one explicit, separately authorized loop kill-switch control."
 ---
 
 # pm:board
@@ -53,14 +53,18 @@ if [ -z "$PM_PLUGIN_ROOT" ]; then
   echo "Set PM_PLUGIN_ROOT to the PM plugin root." >&2
   exit 1
 fi
+PM_PATHS="$(node "$PM_PLUGIN_ROOT/scripts/resolve-pm-dir.js" --json "$PWD")" || exit 1
+PM_DIR="$(node -e 'console.log(JSON.parse(process.argv[1]).pmDir)' "$PM_PATHS")"
+SOURCE_DIR="$(node -e 'console.log(JSON.parse(process.argv[1]).sourceDir)' "$PM_PATHS")"
 node "$PM_PLUGIN_ROOT/scripts/board-server.js" \
-  --pm-dir "$(node "$PM_PLUGIN_ROOT/scripts/resolve-pm-dir.js" "$PWD")" \
+  --pm-dir "$PM_DIR" \
+  --source-dir "$SOURCE_DIR" \
   --port 4400
 ```
 
 It binds `127.0.0.1` only and prints `http://127.0.0.1:4400`. Flags:
 `--port` (default 4400), `--pm-dir` (default `./pm`), `--source-dir` (where
-`.pm/` loop state lives; defaults to the parent of `--pm-dir`). The server runs
+`.pm/` loop state lives; always pass the resolver's `sourceDir`). The server runs
 until stopped (Ctrl-C); tell the user the URL and that it refreshes itself.
 
 Graceful degradation: with no `pm/` directory the page shows setup guidance
@@ -69,7 +73,7 @@ renders in backlog-only mode and the strip reads "loop not installed".
 
 ## The contract
 
-- **Read-only.** The board surveys durable state (`pm/backlog`, `pm/loop`
+- **Observational surface.** The board surveys durable state (`pm/backlog`, `pm/loop`
   leases/snapshots/config, and the local `.pm/loop-runs` ledger). It reuses the
   existing board model (`scripts/loop-board.js`) and never re-derives columns.
 - **One action only: the loop kill switch.** `POST /api/loop/toggle` flips
@@ -112,5 +116,5 @@ renders in backlog-only mode and the strip reads "loop not installed".
 ## Before Marking Done
 
 - [ ] The board artifact is served on `127.0.0.1` with the printed local URL.
-- [ ] Backlog state remained read-only; only the explicit kill-switch effect is available.
+- [ ] Backlog state was not mutated; only the kill-switch effect with explicit user authority is available.
 - [ ] Missing PM data, empty backlog, and server errors produce useful recovery guidance.

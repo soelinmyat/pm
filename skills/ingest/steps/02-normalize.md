@@ -12,10 +12,10 @@ Convert accepted inputs into private normalized records plus idempotent, portabl
 
 ## How
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/evidence-system.md` and use its request-file CLI contract. Keep the existing `.pm/imports/manifest.json` for file-level SHA, column mappings, and import state; Evidence v2 adds record-level identity, lineage, revisions, privacy state, and citation bindings.
+Read `${CLAUDE_PLUGIN_ROOT}/references/evidence-system.md` and use its request-file CLI contract. Keep the existing `{pm_state_dir}/imports/manifest.json` for file-level SHA, column mappings, and import state; Evidence v2 adds record-level identity, lineage, revisions, privacy state, and citation bindings.
 
 ```text
-.pm/
+{pm_state_dir}/
   imports/
     manifest.json                  # private file-level import state
   evidence/
@@ -44,7 +44,7 @@ Private normalized records are written to `{pm_state_dir}/evidence/records/` wit
    - `privacy.classification: customer-sensitive` and `privacy.pii_review: pending` by default for customer evidence;
    - `transformation: {"stage":"normalized","parents":[],"method":"pm:ingest"}`;
    - `artifact_path` for the research topic this item will support, when already known;
-   - optional private-only `local_source_path` and `raw_locator` (these are written only to `.pm/`).
+   - optional private-only `local_source_path` and `raw_locator` (these are written only to `{pm_state_dir}/`).
 4. Register it through deterministic code:
 
 ```bash
@@ -57,7 +57,7 @@ Capture the returned `evidence_id` on the normalized item. Re-registering identi
 
 ### Legacy v1 records
 
-Do not eagerly rewrite `.pm/imports/manifest.json` or all old records. When an existing v1 normalized record is touched, migrate that record incrementally:
+Do not eagerly rewrite `{pm_state_dir}/imports/manifest.json` or all old records. When an existing v1 normalized record is touched, migrate that record incrementally:
 
 ```bash
 node "${CLAUDE_PLUGIN_ROOT}/scripts/evidence.js" migrate \

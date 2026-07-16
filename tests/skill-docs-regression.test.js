@@ -21,6 +21,38 @@ test("using-pm no longer forces pm:start for direct first messages", () => {
   );
 });
 
+test("using-pm resolves workspace state centrally and defers instruction precedence to the host", () => {
+  const text = read("skills/using-pm/SKILL.md");
+
+  assert.match(text, /resolve-pm-dir\.js.*--json/s);
+  assert.doesNotMatch(text, /check whether `\.pm\/config\.json` exists/);
+  assert.match(text, /host runtime['’]s instruction hierarchy/i);
+  assert.doesNotMatch(text, /User instructions always take precedence/);
+});
+
+test("using-pm routes ambiguous and public entrypoint intents to current owners", () => {
+  const text = read("skills/using-pm/SKILL.md");
+
+  for (const contract of [
+    [/Should we[^\n]*`pm:think`/i, "uncertain decisions route to Think"],
+    [/Initialize PM[^\n]*`pm:start`/i, "workspace bootstrap routes to Start"],
+    [/Enable Linear[^\n]*`pm:setup`/i, "integration setup routes to Setup"],
+    [/Generate ideas[^\n]*`pm:ideate`/i, "idea generation routes to Ideate"],
+    [/Capture.*signal[^\n]*`pm:note`/i, "signals route to Note"],
+    [/File a task[^\n]*`pm:task`/i, "small tracked work routes to Task"],
+    [/File a bug[^\n]*`pm:bug`/i, "defects route to Bug"],
+    [/Feature inventory[^\n]*`pm:features`/i, "feature inventory routes to Features"],
+    [/Sync.*knowledge base[^\n]*`pm:sync`/i, "knowledge sync routes to Sync"],
+  ]) {
+    assert.match(text, contract[0], contract[1]);
+  }
+
+  assert.doesNotMatch(text, /Auto-grooms ungroomed work/);
+  assert.doesNotMatch(text, /claude-only/i);
+  assert.doesNotMatch(text, /`pm:groom ideate`/);
+  assert.doesNotMatch(text, /6-lens fan-out/);
+});
+
 test("research quick references are removed from meta and think skills", () => {
   const usingPm = read("skills/using-pm/SKILL.md");
   const think = read("skills/think/SKILL.md");

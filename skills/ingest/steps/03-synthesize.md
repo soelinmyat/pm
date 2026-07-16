@@ -14,7 +14,7 @@ Turn normalized evidence into durable research artifacts and indexes that downst
 
 <HARD-GATE>
 Synthesis is required after normalization. Do NOT skip because the record count is small.
-Even 2-3 records can reveal a theme. Without synthesis, evidence stays in .pm/ and never reaches {pm_dir}/evidence/research/ — invisible to downstream skills.
+Even 2-3 records can reveal a theme. Without synthesis, evidence stays in `{pm_state_dir}/` and never reaches `{pm_dir}/evidence/research/` — invisible to downstream skills.
 </HARD-GATE>
 
 **Load Hot Index** (pre-step).

@@ -7,7 +7,7 @@ description: "Use when the user wants to toggle integrations, enable or disable 
 
 ## Purpose
 
-Configure PM integrations and repo linking for this project. Setup manages `.pm/config.json` — toggling supported integrations (Linear and Ahrefs), configuring separate-repo mode, and managing auth credentials.
+Configure PM integrations and repo linking for this project. Setup manages the config selected by the shared path resolver — toggling supported integrations (Linear and Ahrefs), configuring separate-repo mode, and managing auth credentials.
 
 Setup is the control panel. Start is the entry point. Don't confuse them.
 
@@ -21,7 +21,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and
 
 ## When NOT to use
 
-- For quick config checks such as "is Linear enabled?", read `.pm/config.json` without writing.
+- For quick config checks such as "is Linear enabled?", resolve paths and read the returned `configPath` without writing.
 - When PM is not bootstrapped, use `pm:start` first.
 - For writing style or terminology changes, edit `{pm_dir}/instructions.md` through the appropriate project workflow.
 
@@ -29,7 +29,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and
 
 ## Hard rules
 
-- Never hand-edit `.pm/config.json` when setup can do it — setup owns config shape, integration toggles, and separate-repo linkage; bypassing it creates silent drift other skills must recover from.
+- Never hand-edit the resolved config when setup can do it — setup owns config shape, integration toggles, and separate-repo linkage; bypassing it creates silent drift other skills must recover from.
 - Supported integrations are exact — Linear, Ahrefs, and separate-repo mode. If the subcommand or integration is ambiguous or unsupported, stop and show the supported options rather than guessing.
 - On every config write, update only the requested field and preserve all others — never drop existing fields.
 - Separate-repo mode changes how every skill resolves `pm_dir`, `pm_state_dir`, and `source_dir` — treat it as a controlled config change, not a raw path write.

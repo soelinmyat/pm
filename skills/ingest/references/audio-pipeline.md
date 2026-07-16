@@ -1,6 +1,6 @@
 # Audio Normalization Pipeline
 
-For each transcribed audio file, after the raw transcript is available in `.pm/evidence/transcripts/`:
+For each transcribed audio file, after the raw transcript is available in `{pm_state_dir}/evidence/transcripts/`:
 
 ## 1. Speaker Role Inference
 

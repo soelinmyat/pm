@@ -38,7 +38,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and
 
 ## Setup detection
 
-Before starting, check whether a PM workspace exists (`pm/` at cwd, or `pm_dir` already in context).
+Before starting, use `pm_dir` already in context or run the structured path resolver from `skill-runtime.md`. If resolution fails, surface the error and stop; do not infer a workspace from cwd.
 
 - **Workspace exists:** proceed normally.
 - **No workspace:** don't tell the user to run `pm:start` — this is a valid entry point for new users. Ask once:

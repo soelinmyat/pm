@@ -38,7 +38,9 @@ Registering the same ID and content hash is idempotent. Registering or refreshin
 
 Classifications are `public`, `internal`, `customer-sensitive`, and `restricted`. PII review states are `not-required`, `pending`, and `reviewed`. Customer-sensitive or restricted evidence may not claim `not-required`.
 
-The ledger stores classification and review state, not the sensitive body. A pending record can be captured and synthesized privately, but the user still receives the explicit PII review warning before committing reader artifacts. `artifact_paths` is an append-only set: one source may support several reader artifacts without duplicating its Evidence-ID.
+The ledger stores classification and review state, not the sensitive body. A pending customer-sensitive or restricted record is private-only: its original lives under `{pm_state_dir}`, its portable ledger record has an empty `artifact_paths` array, and validation rejects any pending sensitive artifact binding. A warning is not permission to publish.
+
+After explicit review, publish only sanitized content. The reviewed record keeps the Evidence-ID, moves the prior private-content hash into `revisions`, sets `pii_review: reviewed`, and may then bind a reader artifact. `artifact_paths` remains an append-only set: one reviewed source may support several reader artifacts without duplicating its Evidence-ID.
 
 ## Transformations
 

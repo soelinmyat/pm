@@ -73,6 +73,13 @@ If the user chose "connect existing":
 
 ### 4. Initialize pm/ with remote
 
+Repository ownership is a hard boundary. If the consumer project's parent Git
+repository already tracks files under `pm/`, the helper refuses to turn that
+directory into a nested repository. Report the refusal and offer
+`/pm:setup separate-repo`; do not untrack files, move history, or create a
+nested `.git` automatically. An already independent PM repository, including a
+linked worktree, keeps its existing ownership.
+
 Determine whether `pm/` already has content:
 
 **If `pm/` has markdown files** (existing KB):
@@ -96,6 +103,11 @@ If the clone is empty (new repo), the `pm/` directory will be created with just 
 
 On either helper failure, report its structured error and stop. Do not fall back
 to raw Git or repeat the effect blindly.
+
+For an established repository, setup uses its attached current branch. Later
+sync operations follow that branch's configured upstream, regardless of remote
+or branch name. Detached HEAD or a missing upstream is a blocking configuration
+error with repair guidance, not a reason to assume `origin/main`.
 
 The explicit setup request is the action-specific `configure_sync` authority
 grant. The helper journals it in `{pm_state_dir}/effects/`, observes an existing

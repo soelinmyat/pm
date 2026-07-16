@@ -12,6 +12,7 @@ const REQUIREMENTS = {
   conversational: [/(question|decision)/i, /(confirm|confirmation)/i, /(promote|switch|route)/i],
   capture: [/(atomic|overwrite|collision)/i, /(route|routing|kind)/i],
   redirect: [/(deprecated|redirect)/i, /pm:[a-z-]+/i],
+  router: [/(route|routing)/i, /(authority|effect)/i, /(direct|hijack)/i],
 };
 
 const MUTATION_COMMANDS = [

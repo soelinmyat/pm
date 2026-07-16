@@ -3,11 +3,9 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("node:crypto");
-const { execSync } = require("child_process");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
 const { runGit } = require("./loop-git.js");
 const { writeJsonAtomic } = require("./lib/atomic-file.js");
-const { cleanGitEnv } = require("./lib/git-env.js");
 const {
   runOperationalEffect,
   sharedGitRepositorySerialization,
@@ -17,34 +15,12 @@ const {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function buildGitEnv(extraEnv = {}) {
-  return cleanGitEnv(extraEnv);
-}
-
-function run(cmd, opts = {}) {
-  const { env, ...rest } = opts;
-  return execSync(cmd, {
-    encoding: "utf8",
-    timeout: 30000,
-    stdio: ["pipe", "pipe", "pipe"],
-    env: buildGitEnv(env),
-    ...rest,
-  }).trim();
-}
-
-function runSafe(cmd, opts = {}) {
-  try {
-    return { ok: true, output: run(cmd, opts) };
-  } catch (err) {
-    return { ok: false, output: "", error: err.stderr || err.message || String(err) };
-  }
-}
-
 function runGitSafe(args, cwd) {
   try {
     return { ok: true, output: runGit(args, cwd, { timeout: 30000 }) };
   } catch (err) {
-    return { ok: false, output: "", error: err.stderr || err.message || String(err) };
+    const detail = err.stderr || err.message || String(err);
+    return { ok: false, output: "", error: String(detail).trim() };
   }
 }
 
@@ -71,14 +47,103 @@ function isGitRepo(pmDir) {
 
 function hasRemote(pmDir) {
   if (!isGitRepo(pmDir)) return false;
-  const result = runSafe("git remote", { cwd: pmDir });
+  const result = runGitSafe(["remote"], pmDir);
   return result.ok && result.output.length > 0;
 }
 
 function getRemoteUrl(pmDir) {
   if (!hasRemote(pmDir)) return null;
-  const result = runSafe("git remote get-url origin", { cwd: pmDir });
+  const upstream = resolveUpstream(pmDir);
+  const remotes = runGitSafe(["remote"], pmDir);
+  const remote = upstream.ok
+    ? upstream.remote
+    : remotes.ok && remotes.output.split("\n").includes("origin")
+      ? "origin"
+      : remotes.output.split("\n")[0];
+  if (!remote) return null;
+  const result = runGitSafe(["remote", "get-url", remote], pmDir);
   return result.ok ? result.output : null;
+}
+
+function currentBranch(pmDir) {
+  const result = runGitSafe(["symbolic-ref", "--quiet", "--short", "HEAD"], pmDir);
+  if (!result.ok || !result.output) {
+    return {
+      ok: false,
+      error:
+        "Knowledge-base repository is in detached HEAD state. Check out a branch, then retry sync.",
+    };
+  }
+  return { ok: true, branch: result.output };
+}
+
+function resolveUpstream(pmDir) {
+  const current = currentBranch(pmDir);
+  if (!current.ok) return current;
+  const remote = runGitSafe(["config", "--get", `branch.${current.branch}.remote`], pmDir);
+  const merge = runGitSafe(["config", "--get", `branch.${current.branch}.merge`], pmDir);
+  if (!remote.ok || !remote.output || !merge.ok || !merge.output) {
+    return {
+      ok: false,
+      branch: current.branch,
+      error:
+        `Current branch '${current.branch}' has no upstream. ` +
+        "Run `git push --set-upstream <remote> <branch>` or `/pm:sync setup`, then retry.",
+    };
+  }
+  if (remote.output === "." || !merge.output.startsWith("refs/heads/")) {
+    return {
+      ok: false,
+      branch: current.branch,
+      error:
+        `Current branch '${current.branch}' does not track a remote branch. ` +
+        "Configure a remote upstream with `git push --set-upstream <remote> <branch>`, then retry.",
+    };
+  }
+  if (remote.output.startsWith("-") || /[\0\r\n]/.test(remote.output)) {
+    return {
+      ok: false,
+      branch: current.branch,
+      error: `Configured upstream remote '${remote.output}' has an unsafe name. Run \`/pm:sync setup\` to repair it.`,
+    };
+  }
+  const checkedMergeRef = runGitSafe(["check-ref-format", merge.output], pmDir);
+  if (!checkedMergeRef.ok) {
+    return {
+      ok: false,
+      branch: current.branch,
+      error: `Configured upstream ref '${merge.output}' is invalid. Run \`/pm:sync setup\` to repair it.`,
+    };
+  }
+  const remoteUrl = runGitSafe(["remote", "get-url", remote.output], pmDir);
+  if (!remoteUrl.ok) {
+    return {
+      ok: false,
+      branch: current.branch,
+      error: `Configured upstream remote '${remote.output}' is unavailable. Run \`/pm:sync setup\` to repair it.`,
+    };
+  }
+  const remoteBranch = merge.output.slice("refs/heads/".length);
+  return {
+    ok: true,
+    branch: current.branch,
+    remote: remote.output,
+    remoteBranch,
+    mergeRef: merge.output,
+    ref: `${remote.output}/${remoteBranch}`,
+    remoteUrl: remoteUrl.output,
+  };
+}
+
+function parentRepositoryOwnership(pmDir) {
+  const topLevel = runGitSafe(["rev-parse", "--show-toplevel"], pmDir);
+  if (!topLevel.ok || !topLevel.output) return { owned: false };
+  const parentRoot = fs.realpathSync(topLevel.output);
+  const target = fs.realpathSync(pmDir);
+  if (parentRoot === target) return { owned: false };
+  const relative = path.relative(parentRoot, target);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return { owned: false };
+  return { owned: true, parentRoot };
 }
 
 function validateRemoteUrl(remoteUrl) {
@@ -105,8 +170,6 @@ function validateRemoteUrl(remoteUrl) {
  * @returns {{ ok: boolean, error?: string }}
  */
 function setup(pmDir, remoteUrl, opts = {}) {
-  const branch = opts.branch || "main";
-
   if (!validateRemoteUrl(remoteUrl)) {
     return { ok: false, error: "remote URL contains unsupported or unsafe characters" };
   }
@@ -117,11 +180,25 @@ function setup(pmDir, remoteUrl, opts = {}) {
 
   // If pm/ has content but no git, init and push
   if (!isGitRepo(pmDir)) {
-    const init = runSafe("git init", { cwd: pmDir });
+    const ownership = parentRepositoryOwnership(pmDir);
+    if (ownership.owned) {
+      return {
+        ok: false,
+        error:
+          `pm/ is owned by the parent Git repository at ${ownership.parentRoot}; ` +
+          "refusing to create an ambiguous nested repository. Keep same-repo ownership, or run `/pm:setup separate-repo` before configuring sync.",
+      };
+    }
+    const init = runGitSafe(["init"], pmDir);
     if (!init.ok) return { ok: false, error: `git init failed: ${init.error}` };
 
-    runGitSafe(["checkout", "-b", branch], pmDir);
+    const checkout = runGitSafe(["checkout", "-b", opts.branch || "main"], pmDir);
+    if (!checkout.ok) return { ok: false, error: `branch creation failed: ${checkout.error}` };
   }
+
+  const current = currentBranch(pmDir);
+  if (!current.ok) return { ok: false, error: current.error };
+  const branch = current.branch;
 
   // Set or update remote
   if (hasRemote(pmDir)) {
@@ -145,19 +222,21 @@ function setup(pmDir, remoteUrl, opts = {}) {
   }
 
   // Initial commit if no commits yet
-  const hasCommits = runSafe("git rev-parse HEAD", { cwd: pmDir });
+  const hasCommits = runGitSafe(["rev-parse", "HEAD"], pmDir);
   if (!hasCommits.ok) {
-    runSafe("git add -A", { cwd: pmDir });
-    const commit = runSafe('git commit -m "Initial KB commit"', { cwd: pmDir });
+    const add = runGitSafe(["add", "-A"], pmDir);
+    if (!add.ok) return { ok: false, error: `initial add failed: ${add.error}` };
+    const commit = runGitSafe(["commit", "-m", "Initial KB commit"], pmDir);
     if (!commit.ok && !commit.error.includes("nothing to commit")) {
       return { ok: false, error: `initial commit failed: ${commit.error}` };
     }
   } else if (createdGitignore) {
     const addIgnore = runGitSafe(["add", "--", ".gitignore"], pmDir);
     if (!addIgnore.ok) return { ok: false, error: `git add .gitignore failed: ${addIgnore.error}` };
-    const commitIgnore = runSafe('git commit -m "Configure KB sync ignores" -- .gitignore', {
-      cwd: pmDir,
-    });
+    const commitIgnore = runGitSafe(
+      ["commit", "-m", "Configure KB sync ignores", "--", ".gitignore"],
+      pmDir
+    );
     if (!commitIgnore.ok) {
       return { ok: false, error: `gitignore commit failed: ${commitIgnore.error}` };
     }
@@ -239,11 +318,15 @@ function push(pmDir) {
     return { ok: false, committed: 0, error: "No remote configured. Run setup first." };
   }
 
+  const upstream = resolveUpstream(pmDir);
+  if (!upstream.ok) return { ok: false, committed: 0, error: upstream.error };
+
   // Stage all changes
-  runSafe("git add -A", { cwd: pmDir });
+  const add = runGitSafe(["add", "-A"], pmDir);
+  if (!add.ok) return { ok: false, committed: 0, error: `git add failed: ${add.error}` };
 
   // Check if there's anything to commit
-  const diff = runSafe("git diff --cached --numstat", { cwd: pmDir });
+  const diff = runGitSafe(["diff", "--cached", "--numstat"], pmDir);
   const changedFiles = diff.ok && diff.output ? diff.output.split("\n").length : 0;
 
   if (changedFiles === 0) {
@@ -257,7 +340,7 @@ function push(pmDir) {
 
   // Commit
   const timestamp = new Date().toISOString().replace(/T/, " ").replace(/\..+/, "");
-  const commitResult = runSafe(`git commit -m "kb: sync ${timestamp}"`, { cwd: pmDir });
+  const commitResult = runGitSafe(["commit", "-m", `kb: sync ${timestamp}`], pmDir);
   if (!commitResult.ok) {
     return { ok: false, committed: 0, error: `commit failed: ${commitResult.error}` };
   }
@@ -272,12 +355,15 @@ function push(pmDir) {
 }
 
 /**
- * Push to origin. If the push is rejected because remote has new commits,
+ * Push to the current branch's configured upstream. If the push is rejected because remote has new commits,
  * automatically pull --rebase and retry once. This makes push idempotent
  * against concurrent commits from another machine.
  */
 function pushWithAutoRebase(pmDir) {
-  const first = runSafe("git push", { cwd: pmDir });
+  const upstream = resolveUpstream(pmDir);
+  if (!upstream.ok) return { ok: false, error: upstream.error };
+  const pushArgs = ["push", "--", upstream.remote, `HEAD:refs/heads/${upstream.remoteBranch}`];
+  const first = runGitSafe(pushArgs, pmDir);
   if (first.ok || first.error.includes("Everything up-to-date")) {
     return { ok: true };
   }
@@ -289,13 +375,16 @@ function pushWithAutoRebase(pmDir) {
   }
 
   // Remote has new commits — rebase our local commits on top, then retry.
-  const rebase = runSafe("git pull --rebase --autostash origin main", { cwd: pmDir });
+  const rebase = runGitSafe(
+    ["pull", "--rebase", "--autostash", "--", upstream.remote, upstream.mergeRef],
+    pmDir
+  );
   if (!rebase.ok) {
-    runSafe("git rebase --abort", { cwd: pmDir });
+    runGitSafe(["rebase", "--abort"], pmDir);
     return { ok: false, error: `push rejected; auto-rebase failed: ${rebase.error}` };
   }
 
-  const second = runSafe("git push", { cwd: pmDir });
+  const second = runGitSafe(pushArgs, pmDir);
   if (!second.ok && !second.error.includes("Everything up-to-date")) {
     return { ok: false, error: `push failed after rebase: ${second.error}` };
   }
@@ -319,11 +408,17 @@ function pull(pmDir) {
     return { ok: false, updated: 0, error: "No remote configured. Run setup first." };
   }
 
+  const upstream = resolveUpstream(pmDir);
+  if (!upstream.ok) return { ok: false, updated: 0, error: upstream.error };
+
   // --autostash: git stashes uncommitted changes, rebases, then pops automatically.
   // Cleaner than manual stash/pop and handles untracked files via .gitignore.
-  const pullResult = runSafe("git pull --rebase --autostash origin main", { cwd: pmDir });
+  const pullResult = runGitSafe(
+    ["pull", "--rebase", "--autostash", "--", upstream.remote, upstream.mergeRef],
+    pmDir
+  );
   if (!pullResult.ok) {
-    runSafe("git rebase --abort", { cwd: pmDir });
+    runGitSafe(["rebase", "--abort"], pmDir);
     return { ok: false, updated: 0, error: `pull failed: ${pullResult.error}` };
   }
 
@@ -392,21 +487,18 @@ function status(pmDir) {
     return { ok: false, error: "pm/ is not a git repo. Run `/pm:sync` to set up." };
   }
 
-  const remote = getRemoteUrl(pmDir) || "(none)";
-
-  // Current branch
-  const branchResult = runSafe("git branch --show-current", { cwd: pmDir });
-  const branch = branchResult.ok ? branchResult.output : "unknown";
+  const upstream = resolveUpstream(pmDir);
+  if (!upstream.ok) return { ok: false, error: upstream.error };
+  const remote = upstream.remoteUrl;
+  const branch = upstream.branch;
 
   // Uncommitted changes
-  const statusResult = runSafe("git status --porcelain", { cwd: pmDir });
+  const statusResult = runGitSafe(["status", "--porcelain"], pmDir);
   const uncommitted =
     statusResult.ok && statusResult.output ? statusResult.output.split("\n").length : 0;
 
   // Ahead/behind relative to the last locally observed remote-tracking ref.
-  const abResult = runSafe(`git rev-list --left-right --count origin/${branch}...HEAD`, {
-    cwd: pmDir,
-  });
+  const abResult = runGitSafe(["rev-list", "--left-right", "--count", "@{upstream}...HEAD"], pmDir);
   let ahead = 0;
   let behind = 0;
   if (abResult.ok && abResult.output) {
@@ -419,6 +511,7 @@ function status(pmDir) {
     ok: true,
     remote,
     branch,
+    upstream: upstream.ref,
     uncommitted,
     ahead,
     behind,
@@ -493,14 +586,14 @@ function localGitState(pmDir) {
   }
   const head = runGitSafe(["rev-parse", "HEAD"], pmDir);
   const upstream = runGitSafe(["rev-parse", "@{upstream}"], pmDir);
-  const branch = runGitSafe(["branch", "--show-current"], pmDir);
+  const branch = currentBranch(pmDir);
   const worktree = runGitSafe(["status", "--porcelain"], pmDir);
   const remoteUrl = getRemoteUrl(pmDir);
   return {
     repository: "present",
     head: head.ok ? head.output : null,
     upstream: upstream.ok ? upstream.output : null,
-    branch: branch.ok ? branch.output : null,
+    branch: branch.ok ? branch.branch : null,
     worktree_sha256: sha256(worktree.ok ? worktree.output : "unreadable"),
     remote_url_sha256: remoteUrl ? sha256(remoteUrl) : null,
   };
@@ -543,7 +636,9 @@ function syncObservation(mode, pmDir, expectedRemoteHash) {
 function refreshRemoteForRecovery(pmDir) {
   if (!isGitRepo(pmDir)) return { ok: false, error: "knowledge base repo is absent" };
   if (!hasRemote(pmDir)) return { ok: false, error: "knowledge base remote is absent" };
-  const result = runSafe("git fetch origin main", { cwd: pmDir });
+  const upstream = resolveUpstream(pmDir);
+  if (!upstream.ok) return { ok: false, error: upstream.error };
+  const result = runGitSafe(["fetch", "--", upstream.remote, upstream.mergeRef], pmDir);
   return result.ok ? { ok: true } : { ok: false, error: `recovery fetch failed: ${result.error}` };
 }
 
@@ -576,6 +671,7 @@ function runSyncEffect(options) {
   }
   const configuredRemoteUrl = remoteUrl || getRemoteUrl(pmDir);
   const expectedRemoteHash = configuredRemoteUrl ? sha256(configuredRemoteUrl) : null;
+  const configuredUpstream = isGitRepo(pmDir) ? resolveUpstream(pmDir) : null;
   const serialization = sharedGitRepositorySerialization(pmDir);
   let before;
   const recovery = {
@@ -608,7 +704,11 @@ function runSyncEffect(options) {
       repository: "pm-knowledge-base",
       remote_url_sha256: expectedRemoteHash,
     },
-    intent: { mode, branch: "main" },
+    intent: {
+      mode,
+      branch: configuredUpstream?.ok ? configuredUpstream.branch : null,
+      upstream: configuredUpstream?.ok ? configuredUpstream.ref : null,
+    },
     precondition() {
       before = localGitState(pmDir);
       return before;

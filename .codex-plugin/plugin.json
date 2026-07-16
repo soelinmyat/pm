@@ -1,7 +1,7 @@
 {
   "name": "pm",
   "description": "Shared product brain for small teams — research, strategy, grooming, and delivery in one place inside the repo",
-  "version": "1.13.43",
+  "version": "1.13.44",
   "author": {
     "name": "Soe Lin Myat"
   },
@@ -37,7 +37,7 @@
     "termsOfServiceURL": "https://github.com/soelinmyat/pm",
     "defaultPrompt": [
       "Research our market and key competitors.",
-      "Turn this feature idea into sprint-ready issues.",
+      "Turn this feature idea into an approved product proposal and execution plan.",
       "Build the groomed issue end-to-end."
     ],
     "brandColor": "#1D4ED8"

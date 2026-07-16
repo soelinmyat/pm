@@ -298,6 +298,13 @@ function validateEvidenceRecord(record, knownIds) {
   if (!Array.isArray(record.artifact_paths)) {
     issues.push("artifact_paths must be an array");
   } else {
+    if (
+      ["customer-sensitive", "restricted"].includes(record.privacy?.classification) &&
+      record.privacy?.pii_review === "pending" &&
+      record.artifact_paths.length > 0
+    ) {
+      issues.push("pending customer-sensitive or restricted evidence cannot bind to artifacts");
+    }
     const paths = new Set();
     for (const artifactPath of record.artifact_paths) {
       if (!isEvidenceArtifactPath(artifactPath)) {

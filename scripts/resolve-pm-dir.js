@@ -1,36 +1,15 @@
 #!/usr/bin/env node
 "use strict";
 
-// Resolve the pm/ directory for a project.
-//
-// Resolution order:
-//   1. {projectDir}/.pm/config.json (nested) or {projectDir}/pm.config.json
-//      (flat) with `pm_repo.path` → resolve relative to that config's parent
-//      and return `{resolved}/pm`.
-//   2. If projectDir is inside a git worktree whose main repo lives elsewhere,
-//      try the main repo's config the same way.
-//   3. Fallback: {projectDir}/pm (same-repo mode).
-//
-// Step 2 exists because `.pm/` is gitignored. A worktree created from a repo
-// in separate-repo mode has no `.pm/` of its own, but the main repo does.
-//
-// The flat `pm.config.json` form exists so projects can stop carrying a
-// `.pm/` directory entirely — eliminating the worktree-fragmentation footgun
-// where writers like pm-log.js create per-worktree `.pm/` trees. A tracked
-// `pm.config.json` at the repo root is the only thing pm needs to find the
-// storage repo.
-//
-// CLI usage:
-//   node scripts/resolve-pm-dir.js [projectDir]
-// Prints the resolved pm directory to stdout.
+// Resolve the PM content, private state, and source repository paths from one
+// closed contract. An absent config permits same-repo fallback. Once a config
+// exists, parse errors, unsupported pointers, and missing targets are fatal so
+// callers cannot silently write a new local pm/ tree.
 
 const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
 
-// Git hooks and worktree-aware invocations export repo-scoped env vars that
-// hijack child git commands — making them report on the parent repo even when
-// cwd is unrelated. Strip them so the child git discovers the repo from cwd.
 const GIT_ENV_KEYS_TO_CLEAR = [
   "GIT_DIR",
   "GIT_WORK_TREE",
@@ -40,12 +19,11 @@ const GIT_ENV_KEYS_TO_CLEAR = [
   "GIT_NAMESPACE",
   "GIT_SUPER_PREFIX",
 ];
+const FLAT_MARKERS = ["backlog", "evidence", "insights", "thinking", "memory.md", "strategy.md"];
 
 function cleanGitEnv() {
   const env = { ...process.env };
-  for (const key of GIT_ENV_KEYS_TO_CLEAR) {
-    delete env[key];
-  }
+  for (const key of GIT_ENV_KEYS_TO_CLEAR) delete env[key];
   return env;
 }
 
@@ -64,28 +42,23 @@ function defaultGitCommonDir(projectDir) {
   }
 }
 
-// Track which configRoots already had a both-configs warning emitted so we
-// only warn once per process per root.
 const warnedAboutBothConfigs = new Set();
 
-// Read .pm/config.json (nested) or pm.config.json (flat) under configRoot and
-// translate `pm_repo` into a pm dir. Returns the resolved pm dir, or null if
-// there is nothing usable here (no config, malformed, missing field, or
-// target dir does not exist on disk). Throws only for explicitly unsupported
-// types (e.g. remote repos).
-function tryConfigBased(configRoot) {
+function readConfig(configRoot) {
   const nestedPath = path.join(configRoot, ".pm", "config.json");
   const flatPath = path.join(configRoot, "pm.config.json");
-
   const nestedExists = fs.existsSync(nestedPath);
   const flatExists = fs.existsSync(flatPath);
+  const warnings = [];
 
-  let configPath;
+  let configPath = null;
   if (nestedExists && flatExists) {
+    const warning =
+      `both .pm/config.json and pm.config.json present at ${configRoot} — ` +
+      "using .pm/config.json for back-compat. Remove .pm/config.json once migrated.";
+    warnings.push(warning);
     if (!warnedAboutBothConfigs.has(configRoot)) {
-      process.stderr.write(
-        `pm-resolver: both .pm/config.json and pm.config.json present at ${configRoot} — using .pm/config.json for back-compat. Remove .pm/config.json once migrated.\n`
-      );
+      process.stderr.write(`pm-resolver: ${warning}\n`);
       warnedAboutBothConfigs.add(configRoot);
     }
     configPath = nestedPath;
@@ -100,112 +73,181 @@ function tryConfigBased(configRoot) {
   let config;
   try {
     config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-  } catch {
-    return null;
+  } catch (error) {
+    throw new Error(`Invalid JSON in ${configPath}: ${error.message}`);
   }
-
-  if (!config || typeof config !== "object" || !config.pm_repo) {
-    return null;
+  if (!config || typeof config !== "object" || Array.isArray(config)) {
+    throw new Error(`Invalid PM config in ${configPath}: expected a JSON object`);
   }
-
-  const pmRepo = config.pm_repo;
-
-  if (pmRepo.type && pmRepo.type !== "local") {
-    throw new Error(`Remote repos not yet supported (pm_repo.type: "${pmRepo.type}")`);
+  if (Object.hasOwn(config, "pm_repo") && Object.hasOwn(config, "source_repo")) {
+    throw new Error(
+      `Invalid PM config in ${configPath}: pm_repo and source_repo cannot both be set`
+    );
   }
-
-  if (!pmRepo.path) {
-    return null;
-  }
-
-  const configDir = path.dirname(configPath);
-  const resolvedRoot = path.resolve(configDir, pmRepo.path);
-
-  // Self-referential config: pm_repo points back to the config's own root.
-  // Treat as same-repo for that root.
-  if (resolvedRoot === path.resolve(configRoot)) {
-    return path.join(configRoot, "pm");
-  }
-
-  try {
-    fs.accessSync(resolvedRoot, fs.constants.F_OK);
-  } catch {
-    return null;
-  }
-
-  // Prefer the nested `{root}/pm/` convention when that subdir exists.
-  // Otherwise, if the root itself has KB content markers (flat layout),
-  // treat the root as the content dir. Fall back to the nested path so
-  // fresh/empty separate-repo setups still match the documented convention.
-  const nested = path.join(resolvedRoot, "pm");
-  if (fs.existsSync(nested)) return nested;
-
-  const flatMarkers = ["backlog", "evidence", "insights", "thinking", "memory.md", "strategy.md"];
-  const isFlatLayout = flatMarkers.some((name) => fs.existsSync(path.join(resolvedRoot, name)));
-  if (isFlatLayout) return resolvedRoot;
-
-  return nested;
+  return { config, configPath, warnings };
 }
 
-// Resolve both the content dir and the .pm state dir, accounting for flat vs
-// nested layouts. In the nested convention, `.pm/` lives alongside `pm/` at
-// the PM repo root; in the flat layout, `.pm/` lives inside the content dir.
+function resolvePointer(configPath, field, label) {
+  const pointer = field;
+  if (!pointer || typeof pointer !== "object" || Array.isArray(pointer)) {
+    throw new Error(`Invalid ${label} pointer in ${configPath}: expected an object`);
+  }
+  if (pointer.type && pointer.type !== "local") {
+    throw new Error(
+      `Remote repos not yet supported (${label}.type: "${pointer.type}") in ${configPath}`
+    );
+  }
+  if (typeof pointer.path !== "string" || pointer.path.trim() === "") {
+    throw new Error(`Invalid ${label} pointer in ${configPath}: path is required`);
+  }
+  return path.resolve(path.dirname(configPath), pointer.path);
+}
+
+function requireDirectory(target, configPath, description) {
+  let isDirectory = false;
+  try {
+    isDirectory = fs.statSync(target).isDirectory();
+  } catch {
+    // Report one stable error for absent, inaccessible, and non-directory targets.
+  }
+  if (!isDirectory) {
+    throw new Error(`${description} does not exist: ${target} (configured in ${configPath})`);
+  }
+}
+
+function contentLayout(repoRoot) {
+  const nested = path.join(repoRoot, "pm");
+  if (fs.existsSync(nested)) return { layout: "nested", pmDir: nested };
+  if (FLAT_MARKERS.some((name) => fs.existsSync(path.join(repoRoot, name)))) {
+    return { layout: "flat", pmDir: repoRoot };
+  }
+  // A fresh separate PM repository uses the documented nested convention.
+  return { layout: "nested", pmDir: nested };
+}
+
+function stateDirForRepo(repoRoot) {
+  return path.join(repoRoot, ".pm");
+}
+
+function sameRepoResult(projectDir, configInfo = null) {
+  return {
+    ok: true,
+    pmDir: path.join(projectDir, "pm"),
+    pmStateDir: path.join(projectDir, ".pm"),
+    sourceDir: projectDir,
+    mode: "same-repo",
+    configPath: configInfo ? configInfo.configPath : null,
+    warnings: configInfo ? configInfo.warnings : [],
+  };
+}
+
+function resultFromConfig(configRoot, projectDir, configInfo, modeOverride = null) {
+  const { config, configPath, warnings } = configInfo;
+
+  if (Object.hasOwn(config, "pm_repo")) {
+    const pmRepoRoot = resolvePointer(configPath, config.pm_repo, "pm_repo");
+    if (pmRepoRoot === path.resolve(configRoot)) {
+      return sameRepoResult(projectDir, configInfo);
+    }
+    requireDirectory(pmRepoRoot, configPath, "Configured PM repository");
+    const { layout, pmDir } = contentLayout(pmRepoRoot);
+    return {
+      ok: true,
+      pmDir,
+      pmStateDir: stateDirForRepo(pmRepoRoot),
+      sourceDir: projectDir,
+      mode: modeOverride || `separate-${layout}`,
+      configPath,
+      warnings,
+    };
+  }
+
+  if (Object.hasOwn(config, "source_repo")) {
+    const sourceDir = resolvePointer(configPath, config.source_repo, "source_repo");
+    requireDirectory(sourceDir, configPath, "Configured source repository");
+    const { layout, pmDir } = contentLayout(projectDir);
+    return {
+      ok: true,
+      pmDir,
+      pmStateDir: stateDirForRepo(projectDir),
+      sourceDir,
+      mode: modeOverride || `separate-${layout}`,
+      configPath,
+      warnings,
+    };
+  }
+
+  return sameRepoResult(projectDir, configInfo);
+}
+
+// Compatibility helper retained for existing in-process callers and tests.
+// It now throws for invalid configured state rather than collapsing it to null.
+function tryConfigBased(configRoot) {
+  const configInfo = readConfig(configRoot);
+  if (!configInfo) return null;
+  if (
+    !Object.hasOwn(configInfo.config, "pm_repo") &&
+    !Object.hasOwn(configInfo.config, "source_repo")
+  ) {
+    return null;
+  }
+  return resultFromConfig(configRoot, configRoot, configInfo).pmDir;
+}
+
 function resolvePmStateDir(pmDir) {
   const innerDotPm = path.join(pmDir, ".pm");
   const parentDotPm = path.join(path.dirname(pmDir), ".pm");
   if (fs.existsSync(innerDotPm)) return innerDotPm;
   if (fs.existsSync(parentDotPm)) return parentDotPm;
-  // Neither exists yet (fresh setup) — default to the nested convention.
   return parentDotPm;
 }
 
+const pmPathsCache = new Map();
+
 function resolvePmPaths(projectDir, options = {}) {
-  const pmDir = resolvePmDir(projectDir, options);
-  return { pmDir, pmStateDir: resolvePmStateDir(pmDir) };
-}
-
-// In-process memoization. Helps callers like start-status / kb-sync-git that
-// resolve repeatedly within a single node process. Skipped when the caller
-// injects a custom gitCommonDir (tests) to keep behavior deterministic.
-const pmDirCache = new Map();
-
-function resolvePmDir(projectDir, options = {}) {
+  const absoluteProjectDir = path.resolve(projectDir);
   const cacheable = !options.gitCommonDir;
-  const cacheKey = cacheable ? path.resolve(projectDir) : null;
-  if (cacheable && pmDirCache.has(cacheKey)) {
-    return pmDirCache.get(cacheKey);
+  if (cacheable && pmPathsCache.has(absoluteProjectDir)) {
+    return { ...pmPathsCache.get(absoluteProjectDir) };
   }
 
-  // 1. Direct: projectDir's own config (.pm/config.json or pm.config.json)
-  const direct = tryConfigBased(projectDir);
-  if (direct !== null) {
-    if (cacheable) pmDirCache.set(cacheKey, direct);
-    return direct;
+  const directConfig = readConfig(absoluteProjectDir);
+  if (directConfig) {
+    const result = resultFromConfig(absoluteProjectDir, absoluteProjectDir, directConfig);
+    if (cacheable) pmPathsCache.set(absoluteProjectDir, result);
+    return { ...result };
   }
 
-  // 2. Worktree walk: if projectDir is inside a worktree, the main repo may
-  //    hold the config.
   const gitCommonDir = options.gitCommonDir || defaultGitCommonDir;
-  const commonDir = gitCommonDir(projectDir);
+  const commonDir = gitCommonDir(absoluteProjectDir);
   if (commonDir && path.basename(commonDir) === ".git") {
     const mainRepoRoot = path.dirname(commonDir);
-    if (path.resolve(mainRepoRoot) !== path.resolve(projectDir)) {
-      const fromMain = tryConfigBased(mainRepoRoot);
-      if (fromMain !== null) {
-        if (cacheable) pmDirCache.set(cacheKey, fromMain);
-        return fromMain;
+    if (path.resolve(mainRepoRoot) !== absoluteProjectDir) {
+      const mainConfig = readConfig(mainRepoRoot);
+      if (mainConfig) {
+        const result = resultFromConfig(
+          mainRepoRoot,
+          absoluteProjectDir,
+          mainConfig,
+          "worktree-main-config"
+        );
+        if (cacheable) pmPathsCache.set(absoluteProjectDir, result);
+        return { ...result };
       }
     }
   }
 
-  // 3. Fallback: same-repo mode at projectDir
-  const fallback = path.join(projectDir, "pm");
-  if (cacheable) pmDirCache.set(cacheKey, fallback);
-  return fallback;
+  const fallback = sameRepoResult(absoluteProjectDir);
+  if (cacheable) pmPathsCache.set(absoluteProjectDir, fallback);
+  return { ...fallback };
+}
+
+function resolvePmDir(projectDir, options = {}) {
+  return resolvePmPaths(projectDir, options).pmDir;
 }
 
 function _clearCache() {
-  pmDirCache.clear();
+  pmPathsCache.clear();
   warnedAboutBothConfigs.clear();
 }
 
@@ -226,13 +268,10 @@ if (require.main === module) {
 
   const projectDir = args[0] ? path.resolve(args[0]) : process.cwd();
   try {
-    if (wantJson) {
-      process.stdout.write(JSON.stringify(resolvePmPaths(projectDir)) + "\n");
-    } else {
-      process.stdout.write(resolvePmDir(projectDir) + "\n");
-    }
-  } catch (err) {
-    process.stderr.write(`Error: ${err.message}\n`);
-    process.exit(1);
+    const result = resolvePmPaths(projectDir);
+    process.stdout.write((wantJson ? JSON.stringify(result) : result.pmDir) + "\n");
+  } catch (error) {
+    process.stderr.write(`Error: ${error.message}\n`);
+    process.exitCode = 1;
   }
 }
