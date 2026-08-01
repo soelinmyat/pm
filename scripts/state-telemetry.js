@@ -6,7 +6,7 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const childProcess = require("node:child_process");
 
-const { analyticsDir, stateBeforeDir } = require("./lib/analytics-paths.js");
+const { scratchDir, stateBeforeDir } = require("./lib/analytics-paths.js");
 
 function usage(message) {
   if (message) {
@@ -92,8 +92,10 @@ function snapshotFilePath(projectDir, relativePath) {
 }
 
 function readCurrentFile(projectDir, name) {
+  // Scratch markers live in the project's own .pm/analytics (where the hooks
+  // write them), not in the storage repo's analytics dir.
   try {
-    return fs.readFileSync(path.join(analyticsDir(projectDir), name), "utf8").trim();
+    return fs.readFileSync(path.join(scratchDir(projectDir), name), "utf8").trim();
   } catch {
     return "";
   }
@@ -413,7 +415,7 @@ function applyState(projectDir, pluginRoot, targetPath) {
       // Clear .current-run so session-end / next analytics-log don't
       // re-close the same run as abandoned.
       if (recoveredRunId === currentRunId) {
-        const dir = analyticsDir(projectDir);
+        const dir = scratchDir(projectDir);
         for (const name of [".current-run", ".current-skill"]) {
           try {
             fs.unlinkSync(path.join(dir, name));

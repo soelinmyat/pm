@@ -31,7 +31,8 @@ if [ -n "$PREV_RUN_ID" ] && [ -n "$PREV_SKILL" ]; then
   "$PLUGIN_ROOT/scripts/pm-log.sh" run-end \
     --skill "$PREV_SKILL" \
     --run-id "$PREV_RUN_ID" \
-    --status abandoned 2>/dev/null || true
+    --status abandoned \
+    --detail session-end 2>/dev/null || true
   rm -f "$CURRENT_RUN_FILE"
   rm -f "$CURRENT_SKILL_FILE"
 fi
