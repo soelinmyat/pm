@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { writeTextAtomic: writeAtomicText } = require("./lib/atomic-file");
 const { parseCliArgs } = require("./loop-args");
+const { recordSessionTelemetry } = require("./lib/telemetry");
 const { validateRfcSidecar } = require("./rfc-sidecar-check");
 const { rfcIssuesToDevWorkUnits } = require("./lib/rfc-work-units");
 
@@ -367,6 +368,13 @@ function recordCommand(options) {
     } else {
       writeSession(sessionPath, updated);
     }
+    recordSessionTelemetry({
+      workflow: "dev",
+      sessionPath: persistedPath,
+      prevSession: session,
+      session: updated,
+      result,
+    });
     const decision = nextDecision(updated, persistedPath);
     emit(
       options,

@@ -78,6 +78,29 @@ function analyticsDir(projectRoot) {
   }
 }
 
+// Session-scratch markers (.current-run, .current-skill, .run-map.json) are
+// host-local correlation state, not durable telemetry: they must live in the
+// project's own .pm/analytics — never in the (possibly git-synced) storage
+// repo that analyticsDir() can resolve to. hooks/analytics-log and
+// hooks/session-end address this directory as $CLAUDE_PROJECT_DIR/.pm/analytics;
+// every Node reader/writer must go through these helpers so both layers
+// always agree on one location.
+function scratchDir(projectRoot) {
+  return path.join(projectRoot, ".pm", "analytics");
+}
+
+function currentRunFilePath(projectRoot) {
+  return path.join(scratchDir(projectRoot), ".current-run");
+}
+
+function currentSkillFilePath(projectRoot) {
+  return path.join(scratchDir(projectRoot), ".current-skill");
+}
+
+function runMapFilePath(projectRoot) {
+  return path.join(scratchDir(projectRoot), ".run-map.json");
+}
+
 function activityFilePath(projectRoot, hostIdOverride) {
   const hostId = hostIdOverride || getHostId(projectRoot);
   return path.join(analyticsDir(projectRoot), `activity-${hostId}.jsonl`);
@@ -124,9 +147,13 @@ module.exports = {
   sanitizeHostId,
   getHostId,
   analyticsDir,
+  scratchDir,
   activityFilePath,
   stepsFilePath,
   currentStepFilePath,
+  currentRunFilePath,
+  currentSkillFilePath,
+  runMapFilePath,
   stateBeforeDir,
   listHostFiles,
   _resetCacheForTests,

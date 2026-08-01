@@ -22,6 +22,7 @@ const {
 const { writeJsonAtomic } = require("./loop-git.js");
 const { resolveRfcProfile } = require("./lib/rfc-runtime-profile.js");
 const { acquireOwnedLock } = require("./lib/owned-lock.js");
+const { recordSessionTelemetry } = require("./lib/telemetry");
 
 const EXIT = { OK: 0, INVALID: 2, PRECONDITION: 3, VALIDATION: 4, BLOCKED: 5 };
 
@@ -260,6 +261,15 @@ function mutateSession(options, mutation, mutationOptions = {}) {
       outputPath = archiveTerminalRun(sessionPath, next, mutationOptions.terminalResult);
     } else if (!idempotent) {
       writeSession(sessionPath, next);
+    }
+    if (!idempotent) {
+      recordSessionTelemetry({
+        workflow: "rfc",
+        sessionPath: outputPath,
+        prevSession: session,
+        session: next,
+        result: mutationOptions.terminalResult,
+      });
     }
     emit(options, {
       session_path: outputPath,

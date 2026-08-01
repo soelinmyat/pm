@@ -335,6 +335,24 @@ function writeActivity(options, projectRoot) {
   return record;
 }
 
+function startRun(options, projectRoot) {
+  const branch = detectBranch(projectRoot);
+  const runId = options.runId || generateRunId(options.skill, branch);
+  writeActivity(
+    {
+      skill: options.skill,
+      event: "started",
+      detail: options.detail,
+      runId,
+      parentRunId: options.parentRunId,
+      status: "running",
+      metaJson: options.metaJson,
+    },
+    projectRoot
+  );
+  return runId;
+}
+
 function writeStep(options, projectRoot) {
   const logPath = stepsFilePath(projectRoot);
   const record = buildStepRecord(options, projectRoot);
@@ -403,16 +421,12 @@ function main() {
       if (!options.skill) {
         usage("run-start requires --skill");
       }
-      const branch = detectBranch(projectRoot);
-      const runId = options["run-id"] || generateRunId(options.skill, branch);
-      writeActivity(
+      const runId = startRun(
         {
           skill: options.skill,
-          event: "started",
           detail: options.detail || options.args,
-          runId,
+          runId: options["run-id"],
           parentRunId: options["parent-run-id"],
-          status: "running",
         },
         projectRoot
       );
@@ -502,4 +516,12 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { normalizeStepName, STEP_NAME_PATTERN };
+module.exports = {
+  normalizeStepName,
+  STEP_NAME_PATTERN,
+  readAnalyticsFlag,
+  writeActivity,
+  writeStep,
+  startRun,
+  detectProjectRoot,
+};

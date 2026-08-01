@@ -49,13 +49,31 @@ cd "$PROJECT_DIR"
 
 # --- Start a run for step correlation ---
 # .current-run / .current-skill let the steps pipeline (hooks/agent-step,
-# scripts/state-telemetry.js) attribute spans to this run. The run is closed
-# later by state-telemetry (on completion) or session-end (if still open).
+# scripts/state-telemetry.js, scripts/lib/telemetry.js) attribute spans to
+# this run. The run is closed later by a genuine completion (state-telemetry
+# or a session script) or by session-end (if still open).
 ANALYTICS_DIR="$PROJECT_DIR/.pm/analytics"
 CURRENT_RUN_FILE="$ANALYTICS_DIR/.current-run"
 CURRENT_SKILL_FILE="$ANALYTICS_DIR/.current-skill"
 
-RUN_ID=$("$PLUGIN_ROOT/scripts/pm-log.sh" run-start --skill "$SKILL_SHORT" ${ARGS:+--args "$ARGS"}) || true
+# Close-before-overwrite: only the run named in .current-run can ever be
+# closed by session-end, so overwriting the marker while a previous run is
+# still open would leak that run with no terminal event. Soft-close it as
+# superseded and link the new run to it with parent_run_id. If the superseded
+# run's workflow later completes genuinely, its session script appends an
+# authoritative completed terminal — readers take the last terminal per run.
+PREV_RUN_ID=$(cat "$CURRENT_RUN_FILE" 2>/dev/null || true)
+PREV_SKILL=$(cat "$CURRENT_SKILL_FILE" 2>/dev/null || true)
+if [ -n "$PREV_RUN_ID" ]; then
+  "$PLUGIN_ROOT/scripts/pm-log.sh" active-step-close --status superseded 2>/dev/null || true
+  "$PLUGIN_ROOT/scripts/pm-log.sh" run-end \
+    --skill "${PREV_SKILL:-unknown}" \
+    --run-id "$PREV_RUN_ID" \
+    --status superseded \
+    --detail "superseded-by=$SKILL_SHORT" 2>/dev/null || true
+fi
+
+RUN_ID=$("$PLUGIN_ROOT/scripts/pm-log.sh" run-start --skill "$SKILL_SHORT" ${ARGS:+--args "$ARGS"} ${PREV_RUN_ID:+--parent-run-id "$PREV_RUN_ID"}) || true
 if [ -n "$RUN_ID" ]; then
   mkdir -p "$ANALYTICS_DIR"
   printf '%s' "$RUN_ID" > "$CURRENT_RUN_FILE"
