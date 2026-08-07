@@ -327,10 +327,11 @@ test("computeDelta budgets runtime Markdown and exempts only docs Markdown", () 
   try {
     const prior = commitFile(repo, "src/app.js", "one\n", "base");
     commitFile(repo, "skills/dev/SKILL.md", "runtime line\n".repeat(5), "runtime markdown");
+    commitFile(repo, "skills/dev/docs/steps.md", "nested docs line\n".repeat(7), "nested docs");
     const head = commitFile(repo, "docs/notes.md", "notes\n".repeat(40), "docs churn");
 
     const delta = computeDelta(repo.dir, prior, head);
-    assert.equal(delta.code_lines, 5);
+    assert.equal(delta.code_lines, 12);
     assert.equal(delta.ineligible, null);
   } finally {
     fs.rmSync(repo.dir, { recursive: true, force: true });

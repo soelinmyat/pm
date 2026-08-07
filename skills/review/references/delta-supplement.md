@@ -20,7 +20,7 @@ A post-pass fix commit (or short series of commits) qualifies only when all of t
 
 - The canonical report outcome is `passed` and its package hashes verify.
 - The certified commit (or prior supplement head) is an ancestor of HEAD — a rebase needs diff identity or a full round instead.
-- The delta diff changes at most **50 code lines** (added + removed). Test files (`tests/`, `__tests__/`, `*.test.*`, `*.spec.*`) and non-runtime documentation (`docs/**/*.md`) are exempt from the line budget but still counted as changed files. Runtime Markdown — `skills/`, `references/`, `commands/`, `templates/` — is source and stays budgeted. A rename is exempt only when both its old and new paths are exempt; a rename crossing the exempt boundary in either direction makes the delta ineligible.
+- The delta diff changes at most **50 code lines** (added + removed). Test files (`tests/`, `__tests__/`, `*.test.*`, `*.spec.*`) and non-runtime documentation (repo-root `docs/**/*.md` only) are exempt from the line budget but still counted as changed files. Runtime Markdown — `skills/`, `references/`, `commands/`, `templates/`, including any `docs/` directory nested inside them — is source and stays budgeted. A rename is exempt only when both its old and new paths are exempt; a rename crossing the exempt boundary in either direction makes the delta ineligible.
 - Every changed file is inside the certified changed-file set (current or old rename paths) or is budget-exempt. New out-of-scope source files require a full round.
 - No non-exempt binary changes.
 - At most **2 supplements** chain from one certification. A third fix, however small, requires a full round.

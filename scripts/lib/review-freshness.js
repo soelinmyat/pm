@@ -33,12 +33,14 @@ const SUPPLEMENT_KIND = "review-delta-v1";
 const SUPPLEMENT_FILE_RE = /^supplement-([12])\.json$/;
 // Paths whose churn does not count against the delta code-line budget and may
 // fall outside the certified changed-file inventory: tests and non-runtime
-// documentation under docs/. Runtime Markdown (skills/, references/,
-// commands/, templates/) is reviewable source (reviewer-briefs.md) and stays
-// budgeted. A row is exempt only when BOTH rename ends are exempt; a rename
-// crossing the exempt boundary in either direction is ineligible outright.
+// documentation under the repo-root docs/ tree only — a docs/ directory
+// nested under a runtime tree (skills/dev/docs/) is loadable source. Runtime
+// Markdown (skills/, references/, commands/, templates/) is reviewable source
+// (reviewer-briefs.md) and stays budgeted. A row is exempt only when BOTH
+// rename ends are exempt; a rename crossing the exempt boundary in either
+// direction is ineligible outright.
 const DELTA_BUDGET_EXEMPT_RE =
-  /(^|\/)(tests?|__tests__)\/|\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)docs\/.*\.md$/;
+  /(^|\/)(tests?|__tests__)\/|\.(test|spec)\.[cm]?[jt]sx?$|^docs\/.*\.md$/;
 const COMMITISH_RE = /^[0-9a-f]{7,64}$/;
 
 function isExemptRow(row) {

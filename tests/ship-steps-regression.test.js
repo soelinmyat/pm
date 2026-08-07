@@ -310,8 +310,8 @@ test("CI and merge-loop fix commits recertify before retry push", () => {
   const review = read("skills/ship/steps/03-review.md");
   assert.match(
     review,
-    /review-delta\.js" check --root "\$PWD" --review-dir "\.pm\/dev-sessions\/\{slug\}\/review" --base "/,
-    "03-review skip check must pass the live authoritative base to review-delta check"
+    /review-delta\.js" check --root "\$PWD" --review-dir "\.pm\/dev-sessions\/\{slug\}\/review" --base "\$\(git rev-parse "refs\/remotes\/\{DELIVERY_REMOTE\}\/\{DEFAULT_BRANCH\}"\)"/,
+    "03-review skip check must pass the live base resolved from the delivery remote"
   );
   assert.match(
     contract,
