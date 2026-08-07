@@ -52,6 +52,16 @@ function frozenDiffBytes(repo, base, head) {
   return result.stdout;
 }
 
+function patchId(repo, diffBytes, flag) {
+  const result = spawnSync("git", ["patch-id", flag], {
+    cwd: repo.dir,
+    input: diffBytes,
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  assert.equal(result.status, 0);
+  return result.stdout.toString("utf8").split(" ")[0];
+}
+
 test("baseEquivalence accepts an unrelated advance of the authoritative base", () => {
   const repo = makeRepo();
   try {
@@ -194,6 +204,74 @@ test("diffIdentity accepts a rebase when compared against the live base", () => 
   }
 });
 
+test("diffIdentity rejects a whitespace-only amend against the same base", () => {
+  const repo = makeRepo();
+  try {
+    const base = commitFile(repo, "base.txt", "base\n", "base");
+    repo.run("switch", "-q", "-c", "feature");
+    const reviewed = commitFile(repo, "src/lib.py", "def f():\n    return 1\n", "feature");
+    const source = {
+      commit: reviewed,
+      base_commit: base,
+      diff_sha256: digest(frozenDiffBytes(repo, base, reviewed)),
+    };
+    fs.writeFileSync(path.join(repo.dir, "src/lib.py"), "def f():\nreturn 1\n");
+    repo.run("add", "-A");
+    repo.run("commit", "-q", "--amend", "-m", "feature dedented");
+    const amended = repo.run("rev-parse", "HEAD");
+    assert.notEqual(amended, reviewed);
+
+    // Premise: patch-id --stable strips the intra-line whitespace, so the old
+    // patch-id acceptance would have certified this semantics-changing amend.
+    assert.equal(
+      patchId(repo, frozenDiffBytes(repo, base, reviewed), "--stable"),
+      patchId(repo, frozenDiffBytes(repo, base, amended), "--stable")
+    );
+
+    const verdict = diffIdentity({ root: repo.dir, source, currentCommit: amended });
+    assert.equal(verdict.ok, false);
+    assert.match(verdict.reason, /not patch-identical/);
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});
+
+test("diffIdentity rejects a whitespace-only variant across a moved base", () => {
+  const repo = makeRepo();
+  try {
+    const base = commitFile(repo, "base.txt", "base\n", "base");
+    repo.run("switch", "-q", "-c", "feature");
+    const reviewed = commitFile(repo, "src/lib.py", "def f():\n    return 1\n", "feature");
+    const source = {
+      commit: reviewed,
+      base_commit: base,
+      diff_sha256: digest(frozenDiffBytes(repo, base, reviewed)),
+    };
+    repo.run("switch", "-q", "main");
+    const movedBase = commitFile(repo, "unrelated.txt", "unrelated\n", "main work");
+    repo.run("switch", "-q", "-c", "feature-2");
+    const dedented = commitFile(repo, "src/lib.py", "def f():\nreturn 1\n", "dedented variant");
+
+    // Premise: --stable collides across the moved base too; only --verbatim
+    // can distinguish the whitespace-only variant.
+    assert.equal(
+      patchId(repo, frozenDiffBytes(repo, base, reviewed), "--stable"),
+      patchId(repo, frozenDiffBytes(repo, movedBase, dedented), "--stable")
+    );
+
+    const verdict = diffIdentity({
+      root: repo.dir,
+      source,
+      currentCommit: dedented,
+      currentBaseCommit: movedBase,
+    });
+    assert.equal(verdict.ok, false);
+    assert.match(verdict.reason, /not patch-identical/);
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});
+
 test("diffIdentity rejects changed content and tampered frozen hashes", () => {
   const repo = makeRepo();
   try {
@@ -239,6 +317,39 @@ test("computeDelta budgets code lines and exempts tests and docs", () => {
       "src/app.js",
       "tests/app.test.js",
     ]);
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});
+
+test("computeDelta budgets runtime Markdown and exempts only docs Markdown", () => {
+  const repo = makeRepo();
+  try {
+    const prior = commitFile(repo, "src/app.js", "one\n", "base");
+    commitFile(repo, "skills/dev/SKILL.md", "runtime line\n".repeat(5), "runtime markdown");
+    const head = commitFile(repo, "docs/notes.md", "notes\n".repeat(40), "docs churn");
+
+    const delta = computeDelta(repo.dir, prior, head);
+    assert.equal(delta.code_lines, 5);
+    assert.equal(delta.ineligible, null);
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});
+
+test("computeDelta rejects a rename that crosses the exempt boundary", () => {
+  const repo = makeRepo();
+  try {
+    const lines = `${Array.from({ length: 20 }, (_, index) => `line ${index + 1}`).join("\n")}\n`;
+    const prior = commitFile(repo, "src/app.js", lines, "base");
+    fs.mkdirSync(path.join(repo.dir, "tests"), { recursive: true });
+    fs.renameSync(path.join(repo.dir, "src/app.js"), path.join(repo.dir, "tests/app.test.js"));
+    repo.run("add", "-A");
+    repo.run("commit", "-q", "-m", "relocate source into tests");
+    const head = repo.run("rev-parse", "HEAD");
+
+    const delta = computeDelta(repo.dir, prior, head);
+    assert.match(delta.ineligible, /rename between exempt and non-exempt paths/);
   } finally {
     fs.rmSync(repo.dir, { recursive: true, force: true });
   }

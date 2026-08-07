@@ -9,7 +9,7 @@ Every path below fails closed: any git error, hash mismatch, schema violation, o
 Gate validation accepts a frozen passed report for a commit other than its reviewed commit through exactly three paths, tried in order:
 
 1. **Exact** — the commit equals the reviewed commit (the ordinary case; listed for completeness).
-2. **Diff identity** — the branch was rebased or amended but its content is unchanged. The frozen diff bytes must still hash to the frozen `diff_sha256`, and `git patch-id --stable` of the current diff against the live authoritative base must equal that of the reviewed diff. Any content change, or a tampered frozen package, fails.
+2. **Diff identity** — the branch was rebased or amended but its content is unchanged. The frozen diff bytes must still hash to the frozen `diff_sha256`; then, against the frozen base the current diff bytes must hash to the same `diff_sha256`, and against a moved live base `git patch-id --verbatim` of the current diff must equal that of the reviewed diff (`--verbatim` because `--stable` ignores intra-line whitespace, which is semantics-bearing). Any content change, a git that cannot honor `--verbatim`, or a tampered frozen package fails.
 3. **Delta chain** — one or two hash-bound supplements (below) connect the reviewed commit to the current commit.
 
 Independently, when the authoritative default branch has advanced past the frozen `base_commit`, the target's base binding is authenticated by merge-base equivalence: the frozen base must be an ancestor of the live base, and the merge base of the reviewed commit with each must be identical. A rewritten base, or a base that absorbed the branch's own content, fails.
@@ -20,7 +20,7 @@ A post-pass fix commit (or short series of commits) qualifies only when all of t
 
 - The canonical report outcome is `passed` and its package hashes verify.
 - The certified commit (or prior supplement head) is an ancestor of HEAD — a rebase needs diff identity or a full round instead.
-- The delta diff changes at most **50 code lines** (added + removed). Test files (`tests/`, `__tests__/`, `*.test.*`, `*.spec.*`) and Markdown files are exempt from the line budget but still counted as changed files.
+- The delta diff changes at most **50 code lines** (added + removed). Test files (`tests/`, `__tests__/`, `*.test.*`, `*.spec.*`) and non-runtime documentation (`docs/**/*.md`) are exempt from the line budget but still counted as changed files. Runtime Markdown — `skills/`, `references/`, `commands/`, `templates/` — is source and stays budgeted. A rename is exempt only when both its old and new paths are exempt; a rename crossing the exempt boundary in either direction makes the delta ineligible.
 - Every changed file is inside the certified changed-file set (current or old rename paths) or is budget-exempt. New out-of-scope source files require a full round.
 - No non-exempt binary changes.
 - At most **2 supplements** chain from one certification. A third fix, however small, requires a full round.

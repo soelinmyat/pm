@@ -10,8 +10,9 @@
 //      diff scope is byte-identical (evidence-contract.md: frozen validation
 //      authenticates commits and their merge base, not the moving tip).
 //   2. Diff identity — the branch was rebased/amended and HEAD is a new
-//      commit, but `git patch-id --stable` proves the branch introduces the
-//      exact reviewed change set.
+//      commit, but the current diff bytes (same base) or `git patch-id
+//      --verbatim` (moved base) prove the branch introduces the exact
+//      reviewed change set.
 //   3. Delta supplements — a bounded post-pass fix chain (each link hash-bound
 //      to the canonical report, size-budgeted, file-scoped to the certified
 //      inventory, and reviewed on its own) reaches the current commit.
@@ -23,6 +24,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
+const { readProjectInput } = require("./project-file");
 
 const MAX_DELTA_CODE_LINES = 50;
 const MAX_DELTA_SUPPLEMENTS = 2;
@@ -30,9 +32,24 @@ const MAX_SUPPLEMENT_JSON_BYTES = 4 * 1024 * 1024;
 const SUPPLEMENT_KIND = "review-delta-v1";
 const SUPPLEMENT_FILE_RE = /^supplement-([12])\.json$/;
 // Paths whose churn does not count against the delta code-line budget and may
-// fall outside the certified changed-file inventory: tests and prose docs.
-const DELTA_BUDGET_EXEMPT_RE = /(^|\/)(tests?|__tests__)\/|\.(test|spec)\.[cm]?[jt]sx?$|\.md$/;
+// fall outside the certified changed-file inventory: tests and non-runtime
+// documentation under docs/. Runtime Markdown (skills/, references/,
+// commands/, templates/) is reviewable source (reviewer-briefs.md) and stays
+// budgeted. A row is exempt only when BOTH rename ends are exempt; a rename
+// crossing the exempt boundary in either direction is ineligible outright.
+const DELTA_BUDGET_EXEMPT_RE =
+  /(^|\/)(tests?|__tests__)\/|\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)docs\/.*\.md$/;
 const COMMITISH_RE = /^[0-9a-f]{7,64}$/;
+
+function isExemptRow(row) {
+  if (!DELTA_BUDGET_EXEMPT_RE.test(row?.path || "")) return false;
+  return !row?.old_path || DELTA_BUDGET_EXEMPT_RE.test(row.old_path);
+}
+
+function boundaryCrossingRename(row) {
+  if (typeof row?.old_path !== "string") return false;
+  return DELTA_BUDGET_EXEMPT_RE.test(row.path) !== DELTA_BUDGET_EXEMPT_RE.test(row.old_path);
+}
 
 function git(root, args, encoding = "utf8", input = undefined) {
   return execFileSync("git", args, {
@@ -85,7 +102,10 @@ function frozenDiff(root, baseCommit, commit) {
 
 function patchIdOfDiff(root, diffBytes) {
   if (!diffBytes || diffBytes.length === 0) return null;
-  const out = git(root, ["patch-id", "--stable"], "utf8", diffBytes);
+  // --verbatim (git >= 2.39) hashes whitespace as-is; --stable strips
+  // intra-line whitespace, which is semantics-bearing in indentation-sensitive
+  // sources and string literals. An unsupported flag throws and fails closed.
+  const out = git(root, ["patch-id", "--verbatim"], "utf8", diffBytes);
   const match = out.match(/^([0-9a-f]{40,64}) /);
   return match ? match[1] : null;
 }
@@ -141,6 +161,14 @@ function diffIdentity({ root, source, currentCommit, currentBaseCommit = null })
     if (digest(reviewed) !== diffSha)
       return fail("frozen diff bytes no longer match the reviewed diff_sha256");
     const current = frozenDiff(root, compareBase, currentCommit);
+    if (compareBase === baseCommit) {
+      // Same base: identical content produces byte-identical diffs, so the
+      // frozen hash authenticates the current commit directly.
+      if (current.length === 0) return fail("current diff is empty and cannot prove identity");
+      if (digest(current) !== diffSha)
+        return fail("current branch diff is not patch-identical to the reviewed diff");
+      return ok("byte-identical to the reviewed diff");
+    }
     const reviewedId = patchIdOfDiff(root, reviewed);
     const currentId = patchIdOfDiff(root, current);
     if (!reviewedId || !currentId)
@@ -164,7 +192,13 @@ function computeDelta(root, priorCommit, commit) {
   let codeLines = 0;
   let ineligible = null;
   for (const row of numstat) {
-    const exempt = DELTA_BUDGET_EXEMPT_RE.test(row.path);
+    if (boundaryCrossingRename(row)) {
+      // A rename across the exempt boundary relocates source with zero
+      // counted lines; neither budget nor scope can price it honestly.
+      ineligible = `rename between exempt and non-exempt paths (${row.old_path} -> ${row.path})`;
+      continue;
+    }
+    const exempt = isExemptRow(row);
     if (row.binary && !exempt) {
       ineligible = `binary change to non-exempt path ${row.path}`;
       continue;
@@ -207,19 +241,35 @@ function parseNumstat(raw) {
   return rows.sort((left, right) => left.path.localeCompare(right.path));
 }
 
-function readSupplements(reviewDir) {
-  const dir = path.join(reviewDir, "supplements");
+function projectRelativeDir(root, dir) {
+  const relative = path.isAbsolute(dir) ? path.relative(path.resolve(root), dir) : dir;
+  const normalized = relative.split(path.sep).join("/").replace(/\/+$/, "");
+  if (
+    normalized === "" ||
+    normalized === "." ||
+    normalized.split("/").some((part) => part === "..")
+  )
+    throw new Error("review directory must resolve inside the project root");
+  return normalized;
+}
+
+function readSupplements(root, reviewDir) {
+  const relative = projectRelativeDir(root, reviewDir);
+  const dir = path.join(path.resolve(root), relative, "supplements");
   if (!fs.existsSync(dir)) return [];
   const names = fs
     .readdirSync(dir)
     .filter((name) => SUPPLEMENT_FILE_RE.test(name))
     .sort();
   return names.map((name) => {
-    const file = path.join(dir, name);
-    const stat = fs.lstatSync(file);
-    if (!stat.isFile()) throw new Error(`${name} must be a regular file`);
-    if (stat.size > MAX_SUPPLEMENT_JSON_BYTES) throw new Error(`${name} exceeds 4 MiB`);
-    const value = JSON.parse(fs.readFileSync(file, "utf8"));
+    // readProjectInput enforces containment, rejects symlinked components,
+    // and bounds the read; a redirected supplements/ directory fails closed.
+    const input = readProjectInput(
+      root,
+      `${relative}/supplements/${name}`,
+      MAX_SUPPLEMENT_JSON_BYTES
+    );
+    const value = JSON.parse(input.bytes.toString("utf8"));
     const index = Number(name.match(SUPPLEMENT_FILE_RE)[1]);
     return { name, index, value };
   });
@@ -234,14 +284,30 @@ function certifiedPathSet(target) {
   return certified;
 }
 
+// Shared by validateSupplementChain and review-delta's build so eligibility
+// and gate enforcement can never diverge.
+function scopeViolation(deltaFiles, certified) {
+  for (const row of deltaFiles || []) {
+    if (isExemptRow(row)) continue;
+    if (!certified.has(row.path) && !(row.old_path && certified.has(row.old_path)))
+      return `touches ${row.path} outside the certified changed-file set`;
+  }
+  return null;
+}
+
 function validateSupplementChain({ root, reviewDir, report, target, currentCommit }) {
   try {
-    const supplements = readSupplements(reviewDir);
+    const supplements = readSupplements(root, reviewDir);
     if (supplements.length === 0) return fail("no delta supplements recorded");
     if (supplements.length > MAX_DELTA_SUPPLEMENTS)
       return fail(`delta chain exceeds the ${MAX_DELTA_SUPPLEMENTS}-supplement cap`);
-    const reportFile = path.join(reviewDir, "report.json");
-    const reportSha = digest(fs.readFileSync(reportFile));
+    const reportSha = digest(
+      readProjectInput(
+        root,
+        `${projectRelativeDir(root, reviewDir)}/report.json`,
+        MAX_SUPPLEMENT_JSON_BYTES
+      ).bytes
+    );
     const frozenCommit = target?.source?.commit || report?.source?.commit;
     if (!validCommitish(frozenCommit)) return fail("frozen report commit is missing");
     if (!validCommitish(currentCommit)) return fail("current commit is not a valid object name");
@@ -274,11 +340,8 @@ function validateSupplementChain({ root, reviewDir, report, target, currentCommi
         return fail(
           `${name} delta spans ${delta.code_lines} code lines over the ${MAX_DELTA_CODE_LINES}-line budget`
         );
-      for (const row of delta.files) {
-        if (DELTA_BUDGET_EXEMPT_RE.test(row.path)) continue;
-        if (!certified.has(row.path) && !(row.old_path && certified.has(row.old_path)))
-          return fail(`${name} touches ${row.path} outside the certified changed-file set`);
-      }
+      const violation = scopeViolation(delta.files, certified);
+      if (violation) return fail(`${name} ${violation}`);
       if (value?.result?.outcome !== "passed")
         return fail(`${name} delta review outcome is not passed`);
       prior = commit;
@@ -335,9 +398,12 @@ module.exports = {
   SUPPLEMENT_KIND,
   DELTA_BUDGET_EXEMPT_RE,
   baseEquivalence,
+  certifiedPathSet,
   computeDelta,
   diffIdentity,
   evaluateReviewFreshness,
+  isExemptRow,
   readSupplements,
+  scopeViolation,
   validateSupplementChain,
 };

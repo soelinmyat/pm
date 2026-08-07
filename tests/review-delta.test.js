@@ -176,6 +176,55 @@ test("review-delta build rejects out-of-scope, oversized, and already-certified 
   }
 });
 
+test("review-delta build rejects a rename that crosses the exempt boundary", () => {
+  const { repo } = certifiedRepo();
+  try {
+    fs.mkdirSync(path.join(repo.dir, "tests"), { recursive: true });
+    fs.renameSync(path.join(repo.dir, "src/app.js"), path.join(repo.dir, "tests/app.test.js"));
+    repo.run("add", "-A");
+    repo.run("commit", "-q", "-m", "relocate source into tests");
+
+    assert.throws(
+      () => buildCommand({ root: repo.dir, reviewDir: REVIEW_DIR }),
+      /delta is ineligible: rename between exempt and non-exempt paths/
+    );
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});
+
+test("review-delta build treats runtime Markdown as budgeted in-scope source", () => {
+  const { repo, reviewed } = certifiedRepo();
+  try {
+    commitFile(repo, "skills/dev/SKILL.md", "runtime guidance\n", "runtime markdown");
+    assert.throws(
+      () => buildCommand({ root: repo.dir, reviewDir: REVIEW_DIR }),
+      /outside the certified changed-file set/
+    );
+    repo.run("reset", "-q", "--hard", reviewed);
+
+    commitFile(repo, "docs/notes.md", "notes\n".repeat(80), "docs-only churn");
+    const docsOnly = buildCommand({ root: repo.dir, reviewDir: REVIEW_DIR });
+    assert.equal(docsOnly.ok, true);
+    assert.equal(docsOnly.code_lines, 0);
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});
+
+test("review-delta rejects a symlinked review directory", () => {
+  const { repo } = certifiedRepo();
+  try {
+    const realDir = path.join(repo.dir, ".pm/relocated-review");
+    fs.renameSync(path.join(repo.dir, REVIEW_DIR), realDir);
+    fs.symlinkSync(realDir, path.join(repo.dir, REVIEW_DIR));
+
+    assert.throws(() => checkCommand({ root: repo.dir, reviewDir: REVIEW_DIR }), /symlink/);
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});
+
 test("review-delta record fails a delta with blocking findings and preserves the audit trail", () => {
   const { repo } = certifiedRepo();
   try {
@@ -292,4 +341,6 @@ test("review-delta parseArgs enforces command and required options", () => {
   );
   const parsed = parseArgs(["check", "--review-dir", "x", "--commit", "abc", "--json"]);
   assert.deepEqual(parsed, { command: "check", reviewDir: "x", commit: "abc", json: true });
+  const based = parseArgs(["check", "--review-dir", "x", "--base", "def456"]);
+  assert.equal(based.base, "def456");
 });

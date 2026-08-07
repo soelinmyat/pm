@@ -26,12 +26,14 @@ const {
   MAX_DELTA_CODE_LINES,
   MAX_DELTA_SUPPLEMENTS,
   SUPPLEMENT_KIND,
-  DELTA_BUDGET_EXEMPT_RE,
+  certifiedPathSet,
   computeDelta,
   evaluateReviewFreshness,
   readSupplements,
+  scopeViolation,
   validateSupplementChain,
 } = require("./lib/review-freshness");
+const { readProjectInput, writeProjectJsonAtomic } = require("./lib/project-file");
 const { assertCleanWorktree, changedFileInventory } = require("./review-target");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
@@ -52,43 +54,44 @@ function digest(bytes) {
   return crypto.createHash("sha256").update(bytes).digest("hex");
 }
 
-function readBoundedJson(file, label) {
-  const stat = fs.lstatSync(file);
-  if (!stat.isFile()) throw new Error(`${label} must be a regular file`);
-  if (stat.size > MAX_JSON_BYTES) throw new Error(`${label} exceeds 4 MiB`);
-  return JSON.parse(fs.readFileSync(file, "utf8"));
+// readProjectInput (shared with every other evidence reader) enforces
+// containment, rejects symlinked path components, and bounds the read.
+function readContainedJson(root, relative, label) {
+  if (typeof relative !== "string" || relative.length === 0 || path.isAbsolute(relative))
+    throw new Error(`${label} must be a project-relative path`);
+  let input;
+  try {
+    input = readProjectInput(root, relative, MAX_JSON_BYTES);
+  } catch (error) {
+    throw new Error(`${label}: ${error.message}`);
+  }
+  return { value: JSON.parse(input.bytes.toString("utf8")), bytes: input.bytes };
 }
 
-function containedPath(root, relative, label) {
+function normalizedReviewDir(reviewDirRel) {
   if (
-    typeof relative !== "string" ||
-    relative.length === 0 ||
-    path.isAbsolute(relative) ||
-    relative.split(/[\\/]/).includes("..")
+    typeof reviewDirRel !== "string" ||
+    reviewDirRel.length === 0 ||
+    path.isAbsolute(reviewDirRel) ||
+    reviewDirRel.split(/[\\/]/).some((part) => part === "..")
   )
-    throw new Error(`${label} must be a project-relative path`);
-  const resolved = path.resolve(root, relative);
-  if (resolved !== path.resolve(root) && !resolved.startsWith(path.resolve(root) + path.sep))
-    throw new Error(`${label} escapes the project root`);
-  return resolved;
+    throw new Error("review directory must be a project-relative path");
+  return reviewDirRel.split(path.sep).join("/").replace(/\/+$/, "");
 }
 
 function loadCanonicalReview(root, reviewDirRel) {
-  const reviewDir = containedPath(root, reviewDirRel, "review directory");
-  const reportFile = path.join(reviewDir, "report.json");
-  const reportBytes = fs.readFileSync(reportFile);
-  if (reportBytes.length > MAX_JSON_BYTES) throw new Error("canonical report exceeds 4 MiB");
-  const report = JSON.parse(reportBytes.toString("utf8"));
+  const reviewDir = normalizedReviewDir(reviewDirRel);
+  const reportRead = readContainedJson(root, `${reviewDir}/report.json`, "canonical report");
+  const report = reportRead.value;
   if (report?.outcome !== "passed")
     throw new Error("canonical review report outcome is not passed; run a full review round");
-  const targetFile = containedPath(root, report?.target?.path, "report target binding");
-  const target = readBoundedJson(targetFile, "frozen review target");
+  const target = readContainedJson(root, report?.target?.path, "frozen review target").value;
   if (!target?.source?.commit) throw new Error("frozen review target has no source commit");
-  return { reviewDir, report, reportSha256: digest(reportBytes), target };
+  return { reviewDir, report, reportSha256: digest(reportRead.bytes), target };
 }
 
 function chainState(root, reviewDir, report, target) {
-  const supplements = readSupplements(reviewDir);
+  const supplements = readSupplements(root, reviewDir);
   if (supplements.length === 0) return { prior: target.source.commit, count: 0 };
   const tip = supplements.at(-1).value?.source?.commit;
   const verdict = validateSupplementChain({
@@ -100,13 +103,6 @@ function chainState(root, reviewDir, report, target) {
   });
   if (!verdict.ok) throw new Error(`existing delta chain is invalid: ${verdict.reason}`);
   return { prior: tip, count: supplements.length };
-}
-
-function atomicWriteJson(file, value) {
-  const tmp = `${file}.tmp-${process.pid}`;
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`);
-  fs.renameSync(tmp, file);
 }
 
 function buildCommand(options) {
@@ -133,18 +129,8 @@ function buildCommand(options) {
     throw new Error(
       `delta spans ${delta.code_lines} code lines over the ${MAX_DELTA_CODE_LINES}-line budget; run a full review round`
     );
-  const certified = new Set();
-  for (const row of target.changed_files || []) {
-    if (typeof row?.path === "string") certified.add(row.path);
-    if (typeof row?.old_path === "string") certified.add(row.old_path);
-  }
-  for (const row of delta.files) {
-    if (DELTA_BUDGET_EXEMPT_RE.test(row.path)) continue;
-    if (!certified.has(row.path) && !(row.old_path && certified.has(row.old_path)))
-      throw new Error(
-        `delta touches ${row.path} outside the certified changed-file set; run a full review round`
-      );
-  }
+  const violation = scopeViolation(delta.files, certifiedPathSet(target));
+  if (violation) throw new Error(`delta ${violation}; run a full review round`);
   const pending = {
     schema_version: 1,
     kind: PENDING_KIND,
@@ -166,11 +152,11 @@ function buildCommand(options) {
     changed_files: changedFileInventory(root, prior, head),
     delta_files: delta.files,
   };
-  const pendingPath = path.join(reviewDir, "supplements", "pending.json");
-  atomicWriteJson(pendingPath, pending);
+  const pendingPath = `${reviewDir}/supplements/pending.json`;
+  writeProjectJsonAtomic(root, pendingPath, pending, { maxBytes: MAX_JSON_BYTES });
   return {
     ok: true,
-    pending: path.relative(root, pendingPath).split(path.sep).join("/"),
+    pending: pendingPath,
     chain_index: pending.chain_index,
     prior_commit: prior,
     commit: head,
@@ -220,10 +206,10 @@ function validateResult(result, deltaPaths) {
 function recordCommand(options) {
   const root = path.resolve(options.root || process.cwd());
   const { reviewDir, reportSha256 } = loadCanonicalReview(root, options.reviewDir);
-  const pendingPath = path.join(reviewDir, "supplements", "pending.json");
-  if (!fs.existsSync(pendingPath))
+  const pendingPath = `${reviewDir}/supplements/pending.json`;
+  if (!fs.existsSync(path.join(root, pendingPath)))
     throw new Error("no pending delta target; run review-delta build first");
-  const pending = readBoundedJson(pendingPath, "pending delta target");
+  const pending = readContainedJson(root, pendingPath, "pending delta target").value;
   if (pending?.kind !== PENDING_KIND || pending?.schema_version !== 1)
     throw new Error("pending delta target is malformed");
   const head = git(root, ["rev-parse", "HEAD"]);
@@ -235,8 +221,7 @@ function recordCommand(options) {
   if (delta.delta_diff_sha256 !== pending.source?.delta_diff_sha256)
     throw new Error("delta diff bytes drifted after build; rebuild the pending delta target");
 
-  const resultFile = containedPath(root, options.result, "reviewer result");
-  const result = readBoundedJson(resultFile, "reviewer result");
+  const result = readContainedJson(root, options.result, "reviewer result").value;
   const deltaPaths = new Set(delta.files.map((row) => row.path));
   const issues = validateResult(result, deltaPaths);
   if (issues.length > 0)
@@ -259,30 +244,26 @@ function recordCommand(options) {
     },
   };
   if (outcome === "passed") {
-    const file = path.join(reviewDir, "supplements", `supplement-${pending.chain_index}.json`);
-    if (fs.existsSync(file))
+    const file = `${reviewDir}/supplements/supplement-${pending.chain_index}.json`;
+    if (fs.existsSync(path.join(root, file)))
       throw new Error(`supplement-${pending.chain_index}.json already exists; never overwrite`);
-    atomicWriteJson(file, supplement);
-    fs.rmSync(pendingPath);
+    writeProjectJsonAtomic(root, file, supplement, { replace: false, maxBytes: MAX_JSON_BYTES });
+    fs.rmSync(path.join(root, pendingPath));
     return {
       ok: true,
       outcome,
-      supplement: path.relative(root, file).split(path.sep).join("/"),
+      supplement: file,
       chain_index: pending.chain_index,
       commit: head,
     };
   }
-  const rejected = path.join(
-    reviewDir,
-    "supplements",
-    `rejected-${head.slice(0, 12)}-${Date.now()}.json`
-  );
-  atomicWriteJson(rejected, supplement);
-  fs.rmSync(pendingPath);
+  const rejected = `${reviewDir}/supplements/rejected-${head.slice(0, 12)}-${Date.now()}.json`;
+  writeProjectJsonAtomic(root, rejected, supplement, { replace: false, maxBytes: MAX_JSON_BYTES });
+  fs.rmSync(path.join(root, pendingPath));
   return {
     ok: false,
     outcome,
-    rejected: path.relative(root, rejected).split(path.sep).join("/"),
+    rejected,
     blocking: blocking.map((finding) => `${finding.severity}: ${finding.file}: ${finding.issue}`),
   };
 }

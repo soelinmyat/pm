@@ -307,6 +307,12 @@ test("CI and merge-loop fix commits recertify before retry push", () => {
     assert.match(source, /dev-gate-check/, `${name} must require the executable gate checker`);
   }
   assert.match(contract, /invoke `pm:review` against current HEAD/);
+  const review = read("skills/ship/steps/03-review.md");
+  assert.match(
+    review,
+    /review-delta\.js" check --root "\$PWD" --review-dir "\.pm\/dev-sessions\/\{slug\}\/review" --base "/,
+    "03-review skip check must pass the live authoritative base to review-delta check"
+  );
   assert.match(
     contract,
     /Both scoped paths fail closed; any check failure means the full round is required/
