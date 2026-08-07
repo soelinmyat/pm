@@ -66,11 +66,15 @@ function certifiedRepo() {
     },
     changed_files: changedFileInventory(repo.dir, base, reviewed),
   };
-  fs.writeFileSync(path.join(runDir, "target.json"), JSON.stringify(target, null, 2));
+  const targetBytes = Buffer.from(`${JSON.stringify(target, null, 2)}`);
+  fs.writeFileSync(path.join(runDir, "target.json"), targetBytes);
   const report = {
     outcome: "passed",
     source: { commit: reviewed, base_ref: "origin/main", base_commit: base },
-    target: { path: `${REVIEW_DIR}/runs/run-1/round-1/target.json` },
+    target: {
+      path: `${REVIEW_DIR}/runs/run-1/round-1/target.json`,
+      sha256: digest(targetBytes),
+    },
   };
   fs.writeFileSync(path.join(reviewDir, "report.json"), JSON.stringify(report, null, 2));
   return { repo, base, reviewed };
@@ -326,6 +330,37 @@ test("review-delta check accepts the exact certified commit and rejects stranger
 
     const pinned = checkCommand({ root: repo.dir, reviewDir: REVIEW_DIR, commit: reviewed });
     assert.equal(pinned.ok, true);
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});
+
+test("review-delta rejects a frozen target that is not bound to the canonical report", () => {
+  const { repo, reviewed } = certifiedRepo();
+  try {
+    const targetPath = path.join(repo.dir, REVIEW_DIR, "runs/run-1/round-1/target.json");
+    const target = JSON.parse(fs.readFileSync(targetPath, "utf8"));
+    const stranger = commitFile(
+      repo,
+      "src/app.js",
+      "line1\nline2\nline3\nfeature\nunreviewed\n",
+      "unreviewed"
+    );
+    assert.notEqual(stranger, reviewed);
+
+    // Swap the frozen target's reviewed commit without touching report.json.
+    // Nothing else in the package changes, so only the hash binding can catch it.
+    target.source.commit = stranger;
+    fs.writeFileSync(targetPath, JSON.stringify(target, null, 2));
+
+    assert.throws(
+      () => checkCommand({ root: repo.dir, reviewDir: REVIEW_DIR }),
+      /frozen review target does not match the canonical report binding/
+    );
+    assert.throws(
+      () => buildCommand({ root: repo.dir, reviewDir: REVIEW_DIR }),
+      /frozen review target does not match the canonical report binding/
+    );
   } finally {
     fs.rmSync(repo.dir, { recursive: true, force: true });
   }

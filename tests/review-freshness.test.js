@@ -484,3 +484,162 @@ test("validateSupplementChain rejects tampered supplement bindings", () => {
     fs.rmSync(repo.dir, { recursive: true, force: true });
   }
 });
+
+test("computeDelta prices the code-line budget exactly at its boundary", () => {
+  const repo = makeRepo();
+  try {
+    const prior = commitFile(repo, "src/app.js", "base\n", "base");
+    const atBudget = commitFile(
+      repo,
+      "src/exactly-fifty.js",
+      `${Array.from({ length: 50 }, (_, index) => `line ${index + 1}`).join("\n")}\n`,
+      "fifty added lines"
+    );
+    assert.equal(computeDelta(repo.dir, prior, atBudget).code_lines, 50);
+
+    const overBudget = commitFile(repo, "src/one-more.js", "line 51\n", "one line over");
+    assert.equal(computeDelta(repo.dir, prior, overBudget).code_lines, 51);
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});
+
+test("computeDelta refuses a binary change outside the exempt paths", () => {
+  const repo = makeRepo();
+  try {
+    const prior = commitFile(repo, "src/app.js", "base\n", "base");
+    const binary = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01, 0x02, 0x00, 0xff]);
+
+    const exemptBinary = commitFile(repo, "tests/fixture.png", binary, "exempt binary");
+    const exemptDelta = computeDelta(repo.dir, prior, exemptBinary);
+    assert.equal(exemptDelta.ineligible, null);
+    assert.equal(exemptDelta.code_lines, 0);
+
+    const sourceBinary = commitFile(repo, "src/logo.png", binary, "source binary");
+    const sourceDelta = computeDelta(repo.dir, prior, sourceBinary);
+    assert.match(sourceDelta.ineligible, /binary change to non-exempt path src\/logo\.png/);
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});
+
+test("delta exemption covers nested test directories but only JS and TS test suffixes", () => {
+  const repo = makeRepo();
+  try {
+    const prior = commitFile(repo, "src/app.js", "base\n", "base");
+    // Directory rule is not root-anchored and accepts the singular form.
+    commitFile(repo, "src/test/helper.js", "helper line\n".repeat(30), "nested singular test dir");
+    commitFile(repo, "skills/dev/tests/case.js", "case line\n".repeat(30), "nested tests dir");
+    commitFile(repo, "__tests__/case.js", "case line\n".repeat(30), "underscore tests dir");
+    const exempt = commitFile(repo, "docs/notes.md", "notes\n".repeat(30), "root docs markdown");
+    assert.equal(computeDelta(repo.dir, prior, exempt).code_lines, 0);
+
+    // The suffix rule is limited to JavaScript and TypeScript extensions.
+    const suffix = commitFile(repo, "api.test.py", "assert True\n".repeat(4), "python test suffix");
+    assert.equal(computeDelta(repo.dir, exempt, suffix).code_lines, 4);
+
+    const jsSuffix = commitFile(repo, "api.test.ts", "expect(1);\n".repeat(4), "ts test suffix");
+    assert.equal(computeDelta(repo.dir, suffix, jsSuffix).code_lines, 0);
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});
+
+test("validateSupplementChain rejects a chain that does not start at supplement-1", () => {
+  const repo = makeRepo();
+  try {
+    const base = commitFile(repo, "base.txt", "base\n", "base");
+    repo.run("switch", "-q", "-c", "feature");
+    const reviewed = commitFile(repo, "src/app.js", "feature\n", "feature");
+    const fix = commitFile(repo, "src/app.js", "feature\nfixed\n", "fix");
+    const reviewDir = path.join(repo.dir, ".pm/dev-sessions/example/review");
+    const supplementsDir = path.join(reviewDir, "supplements");
+    fs.mkdirSync(supplementsDir, { recursive: true });
+    fs.writeFileSync(path.join(reviewDir, "report.json"), "{}\n");
+    const report = { outcome: "passed", source: { commit: reviewed } };
+    const target = {
+      source: { commit: reviewed, base_commit: base },
+      changed_files: [{ path: "src/app.js" }],
+    };
+    fs.writeFileSync(
+      path.join(supplementsDir, "supplement-2.json"),
+      JSON.stringify({
+        schema_version: 1,
+        kind: "review-delta-v1",
+        canonical_report: {
+          sha256: digest(fs.readFileSync(path.join(reviewDir, "report.json"))),
+          commit: reviewed,
+        },
+        prior_commit: reviewed,
+        source: { commit: fix, delta_diff_sha256: digest(frozenDiffBytes(repo, reviewed, fix)) },
+        result: { outcome: "passed" },
+      })
+    );
+
+    const verdict = validateSupplementChain({
+      root: repo.dir,
+      reviewDir,
+      report,
+      target,
+      currentCommit: fix,
+    });
+    assert.equal(verdict.ok, false);
+    assert.match(verdict.reason, /not contiguous at supplement-2\.json/);
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});
+
+test("validateSupplementChain reports the supplement cap instead of ignoring an extra slot", () => {
+  const repo = makeRepo();
+  try {
+    const base = commitFile(repo, "base.txt", "base\n", "base");
+    repo.run("switch", "-q", "-c", "feature");
+    const reviewed = commitFile(repo, "src/app.js", "feature\n", "feature");
+    // Commit the fix series first so the review directory stays untracked and
+    // never becomes part of the deltas its supplements describe.
+    const commits = [1, 2, 3].map((index) =>
+      commitFile(repo, "src/app.js", `feature\nfix ${index}\n`, `fix ${index}`)
+    );
+    const reviewDir = path.join(repo.dir, ".pm/dev-sessions/example/review");
+    const supplementsDir = path.join(reviewDir, "supplements");
+    fs.mkdirSync(supplementsDir, { recursive: true });
+    fs.writeFileSync(path.join(reviewDir, "report.json"), "{}\n");
+    const report = { outcome: "passed", source: { commit: reviewed } };
+    const target = {
+      source: { commit: reviewed, base_commit: base },
+      changed_files: [{ path: "src/app.js" }],
+    };
+    const reportSha = digest(fs.readFileSync(path.join(reviewDir, "report.json")));
+    let prior = reviewed;
+    for (const [position, commit] of commits.entries()) {
+      fs.writeFileSync(
+        path.join(supplementsDir, `supplement-${position + 1}.json`),
+        JSON.stringify({
+          schema_version: 1,
+          kind: "review-delta-v1",
+          canonical_report: { sha256: reportSha, commit: reviewed },
+          prior_commit: prior,
+          source: { commit, delta_diff_sha256: digest(frozenDiffBytes(repo, prior, commit)) },
+          result: { outcome: "passed" },
+        })
+      );
+      prior = commit;
+    }
+
+    // A third recorded supplement must surface the cap, not be silently
+    // dropped by the filename filter and then misreported as a chain that
+    // ends short of the current commit.
+    const verdict = validateSupplementChain({
+      root: repo.dir,
+      reviewDir,
+      report,
+      target,
+      currentCommit: prior,
+    });
+    assert.equal(verdict.ok, false);
+    assert.match(verdict.reason, /exceeds the 2-supplement cap/);
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});

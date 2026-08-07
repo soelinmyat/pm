@@ -29,6 +29,7 @@ const {
   certifiedPathSet,
   computeDelta,
   evaluateReviewFreshness,
+  projectRelativeDir,
   readSupplements,
   scopeViolation,
   validateSupplementChain,
@@ -68,24 +69,28 @@ function readContainedJson(root, relative, label) {
   return { value: JSON.parse(input.bytes.toString("utf8")), bytes: input.bytes };
 }
 
-function normalizedReviewDir(reviewDirRel) {
-  if (
-    typeof reviewDirRel !== "string" ||
-    reviewDirRel.length === 0 ||
-    path.isAbsolute(reviewDirRel) ||
-    reviewDirRel.split(/[\\/]/).some((part) => part === "..")
-  )
-    throw new Error("review directory must be a project-relative path");
-  return reviewDirRel.split(path.sep).join("/").replace(/\/+$/, "");
-}
-
 function loadCanonicalReview(root, reviewDirRel) {
-  const reviewDir = normalizedReviewDir(reviewDirRel);
+  // The CLI only ever names a review directory relative to the project; the
+  // containment rule itself lives once, in review-freshness.projectRelativeDir,
+  // so the gate and this tool cannot drift on what a review directory is.
+  if (typeof reviewDirRel !== "string" || path.isAbsolute(reviewDirRel))
+    throw new Error("review directory must be a project-relative path");
+  const reviewDir = projectRelativeDir(root, reviewDirRel);
   const reportRead = readContainedJson(root, `${reviewDir}/report.json`, "canonical report");
   const report = reportRead.value;
   if (report?.outcome !== "passed")
     throw new Error("canonical review report outcome is not passed; run a full review round");
-  const target = readContainedJson(root, report?.target?.path, "frozen review target").value;
+  const targetRead = readContainedJson(root, report?.target?.path, "frozen review target");
+  // Every scope and identity decision below reads from these bytes, so bind
+  // them to the report exactly as review-check does before trusting either.
+  if (
+    !/^[a-f0-9]{64}$/.test(report?.target?.sha256 || "") ||
+    digest(targetRead.bytes) !== report.target.sha256
+  )
+    throw new Error(
+      "frozen review target does not match the canonical report binding; run a full review round"
+    );
+  const target = targetRead.value;
   if (!target?.source?.commit) throw new Error("frozen review target has no source commit");
   return { reviewDir, report, reportSha256: digest(reportRead.bytes), target };
 }

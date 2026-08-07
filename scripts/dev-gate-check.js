@@ -404,9 +404,16 @@ function validateReviewReportArtifact(
       result.target?.source?.base_commit !== authoritativeBaseCommit
     ) {
       const freshness = require("./lib/review-freshness");
+      // Base equivalence is defined over the *reviewed* commit: it asks whether
+      // the authoritative base moved by absorbing unrelated work, which is a
+      // property of the certification, not of HEAD. Passing the current commit
+      // would reject every rebase onto the advanced base — the exact case the
+      // diff-identity path exists to accept — while adding no protection: a
+      // rewritten base still fails the ancestor test, and a base that absorbed
+      // this branch's own content still moves the reviewed commit's merge base.
       const equivalence = freshness.baseEquivalence({
         root,
-        commit: currentCommit,
+        commit: result.target?.source?.commit,
         frozenBaseCommit: result.target?.source?.base_commit,
         liveBaseCommit: authoritativeBaseCommit,
       });

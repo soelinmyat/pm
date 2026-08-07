@@ -30,7 +30,10 @@ const MAX_DELTA_CODE_LINES = 50;
 const MAX_DELTA_SUPPLEMENTS = 2;
 const MAX_SUPPLEMENT_JSON_BYTES = 4 * 1024 * 1024;
 const SUPPLEMENT_KIND = "review-delta-v1";
-const SUPPLEMENT_FILE_RE = /^supplement-([12])\.json$/;
+// Matches any slot index so an over-cap chain is reported as a cap violation
+// rather than silently dropped by the filename filter; MAX_DELTA_SUPPLEMENTS
+// stays the single place the cap is enforced.
+const SUPPLEMENT_FILE_RE = /^supplement-(\d+)\.json$/;
 // Paths whose churn does not count against the delta code-line budget and may
 // fall outside the certified changed-file inventory: tests and non-runtime
 // documentation under the repo-root docs/ tree only — a docs/ directory
@@ -259,10 +262,15 @@ function readSupplements(root, reviewDir) {
   const relative = projectRelativeDir(root, reviewDir);
   const dir = path.join(path.resolve(root), relative, "supplements");
   if (!fs.existsSync(dir)) return [];
+  // Order by slot index, not lexicographically, so a two-digit slot cannot
+  // sort ahead of supplement-2.json and disguise itself as a contiguous chain.
   const names = fs
     .readdirSync(dir)
     .filter((name) => SUPPLEMENT_FILE_RE.test(name))
-    .sort();
+    .sort(
+      (left, right) =>
+        Number(left.match(SUPPLEMENT_FILE_RE)[1]) - Number(right.match(SUPPLEMENT_FILE_RE)[1])
+    );
   return names.map((name) => {
     // readProjectInput enforces containment, rejects symlinked components,
     // and bounds the read; a redirected supplements/ directory fails closed.
@@ -371,14 +379,27 @@ function evaluateReviewFreshness({
     const source = target?.source || report?.source;
     if (source?.commit === currentCommit)
       return { ...ok("bound to current commit"), method: "exact" };
-    const identity = diffIdentity({
-      root,
-      source,
-      currentCommit,
-      currentBaseCommit: authoritativeBaseCommit,
-    });
+    // Recorded supplements mean the delta chain is the intended path, and it
+    // reads only the per-supplement deltas. Trying it first avoids buffering
+    // and hashing the whole branch diff twice on every recertification and
+    // every ship retry. Both paths stay fail-closed, so order changes only
+    // which accepted method is reported and how much work a pass costs.
+    const chainFirst = readSupplements(root, reviewDir).length > 0;
+    const evaluateChain = () =>
+      validateSupplementChain({ root, reviewDir, report, target, currentCommit });
+    const evaluateIdentity = () =>
+      diffIdentity({ root, source, currentCommit, currentBaseCommit: authoritativeBaseCommit });
+
+    if (chainFirst) {
+      const chain = evaluateChain();
+      if (chain.ok) return { ...chain, method: "delta-chain" };
+      const identity = evaluateIdentity();
+      if (identity.ok) return { ...identity, method: "diff-identity" };
+      return fail(`diff identity: ${identity.reason}; delta chain: ${chain.reason}`);
+    }
+    const identity = evaluateIdentity();
     if (identity.ok) return { ...identity, method: "diff-identity" };
-    const chain = validateSupplementChain({ root, reviewDir, report, target, currentCommit });
+    const chain = evaluateChain();
     if (chain.ok) return { ...chain, method: "delta-chain" };
     return fail(`diff identity: ${identity.reason}; delta chain: ${chain.reason}`);
   } catch (error) {
@@ -405,6 +426,7 @@ module.exports = {
   diffIdentity,
   evaluateReviewFreshness,
   isExemptRow,
+  projectRelativeDir,
   readSupplements,
   scopeViolation,
   validateSupplementChain,

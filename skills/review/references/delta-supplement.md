@@ -20,7 +20,12 @@ A post-pass fix commit (or short series of commits) qualifies only when all of t
 
 - The canonical report outcome is `passed` and its package hashes verify.
 - The certified commit (or prior supplement head) is an ancestor of HEAD — a rebase needs diff identity or a full round instead.
-- The delta diff changes at most **50 code lines** (added + removed). Test files (`tests/`, `__tests__/`, `*.test.*`, `*.spec.*`) and non-runtime documentation (repo-root `docs/**/*.md` only) are exempt from the line budget but still counted as changed files. Runtime Markdown — `skills/`, `references/`, `commands/`, `templates/`, including any `docs/` directory nested inside them — is source and stays budgeted. A rename is exempt only when both its old and new paths are exempt; a rename crossing the exempt boundary in either direction makes the delta ineligible.
+- The delta diff changes at most **50 code lines** (added + removed). Exempt from the line budget — but still counted as changed files — are exactly these paths:
+  - any path with a `test/`, `tests/`, or `__tests__/` directory component at **any** depth, singular included (`src/test/helper.js` and `skills/dev/tests/case.js` both qualify);
+  - `*.test.*` and `*.spec.*` files with a JavaScript or TypeScript extension **only** (`.js`, `.jsx`, `.ts`, `.tsx`, `.cjs`, `.mjs`, `.cts`, `.mts`) — `api.test.py` and `model_spec.rb` are **not** exempt;
+  - non-runtime documentation under repo-root `docs/**/*.md` **only**.
+
+  The asymmetry is deliberate: the test-directory rule is not root-anchored, the docs rule is. Runtime Markdown — `skills/`, `references/`, `commands/`, `templates/`, including any `docs/` directory nested inside them — is source and stays budgeted. A rename is exempt only when both its old and new paths are exempt; a rename crossing the exempt boundary in either direction makes the delta ineligible.
 - Every changed file is inside the certified changed-file set (current or old rename paths) or is budget-exempt. New out-of-scope source files require a full round.
 - No non-exempt binary changes.
 - At most **2 supplements** chain from one certification. A third fix, however small, requires a full round.

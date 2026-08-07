@@ -2085,6 +2085,7 @@ test("review gate authenticates a moved authoritative base by merge-base equival
     target: {
       mode: "code-scan",
       source: {
+        commit: "abc123",
         base_ref: "origin/main",
         base_commit: "base123",
         remote_push_url_sha256: "a".repeat(64),
@@ -2128,6 +2129,8 @@ test("review gate authenticates a moved authoritative base by merge-base equival
     assert.equal(equivalent.ok, true, JSON.stringify(equivalent.issues, null, 2));
     assert.equal(received.frozenBaseCommit, "base123");
     assert.equal(received.liveBaseCommit, "live999");
+    // Base equivalence is defined over the frozen reviewed commit, which here
+    // is also the current commit because nothing moved.
     assert.equal(received.commit, "abc123");
 
     freshnessModule.baseEquivalence = () => ({ ok: false, reason: "merge base moved" });
@@ -2154,6 +2157,96 @@ test("review gate authenticates a moved authoritative base by merge-base equival
     reviewModule.checkReview = originalCheck;
     reviewModule.expandFromReport = originalExpand;
     freshnessModule.baseEquivalence = originalEquivalence;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("review gate authenticates base equivalence over the frozen reviewed commit", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-base-rebased-"));
+  const reviewDir = path.join(root, ".pm/dev-sessions/example/review");
+  fs.mkdirSync(reviewDir, { recursive: true });
+  const htmlPath = path.join(reviewDir, "report.html");
+  fs.writeFileSync(htmlPath, "<!doctype html><title>Review</title>");
+  fs.writeFileSync(path.join(reviewDir, "report.json"), "{}\n");
+  fs.writeFileSync(path.join(reviewDir, "target.json"), JSON.stringify({ mode: "code-scan" }));
+  const render = seedReviewRenderManifest(root, htmlPath, { coverage: "5/5" });
+  const lenses = ["bug", "edge", "reuse", "quality", "efficiency"];
+  const routedSession = {
+    run_id: "dev_run-1",
+    slug: "example",
+    routing: { review_mode: "code-scan", decision_version: 1 },
+    task: { acceptance_criteria: ["Review the exact routed behavior"] },
+  };
+  const reviewModule = require("../scripts/review-check");
+  const freshnessModule = require("../scripts/lib/review-freshness");
+  const originalCheck = reviewModule.checkReview;
+  const originalExpand = reviewModule.expandFromReport;
+  const originalEquivalence = freshnessModule.baseEquivalence;
+  const originalEvaluate = freshnessModule.evaluateReviewFreshness;
+  reviewModule.expandFromReport = (options) => options;
+  reviewModule.checkReview = () => ({
+    ok: true,
+    issues: [],
+    target: {
+      mode: "code-scan",
+      source: {
+        commit: "abc123",
+        base_ref: "origin/main",
+        base_commit: "base123",
+        remote_push_url_sha256: "a".repeat(64),
+      },
+      dev_context: devReviewContext(routedSession),
+    },
+    report: {
+      ...reviewReportForMarkers({ coverage: lenses }),
+      target: { path: ".pm/dev-sessions/example/review/target.json" },
+    },
+    validated_human_report: {
+      path: ".pm/dev-sessions/example/review/report.html",
+      sha256: fileDigest(htmlPath),
+    },
+  });
+  const row = gate("review", "abc123", {
+    artifact: ".pm/dev-sessions/example/review/report.html",
+    evidence_kind: "review-report-v1",
+    verified_commit: "rebased9",
+    verified_at: "2026-01-01T00:00:00Z",
+    render_manifest: render.path,
+    render_manifest_sha256: render.sha256,
+    lenses,
+  });
+  try {
+    let received;
+    freshnessModule.baseEquivalence = (options) => {
+      received = options;
+      return { ok: true, reason: "merge-base equivalent" };
+    };
+    freshnessModule.evaluateReviewFreshness = () => ({ ok: true, reason: "patch-identical" });
+    const rebased = checkGateManifest(manifest([row], { run_id: routedSession.run_id }), {
+      artifactRoot: root,
+      currentCommit: "rebased9",
+      requiredGates: ["review"],
+      canonicalSession: routedSession,
+      requireSessionBinding: true,
+      manifestPath: ".pm/dev-sessions/example/gates.json",
+      authoritativeBaseRef: "origin/main",
+      authoritativeBaseCommit: "live999",
+      authoritativePushUrlSha256: "a".repeat(64),
+    });
+    assert.equal(rebased.ok, true, JSON.stringify(rebased.issues, null, 2));
+    // A commit rebased onto the advanced base always has the live base as its
+    // merge base, so authenticating the current commit would reject exactly the
+    // case diff identity exists to accept. The contract is defined over the
+    // reviewed commit (evidence-contract.md), which is what must be passed.
+    assert.equal(received.commit, "abc123");
+    assert.notEqual(received.commit, "rebased9");
+    assert.equal(received.frozenBaseCommit, "base123");
+    assert.equal(received.liveBaseCommit, "live999");
+  } finally {
+    reviewModule.checkReview = originalCheck;
+    reviewModule.expandFromReport = originalExpand;
+    freshnessModule.baseEquivalence = originalEquivalence;
+    freshnessModule.evaluateReviewFreshness = originalEvaluate;
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
