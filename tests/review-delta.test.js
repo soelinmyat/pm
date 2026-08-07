@@ -379,3 +379,91 @@ test("review-delta parseArgs enforces command and required options", () => {
   const based = parseArgs(["check", "--review-dir", "x", "--base", "def456"]);
   assert.equal(based.base, "def456");
 });
+
+// Wires the fixture to a real local bare remote so resolveTrustedBase can
+// answer `ls-remote`, which is what authenticates a declared --base.
+function withOrigin(repo) {
+  const remoteDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-delta-origin-"));
+  spawnSync("git", ["init", "-q", "--bare", "-b", "main", remoteDir], { encoding: "utf8" });
+  repo.run("remote", "add", "origin", remoteDir);
+  repo.run("push", "-q", "origin", "main");
+  const tip = repo.run("rev-parse", "main");
+  const urlSha = crypto.createHash("sha256").update(Buffer.from(remoteDir)).digest("hex");
+  // The frozen target pins the delivery URL it was reviewed against.
+  const targetPath = path.join(repo.dir, REVIEW_DIR, "runs/run-1/round-1/target.json");
+  const target = JSON.parse(fs.readFileSync(targetPath, "utf8"));
+  target.source.remote_push_url_sha256 = urlSha;
+  const targetBytes = Buffer.from(`${JSON.stringify(target, null, 2)}`);
+  fs.writeFileSync(targetPath, targetBytes);
+  const reportPath = path.join(repo.dir, REVIEW_DIR, "report.json");
+  const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+  report.target.sha256 = digest(targetBytes);
+  fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
+  return { remoteDir, tip };
+}
+
+test("review-delta check refuses a --base that is not the authoritative tip", () => {
+  const { repo, reviewed } = certifiedRepo();
+  const { remoteDir } = withOrigin(repo);
+  try {
+    // A branch-local commit carrying unreviewed content. Accepting it as the
+    // base would let diff identity treat that content as already-reviewed.
+    const forged = commitFile(
+      repo,
+      "src/allow.js",
+      "const ALLOW_ANON = true;\n",
+      "unreviewed change posing as upstream"
+    );
+    assert.throws(
+      () => checkCommand({ root: repo.dir, reviewDir: REVIEW_DIR, base: forged }),
+      /is not the authoritative base/
+    );
+    // Without --base the frozen base still stands and needs no remote at all.
+    const pinned = checkCommand({ root: repo.dir, reviewDir: REVIEW_DIR, commit: reviewed });
+    assert.equal(pinned.ok, true);
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+    fs.rmSync(remoteDir, { recursive: true, force: true });
+  }
+});
+
+test("review-delta check accepts the authoritative tip as --base", () => {
+  const { repo, reviewed } = certifiedRepo();
+  const { remoteDir, tip } = withOrigin(repo);
+  try {
+    const accepted = checkCommand({
+      root: repo.dir,
+      reviewDir: REVIEW_DIR,
+      commit: reviewed,
+      base: tip,
+    });
+    assert.equal(accepted.ok, true, accepted.reason);
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+    fs.rmSync(remoteDir, { recursive: true, force: true });
+  }
+});
+
+test("review-delta check refuses a --base when the remote no longer matches the frozen URL", () => {
+  const { repo, reviewed } = certifiedRepo();
+  const { remoteDir, tip } = withOrigin(repo);
+  try {
+    const targetPath = path.join(repo.dir, REVIEW_DIR, "runs/run-1/round-1/target.json");
+    const target = JSON.parse(fs.readFileSync(targetPath, "utf8"));
+    target.source.remote_push_url_sha256 = "b".repeat(64);
+    const targetBytes = Buffer.from(`${JSON.stringify(target, null, 2)}`);
+    fs.writeFileSync(targetPath, targetBytes);
+    const reportPath = path.join(repo.dir, REVIEW_DIR, "report.json");
+    const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+    report.target.sha256 = digest(targetBytes);
+    fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
+
+    assert.throws(
+      () => checkCommand({ root: repo.dir, reviewDir: REVIEW_DIR, commit: reviewed, base: tip }),
+      /no longer points at the delivery URL the review froze/
+    );
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+    fs.rmSync(remoteDir, { recursive: true, force: true });
+  }
+});

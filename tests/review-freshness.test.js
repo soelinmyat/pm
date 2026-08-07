@@ -643,3 +643,224 @@ test("validateSupplementChain reports the supplement cap instead of ignoring an 
     fs.rmSync(repo.dir, { recursive: true, force: true });
   }
 });
+
+test("diffIdentity rejects a relocated edit that patch-id alone accepts", () => {
+  // patch-id hashes hunk content with line offsets stripped. In a file of
+  // repeated identical blocks, the same inserted line in a different block
+  // produces the same patch-id against a different tree, so patch-id equality
+  // cannot be the whole moved-base proof.
+  const repo = makeRepo();
+  try {
+    const block = ["function guard(req) {", "  const ok = check(req);", "  return ok;", "}", ""];
+    const original = Array.from({ length: 6 }, () => block.join("\n")).join("\n");
+    const base = commitFile(repo, "a.js", original, "base");
+
+    repo.run("switch", "-q", "-c", "feature");
+    const insertAt = (lineIndex) => {
+      const lines = original.split("\n");
+      lines.splice(lineIndex, 0, "  if (isAdmin) return grantAll();");
+      return lines.join("\n");
+    };
+    const reviewed = commitFile(repo, "a.js", insertAt(6), "reviewed: guard in block 2");
+
+    repo.run("switch", "-q", "main");
+    const movedBase = commitFile(repo, "other.js", "// upstream\n", "unrelated upstream work");
+    repo.run("switch", "-q", "-c", "relocated", base);
+    const relocated = commitFile(repo, "a.js", insertAt(26), "same line, block 6");
+    repo.run("rebase", "-q", movedBase);
+    const relocatedOnMovedBase = repo.run("rev-parse", "HEAD");
+
+    const reviewedDiff = frozenDiffBytes(repo, base, reviewed);
+    const currentDiff = frozenDiffBytes(repo, movedBase, relocatedOnMovedBase);
+    assert.equal(
+      patchId(repo, reviewedDiff, "--verbatim"),
+      patchId(repo, currentDiff, "--verbatim"),
+      "fixture must actually collide under patch-id, or it proves nothing"
+    );
+    assert.notEqual(
+      repo.run("rev-parse", `${reviewed}:a.js`),
+      repo.run("rev-parse", `${relocatedOnMovedBase}:a.js`),
+      "fixture must carry genuinely different content"
+    );
+
+    const verdict = diffIdentity({
+      root: repo.dir,
+      source: { commit: reviewed, base_commit: base, diff_sha256: digest(reviewedDiff) },
+      currentCommit: relocatedOnMovedBase,
+      currentBaseCommit: movedBase,
+    });
+    assert.equal(verdict.ok, false);
+    assert.match(verdict.reason, /reviewed content differs at a\.js/);
+    void relocated;
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});
+
+test("diffIdentity still accepts a clean rebase that only absorbed upstream files", () => {
+  const repo = makeRepo();
+  try {
+    const base = commitFile(repo, "a.js", "one\ntwo\n", "base");
+    repo.run("switch", "-q", "-c", "feature");
+    const reviewed = commitFile(repo, "a.js", "one\ntwo\nthree\n", "reviewed");
+
+    repo.run("switch", "-q", "main");
+    const movedBase = commitFile(repo, "upstream.js", "// upstream\n", "unrelated upstream work");
+    repo.run("switch", "-q", "feature");
+    repo.run("rebase", "-q", movedBase);
+    const rebased = repo.run("rev-parse", "HEAD");
+    assert.notEqual(rebased, reviewed, "rebase must produce a new commit");
+
+    const verdict = diffIdentity({
+      root: repo.dir,
+      source: {
+        commit: reviewed,
+        base_commit: base,
+        diff_sha256: digest(frozenDiffBytes(repo, base, reviewed)),
+      },
+      currentCommit: rebased,
+      currentBaseCommit: movedBase,
+    });
+    assert.equal(verdict.ok, true, verdict.reason);
+    assert.match(verdict.reason, /identical reviewed post-images/);
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});
+
+test("diffIdentity rejects a rebase that added an unreviewed file", () => {
+  const repo = makeRepo();
+  try {
+    const base = commitFile(repo, "a.js", "one\n", "base");
+    repo.run("switch", "-q", "-c", "feature");
+    const reviewed = commitFile(repo, "a.js", "one\ntwo\n", "reviewed");
+    const smuggled = commitFile(repo, "extra.js", "// never reviewed\n", "extra");
+
+    const verdict = diffIdentity({
+      root: repo.dir,
+      source: {
+        commit: reviewed,
+        base_commit: base,
+        diff_sha256: digest(frozenDiffBytes(repo, base, reviewed)),
+      },
+      currentCommit: smuggled,
+      currentBaseCommit: base,
+    });
+    assert.equal(verdict.ok, false);
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});
+
+test("computeDelta detects a boundary-crossing rename even with diff.renames disabled", () => {
+  const repo = makeRepo();
+  try {
+    const body = `${Array.from({ length: 20 }, (_, index) => `const line${index} = ${index};`).join("\n")}\n`;
+    const prior = commitFile(repo, "src/app.js", body, "base");
+    fs.mkdirSync(path.join(repo.dir, "tests"), { recursive: true });
+    repo.run("mv", "src/app.js", "tests/app.test.js");
+    repo.run("commit", "-q", "-m", "relocate source into tests");
+    const relocated = repo.run("rev-parse", "HEAD");
+
+    const underDefault = computeDelta(repo.dir, prior, relocated);
+    assert.match(underDefault.ineligible, /rename between exempt and non-exempt paths/);
+
+    // Ambient config must not be able to disarm the guard by splitting the
+    // rename into a free exempt addition plus a priced deletion.
+    repo.run("config", "diff.renames", "false");
+    const underDisabledRenames = computeDelta(repo.dir, prior, relocated);
+    assert.match(underDisabledRenames.ineligible, /rename between exempt and non-exempt paths/);
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});
+
+test("a corrupt supplement does not block a byte-identical amend from diff identity", () => {
+  const repo = makeRepo();
+  try {
+    const base = commitFile(repo, "base.txt", "base\n", "base");
+    repo.run("switch", "-q", "-c", "feature");
+    const reviewed = commitFile(repo, "src/app.js", "feature\n", "feature");
+    repo.run("commit", "-q", "--amend", "-m", "feature, reworded");
+    const amended = repo.run("rev-parse", "HEAD");
+    assert.notEqual(amended, reviewed);
+
+    const reviewDir = path.join(repo.dir, ".pm/dev-sessions/example/review");
+    fs.mkdirSync(path.join(reviewDir, "supplements"), { recursive: true });
+    fs.writeFileSync(path.join(reviewDir, "supplements", "supplement-1.json"), "{ not json");
+
+    const verdict = evaluateReviewFreshness({
+      root: repo.dir,
+      reviewDir,
+      report: { outcome: "passed", source: { commit: reviewed } },
+      target: {
+        source: {
+          commit: reviewed,
+          base_commit: base,
+          diff_sha256: digest(frozenDiffBytes(repo, base, reviewed)),
+        },
+        changed_files: [{ path: "src/app.js" }],
+      },
+      currentCommit: amended,
+    });
+    assert.equal(verdict.ok, true, verdict.reason);
+    assert.equal(verdict.method, "diff-identity");
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});
+
+test("validateSupplementChain enforces the code-line budget at exactly 51 lines", () => {
+  // The boundary must be pinned through the enforcing path, not only through
+  // the counter: computeDelta returning 51 proves nothing if nothing rejects it.
+  const repo = makeRepo();
+  try {
+    const base = commitFile(repo, "base.txt", "base\n", "base");
+    repo.run("switch", "-q", "-c", "feature");
+    const reviewed = commitFile(repo, "src/app.js", "feature\n", "feature");
+    const overBudget = commitFile(
+      repo,
+      "src/app.js",
+      `feature\n${Array.from({ length: 51 }, (_, index) => `line ${index}`).join("\n")}\n`,
+      "51 added lines"
+    );
+    assert.equal(computeDelta(repo.dir, reviewed, overBudget).code_lines, 51);
+
+    const reviewDir = path.join(repo.dir, ".pm/dev-sessions/example/review");
+    const supplementsDir = path.join(reviewDir, "supplements");
+    fs.mkdirSync(supplementsDir, { recursive: true });
+    fs.writeFileSync(path.join(reviewDir, "report.json"), "{}\n");
+    fs.writeFileSync(
+      path.join(supplementsDir, "supplement-1.json"),
+      JSON.stringify({
+        schema_version: 1,
+        kind: "review-delta-v1",
+        canonical_report: {
+          sha256: digest(fs.readFileSync(path.join(reviewDir, "report.json"))),
+          commit: reviewed,
+        },
+        prior_commit: reviewed,
+        source: {
+          commit: overBudget,
+          delta_diff_sha256: digest(frozenDiffBytes(repo, reviewed, overBudget)),
+        },
+        result: { outcome: "passed" },
+      })
+    );
+
+    const verdict = validateSupplementChain({
+      root: repo.dir,
+      reviewDir,
+      report: { outcome: "passed", source: { commit: reviewed } },
+      target: {
+        source: { commit: reviewed, base_commit: base },
+        changed_files: [{ path: "src/app.js" }],
+      },
+      currentCommit: overBudget,
+    });
+    assert.equal(verdict.ok, false);
+    assert.match(verdict.reason, /51/);
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});

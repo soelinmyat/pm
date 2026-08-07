@@ -35,7 +35,12 @@ const {
   validateSupplementChain,
 } = require("./lib/review-freshness");
 const { readProjectInput, writeProjectJsonAtomic } = require("./lib/project-file");
-const { assertCleanWorktree, changedFileInventory } = require("./review-target");
+const { cleanGitEnv } = require("./lib/git-env");
+const {
+  assertCleanWorktree,
+  changedFileInventory,
+  resolveTrustedBase,
+} = require("./review-target");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 const MAX_JSON_BYTES = 4 * 1024 * 1024;
@@ -46,6 +51,9 @@ function git(root, args) {
   return execFileSync("git", args, {
     cwd: root,
     encoding: "utf8",
+    // cwd alone does not pin the repository; an inherited GIT_DIR would point
+    // every commit lookup here at a repository the gate never certified.
+    env: cleanGitEnv(),
     stdio: ["ignore", "pipe", "pipe"],
     maxBuffer: 64 * 1024 * 1024,
   }).trim();
@@ -66,7 +74,13 @@ function readContainedJson(root, relative, label) {
   } catch (error) {
     throw new Error(`${label}: ${error.message}`);
   }
-  return { value: JSON.parse(input.bytes.toString("utf8")), bytes: input.bytes };
+  try {
+    // Inside the label too: an evidence package holds several JSON files, and
+    // a bare parser message names none of them at the operator's terminal.
+    return { value: JSON.parse(input.bytes.toString("utf8")), bytes: input.bytes };
+  } catch (error) {
+    throw new Error(`${label} (${relative}): ${error.message}`);
+  }
 }
 
 function loadCanonicalReview(root, reviewDirRel) {
@@ -273,17 +287,54 @@ function recordCommand(options) {
   };
 }
 
+// `--base` widens what diff identity will accept: it replaces the frozen base
+// with a moved one, so whoever names it decides which upstream content is
+// treated as already-reviewed. Passing it through unchecked lets any
+// branch-local commit -- including one carrying the very change under review --
+// pose as the authoritative base, and exit 0 here is the sanctioned recertify
+// evidence. So the flag is an assertion, not an input: it must equal the
+// delivery remote's current default-branch tip, resolved from the frozen
+// target's own base_ref rather than a hardcoded `origin`.
+function authenticateBase(root, target, declaredBase) {
+  const baseRef = String(target?.source?.base_ref || "");
+  const remotes = git(root, ["remote"])
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .sort((left, right) => right.length - left.length);
+  const remote = remotes.find((candidate) => baseRef.startsWith(`${candidate}/`));
+  if (!remote)
+    throw new Error(
+      `frozen target base_ref ${baseRef || "(missing)"} does not name a configured remote; --base cannot be authenticated`
+    );
+  const trusted = resolveTrustedBase(root, remote);
+  if (!/^[0-9a-f]{7,64}$/.test(trusted?.commit || ""))
+    throw new Error(`cannot resolve the authoritative base from ${remote}`);
+  // The target also froze *which* destination it was reviewed against, so a
+  // remote renamed or repointed since the pass cannot silently supply a base.
+  const frozenUrlSha = target?.source?.remote_push_url_sha256;
+  if (frozenUrlSha && trusted.remote_push_url_sha256 !== frozenUrlSha)
+    throw new Error(`${remote} no longer points at the delivery URL the review froze`);
+  if (!trusted.commit.startsWith(declaredBase) && !declaredBase.startsWith(trusted.commit))
+    throw new Error(
+      `--base ${declaredBase} is not the authoritative base ${trusted.commit} on ${remote}`
+    );
+  return trusted.commit;
+}
+
 function checkCommand(options) {
   const root = path.resolve(options.root || process.cwd());
   const commit = options.commit || git(root, ["rev-parse", "HEAD"]);
   const { reviewDir, report, target } = loadCanonicalReview(root, options.reviewDir);
+  // No --base means the frozen base still stands, which needs no network and
+  // no authentication; only the moved-base claim has to be proven.
+  const base = options.base ? authenticateBase(root, target, options.base) : null;
   const verdict = evaluateReviewFreshness({
     root,
     reviewDir,
     report,
     target,
     currentCommit: commit,
-    authoritativeBaseCommit: options.base || null,
+    authoritativeBaseCommit: base,
   });
   return { ok: verdict.ok, method: verdict.method || null, reason: verdict.reason, commit };
 }

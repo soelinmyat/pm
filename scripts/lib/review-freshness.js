@@ -6,13 +6,16 @@
 // without a full new round:
 //
 //   1. Base equivalence — the authoritative default branch moved, but the
-//      merge base of the delivery head is unchanged, so the reviewed three-dot
-//      diff scope is byte-identical (evidence-contract.md: frozen validation
-//      authenticates commits and their merge base, not the moving tip).
+//      merge base of the *reviewed commit* is unchanged, so the reviewed
+//      three-dot diff scope is byte-identical (evidence-contract.md: frozen
+//      validation authenticates commits and their merge base, not the moving
+//      tip). The question is a property of the certification, not of HEAD,
+//      so this deliberately does not re-derive a merge base for the delivery
+//      head; doing so would reject every rebase onto the advanced base.
 //   2. Diff identity — the branch was rebased/amended and HEAD is a new
-//      commit, but the current diff bytes (same base) or `git patch-id
-//      --verbatim` (moved base) prove the branch introduces the exact
-//      reviewed change set.
+//      commit, but the current diff bytes (same base), or `git patch-id
+//      --verbatim` plus post-image blob identity (moved base), prove the
+//      branch introduces the exact reviewed change set.
 //   3. Delta supplements — a bounded post-pass fix chain (each link hash-bound
 //      to the canonical report, size-budgeted, file-scoped to the certified
 //      inventory, and reviewed on its own) reaches the current commit.
@@ -25,6 +28,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const { readProjectInput } = require("./project-file");
+const { cleanGitEnv } = require("./git-env");
 
 const MAX_DELTA_CODE_LINES = 50;
 const MAX_DELTA_SUPPLEMENTS = 2;
@@ -61,6 +65,10 @@ function git(root, args, encoding = "utf8", input = undefined) {
     cwd: root,
     encoding,
     input,
+    // cwd alone does not pin the repository: an inherited GIT_DIR or
+    // GIT_OBJECT_DIRECTORY redirects every command below to a foreign
+    // repository, where a forged commit could satisfy each freshness check.
+    env: cleanGitEnv(),
     stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
     maxBuffer: 64 * 1024 * 1024,
   });
@@ -113,6 +121,20 @@ function patchIdOfDiff(root, diffBytes) {
   const out = git(root, ["patch-id", "--verbatim"], "utf8", diffBytes);
   const match = out.match(/^([0-9a-f]{40,64}) /);
   return match ? match[1] : null;
+}
+
+function changedPaths(root, range) {
+  const raw = git(root, ["diff", "--name-only", "-z", ...range], null)
+    .toString("utf8")
+    .split("\0")
+    .filter(Boolean);
+  return new Set(raw);
+}
+
+function sameStringSet(left, right) {
+  if (left.size !== right.size) return false;
+  for (const value of left) if (!right.has(value)) return false;
+  return true;
 }
 
 // --- 1. Base equivalence -------------------------------------------------
@@ -180,7 +202,30 @@ function diffIdentity({ root, source, currentCommit, currentBaseCommit = null })
       return fail("reviewed or current diff is empty and cannot prove identity");
     if (reviewedId !== currentId)
       return fail("current branch diff is not patch-identical to the reviewed diff");
-    return ok("patch-identical to the reviewed diff");
+    // patch-id is necessary but not sufficient: it hashes hunk *content* with
+    // the line offsets stripped, so the same added line relocated to a
+    // different occurrence of a repeated block hashes equal while producing a
+    // different tree. Two tree-level facts close that gap.
+    //
+    // First, the reviewed and current commits must change the same paths;
+    // otherwise the branch grew or lost a file the reviewer never scoped.
+    const reviewedPaths = changedPaths(root, [`${baseCommit}...${commit}`]);
+    const currentPaths = changedPaths(root, [`${compareBase}...${currentCommit}`]);
+    if (!sameStringSet(reviewedPaths, currentPaths))
+      return fail("current branch changes a different file set than the reviewed diff");
+    // Second, every reviewed path must have a byte-identical post-image in the
+    // current commit. Upstream files absorbed by the moved base may differ —
+    // they are outside the reviewed set — but a reviewed file that differs is
+    // content no reviewer read, whether it moved within the file or was
+    // rewritten after the pass.
+    const drifted = [...changedPaths(root, [commit, currentCommit])].filter((file) =>
+      reviewedPaths.has(file)
+    );
+    if (drifted.length > 0)
+      return fail(
+        `reviewed content differs at ${drifted.slice(0, 3).join(", ")}${drifted.length > 3 ? ` (+${drifted.length - 3} more)` : ""}`
+      );
+    return ok("patch-identical to the reviewed diff with identical reviewed post-images");
   } catch (error) {
     return fail(`cannot authenticate diff identity: ${error.message}`);
   }
@@ -193,7 +238,13 @@ function computeDelta(root, priorCommit, commit) {
   // two-dot and stays consistent with the frozen-diff invocation.
   const range = `${priorCommit}...${commit}`;
   const diffBytes = git(root, ["diff", "--binary", range], null);
-  const numstat = parseNumstat(git(root, ["diff", "--numstat", "-z", range], null));
+  // --find-renames explicitly: the boundary-crossing-rename guard below can
+  // only fire on a rename row, and `diff.renames = false` in any inherited
+  // config would otherwise split the rename into a free exempt addition plus a
+  // priced deletion, letting source relocate into tests/ unscoped.
+  const numstat = parseNumstat(
+    git(root, ["diff", "--numstat", "-z", "--find-renames", range], null)
+  );
   let codeLines = 0;
   let ineligible = null;
   for (const row of numstat) {
@@ -258,10 +309,10 @@ function projectRelativeDir(root, dir) {
   return normalized;
 }
 
-function readSupplements(root, reviewDir) {
+function supplementFileNames(root, reviewDir) {
   const relative = projectRelativeDir(root, reviewDir);
   const dir = path.join(path.resolve(root), relative, "supplements");
-  if (!fs.existsSync(dir)) return [];
+  if (!fs.existsSync(dir)) return { relative, names: [] };
   // Order by slot index, not lexicographically, so a two-digit slot cannot
   // sort ahead of supplement-2.json and disguise itself as a contiguous chain.
   const names = fs
@@ -271,6 +322,23 @@ function readSupplements(root, reviewDir) {
       (left, right) =>
         Number(left.match(SUPPLEMENT_FILE_RE)[1]) - Number(right.match(SUPPLEMENT_FILE_RE)[1])
     );
+  return { relative, names };
+}
+
+// Cheap existence probe for acceptance ordering. It deliberately does not
+// parse: a corrupt supplement must not turn a byte-identical amend, which the
+// diff-identity path can authenticate on its own, into a hard failure. If the
+// chain is actually needed, readSupplements parses and reports the corruption.
+function hasSupplements(root, reviewDir) {
+  try {
+    return supplementFileNames(root, reviewDir).names.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function readSupplements(root, reviewDir) {
+  const { relative, names } = supplementFileNames(root, reviewDir);
   return names.map((name) => {
     // readProjectInput enforces containment, rejects symlinked components,
     // and bounds the read; a redirected supplements/ directory fails closed.
@@ -382,9 +450,10 @@ function evaluateReviewFreshness({
     // Recorded supplements mean the delta chain is the intended path, and it
     // reads only the per-supplement deltas. Trying it first avoids buffering
     // and hashing the whole branch diff twice on every recertification and
-    // every ship retry. Both paths stay fail-closed, so order changes only
-    // which accepted method is reported and how much work a pass costs.
-    const chainFirst = readSupplements(root, reviewDir).length > 0;
+    // every ship retry. Both paths stay fail-closed and both are attempted
+    // either way, so order changes only which accepted method is reported and
+    // how much work a pass costs — never whether a commit is accepted.
+    const chainFirst = hasSupplements(root, reviewDir);
     const evaluateChain = () =>
       validateSupplementChain({ root, reviewDir, report, target, currentCommit });
     const evaluateIdentity = () =>
