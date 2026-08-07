@@ -306,7 +306,11 @@ test("CI and merge-loop fix commits recertify before retry push", () => {
     assert.match(source, /post-mutation recertification/, `${name} must require recertification`);
     assert.match(source, /dev-gate-check/, `${name} must require the executable gate checker`);
   }
-  assert.match(contract, /Invoke `pm:review` against current HEAD/);
+  assert.match(contract, /invoke `pm:review` against current HEAD/);
+  assert.match(
+    contract,
+    /Both scoped paths fail closed; any check failure means the full round is required/
+  );
   assert.match(contract, /Regenerate its canonical artifact/);
   assert.match(contract, /Only after the checker exits zero may Ship retry/);
   assert.match(ci, /git push -- "\$DELIVERY_REMOTE" HEAD/);

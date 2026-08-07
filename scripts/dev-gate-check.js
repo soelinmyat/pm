@@ -343,10 +343,28 @@ function validateReviewReportArtifact(
             .join("; ")}`
         )
       );
-    if (result.report?.source?.commit !== currentCommit || result.report?.outcome !== "passed")
+    if (result.report?.outcome !== "passed")
       issues.push(
         issue(manifestPath, "review-report-v1 must be passed and bound to current commit")
       );
+    else if (result.report?.source?.commit !== currentCommit) {
+      const freshness = require("./lib/review-freshness");
+      const acceptance = freshness.evaluateReviewFreshness({
+        root,
+        reviewDir: path.dirname(reportPath),
+        report: result.report,
+        target: result.target,
+        currentCommit,
+        authoritativeBaseCommit: authoritativeBaseCommit || null,
+      });
+      if (!acceptance.ok)
+        issues.push(
+          issue(
+            manifestPath,
+            `review-report-v1 must be passed and bound to current commit (${acceptance.reason})`
+          )
+        );
+    }
     const completed = [...(result.report?.coverage?.completed || [])].sort();
     const recorded = [...(reviewGate.lenses || [])].sort();
     if (JSON.stringify(recorded) !== JSON.stringify(completed))
@@ -375,13 +393,31 @@ function validateReviewReportArtifact(
     else if (
       authoritativeBaseRef &&
       (result.target?.source?.base_ref !== authoritativeBaseRef ||
-        result.target?.source?.base_commit !== authoritativeBaseCommit ||
         (authoritativePushUrlSha256 &&
           result.target?.source?.remote_push_url_sha256 !== authoritativePushUrlSha256))
     )
       issues.push(
         issue(manifestPath, "review target base must equal the authoritative delivery base")
       );
+    else if (
+      authoritativeBaseRef &&
+      result.target?.source?.base_commit !== authoritativeBaseCommit
+    ) {
+      const freshness = require("./lib/review-freshness");
+      const equivalence = freshness.baseEquivalence({
+        root,
+        commit: currentCommit,
+        frozenBaseCommit: result.target?.source?.base_commit,
+        liveBaseCommit: authoritativeBaseCommit,
+      });
+      if (!equivalence.ok)
+        issues.push(
+          issue(
+            manifestPath,
+            `review target base must equal the authoritative delivery base or keep its merge base (${equivalence.reason})`
+          )
+        );
+    }
   } catch (error) {
     if (renderBindingValid && !renderValidated)
       validateReviewRenderManifest(

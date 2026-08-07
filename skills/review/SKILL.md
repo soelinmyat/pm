@@ -20,6 +20,7 @@ Review the exact current branch diff for source correctness, contracts, tests, r
 - Before implementation is committed; Review binds committed Git diff bytes.
 - For product scope or architecture approval; return those decisions to Groom/RFC or the user.
 - For the same HEAD when a checked `report.json` and gate row already pass current validation.
+- For a bounded post-pass fix (at most 50 changed code lines inside the certified file set) or a patch-identical rebase/amend after a passed round; use the delta-supplement protocol in `references/delta-supplement.md` (`scripts/review-delta.js`) instead of a new full round. Any failing freshness check falls back to a full round here.
 
 **Workflow:** `review` | **Telemetry steps:** `target`, `dispatch`, `synthesize`, `resolve`, `publish`
 
@@ -78,7 +79,7 @@ Resolve session paths with `deriveSessionSlug` from `scripts/lib/session-slug.js
 |---|---|
 | "I already inspected the diff while implementing." | Implementation context is not independent, structured review evidence. |
 | "This is only a small task." | Route may reduce physical reviewers, never evidence freshness or required logical coverage. |
-| "Reusing old results saves time." | Result bindings intentionally fail after any commit or diff change. |
+| "Reusing old results saves time." | Result bindings intentionally fail after any commit or diff change; the hash-bound freshness paths in `references/delta-supplement.md` are the only sanctioned exception. |
 | "A handoff to QA means Review failed." | Handoffs are non-overlapping ownership, not Review blockers. |
 | "One aggregate verdict is enough." | Each assigned lens needs its own clean/findings verdict and summary. |
 | "A new run ID gives the reviewers a clean slate." | It also evades the three-round cap. Continue the active lineage or obtain explicit direction that advances the Dev decision version. |

@@ -28,6 +28,10 @@ report.json              # canonical passing projection only
 report.html              # canonical passing human artifact only
 renders/
   manifest.json          # hash-binds canonical viewports, full pages, metrics, and print
+supplements/
+  pending.json           # in-flight delta review request (deleted on record)
+  supplement-{N}.json    # hash-bound passed delta reviews, N = 1..2
+  rejected-*.json        # audit records of failed delta reviews
 ```
 
 Each fresh Review invocation gets a new kebab-case run directory only when no unfinished lineage exists for the same Dev run and decision version. An unfinished Dev lineage owns its run ID through rounds 1–3; changing the run ID cannot reset the cap. A new lineage is allowed after the latest one passes, or after explicit direction advances the Dev decision version. Synthesis may overwrite only `runs/{run-id}/round-N/draft-report.json` and `draft-report.html` while decisions are pending. Finalize the round report exactly once after decisions. Never overwrite a finalized prior run or round: later rounds bind the exact preceding report path. A passing round is projected to the canonical root `report.json` and `report.html` for Dev/Ship gate discovery; its target and result bindings still point into the run directory.
@@ -116,6 +120,16 @@ Generate canonical `report.json` with `review-check.js --write-report`. It binds
 Render `report.html` with `scripts/review-report.js`, which uses `references/templates/review-report.html`. Metadata generator exactly matches the hash-bound generator recorded by `target.json` and propagated into `report.json`. Metadata source binds `report.json`; evidence binds target, every result, and decisions. Unresolved tokens fail.
 
 The first screenful visibly binds outcome, round, blocker count, top issue, and next action. The top issue ranks gate blockers and disputes first, then every residual finding by severity and confidence; a passing report cannot claim there is no issue while lower-severity findings remain. Every finding marker visibly includes issue, impact, fix, owner, evidence refs, signals, dispute/decision state, and the advisory, non-executable verification plan. Structural and locally observed browser validation ignore hidden/offscreen/clipped text.
+
+## Post-pass freshness
+
+A canonical passing report stays frozen at its reviewed commit. When HEAD moves after the pass, gate validation (`scripts/dev-gate-check.js`, via `scripts/lib/review-freshness.js`) accepts the frozen report for the new commit through exactly three fail-closed paths — any git error, hash mismatch, or budget violation falls back to requiring a full new round:
+
+- **Base equivalence.** When the authoritative default branch advances past the frozen `base_commit`, the report stays valid if the frozen base is an ancestor of the live base and `git merge-base` of the reviewed commit against both bases is identical — the moving tip merged unrelated work. A rewritten base or a branch whose own content was merged into the base fails.
+- **Diff identity.** A rebase or amend keeps certification when the frozen diff bytes still hash to the frozen `diff_sha256` and `git patch-id --stable` of the current branch diff (against the live base) equals that of the reviewed diff. Any content change fails.
+- **Delta supplements.** A post-pass fix of at most 50 changed code lines (test and Markdown files exempt) touching only the certified changed-file set may be certified by one scoped reviewer over the delta diff, recorded as `supplements/supplement-{N}.json` hash-bound to the canonical report bytes and the delta diff bytes. At most two supplements chain from one certification; the chain head must equal the current commit. See `delta-supplement.md` for the protocol and `scripts/review-delta.js` for the commands.
+
+The gate row still requires `verified_commit`/`verified_at` for the current commit (written together via `dev-session recertify`); a passing `review-delta.js check` (exit 0) is the sanctioned recheck evidence for that recertification. Freshness acceptance never overwrites the frozen report, target, or render manifest.
 
 ## Commands
 
