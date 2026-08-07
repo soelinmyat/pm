@@ -20,7 +20,6 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { execFileSync } = require("node:child_process");
 
 const {
   MAX_DELTA_CODE_LINES,
@@ -31,11 +30,12 @@ const {
   evaluateReviewFreshness,
   projectRelativeDir,
   readSupplements,
+  rejectedDeltaCommits,
   scopeViolation,
   validateSupplementChain,
 } = require("./lib/review-freshness");
 const { readProjectInput, writeProjectJsonAtomic } = require("./lib/project-file");
-const { cleanGitEnv } = require("./lib/git-env");
+const { gitExec } = require("./lib/git-env");
 const {
   assertCleanWorktree,
   changedFileInventory,
@@ -47,16 +47,11 @@ const MAX_JSON_BYTES = 4 * 1024 * 1024;
 const SEVERITIES = new Set(["critical", "high", "medium", "low"]);
 const PENDING_KIND = "review-delta-pending-v1";
 
+// cwd alone does not pin the repository; an inherited GIT_DIR would point
+// every commit lookup here at a repository the gate never certified. gitExec
+// is the one sanitized wrapper the whole review toolchain shares.
 function git(root, args) {
-  return execFileSync("git", args, {
-    cwd: root,
-    encoding: "utf8",
-    // cwd alone does not pin the repository; an inherited GIT_DIR would point
-    // every commit lookup here at a repository the gate never certified.
-    env: cleanGitEnv(),
-    stdio: ["ignore", "pipe", "pipe"],
-    maxBuffer: 64 * 1024 * 1024,
-  }).trim();
+  return gitExec(root, args).trim();
 }
 
 function digest(bytes) {
@@ -119,6 +114,9 @@ function chainState(root, reviewDir, report, target) {
     report,
     target,
     currentCommit: tip,
+    // Hand over what we just parsed rather than making the validator re-read
+    // and re-parse the same files.
+    supplements,
   });
   if (!verdict.ok) throw new Error(`existing delta chain is invalid: ${verdict.reason}`);
   return { prior: tip, count: supplements.length };
@@ -129,6 +127,13 @@ function buildCommand(options) {
   assertCleanWorktree(root);
   const head = git(root, ["rev-parse", "HEAD"]);
   const { reviewDir, report, reportSha256, target } = loadCanonicalReview(root, options.reviewDir);
+  // A blocking delta finding is only honoured if it survives the next build.
+  // Without this, `record` -> rejected -> `build` on the unchanged HEAD ->
+  // `record` a clean result certifies the very commit a reviewer blocked.
+  if (rejectedDeltaCommits(root, reviewDir).has(head))
+    throw new Error(
+      `HEAD ${head.slice(0, 12)} was rejected by a delta review; commit the fix before rebuilding, or run a full review round`
+    );
   const { prior, count } = chainState(root, reviewDir, report, target);
   if (count >= MAX_DELTA_SUPPLEMENTS)
     throw new Error(
@@ -309,6 +314,14 @@ function authenticateBase(root, target, declaredBase) {
   const trusted = resolveTrustedBase(root, remote);
   if (!/^[0-9a-f]{7,64}$/.test(trusted?.commit || ""))
     throw new Error(`cannot resolve the authoritative base from ${remote}`);
+  // The remote name alone is not the binding: resolveTrustedBase follows the
+  // remote's live HEAD symref, so an upstream default-branch switch would
+  // otherwise let a different branch's tip authenticate as the reviewed base.
+  // review-target.js and review-check.js both assert this; so does this path.
+  if (trusted.ref !== baseRef)
+    throw new Error(
+      `${remote} now defaults to ${trusted.ref}, not the reviewed base ${baseRef}; run a full review round`
+    );
   // The target also froze *which* destination it was reviewed against, so a
   // remote renamed or repointed since the pass cannot silently supply a base.
   const frozenUrlSha = target?.source?.remote_push_url_sha256;

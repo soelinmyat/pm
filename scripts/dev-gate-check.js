@@ -344,9 +344,9 @@ function validateReviewReportArtifact(
         )
       );
     if (result.report?.outcome !== "passed")
-      issues.push(
-        issue(manifestPath, "review-report-v1 must be passed and bound to current commit")
-      );
+      // Outcome only. Binding to the current commit is decided below, where a
+      // moved HEAD still has the freshness paths available to it.
+      issues.push(issue(manifestPath, "review-report-v1 outcome must be passed"));
     else if (result.report?.source?.commit !== currentCommit) {
       const freshness = require("./lib/review-freshness");
       const acceptance = freshness.evaluateReviewFreshness({

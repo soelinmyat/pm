@@ -1,34 +1,39 @@
 "use strict";
 
 // Post-pass Review freshness acceptance. A canonical passed review report is
-// frozen at one commit against one authoritative base object. Three narrow,
-// cryptographically bound conditions let later delivery states reuse that pass
-// without a full new round:
+// frozen at one commit against one authoritative base object. Beyond an exact
+// commit match, two narrow, cryptographically bound conditions let a later
+// delivery state reuse that pass without a full new round — these are the two
+// evaluateReviewFreshness actually tries:
 //
-//   1. Base equivalence — the authoritative default branch moved, but the
-//      merge base of the *reviewed commit* is unchanged, so the reviewed
-//      three-dot diff scope is byte-identical (evidence-contract.md: frozen
-//      validation authenticates commits and their merge base, not the moving
-//      tip). The question is a property of the certification, not of HEAD,
-//      so this deliberately does not re-derive a merge base for the delivery
-//      head; doing so would reject every rebase onto the advanced base.
-//   2. Diff identity — the branch was rebased/amended and HEAD is a new
+//   1. Diff identity — the branch was rebased/amended and HEAD is a new
 //      commit, but the current diff bytes (same base), or `git patch-id
 //      --verbatim` plus post-image blob identity (moved base), prove the
 //      branch introduces the exact reviewed change set.
-//   3. Delta supplements — a bounded post-pass fix chain (each link hash-bound
+//   2. Delta supplements — a bounded post-pass fix chain (each link hash-bound
 //      to the canonical report, size-budgeted, file-scoped to the certified
 //      inventory, and reviewed on its own) reaches the current commit.
 //
+// baseEquivalence is exported alongside them but is NOT one of those paths and
+// is never called from evaluateReviewFreshness. It answers a different
+// question for the base-binding caller: the authoritative default branch
+// moved, and the merge base of the *reviewed commit* is unchanged, so the
+// reviewed three-dot diff scope is byte-identical (evidence-contract.md:
+// frozen validation authenticates commits and their merge base, not the moving
+// tip). That is a property of the certification, not of HEAD, so it
+// deliberately does not re-derive a merge base for the delivery head; doing so
+// would reject every rebase onto the advanced base.
+//
 // Every failure is fail-closed: any git error, hash mismatch, or budget
-// violation reports not-fresh and the caller demands a full new round.
+// violation reports not-fresh and the caller demands a full new round. Every
+// diff read here is taken with GIT_DIFF_TRUST_FLAGS and a sanitized
+// environment, so no configured diff driver supplies the bytes being hashed.
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { execFileSync } = require("node:child_process");
 const { readProjectInput } = require("./project-file");
-const { cleanGitEnv } = require("./git-env");
+const { GIT_DIFF_TRUST_FLAGS, gitExec: git } = require("./git-env");
 
 const MAX_DELTA_CODE_LINES = 50;
 const MAX_DELTA_SUPPLEMENTS = 2;
@@ -38,6 +43,11 @@ const SUPPLEMENT_KIND = "review-delta-v1";
 // rather than silently dropped by the filename filter; MAX_DELTA_SUPPLEMENTS
 // stays the single place the cap is enforced.
 const SUPPLEMENT_FILE_RE = /^supplement-(\d+)\.json$/;
+// record writes one of these whenever a scoped delta reviewer files a
+// critical or high finding. They are not decoration: without reading them
+// back, a blocking finding can be retried away by re-running build on the
+// unchanged HEAD until a clean result is recorded.
+const REJECTED_FILE_RE = /^rejected-[0-9a-f]{7,40}-\d+\.json$/;
 // Paths whose churn does not count against the delta code-line budget and may
 // fall outside the certified changed-file inventory: tests and non-runtime
 // documentation under the repo-root docs/ tree only — a docs/ directory
@@ -58,20 +68,6 @@ function isExemptRow(row) {
 function boundaryCrossingRename(row) {
   if (typeof row?.old_path !== "string") return false;
   return DELTA_BUDGET_EXEMPT_RE.test(row.path) !== DELTA_BUDGET_EXEMPT_RE.test(row.old_path);
-}
-
-function git(root, args, encoding = "utf8", input = undefined) {
-  return execFileSync("git", args, {
-    cwd: root,
-    encoding,
-    input,
-    // cwd alone does not pin the repository: an inherited GIT_DIR or
-    // GIT_OBJECT_DIRECTORY redirects every command below to a foreign
-    // repository, where a forged commit could satisfy each freshness check.
-    env: cleanGitEnv(),
-    stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
-    maxBuffer: 64 * 1024 * 1024,
-  });
 }
 
 function digest(bytes) {
@@ -109,8 +105,14 @@ function mergeBase(root, left, right) {
 }
 
 function frozenDiff(root, baseCommit, commit) {
-  // Must byte-match review-target.js's frozen invocation exactly.
-  return git(root, ["diff", "--binary", `${baseCommit}...${commit}`], null);
+  // Must byte-match review-target.js's frozen invocation exactly, trust flags
+  // included: without them an external-diff or textconv driver supplies the
+  // bytes every identity hash below is computed over.
+  return git(
+    root,
+    ["diff", "--binary", ...GIT_DIFF_TRUST_FLAGS, `${baseCommit}...${commit}`],
+    null
+  );
 }
 
 function patchIdOfDiff(root, diffBytes) {
@@ -124,7 +126,10 @@ function patchIdOfDiff(root, diffBytes) {
 }
 
 function changedPaths(root, range) {
-  const raw = git(root, ["diff", "--name-only", "-z", ...range], null)
+  // Same trust flags as the hashed diffs: this path set is half of the
+  // moved-base identity proof, and rename detection decides whether a rename
+  // reports one path or two.
+  const raw = git(root, ["diff", "--name-only", "-z", ...GIT_DIFF_TRUST_FLAGS, ...range], null)
     .toString("utf8")
     .split("\0")
     .filter(Boolean);
@@ -237,13 +242,16 @@ function computeDelta(root, priorCommit, commit) {
   // priorCommit is required to be an ancestor of commit, so three-dot equals
   // two-dot and stays consistent with the frozen-diff invocation.
   const range = `${priorCommit}...${commit}`;
-  const diffBytes = git(root, ["diff", "--binary", range], null);
-  // --find-renames explicitly: the boundary-crossing-rename guard below can
-  // only fire on a rename row, and `diff.renames = false` in any inherited
-  // config would otherwise split the rename into a free exempt addition plus a
-  // priced deletion, letting source relocate into tests/ unscoped.
+  // Both calls carry the trust flags. --find-renames matters twice over: the
+  // boundary-crossing-rename guard below can only fire on a rename row, so
+  // `diff.renames = false` in any inherited config would otherwise split the
+  // rename into a free exempt addition plus a priced deletion and let source
+  // relocate into tests/ unscoped; and delta_diff_sha256 is hash-bound, so the
+  // same setting would drift a legitimately certified chain into a forced full
+  // round on any clone configured differently.
+  const diffBytes = git(root, ["diff", "--binary", ...GIT_DIFF_TRUST_FLAGS, range], null);
   const numstat = parseNumstat(
-    git(root, ["diff", "--numstat", "-z", "--find-renames", range], null)
+    git(root, ["diff", "--numstat", "-z", ...GIT_DIFF_TRUST_FLAGS, range], null)
   );
   let codeLines = 0;
   let ineligible = null;
@@ -337,6 +345,30 @@ function hasSupplements(root, reviewDir) {
   }
 }
 
+// Commits a scoped delta reviewer already blocked. Reading these makes a
+// rejection stick to the commit it was filed against: the only way past it is
+// a new commit that actually carries the fix, which is what
+// delta-supplement.md has always described. A malformed audit record throws
+// rather than resolving to "nothing was rejected".
+function rejectedDeltaCommits(root, reviewDir) {
+  const relative = projectRelativeDir(root, reviewDir);
+  const dir = path.join(path.resolve(root), relative, "supplements");
+  if (!fs.existsSync(dir)) return new Set();
+  const commits = new Set();
+  for (const name of fs.readdirSync(dir).filter((entry) => REJECTED_FILE_RE.test(entry))) {
+    const input = readProjectInput(
+      root,
+      `${relative}/supplements/${name}`,
+      MAX_SUPPLEMENT_JSON_BYTES
+    );
+    const value = JSON.parse(input.bytes.toString("utf8"));
+    const commit = value?.source?.commit;
+    if (!validCommitish(commit)) throw new Error(`${name} does not name the commit it rejected`);
+    commits.add(commit);
+  }
+  return commits;
+}
+
 function readSupplements(root, reviewDir) {
   const { relative, names } = supplementFileNames(root, reviewDir);
   return names.map((name) => {
@@ -373,10 +405,21 @@ function scopeViolation(deltaFiles, certified) {
   return null;
 }
 
-function validateSupplementChain({ root, reviewDir, report, target, currentCommit }) {
+// `supplements` may be supplied by a caller that has already read and ordered
+// them (review-delta's chainState does), which keeps a single parse per
+// evaluation instead of two.
+function validateSupplementChain({
+  root,
+  reviewDir,
+  report,
+  target,
+  currentCommit,
+  supplements: preread = null,
+}) {
   try {
-    const supplements = readSupplements(root, reviewDir);
+    const supplements = preread || readSupplements(root, reviewDir);
     if (supplements.length === 0) return fail("no delta supplements recorded");
+    const rejected = rejectedDeltaCommits(root, reviewDir);
     if (supplements.length > MAX_DELTA_SUPPLEMENTS)
       return fail(`delta chain exceeds the ${MAX_DELTA_SUPPLEMENTS}-supplement cap`);
     const reportSha = digest(
@@ -406,6 +449,8 @@ function validateSupplementChain({ root, reviewDir, report, target, currentCommi
       const commit = value?.source?.commit;
       if (!validCommitish(commit) || commit === prior)
         return fail(`${name} supplement commit is invalid`);
+      if (rejected.has(commit))
+        return fail(`${name} certifies ${commit.slice(0, 12)}, which a delta review rejected`);
       if (!commitExists(root, prior) || !commitExists(root, commit))
         return fail(`${name} chain commits are not present locally`);
       if (!isAncestor(root, prior, commit))
@@ -497,6 +542,7 @@ module.exports = {
   isExemptRow,
   projectRelativeDir,
   readSupplements,
+  rejectedDeltaCommits,
   scopeViolation,
   validateSupplementChain,
 };

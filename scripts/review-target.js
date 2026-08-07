@@ -2,6 +2,8 @@
 "use strict";
 
 const crypto = require("node:crypto");
+// Still needed directly: the remote probes below run with their own timeout
+// and env, which gitExec deliberately does not parameterize.
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -14,6 +16,9 @@ const { MAX_CHANGED_FILE_BYTES, MAX_JSON_BYTES } = require("./lib/review-limits"
 const projectFile = require("./lib/project-file");
 const { readProjectInput } = projectFile;
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
+// Shared with the freshness evaluator so environment hardening cannot drift
+// between the side that freezes a hash and the side that re-derives it.
+const { GIT_DIFF_TRUST_FLAGS, gitExec: git } = require("./lib/git-env");
 const {
   expectedPriorReportPath,
   expectedReviewPath,
@@ -36,7 +41,13 @@ function buildReviewTarget(options) {
   if (baseRef !== trusted.ref) throw new Error(`base must equal remote default ${trusted.ref}`);
   if (baseCommit !== trusted.commit)
     throw new Error(`base commit must equal remote default ${trusted.commit}`);
-  const diff = git(root, ["diff", "--binary", `${baseCommit}...${commit}`], null);
+  // Trust flags pin the bytes this hash is frozen over; review-freshness.js
+  // and review-check.js re-derive it with exactly the same invocation.
+  const diff = git(
+    root,
+    ["diff", "--binary", ...GIT_DIFF_TRUST_FLAGS, `${baseCommit}...${commit}`],
+    null
+  );
   const changedFiles = changedFileInventory(root, baseCommit, commit);
   if (changedFiles.length === 0) throw new Error("review target has no changed files");
   if (changedFiles.length > 500) throw new Error("review target exceeds the 500-file budget");
@@ -350,7 +361,11 @@ function resolveTrustedBase(root, remote = "origin") {
 }
 
 function changedFileInventory(root, baseCommit, commit) {
-  const raw = git(root, ["diff", "--name-status", "-z", `${baseCommit}...${commit}`], null);
+  const raw = git(
+    root,
+    ["diff", "--name-status", "-z", ...GIT_DIFF_TRUST_FLAGS, `${baseCommit}...${commit}`],
+    null
+  );
   const fields = raw.toString("utf8").split("\0");
   if (fields.at(-1) === "") fields.pop();
   const rows = [];
@@ -492,15 +507,6 @@ function validateGitPath(value) {
     value.includes("\0")
   )
     throw new Error(`invalid project-relative path: ${String(value)}`);
-}
-
-function git(root, args, encoding = "utf8") {
-  return execFileSync("git", args, {
-    cwd: root,
-    encoding,
-    stdio: ["ignore", "pipe", "pipe"],
-    maxBuffer: 64 * 1024 * 1024,
-  });
 }
 
 function digest(bytes) {

@@ -2,7 +2,9 @@
 "use strict";
 
 const crypto = require("node:crypto");
-const { execFileSync } = require("node:child_process");
+// Shared wrapper: sanitizes the Git environment for every call site here,
+// including the frozen-diff re-derivation the target binding depends on.
+const { GIT_DIFF_TRUST_FLAGS, gitExec: git } = require("./lib/git-env");
 const fs = require("node:fs");
 const path = require("node:path");
 const { inspectHtmlArtifact } = require("./artifact-check");
@@ -687,7 +689,11 @@ function validateLiveTarget(root, target, issues) {
       target.source?.remote_push_url_sha256 !== trusted.remote_push_url_sha256
     )
       add(issues, "target.source", "does not match the authoritative remote default");
-    const diff = git(root, ["diff", "--binary", `${trusted.commit}...${head}`], null);
+    const diff = git(
+      root,
+      ["diff", "--binary", ...GIT_DIFF_TRUST_FLAGS, `${trusted.commit}...${head}`],
+      null
+    );
     target[FROZEN_MERGE_BASE] = git(root, ["merge-base", trusted.commit, head]).toString().trim();
     if (target.source?.diff_sha256 !== digest(diff))
       add(issues, "target.source.diff_sha256", "does not match current diff bytes");
@@ -713,7 +719,12 @@ function validateFrozenTarget(root, target, issues) {
     if (!sha(target[FROZEN_MERGE_BASE])) throw new Error("source and base have no merge base");
     const diff = git(
       root,
-      ["diff", "--binary", `${target.source.base_commit}...${target.source.commit}`],
+      [
+        "diff",
+        "--binary",
+        ...GIT_DIFF_TRUST_FLAGS,
+        `${target.source.base_commit}...${target.source.commit}`,
+      ],
       null
     );
     if (target.source.diff_sha256 !== digest(diff))
@@ -1891,15 +1902,6 @@ function main(argv = process.argv.slice(2)) {
     process.stderr.write(`${error.message}\n`);
     return 2;
   }
-}
-
-function git(root, args, encoding = "utf8") {
-  return execFileSync("git", args, {
-    cwd: root,
-    encoding,
-    stdio: ["ignore", "pipe", "pipe"],
-    maxBuffer: 64 * 1024 * 1024,
-  });
 }
 
 function digest(bytes) {

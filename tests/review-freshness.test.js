@@ -13,8 +13,10 @@ const {
   computeDelta,
   diffIdentity,
   evaluateReviewFreshness,
+  rejectedDeltaCommits,
   validateSupplementChain,
 } = require("../scripts/lib/review-freshness");
+const { GIT_DIFF_TRUST_FLAGS, GIT_ENV_KEYS_TO_CLEAR } = require("../scripts/lib/git-env");
 
 function makeRepo(prefix = "pm-review-freshness-") {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -44,10 +46,16 @@ function digest(bytes) {
 }
 
 function frozenDiffBytes(repo, base, head) {
-  const result = spawnSync("git", ["diff", "--binary", `${base}...${head}`], {
-    cwd: repo.dir,
-    maxBuffer: 64 * 1024 * 1024,
-  });
+  // Same trust flags the production callers pin, so a test repository that
+  // inherits a different diff config still reproduces the hashed bytes.
+  const result = spawnSync(
+    "git",
+    ["diff", "--binary", ...GIT_DIFF_TRUST_FLAGS, `${base}...${head}`],
+    {
+      cwd: repo.dir,
+      maxBuffer: 64 * 1024 * 1024,
+    }
+  );
   assert.equal(result.status, 0);
   return result.stdout;
 }
@@ -860,6 +868,179 @@ test("validateSupplementChain enforces the code-line budget at exactly 51 lines"
     });
     assert.equal(verdict.ok, false);
     assert.match(verdict.reason, /51/);
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});
+
+test("validateSupplementChain accepts the code-line budget at exactly 50 lines", () => {
+  // The reject side was already pinned at 51. Without this, flipping the
+  // comparison to `>=` -- which would reject every delta that exactly fills
+  // the documented budget -- passes the whole suite.
+  const repo = makeRepo();
+  try {
+    const base = commitFile(repo, "base.txt", "base\n", "base");
+    repo.run("switch", "-q", "-c", "feature");
+    const reviewed = commitFile(repo, "src/app.js", "feature\n", "feature");
+    const atBudget = commitFile(
+      repo,
+      "src/app.js",
+      `feature\n${Array.from({ length: 50 }, (_, index) => `line ${index}`).join("\n")}\n`,
+      "50 added lines"
+    );
+    assert.equal(computeDelta(repo.dir, reviewed, atBudget).code_lines, 50);
+
+    const reviewDir = path.join(repo.dir, ".pm/dev-sessions/example/review");
+    const supplementsDir = path.join(reviewDir, "supplements");
+    fs.mkdirSync(supplementsDir, { recursive: true });
+    fs.writeFileSync(path.join(reviewDir, "report.json"), "{}\n");
+    fs.writeFileSync(
+      path.join(supplementsDir, "supplement-1.json"),
+      JSON.stringify({
+        schema_version: 1,
+        kind: "review-delta-v1",
+        canonical_report: {
+          sha256: digest(fs.readFileSync(path.join(reviewDir, "report.json"))),
+          commit: reviewed,
+        },
+        prior_commit: reviewed,
+        source: {
+          commit: atBudget,
+          delta_diff_sha256: digest(frozenDiffBytes(repo, reviewed, atBudget)),
+        },
+        result: { outcome: "passed" },
+      })
+    );
+
+    const verdict = validateSupplementChain({
+      root: repo.dir,
+      reviewDir,
+      report: { outcome: "passed", source: { commit: reviewed } },
+      target: {
+        source: { commit: reviewed, base_commit: base },
+        changed_files: [{ path: "src/app.js" }],
+      },
+      currentCommit: atBudget,
+    });
+    assert.equal(verdict.ok, true, verdict.reason);
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});
+
+test("a rejected delta commit stays rejected and cannot be certified by a later chain", () => {
+  const repo = makeRepo();
+  try {
+    const base = commitFile(repo, "base.txt", "base\n", "base");
+    repo.run("switch", "-q", "-c", "feature");
+    const reviewed = commitFile(repo, "src/app.js", "feature\n", "feature");
+    const fix = commitFile(repo, "src/app.js", "feature\nfix\n", "fix");
+
+    const reviewDir = path.join(repo.dir, ".pm/dev-sessions/example/review");
+    const supplementsDir = path.join(reviewDir, "supplements");
+    fs.mkdirSync(supplementsDir, { recursive: true });
+    fs.writeFileSync(path.join(reviewDir, "report.json"), "{}\n");
+    const supplement = {
+      schema_version: 1,
+      kind: "review-delta-v1",
+      canonical_report: {
+        sha256: digest(fs.readFileSync(path.join(reviewDir, "report.json"))),
+        commit: reviewed,
+      },
+      prior_commit: reviewed,
+      source: {
+        commit: fix,
+        delta_diff_sha256: digest(frozenDiffBytes(repo, reviewed, fix)),
+      },
+      result: { outcome: "passed" },
+    };
+    fs.writeFileSync(path.join(supplementsDir, "supplement-1.json"), JSON.stringify(supplement));
+
+    const args = {
+      root: repo.dir,
+      reviewDir,
+      report: { outcome: "passed", source: { commit: reviewed } },
+      target: {
+        source: { commit: reviewed, base_commit: base },
+        changed_files: [{ path: "src/app.js" }],
+      },
+      currentCommit: fix,
+    };
+    assert.equal(validateSupplementChain(args).ok, true);
+
+    // The audit record a blocking delta review leaves behind names the very
+    // commit this chain certifies.
+    fs.writeFileSync(
+      path.join(supplementsDir, `rejected-${fix.slice(0, 12)}-1700000000000.json`),
+      JSON.stringify({
+        ...supplement,
+        result: { outcome: "failed", findings: [{ severity: "high" }] },
+      })
+    );
+    assert.deepEqual(rejectedDeltaCommits(repo.dir, reviewDir), new Set([fix]));
+    const afterRejection = validateSupplementChain(args);
+    assert.equal(afterRejection.ok, false);
+    assert.match(afterRejection.reason, /a delta review rejected/);
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});
+
+test("a malformed rejection record fails closed instead of vanishing", () => {
+  const repo = makeRepo();
+  try {
+    const reviewDir = path.join(repo.dir, ".pm/dev-sessions/example/review");
+    const supplementsDir = path.join(reviewDir, "supplements");
+    fs.mkdirSync(supplementsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(supplementsDir, "rejected-abcdef012345-1700000000000.json"),
+      JSON.stringify({ result: { outcome: "failed" } })
+    );
+    assert.throws(
+      () => rejectedDeltaCommits(repo.dir, reviewDir),
+      /does not name the commit it rejected/
+    );
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});
+
+test("an external diff driver cannot forge the bytes diff identity hashes", () => {
+  // GIT_EXTERNAL_DIFF replaces git's diff output wholesale. Every identity
+  // hash is computed over those bytes, so a shim that replays the honest
+  // reviewed diff would otherwise certify content no reviewer ever saw.
+  const repo = makeRepo();
+  const shim = path.join(repo.dir, "shim.sh");
+  try {
+    const base = commitFile(repo, "base.txt", "base\n", "base");
+    repo.run("switch", "-q", "-c", "feature");
+    const reviewed = commitFile(repo, "src/app.js", "reviewed\n", "reviewed");
+    const reviewedDiff = frozenDiffBytes(repo, base, reviewed);
+
+    repo.run("switch", "-q", "-C", "feature", base);
+    const smuggled = commitFile(repo, "src/app.js", "smuggled payload\n", "smuggled");
+
+    fs.writeFileSync(shim, `#!/bin/sh\ncat <<'PATCH'\n${reviewedDiff.toString("utf8")}PATCH\n`);
+    fs.chmodSync(shim, 0o755);
+
+    assert.ok(GIT_ENV_KEYS_TO_CLEAR.includes("GIT_EXTERNAL_DIFF"));
+    const restore = process.env.GIT_EXTERNAL_DIFF;
+    process.env.GIT_EXTERNAL_DIFF = shim;
+    try {
+      const verdict = diffIdentity({
+        root: repo.dir,
+        source: { commit: reviewed, base_commit: base, diff_sha256: digest(reviewedDiff) },
+        currentCommit: smuggled,
+      });
+      assert.equal(
+        verdict.ok,
+        false,
+        "an external diff shim must not authenticate a smuggled commit"
+      );
+    } finally {
+      if (restore === undefined) delete process.env.GIT_EXTERNAL_DIFF;
+      else process.env.GIT_EXTERNAL_DIFF = restore;
+    }
   } finally {
     fs.rmSync(repo.dir, { recursive: true, force: true });
   }
