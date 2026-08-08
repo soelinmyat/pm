@@ -70,16 +70,32 @@ const REJECTED_FILE_RE = /^rejected-[0-9a-f]{7,40}-\d+\.json$/;
 // direction is ineligible outright.
 const DELTA_BUDGET_EXEMPT_RE =
   /(^|\/)(tests?|__tests__)\/|\.(test|spec)\.[cm]?[jt]sx?$|^docs\/.*\.md$/;
+// The exemption is about content the runtime never loads, so the runtime trees
+// override it outright. `plugin.json` maps ./skills/ and ./commands/ straight
+// into the agent's instruction surface, and a directory named `tests` under
+// either one is still `skills/tests/SKILL.md` — a loaded skill. Without this
+// gate the nested-directory alternation above exempts that path from both the
+// line budget and the certified-file scope check, so a post-pass delta could
+// add unbounded agent instructions no reviewer read. `docs/` is already
+// root-anchored for the same reason; this is the same anchoring applied to the
+// alternation that was left unanchored.
+const RUNTIME_TREE_RE = /^(skills|references|commands|templates)\//;
 const COMMITISH_RE = /^[0-9a-f]{7,64}$/;
 
+function isExemptPath(value) {
+  if (typeof value !== "string" || value === "") return false;
+  if (RUNTIME_TREE_RE.test(value)) return false;
+  return DELTA_BUDGET_EXEMPT_RE.test(value);
+}
+
 function isExemptRow(row) {
-  if (!DELTA_BUDGET_EXEMPT_RE.test(row?.path || "")) return false;
-  return !row?.old_path || DELTA_BUDGET_EXEMPT_RE.test(row.old_path);
+  if (!isExemptPath(row?.path)) return false;
+  return !row?.old_path || isExemptPath(row.old_path);
 }
 
 function boundaryCrossingRename(row) {
   if (typeof row?.old_path !== "string") return false;
-  return DELTA_BUDGET_EXEMPT_RE.test(row.path) !== DELTA_BUDGET_EXEMPT_RE.test(row.old_path);
+  return isExemptPath(row.path) !== isExemptPath(row.old_path);
 }
 
 function digest(bytes) {
@@ -155,9 +171,19 @@ function displayPath(key) {
 // about this reading passes through diff config, gitattributes, or a diff
 // driver.
 function treeInventory(root, commitish) {
+  // --full-tree is load-bearing, not tidiness: without it ls-tree is scoped to
+  // the process cwd and emits cwd-relative names, while every other path source
+  // here (numstat, the certified inventory) is repo-root-relative. When root is
+  // not the repository top level the two namespaces cannot agree and, worse,
+  // content above root vanishes from the comparison entirely.
+  //
   // latin1 is a byte-for-byte decode, so splitting the decoded string on NUL is
   // identical to splitting the raw buffer on 0x00.
-  const raw = git(root, ["ls-tree", "-r", "-z", `${commitish}^{tree}`], null).toString("latin1");
+  const raw = git(
+    root,
+    ["ls-tree", "-r", "--full-tree", "-z", `${commitish}^{tree}`],
+    null
+  ).toString("latin1");
   const entries = new Map();
   for (const record of raw.split("\0")) {
     if (record === "") continue;

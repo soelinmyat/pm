@@ -15,6 +15,7 @@ const {
   evaluateReviewFreshness,
   rejectedDeltaStates,
   rejectsCommit,
+  scopeViolation,
   validateSupplementChain,
 } = require("../scripts/lib/review-freshness");
 const { GIT_ENV_KEYS_TO_CLEAR, trustedDiffArgs } = require("../scripts/lib/git-env");
@@ -321,6 +322,51 @@ test("contentIdentity refuses a certified inventory that omits a changed path", 
   }
 });
 
+test("contentIdentity works when the review root is a repository subdirectory", () => {
+  // Every other path source here -- numstat, the certified inventory -- is
+  // repo-root-relative. `ls-tree -r` alone is scoped to the process cwd and
+  // emits cwd-relative names, so without --full-tree a non-toplevel root both
+  // renames every path out of the shared namespace and hides content above the
+  // root from the comparison entirely.
+  const repo = makeRepo();
+  try {
+    const base = commitFile(repo, "base.txt", "base\n", "base");
+    repo.run("switch", "-q", "-c", "feature");
+    fs.mkdirSync(path.join(repo.dir, "sub"), { recursive: true });
+    fs.writeFileSync(path.join(repo.dir, "sub/app.js"), "feature\n");
+    fs.writeFileSync(path.join(repo.dir, "top.js"), "above the root\n");
+    repo.run("add", "-A");
+    repo.run("commit", "-q", "-m", "feature");
+    const reviewed = repo.run("rev-parse", "HEAD");
+    repo.run("commit", "-q", "--amend", "-m", "feature, reworded");
+    const amended = repo.run("rev-parse", "HEAD");
+
+    const root = path.join(repo.dir, "sub");
+    const source = { commit: reviewed, base_commit: base };
+    const target = { source, changed_files: [{ path: "sub/app.js" }, { path: "top.js" }] };
+
+    const verdict = contentIdentity({ root, target, source, currentCommit: amended });
+    assert.equal(verdict.ok, true, verdict.reason);
+
+    // The same root must price the delta over repo-root-relative paths too,
+    // or every tree path would read as unpriced against numstat.
+    const delta = computeDelta(root, base, amended);
+    assert.deepEqual(delta.files.map((row) => row.path).sort(), ["sub/app.js", "top.js"]);
+    assert.equal(delta.code_lines, 2);
+
+    // And content above the root is still in scope: a drift there must fail.
+    fs.writeFileSync(path.join(repo.dir, "top.js"), "rewritten above the root\n");
+    repo.run("add", "-A");
+    repo.run("commit", "-q", "--amend", "-m", "feature, top rewritten");
+    const drifted = repo.run("rev-parse", "HEAD");
+    const rejected = contentIdentity({ root, target, source, currentCommit: drifted });
+    assert.equal(rejected.ok, false);
+    assert.match(rejected.reason, /reviewed content differs at top\.js/);
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});
+
 test("computeDelta budgets code lines and exempts tests and docs", () => {
   const repo = makeRepo();
   try {
@@ -549,7 +595,7 @@ test("delta exemption covers nested test directories but only JS and TS test suf
     const prior = commitFile(repo, "src/app.js", "base\n", "base");
     // Directory rule is not root-anchored and accepts the singular form.
     commitFile(repo, "src/test/helper.js", "helper line\n".repeat(30), "nested singular test dir");
-    commitFile(repo, "skills/dev/tests/case.js", "case line\n".repeat(30), "nested tests dir");
+    commitFile(repo, "packages/api/tests/case.js", "case line\n".repeat(30), "nested tests dir");
     commitFile(repo, "__tests__/case.js", "case line\n".repeat(30), "underscore tests dir");
     const exempt = commitFile(repo, "docs/notes.md", "notes\n".repeat(30), "root docs markdown");
     assert.equal(computeDelta(repo.dir, prior, exempt).code_lines, 0);
@@ -560,6 +606,44 @@ test("delta exemption covers nested test directories but only JS and TS test suf
 
     const jsSuffix = commitFile(repo, "api.test.ts", "expect(1);\n".repeat(4), "ts test suffix");
     assert.equal(computeDelta(repo.dir, suffix, jsSuffix).code_lines, 0);
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});
+
+test("a tests directory inside a runtime tree is neither budget-exempt nor out of scope", () => {
+  const repo = makeRepo();
+  try {
+    const prior = commitFile(repo, "src/app.js", "base\n", "base");
+    // plugin.json maps ./skills/ and ./commands/ into the agent's instruction
+    // surface, so these are loaded skills and slash commands whatever the
+    // directory is called. Exempting them would let a supplement add unbounded
+    // agent instructions past both the budget and the certified file set.
+    commitFile(repo, "skills/tests/SKILL.md", "instruction\n".repeat(30), "skill named tests");
+    const head = commitFile(
+      repo,
+      "commands/tests/x.md",
+      "command\n".repeat(20),
+      "command in tests"
+    );
+
+    const delta = computeDelta(repo.dir, prior, head);
+    assert.equal(delta.code_lines, 50);
+    assert.deepEqual(delta.files.map((row) => row.path).sort(), [
+      "commands/tests/x.md",
+      "skills/tests/SKILL.md",
+    ]);
+
+    // The same paths must also fail the certified-file scope check, which
+    // short-circuits on the identical exemption predicate.
+    assert.match(
+      scopeViolation(delta.files, new Set(["src/app.js"])),
+      /outside the certified changed-file set/
+    );
+
+    // Outside the runtime trees the directory rule still applies at any depth.
+    const outside = commitFile(repo, "packages/api/tests/case.js", "case\n".repeat(30), "pkg test");
+    assert.equal(computeDelta(repo.dir, head, outside).code_lines, 0);
   } finally {
     fs.rmSync(repo.dir, { recursive: true, force: true });
   }

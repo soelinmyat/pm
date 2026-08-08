@@ -27,11 +27,11 @@ A post-pass fix commit (or short series of commits) qualifies only when all of t
 - The canonical report outcome is `passed` and its package hashes verify.
 - The certified commit (or prior supplement head) is an ancestor of HEAD — a rebase needs content identity or a full round instead.
 - The delta diff changes at most **50 code lines** (added + removed). Exempt from the line budget — but still counted as changed files — are exactly these paths:
-  - any path with a `test/`, `tests/`, or `__tests__/` directory component at **any** depth, singular included (`src/test/helper.js` and `skills/dev/tests/case.js` both qualify);
+  - any path with a `test/`, `tests/`, or `__tests__/` directory component at **any** depth, singular included (`src/test/helper.js` qualifies);
   - `*.test.*` and `*.spec.*` files with a JavaScript or TypeScript extension **only** (`.js`, `.jsx`, `.ts`, `.tsx`, `.cjs`, `.mjs`, `.cts`, `.mts`) — `api.test.py` and `model_spec.rb` are **not** exempt;
   - non-runtime documentation under repo-root `docs/**/*.md` **only**.
 
-  The asymmetry is deliberate: the test-directory rule is not root-anchored, the docs rule is. Runtime Markdown — `skills/`, `references/`, `commands/`, `templates/`, including any `docs/` directory nested inside them — is source and stays budgeted. A rename is exempt only when both its old and new paths are exempt; a rename crossing the exempt boundary in either direction makes the delta ineligible.
+  **Nothing under `skills/`, `references/`, `commands/`, or `templates/` is ever exempt**, whatever it is named. Those trees are the runtime instruction surface — `plugin.json` maps `./skills/` and `./commands/` straight into the agent — so `skills/tests/SKILL.md` is a loaded skill, not a test fixture, and `skills/dev/docs/x.md` is loadable source, not documentation. Exempting them would let a post-pass delta add unbounded agent instructions past both the line budget and the file-set scope. Outside those trees the test rules are unanchored by design (a repo may put tests anywhere) and the docs rule is root-anchored. A rename is exempt only when both its old and new paths are exempt; a rename crossing the exempt boundary in either direction makes the delta ineligible.
 - Every changed file is inside the certified changed-file set (current or old rename paths) or is budget-exempt. New out-of-scope source files require a full round. Budget-exempt paths are outside the file-set scope as well as the line budget — a fix must be able to add a new test file — so a supplement may add test or root-docs content of any size. That content is not unreviewed: the scoped reviewer reads the whole delta diff, including it. Rename detection is forced on (`--find-renames`) so an inherited `diff.renames = false` cannot split a boundary-crossing rename into a free exempt addition plus a priced deletion.
 - No non-exempt binary changes.
 - At most **2 supplements** chain from one certification. A third fix, however small, requires a full round.
@@ -56,6 +56,8 @@ Each `supplement-{N}.json` is immutable once written and binds:
 - budget facts, changed-file inventory, the reviewer identity/lenses, and a `passed` result.
 
 Validation recomputes every hash and re-derives the delta from Git; a drifted report, drifted diff, gap in the chain, failed outcome, or chain head that is not the current commit rejects the whole chain.
+
+The two post-pass paths do not compose, and that is the intended contract rather than an omission. Content identity always measures the current commit against the **frozen reviewed commit**, so once a supplement is recorded, any rewrite of the chain — `--amend` (including a bare reword), a rebase, a squash — fails the chain (its recorded head is no longer HEAD) and fails identity (the rewritten content is not the frozen content) at the same time, and the branch takes a full round. Widening identity to accept a chain head would mean trusting a second, supplement-shaped certification to stand in for the reviewed one, which is the acceptance surface this design deliberately keeps to a single claim about trees. **So do not rewrite history after recording a supplement** — land the fix commits as-is, and if a rebase is unavoidable, do it before the first supplement.
 
 ## What this does not change
 
