@@ -195,7 +195,7 @@ test("agent-pre + agent-step produce step with real duration", () => {
     // Verify timestamp file was created
     const crypto = require("node:crypto");
     const hash = crypto.createHash("sha256").update(agentName).digest("hex").slice(0, 16);
-    const startFile = path.join(analyticsDir, ".agent-starts", hash);
+    const startFile = path.join(analyticsDir, "sessions", "legacy", "agent-starts", hash);
     assert.ok(fs.existsSync(startFile), "start timestamp file should exist");
     const startTs = fs.readFileSync(startFile, "utf8").trim();
     assert.match(startTs, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/, "should be ISO timestamp");
@@ -334,7 +334,7 @@ test("agent-step skips logging when no pm run is active (orphan dispatch)", () =
   }
 });
 
-test("analytics-log preserves quoted args and writes current skill", () => {
+test("analytics-log preserves quoted args and writes session-scoped engagement state", () => {
   const { root, env, cleanup } = setupRepo();
   try {
     const input = JSON.stringify({
@@ -356,10 +356,13 @@ test("analytics-log preserves quoted args and writes current skill", () => {
     assert.equal(activity.length, 2);
     assert.equal(activity[0].detail, 'args=Redesign the "inspection report" flow');
     assert.equal(activity[1].detail, 'Redesign the "inspection report" flow');
-    assert.equal(
-      fs.readFileSync(path.join(root, ".pm", "analytics", ".current-skill"), "utf8"),
-      "groom"
+    const state = JSON.parse(
+      fs.readFileSync(
+        path.join(root, ".pm", "analytics", "sessions", "legacy", "engagements.json"),
+        "utf8"
+      )
     );
+    assert.equal(state.open_runs[state.current_run_id].skill, "groom");
   } finally {
     cleanup();
   }

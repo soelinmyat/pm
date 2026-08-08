@@ -173,6 +173,13 @@ function initCommand(options) {
   } finally {
     releaseLock();
   }
+  recordSessionTelemetry({
+    workflow: "dev",
+    sessionPath,
+    prevSession: null,
+    session,
+    result: null,
+  });
   emit(
     options,
     { session_path: sessionPath, session, next: nextDecision(session, sessionPath) },

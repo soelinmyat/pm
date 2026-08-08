@@ -6,6 +6,7 @@
 set -euo pipefail
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-.}"
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 
 # Check analytics flag — bail fast if disabled
 ANALYTICS=$(sed -n 's/^analytics: *//p' "$PROJECT_DIR/.claude/pm.local.md" 2>/dev/null | head -1)
@@ -14,17 +15,20 @@ ANALYTICS=$(sed -n 's/^analytics: *//p' "$PROJECT_DIR/.claude/pm.local.md" 2>/de
 # Read PreToolUse JSON from stdin
 INPUT=$(cat)
 
-# Extract agent name for keying the timestamp file
-AGENT_NAME=$(printf '%s' "$INPUT" | node -e "
-const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
-const ti = d.tool_input || {};
-process.stdout.write(ti.name || ti.description || 'unnamed');
-" 2>/dev/null) || exit 0
-
-[ -z "$AGENT_NAME" ] && exit 0
-
-# Write start timestamp keyed by a hash of the agent name
-STARTS_DIR="$PROJECT_DIR/.pm/analytics/.agent-starts"
-mkdir -p "$STARTS_DIR"
-HASH=$(printf '%s' "$AGENT_NAME" | shasum -a 256 | cut -c1-16)
-date -u +%Y-%m-%dT%H:%M:%S.000Z > "$STARTS_DIR/$HASH"
+printf '%s' "$INPUT" | node -e "
+'use strict';
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
+const root = process.argv[1];
+const project = process.argv[2];
+const { engagementAgentStartsDir, normalizeHostSessionId } = require(path.join(root, 'scripts/lib/analytics-paths.js'));
+const input = JSON.parse(fs.readFileSync(0, 'utf8'));
+const ti = input.tool_input || {};
+const name = ti.name || ti.description || 'unnamed';
+const sessionId = normalizeHostSessionId(input.session_id || input.transcript_path || 'legacy');
+const dir = engagementAgentStartsDir(project, sessionId);
+fs.mkdirSync(dir, { recursive: true });
+const hash = crypto.createHash('sha256').update(name).digest('hex').slice(0, 16);
+fs.writeFileSync(path.join(dir, hash), new Date().toISOString());
+" "$PLUGIN_ROOT" "$PROJECT_DIR" 2>/dev/null || true

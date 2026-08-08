@@ -86,6 +86,13 @@ function initCommand(options) {
     clearActiveRunDirectory(sessionPath);
     writeSession(sessionPath, session);
   });
+  recordSessionTelemetry({
+    workflow: "groom",
+    sessionPath,
+    prevSession: null,
+    session,
+    result: null,
+  });
   emit(options, { session_path: sessionPath, session, next: nextDecision(session, sessionPath) });
   return EXIT.OK;
 }

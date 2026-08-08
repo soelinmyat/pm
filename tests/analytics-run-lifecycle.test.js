@@ -1,23 +1,28 @@
 "use strict";
 
-// Regression tripwire for the analytics run lifecycle. Every started run must
-// be closable, genuine workflow completions must produce a `completed`
-// terminal with status "completed" (not just session-end `abandoned`), and
-// nested skill invocations must supersede-and-link instead of silently
-// leaking the previous run. These properties broke twice before (v1.6 hook
-// rewrite, v2 session scripts) without any test noticing.
+// Production-shaped regression tripwire for analytics identity. Hook
+// engagements are scoped to one host session, while v2 workflow telemetry is
+// keyed by the canonical workflow run_id. Worktrees and concurrent sessions
+// must never share mutable "current run" state.
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { execFileSync, spawnSync } = require("node:child_process");
+const { execFileSync, spawn, spawnSync } = require("node:child_process");
 
 const ROOT = path.join(__dirname, "..");
 const ANALYTICS_LOG = path.join(ROOT, "hooks", "analytics-log");
+const SESSION_END = path.join(ROOT, "hooks", "session-end");
 const DEV_CLI = path.join(ROOT, "scripts", "dev-session.js");
 const GROOM_CLI = path.join(ROOT, "scripts", "groom-session.js");
+const { recordSessionTelemetry } = require("../scripts/lib/telemetry.js");
+const {
+  hostSessionScratchDir,
+  normalizeHostSessionId,
+  scratchDir,
+} = require("../scripts/lib/analytics-paths.js");
 
 const TEST_HOST_ID = "test-host";
 const ACTIVITY_FILE = `activity-${TEST_HOST_ID}.jsonl`;
@@ -73,14 +78,46 @@ function readJsonLines(root, name) {
     .map((line) => JSON.parse(line));
 }
 
-function invokeAnalyticsLog(root, env, skill) {
+function invokeAnalyticsLog(root, env, skill, sessionId = "host-session-a") {
   const result = spawnSync("bash", [ANALYTICS_LOG], {
     cwd: root,
     env,
     encoding: "utf8",
-    input: JSON.stringify({ tool_input: { skill } }),
+    input: JSON.stringify({ session_id: sessionId, tool_input: { skill } }),
   });
   assert.equal(result.status, 0, result.stderr);
+}
+
+function invokeAnalyticsLogAsync(root, env, skill, sessionId) {
+  return new Promise((resolve, reject) => {
+    const child = spawn("bash", [ANALYTICS_LOG], {
+      cwd: root,
+      env,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let stderr = "";
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk) => (stderr += chunk));
+    child.on("error", reject);
+    child.on("close", (code) =>
+      code === 0 ? resolve() : reject(new Error(`analytics-log exited ${code}: ${stderr}`))
+    );
+    child.stdin.end(JSON.stringify({ session_id: sessionId, tool_input: { skill } }));
+  });
+}
+
+function endSession(root, env, sessionId) {
+  const result = spawnSync("bash", [SESSION_END], {
+    cwd: root,
+    env,
+    encoding: "utf8",
+    input: JSON.stringify({ session_id: sessionId }),
+  });
+  assert.equal(result.status, 0, result.stderr);
+}
+
+function engagementStatePath(root, sessionId) {
+  return path.join(root, ".pm", "analytics", "sessions", sessionId, "engagements.json");
 }
 
 function runCli(cli, root, env, args) {
@@ -104,40 +141,115 @@ function devResult(session, overrides = {}) {
   };
 }
 
-test("nested invocation supersedes the open run and links it via parent_run_id", () => {
+test("host session IDs are unique safe child path segments", () => {
+  assert.equal(normalizeHostSessionId("host-session-a"), "host-session-a");
+  assert.notEqual(normalizeHostSessionId("a/b"), normalizeHostSessionId("a-b"));
+
+  for (const raw of [".", "..", "a/b", "a\\b", " session with spaces "]) {
+    const normalized = normalizeHostSessionId(raw);
+    assert.match(normalized, /^session-[a-f0-9]{24}$/);
+    const relative = path.relative(scratchDir("/project"), hostSessionScratchDir("/project", raw));
+    assert.match(relative, /^sessions[/\\][^/\\]+$/);
+  }
+});
+
+test("nested invocations preserve parentage without superseding and concurrent host sessions isolate state", () => {
   const { root, env, cleanup } = setupRepo();
   try {
-    invokeAnalyticsLog(root, env, "pm:dev");
-    invokeAnalyticsLog(root, env, "pm:review");
+    invokeAnalyticsLog(root, env, "pm:dev", "host-session-a");
+    invokeAnalyticsLog(root, env, "pm:review", "host-session-a");
+    invokeAnalyticsLog(root, env, "pm:dev", "host-session-b");
 
     const activity = readJsonLines(root, ACTIVITY_FILE);
-    const devStart = activity.find((r) => r.skill === "dev" && r.event === "started");
-    assert.ok(devStart, "dev run must start");
-
-    const superseded = activity.find(
-      (r) => r.skill === "dev" && r.event === "completed" && r.status === "superseded"
+    const starts = activity.filter((r) => r.event === "started");
+    const devStart = starts.find(
+      (r) => r.skill === "dev" && r.meta?.host_session_id === "host-session-a"
     );
-    assert.ok(superseded, "open dev run must be soft-closed when review starts");
-    assert.equal(superseded.run_id, devStart.run_id);
-    assert.equal(superseded.detail, "superseded-by=review");
-
-    const reviewStart = activity.find((r) => r.skill === "review" && r.event === "started");
+    const otherDevStart = starts.find(
+      (r) => r.skill === "dev" && r.meta?.host_session_id === "host-session-b"
+    );
+    const reviewStart = starts.find(
+      (r) => r.skill === "review" && r.meta?.host_session_id === "host-session-a"
+    );
+    assert.ok(devStart);
+    assert.ok(otherDevStart);
     assert.ok(reviewStart, "review run must start");
     assert.equal(reviewStart.parent_run_id, devStart.run_id);
+    assert.notEqual(otherDevStart.run_id, devStart.run_id);
+    assert.equal(otherDevStart.parent_run_id, undefined);
+    assert.equal(
+      activity.some((r) => r.event === "completed" && r.status === "superseded"),
+      false,
+      "nested skill loading is not a workflow terminal"
+    );
 
-    const marker = fs.readFileSync(path.join(root, ".pm", "analytics", ".current-run"), "utf8");
-    assert.equal(marker, reviewStart.run_id);
+    const stateA = JSON.parse(fs.readFileSync(engagementStatePath(root, "host-session-a"), "utf8"));
+    const stateB = JSON.parse(fs.readFileSync(engagementStatePath(root, "host-session-b"), "utf8"));
+    assert.equal(stateA.current_run_id, reviewStart.run_id);
+    assert.deepEqual(
+      Object.keys(stateA.open_runs).sort(),
+      [devStart.run_id, reviewStart.run_id].sort()
+    );
+    assert.equal(stateB.current_run_id, otherDevStart.run_id);
+    assert.deepEqual(Object.keys(stateB.open_runs), [otherDevStart.run_id]);
   } finally {
     cleanup();
   }
 });
 
-test("dev completion emits a genuine completed terminal, a phase span, and clears the marker", () => {
+test("session end closes only engagements owned by that host session", () => {
+  const { root, env, cleanup } = setupRepo();
+  try {
+    invokeAnalyticsLog(root, env, "pm:dev", "host-session-a");
+    invokeAnalyticsLog(root, env, "pm:dev", "host-session-b");
+    endSession(root, env, "host-session-a");
+
+    const activity = readJsonLines(root, ACTIVITY_FILE);
+    const startA = activity.find(
+      (r) => r.event === "started" && r.meta?.host_session_id === "host-session-a"
+    );
+    const startB = activity.find(
+      (r) => r.event === "started" && r.meta?.host_session_id === "host-session-b"
+    );
+    const terminals = activity.filter((r) => r.event === "completed");
+    assert.ok(terminals.some((r) => r.run_id === startA.run_id && r.status === "abandoned"));
+    assert.equal(
+      terminals.some((r) => r.run_id === startB.run_id),
+      false
+    );
+    assert.equal(fs.existsSync(engagementStatePath(root, "host-session-a")), false);
+    assert.equal(fs.existsSync(engagementStatePath(root, "host-session-b")), true);
+  } finally {
+    cleanup();
+  }
+});
+
+test("simultaneous skill hooks in one host session retain every engagement", async () => {
+  const { root, env, cleanup } = setupRepo();
+  try {
+    await Promise.all([
+      invokeAnalyticsLogAsync(root, env, "pm:dev", "contended-session"),
+      invokeAnalyticsLogAsync(root, env, "pm:review", "contended-session"),
+    ]);
+    const state = JSON.parse(
+      fs.readFileSync(engagementStatePath(root, "contended-session"), "utf8")
+    );
+    const runs = Object.entries(state.open_runs);
+    assert.equal(runs.length, 2);
+    const roots = runs.filter(([, run]) => run.parent_run_id === null);
+    const children = runs.filter(([, run]) => run.parent_run_id !== null);
+    assert.equal(roots.length, 1);
+    assert.equal(children.length, 1);
+    assert.equal(children[0][1].parent_run_id, roots[0][0]);
+  } finally {
+    cleanup();
+  }
+});
+
+test("dev completion uses the canonical workflow run id independently of hook engagement state", () => {
   const { root, env, cleanup } = setupRepo();
   try {
     invokeAnalyticsLog(root, env, "pm:dev");
-    const hookRunId = fs.readFileSync(path.join(root, ".pm", "analytics", ".current-run"), "utf8");
-
     const init = runCli(DEV_CLI, root, env, [
       "init",
       "--slug",
@@ -172,27 +284,23 @@ test("dev completion emits a genuine completed terminal, a phase span, and clear
     assert.equal(steps.length, 1);
     assert.equal(steps[0].step, "retro");
     assert.equal(steps[0].status, "completed");
-    assert.equal(steps[0].run_id, hookRunId);
+    assert.equal(steps[0].run_id, session.run_id);
     assert.equal(steps[0].meta.workflow_run_id, session.run_id);
 
     const terminals = readJsonLines(root, ACTIVITY_FILE).filter(
       (r) => r.skill === "dev" && r.event === "completed"
     );
-    assert.equal(terminals.length, 1);
-    assert.equal(terminals[0].status, "completed");
-    assert.equal(terminals[0].run_id, hookRunId);
-    assert.equal(terminals[0].detail, "complete");
-    assert.equal(terminals[0].meta.origin, "session-script");
-
+    const canonicalTerminals = terminals.filter((r) => r.run_id === session.run_id);
+    assert.equal(canonicalTerminals.length, 1);
+    assert.equal(canonicalTerminals[0].status, "completed");
+    assert.equal(canonicalTerminals[0].detail, "complete");
+    assert.equal(canonicalTerminals[0].meta.origin, "session-script");
+    assert.equal(canonicalTerminals[0].meta.identity_kind, "workflow");
     assert.equal(
-      fs.existsSync(path.join(root, ".pm", "analytics", ".current-run")),
-      false,
-      "a genuinely completed run must not be re-closed as abandoned by session-end"
+      fs.existsSync(engagementStatePath(root, "host-session-a")),
+      true,
+      "workflow completion must not mutate independent hook engagement state"
     );
-    const map = JSON.parse(
-      fs.readFileSync(path.join(root, ".pm", "analytics", ".run-map.json"), "utf8")
-    );
-    assert.equal(map["dev:lifecycle"], undefined);
   } finally {
     cleanup();
   }
@@ -243,6 +351,7 @@ test("a blocked dev session emits a blocked event and a failed-phase span surviv
     const started = activity.find((r) => r.skill === "dev" && r.event === "started");
     assert.ok(started, "with no hook run open, the session script must self-start one");
     assert.equal(started.meta.origin, "session-script");
+    assert.equal(started.run_id, JSON.parse(fs.readFileSync(sessionPath, "utf8")).run_id);
     assert.equal(blocked.run_id, started.run_id);
 
     const steps = readJsonLines(root, STEPS_FILE).filter((r) => r.skill === "dev");
@@ -269,7 +378,6 @@ test("separate-repo mode: streams land in the storage repo, scratch stays projec
     );
 
     invokeAnalyticsLog(root, env, "pm:dev");
-    const hookRunId = fs.readFileSync(path.join(root, ".pm", "analytics", ".current-run"), "utf8");
 
     const init = runCli(DEV_CLI, root, env, [
       "init",
@@ -307,20 +415,13 @@ test("separate-repo mode: streams land in the storage repo, scratch stays projec
       .split("\n")
       .map((line) => JSON.parse(line))
       .filter((r) => r.skill === "dev" && r.event === "completed");
-    assert.equal(terminals.length, 1);
-    assert.equal(terminals[0].status, "completed");
-    assert.equal(terminals[0].run_id, hookRunId);
-
-    assert.equal(
-      fs.existsSync(path.join(root, ".pm", "analytics", ".current-run")),
-      false,
-      "genuine completion must clear the project-local marker"
-    );
+    assert.equal(terminals.filter((r) => r.run_id === session.run_id).length, 1);
+    assert.equal(terminals.find((r) => r.run_id === session.run_id).status, "completed");
     assert.ok(
-      fs.existsSync(path.join(root, ".pm", "analytics", ".run-map.json")),
-      "run map is project-local scratch, never synced through the storage repo"
+      fs.existsSync(engagementStatePath(root, "host-session-a")),
+      "hook engagement state remains project-local"
     );
-    assert.equal(fs.existsSync(path.join(kb, ".pm", "analytics", ".run-map.json")), false);
+    assert.equal(fs.existsSync(path.join(kb, ".pm", "analytics", "sessions")), false);
   } finally {
     fs.rmSync(kb, { recursive: true, force: true });
     cleanup();
@@ -394,12 +495,66 @@ test("groom phase recording emits spans once per attempt and reuses the mapped r
     assert.equal(steps.length, 1, "idempotent retries must not duplicate phase spans");
     assert.equal(steps[0].step, session.phase);
 
-    const map = JSON.parse(
-      fs.readFileSync(path.join(root, ".pm", "analytics", ".run-map.json"), "utf8")
-    );
-    assert.equal(map["groom:groom-flow"].run_id, steps[0].run_id);
-    assert.ok(map["groom:groom-flow"].phase, "map keeps the next phase for span timing");
+    assert.equal(steps[0].run_id, session.run_id);
   } finally {
     cleanup();
+  }
+});
+
+test("duplicate worktree completion attempts emit one canonical workflow terminal", () => {
+  const kb = fs.mkdtempSync(path.join(os.tmpdir(), "pm-run-lifecycle-shared-kb-"));
+  const projectA = fs.mkdtempSync(path.join(os.tmpdir(), "pm-run-lifecycle-worktree-a-"));
+  const projectB = fs.mkdtempSync(path.join(os.tmpdir(), "pm-run-lifecycle-worktree-b-"));
+  const previousHostId = process.env.PM_HOST_ID;
+  try {
+    process.env.PM_HOST_ID = TEST_HOST_ID;
+    for (const root of [projectA, projectB]) {
+      fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
+      fs.mkdirSync(path.join(root, ".pm", "dev-sessions", "shared"), { recursive: true });
+      fs.writeFileSync(path.join(root, ".claude", "pm.local.md"), "---\nanalytics: true\n---\n");
+      fs.writeFileSync(
+        path.join(root, ".pm", "config.json"),
+        JSON.stringify({ config_schema: 2, pm_repo: { type: "local", path: kb } })
+      );
+    }
+    const workflow = {
+      schema_version: 2,
+      run_id: "dev_canonical_shared",
+      slug: "shared",
+      status: "complete",
+      phase: "retro",
+      phase_attempt: 1,
+      created_at: "2026-08-08T00:00:00.000Z",
+      updated_at: "2026-08-08T01:00:00.000Z",
+    };
+    const previous = { ...workflow, status: "active" };
+    const result = devResult(workflow);
+    for (const root of [projectA, projectB]) {
+      const sessionPath = path.join(root, ".pm", "dev-sessions", "shared", "session.json");
+      fs.writeFileSync(sessionPath, JSON.stringify(workflow));
+      recordSessionTelemetry({
+        workflow: "dev",
+        sessionPath,
+        prevSession: previous,
+        session: workflow,
+        result,
+      });
+    }
+
+    const activity = fs
+      .readFileSync(path.join(kb, ".pm", "analytics", ACTIVITY_FILE), "utf8")
+      .trim()
+      .split("\n")
+      .map(JSON.parse)
+      .filter((r) => r.run_id === workflow.run_id);
+    assert.equal(activity.filter((r) => r.event === "started").length, 1);
+    assert.equal(activity.filter((r) => r.event === "completed").length, 1);
+    assert.equal(activity.find((r) => r.event === "completed").status, "completed");
+  } finally {
+    if (previousHostId === undefined) delete process.env.PM_HOST_ID;
+    else process.env.PM_HOST_ID = previousHostId;
+    fs.rmSync(kb, { recursive: true, force: true });
+    fs.rmSync(projectA, { recursive: true, force: true });
+    fs.rmSync(projectB, { recursive: true, force: true });
   }
 });
