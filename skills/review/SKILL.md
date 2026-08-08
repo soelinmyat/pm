@@ -20,7 +20,7 @@ Review the exact current branch diff for source correctness, contracts, tests, r
 - Before implementation is committed; Review binds committed Git diff bytes.
 - For product scope or architecture approval; return those decisions to Groom/RFC or the user.
 - For the same HEAD when a checked `report.json` and gate row already pass current validation.
-- For a bounded post-pass fix (at most 50 changed code lines inside the certified file set) or a patch-identical rebase/amend after a passed round; use the delta-supplement protocol in `references/delta-supplement.md` (`scripts/review-delta.js`) instead of a new full round. Any failing freshness check falls back to a full round here.
+- For a bounded post-pass fix (at most 50 changed code lines inside the certified file set) or a content-identical rebase/amend after a passed round; use the delta-supplement protocol in `references/delta-supplement.md` (`scripts/review-delta.js`) instead of a new full round. Any failing freshness check falls back to a full round here.
 
 **Workflow:** `review` | **Telemetry steps:** `target`, `dispatch`, `synthesize`, `resolve`, `publish`
 

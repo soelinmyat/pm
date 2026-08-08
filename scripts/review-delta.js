@@ -26,11 +26,13 @@ const {
   MAX_DELTA_SUPPLEMENTS,
   SUPPLEMENT_KIND,
   certifiedPathSet,
+  commitTree,
   computeDelta,
   evaluateReviewFreshness,
   projectRelativeDir,
   readSupplements,
-  rejectedDeltaCommits,
+  rejectedDeltaStates,
+  rejectsCommit,
   scopeViolation,
   validateSupplementChain,
 } = require("./lib/review-freshness");
@@ -129,10 +131,12 @@ function buildCommand(options) {
   const { reviewDir, report, reportSha256, target } = loadCanonicalReview(root, options.reviewDir);
   // A blocking delta finding is only honoured if it survives the next build.
   // Without this, `record` -> rejected -> `build` on the unchanged HEAD ->
-  // `record` a clean result certifies the very commit a reviewer blocked.
-  if (rejectedDeltaCommits(root, reviewDir).has(head))
+  // `record` a clean result certifies the very commit a reviewer blocked. The
+  // check is content-keyed, so re-committing the rejected tree under a new SHA
+  // is not a fix either.
+  if (rejectsCommit(root, rejectedDeltaStates(root, reviewDir), head))
     throw new Error(
-      `HEAD ${head.slice(0, 12)} was rejected by a delta review; commit the fix before rebuilding, or run a full review round`
+      `HEAD ${head.slice(0, 12)} carries content a delta review rejected; commit the fix before rebuilding, or run a full review round`
     );
   const { prior, count } = chainState(root, reviewDir, report, target);
   if (count >= MAX_DELTA_SUPPLEMENTS)
@@ -167,7 +171,14 @@ function buildCommand(options) {
     },
     prior_commit: prior,
     chain_index: count + 1,
-    source: { commit: head, delta_diff_sha256: delta.delta_diff_sha256 },
+    // The tree travels with the record so a rejection outlives the commit it
+    // was filed against: `--amend --date=` mints a new SHA over this same tree,
+    // and rejectsCommit compares trees precisely so that cannot look like a fix.
+    source: {
+      commit: head,
+      tree: commitTree(root, head),
+      delta_diff_sha256: delta.delta_diff_sha256,
+    },
     budget: {
       code_lines: delta.code_lines,
       max_code_lines: MAX_DELTA_CODE_LINES,

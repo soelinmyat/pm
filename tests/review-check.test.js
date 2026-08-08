@@ -290,6 +290,46 @@ test("trusted base binds Git-resolved pushInsteadOf destinations", () => {
   );
 });
 
+test("trusted base fails closed when the authoritative object cannot be materialized", () => {
+  // The remote advertises a HEAD this clone does not have. If the fetch that
+  // is supposed to bring it down cannot deliver it, the base is unknown --
+  // and an unknown base must stop the freeze, not fall through and get
+  // compared against whatever happens to be local.
+  const fixture = makeFixture({ maxWorkers: 2 });
+  const unreachable = `${fixture.root}-unreachable.git`;
+  git(fixture.root, ["init", "-q", "--bare", unreachable]);
+  const inBare = (args, input) =>
+    execFileSync("git", ["--git-dir", unreachable, ...args], {
+      encoding: "utf8",
+      input,
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "Review Check Test",
+        GIT_AUTHOR_EMAIL: "review-check@example.com",
+        GIT_AUTHOR_DATE: "2001-02-03T04:05:06+00:00",
+        GIT_COMMITTER_NAME: "Review Check Test",
+        GIT_COMMITTER_EMAIL: "review-check@example.com",
+        GIT_COMMITTER_DATE: "2001-02-03T04:05:06+00:00",
+      },
+    }).trim();
+
+  // A history of its own, so the advertised tip is genuinely absent here.
+  const blob = inBare(["hash-object", "-w", "--stdin"], "unreachable\n");
+  const tree = inBare(["mktree"], `100644 blob ${blob}\tfile.txt\n`);
+  const tip = inBare(["commit-tree", tree, "-m", "unreachable"]);
+  inBare(["update-ref", "refs/heads/main", tip]);
+  inBare(["symbolic-ref", "HEAD", "refs/heads/main"]);
+  // HEAD stays advertised while its branch is hidden from the fetch.
+  inBare(["config", "transfer.hideRefs", "refs/heads/main"]);
+  git(fixture.root, ["config", "remote.origin.pushurl", unreachable]);
+
+  assert.throws(() => resolveTrustedBase(fixture.root), /cannot fetch authoritative origin object/);
+  assert.throws(
+    () => execFileSync("git", ["cat-file", "-e", `${tip}^{commit}`], { cwd: fixture.root }),
+    "a failed authentication must not leave the object behind either"
+  );
+});
+
 test("named-remote target passes live end-to-end review validation", () => {
   const fixture = makeFixture({ maxWorkers: 2, remote: "upstream" });
   const checked = checkReview({

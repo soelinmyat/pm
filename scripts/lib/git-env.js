@@ -24,9 +24,60 @@ const GIT_ENV_KEYS_TO_CLEAR = Object.freeze([
 // budget-bound must therefore ask git for its own diff explicitly.
 // --find-renames pins rename detection too, so an inherited `diff.renames`
 // setting cannot move the recorded bytes on a clone that merely configures git
-// differently. Under default config these flags are byte-for-byte no-ops, so
-// they do not invalidate any previously frozen hash.
-const GIT_DIFF_TRUST_FLAGS = Object.freeze(["--no-ext-diff", "--no-textconv", "--find-renames"]);
+// differently. --ignore-submodules=none overrides the `ignore` key a tracked
+// .gitmodules may set: `ignore = all` is ordinary repo content, needs no env or
+// local config, and erases gitlink rows from both the diff bytes and the
+// numstat line pricing, so a submodule pointer bump to arbitrary code would
+// otherwise render byte-identical to the change that was reviewed.
+const GIT_DIFF_TRUST_FLAGS = Object.freeze([
+  "--no-ext-diff",
+  "--no-textconv",
+  "--find-renames",
+  "--ignore-submodules=none",
+]);
+
+// Command-line flags cannot reach every knob that moves diff bytes: hunk
+// splitting, context width, path prefixes, blank-context rendering and object
+// abbreviation are config-only. Each value below is git's own default, so the
+// pinned invocation is byte-for-byte identical to the unpinned one on a
+// default clone (tests/review-freshness.test.js proves this against a repo
+// configured otherwise) and no previously frozen hash is invalidated. These are
+// `git -c` options, so they must precede the subcommand -- use trustedDiffArgs
+// rather than assembling them by hand.
+const GIT_DIFF_TRUST_CONFIG = Object.freeze([
+  "-c",
+  "core.abbrev=auto",
+  "-c",
+  "core.quotePath=true",
+  "-c",
+  "diff.algorithm=myers",
+  "-c",
+  "diff.context=3",
+  "-c",
+  "diff.dstPrefix=b/",
+  "-c",
+  "diff.indentHeuristic=true",
+  "-c",
+  "diff.mnemonicPrefix=false",
+  "-c",
+  "diff.noprefix=false",
+  "-c",
+  "diff.renames=true",
+  "-c",
+  "diff.srcPrefix=a/",
+  "-c",
+  "diff.submodule=short",
+  "-c",
+  "diff.suppressBlankEmpty=false",
+]);
+
+// The one way to spell a trusted diff. Every hash-bound, budget-bound, or
+// anchor-bound diff in the review toolchain goes through here so a call site
+// cannot ship with a partial copy of the trust set -- which is exactly how the
+// anchor-hunk reader ended up carrying only --no-ext-diff.
+function trustedDiffArgs(...args) {
+  return [...GIT_DIFF_TRUST_CONFIG, "diff", ...GIT_DIFF_TRUST_FLAGS, ...args];
+}
 
 function cleanGitEnv(extraEnv = {}) {
   const env = { ...process.env, ...extraEnv };
@@ -49,4 +100,11 @@ function gitExec(root, args, encoding = "utf8", input = undefined) {
   });
 }
 
-module.exports = { GIT_ENV_KEYS_TO_CLEAR, GIT_DIFF_TRUST_FLAGS, cleanGitEnv, gitExec };
+module.exports = {
+  GIT_ENV_KEYS_TO_CLEAR,
+  GIT_DIFF_TRUST_CONFIG,
+  GIT_DIFF_TRUST_FLAGS,
+  cleanGitEnv,
+  gitExec,
+  trustedDiffArgs,
+};

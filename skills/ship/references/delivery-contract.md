@@ -128,7 +128,7 @@ Any commit created after the final Review invalidates delivery authority, includ
 2. Run the relevant tests and verification for the changed surface.
 3. Reestablish Review authority for current HEAD through exactly one sanctioned path:
    - **Full round** — invoke `pm:review` against current HEAD and the same validated delivery contract; publish a new canonical Review JSON/HTML report and retained-render manifest for the current commit. Always valid; required whenever either scoped path below fails.
-   - **Diff identity** — after a rebase or amend that leaves the branch patch-identical to the certified diff, run `review-delta.js check` with the live base; exit 0 keeps the frozen canonical report authoritative for current HEAD.
+   - **Content identity** — after a rebase or amend that leaves the branch carrying the same objects as the certified change set, run `review-delta.js check` with the live base; exit 0 keeps the frozen canonical report authoritative for current HEAD.
    - **Delta supplement** — for a fix of at most 50 changed code lines inside the certified changed-file set, run the `review-delta.js` build → scoped review → record protocol (max 2 supplements per certification). See `skills/review/references/delta-supplement.md`.
    Both scoped paths fail closed; any check failure means the full round is required.
 4. Rerun every routed quality gate whose relevant surface changed. Regenerate its canonical artifact. Use `dev-session recertify` only for a gate whose existing evidence was actually rechecked and remains applicable; never advance `verified_commit` by inspection alone. For the Review gate, a passing `review-delta.js check` (exit 0) is that recheck evidence.

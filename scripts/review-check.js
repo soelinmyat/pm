@@ -4,7 +4,7 @@
 const crypto = require("node:crypto");
 // Shared wrapper: sanitizes the Git environment for every call site here,
 // including the frozen-diff re-derivation the target binding depends on.
-const { GIT_DIFF_TRUST_FLAGS, gitExec: git } = require("./lib/git-env");
+const { gitExec: git, trustedDiffArgs } = require("./lib/git-env");
 const fs = require("node:fs");
 const path = require("node:path");
 const { inspectHtmlArtifact } = require("./artifact-check");
@@ -689,11 +689,7 @@ function validateLiveTarget(root, target, issues) {
       target.source?.remote_push_url_sha256 !== trusted.remote_push_url_sha256
     )
       add(issues, "target.source", "does not match the authoritative remote default");
-    const diff = git(
-      root,
-      ["diff", "--binary", ...GIT_DIFF_TRUST_FLAGS, `${trusted.commit}...${head}`],
-      null
-    );
+    const diff = git(root, trustedDiffArgs("--binary", `${trusted.commit}...${head}`), null);
     target[FROZEN_MERGE_BASE] = git(root, ["merge-base", trusted.commit, head]).toString().trim();
     if (target.source?.diff_sha256 !== digest(diff))
       add(issues, "target.source.diff_sha256", "does not match current diff bytes");
@@ -719,12 +715,7 @@ function validateFrozenTarget(root, target, issues) {
     if (!sha(target[FROZEN_MERGE_BASE])) throw new Error("source and base have no merge base");
     const diff = git(
       root,
-      [
-        "diff",
-        "--binary",
-        ...GIT_DIFF_TRUST_FLAGS,
-        `${target.source.base_commit}...${target.source.commit}`,
-      ],
+      trustedDiffArgs("--binary", `${target.source.base_commit}...${target.source.commit}`),
       null
     );
     if (target.source.diff_sha256 !== digest(diff))
@@ -1367,11 +1358,11 @@ function frozenPathChange(root, target, changed) {
   }
   const paths = [...new Set([changed.old_path, changed.path].filter(Boolean))];
   const common = [mergeBase, target.source.commit, "--", ...paths];
-  const patch = git(
-    root,
-    ["diff", "--unified=0", "--no-color", "--no-ext-diff", ...common],
-    "utf8"
-  );
+  // The same trust set as every other bound diff: this patch decides whether an
+  // anchor intersects a real changed hunk, so a driver or config that reshapes
+  // it decides which claims a reviewer is allowed to make. `--unified=0` still
+  // wins over the pinned diff.context.
+  const patch = git(root, trustedDiffArgs("--unified=0", "--no-color", ...common), "utf8");
   const hunks = [];
   const pattern = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm;
   for (const match of patch.matchAll(pattern))
@@ -1381,8 +1372,8 @@ function frozenPathChange(root, target, changed) {
       new_start: Number(match[3]),
       new_count: match[4] === undefined ? 1 : Number(match[4]),
     });
-  const summary = git(root, ["diff", "--summary", ...common], "utf8").trim();
-  const numstat = git(root, ["diff", "--numstat", ...common], "utf8").trim();
+  const summary = git(root, trustedDiffArgs("--summary", ...common), "utf8").trim();
+  const numstat = git(root, trustedDiffArgs("--numstat", ...common), "utf8").trim();
   const value = {
     hunks,
     non_textual: hunks.length === 0 && (summary.length > 0 || numstat.length > 0),

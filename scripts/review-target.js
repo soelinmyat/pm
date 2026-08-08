@@ -2,8 +2,9 @@
 "use strict";
 
 const crypto = require("node:crypto");
-// Still needed directly: the remote probes below run with their own timeout
-// and env, which gitExec deliberately does not parameterize.
+// Still needed directly: `ls-remote` and `fetch` below reach the network and
+// run with their own timeout and prompt-suppressing env, which gitExec
+// deliberately does not parameterize. Purely local probes use gitExec.
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -18,7 +19,7 @@ const { readProjectInput } = projectFile;
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 // Shared with the freshness evaluator so environment hardening cannot drift
 // between the side that freezes a hash and the side that re-derives it.
-const { GIT_DIFF_TRUST_FLAGS, gitExec: git } = require("./lib/git-env");
+const { gitExec: git, trustedDiffArgs } = require("./lib/git-env");
 const {
   expectedPriorReportPath,
   expectedReviewPath,
@@ -41,13 +42,9 @@ function buildReviewTarget(options) {
   if (baseRef !== trusted.ref) throw new Error(`base must equal remote default ${trusted.ref}`);
   if (baseCommit !== trusted.commit)
     throw new Error(`base commit must equal remote default ${trusted.commit}`);
-  // Trust flags pin the bytes this hash is frozen over; review-freshness.js
-  // and review-check.js re-derive it with exactly the same invocation.
-  const diff = git(
-    root,
-    ["diff", "--binary", ...GIT_DIFF_TRUST_FLAGS, `${baseCommit}...${commit}`],
-    null
-  );
+  // trustedDiffArgs pins the bytes this hash is frozen over; review-check.js
+  // re-derives it with exactly the same invocation.
+  const diff = git(root, trustedDiffArgs("--binary", `${baseCommit}...${commit}`), null);
   const changedFiles = changedFileInventory(root, baseCommit, commit);
   if (changedFiles.length === 0) throw new Error("review target has no changed files");
   if (changedFiles.length > 500) throw new Error("review target exceeds the 500-file budget");
@@ -322,13 +319,18 @@ function resolveTrustedBase(root, remote = "origin") {
   const branch = output.match(/^ref:\s+refs\/heads\/([^\s]+)\s+HEAD$/m)?.[1];
   const commit = output.match(/^([a-f0-9]{40,64})\s+HEAD$/m)?.[1];
   if (!branch || !commit) throw new Error(`${remote} HEAD lacks a symbolic ref or object ID`);
-  try {
-    execFileSync("git", ["cat-file", "-e", `${commit}^{commit}`], {
-      cwd: root,
-      stdio: ["ignore", "ignore", "ignore"],
-      timeout: 5_000,
-    });
-  } catch {
+  // Local object probes go through gitExec: an inherited GIT_DIR or
+  // GIT_OBJECT_DIRECTORY would otherwise decide, in a different repository,
+  // whether the authoritative base is already materialized here.
+  const objectPresent = () => {
+    try {
+      git(root, ["cat-file", "-e", `${commit}^{commit}`]);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  if (!objectPresent()) {
     try {
       execFileSync(
         "git",
@@ -340,18 +342,17 @@ function resolveTrustedBase(root, remote = "origin") {
           timeout: 30_000,
         }
       );
-      execFileSync("git", ["cat-file", "-e", `${commit}^{commit}`], {
-        cwd: root,
-        stdio: ["ignore", "ignore", "pipe"],
-        timeout: 5_000,
-      });
     } catch (error) {
       throw new Error(
-        `cannot materialize authoritative ${remote} object: ${String(error.stderr || error.message)
+        `cannot fetch authoritative ${remote} object: ${String(error.stderr || error.message)
           .trim()
           .slice(0, 300)}`
       );
     }
+    if (!objectPresent())
+      throw new Error(
+        `cannot materialize authoritative ${remote} object ${commit.slice(0, 12)} after fetching refs/heads/${branch}`
+      );
   }
   return {
     ref: `${remote}/${branch}`,
@@ -361,11 +362,7 @@ function resolveTrustedBase(root, remote = "origin") {
 }
 
 function changedFileInventory(root, baseCommit, commit) {
-  const raw = git(
-    root,
-    ["diff", "--name-status", "-z", ...GIT_DIFF_TRUST_FLAGS, `${baseCommit}...${commit}`],
-    null
-  );
+  const raw = git(root, trustedDiffArgs("--name-status", "-z", `${baseCommit}...${commit}`), null);
   const fields = raw.toString("utf8").split("\0");
   if (fields.at(-1) === "") fields.pop();
   const rows = [];

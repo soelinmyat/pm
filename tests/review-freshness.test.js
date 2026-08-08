@@ -11,12 +11,13 @@ const path = require("node:path");
 const {
   baseEquivalence,
   computeDelta,
-  diffIdentity,
+  contentIdentity,
   evaluateReviewFreshness,
-  rejectedDeltaCommits,
+  rejectedDeltaStates,
+  rejectsCommit,
   validateSupplementChain,
 } = require("../scripts/lib/review-freshness");
-const { GIT_DIFF_TRUST_FLAGS, GIT_ENV_KEYS_TO_CLEAR } = require("../scripts/lib/git-env");
+const { GIT_ENV_KEYS_TO_CLEAR, trustedDiffArgs } = require("../scripts/lib/git-env");
 
 function makeRepo(prefix = "pm-review-freshness-") {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -46,16 +47,12 @@ function digest(bytes) {
 }
 
 function frozenDiffBytes(repo, base, head) {
-  // Same trust flags the production callers pin, so a test repository that
-  // inherits a different diff config still reproduces the hashed bytes.
-  const result = spawnSync(
-    "git",
-    ["diff", "--binary", ...GIT_DIFF_TRUST_FLAGS, `${base}...${head}`],
-    {
-      cwd: repo.dir,
-      maxBuffer: 64 * 1024 * 1024,
-    }
-  );
+  // The same pinned invocation the production callers use, so a test repository
+  // that inherits a different diff config still reproduces the hashed bytes.
+  const result = spawnSync("git", trustedDiffArgs("--binary", `${base}...${head}`), {
+    cwd: repo.dir,
+    maxBuffer: 64 * 1024 * 1024,
+  });
   assert.equal(result.status, 0);
   return result.stdout;
 }
@@ -157,46 +154,38 @@ test("baseEquivalence fails closed outside a usable repository", () => {
   }
 });
 
-test("diffIdentity accepts an amended commit with an identical patch", () => {
+test("contentIdentity accepts an amended commit carrying identical objects", () => {
   const repo = makeRepo();
   try {
     const base = commitFile(repo, "base.txt", "base\n", "base");
     repo.run("switch", "-q", "-c", "feature");
     const reviewed = commitFile(repo, "src/app.js", "feature\n", "feature");
-    const source = {
-      commit: reviewed,
-      base_commit: base,
-      diff_sha256: digest(frozenDiffBytes(repo, base, reviewed)),
-    };
+    const source = { commit: reviewed, base_commit: base };
     repo.run("commit", "-q", "--amend", "-m", "feature with a better message");
     const amended = repo.run("rev-parse", "HEAD");
     assert.notEqual(amended, reviewed);
 
-    const verdict = diffIdentity({ root: repo.dir, source, currentCommit: amended });
+    const verdict = contentIdentity({ root: repo.dir, source, currentCommit: amended });
     assert.equal(verdict.ok, true, verdict.reason);
   } finally {
     fs.rmSync(repo.dir, { recursive: true, force: true });
   }
 });
 
-test("diffIdentity accepts a rebase when compared against the live base", () => {
+test("contentIdentity accepts a rebase when compared against the live base", () => {
   const repo = makeRepo();
   try {
     const base = commitFile(repo, "base.txt", "base\n", "base");
     repo.run("switch", "-q", "-c", "feature");
     const reviewed = commitFile(repo, "src/app.js", "feature\n", "feature");
-    const source = {
-      commit: reviewed,
-      base_commit: base,
-      diff_sha256: digest(frozenDiffBytes(repo, base, reviewed)),
-    };
+    const source = { commit: reviewed, base_commit: base };
     repo.run("switch", "-q", "main");
     const movedBase = commitFile(repo, "unrelated.txt", "unrelated\n", "main work");
     repo.run("switch", "-q", "feature");
     repo.run("rebase", "-q", "main");
     const rebased = repo.run("rev-parse", "HEAD");
 
-    const withLiveBase = diffIdentity({
+    const withLiveBase = contentIdentity({
       root: repo.dir,
       source,
       currentCommit: rebased,
@@ -204,106 +193,129 @@ test("diffIdentity accepts a rebase when compared against the live base", () => 
     });
     assert.equal(withLiveBase.ok, true, withLiveBase.reason);
 
-    const withFrozenBase = diffIdentity({ root: repo.dir, source, currentCommit: rebased });
+    // Against the frozen base the rebased branch also carries the upstream
+    // file, which is outside anything the reviewers were shown.
+    const withFrozenBase = contentIdentity({ root: repo.dir, source, currentCommit: rebased });
     assert.equal(withFrozenBase.ok, false);
-    assert.match(withFrozenBase.reason, /not patch-identical/);
+    assert.match(withFrozenBase.reason, /outside the reviewed change set/);
   } finally {
     fs.rmSync(repo.dir, { recursive: true, force: true });
   }
 });
 
-test("diffIdentity rejects a whitespace-only amend against the same base", () => {
+test("contentIdentity rejects a whitespace-only amend against the same base", () => {
   const repo = makeRepo();
   try {
     const base = commitFile(repo, "base.txt", "base\n", "base");
     repo.run("switch", "-q", "-c", "feature");
     const reviewed = commitFile(repo, "src/lib.py", "def f():\n    return 1\n", "feature");
-    const source = {
-      commit: reviewed,
-      base_commit: base,
-      diff_sha256: digest(frozenDiffBytes(repo, base, reviewed)),
-    };
+    const source = { commit: reviewed, base_commit: base };
     fs.writeFileSync(path.join(repo.dir, "src/lib.py"), "def f():\nreturn 1\n");
     repo.run("add", "-A");
     repo.run("commit", "-q", "--amend", "-m", "feature dedented");
     const amended = repo.run("rev-parse", "HEAD");
     assert.notEqual(amended, reviewed);
 
-    // Premise: patch-id --stable strips the intra-line whitespace, so the old
+    // Premise: patch-id --stable strips the intra-line whitespace, so a
     // patch-id acceptance would have certified this semantics-changing amend.
+    // Blob identity never sees a normalized form at all.
     assert.equal(
       patchId(repo, frozenDiffBytes(repo, base, reviewed), "--stable"),
       patchId(repo, frozenDiffBytes(repo, base, amended), "--stable")
     );
 
-    const verdict = diffIdentity({ root: repo.dir, source, currentCommit: amended });
+    const verdict = contentIdentity({ root: repo.dir, source, currentCommit: amended });
     assert.equal(verdict.ok, false);
-    assert.match(verdict.reason, /not patch-identical/);
+    assert.match(verdict.reason, /reviewed content differs at src\/lib\.py/);
   } finally {
     fs.rmSync(repo.dir, { recursive: true, force: true });
   }
 });
 
-test("diffIdentity rejects a whitespace-only variant across a moved base", () => {
+test("contentIdentity rejects a whitespace-only variant across a moved base", () => {
   const repo = makeRepo();
   try {
     const base = commitFile(repo, "base.txt", "base\n", "base");
     repo.run("switch", "-q", "-c", "feature");
     const reviewed = commitFile(repo, "src/lib.py", "def f():\n    return 1\n", "feature");
-    const source = {
-      commit: reviewed,
-      base_commit: base,
-      diff_sha256: digest(frozenDiffBytes(repo, base, reviewed)),
-    };
+    const source = { commit: reviewed, base_commit: base };
     repo.run("switch", "-q", "main");
     const movedBase = commitFile(repo, "unrelated.txt", "unrelated\n", "main work");
     repo.run("switch", "-q", "-c", "feature-2");
     const dedented = commitFile(repo, "src/lib.py", "def f():\nreturn 1\n", "dedented variant");
 
-    // Premise: --stable collides across the moved base too; only --verbatim
-    // can distinguish the whitespace-only variant.
+    // Premise: --stable collides across the moved base too.
     assert.equal(
       patchId(repo, frozenDiffBytes(repo, base, reviewed), "--stable"),
       patchId(repo, frozenDiffBytes(repo, movedBase, dedented), "--stable")
     );
 
-    const verdict = diffIdentity({
+    const verdict = contentIdentity({
       root: repo.dir,
       source,
       currentCommit: dedented,
       currentBaseCommit: movedBase,
     });
     assert.equal(verdict.ok, false);
-    assert.match(verdict.reason, /not patch-identical/);
+    assert.match(verdict.reason, /reviewed content differs at src\/lib\.py/);
   } finally {
     fs.rmSync(repo.dir, { recursive: true, force: true });
   }
 });
 
-test("diffIdentity rejects changed content and tampered frozen hashes", () => {
+test("contentIdentity rejects post-review content drift", () => {
   const repo = makeRepo();
   try {
     const base = commitFile(repo, "base.txt", "base\n", "base");
     repo.run("switch", "-q", "-c", "feature");
     const reviewed = commitFile(repo, "src/app.js", "feature\n", "feature");
-    const source = {
-      commit: reviewed,
-      base_commit: base,
-      diff_sha256: digest(frozenDiffBytes(repo, base, reviewed)),
-    };
+    const source = { commit: reviewed, base_commit: base };
     const changed = commitFile(repo, "src/app.js", "feature\nextra\n", "post-review fix");
 
-    const drifted = diffIdentity({ root: repo.dir, source, currentCommit: changed });
+    const drifted = contentIdentity({ root: repo.dir, source, currentCommit: changed });
     assert.equal(drifted.ok, false);
-    assert.match(drifted.reason, /not patch-identical/);
+    assert.match(drifted.reason, /reviewed content differs at src\/app\.js/);
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});
 
-    const tampered = diffIdentity({
+test("contentIdentity refuses a certified inventory that omits a changed path", () => {
+  // The reviewed commit changes two paths; the frozen inventory lists one.
+  // Whatever produced the omission -- a suppressed diff row, a hand-edited
+  // target -- the missing path is content nobody was asked to read, so the
+  // pass cannot carry forward.
+  const repo = makeRepo();
+  try {
+    const base = commitFile(repo, "base.txt", "base\n", "base");
+    repo.run("switch", "-q", "-c", "feature");
+    fs.mkdirSync(path.join(repo.dir, "src"), { recursive: true });
+    fs.writeFileSync(path.join(repo.dir, "src/app.js"), "feature\n");
+    fs.writeFileSync(path.join(repo.dir, "src/quiet.js"), "unlisted\n");
+    repo.run("add", "-A");
+    repo.run("commit", "-q", "-m", "feature");
+    const reviewed = repo.run("rev-parse", "HEAD");
+    repo.run("commit", "-q", "--amend", "-m", "feature, reworded");
+    const amended = repo.run("rev-parse", "HEAD");
+
+    const source = { commit: reviewed, base_commit: base };
+    const complete = contentIdentity({
       root: repo.dir,
-      source: { ...source, diff_sha256: "0".repeat(64) },
-      currentCommit: reviewed,
+      target: { source, changed_files: [{ path: "src/app.js" }, { path: "src/quiet.js" }] },
+      source,
+      currentCommit: amended,
     });
-    assert.equal(tampered.ok, false);
-    assert.match(tampered.reason, /no longer match the reviewed diff_sha256/);
+    assert.equal(complete.ok, true, complete.reason);
+
+    const partial = contentIdentity({
+      root: repo.dir,
+      target: { source, changed_files: [{ path: "src/app.js" }] },
+      source,
+      currentCommit: amended,
+    });
+    assert.equal(partial.ok, false);
+    assert.match(partial.reason, /certified inventory does not list/);
+    assert.match(partial.reason, /src\/quiet\.js/);
   } finally {
     fs.rmSync(repo.dir, { recursive: true, force: true });
   }
@@ -390,7 +402,7 @@ test("evaluateReviewFreshness reports every rejected path when nothing matches",
       currentCommit: head,
     });
     assert.equal(verdict.ok, false);
-    assert.match(verdict.reason, /diff identity: .*not patch-identical/);
+    assert.match(verdict.reason, /content identity: reviewed content differs at src\/app\.js/);
     assert.match(verdict.reason, /delta chain: no delta supplements recorded/);
 
     const notPassed = evaluateReviewFreshness({
@@ -652,7 +664,7 @@ test("validateSupplementChain reports the supplement cap instead of ignoring an 
   }
 });
 
-test("diffIdentity rejects a relocated edit that patch-id alone accepts", () => {
+test("contentIdentity rejects a relocated edit that patch-id alone accepts", () => {
   // patch-id hashes hunk content with line offsets stripped. In a file of
   // repeated identical blocks, the same inserted line in a different block
   // produces the same patch-id against a different tree, so patch-id equality
@@ -691,9 +703,9 @@ test("diffIdentity rejects a relocated edit that patch-id alone accepts", () => 
       "fixture must carry genuinely different content"
     );
 
-    const verdict = diffIdentity({
+    const verdict = contentIdentity({
       root: repo.dir,
-      source: { commit: reviewed, base_commit: base, diff_sha256: digest(reviewedDiff) },
+      source: { commit: reviewed, base_commit: base },
       currentCommit: relocatedOnMovedBase,
       currentBaseCommit: movedBase,
     });
@@ -705,7 +717,7 @@ test("diffIdentity rejects a relocated edit that patch-id alone accepts", () => 
   }
 });
 
-test("diffIdentity still accepts a clean rebase that only absorbed upstream files", () => {
+test("contentIdentity still accepts a clean rebase that only absorbed upstream files", () => {
   const repo = makeRepo();
   try {
     const base = commitFile(repo, "a.js", "one\ntwo\n", "base");
@@ -719,24 +731,23 @@ test("diffIdentity still accepts a clean rebase that only absorbed upstream file
     const rebased = repo.run("rev-parse", "HEAD");
     assert.notEqual(rebased, reviewed, "rebase must produce a new commit");
 
-    const verdict = diffIdentity({
+    const verdict = contentIdentity({
       root: repo.dir,
-      source: {
-        commit: reviewed,
-        base_commit: base,
-        diff_sha256: digest(frozenDiffBytes(repo, base, reviewed)),
-      },
+      source: { commit: reviewed, base_commit: base },
       currentCommit: rebased,
       currentBaseCommit: movedBase,
     });
     assert.equal(verdict.ok, true, verdict.reason);
-    assert.match(verdict.reason, /identical reviewed post-images/);
+    assert.match(
+      verdict.reason,
+      /identical objects across the reviewed change set on the moved base/
+    );
   } finally {
     fs.rmSync(repo.dir, { recursive: true, force: true });
   }
 });
 
-test("diffIdentity rejects a rebase that added an unreviewed file", () => {
+test("contentIdentity rejects a rebase that added an unreviewed file", () => {
   const repo = makeRepo();
   try {
     const base = commitFile(repo, "a.js", "one\n", "base");
@@ -744,17 +755,14 @@ test("diffIdentity rejects a rebase that added an unreviewed file", () => {
     const reviewed = commitFile(repo, "a.js", "one\ntwo\n", "reviewed");
     const smuggled = commitFile(repo, "extra.js", "// never reviewed\n", "extra");
 
-    const verdict = diffIdentity({
+    const verdict = contentIdentity({
       root: repo.dir,
-      source: {
-        commit: reviewed,
-        base_commit: base,
-        diff_sha256: digest(frozenDiffBytes(repo, base, reviewed)),
-      },
+      source: { commit: reviewed, base_commit: base },
       currentCommit: smuggled,
       currentBaseCommit: base,
     });
     assert.equal(verdict.ok, false);
+    assert.match(verdict.reason, /extra\.js outside the reviewed change set/);
   } finally {
     fs.rmSync(repo.dir, { recursive: true, force: true });
   }
@@ -783,7 +791,7 @@ test("computeDelta detects a boundary-crossing rename even with diff.renames dis
   }
 });
 
-test("a corrupt supplement does not block a byte-identical amend from diff identity", () => {
+test("a corrupt supplement does not block an object-identical amend from content identity", () => {
   const repo = makeRepo();
   try {
     const base = commitFile(repo, "base.txt", "base\n", "base");
@@ -802,17 +810,13 @@ test("a corrupt supplement does not block a byte-identical amend from diff ident
       reviewDir,
       report: { outcome: "passed", source: { commit: reviewed } },
       target: {
-        source: {
-          commit: reviewed,
-          base_commit: base,
-          diff_sha256: digest(frozenDiffBytes(repo, base, reviewed)),
-        },
+        source: { commit: reviewed, base_commit: base },
         changed_files: [{ path: "src/app.js" }],
       },
       currentCommit: amended,
     });
     assert.equal(verdict.ok, true, verdict.reason);
-    assert.equal(verdict.method, "diff-identity");
+    assert.equal(verdict.method, "content-identity");
   } finally {
     fs.rmSync(repo.dir, { recursive: true, force: true });
   }
@@ -977,10 +981,63 @@ test("a rejected delta commit stays rejected and cannot be certified by a later 
         result: { outcome: "failed", findings: [{ severity: "high" }] },
       })
     );
-    assert.deepEqual(rejectedDeltaCommits(repo.dir, reviewDir), new Set([fix]));
+    const rejected = rejectedDeltaStates(repo.dir, reviewDir);
+    assert.deepEqual(rejected.commits, new Set([fix]));
+    assert.deepEqual(rejected.trees, new Set([repo.run("rev-parse", `${fix}^{tree}`)]));
     const afterRejection = validateSupplementChain(args);
     assert.equal(afterRejection.ok, false);
     assert.match(afterRejection.reason, /a delta review rejected/);
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});
+
+test("a rejection survives every SHA-moving no-op that leaves the tree alone", () => {
+  // --amend -m, --amend --date= and --allow-empty all mint a fresh commit SHA
+  // over content nobody changed. Keying a rejection on the commit alone let
+  // any of them launder a blocked fix; keying on the tree does not, and a
+  // genuine fix necessarily moves the tree.
+  const repo = makeRepo();
+  try {
+    commitFile(repo, "base.txt", "base\n", "base");
+    repo.run("switch", "-q", "-c", "feature");
+    const reviewed = commitFile(repo, "src/app.js", "feature\n", "feature");
+    const fix = commitFile(repo, "src/app.js", "feature\nfix\n", "fix");
+
+    const reviewDir = path.join(repo.dir, ".pm/dev-sessions/example/review");
+    const supplementsDir = path.join(reviewDir, "supplements");
+    fs.mkdirSync(supplementsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(supplementsDir, `rejected-${fix.slice(0, 12)}-1700000000000.json`),
+      JSON.stringify({
+        kind: "review-delta-v1",
+        prior_commit: reviewed,
+        source: { commit: fix, tree: repo.run("rev-parse", `${fix}^{tree}`) },
+        result: { outcome: "failed", findings: [{ severity: "high" }] },
+      })
+    );
+    const rejected = rejectedDeltaStates(repo.dir, reviewDir);
+
+    for (const evasion of [
+      ["commit", "-q", "--amend", "-m", "fix, reworded"],
+      ["commit", "-q", "--amend", "--no-edit", "--date", "2001-02-03T04:05:06"],
+    ]) {
+      repo.run(...evasion);
+      const laundered = repo.run("rev-parse", "HEAD");
+      assert.notEqual(laundered, fix, `${evasion.join(" ")} must move the commit SHA`);
+      assert.ok(
+        rejectsCommit(repo.dir, rejected, laundered),
+        `${evasion.join(" ")} must not launder a rejected commit`
+      );
+    }
+
+    // An empty commit on top carries the rejected tree forward unchanged.
+    repo.run("commit", "-q", "--allow-empty", "-m", "empty");
+    assert.ok(rejectsCommit(repo.dir, rejected, repo.run("rev-parse", "HEAD")));
+
+    // The escape hatch is doing the work: changed content clears the rejection.
+    const genuine = commitFile(repo, "src/app.js", "feature\nreal fix\n", "actually fix it");
+    assert.equal(rejectsCommit(repo.dir, rejected, genuine), false);
   } finally {
     fs.rmSync(repo.dir, { recursive: true, force: true });
   }
@@ -997,7 +1054,7 @@ test("a malformed rejection record fails closed instead of vanishing", () => {
       JSON.stringify({ result: { outcome: "failed" } })
     );
     assert.throws(
-      () => rejectedDeltaCommits(repo.dir, reviewDir),
+      () => rejectedDeltaStates(repo.dir, reviewDir),
       /does not name the commit it rejected/
     );
   } finally {
@@ -1005,10 +1062,12 @@ test("a malformed rejection record fails closed instead of vanishing", () => {
   }
 });
 
-test("an external diff driver cannot forge the bytes diff identity hashes", () => {
-  // GIT_EXTERNAL_DIFF replaces git's diff output wholesale. Every identity
-  // hash is computed over those bytes, so a shim that replays the honest
-  // reviewed diff would otherwise certify content no reviewer ever saw.
+test("no external diff driver can forge content identity, by env or by repo config", () => {
+  // An external diff driver replaces git's diff output wholesale, so a shim
+  // replaying the honest reviewed diff forges any identity computed over
+  // those bytes. It arrives two ways -- GIT_EXTERNAL_DIFF in the environment
+  // and diff.external in a repo-local config a branch can carry -- and
+  // content identity is immune to both because it never renders a diff.
   const repo = makeRepo();
   const shim = path.join(repo.dir, "shim.sh");
   try {
@@ -1022,25 +1081,115 @@ test("an external diff driver cannot forge the bytes diff identity hashes", () =
 
     fs.writeFileSync(shim, `#!/bin/sh\ncat <<'PATCH'\n${reviewedDiff.toString("utf8")}PATCH\n`);
     fs.chmodSync(shim, 0o755);
+    const source = { commit: reviewed, base_commit: base };
 
     assert.ok(GIT_ENV_KEYS_TO_CLEAR.includes("GIT_EXTERNAL_DIFF"));
     const restore = process.env.GIT_EXTERNAL_DIFF;
     process.env.GIT_EXTERNAL_DIFF = shim;
     try {
-      const verdict = diffIdentity({
-        root: repo.dir,
-        source: { commit: reviewed, base_commit: base, diff_sha256: digest(reviewedDiff) },
-        currentCommit: smuggled,
-      });
+      const verdict = contentIdentity({ root: repo.dir, source, currentCommit: smuggled });
       assert.equal(
         verdict.ok,
         false,
         "an external diff shim must not authenticate a smuggled commit"
       );
+      // The env shim really is live: an unpinned diff renders the forged patch.
+      assert.equal(
+        spawnSync("git", ["diff", `${base}...${smuggled}`], {
+          cwd: repo.dir,
+          encoding: "utf8",
+        }).stdout,
+        reviewedDiff.toString("utf8"),
+        "fixture must actually forge the diff, or it proves nothing"
+      );
     } finally {
       if (restore === undefined) delete process.env.GIT_EXTERNAL_DIFF;
       else process.env.GIT_EXTERNAL_DIFF = restore;
     }
+
+    // diff.external survives env sanitization entirely -- it lives in the
+    // repository the reviewed branch is checked out in.
+    repo.run("config", "diff.external", shim);
+    const configured = contentIdentity({ root: repo.dir, source, currentCommit: smuggled });
+    assert.equal(configured.ok, false, "diff.external must not authenticate a smuggled commit");
+    assert.match(configured.reason, /reviewed content differs at src\/app\.js/);
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});
+
+test("a submodule pointer bump cannot hide behind .gitmodules ignore = all", () => {
+  // A tracked .gitmodules carrying `ignore = all` erases gitlink rows from
+  // every diff git renders, so a pointer bump to hostile code was invisible
+  // to a diff-shaped identity check. ls-tree stops at the submodule and emits
+  // the gitlink as a leaf, so the bump is a plain object change.
+  const outer = makeRepo();
+  const inner = makeRepo();
+  try {
+    const honest = commitFile(inner, "index.js", "module.exports = 1;\n", "honest");
+    const hostile = commitFile(inner, "index.js", "require('child_process').exec(x);\n", "hostile");
+
+    const base = commitFile(outer, "base.txt", "base\n", "base");
+    outer.run("switch", "-q", "-c", "feature");
+    fs.writeFileSync(
+      path.join(outer.dir, ".gitmodules"),
+      `[submodule "vendor"]\n\tpath = vendor\n\turl = ${inner.dir}\n\tignore = all\n`
+    );
+    outer.run("add", ".gitmodules");
+    outer.run("update-index", "--add", "--cacheinfo", `160000,${honest},vendor`);
+    outer.run("commit", "-q", "-m", "vendor at honest");
+    const reviewed = outer.run("rev-parse", "HEAD");
+
+    outer.run("update-index", "--cacheinfo", `160000,${hostile},vendor`);
+    outer.run("commit", "-q", "-m", "bump vendor");
+    const bumped = outer.run("rev-parse", "HEAD");
+
+    // Premise: with the submodule ignored, the two commits render the same diff.
+    const rendered = (commit) =>
+      spawnSync("git", ["diff", "--no-ext-diff", "--binary", `${base}...${commit}`], {
+        cwd: outer.dir,
+        encoding: "utf8",
+      }).stdout;
+    assert.equal(rendered(reviewed), rendered(bumped), "fixture must suppress the gitlink row");
+
+    const verdict = contentIdentity({
+      root: outer.dir,
+      source: { commit: reviewed, base_commit: base },
+      currentCommit: bumped,
+    });
+    assert.equal(verdict.ok, false, "a suppressed gitlink bump must not authenticate");
+    assert.match(verdict.reason, /reviewed content differs at vendor/);
+  } finally {
+    fs.rmSync(outer.dir, { recursive: true, force: true });
+    fs.rmSync(inner.dir, { recursive: true, force: true });
+  }
+});
+
+test("the pinned diff config is a no-op on a default repository", () => {
+  // trustedDiffArgs pins every rendering knob an attacker could otherwise set
+  // in repo-local config. Each pinned value must be git's own default, or the
+  // pins would silently invalidate delta hashes frozen before this change.
+  const repo = makeRepo();
+  try {
+    const base = commitFile(repo, "a.js", "one\ntwo\nthree\n", "base");
+    repo.run("switch", "-q", "-c", "feature");
+    repo.run("mv", "a.js", "b.js");
+    fs.appendFileSync(path.join(repo.dir, "b.js"), "four\n");
+    repo.run("add", "-A");
+    repo.run("commit", "-q", "-m", "rename and extend");
+    const head = repo.run("rev-parse", "HEAD");
+
+    const range = `${base}...${head}`;
+    const pinned = spawnSync("git", trustedDiffArgs("--binary", range), { cwd: repo.dir });
+    const bare = spawnSync(
+      "git",
+      ["diff", "--no-ext-diff", "--no-textconv", "--find-renames", "--binary", range],
+      { cwd: repo.dir }
+    );
+    assert.equal(pinned.status, 0);
+    assert.equal(bare.status, 0);
+    assert.ok(pinned.stdout.length > 0, "fixture must render a non-empty diff");
+    assert.equal(digest(pinned.stdout), digest(bare.stdout));
   } finally {
     fs.rmSync(repo.dir, { recursive: true, force: true });
   }

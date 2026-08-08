@@ -6,13 +6,24 @@
 // delivery state reuse that pass without a full new round — these are the two
 // evaluateReviewFreshness actually tries:
 //
-//   1. Diff identity — the branch was rebased/amended and HEAD is a new
-//      commit, but the current diff bytes (same base), or `git patch-id
-//      --verbatim` plus post-image blob identity (moved base), prove the
-//      branch introduces the exact reviewed change set.
+//   1. Content identity — the branch was rebased/amended and HEAD is a new
+//      commit, but Git object identity proves it introduces the exact reviewed
+//      change set: the same set of paths differs from the base, every one of
+//      them resolves to the same mode and object ID as at the reviewed commit,
+//      and that set is the certified inventory the reviewers actually read.
 //   2. Delta supplements — a bounded post-pass fix chain (each link hash-bound
 //      to the canonical report, size-budgeted, file-scoped to the certified
 //      inventory, and reviewed on its own) reaches the current commit.
+//
+// Path 1 deliberately reads trees, never diffs. An earlier revision hashed the
+// bytes of `git diff` and accepted a commit whose diff hashed equal; two
+// separate review rounds then found two separate ways to move those bytes
+// without moving the content (an external diff driver, then a tracked
+// .gitmodules `ignore = all` erasing gitlink rows). The hash was computed over
+// git's *rendering* of a change, and that rendering has an open-ended,
+// config-dependent surface. Object IDs have none: `git ls-tree -r` reports one
+// `<mode> <type> <oid>` row per path — gitlinks included — and nothing in
+// config, gitattributes, or the environment can move it.
 //
 // baseEquivalence is exported alongside them but is NOT one of those paths and
 // is never called from evaluateReviewFreshness. It answers a different
@@ -24,16 +35,17 @@
 // deliberately does not re-derive a merge base for the delivery head; doing so
 // would reject every rebase onto the advanced base.
 //
-// Every failure is fail-closed: any git error, hash mismatch, or budget
-// violation reports not-fresh and the caller demands a full new round. Every
-// diff read here is taken with GIT_DIFF_TRUST_FLAGS and a sanitized
-// environment, so no configured diff driver supplies the bytes being hashed.
+// Every failure is fail-closed: any git error, object mismatch, or budget
+// violation reports not-fresh and the caller demands a full new round. The
+// remaining diff reads here price the delta line budget rather than decide
+// identity, and they are taken through trustedDiffArgs with a sanitized
+// environment so no configured driver supplies the counts.
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { readProjectInput } = require("./project-file");
-const { GIT_DIFF_TRUST_FLAGS, gitExec: git } = require("./git-env");
+const { gitExec: git, trustedDiffArgs } = require("./git-env");
 
 const MAX_DELTA_CODE_LINES = 50;
 const MAX_DELTA_SUPPLEMENTS = 2;
@@ -104,42 +116,54 @@ function mergeBase(root, left, right) {
   }
 }
 
-function frozenDiff(root, baseCommit, commit) {
-  // Must byte-match review-target.js's frozen invocation exactly, trust flags
-  // included: without them an external-diff or textconv driver supplies the
-  // bytes every identity hash below is computed over.
-  return git(
-    root,
-    ["diff", "--binary", ...GIT_DIFF_TRUST_FLAGS, `${baseCommit}...${commit}`],
-    null
-  );
+function commitTree(root, commitish) {
+  try {
+    const tree = git(root, ["rev-parse", `${commitish}^{tree}`]).trim();
+    return /^[0-9a-f]{40,64}$/.test(tree) ? tree : null;
+  } catch {
+    return null;
+  }
 }
 
-function patchIdOfDiff(root, diffBytes) {
-  if (!diffBytes || diffBytes.length === 0) return null;
-  // --verbatim (git >= 2.39) hashes whitespace as-is; --stable strips
-  // intra-line whitespace, which is semantics-bearing in indentation-sensitive
-  // sources and string literals. An unsupported flag throws and fails closed.
-  const out = git(root, ["patch-id", "--verbatim"], "utf8", diffBytes);
-  const match = out.match(/^([0-9a-f]{40,64}) /);
-  return match ? match[1] : null;
+// Every path a commit records, as `<mode> <type> <oid>`. `ls-tree -r` walks
+// subtrees but stops at gitlinks, so a submodule pointer is a leaf row of type
+// `commit` and its bump changes this map — the single reason identity is
+// decided here rather than over diff output. Nothing about this reading passes
+// through diff config, gitattributes, or a diff driver.
+function treeInventory(root, commitish) {
+  const raw = git(root, ["ls-tree", "-r", "-z", `${commitish}^{tree}`], null).toString("utf8");
+  const entries = new Map();
+  for (const record of raw.split("\0")) {
+    if (record === "") continue;
+    const match = record.match(/^([0-7]{6}) (blob|commit|tree) ([0-9a-f]{40,64})\t([\s\S]+)$/);
+    if (!match) throw new Error(`unsupported ls-tree record: ${record.slice(0, 120)}`);
+    entries.set(match[4], `${match[1]} ${match[2]} ${match[3]}`);
+  }
+  return entries;
 }
 
-function changedPaths(root, range) {
-  // Same trust flags as the hashed diffs: this path set is half of the
-  // moved-base identity proof, and rename detection decides whether a rename
-  // reports one path or two.
-  const raw = git(root, ["diff", "--name-only", "-z", ...GIT_DIFF_TRUST_FLAGS, ...range], null)
-    .toString("utf8")
-    .split("\0")
-    .filter(Boolean);
-  return new Set(raw);
+// The set of paths whose recorded object differs between two commits, plus the
+// post-image inventory so callers can compare content without re-reading. Mode
+// is part of the compared value: a 100644 -> 100755 flip is a real change that
+// carries no content bytes at all.
+function changedTreePaths(root, fromCommit, toCommit) {
+  const from = treeInventory(root, fromCommit);
+  const to = treeInventory(root, toCommit);
+  const changed = new Set();
+  for (const [file, entry] of to) if (from.get(file) !== entry) changed.add(file);
+  for (const file of from.keys()) if (!to.has(file)) changed.add(file);
+  return { changed, from, to };
 }
 
 function sameStringSet(left, right) {
   if (left.size !== right.size) return false;
   for (const value of left) if (!right.has(value)) return false;
   return true;
+}
+
+function listPaths(files) {
+  const shown = files.slice(0, 3).join(", ");
+  return files.length > 3 ? `${shown} (+${files.length - 3} more)` : shown;
 }
 
 // --- 1. Base equivalence -------------------------------------------------
@@ -169,15 +193,35 @@ function baseEquivalence({ root, commit, frozenBaseCommit, liveBaseCommit }) {
   }
 }
 
-// --- 2. Diff identity ----------------------------------------------------
+// --- 2. Content identity -------------------------------------------------
 
-function diffIdentity({ root, source, currentCommit, currentBaseCommit = null }) {
+// Accepts a later commit only when Git objects say it carries the reviewed
+// change and nothing else. Three facts, all read from trees:
+//
+//   a. The reviewed commit and the current commit change the same set of paths
+//      against their respective bases. A branch that grew or lost a path is
+//      outside what anyone scoped.
+//   b. Every one of those paths resolves to the same mode and object ID at
+//      both commits. Files the moved base absorbed may differ — they are not
+//      in the changed set — but a changed path whose object differs is content
+//      no reviewer read.
+//   c. That path set is exactly the certified inventory frozen in the target,
+//      which is the list the reviewers were handed. A path the reviewed commit
+//      genuinely changed but the inventory omits was never in scope, however
+//      it came to be omitted.
+//
+// (c) is what makes this fail closed on the suppression class rather than
+// merely on one instance of it: a change git declined to render still changes
+// the tree, so it shows up in (a) and fails the comparison against the frozen
+// list. Passing `target` is therefore strongly preferred; `source` alone still
+// gets (a) and (b).
+function contentIdentity({ root, target, source, currentCommit, currentBaseCommit = null }) {
   try {
-    if (!source || typeof source !== "object") return fail("review target source is missing");
-    const { commit, base_commit: baseCommit, diff_sha256: diffSha } = source;
+    const frozen = source || target?.source;
+    if (!frozen || typeof frozen !== "object") return fail("review target source is missing");
+    const { commit, base_commit: baseCommit } = frozen;
     if (!validCommitish(commit) || !validCommitish(baseCommit))
       return fail("frozen source commits are not valid object names");
-    if (!/^[a-f0-9]{64}$/.test(diffSha || "")) return fail("frozen diff_sha256 is missing");
     if (!validCommitish(currentCommit)) return fail("current commit is not a valid object name");
     const compareBase = currentBaseCommit || baseCommit;
     if (!validCommitish(compareBase)) return fail("comparison base is not a valid object name");
@@ -189,50 +233,50 @@ function diffIdentity({ root, source, currentCommit, currentBaseCommit = null })
     ]) {
       if (!commitExists(root, sha)) return fail(`${label} ${sha} is not present locally`);
     }
-    const reviewed = frozenDiff(root, baseCommit, commit);
-    if (digest(reviewed) !== diffSha)
-      return fail("frozen diff bytes no longer match the reviewed diff_sha256");
-    const current = frozenDiff(root, compareBase, currentCommit);
-    if (compareBase === baseCommit) {
-      // Same base: identical content produces byte-identical diffs, so the
-      // frozen hash authenticates the current commit directly.
-      if (current.length === 0) return fail("current diff is empty and cannot prove identity");
-      if (digest(current) !== diffSha)
-        return fail("current branch diff is not patch-identical to the reviewed diff");
-      return ok("byte-identical to the reviewed diff");
-    }
-    const reviewedId = patchIdOfDiff(root, reviewed);
-    const currentId = patchIdOfDiff(root, current);
-    if (!reviewedId || !currentId)
-      return fail("reviewed or current diff is empty and cannot prove identity");
-    if (reviewedId !== currentId)
-      return fail("current branch diff is not patch-identical to the reviewed diff");
-    // patch-id is necessary but not sufficient: it hashes hunk *content* with
-    // the line offsets stripped, so the same added line relocated to a
-    // different occurrence of a repeated block hashes equal while producing a
-    // different tree. Two tree-level facts close that gap.
-    //
-    // First, the reviewed and current commits must change the same paths;
-    // otherwise the branch grew or lost a file the reviewer never scoped.
-    const reviewedPaths = changedPaths(root, [`${baseCommit}...${commit}`]);
-    const currentPaths = changedPaths(root, [`${compareBase}...${currentCommit}`]);
-    if (!sameStringSet(reviewedPaths, currentPaths))
-      return fail("current branch changes a different file set than the reviewed diff");
-    // Second, every reviewed path must have a byte-identical post-image in the
-    // current commit. Upstream files absorbed by the moved base may differ —
-    // they are outside the reviewed set — but a reviewed file that differs is
-    // content no reviewer read, whether it moved within the file or was
-    // rewritten after the pass.
-    const drifted = [...changedPaths(root, [commit, currentCommit])].filter((file) =>
-      reviewedPaths.has(file)
-    );
-    if (drifted.length > 0)
+    // Both scopes are three-dot: the reviewed inventory was frozen over
+    // base...commit, so identity has to be judged over the same span or a
+    // branch that merged its base would compare against the wrong content.
+    const reviewedBase = mergeBase(root, baseCommit, commit);
+    const currentMergeBase = mergeBase(root, compareBase, currentCommit);
+    if (!reviewedBase) return fail("reviewed commit and its base have no merge base");
+    if (!currentMergeBase) return fail("current commit and the comparison base have no merge base");
+
+    const reviewed = changedTreePaths(root, reviewedBase, commit);
+    if (reviewed.changed.size === 0)
+      return fail("the reviewed commit changes nothing against its base");
+    const current = changedTreePaths(root, currentMergeBase, currentCommit);
+    if (!sameStringSet(reviewed.changed, current.changed)) {
+      const added = [...current.changed].filter((file) => !reviewed.changed.has(file));
+      const missing = [...reviewed.changed].filter((file) => !current.changed.has(file));
       return fail(
-        `reviewed content differs at ${drifted.slice(0, 3).join(", ")}${drifted.length > 3 ? ` (+${drifted.length - 3} more)` : ""}`
+        added.length > 0
+          ? `current branch changes ${listPaths(added)} outside the reviewed change set`
+          : `current branch no longer changes ${listPaths(missing)} from the reviewed change set`
       );
-    return ok("patch-identical to the reviewed diff with identical reviewed post-images");
+    }
+    // A deleted path is absent from both post-image inventories, so the
+    // undefined === undefined case is identity, not a hole.
+    const drifted = [...reviewed.changed].filter(
+      (file) => reviewed.to.get(file) !== current.to.get(file)
+    );
+    if (drifted.length > 0) return fail(`reviewed content differs at ${listPaths(drifted)}`);
+
+    const certified = certifiedPathSet(target);
+    if (certified.size > 0 && !sameStringSet(reviewed.changed, certified)) {
+      const unlisted = [...reviewed.changed].filter((file) => !certified.has(file));
+      return fail(
+        unlisted.length > 0
+          ? `reviewed commit changes ${listPaths(unlisted)}, which the certified inventory does not list`
+          : "certified inventory lists paths the reviewed commit does not change"
+      );
+    }
+    return ok(
+      compareBase === baseCommit
+        ? "identical objects across the reviewed change set"
+        : "identical objects across the reviewed change set on the moved base"
+    );
   } catch (error) {
-    return fail(`cannot authenticate diff identity: ${error.message}`);
+    return fail(`cannot authenticate content identity: ${error.message}`);
   }
 }
 
@@ -242,17 +286,15 @@ function computeDelta(root, priorCommit, commit) {
   // priorCommit is required to be an ancestor of commit, so three-dot equals
   // two-dot and stays consistent with the frozen-diff invocation.
   const range = `${priorCommit}...${commit}`;
-  // Both calls carry the trust flags. --find-renames matters twice over: the
+  // Both calls carry the trust set. --find-renames matters twice over: the
   // boundary-crossing-rename guard below can only fire on a rename row, so
   // `diff.renames = false` in any inherited config would otherwise split the
   // rename into a free exempt addition plus a priced deletion and let source
   // relocate into tests/ unscoped; and delta_diff_sha256 is hash-bound, so the
   // same setting would drift a legitimately certified chain into a forced full
   // round on any clone configured differently.
-  const diffBytes = git(root, ["diff", "--binary", ...GIT_DIFF_TRUST_FLAGS, range], null);
-  const numstat = parseNumstat(
-    git(root, ["diff", "--numstat", "-z", ...GIT_DIFF_TRUST_FLAGS, range], null)
-  );
+  const diffBytes = git(root, trustedDiffArgs("--binary", range), null);
+  const numstat = parseNumstat(git(root, trustedDiffArgs("--numstat", "-z", range), null));
   let codeLines = 0;
   let ineligible = null;
   for (const row of numstat) {
@@ -268,6 +310,22 @@ function computeDelta(root, priorCommit, commit) {
       continue;
     }
     if (!exempt) codeLines += row.added + row.deleted;
+  }
+  // The budget and the scope check are only as honest as the row list they are
+  // computed from, and that list comes out of the diff machinery. Trees are the
+  // independent account of what changed: any path the objects say moved but the
+  // diff declined to price is unpriced and unscoped, so the delta is ineligible
+  // rather than free. This is what keeps a suppressed row from riding the
+  // supplement path after content identity closed the front door.
+  const deltaBase = mergeBase(root, priorCommit, commit);
+  if (!deltaBase) {
+    ineligible = ineligible || "delta commits have no merge base";
+  } else {
+    const unpriced = [...changedTreePaths(root, deltaBase, commit).changed].filter((file) => {
+      return !numstat.some((row) => row.path === file || row.old_path === file);
+    });
+    if (unpriced.length > 0 && !ineligible)
+      ineligible = `change to ${listPaths(unpriced)} is absent from the priced diff`;
   }
   return {
     delta_diff_sha256: digest(diffBytes),
@@ -334,9 +392,10 @@ function supplementFileNames(root, reviewDir) {
 }
 
 // Cheap existence probe for acceptance ordering. It deliberately does not
-// parse: a corrupt supplement must not turn a byte-identical amend, which the
-// diff-identity path can authenticate on its own, into a hard failure. If the
-// chain is actually needed, readSupplements parses and reports the corruption.
+// parse: a corrupt supplement must not turn a content-identical amend, which
+// the content-identity path can authenticate on its own, into a hard failure.
+// If the chain is actually needed, readSupplements parses and reports the
+// corruption.
 function hasSupplements(root, reviewDir) {
   try {
     return supplementFileNames(root, reviewDir).names.length > 0;
@@ -345,16 +404,24 @@ function hasSupplements(root, reviewDir) {
   }
 }
 
-// Commits a scoped delta reviewer already blocked. Reading these makes a
-// rejection stick to the commit it was filed against: the only way past it is
-// a new commit that actually carries the fix, which is what
-// delta-supplement.md has always described. A malformed audit record throws
-// rather than resolving to "nothing was rejected".
-function rejectedDeltaCommits(root, reviewDir) {
+// What a scoped delta reviewer already blocked. Reading these makes a rejection
+// stick: the only way past it is a commit that actually carries the fix, which
+// is what delta-supplement.md has always described. A malformed audit record
+// throws rather than resolving to "nothing was rejected".
+//
+// Keying on the commit SHA alone was not that rule. `--amend -m`, `--amend
+// --date=` and `--allow-empty` all mint a fresh SHA over an unchanged tree, so
+// any of them walked a rejected HEAD straight back into `build`. The tree OID
+// is the content the reviewer read and rejected; a commit that genuinely
+// carries the fix has a different one, and no amount of re-committing the same
+// content can produce a tree that differs. The SHA set stays as a cheap first
+// hit and as the record for a rejected commit whose objects are gone.
+function rejectedDeltaStates(root, reviewDir) {
   const relative = projectRelativeDir(root, reviewDir);
   const dir = path.join(path.resolve(root), relative, "supplements");
-  if (!fs.existsSync(dir)) return new Set();
   const commits = new Set();
+  const trees = new Set();
+  if (!fs.existsSync(dir)) return { commits, trees };
   for (const name of fs.readdirSync(dir).filter((entry) => REJECTED_FILE_RE.test(entry))) {
     const input = readProjectInput(
       root,
@@ -365,8 +432,20 @@ function rejectedDeltaCommits(root, reviewDir) {
     const commit = value?.source?.commit;
     if (!validCommitish(commit)) throw new Error(`${name} does not name the commit it rejected`);
     commits.add(commit);
+    // Prefer the tree recorded at rejection time; fall back to reading it back
+    // off the commit, which still works until the object is pruned.
+    const recorded = value?.source?.tree;
+    const tree = validCommitish(recorded) ? recorded : commitTree(root, commit);
+    if (tree) trees.add(tree);
   }
-  return commits;
+  return { commits, trees };
+}
+
+// True when `commit` re-presents content a delta review already rejected.
+function rejectsCommit(root, rejected, commit) {
+  if (rejected.commits.has(commit)) return true;
+  const tree = commitTree(root, commit);
+  return Boolean(tree) && rejected.trees.has(tree);
 }
 
 function readSupplements(root, reviewDir) {
@@ -419,7 +498,7 @@ function validateSupplementChain({
   try {
     const supplements = preread || readSupplements(root, reviewDir);
     if (supplements.length === 0) return fail("no delta supplements recorded");
-    const rejected = rejectedDeltaCommits(root, reviewDir);
+    const rejected = rejectedDeltaStates(root, reviewDir);
     if (supplements.length > MAX_DELTA_SUPPLEMENTS)
       return fail(`delta chain exceeds the ${MAX_DELTA_SUPPLEMENTS}-supplement cap`);
     const reportSha = digest(
@@ -449,10 +528,18 @@ function validateSupplementChain({
       const commit = value?.source?.commit;
       if (!validCommitish(commit) || commit === prior)
         return fail(`${name} supplement commit is invalid`);
-      if (rejected.has(commit))
-        return fail(`${name} certifies ${commit.slice(0, 12)}, which a delta review rejected`);
       if (!commitExists(root, prior) || !commitExists(root, commit))
         return fail(`${name} chain commits are not present locally`);
+      if (rejectsCommit(root, rejected, commit))
+        return fail(`${name} certifies ${commit.slice(0, 12)}, which a delta review rejected`);
+      // The supplement records the tree it was reviewed over. Re-reading it
+      // keeps a rewritten commit from inheriting a supplement written for
+      // different content while still naming the same SHA-shaped field.
+      const recordedTree = value?.source?.tree;
+      if (recordedTree !== undefined && commitTree(root, commit) !== recordedTree)
+        return fail(
+          `${name} certifies content that is no longer the tree of ${commit.slice(0, 12)}`
+        );
       if (!isAncestor(root, prior, commit))
         return fail(`${name} supplement commit does not descend from its prior commit`);
       const delta = computeDelta(root, prior, commit);
@@ -502,20 +589,26 @@ function evaluateReviewFreshness({
     const evaluateChain = () =>
       validateSupplementChain({ root, reviewDir, report, target, currentCommit });
     const evaluateIdentity = () =>
-      diffIdentity({ root, source, currentCommit, currentBaseCommit: authoritativeBaseCommit });
+      contentIdentity({
+        root,
+        target,
+        source,
+        currentCommit,
+        currentBaseCommit: authoritativeBaseCommit,
+      });
 
     if (chainFirst) {
       const chain = evaluateChain();
       if (chain.ok) return { ...chain, method: "delta-chain" };
       const identity = evaluateIdentity();
-      if (identity.ok) return { ...identity, method: "diff-identity" };
-      return fail(`diff identity: ${identity.reason}; delta chain: ${chain.reason}`);
+      if (identity.ok) return { ...identity, method: "content-identity" };
+      return fail(`content identity: ${identity.reason}; delta chain: ${chain.reason}`);
     }
     const identity = evaluateIdentity();
-    if (identity.ok) return { ...identity, method: "diff-identity" };
+    if (identity.ok) return { ...identity, method: "content-identity" };
     const chain = evaluateChain();
     if (chain.ok) return { ...chain, method: "delta-chain" };
-    return fail(`diff identity: ${identity.reason}; delta chain: ${chain.reason}`);
+    return fail(`content identity: ${identity.reason}; delta chain: ${chain.reason}`);
   } catch (error) {
     return fail(`cannot evaluate review freshness: ${error.message}`);
   }
@@ -536,13 +629,17 @@ module.exports = {
   DELTA_BUDGET_EXEMPT_RE,
   baseEquivalence,
   certifiedPathSet,
+  changedTreePaths,
+  commitTree,
   computeDelta,
-  diffIdentity,
+  contentIdentity,
   evaluateReviewFreshness,
   isExemptRow,
   projectRelativeDir,
   readSupplements,
-  rejectedDeltaCommits,
+  rejectedDeltaStates,
+  rejectsCommit,
   scopeViolation,
+  treeInventory,
   validateSupplementChain,
 };

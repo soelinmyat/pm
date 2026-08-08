@@ -266,6 +266,57 @@ test("review-delta record fails a delta with blocking findings and preserves the
   }
 });
 
+test("review-delta build refuses to rebuild content a delta review already rejected", () => {
+  // The rebuild gate is where a rejection actually bites: without it the agent
+  // reruns build against the same content and gets a fresh pending record to
+  // re-certify. It has to survive a SHA-moving amend and yield to a real fix.
+  const { repo } = certifiedRepo();
+  try {
+    commitFile(repo, "src/app.js", "line1\nline2\nline3\nfeature\nfix\n", "fix");
+    buildCommand({ root: repo.dir, reviewDir: REVIEW_DIR });
+    const resultFile = path.join(repo.dir, ".pm/reviewer-result.json");
+    fs.mkdirSync(path.dirname(resultFile), { recursive: true });
+    fs.writeFileSync(
+      resultFile,
+      JSON.stringify({
+        reviewer: { provider: "claude", model: "test-model" },
+        lenses: ["bug"],
+        findings: [
+          { severity: "high", file: "src/app.js", line: 5, issue: "the fix breaks the invariant" },
+        ],
+        summary: "Blocking issue found in the delta.",
+      })
+    );
+    assert.equal(
+      recordCommand({ root: repo.dir, reviewDir: REVIEW_DIR, result: ".pm/reviewer-result.json" })
+        .outcome,
+      "failed"
+    );
+
+    assert.throws(
+      () => buildCommand({ root: repo.dir, reviewDir: REVIEW_DIR }),
+      /carries content a delta review rejected/
+    );
+
+    repo.run("commit", "-q", "--amend", "-m", "fix, reworded");
+    assert.throws(
+      () => buildCommand({ root: repo.dir, reviewDir: REVIEW_DIR }),
+      /carries content a delta review rejected/,
+      "an amend must not launder the rejected content"
+    );
+
+    const genuine = commitFile(
+      repo,
+      "src/app.js",
+      "line1\nline2\nline3\nfeature\nreal fix\n",
+      "actually fix it"
+    );
+    assert.equal(buildCommand({ root: repo.dir, reviewDir: REVIEW_DIR }).commit, genuine);
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});
+
 test("review-delta record validates the reviewer result shape and binding drift", () => {
   const { repo } = certifiedRepo();
   try {
