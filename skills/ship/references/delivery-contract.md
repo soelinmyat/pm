@@ -126,8 +126,12 @@ Any commit created after the final Review invalidates delivery authority, includ
 
 1. Run `release-transaction.js advance --commit "$(git rev-parse HEAD)" --reason "..."`. It archives the prior generation and invalidates current evidence/effect plans. Advancing after verified merge is forbidden.
 2. Run the relevant tests and verification for the changed surface.
-3. Invoke `pm:review` against current HEAD and the same validated delivery contract. Publish a new canonical Review JSON/HTML report and retained-render manifest for the current commit.
-4. Rerun every routed quality gate whose relevant surface changed. Regenerate its canonical artifact. Use `dev-session recertify` only for a gate whose existing evidence was actually rechecked and remains applicable; never advance `verified_commit` by inspection alone.
+3. Reestablish Review authority for current HEAD through exactly one sanctioned path:
+   - **Full round** — invoke `pm:review` against current HEAD and the same validated delivery contract; publish a new canonical Review JSON/HTML report and retained-render manifest for the current commit. Always valid; required whenever either scoped path below fails.
+   - **Content identity** — after a rebase or amend that leaves the branch carrying the same objects as the certified change set, run `review-delta.js check` with the live base; exit 0 keeps the frozen canonical report authoritative for current HEAD.
+   - **Delta supplement** — for a fix of at most 50 changed code lines inside the certified changed-file set, run the `review-delta.js` build → scoped review → record protocol (max 2 supplements per certification). See `skills/review/references/delta-supplement.md`.
+   Both scoped paths fail closed; any check failure means the full round is required.
+4. Rerun every routed quality gate whose relevant surface changed. Regenerate its canonical artifact. Use `dev-session recertify` only for a gate whose existing evidence was actually rechecked and remains applicable; never advance `verified_commit` by inspection alone. For the Review gate, a passing `review-delta.js check` (exit 0) is that recheck evidence.
 5. Bind current Review, QA, and verification evidence into the new transaction generation and require `release-transaction.js status` to report `ready: true`.
 6. Confirm `.pm/dev-sessions/{slug}/gates.json` contains current, machine-valid Review and routed-gate evidence.
 7. Revalidate the delivery contract, regenerate exact effect targets, then run `scripts/dev-gate-check.js` with current HEAD, explicit branch, reviewed remote, reviewed base, and `--require-authority push_feature_branch` before retrying a push.

@@ -306,7 +306,22 @@ test("CI and merge-loop fix commits recertify before retry push", () => {
     assert.match(source, /post-mutation recertification/, `${name} must require recertification`);
     assert.match(source, /dev-gate-check/, `${name} must require the executable gate checker`);
   }
-  assert.match(contract, /Invoke `pm:review` against current HEAD/);
+  assert.match(contract, /invoke `pm:review` against current HEAD/);
+  const review = read("skills/ship/steps/03-review.md");
+  assert.match(
+    review,
+    /review-delta\.js" check --root "\$PWD" --review-dir "\.pm\/dev-sessions\/\{slug\}\/review" --base "\$\(git rev-parse --verify "refs\/remotes\/\{DELIVERY_REMOTE\}\/\{DEFAULT_BRANCH\}\^\{commit\}"\)"/,
+    "03-review skip check must pass the live base resolved from the delivery remote"
+  );
+  assert.match(
+    review,
+    /`--verify` is required/,
+    "03-review must explain why bare rev-parse cannot resolve the base"
+  );
+  assert.match(
+    contract,
+    /Both scoped paths fail closed; any check failure means the full round is required/
+  );
   assert.match(contract, /Regenerate its canonical artifact/);
   assert.match(contract, /Only after the checker exits zero may Ship retry/);
   assert.match(ci, /git push -- "\$DELIVERY_REMOTE" HEAD/);

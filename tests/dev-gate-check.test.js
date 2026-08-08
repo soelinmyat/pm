@@ -1980,3 +1980,273 @@ test("single-gate --require checks do not enforce review lenses on an unrelated 
   );
   assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
 });
+
+test("review gate accepts a stale-commit passed report through the freshness acceptance", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-freshness-gate-"));
+  const reviewDir = path.join(root, ".pm/dev-sessions/example/review");
+  fs.mkdirSync(reviewDir, { recursive: true });
+  const htmlPath = path.join(reviewDir, "report.html");
+  fs.writeFileSync(htmlPath, "<!doctype html><title>Review</title>");
+  fs.writeFileSync(path.join(reviewDir, "report.json"), "{}\n");
+  const render = seedReviewRenderManifest(root, htmlPath);
+
+  const reviewModule = require("../scripts/review-check");
+  const freshnessModule = require("../scripts/lib/review-freshness");
+  const originalCheck = reviewModule.checkReview;
+  const originalExpand = reviewModule.expandFromReport;
+  const originalEvaluate = freshnessModule.evaluateReviewFreshness;
+  reviewModule.expandFromReport = (options) => options;
+  reviewModule.checkReview = () => ({
+    ok: true,
+    issues: [],
+    report: reviewReportForMarkers(),
+    validated_human_report: {
+      path: ".pm/dev-sessions/example/review/report.html",
+      sha256: fileDigest(htmlPath),
+    },
+  });
+  const row = gate("review", "abc123", {
+    verified_commit: "new456",
+    verified_at: "2026-08-07T00:00:00Z",
+    artifact: ".pm/dev-sessions/example/review/report.html",
+    evidence_kind: "review-report-v1",
+    render_manifest: render.path,
+    render_manifest_sha256: render.sha256,
+  });
+  const opts = {
+    artifactRoot: root,
+    currentCommit: "new456",
+    requiredGates: ["review"],
+    reviewEvidenceMode: "enforce",
+  };
+  try {
+    let received;
+    freshnessModule.evaluateReviewFreshness = (options) => {
+      received = options;
+      return { ok: true, method: "diff-identity", reason: "patch-identical" };
+    };
+    const accepted = checkGateManifest(manifest([row]), opts);
+    assert.equal(accepted.ok, true, JSON.stringify(accepted.issues, null, 2));
+    assert.equal(received.currentCommit, "new456");
+    assert.equal(path.resolve(received.reviewDir), path.resolve(reviewDir));
+    assert.equal(received.report.source.commit, "abc123");
+
+    freshnessModule.evaluateReviewFreshness = () => ({
+      ok: false,
+      reason: "diff identity: nope; delta chain: none",
+    });
+    const rejected = checkGateManifest(manifest([row]), opts);
+    assert.equal(rejected.ok, false);
+    assert.match(
+      JSON.stringify(rejected.issues),
+      /must be passed and bound to current commit \(diff identity: nope/
+    );
+
+    const staleRow = { ...row };
+    delete staleRow.verified_commit;
+    delete staleRow.verified_at;
+    freshnessModule.evaluateReviewFreshness = () => ({ ok: true, reason: "patch-identical" });
+    const staleRowResult = checkGateManifest(manifest([staleRow]), opts);
+    assert.equal(staleRowResult.ok, false);
+    assert.match(JSON.stringify(staleRowResult.issues), /stale for current commit/);
+  } finally {
+    reviewModule.checkReview = originalCheck;
+    reviewModule.expandFromReport = originalExpand;
+    freshnessModule.evaluateReviewFreshness = originalEvaluate;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("review gate authenticates a moved authoritative base by merge-base equivalence", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-base-equiv-"));
+  const reviewDir = path.join(root, ".pm/dev-sessions/example/review");
+  fs.mkdirSync(reviewDir, { recursive: true });
+  const htmlPath = path.join(reviewDir, "report.html");
+  fs.writeFileSync(htmlPath, "<!doctype html><title>Review</title>");
+  fs.writeFileSync(path.join(reviewDir, "report.json"), "{}\n");
+  fs.writeFileSync(path.join(reviewDir, "target.json"), JSON.stringify({ mode: "code-scan" }));
+  const render = seedReviewRenderManifest(root, htmlPath, { coverage: "5/5" });
+  const lenses = ["bug", "edge", "reuse", "quality", "efficiency"];
+  const routedSession = {
+    run_id: "dev_run-1",
+    slug: "example",
+    routing: { review_mode: "code-scan", decision_version: 1 },
+    task: { acceptance_criteria: ["Review the exact routed behavior"] },
+  };
+  const reviewModule = require("../scripts/review-check");
+  const freshnessModule = require("../scripts/lib/review-freshness");
+  const originalCheck = reviewModule.checkReview;
+  const originalExpand = reviewModule.expandFromReport;
+  const originalEquivalence = freshnessModule.baseEquivalence;
+  reviewModule.expandFromReport = (options) => options;
+  reviewModule.checkReview = () => ({
+    ok: true,
+    issues: [],
+    target: {
+      mode: "code-scan",
+      source: {
+        commit: "abc123",
+        base_ref: "origin/main",
+        base_commit: "base123",
+        remote_push_url_sha256: "a".repeat(64),
+      },
+      dev_context: devReviewContext(routedSession),
+    },
+    report: {
+      ...reviewReportForMarkers({ coverage: lenses }),
+      target: { path: ".pm/dev-sessions/example/review/target.json" },
+    },
+    validated_human_report: {
+      path: ".pm/dev-sessions/example/review/report.html",
+      sha256: fileDigest(htmlPath),
+    },
+  });
+  const row = gate("review", "abc123", {
+    artifact: ".pm/dev-sessions/example/review/report.html",
+    evidence_kind: "review-report-v1",
+    render_manifest: render.path,
+    render_manifest_sha256: render.sha256,
+    lenses,
+  });
+  const opts = {
+    artifactRoot: root,
+    currentCommit: "abc123",
+    requiredGates: ["review"],
+    canonicalSession: routedSession,
+    requireSessionBinding: true,
+    manifestPath: ".pm/dev-sessions/example/gates.json",
+    authoritativeBaseRef: "origin/main",
+    authoritativeBaseCommit: "live999",
+    authoritativePushUrlSha256: "a".repeat(64),
+  };
+  try {
+    let received;
+    freshnessModule.baseEquivalence = (options) => {
+      received = options;
+      return { ok: true, reason: "merge-base equivalent" };
+    };
+    const equivalent = checkGateManifest(manifest([row], { run_id: routedSession.run_id }), opts);
+    assert.equal(equivalent.ok, true, JSON.stringify(equivalent.issues, null, 2));
+    assert.equal(received.frozenBaseCommit, "base123");
+    assert.equal(received.liveBaseCommit, "live999");
+    // Base equivalence is defined over the frozen reviewed commit, which here
+    // is also the current commit because nothing moved.
+    assert.equal(received.commit, "abc123");
+
+    freshnessModule.baseEquivalence = () => ({ ok: false, reason: "merge base moved" });
+    const moved = checkGateManifest(manifest([row], { run_id: routedSession.run_id }), opts);
+    assert.equal(moved.ok, false);
+    assert.match(
+      JSON.stringify(moved.issues),
+      /must equal the authoritative delivery base or keep its merge base \(merge base moved\)/
+    );
+
+    let called = false;
+    freshnessModule.baseEquivalence = () => {
+      called = true;
+      return { ok: true, reason: "should not run" };
+    };
+    const wrongUrl = checkGateManifest(manifest([row], { run_id: routedSession.run_id }), {
+      ...opts,
+      authoritativePushUrlSha256: "b".repeat(64),
+    });
+    assert.equal(wrongUrl.ok, false);
+    assert.match(JSON.stringify(wrongUrl.issues), /authoritative delivery base/);
+    assert.equal(called, false);
+  } finally {
+    reviewModule.checkReview = originalCheck;
+    reviewModule.expandFromReport = originalExpand;
+    freshnessModule.baseEquivalence = originalEquivalence;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("review gate authenticates base equivalence over the frozen reviewed commit", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-base-rebased-"));
+  const reviewDir = path.join(root, ".pm/dev-sessions/example/review");
+  fs.mkdirSync(reviewDir, { recursive: true });
+  const htmlPath = path.join(reviewDir, "report.html");
+  fs.writeFileSync(htmlPath, "<!doctype html><title>Review</title>");
+  fs.writeFileSync(path.join(reviewDir, "report.json"), "{}\n");
+  fs.writeFileSync(path.join(reviewDir, "target.json"), JSON.stringify({ mode: "code-scan" }));
+  const render = seedReviewRenderManifest(root, htmlPath, { coverage: "5/5" });
+  const lenses = ["bug", "edge", "reuse", "quality", "efficiency"];
+  const routedSession = {
+    run_id: "dev_run-1",
+    slug: "example",
+    routing: { review_mode: "code-scan", decision_version: 1 },
+    task: { acceptance_criteria: ["Review the exact routed behavior"] },
+  };
+  const reviewModule = require("../scripts/review-check");
+  const freshnessModule = require("../scripts/lib/review-freshness");
+  const originalCheck = reviewModule.checkReview;
+  const originalExpand = reviewModule.expandFromReport;
+  const originalEquivalence = freshnessModule.baseEquivalence;
+  const originalEvaluate = freshnessModule.evaluateReviewFreshness;
+  reviewModule.expandFromReport = (options) => options;
+  reviewModule.checkReview = () => ({
+    ok: true,
+    issues: [],
+    target: {
+      mode: "code-scan",
+      source: {
+        commit: "abc123",
+        base_ref: "origin/main",
+        base_commit: "base123",
+        remote_push_url_sha256: "a".repeat(64),
+      },
+      dev_context: devReviewContext(routedSession),
+    },
+    report: {
+      ...reviewReportForMarkers({ coverage: lenses }),
+      target: { path: ".pm/dev-sessions/example/review/target.json" },
+    },
+    validated_human_report: {
+      path: ".pm/dev-sessions/example/review/report.html",
+      sha256: fileDigest(htmlPath),
+    },
+  });
+  const row = gate("review", "abc123", {
+    artifact: ".pm/dev-sessions/example/review/report.html",
+    evidence_kind: "review-report-v1",
+    verified_commit: "rebased9",
+    verified_at: "2026-01-01T00:00:00Z",
+    render_manifest: render.path,
+    render_manifest_sha256: render.sha256,
+    lenses,
+  });
+  try {
+    let received;
+    freshnessModule.baseEquivalence = (options) => {
+      received = options;
+      return { ok: true, reason: "merge-base equivalent" };
+    };
+    freshnessModule.evaluateReviewFreshness = () => ({ ok: true, reason: "patch-identical" });
+    const rebased = checkGateManifest(manifest([row], { run_id: routedSession.run_id }), {
+      artifactRoot: root,
+      currentCommit: "rebased9",
+      requiredGates: ["review"],
+      canonicalSession: routedSession,
+      requireSessionBinding: true,
+      manifestPath: ".pm/dev-sessions/example/gates.json",
+      authoritativeBaseRef: "origin/main",
+      authoritativeBaseCommit: "live999",
+      authoritativePushUrlSha256: "a".repeat(64),
+    });
+    assert.equal(rebased.ok, true, JSON.stringify(rebased.issues, null, 2));
+    // A commit rebased onto the advanced base always has the live base as its
+    // merge base, so authenticating the current commit would reject exactly the
+    // case diff identity exists to accept. The contract is defined over the
+    // reviewed commit (evidence-contract.md), which is what must be passed.
+    assert.equal(received.commit, "abc123");
+    assert.notEqual(received.commit, "rebased9");
+    assert.equal(received.frozenBaseCommit, "base123");
+    assert.equal(received.liveBaseCommit, "live999");
+  } finally {
+    reviewModule.checkReview = originalCheck;
+    reviewModule.expandFromReport = originalExpand;
+    freshnessModule.baseEquivalence = originalEquivalence;
+    freshnessModule.evaluateReviewFreshness = originalEvaluate;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

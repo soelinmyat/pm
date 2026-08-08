@@ -2,7 +2,9 @@
 "use strict";
 
 const crypto = require("node:crypto");
-const { execFileSync } = require("node:child_process");
+// Shared wrapper: sanitizes the Git environment for every call site here,
+// including the frozen-diff re-derivation the target binding depends on.
+const { gitExec: git, trustedDiffArgs } = require("./lib/git-env");
 const fs = require("node:fs");
 const path = require("node:path");
 const { inspectHtmlArtifact } = require("./artifact-check");
@@ -40,6 +42,7 @@ const {
   assertCleanWorktree,
   changedFileInventory,
   readCommittedBlob,
+  remoteForBaseRef,
   resolveTrustedBase,
 } = require("./review-target");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
@@ -661,14 +664,8 @@ function validateRuntime(runtime, label, issues) {
     add(issues, label, "must contain a safe exact runtime profile");
 }
 
-function remoteForBaseRef(root, baseRef) {
-  const remotes = git(root, ["remote"])
-    .toString()
-    .trim()
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .sort((left, right) => right.length - left.length);
-  const remote = remotes.find((candidate) => String(baseRef || "").startsWith(`${candidate}/`));
+function requireRemoteForBaseRef(root, baseRef) {
+  const remote = remoteForBaseRef(root, baseRef);
   if (!remote) throw new Error("target base_ref does not name a configured remote");
   return remote;
 }
@@ -680,14 +677,17 @@ function validateLiveTarget(root, target, issues) {
     head = git(root, ["rev-parse", "HEAD"]).toString().trim();
     if (target.source?.commit !== head)
       add(issues, "target.source.commit", `is stale for current HEAD ${head}`);
-    const trusted = resolveTrustedBase(root, remoteForBaseRef(root, target.source?.base_ref));
+    const trusted = resolveTrustedBase(
+      root,
+      requireRemoteForBaseRef(root, target.source?.base_ref)
+    );
     if (
       target.source?.base_ref !== trusted.ref ||
       target.source?.base_commit !== trusted.commit ||
       target.source?.remote_push_url_sha256 !== trusted.remote_push_url_sha256
     )
       add(issues, "target.source", "does not match the authoritative remote default");
-    const diff = git(root, ["diff", "--binary", `${trusted.commit}...${head}`], null);
+    const diff = git(root, trustedDiffArgs("--binary", `${trusted.commit}...${head}`), null);
     target[FROZEN_MERGE_BASE] = git(root, ["merge-base", trusted.commit, head]).toString().trim();
     if (target.source?.diff_sha256 !== digest(diff))
       add(issues, "target.source.diff_sha256", "does not match current diff bytes");
@@ -713,7 +713,7 @@ function validateFrozenTarget(root, target, issues) {
     if (!sha(target[FROZEN_MERGE_BASE])) throw new Error("source and base have no merge base");
     const diff = git(
       root,
-      ["diff", "--binary", `${target.source.base_commit}...${target.source.commit}`],
+      trustedDiffArgs("--binary", `${target.source.base_commit}...${target.source.commit}`),
       null
     );
     if (target.source.diff_sha256 !== digest(diff))
@@ -1356,11 +1356,11 @@ function frozenPathChange(root, target, changed) {
   }
   const paths = [...new Set([changed.old_path, changed.path].filter(Boolean))];
   const common = [mergeBase, target.source.commit, "--", ...paths];
-  const patch = git(
-    root,
-    ["diff", "--unified=0", "--no-color", "--no-ext-diff", ...common],
-    "utf8"
-  );
+  // The same trust set as every other bound diff: this patch decides whether an
+  // anchor intersects a real changed hunk, so a driver or config that reshapes
+  // it decides which claims a reviewer is allowed to make. `--unified=0` still
+  // wins over the pinned diff.context.
+  const patch = git(root, trustedDiffArgs("--unified=0", "--no-color", ...common), "utf8");
   const hunks = [];
   const pattern = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm;
   for (const match of patch.matchAll(pattern))
@@ -1370,8 +1370,8 @@ function frozenPathChange(root, target, changed) {
       new_start: Number(match[3]),
       new_count: match[4] === undefined ? 1 : Number(match[4]),
     });
-  const summary = git(root, ["diff", "--summary", ...common], "utf8").trim();
-  const numstat = git(root, ["diff", "--numstat", ...common], "utf8").trim();
+  const summary = git(root, trustedDiffArgs("--summary", ...common), "utf8").trim();
+  const numstat = git(root, trustedDiffArgs("--numstat", ...common), "utf8").trim();
   const value = {
     hunks,
     non_textual: hunks.length === 0 && (summary.length > 0 || numstat.length > 0),
@@ -1891,15 +1891,6 @@ function main(argv = process.argv.slice(2)) {
     process.stderr.write(`${error.message}\n`);
     return 2;
   }
-}
-
-function git(root, args, encoding = "utf8") {
-  return execFileSync("git", args, {
-    cwd: root,
-    encoding,
-    stdio: ["ignore", "pipe", "pipe"],
-    maxBuffer: 64 * 1024 * 1024,
-  });
 }
 
 function digest(bytes) {

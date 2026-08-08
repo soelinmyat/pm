@@ -1,6 +1,6 @@
 # Review Gate Pattern — the review() primitive
 
-Shared pattern for all multi-reviewer quality gates. A step that IS a review gate declares parameters and runs this loop — it does not reimplement dispatch-collect-fix mechanics. (Groom steps 5 and 8 are the reference implementations of this shape.)
+Shared pattern for all multi-reviewer quality gates. A step that IS a review gate declares parameters and runs this loop — it does not reimplement dispatch-collect-fix mechanics. (The live reference implementations are Groom step 07 — question coverage per `skills/groom/references/review-questions.md` — and RFC step 03 — lens coverage per `skills/rfc/references/review-contract.md`.)
 
 ---
 
@@ -28,7 +28,7 @@ Every gate runs the same loop:
 1. Dispatch ALL reviewers in one parallel wave
 2. Collect verdicts; merge + deduplicate team findings (context-separated reviewer signals stay distinct)
 3. Split blocking vs advisory
-4. Blocking → fix the artifact → re-dispatch the whole wave. `fresh-eyes` reviewers always get a fresh agent; `Independence: none` reviewers may be re-engaged with fix context (see Sequential dispatch). Fixes can introduce new problems — re-checks cover the whole artifact, not just the fixes.
+4. Blocking → fix the artifact → re-dispatch every AFFECTED reviewer: any reviewer whose findings the fix addressed, plus any whose reviewed surface the fix touched (Groom reruns every affected question; RFC re-runs every affected lens). A fix that changes shared or structural surface affects everyone — re-dispatch the full wave. `fresh-eyes` reviewers always get a fresh agent; `Independence: none` reviewers may be re-engaged with fix context (see Sequential dispatch). Each affected re-check covers that reviewer's whole angle against the current artifact, not just the fixed lines.
 5. Repeat up to the iteration cap
 6. Cap reached or stop-verdict → escalate to the human
 ```
@@ -144,9 +144,10 @@ Reference for where each gate is defined and what reviewer prompts it uses:
 
 | Gate | Called by | Reviewers | Prompt locations |
 |------|----------|-----------|-----------------|
-| Plan review | rfc (review step) | 1 (plan-document-reviewer) | `skills/dev/references/plan-reviewer.md` |
-| Scope review | groom step 05 | 3 (PM, Competitive, EM) | `skills/groom/references/team-reviewers.md` § Scope Review |
-| Team review + bar raiser | groom step 08 (one concurrent wave) | 4-5 (PM, Competitive, EM, Design cond., Product Director fresh-eyes) | `skills/groom/references/team-reviewers.md` |
-| Code review | review | 6 logical lenses adaptively assigned to 1–6 reviewers | `skills/review/references/reviewer-briefs.md` |
-| Spec compliance | subagent-dev | 1 (spec-reviewer) | `skills/dev/references/subagent-spec-reviewer.md` |
-| Code quality | subagent-dev | 1 (code-quality-reviewer) | `skills/dev/references/code-quality-reviewer.md` |
+| Proposal review | groom step 07 | Tier-required questions answered inline or by workers | `skills/groom/references/review-questions.md` |
+| RFC review | rfc step 03 | 3 mandatory lenses (architecture-risk, test-strategy, maintainability) + justified cross-cutting lenses | `skills/rfc/references/review-contract.md`, `skills/rfc/references/cross-cutting-reviewers.md` |
+| Code review | review | 6 logical lenses adaptively assigned to available reviewers | `skills/review/references/reviewer-briefs.md` |
+| Post-pass delta review | review (delta supplement) | 1 scoped reviewer over the bounded delta diff | `skills/review/references/delta-supplement.md` |
+| Per-unit spec/quality review (optional, non-authoritative) | subagent-dev | 1 each when useful; never replaces `pm:review` | `skills/dev/references/subagent-spec-reviewer.md`, `skills/dev/references/code-quality-reviewer.md` |
+
+Legacy: `skills/groom/references/team-reviewers.md` (scope/team/bar-raiser briefs) and `skills/dev/references/plan-reviewer.md` predate the question- and lens-based gates above and are not routed by any current step.

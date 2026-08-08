@@ -290,6 +290,46 @@ test("trusted base binds Git-resolved pushInsteadOf destinations", () => {
   );
 });
 
+test("trusted base fails closed when the authoritative object cannot be materialized", () => {
+  // The remote advertises a HEAD this clone does not have. If the fetch that
+  // is supposed to bring it down cannot deliver it, the base is unknown --
+  // and an unknown base must stop the freeze, not fall through and get
+  // compared against whatever happens to be local.
+  const fixture = makeFixture({ maxWorkers: 2 });
+  const unreachable = `${fixture.root}-unreachable.git`;
+  git(fixture.root, ["init", "-q", "--bare", unreachable]);
+  const inBare = (args, input) =>
+    execFileSync("git", ["--git-dir", unreachable, ...args], {
+      encoding: "utf8",
+      input,
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "Review Check Test",
+        GIT_AUTHOR_EMAIL: "review-check@example.com",
+        GIT_AUTHOR_DATE: "2001-02-03T04:05:06+00:00",
+        GIT_COMMITTER_NAME: "Review Check Test",
+        GIT_COMMITTER_EMAIL: "review-check@example.com",
+        GIT_COMMITTER_DATE: "2001-02-03T04:05:06+00:00",
+      },
+    }).trim();
+
+  // A history of its own, so the advertised tip is genuinely absent here.
+  const blob = inBare(["hash-object", "-w", "--stdin"], "unreachable\n");
+  const tree = inBare(["mktree"], `100644 blob ${blob}\tfile.txt\n`);
+  const tip = inBare(["commit-tree", tree, "-m", "unreachable"]);
+  inBare(["update-ref", "refs/heads/main", tip]);
+  inBare(["symbolic-ref", "HEAD", "refs/heads/main"]);
+  // HEAD stays advertised while its branch is hidden from the fetch.
+  inBare(["config", "transfer.hideRefs", "refs/heads/main"]);
+  git(fixture.root, ["config", "remote.origin.pushurl", unreachable]);
+
+  assert.throws(() => resolveTrustedBase(fixture.root), /cannot fetch authoritative origin object/);
+  assert.throws(
+    () => execFileSync("git", ["cat-file", "-e", `${tip}^{commit}`], { cwd: fixture.root }),
+    "a failed authentication must not leave the object behind either"
+  );
+});
+
 test("named-remote target passes live end-to-end review validation", () => {
   const fixture = makeFixture({ maxWorkers: 2, remote: "upstream" });
   const checked = checkReview({
@@ -730,6 +770,59 @@ test("Git-backed evidence rejects the phantom line after a trailing newline", ()
   const issues = [];
   validateSignal(fixture.root, finding, "reviewer-1", ["bug"], fixture.target, "finding", issues);
   assert.match(JSON.stringify(issues), /line range exceeds file length 1/);
+});
+
+test("a changed path that is not valid UTF-8 cannot be certified", () => {
+  // changed_files is JSON, so it cannot hold an arbitrary byte path: decoding
+  // one as UTF-8 collapses every invalid sequence onto U+FFFD and makes two
+  // distinct paths indistinguishable to every later comparison. The freeze must
+  // refuse rather than record a path it cannot represent, which costs that
+  // repository a full review round and nothing else.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-nonutf8-"));
+  const run = (args, input) => {
+    const result = spawnSync("git", args, { cwd: dir, input, encoding: "utf8" });
+    assert.equal(result.status, 0, `git ${args.join(" ")}: ${result.stderr}`);
+    return result.stdout.trim();
+  };
+  try {
+    run(["init", "-q", "-b", "main", "."]);
+    run(["config", "user.email", "test@example.com"]);
+    run(["config", "user.name", "Test User"]);
+    const blob = run(["hash-object", "-w", "--stdin"], "payload\n");
+    const keep = run(["hash-object", "-w", "--stdin"], "keep\n");
+    const tree = (rows) => {
+      const result = spawnSync("git", ["mktree", "-z"], {
+        cwd: dir,
+        input: Buffer.concat(
+          rows.map(([oid, p]) =>
+            Buffer.concat([Buffer.from(`100644 blob ${oid}\t`), p, Buffer.from([0])])
+          )
+        ),
+        encoding: "utf8",
+      });
+      assert.equal(result.status, 0, `git mktree: ${result.stderr}`);
+      return result.stdout.trim();
+    };
+    const keepPath = Buffer.from("keep.txt");
+    const base = run(["commit-tree", tree([[keep, keepPath]]), "-m", "base"]);
+    const head = run([
+      "commit-tree",
+      tree([
+        [blob, Buffer.from([0x61, 0xfe])],
+        [keep, keepPath],
+      ]),
+      "-p",
+      base,
+      "-m",
+      "non-utf8 path",
+    ]);
+    assert.throws(
+      () => changedFileInventory(dir, base, head),
+      /is not valid UTF-8 and cannot be certified/
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("target creation refuses dirty source and inventory remains bound to committed bytes", () => {
