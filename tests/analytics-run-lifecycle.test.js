@@ -18,6 +18,11 @@ const SESSION_END = path.join(ROOT, "hooks", "session-end");
 const DEV_CLI = path.join(ROOT, "scripts", "dev-session.js");
 const GROOM_CLI = path.join(ROOT, "scripts", "groom-session.js");
 const { recordSessionTelemetry } = require("../scripts/lib/telemetry.js");
+const {
+  hostSessionScratchDir,
+  normalizeHostSessionId,
+  scratchDir,
+} = require("../scripts/lib/analytics-paths.js");
 
 const TEST_HOST_ID = "test-host";
 const ACTIVITY_FILE = `activity-${TEST_HOST_ID}.jsonl`;
@@ -135,6 +140,18 @@ function devResult(session, overrides = {}) {
     ...overrides,
   };
 }
+
+test("host session IDs are unique safe child path segments", () => {
+  assert.equal(normalizeHostSessionId("host-session-a"), "host-session-a");
+  assert.notEqual(normalizeHostSessionId("a/b"), normalizeHostSessionId("a-b"));
+
+  for (const raw of [".", "..", "a/b", "a\\b", " session with spaces "]) {
+    const normalized = normalizeHostSessionId(raw);
+    assert.match(normalized, /^session-[a-f0-9]{24}$/);
+    const relative = path.relative(scratchDir("/project"), hostSessionScratchDir("/project", raw));
+    assert.match(relative, /^sessions[/\\][^/\\]+$/);
+  }
+});
 
 test("nested invocations preserve parentage without superseding and concurrent host sessions isolate state", () => {
   const { root, env, cleanup } = setupRepo();

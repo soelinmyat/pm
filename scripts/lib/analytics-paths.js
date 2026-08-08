@@ -93,8 +93,8 @@ function scratchDir(projectRoot) {
 function normalizeHostSessionId(raw) {
   const value = typeof raw === "string" ? raw.trim() : "";
   if (!value) return "legacy";
-  const sanitized = sanitizeHostId(value);
-  if (sanitized && sanitized.length <= 96) return sanitized;
+  const alreadySafe = /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value);
+  if (alreadySafe && value.length <= 96) return value;
   return `session-${crypto.createHash("sha256").update(value).digest("hex").slice(0, 24)}`;
 }
 
