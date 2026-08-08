@@ -524,4 +524,5 @@ module.exports = {
   writeStep,
   startRun,
   detectProjectRoot,
+  closeActiveStep,
 };

@@ -16,6 +16,7 @@
 // concatenate all matching files.
 
 const fs = require("node:fs");
+const crypto = require("node:crypto");
 const os = require("node:os");
 const path = require("node:path");
 
@@ -89,6 +90,31 @@ function scratchDir(projectRoot) {
   return path.join(projectRoot, ".pm", "analytics");
 }
 
+function normalizeHostSessionId(raw) {
+  const value = typeof raw === "string" ? raw.trim() : "";
+  if (!value) return "legacy";
+  const sanitized = sanitizeHostId(value);
+  if (sanitized && sanitized.length <= 96) return sanitized;
+  return `session-${crypto.createHash("sha256").update(value).digest("hex").slice(0, 24)}`;
+}
+
+function hostSessionScratchDir(projectRoot, hostSessionId) {
+  return path.join(scratchDir(projectRoot), "sessions", normalizeHostSessionId(hostSessionId));
+}
+
+function engagementStateFilePath(projectRoot, hostSessionId) {
+  return path.join(hostSessionScratchDir(projectRoot, hostSessionId), "engagements.json");
+}
+
+function engagementAgentStartsDir(projectRoot, hostSessionId) {
+  return path.join(hostSessionScratchDir(projectRoot, hostSessionId), "agent-starts");
+}
+
+function workflowStateFilePath(projectRoot, workflowRunId) {
+  const safeRunId = normalizeHostSessionId(workflowRunId);
+  return path.join(analyticsDir(projectRoot), ".workflow-runs", `${safeRunId}.json`);
+}
+
 function currentRunFilePath(projectRoot) {
   return path.join(scratchDir(projectRoot), ".current-run");
 }
@@ -148,6 +174,11 @@ module.exports = {
   getHostId,
   analyticsDir,
   scratchDir,
+  normalizeHostSessionId,
+  hostSessionScratchDir,
+  engagementStateFilePath,
+  engagementAgentStartsDir,
+  workflowStateFilePath,
   activityFilePath,
   stepsFilePath,
   currentStepFilePath,

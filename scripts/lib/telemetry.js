@@ -1,35 +1,16 @@
 "use strict";
 
-// Telemetry emission for the v2 session scripts (dev/groom/rfc).
-//
-// The automatic hook layer (hooks/analytics-log, hooks/state-step) can only
-// observe Skill and Write/Edit tool calls. The v2 session scripts mutate
-// session.json through Bash, which those hooks never see — so genuine
-// completion terminals and phase step spans must be emitted here, at the
-// state-mutation choke point, where phase/status/attempt are known exactly.
-//
-// Run correlation: hooks/analytics-log starts an activity run per pm:* skill
-// invocation and records it in <project>/.pm/analytics/.current-run and
-// .current-skill. This module adopts that run when .current-skill matches the
-// workflow, and remembers the binding per workflow+slug in .run-map.json in
-// the same scratch directory so a nested sub-skill invocation (dev -> review)
-// cannot re-attribute the parent workflow's spans. When no hook run exists
-// (headless callers, missed hook), it self-starts one so the stream stays
-// complete.
-//
-// Every entry point is best-effort: telemetry must never fail or block a
-// session mutation. Errors are reported on stderr and swallowed.
+// Authoritative telemetry for canonical v2 workflow sessions. Hook-generated
+// runs are engagement spans; the durable session.run_id is the workflow
+// identity. A shared, lock-protected registry makes phase and terminal writes
+// idempotent across main-checkout/worktree copies of the same session.
 
-const fs = require("node:fs");
+const crypto = require("node:crypto");
 const path = require("node:path");
 
 const { readAnalyticsFlag, writeActivity, writeStep, startRun } = require("../pm-log.js");
-const {
-  scratchDir: scratchDirFor,
-  currentRunFilePath,
-  currentSkillFilePath,
-  runMapFilePath,
-} = require("./analytics-paths.js");
+const { workflowStateFilePath } = require("./analytics-paths.js");
+const { atomicWriteJson, readJson, withFileLock } = require("./analytics-engagements.js");
 
 const TERMINAL_STATUSES = Object.freeze({
   dev: new Set(["complete", "handoff"]),
@@ -44,182 +25,154 @@ const STEP_STATUS_BY_RESULT = Object.freeze({
   noop: "completed",
 });
 
-// Sessions live at <projectRoot>/.pm/<workflow>-sessions/.../session.json.
-// Walking up to the `.pm` ancestor is deterministic and worktree-correct,
-// unlike guessing from cwd.
 function deriveProjectRoot(sessionPath) {
   let current = path.resolve(sessionPath);
   while (true) {
     const parent = path.dirname(current);
-    if (parent === current) {
-      return null;
-    }
-    if (path.basename(current) === ".pm") {
-      return parent;
-    }
+    if (parent === current) return null;
+    if (path.basename(current) === ".pm") return parent;
     current = parent;
   }
 }
 
-// Scratch paths must match hooks/analytics-log, which resolves via
-// CLAUDE_PROJECT_DIR. Fall back to the session-derived root outside a hook
-// environment.
-function scratchRoot(projectRoot) {
-  return process.env.CLAUDE_PROJECT_DIR || projectRoot;
+function analyticsEnabled(projectRoot) {
+  if (readAnalyticsFlag(projectRoot)) return true;
+  const hostRoot = process.env.CLAUDE_PROJECT_DIR;
+  return Boolean(hostRoot && hostRoot !== projectRoot && readAnalyticsFlag(hostRoot));
 }
 
-function readScratchFile(filePath) {
-  try {
-    return fs.readFileSync(filePath, "utf8").trim() || null;
-  } catch {
-    return null;
-  }
+function resultIdentity(result) {
+  if (!result) return null;
+  const digest = crypto.createHash("sha256").update(JSON.stringify(result)).digest("hex");
+  return `${result.phase}:${result.attempt}:${result.status}:${digest}`;
 }
 
-function readRunMap(root) {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(runMapFilePath(root), "utf8"));
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
+function initialState(workflow, session) {
+  return {
+    schema_version: 1,
+    identity_kind: "workflow",
+    workflow,
+    workflow_run_id: session.run_id,
+    slug: session.slug,
+    status: "running",
+    phase: session.phase || null,
+    phase_started_at: session.created_at || new Date().toISOString(),
+    emitted_results: [],
+    emitted_blockers: [],
+    terminal_status: null,
+  };
 }
 
-function writeRunMap(root, map) {
-  fs.mkdirSync(scratchDirFor(root), { recursive: true });
-  fs.writeFileSync(runMapFilePath(root), `${JSON.stringify(map, null, 2)}\n`);
+function workflowMeta(session, extra = {}) {
+  return JSON.stringify({
+    identity_kind: "workflow",
+    workflow_run_id: session.run_id,
+    slug: session.slug,
+    origin: "session-script",
+    ...extra,
+  });
 }
 
-function clearCurrentRun(root, runId) {
-  // Only clear when the marker still points at this run: a nested sub-skill
-  // may own the marker by now, and session-end must still close that run.
-  if (readScratchFile(currentRunFilePath(root)) !== runId) {
-    return;
-  }
-  for (const filePath of [currentRunFilePath(root), currentSkillFilePath(root)]) {
-    try {
-      fs.unlinkSync(filePath);
-    } catch {
-      // already gone
-    }
-  }
-}
-
-function resolveRun({ workflow, slug, projectRoot, root, map }) {
-  const key = `${workflow}:${slug}`;
-  const currentRun = readScratchFile(currentRunFilePath(root));
-  const currentSkill = readScratchFile(currentSkillFilePath(root));
-  const entry = map[key];
-
-  // A fresh pm:<workflow> invocation re-binds the workflow to the hook's new
-  // run (one activity run per engagement; the workflow may span several).
-  if (currentRun && currentSkill === workflow) {
-    if (!entry || entry.run_id !== currentRun) {
-      map[key] = { run_id: currentRun, phase: null, phase_started_at: null };
-    }
-    return map[key];
-  }
-  if (entry && entry.run_id) {
-    return entry;
-  }
-  // No hook-started run to adopt — self-start one so spans and terminals are
-  // never dropped (headless callers, missed hook).
-  const runId = startRun(
+function ensureStarted(workflow, session, projectRoot, state) {
+  if (state.started_at) return;
+  startRun(
     {
       skill: workflow,
-      detail: `slug=${slug}`,
-      metaJson: JSON.stringify({ origin: "session-script" }),
+      runId: session.run_id,
+      detail: `slug=${session.slug}`,
+      metaJson: workflowMeta(session),
     },
     projectRoot
   );
-  map[key] = { run_id: runId, phase: null, phase_started_at: null };
-  return map[key];
+  state.started_at = new Date().toISOString();
 }
 
-// Record telemetry for one session mutation. Call after the mutated session
-// has been persisted, with the previous and next session states and, for
-// phase recordings, the result envelope that drove the mutation.
 function recordSessionTelemetry({ workflow, sessionPath, prevSession, session, result }) {
   try {
-    if (!TERMINAL_STATUSES[workflow]) {
-      return null;
-    }
+    if (!TERMINAL_STATUSES[workflow] || !session?.run_id || !session?.slug) return null;
     const projectRoot = deriveProjectRoot(sessionPath);
-    if (!projectRoot || !readAnalyticsFlag(projectRoot)) {
-      return null;
-    }
-    const root = scratchRoot(projectRoot);
-    const map = readRunMap(root);
-    const key = `${workflow}:${session.slug}`;
-    const entry = resolveRun({ workflow, slug: session.slug, projectRoot, root, map });
-    const runId = entry.run_id;
-    const now = new Date().toISOString();
+    if (!projectRoot || !analyticsEnabled(projectRoot)) return null;
+    const statePath = workflowStateFilePath(projectRoot, session.run_id);
 
-    if (result && result.phase) {
-      writeStep(
-        {
-          skill: workflow,
-          runId,
-          phase: result.phase,
-          step: result.phase,
-          status: STEP_STATUS_BY_RESULT[result.status] || "completed",
-          attempt: result.attempt,
-          startedAt: entry.phase === result.phase ? entry.phase_started_at : undefined,
-          endedAt: now,
-          actor: "orchestrator",
-          metaJson: JSON.stringify({
-            workflow_run_id: session.run_id,
-            result_status: result.status,
-          }),
-        },
-        projectRoot
-      );
-    }
+    return withFileLock(statePath, () => {
+      const state = readJson(statePath, initialState(workflow, session));
+      if (state.workflow_run_id !== session.run_id || state.workflow !== workflow) {
+        throw new Error(`workflow telemetry identity collision for ${session.run_id}`);
+      }
+      ensureStarted(workflow, session, projectRoot, state);
+      const now = new Date().toISOString();
+      const resultId = resultIdentity(result);
 
-    const wasTerminal = TERMINAL_STATUSES[workflow].has(prevSession ? prevSession.status : "");
-    const isTerminal = TERMINAL_STATUSES[workflow].has(session.status);
-    if (isTerminal && !wasTerminal) {
-      writeActivity(
-        {
-          skill: workflow,
-          event: "completed",
-          runId,
-          status: "completed",
-          detail: session.status,
-          metaJson: JSON.stringify({ workflow_run_id: session.run_id, origin: "session-script" }),
-        },
-        projectRoot
-      );
-      delete map[key];
-      writeRunMap(root, map);
-      // A genuinely completed run must not be re-closed as abandoned by
-      // hooks/session-end.
-      clearCurrentRun(root, runId);
-      return runId;
-    }
+      if (result && result.phase && !state.emitted_results.includes(resultId)) {
+        writeStep(
+          {
+            skill: workflow,
+            runId: session.run_id,
+            phase: result.phase,
+            step: result.phase,
+            status: STEP_STATUS_BY_RESULT[result.status] || "completed",
+            attempt: result.attempt,
+            startedAt:
+              state.phase === result.phase
+                ? state.phase_started_at
+                : session.created_at || undefined,
+            endedAt: now,
+            actor: "orchestrator",
+            metaJson: workflowMeta(session, { result_status: result.status }),
+          },
+          projectRoot
+        );
+        state.emitted_results.push(resultId);
+      }
 
-    if (session.status === "blocked" && (!prevSession || prevSession.status !== "blocked")) {
-      const blocker = Array.isArray(session.blockers) ? session.blockers.at(-1) : null;
-      writeActivity(
-        {
-          skill: workflow,
-          event: "blocked",
-          runId,
-          status: "blocked",
-          detail: blocker ? blocker.code || blocker.reason : undefined,
-          metaJson: JSON.stringify({ workflow_run_id: session.run_id }),
-        },
-        projectRoot
-      );
-    }
+      const isTerminal = TERMINAL_STATUSES[workflow].has(session.status);
+      if (isTerminal && !state.terminal_status) {
+        writeActivity(
+          {
+            skill: workflow,
+            event: "completed",
+            runId: session.run_id,
+            status: "completed",
+            detail: session.status,
+            metaJson: workflowMeta(session),
+          },
+          projectRoot
+        );
+        state.status = "completed";
+        state.terminal_status = session.status;
+        state.completed_at = now;
+      }
 
-    map[key] = { run_id: runId, phase: session.phase, phase_started_at: now };
-    writeRunMap(root, map);
-    return runId;
+      if (session.status === "blocked" && (!prevSession || prevSession.status !== "blocked")) {
+        const blocker = Array.isArray(session.blockers) ? session.blockers.at(-1) : null;
+        const blockerId = `${resultId || "transition"}:${blocker?.code || blocker?.reason || "blocked"}`;
+        if (!state.emitted_blockers.includes(blockerId)) {
+          writeActivity(
+            {
+              skill: workflow,
+              event: "blocked",
+              runId: session.run_id,
+              status: "blocked",
+              detail: blocker ? blocker.code || blocker.reason : undefined,
+              metaJson: workflowMeta(session),
+            },
+            projectRoot
+          );
+          state.emitted_blockers.push(blockerId);
+        }
+      }
+
+      if (!isTerminal) {
+        state.phase = session.phase || state.phase;
+        state.phase_started_at = now;
+      }
+      atomicWriteJson(statePath, state);
+      return session.run_id;
+    });
   } catch (error) {
     process.stderr.write(`[pm-telemetry] ${error.message}\n`);
     return null;
   }
 }
 
-module.exports = { recordSessionTelemetry, deriveProjectRoot };
+module.exports = { recordSessionTelemetry, deriveProjectRoot, resultIdentity };
