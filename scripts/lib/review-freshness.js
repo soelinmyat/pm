@@ -404,12 +404,17 @@ function computeDelta(root, priorCommit, commit, readTree = treeReader(root)) {
     // comparison happens in byte space. A path whose bytes are not valid UTF-8
     // cannot round-trip through the row, so it stays unpriced and the delta is
     // ineligible — which is the correct fail-closed answer.
+    //
+    // Key the priced rows once. Scanning the row list per tree path instead
+    // re-derives pathKey (a Buffer round trip) on every comparison, so a delta
+    // touching n paths costs O(n^2) conversions for a membership test.
+    const priced = new Set();
+    for (const row of numstat) {
+      priced.add(pathKey(row.path));
+      if (row.old_path) priced.add(pathKey(row.old_path));
+    }
     const unpriced = [...changedTreePaths(root, deltaBase, commit, readTree).changed].filter(
-      (file) => {
-        return !numstat.some(
-          (row) => pathKey(row.path) === file || (row.old_path && pathKey(row.old_path) === file)
-        );
-      }
+      (file) => !priced.has(file)
     );
     if (unpriced.length > 0 && !ineligible)
       ineligible = `change to ${listPaths(unpriced)} is absent from the priced diff`;

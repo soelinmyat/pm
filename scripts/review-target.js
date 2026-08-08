@@ -281,6 +281,20 @@ function loadDevContext(root, relative, expected) {
   return devReviewContext(loaded.value);
 }
 
+// Which remote a frozen `base_ref` names, or null when none does. Longest name
+// first so a `origin/main` ref binds `origin` and not a shorter remote whose
+// name happens to prefix it. Callers raise their own error: the two of them
+// carry different context about what the missing remote costs, and this only
+// owns the matching rule so they cannot drift on it.
+function remoteForBaseRef(root, baseRef) {
+  const remotes = git(root, ["remote"])
+    .trim()
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .sort((left, right) => right.length - left.length);
+  return remotes.find((candidate) => String(baseRef || "").startsWith(`${candidate}/`)) || null;
+}
+
 function resolveTrustedBase(root, remote = "origin") {
   const configured = git(root, ["remote"]).trim().split(/\r?\n/).filter(Boolean);
   if (remote === "." || !configured.includes(remote))
@@ -630,6 +644,7 @@ module.exports = {
   loadProfile,
   parseArgs,
   readCommittedBlob,
+  remoteForBaseRef,
   resolveTrustedBase,
 };
 

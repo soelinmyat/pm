@@ -42,6 +42,7 @@ const { gitExec } = require("./lib/git-env");
 const {
   assertCleanWorktree,
   changedFileInventory,
+  remoteForBaseRef,
   resolveTrustedBase,
 } = require("./review-target");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
@@ -313,11 +314,7 @@ function recordCommand(options) {
 // target's own base_ref rather than a hardcoded `origin`.
 function authenticateBase(root, target, declaredBase) {
   const baseRef = String(target?.source?.base_ref || "");
-  const remotes = git(root, ["remote"])
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .sort((left, right) => right.length - left.length);
-  const remote = remotes.find((candidate) => baseRef.startsWith(`${candidate}/`));
+  const remote = remoteForBaseRef(root, baseRef);
   if (!remote)
     throw new Error(
       `frozen target base_ref ${baseRef || "(missing)"} does not name a configured remote; --base cannot be authenticated`

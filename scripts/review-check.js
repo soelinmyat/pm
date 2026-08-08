@@ -42,6 +42,7 @@ const {
   assertCleanWorktree,
   changedFileInventory,
   readCommittedBlob,
+  remoteForBaseRef,
   resolveTrustedBase,
 } = require("./review-target");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
@@ -663,14 +664,8 @@ function validateRuntime(runtime, label, issues) {
     add(issues, label, "must contain a safe exact runtime profile");
 }
 
-function remoteForBaseRef(root, baseRef) {
-  const remotes = git(root, ["remote"])
-    .toString()
-    .trim()
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .sort((left, right) => right.length - left.length);
-  const remote = remotes.find((candidate) => String(baseRef || "").startsWith(`${candidate}/`));
+function requireRemoteForBaseRef(root, baseRef) {
+  const remote = remoteForBaseRef(root, baseRef);
   if (!remote) throw new Error("target base_ref does not name a configured remote");
   return remote;
 }
@@ -682,7 +677,10 @@ function validateLiveTarget(root, target, issues) {
     head = git(root, ["rev-parse", "HEAD"]).toString().trim();
     if (target.source?.commit !== head)
       add(issues, "target.source.commit", `is stale for current HEAD ${head}`);
-    const trusted = resolveTrustedBase(root, remoteForBaseRef(root, target.source?.base_ref));
+    const trusted = resolveTrustedBase(
+      root,
+      requireRemoteForBaseRef(root, target.source?.base_ref)
+    );
     if (
       target.source?.base_ref !== trusted.ref ||
       target.source?.base_commit !== trusted.commit ||
