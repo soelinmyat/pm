@@ -589,50 +589,78 @@ test("computeDelta refuses a binary change outside the exempt paths", () => {
   }
 });
 
-test("delta exemption covers nested test directories but only JS and TS test suffixes", () => {
+test("delta exemption anchors its directory rules but not its JS and TS suffix rule", () => {
   const repo = makeRepo();
   try {
     const prior = commitFile(repo, "src/app.js", "base\n", "base");
-    // Directory rule is not root-anchored and accepts the singular form.
-    commitFile(repo, "src/test/helper.js", "helper line\n".repeat(30), "nested singular test dir");
-    commitFile(repo, "packages/api/tests/case.js", "case line\n".repeat(30), "nested tests dir");
-    commitFile(repo, "__tests__/case.js", "case line\n".repeat(30), "underscore tests dir");
+    // Root-anchored directory rules: the repository's own test roots, both
+    // spellings, plus root docs markdown.
+    commitFile(repo, "tests/case.js", "case line\n".repeat(30), "plural tests root");
+    commitFile(repo, "test/case.js", "case line\n".repeat(30), "singular test root");
+    commitFile(repo, "__tests__/case.js", "case line\n".repeat(30), "underscore tests root");
     const exempt = commitFile(repo, "docs/notes.md", "notes\n".repeat(30), "root docs markdown");
     assert.equal(computeDelta(repo.dir, prior, exempt).code_lines, 0);
 
-    // The suffix rule is limited to JavaScript and TypeScript extensions.
+    // The suffix rule is deliberately unanchored: a *.test.* JS/TS file is not
+    // instruction surface at any depth, so a monorepo keeps its per-package
+    // suites free.
+    const nestedSuffix = commitFile(
+      repo,
+      "packages/api/tests/case.test.js",
+      "expect(1);\n".repeat(30),
+      "nested js test suffix"
+    );
+    assert.equal(computeDelta(repo.dir, exempt, nestedSuffix).code_lines, 0);
+
+    // ...but only for JavaScript and TypeScript extensions.
     const suffix = commitFile(repo, "api.test.py", "assert True\n".repeat(4), "python test suffix");
-    assert.equal(computeDelta(repo.dir, exempt, suffix).code_lines, 4);
+    assert.equal(computeDelta(repo.dir, nestedSuffix, suffix).code_lines, 4);
 
     const jsSuffix = commitFile(repo, "api.test.ts", "expect(1);\n".repeat(4), "ts test suffix");
     assert.equal(computeDelta(repo.dir, suffix, jsSuffix).code_lines, 0);
+
+    // A nested test directory holding something that is not a *.test.* JS/TS
+    // file is priced. This is the deliberate cost of anchoring: a directory
+    // component named `tests` is evidence of nothing about what it holds.
+    const helper = commitFile(
+      repo,
+      "src/test/helper.js",
+      "helper();\n".repeat(7),
+      "nested non-suffix helper"
+    );
+    assert.equal(computeDelta(repo.dir, jsSuffix, helper).code_lines, 7);
   } finally {
     fs.rmSync(repo.dir, { recursive: true, force: true });
   }
 });
 
-test("a tests directory inside a runtime tree is neither budget-exempt nor out of scope", () => {
+test("a nested tests directory in any loaded tree is neither budget-exempt nor out of scope", () => {
   const repo = makeRepo();
   try {
     const prior = commitFile(repo, "src/app.js", "base\n", "base");
-    // plugin.json maps ./skills/ and ./commands/ into the agent's instruction
-    // surface, so these are loaded skills and slash commands whatever the
-    // directory is called. Exempting them would let a supplement add unbounded
-    // agent instructions past both the budget and the certified file set.
-    commitFile(repo, "skills/tests/SKILL.md", "instruction\n".repeat(30), "skill named tests");
-    const head = commitFile(
-      repo,
-      "commands/tests/x.md",
-      "command\n".repeat(20),
-      "command in tests"
-    );
+    // Each of these is content the runtime loads or executes, sitting under a
+    // directory named `tests`. An enumeration of the trees to exclude covered
+    // the first two and left the rest exempt, which is why the exemption is
+    // root-anchored instead: no tree has to be named in advance.
+    const loaded = [
+      ["skills/tests/SKILL.md", "instruction\n"], // plugin.json maps ./skills/
+      ["commands/tests/x.md", "command\n"], // plugin.json maps ./commands/
+      ["agents/tests/rogue.md", "agent\n"], // registers a callable pm:<name>
+      ["hooks/tests/push-gate", "#!/bin/sh\n"], // executed via hooks.json
+      ["scripts/tests/x.js", "run();\n"], // the enforcement surface itself
+      [".github/tests/x.yml", "on: push\n"], // CI definition
+    ];
+    let head = prior;
+    for (const [file, line] of loaded) {
+      head = commitFile(repo, file, line.repeat(5), `add ${file}`);
+    }
 
     const delta = computeDelta(repo.dir, prior, head);
-    assert.equal(delta.code_lines, 50);
-    assert.deepEqual(delta.files.map((row) => row.path).sort(), [
-      "commands/tests/x.md",
-      "skills/tests/SKILL.md",
-    ]);
+    assert.equal(delta.code_lines, loaded.length * 5);
+    assert.deepEqual(
+      delta.files.map((row) => row.path).sort(),
+      loaded.map(([file]) => file).sort()
+    );
 
     // The same paths must also fail the certified-file scope check, which
     // short-circuits on the identical exemption predicate.
@@ -641,9 +669,10 @@ test("a tests directory inside a runtime tree is neither budget-exempt nor out o
       /outside the certified changed-file set/
     );
 
-    // Outside the runtime trees the directory rule still applies at any depth.
-    const outside = commitFile(repo, "packages/api/tests/case.js", "case\n".repeat(30), "pkg test");
-    assert.equal(computeDelta(repo.dir, head, outside).code_lines, 0);
+    // And a repo-root test directory is still free, so the anchoring did not
+    // simply price everything.
+    const rootTest = commitFile(repo, "tests/case.js", "case\n".repeat(30), "root test");
+    assert.equal(computeDelta(repo.dir, head, rootTest).code_lines, 0);
   } finally {
     fs.rmSync(repo.dir, { recursive: true, force: true });
   }
@@ -870,6 +899,42 @@ test("computeDelta detects a boundary-crossing rename even with diff.renames dis
     repo.run("config", "diff.renames", "false");
     const underDisabledRenames = computeDelta(repo.dir, prior, relocated);
     assert.match(underDisabledRenames.ineligible, /rename between exempt and non-exempt paths/);
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});
+
+test("computeDelta prices the whole commit from a subdirectory root under diff.relative", () => {
+  const repo = makeRepo();
+  try {
+    fs.mkdirSync(path.join(repo.dir, "sub"), { recursive: true });
+    fs.writeFileSync(path.join(repo.dir, "sub/b.txt"), "b\n");
+    const prior = commitFile(repo, "top/a.txt", "a\n", "base");
+    fs.writeFileSync(path.join(repo.dir, "top/a.txt"), "a\nchanged\n");
+    fs.writeFileSync(path.join(repo.dir, "sub/b.txt"), "b\nchanged\n");
+    repo.run("add", "-A");
+    repo.run("commit", "-q", "-m", "change both");
+    const head = repo.run("rev-parse", "HEAD");
+
+    // diff.relative is unlike every other knob in the trust set: it does not
+    // reshape bytes, it removes rows. From sub/ it would report a single
+    // relative `b.txt` and drop top/a.txt entirely, halving the priced budget
+    // and hiding a changed path from the scope check.
+    repo.run("config", "diff.relative", "true");
+    const delta = computeDelta(path.join(repo.dir, "sub"), prior, head);
+    assert.equal(delta.ineligible, null);
+    assert.deepEqual(delta.files.map((row) => row.path).sort(), ["sub/b.txt", "top/a.txt"]);
+    assert.equal(delta.code_lines, 2);
+
+    // The tree cross-check is the backstop, not the pin: without the pin this
+    // fails closed rather than under-pricing. Both must hold, so assert the
+    // paths the pin recovers are the ones the trees report changed.
+    assert.deepEqual(
+      trustedDiffArgs("--numstat", `${prior}...${head}`).filter(
+        (arg, index, all) => index > 0 && all[index - 1] === "-c" && arg.startsWith("diff.relative")
+      ),
+      ["diff.relative=false"]
+    );
   } finally {
     fs.rmSync(repo.dir, { recursive: true, force: true });
   }

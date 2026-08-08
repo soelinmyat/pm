@@ -53,6 +53,20 @@ const GIT_DIFF_TRUST_FLAGS = Object.freeze([
 // configured otherwise) and no previously frozen hash is invalidated. These are
 // `git -c` options, so they must precede the subcommand -- use trustedDiffArgs
 // rather than assembling them by hand.
+//
+// `diff.relative` is the one entry here that is not merely a rendering knob.
+// Every other setting reshapes bytes; this one *removes rows*. Set true, a
+// diff run from a subdirectory drops every path outside that directory and
+// rewrites the rest relative to it. Unpinned, a delta taken with a
+// non-toplevel root prices one file where two changed -- but it does not slip
+// through: the tree cross-check in computeDelta sees the dropped paths and
+// returns ineligible, so the observable failure is that the supplement path
+// stops working from a subdirectory root rather than that it under-prices.
+// The pin is here so that backstop is not the only thing standing between
+// inherited config and a wrong budget, and so a legitimate delta is not
+// forced into a full round by a setting that has nothing to do with it.
+// Pinned via -c rather than the equivalent --no-relative flag so the list
+// stays one uniform mechanism.
 const GIT_DIFF_TRUST_CONFIG = Object.freeze([
   "-c",
   "core.abbrev=auto",
@@ -70,6 +84,8 @@ const GIT_DIFF_TRUST_CONFIG = Object.freeze([
   "diff.mnemonicPrefix=false",
   "-c",
   "diff.noprefix=false",
+  "-c",
+  "diff.relative=false",
   "-c",
   "diff.renames=true",
   "-c",

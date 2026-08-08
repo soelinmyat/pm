@@ -29,6 +29,7 @@ const {
   commitTree,
   computeDelta,
   evaluateReviewFreshness,
+  isAncestor,
   projectRelativeDir,
   readSupplements,
   rejectedDeltaStates,
@@ -144,13 +145,12 @@ function buildCommand(options) {
       `delta budget exhausted (${MAX_DELTA_SUPPLEMENTS} supplements); run a full review round`
     );
   if (head === prior) throw new Error("HEAD is already certified; no delta to review");
-  try {
-    git(root, ["merge-base", "--is-ancestor", prior, head]);
-  } catch {
+  // Same probe the chain validator applies, taken from the same place so the
+  // two cannot drift apart on what "descends from" means.
+  if (!isAncestor(root, prior, head))
     throw new Error(
-      "certified commit is not an ancestor of HEAD; a rebase needs diff-identity or a full round"
+      "certified commit is not an ancestor of HEAD; a rebase needs content identity or a full round"
     );
-  }
   const delta = computeDelta(root, prior, head);
   if (delta.ineligible) throw new Error(`delta is ineligible: ${delta.ineligible}`);
   if (delta.code_lines > MAX_DELTA_CODE_LINES)

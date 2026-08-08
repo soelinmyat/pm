@@ -61,30 +61,30 @@ const SUPPLEMENT_FILE_RE = /^supplement-(\d+)\.json$/;
 // unchanged HEAD until a clean result is recorded.
 const REJECTED_FILE_RE = /^rejected-[0-9a-f]{7,40}-\d+\.json$/;
 // Paths whose churn does not count against the delta code-line budget and may
-// fall outside the certified changed-file inventory: tests and non-runtime
-// documentation under the repo-root docs/ tree only — a docs/ directory
-// nested under a runtime tree (skills/dev/docs/) is loadable source. Runtime
-// Markdown (skills/, references/, commands/, templates/) is reviewable source
-// (reviewer-briefs.md) and stays budgeted. A row is exempt only when BOTH
-// rename ends are exempt; a rename crossing the exempt boundary in either
-// direction is ineligible outright.
-const DELTA_BUDGET_EXEMPT_RE =
-  /(^|\/)(tests?|__tests__)\/|\.(test|spec)\.[cm]?[jt]sx?$|^docs\/.*\.md$/;
-// The exemption is about content the runtime never loads, so the runtime trees
-// override it outright. `plugin.json` maps ./skills/ and ./commands/ straight
-// into the agent's instruction surface, and a directory named `tests` under
-// either one is still `skills/tests/SKILL.md` — a loaded skill. Without this
-// gate the nested-directory alternation above exempts that path from both the
-// line budget and the certified-file scope check, so a post-pass delta could
-// add unbounded agent instructions no reviewer read. `docs/` is already
-// root-anchored for the same reason; this is the same anchoring applied to the
-// alternation that was left unanchored.
-const RUNTIME_TREE_RE = /^(skills|references|commands|templates)\//;
+// fall outside the certified changed-file inventory. Every directory rule here
+// is root-anchored, because a directory *component* is evidence of nothing: a
+// directory named `tests` inside a loaded tree still holds loaded content —
+// `skills/tests/SKILL.md` is a skill, `agents/tests/x.md` registers a callable
+// agent, `hooks/tests/x` is executed by hooks.json. Naming the trees that must
+// override the exemption was tried and is the wrong shape: that list leaks
+// every time the repo grows a directory, and an enumeration of
+// skills|references|commands|templates left `agents/`, `hooks/`, `scripts/`
+// and `.github/` exempt. Anchoring fails closed by construction instead — only
+// the repository's own test root and root-level docs/ are free by path, and no
+// tree has to be guessed in advance. The *extension* rule stays unanchored
+// because it is safe at any depth: a `*.test.*` / `*.spec.*` file with a JS/TS
+// extension is never instruction surface, whatever tree it sits in, so
+// `packages/api/tests/case.test.js` is still free. The cost is that a nested
+// test directory holding files that are not `*.test.*` (fixtures,
+// `src/test/helper.js`) is priced against the budget and the certified file
+// set — the fail-closed direction. A row is exempt only when BOTH rename ends
+// are exempt; a rename crossing the exempt boundary in either direction is
+// ineligible outright.
+const DELTA_BUDGET_EXEMPT_RE = /^(tests?|__tests__)\/|\.(test|spec)\.[cm]?[jt]sx?$|^docs\/.*\.md$/;
 const COMMITISH_RE = /^[0-9a-f]{7,64}$/;
 
 function isExemptPath(value) {
   if (typeof value !== "string" || value === "") return false;
-  if (RUNTIME_TREE_RE.test(value)) return false;
   return DELTA_BUDGET_EXEMPT_RE.test(value);
 }
 
@@ -197,6 +197,22 @@ function treeInventory(root, commitish) {
   return entries;
 }
 
+// A tree inventory is a pure function of the resolved tree OID, so one reader
+// shared across a single evaluation reads each distinct tree exactly once.
+// That is not a micro-optimization here: the same tree routinely arrives under
+// two different commit-ish spellings. An amend leaves the reviewed merge base
+// and the current merge base the same commit, and a two-supplement chain hands
+// supplement 1's commit straight back as supplement 2's prior commit, so
+// without the memo the chain walks the middle tree twice.
+function treeReader(root) {
+  const trees = new Map();
+  return (commitish) => {
+    const oid = commitTree(root, commitish) || commitish;
+    if (!trees.has(oid)) trees.set(oid, treeInventory(root, commitish));
+    return trees.get(oid);
+  };
+}
+
 // The set of paths whose recorded object differs between two commits, plus the
 // post-image inventory so callers can compare content without re-reading. Mode
 // is part of the compared value: a 100644 -> 100755 flip is a real change that
@@ -297,14 +313,9 @@ function contentIdentity({ root, target, source, currentCommit, currentBaseCommi
     if (!currentMergeBase) return fail("current commit and the comparison base have no merge base");
 
     // On the ordinary accept path (an amend, or a rebase onto an unchanged
-    // base) reviewedBase and currentMergeBase are the same commit, so cache by
-    // resolved tree OID and read each distinct tree once.
-    const trees = new Map();
-    const readTree = (commitish) => {
-      const oid = commitTree(root, commitish) || commitish;
-      if (!trees.has(oid)) trees.set(oid, treeInventory(root, commitish));
-      return trees.get(oid);
-    };
+    // base) reviewedBase and currentMergeBase are the same commit, so the
+    // shared reader collapses four walks into two.
+    const readTree = treeReader(root);
 
     const reviewed = changedTreePaths(root, reviewedBase, commit, readTree);
     if (reviewed.changed.size === 0)
@@ -347,7 +358,10 @@ function contentIdentity({ root, target, source, currentCommit, currentBaseCommi
 
 // --- 3. Delta supplement chain -------------------------------------------
 
-function computeDelta(root, priorCommit, commit) {
+// readTree is an optional shared tree reader (see treeReader). A chain
+// validator passes one so the tree between two supplements is read once
+// instead of once per supplement; a standalone caller gets a private one.
+function computeDelta(root, priorCommit, commit, readTree = treeReader(root)) {
   // priorCommit is required to be an ancestor of commit, so three-dot equals
   // two-dot and stays consistent with the frozen-diff invocation.
   const range = `${priorCommit}...${commit}`;
@@ -390,11 +404,13 @@ function computeDelta(root, priorCommit, commit) {
     // comparison happens in byte space. A path whose bytes are not valid UTF-8
     // cannot round-trip through the row, so it stays unpriced and the delta is
     // ineligible — which is the correct fail-closed answer.
-    const unpriced = [...changedTreePaths(root, deltaBase, commit).changed].filter((file) => {
-      return !numstat.some(
-        (row) => pathKey(row.path) === file || (row.old_path && pathKey(row.old_path) === file)
-      );
-    });
+    const unpriced = [...changedTreePaths(root, deltaBase, commit, readTree).changed].filter(
+      (file) => {
+        return !numstat.some(
+          (row) => pathKey(row.path) === file || (row.old_path && pathKey(row.old_path) === file)
+        );
+      }
+    );
     if (unpriced.length > 0 && !ineligible)
       ineligible = `change to ${listPaths(unpriced)} is absent from the priced diff`;
   }
@@ -591,6 +607,9 @@ function validateSupplementChain({
     const certified = certifiedPathSet(target);
     if (certified.size === 0) return fail("frozen target has no certified changed files");
     let prior = frozenCommit;
+    // One reader for the whole chain: consecutive supplements share a commit
+    // (N's head is N+1's prior), so its tree is otherwise inventoried twice.
+    const readTree = treeReader(root);
     for (let position = 0; position < supplements.length; position++) {
       const { name, index, value } = supplements[position];
       if (index !== position + 1) return fail(`delta chain is not contiguous at ${name}`);
@@ -619,7 +638,7 @@ function validateSupplementChain({
         );
       if (!isAncestor(root, prior, commit))
         return fail(`${name} supplement commit does not descend from its prior commit`);
-      const delta = computeDelta(root, prior, commit);
+      const delta = computeDelta(root, prior, commit, readTree);
       if (delta.ineligible) return fail(`${name}: ${delta.ineligible}`);
       if (delta.delta_diff_sha256 !== value?.source?.delta_diff_sha256)
         return fail(`${name} delta diff bytes drifted from the reviewed delta`);
@@ -710,6 +729,7 @@ module.exports = {
   commitTree,
   computeDelta,
   contentIdentity,
+  isAncestor,
   evaluateReviewFreshness,
   isExemptRow,
   projectRelativeDir,
