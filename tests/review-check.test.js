@@ -772,6 +772,59 @@ test("Git-backed evidence rejects the phantom line after a trailing newline", ()
   assert.match(JSON.stringify(issues), /line range exceeds file length 1/);
 });
 
+test("a changed path that is not valid UTF-8 cannot be certified", () => {
+  // changed_files is JSON, so it cannot hold an arbitrary byte path: decoding
+  // one as UTF-8 collapses every invalid sequence onto U+FFFD and makes two
+  // distinct paths indistinguishable to every later comparison. The freeze must
+  // refuse rather than record a path it cannot represent, which costs that
+  // repository a full review round and nothing else.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-nonutf8-"));
+  const run = (args, input) => {
+    const result = spawnSync("git", args, { cwd: dir, input, encoding: "utf8" });
+    assert.equal(result.status, 0, `git ${args.join(" ")}: ${result.stderr}`);
+    return result.stdout.trim();
+  };
+  try {
+    run(["init", "-q", "-b", "main", "."]);
+    run(["config", "user.email", "test@example.com"]);
+    run(["config", "user.name", "Test User"]);
+    const blob = run(["hash-object", "-w", "--stdin"], "payload\n");
+    const keep = run(["hash-object", "-w", "--stdin"], "keep\n");
+    const tree = (rows) => {
+      const result = spawnSync("git", ["mktree", "-z"], {
+        cwd: dir,
+        input: Buffer.concat(
+          rows.map(([oid, p]) =>
+            Buffer.concat([Buffer.from(`100644 blob ${oid}\t`), p, Buffer.from([0])])
+          )
+        ),
+        encoding: "utf8",
+      });
+      assert.equal(result.status, 0, `git mktree: ${result.stderr}`);
+      return result.stdout.trim();
+    };
+    const keepPath = Buffer.from("keep.txt");
+    const base = run(["commit-tree", tree([[keep, keepPath]]), "-m", "base"]);
+    const head = run([
+      "commit-tree",
+      tree([
+        [blob, Buffer.from([0x61, 0xfe])],
+        [keep, keepPath],
+      ]),
+      "-p",
+      base,
+      "-m",
+      "non-utf8 path",
+    ]);
+    assert.throws(
+      () => changedFileInventory(dir, base, head),
+      /is not valid UTF-8 and cannot be certified/
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("target creation refuses dirty source and inventory remains bound to committed bytes", () => {
   const fixture = makeFixture({ maxWorkers: 2 });
   const committed = changedFileInventory(

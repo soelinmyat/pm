@@ -125,18 +125,47 @@ function commitTree(root, commitish) {
   }
 }
 
-// Every path a commit records, as `<mode> <type> <oid>`. `ls-tree -r` walks
-// subtrees but stops at gitlinks, so a submodule pointer is a leaf row of type
-// `commit` and its bump changes this map — the single reason identity is
-// decided here rather than over diff output. Nothing about this reading passes
-// through diff config, gitattributes, or a diff driver.
+// A Git path is an arbitrary byte string, and `latin1` is the only lossless
+// byte<->JS-string mapping Node offers: one code unit per byte, no
+// normalization, no replacement. Decoding tree output as UTF-8 instead is a
+// forgery route rather than a cosmetic bug, because every byte sequence that is
+// not valid UTF-8 decodes to the same U+FFFD REPLACEMENT CHARACTER. Two
+// distinct paths (`a\xFE` and `a\xFF`) then collapse onto one Map key and the
+// later one silently overwrites the earlier, erasing its entry from the
+// inventory — so a commit that rewrites the shadowed path introduces content no
+// reviewer read while every changed-path set and object ID still compares
+// equal. Paths therefore key on bytes everywhere in this module, and anything
+// arriving as a JSON string (a certified inventory row, a numstat record) is
+// converted with pathKey before it is compared.
+function pathKey(value) {
+  return Buffer.from(String(value), "utf8").toString("latin1");
+}
+
+// Inverse of pathKey, for human-facing failure reasons only. Never compare
+// against the result: a path whose bytes are not valid UTF-8 does not survive
+// the round trip, which is precisely why comparison stays in byte space.
+function displayPath(key) {
+  return Buffer.from(key, "latin1").toString("utf8");
+}
+
+// Every path a commit records, as `<mode> <type> <oid>`, keyed by exact path
+// bytes. `ls-tree -r` walks subtrees but stops at gitlinks, so a submodule
+// pointer is a leaf row of type `commit` and its bump changes this map — the
+// single reason identity is decided here rather than over diff output. Nothing
+// about this reading passes through diff config, gitattributes, or a diff
+// driver.
 function treeInventory(root, commitish) {
-  const raw = git(root, ["ls-tree", "-r", "-z", `${commitish}^{tree}`], null).toString("utf8");
+  // latin1 is a byte-for-byte decode, so splitting the decoded string on NUL is
+  // identical to splitting the raw buffer on 0x00.
+  const raw = git(root, ["ls-tree", "-r", "-z", `${commitish}^{tree}`], null).toString("latin1");
   const entries = new Map();
   for (const record of raw.split("\0")) {
     if (record === "") continue;
     const match = record.match(/^([0-7]{6}) (blob|commit|tree) ([0-9a-f]{40,64})\t([\s\S]+)$/);
     if (!match) throw new Error(`unsupported ls-tree record: ${record.slice(0, 120)}`);
+    // A tree cannot list one path twice, so a collision here means the decode
+    // lost information. Fail closed rather than overwrite.
+    if (entries.has(match[4])) throw new Error(`ls-tree reported ${displayPath(match[4])} twice`);
     entries.set(match[4], `${match[1]} ${match[2]} ${match[3]}`);
   }
   return entries;
@@ -146,13 +175,13 @@ function treeInventory(root, commitish) {
 // post-image inventory so callers can compare content without re-reading. Mode
 // is part of the compared value: a 100644 -> 100755 flip is a real change that
 // carries no content bytes at all.
-function changedTreePaths(root, fromCommit, toCommit) {
-  const from = treeInventory(root, fromCommit);
-  const to = treeInventory(root, toCommit);
+function changedTreePaths(root, fromCommit, toCommit, readTree = treeInventory.bind(null, root)) {
+  const from = readTree(fromCommit);
+  const to = readTree(toCommit);
   const changed = new Set();
   for (const [file, entry] of to) if (from.get(file) !== entry) changed.add(file);
   for (const file of from.keys()) if (!to.has(file)) changed.add(file);
-  return { changed, from, to };
+  return { changed, to };
 }
 
 function sameStringSet(left, right) {
@@ -162,7 +191,7 @@ function sameStringSet(left, right) {
 }
 
 function listPaths(files) {
-  const shown = files.slice(0, 3).join(", ");
+  const shown = files.slice(0, 3).map(displayPath).join(", ");
   return files.length > 3 ? `${shown} (+${files.length - 3} more)` : shown;
 }
 
@@ -241,10 +270,20 @@ function contentIdentity({ root, target, source, currentCommit, currentBaseCommi
     if (!reviewedBase) return fail("reviewed commit and its base have no merge base");
     if (!currentMergeBase) return fail("current commit and the comparison base have no merge base");
 
-    const reviewed = changedTreePaths(root, reviewedBase, commit);
+    // On the ordinary accept path (an amend, or a rebase onto an unchanged
+    // base) reviewedBase and currentMergeBase are the same commit, so cache by
+    // resolved tree OID and read each distinct tree once.
+    const trees = new Map();
+    const readTree = (commitish) => {
+      const oid = commitTree(root, commitish) || commitish;
+      if (!trees.has(oid)) trees.set(oid, treeInventory(root, commitish));
+      return trees.get(oid);
+    };
+
+    const reviewed = changedTreePaths(root, reviewedBase, commit, readTree);
     if (reviewed.changed.size === 0)
       return fail("the reviewed commit changes nothing against its base");
-    const current = changedTreePaths(root, currentMergeBase, currentCommit);
+    const current = changedTreePaths(root, currentMergeBase, currentCommit, readTree);
     if (!sameStringSet(reviewed.changed, current.changed)) {
       const added = [...current.changed].filter((file) => !reviewed.changed.has(file));
       const missing = [...reviewed.changed].filter((file) => !current.changed.has(file));
@@ -321,8 +360,14 @@ function computeDelta(root, priorCommit, commit) {
   if (!deltaBase) {
     ineligible = ineligible || "delta commits have no merge base";
   } else {
+    // Tree keys are path bytes; numstat rows arrive as decoded strings, so the
+    // comparison happens in byte space. A path whose bytes are not valid UTF-8
+    // cannot round-trip through the row, so it stays unpriced and the delta is
+    // ineligible — which is the correct fail-closed answer.
     const unpriced = [...changedTreePaths(root, deltaBase, commit).changed].filter((file) => {
-      return !numstat.some((row) => row.path === file || row.old_path === file);
+      return !numstat.some(
+        (row) => pathKey(row.path) === file || (row.old_path && pathKey(row.old_path) === file)
+      );
     });
     if (unpriced.length > 0 && !ineligible)
       ineligible = `change to ${listPaths(unpriced)} is absent from the priced diff`;
@@ -464,11 +509,13 @@ function readSupplements(root, reviewDir) {
   });
 }
 
+// Byte keys, not JSON strings: the certified inventory is compared against
+// tree-derived path sets, and those key on exact path bytes (see pathKey).
 function certifiedPathSet(target) {
   const certified = new Set();
   for (const row of target?.changed_files || []) {
-    if (typeof row?.path === "string") certified.add(row.path);
-    if (typeof row?.old_path === "string") certified.add(row.old_path);
+    if (typeof row?.path === "string") certified.add(pathKey(row.path));
+    if (typeof row?.old_path === "string") certified.add(pathKey(row.old_path));
   }
   return certified;
 }
@@ -478,7 +525,11 @@ function certifiedPathSet(target) {
 function scopeViolation(deltaFiles, certified) {
   for (const row of deltaFiles || []) {
     if (isExemptRow(row)) continue;
-    if (!certified.has(row.path) && !(row.old_path && certified.has(row.old_path)))
+    // certified holds byte keys (certifiedPathSet); rows hold decoded strings.
+    if (
+      !certified.has(pathKey(row.path)) &&
+      !(row.old_path && certified.has(pathKey(row.old_path)))
+    )
       return `touches ${row.path} outside the certified changed-file set`;
   }
   return null;

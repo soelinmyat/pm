@@ -1,6 +1,7 @@
 "use strict";
 
 const { execFileSync } = require("node:child_process");
+const os = require("node:os");
 
 const GIT_ENV_KEYS_TO_CLEAR = Object.freeze([
   "GIT_DIR",
@@ -29,11 +30,19 @@ const GIT_ENV_KEYS_TO_CLEAR = Object.freeze([
 // local config, and erases gitlink rows from both the diff bytes and the
 // numstat line pricing, so a submodule pointer bump to arbitrary code would
 // otherwise render byte-identical to the change that was reviewed.
+// --no-color overrides `color.ui = always`, which emits SGR escapes even into a
+// pipe, and `-O <devnull>` overrides `diff.orderFile`, which reorders the file
+// sections. Both move the bytes of an otherwise fully pinned invocation, and
+// neither is reachable from the -c set below: an empty `diff.orderFile=` is a
+// fatal error rather than a disable, so the override has to be the flag.
 const GIT_DIFF_TRUST_FLAGS = Object.freeze([
   "--no-ext-diff",
   "--no-textconv",
   "--find-renames",
   "--ignore-submodules=none",
+  "--no-color",
+  "-O",
+  os.devNull,
 ]);
 
 // Command-line flags cannot reach every knob that moves diff bytes: hunk

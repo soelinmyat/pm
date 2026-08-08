@@ -2,7 +2,6 @@
 "use strict";
 
 const crypto = require("node:crypto");
-const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const {
@@ -14,6 +13,7 @@ const {
   validateMetrics,
 } = require("./artifact-render-check");
 const { inspectPdfBytes, inspectPngBytes } = require("./lib/media-inspect");
+const { gitExec, trustedDiffArgs } = require("./lib/git-env");
 const { readProjectInput } = require("./lib/project-file");
 const { MAX_HTML_BYTES, MAX_JSON_BYTES } = require("./lib/review-limits");
 const { isUiImpactPath } = require("./lib/ui-impact");
@@ -862,21 +862,21 @@ function loadGateManifest(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
 
+// This list decides which gates apply to the change, so it takes the trust set
+// for the same reason the review target does: a tracked .gitmodules carrying
+// `ignore = all` would otherwise drop a submodule pointer bump out of the
+// changed-file set and with it every gate that bump should have required.
 function loadChangedFilesFromGit(baseRef, cwd = process.cwd(), targetRef = "HEAD") {
-  const output = execFileSync("git", ["diff", "--name-only", `${baseRef}...${targetRef}`], {
-    cwd,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const output = gitExec(cwd, trustedDiffArgs("--name-only", `${baseRef}...${targetRef}`));
   return normalizeChangedFiles(output.split(/\r?\n/));
 }
 
+// Every local git probe in this checker goes through gitExec. An inherited
+// GIT_DIR would otherwise let a different repository answer "what is HEAD
+// here", and the answer decides which commit all the gate evidence is bound
+// against.
 function currentGitCommit(cwd = process.cwd()) {
-  return execFileSync("git", ["rev-parse", "HEAD"], {
-    cwd,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  }).trim();
+  return gitExec(cwd, ["rev-parse", "HEAD"]).trim();
 }
 
 function parseArgs(argv) {
@@ -1040,11 +1040,7 @@ function main(argv = process.argv.slice(2)) {
   let currentBranch = opts.currentBranch || null;
   if (sibling.session && opts.reviewEvidenceMode === "enforce" && !currentBranch) {
     try {
-      currentBranch = execFileSync("git", ["branch", "--show-current"], {
-        cwd: process.cwd(),
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-      }).trim();
+      currentBranch = gitExec(process.cwd(), ["branch", "--show-current"]).trim();
       if (!currentBranch) throw new Error("detached HEAD");
     } catch (error) {
       const result = {
@@ -1089,11 +1085,7 @@ function main(argv = process.argv.slice(2)) {
   } else if (opts.baseRef) {
     try {
       changedFiles = loadChangedFilesFromGit(opts.baseRef, process.cwd(), currentCommit);
-      authoritativeBaseCommit = execFileSync("git", ["rev-parse", opts.baseRef], {
-        cwd: process.cwd(),
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-      }).trim();
+      authoritativeBaseCommit = gitExec(process.cwd(), ["rev-parse", opts.baseRef]).trim();
     } catch (err) {
       const result = {
         ok: false,

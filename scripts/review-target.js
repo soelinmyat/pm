@@ -361,9 +361,27 @@ function resolveTrustedBase(root, remote = "origin") {
   };
 }
 
+// The certified inventory is JSON, so a path it cannot represent losslessly
+// must not be frozen into it. Git paths are arbitrary bytes; decoding them as
+// UTF-8 turns every invalid sequence into U+FFFD, which makes two distinct
+// paths indistinguishable downstream (see pathKey in lib/review-freshness.js).
+// Refusing to certify such a path keeps the freeze honest and costs only a full
+// review round for a repository that genuinely carries one.
+function decodeCertifiablePath(latin1Value) {
+  const bytes = Buffer.from(latin1Value, "latin1");
+  const decoded = bytes.toString("utf8");
+  if (!Buffer.from(decoded, "utf8").equals(bytes))
+    throw new Error(
+      `changed path is not valid UTF-8 and cannot be certified: ${JSON.stringify(decoded)}`
+    );
+  return decoded;
+}
+
 function changedFileInventory(root, baseCommit, commit) {
   const raw = git(root, trustedDiffArgs("--name-status", "-z", `${baseCommit}...${commit}`), null);
-  const fields = raw.toString("utf8").split("\0");
+  // latin1 is a byte-for-byte decode, so splitting on NUL matches the raw -z
+  // framing; each path is converted to UTF-8 only after the round-trip guard.
+  const fields = raw.toString("latin1").split("\0");
   if (fields.at(-1) === "") fields.pop();
   const rows = [];
   let committedBytes = 0;
@@ -372,10 +390,10 @@ function changedFileInventory(root, baseCommit, commit) {
     if (!/^(?:[ACDMRTUXB]|R\d{1,3}|C\d{1,3})$/.test(status))
       throw new Error(`unsupported git status ${status}`);
     let oldPath = null;
-    let filePath = fields[index++];
+    let filePath = decodeCertifiablePath(fields[index++]);
     if (/^[RC]/.test(status)) {
       oldPath = filePath;
-      filePath = fields[index++];
+      filePath = decodeCertifiablePath(fields[index++]);
     }
     validateGitPath(filePath);
     if (oldPath) validateGitPath(oldPath);
