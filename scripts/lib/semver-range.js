@@ -95,6 +95,27 @@ function exclusiveCeiling(version, key) {
   return upper({ ...increment(version, key), prerelease: ["0"] });
 }
 
+function isStableZero(version) {
+  return (
+    version.major === 0 &&
+    version.minor === 0 &&
+    version.patch === 0 &&
+    version.prerelease.length === 0
+  );
+}
+
+function rangeLower(version, inclusive = true) {
+  return isStableZero(version) && inclusive ? {} : lower(version, inclusive);
+}
+
+function withoutUniversalLower(bounds) {
+  if (!bounds.lower || !isStableZero(bounds.lower) || !bounds.lowerInclusive) return bounds;
+  const rest = { ...bounds };
+  delete rest.lower;
+  delete rest.lowerInclusive;
+  return rest;
+}
+
 function partialBounds(parsed) {
   const wildcardIndex = parsed.wildcard === null ? parsed.specified : parsed.wildcard;
   if (wildcardIndex <= 1)
@@ -132,7 +153,7 @@ function tokenBounds(token) {
               ? increment(parsed, "minor")
               : increment(parsed, "patch");
     return {
-      ...lower(parsed.wildcard === null ? parsed : stableVersion(parsed)),
+      ...rangeLower(parsed.wildcard === null ? parsed : stableVersion(parsed)),
       ...upper({ ...ceiling, prerelease: ["0"] }),
       prereleaseCores,
     };
@@ -141,12 +162,13 @@ function tokenBounds(token) {
     const precision = parsed.wildcard === null ? parsed.specified : parsed.wildcard;
     const ceiling = precision <= 1 ? increment(parsed, "major") : increment(parsed, "minor");
     return {
-      ...lower(parsed.wildcard === null ? parsed : stableVersion(parsed)),
+      ...rangeLower(parsed.wildcard === null ? parsed : stableVersion(parsed)),
       ...upper({ ...ceiling, prerelease: ["0"] }),
       prereleaseCores,
     };
   }
-  if (!operator || operator === "=") return { ...partialBounds(parsed), prereleaseCores };
+  if (!operator || operator === "=")
+    return { ...withoutUniversalLower(partialBounds(parsed)), prereleaseCores };
   if (parsed.wildcard !== null || parsed.specified < 3) {
     const bounds = partialBounds(parsed);
     if (bounds.exact)
@@ -156,13 +178,13 @@ function tokenBounds(token) {
           : upper(parsed, operator === "<=")),
         prereleaseCores,
       };
-    if (operator === ">=") return { ...lower(bounds.lower, true), prereleaseCores };
+    if (operator === ">=") return { ...rangeLower(bounds.lower, true), prereleaseCores };
     if (operator === ">") return { ...lower(stableVersion(bounds.upper), true), prereleaseCores };
     if (operator === "<")
       return { ...upper({ ...bounds.lower, prerelease: ["0"] }, false), prereleaseCores };
     return { ...upper(bounds.upper, false), prereleaseCores };
   }
-  if (operator === ">=") return { ...lower(parsed, true), prereleaseCores };
+  if (operator === ">=") return { ...rangeLower(parsed, true), prereleaseCores };
   if (operator === ">") return { ...lower(parsed, false), prereleaseCores };
   if (operator === "<=") return { ...upper(parsed, true), prereleaseCores };
   return { ...upper(parsed, false), prereleaseCores };
@@ -245,6 +267,7 @@ function parseAlternative(text) {
     if (!parsed) return null;
     mergeBounds(bounds, parsed);
   }
+  bounds.prereleaseCores ||= new Set();
   return nonEmpty(bounds) ? bounds : { empty: true };
 }
 

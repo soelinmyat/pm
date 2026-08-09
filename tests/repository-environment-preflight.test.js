@@ -83,6 +83,10 @@ test("runtime range checks remain source-only in installed plugin copies", () =>
   assert.equal(satisfies("1.2.1-alpha", ">=0 || 1.2.1-alpha"), false);
   assert.equal(satisfies("2.0.0-alpha", "<=2.0.0-beta || *"), false);
   assert.equal(satisfies("2.0.0-alpha", "<=2.0.0-beta ||"), false);
+  assert.equal(satisfies("0.0.0-alpha", ">=0 0.0.0-alpha"), true);
+  assert.equal(satisfies("0.0.0-alpha", "0.x 0.0.0-alpha"), true);
+  assert.equal(satisfies("0.0.0-alpha", "^0.x 0.0.0-alpha"), true);
+  assert.equal(satisfies("0.0.0-alpha.1", "~0.0.0-alpha.1 ~>0.x"), true);
   assert.equal(satisfies("9007199254740992.0.0", "*"), false);
   assert.equal(satisfies("1.2.3-9007199254740992", ">1.2.3-9007199254740991"), true);
   assert.equal(satisfies("1.2.3-9007199254740992", ">1.2.3-9007199254740993"), false);
@@ -113,6 +117,7 @@ test("runtime range checks remain source-only in installed plugin copies", () =>
     constraintsIntersect([{ constraint: ">=18 <19" }, { constraint: "18.1.0-beta.1" }]),
     false
   );
+  assert.equal(constraintsIntersect([{ constraint: "*" }, { constraint: "1.2.3-alpha" }]), false);
 });
 
 test("production preflight CLI passes the configured machine-local probe identity key", (t) => {
