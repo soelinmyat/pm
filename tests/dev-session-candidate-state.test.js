@@ -6,8 +6,15 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
-const Ajv2020 = require("ajv/dist/2020");
-const addFormats = require("ajv-formats");
+let Ajv2020;
+let addFormats;
+try {
+  Ajv2020 = require("ajv/dist/2020");
+  addFormats = require("ajv-formats");
+} catch {
+  // Plugin installs are source-only. The runtime contract tests still run there;
+  // the optional JSON Schema parity check runs when dev dependencies are installed.
+}
 
 const {
   CANDIDATE_STATES,
@@ -437,27 +444,33 @@ test("abandoned v2 snapshot has a bounded 30-day retention window", () => {
   }
 });
 
-test("machine-readable v3 schema agrees with the runtime candidate contract", () => {
-  const repo = makeRepo();
-  try {
-    const schema = JSON.parse(
-      fs.readFileSync(
-        path.join(__dirname, "..", "skills", "dev", "references", "dev-session.schema.json"),
-        "utf8"
-      )
-    );
-    const ajv = new Ajv2020({ allErrors: true, strict: false });
-    addFormats(ajv);
-    const validate = ajv.compile(schema);
-    const session = createSession({ slug: "schema-contract", sourceDir: repo });
-    assert.equal(validate(session), true, JSON.stringify(validate.errors));
-    session.candidate.state = "review-candidate";
-    assert.equal(validate(session), false);
-    assert.ok(validate.errors.some((entry) => entry.instancePath.includes("authority")));
-  } finally {
-    fs.rmSync(repo, { recursive: true, force: true });
+test(
+  "machine-readable v3 schema agrees with the runtime candidate contract",
+  {
+    skip: !Ajv2020 || !addFormats,
+  },
+  () => {
+    const repo = makeRepo();
+    try {
+      const schema = JSON.parse(
+        fs.readFileSync(
+          path.join(__dirname, "..", "skills", "dev", "references", "dev-session.schema.json"),
+          "utf8"
+        )
+      );
+      const ajv = new Ajv2020({ allErrors: true, strict: false });
+      addFormats(ajv);
+      const validate = ajv.compile(schema);
+      const session = createSession({ slug: "schema-contract", sourceDir: repo });
+      assert.equal(validate(session), true, JSON.stringify(validate.errors));
+      session.candidate.state = "review-candidate";
+      assert.equal(validate(session), false);
+      assert.ok(validate.errors.some((entry) => entry.instancePath.includes("authority")));
+    } finally {
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
   }
-});
+);
 
 function makeRepo() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-candidate-state-"));
