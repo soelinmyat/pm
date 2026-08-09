@@ -10,6 +10,8 @@ Before this reference, read and follow `${CLAUDE_PLUGIN_ROOT}/skills/ship/refere
 
 Before every PR mutation, revalidate both authority and contract identity. Every `gh pr` and `gh run` call below supplies `--repo "$GH_REPO"`; every PR call supplies the explicit `PR_NUMBER` except the already completed head/base discovery in Ship Step 05. `gh api` has no `--repo` flag, so its REST endpoint or GraphQL owner/repository variables must use the exact contracted `$GH_OWNER/$GH_REPOSITORY`. Re-fetch the PR through `repos/$GH_OWNER/$GH_REPOSITORY/pulls/$PR_NUMBER` and reject any repository, head, or base mismatch before continuing.
 
+If Ship selected the optimized route, reload and verify the canonical delivery attestation before each push or merge mutation. It is valid only for its frozen head and exact destination/ref update. A new commit or finding returns to Review. Base drift is classified as disjoint, overlapping, conflicting, or indeterminate; only disjoint drift preserves feature Review, and only a fresh authenticated merge-result/merge-queue capability permits optimized latest-base readiness. Every other case uses the existing comprehensive update, Review, verification, push, and CI route once.
+
 ## Prerequisites
 
 Before entering the merge loop, verify `gh` is available and authenticated:

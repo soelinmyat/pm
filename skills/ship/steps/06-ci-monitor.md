@@ -39,6 +39,8 @@ When CI concludes `success` on the latest run, proceed to the merge loop; if 3 f
 
 **If conclusion is "success":** Continue to Phase 2 (Merge Loop).
 
+Before advancing, re-check the canonical final-candidate attestation when this delivery used the optimized route. The observed CI head must equal its frozen commit and the release transaction's prepared commit. A CI fix, review finding, changed plan/config/tool identity, or different head invalidates the attestation and returns to Review. Comprehensive deliveries have no extra finalization step and retain their existing single-certification baseline.
+
 **If conclusion is "failure", "timed_out", or "cancelled":**
 
 1. Get failed logs:

@@ -7,6 +7,7 @@ const crypto = require("node:crypto");
 const { spawnSync } = require("node:child_process");
 const { writeJsonAtomic } = require("./lib/atomic-file");
 const { acquireOwnedLock } = require("./lib/owned-lock");
+const { verifyDeliveryAttestation } = require("./delivery-attestation");
 const {
   bindReleaseEvidence,
   beginEffect,
@@ -51,6 +52,32 @@ function runCommand(args, options = {}) {
     return args.command === "validate"
       ? { ok: true, transaction_path: relative(cwd, transactionPath) }
       : statusView(transaction, relative(cwd, transactionPath));
+  }
+  if (args.command === "verify-attestation") {
+    const transaction = readJson(transactionPath, "release transaction");
+    const issues = transactionIssues(transaction);
+    if (issues.length > 0) throw new Error(`invalid release transaction: ${issues.join("; ")}`);
+    const attestationPath = resolvePrivateFile(args.attestation_file, cwd, "attestation file");
+    const attestation = readJson(attestationPath, "delivery attestation");
+    const verdict = verifyDeliveryAttestation(
+      attestation,
+      {
+        canonical_path: relative(cwd, attestationPath),
+        purpose: args.purpose,
+        commit: transaction.release.prepared_commit,
+        now: new Date(),
+      },
+      { key: process.env.PM_DELIVERY_ATTESTATION_KEY, root: cwd }
+    );
+    if (!verdict.reusable)
+      throw new Error(`delivery attestation is not reusable: ${verdict.reason}`);
+    return {
+      ok: true,
+      decision: "attestation-verified",
+      generation: transaction.generation,
+      prepared_commit: transaction.release.prepared_commit,
+      authorization_id: verdict.authorization_id,
+    };
   }
   return mutateTransaction(transactionPath, (transaction) => {
     if (args.command === "plan") {

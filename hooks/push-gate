@@ -43,6 +43,7 @@ const { readProjectInput } = require(
 const { validateSession } = require(
   path.join(HOOK_ROOT, "scripts", "lib", "dev-session-schema.js")
 );
+const { verifyPushBypass } = require(path.join(HOOK_ROOT, "scripts", "delivery-attestation.js"));
 
 // The 1MB spawnSync default ENOBUFS'd on a large (e.g. 200k-row) manifest, which
 // under fail-open silently allowed the push. Give the checker plenty of room; if
@@ -2213,6 +2214,38 @@ function gatePush(baseCwd, push) {
       blockUnverified(branch, manifestRel, destination.error);
       return true;
     }
+    if (push.bypassPurpose) {
+      const attestationPath = path.join(canonicalSessionDir, "ship", "delivery-attestation.json");
+      let attestation;
+      try {
+        const stat = fs.lstatSync(attestationPath);
+        if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 1024 * 1024)
+          throw new Error("attestation is not a bounded regular file");
+        attestation = JSON.parse(fs.readFileSync(attestationPath, "utf8"));
+        const remoteUrl = gitCapture(
+          repoDir,
+          ["remote", "get-url", "--push", "--", destination.remote],
+          gitDir
+        );
+        const verdict = verifyPushBypass(
+          attestation,
+          {
+            canonical_path: path.relative(repoDir, attestationPath).split(path.sep).join("/"),
+            purpose: push.bypassPurpose,
+            commit: pushedSha,
+            branch,
+            remote: destination.remote,
+            remote_url: remoteUrl,
+            now: new Date(),
+          },
+          { key: process.env.PM_DELIVERY_ATTESTATION_KEY, root: repoDir }
+        );
+        if (!verdict.reusable) throw new Error(verdict.reason);
+      } catch (error) {
+        blockUnverified(branch, manifestRel, `delivery bypass denied: ${error.message}`);
+        return true;
+      }
+    }
     checkerArgs.push("--remote", destination.remote);
 
     const result = spawnSync(process.execPath, [CHECKER, ...checkerArgs], {
@@ -2283,6 +2316,12 @@ function main() {
     process.cwd();
   const pushes = detectGitPushes(command, baseCwd);
   if (pushes.length === 0) return allow();
+  const bypassPurpose = /(?:^|[\s;])LEFTHOOK=0(?:[\s;]|$)/.test(command)
+    ? "final-hook-bypass"
+    : /(?:^|[\s;])SKIP_CODEX_REVIEW=1(?:[\s;]|$)/.test(command)
+      ? "review-bypass"
+      : null;
+  for (const push of pushes) push.bypassPurpose = bypassPurpose;
   for (const push of pushes) if (gatePush(baseCwd, push)) return;
   return allow();
 }

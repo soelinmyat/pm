@@ -139,6 +139,16 @@ Any commit created after the final Review invalidates delivery authority, includ
 
 This is one indivisible **post-mutation recertification protocol**. Green CI for an older commit, a PR label, or a prior report cannot substitute for it.
 
+## 5. Freeze and attest the optimized final candidate
+
+Enter this path only when candidate publication was already selected by authenticated repository policy and exact adapter coverage. A delivery routed to comprehensive Ship before draft publication stays there and must not add a second complete certification.
+
+After all review feedback converges, freeze the exact current HEAD and run the complete affected repository-native plan once. Create the canonical `delivery-attestation-v1` record described by the Review evidence contract. Any later commit, configuration/tool/plan identity change, failed command, or new finding revokes readiness and returns to Review; never patch an attestation forward. Repeating finalization for the same generation reuses the passing certification rather than rerunning it.
+
+`SKIP_CODEX_REVIEW=1` and `LEFTHOOK=0` are one-push capabilities, not general environment preferences. The push gate accepts them only when the canonical, fresh, machine-authenticated attestation binds current HEAD, live remote URL, destination branch, exact four-field ref update, all commands the installed hook would run, and the matching explicit repository declaration. Missing equivalence or unsupported semantics runs the native gate. Missing candidate policy or latest-base capability selects comprehensive handling at the earliest decision point and explains the missing capability.
+
+Classify default-branch drift with `scripts/base-drift.js`. Provably disjoint drift preserves feature Review, but optimized latest-base readiness additionally requires a current authenticated merge-result or merge-queue receipt. Overlap without such proof, conflict, or indeterminate observations use the existing update and recertification path.
+
 ## Done-when
 
 The action has explicit canonical authority, the delivery contract matches the live reviewed destination and current transaction generation, PR identity (when present) matches both contracts, and any post-Review commit has advanced the generation, regenerated current Review/gate artifacts, rebound transaction evidence, and passed `dev-gate-check` before push.
