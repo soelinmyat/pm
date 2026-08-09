@@ -338,7 +338,10 @@ test("Ship journals ambiguous effects and places version tags only after verifie
   assert.match(reference, /attempting.*Observe first/s);
   assert.match(reference, /denied.*authority boundary/s);
   assert.match(reference, /verified.*never replay/s);
-  assert.match(reference, /push → create-pr → merge → place-main-tag/);
+  assert.match(
+    reference,
+    /push → create-pr → ready-pr \(optimized draft only\) → merge → place-main-tag/
+  );
   assert.match(push, /observe-first/);
   assert.match(push, /timeout or connection loss stays `attempting`/);
   assert.match(merge, /plan `place-main-tag`/);

@@ -70,7 +70,13 @@ test("production canonical-file finalization writes once per transaction generat
       qa: { commit, artifact: qa, sha256: qaHash },
       verification: { commit, artifact: verification, sha256: verificationHash },
     },
-    effects: { push: { status: "attempting", attempts: [{ number: 1, status: "attempting" }] } },
+    effects: {
+      push: {
+        status: "verified",
+        attempts: [{ number: 1, status: "verified" }],
+        verified_receipt: { receipt: { remote_tip: commit } },
+      },
+    },
   };
   const plan = {
     plan_digest: planDigest,

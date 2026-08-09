@@ -732,8 +732,8 @@ function finalizeCanonicalFiles(input, options = {}) {
     writePrivateJson(root, certificationPath, result.certification);
   const effect = transaction.effects?.push;
   const attempt = effect?.attempts?.at(-1);
-  if (effect?.status !== "attempting" || attempt?.status !== "attempting")
-    throw new Error("push bypass requires one active release-transaction attempt");
+  if (effect?.status !== "verified" || attempt?.status !== "verified" || !effect.verified_receipt)
+    throw new Error("candidate finalization requires one verified release-transaction push");
   const policySource = plan.repository_policy?.source;
   if (!policySource) throw new Error("authenticated protected-policy source is unavailable");
   if (policySource.commit !== plan.base_commit)

@@ -189,6 +189,40 @@ test("candidate transitions are ordered, audited, and invalidation is explicit",
   }
 });
 
+test("review fixes can republish a prepared candidate without replaying its effect marker", () => {
+  const repo = makeRepo();
+  try {
+    let session = createSession({ slug: "candidate-republish", sourceDir: repo });
+    session.candidate.route = "review-candidate";
+    session = transitionCandidate(session, {
+      state: "review-candidate",
+      reason: "initial candidate",
+      external_effect_started_at: "2026-08-09T02:00:00.000Z",
+    });
+    session = transitionCandidate(session, { state: "reviewing", reason: "draft opened" });
+    session = transitionCandidate(session, {
+      state: "review-candidate",
+      reason: "review fix prepared and recertified",
+    });
+    assert.equal(session.candidate.external_effect_started_at, "2026-08-09T02:00:00.000Z");
+    assert.equal(session.candidate.authority.push_feature_branch, true);
+    session = transitionCandidate(session, {
+      state: "reviewing",
+      reason: "updated draft observed",
+    });
+    session = transitionCandidate(session, { state: "review-converged", reason: "reviews passed" });
+    session = transitionCandidate(session, { state: "certifying", reason: "certified" });
+    session = transitionCandidate(session, { state: "base-check", reason: "base is current" });
+    session = transitionCandidate(session, {
+      state: "merge-ready",
+      reason: "ready mutation verified",
+    });
+    assert.equal(session.candidate.authority.ready_for_review, true);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test("restarting an invalidated candidate clears stale route and repository identities", () => {
   const repo = makeRepo();
   try {

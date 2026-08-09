@@ -1292,8 +1292,8 @@ function candidateAuthorityForState(state) {
   return {
     push_feature_branch: state === "review-candidate",
     create_draft_pr: state === "review-candidate",
-    certify: false,
-    ready_for_review: false,
+    certify: state === "review-converged",
+    ready_for_review: state === "merge-ready",
     auto_merge: false,
     merge: false,
   };
@@ -1398,7 +1398,7 @@ function transitionCandidate(session, input, options = {}) {
   const allowed = {
     implementation: ["review-candidate", "invalidated"],
     "review-candidate": ["reviewing", "invalidated"],
-    reviewing: ["review-converged", "invalidated"],
+    reviewing: ["review-candidate", "review-converged", "invalidated"],
     "review-converged": ["certifying", "invalidated"],
     certifying: ["base-check", "invalidated"],
     "base-check": ["merge-ready", "invalidated"],

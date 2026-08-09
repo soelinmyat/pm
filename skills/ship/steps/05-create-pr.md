@@ -34,7 +34,7 @@ Re-observe the PR through the exact API identity check and require `draft: true`
 Transition the candidate to `reviewing` and initialize `.pm/dev-sessions/{slug}/ship/review-convergence.json` with `createConvergence` from `scripts/review-convergence.js`. Bind the exact head, hash of the complete configured/discovered required-source set, sorted required sources, and a bounded deadline. Record each local, PM, Codex, bot, human, and required PR-conversation result through the helper.
 
 - Any blocking finding remains `reviewing`.
-- Any fix or head mutation calls `markHeadMutation`, then reruns targeted checks and affected review on the new head.
+- Any fix or head mutation calls `markHeadMutation`, advances the release transaction to the new prepared commit, regenerates the head-bound discovery/preflight/ref/plan identities, reruns targeted checks and affected review, and transitions `reviewing` back to `review-candidate`. Re-plan and reconcile the Push and draft-PR effects for that generation, then re-enter `reviewing`. Preserve the original `external_effect_started_at`; never replay `candidate-effect` for the same candidate lifecycle.
 - Timeout, silence, or `unavailable` enters `awaiting-decision`; none is pass.
 - Resume an unavailable source on the same head by recording its eventual result.
 - Change requirements only through `reviseRequirements` with approver, reason, a new requirement-set hash, replacement sources, and a new deadline.
@@ -63,7 +63,15 @@ After convergence and before CI, freeze the exact converged head and finish the 
    ```
 
 4. Re-read every canonical file. Require a passing, externally signed complete certification and final-candidate attestation bound to the prepared commit, release generation, exact complete command set, evidence hashes, destination, and ref update. Require the candidate state to be `certifying`. Any mismatch returns to Review; prose success is not evidence.
-5. Only after those checks pass may Ship enter CI. Do not run a second final certification for the comprehensive route.
+5. Transition `certifying` to `base-check`, refresh the live default-branch identity, and run the canonical base-drift policy. Any overlap, conflict, indeterminate result, or missing required merge-result capability invalidates optimized readiness and enters comprehensive recertification. Only a current safe result may transition `base-check` to `merge-ready`.
+6. With candidate `ready_for_review: true` and canonical user `create_pr` authority still current, build the exact PR-readiness target from the verified Create PR receipt. Use `release-transaction.js` plan for effect `ready-pr`, then `release-transaction.js` begin for effect `ready-pr`. On `execute`, run:
+
+   ```bash
+   gh pr ready "$PR_NUMBER" --repo "$GH_REPO"
+   ```
+
+   Re-observe the exact PR through the contracted repository API and require the planned PR number, prepared head OID, `state: OPEN`, and `draft: false`. Save the observation and receipt, then use `release-transaction.js` reconcile for effect `ready-pr`; only `matched` is success. `observe-first` and `already-verified` always re-observe before continuing, and no ambiguous attempt is replayed.
+7. Only after the `ready-pr` effect is verified may Ship enter CI. Do not run a second final certification for the comprehensive route.
 
 When the candidate route was not selected, follow the comprehensive PR path below unchanged.
 

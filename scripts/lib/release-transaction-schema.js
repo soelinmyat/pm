@@ -10,6 +10,7 @@ const VERSION = /^\d+\.\d+\.\d+$/;
 const EFFECT_DEFINITIONS = Object.freeze({
   push: { authority: "push_feature_branch", dependsOn: [] },
   "create-pr": { authority: "create_pr", dependsOn: ["push"] },
+  "ready-pr": { authority: "create_pr", dependsOn: ["create-pr"] },
   merge: { authority: "merge", dependsOn: ["create-pr"] },
   "place-main-tag": { authority: "merge", dependsOn: ["merge"] },
   "tracker-update": { authority: "tracker_updates", dependsOn: ["merge"] },
@@ -220,6 +221,11 @@ function beginEffect(transaction, input) {
   for (const dependency of effect.depends_on) {
     if (next.effects[dependency]?.status !== "verified") {
       throw new Error(`${input.effect} requires verified effect ${dependency}`);
+    }
+  }
+  if (input.effect === "merge" && next.effects["ready-pr"]?.status !== undefined) {
+    if (next.effects["ready-pr"].status !== "verified") {
+      throw new Error("merge requires verified effect ready-pr");
     }
   }
   requireObject(input.authority, "authority envelope");
@@ -592,6 +598,13 @@ function validateEffectTarget(name, target, transaction) {
     requireTargetMatch(target, "base", transaction.source.base_branch, "base branch");
     requireTargetMatch(target, "commit", transaction.release.prepared_commit, "prepared commit");
   }
+  if (name === "ready-pr") {
+    const prReceipt = transaction.effects["create-pr"]?.verified_receipt?.receipt;
+    if (!prReceipt) throw new Error("ready-pr target requires a verified create-pr receipt");
+    requireTargetMatch(target, "repository", transaction.source.repository, "repository");
+    requireTargetMatch(target, "pr_number", receiptPrNumber(prReceipt), "verified PR number");
+    requireTargetMatch(target, "commit", transaction.release.prepared_commit, "prepared commit");
+  }
   if (name === "merge") {
     const prReceipt = transaction.effects["create-pr"]?.verified_receipt?.receipt;
     if (!prReceipt) throw new Error("merge target requires a verified create-pr receipt");
@@ -643,6 +656,13 @@ function validateMatchedReceipt(name, target, receipt) {
     }
     requireReceiptMatch(receipt, "state", "OPEN", "OPEN PR state");
     requireReceiptMatch(receipt, "head_oid", target.commit, "prepared commit");
+    return;
+  }
+  if (name === "ready-pr") {
+    requireReceiptMatch(receipt, "pr_number", target.pr_number, "planned PR number");
+    requireReceiptMatch(receipt, "state", "OPEN", "OPEN PR state");
+    requireReceiptMatch(receipt, "head_oid", target.commit, "prepared commit");
+    requireReceiptMatch(receipt, "draft", false, "ready PR state");
     return;
   }
   if (name === "merge") {

@@ -301,6 +301,94 @@ test("ambiguous outcome observes before retry and verified effects never replay"
   assert.equal(noReplay.transaction.effects.push.attempts.length, 2);
 });
 
+test("optimized delivery journals the draft-to-ready PR mutation before merge", () => {
+  let value = planEffect(transaction(), {
+    effect: "push",
+    target: {
+      remote: "origin",
+      repository: "acme/widget",
+      branch: "codex/release-example",
+      commit: COMMIT,
+    },
+  });
+  value = beginEffect(value, {
+    effect: "push",
+    authority: { push_feature_branch: true },
+    actor: "root",
+  }).transaction;
+  value = reconcileEffect(value, {
+    effect: "push",
+    outcome: "matched",
+    receipt: { remote_tip: COMMIT },
+    observation: {
+      target: value.effects.push.target,
+      receipt: { remote_tip: COMMIT },
+    },
+  }).transaction;
+  value = planEffect(value, {
+    effect: "create-pr",
+    target: {
+      repository: "acme/widget",
+      head: "codex/release-example",
+      base: "main",
+      commit: COMMIT,
+    },
+  });
+  value = beginEffect(value, {
+    effect: "create-pr",
+    authority: { create_pr: true },
+    actor: "root",
+  }).transaction;
+  const prReceipt = { pr_number: 42, state: "OPEN", head_oid: COMMIT };
+  value = reconcileEffect(value, {
+    effect: "create-pr",
+    outcome: "matched",
+    receipt: prReceipt,
+    observation: { target: value.effects["create-pr"].target, receipt: prReceipt },
+  }).transaction;
+  value = planEffect(value, {
+    effect: "ready-pr",
+    target: { repository: "acme/widget", pr_number: 42, commit: COMMIT },
+  });
+  value = planEffect(value, {
+    effect: "merge",
+    target: {
+      repository: "acme/widget",
+      pr_number: 42,
+      head_commit: COMMIT,
+      base: "main",
+      method: "squash",
+    },
+  });
+  assert.throws(
+    () =>
+      beginEffect(value, {
+        effect: "merge",
+        authority: { merge: true },
+        actor: "root",
+      }),
+    /requires verified effect ready-pr/
+  );
+  value = beginEffect(value, {
+    effect: "ready-pr",
+    authority: { create_pr: true },
+    actor: "root",
+  }).transaction;
+  const readyReceipt = { pr_number: 42, state: "OPEN", head_oid: COMMIT, draft: false };
+  value = reconcileEffect(value, {
+    effect: "ready-pr",
+    outcome: "matched",
+    receipt: readyReceipt,
+    observation: { target: value.effects["ready-pr"].target, receipt: readyReceipt },
+  }).transaction;
+  assert.equal(value.effects["ready-pr"].status, "verified");
+  assert.deepEqual(transactionIssues(value), []);
+  assert.equal(
+    beginEffect(value, { effect: "merge", authority: { merge: true }, actor: "root" }).decision,
+    "execute"
+  );
+});
+
 test("conflicting observation blocks instead of replaying", () => {
   let value = planEffect(transaction(), {
     effect: "push",
