@@ -16,6 +16,7 @@ const ALLOWED_PROBE_KEYS = new Set([
   "working_directory",
 ]);
 const ALLOWED_EXPECTED = new Set(["database", "server", "user"]);
+const EXECUTABLE_DISCOVERY_TIMEOUT_MS = 5000;
 
 function redactText(value) {
   const redacted = String(value)
@@ -85,7 +86,7 @@ function defaultResolveRuntime(name, env) {
     encoding: "utf8",
     env,
     shell: false,
-    timeout: 2000,
+    timeout: EXECUTABLE_DISCOVERY_TIMEOUT_MS,
   });
   if (which.status !== 0 || !which.stdout.trim())
     return { found: false, path: null, realpath: null, version: null, manager: null };
@@ -94,7 +95,7 @@ function defaultResolveRuntime(name, env) {
     encoding: "utf8",
     env,
     shell: false,
-    timeout: 2000,
+    timeout: EXECUTABLE_DISCOVERY_TIMEOUT_MS,
     maxBuffer: 8192,
   });
   return {
@@ -171,7 +172,7 @@ function defaultResolveProbeExecutable(env) {
     encoding: "utf8",
     env,
     shell: false,
-    timeout: 2000,
+    timeout: EXECUTABLE_DISCOVERY_TIMEOUT_MS,
   });
   if (which.status !== 0 || !which.stdout.trim())
     return { found: false, path: null, realpath: null, version: null };
@@ -180,7 +181,7 @@ function defaultResolveProbeExecutable(env) {
     encoding: "utf8",
     env,
     shell: false,
-    timeout: 2000,
+    timeout: EXECUTABLE_DISCOVERY_TIMEOUT_MS,
     maxBuffer: 8192,
   });
   return {
