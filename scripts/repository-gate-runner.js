@@ -291,7 +291,11 @@ function main(argv = process.argv.slice(2)) {
       "--plan PATH, --mode targeted|complete, --expected-plan-digest, --expected-capability-identity, and authenticated --discovery-receipt are required"
     );
   const plan = JSON.parse(fs.readFileSync(path.resolve(planPath), "utf8"));
-  const receipt = readAuthenticatedJson(discoveryReceiptPath, discoveryReceiptSha256);
+  const receipt = readAuthenticatedJson(
+    plan.repository_root,
+    discoveryReceiptPath,
+    discoveryReceiptSha256
+  );
   const receiptKey = process.env.PM_REPOSITORY_RECEIPT_KEY;
   if (!receiptKey) throw new Error("PM_REPOSITORY_RECEIPT_KEY is required for optimized execution");
   const result = runRepositoryGates(plan, mode, {

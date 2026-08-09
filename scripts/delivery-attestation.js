@@ -8,6 +8,7 @@ const childProcess = require("node:child_process");
 const os = require("node:os");
 const { writeJsonAtomic } = require("./lib/atomic-file");
 const { hashResult, stableStringify } = require("./lib/workflow-runtime/records");
+const { readProjectInput } = require("./lib/safe-project-output");
 
 const SHA = /^[0-9a-f]{40,64}$/i;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
@@ -602,20 +603,7 @@ function finalizeDeliveryCandidate(context, options = {}) {
 }
 
 function readBoundJson(root, relative, max = 1024 * 1024) {
-  const absolute = path.resolve(root, relative);
-  const rootReal = fs.realpathSync(root);
-  const rel = path.relative(rootReal, absolute);
-  if (rel.startsWith("..") || path.isAbsolute(rel))
-    throw new Error("canonical input escapes project root");
-  const stat = fs.lstatSync(absolute);
-  if (
-    !stat.isFile() ||
-    stat.isSymbolicLink() ||
-    stat.size > max ||
-    fs.realpathSync(absolute) !== absolute
-  )
-    throw new Error("canonical input is not a bounded regular file");
-  return JSON.parse(fs.readFileSync(absolute, "utf8"));
+  return JSON.parse(readProjectInput(root, relative, max).bytes.toString("utf8"));
 }
 
 function canonicalDeliveryPaths(root, input, session, transaction) {
@@ -802,85 +790,6 @@ function finalizeCanonicalFiles(input, options = {}) {
   return { decision: result.decision, certification: result.certification, attestation };
 }
 
-function certifyFinalCandidate(state, options = {}) {
-  if (state.route !== "optimized")
-    return { ready: false, next: "comprehensive", reason: "optimized route was not selected" };
-  if (
-    state.review?.outcome !== "passed" ||
-    state.review.findings !== 0 ||
-    state.review.commit !== state.head
-  )
-    return {
-      ready: false,
-      next: "review",
-      reason: "final head is not the converged reviewed head",
-    };
-  if (
-    state.certification &&
-    state.certification.head === state.head &&
-    state.certification.generation === state.generation &&
-    state.certification.outcome === "passed"
-  )
-    return { ready: true, next: "push", certification: state.certification, reused: true };
-  if (
-    !Array.isArray(state.complete_commands) ||
-    state.complete_commands.length === 0 ||
-    typeof options.runComplete !== "function"
-  )
-    return {
-      ready: false,
-      next: "comprehensive",
-      reason: "complete repository-native plan is unavailable",
-    };
-  const result = options.runComplete([...state.complete_commands]);
-  if (result?.outcome !== "passed")
-    return { ready: false, next: "review", reason: "complete final certification failed" };
-  return {
-    ready: true,
-    next: "push",
-    reused: false,
-    certification: {
-      head: state.head,
-      generation: state.generation,
-      commands: [...state.complete_commands],
-      evidence: result.evidence || [],
-      outcome: "passed",
-    },
-  };
-}
-
-function selectDeliveryRoute(capabilities = {}) {
-  const missing = [];
-  if (
-    capabilities.candidate_policy?.authenticated !== true ||
-    capabilities.candidate_policy?.permitted !== true
-  )
-    missing.push("authenticated candidate-push policy");
-  if (capabilities.adapter?.supported !== true || capabilities.adapter?.exact_coverage !== true)
-    missing.push("exact repository adapter coverage");
-  if (capabilities.evidence_equivalence !== true) missing.push("evidence equivalence");
-  if (
-    capabilities.latest_base_capability?.authenticated !== true ||
-    capabilities.latest_base_capability?.available !== true
-  )
-    missing.push("authenticated latest-base capability");
-  if (missing.length)
-    return {
-      route: "comprehensive",
-      reason: `Missing ${missing.join(", ")}; using existing comprehensive Ship`,
-      publish_draft_before_complete: false,
-      complete_certification_limit: 1,
-      consumer_writes: [],
-    };
-  return {
-    route: "optimized",
-    reason: "repository-declared optimization is fully proven",
-    publish_draft_before_complete: true,
-    complete_certification_limit: 1,
-    consumer_writes: [],
-  };
-}
-
 function parseArgs(argv) {
   const out = { command: argv[0] };
   for (let i = 1; i < argv.length; i += 2)
@@ -936,6 +845,4 @@ module.exports = {
   finalizeDeliveryCandidate,
   finalizeCanonicalFiles,
   publicKeyIdentity,
-  certifyFinalCandidate,
-  selectDeliveryRoute,
 };

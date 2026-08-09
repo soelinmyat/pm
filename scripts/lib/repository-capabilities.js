@@ -5,18 +5,16 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const childProcess = require("node:child_process");
 const { digest, stable } = require("./repository-gate-plan-schema");
+const { readProjectInput } = require("./safe-project-output");
 
 const MAX_FILE = 1024 * 1024;
 
 function safeRead(root, relative) {
-  const lexical = path.resolve(root, relative);
-  const rootReal = fs.realpathSync(root);
-  if (!fs.existsSync(lexical)) return null;
-  const stat = fs.lstatSync(lexical);
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_FILE) return null;
-  const real = fs.realpathSync(lexical);
-  if (real !== rootReal && !real.startsWith(`${rootReal}${path.sep}`)) return null;
-  return fs.readFileSync(real, "utf8");
+  try {
+    return readProjectInput(root, relative, MAX_FILE).bytes.toString("utf8");
+  } catch {
+    return null;
+  }
 }
 
 function fileIdentity(root, relative) {

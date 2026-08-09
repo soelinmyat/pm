@@ -8,17 +8,16 @@ const crypto = require("node:crypto");
 const { discoverRepositoryCapabilities } = require("./lib/repository-capabilities");
 const { digest, planMaterial } = require("./lib/repository-gate-plan-schema");
 const { redactText } = require("./repository-environment-preflight");
+const { readProjectInput } = require("./lib/safe-project-output");
 
 const MAX_INPUT = 1024 * 1024;
 
-function readAuthenticatedJson(inputPath, expectedSha256) {
+function readAuthenticatedJson(root, inputPath, expectedSha256) {
   if (!inputPath || !/^sha256:[0-9a-f]{64}$/i.test(expectedSha256 || ""))
     throw new Error("authenticated JSON path and sha256 are required");
-  const absolute = path.resolve(inputPath);
-  const stat = fs.lstatSync(absolute);
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_INPUT)
-    throw new Error("authenticated JSON input must be a bounded regular file");
-  const bytes = fs.readFileSync(absolute);
+  const absolute = path.resolve(root, inputPath);
+  const relative = path.relative(path.resolve(root), absolute);
+  const bytes = readProjectInput(root, relative, MAX_INPUT).bytes;
   const actual = `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`;
   if (actual !== expectedSha256) throw new Error("authenticated JSON sha256 mismatch");
   return JSON.parse(bytes.toString("utf8"));
@@ -200,6 +199,7 @@ function buildDeliveryPlan(input) {
     repository_root: input.root,
     base_commit: input.baseCommit || null,
     head_commit: input.headCommit || null,
+    merge_base_commit: input.mergeBaseCommit || null,
     source_ref: input.sourceRef || null,
     expected_default_ref: input.expectedDefaultRef || null,
     changed_paths: changedPaths,
@@ -291,8 +291,9 @@ function main(argv = process.argv.slice(2)) {
     throw new Error(
       "--base, --remote, --remote-url, --ref-updates, --environment-identity, and --discovery-receipt are required"
     );
-  const refUpdates = readAuthenticatedJson(refUpdatesPath, value("--ref-updates-sha256"));
+  const refUpdates = readAuthenticatedJson(root, refUpdatesPath, value("--ref-updates-sha256"));
   const environmentReceipt = readAuthenticatedJson(
+    root,
     environmentPath,
     value("--environment-identity-sha256")
   );
@@ -306,6 +307,7 @@ function main(argv = process.argv.slice(2)) {
     throw new Error("environment identity requires a verified schema-v1 preflight receipt");
   const environmentIdentity = environmentReceipt.identity;
   const discoveryReceipt = readAuthenticatedJson(
+    root,
     discoveryPath,
     value("--discovery-receipt-sha256")
   );
@@ -317,6 +319,7 @@ function main(argv = process.argv.slice(2)) {
   )
     throw new Error("destination remote does not match authenticated discovery receipt");
   const resolvedHead = git(root, ["rev-parse", "--verify", `${head}^{commit}`]);
+  const mergeBase = git(root, ["merge-base", base, resolvedHead]);
   const sourceRef = git(root, ["symbolic-ref", "--quiet", "HEAD"]);
   if (discoveryReceipt.repository_head !== resolvedHead)
     throw new Error("head does not match authenticated discovery receipt");
@@ -335,6 +338,7 @@ function main(argv = process.argv.slice(2)) {
     root,
     baseCommit: base,
     headCommit: resolvedHead,
+    mergeBaseCommit: mergeBase,
     sourceRef,
     expectedDefaultRef: discoveryReceipt.expected_default_ref,
     changedPaths,

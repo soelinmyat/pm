@@ -189,6 +189,29 @@ test("candidate transitions are ordered, audited, and invalidation is explicit",
   }
 });
 
+test("restarting an invalidated candidate clears stale route and repository identities", () => {
+  const repo = makeRepo();
+  try {
+    let session = createSession({ slug: "candidate-reset", sourceDir: repo });
+    session.candidate.route = "review-candidate";
+    session.candidate.affected_identity = `sha256:${"1".repeat(64)}`;
+    session.candidate.repository_capability_identity = `sha256:${"2".repeat(64)}`;
+    session.candidate.gate_plan_identity = `sha256:${"3".repeat(64)}`;
+    session = transitionCandidate(session, { state: "invalidated", reason: "scope changed" });
+    session = transitionCandidate(session, { state: "implementation", reason: "restart" });
+    assert.equal(session.candidate.route, "comprehensive");
+    assert.equal(session.candidate.affected_identity, null);
+    assert.equal(session.candidate.repository_capability_identity, null);
+    assert.equal(session.candidate.gate_plan_identity, null);
+    assert.throws(
+      () => transitionCandidate(session, { state: "review-candidate", reason: "stale retry" }),
+      /comprehensive route/
+    );
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test("v2 read upgrades atomically, preserves authority and evidence, and keeps one private snapshot", () => {
   const repo = makeRepo();
   try {

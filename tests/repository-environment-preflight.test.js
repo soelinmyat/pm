@@ -2,6 +2,10 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const childProcess = require("node:child_process");
 const {
   constraintsIntersect,
   verifyEnvironment,
@@ -30,6 +34,47 @@ test("runtime matching uses standard semver ranges including OR and x-ranges", (
     constraintsIntersect([{ constraint: ">=18 <19 || >=20 <21" }, { constraint: ">=19 <20" }]),
     false
   );
+});
+
+test("production preflight CLI passes the configured machine-local probe identity key", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-preflight-cli-probe-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const psql = path.join(root, "psql");
+  fs.writeFileSync(
+    psql,
+    "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'psql 16.2'; else echo 'cleanlog_test|tester|local'; fi\n",
+    { mode: 0o700 }
+  );
+  const planPath = path.join(root, "plan.json");
+  fs.writeFileSync(
+    planPath,
+    JSON.stringify({
+      expectations: {
+        runtimes: [],
+        probes: [
+          {
+            adapter: "postgres-identity-v1",
+            provenance: "authenticated",
+            expected: { database: "cleanlog_test", user: "tester", server: "local" },
+          },
+        ],
+      },
+    })
+  );
+  const result = childProcess.spawnSync(
+    process.execPath,
+    [path.join(__dirname, "../scripts/repository-environment-preflight.js"), "--plan", planPath],
+    {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${root}:${process.env.PATH || ""}`,
+        PM_REPOSITORY_IDENTITY_KEY: "machine-local-probe-key-32-bytes!",
+      },
+    }
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).status, "verified");
 });
 
 function basePlan(overrides = {}) {

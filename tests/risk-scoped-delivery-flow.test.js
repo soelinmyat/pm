@@ -2,40 +2,35 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { selectDeliveryRoute } = require("../scripts/delivery-attestation");
+const { selectPublicationRoute } = require("../scripts/review-convergence");
 
 test("declared exact policy selects review-first and one final certification", () => {
-  const result = selectDeliveryRoute({
-    candidate_policy: { authenticated: true, permitted: true },
-    adapter: { supported: true, exact_coverage: true },
-    evidence_equivalence: true,
-    latest_base_capability: { authenticated: true, available: true },
+  const result = selectPublicationRoute({
+    candidateRoute: true,
+    protectedPermission: true,
+    exactAdapterCoverage: true,
   });
-  assert.equal(result.route, "optimized");
-  assert.equal(result.publish_draft_before_complete, true);
-  assert.equal(result.complete_certification_limit, 1);
+  assert.equal(result.route, "review-candidate");
+  assert.equal(result.publish_draft, true);
+  assert.equal(result.enter_finalization, true);
 });
 
 test("CleanLog current contract chooses comprehensive before draft with no duplicate certification", () => {
-  const result = selectDeliveryRoute({
-    candidate_policy: null,
-    adapter: { supported: true, exact_coverage: true },
-    evidence_equivalence: true,
+  const result = selectPublicationRoute({
+    candidateRoute: true,
+    protectedPermission: false,
+    exactAdapterCoverage: true,
   });
   assert.equal(result.route, "comprehensive");
-  assert.equal(result.publish_draft_before_complete, false);
-  assert.equal(result.complete_certification_limit, 1);
-  assert.match(result.reason, /candidate-push policy/i);
-  assert.deepEqual(result.consumer_writes, []);
+  assert.equal(result.publish_draft, false);
 });
 
-test("missing latest-base capability falls back before draft even with candidate permission", () => {
-  const result = selectDeliveryRoute({
-    candidate_policy: { authenticated: true, permitted: true },
-    adapter: { supported: true, exact_coverage: true },
-    evidence_equivalence: true,
+test("missing exact adapter coverage falls back before draft", () => {
+  const result = selectPublicationRoute({
+    candidateRoute: true,
+    protectedPermission: true,
+    exactAdapterCoverage: false,
   });
   assert.equal(result.route, "comprehensive");
-  assert.equal(result.publish_draft_before_complete, false);
-  assert.match(result.reason, /latest-base/i);
+  assert.equal(result.publish_draft, false);
 });

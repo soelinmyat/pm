@@ -299,7 +299,9 @@ function main(argv = process.argv.slice(2)) {
   const planFlag = argv.indexOf("--plan");
   if (planFlag < 0 || !argv[planFlag + 1]) throw new Error("--plan PATH is required");
   const plan = JSON.parse(fs.readFileSync(path.resolve(argv[planFlag + 1]), "utf8"));
-  const result = verifyEnvironment(plan);
+  const result = verifyEnvironment(plan, {
+    identityKey: process.env.PM_REPOSITORY_IDENTITY_KEY,
+  });
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
   if (result.status === "blocked") process.exitCode = 1;
 }

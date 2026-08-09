@@ -90,6 +90,7 @@ test("mobile-only selects mobile and shared but excludes API", () => {
     "candidate-hook-bypass",
   ]);
   assert.equal(plan.adapter.supported, true);
+  assert.equal(plan.merge_base_commit, null);
   assert.deepEqual(plan.environment_identity, { runtimes: [], path_digest: "x" });
   assert.equal(verifyPlanDigest(plan), true);
 });
@@ -210,7 +211,7 @@ test("production planner CLI accepts only hash-bound complete execution inputs",
     ...discoveryMaterial,
     authentication: keyedIdentity(discoveryMaterial, receiptKey),
   };
-  const inputs = path.join(managerRoot, "inputs");
+  const inputs = path.join(root, ".pm", "inputs");
   fs.mkdirSync(inputs);
   const discoveryFile = writeAuthenticatedJson(inputs, "discovery.json", discovery);
   const sourceRef = git(["symbolic-ref", "--quiet", "HEAD"]).stdout.trim();
@@ -246,15 +247,15 @@ test("production planner CLI accepts only hash-bound complete execution inputs",
     "--remote-url",
     remoteUrl,
     "--ref-updates",
-    refsFile.path,
+    path.relative(root, refsFile.path),
     "--ref-updates-sha256",
     refsFile.sha256,
     "--environment-identity",
-    environmentFile.path,
+    path.relative(root, environmentFile.path),
     "--environment-identity-sha256",
     environmentFile.sha256,
     "--discovery-receipt",
-    discoveryFile.path,
+    path.relative(root, discoveryFile.path),
     "--discovery-receipt-sha256",
     discoveryFile.sha256,
   ];
@@ -273,6 +274,7 @@ test("production planner CLI accepts only hash-bound complete execution inputs",
   assert.equal(cli.status, 0, cli.stderr);
   const plan = JSON.parse(cli.stdout);
   assert.equal(plan.adapter.supported, true);
+  assert.equal(plan.merge_base_commit, base);
   assert.equal(plan.remote.name, "origin");
   assert.equal(plan.remote.stdin, `${refsFile.value[0]}\n`);
   assert.deepEqual(plan.environment_identity, environment);

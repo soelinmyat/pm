@@ -1414,6 +1414,10 @@ function transitionCandidate(session, input, options = {}) {
   const timestamp = options.now || new Date().toISOString();
   if (!isIsoDate(timestamp)) throw new Error("candidate transition timestamp must be an ISO date");
   const next = structuredClone(session);
+  if (current === "invalidated" && input.state === "implementation") {
+    const transitionHistory = next.candidate.transition_history;
+    next.candidate = { ...defaultCandidate(), transition_history: transitionHistory };
+  }
   next.candidate.state = input.state;
   next.candidate.authority = candidateAuthorityForState(input.state);
   next.candidate.transition_history.push({
