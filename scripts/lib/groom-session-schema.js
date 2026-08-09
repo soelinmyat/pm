@@ -734,7 +734,9 @@ function normalizePersistedSession(session) {
     !Object.hasOwn(session.context, "artifact_repo_root")
   ) {
     const next = structuredClone(session);
-    next.context.artifact_repo_root = session.source?.repo_root || null;
+    // Pre-isolation sessions remain readable, but null keeps them distinguishable
+    // from fresh sessions whose helper-owned artifact worktree can be revalidated.
+    next.context.artifact_repo_root = null;
     return next;
   }
   return session;
@@ -1082,6 +1084,17 @@ function assertValidSession(session) {
     throw new Error(
       `invalid Groom session: ${errors.map((entry) => `${entry.path} ${entry.message}`).join("; ")}`
     );
+  if (session.context?.configured && session.context.artifact_repo_root) {
+    try {
+      verifyArtifactWorktreeOwnership({
+        worktree: session.context.artifact_repo_root,
+        slug: session.slug,
+        kind: "groom",
+      });
+    } catch (error) {
+      throw new Error(`invalid Groom artifact_repo_root: ${error.message}`);
+    }
+  }
 }
 function validateClosedRecord(value, fields, objectPath, errors) {
   if (!isObject(value)) errors.push(issue(objectPath, "invalid"));

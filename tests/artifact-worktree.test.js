@@ -9,7 +9,10 @@ const { execFileSync } = require("node:child_process");
 const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
 
-const { prepareArtifactWorktree } = require("../scripts/artifact-worktree.js");
+const {
+  prepareArtifactWorktree,
+  resolveRemoteDefaultBranch,
+} = require("../scripts/artifact-worktree.js");
 const {
   applyContext: applyGroomContext,
   createSession: createGroomSession,
@@ -157,6 +160,27 @@ test("artifact preparation fetches from the same push URL used for default disco
 
   assert.equal(git(prepared.worktree, "rev-parse", "HEAD"), authoritativeHead);
   assert.equal(fs.existsSync(path.join(prepared.worktree, "decoy.md")), false);
+});
+
+test("default-branch discovery stays bound to the captured delivery URL", (t) => {
+  const seeded = fixture();
+  t.after(seeded.cleanup);
+  const authoritative = path.join(seeded.root, "authoritative.git");
+  git(seeded.root, "clone", "--bare", seeded.remote, authoritative);
+  git(seeded.root, "--git-dir", authoritative, "branch", "trunk", "main");
+  git(authoritative, "symbolic-ref", "HEAD", "refs/heads/trunk");
+  const decoy = path.join(seeded.root, "decoy-default.git");
+  git(seeded.root, "clone", "--bare", seeded.remote, decoy);
+  git(decoy, "symbolic-ref", "HEAD", "refs/heads/main");
+  git(seeded.shared, "remote", "set-url", "--push", "origin", decoy);
+
+  const branch = resolveRemoteDefaultBranch(seeded.shared, "origin", authoritative);
+
+  assert.equal(branch, "trunk");
+  assert.equal(
+    git(seeded.shared, "rev-parse", "refs/remotes/origin/trunk"),
+    git(authoritative, "rev-parse", "refs/heads/trunk")
+  );
 });
 
 test("artifact preparation ignores an unrelated shared branch pushRemote", (t) => {

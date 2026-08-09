@@ -4,6 +4,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { inspectHtmlArtifact } = require("../artifact-check.js");
+const { verifyArtifactWorktreeOwnership } = require("../artifact-worktree.js");
 const { extractSidecarHash, validateRfcSidecar } = require("../rfc-sidecar-check.js");
 const { loadPhaseStep } = require("../step-loader.js");
 const { findGitRoot, gitRelativePath, readGitFile, runGit } = require("../loop-git.js");
@@ -187,17 +188,19 @@ function applyContext(session, facts, options = {}) {
   if (facts.source_kind === "linear-issue" && !nonEmpty(facts.linear_id)) {
     throw new Error("linear-issue source requires linear_id");
   }
-  const artifactCandidate = facts.artifact_repo_root
-    ? path.resolve(facts.artifact_repo_root)
-    : facts.proposal_path
-      ? path.dirname(path.resolve(facts.proposal_path))
-      : session.source.repo_root;
-  let artifactRepoRoot;
+  if (!nonEmpty(facts.artifact_repo_root))
+    throw new Error("RFC context requires artifact_repo_root from artifact preparation");
+  let artifactOwnership;
   try {
-    artifactRepoRoot = fs.realpathSync(findGitRoot(artifactCandidate));
-  } catch {
-    throw new Error(`artifact_repo_root is not a Git worktree: ${artifactCandidate}`);
+    artifactOwnership = verifyArtifactWorktreeOwnership({
+      worktree: facts.artifact_repo_root,
+      slug: session.slug,
+      kind: "rfc",
+    });
+  } catch (error) {
+    throw new Error(`invalid RFC artifact_repo_root: ${error.message}`);
   }
+  const artifactRepoRoot = artifactOwnership.worktree;
   if (facts.proposal_path) {
     const proposalPath = fs.realpathSync(path.resolve(facts.proposal_path));
     const relative = path.relative(artifactRepoRoot, proposalPath);

@@ -144,7 +144,7 @@ test("Groom CLI upgrades pre-artifact-root sessions on read and resumes", () => 
       0
     );
     const upgraded = JSON.parse(fs.readFileSync(init.session_path, "utf8"));
-    assert.equal(upgraded.context.artifact_repo_root, fs.realpathSync(repo));
+    assert.equal(upgraded.context.artifact_repo_root, null);
     assert.equal(upgraded.phase, "research");
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });

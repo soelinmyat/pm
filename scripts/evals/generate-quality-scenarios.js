@@ -441,7 +441,11 @@ ${type === "resume" ? "printf '%s\\n' 'user continuation' >> user-owned-dirt.txt
 }
 
 function nativeResumeSetup(workflow) {
-  return `node "$PM_PLUGIN_ROOT/scripts/evals/quality-resume.js" seed ${workflow} "$(pwd)"
+  const remoteHead =
+    workflow === "rfc"
+      ? "git --git-dir=.pm/quality/origin.git symbolic-ref HEAD refs/heads/main\n"
+      : "";
+  return `${remoteHead}node "$PM_PLUGIN_ROOT/scripts/evals/quality-resume.js" seed ${workflow} "$(pwd)"
 `;
 }
 

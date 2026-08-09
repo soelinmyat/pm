@@ -21,6 +21,7 @@ const CLI = path.resolve(__dirname, "..", "scripts", "rfc-session.js");
 test("RFC session CLI initializes, configures context, and selects one phase", () => {
   const repo = makeRepo();
   try {
+    repo.own("cli-rfc");
     const init = repo.run(["init", "--slug", "cli-rfc", "--source-dir", repo.root, "--json"]);
     assert.equal(init.status, 0, init.stderr);
     const payload = JSON.parse(init.stdout);
@@ -35,6 +36,7 @@ test("RFC session CLI initializes, configures context, and selects one phase", (
         proposal_path: path.join(repo.root, "proposal.md"),
         size: "M",
         acceptance_criteria: ["Explicit approval"],
+        artifact_repo_root: repo.root,
       })
     );
     const configured = repo.run([
@@ -75,6 +77,7 @@ test("RFC session CLI rejects non-Git initialization with precondition exit", ()
 test("record retries are idempotent after an atomic phase advance", () => {
   const repo = makeRepo();
   try {
+    repo.own("retry");
     const init = JSON.parse(
       repo.run(["init", "--slug", "retry", "--source-dir", repo.root, "--json"]).stdout
     );
@@ -86,6 +89,7 @@ test("record retries are idempotent after an atomic phase advance", () => {
         proposal_path: path.join(repo.root, "proposal.md"),
         size: "M",
         acceptance_criteria: ["Retry safely"],
+        artifact_repo_root: repo.root,
       })
     );
     assert.equal(repo.run(["context", "--session", init.session_path, "--facts", facts]).status, 0);
@@ -121,6 +125,7 @@ test("record retries are idempotent after an atomic phase advance", () => {
 test("exact retries of persisted blocked results remain idempotent", () => {
   const repo = makeRepo();
   try {
+    repo.own("blocked-retry");
     const init = JSON.parse(
       repo.run(["init", "--slug", "blocked-retry", "--source-dir", repo.root, "--json"]).stdout
     );
@@ -132,6 +137,7 @@ test("exact retries of persisted blocked results remain idempotent", () => {
         proposal_path: path.join(repo.root, "proposal.md"),
         size: "M",
         acceptance_criteria: ["Retry blocked writes safely"],
+        artifact_repo_root: repo.root,
       })
     );
     assert.equal(repo.run(["context", "--session", init.session_path, "--facts", facts]).status, 0);
@@ -164,6 +170,7 @@ test("exact retries of persisted blocked results remain idempotent", () => {
 test("exact retry of retry-budget exhaustion remains idempotent", () => {
   const repo = makeRepo();
   try {
+    repo.own("budget-retry");
     const init = JSON.parse(
       repo.run(["init", "--slug", "budget-retry", "--source-dir", repo.root, "--json"]).stdout
     );
@@ -175,6 +182,7 @@ test("exact retry of retry-budget exhaustion remains idempotent", () => {
         proposal_path: path.join(repo.root, "proposal.md"),
         size: "M",
         acceptance_criteria: ["Bound retries"],
+        artifact_repo_root: repo.root,
       })
     );
     assert.equal(repo.run(["context", "--session", init.session_path, "--facts", facts]).status, 0);
@@ -285,6 +293,7 @@ test("loop worker environment cannot invoke the explicit approval command", () =
 test("a historical matching hash does not suppress a current phase attempt", () => {
   const repo = makeRepo();
   try {
+    repo.own("phase-replay");
     const init = JSON.parse(
       repo.run(["init", "--slug", "phase-replay", "--source-dir", repo.root, "--json"]).stdout
     );
@@ -296,6 +305,7 @@ test("a historical matching hash does not suppress a current phase attempt", () 
         proposal_path: path.join(repo.root, "proposal.md"),
         size: "M",
         acceptance_criteria: ["Replay current phase"],
+        artifact_repo_root: repo.root,
       })
     );
     assert.equal(repo.run(["context", "--session", init.session_path, "--facts", facts]).status, 0);
@@ -398,6 +408,7 @@ test("terminal RFC runs archive immutably and retry across the archive boundary"
 });
 
 function prepareApprovedHandoff(repo, slug) {
+  repo.own(slug);
   const initialized = repo.run(["init", "--slug", slug, "--source-dir", repo.root, "--json"]);
   assert.equal(initialized.status, 0, initialized.stderr);
   const payload = JSON.parse(initialized.stdout);
@@ -406,6 +417,7 @@ function prepareApprovedHandoff(repo, slug) {
     proposal_path: path.join(repo.root, "proposal.md"),
     size: "M",
     acceptance_criteria: ["Archive exact approval"],
+    artifact_repo_root: repo.root,
   });
   session = recordResult(session, phaseResult(session));
   let artifact = writeArtifact(repo, slug, "draft");
@@ -575,6 +587,9 @@ function makeRepo() {
   execFileSync("git", ["commit", "-qm", "fixture"], { cwd: root });
   return {
     root,
+    own(slug) {
+      markOwnedRfcRoot(root, slug);
+    },
     head() {
       return execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
     },
@@ -589,4 +604,34 @@ function makeRepo() {
       fs.rmSync(root, { recursive: true, force: true });
     },
   };
+}
+
+function markOwnedRfcRoot(root, slug) {
+  const branch = `codex/${slug.endsWith("-rfc") ? slug : `${slug}-rfc`}`;
+  if (
+    execFileSync("git", ["branch", "--show-current"], { cwd: root, encoding: "utf8" }).trim() !==
+    branch
+  )
+    execFileSync("git", ["branch", "-M", branch], { cwd: root });
+  const remotes = execFileSync("git", ["remote"], { cwd: root, encoding: "utf8" })
+    .split(/\r?\n/)
+    .filter(Boolean);
+  if (!remotes.includes("origin")) {
+    execFileSync("git", ["remote", "add", "origin", root], { cwd: root });
+  } else {
+    execFileSync("git", ["remote", "set-url", "origin", root], { cwd: root });
+  }
+  const base = execFileSync("git", ["rev-parse", "HEAD"], {
+    cwd: root,
+    encoding: "utf8",
+  }).trim();
+  const urlHash = crypto.createHash("sha256").update(root).digest("hex");
+  for (const [key, value] of [
+    [`branch.${branch}.pmArtifactBase`, base],
+    [`branch.${branch}.pmArtifactKind`, "rfc"],
+    [`branch.${branch}.pmArtifactRemote`, "origin"],
+    [`branch.${branch}.pmArtifactDefaultBranch`, "main"],
+    [`branch.${branch}.pmArtifactRemoteUrlSha256`, urlHash],
+  ])
+    execFileSync("git", ["config", key, value], { cwd: root });
 }

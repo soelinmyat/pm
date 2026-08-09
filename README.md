@@ -185,7 +185,9 @@ default branch, fetched from that same delivery URL, so an unrelated dirty sessi
 feature branch cannot be swept into the proposal or RFC commit. Product-source identity
 and private workflow state remain anchored to the consumer repository while proposal and
 RFC artifacts are bound to the isolated knowledge-base worktree. Existing unowned branch
-collisions stop for manual recovery instead of being reused or published.
+collisions stop for manual recovery instead of being reused or published. Fresh RFC
+intake rejects omitted or unowned artifact roots, and resumed Groom work revalidates its
+recorded helper branch and delivery URL before proceeding.
 
 ### Supervised loop rollout
 

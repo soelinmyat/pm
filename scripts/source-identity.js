@@ -64,7 +64,16 @@ function defaultBranchName(gitRoot, remoteName = "origin") {
   try {
     const remote = deliveryUrl(gitRoot, remoteName);
     if (!remote) return "";
-    const output = runGit(["ls-remote", "--symref", "--", remote, "HEAD"], gitRoot);
+    return defaultBranchNameFromUrl(gitRoot, remote);
+  } catch {
+    return "";
+  }
+}
+
+function defaultBranchNameFromUrl(gitRoot, remoteUrl) {
+  if (!gitRoot || !remoteUrl) return "";
+  try {
+    const output = runGit(["ls-remote", "--symref", "--", remoteUrl, "HEAD"], gitRoot);
     const match = output.match(/^ref:\s+refs\/heads\/([^\s]+)\s+HEAD$/m);
     return match && /^[A-Za-z0-9][A-Za-z0-9._/-]{0,200}$/.test(match[1]) ? match[1] : "";
   } catch {
@@ -74,6 +83,7 @@ function defaultBranchName(gitRoot, remoteName = "origin") {
 
 module.exports = {
   defaultBranchName,
+  defaultBranchNameFromUrl,
   deliveryUrl,
   resolveDeliveryRemote,
   sourceRepository,

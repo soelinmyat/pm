@@ -122,6 +122,35 @@ test("fresh Groom context rejects missing and unowned artifact repositories", ()
   }
 });
 
+test("Groom resume rejects drifted helper-owned artifact identity", () => {
+  const sourceRepo = makeRepo();
+  const artifactRepo = makeRepo();
+  try {
+    const artifact = makeOwnedArtifact(artifactRepo, "resume-identity");
+    const session = applyContext(
+      createSession({ slug: "resume-identity", sourceDir: sourceRepo, tier: "quick" }),
+      {
+        title: "Resume identity",
+        outcome: "Reject a retargeted artifact worktree",
+        source_kind: "idea",
+        evidence_refs: [],
+        artifact_repo_root: artifact,
+      }
+    );
+    execFileSync("git", ["remote", "set-url", "--push", "origin", sourceRepo], {
+      cwd: artifact,
+    });
+
+    assert.throws(
+      () => nextDecision(session, "/tmp/session.json"),
+      /delivery URL identity changed/
+    );
+  } finally {
+    fs.rmSync(sourceRepo, { recursive: true, force: true });
+    fs.rmSync(artifactRepo, { recursive: true, force: true });
+  }
+});
+
 test("approval binds exact proposal bytes and revision, and revise invalidates it", () => {
   const repo = makeRepo();
   try {

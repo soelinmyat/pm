@@ -6,7 +6,11 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { runGit } = require("./loop-git.js");
 const { acquireOwnedLock } = require("./lib/owned-lock.js");
-const { defaultBranchName, deliveryUrl, resolveDeliveryRemote } = require("./source-identity.js");
+const {
+  defaultBranchNameFromUrl,
+  deliveryUrl,
+  resolveDeliveryRemote,
+} = require("./source-identity.js");
 
 const KINDS = new Set(["groom", "rfc"]);
 
@@ -59,7 +63,7 @@ function artifactBranch(slug, kind) {
 
 function resolveRemoteDefaultBranch(repoRoot, remote, remoteUrl = deliveryUrl(repoRoot, remote)) {
   if (!remoteUrl) throw new Error(`could not resolve ${remote}'s authoritative push URL`);
-  const branch = defaultBranchName(repoRoot, remote);
+  const branch = defaultBranchNameFromUrl(repoRoot, remoteUrl);
   if (!branch) throw new Error(`could not resolve ${remote}'s default branch`);
   git(repoRoot, [
     "fetch",
