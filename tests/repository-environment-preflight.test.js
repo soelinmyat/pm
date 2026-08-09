@@ -48,6 +48,8 @@ test("runtime range checks remain source-only in installed plugin copies", () =>
   assert.equal(satisfies("18.21.0", "18.18.0 - 18.20.0"), false);
   assert.equal(satisfies("2.4.9", "~2.4"), true);
   assert.equal(satisfies("2.5.0", "~2.4"), false);
+  assert.equal(satisfies("1.2.9", "~>1.2.3"), true);
+  assert.equal(satisfies("1.3.0", "~>1.2.3"), false);
   assert.equal(satisfies("1.5.0", "~1.x"), true);
   assert.equal(satisfies("2.0.0", "~1.x"), false);
   assert.equal(satisfies("0.5.0", "~0.x"), true);
@@ -78,6 +80,9 @@ test("runtime range checks remain source-only in installed plugin copies", () =>
   assert.equal(satisfies("1.0.0", ">=*"), true);
   assert.equal(satisfies("1.5.0", ">* || >=1"), true);
   assert.equal(satisfies("1.2.3", "<x || 1.2.3"), true);
+  assert.equal(satisfies("1.2.1-alpha", ">=0 || 1.2.1-alpha"), false);
+  assert.equal(satisfies("2.0.0-alpha", "<=2.0.0-beta || *"), false);
+  assert.equal(satisfies("2.0.0-alpha", "<=2.0.0-beta ||"), false);
   assert.equal(satisfies("9007199254740992.0.0", "*"), false);
   assert.equal(satisfies("1.2.3-9007199254740992", ">1.2.3-9007199254740991"), true);
   assert.equal(satisfies("1.2.3-9007199254740992", ">1.2.3-9007199254740993"), false);

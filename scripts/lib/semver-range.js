@@ -105,9 +105,9 @@ function partialBounds(parsed) {
 }
 
 function tokenBounds(token) {
-  const match = token.match(/^(\^|~|>=|<=|>|<|=)?\s*(.+)$/);
+  const match = token.match(/^(\^|~>|~|>=|<=|>|<|=)?\s*(.+)$/);
   if (!match) return null;
-  const operator = match[1] || "";
+  const operator = match[1] === "~>" ? "~" : match[1] || "";
   if (match[2] === "*" || /^[xX]$/.test(match[2])) {
     if (operator === ">" || operator === "<")
       return { ...upper(parseVersion("0.0.0-0"), false), prereleaseCores: new Set() };
@@ -237,7 +237,7 @@ function parseAlternative(text) {
     ? [`>=${hyphen[1]}`, `<=${hyphen[2]}`]
     : text
         .trim()
-        .replace(/(\^|~|>=|<=|>|<|=)\s+/g, "$1")
+        .replace(/(\^|~>|~|>=|<=|>|<|=)\s+/g, "$1")
         .split(/\s+/);
   const bounds = {};
   for (const token of tokens.filter(Boolean)) {
@@ -251,9 +251,22 @@ function parseAlternative(text) {
 function parseRange(value) {
   const text = String(value || "").trim() || "*";
   const alternatives = text.split("||").map(parseAlternative);
-  return alternatives.some((item) => item === null)
-    ? null
-    : alternatives.filter((item) => !item.empty);
+  if (alternatives.some((item) => item === null)) return null;
+  const viable = alternatives.filter((item) => !item.empty);
+  const universal = viable.find(isStableUniversal);
+  return universal ? [universal] : viable;
+}
+
+function isStableUniversal(bounds) {
+  if (bounds.upper || (bounds.prereleaseCores && bounds.prereleaseCores.size > 0)) return false;
+  if (!bounds.lower) return true;
+  return (
+    bounds.lowerInclusive &&
+    bounds.lower.prerelease.length === 0 &&
+    bounds.lower.major === 0 &&
+    bounds.lower.minor === 0 &&
+    bounds.lower.patch === 0
+  );
 }
 
 function inNumericBounds(version, bounds) {
