@@ -16,7 +16,7 @@ const ALLOWED_PROBE_KEYS = new Set([
   "working_directory",
 ]);
 const ALLOWED_EXPECTED = new Set(["database", "server", "user"]);
-const EXECUTABLE_DISCOVERY_TIMEOUT_MS = 5000;
+const EXECUTABLE_DISCOVERY_BUDGET_MS = 5000;
 
 function redactText(value) {
   const redacted = String(value)
@@ -81,30 +81,68 @@ function constraintsIntersect(constraints) {
   return semverRange.rangesIntersect(constraints.map((item) => item.constraint));
 }
 
-function defaultResolveRuntime(name, env) {
-  const which = childProcess.spawnSync(process.platform === "win32" ? "where" : "which", [name], {
-    encoding: "utf8",
-    env,
-    shell: false,
-    timeout: EXECUTABLE_DISCOVERY_TIMEOUT_MS,
+function resolveExecutableVersion(name, env, timeoutMs, options = {}) {
+  const now = options.now || Date.now;
+  const spawnSync = options.spawnSync || childProcess.spawnSync;
+  const realpathSync = options.realpathSync || fs.realpathSync;
+  const deadline = now() + Math.max(0, timeoutMs);
+  const missing = (reason = "missing") => ({
+    found: false,
+    path: null,
+    realpath: null,
+    version: null,
+    reason,
   });
-  if (which.status !== 0 || !which.stdout.trim())
-    return { found: false, path: null, realpath: null, version: null, manager: null };
-  const runtimePath = which.stdout.trim().split(/\r?\n/)[0];
-  const version = childProcess.spawnSync(runtimePath, ["--version"], {
+  if (timeoutMs < 1) return missing("discovery-timeout");
+  const which = spawnSync(process.platform === "win32" ? "where" : "which", [name], {
     encoding: "utf8",
     env,
     shell: false,
-    timeout: EXECUTABLE_DISCOVERY_TIMEOUT_MS,
+    timeout: timeoutMs,
     maxBuffer: 8192,
   });
+  if (which.error?.code === "ETIMEDOUT") return missing("discovery-timeout");
+  if (which.status !== 0 || !which.stdout.trim()) return missing();
+  const executablePath = which.stdout.trim().split(/\r?\n/)[0];
+  let realpath;
+  try {
+    realpath = realpathSync(executablePath);
+  } catch {
+    return missing("identity-unavailable");
+  }
+  const remaining = deadline - now();
+  if (remaining < 1) return missing("discovery-timeout");
+  const version = spawnSync(realpath, ["--version"], {
+    encoding: "utf8",
+    env,
+    shell: false,
+    timeout: remaining,
+    maxBuffer: 8192,
+  });
+  if (version.error?.code === "ETIMEDOUT") return missing("discovery-timeout");
+  try {
+    if (realpathSync(executablePath) !== realpath) return missing("identity-drift");
+  } catch {
+    return missing("identity-drift");
+  }
   return {
     found: version.status === 0,
-    path: runtimePath,
-    realpath: fs.realpathSync(runtimePath),
-    version: String(version.stdout || version.stderr)
-      .trim()
-      .replace(/^v/, ""),
+    path: executablePath,
+    realpath,
+    version: String(version.stdout || version.stderr).trim(),
+    reason: version.status === 0 ? null : "version-failed",
+  };
+}
+
+function defaultResolveRuntime(name, env, options = {}) {
+  const executable = resolveExecutableVersion(
+    name,
+    env,
+    options.timeoutMs ?? EXECUTABLE_DISCOVERY_BUDGET_MS
+  );
+  return {
+    ...executable,
+    version: executable.version?.replace(/^v/, "") || null,
     manager: "path",
   };
 }
@@ -167,39 +205,28 @@ function identityFor(resolved, env, services = [], probeExecutables = []) {
   };
 }
 
-function defaultResolveProbeExecutable(env) {
-  const which = childProcess.spawnSync(process.platform === "win32" ? "where" : "which", ["psql"], {
-    encoding: "utf8",
+function defaultResolveProbeExecutable(env, options = {}) {
+  const executable = resolveExecutableVersion(
+    "psql",
     env,
-    shell: false,
-    timeout: EXECUTABLE_DISCOVERY_TIMEOUT_MS,
-  });
-  if (which.status !== 0 || !which.stdout.trim())
-    return { found: false, path: null, realpath: null, version: null };
-  const executable = which.stdout.trim().split(/\r?\n/)[0];
-  const version = childProcess.spawnSync(executable, ["--version"], {
-    encoding: "utf8",
-    env,
-    shell: false,
-    timeout: EXECUTABLE_DISCOVERY_TIMEOUT_MS,
-    maxBuffer: 8192,
-  });
+    options.timeoutMs ?? EXECUTABLE_DISCOVERY_BUDGET_MS
+  );
   return {
-    found: version.status === 0,
-    path: executable,
-    realpath: fs.realpathSync(executable),
-    version: redactText(version.stdout || version.stderr).trim(),
+    ...executable,
+    version: executable.version ? redactText(executable.version) : null,
   };
 }
 
 function verifyEnvironment(plan, options = {}) {
+  const now = options.now || Date.now;
   const expectations = plan.expectations || { runtimes: [], probes: [] },
     env = options.env || process.env,
     issues = [],
     resolved = [],
     services = [],
     probeExecutables = [],
-    probeExecutableCache = new Map();
+    probeExecutableCache = new Map(),
+    discoveryDeadline = now() + (options.discoveryBudgetMs ?? EXECUTABLE_DISCOVERY_BUDGET_MS);
   const local = (expectations.runtimes || []).filter((x) => x.scope !== "ci");
   for (const name of [...new Set(local.map((x) => x.name))]) {
     const declarations = local.filter((x) => x.name === name);
@@ -210,12 +237,17 @@ function verifyEnvironment(plan, options = {}) {
       });
       continue;
     }
-    const actual = (options.resolveRuntime || defaultResolveRuntime)(name, env);
+    const actual = (options.resolveRuntime || defaultResolveRuntime)(name, env, {
+      timeoutMs: Math.max(0, discoveryDeadline - now()),
+    });
     resolved.push({ name, ...actual });
     if (!actual.found || declarations.some((x) => !satisfies(actual.version, x.constraint)))
       issues.push({
         kind: "runtime-mismatch",
-        message: `${name} expected ${declarations.map((x) => `${x.constraint} from ${x.source}`).join(" and ")}; resolved ${actual.version || "missing"} at ${actual.realpath || actual.path || "PATH"}. Install/select the declared runtime.`,
+        message:
+          actual.reason === "discovery-timeout"
+            ? `${name} executable discovery exceeded the bounded preflight budget`
+            : `${name} expected ${declarations.map((x) => `${x.constraint} from ${x.source}`).join(" and ")}; resolved ${actual.version || "missing"} at ${actual.realpath || actual.path || "PATH"}. Install/select the declared runtime.`,
       });
   }
   for (const probe of expectations.probes || []) {
@@ -224,9 +256,18 @@ function verifyEnvironment(plan, options = {}) {
       if (!options.identityKey) throw new Error("machine-local identity secret is required");
       if (!probeExecutableCache.has(probe.adapter)) {
         try {
-          const executable = (options.resolveProbeExecutable || defaultResolveProbeExecutable)(env);
+          const executable = (options.resolveProbeExecutable || defaultResolveProbeExecutable)(
+            env,
+            {
+              timeoutMs: Math.max(0, discoveryDeadline - now()),
+            }
+          );
           if (!executable?.found || !executable.realpath || !executable.version)
-            throw new Error("probe executable identity could not be verified");
+            throw new Error(
+              executable?.reason === "discovery-timeout"
+                ? "probe executable discovery exceeded the bounded preflight budget"
+                : "probe executable identity could not be verified"
+            );
           probeExecutableCache.set(probe.adapter, { executable });
           probeExecutables.push({
             adapter: probe.adapter,
@@ -307,6 +348,7 @@ module.exports = {
   satisfies,
   constraintsIntersect,
   defaultProbeRunner,
+  resolveExecutableVersion,
   identityFor,
   defaultResolveProbeExecutable,
   sanitizeDiagnosticValue,

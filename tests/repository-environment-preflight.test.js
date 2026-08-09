@@ -9,6 +9,7 @@ const childProcess = require("node:child_process");
 const {
   constraintsIntersect,
   defaultProbeRunner,
+  resolveExecutableVersion,
   verifyEnvironment,
   validateProbeDeclaration,
   keyedIdentity,
@@ -159,6 +160,73 @@ test("production preflight CLI passes the configured machine-local probe identit
   );
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(result.stdout).status, "verified");
+});
+
+test("executable discovery shares one bounded budget and rejects identity drift", () => {
+  let clock = 0;
+  const versionCalls = [];
+  let spawnCount = 0;
+  let realpathCount = 0;
+  const executable = resolveExecutableVersion("node", { PATH: "/bin" }, 5000, {
+    now: () => clock,
+    spawnSync(command, args, options) {
+      spawnCount++;
+      if (spawnCount === 1) {
+        clock = 3000;
+        return { status: 0, stdout: "/shim/node\n", stderr: "" };
+      }
+      versionCalls.push({ command, args, timeout: options.timeout });
+      return { status: 0, stdout: "v20.0.0\n", stderr: "" };
+    },
+    realpathSync() {
+      realpathCount++;
+      return realpathCount === 1 ? "/runtime/node" : "/runtime/replaced-node";
+    },
+  });
+  assert.equal(executable.found, false);
+  assert.equal(executable.reason, "identity-drift");
+  assert.deepEqual(versionCalls, [
+    { command: "/runtime/node", args: ["--version"], timeout: 2000 },
+  ]);
+
+  let budgetClock = 0;
+  const runtimeBudgets = [];
+  const probeBudgets = [];
+  const result = verifyEnvironment(
+    {
+      expectations: {
+        runtimes: [
+          { name: "node", constraint: "1.0.0", source: "a", scope: "local" },
+          { name: "ruby", constraint: "1.0.0", source: "b", scope: "local" },
+        ],
+        probes: [
+          {
+            adapter: "postgres-identity-v1",
+            provenance: "authenticated",
+            expected: { database: "db" },
+          },
+        ],
+      },
+    },
+    {
+      now: () => budgetClock,
+      discoveryBudgetMs: 5000,
+      identityKey: "machine-local-probe-key-32-bytes!",
+      resolveRuntime(_name, _env, options) {
+        runtimeBudgets.push(options.timeoutMs);
+        budgetClock += 3000;
+        return { found: true, path: "/tool", realpath: "/tool", version: "1.0.0" };
+      },
+      resolveProbeExecutable(_env, options) {
+        probeBudgets.push(options.timeoutMs);
+        return { found: false, reason: "discovery-timeout" };
+      },
+    }
+  );
+  assert.deepEqual(runtimeBudgets, [5000, 2000]);
+  assert.deepEqual(probeBudgets, [0]);
+  assert.equal(result.status, "blocked");
+  assert.match(result.issues[0].message, /bounded preflight budget/);
 });
 
 function basePlan(overrides = {}) {
