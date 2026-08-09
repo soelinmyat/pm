@@ -2,6 +2,15 @@
 
 PM now ships a native Codex plugin manifest at `.codex-plugin/plugin.json`.
 
+After installation, PM automatically discovers repository-native delivery
+capabilities and selects the safest supported route with zero consumer edits.
+The review-first route requires an explicitly authorized machine-readable
+candidate-publication policy; without it, including under CleanLog's current
+contract, PM uses comprehensive Review → Push → PR → CI ordering and reports
+what capability is unavailable. `PM_DELIVERY_COMPREHENSIVE=1` is the single
+kill switch for forcing that comprehensive behavior. Guidance is read-only;
+repository or GitHub setup requires separate explicit authority.
+
 Until your Codex install loads this repository as a plugin directly, the generated skill-symlink flow below remains the compatible fallback. It uses the same canonical plugin metadata and current skill inventory as the other platform manifests.
 
 When Codex loads PM as a native plugin, product skills appear under the plugin namespace, including `pm:think`, `pm:ideate`, `pm:strategy`, `pm:features`, `pm:groom`, `pm:research`, `pm:ingest`, and `pm:refresh`. Product-reasoning skills keep Markdown as the primary reader while writing small validated JSON companions for stable decisions, ranking, promotion, and feature identity.
