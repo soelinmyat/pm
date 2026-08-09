@@ -39,6 +39,30 @@ Transition the candidate to `reviewing` and initialize `.pm/dev-sessions/{slug}/
 
 Call `evaluateConvergence` only after refreshing every source and the required conversation count. Proceed only when every required source passed on the exact head and there are **zero unresolved required conversations**. Then transition the canonical candidate to `review-converged` and hand the exact head to final certification. A later finding or mutation returns to `reviewing` before certification can run.
 
+### Candidate route: finalization boundary
+
+After convergence and before CI, freeze the exact converged head and finish the certification that the candidate route deliberately deferred:
+
+1. Reload the canonical session, release transaction, gates, delivery plan, discovery receipt, and convergence record. Require the transaction's prepared commit to equal the exact converged head. A missing transaction, late version preparation, changed HEAD, stale requirement source, or changed plan/config/tool identity invalidates the candidate and returns to Review; never mutate the version here.
+2. Require current passed Review, QA, and verification artifacts for that prepared commit, bind their exact hashes with `release-transaction.js bind-evidence`, and require `release-transaction.js status` to report `ready: true`. Review convergence is additional evidence; it does not replace the canonical PM Review artifact.
+3. Run `release-transaction.js finalize-candidate` through the production finalizer with canonical project-relative paths and the authenticated discovery receipt:
+
+   ```bash
+   node "$PM_PLUGIN_ROOT/scripts/release-transaction.js" finalize-candidate \
+     --session ".pm/dev-sessions/{slug}/session.json" \
+     --transaction ".pm/dev-sessions/{slug}/ship/release-transaction.json" \
+     --gates ".pm/dev-sessions/{slug}/gates.json" \
+     --plan ".pm/dev-sessions/{slug}/ship/repository-delivery-plan.json" \
+     --discovery-receipt ".pm/dev-sessions/{slug}/ship/repository-discovery.json" \
+     --discovery-receipt-sha256 "sha256:{64 lowercase hex}" \
+     --certification ".pm/dev-sessions/{slug}/ship/repository-gate-certification.json" \
+     --attestation ".pm/dev-sessions/{slug}/ship/delivery-attestation.json" \
+     --json
+   ```
+
+4. Re-read every canonical file. Require a passing, externally signed complete certification and final-candidate attestation bound to the prepared commit, release generation, exact complete command set, evidence hashes, destination, and ref update. Require the candidate state to be `certifying`. Any mismatch returns to Review; prose success is not evidence.
+5. Only after those checks pass may Ship enter CI. Do not run a second final certification for the comprehensive route.
+
 When the candidate route was not selected, follow the comprehensive PR path below unchanged.
 
 Build and plan the exact `create-pr` target with repository, head, base, and prepared head commit. The runtime will refuse it until `push` is verified. Observe existing PRs by all target dimensions before deciding whether creation is needed. Record a matching existing PR through `begin` plus `reconcile matched`; it is an idempotent success, not a reason to create another PR.
@@ -128,6 +152,6 @@ Then run the Product Memory steps (backlog `prs` write is skipped — no merge y
 
 ## Done-when
 
-On the optimized route, exactly one open draft PR matches contracted repository/head/base identity, every required review source has passed on its exact current head, zero required conversations remain unresolved, and the canonical candidate is `review-converged`; no readiness, certification, or merge authority was claimed. On the comprehensive route, exactly one PR has passed the contracted repository/head/base/prepared-commit identity check, the `create-pr` effect is observed as `verified`, any PR mutation had explicit `create_pr` authority, and merge behavior is resolved without treating a preference as consent.
+On the optimized route, exactly one open draft PR matches contracted repository/head/base identity, every required review source has passed on its exact current head, zero required conversations remain unresolved, and the exact prepared commit has a current signed final-candidate attestation with candidate state `certifying`; merge authority is still not implied. On the comprehensive route, exactly one PR has passed the contracted repository/head/base/prepared-commit identity check, the `create-pr` effect is observed as `verified`, any PR mutation had explicit `create_pr` authority, and merge behavior is resolved without treating a preference as consent.
 
 **Advance:** proceed to Step 6 (CI Monitor), then Step 7 only according to the explicit merge-authority and auto-merge branch; otherwise emit the green-PR early-exit report.

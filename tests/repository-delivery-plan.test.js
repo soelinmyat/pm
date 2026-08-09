@@ -50,6 +50,21 @@ test("delivery planning compiles each unique command glob only once", () => {
   assert.equal(compilations, 3);
 });
 
+test("brace alternatives compile nested glob tokens without under-selecting commands", () => {
+  const plan = buildDeliveryPlan({
+    root: "/repo",
+    changedPaths: ["apps/mobile/x.js"],
+    commands: {
+      "brace-quality": { glob: "apps/{mobile/*,web/?}.js", run: "pnpm brace" },
+      fallback: { glob: "apps/**", run: "pnpm fallback" },
+    },
+    capabilities: {},
+    refUpdates: [`refs/heads/x ${OLD_SHA} refs/heads/x ${NEW_SHA}`],
+  });
+
+  assert.deepEqual(plan.complete_commands, ["brace-quality", "fallback"]);
+});
+
 const commands = {
   "mobile-quality": { glob: "apps/mobile/**/*.{ts,tsx}", run: "pnpm --filter mobile test" },
   "shared-checks": { glob: "{apps/mobile,packages/shared}/**/*.{ts,tsx}", run: "pnpm shared" },

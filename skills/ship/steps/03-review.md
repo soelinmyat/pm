@@ -24,13 +24,24 @@ If any fact is absent, candidate-authored, ambiguous, or stale, select **existin
 
 For the capability-proven candidate route:
 
-1. Resolve and freeze the exact delivery remote and authority as described below, but do not prepare a version release or claim final certification.
+Before running candidate Review, resolve and freeze the exact delivery remote and authority, create the canonical delivery contract, and establish the release transaction using the shared procedures below. For a versioned delivery, run the repository-prescribed command now, before the Review target is frozen:
+
+```bash
+npm run prepare-release -- {patch|minor|major|x.y.z} \
+  --session ".pm/dev-sessions/{slug}/session.json"
+```
+
+For a delivery-only transaction, run `release-transaction.js initialize` now. Read the transaction back and require its prepared commit to equal the exact current HEAD before continuing. This is release preparation, not certification: do not bind final evidence, execute complete gates, or claim readiness here. Never prepare or commit a version mutation after convergence; any later HEAD mutation invalidates the candidate and returns to Review.
+
+Then follow the optimized route:
+
+1. Revalidate the frozen delivery remote, authority, delivery contract, and prepared transaction without changing HEAD.
 2. Run `pm:review` in branch mode against the current exact head. A current local diff review is mandatory even when prior evidence exists.
 3. Re-run the repository environment preflight, then execute the current delivery plan in `targeted` mode through `repository-gate-runner.js`. Require `status: passed`; `comprehensive`, blocked, failed, or stale results select the legacy comprehensive path before publication.
 4. Revalidate protected candidate-publication permission and exact adapter coverage after the targeted run. Transition the canonical candidate to `review-candidate`; require draft-only candidate authority and the separate canonical user grants for push and PR creation.
 5. Advance to Push without binding final certification evidence. The draft review surface exists to collect feedback before that expensive boundary.
 
-After candidate condition 5 succeeds, do not execute the comprehensive preparation sections in this step; advance directly to Step 04. The remainder of this step is the preserved comprehensive path. It also remains the path for standalone Ship and every capability fallback. This step owns preparation of the final release transaction and creation of the run-scoped delivery contract; later steps validate them but must not silently replace either identity.
+After candidate condition 5 succeeds, do not execute the shared preparation sections a second time or enter the comprehensive evidence-binding path; advance directly to Step 04. The remainder of this step is the preserved comprehensive path. It also remains the path for standalone Ship and every capability fallback. This step owns preparation of the final release transaction and creation of the run-scoped delivery contract; later steps validate them but must not silently replace either identity.
 
 If no canonical `session.json` exists (standalone Ship invocation), create it before Review:
 

@@ -60,3 +60,21 @@ test("candidate contract marks effects before publication and supports both Git 
   assert.match(text, /40- or 64-character Git object ID/);
   assert.doesNotMatch(text, /one 40-character feature-head SHA/);
 });
+
+test("optimized Ship prepares the version before review and finalizes before CI", () => {
+  const review = fs.readFileSync(path.join(ROOT, "skills/ship/steps/03-review.md"), "utf8");
+  const createPr = fs.readFileSync(path.join(ROOT, "skills/ship/steps/05-create-pr.md"), "utf8");
+  const ci = fs.readFileSync(path.join(ROOT, "skills/ship/steps/06-ci-monitor.md"), "utf8");
+
+  const prepare = review.indexOf("npm run prepare-release");
+  const candidateReview = review.indexOf("Run `pm:review` in branch mode", prepare);
+  assert.ok(prepare >= 0 && candidateReview > prepare, "version preparation must precede review");
+  assert.match(review, /never prepare or commit a version mutation after convergence/i);
+
+  const converged = createPr.indexOf("`review-converged`");
+  const finalize = createPr.indexOf("release-transaction.js finalize-candidate", converged);
+  const advance = createPr.indexOf("**Advance:**", finalize);
+  assert.ok(converged >= 0 && finalize > converged && advance > finalize);
+  assert.match(createPr, /prepared commit.*exact converged head/is);
+  assert.match(ci, /before monitoring CI.*final-candidate attestation/is);
+});

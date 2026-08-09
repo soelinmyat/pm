@@ -39,7 +39,7 @@ function discoveryOptions(receipt, authority = {}) {
   };
 }
 
-function globToRegex(glob) {
+function globSource(glob) {
   let source = "",
     i = 0;
   while (i < glob.length) {
@@ -69,7 +69,7 @@ function globToRegex(glob) {
         source += `(?:${glob
           .slice(i + 1, end)
           .split(",")
-          .map((x) => x.replace(/[.+^$()|[\]\\]/g, "\\$&"))
+          .map(globSource)
           .join("|")})`;
         i = end + 1;
         continue;
@@ -78,7 +78,11 @@ function globToRegex(glob) {
     source += glob[i].replace(/[.+^$()|[\]\\]/g, "\\$&");
     i++;
   }
-  return new RegExp(`^${source}$`);
+  return source;
+}
+
+function globToRegex(glob) {
+  return new RegExp(`^${globSource(glob)}$`);
 }
 
 function compileCommand(command, compileGlob = globToRegex) {

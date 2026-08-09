@@ -16,6 +16,8 @@ Monitor CI to green, auto-fixing failures up to 3 rounds.
 
 Read and validate `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/release-transaction.md` and `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/delivery-contract.md`. Require verified `push` and `create-pr` effects, then use only their bound `GH_REPO`, `HEAD_BRANCH`, `BASE_BRANCH`, prepared commit, and PR number; never use ambient `gh` repository discovery.
 
+Before monitoring CI on the optimized route, verify the canonical final-candidate attestation created by Step 05. Its commit must equal the release transaction's prepared commit and the observed remote branch tip, its signed complete certification must remain valid, and the canonical candidate state must be `certifying`. Missing or stale evidence returns to Review and finalization; CI cannot create or substitute for this attestation.
+
 When CI concludes `success` on the latest run, proceed to the merge loop; if 3 fix attempts are exhausted, stop and ask the user for guidance.
 
 ### Watch CI run
