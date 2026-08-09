@@ -5,7 +5,12 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const childProcess = require("node:child_process");
-const { discoverRepositoryCapabilities } = require("../scripts/lib/repository-capabilities");
+const {
+  discoverRepositoryCapabilities,
+  instructionFiles,
+  receiptAuthentication,
+} = require("../scripts/lib/repository-capabilities");
+const { stableObjectHmac } = require("../scripts/lib/stable-authentication");
 const { digest } = require("../scripts/lib/repository-gate-plan-schema");
 const { keyedIdentity } = require("../scripts/repository-environment-preflight");
 const COMMAND_IDENTITY = `sha256:${"a".repeat(64)}`;
@@ -69,6 +74,21 @@ test("discovers instructions, runtimes, hooks, workflows and policy without writ
   assert.equal(found.hooks.pre_push.exists, true);
   assert.deepEqual(snapshot(root), before);
   fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("instruction fallback scanning has a hard visited-entry bound", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-instruction-bound-"));
+  for (let index = 0; index < 5; index += 1)
+    fs.mkdirSync(path.join(root, `wide-${index}`), { recursive: true });
+  assert.throws(() => instructionFiles(root, 128, 4), /entry budget/);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("receipt and delivery authentication share stable-object HMAC bytes", () => {
+  const value = { z: 1, nested: { b: 2, a: 1 }, authentication: "old" };
+  const key = Buffer.alloc(32, 6);
+  assert.equal(receiptAuthentication(value, key), stableObjectHmac(value, key));
+  assert.equal(stableObjectHmac(value, Buffer.alloc(8)), null);
 });
 
 test("merged Lefthook JSON supplies exact command identities without executing commands", () => {

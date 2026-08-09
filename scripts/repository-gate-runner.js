@@ -19,6 +19,7 @@ const {
 } = require("./repository-environment-preflight");
 const { stable } = require("./lib/repository-gate-plan-schema");
 const { discoverRepositoryCapabilities } = require("./lib/repository-capabilities");
+const { isGitObjectId, sameObjectIdFormat, zeroObjectIdLike } = require("./lib/git-object-id");
 
 function fallback(options, reason) {
   if (typeof options.comprehensivePush !== "function")
@@ -133,7 +134,9 @@ function validatePlannedRefUpdate(plan, mode, options) {
   const liveRemoteSource =
     typeof options.resolveRemoteSourceRef === "function"
       ? options.resolveRemoteSourceRef(plan.repository_root, plan.remote.url, remoteRef)
-      : resolveRemoteSourceRef(plan.repository_root, plan.remote.url, remoteRef);
+      : resolveRemoteSourceRef(plan.repository_root, plan.remote.url, remoteRef, plan.head_commit);
+  if (!sameObjectIdFormat(liveRemoteSource, plan.head_commit))
+    throw new Error("live feature branch object format differs from the planned head");
   if (mode === "targeted") {
     if (remoteSha === localSha || remoteSha !== liveRemoteSource)
       throw new Error("planned feature branch old OID differs from the live remote ref");
@@ -169,7 +172,7 @@ function validatePlannedRefUpdate(plan, mode, options) {
     throw new Error("authenticated default branch differs from the planned base");
 }
 
-function resolveRemoteSourceRef(root, remoteUrl, remoteRef) {
+function resolveRemoteSourceRef(root, remoteUrl, remoteRef, expectedOid) {
   const result = childProcess.spawnSync(
     "git",
     ["ls-remote", "--refs", "--", remoteUrl, remoteRef],
@@ -182,10 +185,16 @@ function resolveRemoteSourceRef(root, remoteUrl, remoteRef) {
     }
   );
   if (result.status !== 0) throw new Error("live feature branch identity is unavailable");
-  if (!result.stdout.trim()) return "0".repeat(40);
+  if (!result.stdout.trim()) return zeroObjectIdLike(expectedOid);
   const rows = result.stdout.trim().split(/\r?\n/);
-  const fields = rows[0].split(/\s+/);
-  if (rows.length !== 1 || fields.length !== 2 || fields[1] !== remoteRef)
+  const fields = rows[0].split("\t");
+  if (
+    rows.length !== 1 ||
+    fields.length !== 2 ||
+    !isGitObjectId(fields[0]) ||
+    !sameObjectIdFormat(fields[0], expectedOid) ||
+    fields[1] !== remoteRef
+  )
     throw new Error("live feature branch identity is malformed");
   return fields[0];
 }

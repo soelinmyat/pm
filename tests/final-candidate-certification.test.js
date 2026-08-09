@@ -8,6 +8,7 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const childProcess = require("node:child_process");
 const { finalizeCanonicalFiles, publicKeyIdentity } = require("../scripts/delivery-attestation");
+const { readProjectInput } = require("../scripts/lib/safe-project-output");
 const {
   createSession,
   grantAuthority,
@@ -117,6 +118,7 @@ test("production canonical-file finalization writes once per transaction generat
     certification: ".pm/dev-sessions/change/ship/final-certification.json",
     attestation: ".pm/dev-sessions/change/ship/delivery-attestation.json",
   };
+  let reviewReads = 0;
   const options = {
     signer: (bytes) => crypto.sign(null, bytes, keys.privateKey),
     signerId: signerIdentity,
@@ -125,8 +127,13 @@ test("production canonical-file finalization writes once per transaction generat
       runs++;
       return { outcome: "passed" };
     },
+    readProjectInput: (...input) => {
+      if (input[1] === review) reviewReads += 1;
+      return readProjectInput(...input);
+    },
   };
   assert.equal(finalizeCanonicalFiles(args, options).decision, "certified");
+  assert.equal(reviewReads, 1);
   assert.equal(finalizeCanonicalFiles(args, options).decision, "already-certified");
   assert.equal(runs, 1);
   assert.equal(fs.statSync(path.join(root, args.certification)).mode & 0o777, 0o600);

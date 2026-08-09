@@ -79,6 +79,23 @@ test("planned feature ref accepts first push and binds retries to the live prior
   }
 });
 
+test("planned feature refs preserve SHA-256 object-ID width", () => {
+  const { root, plan, options } = fixture();
+  plan.head_commit = "a".repeat(64);
+  plan.base_commit = "b".repeat(64);
+  const zero = "0".repeat(64);
+  plan.remote.stdin = `refs/heads/x ${plan.head_commit} refs/heads/x ${zero}\n`;
+  const result = runRepositoryGates(plan, "targeted", {
+    ...options,
+    resolveHead: () => plan.head_commit,
+    resolveDefaultRef: () => plan.base_commit,
+    resolveRemoteSourceRef: () => zero,
+    spawnSync: () => ({ status: 0, stdout: "", stderr: "" }),
+  });
+  assert.equal(result.status, "passed", JSON.stringify(result));
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 test("planned feature ref rejects a stale old OID", () => {
   const { root, plan, options } = fixture();
   const result = runRepositoryGates(plan, "targeted", {

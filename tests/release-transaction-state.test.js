@@ -46,6 +46,18 @@ test("attestation reuse resolves the live protected branch commit", (t) => {
   );
 });
 
+test("protected branch resolution accepts SHA-256 object IDs", () => {
+  const expected = "a".repeat(64);
+  assert.equal(
+    resolveProtectedPolicyCommit(
+      process.cwd(),
+      { source: { delivery_remote: "origin", base_branch: "main" } },
+      () => ({ status: 0, stdout: `${expected}\trefs/heads/main\n` })
+    ),
+    expected
+  );
+});
+
 function transaction() {
   return createReleaseTransaction({
     runId: "dev_release_1",

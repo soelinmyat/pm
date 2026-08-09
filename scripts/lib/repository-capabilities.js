@@ -4,8 +4,10 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const childProcess = require("node:child_process");
-const { digest, stable } = require("./repository-gate-plan-schema");
+const { digest } = require("./repository-gate-plan-schema");
 const { readProjectInput } = require("./safe-project-output");
+const { stableObjectHmac } = require("./stable-authentication");
+const { isGitObjectId } = require("./git-object-id");
 
 const MAX_FILE = 1024 * 1024;
 
@@ -94,17 +96,45 @@ function workflowFiles(root) {
     .map((x) => `.github/workflows/${x}`);
 }
 
-function instructionFiles(root, limit = 128) {
+function instructionFiles(root, limit = 128, maxEntries = 4096) {
+  const names = ["AGENTS.md", "CLAUDE.md", ".codex.md"];
+  const inventory = childProcess.spawnSync(
+    "git",
+    [
+      "ls-files",
+      "-co",
+      "--exclude-standard",
+      "-z",
+      "--",
+      ...names,
+      ...names.map((name) => `:(glob)**/${name}`),
+    ],
+    {
+      cwd: root,
+      encoding: "utf8",
+      shell: false,
+      timeout: 5000,
+      maxBuffer: 256 * 1024,
+    }
+  );
+  if (!inventory.error && inventory.status === 0) {
+    const files = inventory.stdout.split("\0").filter(Boolean);
+    if (files.length > limit) throw new Error("instruction file count exceeds limit");
+    return files.filter((file) => file.split("/").length - 1 <= 4).sort();
+  }
   const found = [];
+  let visited = 0;
   const walk = (dir, depth) => {
     if (depth > 4 || found.length >= limit) return;
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      visited += 1;
+      if (visited > maxEntries) throw new Error("instruction discovery exceeded entry budget");
       if (found.length >= limit || [".git", "node_modules", ".pm", "pm"].includes(entry.name))
         continue;
       const absolute = path.join(dir, entry.name);
       if (entry.isSymbolicLink()) continue;
       if (entry.isDirectory()) walk(absolute, depth + 1);
-      else if (["AGENTS.md", "CLAUDE.md", ".codex.md"].includes(entry.name))
+      else if (names.includes(entry.name))
         found.push(path.relative(root, absolute).split(path.sep).join("/"));
     }
   };
@@ -113,14 +143,7 @@ function instructionFiles(root, limit = 128) {
 }
 
 function receiptAuthentication(receipt, key) {
-  const material = { ...receipt };
-  delete material.authentication;
-  const keyBytes = Buffer.isBuffer(key) ? key : Buffer.from(String(key || ""));
-  if (keyBytes.length < 32) return null;
-  return `hmac-sha256:${crypto
-    .createHmac("sha256", keyBytes)
-    .update(JSON.stringify(stable(material)))
-    .digest("hex")}`;
+  return stableObjectHmac(receipt, key);
 }
 
 function equalAuthentication(expected, actual) {
@@ -139,8 +162,8 @@ function verifyDiscoveryReceipt(root, options) {
     typeof receipt.identity !== "string" ||
     receipt.identity !== options.expectedDiscoveryIdentity ||
     receipt.repository_root !== root ||
-    !/^[0-9a-f]{40,64}$/i.test(receipt.repository_head || "") ||
-    !/^[0-9a-f]{40,64}$/i.test(receipt.protected_commit || "") ||
+    !isGitObjectId(receipt.repository_head) ||
+    !isGitObjectId(receipt.protected_commit) ||
     receipt.protected_commit !== options.expectedProtectedCommit ||
     receipt.expected_default_ref !== options.expectedDefaultRef ||
     !receipt.default_branch ||
@@ -329,13 +352,13 @@ function verifyProtectedCommitAuthority(root, options, discoveryReceipt) {
   const commit = discoveryReceipt?.protected_commit;
   const receipt = discoveryReceipt?.default_branch;
   if (
-    !/^[0-9a-f]{40,64}$/i.test(commit || "") ||
+    !isGitObjectId(commit) ||
     commit !== options.expectedProtectedCommit ||
     typeof receipt.identity !== "string" ||
     receipt.ref !== options.expectedDefaultRef ||
     !/^[A-Za-z0-9._-]+$/.test(receipt.remote || "") ||
     !String(receipt.ref || "").startsWith(`refs/remotes/${receipt.remote}/`) ||
-    !/^[0-9a-f]{40,64}$/i.test(receipt.commit || "") ||
+    !isGitObjectId(receipt.commit) ||
     typeof receipt.remote_url !== "string" ||
     !receipt.remote_url ||
     receipt.commit !== commit
@@ -578,6 +601,7 @@ function discoverRepositoryCapabilities(rootInput, options = {}) {
 module.exports = {
   safeRead,
   discoverRepositoryCapabilities,
+  instructionFiles,
   parseLefthookDump,
   resolvePrePushHook,
   receiptAuthentication,

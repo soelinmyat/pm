@@ -45,6 +45,9 @@ const { readProjectInput } = require(
 const { validateSession } = require(
   path.join(HOOK_ROOT, "scripts", "lib", "dev-session-schema.js")
 );
+const { isGitObjectId, zeroObjectIdLike } = require(
+  path.join(HOOK_ROOT, "scripts", "lib", "git-object-id.js")
+);
 const {
   consumePushAuthorization,
   deriveBypassPurposes,
@@ -2224,7 +2227,7 @@ function gatePush(baseCwd, push) {
       ["rev-parse", "--verify", `${pushed.source}^{commit}`],
       gitDir
     );
-    if (!/^[a-f0-9]{40,64}$/.test(pushedSha)) {
+    if (!isGitObjectId(pushedSha)) {
       blockUnverified(
         branch,
         manifestRel,
@@ -2299,10 +2302,15 @@ function gatePush(baseCwd, push) {
         if (remoteState.status !== 0) throw new Error("live remote state is unavailable");
         const liveRefs = new Map();
         for (const line of remoteState.stdout.trim().split("\n").filter(Boolean)) {
-          const match = line.match(/^([0-9a-f]{40})\t([^\s]+)$/);
-          if (!match || !requestedRefs.includes(match[2]) || liveRefs.has(match[2]))
+          const fields = line.replace(/\r$/, "").split("\t");
+          if (
+            fields.length !== 2 ||
+            !isGitObjectId(fields[0]) ||
+            !requestedRefs.includes(fields[1]) ||
+            liveRefs.has(fields[1])
+          )
             throw new Error("live remote state is malformed");
-          liveRefs.set(match[2], match[1]);
+          liveRefs.set(fields[1], fields[0]);
         }
         if (liveRefs.get(defaultRef) !== plan.base_commit)
           throw new Error("protected policy is not from the live remote default branch");
@@ -2324,7 +2332,7 @@ function gatePush(baseCwd, push) {
         )
           throw new Error("trusted public key is unavailable");
         const publicKey = crypto.createPublicKey(fs.readFileSync(publicKeyPath));
-        const oldOid = liveRefs.get(branchRef) || "0".repeat(40);
+        const oldOid = liveRefs.get(branchRef) || zeroObjectIdLike(plan.head_commit);
         const attempt = transaction.effects?.push?.attempts?.at(-1);
         const consumptionDir = path.join(canonicalSessionDir, "ship", "push-authorizations");
         const verdict = consumePushAuthorization(

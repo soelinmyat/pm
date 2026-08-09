@@ -4,7 +4,7 @@ const crypto = require("node:crypto");
 const { bindEffectReceipt } = require("./workflow-runtime/effect-receipt");
 const { isObject, stableStringify } = require("./workflow-runtime/records");
 
-const SHA = /^[a-f0-9]{40,64}$/;
+const SHA = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 const SHA256 = /^sha256:[a-f0-9]{64}$/;
 const VERSION = /^\d+\.\d+\.\d+$/;
 const EFFECT_DEFINITIONS = Object.freeze({

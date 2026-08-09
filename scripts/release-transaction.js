@@ -8,6 +8,7 @@ const os = require("node:os");
 const { spawnSync } = require("node:child_process");
 const { writeJsonAtomic } = require("./lib/atomic-file");
 const { acquireOwnedLock } = require("./lib/owned-lock");
+const { isGitObjectId } = require("./lib/git-object-id");
 const { beginSegment, finishSegment, recoverInterruptedSegments } = require("./delivery-telemetry");
 const {
   verifyDeliveryAttestation,
@@ -452,9 +453,10 @@ function resolveProtectedPolicyCommit(root, transaction, run = spawnSync) {
     .filter(Boolean);
   if (result.status !== 0 || lines.length !== 1)
     throw new Error("live protected branch commit is unavailable");
-  const match = lines[0].match(/^([0-9a-f]{40})\t(.+)$/);
-  if (!match || match[2] !== ref) throw new Error("live protected branch commit is malformed");
-  return match[1];
+  const fields = lines[0].split("\t");
+  if (fields.length !== 2 || !isGitObjectId(fields[0]) || fields[1] !== ref)
+    throw new Error("live protected branch commit is malformed");
+  return fields[0];
 }
 
 function resolveInputFile(value, cwd, label) {

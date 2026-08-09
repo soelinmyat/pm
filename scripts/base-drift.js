@@ -5,8 +5,7 @@ const { verifyMergeResultReceipt } = require("./pr-state.js");
 const childProcess = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
-
-const SHA = /^[0-9a-f]{40,64}$/i;
+const { isGitObjectId } = require("./lib/git-object-id");
 
 function validPaths(value) {
   return (
@@ -105,7 +104,7 @@ function changedPaths(root, range) {
 function classifyGitBaseDrift(input, options = {}) {
   const root = fs.realpathSync(path.resolve(input.root));
   for (const field of ["previous_base", "current_base", "head"])
-    if (!SHA.test(input[field] || "")) throw new Error(`${field} must be an exact commit`);
+    if (!isGitObjectId(input[field])) throw new Error(`${field} must be an exact commit`);
   for (const commit of [input.previous_base, input.current_base, input.head])
     if (git(root, ["rev-parse", "--verify", `${commit}^{commit}`]) !== commit)
       throw new Error("drift commit identity mismatch");

@@ -2,8 +2,8 @@
 "use strict";
 
 const { isRfc3339DateTime } = require("./lib/iso-time");
+const { isGitObjectId } = require("./lib/git-object-id");
 
-const SHA = /^[0-9a-f]{40}$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
 const SOURCE = /^[a-z0-9][a-z0-9._:-]{0,127}$/i;
 const OUTCOMES = new Set(["pending", "passed", "blocking", "unavailable"]);
@@ -25,7 +25,8 @@ function requireTimestamp(value, field) {
 }
 
 function requireHead(value) {
-  if (!SHA.test(value || "")) throw new TypeError("head must be a 40-character lowercase SHA");
+  if (!isGitObjectId(value))
+    throw new TypeError("head must be a 40- or 64-character lowercase Git object ID");
   return value;
 }
 
@@ -131,6 +132,8 @@ function recordReviewSource(current, input) {
   )
     return state;
   assertMonotonicObservation(state, previous?.recorded_at, at);
+  if (previous?.outcome === "blocking" && input.outcome !== "blocking")
+    throw new Error("a review blocker requires a head mutation before it can be cleared");
   state.sources[source] = { outcome: input.outcome, finding, recorded_at: at };
   state.status = input.outcome === "unavailable" ? "awaiting-decision" : "reviewing";
   state.awaiting_decision =

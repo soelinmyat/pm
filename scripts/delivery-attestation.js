@@ -10,27 +10,20 @@ const { writeProjectJsonAtomic } = require("./lib/project-atomic-write");
 const { hashResult, stableStringify } = require("./lib/workflow-runtime/records");
 const { readProjectInput } = require("./lib/safe-project-output");
 const { isRfc3339DateTime } = require("./lib/iso-time");
+const { stableObjectHmac, withoutAuthentication } = require("./lib/stable-authentication");
+const { isGitObjectId } = require("./lib/git-object-id");
 
-const SHA = /^[0-9a-f]{40,64}$/i;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
 const PURPOSES = new Set(["review-bypass", "candidate-hook-bypass", "final-hook-bypass"]);
 
 function authentication(value, key) {
-  const bytes = Buffer.isBuffer(key) ? key : Buffer.from(String(key || ""));
-  if (bytes.length < 32)
-    throw new Error("a machine-local attestation key of at least 32 bytes is required");
-  const material = { ...value };
-  delete material.authentication;
-  return `hmac-sha256:${crypto
-    .createHmac("sha256", bytes)
-    .update(stableStringify(material))
-    .digest("hex")}`;
+  const result = stableObjectHmac(value, key);
+  if (!result) throw new Error("a machine-local attestation key of at least 32 bytes is required");
+  return result;
 }
 
 function materialBytes(value) {
-  const material = { ...value };
-  delete material.authentication;
-  return Buffer.from(stableStringify(material));
+  return Buffer.from(stableStringify(withoutAuthentication(value)));
 }
 
 function digest(value) {
@@ -53,7 +46,7 @@ function validateMaterial(value) {
   if (value?.schema_version !== 1) issues.push("unsupported schema");
   if (value?.kind !== "delivery-attestation-v1") issues.push("unsupported kind");
   for (const field of ["commit", "base", "merge_base"])
-    if (!SHA.test(value?.[field] || "")) issues.push(`${field} is invalid`);
+    if (!isGitObjectId(value?.[field])) issues.push(`${field} is invalid`);
   for (const field of [
     "plan_identity",
     "config_identity",
@@ -228,7 +221,7 @@ function loadProtectedPolicy(root, source) {
   if (
     !source ||
     source.path !== ".pm/repository-delivery-policy.json" ||
-    !SHA.test(source.commit || "") ||
+    !isGitObjectId(source.commit) ||
     !DIGEST.test(source.sha256 || "")
   )
     throw new Error("authenticated protected-policy source is unavailable");
@@ -348,7 +341,7 @@ function verifyPushBypass(value, expected = {}, options = {}) {
     fields[0] !== `refs/heads/${expected.branch}` ||
     fields[1] !== expected.commit ||
     fields[2] !== `refs/heads/${expected.branch}` ||
-    !SHA.test(fields[3])
+    !isGitObjectId(fields[3])
   )
     return denied("attestation ref update does not match this push");
   return verifyDeliveryAttestation(value, expected, options);
@@ -390,7 +383,7 @@ function verifyCanonicalDeliveryAttestation(context) {
   const { session, transaction, plan, gates } = context;
   const commit = transaction?.release?.prepared_commit;
   if (
-    !SHA.test(commit || "") ||
+    !isGitObjectId(commit) ||
     (session?.run_id !== transaction?.run_id && transaction?.run_id !== undefined)
   )
     throw new Error("canonical session and transaction do not bind one prepared commit");
@@ -406,7 +399,7 @@ function verifyCanonicalDeliveryAttestation(context) {
   )
     throw new Error("canonical repository plan identity mismatch");
   for (const field of ["base_commit", "merge_base_commit", "command_identity"])
-    if (!SHA.test(plan?.[field] || "") && !DIGEST.test(plan?.[field] || ""))
+    if (!isGitObjectId(plan?.[field]) && !DIGEST.test(plan?.[field] || ""))
       throw new Error(`${field} is missing or invalid`);
   if (!DIGEST.test(plan?.adapter?.manager?.sha256 || ""))
     throw new Error("tool identity is missing");
@@ -711,11 +704,17 @@ function finalizeCanonicalFiles(input, options = {}) {
   verifyLiveRepository(root, plan, transaction);
   const transitionedSession =
     typeof options.transitionSession === "function" ? options.transitionSession(session) : null;
-  for (const bound of Object.values(transaction.evidence || {})) {
-    if (!bound || sha256File(path.resolve(root, bound.artifact)) !== bound.sha256)
-      throw new Error("canonical evidence hash mismatch");
+  const readEvidence = options.readProjectInput || readProjectInput;
+  let reviewBytes = null;
+  for (const [kind, bound] of Object.entries(transaction.evidence || {})) {
+    if (!bound) throw new Error("canonical evidence hash mismatch");
+    const bytes = readEvidence(root, bound.artifact, 1024 * 1024).bytes;
+    const actual = `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`;
+    if (actual !== bound.sha256) throw new Error("canonical evidence hash mismatch");
+    if (kind === "review") reviewBytes = bytes;
   }
-  const report = readBoundJson(root, transaction.evidence.review.artifact);
+  if (!reviewBytes) throw new Error("canonical Review evidence is missing");
+  const report = JSON.parse(reviewBytes.toString("utf8"));
   if (report.outcome !== "passed" || (Array.isArray(report.findings) && report.findings.length > 0))
     throw new Error("canonical Review has not converged");
   const certificationPath = paths.certification;

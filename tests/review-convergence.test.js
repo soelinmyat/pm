@@ -14,6 +14,7 @@ const {
 
 const HEAD_A = "a".repeat(40);
 const HEAD_B = "b".repeat(40);
+const HEAD_64 = "c".repeat(64);
 const HASH_A = `sha256:${"1".repeat(64)}`;
 const HASH_B = `sha256:${"2".repeat(64)}`;
 const START = "2026-08-09T10:00:00.000Z";
@@ -74,6 +75,16 @@ test("convergence timestamps require strict RFC3339 date-times", () => {
     }).created_at,
     "2026-08-09T18:00:00+08:00"
   );
+  assert.equal(
+    createConvergence({
+      head: HEAD_64,
+      requirementSetHash: HASH_A,
+      requiredSources: ["pm-review"],
+      deadline: DEADLINE,
+      now: START,
+    }).head,
+    HEAD_64
+  );
 });
 
 test("blocking findings and unresolved conversations return the exact head to reviewing", () => {
@@ -119,6 +130,27 @@ test("a recorded blocker remains reviewing after the deadline", () => {
         at: "2026-08-09T10:12:00.000Z",
       }),
     /awaiting-decision/
+  );
+});
+
+test("a blocker cannot be cleared by a later result on the same head", () => {
+  let state = fresh();
+  state = recordReviewSource(state, {
+    source: "pm-review",
+    head: HEAD_A,
+    outcome: "blocking",
+    finding: "P1 regression",
+    at: "2026-08-09T10:01:00.000Z",
+  });
+  assert.throws(
+    () =>
+      recordReviewSource(state, {
+        source: "pm-review",
+        head: HEAD_A,
+        outcome: "passed",
+        at: "2026-08-09T10:02:00.000Z",
+      }),
+    /head mutation|blocker/
   );
 });
 
