@@ -14,7 +14,17 @@ Push the branch to the remote, diagnosing and fixing any hook failures along the
 
 ## How
 
-Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/release-transaction.md` and `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/delivery-contract.md`. Before every push attempt, reload and validate both records.
+Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/review-candidate-contract.md`, `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/release-transaction.md`, and `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/delivery-contract.md`.
+
+### Draft-only candidate push
+
+When canonical candidate state is `review-candidate`, this step publishes a review candidate, not a merge candidate. Revalidate the current head, protected candidate-publication permission, exact adapter coverage, delivery remote/ref inputs, current local diff Review, and passed targeted repository-native checks immediately before the push. Require both the candidate's draft-only authority ceiling and canonical user `push_feature_branch` authority. Record `candidate-effect` before calling Git.
+
+Invoke only the repository-declared exact candidate-push mechanism. A generic hook escape hatch, `--no-verify`, prose permission, stale plan, or candidate-authored policy is forbidden. Observe the remote ref after the attempt and require it to equal the planned head. A timeout stays ambiguous until observation resolves it; never replay blindly.
+
+This boundary cannot certify, mark ready for review, arm auto-merge, or merge. On success advance to Step 05 to create or reconcile a draft PR. On a hook failure or head mutation, transition back to `reviewing`, rerun targeted checks and affected local review on the new head, and re-establish candidate permission before another attempt.
+
+After the draft-only candidate push is independently observed at the exact remote head, do not execute the comprehensive push sections below; advance directly to Step 05. When the candidate route was not selected, follow the comprehensive path below unchanged. Before every comprehensive push attempt, reload and validate the release transaction and delivery contract.
 
 Build the exact Push target from the transaction's repository, delivery remote, head branch, and prepared commit. Plan `push`, then call `begin` with the canonical session and `--actor root`.
 
@@ -101,6 +111,6 @@ NEVER use `--no-verify` to bypass hook failures. All failures must be fixed.
 
 ## Done-when
 
-The Push effect is independently observed as `verified`, the branch has an upstream on the exact contracted `{DELIVERY_REMOTE}`, and no local commit exists after the prepared Review/gate evidence accepted by `dev-gate-check`.
+On the optimized route, the draft-only candidate push is independently observed at the exact contracted remote head and no local mutation exists after the targeted Review/gate evidence and permission proof. On the comprehensive route, the Push effect is independently observed as `verified`, the branch has an upstream on the exact contracted `{DELIVERY_REMOTE}`, and no local commit exists after the prepared Review/gate evidence accepted by `dev-gate-check`.
 
 **Advance:** proceed to Step 05 (Create or Detect PR).
