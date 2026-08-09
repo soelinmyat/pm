@@ -10,6 +10,7 @@ const { runRepositoryGates } = require("../scripts/repository-gate-runner");
 
 const OLD_SHA = "a".repeat(40);
 const NEW_SHA = "b".repeat(40);
+const OTHER_SHA = "c".repeat(40);
 
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-gate-runner-"));
@@ -23,8 +24,10 @@ function fixture() {
     capability_identity: "cap-v1",
     environment_identity: environment,
     repository_root: root,
+    base_commit: NEW_SHA,
     head_commit: OLD_SHA,
     source_ref: "refs/heads/x",
+    expected_default_ref: "refs/remotes/origin/main",
     targeted_commands: ["mobile", "shared"],
     complete_commands: ["mobile", "shared"],
     hook,
@@ -55,6 +58,7 @@ function fixture() {
     discoverCapabilities: () => ({ identity: "cap-v1" }),
     verifyManager: () => true,
     resolveHead: () => OLD_SHA,
+    resolveDefaultRef: () => NEW_SHA,
   };
   return { root, hook, plan, options };
 }
@@ -260,6 +264,7 @@ test("optimized execution binds one exact branch update to the live planned head
     `refs/heads/other ${OLD_SHA} refs/heads/other ${NEW_SHA}\n`,
     `refs/heads/x ${NEW_SHA} refs/heads/x ${OLD_SHA}\n`,
     `refs/heads/x ${OLD_SHA} refs/heads/x ${OLD_SHA}\n`,
+    `refs/heads/x ${OLD_SHA} refs/heads/x ${OTHER_SHA}\n`,
     `${plan.remote.stdin}refs/heads/y ${OLD_SHA} refs/heads/y ${NEW_SHA}\n`,
   ]) {
     let ran = false;

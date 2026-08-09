@@ -382,7 +382,15 @@ function parseLefthookDump(dump) {
   const unsupported = (issue) => ({ commands: {}, supported: false, issues: [issue] });
   if (!dump || typeof dump !== "object" || Array.isArray(dump))
     return unsupported("missing authenticated dump");
-  const commands = dump["pre-push"]?.commands;
+  const prePush = dump["pre-push"];
+  if (
+    !prePush ||
+    typeof prePush !== "object" ||
+    Array.isArray(prePush) ||
+    Object.keys(prePush).some((key) => key !== "commands")
+  )
+    return unsupported("unsupported pre-push hook semantics");
+  const commands = prePush.commands;
   if (!commands || typeof commands !== "object" || Array.isArray(commands))
     return unsupported("missing pre-push commands");
   const out = {};

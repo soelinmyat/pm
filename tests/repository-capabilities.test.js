@@ -238,6 +238,17 @@ test("unsupported Lefthook glob grammar fails the complete adapter closed", () =
   assert.deepEqual(parsed.commands, {});
 });
 
+test("hook-level Lefthook semantics outside the normalized contract fail closed", () => {
+  const parsed = require("../scripts/lib/repository-capabilities").parseLefthookDump({
+    "pre-push": {
+      files: "printf nothing",
+      commands: { tests: { run: "pnpm test", glob: "src/**" } },
+    },
+  });
+  assert.equal(parsed.supported, false);
+  assert.deepEqual(parsed.commands, {});
+});
+
 test("GitHub optimization facts require an externally bound authenticated receipt", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-github-cap-"));
   const absent = discoverRepositoryCapabilities(root);

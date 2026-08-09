@@ -118,6 +118,8 @@ function validatePlannedRefUpdate(plan, options) {
     lines.length !== 1 ||
     !plan.source_ref ||
     !plan.head_commit ||
+    !plan.base_commit ||
+    !plan.expected_default_ref ||
     typeof plan.source_ref !== "string"
   )
     throw new Error("optimized delivery requires one planned branch update");
@@ -126,6 +128,7 @@ function validatePlannedRefUpdate(plan, options) {
     localRef !== plan.source_ref ||
     remoteRef !== plan.source_ref ||
     localSha !== plan.head_commit ||
+    remoteSha !== plan.base_commit ||
     remoteSha === localSha
   )
     throw new Error("Git ref update does not match the planned branch head");
@@ -142,6 +145,20 @@ function validatePlannedRefUpdate(plan, options) {
           })
           .stdout?.trim();
   if (liveHead !== plan.head_commit) throw new Error("live HEAD differs from the planned push");
+  const liveDefaultRef =
+    typeof options.resolveDefaultRef === "function"
+      ? options.resolveDefaultRef(plan.repository_root, plan.expected_default_ref)
+      : childProcess
+          .spawnSync("git", ["rev-parse", "--verify", `${plan.expected_default_ref}^{commit}`], {
+            cwd: plan.repository_root,
+            encoding: "utf8",
+            shell: false,
+            timeout: 2000,
+            maxBuffer: 8192,
+          })
+          .stdout?.trim();
+  if (liveDefaultRef !== plan.base_commit)
+    throw new Error("authenticated default branch differs from the planned base");
 }
 
 function runRepositoryGates(plan, mode, options = {}) {
