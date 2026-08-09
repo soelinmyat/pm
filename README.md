@@ -187,8 +187,9 @@ and private workflow state remain anchored to the consumer repository while prop
 RFC artifacts are bound to the isolated knowledge-base worktree. Existing unowned branch
 collisions stop for manual recovery instead of being reused or published. Fresh RFC
 intake rejects omitted or unowned artifact roots, and resumed Groom work revalidates its
-recorded helper branch and delivery URL before proceeding. RFC work inherits a clean,
-committed proposal from the matching Groom artifact branch when present, then revalidates
+recorded helper branch and delivery URL before proceeding. RFC work inherits only a
+clean, approval-audit-verified proposal from the matching Groom artifact branch, safely
+fast-forwarding an otherwise-unused early RFC worktree when necessary, then revalidates
 its own helper-owned branch on resume. Branch names always append the workflow kind to
 the complete session slug, preventing suffix-like slugs from aliasing another session.
 

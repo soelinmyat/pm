@@ -22,6 +22,10 @@ const {
   applyContext: applyRfcContext,
   createSession: createRfcSession,
 } = require("../scripts/lib/rfc-session-schema.js");
+const {
+  buildApproval: buildProposalApproval,
+  proposalContentHash,
+} = require("../scripts/lib/proposal-schema.js");
 const execFileAsync = promisify(execFile);
 
 function git(cwd, ...args) {
@@ -54,6 +58,35 @@ function fixture() {
       fs.rmSync(root, { recursive: true, force: true });
     },
   };
+}
+
+function writeApprovedProposal(pmDir, slug) {
+  const proposal = JSON.parse(
+    fs.readFileSync(path.join(__dirname, "fixtures/proposals/strong-v1.json"), "utf8")
+  );
+  proposal.id = `proposal:${slug}`;
+  proposal.slug = slug;
+  proposal.lifecycle = "approved";
+  proposal.review = {
+    status: "passed",
+    revision: proposal.revision,
+    content_sha256: proposalContentHash(proposal),
+    completed_at: "2026-08-09T00:00:00.000Z",
+  };
+  const proposalPath = path.join(pmDir, "backlog", "proposals", `${slug}.json`);
+  fs.mkdirSync(path.dirname(proposalPath), { recursive: true });
+  fs.writeFileSync(proposalPath, `${JSON.stringify(proposal, null, 2)}\n`);
+  const approval = buildProposalApproval(proposal, fs.readFileSync(proposalPath), {
+    approvedBy: "user:test-owner",
+    approvedAt: "2026-08-09T00:01:00.000Z",
+    decisionId: `groom-approval:groom_${slug}`,
+    decisionSha256: `sha256:${"5".repeat(64)}`,
+  });
+  fs.writeFileSync(
+    proposalPath.replace(/\.json$/, ".approval.json"),
+    `${JSON.stringify(approval, null, 2)}\n`
+  );
+  return proposalPath;
 }
 
 test("artifact preparation leaves a dirty feature checkout untouched and branches from remote default", (t) => {
@@ -92,10 +125,8 @@ test("RFC preparation inherits the committed proposal from its owned Groom workt
     slug: "handoff",
     kind: "groom",
   });
-  const proposal = path.join(groom.worktree, "pm/backlog/proposals/handoff.md");
-  fs.mkdirSync(path.dirname(proposal), { recursive: true });
-  fs.writeFileSync(proposal, "# Approved handoff\n");
-  git(groom.worktree, "add", "pm/backlog/proposals/handoff.md");
+  const proposal = writeApprovedProposal(groom.pm_dir, "handoff");
+  git(groom.worktree, "add", path.relative(groom.worktree, path.dirname(proposal)));
   git(groom.worktree, "commit", "-m", "approve handoff proposal");
   const groomCommit = git(groom.worktree, "rev-parse", "HEAD");
 
@@ -107,10 +138,7 @@ test("RFC preparation inherits the committed proposal from its owned Groom workt
 
   assert.equal(rfc.base_commit, groomCommit);
   assert.equal(rfc.inherited_from, groom.branch);
-  assert.equal(
-    fs.readFileSync(path.join(rfc.worktree, "pm/backlog/proposals/handoff.md"), "utf8"),
-    "# Approved handoff\n"
-  );
+  assert.equal(fs.existsSync(path.join(rfc.pm_dir, "backlog/proposals/handoff.json")), true);
 });
 
 test("RFC handoff refuses uncommitted Groom artifact bytes", (t) => {
@@ -121,7 +149,10 @@ test("RFC handoff refuses uncommitted Groom artifact bytes", (t) => {
     slug: "dirty-handoff",
     kind: "groom",
   });
-  fs.writeFileSync(path.join(groom.worktree, "uncommitted.md"), "not yet approved\n");
+  const proposal = writeApprovedProposal(groom.pm_dir, "dirty-handoff");
+  git(groom.worktree, "add", path.relative(groom.worktree, path.dirname(proposal)));
+  git(groom.worktree, "commit", "-m", "approve dirty handoff proposal");
+  fs.writeFileSync(path.join(groom.worktree, "uncommitted.md"), "not committed\n");
 
   assert.throws(
     () =>
@@ -131,6 +162,62 @@ test("RFC handoff refuses uncommitted Groom artifact bytes", (t) => {
         kind: "rfc",
       }),
     /uncommitted changes/
+  );
+});
+
+test("RFC preparation does not inherit a clean unapproved Groom draft", (t) => {
+  const seeded = fixture();
+  t.after(seeded.cleanup);
+  const groom = prepareArtifactWorktree({
+    pmDir: seeded.shared,
+    slug: "draft-handoff",
+    kind: "groom",
+  });
+  const draft = path.join(groom.pm_dir, "backlog/proposals/draft-handoff.json");
+  fs.mkdirSync(path.dirname(draft), { recursive: true });
+  fs.writeFileSync(draft, '{"slug":"draft-handoff","lifecycle":"draft"}\n');
+  git(groom.worktree, "add", path.relative(groom.worktree, draft));
+  git(groom.worktree, "commit", "-m", "save draft proposal");
+
+  const rfc = prepareArtifactWorktree({
+    pmDir: seeded.shared,
+    slug: "draft-handoff",
+    kind: "rfc",
+  });
+
+  assert.equal(rfc.inherited_from, null);
+  assert.equal(fs.existsSync(path.join(rfc.pm_dir, "backlog/proposals/draft-handoff.json")), false);
+});
+
+test("an unused RFC worktree fast-forwards when Groom approval arrives later", (t) => {
+  const seeded = fixture();
+  t.after(seeded.cleanup);
+  const early = prepareArtifactWorktree({
+    pmDir: seeded.shared,
+    slug: "late-approval",
+    kind: "rfc",
+  });
+  const groom = prepareArtifactWorktree({
+    pmDir: seeded.shared,
+    slug: "late-approval",
+    kind: "groom",
+  });
+  const proposal = writeApprovedProposal(groom.pm_dir, "late-approval");
+  git(groom.worktree, "add", path.relative(groom.worktree, path.dirname(proposal)));
+  git(groom.worktree, "commit", "-m", "approve proposal after RFC preparation");
+
+  const resumed = prepareArtifactWorktree({
+    pmDir: seeded.shared,
+    slug: "late-approval",
+    kind: "rfc",
+  });
+
+  assert.equal(resumed.reused, true);
+  assert.equal(resumed.inherited_from, groom.branch);
+  assert.notEqual(resumed.base_commit, early.base_commit);
+  assert.equal(
+    fs.existsSync(path.join(resumed.pm_dir, "backlog/proposals/late-approval.json")),
+    true
   );
 });
 

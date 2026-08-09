@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { runGit } = require("./loop-git.js");
 const { acquireOwnedLock } = require("./lib/owned-lock.js");
+const { readApprovedProposal } = require("./lib/proposal-schema.js");
 const {
   defaultBranchNameFromUrl,
   deliveryUrl,
@@ -60,7 +61,7 @@ function artifactBranch(slug, kind) {
   return `codex/${normalized}-${kind}`;
 }
 
-function groomHandoffBase(observedRoot, worktrees, slug) {
+function groomHandoffBase(observedRoot, worktrees, slug, contentRelative) {
   const branch = artifactBranch(slug, "groom");
   const registered = worktrees.find((item) => item.branch === branch);
   if (!registered) return null;
@@ -69,6 +70,20 @@ function groomHandoffBase(observedRoot, worktrees, slug) {
     slug,
     kind: "groom",
   });
+  const proposalPath = path.join(
+    ownership.worktree,
+    contentRelative,
+    "backlog",
+    "proposals",
+    `${slug}.json`
+  );
+  if (!fs.existsSync(proposalPath)) return null;
+  try {
+    const approved = readApprovedProposal(proposalPath, { projectRoot: ownership.worktree });
+    if (approved.contract.slug !== slug) return null;
+  } catch {
+    return null;
+  }
   if (git(ownership.worktree, ["status", "--porcelain=v1"])) {
     throw new Error(
       `Groom artifact worktree '${branch}' has uncommitted changes; commit the approved proposal before RFC handoff`
@@ -77,6 +92,38 @@ function groomHandoffBase(observedRoot, worktrees, slug) {
   return {
     branch,
     commit: git(ownership.worktree, ["rev-parse", "HEAD"]),
+    remote: ownership.remote,
+    default_branch: ownership.default_branch,
+  };
+}
+
+function refreshRfcHandoff(options) {
+  if (!options.handoff) return options;
+  if (
+    options.inheritedFrom === options.handoff.branch &&
+    options.baseCommit === options.handoff.commit
+  )
+    return options;
+  const head = git(options.worktree, ["rev-parse", "HEAD"]);
+  const dirty = git(options.worktree, ["status", "--porcelain=v1"]);
+  if (dirty || head !== options.baseCommit) {
+    throw new Error(
+      `RFC artifact worktree '${options.branch}' predates the approved Groom handoff and contains work; preserve it and start a new RFC slug or reconcile it manually`
+    );
+  }
+  try {
+    git(options.worktree, ["merge", "--ff-only", options.handoff.commit]);
+  } catch {
+    throw new Error(
+      `RFC artifact worktree '${options.branch}' cannot fast-forward to approved Groom handoff; preserve it and reconcile it manually`
+    );
+  }
+  git(options.observedRoot, ["config", options.baseKey, options.handoff.commit]);
+  git(options.observedRoot, ["config", options.inheritedKey, options.handoff.branch]);
+  return {
+    ...options,
+    baseCommit: options.handoff.commit,
+    inheritedFrom: options.handoff.branch,
   };
 }
 
@@ -200,6 +247,10 @@ function prepareArtifactWorktree(options) {
     const ownedDefault = gitMaybe(observedRoot, ["config", "--get", defaultKey]);
     const ownedUrlHash = gitMaybe(observedRoot, ["config", "--get", urlHashKey]);
     const ownedInherited = gitMaybe(observedRoot, ["config", "--get", inheritedKey]);
+    const handoff =
+      options.kind === "rfc"
+        ? groomHandoffBase(observedRoot, worktrees, slug, contentRelative)
+        : null;
     if (
       branchExists &&
       (!ownedBase.ok ||
@@ -227,6 +278,16 @@ function prepareArtifactWorktree(options) {
       const worktree = fs.realpathSync(registered.path);
       const remote = ownedRemote.output;
       const defaultBranch = ownedDefault.output;
+      const refreshed = refreshRfcHandoff({
+        observedRoot,
+        worktree,
+        branch,
+        baseKey,
+        inheritedKey,
+        baseCommit: ownedBase.output,
+        inheritedFrom: ownedInherited.ok ? ownedInherited.output : null,
+        handoff,
+      });
       return {
         ok: true,
         reused: true,
@@ -235,8 +296,8 @@ function prepareArtifactWorktree(options) {
         remote,
         default_branch: defaultBranch,
         base_ref: remote && defaultBranch ? `${remote}/${defaultBranch}` : null,
-        base_commit: ownedBase.output,
-        inherited_from: ownedInherited.ok ? ownedInherited.output : null,
+        base_commit: refreshed.baseCommit,
+        inherited_from: refreshed.inheritedFrom,
         repo_root: worktree,
         worktree,
         pm_dir: path.join(worktree, contentRelative),
@@ -258,18 +319,20 @@ function prepareArtifactWorktree(options) {
       if (branchExists) {
         git(observedRoot, ["worktree", "add", "--", target, branch]);
       } else {
-        remote = selectRemote(observedRoot, branch);
-        const remoteUrl = deliveryUrl(observedRoot, remote);
-        defaultBranch = resolveRemoteDefaultBranch(observedRoot, remote, remoteUrl);
-        baseRef = `${remote}/${defaultBranch}`;
-        baseCommit = git(observedRoot, ["rev-parse", "--verify", baseRef]);
-        const handoff =
-          options.kind === "rfc" ? groomHandoffBase(observedRoot, worktrees, slug) : null;
         if (handoff) {
+          remote = handoff.remote;
+          defaultBranch = handoff.default_branch;
           baseRef = handoff.branch;
           baseCommit = handoff.commit;
           inheritedFrom = handoff.branch;
+        } else {
+          remote = selectRemote(observedRoot, branch);
+          const remoteUrl = deliveryUrl(observedRoot, remote);
+          defaultBranch = resolveRemoteDefaultBranch(observedRoot, remote, remoteUrl);
+          baseRef = `${remote}/${defaultBranch}`;
+          baseCommit = git(observedRoot, ["rev-parse", "--verify", baseRef]);
         }
+        const remoteUrl = deliveryUrl(observedRoot, remote);
         git(observedRoot, ["worktree", "add", "--no-track", "-b", branch, target, baseCommit]);
         createdBranch = true;
         git(observedRoot, ["config", baseKey, baseCommit]);
