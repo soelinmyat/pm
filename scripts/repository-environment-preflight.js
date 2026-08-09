@@ -71,61 +71,33 @@ function validateProbeDeclaration(probe) {
   return true;
 }
 
-function parseVersion(input) {
-  const found = String(input || "").match(/(\d+)(?:\.(\d+))?(?:\.(\d+))?/);
-  return found ? [Number(found[1]), Number(found[2] || 0), Number(found[3] || 0)] : null;
-}
-function cmp(a, b) {
-  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] < b[i] ? -1 : 1;
-  return 0;
-}
 function satisfies(versionText, constraintText) {
-  const version = parseVersion(versionText);
-  if (!version) return false;
-  const constraint = String(constraintText || "")
-    .trim()
-    .replace(/^v/, "");
-  if (!constraint || constraint === "*") return true;
-  if (/^\d+(?:\.\d+){0,2}$/.test(constraint)) {
-    const expected = parseVersion(constraint);
-    const parts = constraint.split(".").length;
-    return version.slice(0, parts).every((x, i) => x === expected[i]);
-  }
-  return constraint.split(/\s+/).every((part) => {
-    const match = part.match(/^(>=|<=|>|<|\^|~)?(\d+(?:\.\d+){0,2})$/);
-    if (!match) return false;
-    const op = match[1] || "=",
-      target = parseVersion(match[2]),
-      order = cmp(version, target);
-    if (op === ">=") return order >= 0;
-    if (op === "<=") return order <= 0;
-    if (op === ">") return order > 0;
-    if (op === "<") return order < 0;
-    if (op === "^") {
-      const upper =
-        target[0] > 0
-          ? [target[0] + 1, 0, 0]
-          : target[1] > 0
-            ? [0, target[1] + 1, 0]
-            : [0, 0, target[2] + 1];
-      return order >= 0 && cmp(version, upper) < 0;
+  const version = semver.valid(
+    String(versionText || "")
+      .trim()
+      .replace(/^v/, ""),
+    {
+      loose: true,
     }
-    if (op === "~") return version[0] === target[0] && version[1] === target[1] && order >= 0;
-    return order === 0;
-  });
+  );
+  const range = semver.validRange(String(constraintText || "").trim() || "*", { loose: true });
+  return Boolean(version && range && semver.satisfies(version, range, { loose: true }));
 }
 
 function constraintsIntersect(constraints) {
   if (constraints.length < 2) return true;
-  let intersection = "*";
+  let comparatorSets = [[]];
   for (const item of constraints) {
     const range = semver.validRange(String(item.constraint || "").trim(), { loose: true });
     if (!range) return false;
-    const combined = `${intersection} ${range}`.trim();
-    if (!semver.minVersion(combined, { loose: true })) return false;
-    intersection = combined;
+    const alternatives = new semver.Range(range, { loose: true }).set;
+    comparatorSets = comparatorSets.flatMap((existing) =>
+      alternatives.map((alternative) => [...existing, ...alternative])
+    );
   }
-  return true;
+  return comparatorSets.some((comparators) =>
+    semver.minVersion(comparators.map(String).join(" "), { loose: true })
+  );
 }
 
 function defaultResolveRuntime(name, env) {

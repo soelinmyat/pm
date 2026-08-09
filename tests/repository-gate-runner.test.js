@@ -11,6 +11,7 @@ const { runRepositoryGates } = require("../scripts/repository-gate-runner");
 const OLD_SHA = "a".repeat(40);
 const NEW_SHA = "b".repeat(40);
 const OTHER_SHA = "c".repeat(40);
+const ZERO_SHA = "0".repeat(40);
 
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-gate-runner-"));
@@ -35,7 +36,7 @@ function fixture() {
     remote: {
       name: "origin",
       url: "git@example/x",
-      stdin: `refs/heads/x ${OLD_SHA} refs/heads/x ${NEW_SHA}\n`,
+      stdin: `refs/heads/x ${OLD_SHA} refs/heads/x ${ZERO_SHA}\n`,
     },
     candidate_push: { permitted: true },
     adapter: {
@@ -59,9 +60,34 @@ function fixture() {
     verifyManager: () => true,
     resolveHead: () => OLD_SHA,
     resolveDefaultRef: () => NEW_SHA,
+    resolveRemoteSourceRef: () => ZERO_SHA,
   };
   return { root, hook, plan, options };
 }
+
+test("planned feature ref accepts first push and binds retries to the live prior tip", () => {
+  for (const prior of [ZERO_SHA, OTHER_SHA]) {
+    const { root, plan, options } = fixture();
+    plan.remote.stdin = `refs/heads/x ${OLD_SHA} refs/heads/x ${prior}\n`;
+    const result = runRepositoryGates(plan, "targeted", {
+      ...options,
+      resolveRemoteSourceRef: () => prior,
+      spawnSync: () => ({ status: 0, stdout: "", stderr: "" }),
+    });
+    assert.equal(result.status, "passed", JSON.stringify(result));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("planned feature ref rejects a stale old OID", () => {
+  const { root, plan, options } = fixture();
+  const result = runRepositoryGates(plan, "targeted", {
+    ...options,
+    resolveRemoteSourceRef: () => OTHER_SHA,
+  });
+  assert.equal(result.status, "blocked");
+  fs.rmSync(root, { recursive: true, force: true });
+});
 
 test("invokes installed pre-push hook once with faithful Git input", () => {
   const { root, plan, options } = fixture();

@@ -25,6 +25,22 @@ test("NUL-delimited Git path output preserves Unicode and embedded newlines", ()
   ]);
 });
 
+test("delivery planning compiles each unique command glob only once", () => {
+  let compilations = 0;
+  buildDeliveryPlan({
+    root: "/repo",
+    changedPaths: Array.from({ length: 20 }, (_, index) => `apps/mobile/${index}.ts`),
+    commands: { mobile: { glob: ["apps/mobile/**", "apps/shared/**"], exclude: "**/*.snap" } },
+    capabilities: {},
+    refUpdates: [`refs/heads/x ${OLD_SHA} refs/heads/x ${NEW_SHA}`],
+    compileGlob: (glob) => {
+      compilations++;
+      return new RegExp(glob === "apps/mobile/**" ? "^apps/mobile/" : "a^");
+    },
+  });
+  assert.equal(compilations, 3);
+});
+
 const commands = {
   "mobile-quality": { glob: "apps/mobile/**/*.{ts,tsx}", run: "pnpm --filter mobile test" },
   "shared-checks": { glob: "{apps/mobile,packages/shared}/**/*.{ts,tsx}", run: "pnpm shared" },

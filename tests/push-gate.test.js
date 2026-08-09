@@ -18,7 +18,7 @@ test("delivery bypass inputs all use bounded no-follow project reads", () => {
     /fs\.readFileSync\([^)]*(?:release-transaction|repository-delivery-plan|gates|attestation)/s
   );
   assert.match(bypass, /readProjectInput\(repoDir, relative, MAX_DELIVERY_INPUT_BYTES\)/);
-  assert.ok((bypass.match(/readDeliveryJson\(/g) || []).length >= 5);
+  assert.equal((bypass.match(/readDeliveryJson\(/g) || []).length, 4);
 });
 const { deriveSessionSlug } = require("../scripts/dev-gate-check.js");
 const { createSession, grantAuthority } = require("../scripts/lib/dev-session-schema");

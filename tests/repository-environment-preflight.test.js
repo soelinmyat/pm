@@ -18,6 +18,20 @@ test("constraint intersection is independent of comparator order", () => {
   );
 });
 
+test("runtime matching uses standard semver ranges including OR and x-ranges", () => {
+  assert.equal(satisfies("20.1.0", "^18.18.0 || >=20.0.0"), true);
+  assert.equal(satisfies("19.2.0", "^18.18.0 || >=20.0.0"), false);
+  assert.equal(satisfies("20.7.1", "20.x"), true);
+  assert.equal(
+    constraintsIntersect([{ constraint: ">=18 <19 || >=20 <21" }, { constraint: ">=20.5 <21" }]),
+    true
+  );
+  assert.equal(
+    constraintsIntersect([{ constraint: ">=18 <19 || >=20 <21" }, { constraint: ">=19 <20" }]),
+    false
+  );
+});
+
 function basePlan(overrides = {}) {
   return {
     expectations: {

@@ -92,6 +92,24 @@ test("restart recovery closes abandoned segments without deriving duration from 
   assert.equal(ledger.events[0].duration_ms, null);
 });
 
+test("restart recovery preserves segments whose owner process is still alive", (t) => {
+  const ledgerPath = temporaryLedger(t);
+  const handle = beginSegment(
+    ledgerPath,
+    { kind: "final-certification", route: "optimized" },
+    {
+      processId: "123-live",
+      clock: { monotonic: () => 10n, wall: () => new Date("2026-08-10T00:00:00Z") },
+    }
+  );
+  const recovery = recoverInterruptedSegments(ledgerPath, {
+    processId: "456-current",
+    isProcessAlive: (pid) => pid === 123,
+  });
+  assert.equal(recovery.recovered, 0);
+  assert.equal(readLedger(ledgerPath).open_segments[0].token, handle.token);
+});
+
 test("deterministically compacts to 512 events and one MiB", () => {
   const events = Array.from({ length: 700 }, (_, index) => ({
     sequence: index + 1,

@@ -1,22 +1,13 @@
 "use strict";
 
-const crypto = require("node:crypto");
+const { hashResult, stableValue } = require("./workflow-runtime/records");
 
 function stable(value) {
-  if (Array.isArray(value)) return value.map(stable);
-  if (!value || typeof value !== "object") return value;
-  return Object.fromEntries(
-    Object.keys(value)
-      .sort()
-      .map((key) => [key, stable(value[key])])
-  );
+  return stableValue(value);
 }
 
 function digest(value) {
-  return `sha256:${crypto
-    .createHash("sha256")
-    .update(JSON.stringify(stable(value)))
-    .digest("hex")}`;
+  return hashResult(value);
 }
 
 function planMaterial(plan) {

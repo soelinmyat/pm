@@ -81,7 +81,7 @@ function globToRegex(glob) {
   return new RegExp(`^${source}$`);
 }
 
-function matches(command, changedPath) {
+function compileCommand(command, compileGlob = globToRegex) {
   const globs = Array.isArray(command.glob)
     ? command.glob
     : String(command.glob || "**/*")
@@ -92,9 +92,16 @@ function matches(command, changedPath) {
     : command.exclude
       ? String(command.exclude).split(/\s+/).filter(Boolean)
       : [];
+  return {
+    includes: globs.map(compileGlob),
+    excludes: excludes.map(compileGlob),
+  };
+}
+
+function matches(compiled, changedPath) {
   return (
-    globs.some((glob) => globToRegex(glob).test(changedPath)) &&
-    !excludes.some((glob) => globToRegex(glob).test(changedPath))
+    compiled.includes.some((pattern) => pattern.test(changedPath)) &&
+    !compiled.excludes.some((pattern) => pattern.test(changedPath))
   );
 }
 
@@ -153,8 +160,14 @@ function buildDeliveryPlan(input) {
   const capabilities = input.capabilities || {},
     commands = input.commands || {},
     changedPaths = [...new Set(input.changedPaths || [])].sort();
+  const compiledCommands = Object.fromEntries(
+    Object.entries(commands).map(([name, command]) => [
+      name,
+      compileCommand(command, input.compileGlob),
+    ])
+  );
   const complete = Object.keys(commands)
-    .filter((name) => changedPaths.some((file) => matches(commands[name], file)))
+    .filter((name) => changedPaths.some((file) => matches(compiledCommands[name], file)))
     .sort();
   const declared = capabilities.policy?.candidate_push || {};
   const candidateNames = Array.isArray(declared.candidate_commands)

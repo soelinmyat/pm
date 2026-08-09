@@ -128,10 +128,15 @@ function validatePlannedRefUpdate(plan, options) {
     localRef !== plan.source_ref ||
     remoteRef !== plan.source_ref ||
     localSha !== plan.head_commit ||
-    remoteSha !== plan.base_commit ||
     remoteSha === localSha
   )
     throw new Error("Git ref update does not match the planned branch head");
+  const liveRemoteSource =
+    typeof options.resolveRemoteSourceRef === "function"
+      ? options.resolveRemoteSourceRef(plan.repository_root, plan.remote.url, remoteRef)
+      : resolveRemoteSourceRef(plan.repository_root, plan.remote.url, remoteRef);
+  if (remoteSha !== liveRemoteSource)
+    throw new Error("planned feature branch old OID differs from the live remote ref");
   const liveHead =
     typeof options.resolveHead === "function"
       ? options.resolveHead(plan.repository_root)
@@ -159,6 +164,27 @@ function validatePlannedRefUpdate(plan, options) {
           .stdout?.trim();
   if (liveDefaultRef !== plan.base_commit)
     throw new Error("authenticated default branch differs from the planned base");
+}
+
+function resolveRemoteSourceRef(root, remoteUrl, remoteRef) {
+  const result = childProcess.spawnSync(
+    "git",
+    ["ls-remote", "--refs", "--", remoteUrl, remoteRef],
+    {
+      cwd: root,
+      encoding: "utf8",
+      shell: false,
+      timeout: 10000,
+      maxBuffer: 8192,
+    }
+  );
+  if (result.status !== 0) throw new Error("live feature branch identity is unavailable");
+  if (!result.stdout.trim()) return "0".repeat(40);
+  const rows = result.stdout.trim().split(/\r?\n/);
+  const fields = rows[0].split(/\s+/);
+  if (rows.length !== 1 || fields.length !== 2 || fields[1] !== remoteRef)
+    throw new Error("live feature branch identity is malformed");
+  return fields[0];
 }
 
 function runRepositoryGates(plan, mode, options = {}) {

@@ -7,20 +7,11 @@ const crypto = require("node:crypto");
 const childProcess = require("node:child_process");
 const os = require("node:os");
 const { writeJsonAtomic } = require("./lib/atomic-file");
+const { hashResult, stableStringify } = require("./lib/workflow-runtime/records");
 
 const SHA = /^[0-9a-f]{40,64}$/i;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
 const PURPOSES = new Set(["review-bypass", "candidate-hook-bypass", "final-hook-bypass"]);
-
-function stable(value) {
-  if (Array.isArray(value)) return value.map(stable);
-  if (!value || typeof value !== "object") return value;
-  return Object.fromEntries(
-    Object.keys(value)
-      .sort()
-      .map((key) => [key, stable(value[key])])
-  );
-}
 
 function authentication(value, key) {
   const bytes = Buffer.isBuffer(key) ? key : Buffer.from(String(key || ""));
@@ -30,25 +21,22 @@ function authentication(value, key) {
   delete material.authentication;
   return `hmac-sha256:${crypto
     .createHmac("sha256", bytes)
-    .update(JSON.stringify(stable(material)))
+    .update(stableStringify(material))
     .digest("hex")}`;
 }
 
 function materialBytes(value) {
   const material = { ...value };
   delete material.authentication;
-  return Buffer.from(JSON.stringify(stable(material)));
+  return Buffer.from(stableStringify(material));
 }
 
 function digest(value) {
-  return `sha256:${crypto
-    .createHash("sha256")
-    .update(JSON.stringify(stable(value)))
-    .digest("hex")}`;
+  return hashResult(value);
 }
 
 function same(left, right) {
-  return JSON.stringify(stable(left)) === JSON.stringify(stable(right));
+  return stableStringify(left) === stableStringify(right);
 }
 
 function secureEqual(left, right) {

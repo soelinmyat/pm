@@ -163,19 +163,41 @@ function finishSegment(filePath, handle, result, options = {}) {
 function recoverInterruptedSegments(filePath, options = {}) {
   const currentProcess = boundedIdentifier(options.processId || PROCESS_ID, "process id", true);
   const wall = options.wall || (() => new Date());
+  const isProcessAlive = options.isProcessAlive || processIsAlive;
   return mutateLedger(filePath, (ledger) => {
-    const interrupted = ledger.open_segments
-      .filter((segment) => segment.process_id !== currentProcess)
-      .sort((left, right) => left.token.localeCompare(right.token));
-    ledger.open_segments = ledger.open_segments.filter(
-      (segment) => segment.process_id === currentProcess
-    );
+    const interrupted = [];
+    const retained = [];
+    for (const segment of ledger.open_segments) {
+      if (
+        segment.process_id === currentProcess ||
+        isProcessAlive(processIdNumber(segment.process_id))
+      )
+        retained.push(segment);
+      else interrupted.push(segment);
+    }
+    interrupted.sort((left, right) => left.token.localeCompare(right.token));
+    ledger.open_segments = retained;
     for (const segment of interrupted)
       ledger.events.push(
         closeEvent(segment, { outcome: "interrupted" }, wall().toISOString(), null)
       );
     return { recovered: interrupted.length };
   });
+}
+
+function processIdNumber(processId) {
+  const match = String(processId || "").match(/^(\d+)-/);
+  return match ? Number(match[1]) : null;
+}
+
+function processIsAlive(pid) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
 }
 
 function closeEvent(segment, result, endedAt, durationMs) {
