@@ -91,10 +91,11 @@ function tokenBounds(token) {
     ? new Set([`${parsed.major}.${parsed.minor}.${parsed.patch}`])
     : new Set();
   if (operator === "^") {
+    const precision = parsed.wildcard === null ? parsed.specified : parsed.wildcard;
     const ceiling =
-      parsed.specified === 1
+      precision === 1
         ? increment(parsed, "major")
-        : parsed.specified === 2 && parsed.major === 0
+        : precision === 2 && parsed.major === 0
           ? increment(parsed, "minor")
           : parsed.major > 0
             ? increment(parsed, "major")
@@ -162,6 +163,11 @@ function mergeBounds(target, source, { intersectPrereleases = false } = {}) {
 }
 
 function nonEmpty(bounds) {
+  if (bounds.lower && bounds.upper) {
+    const order = compare(bounds.lower, bounds.upper);
+    if (order > 0 || (order === 0 && (!bounds.lowerInclusive || !bounds.upperInclusive)))
+      return false;
+  }
   const stableCandidate = bounds.lower
     ? bounds.lower.prerelease.length > 0
       ? stableVersion(bounds.lower)
