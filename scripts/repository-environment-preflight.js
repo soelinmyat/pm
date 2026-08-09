@@ -4,9 +4,9 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const childProcess = require("node:child_process");
-const semver = require("semver");
 const { stable, digest } = require("./lib/repository-gate-plan-schema");
 const { stableObjectHmac } = require("./lib/stable-authentication");
+const semverRange = require("./lib/semver-range");
 
 const ALLOWED_PROBE_KEYS = new Set([
   "adapter",
@@ -72,32 +72,12 @@ function validateProbeDeclaration(probe) {
 }
 
 function satisfies(versionText, constraintText) {
-  const version = semver.valid(
-    String(versionText || "")
-      .trim()
-      .replace(/^v/, ""),
-    {
-      loose: true,
-    }
-  );
-  const range = semver.validRange(String(constraintText || "").trim() || "*", { loose: true });
-  return Boolean(version && range && semver.satisfies(version, range, { loose: true }));
+  return semverRange.satisfies(versionText, constraintText);
 }
 
 function constraintsIntersect(constraints) {
   if (constraints.length < 2) return true;
-  let comparatorSets = [[]];
-  for (const item of constraints) {
-    const range = semver.validRange(String(item.constraint || "").trim(), { loose: true });
-    if (!range) return false;
-    const alternatives = new semver.Range(range, { loose: true }).set;
-    comparatorSets = comparatorSets.flatMap((existing) =>
-      alternatives.map((alternative) => [...existing, ...alternative])
-    );
-  }
-  return comparatorSets.some((comparators) =>
-    semver.minVersion(comparators.map(String).join(" "), { loose: true })
-  );
+  return semverRange.rangesIntersect(constraints.map((item) => item.constraint));
 }
 
 function defaultResolveRuntime(name, env) {

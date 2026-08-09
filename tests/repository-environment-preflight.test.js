@@ -38,6 +38,18 @@ test("runtime matching uses standard semver ranges including OR and x-ranges", (
   );
 });
 
+test("runtime range checks remain source-only in installed plugin copies", () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, "../scripts/repository-environment-preflight.js"),
+    "utf8"
+  );
+  assert.doesNotMatch(source, /require\(["']semver["']\)/);
+  assert.equal(satisfies("18.19.1", "18.18.0 - 18.20.0"), true);
+  assert.equal(satisfies("18.21.0", "18.18.0 - 18.20.0"), false);
+  assert.equal(satisfies("2.4.9", "~2.4"), true);
+  assert.equal(satisfies("2.5.0", "~2.4"), false);
+});
+
 test("production preflight CLI passes the configured machine-local probe identity key", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-preflight-cli-probe-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
