@@ -6,7 +6,10 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const childProcess = require("node:child_process");
-const { resolveProtectedPolicyCommit } = require("../scripts/release-transaction");
+const {
+  resolveAdvanceCommit,
+  resolveProtectedPolicyCommit,
+} = require("../scripts/release-transaction");
 
 const {
   bindReleaseEvidence,
@@ -56,6 +59,22 @@ test("protected branch resolution accepts SHA-256 object IDs", () => {
     ),
     expected
   );
+});
+
+test("release advancement binds only the exact current HEAD", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-release-advance-head-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const git = (...args) =>
+    childProcess.spawnSync("git", ["-C", root, ...args], { encoding: "utf8" });
+  git("init", "-q");
+  git("config", "user.email", "test@example.com");
+  git("config", "user.name", "Test");
+  fs.writeFileSync(path.join(root, "README.md"), "head\n");
+  git("add", ".");
+  git("commit", "-q", "-m", "head");
+  const head = git("rev-parse", "HEAD").stdout.trim();
+  assert.equal(resolveAdvanceCommit(root, head), head);
+  assert.throws(() => resolveAdvanceCommit(root, "f".repeat(head.length)), /current HEAD/);
 });
 
 function transaction() {

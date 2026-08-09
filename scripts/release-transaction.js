@@ -295,7 +295,7 @@ function runCommand(args, options = {}) {
     if (args.command === "advance") {
       return {
         transaction: advancePreparedCommit(transaction, {
-          commit: args.commit || git(cwd, ["rev-parse", "HEAD"]),
+          commit: resolveAdvanceCommit(cwd, args.commit),
           reason: args.reason,
         }),
         decision: "advanced",
@@ -303,6 +303,13 @@ function runCommand(args, options = {}) {
     }
     throw new Error(`unknown release transaction command: ${args.command}`);
   });
+}
+
+function resolveAdvanceCommit(cwd, requested) {
+  const head = git(cwd, ["rev-parse", "HEAD"]);
+  if (requested && requested !== head)
+    throw new Error("release advancement commit must equal the exact current HEAD");
+  return head;
 }
 
 function initializeDeliveryTransaction(args, cwd, transactionPath) {
@@ -547,6 +554,7 @@ if (require.main === module) process.exitCode = main();
 module.exports = {
   main,
   parseArgs,
+  resolveAdvanceCommit,
   resolveProtectedPolicyCommit,
   runCommand,
   statusView,
