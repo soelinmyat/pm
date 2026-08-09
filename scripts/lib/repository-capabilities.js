@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const childProcess = require("node:child_process");
-const { digest } = require("./repository-gate-plan-schema");
+const { digest, stable } = require("./repository-gate-plan-schema");
 
 const MAX_FILE = 1024 * 1024;
 
@@ -107,17 +107,86 @@ function instructionFiles(root, limit = 128) {
   return found.sort();
 }
 
-function loadLefthookDump(root, options) {
-  const receipt = options.lefthookReceipt;
+function receiptAuthentication(receipt, key) {
+  const material = { ...receipt };
+  delete material.authentication;
+  const keyBytes = Buffer.isBuffer(key) ? key : Buffer.from(String(key || ""));
+  if (keyBytes.length < 32) return null;
+  return `hmac-sha256:${crypto
+    .createHmac("sha256", keyBytes)
+    .update(JSON.stringify(stable(material)))
+    .digest("hex")}`;
+}
+
+function equalAuthentication(expected, actual) {
+  if (typeof expected !== "string" || typeof actual !== "string") return false;
+  const left = Buffer.from(expected);
+  const right = Buffer.from(actual);
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
+function verifyDiscoveryReceipt(root, options) {
+  const receipt = options.discoveryReceipt;
   if (
-    receipt?.authenticated === true &&
+    !receipt ||
+    receipt.schema_version !== 1 ||
+    receipt.kind !== "repository-discovery-v1" ||
+    typeof receipt.identity !== "string" ||
+    receipt.identity !== options.expectedDiscoveryIdentity ||
+    receipt.repository_root !== root ||
+    !/^[0-9a-f]{40,64}$/i.test(receipt.repository_head || "") ||
+    !/^[0-9a-f]{40,64}$/i.test(receipt.protected_commit || "") ||
+    receipt.protected_commit !== options.expectedProtectedCommit ||
+    receipt.expected_default_ref !== options.expectedDefaultRef ||
+    !receipt.default_branch ||
+    typeof receipt.default_branch.identity !== "string" ||
+    !/^[A-Za-z0-9._-]+$/.test(receipt.default_branch.remote || "") ||
+    typeof receipt.default_branch.remote_url !== "string" ||
+    receipt.default_branch.ref !== receipt.expected_default_ref ||
+    receipt.default_branch.commit !== receipt.protected_commit
+  )
+    return null;
+  const verifiedByProvider =
+    typeof options.receiptVerifier === "function" &&
+    options.receiptVerifier(receipt, {
+      root,
+      expectedProtectedCommit: options.expectedProtectedCommit,
+      expectedDefaultRef: options.expectedDefaultRef,
+    }) === true;
+  const expectedAuthentication = receiptAuthentication(receipt, options.receiptKey);
+  if (!verifiedByProvider && !equalAuthentication(expectedAuthentication, receipt.authentication))
+    return null;
+  const now = options.now instanceof Date ? options.now : new Date();
+  const observedAt = Date.parse(receipt.observed_at || "");
+  const maxAgeMs = options.maxReceiptAgeMs || 5 * 60 * 1000;
+  if (
+    !Number.isFinite(observedAt) ||
+    observedAt > now.getTime() + 30 * 1000 ||
+    now.getTime() - observedAt > maxAgeMs
+  )
+    return null;
+  const liveHead =
+    typeof options.resolveRepositoryHead === "function"
+      ? options.resolveRepositoryHead(root)
+      : runGit(root, ["rev-parse", "--verify", "HEAD^{commit}"]).stdout.trim();
+  if (liveHead !== receipt.repository_head) return null;
+  return receipt;
+}
+
+function loadLefthookDump(root, discoveryReceipt) {
+  const receipt = discoveryReceipt?.lefthook;
+  if (
+    receipt &&
     typeof receipt.identity === "string" &&
-    receipt.identity === options.expectedManagerIdentity &&
     receipt.dump &&
     receipt.dump_digest === digest(receipt.dump) &&
     receipt.manager &&
     typeof receipt.manager.version === "string" &&
-    receipt.manager.version
+    receipt.manager.version &&
+    typeof receipt.manager_environment?.PATH === "string" &&
+    receipt.manager_environment.PATH.length > 0 &&
+    receipt.manager_environment.PATH.length <= 8192 &&
+    !/[\0\r\n]/.test(receipt.manager_environment.PATH)
   ) {
     try {
       const candidate = path.resolve(receipt.manager.path);
@@ -135,37 +204,16 @@ function loadLefthookDump(root, options) {
         throw new Error("untrusted manager path");
       const sha256 = `sha256:${crypto.createHash("sha256").update(fs.readFileSync(realpath)).digest("hex")}`;
       if (sha256 !== receipt.manager.sha256) throw new Error("manager hash mismatch");
-      const version = childProcess.spawnSync(realpath, ["version"], {
-        cwd: root,
-        env: { PATH: process.env.PATH || "" },
-        encoding: "utf8",
-        shell: false,
-        timeout: 2000,
-        maxBuffer: 8192,
-      });
-      const liveDump = childProcess.spawnSync(realpath, ["dump", "--format", "json"], {
-        cwd: root,
-        env: { PATH: process.env.PATH || "" },
-        encoding: "utf8",
-        shell: false,
-        timeout: 3000,
-        maxBuffer: MAX_FILE,
-      });
-      if (
-        version.status !== 0 ||
-        version.stdout.trim() !== receipt.manager.version ||
-        liveDump.status !== 0
-      )
-        throw new Error("live manager identity mismatch");
-      const liveDumpValue = JSON.parse(liveDump.stdout);
-      if (digest(liveDumpValue) !== receipt.dump_digest)
-        throw new Error("live manager dump mismatch");
+      if (receipt.hook_contract?.kind !== "direct-manager-pre-push-v1")
+        throw new Error("unsupported hook-manager contract");
       return {
-        dump: liveDumpValue,
+        dump: receipt.dump,
         version: receipt.manager.version,
         binary: realpath,
         identity: receipt.identity,
         manager: { ...receipt.manager, path: candidate, realpath },
+        hook_contract: receipt.hook_contract,
+        manager_environment: receipt.manager_environment,
       };
     } catch {
       /* invalid receipts fail closed */
@@ -240,38 +288,35 @@ function runGit(root, args) {
   });
 }
 
-function verifyProtectedCommitAuthority(root, options) {
-  const commit = options.protectedCommit;
-  const receipt = options.defaultBranchReceipt;
+function verifyProtectedCommitAuthority(root, options, discoveryReceipt) {
+  const commit = discoveryReceipt?.protected_commit;
+  const receipt = discoveryReceipt?.default_branch;
   if (
     !/^[0-9a-f]{40,64}$/i.test(commit || "") ||
     commit !== options.expectedProtectedCommit ||
-    receipt?.authenticated !== true ||
     typeof receipt.identity !== "string" ||
-    receipt.identity !== options.expectedRemoteIdentity ||
     receipt.ref !== options.expectedDefaultRef ||
     !/^[A-Za-z0-9._-]+$/.test(receipt.remote || "") ||
     !String(receipt.ref || "").startsWith(`refs/remotes/${receipt.remote}/`) ||
     !/^[0-9a-f]{40,64}$/i.test(receipt.commit || "") ||
     typeof receipt.remote_url !== "string" ||
-    !receipt.remote_url
+    !receipt.remote_url ||
+    receipt.commit !== commit
   )
     return null;
   const remoteUrl = runGit(root, ["remote", "get-url", "--push", receipt.remote]);
   const remoteHead = runGit(root, ["rev-parse", "--verify", `${receipt.ref}^{commit}`]);
-  const ancestor = runGit(root, ["merge-base", "--is-ancestor", commit, receipt.commit]);
   if (
     remoteUrl.status !== 0 ||
     remoteUrl.stdout.trim() !== receipt.remote_url ||
     remoteHead.status !== 0 ||
-    remoteHead.stdout.trim() !== receipt.commit ||
-    ancestor.status !== 0
+    remoteHead.stdout.trim() !== receipt.commit
   )
     return null;
   return receipt;
 }
 
-function readPolicy(root, options, identities) {
+function readPolicy(root, options, identities, discoveryReceipt) {
   const relative = ".pm/repository-delivery-policy.json";
   if (typeof options.policyVerifier === "function") {
     const verified = options.policyVerifier({ root, relative });
@@ -290,9 +335,9 @@ function readPolicy(root, options, identities) {
       return { ...parsePolicy(verified.bytes, "authenticated"), authority: verified.source };
     }
   }
-  const remoteAuthority = verifyProtectedCommitAuthority(root, options);
+  const remoteAuthority = verifyProtectedCommitAuthority(root, options, discoveryReceipt);
   if (remoteAuthority) {
-    const commit = options.protectedCommit;
+    const commit = remoteAuthority.commit;
     const verified = runGit(root, ["cat-file", "-e", `${commit}^{commit}`]);
     const shown = runGit(root, ["show", `${commit}:${relative}`]);
     if (
@@ -433,15 +478,15 @@ function discoverRepositoryCapabilities(rootInput, options = {}) {
   parseToolVersions(root, runtimes, identities);
   parsePackage(root, runtimes, commands, identities);
   parseWorkflows(root, runtimes, identities);
-  const policy = readPolicy(root, options, identities);
+  const discoveryReceipt = verifyDiscoveryReceipt(root, options);
+  const policy = readPolicy(root, options, identities, discoveryReceipt);
   const hook = resolvePrePushHook(root);
-  const lefthook = loadLefthookDump(root, options);
+  const lefthook = loadLefthookDump(root, discoveryReceipt);
   const lefthookContract = parseLefthookDump(lefthook.dump);
-  const githubReceipt = options.githubReceipt;
+  const githubReceipt = discoveryReceipt?.github;
   const githubFacts = githubReceipt?.facts;
   const githubCapabilities =
-    githubReceipt?.authenticated === true &&
-    githubReceipt.identity === options.expectedGithubIdentity &&
+    githubReceipt &&
     githubFacts &&
     ["branch_protection", "required_checks", "merge_queue"].every(
       (key) => typeof githubFacts[key] === "boolean"
@@ -474,6 +519,8 @@ function discoverRepositoryCapabilities(rootInput, options = {}) {
       dump_digest: digest(lefthook.dump),
       identity: lefthook.identity || null,
       manager: lefthook.manager || null,
+      hook_contract: lefthook.hook_contract || null,
+      manager_environment: lefthook.manager_environment || null,
     },
     policy,
     identities: identities.filter(Boolean),
@@ -487,4 +534,6 @@ module.exports = {
   discoverRepositoryCapabilities,
   parseLefthookDump,
   resolvePrePushHook,
+  receiptAuthentication,
+  verifyDiscoveryReceipt,
 };

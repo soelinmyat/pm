@@ -24,19 +24,18 @@ function readAuthenticatedJson(inputPath, expectedSha256) {
   return JSON.parse(bytes.toString("utf8"));
 }
 
-function discoveryOptions(receipt) {
+function discoveryOptions(receipt, authority = {}) {
   if (!receipt || receipt.schema_version !== 1 || typeof receipt !== "object")
     throw new Error("discovery receipt schema is invalid");
   return {
-    protectedCommit: receipt.protected_commit,
-    expectedProtectedCommit: receipt.expected_protected_commit,
-    defaultBranchReceipt: receipt.default_branch,
-    expectedDefaultRef: receipt.expected_default_ref,
-    expectedRemoteIdentity: receipt.default_branch?.identity,
-    lefthookReceipt: receipt.lefthook,
-    expectedManagerIdentity: receipt.lefthook?.identity,
-    githubReceipt: receipt.github,
-    expectedGithubIdentity: receipt.github?.identity,
+    discoveryReceipt: receipt,
+    expectedDiscoveryIdentity: authority.expectedDiscoveryIdentity || receipt.identity,
+    receiptKey: authority.receiptKey,
+    receiptVerifier: authority.receiptVerifier,
+    now: authority.now,
+    maxReceiptAgeMs: authority.maxReceiptAgeMs,
+    expectedProtectedCommit: authority.expectedProtectedCommit,
+    expectedDefaultRef: authority.expectedDefaultRef || receipt.expected_default_ref,
   };
 }
 
@@ -181,6 +180,9 @@ function buildDeliveryPlan(input) {
   const plan = {
     schema_version: 1,
     repository_root: input.root,
+    base_commit: input.baseCommit || null,
+    head_commit: input.headCommit || null,
+    expected_default_ref: input.expectedDefaultRef || null,
     changed_paths: changedPaths,
     capability_identity: capabilities.identity || null,
     expectations: {
@@ -207,6 +209,8 @@ function buildDeliveryPlan(input) {
       manager_identity: capabilities.lefthook?.identity || null,
       manager: capabilities.lefthook?.manager || null,
       dump_digest: capabilities.lefthook?.dump_digest || null,
+      hook_contract: capabilities.lefthook?.hook_contract || null,
+      manager_environment: capabilities.lefthook?.manager_environment || null,
     },
     hook: capabilities.hooks?.pre_push?.path || input.hook || null,
     hook_identity: capabilities.hooks?.pre_push || input.hookIdentity || null,
@@ -273,12 +277,27 @@ function main(argv = process.argv.slice(2)) {
     discoveryReceipt.default_branch?.remote_url !== remoteUrl
   )
     throw new Error("destination remote does not match authenticated discovery receipt");
-  const capabilities = discoverRepositoryCapabilities(root, discoveryOptions(discoveryReceipt));
+  const resolvedHead = git(root, ["rev-parse", "--verify", `${head}^{commit}`]);
+  if (discoveryReceipt.repository_head !== resolvedHead)
+    throw new Error("head does not match authenticated discovery receipt");
+  const receiptKey = process.env.PM_REPOSITORY_RECEIPT_KEY;
+  if (!receiptKey) throw new Error("PM_REPOSITORY_RECEIPT_KEY is required for optimized planning");
+  const capabilities = discoverRepositoryCapabilities(
+    root,
+    discoveryOptions(discoveryReceipt, {
+      receiptKey,
+      expectedProtectedCommit: base,
+      expectedDefaultRef: discoveryReceipt.expected_default_ref,
+    })
+  );
   const changedPaths = git(root, ["diff", "--name-only", `${base}...${head}`])
     .split(/\r?\n/)
     .filter(Boolean);
   const plan = buildDeliveryPlan({
     root,
+    baseCommit: base,
+    headCommit: resolvedHead,
+    expectedDefaultRef: discoveryReceipt.expected_default_ref,
     changedPaths,
     commands: capabilities.lefthook?.commands || {},
     capabilities,

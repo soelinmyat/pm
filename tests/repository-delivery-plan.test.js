@@ -12,7 +12,7 @@ const {
   discoveryOptions,
 } = require("../scripts/repository-delivery-plan");
 const { digest } = require("../scripts/lib/repository-gate-plan-schema");
-const { verifyEnvironment } = require("../scripts/repository-environment-preflight");
+const { verifyEnvironment, keyedIdentity } = require("../scripts/repository-environment-preflight");
 const { runRepositoryGates } = require("../scripts/repository-gate-runner");
 const OLD_SHA = "a".repeat(40);
 const NEW_SHA = "b".repeat(40);
@@ -105,6 +105,7 @@ test("production planner CLI accepts only hash-bound complete execution inputs",
   childProcess.spawnSync("git", ["init", "--bare", remoteRoot], { encoding: "utf8", shell: false });
   git(["remote", "add", "origin", remoteRoot]);
   git(["push", "origin", "HEAD:main"]);
+  const remoteUrl = git(["remote", "get-url", "--push", "origin"]).stdout.trim();
   fs.writeFileSync(path.join(root, "apps/mobile/a.ts"), "two\n");
   git(["add", "apps/mobile/a.ts"]);
   git(["commit", "-m", "candidate"]);
@@ -119,21 +120,25 @@ test("production planner CLI accepts only hash-bound complete execution inputs",
     { mode: 0o700 }
   );
   const managerBytes = fs.readFileSync(manager);
-  const discovery = {
+  const receiptKey = "machine-local-receipt-key-32bytes!!";
+  const discoveryMaterial = {
     schema_version: 1,
+    kind: "repository-discovery-v1",
+    identity: "discovery-v1",
+    repository_root: fs.realpathSync(root),
+    repository_head: head,
     protected_commit: base,
     expected_protected_commit: base,
     expected_default_ref: "refs/remotes/origin/main",
+    observed_at: new Date().toISOString(),
     default_branch: {
-      authenticated: true,
       identity: "remote-v1",
       remote: "origin",
-      remote_url: remoteRoot,
+      remote_url: remoteUrl,
       ref: "refs/remotes/origin/main",
       commit: base,
     },
     lefthook: {
-      authenticated: true,
       identity: "manager-v1",
       manager: {
         path: manager,
@@ -143,12 +148,17 @@ test("production planner CLI accepts only hash-bound complete execution inputs",
       },
       dump,
       dump_digest: digest(dump),
+      hook_contract: { kind: "direct-manager-pre-push-v1" },
+      manager_environment: { PATH: process.env.PATH },
     },
     github: {
-      authenticated: true,
       identity: "github-v1",
       facts: { branch_protection: true, required_checks: true, merge_queue: false },
     },
+  };
+  const discovery = {
+    ...discoveryMaterial,
+    authentication: keyedIdentity(discoveryMaterial, receiptKey),
   };
   const inputs = path.join(managerRoot, "inputs");
   fs.mkdirSync(inputs);
@@ -172,35 +182,43 @@ test("production planner CLI accepts only hash-bound complete execution inputs",
   assert.equal(preflight.status, "verified");
   const environment = preflight.identity;
   const environmentFile = writeAuthenticatedJson(inputs, "environment.json", preflight);
-  const cli = childProcess.spawnSync(
-    process.execPath,
-    [
-      path.join(__dirname, "../scripts/repository-delivery-plan.js"),
-      "--root",
-      root,
-      "--base",
-      base,
-      "--head",
-      head,
-      "--remote",
-      "origin",
-      "--remote-url",
-      remoteRoot,
-      "--ref-updates",
-      refsFile.path,
-      "--ref-updates-sha256",
-      refsFile.sha256,
-      "--environment-identity",
-      environmentFile.path,
-      "--environment-identity-sha256",
-      environmentFile.sha256,
-      "--discovery-receipt",
-      discoveryFile.path,
-      "--discovery-receipt-sha256",
-      discoveryFile.sha256,
-    ],
-    { encoding: "utf8", shell: false }
-  );
+  const cliArgs = [
+    path.join(__dirname, "../scripts/repository-delivery-plan.js"),
+    "--root",
+    root,
+    "--base",
+    base,
+    "--head",
+    head,
+    "--remote",
+    "origin",
+    "--remote-url",
+    remoteUrl,
+    "--ref-updates",
+    refsFile.path,
+    "--ref-updates-sha256",
+    refsFile.sha256,
+    "--environment-identity",
+    environmentFile.path,
+    "--environment-identity-sha256",
+    environmentFile.sha256,
+    "--discovery-receipt",
+    discoveryFile.path,
+    "--discovery-receipt-sha256",
+    discoveryFile.sha256,
+  ];
+  const unauthenticated = childProcess.spawnSync(process.execPath, cliArgs, {
+    encoding: "utf8",
+    shell: false,
+    env: { ...process.env, PM_REPOSITORY_RECEIPT_KEY: "" },
+  });
+  assert.notEqual(unauthenticated.status, 0);
+  assert.match(unauthenticated.stderr, /REPOSITORY_RECEIPT_KEY/);
+  const cli = childProcess.spawnSync(process.execPath, cliArgs, {
+    encoding: "utf8",
+    shell: false,
+    env: { ...process.env, PM_REPOSITORY_RECEIPT_KEY: receiptKey },
+  });
   assert.equal(cli.status, 0, cli.stderr);
   const plan = JSON.parse(cli.stdout);
   assert.equal(plan.adapter.supported, true);
@@ -210,7 +228,11 @@ test("production planner CLI accepts only hash-bound complete execution inputs",
   const executed = runRepositoryGates(plan, "targeted", {
     expectedPlanDigest: plan.plan_digest,
     expectedCapabilityIdentity: plan.capability_identity,
-    capabilityDiscovery: discoveryOptions(discovery),
+    capabilityDiscovery: discoveryOptions(discovery, {
+      receiptKey,
+      expectedProtectedCommit: base,
+      expectedDefaultRef: discovery.expected_default_ref,
+    }),
   });
   assert.equal(executed.status, "passed", JSON.stringify(executed));
   fs.rmSync(root, { recursive: true, force: true });

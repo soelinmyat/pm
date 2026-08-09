@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const childProcess = require("node:child_process");
 const crypto = require("node:crypto");
+const os = require("node:os");
 const {
   verifyPlanDigest,
   validateGitPushInputs,
@@ -52,6 +53,48 @@ function verifyHookIdentity(plan) {
   }
 }
 
+function verifyManagerIdentity(plan, options) {
+  if (typeof options.verifyManager === "function") return options.verifyManager(plan.adapter);
+  const manager = plan.adapter?.manager;
+  const pinnedPath = plan.adapter?.manager_environment?.PATH;
+  if (
+    plan.adapter?.hook_contract?.kind !== "direct-manager-pre-push-v1" ||
+    !manager?.realpath ||
+    !manager?.sha256 ||
+    !manager?.version ||
+    typeof pinnedPath !== "string" ||
+    !pinnedPath
+  )
+    return false;
+  let verificationRoot = null;
+  try {
+    const stat = fs.lstatSync(manager.path);
+    const realpath = fs.realpathSync(manager.path);
+    const sha256 = `sha256:${crypto.createHash("sha256").update(fs.readFileSync(realpath)).digest("hex")}`;
+    if (
+      !stat.isFile() ||
+      stat.isSymbolicLink() ||
+      realpath !== manager.realpath ||
+      sha256 !== manager.sha256
+    )
+      return false;
+    verificationRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pm-manager-verify-"));
+    const version = (options.managerSpawnSync || childProcess.spawnSync)(realpath, ["version"], {
+      cwd: verificationRoot,
+      env: { PATH: pinnedPath },
+      encoding: "utf8",
+      shell: false,
+      timeout: 2000,
+      maxBuffer: 8192,
+    });
+    return version.status === 0 && String(version.stdout || "").trim() === manager.version;
+  } catch {
+    return false;
+  } finally {
+    if (verificationRoot) fs.rmSync(verificationRoot, { recursive: true, force: true });
+  }
+}
+
 function runRepositoryGates(plan, mode, options = {}) {
   if (!["targeted", "complete"].includes(mode))
     return { status: "blocked", reason: "invalid-gate-mode" };
@@ -93,6 +136,8 @@ function runRepositoryGates(plan, mode, options = {}) {
   )
     return { status: "blocked", reason: "environment-identity-mismatch" };
   if (!verifyHookIdentity(plan)) return { status: "blocked", reason: "hook-identity-mismatch" };
+  if (!verifyManagerIdentity(plan, options))
+    return fallback(options, "manager-identity-or-hook-contract-unsupported");
   try {
     validateGitPushInputs(
       plan.remote?.name,
@@ -108,17 +153,26 @@ function runRepositoryGates(plan, mode, options = {}) {
       diagnostic: redactText(error.message),
     };
   }
-  const args = [plan.remote?.name || "", plan.remote?.url || ""];
+  const args = ["run", "pre-push"];
   for (const command of commands) args.push("--command", command);
-  const result = (options.spawnSync || childProcess.spawnSync)(plan.hook, args, {
-    cwd: plan.repository_root,
-    env: options.env || process.env,
-    input: plan.remote?.stdin || "",
-    encoding: "utf8",
-    shell: false,
-    timeout: options.timeout || 60 * 60 * 1000,
-    maxBuffer: 1024 * 1024,
-  });
+  args.push(plan.remote?.name || "", plan.remote?.url || "");
+  const executionEnv = {
+    ...(options.env || process.env),
+    PATH: plan.adapter.manager_environment.PATH,
+  };
+  const result = (options.spawnSync || childProcess.spawnSync)(
+    plan.adapter.manager.realpath,
+    args,
+    {
+      cwd: plan.repository_root,
+      env: executionEnv,
+      input: plan.remote?.stdin || "",
+      encoding: "utf8",
+      shell: false,
+      timeout: options.timeout || 60 * 60 * 1000,
+      maxBuffer: 1024 * 1024,
+    }
+  );
   if (!result || result.error || result.status !== 0)
     return {
       status: "failed",
@@ -152,10 +206,16 @@ function main(argv = process.argv.slice(2)) {
     );
   const plan = JSON.parse(fs.readFileSync(path.resolve(planPath), "utf8"));
   const receipt = readAuthenticatedJson(discoveryReceiptPath, discoveryReceiptSha256);
+  const receiptKey = process.env.PM_REPOSITORY_RECEIPT_KEY;
+  if (!receiptKey) throw new Error("PM_REPOSITORY_RECEIPT_KEY is required for optimized execution");
   const result = runRepositoryGates(plan, mode, {
     expectedPlanDigest,
     expectedCapabilityIdentity,
-    capabilityDiscovery: discoveryOptions(receipt),
+    capabilityDiscovery: discoveryOptions(receipt, {
+      receiptKey,
+      expectedProtectedCommit: plan.base_commit,
+      expectedDefaultRef: plan.expected_default_ref,
+    }),
   });
   process.stdout.write(`${JSON.stringify(sanitizeDiagnosticValue(result), null, 2)}\n`);
   if (!["passed", "comprehensive"].includes(result.status)) process.exitCode = 1;

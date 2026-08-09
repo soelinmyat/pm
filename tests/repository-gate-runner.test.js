@@ -33,7 +33,17 @@ function fixture() {
       stdin: `refs/heads/x ${OLD_SHA} refs/heads/x ${NEW_SHA}\n`,
     },
     candidate_push: { permitted: true },
-    adapter: { supported: true },
+    adapter: {
+      supported: true,
+      manager: {
+        path: "/trusted/lefthook",
+        realpath: "/trusted/lefthook",
+        sha256: "sha256:manager",
+        version: "1.0.0",
+      },
+      hook_contract: { kind: "direct-manager-pre-push-v1" },
+      manager_environment: { PATH: "/trusted/bin:/usr/bin:/bin" },
+    },
   };
   const options = {
     expectedPlanDigest: "plan-v1",
@@ -41,6 +51,7 @@ function fixture() {
     verifyDigest: () => true,
     preflight: () => ({ status: "verified", identity: environment }),
     discoverCapabilities: () => ({ identity: "cap-v1" }),
+    verifyManager: () => true,
   };
   return { root, hook, plan, options };
 }
@@ -57,12 +68,14 @@ test("invokes installed pre-push hook once with faithful Git input", () => {
   });
   assert.equal(result.status, "passed");
   assert.deepEqual(calls[0].args, [
-    "origin",
-    "git@example/x",
+    "run",
+    "pre-push",
     "--command",
     "mobile",
     "--command",
     "shared",
+    "origin",
+    "git@example/x",
   ]);
   assert.equal(calls[0].opts.input, plan.remote.stdin);
   assert.equal(calls[0].opts.shell, false);
@@ -125,6 +138,50 @@ test("optimized execution re-discovers and binds the live capability identity", 
   assert.equal(result.reason, "live-capability-identity-mismatch");
   assert.equal(ran, false);
   fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("optimized execution pins the authenticated manager and never lets the hook resolve an alternate", () => {
+  const { root, hook, plan, options } = fixture();
+  const managerRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pm-pinned-manager-"));
+  const manager = path.join(managerRoot, "lefthook");
+  fs.writeFileSync(manager, "manager bytes\n", { mode: 0o700 });
+  const managerIdentity = {
+    path: manager,
+    realpath: fs.realpathSync(manager),
+    sha256: `sha256:${crypto.createHash("sha256").update(fs.readFileSync(manager)).digest("hex")}`,
+    version: "1.0.0",
+  };
+  plan.adapter = {
+    supported: true,
+    manager: managerIdentity,
+    hook_contract: { kind: "direct-manager-pre-push-v1" },
+    manager_environment: { PATH: "/trusted/bin:/usr/bin:/bin" },
+  };
+  const calls = [];
+  const result = runRepositoryGates(plan, "targeted", {
+    ...options,
+    verifyManager: () => true,
+    spawnSync: (file, args, spawnOptions) => {
+      calls.push({ file, args, spawnOptions });
+      return { status: 0, stdout: "", stderr: "" };
+    },
+  });
+  assert.equal(result.status, "passed");
+  assert.equal(calls[0].file, managerIdentity.realpath);
+  assert.notEqual(calls[0].file, hook);
+  assert.deepEqual(calls[0].args, [
+    "run",
+    "pre-push",
+    "--command",
+    "mobile",
+    "--command",
+    "shared",
+    "origin",
+    "git@example/x",
+  ]);
+  assert.equal(calls[0].spawnOptions.input, plan.remote.stdin);
+  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(managerRoot, { recursive: true, force: true });
 });
 
 test("hook bytes and realpath are revalidated immediately before execution", () => {
