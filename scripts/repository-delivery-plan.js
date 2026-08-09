@@ -205,6 +205,11 @@ function buildDeliveryPlan(input) {
       skipped_commands: skipped,
       declared_skipped_commands: [...declaredSkips].sort(),
     },
+    repository_policy: {
+      provenance: capabilities.policy?.provenance || "absent",
+      source: capabilities.policy?.source || null,
+      delivery_bypass: capabilities.policy?.delivery_bypass || null,
+    },
     adapter: {
       kind: input.adapterKind || "lefthook-v1",
       supported:

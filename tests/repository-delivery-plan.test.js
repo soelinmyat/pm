@@ -39,6 +39,16 @@ test("mobile-only selects mobile and shared but excludes API", () => {
           skipped_commands: [],
           command_identity: digest(commands),
         },
+        source: {
+          commit: NEW_SHA,
+          path: ".pm/repository-delivery-policy.json",
+          sha256: "sha256:" + "9".repeat(64),
+        },
+        delivery_bypass: {
+          permitted_purposes: ["candidate-hook-bypass"],
+          hook_bypass: "LEFTHOOK=0",
+          signer_identity: "sha256:" + "8".repeat(64),
+        },
         provenance: "authenticated",
       },
     },
@@ -51,6 +61,10 @@ test("mobile-only selects mobile and shared but excludes API", () => {
   assert.equal(plan.targeted_commands.includes("api-full"), false);
   assert.equal(plan.complete_commands.includes("api-full"), false);
   assert.equal(plan.candidate_push.permitted, true);
+  assert.equal(plan.repository_policy.source.commit, NEW_SHA);
+  assert.deepEqual(plan.repository_policy.delivery_bypass.permitted_purposes, [
+    "candidate-hook-bypass",
+  ]);
   assert.equal(plan.adapter.supported, true);
   assert.deepEqual(plan.environment_identity, { runtimes: [], path_digest: "x" });
   assert.equal(verifyPlanDigest(plan), true);

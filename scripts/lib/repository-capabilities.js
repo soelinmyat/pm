@@ -245,7 +245,7 @@ function parsePolicy(text, provenance) {
       throw new Error("schema");
     if (
       Object.keys(parsed).some(
-        (key) => !["schema_version", "candidate_push", "probes"].includes(key)
+        (key) => !["schema_version", "candidate_push", "probes", "delivery_bypass"].includes(key)
       )
     )
       throw new Error("unknown policy field");
@@ -274,6 +274,29 @@ function parsePolicy(text, provenance) {
     }
     if (parsed.probes !== undefined && !Array.isArray(parsed.probes))
       throw new Error("probes must be an array");
+    if (parsed.delivery_bypass !== undefined) {
+      const bypass = parsed.delivery_bypass;
+      const purposes = new Set(["review-bypass", "candidate-hook-bypass", "final-hook-bypass"]);
+      if (
+        !bypass ||
+        typeof bypass !== "object" ||
+        Array.isArray(bypass) ||
+        Object.keys(bypass).some(
+          (key) =>
+            !["permitted_purposes", "review_bypass", "hook_bypass", "signer_identity"].includes(key)
+        ) ||
+        !Array.isArray(bypass.permitted_purposes) ||
+        bypass.permitted_purposes.length === 0 ||
+        bypass.permitted_purposes.some((purpose) => !purposes.has(purpose)) ||
+        new Set(bypass.permitted_purposes).size !== bypass.permitted_purposes.length ||
+        !/^sha256:[0-9a-f]{64}$/i.test(bypass.signer_identity || "") ||
+        (bypass.permitted_purposes.includes("review-bypass") &&
+          bypass.review_bypass !== "SKIP_CODEX_REVIEW=1") ||
+        (bypass.permitted_purposes.some((purpose) => purpose.endsWith("hook-bypass")) &&
+          bypass.hook_bypass !== "LEFTHOOK=0")
+      )
+        throw new Error("invalid delivery bypass policy");
+    }
     return {
       ...parsed,
       probes: (parsed.probes || []).map((probe) => ({ ...probe, provenance })),
@@ -367,6 +390,11 @@ function readPolicy(root, options, identities, discoveryReceipt) {
       return {
         ...parsePolicy(shown.stdout, "authenticated"),
         authority: `git:${commit}:${relative}`,
+        source: {
+          commit,
+          path: relative,
+          sha256: `sha256:${crypto.createHash("sha256").update(shown.stdout).digest("hex")}`,
+        },
       };
     }
   }

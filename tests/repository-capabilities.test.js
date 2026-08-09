@@ -36,6 +36,11 @@ test("discovers instructions, runtimes, hooks, workflows and policy without writ
         skipped_commands: [],
         command_identity: COMMAND_IDENTITY,
       },
+      delivery_bypass: {
+        permitted_purposes: ["candidate-hook-bypass", "final-hook-bypass"],
+        hook_bypass: "LEFTHOOK=0",
+        signer_identity: COMMAND_IDENTITY,
+      },
     })
   );
   const before = snapshot(root);
@@ -57,6 +62,10 @@ test("discovers instructions, runtimes, hooks, workflows and policy without writ
     true
   );
   assert.equal(found.policy.candidate_push.permitted, true);
+  assert.deepEqual(found.policy.delivery_bypass.permitted_purposes, [
+    "candidate-hook-bypass",
+    "final-hook-bypass",
+  ]);
   assert.equal(found.hooks.pre_push.exists, true);
   assert.deepEqual(snapshot(root), before);
   fs.rmSync(root, { recursive: true, force: true });
