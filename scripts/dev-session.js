@@ -21,6 +21,7 @@ const {
   nextDecision,
   projectMarkdown,
   promptMetadata,
+  refreshCandidateIdentities,
   readSession,
   recertifyEvidence,
   recordResult,
@@ -73,6 +74,8 @@ function main(argv) {
       return workUnitCommand(options);
     case "candidate":
       return candidateCommand(options);
+    case "candidate-refresh":
+      return candidateRefreshCommand(options);
     case "candidate-effect":
       return candidateEffectCommand(options);
     case "validate":
@@ -123,6 +126,9 @@ function parseArguments(argv) {
     "expected-version",
     "state",
     "external-effect-started-at",
+    "affected-identity",
+    "repository-capability-identity",
+    "gate-plan-identity",
     "at",
   ];
   const spec = Object.fromEntries(valueFlags.map((name) => [`--${name}`, { type: "string" }]));
@@ -815,6 +821,36 @@ function candidateCommand(options) {
   return EXIT.OK;
 }
 
+function candidateRefreshCommand(options) {
+  requireOptions(options, [
+    "session",
+    "commit",
+    "affectedIdentity",
+    "repositoryCapabilityIdentity",
+    "gatePlanIdentity",
+  ]);
+  const sessionPath = path.resolve(options.session);
+  let updated;
+  try {
+    updated = mutateSession(sessionPath, (session) =>
+      refreshCandidateIdentities(session, {
+        commit: options.commit,
+        affectedIdentity: options.affectedIdentity,
+        repositoryCapabilityIdentity: options.repositoryCapabilityIdentity,
+        gatePlanIdentity: options.gatePlanIdentity,
+      })
+    );
+  } catch (error) {
+    throw cliError(error.message, EXIT.PRECONDITION);
+  }
+  emit(
+    options,
+    { session_path: sessionPath, candidate: updated.candidate },
+    `candidate identities refreshed for ${options.commit}\n`
+  );
+  return EXIT.OK;
+}
+
 function candidateEffectCommand(options) {
   requireOptions(options, ["session", "at"]);
   const sessionPath = path.resolve(options.session);
@@ -930,6 +966,7 @@ function helpText() {
     "  workspace --session <path> --worktree <path> [--json]",
     "  work-unit --session <path> --id <id> --status <status> [--worktree <path>] [--result <path>] [--reason <text>] [--json]",
     "  candidate --session <path> --state <state> --reason <text> [--external-effect-started-at <time>] [--json]",
+    "  candidate-refresh --session <path> --commit <sha> --affected-identity <sha256:id> --repository-capability-identity <sha256:id> --gate-plan-identity <sha256:id> [--json]",
     "  candidate-effect --session <path> --at <time> [--json]",
     "  validate --session <path> [--json]",
     "  migrate --legacy <path> [--output <path>] [--json]",

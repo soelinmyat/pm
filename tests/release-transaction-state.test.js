@@ -302,7 +302,13 @@ test("ambiguous outcome observes before retry and verified effects never replay"
 });
 
 test("optimized delivery journals the draft-to-ready PR mutation before merge", () => {
-  let value = planEffect(transaction(), {
+  let value = bindReleaseEvidence(transaction(), {
+    kind: "candidate",
+    commit: COMMIT,
+    artifact: ".pm/dev-sessions/release-example/ship/candidate-attestation.json",
+    sha256: `sha256:${"e".repeat(64)}`,
+  });
+  value = planEffect(value, {
     effect: "push",
     target: {
       remote: "origin",
@@ -347,10 +353,6 @@ test("optimized delivery journals the draft-to-ready PR mutation before merge", 
     observation: { target: value.effects["create-pr"].target, receipt: prReceipt },
   }).transaction;
   value = planEffect(value, {
-    effect: "ready-pr",
-    target: { repository: "acme/widget", pr_number: 42, commit: COMMIT },
-  });
-  value = planEffect(value, {
     effect: "merge",
     target: {
       repository: "acme/widget",
@@ -369,6 +371,10 @@ test("optimized delivery journals the draft-to-ready PR mutation before merge", 
       }),
     /requires verified effect ready-pr/
   );
+  value = planEffect(value, {
+    effect: "ready-pr",
+    target: { repository: "acme/widget", pr_number: 42, commit: COMMIT },
+  });
   value = beginEffect(value, {
     effect: "ready-pr",
     authority: { create_pr: true },

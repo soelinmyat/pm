@@ -1446,6 +1446,42 @@ function transitionCandidate(session, input, options = {}) {
   return next;
 }
 
+function refreshCandidateIdentities(session, input, options = {}) {
+  assertValidSession(session);
+  if (session.candidate.route !== "review-candidate") {
+    throw new Error("candidate identity refresh requires the review-candidate route");
+  }
+  if (!new Set(["implementation", "reviewing"]).has(session.candidate.state)) {
+    throw new Error(
+      `candidate identity refresh is unavailable in state ${session.candidate.state}`
+    );
+  }
+  if (!isObject(input)) throw new Error("candidate identity refresh input is required");
+  for (const [name, value] of [
+    ["affected identity", input.affectedIdentity],
+    ["repository capability identity", input.repositoryCapabilityIdentity],
+    ["gate plan identity", input.gatePlanIdentity],
+  ]) {
+    if (typeof value !== "string" || !/^sha256:[0-9a-f]{64}$/.test(value)) {
+      throw new Error(`${name} must be a sha256 identity`);
+    }
+  }
+  const currentHead = (options.branchHead || defaultBranchHead)(session);
+  if (input.commit !== currentHead) {
+    throw new Error(`candidate identity refresh commit must equal current HEAD ${currentHead}`);
+  }
+  const timestamp = options.now || new Date().toISOString();
+  if (!isIsoDate(timestamp))
+    throw new Error("candidate identity refresh timestamp must be an ISO date");
+  const next = structuredClone(session);
+  next.candidate.affected_identity = input.affectedIdentity;
+  next.candidate.repository_capability_identity = input.repositoryCapabilityIdentity;
+  next.candidate.gate_plan_identity = input.gatePlanIdentity;
+  next.updated_at = timestamp;
+  assertValidSession(next);
+  return next;
+}
+
 function markCandidateExternalEffectStarted(session, options = {}) {
   assertValidSession(session);
   if (session.candidate.state !== "review-candidate") {
@@ -2572,6 +2608,7 @@ module.exports = {
   promptMetadata,
   readSession,
   prunePreUpgradeSnapshot,
+  refreshCandidateIdentities,
   recertifyEvidence,
   recordResult,
   resumeBlocked,

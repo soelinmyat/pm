@@ -15,6 +15,7 @@ const {
   createSession,
   prunePreUpgradeSnapshot,
   readSession,
+  refreshCandidateIdentities,
   restorePreUpgradeSnapshot,
   transitionCandidate,
   validateSession,
@@ -118,6 +119,31 @@ test("installed Dev CLI exposes candidate transitions without consumer integrati
     const session = createSession({ slug: "cli-candidate", sourceDir: repo });
     session.candidate.route = "review-candidate";
     writeSession(sessionPath, session);
+    const commit = execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], {
+      encoding: "utf8",
+    }).trim();
+    const refreshed = JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          path.join(__dirname, "..", "scripts", "dev-session.js"),
+          "candidate-refresh",
+          "--session",
+          sessionPath,
+          "--commit",
+          commit,
+          "--affected-identity",
+          `sha256:${"1".repeat(64)}`,
+          "--repository-capability-identity",
+          `sha256:${"2".repeat(64)}`,
+          "--gate-plan-identity",
+          `sha256:${"3".repeat(64)}`,
+          "--json",
+        ],
+        { encoding: "utf8" }
+      )
+    );
+    assert.equal(refreshed.candidate.gate_plan_identity, `sha256:${"3".repeat(64)}`);
     const output = JSON.parse(
       execFileSync(
         process.execPath,
@@ -153,6 +179,46 @@ test("installed Dev CLI exposes candidate transitions without consumer integrati
       )
     );
     assert.equal(effect.candidate.external_effect_started_at, "2026-08-09T02:30:00.000Z");
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("candidate identity refresh is atomic, current-head-bound, and state-gated", () => {
+  const repo = makeRepo();
+  try {
+    let session = createSession({ slug: "candidate-refresh", sourceDir: repo });
+    session.candidate.route = "review-candidate";
+    const head = execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], {
+      encoding: "utf8",
+    }).trim();
+    const identities = {
+      commit: head,
+      affectedIdentity: `sha256:${"1".repeat(64)}`,
+      repositoryCapabilityIdentity: `sha256:${"2".repeat(64)}`,
+      gatePlanIdentity: `sha256:${"3".repeat(64)}`,
+    };
+    session = refreshCandidateIdentities(session, identities);
+    assert.equal(session.candidate.affected_identity, identities.affectedIdentity);
+    assert.equal(
+      session.candidate.repository_capability_identity,
+      identities.repositoryCapabilityIdentity
+    );
+    assert.equal(session.candidate.gate_plan_identity, identities.gatePlanIdentity);
+    assert.throws(
+      () => refreshCandidateIdentities(session, { ...identities, commit: "f".repeat(40) }),
+      /current HEAD/
+    );
+    session = transitionCandidate(session, { state: "review-candidate", reason: "prepared" });
+    session = transitionCandidate(session, { state: "reviewing", reason: "draft" });
+    assert.doesNotThrow(() =>
+      refreshCandidateIdentities(session, {
+        ...identities,
+        gatePlanIdentity: `sha256:${"4".repeat(64)}`,
+      })
+    );
+    session = transitionCandidate(session, { state: "review-converged", reason: "passed" });
+    assert.throws(() => refreshCandidateIdentities(session, identities), /state/);
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
   }

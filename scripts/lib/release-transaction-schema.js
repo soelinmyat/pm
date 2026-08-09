@@ -223,8 +223,11 @@ function beginEffect(transaction, input) {
       throw new Error(`${input.effect} requires verified effect ${dependency}`);
     }
   }
-  if (input.effect === "merge" && next.effects["ready-pr"]?.status !== undefined) {
-    if (next.effects["ready-pr"].status !== "verified") {
+  if (
+    input.effect === "merge" &&
+    (next.evidence.candidate || next.effects["ready-pr"]?.status !== undefined)
+  ) {
+    if (next.effects["ready-pr"]?.status !== "verified") {
       throw new Error("merge requires verified effect ready-pr");
     }
   }

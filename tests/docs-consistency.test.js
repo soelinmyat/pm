@@ -75,6 +75,7 @@ test("optimized Ship prepares the version before review and finalizes before CI"
     refreshedPlan > prepare && refreshedPlan < candidateReview,
     "head-bound delivery inputs must be regenerated after preparation"
   );
+  assert.match(review, /dev-session\.js candidate-refresh/);
   assert.match(review, /never prepare or commit a version mutation after convergence/i);
 
   const converged = createPr.indexOf("`review-converged`");

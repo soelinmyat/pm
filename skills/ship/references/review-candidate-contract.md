@@ -14,7 +14,7 @@ Perform a preliminary route selection before release preparation, candidate publ
 
 All three must be true. A candidate-branch declaration, prose instruction, generic `LEFTHOOK=0`/`--no-verify` escape hatch, or adapter coverage without permission is insufficient.
 
-Release preparation can change HEAD, so the preliminary selection cannot authorize publication. Prepare the versioned or delivery-only transaction, discard the old head-bound plan inputs, regenerate authenticated discovery/preflight/ref/plan evidence for the prepared commit, and call `selectPublicationRoute` again. Only that post-preparation result is authoritative.
+Release preparation can change HEAD, so the preliminary selection cannot authorize publication. Prepare the versioned or delivery-only transaction, discard the old head-bound plan inputs, regenerate authenticated discovery/preflight/ref/plan evidence for the prepared commit, bind its three identities atomically with `dev-session.js candidate-refresh`, and call `selectPublicationRoute` again. Only that post-preparation result is authoritative.
 
 If any fact is false or stale, select existing comprehensive Ship **before candidate publication**. Do not open an early draft, initialize convergence, or later add a second certification. Continue through the pre-existing comprehensive Review → Push → PR → CI flow unchanged and report the missing capability.
 
@@ -51,7 +51,7 @@ Convergence is true only when every required source is `passed` on the bound hea
 ## Findings, mutation, and resume
 
 - A blocking local, PM, Codex, bot, human, or PR-conversation finding keeps or returns the candidate to `reviewing`.
-- A fix, amend, rebase, merge, generated-file update, or any other head mutation calls `markHeadMutation`. It resets all source outcomes and the conversation check. Advance the release transaction, regenerate every head-bound identity, rerun targeted checks and affected review, transition `reviewing` back to `review-candidate`, and reconcile the new generation's Push/Create PR effects before returning to `reviewing`. Preserve the first `external_effect_started_at`; do not replay `candidate-effect`.
+- A fix, amend, rebase, merge, generated-file update, or any other head mutation calls `markHeadMutation`. It resets all source outcomes and the conversation check. Advance the release transaction, regenerate every head-bound identity, bind them with `dev-session.js candidate-refresh`, rerun targeted checks and affected review, transition `reviewing` back to `review-candidate`, and reconcile the new generation's Push/Create PR effects before returning to `reviewing`. Preserve the first `external_effect_started_at`; do not replay `candidate-effect`.
 - `unavailable` or an incomplete source at the bounded deadline enters `awaiting-decision`. It does not pass and does not silently make the source optional.
 - A temporarily unavailable source may resume on the same head. Record its eventual result and converge only after all sources and conversations pass.
 - Required sources may change only from `awaiting-decision` through `reviseRequirements`, with a non-empty approver, reason, new requirement-set hash, new bounded deadline, and replacement source set. The revision resets source and conversation results and returns to `reviewing`.
