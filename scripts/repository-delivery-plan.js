@@ -4,8 +4,41 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const childProcess = require("node:child_process");
+const crypto = require("node:crypto");
 const { discoverRepositoryCapabilities } = require("./lib/repository-capabilities");
 const { digest, planMaterial } = require("./lib/repository-gate-plan-schema");
+const { redactText } = require("./repository-environment-preflight");
+
+const MAX_INPUT = 1024 * 1024;
+
+function readAuthenticatedJson(inputPath, expectedSha256) {
+  if (!inputPath || !/^sha256:[0-9a-f]{64}$/i.test(expectedSha256 || ""))
+    throw new Error("authenticated JSON path and sha256 are required");
+  const absolute = path.resolve(inputPath);
+  const stat = fs.lstatSync(absolute);
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_INPUT)
+    throw new Error("authenticated JSON input must be a bounded regular file");
+  const bytes = fs.readFileSync(absolute);
+  const actual = `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`;
+  if (actual !== expectedSha256) throw new Error("authenticated JSON sha256 mismatch");
+  return JSON.parse(bytes.toString("utf8"));
+}
+
+function discoveryOptions(receipt) {
+  if (!receipt || receipt.schema_version !== 1 || typeof receipt !== "object")
+    throw new Error("discovery receipt schema is invalid");
+  return {
+    protectedCommit: receipt.protected_commit,
+    expectedProtectedCommit: receipt.expected_protected_commit,
+    defaultBranchReceipt: receipt.default_branch,
+    expectedDefaultRef: receipt.expected_default_ref,
+    expectedRemoteIdentity: receipt.default_branch?.identity,
+    lefthookReceipt: receipt.lefthook,
+    expectedManagerIdentity: receipt.lefthook?.identity,
+    githubReceipt: receipt.github,
+    expectedGithubIdentity: receipt.github?.identity,
+  };
+}
 
 function globToRegex(glob) {
   let source = "",
@@ -166,8 +199,14 @@ function buildDeliveryPlan(input) {
     },
     adapter: {
       kind: input.adapterKind || "lefthook-v1",
-      supported: input.adapterSupported !== false && capabilities.lefthook?.supported !== false,
+      supported:
+        input.adapterSupported !== false &&
+        capabilities.lefthook?.supported === true &&
+        capabilities.github_capabilities?.available === true,
       manager_version: input.managerVersion || null,
+      manager_identity: capabilities.lefthook?.identity || null,
+      manager: capabilities.lefthook?.manager || null,
+      dump_digest: capabilities.lefthook?.dump_digest || null,
     },
     hook: capabilities.hooks?.pre_push?.path || input.hook || null,
     hook_identity: capabilities.hooks?.pre_push || input.hookIdentity || null,
@@ -200,10 +239,41 @@ function main(argv = process.argv.slice(2)) {
   const root = fs.realpathSync(path.resolve(value("--root", process.cwd()))),
     base = value("--base"),
     head = value("--head", "HEAD");
-  if (!base) throw new Error("--base SHA is required");
-  const capabilities = discoverRepositoryCapabilities(root, {
-    protectedCommit: base,
-  });
+  const remote = value("--remote"),
+    remoteUrl = value("--remote-url"),
+    refUpdatesPath = value("--ref-updates"),
+    environmentPath = value("--environment-identity"),
+    discoveryPath = value("--discovery-receipt");
+  if (!base || !remote || !remoteUrl || !refUpdatesPath || !environmentPath || !discoveryPath)
+    throw new Error(
+      "--base, --remote, --remote-url, --ref-updates, --environment-identity, and --discovery-receipt are required"
+    );
+  const refUpdates = readAuthenticatedJson(refUpdatesPath, value("--ref-updates-sha256"));
+  const environmentReceipt = readAuthenticatedJson(
+    environmentPath,
+    value("--environment-identity-sha256")
+  );
+  if (
+    environmentReceipt?.schema_version !== 1 ||
+    environmentReceipt.status !== "verified" ||
+    !environmentReceipt.identity ||
+    typeof environmentReceipt.identity !== "object" ||
+    Array.isArray(environmentReceipt.identity)
+  )
+    throw new Error("environment identity requires a verified schema-v1 preflight receipt");
+  const environmentIdentity = environmentReceipt.identity;
+  const discoveryReceipt = readAuthenticatedJson(
+    discoveryPath,
+    value("--discovery-receipt-sha256")
+  );
+  if (discoveryReceipt.expected_protected_commit !== base)
+    throw new Error("base does not match authenticated expected protected commit");
+  if (
+    discoveryReceipt.default_branch?.remote !== remote ||
+    discoveryReceipt.default_branch?.remote_url !== remoteUrl
+  )
+    throw new Error("destination remote does not match authenticated discovery receipt");
+  const capabilities = discoverRepositoryCapabilities(root, discoveryOptions(discoveryReceipt));
   const changedPaths = git(root, ["diff", "--name-only", `${base}...${head}`])
     .split(/\r?\n/)
     .filter(Boolean);
@@ -213,8 +283,10 @@ function main(argv = process.argv.slice(2)) {
     commands: capabilities.lefthook?.commands || {},
     capabilities,
     managerVersion: capabilities.lefthook?.manager_version,
-    remote: value("--remote"),
-    remoteUrl: value("--remote-url"),
+    remote,
+    remoteUrl,
+    refUpdates,
+    environmentIdentity,
   });
   process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
 }
@@ -222,9 +294,16 @@ if (require.main === module) {
   try {
     main();
   } catch (error) {
-    process.stderr.write(`${error.message}\n`);
+    process.stderr.write(`${redactText(error.message)}\n`);
     process.exitCode = 1;
   }
 }
 
-module.exports = { buildDeliveryPlan, verifyPlanDigest, globToRegex, validateGitPushInputs };
+module.exports = {
+  buildDeliveryPlan,
+  verifyPlanDigest,
+  globToRegex,
+  validateGitPushInputs,
+  readAuthenticatedJson,
+  discoveryOptions,
+};

@@ -57,25 +57,62 @@ test("discovers instructions, runtimes, hooks, workflows and policy without writ
 
 test("merged Lefthook JSON supplies exact command identities without executing commands", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-repo-lefthook-"));
+  const managerRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pm-trusted-lefthook-"));
+  const manager = path.join(managerRoot, "lefthook");
   const lefthookDump = {
     "pre-push": { commands: { mobile: { glob: "apps/mobile/**", run: "pnpm mobile" } } },
   };
+  fs.writeFileSync(
+    manager,
+    `#!/bin/sh\nif [ "$1" = "version" ]; then printf '1.12.3\\n'; else printf '%s\\n' '${JSON.stringify(lefthookDump)}'; fi\n`,
+    { mode: 0o700 }
+  );
+  const managerIdentity = {
+    path: manager,
+    realpath: fs.realpathSync(manager),
+    sha256: `sha256:${cryptoHash(fs.readFileSync(manager))}`,
+    version: "1.12.3",
+  };
   const found = discoverRepositoryCapabilities(root, {
-    lefthookDump,
-    lefthookVersion: "1.12.3",
-    lefthookAuthenticated: true,
-    expectedLefthookDumpDigest: digest(lefthookDump),
+    lefthookReceipt: {
+      authenticated: true,
+      identity: "manager-receipt-v1",
+      manager: managerIdentity,
+      dump: lefthookDump,
+      dump_digest: digest(lefthookDump),
+    },
+    expectedManagerIdentity: "manager-receipt-v1",
   });
   assert.equal(found.lefthook.commands.mobile.run, "pnpm mobile");
   assert.equal(found.lefthook.manager_version, "1.12.3");
   assert.equal(
     discoverRepositoryCapabilities(root, {
-      lefthookDump,
-      lefthookAuthenticated: true,
+      lefthookReceipt: {
+        authenticated: true,
+        identity: "self-labeled",
+        manager: managerIdentity,
+        dump: lefthookDump,
+        dump_digest: digest(lefthookDump),
+      },
+    }).lefthook.supported,
+    false
+  );
+  fs.appendFileSync(manager, "# drift\n");
+  assert.equal(
+    discoverRepositoryCapabilities(root, {
+      lefthookReceipt: {
+        authenticated: true,
+        identity: "manager-receipt-v1",
+        manager: managerIdentity,
+        dump: lefthookDump,
+        dump_digest: digest(lefthookDump),
+      },
+      expectedManagerIdentity: "manager-receipt-v1",
     }).lefthook.supported,
     false
   );
   fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(managerRoot, { recursive: true, force: true });
 });
 
 test("candidate policy is visible but cannot authorize when no protected root is supplied", () => {
@@ -133,11 +170,35 @@ test("protected policy bytes come from the exact verified Git commit", () => {
     policyPath,
     JSON.stringify({ schema_version: 1, candidate_push: { permitted: true } })
   );
-  const found = discoverRepositoryCapabilities(root, { protectedCommit: commit });
-  assert.equal(found.policy.provenance, "authenticated");
-  assert.equal(found.policy.candidate_push.permitted, false);
-  assert.match(found.policy.authority, new RegExp(commit));
+  const found = discoverRepositoryCapabilities(root, {
+    protectedCommit: commit,
+    expectedProtectedCommit: commit,
+  });
+  assert.equal(found.policy.provenance, "candidate");
+  const remoteRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pm-policy-remote-"));
+  git(["init", "--bare", remoteRoot]);
+  git(["remote", "add", "origin", remoteRoot]);
+  git(["push", "-u", "origin", "HEAD:main"]);
+  const remoteCommit = git(["rev-parse", "refs/remotes/origin/main"]).stdout.trim();
+  const authenticated = discoverRepositoryCapabilities(root, {
+    protectedCommit: commit,
+    expectedProtectedCommit: commit,
+    defaultBranchReceipt: {
+      authenticated: true,
+      identity: "remote-main-v1",
+      remote: "origin",
+      remote_url: remoteRoot,
+      ref: "refs/remotes/origin/main",
+      commit: remoteCommit,
+    },
+    expectedDefaultRef: "refs/remotes/origin/main",
+    expectedRemoteIdentity: "remote-main-v1",
+  });
+  assert.equal(authenticated.policy.provenance, "authenticated");
+  assert.equal(authenticated.policy.candidate_push.permitted, false);
+  assert.match(authenticated.policy.authority, new RegExp(commit));
   fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(remoteRoot, { recursive: true, force: true });
 });
 
 test("malformed or stdin-sensitive Lefthook contracts make the adapter unsupported", () => {
@@ -151,14 +212,39 @@ test("malformed or stdin-sensitive Lefthook contracts make the adapter unsupport
       },
     },
   };
-  const found = discoverRepositoryCapabilities(root, {
-    lefthookAuthenticated: true,
-    lefthookDump,
-    expectedLefthookDumpDigest: digest(lefthookDump),
+  const found = require("../scripts/lib/repository-capabilities").parseLefthookDump(lefthookDump);
+  assert.equal(found.supported, false);
+  assert.ok(found.issues.length >= 2);
+  assert.deepEqual(found.commands, {});
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("unsupported Lefthook glob grammar fails the complete adapter closed", () => {
+  const parsed = require("../scripts/lib/repository-capabilities").parseLefthookDump({
+    "pre-push": { commands: { unsafe: { run: "pnpm test", glob: "src/[^a]/**" } } },
   });
-  assert.equal(found.lefthook.supported, false);
-  assert.ok(found.lefthook.issues.length >= 2);
-  assert.deepEqual(found.lefthook.commands, {});
+  assert.equal(parsed.supported, false);
+  assert.deepEqual(parsed.commands, {});
+});
+
+test("GitHub optimization facts require an externally bound authenticated receipt", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-github-cap-"));
+  const absent = discoverRepositoryCapabilities(root);
+  assert.equal(absent.github_capabilities.available, false);
+  const facts = {
+    branch_protection: true,
+    required_checks: true,
+    merge_queue: false,
+  };
+  const authenticated = discoverRepositoryCapabilities(root, {
+    githubReceipt: { authenticated: true, identity: "github-v1", facts },
+    expectedGithubIdentity: "github-v1",
+  });
+  assert.deepEqual(authenticated.github_capabilities, {
+    available: true,
+    identity: "github-v1",
+    facts,
+  });
   fs.rmSync(root, { recursive: true, force: true });
 });
 
@@ -186,4 +272,8 @@ function snapshot(root) {
   };
   walk(root);
   return out;
+}
+
+function cryptoHash(bytes) {
+  return require("node:crypto").createHash("sha256").update(bytes).digest("hex");
 }

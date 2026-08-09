@@ -1,7 +1,19 @@
 "use strict";
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { buildDeliveryPlan, verifyPlanDigest } = require("../scripts/repository-delivery-plan");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const childProcess = require("node:child_process");
+const crypto = require("node:crypto");
+const {
+  buildDeliveryPlan,
+  verifyPlanDigest,
+  discoveryOptions,
+} = require("../scripts/repository-delivery-plan");
+const { digest } = require("../scripts/lib/repository-gate-plan-schema");
+const { verifyEnvironment } = require("../scripts/repository-environment-preflight");
+const { runRepositoryGates } = require("../scripts/repository-gate-runner");
 const OLD_SHA = "a".repeat(40);
 const NEW_SHA = "b".repeat(40);
 
@@ -18,6 +30,8 @@ test("mobile-only selects mobile and shared but excludes API", () => {
     commands,
     capabilities: {
       identity: "cap",
+      github_capabilities: { available: true, identity: "github-v1" },
+      lefthook: { supported: true, identity: "manager-v1", dump_digest: "dump-v1" },
       policy: {
         candidate_push: { permitted: true, skipped_commands: [] },
         provenance: "authenticated",
@@ -26,12 +40,182 @@ test("mobile-only selects mobile and shared but excludes API", () => {
     remote: "origin",
     remoteUrl: "git@example/x",
     refUpdates: [`refs/heads/x ${OLD_SHA} refs/heads/x ${NEW_SHA}`],
+    environmentIdentity: { runtimes: [], path_digest: "x" },
   });
   assert.deepEqual(plan.targeted_commands, ["mobile-quality", "shared-checks"]);
   assert.equal(plan.targeted_commands.includes("api-full"), false);
   assert.equal(plan.complete_commands.includes("api-full"), false);
   assert.equal(plan.candidate_push.permitted, true);
+  assert.equal(plan.adapter.supported, true);
+  assert.deepEqual(plan.environment_identity, { runtimes: [], path_digest: "x" });
   assert.equal(verifyPlanDigest(plan), true);
+});
+
+test("production planner CLI rejects incomplete remote, ref-update, and environment inputs", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-delivery-cli-"));
+  const git = (args) =>
+    childProcess.spawnSync("git", args, { cwd: root, encoding: "utf8", shell: false });
+  git(["init"]);
+  git(["config", "user.email", "test@example.com"]);
+  git(["config", "user.name", "Test"]);
+  fs.writeFileSync(path.join(root, "README.md"), "fixture\n");
+  git(["add", "README.md"]);
+  git(["commit", "-m", "fixture"]);
+  const base = git(["rev-parse", "HEAD"]).stdout.trim();
+  const cli = childProcess.spawnSync(
+    process.execPath,
+    [
+      path.join(__dirname, "../scripts/repository-delivery-plan.js"),
+      "--root",
+      root,
+      "--base",
+      base,
+    ],
+    { encoding: "utf8", shell: false }
+  );
+  assert.notEqual(cli.status, 0);
+  assert.match(cli.stderr, /remote|ref-update|environment/i);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("production planner CLI accepts only hash-bound complete execution inputs", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-delivery-cli-complete-"));
+  const remoteRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pm-delivery-remote-"));
+  const managerRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pm-delivery-manager-"));
+  const git = (args) =>
+    childProcess.spawnSync("git", args, { cwd: root, encoding: "utf8", shell: false });
+  git(["init"]);
+  git(["config", "user.email", "test@example.com"]);
+  git(["config", "user.name", "Test"]);
+  fs.mkdirSync(path.join(root, ".pm"));
+  fs.mkdirSync(path.join(root, "apps/mobile"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, ".pm/repository-delivery-policy.json"),
+    JSON.stringify({
+      schema_version: 1,
+      candidate_push: { permitted: true, candidate_commands: ["mobile"], skipped_commands: [] },
+    })
+  );
+  fs.writeFileSync(path.join(root, "apps/mobile/a.ts"), "one\n");
+  fs.writeFileSync(path.join(root, ".nvmrc"), `${process.version.slice(1)}\n`);
+  fs.writeFileSync(path.join(root, ".git/hooks/pre-push"), "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+  git(["add", ".pm/repository-delivery-policy.json", "apps/mobile/a.ts", ".nvmrc"]);
+  git(["commit", "-m", "protected base"]);
+  const base = git(["rev-parse", "HEAD"]).stdout.trim();
+  childProcess.spawnSync("git", ["init", "--bare", remoteRoot], { encoding: "utf8", shell: false });
+  git(["remote", "add", "origin", remoteRoot]);
+  git(["push", "origin", "HEAD:main"]);
+  fs.writeFileSync(path.join(root, "apps/mobile/a.ts"), "two\n");
+  git(["add", "apps/mobile/a.ts"]);
+  git(["commit", "-m", "candidate"]);
+  const head = git(["rev-parse", "HEAD"]).stdout.trim();
+  const dump = {
+    "pre-push": { commands: { mobile: { glob: "apps/mobile/**", run: "pnpm mobile" } } },
+  };
+  const manager = path.join(managerRoot, "lefthook");
+  fs.writeFileSync(
+    manager,
+    `#!/bin/sh\nif [ "$1" = "version" ]; then printf '1.12.3\\n'; else printf '%s\\n' '${JSON.stringify(dump)}'; fi\n`,
+    { mode: 0o700 }
+  );
+  const managerBytes = fs.readFileSync(manager);
+  const discovery = {
+    schema_version: 1,
+    protected_commit: base,
+    expected_protected_commit: base,
+    expected_default_ref: "refs/remotes/origin/main",
+    default_branch: {
+      authenticated: true,
+      identity: "remote-v1",
+      remote: "origin",
+      remote_url: remoteRoot,
+      ref: "refs/remotes/origin/main",
+      commit: base,
+    },
+    lefthook: {
+      authenticated: true,
+      identity: "manager-v1",
+      manager: {
+        path: manager,
+        realpath: fs.realpathSync(manager),
+        sha256: sha(managerBytes),
+        version: "1.12.3",
+      },
+      dump,
+      dump_digest: digest(dump),
+    },
+    github: {
+      authenticated: true,
+      identity: "github-v1",
+      facts: { branch_protection: true, required_checks: true, merge_queue: false },
+    },
+  };
+  const inputs = path.join(managerRoot, "inputs");
+  fs.mkdirSync(inputs);
+  const discoveryFile = writeAuthenticatedJson(inputs, "discovery.json", discovery);
+  const refsFile = writeAuthenticatedJson(inputs, "refs.json", [
+    `refs/heads/main ${head} refs/heads/main ${base}`,
+  ]);
+  const preflight = verifyEnvironment({
+    expectations: {
+      runtimes: [
+        {
+          name: "node",
+          constraint: process.version.slice(1),
+          source: ".nvmrc",
+          scope: "local",
+        },
+      ],
+      probes: [],
+    },
+  });
+  assert.equal(preflight.status, "verified");
+  const environment = preflight.identity;
+  const environmentFile = writeAuthenticatedJson(inputs, "environment.json", preflight);
+  const cli = childProcess.spawnSync(
+    process.execPath,
+    [
+      path.join(__dirname, "../scripts/repository-delivery-plan.js"),
+      "--root",
+      root,
+      "--base",
+      base,
+      "--head",
+      head,
+      "--remote",
+      "origin",
+      "--remote-url",
+      remoteRoot,
+      "--ref-updates",
+      refsFile.path,
+      "--ref-updates-sha256",
+      refsFile.sha256,
+      "--environment-identity",
+      environmentFile.path,
+      "--environment-identity-sha256",
+      environmentFile.sha256,
+      "--discovery-receipt",
+      discoveryFile.path,
+      "--discovery-receipt-sha256",
+      discoveryFile.sha256,
+    ],
+    { encoding: "utf8", shell: false }
+  );
+  assert.equal(cli.status, 0, cli.stderr);
+  const plan = JSON.parse(cli.stdout);
+  assert.equal(plan.adapter.supported, true);
+  assert.equal(plan.remote.name, "origin");
+  assert.equal(plan.remote.stdin, `${refsFile.value[0]}\n`);
+  assert.deepEqual(plan.environment_identity, environment);
+  const executed = runRepositoryGates(plan, "targeted", {
+    expectedPlanDigest: plan.plan_digest,
+    expectedCapabilityIdentity: plan.capability_identity,
+    capabilityDiscovery: discoveryOptions(discovery),
+  });
+  assert.equal(executed.status, "passed", JSON.stringify(executed));
+  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(remoteRoot, { recursive: true, force: true });
+  fs.rmSync(managerRoot, { recursive: true, force: true });
 });
 
 test("candidate permission requires protected policy coverage of every skipped command", () => {
@@ -51,6 +235,16 @@ test("candidate permission requires protected policy coverage of every skipped c
     },
   });
   assert.equal(plan.candidate_push.permitted, false);
+});
+
+test("unavailable authenticated GitHub capabilities force comprehensive planning", () => {
+  const plan = buildDeliveryPlan({
+    root: "/repo",
+    changedPaths: ["apps/mobile/src/a.tsx"],
+    commands,
+    capabilities: { identity: "cap", lefthook: { supported: true } },
+  });
+  assert.equal(plan.adapter.supported, false);
 });
 
 test("protected policy must name every command skipped during candidate publication", () => {
@@ -135,3 +329,14 @@ test("relevant identities alter plan digest", () => {
   });
   assert.notEqual(a.plan_digest, b.plan_digest);
 });
+
+function sha(bytes) {
+  return `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`;
+}
+
+function writeAuthenticatedJson(dir, name, value) {
+  const file = path.join(dir, name);
+  const bytes = Buffer.from(JSON.stringify(value));
+  fs.writeFileSync(file, bytes);
+  return { path: file, sha256: sha(bytes), value };
+}

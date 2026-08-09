@@ -5,9 +5,19 @@ const fs = require("node:fs");
 const path = require("node:path");
 const childProcess = require("node:child_process");
 const crypto = require("node:crypto");
-const { verifyPlanDigest, validateGitPushInputs } = require("./repository-delivery-plan");
-const { verifyEnvironment, redactText } = require("./repository-environment-preflight");
+const {
+  verifyPlanDigest,
+  validateGitPushInputs,
+  readAuthenticatedJson,
+  discoveryOptions,
+} = require("./repository-delivery-plan");
+const {
+  verifyEnvironment,
+  redactText,
+  sanitizeDiagnosticValue,
+} = require("./repository-environment-preflight");
 const { stable } = require("./lib/repository-gate-plan-schema");
+const { discoverRepositoryCapabilities } = require("./lib/repository-capabilities");
 
 function fallback(options, reason) {
   if (typeof options.comprehensivePush !== "function")
@@ -61,13 +71,23 @@ function runRepositoryGates(plan, mode, options = {}) {
   const commands = mode === "complete" ? plan.complete_commands : plan.targeted_commands;
   if (!Array.isArray(commands) || commands.length === 0)
     return fallback(options, "empty-command-selection");
+  const liveCapabilities = (options.discoverCapabilities || discoverRepositoryCapabilities)(
+    plan.repository_root,
+    options.capabilityDiscovery || {}
+  );
+  if (!liveCapabilities || liveCapabilities.identity !== options.expectedCapabilityIdentity)
+    return { status: "blocked", reason: "live-capability-identity-mismatch" };
   const preflight = (options.preflight || verifyEnvironment)(plan, {
     requireIdentity: plan.environment_identity || undefined,
     identityKey: options.identityKey || (options.env || process.env).PM_REPOSITORY_IDENTITY_KEY,
     env: options.env || process.env,
   });
   if (preflight.status !== "verified")
-    return { status: "blocked", reason: "environment-preflight", issues: preflight.issues };
+    return sanitizeDiagnosticValue({
+      status: "blocked",
+      reason: "environment-preflight",
+      issues: preflight.issues,
+    });
   if (
     JSON.stringify(stable(preflight.identity)) !== JSON.stringify(stable(plan.environment_identity))
   )
@@ -116,26 +136,35 @@ function main(argv = process.argv.slice(2)) {
   const planPath = value("--plan"),
     mode = value("--mode"),
     expectedPlanDigest = value("--expected-plan-digest"),
-    expectedCapabilityIdentity = value("--expected-capability-identity");
+    expectedCapabilityIdentity = value("--expected-capability-identity"),
+    discoveryReceiptPath = value("--discovery-receipt"),
+    discoveryReceiptSha256 = value("--discovery-receipt-sha256");
   if (
     !planPath ||
     !["targeted", "complete"].includes(mode) ||
     !expectedPlanDigest ||
-    !expectedCapabilityIdentity
+    !expectedCapabilityIdentity ||
+    !discoveryReceiptPath ||
+    !discoveryReceiptSha256
   )
     throw new Error(
-      "--plan PATH, --mode targeted|complete, --expected-plan-digest, and --expected-capability-identity are required"
+      "--plan PATH, --mode targeted|complete, --expected-plan-digest, --expected-capability-identity, and authenticated --discovery-receipt are required"
     );
   const plan = JSON.parse(fs.readFileSync(path.resolve(planPath), "utf8"));
-  const result = runRepositoryGates(plan, mode, { expectedPlanDigest, expectedCapabilityIdentity });
-  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  const receipt = readAuthenticatedJson(discoveryReceiptPath, discoveryReceiptSha256);
+  const result = runRepositoryGates(plan, mode, {
+    expectedPlanDigest,
+    expectedCapabilityIdentity,
+    capabilityDiscovery: discoveryOptions(receipt),
+  });
+  process.stdout.write(`${JSON.stringify(sanitizeDiagnosticValue(result), null, 2)}\n`);
   if (!["passed", "comprehensive"].includes(result.status)) process.exitCode = 1;
 }
 if (require.main === module) {
   try {
     main();
   } catch (error) {
-    process.stderr.write(`${error.message}\n`);
+    process.stderr.write(`${redactText(error.message)}\n`);
     process.exitCode = 1;
   }
 }

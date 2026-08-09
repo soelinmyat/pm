@@ -216,6 +216,40 @@ test("redaction covers bearer and authorization values", () => {
   assert.ok(Buffer.byteLength(redacted) <= 8192);
 });
 
+test("runtime-controlled constraint, version, and path diagnostics are redacted and bounded", () => {
+  const result = verifyEnvironment(
+    basePlan({
+      expectations: {
+        runtimes: [
+          {
+            name: "node",
+            constraint: "token=constraint-secret",
+            source: "Authorization: Bearer source-secret",
+            scope: "local",
+          },
+        ],
+        probes: [],
+      },
+    }),
+    {
+      env: {},
+      resolveRuntime: () => ({
+        found: true,
+        path: "/tmp/token=path-secret",
+        realpath: "/tmp/token=real-secret",
+        version: "Bearer version-secret",
+      }),
+    }
+  );
+  const output = JSON.stringify(result);
+  assert.equal(result.status, "blocked");
+  assert.doesNotMatch(
+    output,
+    /constraint-secret|source-secret|path-secret|real-secret|version-secret/
+  );
+  assert.ok(Buffer.byteLength(output) <= 8192);
+});
+
 test("keyed service identity is stable without persisting secrets", () => {
   const one = keyedIdentity({ database: "cleanlog", server: "local" }, Buffer.alloc(32, 7));
   const two = keyedIdentity({ server: "local", database: "cleanlog" }, Buffer.alloc(32, 7));

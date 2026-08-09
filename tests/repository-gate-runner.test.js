@@ -5,6 +5,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const childProcess = require("node:child_process");
 const { runRepositoryGates } = require("../scripts/repository-gate-runner");
 
 const OLD_SHA = "a".repeat(40);
@@ -39,6 +40,7 @@ function fixture() {
     expectedCapabilityIdentity: "cap-v1",
     verifyDigest: () => true,
     preflight: () => ({ status: "verified", identity: environment }),
+    discoverCapabilities: () => ({ identity: "cap-v1" }),
   };
   return { root, hook, plan, options };
 }
@@ -108,6 +110,23 @@ test("externally expected digest and capability identity are mandatory", () => {
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+test("optimized execution re-discovers and binds the live capability identity", () => {
+  const { root, plan, options } = fixture();
+  let ran = false;
+  const result = runRepositoryGates(plan, "targeted", {
+    ...options,
+    discoverCapabilities: () => ({ identity: "cap-live-drift" }),
+    spawnSync: () => {
+      ran = true;
+      return { status: 0 };
+    },
+  });
+  assert.equal(result.status, "blocked");
+  assert.equal(result.reason, "live-capability-identity-mismatch");
+  assert.equal(ran, false);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 test("hook bytes and realpath are revalidated immediately before execution", () => {
   const { root, hook, plan, options } = fixture();
   fs.writeFileSync(hook, "#!/bin/sh\nexit 1\n");
@@ -158,5 +177,42 @@ test("hook diagnostics are bounded and redact authorization, token, and DSN valu
   assert.equal(result.status, "failed");
   assert.doesNotMatch(result.stderr, /abc123|shhh|user:pass/);
   assert.ok(Buffer.byteLength(result.stderr) <= 8192);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("preflight issues and uncaught CLI errors are redacted at the final boundary", () => {
+  const { root, plan, options } = fixture();
+  const result = runRepositoryGates(plan, "targeted", {
+    ...options,
+    preflight: () => ({
+      status: "blocked",
+      identity: {},
+      issues: [
+        { kind: "runtime", message: "Authorization: Bearer issue-secret token=also-secret" },
+      ],
+    }),
+  });
+  assert.doesNotMatch(JSON.stringify(result), /issue-secret|also-secret/);
+  const cli = childProcess.spawnSync(
+    process.execPath,
+    [
+      path.join(__dirname, "../scripts/repository-gate-runner.js"),
+      "--plan",
+      path.join(root, "token=cli-secret.json"),
+      "--mode",
+      "targeted",
+      "--expected-plan-digest",
+      "x",
+      "--expected-capability-identity",
+      "y",
+      "--discovery-receipt",
+      path.join(root, "receipt.json"),
+      "--discovery-receipt-sha256",
+      `sha256:${"a".repeat(64)}`,
+    ],
+    { encoding: "utf8", shell: false }
+  );
+  assert.notEqual(cli.status, 0);
+  assert.doesNotMatch(cli.stderr, /cli-secret/);
   fs.rmSync(root, { recursive: true, force: true });
 });

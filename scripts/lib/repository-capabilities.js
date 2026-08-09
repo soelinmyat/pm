@@ -108,17 +108,69 @@ function instructionFiles(root, limit = 128) {
 }
 
 function loadLefthookDump(root, options) {
+  const receipt = options.lefthookReceipt;
   if (
-    options.lefthookDump &&
-    options.lefthookAuthenticated === true &&
-    options.expectedLefthookDumpDigest &&
-    options.expectedLefthookDumpDigest === digest(options.lefthookDump)
-  )
-    return {
-      dump: options.lefthookDump,
-      version: options.lefthookVersion || null,
-      binary: options.lefthookBinary || null,
-    };
+    receipt?.authenticated === true &&
+    typeof receipt.identity === "string" &&
+    receipt.identity === options.expectedManagerIdentity &&
+    receipt.dump &&
+    receipt.dump_digest === digest(receipt.dump) &&
+    receipt.manager &&
+    typeof receipt.manager.version === "string" &&
+    receipt.manager.version
+  ) {
+    try {
+      const candidate = path.resolve(receipt.manager.path);
+      const rootReal = fs.realpathSync(root);
+      const stat = fs.lstatSync(candidate);
+      const realpath = fs.realpathSync(candidate);
+      if (
+        !stat.isFile() ||
+        stat.isSymbolicLink() ||
+        stat.size > MAX_FILE ||
+        realpath === rootReal ||
+        realpath.startsWith(`${rootReal}${path.sep}`) ||
+        realpath !== receipt.manager.realpath
+      )
+        throw new Error("untrusted manager path");
+      const sha256 = `sha256:${crypto.createHash("sha256").update(fs.readFileSync(realpath)).digest("hex")}`;
+      if (sha256 !== receipt.manager.sha256) throw new Error("manager hash mismatch");
+      const version = childProcess.spawnSync(realpath, ["version"], {
+        cwd: root,
+        env: { PATH: process.env.PATH || "" },
+        encoding: "utf8",
+        shell: false,
+        timeout: 2000,
+        maxBuffer: 8192,
+      });
+      const liveDump = childProcess.spawnSync(realpath, ["dump", "--format", "json"], {
+        cwd: root,
+        env: { PATH: process.env.PATH || "" },
+        encoding: "utf8",
+        shell: false,
+        timeout: 3000,
+        maxBuffer: MAX_FILE,
+      });
+      if (
+        version.status !== 0 ||
+        version.stdout.trim() !== receipt.manager.version ||
+        liveDump.status !== 0
+      )
+        throw new Error("live manager identity mismatch");
+      const liveDumpValue = JSON.parse(liveDump.stdout);
+      if (digest(liveDumpValue) !== receipt.dump_digest)
+        throw new Error("live manager dump mismatch");
+      return {
+        dump: liveDumpValue,
+        version: receipt.manager.version,
+        binary: realpath,
+        identity: receipt.identity,
+        manager: { ...receipt.manager, path: candidate, realpath },
+      };
+    } catch {
+      /* invalid receipts fail closed */
+    }
+  }
   return { dump: null, version: null, binary: null };
 }
 
@@ -178,6 +230,47 @@ function parsePolicy(text, provenance) {
   }
 }
 
+function runGit(root, args) {
+  return childProcess.spawnSync("git", args, {
+    cwd: root,
+    encoding: "utf8",
+    shell: false,
+    timeout: 2000,
+    maxBuffer: MAX_FILE,
+  });
+}
+
+function verifyProtectedCommitAuthority(root, options) {
+  const commit = options.protectedCommit;
+  const receipt = options.defaultBranchReceipt;
+  if (
+    !/^[0-9a-f]{40,64}$/i.test(commit || "") ||
+    commit !== options.expectedProtectedCommit ||
+    receipt?.authenticated !== true ||
+    typeof receipt.identity !== "string" ||
+    receipt.identity !== options.expectedRemoteIdentity ||
+    receipt.ref !== options.expectedDefaultRef ||
+    !/^[A-Za-z0-9._-]+$/.test(receipt.remote || "") ||
+    !String(receipt.ref || "").startsWith(`refs/remotes/${receipt.remote}/`) ||
+    !/^[0-9a-f]{40,64}$/i.test(receipt.commit || "") ||
+    typeof receipt.remote_url !== "string" ||
+    !receipt.remote_url
+  )
+    return null;
+  const remoteUrl = runGit(root, ["remote", "get-url", "--push", receipt.remote]);
+  const remoteHead = runGit(root, ["rev-parse", "--verify", `${receipt.ref}^{commit}`]);
+  const ancestor = runGit(root, ["merge-base", "--is-ancestor", commit, receipt.commit]);
+  if (
+    remoteUrl.status !== 0 ||
+    remoteUrl.stdout.trim() !== receipt.remote_url ||
+    remoteHead.status !== 0 ||
+    remoteHead.stdout.trim() !== receipt.commit ||
+    ancestor.status !== 0
+  )
+    return null;
+  return receipt;
+}
+
 function readPolicy(root, options, identities) {
   const relative = ".pm/repository-delivery-policy.json";
   if (typeof options.policyVerifier === "function") {
@@ -197,27 +290,29 @@ function readPolicy(root, options, identities) {
       return { ...parsePolicy(verified.bytes, "authenticated"), authority: verified.source };
     }
   }
-  if (/^[0-9a-f]{40,64}$/i.test(options.protectedCommit || "")) {
+  const remoteAuthority = verifyProtectedCommitAuthority(root, options);
+  if (remoteAuthority) {
     const commit = options.protectedCommit;
-    const verified = childProcess.spawnSync("git", ["cat-file", "-e", `${commit}^{commit}`], {
-      cwd: root,
-      encoding: "utf8",
-      shell: false,
-      timeout: 2000,
-    });
-    const shown = childProcess.spawnSync("git", ["show", `${commit}:${relative}`], {
-      cwd: root,
-      encoding: "utf8",
-      shell: false,
-      timeout: 2000,
-      maxBuffer: MAX_FILE,
-    });
+    const verified = runGit(root, ["cat-file", "-e", `${commit}^{commit}`]);
+    const shown = runGit(root, ["show", `${commit}:${relative}`]);
     if (
       verified.status === 0 &&
       shown.status === 0 &&
       Buffer.byteLength(shown.stdout) <= MAX_FILE
     ) {
-      identities.push({ path: `git:${commit}:${relative}`, sha256: digest(shown.stdout) });
+      identities.push({
+        path: `remote:${remoteAuthority.remote}:${remoteAuthority.ref}`,
+        sha256: digest({
+          identity: remoteAuthority.identity,
+          remote_url: remoteAuthority.remote_url,
+          commit: remoteAuthority.commit,
+        }),
+      });
+      identities.push({
+        path: `git:${commit}:${relative}`,
+        sha256: digest(shown.stdout),
+        authority_identity: remoteAuthority.identity,
+      });
       return {
         ...parsePolicy(shown.stdout, "authenticated"),
         authority: `git:${commit}:${relative}`,
@@ -241,11 +336,23 @@ function parseLefthookDump(dump) {
     return unsupported("missing pre-push commands");
   const out = {};
   const issues = [];
-  const validPattern = (value) =>
-    typeof value === "string" &&
-    value.length > 0 &&
-    value.length <= 1024 &&
-    !/[\0\r\n]/.test(value);
+  const validPattern = (value) => {
+    if (
+      typeof value !== "string" ||
+      value.length === 0 ||
+      value.length > 1024 ||
+      !/^[A-Za-z0-9._/*?{},-]+$/.test(value) ||
+      ["!", "[", "]", "(", ")", "|", "\\"].some((token) => value.includes(token))
+    )
+      return false;
+    let depth = 0;
+    for (const char of value) {
+      if (char === "{") depth++;
+      if (char === "}" && --depth < 0) return false;
+      if (depth > 1) return false;
+    }
+    return depth === 0;
+  };
   for (const [name, command] of Object.entries(commands)) {
     if (
       !/^[A-Za-z0-9._-]+$/.test(name) ||
@@ -330,6 +437,20 @@ function discoverRepositoryCapabilities(rootInput, options = {}) {
   const hook = resolvePrePushHook(root);
   const lefthook = loadLefthookDump(root, options);
   const lefthookContract = parseLefthookDump(lefthook.dump);
+  const githubReceipt = options.githubReceipt;
+  const githubFacts = githubReceipt?.facts;
+  const githubCapabilities =
+    githubReceipt?.authenticated === true &&
+    githubReceipt.identity === options.expectedGithubIdentity &&
+    githubFacts &&
+    ["branch_protection", "required_checks", "merge_queue"].every(
+      (key) => typeof githubFacts[key] === "boolean"
+    ) &&
+    Object.keys(githubFacts).every((key) =>
+      ["branch_protection", "required_checks", "merge_queue"].includes(key)
+    )
+      ? { available: true, identity: githubReceipt.identity, facts: githubFacts }
+      : { available: false, identity: null, facts: null };
   const result = {
     schema_version: 1,
     root,
@@ -342,6 +463,7 @@ function discoverRepositoryCapabilities(rootInput, options = {}) {
         .filter((x) => x.path.startsWith(".github/workflows/"))
         .some((identity) => /merge_group/.test(safeRead(root, identity.path) || "")),
     },
+    github_capabilities: githubCapabilities,
     hooks: { pre_push: hook },
     lefthook: {
       binary: lefthook.binary,
@@ -350,6 +472,8 @@ function discoverRepositoryCapabilities(rootInput, options = {}) {
       supported: lefthookContract.supported,
       issues: lefthookContract.issues,
       dump_digest: digest(lefthook.dump),
+      identity: lefthook.identity || null,
+      manager: lefthook.manager || null,
     },
     policy,
     identities: identities.filter(Boolean),

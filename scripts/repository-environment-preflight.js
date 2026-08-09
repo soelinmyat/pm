@@ -26,6 +26,20 @@ function redactText(value) {
   return Buffer.from(redacted).subarray(0, 8188).toString("utf8");
 }
 
+function sanitizeDiagnosticValue(value, depth = 0) {
+  if (depth > 8) return "[TRUNCATED]";
+  if (typeof value === "string") return redactText(value);
+  if (Array.isArray(value))
+    return value.slice(0, 64).map((item) => sanitizeDiagnosticValue(item, depth + 1));
+  if (value && typeof value === "object")
+    return Object.fromEntries(
+      Object.entries(value)
+        .slice(0, 64)
+        .map(([key, item]) => [key, sanitizeDiagnosticValue(item, depth + 1)])
+    );
+  return value;
+}
+
 function validateProbeDeclaration(probe) {
   if (!probe || typeof probe !== "object" || Array.isArray(probe))
     throw new Error("probe must be an object");
@@ -306,7 +320,7 @@ function verifyEnvironment(plan, options = {}) {
     : local.length || (expectations.probes || []).length
       ? "verified"
       : "unverified";
-  return { schema_version: 1, status, identity, issues };
+  return sanitizeDiagnosticValue({ schema_version: 1, status, identity, issues });
 }
 
 function main(argv = process.argv.slice(2)) {
@@ -336,4 +350,5 @@ module.exports = {
   defaultProbeRunner,
   identityFor,
   defaultResolveProbeExecutable,
+  sanitizeDiagnosticValue,
 };
