@@ -87,40 +87,54 @@ function tokenBounds(token) {
   if (match[2] === "*" || /^[xX]$/.test(match[2])) return {};
   const parsed = parseVersion(match[2], { partial: true });
   if (!parsed) return null;
+  const prereleaseCores = parsed.prerelease.length
+    ? new Set([`${parsed.major}.${parsed.minor}.${parsed.patch}`])
+    : new Set();
   if (operator === "^") {
     const ceiling =
-      parsed.major > 0
+      parsed.specified === 1
         ? increment(parsed, "major")
-        : parsed.minor > 0
+        : parsed.specified === 2 && parsed.major === 0
           ? increment(parsed, "minor")
-          : increment(parsed, "patch");
-    return { ...lower(parsed), ...upper(ceiling) };
+          : parsed.major > 0
+            ? increment(parsed, "major")
+            : parsed.minor > 0
+              ? increment(parsed, "minor")
+              : increment(parsed, "patch");
+    return { ...lower(parsed), ...upper(ceiling), prereleaseCores };
   }
   if (operator === "~") {
     const ceiling = parsed.specified <= 1 ? increment(parsed, "major") : increment(parsed, "minor");
-    return { ...lower(parsed), ...upper(ceiling) };
+    return { ...lower(parsed), ...upper(ceiling), prereleaseCores };
   }
-  if (!operator || operator === "=") return partialBounds(parsed);
+  if (!operator || operator === "=") return { ...partialBounds(parsed), prereleaseCores };
   if (parsed.wildcard !== null || parsed.specified < 3) {
     const bounds = partialBounds(parsed);
     if (bounds.exact)
-      return operator.startsWith(">")
-        ? lower(parsed, operator === ">=")
-        : upper(parsed, operator === "<=");
-    if (operator === ">=") return lower(bounds.lower, true);
-    if (operator === ">") return lower(bounds.upper, true);
-    if (operator === "<") return upper(bounds.lower, false);
-    return upper(bounds.upper, false);
+      return {
+        ...(operator.startsWith(">")
+          ? lower(parsed, operator === ">=")
+          : upper(parsed, operator === "<=")),
+        prereleaseCores,
+      };
+    if (operator === ">=") return { ...lower(bounds.lower, true), prereleaseCores };
+    if (operator === ">") return { ...lower(bounds.upper, true), prereleaseCores };
+    if (operator === "<") return { ...upper(bounds.lower, false), prereleaseCores };
+    return { ...upper(bounds.upper, false), prereleaseCores };
   }
-  if (operator === ">=") return lower(parsed, true);
-  if (operator === ">") return lower(parsed, false);
-  if (operator === "<=") return upper(parsed, true);
-  return upper(parsed, false);
+  if (operator === ">=") return { ...lower(parsed, true), prereleaseCores };
+  if (operator === ">") return { ...lower(parsed, false), prereleaseCores };
+  if (operator === "<=") return { ...upper(parsed, true), prereleaseCores };
+  return { ...upper(parsed, false), prereleaseCores };
 }
 
-function mergeBounds(target, source) {
+function mergeBounds(target, source, { intersectPrereleases = false } = {}) {
   if (source.exact) {
-    source = { ...lower(source.exact), ...upper(source.exact, true) };
+    source = {
+      ...lower(source.exact),
+      ...upper(source.exact, true),
+      prereleaseCores: source.prereleaseCores,
+    };
   }
   if (source.lower) {
     const order = target.lower ? compare(source.lower, target.lower) : 1;
@@ -136,18 +150,50 @@ function mergeBounds(target, source) {
       target.upperInclusive = source.upperInclusive;
     }
   }
+  if (intersectPrereleases && target.prereleaseCores) {
+    target.prereleaseCores = new Set(
+      [...target.prereleaseCores].filter((core) => source.prereleaseCores?.has(core))
+    );
+  } else if (source.prereleaseCores) {
+    target.prereleaseCores ||= new Set();
+    for (const core of source.prereleaseCores) target.prereleaseCores.add(core);
+  }
   return target;
 }
 
 function nonEmpty(bounds) {
-  if (!bounds.lower || !bounds.upper) return true;
-  const order = compare(bounds.lower, bounds.upper);
-  return order < 0 || (order === 0 && bounds.lowerInclusive && bounds.upperInclusive);
+  const stableCandidate = bounds.lower
+    ? bounds.lower.prerelease.length > 0
+      ? stableVersion(bounds.lower)
+      : bounds.lowerInclusive
+        ? bounds.lower
+        : increment(bounds.lower, "patch")
+    : parseVersion("0.0.0");
+  if (inNumericBounds(stableCandidate, bounds)) return true;
+  for (const core of bounds.prereleaseCores || []) {
+    const parsed = parseVersion(`${core}-0`);
+    const stable = stableVersion(parsed);
+    const aboveLower =
+      !bounds.lower ||
+      compare(bounds.lower, stable) < 0 ||
+      (compare(bounds.lower, stable) === 0 && bounds.lowerInclusive);
+    const belowUpper =
+      !bounds.upper ||
+      compare(bounds.upper, parsed) > 0 ||
+      (compare(bounds.upper, parsed) === 0 && bounds.upperInclusive);
+    if (aboveLower && belowUpper) return true;
+  }
+  return false;
 }
 
 function parseAlternative(text) {
   const hyphen = text.match(/^\s*(\S+)\s+-\s+(\S+)\s*$/);
-  const tokens = hyphen ? [`>=${hyphen[1]}`, `<=${hyphen[2]}`] : text.trim().split(/\s+/);
+  const tokens = hyphen
+    ? [`>=${hyphen[1]}`, `<=${hyphen[2]}`]
+    : text
+        .trim()
+        .replace(/(\^|~|>=|<=|>|<|=)\s+/g, "$1")
+        .split(/\s+/);
   const bounds = {};
   for (const token of tokens.filter(Boolean)) {
     const parsed = tokenBounds(token);
@@ -163,7 +209,7 @@ function parseRange(value) {
   return alternatives.some((item) => item === null) ? null : alternatives;
 }
 
-function inBounds(version, bounds) {
+function inNumericBounds(version, bounds) {
   if (bounds.lower) {
     const order = compare(version, bounds.lower);
     if (order < 0 || (order === 0 && !bounds.lowerInclusive)) return false;
@@ -173,6 +219,15 @@ function inBounds(version, bounds) {
     if (order > 0 || (order === 0 && !bounds.upperInclusive)) return false;
   }
   return true;
+}
+
+function inBounds(version, bounds) {
+  if (
+    version.prerelease.length > 0 &&
+    !bounds.prereleaseCores?.has(`${version.major}.${version.minor}.${version.patch}`)
+  )
+    return false;
+  return inNumericBounds(version, bounds);
 }
 
 function satisfies(versionText, rangeText) {
@@ -188,7 +243,9 @@ function rangesIntersect(rangeTexts) {
     if (!alternatives) return false;
     combined = combined
       .flatMap((existing) =>
-        alternatives.map((alternative) => mergeBounds({ ...existing }, alternative))
+        alternatives.map((alternative) =>
+          mergeBounds({ ...existing }, alternative, { intersectPrereleases: true })
+        )
       )
       .filter(nonEmpty);
     if (combined.length === 0) return false;

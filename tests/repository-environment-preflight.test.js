@@ -48,6 +48,17 @@ test("runtime range checks remain source-only in installed plugin copies", () =>
   assert.equal(satisfies("18.21.0", "18.18.0 - 18.20.0"), false);
   assert.equal(satisfies("2.4.9", "~2.4"), true);
   assert.equal(satisfies("2.5.0", "~2.4"), false);
+  assert.equal(satisfies("0.5.0", "^0"), true);
+  assert.equal(satisfies("0.0.5", "^0.0"), true);
+  assert.equal(satisfies("20.0.0-rc.1", ">=18 <21"), false);
+  assert.equal(satisfies("1.2.3-beta.2", ">=1.2.3-beta.1 <2"), true);
+  assert.equal(satisfies("1.3.0-beta.1", ">=1.2.3-beta.1 <2"), false);
+  assert.equal(satisfies("1.4.0", ">= 1.2.3"), true);
+  assert.equal(constraintsIntersect([{ constraint: "^0" }, { constraint: "0.5.x" }]), true);
+  assert.equal(
+    constraintsIntersect([{ constraint: ">=18 <19" }, { constraint: "18.1.0-beta.1" }]),
+    false
+  );
 });
 
 test("production preflight CLI passes the configured machine-local probe identity key", (t) => {

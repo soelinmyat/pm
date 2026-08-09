@@ -6,15 +6,18 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
-let Ajv2020;
-let addFormats;
-try {
-  Ajv2020 = require("ajv/dist/2020");
-  addFormats = require("ajv-formats");
-} catch {
-  // Plugin installs are source-only. The runtime contract tests still run there;
-  // the optional JSON Schema parity check runs when dev dependencies are installed.
+function optionalDevRequire(request, load = require) {
+  try {
+    return load(request);
+  } catch (error) {
+    const firstLine = String(error?.message || "").split("\n", 1)[0];
+    if (error?.code === "MODULE_NOT_FOUND" && firstLine === `Cannot find module '${request}'`)
+      return null;
+    throw error;
+  }
 }
+const Ajv2020 = optionalDevRequire("ajv/dist/2020");
+const addFormats = Ajv2020 ? optionalDevRequire("ajv-formats") : null;
 
 const {
   CANDIDATE_STATES,
@@ -51,6 +54,26 @@ test("new Dev sessions expose the complete v3 candidate state machine", () => {
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
   }
+});
+
+test("optional schema dependencies skip only when the requested module is absent", () => {
+  const missing = new Error("Cannot find module 'optional-package'");
+  missing.code = "MODULE_NOT_FOUND";
+  assert.equal(
+    optionalDevRequire("optional-package", () => {
+      throw missing;
+    }),
+    null
+  );
+  const broken = new Error("Cannot find module 'broken-transitive-package'");
+  broken.code = "MODULE_NOT_FOUND";
+  assert.throws(
+    () =>
+      optionalDevRequire("optional-package", () => {
+        throw broken;
+      }),
+    /broken-transitive-package/
+  );
 });
 
 test("intake automatically records the conservative delivery classifier result", () => {
