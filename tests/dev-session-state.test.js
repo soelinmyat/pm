@@ -757,8 +757,9 @@ test("delivery receipt is cryptographically bound to the verified release transa
           head: session.source.branch,
           base: "main",
           commit,
+          draft: false,
         },
-        receipt: { pr_number: 42, state: "OPEN", head_oid: commit },
+        receipt: { pr_number: 42, state: "OPEN", head_oid: commit, draft: false },
       },
       {
         name: "merge",

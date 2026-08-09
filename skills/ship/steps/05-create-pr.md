@@ -20,7 +20,7 @@ Read and validate `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/review-candidate
 
 When canonical candidate state is `review-candidate`, require candidate `create_draft_pr: true`, every readiness/certification/merge field false, canonical user `create_pr` authority, the observed exact remote head, and a current protected candidate-publication contract.
 
-Build the exact draft-PR target from the prepared transaction and verified Push receipt. Use `release-transaction.js` plan for effect `create-pr`, then `release-transaction.js` begin for effect `create-pr`; honor every journal decision before calling GitHub. Candidate publication still uses the same effect journal and exact repository/head/base/commit identity as comprehensive Ship.
+Build the exact draft-PR target from the prepared transaction and verified Push receipt, including `draft: true`. Use `release-transaction.js` plan for effect `create-pr`, then `release-transaction.js` begin for effect `create-pr`; honor every journal decision before calling GitHub. Candidate publication still uses the same effect journal and exact repository/head/base/commit identity as comprehensive Ship.
 
 Discover an existing PR by exact repository/head/base identity. A matching existing PR is usable only when its API state is open and `draft: true`; a ready/non-draft PR blocks rather than being silently accepted or converted. When no PR exists, create it with the same contracted identity and `--draft`:
 
@@ -75,7 +75,7 @@ After convergence and before CI, freeze the exact converged head and finish the 
 
 When the candidate route was not selected, follow the comprehensive PR path below unchanged.
 
-Build and plan the exact `create-pr` target with repository, head, base, and prepared head commit. The runtime will refuse it until `push` is verified. Observe existing PRs by all target dimensions before deciding whether creation is needed. Record a matching existing PR through `begin` plus `reconcile matched`; it is an idempotent success, not a reason to create another PR.
+Build and plan the exact `create-pr` target with repository, head, base, prepared head commit, and `draft: false`. The runtime will refuse it until `push` is verified. Observe existing PRs by all target dimensions before deciding whether creation is needed. Record a matching existing PR through `begin` plus `reconcile matched`; it is an idempotent success, not a reason to create another PR.
 
 ### Check for existing PR
 

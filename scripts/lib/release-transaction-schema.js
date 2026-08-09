@@ -215,12 +215,15 @@ function beginEffect(transaction, input) {
   requireObject(input, "effect attempt");
   const effect = requirePlannedEffect(next, input.effect);
   if (input.actor !== "root") throw new Error("release effects are root-owned");
+  const optimizedMerge =
+    input.effect === "merge" &&
+    (next.evidence.candidate || next.effects["ready-pr"]?.status !== undefined);
+  if ((input.effect === "ready-pr" || optimizedMerge) && input.candidateState !== "merge-ready") {
+    throw new Error(`${input.effect} requires candidate state merge-ready`);
+  }
   if (effect.status === "verified") return { transaction: next, decision: "already-verified" };
   if (effect.status === "attempting") return { transaction: next, decision: "observe-first" };
   if (effect.status === "blocked") throw new Error(`${input.effect} is blocked and cannot replay`);
-  if (input.effect === "ready-pr" && input.candidateState !== "merge-ready") {
-    throw new Error("ready-pr requires candidate state merge-ready");
-  }
   for (const dependency of effect.depends_on) {
     if (next.effects[dependency]?.status !== "verified") {
       throw new Error(`${input.effect} requires verified effect ${dependency}`);
@@ -263,6 +266,12 @@ function reconcileEffect(transaction, input) {
   const next = cloneAndValidate(transaction);
   requireObject(input, "effect observation");
   const effect = requirePlannedEffect(next, input.effect);
+  const optimizedMerge =
+    input.effect === "merge" &&
+    (next.evidence.candidate || next.effects["ready-pr"]?.status !== undefined);
+  if (optimizedMerge && input.candidateState !== "merge-ready") {
+    throw new Error("merge requires candidate state merge-ready");
+  }
   if (effect.status === "verified") return { transaction: next, decision: "already-verified" };
   if (effect.status !== "attempting") {
     throw new Error(`${input.effect} has no ambiguous attempt to reconcile`);
@@ -603,8 +612,11 @@ function validateEffectTarget(name, target, transaction) {
     requireTargetMatch(target, "head", transaction.source.head_branch, "head branch");
     requireTargetMatch(target, "base", transaction.source.base_branch, "base branch");
     requireTargetMatch(target, "commit", transaction.release.prepared_commit, "prepared commit");
+    requireTargetMatch(target, "draft", Boolean(transaction.evidence.candidate), "delivery route");
   }
   if (name === "ready-pr") {
+    if (!transaction.evidence.candidate)
+      throw new Error("ready-pr requires current candidate evidence");
     const prReceipt = transaction.effects["create-pr"]?.verified_receipt?.receipt;
     if (!prReceipt) throw new Error("ready-pr target requires a verified create-pr receipt");
     requireTargetMatch(target, "repository", transaction.source.repository, "repository");
@@ -662,6 +674,7 @@ function validateMatchedReceipt(name, target, receipt) {
     }
     requireReceiptMatch(receipt, "state", "OPEN", "OPEN PR state");
     requireReceiptMatch(receipt, "head_oid", target.commit, "prepared commit");
+    requireReceiptMatch(receipt, "draft", target.draft, "planned draft state");
     return;
   }
   if (name === "ready-pr") {

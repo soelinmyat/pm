@@ -107,7 +107,7 @@ Do NOT guess — query each one. (Gate 3 explains why unresolved conversations, 
 
 ## Step 2: Begin Merge Effect and Try Auto-Merge
 
-Plan `merge` for the exact repository, PR number, prepared head commit, base, and squash method. Call `release-transaction.js begin` before any auto-merge or manual merge mutation. `denied` stops at the green PR boundary; `observe-first` queries PR state before replay; `already-verified` skips the mutation after revalidation; only `execute` may continue below.
+Plan `merge` for the exact repository, PR number, prepared head commit, base, and squash method. Call `release-transaction.js begin` before any auto-merge or manual merge mutation. For optimized delivery, pass the canonical session to begin and reconcile, and require its candidate to remain `merge-ready` before any mutation, observation recovery, or matched reconciliation. If it becomes invalidated, cancel an armed auto-merge and return to remediation; the old `ready-pr` receipt cannot authorize Merge. `denied` stops at the green PR boundary; `observe-first` queries PR state before replay; `already-verified` skips the mutation after revalidation; only `execute` may continue below.
 
 Attempt to arm GitHub auto-merge. If the repo supports it, GitHub will merge automatically once all branch protection rules pass.
 

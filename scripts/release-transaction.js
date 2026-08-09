@@ -266,6 +266,14 @@ function runCommand(args, options = {}) {
       });
     }
     if (args.command === "reconcile") {
+      let candidateState;
+      if (args.effect === "merge" && transaction.evidence.candidate) {
+        const session = readJson(resolvePrivateFile(args.session, cwd, "session"), "Dev session");
+        if (session.run_id !== transaction.run_id) {
+          throw new Error("Dev session run_id does not match the release transaction");
+        }
+        candidateState = session.candidate?.state;
+      }
       const observation = readJson(
         resolveInputFile(args.observation_file, cwd, "observation"),
         "effect observation"
@@ -280,6 +288,7 @@ function runCommand(args, options = {}) {
         receipt,
         reason: args.reason,
         classification: args.classification,
+        candidateState,
       });
     }
     if (args.command === "bind-evidence") {

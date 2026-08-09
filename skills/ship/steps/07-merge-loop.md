@@ -14,7 +14,7 @@ Drive the PR through all readiness gates to a confirmed merge, then clean up.
 
 ## How
 
-Read and validate `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/release-transaction.md` and `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/delivery-contract.md`. Require verified `push` and `create-pr` effects. Before arming auto-merge or issuing a manual merge, plan `merge` for the exact PR/prepared commit/base/method, call `begin`, and require canonical and snapshotted `merge: true`. If merge was not explicitly requested and persisted before the action, the transaction records `denied` and Ship stops at the green PR boundary. `preferences.ship.auto_merge` alone is never merge authority.
+Read and validate `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/release-transaction.md` and `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/delivery-contract.md`. Require verified `push` and `create-pr` effects. Before arming auto-merge or issuing a manual merge, plan `merge` for the exact PR/prepared commit/base/method, call `begin`, and require canonical and snapshotted `merge: true`. On the optimized route, reload and require candidate state `merge-ready` before begin, every observe-first recovery, and reconcile; invalidation blocks the transaction and requires cancelling any armed auto-merge before remediation. If merge was not explicitly requested and persisted before the action, the transaction records `denied` and Ship stops at the green PR boundary. `preferences.ship.auto_merge` alone is never merge authority.
 
 ### Pre-merge gate attestation (HARD-GATE)
 

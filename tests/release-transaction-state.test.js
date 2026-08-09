@@ -188,6 +188,7 @@ test("effects are dependency ordered and root-owned", () => {
       head: "codex/release-example",
       base: "main",
       commit: COMMIT,
+      draft: false,
     },
     timestamp: "2026-07-14T00:01:00.000Z",
   });
@@ -338,6 +339,7 @@ test("optimized delivery journals the draft-to-ready PR mutation before merge", 
       head: "codex/release-example",
       base: "main",
       commit: COMMIT,
+      draft: true,
     },
   });
   value = beginEffect(value, {
@@ -345,7 +347,18 @@ test("optimized delivery journals the draft-to-ready PR mutation before merge", 
     authority: { create_pr: true },
     actor: "root",
   }).transaction;
-  const prReceipt = { pr_number: 42, state: "OPEN", head_oid: COMMIT };
+  const readyTooEarly = { pr_number: 42, state: "OPEN", head_oid: COMMIT, draft: false };
+  assert.throws(
+    () =>
+      reconcileEffect(value, {
+        effect: "create-pr",
+        outcome: "matched",
+        receipt: readyTooEarly,
+        observation: { target: value.effects["create-pr"].target, receipt: readyTooEarly },
+      }),
+    /draft.*receipt/i
+  );
+  const prReceipt = { pr_number: 42, state: "OPEN", head_oid: COMMIT, draft: true };
   value = reconcileEffect(value, {
     effect: "create-pr",
     outcome: "matched",
@@ -368,6 +381,7 @@ test("optimized delivery journals the draft-to-ready PR mutation before merge", 
         effect: "merge",
         authority: { merge: true },
         actor: "root",
+        candidateState: "merge-ready",
       }),
     /requires verified effect ready-pr/
   );
@@ -400,9 +414,49 @@ test("optimized delivery journals the draft-to-ready PR mutation before merge", 
   }).transaction;
   assert.equal(value.effects["ready-pr"].status, "verified");
   assert.deepEqual(transactionIssues(value), []);
-  assert.equal(
-    beginEffect(value, { effect: "merge", authority: { merge: true }, actor: "root" }).decision,
-    "execute"
+  assert.throws(
+    () =>
+      beginEffect(value, {
+        effect: "merge",
+        authority: { merge: true },
+        actor: "root",
+        candidateState: "invalidated",
+      }),
+    /requires candidate state merge-ready/
+  );
+  const merge = beginEffect(value, {
+    effect: "merge",
+    authority: { merge: true },
+    actor: "root",
+    candidateState: "merge-ready",
+  });
+  assert.equal(merge.decision, "execute");
+  assert.throws(
+    () =>
+      beginEffect(merge.transaction, {
+        effect: "merge",
+        authority: { merge: true },
+        actor: "root",
+        candidateState: "invalidated",
+      }),
+    /requires candidate state merge-ready/
+  );
+  const mergeReceipt = {
+    pr_number: 42,
+    state: "MERGED",
+    head_oid: COMMIT,
+    merge_sha: MERGE,
+  };
+  assert.throws(
+    () =>
+      reconcileEffect(merge.transaction, {
+        effect: "merge",
+        outcome: "matched",
+        receipt: mergeReceipt,
+        observation: { target: merge.transaction.effects.merge.target, receipt: mergeReceipt },
+        candidateState: "invalidated",
+      }),
+    /requires candidate state merge-ready/
   );
 });
 
@@ -528,6 +582,7 @@ test("effect targets are bound to the release transaction identity", () => {
           head: "codex/release-example",
           base: "main",
           commit: COMMIT,
+          draft: false,
         },
       }),
     /repository target must equal repository/
