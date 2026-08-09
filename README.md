@@ -179,6 +179,12 @@ and rendered-evidence contract behind PM's flagship reports.
 | `/pm:board` | Open a visual Kanban view of backlog, leases, recent runs, and budget state |
 | `/pm:list` | Show the same in-flight PM state as a compact terminal-oriented inventory |
 
+Groom and RFC artifact work is isolated from the shared knowledge-base checkout. Each
+session uses a dedicated `codex/` worktree created from the Git remote's observed
+default branch, so an unrelated dirty session or feature branch cannot be swept into
+the proposal or RFC commit. Existing unowned branch collisions stop for manual recovery
+instead of being reused or published.
+
 ### Supervised loop rollout
 
 Keep the scheduler paused or uninstalled while validating a new loop runtime. Run all
