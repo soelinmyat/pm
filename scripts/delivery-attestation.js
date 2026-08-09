@@ -12,6 +12,7 @@ const { readProjectInput } = require("./lib/safe-project-output");
 const { isRfc3339DateTime } = require("./lib/iso-time");
 const { stableObjectHmac, withoutAuthentication } = require("./lib/stable-authentication");
 const { isGitObjectId } = require("./lib/git-object-id");
+const { transactionIssues } = require("./lib/release-transaction-schema");
 
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
 const PURPOSES = new Set(["review-bypass", "candidate-hook-bypass", "final-hook-bypass"]);
@@ -701,12 +702,19 @@ function finalizeCanonicalFiles(input, options = {}) {
     path.resolve(root, input.attestation) !== paths.attestation
   )
     throw new Error("certification and attestation must use their canonical session ship paths");
+  const issues = transactionIssues(transaction);
+  if (issues.length > 0) throw new Error(`invalid release transaction: ${issues.join("; ")}`);
+  const effect = transaction.effects?.push;
+  const attempt = effect?.attempts?.at(-1);
+  if (effect?.status !== "verified" || attempt?.status !== "verified" || !effect.verified_receipt)
+    throw new Error("candidate finalization requires one verified release-transaction push");
   verifyLiveRepository(root, plan, transaction);
   const transitionedSession =
     typeof options.transitionSession === "function" ? options.transitionSession(session) : null;
   const readEvidence = options.readProjectInput || readProjectInput;
   let reviewBytes = null;
   for (const [kind, bound] of Object.entries(transaction.evidence || {})) {
+    if (kind === "candidate" && !bound) continue;
     if (!bound) throw new Error("canonical evidence hash mismatch");
     const bytes = readEvidence(root, bound.artifact, 1024 * 1024).bytes;
     const actual = `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`;
@@ -730,10 +738,6 @@ function finalizeCanonicalFiles(input, options = {}) {
   });
   if (result.decision === "certified")
     writePrivateJson(root, certificationPath, result.certification);
-  const effect = transaction.effects?.push;
-  const attempt = effect?.attempts?.at(-1);
-  if (effect?.status !== "verified" || attempt?.status !== "verified" || !effect.verified_receipt)
-    throw new Error("candidate finalization requires one verified release-transaction push");
   const policySource = plan.repository_policy?.source;
   if (!policySource) throw new Error("authenticated protected-policy source is unavailable");
   if (policySource.commit !== plan.base_commit)

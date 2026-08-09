@@ -375,10 +375,21 @@ test("optimized delivery journals the draft-to-ready PR mutation before merge", 
     effect: "ready-pr",
     target: { repository: "acme/widget", pr_number: 42, commit: COMMIT },
   });
+  assert.throws(
+    () =>
+      beginEffect(value, {
+        effect: "ready-pr",
+        authority: { create_pr: true },
+        actor: "root",
+        candidateState: "certifying",
+      }),
+    /requires candidate state merge-ready/
+  );
   value = beginEffect(value, {
     effect: "ready-pr",
     authority: { create_pr: true },
     actor: "root",
+    candidateState: "merge-ready",
   }).transaction;
   const readyReceipt = { pr_number: 42, state: "OPEN", head_oid: COMMIT, draft: false };
   value = reconcileEffect(value, {

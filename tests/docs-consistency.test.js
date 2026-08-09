@@ -94,5 +94,7 @@ test("optimized Ship prepares the version before review and finalizes before CI"
   assert.match(createPr, /release-transaction\.js` (?:`)?plan.*ready-pr/is);
   assert.match(createPr, /gh pr ready/);
   assert.match(createPr, /certifying.*base-check.*merge-ready/is);
+  assert.match(createPr, /Done-when[\s\S]*non-draft[\s\S]*ready-pr/is);
+  assert.match(createPr, /Done-when[\s\S]*merge-ready/is);
   assert.match(ci, /before monitoring CI.*final-candidate attestation/is);
 });

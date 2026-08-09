@@ -218,6 +218,9 @@ function beginEffect(transaction, input) {
   if (effect.status === "verified") return { transaction: next, decision: "already-verified" };
   if (effect.status === "attempting") return { transaction: next, decision: "observe-first" };
   if (effect.status === "blocked") throw new Error(`${input.effect} is blocked and cannot replay`);
+  if (input.effect === "ready-pr" && input.candidateState !== "merge-ready") {
+    throw new Error("ready-pr requires candidate state merge-ready");
+  }
   for (const dependency of effect.depends_on) {
     if (next.effects[dependency]?.status !== "verified") {
       throw new Error(`${input.effect} requires verified effect ${dependency}`);

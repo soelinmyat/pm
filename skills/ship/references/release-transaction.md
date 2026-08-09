@@ -142,7 +142,7 @@ Target fields: `repository`, `head`, `base`, `commit`. Observe through the exact
 
 ### Ready PR
 
-Optimized draft delivery only. Target fields: `repository`, verified `pr_number`, and `commit`. It depends on verified `create-pr` and uses the existing canonical `create_pr` authority; it never inherits merge authority. Observe through the exact GitHub owner/repository. The receipt records the same `pr_number`, `state: OPEN`, `head_oid` equal to `commit`, and `draft: false`. When `ready-pr` is planned, Merge cannot begin until this effect is verified. Comprehensive non-draft PRs do not plan this effect.
+Optimized draft delivery only. Target fields: `repository`, verified `pr_number`, and `commit`. It depends on verified `create-pr`, can begin only while the canonical candidate is `merge-ready`, and uses the existing canonical `create_pr` authority; it never inherits merge authority. Observe through the exact GitHub owner/repository. The receipt records the same `pr_number`, `state: OPEN`, `head_oid` equal to `commit`, and `draft: false`. When `ready-pr` is planned, Merge cannot begin until this effect is verified. Comprehensive non-draft PRs do not plan this effect.
 
 ### Merge
 

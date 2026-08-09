@@ -10,6 +10,13 @@ const childProcess = require("node:child_process");
 const { finalizeCanonicalFiles, publicKeyIdentity } = require("../scripts/delivery-attestation");
 const { readProjectInput } = require("../scripts/lib/safe-project-output");
 const {
+  bindReleaseEvidence,
+  beginEffect,
+  createReleaseTransaction,
+  planEffect,
+  reconcileEffect,
+} = require("../scripts/lib/release-transaction-schema");
+const {
   createSession,
   grantAuthority,
   transitionCandidate,
@@ -60,24 +67,43 @@ test("production canonical-file finalization writes once per transaction generat
       repository_capability_identity: capability,
     },
   };
-  const transaction = {
-    run_id: "run-1",
+  let transaction = createReleaseTransaction({
+    runId: "run-1",
     slug: "change",
-    generation: 1,
-    release: { prepared_commit: commit },
-    evidence: {
-      review: { commit, artifact: review, sha256: reviewHash },
-      qa: { commit, artifact: qa, sha256: qaHash },
-      verification: { commit, artifact: verification, sha256: verificationHash },
+    repository: "test/repo",
+    deliveryRemote: "origin",
+    headBranch: "change",
+    baseBranch: "main",
+    pushUrlSha256: `sha256:${crypto.createHash("sha256").update(remote).digest("hex")}`,
+    releaseMode: "delivery-only",
+    preparedCommit: commit,
+    manifestHashes: [],
+  });
+  for (const [kind, artifact, sha256] of [
+    ["review", review, reviewHash],
+    ["qa", qa, qaHash],
+    ["verification", verification, verificationHash],
+  ]) {
+    transaction = bindReleaseEvidence(transaction, { kind, commit, artifact, sha256 });
+  }
+  transaction = planEffect(transaction, {
+    effect: "push",
+    target: { remote: "origin", repository: "test/repo", branch: "change", commit },
+  });
+  transaction = beginEffect(transaction, {
+    effect: "push",
+    authority: { push_feature_branch: true },
+    actor: "root",
+  }).transaction;
+  transaction = reconcileEffect(transaction, {
+    effect: "push",
+    outcome: "matched",
+    receipt: { remote_tip: commit },
+    observation: {
+      target: transaction.effects.push.target,
+      receipt: { remote_tip: commit },
     },
-    effects: {
-      push: {
-        status: "verified",
-        attempts: [{ number: 1, status: "verified" }],
-        verified_receipt: { receipt: { remote_tip: commit } },
-      },
-    },
-  };
+  }).transaction;
   const plan = {
     plan_digest: planDigest,
     capability_identity: capability,
@@ -138,6 +164,13 @@ test("production canonical-file finalization writes once per transaction generat
       return readProjectInput(...input);
     },
   };
+  const corruptTransaction = structuredClone(transaction);
+  corruptTransaction.effects.push.verified_receipt.receipt.remote_tip = "f".repeat(commit.length);
+  write(".pm/dev-sessions/change/ship/release-transaction.json", corruptTransaction);
+  assert.throws(() => finalizeCanonicalFiles(args, options), /invalid release transaction/i);
+  assert.equal(runs, 0);
+  assert.equal(fs.existsSync(path.join(root, args.certification)), false);
+  write(".pm/dev-sessions/change/ship/release-transaction.json", transaction);
   assert.equal(finalizeCanonicalFiles(args, options).decision, "certified");
   assert.equal(reviewReads, 1);
   assert.equal(finalizeCanonicalFiles(args, options).decision, "already-certified");

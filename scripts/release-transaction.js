@@ -262,6 +262,7 @@ function runCommand(args, options = {}) {
         effect: args.effect,
         authority: session.authority,
         actor: args.actor,
+        candidateState: session.candidate?.state,
       });
     }
     if (args.command === "reconcile") {
