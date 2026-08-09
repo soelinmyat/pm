@@ -7,6 +7,7 @@ const { findGitRoot, runGit } = require("../loop-git.js");
 const { isRfc3339DateTime: isIsoDate } = require("./iso-time.js");
 const { markdownTableValue } = require("./session-scan.js");
 const { loadPhaseStep } = require("../step-loader.js");
+const { verifyArtifactWorktreeOwnership } = require("../artifact-worktree.js");
 const { grantActions } = require("./workflow-runtime/authority.js");
 const { createTransition, hashResult, isObject } = require("./workflow-runtime/records.js");
 const {
@@ -182,15 +183,19 @@ function applyContext(session, facts, options = {}) {
     throw new Error("source_kind must be idea, backlog, or legacy");
   if (!Array.isArray(facts.evidence_refs) || facts.evidence_refs.some((value) => !nonEmpty(value)))
     throw new Error("evidence_refs must contain strings");
-  const artifactCandidate = facts.artifact_repo_root
-    ? path.resolve(facts.artifact_repo_root)
-    : session.source.repo_root;
-  let artifactRepoRoot;
+  if (!nonEmpty(facts.artifact_repo_root))
+    throw new Error("Groom context requires artifact_repo_root from artifact preparation");
+  let artifactOwnership;
   try {
-    artifactRepoRoot = fs.realpathSync(findGitRoot(artifactCandidate));
-  } catch {
-    throw new Error(`artifact_repo_root is not a Git worktree: ${artifactCandidate}`);
+    artifactOwnership = verifyArtifactWorktreeOwnership({
+      worktree: facts.artifact_repo_root,
+      slug: session.slug,
+      kind: "groom",
+    });
+  } catch (error) {
+    throw new Error(`invalid Groom artifact_repo_root: ${error.message}`);
   }
+  const artifactRepoRoot = artifactOwnership.worktree;
   if (["backlog", "legacy"].includes(facts.source_kind) && !nonEmpty(facts.source_path))
     throw new Error(`${facts.source_kind} source requires source_path`);
   if (facts.source_path) {
@@ -722,6 +727,19 @@ function proposalRepoRoot(session) {
   return session.context.artifact_repo_root || session.source.repo_root;
 }
 
+function normalizePersistedSession(session) {
+  if (
+    session?.schema_version === 1 &&
+    isObject(session.context) &&
+    !Object.hasOwn(session.context, "artifact_repo_root")
+  ) {
+    const next = structuredClone(session);
+    next.context.artifact_repo_root = session.source?.repo_root || null;
+    return next;
+  }
+  return session;
+}
+
 function requiredEvidence(phase) {
   return (
     {
@@ -1135,6 +1153,7 @@ module.exports = {
   hashResult,
   migrateLegacyMarkdown,
   nextDecision,
+  normalizePersistedSession,
   proposalIdentityFromPath,
   recordResult,
   resumeBlocked,

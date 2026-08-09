@@ -159,6 +159,38 @@ test("artifact preparation fetches from the same push URL used for default disco
   assert.equal(fs.existsSync(path.join(prepared.worktree, "decoy.md")), false);
 });
 
+test("artifact preparation ignores an unrelated shared branch pushRemote", (t) => {
+  const seeded = fixture();
+  t.after(seeded.cleanup);
+  const fork = path.join(seeded.root, "fork.git");
+  git(seeded.root, "clone", "--bare", seeded.remote, fork);
+  git(seeded.shared, "remote", "add", "fork", fork);
+  git(seeded.shared, "config", "branch.codex/other-rfc.pushRemote", "fork");
+
+  const prepared = prepareArtifactWorktree({
+    pmDir: seeded.shared,
+    slug: "branch-independent-remote",
+    kind: "groom",
+  });
+
+  assert.equal(prepared.remote, "origin");
+  assert.equal(prepared.base_commit, git(seeded.remote, "rev-parse", "refs/heads/main"));
+});
+
+test("artifact preparation rejects owned reuse after delivery URL retargeting", (t) => {
+  const seeded = fixture();
+  t.after(seeded.cleanup);
+  prepareArtifactWorktree({ pmDir: seeded.shared, slug: "retargeted", kind: "rfc" });
+  const replacement = path.join(seeded.root, "replacement.git");
+  git(seeded.root, "clone", "--bare", seeded.remote, replacement);
+  git(seeded.shared, "remote", "set-url", "--push", "origin", replacement);
+
+  assert.throws(
+    () => prepareArtifactWorktree({ pmDir: seeded.shared, slug: "retargeted", kind: "rfc" }),
+    /different delivery URL/
+  );
+});
+
 test("artifact preparation rejects a legacy branch with unverified ancestry", (t) => {
   const seeded = fixture();
   t.after(seeded.cleanup);

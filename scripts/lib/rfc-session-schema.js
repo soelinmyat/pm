@@ -198,6 +198,12 @@ function applyContext(session, facts, options = {}) {
   } catch {
     throw new Error(`artifact_repo_root is not a Git worktree: ${artifactCandidate}`);
   }
+  if (facts.proposal_path) {
+    const proposalPath = fs.realpathSync(path.resolve(facts.proposal_path));
+    const relative = path.relative(artifactRepoRoot, proposalPath);
+    if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
+      throw new Error("proposal_path must be inside artifact_repo_root");
+  }
   const next = structuredClone(session);
   next.context = {
     configured: true,

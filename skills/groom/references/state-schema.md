@@ -85,6 +85,10 @@ Tier routing is defined in `tier-gating.md`. Approval is never a normal phase re
 ```
 
 The executable closed schema is `scripts/lib/groom-session-schema.js`.
+Fresh context requires `artifact_repo_root` to identify the matching helper-owned
+`codex/{slug}-groom` worktree. On read, v1 sessions written before this field existed
+are normalized to their recorded source repository so in-flight work can resume; the
+next mutation persists the normalized field.
 
 ## Phase result
 

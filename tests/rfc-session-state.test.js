@@ -195,7 +195,7 @@ test("Dev readiness resolves RFC state and artifacts across separate repositorie
   try {
     let session = applyContext(createSession({ slug: "safe-approval", sourceDir: source.root }), {
       source_kind: "proposal",
-      proposal_path: path.join(source.root, "proposal.md"),
+      proposal_path: path.join(artifactRepo.root, "proposal.md"),
       size: "M",
       acceptance_criteria: ["Separate repository approval remains verifiable"],
       artifact_repo_root: artifactRepo.root,
@@ -276,6 +276,27 @@ test("Dev readiness resolves RFC state and artifacts across separate repositorie
         runtime: { provider: "inline", model: "test", reasoning: "high", session_id: null },
       }),
       []
+    );
+  } finally {
+    source.cleanup();
+    artifactRepo.cleanup();
+  }
+});
+
+test("RFC context rejects a proposal outside its isolated artifact repository", () => {
+  const source = makeRepo();
+  const artifactRepo = makeRepo();
+  try {
+    assert.throws(
+      () =>
+        applyContext(createSession({ slug: "proposal-boundary", sourceDir: source.root }), {
+          source_kind: "proposal",
+          proposal_path: path.join(source.root, "proposal.md"),
+          size: "M",
+          acceptance_criteria: ["Proposal bytes travel with the RFC artifact repository"],
+          artifact_repo_root: artifactRepo.root,
+        }),
+      /proposal_path must be inside artifact_repo_root/
     );
   } finally {
     source.cleanup();

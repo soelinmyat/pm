@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 "use strict";
 
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { runGit } = require("./loop-git.js");
@@ -31,12 +32,12 @@ function normalizeSlug(value) {
   return slug;
 }
 
-function selectRemote(repoRoot) {
+function selectRemote(repoRoot, artifactBranch = "") {
   const remotes = git(repoRoot, ["remote"])
     .split("\n")
     .map((item) => item.trim())
     .filter(Boolean);
-  const configured = resolveDeliveryRemote(repoRoot);
+  const configured = resolveDeliveryRemote(repoRoot, artifactBranch);
   if (configured && remotes.includes(configured)) return configured;
   if (remotes.includes("origin")) return "origin";
   if (remotes.length === 1) return remotes[0];
@@ -44,6 +45,16 @@ function selectRemote(repoRoot) {
   throw new Error(
     `artifact repository has multiple remotes (${remotes.join(", ")}) and no origin; configure one authoritative remote`
   );
+}
+
+function remoteUrlHash(remoteUrl) {
+  return crypto.createHash("sha256").update(remoteUrl).digest("hex");
+}
+
+function artifactBranch(slug, kind) {
+  const normalized = normalizeSlug(slug);
+  const suffix = normalized.endsWith(`-${kind}`) ? normalized : `${normalized}-${kind}`;
+  return `codex/${suffix}`;
 }
 
 function resolveRemoteDefaultBranch(repoRoot, remote, remoteUrl = deliveryUrl(repoRoot, remote)) {
@@ -76,6 +87,47 @@ function parseWorktrees(output) {
   return records;
 }
 
+function verifyArtifactWorktreeOwnership(options) {
+  if (!KINDS.has(options?.kind)) throw new Error("artifact worktree kind must be groom or rfc");
+  const worktree = fs.realpathSync(path.resolve(options.worktree));
+  const repoRoot = fs.realpathSync(git(worktree, ["rev-parse", "--show-toplevel"]));
+  if (repoRoot !== worktree) throw new Error("artifact_repo_root must be a Git worktree root");
+  const branch = artifactBranch(options.slug, options.kind);
+  if (git(worktree, ["branch", "--show-current"]) !== branch)
+    throw new Error(`artifact_repo_root must use helper-owned branch '${branch}'`);
+  const required = {
+    base_commit: gitMaybe(worktree, ["config", "--get", `branch.${branch}.pmArtifactBase`]),
+    kind: gitMaybe(worktree, ["config", "--get", `branch.${branch}.pmArtifactKind`]),
+    remote: gitMaybe(worktree, ["config", "--get", `branch.${branch}.pmArtifactRemote`]),
+    default_branch: gitMaybe(worktree, [
+      "config",
+      "--get",
+      `branch.${branch}.pmArtifactDefaultBranch`,
+    ]),
+    remote_url_sha256: gitMaybe(worktree, [
+      "config",
+      "--get",
+      `branch.${branch}.pmArtifactRemoteUrlSha256`,
+    ]),
+  };
+  if (Object.values(required).some((item) => !item.ok) || required.kind.output !== options.kind)
+    throw new Error("artifact_repo_root is not marked as a complete helper-owned worktree");
+  const configuredUrl = deliveryUrl(worktree, required.remote.output);
+  if (!configuredUrl || remoteUrlHash(configuredUrl) !== required.remote_url_sha256.output)
+    throw new Error("artifact_repo_root delivery URL identity changed after preparation");
+  const registered = parseWorktrees(git(worktree, ["worktree", "list", "--porcelain"])).find(
+    (item) => item.branch === branch && fs.realpathSync(item.path) === worktree
+  );
+  if (!registered) throw new Error("artifact_repo_root is not the registered owned worktree");
+  return {
+    worktree,
+    branch,
+    base_commit: required.base_commit.output,
+    remote: required.remote.output,
+    default_branch: required.default_branch.output,
+  };
+}
+
 function prepareArtifactWorktree(options) {
   if (!options?.pmDir) throw new Error("prepareArtifactWorktree requires pmDir");
   if (!KINDS.has(options.kind)) throw new Error("artifact worktree kind must be groom or rfc");
@@ -91,8 +143,7 @@ function prepareArtifactWorktree(options) {
   if (initialWorktrees.length === 0)
     throw new Error("artifact repository has no registered Git worktree");
   const mainWorktree = fs.realpathSync(initialWorktrees[0].path);
-  const suffix = slug.endsWith(`-${options.kind}`) ? slug : `${slug}-${options.kind}`;
-  const branch = `codex/${suffix}`;
+  const branch = artifactBranch(slug, options.kind);
   git(observedRoot, ["check-ref-format", "--branch", branch]);
   const artifactRoot = path.join(
     path.dirname(mainWorktree),
@@ -112,6 +163,7 @@ function prepareArtifactWorktree(options) {
     const kindKey = `branch.${branch}.pmArtifactKind`;
     const remoteKey = `branch.${branch}.pmArtifactRemote`;
     const defaultKey = `branch.${branch}.pmArtifactDefaultBranch`;
+    const urlHashKey = `branch.${branch}.pmArtifactRemoteUrlSha256`;
     const branchExists = gitMaybe(observedRoot, [
       "show-ref",
       "--verify",
@@ -122,17 +174,34 @@ function prepareArtifactWorktree(options) {
     const ownedKind = gitMaybe(observedRoot, ["config", "--get", kindKey]);
     const ownedRemote = gitMaybe(observedRoot, ["config", "--get", remoteKey]);
     const ownedDefault = gitMaybe(observedRoot, ["config", "--get", defaultKey]);
-    if (branchExists && (!ownedBase.ok || !ownedKind.ok || ownedKind.output !== options.kind)) {
+    const ownedUrlHash = gitMaybe(observedRoot, ["config", "--get", urlHashKey]);
+    if (
+      branchExists &&
+      (!ownedBase.ok ||
+        !ownedKind.ok ||
+        ownedKind.output !== options.kind ||
+        !ownedRemote.ok ||
+        !ownedDefault.ok ||
+        !ownedUrlHash.ok)
+    ) {
       throw new Error(
         `branch '${branch}' already exists without PM artifact-worktree ownership; preserve it and choose a new slug or recover it manually`
       );
+    }
+    if (branchExists) {
+      const currentUrl = deliveryUrl(observedRoot, ownedRemote.output);
+      if (!currentUrl || remoteUrlHash(currentUrl) !== ownedUrlHash.output) {
+        throw new Error(
+          `artifact worktree '${branch}' was created for a different delivery URL; preserve it and recover the remote configuration before resuming`
+        );
+      }
     }
 
     const registered = worktrees.find((item) => item.branch === branch);
     if (registered) {
       const worktree = fs.realpathSync(registered.path);
-      const remote = ownedRemote.ok ? ownedRemote.output : null;
-      const defaultBranch = ownedDefault.ok ? ownedDefault.output : null;
+      const remote = ownedRemote.output;
+      const defaultBranch = ownedDefault.output;
       return {
         ok: true,
         reused: true,
@@ -162,7 +231,7 @@ function prepareArtifactWorktree(options) {
       if (branchExists) {
         git(observedRoot, ["worktree", "add", "--", target, branch]);
       } else {
-        remote = selectRemote(observedRoot);
+        remote = selectRemote(observedRoot, branch);
         const remoteUrl = deliveryUrl(observedRoot, remote);
         defaultBranch = resolveRemoteDefaultBranch(observedRoot, remote, remoteUrl);
         baseRef = `${remote}/${defaultBranch}`;
@@ -173,6 +242,7 @@ function prepareArtifactWorktree(options) {
         git(observedRoot, ["config", kindKey, options.kind]);
         git(observedRoot, ["config", remoteKey, remote]);
         git(observedRoot, ["config", defaultKey, defaultBranch]);
+        git(observedRoot, ["config", urlHashKey, remoteUrlHash(remoteUrl)]);
       }
     } catch (error) {
       gitMaybe(observedRoot, ["worktree", "remove", "--force", "--", target]);
@@ -182,6 +252,7 @@ function prepareArtifactWorktree(options) {
         gitMaybe(observedRoot, ["config", "--unset-all", kindKey]);
         gitMaybe(observedRoot, ["config", "--unset-all", remoteKey]);
         gitMaybe(observedRoot, ["config", "--unset-all", defaultKey]);
+        gitMaybe(observedRoot, ["config", "--unset-all", urlHashKey]);
       }
       throw error;
     }
@@ -242,9 +313,11 @@ if (require.main === module) {
 }
 
 module.exports = {
+  artifactBranch,
   normalizeSlug,
   parseWorktrees,
   prepareArtifactWorktree,
   resolveRemoteDefaultBranch,
   selectRemote,
+  verifyArtifactWorktreeOwnership,
 };
