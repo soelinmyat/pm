@@ -302,12 +302,26 @@ test("legacy comprehensive create-pr journals resume without replay after plugin
   });
   const planned = asLegacyCreatePr(value);
   assert.deepEqual(transactionIssues(planned), []);
+  assert.throws(
+    () =>
+      planEffect(value, {
+        effect: "create-pr",
+        target: {
+          repository: "acme/widget",
+          head: "codex/release-example",
+          base: "main",
+          commit: COMMIT,
+        },
+      }),
+    /draft/
+  );
   const attempting = beginEffect(planned, {
     effect: "create-pr",
     authority: { create_pr: true },
     actor: "root",
   }).transaction;
   assert.deepEqual(transactionIssues(attempting), []);
+  assert.equal(attempting.effects["create-pr"].target.draft, false);
   assert.equal(
     beginEffect(attempting, {
       effect: "create-pr",
@@ -316,7 +330,7 @@ test("legacy comprehensive create-pr journals resume without replay after plugin
     }).decision,
     "observe-first"
   );
-  const receipt = { pr_number: 42, state: "OPEN", head_oid: COMMIT };
+  const receipt = { pr_number: 42, state: "OPEN", head_oid: COMMIT, draft: false };
   const verified = reconcileEffect(attempting, {
     effect: "create-pr",
     outcome: "matched",
@@ -331,6 +345,29 @@ test("legacy comprehensive create-pr journals resume without replay after plugin
       actor: "root",
     }).decision,
     "already-verified"
+  );
+
+  const legacyVerified = asLegacyCreatePr(verified);
+  assert.deepEqual(transactionIssues(legacyVerified), []);
+  const resumeVerified = beginEffect(legacyVerified, {
+    effect: "create-pr",
+    authority: { create_pr: true },
+    actor: "root",
+  });
+  assert.equal(resumeVerified.decision, "observe-first");
+  assert.equal(resumeVerified.transaction.effects["create-pr"].target.draft, false);
+  assert.throws(
+    () =>
+      reconcileEffect(resumeVerified.transaction, {
+        effect: "create-pr",
+        outcome: "matched",
+        receipt: { pr_number: 42, state: "OPEN", head_oid: COMMIT },
+        observation: {
+          target: resumeVerified.transaction.effects["create-pr"].target,
+          receipt: { pr_number: 42, state: "OPEN", head_oid: COMMIT },
+        },
+      }),
+    /draft/
   );
 });
 
@@ -552,6 +589,15 @@ test("optimized delivery journals the draft-to-ready PR mutation before merge", 
     candidateState: "invalidated",
   });
   assert.equal(observedAfterInvalidation.decision, "verified");
+  assert.equal(
+    beginEffect(observedAfterInvalidation.transaction, {
+      effect: "merge",
+      authority: { merge: true },
+      actor: "root",
+      candidateState: "invalidated",
+    }).decision,
+    "already-verified"
+  );
 });
 
 test("conflicting observation blocks instead of replaying", () => {

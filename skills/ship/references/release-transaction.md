@@ -138,7 +138,7 @@ Target fields: `remote`, `repository`, `branch`, `commit`. The receipt field `re
 
 ### Create PR
 
-Target fields: `repository`, `head`, `base`, `commit`, and `draft`. The runtime requires `draft: true` exactly when current candidate evidence selects optimized publication and `draft: false` for the comprehensive route. Legacy schema-v1 comprehensive journals that predate this field resume as `draft: false`; re-observe their exact PR state and never infer candidate authority from the omission. Observe through the exact GitHub owner/repository and require zero or one matching PR. The receipt records `pr_number`, URL, `state: OPEN`, `head_oid`, and the exact planned `draft` value; the head OID must equal `commit`. Multiple matches, a fork, wrong base, wrong draft state, or wrong head OID is `conflict`.
+Target fields: `repository`, `head`, `base`, `commit`, and `draft`. Every new plan must provide the boolean explicitly. The runtime requires `draft: true` exactly when current candidate evidence selects optimized publication and `draft: false` for the comprehensive route. On read, a legacy schema-v1 comprehensive journal that predates this field is migrated to `draft: false`; a formerly verified legacy effect is reopened only for observe-first recovery and cannot become verified again until the live PR proves `draft: false`. Never infer candidate authority or ready state from an omission. Observe through the exact GitHub owner/repository and require zero or one matching PR. The receipt records `pr_number`, URL, `state: OPEN`, `head_oid`, and the exact planned `draft` value; the head OID must equal `commit`. Multiple matches, a fork, wrong base, wrong draft state, or wrong head OID is `conflict`.
 
 ### Ready PR
 

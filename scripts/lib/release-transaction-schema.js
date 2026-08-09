@@ -184,6 +184,9 @@ function planEffect(transaction, input) {
   requireObject(input, "effect plan");
   const definition = effectDefinition(input.effect);
   requireObject(input.target, `${input.effect} target`);
+  if (input.effect === "create-pr" && typeof input.target.draft !== "boolean") {
+    throw new Error("create-pr target draft must be an explicit boolean");
+  }
   if (next.effects[input.effect]) {
     const current = next.effects[input.effect];
     if (stableStringify(current.target) !== stableStringify(input.target)) {
@@ -215,13 +218,13 @@ function beginEffect(transaction, input) {
   requireObject(input, "effect attempt");
   const effect = requirePlannedEffect(next, input.effect);
   if (input.actor !== "root") throw new Error("release effects are root-owned");
+  if (effect.status === "verified") return { transaction: next, decision: "already-verified" };
   const optimizedMerge =
     input.effect === "merge" &&
     (next.evidence.candidate || next.effects["ready-pr"]?.status !== undefined);
   if ((input.effect === "ready-pr" || optimizedMerge) && input.candidateState !== "merge-ready") {
     throw new Error(`${input.effect} requires candidate state merge-ready`);
   }
-  if (effect.status === "verified") return { transaction: next, decision: "already-verified" };
   if (effect.status === "attempting") return { transaction: next, decision: "observe-first" };
   if (effect.status === "blocked") throw new Error(`${input.effect} is blocked and cannot replay`);
   for (const dependency of effect.depends_on) {
@@ -774,7 +777,35 @@ function requirePlannedEffect(transaction, name) {
 
 function cloneAndValidate(value) {
   assertValid(value);
-  return structuredClone(value);
+  const next = migrateLegacyCreatePr(structuredClone(value));
+  assertValid(next);
+  return next;
+}
+
+function migrateLegacyCreatePr(transaction) {
+  const effect = transaction.effects?.["create-pr"];
+  if (
+    transaction.evidence?.candidate ||
+    !isObject(effect?.target) ||
+    Object.hasOwn(effect.target, "draft")
+  ) {
+    return transaction;
+  }
+
+  effect.target.draft = false;
+  effect.idempotency_key = effectKey(transaction, "create-pr", effect.target);
+  for (const attempt of effect.attempts || []) {
+    if (isObject(attempt.observation?.target)) attempt.observation.target.draft = false;
+  }
+  if (effect.status === "verified") {
+    effect.verified_receipt = null;
+    const attempt = emptyAttempt(effect.attempts.length + 1, effect.updated_at);
+    attempt.status = "attempting";
+    attempt.classification = "observation";
+    effect.attempts.push(attempt);
+    effect.status = "attempting";
+  }
+  return transaction;
 }
 
 function assertValid(value) {
