@@ -359,10 +359,16 @@ function mutateTransaction(transactionPath, mutation) {
     timeoutMessage: `timed out waiting for release transaction lock: ${transactionPath}`,
   });
   try {
-    const transaction = normalizeReleaseTransaction(
+    const normalized = normalizeReleaseTransaction(
       readJson(transactionPath, "release transaction")
-    ).transaction;
-    const result = mutation(transaction);
+    );
+    if (normalized.migrated) {
+      writeJsonAtomic(transactionPath, normalized.transaction, {
+        directoryMode: 0o700,
+        fileMode: 0o600,
+      });
+    }
+    const result = mutation(normalized.transaction);
     const issues = transactionIssues(result.transaction);
     if (issues.length > 0) throw new Error(`invalid release transaction: ${issues.join("; ")}`);
     writeJsonAtomic(transactionPath, result.transaction, {
@@ -450,7 +456,13 @@ function requireNoPendingMigration(transaction) {
 
 function hasPendingLegacyMigration(transaction) {
   const createPr = transaction.effects?.["create-pr"];
+  const merge = transaction.effects?.merge;
+  const terminalDelivery =
+    merge?.status === "verified" &&
+    (transaction.release?.mode === "delivery-only" ||
+      transaction.effects?.["place-main-tag"]?.status === "verified");
   return (
+    !terminalDelivery &&
     !transaction.evidence?.candidate &&
     createPr !== undefined &&
     createPr.target?.draft === undefined

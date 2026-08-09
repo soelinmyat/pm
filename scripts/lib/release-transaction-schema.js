@@ -798,6 +798,11 @@ function migrateLegacyCreatePr(transaction) {
   }
 
   const merge = transaction.effects.merge;
+  const terminalDelivery =
+    merge?.status === "verified" &&
+    (transaction.release.mode === "delivery-only" ||
+      transaction.effects["place-main-tag"]?.status === "verified");
+  if (terminalDelivery) return transaction;
   if (
     merge?.status === "attempting" ||
     new Set(["blocked", "denied", "failed"]).has(merge?.status)

@@ -63,7 +63,7 @@ function run(root, ...args) {
   return spawnSync(process.execPath, [script, ...args], { cwd: root, encoding: "utf8" });
 }
 
-function legacyVerifiedCreatePr(transaction) {
+function legacyVerifiedCreatePr(transaction, legacy = true) {
   let value = planEffect(transaction, {
     effect: "push",
     target: {
@@ -106,6 +106,11 @@ function legacyVerifiedCreatePr(transaction) {
     receipt,
     observation: { target: value.effects["create-pr"].target, receipt },
   }).transaction;
+  return legacy ? asLegacyCreatePr(value) : value;
+}
+
+function asLegacyCreatePr(value) {
+  value = structuredClone(value);
   const effect = value.effects["create-pr"];
   delete effect.target.draft;
   delete effect.attempts.at(-1).receipt.draft;
@@ -194,6 +199,110 @@ test("read-only CLI commands persist legacy PR migration before reporting status
     assert.equal(saved.effects["create-pr"].status, "attempting");
     assert.equal(saved.effects["create-pr"].target.draft, false);
     assert.equal(saved.effects["create-pr"].verified_receipt, null);
+  } finally {
+    item.cleanup();
+  }
+});
+
+test("completed legacy delivery stays byte-stable across status and validate", () => {
+  const item = fixture();
+  try {
+    const file = path.join(item.root, item.transactionPath);
+    let value = legacyVerifiedCreatePr(JSON.parse(fs.readFileSync(file, "utf8")), false);
+    const mergeTarget = {
+      repository: "acme/widget",
+      pr_number: 7,
+      head_commit: COMMIT,
+      base: "main",
+      method: "squash",
+    };
+    value = planEffect(value, { effect: "merge", target: mergeTarget });
+    value = beginEffect(value, {
+      effect: "merge",
+      authority: { merge: true },
+      actor: "root",
+    }).transaction;
+    const mergeReceipt = {
+      pr_number: 7,
+      state: "MERGED",
+      head_oid: COMMIT,
+      merge_sha: "d".repeat(40),
+    };
+    value = reconcileEffect(value, {
+      effect: "merge",
+      outcome: "matched",
+      receipt: mergeReceipt,
+      observation: { target: mergeTarget, receipt: mergeReceipt },
+    }).transaction;
+    const tagTarget = {
+      remote: "origin",
+      tag: "v1.0.1",
+      merge_sha: mergeReceipt.merge_sha,
+      base: "main",
+    };
+    value = planEffect(value, { effect: "place-main-tag", target: tagTarget });
+    value = beginEffect(value, {
+      effect: "place-main-tag",
+      authority: { merge: true },
+      actor: "root",
+    }).transaction;
+    value = reconcileEffect(value, {
+      effect: "place-main-tag",
+      outcome: "matched",
+      receipt: { tag: "v1.0.1", peeled_sha: mergeReceipt.merge_sha },
+      observation: {
+        target: tagTarget,
+        receipt: { tag: "v1.0.1", peeled_sha: mergeReceipt.merge_sha },
+      },
+    }).transaction;
+    const legacy = asLegacyCreatePr(value);
+    const before = `${JSON.stringify(legacy, null, 2)}\n`;
+    fs.writeFileSync(file, before);
+    for (const command of ["status", "validate"]) {
+      const result = run(item.root, command, "--transaction", item.transactionPath, "--json");
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(fs.readFileSync(file, "utf8"), before);
+    }
+  } finally {
+    item.cleanup();
+  }
+});
+
+test("a failing begin persists planned-Merge legacy normalization", () => {
+  const item = fixture();
+  try {
+    const file = path.join(item.root, item.transactionPath);
+    let value = legacyVerifiedCreatePr(JSON.parse(fs.readFileSync(file, "utf8")), false);
+    value = planEffect(value, {
+      effect: "merge",
+      target: {
+        repository: "acme/widget",
+        pr_number: 7,
+        head_commit: COMMIT,
+        base: "main",
+        method: "squash",
+      },
+    });
+    value = asLegacyCreatePr(value);
+    fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
+    const result = run(
+      item.root,
+      "begin",
+      "--transaction",
+      item.transactionPath,
+      "--effect",
+      "merge",
+      "--session",
+      item.sessionPath,
+      "--actor",
+      "root",
+      "--json"
+    );
+    assert.notEqual(result.status, 0);
+    const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+    assert.equal(saved.effects.merge, undefined);
+    assert.equal(saved.effects["create-pr"].status, "attempting");
+    assert.equal(saved.effects["create-pr"].target.draft, false);
   } finally {
     item.cleanup();
   }
