@@ -10,6 +10,14 @@ const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
 
 const { prepareArtifactWorktree } = require("../scripts/artifact-worktree.js");
+const {
+  applyContext: applyGroomContext,
+  createSession: createGroomSession,
+} = require("../scripts/lib/groom-session-schema.js");
+const {
+  applyContext: applyRfcContext,
+  createSession: createRfcSession,
+} = require("../scripts/lib/rfc-session-schema.js");
 const execFileAsync = promisify(execFile);
 
 function git(cwd, ...args) {
@@ -107,6 +115,50 @@ test("artifact preparation reuses only a helper-owned worktree", (t) => {
   assert.equal(fs.readFileSync(path.join(resumed.worktree, "draft.md"), "utf8"), "# Draft\n");
 });
 
+test("artifact preparation reuses an owned worktree while its remote is unavailable", (t) => {
+  const seeded = fixture();
+  t.after(seeded.cleanup);
+  const first = prepareArtifactWorktree({ pmDir: seeded.shared, slug: "offline", kind: "groom" });
+  fs.renameSync(seeded.remote, `${seeded.remote}.offline`);
+
+  const resumed = prepareArtifactWorktree({
+    pmDir: seeded.shared,
+    slug: "offline",
+    kind: "groom",
+  });
+
+  assert.equal(resumed.reused, true);
+  assert.equal(resumed.worktree, first.worktree);
+  assert.equal(resumed.base_commit, first.base_commit);
+});
+
+test("artifact preparation fetches from the same push URL used for default discovery", (t) => {
+  const seeded = fixture();
+  t.after(seeded.cleanup);
+  const decoyRemote = path.join(seeded.root, "decoy.git");
+  const decoyWriter = path.join(seeded.root, "decoy-writer");
+  git(seeded.root, "clone", "--bare", seeded.remote, decoyRemote);
+  git(seeded.root, "clone", decoyRemote, decoyWriter);
+  git(decoyWriter, "config", "user.name", "PM Test");
+  git(decoyWriter, "config", "user.email", "pm@example.com");
+  fs.writeFileSync(path.join(decoyWriter, "decoy.md"), "# Wrong repository\n");
+  git(decoyWriter, "add", "decoy.md");
+  git(decoyWriter, "commit", "-m", "diverge decoy repository");
+  git(decoyWriter, "push", "origin", "main");
+  git(seeded.shared, "remote", "set-url", "origin", decoyRemote);
+  git(seeded.shared, "remote", "set-url", "--push", "origin", seeded.remote);
+  const authoritativeHead = git(seeded.remote, "rev-parse", "refs/heads/main");
+
+  const prepared = prepareArtifactWorktree({
+    pmDir: seeded.shared,
+    slug: "one-remote-identity",
+    kind: "rfc",
+  });
+
+  assert.equal(git(prepared.worktree, "rev-parse", "HEAD"), authoritativeHead);
+  assert.equal(fs.existsSync(path.join(prepared.worktree, "decoy.md")), false);
+});
+
 test("artifact preparation rejects a legacy branch with unverified ancestry", (t) => {
   const seeded = fixture();
   t.after(seeded.cleanup);
@@ -161,6 +213,58 @@ test("Groom and RFC intake require the isolation helper before artifact writes",
     assert.match(contract, /returned .*worktree/i);
   }
   assert.match(rfc, /artifact_repo_root/);
+});
+
+test("helper output keeps Groom and RFC source identity separate from KB artifacts", (t) => {
+  const seeded = fixture();
+  t.after(seeded.cleanup);
+  const source = path.join(seeded.root, "product");
+  fs.mkdirSync(source);
+  git(source, "init", "-q", "-b", "main");
+  git(source, "config", "user.name", "PM Test");
+  git(source, "config", "user.email", "pm@example.com");
+  fs.writeFileSync(path.join(source, "README.md"), "# Product\n");
+  git(source, "add", "README.md");
+  git(source, "commit", "-m", "initial product");
+
+  const groomArtifact = prepareArtifactWorktree({
+    pmDir: seeded.shared,
+    slug: "separate-groom",
+    kind: "groom",
+  });
+  const groom = applyGroomContext(
+    createGroomSession({ slug: "separate-groom", sourceDir: source, tier: "quick" }),
+    {
+      title: "Separate Groom storage",
+      outcome: "Preserve product identity",
+      source_kind: "idea",
+      evidence_refs: [],
+      artifact_repo_root: groomArtifact.worktree,
+    }
+  );
+
+  const rfcArtifact = prepareArtifactWorktree({
+    pmDir: seeded.shared,
+    slug: "separate-rfc",
+    kind: "rfc",
+  });
+  const proposalPath = path.join(rfcArtifact.pm_dir, "backlog/proposals/separate-rfc.md");
+  fs.mkdirSync(path.dirname(proposalPath), { recursive: true });
+  fs.writeFileSync(proposalPath, "# Approved proposal\n");
+  const rfc = applyRfcContext(createRfcSession({ slug: "separate-rfc", sourceDir: source }), {
+    source_kind: "proposal",
+    proposal_path: proposalPath,
+    size: "M",
+    acceptance_criteria: ["Source and artifact repositories remain distinct"],
+    artifact_repo_root: rfcArtifact.worktree,
+  });
+
+  assert.equal(groom.source.repo_root, fs.realpathSync(source));
+  assert.equal(groom.context.artifact_repo_root, fs.realpathSync(groomArtifact.worktree));
+  assert.equal(rfc.source.repo_root, fs.realpathSync(source));
+  assert.equal(rfc.context.artifact_repo_root, fs.realpathSync(rfcArtifact.worktree));
+  assert.notEqual(groom.source.repo_root, groom.context.artifact_repo_root);
+  assert.notEqual(rfc.source.repo_root, rfc.context.artifact_repo_root);
 });
 
 test("sync recovery forbids attaching a mixed checkout to a new upstream", () => {

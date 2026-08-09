@@ -112,6 +112,7 @@ function createSession(options) {
       source_kind: null,
       source_path: null,
       evidence_refs: [],
+      artifact_repo_root: null,
     },
     routing: {
       required_phases: [...ROUTES[tier]],
@@ -169,6 +170,7 @@ function applyContext(session, facts, options = {}) {
     "source_kind",
     "source_path",
     "evidence_refs",
+    "artifact_repo_root",
   ]);
   for (const field of Object.keys(facts))
     if (!allowed.has(field)) throw new Error(`unknown Groom context field: ${field}`);
@@ -180,12 +182,21 @@ function applyContext(session, facts, options = {}) {
     throw new Error("source_kind must be idea, backlog, or legacy");
   if (!Array.isArray(facts.evidence_refs) || facts.evidence_refs.some((value) => !nonEmpty(value)))
     throw new Error("evidence_refs must contain strings");
+  const artifactCandidate = facts.artifact_repo_root
+    ? path.resolve(facts.artifact_repo_root)
+    : session.source.repo_root;
+  let artifactRepoRoot;
+  try {
+    artifactRepoRoot = fs.realpathSync(findGitRoot(artifactCandidate));
+  } catch {
+    throw new Error(`artifact_repo_root is not a Git worktree: ${artifactCandidate}`);
+  }
   if (["backlog", "legacy"].includes(facts.source_kind) && !nonEmpty(facts.source_path))
     throw new Error(`${facts.source_kind} source requires source_path`);
   if (facts.source_path) {
     const sourcePath = path.resolve(facts.source_path);
     if (!fs.existsSync(sourcePath)) throw new Error(`source_path does not exist: ${sourcePath}`);
-    assertWithin(session.source.repo_root, sourcePath, "source_path");
+    assertWithin(artifactRepoRoot, sourcePath, "source_path");
   }
   const next = structuredClone(session);
   next.context = {
@@ -196,6 +207,7 @@ function applyContext(session, facts, options = {}) {
     source_kind: facts.source_kind,
     source_path: facts.source_path ? path.resolve(facts.source_path) : null,
     evidence_refs: [...facts.evidence_refs],
+    artifact_repo_root: artifactRepoRoot,
   };
   const reviewTier = tier === "agent" ? "full" : tier;
   next.routing = {
@@ -304,7 +316,7 @@ function validatePassedResult(session, result, now) {
   if (session.phase === "intake" && !session.context.configured)
     throw new Error("intake requires configured Groom context");
   if (result.proposal) {
-    verifyProposal(result.proposal, session.source.repo_root);
+    verifyProposal(result.proposal, proposalRepoRoot(session));
     if (session.proposal && result.proposal.revision < session.proposal.revision)
       throw new Error("proposal revision cannot decrease");
     if (
@@ -331,7 +343,7 @@ function validatePassedResult(session, result, now) {
   if (session.phase === "handoff") {
     if (session.approval.status !== "approved")
       throw new Error("handoff requires explicit human approval");
-    verifyProposal(session.proposal, session.source.repo_root);
+    verifyProposal(session.proposal, proposalRepoRoot(session));
     if (
       session.proposal.content_hash !== session.approval.proposal_hash ||
       session.proposal.revision !== session.approval.proposal_revision
@@ -352,7 +364,7 @@ function approveSession(session, input, options = {}) {
   ) {
     let current;
     try {
-      current = proposalIdentityFromPath(session.proposal.json_path, session.source.repo_root);
+      current = proposalIdentityFromPath(session.proposal.json_path, proposalRepoRoot(session));
     } catch {
       throw new Error("proposal changed after approval; revise and approve again");
     }
@@ -368,7 +380,7 @@ function approveSession(session, input, options = {}) {
     throw new Error("Groom proposal is not awaiting approval");
   if (!nonEmpty(input?.approvedBy)) throw new Error("approval requires approvedBy");
   if (!session.proposal) throw new Error("approval requires a proposal");
-  verifyProposal(session.proposal, session.source.repo_root);
+  verifyProposal(session.proposal, proposalRepoRoot(session));
   if (
     session.routing.required_phases.includes("review") &&
     (session.review.status !== "passed" ||
@@ -377,7 +389,7 @@ function approveSession(session, input, options = {}) {
     throw new Error("proposal must pass current question review before approval");
   const next = structuredClone(session);
   const now = options.now || new Date().toISOString();
-  const current = proposalIdentityFromPath(session.proposal.json_path, session.source.repo_root);
+  const current = proposalIdentityFromPath(session.proposal.json_path, proposalRepoRoot(session));
   const decisionId = `groom-approval:${session.run_id}`;
   const decisionSha256 = hashResult({
     schema_version: 1,
@@ -424,7 +436,7 @@ function reviseSession(session, input, options = {}) {
   if (!nonEmpty(input?.reason)) throw new Error("Groom revision requires a reason");
   const proposal = input.proposal || session.proposal;
   if (!proposal) throw new Error("Groom revision requires current proposal identity");
-  verifyProposal(proposal, session.source.repo_root);
+  verifyProposal(proposal, proposalRepoRoot(session));
   if (
     session.proposal &&
     proposal.content_hash !== session.proposal.content_hash &&
@@ -530,7 +542,7 @@ function buildApprovalAudit(session) {
   verifySourceIdentity(session);
   if (session.approval.status !== "approved" || !session.proposal)
     throw new Error("approval audit requires an explicitly approved proposal");
-  const proposal = proposalIdentityFromPath(session.proposal.json_path, session.source.repo_root);
+  const proposal = proposalIdentityFromPath(session.proposal.json_path, proposalRepoRoot(session));
   if (
     proposal.content_hash !== session.approval.proposal_hash ||
     proposal.revision !== session.approval.proposal_revision ||
@@ -706,6 +718,10 @@ function verifyProposal(proposal, repoRoot) {
   return proposal;
 }
 
+function proposalRepoRoot(session) {
+  return session.context.artifact_repo_root || session.source.repo_root;
+}
+
 function requiredEvidence(phase) {
   return (
     {
@@ -779,13 +795,27 @@ function validateSession(session) {
   else {
     collectExact(
       session.context,
-      ["configured", "tier", "title", "outcome", "source_kind", "source_path", "evidence_refs"],
+      [
+        "configured",
+        "tier",
+        "title",
+        "outcome",
+        "source_kind",
+        "source_path",
+        "evidence_refs",
+        "artifact_repo_root",
+      ],
       "$.context",
       errors
     );
     if (typeof session.context.configured !== "boolean")
       errors.push(issue("$.context.configured", "invalid"));
     if (!ROUTES[session.context.tier]) errors.push(issue("$.context.tier", "invalid"));
+    if (
+      session.context.artifact_repo_root !== null &&
+      !nonEmpty(session.context.artifact_repo_root)
+    )
+      errors.push(issue("$.context.artifact_repo_root", "must be null or a path"));
     if (
       !Array.isArray(session.context.evidence_refs) ||
       session.context.evidence_refs.some((item) => !nonEmpty(item))

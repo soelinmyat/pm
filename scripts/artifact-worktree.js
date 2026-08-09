@@ -5,7 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { runGit } = require("./loop-git.js");
 const { acquireOwnedLock } = require("./lib/owned-lock.js");
-const { defaultBranchName, resolveDeliveryRemote } = require("./source-identity.js");
+const { defaultBranchName, deliveryUrl, resolveDeliveryRemote } = require("./source-identity.js");
 
 const KINDS = new Set(["groom", "rfc"]);
 
@@ -46,13 +46,14 @@ function selectRemote(repoRoot) {
   );
 }
 
-function resolveRemoteDefaultBranch(repoRoot, remote) {
+function resolveRemoteDefaultBranch(repoRoot, remote, remoteUrl = deliveryUrl(repoRoot, remote)) {
+  if (!remoteUrl) throw new Error(`could not resolve ${remote}'s authoritative push URL`);
   const branch = defaultBranchName(repoRoot, remote);
   if (!branch) throw new Error(`could not resolve ${remote}'s default branch`);
   git(repoRoot, [
     "fetch",
     "--no-tags",
-    remote,
+    remoteUrl,
     `refs/heads/${branch}:refs/remotes/${remote}/${branch}`,
   ]);
   return branch;
@@ -106,13 +107,11 @@ function prepareArtifactWorktree(options) {
     timeoutMessage: `another process is preparing artifact branch '${branch}'; retry after it finishes`,
   });
   try {
-    const remote = selectRemote(observedRoot);
-    const defaultBranch = resolveRemoteDefaultBranch(observedRoot, remote);
-    const baseRef = `${remote}/${defaultBranch}`;
-    const baseCommit = git(observedRoot, ["rev-parse", "--verify", baseRef]);
     const worktrees = parseWorktrees(git(observedRoot, ["worktree", "list", "--porcelain"]));
     const baseKey = `branch.${branch}.pmArtifactBase`;
     const kindKey = `branch.${branch}.pmArtifactKind`;
+    const remoteKey = `branch.${branch}.pmArtifactRemote`;
+    const defaultKey = `branch.${branch}.pmArtifactDefaultBranch`;
     const branchExists = gitMaybe(observedRoot, [
       "show-ref",
       "--verify",
@@ -121,6 +120,8 @@ function prepareArtifactWorktree(options) {
     ]).ok;
     const ownedBase = gitMaybe(observedRoot, ["config", "--get", baseKey]);
     const ownedKind = gitMaybe(observedRoot, ["config", "--get", kindKey]);
+    const ownedRemote = gitMaybe(observedRoot, ["config", "--get", remoteKey]);
+    const ownedDefault = gitMaybe(observedRoot, ["config", "--get", defaultKey]);
     if (branchExists && (!ownedBase.ok || !ownedKind.ok || ownedKind.output !== options.kind)) {
       throw new Error(
         `branch '${branch}' already exists without PM artifact-worktree ownership; preserve it and choose a new slug or recover it manually`
@@ -130,6 +131,8 @@ function prepareArtifactWorktree(options) {
     const registered = worktrees.find((item) => item.branch === branch);
     if (registered) {
       const worktree = fs.realpathSync(registered.path);
+      const remote = ownedRemote.ok ? ownedRemote.output : null;
+      const defaultBranch = ownedDefault.ok ? ownedDefault.output : null;
       return {
         ok: true,
         reused: true,
@@ -137,7 +140,7 @@ function prepareArtifactWorktree(options) {
         branch,
         remote,
         default_branch: defaultBranch,
-        base_ref: baseRef,
+        base_ref: remote && defaultBranch ? `${remote}/${defaultBranch}` : null,
         base_commit: ownedBase.output,
         repo_root: worktree,
         worktree,
@@ -151,14 +154,25 @@ function prepareArtifactWorktree(options) {
     }
     fs.mkdirSync(path.dirname(target), { recursive: true });
     let createdBranch = false;
+    let remote = ownedRemote.ok ? ownedRemote.output : null;
+    let defaultBranch = ownedDefault.ok ? ownedDefault.output : null;
+    let baseRef = remote && defaultBranch ? `${remote}/${defaultBranch}` : null;
+    let baseCommit = ownedBase.ok ? ownedBase.output : null;
     try {
       if (branchExists) {
         git(observedRoot, ["worktree", "add", "--", target, branch]);
       } else {
+        remote = selectRemote(observedRoot);
+        const remoteUrl = deliveryUrl(observedRoot, remote);
+        defaultBranch = resolveRemoteDefaultBranch(observedRoot, remote, remoteUrl);
+        baseRef = `${remote}/${defaultBranch}`;
+        baseCommit = git(observedRoot, ["rev-parse", "--verify", baseRef]);
         git(observedRoot, ["worktree", "add", "--no-track", "-b", branch, target, baseRef]);
         createdBranch = true;
         git(observedRoot, ["config", baseKey, baseCommit]);
         git(observedRoot, ["config", kindKey, options.kind]);
+        git(observedRoot, ["config", remoteKey, remote]);
+        git(observedRoot, ["config", defaultKey, defaultBranch]);
       }
     } catch (error) {
       gitMaybe(observedRoot, ["worktree", "remove", "--force", "--", target]);
@@ -166,6 +180,8 @@ function prepareArtifactWorktree(options) {
         gitMaybe(observedRoot, ["branch", "-D", "--", branch]);
         gitMaybe(observedRoot, ["config", "--unset-all", baseKey]);
         gitMaybe(observedRoot, ["config", "--unset-all", kindKey]);
+        gitMaybe(observedRoot, ["config", "--unset-all", remoteKey]);
+        gitMaybe(observedRoot, ["config", "--unset-all", defaultKey]);
       }
       throw error;
     }

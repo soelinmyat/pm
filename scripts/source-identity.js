@@ -74,6 +74,7 @@ function defaultBranchName(gitRoot, remoteName = "origin") {
 
 module.exports = {
   defaultBranchName,
+  deliveryUrl,
   resolveDeliveryRemote,
   sourceRepository,
 };

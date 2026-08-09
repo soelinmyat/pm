@@ -58,6 +58,44 @@ test("Groom tiers route proportionate depth through one approval contract", () =
   }
 });
 
+test("Groom keeps product source identity separate from proposal artifact storage", () => {
+  const sourceRepo = makeRepo();
+  const artifactRepo = makeRepo();
+  try {
+    let session = applyContext(
+      createSession({ slug: "separate-artifacts", sourceDir: sourceRepo, tier: "quick" }),
+      {
+        title: "Separate artifacts",
+        outcome: "Preserve product context while isolating KB writes",
+        source_kind: "idea",
+        evidence_refs: [],
+        artifact_repo_root: artifactRepo,
+      }
+    );
+    assert.equal(session.source.repo_root, fs.realpathSync(sourceRepo));
+    assert.equal(session.context.artifact_repo_root, fs.realpathSync(artifactRepo));
+    assert.equal(nextDecision(session, "/tmp/session.json").phase, "intake");
+
+    session = advanceTo(session, "draft");
+    const proposalPath = path.join(artifactRepo, "pm/backlog/proposals/separate-artifacts.json");
+    fs.mkdirSync(path.dirname(proposalPath), { recursive: true });
+    fs.writeFileSync(proposalPath, '{"revision":1,"lifecycle":"draft"}\n');
+    session = recordResult(
+      session,
+      passed(session, {
+        proposal: proposalIdentity(proposalPath, 1),
+        evidence: [evidence("proposal"), evidence("artifact")],
+      })
+    );
+
+    assert.equal(session.proposal.json_path, proposalPath);
+    assert.deepEqual(validateSession(session), []);
+  } finally {
+    fs.rmSync(sourceRepo, { recursive: true, force: true });
+    fs.rmSync(artifactRepo, { recursive: true, force: true });
+  }
+});
+
 test("approval binds exact proposal bytes and revision, and revise invalidates it", () => {
   const repo = makeRepo();
   try {

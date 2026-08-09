@@ -37,7 +37,8 @@ Tier routing is defined in `tier-gating.md`. Approval is never a normal phase re
     "outcome": "Outcome",
     "source_kind": "idea | backlog | legacy",
     "source_path": null,
-    "evidence_refs": []
+    "evidence_refs": [],
+    "artifact_repo_root": "/absolute/artifact-worktree"
   },
   "routing": {
     "required_phases": [],

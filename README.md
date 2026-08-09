@@ -181,9 +181,11 @@ and rendered-evidence contract behind PM's flagship reports.
 
 Groom and RFC artifact work is isolated from the shared knowledge-base checkout. Each
 session uses a dedicated `codex/` worktree created from the Git remote's observed
-default branch, so an unrelated dirty session or feature branch cannot be swept into
-the proposal or RFC commit. Existing unowned branch collisions stop for manual recovery
-instead of being reused or published.
+default branch, fetched from that same delivery URL, so an unrelated dirty session or
+feature branch cannot be swept into the proposal or RFC commit. Product-source identity
+and private workflow state remain anchored to the consumer repository while proposal and
+RFC artifacts are bound to the isolated knowledge-base worktree. Existing unowned branch
+collisions stop for manual recovery instead of being reused or published.
 
 ### Supervised loop rollout
 
