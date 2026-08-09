@@ -9,6 +9,17 @@ const path = require("node:path");
 
 const ROOT = path.resolve(__dirname, "..");
 const HOOK = path.join(ROOT, "hooks", "push-gate");
+
+test("delivery bypass inputs all use bounded no-follow project reads", () => {
+  const source = fs.readFileSync(HOOK, "utf8");
+  const bypass = source.slice(source.indexOf("let bypassConsumption = null"));
+  assert.doesNotMatch(
+    bypass,
+    /fs\.readFileSync\([^)]*(?:release-transaction|repository-delivery-plan|gates|attestation)/s
+  );
+  assert.match(bypass, /readProjectInput\(repoDir, relative, MAX_DELIVERY_INPUT_BYTES\)/);
+  assert.ok((bypass.match(/readDeliveryJson\(/g) || []).length >= 5);
+});
 const { deriveSessionSlug } = require("../scripts/dev-gate-check.js");
 const { createSession, grantAuthority } = require("../scripts/lib/dev-session-schema");
 

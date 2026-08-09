@@ -29,6 +29,13 @@ function fileIdentity(root, relative) {
       };
 }
 
+function textIdentity(relative, text) {
+  return {
+    path: relative,
+    sha256: `sha256:${crypto.createHash("sha256").update(text).digest("hex")}`,
+  };
+}
+
 function parsePackage(root, runtimes, commands, identities) {
   const text = safeRead(root, "package.json");
   if (text === null) return;
@@ -223,14 +230,17 @@ function loadLefthookDump(root, discoveryReceipt) {
 }
 
 function parseWorkflows(root, runtimes, identities) {
+  let mergeGroup = false;
   for (const relative of workflowFiles(root)) {
     const text = safeRead(root, relative);
     if (text === null) continue;
-    identities.push(fileIdentity(root, relative));
+    identities.push(textIdentity(relative, text));
+    if (/merge_group/.test(text)) mergeGroup = true;
     const matches = [...text.matchAll(/node-version\s*:\s*["']?([^\s"']+)/g)];
     for (const match of matches)
       runtimes.push({ name: "node", constraint: match[1], source: relative, scope: "ci" });
   }
+  return { merge_group: mergeGroup };
 }
 
 function parsePolicy(text, provenance) {
@@ -519,7 +529,7 @@ function discoverRepositoryCapabilities(rootInput, options = {}) {
   }
   parseToolVersions(root, runtimes, identities);
   parsePackage(root, runtimes, commands, identities);
-  parseWorkflows(root, runtimes, identities);
+  const githubHints = parseWorkflows(root, runtimes, identities);
   const discoveryReceipt = verifyDiscoveryReceipt(root, options);
   const policy = readPolicy(root, options, identities, discoveryReceipt);
   const hook = resolvePrePushHook(root);
@@ -545,11 +555,7 @@ function discoverRepositoryCapabilities(rootInput, options = {}) {
     commands,
     instructions: identities.filter((x) => /AGENTS|CLAUDE|codex/.test(x.path)),
     workflows: identities.filter((x) => x.path.startsWith(".github/workflows/")),
-    github_hints: {
-      merge_group: identities
-        .filter((x) => x.path.startsWith(".github/workflows/"))
-        .some((identity) => /merge_group/.test(safeRead(root, identity.path) || "")),
-    },
+    github_hints: githubHints,
     github_capabilities: githubCapabilities,
     hooks: { pre_push: hook },
     lefthook: {

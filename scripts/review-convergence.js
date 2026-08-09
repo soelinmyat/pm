@@ -221,6 +221,8 @@ function reviseRequirements(current, input) {
 
 function selectPublicationRoute(input = {}) {
   if (
+    input.comprehensive !== true &&
+    process.env.PM_DELIVERY_COMPREHENSIVE !== "1" &&
     input.candidateRoute === true &&
     input.protectedPermission === true &&
     input.exactAdapterCoverage === true

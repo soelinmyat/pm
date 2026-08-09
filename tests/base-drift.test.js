@@ -165,3 +165,35 @@ test("production drift derives complete path sets from exact Git commits", () =>
   assert.deepEqual(result.base_paths, ["base.txt"]);
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+test("base-side renames include both endpoints and cannot appear disjoint", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-base-drift-rename-"));
+  const git = (...args) => childProcess.spawnSync("git", args, { cwd: root, encoding: "utf8" });
+  try {
+    git("init", "-q");
+    git("config", "user.email", "test@example.com");
+    git("config", "user.name", "Test");
+    fs.writeFileSync(path.join(root, "shared.txt"), "one\n");
+    git("add", ".");
+    git("commit", "-q", "-m", "base");
+    const base = git("rev-parse", "HEAD").stdout.trim();
+    git("checkout", "-q", "-b", "feature");
+    fs.writeFileSync(path.join(root, "shared.txt"), "feature\n");
+    git("commit", "-qam", "feature");
+    const head = git("rev-parse", "HEAD").stdout.trim();
+    git("checkout", "-q", "-b", "upstream", base);
+    git("mv", "shared.txt", "renamed.txt");
+    git("commit", "-qm", "rename");
+    const currentBase = git("rev-parse", "HEAD").stdout.trim();
+    const result = classifyGitBaseDrift({
+      root,
+      previous_base: base,
+      current_base: currentBase,
+      head,
+    });
+    assert.equal(result.classification, "overlapping", JSON.stringify(result));
+    assert.deepEqual(result.base_paths, ["renamed.txt", "shared.txt"]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

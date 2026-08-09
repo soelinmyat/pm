@@ -51,6 +51,11 @@ function buildShadowReport(deliveries) {
     .filter((delivery) => ELIGIBLE_SIZES.has(delivery?.size))
     .map(normalizeDelivery)
     .sort((left, right) => left.id.localeCompare(right.id));
+  const ids = new Set();
+  for (const delivery of eligible) {
+    if (ids.has(delivery.id)) throw new Error(`duplicate delivery id: ${delivery.id}`);
+    ids.add(delivery.id);
+  }
   const groups = new Map();
   for (const delivery of eligible) {
     for (const side of ROUTES) {

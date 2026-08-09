@@ -8,6 +8,7 @@ const os = require("node:os");
 const { spawnSync } = require("node:child_process");
 const { writeJsonAtomic } = require("./lib/atomic-file");
 const { acquireOwnedLock } = require("./lib/owned-lock");
+const { beginSegment, finishSegment, recoverInterruptedSegments } = require("./delivery-telemetry");
 const {
   verifyDeliveryAttestation,
   finalizeCanonicalFiles,
@@ -43,6 +44,23 @@ function parseArgs(argv) {
     values[flag.slice(2).replaceAll("-", "_")] = value;
   }
   return { command, ...values };
+}
+
+function withDeliveryTelemetry(transactionPath, input, operation) {
+  const ledgerPath = path.join(path.dirname(transactionPath), "delivery-timing.json");
+  recoverInterruptedSegments(ledgerPath);
+  const handle = beginSegment(ledgerPath, input);
+  try {
+    const result = operation();
+    finishSegment(ledgerPath, handle, {
+      outcome: "passed",
+      certification_count: result?.decision === "certified" ? 1 : 0,
+    });
+    return result;
+  } catch (error) {
+    finishSegment(ledgerPath, handle, { outcome: "failed", certification_count: 0 });
+    throw error;
+  }
 }
 
 function runCommand(args, options = {}) {
@@ -91,101 +109,121 @@ function runCommand(args, options = {}) {
     };
   }
   if (args.command === "attest-candidate") {
-    const request = {
-      schema_version: 1,
-      kind: "canonical-candidate-attestation-v1",
-      repository_root: cwd,
-      session: args.session,
-      transaction: args.transaction,
-      gates: args.gates,
-      plan: args.plan,
-      attestation: args.attestation,
-    };
-    const signer = machineSigner(request);
-    const attestation = attestCanonicalCandidateFiles(
-      { root: cwd, ...request },
-      { signer: signer.sign, signerId: signer.identity }
-    );
-    return { ok: true, decision: "candidate-attested", attestation };
-  }
-  if (args.command === "finalize-candidate") {
-    const canonicalRequest = {
-      schema_version: 1,
-      kind: "canonical-delivery-finalization-v1",
-      repository_root: cwd,
-      session: args.session,
-      transaction: args.transaction,
-      gates: args.gates,
-      plan: args.plan,
-      certification: args.certification,
-      attestation: args.attestation,
-    };
-    const signer = machineSigner(canonicalRequest);
-    const runner = path.join(__dirname, "repository-gate-runner.js");
-    const result = finalizeCanonicalFiles(
+    return withDeliveryTelemetry(
+      transactionPath,
       {
-        root: cwd,
-        session: args.session,
-        transaction: args.transaction,
-        gates: args.gates,
-        plan: args.plan,
-        certification: args.certification,
-        attestation: args.attestation,
+        kind: "active-command",
+        route: "optimized",
+        delivery_id: readJson(transactionPath, "release transaction").run_id,
       },
-      {
-        signer: signer.sign,
-        signerId: signer.identity,
-        publicKey: signer.publicKey,
-        transitionSession: (session) => {
-          const issues = validateSession(session);
-          if (issues.length) throw new Error("canonical Dev session is invalid");
-          if (session.candidate.state === "certifying") return session;
-          return transitionCandidate(session, {
-            state: "certifying",
-            reason: "Complete final candidate certification passed",
-          });
-        },
-        runComplete: () => {
-          const childEnv = { ...process.env };
-          for (const name of Object.keys(childEnv))
-            if (/PM_DELIVERY_(?:ATTESTATION|SIGN|PRIVATE)/.test(name)) delete childEnv[name];
-          const executed = spawnSync(
-            process.execPath,
-            [
-              runner,
-              "--plan",
-              path.resolve(cwd, args.plan),
-              "--mode",
-              "complete",
-              "--expected-plan-digest",
-              readJson(path.resolve(cwd, args.plan), "repository plan").plan_digest,
-              "--expected-capability-identity",
-              readJson(path.resolve(cwd, args.plan), "repository plan").capability_identity,
-              "--discovery-receipt",
-              path.resolve(cwd, args.discovery_receipt),
-              "--discovery-receipt-sha256",
-              args.discovery_receipt_sha256,
-            ],
-            {
-              cwd,
-              encoding: "utf8",
-              shell: false,
-              env: childEnv,
-              timeout: 60 * 60 * 1000,
-              maxBuffer: 1024 * 1024,
-            }
-          );
-          if (executed.status !== 0)
-            throw new Error(`complete repository plan failed: ${executed.stderr}`);
-          const output = JSON.parse(executed.stdout);
-          return {
-            outcome: output.status === "passed" ? "passed" : "failed",
-            evidence: [{ kind: "complete-plan", identity: output.preflight_identity }],
-          };
-        },
+      () => {
+        const request = {
+          schema_version: 1,
+          kind: "canonical-candidate-attestation-v1",
+          repository_root: cwd,
+          session: args.session,
+          transaction: args.transaction,
+          gates: args.gates,
+          plan: args.plan,
+          attestation: args.attestation,
+        };
+        const signer = machineSigner(request);
+        const attestation = attestCanonicalCandidateFiles(
+          { root: cwd, ...request },
+          { signer: signer.sign, signerId: signer.identity }
+        );
+        return { ok: true, decision: "candidate-attested", attestation };
       }
     );
-    return { ok: true, ...result };
+  }
+  if (args.command === "finalize-candidate") {
+    return withDeliveryTelemetry(
+      transactionPath,
+      {
+        kind: "final-certification",
+        route: "optimized",
+        delivery_id: readJson(transactionPath, "release transaction").run_id,
+      },
+      () => {
+        const canonicalRequest = {
+          schema_version: 1,
+          kind: "canonical-delivery-finalization-v1",
+          repository_root: cwd,
+          session: args.session,
+          transaction: args.transaction,
+          gates: args.gates,
+          plan: args.plan,
+          certification: args.certification,
+          attestation: args.attestation,
+        };
+        const signer = machineSigner(canonicalRequest);
+        const runner = path.join(__dirname, "repository-gate-runner.js");
+        const result = finalizeCanonicalFiles(
+          {
+            root: cwd,
+            session: args.session,
+            transaction: args.transaction,
+            gates: args.gates,
+            plan: args.plan,
+            certification: args.certification,
+            attestation: args.attestation,
+          },
+          {
+            signer: signer.sign,
+            signerId: signer.identity,
+            publicKey: signer.publicKey,
+            transitionSession: (session) => {
+              const issues = validateSession(session);
+              if (issues.length) throw new Error("canonical Dev session is invalid");
+              if (session.candidate.state === "certifying") return session;
+              return transitionCandidate(session, {
+                state: "certifying",
+                reason: "Complete final candidate certification passed",
+              });
+            },
+            runComplete: () => {
+              const childEnv = { ...process.env };
+              for (const name of Object.keys(childEnv))
+                if (/PM_DELIVERY_(?:ATTESTATION|SIGN|PRIVATE)/.test(name)) delete childEnv[name];
+              const executed = spawnSync(
+                process.execPath,
+                [
+                  runner,
+                  "--plan",
+                  path.resolve(cwd, args.plan),
+                  "--mode",
+                  "complete",
+                  "--expected-plan-digest",
+                  readJson(path.resolve(cwd, args.plan), "repository plan").plan_digest,
+                  "--expected-capability-identity",
+                  readJson(path.resolve(cwd, args.plan), "repository plan").capability_identity,
+                  "--discovery-receipt",
+                  path.resolve(cwd, args.discovery_receipt),
+                  "--discovery-receipt-sha256",
+                  args.discovery_receipt_sha256,
+                ],
+                {
+                  cwd,
+                  encoding: "utf8",
+                  shell: false,
+                  env: childEnv,
+                  timeout: 60 * 60 * 1000,
+                  maxBuffer: 1024 * 1024,
+                }
+              );
+              if (executed.status !== 0)
+                throw new Error(`complete repository plan failed: ${executed.stderr}`);
+              const output = JSON.parse(executed.stdout);
+              return {
+                outcome: output.status === "passed" ? "passed" : "failed",
+                evidence: [{ kind: "complete-plan", identity: output.preflight_identity }],
+              };
+            },
+          }
+        );
+        return { ok: true, ...result };
+      }
+    );
   }
   return mutateTransaction(transactionPath, (transaction) => {
     if (args.command === "plan") {
@@ -461,4 +499,4 @@ function main(argv = process.argv.slice(2)) {
 
 if (require.main === module) process.exitCode = main();
 
-module.exports = { main, parseArgs, runCommand, statusView };
+module.exports = { main, parseArgs, runCommand, statusView, withDeliveryTelemetry };

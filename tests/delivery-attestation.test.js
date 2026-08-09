@@ -23,6 +23,15 @@ const {
   createReleaseTransaction,
 } = require("../scripts/lib/release-transaction-schema");
 
+test("canonical delivery writes reuse the shared atomic writer", () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, "../scripts/delivery-attestation.js"),
+    "utf8"
+  );
+  assert.match(source, /require\("\.\/lib\/atomic-file"\)/);
+  assert.doesNotMatch(source, /\.tmp-\$\{process\.pid\}/);
+});
+
 test("candidate attestation grants only candidate hook bypass and binds targeted evidence", () => {
   const keys = crypto.generateKeyPairSync("ed25519");
   const value = createCandidateDeliveryAttestation(
@@ -92,8 +101,15 @@ test("valid release transactions can bind the canonical candidate-attestation pr
       capability_identity: `sha256:${"2".repeat(64)}`,
       command_identity: `sha256:${"3".repeat(64)}`,
       environment_identity: { id: "environment" },
-      adapter: { manager: { sha256: `sha256:${"4".repeat(64)}` } },
+      adapter: { supported: true, manager: { sha256: `sha256:${"4".repeat(64)}` } },
+      candidate_push: {
+        permitted: true,
+        executed_commands: ["targeted"],
+        skipped_commands: [],
+        declared_skipped_commands: [],
+      },
       targeted_commands: ["targeted"],
+      complete_commands: ["targeted"],
     },
     gates: {
       gates: [
@@ -114,6 +130,25 @@ test("valid release transactions can bind the canonical candidate-attestation pr
       sha256: transaction.evidence.candidate.sha256,
     },
   ]);
+});
+
+test("candidate attestation binds run, permission, plan identities, and exact adapter coverage", () => {
+  const context = canonicalCandidateContext();
+  assert.deepEqual(verifyCanonicalCandidateAttestation(context).commands, ["targeted"]);
+  for (const mutate of [
+    (value) => (value.session.run_id = "other-run"),
+    (value) => (value.session.candidate.gate_plan_identity = `sha256:${"f".repeat(64)}`),
+    (value) => (value.plan.candidate_push.permitted = false),
+    (value) => (value.plan.adapter.supported = false),
+    (value) => (value.plan.candidate_push.executed_commands = []),
+  ]) {
+    const changed = structuredClone(context);
+    mutate(changed);
+    assert.throws(
+      () => verifyCanonicalCandidateAttestation(changed),
+      /candidate|run|plan|adapter|coverage|permission/i
+    );
+  }
 });
 
 const SHA_A = "a".repeat(40);
@@ -210,6 +245,66 @@ function canonicalFinalizationContext() {
     ],
   };
   return { root: "/repo", session, transaction, plan, gates };
+}
+
+function canonicalCandidateContext() {
+  const transaction = createReleaseTransaction({
+    releaseMode: "delivery-only",
+    runId: "run-candidate",
+    slug: "change",
+    repository: "acme/widget",
+    deliveryRemote: "origin",
+    headBranch: "codex/change",
+    baseBranch: "main",
+    pushUrlSha256: `sha256:${"8".repeat(64)}`,
+    preparedCommit: SHA_C,
+    manifestHashes: [],
+  });
+  transaction.evidence.candidate = {
+    commit: SHA_C,
+    artifact: ".pm/dev-sessions/change/candidate.json",
+    sha256: `sha256:${"9".repeat(64)}`,
+  };
+  return {
+    session: {
+      run_id: "run-candidate",
+      candidate: {
+        state: "review-candidate",
+        invalidation: null,
+        gate_plan_identity: `sha256:${"1".repeat(64)}`,
+        repository_capability_identity: `sha256:${"2".repeat(64)}`,
+      },
+    },
+    transaction,
+    plan: {
+      head_commit: SHA_C,
+      base_commit: SHA_A,
+      merge_base_commit: SHA_A,
+      plan_digest: `sha256:${"1".repeat(64)}`,
+      capability_identity: `sha256:${"2".repeat(64)}`,
+      command_identity: `sha256:${"3".repeat(64)}`,
+      environment_identity: { id: "environment" },
+      adapter: { supported: true, manager: { sha256: `sha256:${"4".repeat(64)}` } },
+      candidate_push: {
+        permitted: true,
+        executed_commands: ["targeted"],
+        skipped_commands: [],
+        declared_skipped_commands: [],
+      },
+      targeted_commands: ["targeted"],
+      complete_commands: ["targeted"],
+    },
+    gates: {
+      gates: [
+        {
+          name: "candidate",
+          status: "passed",
+          commit: SHA_C,
+          artifact: transaction.evidence.candidate.artifact,
+        },
+      ],
+    },
+  };
 }
 
 test("canonical attestation binds provenance and authorizes one exact push", () => {

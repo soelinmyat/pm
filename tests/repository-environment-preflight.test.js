@@ -3,12 +3,20 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
+  constraintsIntersect,
   verifyEnvironment,
   validateProbeDeclaration,
   keyedIdentity,
   redactText,
   satisfies,
 } = require("../scripts/repository-environment-preflight");
+
+test("constraint intersection is independent of comparator order", () => {
+  assert.equal(
+    constraintsIntersect([{ constraint: "<20 >=18" }, { constraint: "<20 >=19" }]),
+    true
+  );
+});
 
 function basePlan(overrides = {}) {
   return {

@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const childProcess = require("node:child_process");
+const semver = require("semver");
 const { stable, digest } = require("./lib/repository-gate-plan-schema");
 
 const ALLOWED_PROBE_KEYS = new Set([
@@ -116,16 +117,15 @@ function satisfies(versionText, constraintText) {
 
 function constraintsIntersect(constraints) {
   if (constraints.length < 2) return true;
-  const candidates = [];
+  let intersection = "*";
   for (const item of constraints) {
-    const v = parseVersion(item.constraint);
-    if (v)
-      for (let patch = Math.max(0, v[2] - 1); patch <= v[2] + 2; patch++)
-        candidates.push(`${v[0]}.${v[1]}.${patch}`);
+    const range = semver.validRange(String(item.constraint || "").trim(), { loose: true });
+    if (!range) return false;
+    const combined = `${intersection} ${range}`.trim();
+    if (!semver.minVersion(combined, { loose: true })) return false;
+    intersection = combined;
   }
-  return candidates.some((candidate) =>
-    constraints.every((x) => satisfies(candidate, x.constraint))
-  );
+  return true;
 }
 
 function defaultResolveRuntime(name, env) {

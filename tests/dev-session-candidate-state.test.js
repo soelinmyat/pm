@@ -242,6 +242,22 @@ test("unknown later schemas fail closed without producing a migration snapshot",
   }
 });
 
+test("v2 migration rejects an existing snapshot from different source bytes", () => {
+  const repo = makeRepo();
+  try {
+    const sessionPath = path.join(repo, "session.json");
+    const v2 = createSession({ slug: "current", sourceDir: repo });
+    v2.schema_version = 2;
+    delete v2.candidate;
+    const stale = { ...v2, slug: "stale" };
+    fs.writeFileSync(sessionPath, `${JSON.stringify(v2)}\n`);
+    fs.writeFileSync(`${sessionPath}.v2.snapshot.json`, `${JSON.stringify(stale)}\n`);
+    assert.throws(() => readSession(sessionPath), /snapshot.*source|source.*snapshot|stale/i);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test("v2 snapshot restores only before an external effect and is pruned on completion", () => {
   const repo = makeRepo();
   try {

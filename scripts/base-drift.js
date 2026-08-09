@@ -68,18 +68,27 @@ function git(root, args) {
 }
 
 function changedPaths(root, range) {
-  const output = git(root, [
-    "-c",
-    "core.quotepath=false",
-    "diff",
-    "--name-only",
-    "--no-ext-diff",
-    range,
-    "--",
-  ]);
-  const paths = output ? output.split("\n") : [];
-  if (paths.some((item) => !item || item.includes("\0")))
-    throw new Error("Git drift paths are malformed");
+  const result = childProcess.spawnSync(
+    "git",
+    ["-c", "core.quotepath=false", "diff", "--name-status", "-z", "--no-ext-diff", range, "--"],
+    { cwd: root, encoding: null, shell: false, timeout: 5000, maxBuffer: 1024 * 1024 }
+  );
+  if (result.status !== 0)
+    throw new Error(`Git drift evidence unavailable: ${String(result.stderr || "").trim()}`);
+  const fields = result.stdout.toString("utf8").split("\0");
+  if (fields.at(-1) !== "") throw new Error("Git drift paths are malformed");
+  fields.pop();
+  const paths = [];
+  for (let index = 0; index < fields.length; ) {
+    const status = fields[index++];
+    if (!/^[A-Z][0-9]*$/.test(status || "")) throw new Error("Git drift status is malformed");
+    const count = /^[RC]/.test(status) ? 2 : 1;
+    for (let offset = 0; offset < count; offset++) {
+      const value = fields[index++];
+      if (!value || value.includes("\0")) throw new Error("Git drift paths are malformed");
+      paths.push(value);
+    }
+  }
   return [...new Set(paths)].sort();
 }
 

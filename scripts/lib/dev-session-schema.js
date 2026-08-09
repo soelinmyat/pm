@@ -2042,10 +2042,13 @@ function upgradeCompatibleSession(input) {
 function archivePreUpgradeSnapshot(sessionPath, input, source) {
   const snapshotPath = `${sessionPath}${PRE_UPGRADE_SNAPSHOT_SUFFIX}`;
   if (fs.existsSync(snapshotPath)) {
-    const existing = JSON.parse(fs.readFileSync(snapshotPath, "utf8"));
+    const existingSource = fs.readFileSync(snapshotPath, "utf8");
+    const existing = JSON.parse(existingSource);
     if (!isObject(existing) || existing.schema_version !== 2) {
       throw new Error(`pre-upgrade snapshot is invalid: ${snapshotPath}`);
     }
+    if (existingSource !== source)
+      throw new Error(`pre-upgrade snapshot does not match the current v2 source: ${snapshotPath}`);
     fs.chmodSync(snapshotPath, 0o600);
     return snapshotPath;
   }

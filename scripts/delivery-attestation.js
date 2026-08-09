@@ -6,6 +6,7 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const childProcess = require("node:child_process");
 const os = require("node:os");
+const { writeJsonAtomic } = require("./lib/atomic-file");
 
 const SHA = /^[0-9a-f]{40,64}$/i;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
@@ -462,12 +463,28 @@ function verifyCanonicalCandidateAttestation(context) {
   const commit = transaction?.release?.prepared_commit;
   if (session?.candidate?.state !== "review-candidate" || session.candidate.invalidation)
     throw new Error("candidate attestation requires the review-candidate phase");
+  if (session.run_id !== transaction?.run_id)
+    throw new Error("candidate attestation run does not match the release transaction");
   if (
     plan?.head_commit !== commit ||
+    session.candidate.gate_plan_identity !== plan.plan_digest ||
+    session.candidate.repository_capability_identity !== plan.capability_identity ||
+    plan.candidate_push?.permitted !== true ||
+    plan.adapter?.supported !== true ||
     !Array.isArray(plan.targeted_commands) ||
     !plan.targeted_commands.length
   )
     throw new Error("targeted candidate plan is unavailable");
+  const targeted = [...new Set(plan.targeted_commands)].sort();
+  const executed = [...new Set(plan.candidate_push.executed_commands || [])].sort();
+  const skipped = [...new Set(plan.candidate_push.skipped_commands || [])].sort();
+  const complete = [...new Set(plan.complete_commands || [])].sort();
+  if (
+    !same(targeted, executed) ||
+    !same([...targeted, ...skipped].sort(), complete) ||
+    !same(skipped, [...new Set(plan.candidate_push.declared_skipped_commands || [])].sort())
+  )
+    throw new Error("candidate adapter coverage is not exact");
   const bound = transaction.evidence?.candidate;
   const row = gates?.gates?.find((item) => item.name === "candidate");
   if (
@@ -670,9 +687,8 @@ function writePrivateJson(root, filePath, value) {
   assertSafePrivateOutput(root, filePath);
   fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
   assertSafePrivateOutput(root, filePath);
-  const temporary = `${filePath}.tmp-${process.pid}-${crypto.randomBytes(8).toString("hex")}`;
-  fs.writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600, flag: "wx" });
-  fs.renameSync(temporary, filePath);
+  writeJsonAtomic(filePath, value, { directoryMode: 0o700, fileMode: 0o600 });
+  assertSafePrivateOutput(root, filePath);
 }
 
 function gitIdentity(root, args) {

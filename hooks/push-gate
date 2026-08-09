@@ -57,6 +57,7 @@ const {
 // it still overflows, fail-closed catches it (result.error is set → block).
 const MAX_BUFFER = 64 * 1024 * 1024;
 const MAX_SESSION_BYTES = 4 * 1024 * 1024;
+const MAX_DELIVERY_INPUT_BYTES = 1024 * 1024;
 const MAX_SESSION_DIRECTORIES = 512;
 
 // allow / emit never call process.exit(): a bare `process.exit(0)` after a stdout
@@ -2231,31 +2232,26 @@ function gatePush(baseCwd, push) {
       );
       let attestation;
       try {
+        const readDeliveryJson = (absolute) => {
+          const relative = path.relative(repoDir, absolute);
+          return JSON.parse(
+            readProjectInput(repoDir, relative, MAX_DELIVERY_INPUT_BYTES).bytes.toString("utf8")
+          );
+        };
         const purposes = deriveBypassPurposes(session.candidate, push.bypassRequested);
-        const stat = fs.lstatSync(attestationPath);
-        if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 1024 * 1024)
-          throw new Error("attestation is not a bounded regular file");
-        attestation = JSON.parse(fs.readFileSync(attestationPath, "utf8"));
+        attestation = readDeliveryJson(attestationPath);
         const remoteUrl = gitCapture(
           repoDir,
           ["remote", "get-url", "--push", "--", destination.remote],
           gitDir
         );
-        const transaction = JSON.parse(
-          fs.readFileSync(
-            path.join(canonicalSessionDir, "ship", "release-transaction.json"),
-            "utf8"
-          )
+        const transaction = readDeliveryJson(
+          path.join(canonicalSessionDir, "ship", "release-transaction.json")
         );
-        const plan = JSON.parse(
-          fs.readFileSync(
-            path.join(canonicalSessionDir, "ship", "repository-delivery-plan.json"),
-            "utf8"
-          )
+        const plan = readDeliveryJson(
+          path.join(canonicalSessionDir, "ship", "repository-delivery-plan.json")
         );
-        const gates = JSON.parse(
-          fs.readFileSync(path.join(canonicalSessionDir, "gates.json"), "utf8")
-        );
+        const gates = readDeliveryJson(path.join(canonicalSessionDir, "gates.json"));
         const defaultPrefix = `refs/remotes/${destination.remote}/`;
         if (
           typeof plan.expected_default_ref !== "string" ||

@@ -10,12 +10,20 @@ const {
   buildDeliveryPlan,
   verifyPlanDigest,
   discoveryOptions,
+  parseGitPathOutput,
 } = require("../scripts/repository-delivery-plan");
 const { digest } = require("../scripts/lib/repository-gate-plan-schema");
 const { verifyEnvironment, keyedIdentity } = require("../scripts/repository-environment-preflight");
 const { runRepositoryGates } = require("../scripts/repository-gate-runner");
 const OLD_SHA = "a".repeat(40);
 const NEW_SHA = "b".repeat(40);
+
+test("NUL-delimited Git path output preserves Unicode and embedded newlines", () => {
+  assert.deepEqual(parseGitPathOutput(Buffer.from("apps/日本語.ts\0apps/line\nbreak.ts\0")), [
+    "apps/日本語.ts",
+    "apps/line\nbreak.ts",
+  ]);
+});
 
 const commands = {
   "mobile-quality": { glob: "apps/mobile/**/*.{ts,tsx}", run: "pnpm --filter mobile test" },

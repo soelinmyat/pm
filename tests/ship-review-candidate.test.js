@@ -36,6 +36,34 @@ test("candidate publication requires protected permission and exact adapter cove
   }
 });
 
+test("explicit comprehensive delivery override always disables candidate publication", () => {
+  const selected = selectPublicationRoute({
+    candidateRoute: true,
+    protectedPermission: true,
+    exactAdapterCoverage: true,
+    comprehensive: true,
+  });
+  assert.equal(selected.route, "comprehensive");
+  assert.equal(selected.publish_draft, false);
+});
+
+test("PM_DELIVERY_COMPREHENSIVE disables candidate publication", (t) => {
+  const previous = process.env.PM_DELIVERY_COMPREHENSIVE;
+  process.env.PM_DELIVERY_COMPREHENSIVE = "1";
+  t.after(() => {
+    if (previous === undefined) delete process.env.PM_DELIVERY_COMPREHENSIVE;
+    else process.env.PM_DELIVERY_COMPREHENSIVE = previous;
+  });
+  assert.equal(
+    selectPublicationRoute({
+      candidateRoute: true,
+      protectedPermission: true,
+      exactAdapterCoverage: true,
+    }).route,
+    "comprehensive"
+  );
+});
+
 test("Ship instructions preserve comprehensive fallback and draft-only candidate authority", () => {
   const review = read("skills/ship/steps/03-review.md");
   const push = read("skills/ship/steps/04-push.md");

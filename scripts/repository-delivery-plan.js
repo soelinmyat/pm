@@ -246,6 +246,21 @@ function git(root, args) {
   return result.stdout.trim();
 }
 
+function parseGitPathOutput(output) {
+  const fields = Buffer.from(output).toString("utf8").split("\0");
+  if (fields.at(-1) !== "") throw new Error("Git path output is not NUL terminated");
+  fields.pop();
+  if (fields.some((value) => !value || value.includes("\0")))
+    throw new Error("Git path output is malformed");
+  return fields;
+}
+
+function gitPathOutput(root, args) {
+  const result = childProcess.spawnSync("git", args, { cwd: root, encoding: null, shell: false });
+  if (result.status !== 0) throw new Error(String(result.stderr || `git ${args.join(" ")} failed`));
+  return parseGitPathOutput(result.stdout);
+}
+
 function main(argv = process.argv.slice(2)) {
   const value = (flag, fallback) => {
     const i = argv.indexOf(flag);
@@ -302,9 +317,7 @@ function main(argv = process.argv.slice(2)) {
       expectedDefaultRef: discoveryReceipt.expected_default_ref,
     })
   );
-  const changedPaths = git(root, ["diff", "--name-only", `${base}...${head}`])
-    .split(/\r?\n/)
-    .filter(Boolean);
+  const changedPaths = gitPathOutput(root, ["diff", "--name-only", "-z", `${base}...${head}`]);
   const plan = buildDeliveryPlan({
     root,
     baseCommit: base,
@@ -338,4 +351,5 @@ module.exports = {
   validateGitPushInputs,
   readAuthenticatedJson,
   discoveryOptions,
+  parseGitPathOutput,
 };

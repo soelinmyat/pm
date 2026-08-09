@@ -55,3 +55,9 @@ test("does not claim rollout when the approved threshold is missed", () => {
   assert.equal(report.threshold.evaluated, true);
   assert.equal(report.threshold.passed, false);
 });
+
+test("rejects duplicate delivery identities instead of inflating the rollout sample", () => {
+  const records = Array.from({ length: 19 }, (_, index) => delivery(index));
+  records.push(delivery(0));
+  assert.throws(() => buildShadowReport(records), /duplicate delivery id/i);
+});

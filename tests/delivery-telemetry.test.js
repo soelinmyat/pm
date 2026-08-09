@@ -15,6 +15,7 @@ const {
   readLedger,
   recoverInterruptedSegments,
 } = require("../scripts/delivery-telemetry");
+const { withDeliveryTelemetry } = require("../scripts/release-transaction");
 
 function temporaryLedger(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-delivery-telemetry-"));
@@ -120,4 +121,18 @@ test("deterministically compacts to 512 events and one MiB", () => {
   assert.deepEqual(left.compaction, right.compaction);
   assert.deepEqual(left.events, right.events);
   assert.ok(Buffer.byteLength(JSON.stringify(left)) <= MAX_BYTES);
+});
+
+test("release transaction operations record real final-certification boundaries", (t) => {
+  const transactionPath = path.join(path.dirname(temporaryLedger(t)), "release-transaction.json");
+  const result = withDeliveryTelemetry(
+    transactionPath,
+    { kind: "final-certification", route: "optimized", delivery_id: "run-1" },
+    () => ({ decision: "certified" })
+  );
+  assert.equal(result.decision, "certified");
+  const ledger = readLedger(path.join(path.dirname(transactionPath), "delivery-timing.json"));
+  assert.equal(ledger.events.length, 1);
+  assert.equal(ledger.events[0].kind, "final-certification");
+  assert.equal(ledger.events[0].certification_count, 1);
 });
