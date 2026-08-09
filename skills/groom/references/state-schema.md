@@ -37,7 +37,8 @@ Tier routing is defined in `tier-gating.md`. Approval is never a normal phase re
     "outcome": "Outcome",
     "source_kind": "idea | backlog | legacy",
     "source_path": null,
-    "evidence_refs": []
+    "evidence_refs": [],
+    "artifact_repo_root": "/absolute/artifact-worktree"
   },
   "routing": {
     "required_phases": [],
@@ -84,6 +85,12 @@ Tier routing is defined in `tier-gating.md`. Approval is never a normal phase re
 ```
 
 The executable closed schema is `scripts/lib/groom-session-schema.js`.
+Fresh context requires `artifact_repo_root` to identify the matching helper-owned
+`codex/{slug}-groom` worktree. On read, v1 sessions written before this field existed
+are normalized to `null` so in-flight work can resume against the historical source
+repository fallback without being mistaken for newly verified isolation. Fresh sessions
+revalidate the helper-owned branch and delivery URL on every resume operation; the next
+legacy mutation persists the explicit compatibility marker.
 
 ## Phase result
 

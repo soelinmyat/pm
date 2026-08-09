@@ -2,6 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const { execFileSync, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -30,6 +31,7 @@ test("Groom CLI initializes canonical private state and configures context", () 
     assert.equal(payload.session.execution.model, "gpt-5.6-sol");
     assert.equal(fs.statSync(payload.session_path).mode & 0o777, 0o600);
     const facts = path.join(repo, "facts.json");
+    const artifact = makeOwnedArtifact(repo, "cli");
     fs.writeFileSync(
       facts,
       JSON.stringify({
@@ -37,6 +39,7 @@ test("Groom CLI initializes canonical private state and configures context", () 
         outcome: "Safe state",
         source_kind: "idea",
         evidence_refs: [],
+        artifact_repo_root: artifact,
       })
     );
     const configured = run(repo, [
@@ -63,6 +66,7 @@ test("Groom CLI records exact retries idempotently and rejects copied state", ()
         .stdout
     );
     const facts = path.join(repo, "facts.json");
+    const artifact = makeOwnedArtifact(repo, "retry");
     fs.writeFileSync(
       facts,
       JSON.stringify({
@@ -70,6 +74,7 @@ test("Groom CLI records exact retries idempotently and rejects copied state", ()
         outcome: "Idempotency",
         source_kind: "idea",
         evidence_refs: [],
+        artifact_repo_root: artifact,
       })
     );
     assert.equal(
@@ -112,6 +117,40 @@ test("loop workers cannot record product approval", () => {
   }
 });
 
+test("Groom CLI upgrades pre-artifact-root sessions on read and resumes", () => {
+  const repo = makeRepo();
+  try {
+    const init = JSON.parse(
+      run(repo, ["init", "--slug", "legacy-resume", "--source-dir", repo, "--json"]).stdout
+    );
+    const legacy = JSON.parse(fs.readFileSync(init.session_path, "utf8"));
+    legacy.context = {
+      configured: true,
+      tier: "standard",
+      title: "Legacy session",
+      outcome: "Resume safely",
+      source_kind: "idea",
+      source_path: null,
+      evidence_refs: [],
+    };
+    fs.writeFileSync(init.session_path, `${JSON.stringify(legacy, null, 2)}\n`, { mode: 0o600 });
+
+    assert.equal(run(repo, ["status", "--session", init.session_path]).status, 0);
+    assert.equal(run(repo, ["next", "--session", init.session_path]).status, 0);
+    const resultPath = path.join(repo, "legacy-result.json");
+    fs.writeFileSync(resultPath, JSON.stringify(phaseResult(legacy)));
+    assert.equal(
+      run(repo, ["record", "--session", init.session_path, "--result", resultPath]).status,
+      0
+    );
+    const upgraded = JSON.parse(fs.readFileSync(init.session_path, "utf8"));
+    assert.equal(upgraded.context.artifact_repo_root, null);
+    assert.equal(upgraded.phase, "research");
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 function phaseResult(session) {
   return {
     schema_version: 1,
@@ -144,4 +183,22 @@ function makeRepo() {
   execFileSync("git", ["add", "."], { cwd: root });
   execFileSync("git", ["commit", "-qm", "init"], { cwd: root });
   return root;
+}
+
+function makeOwnedArtifact(repo, slug) {
+  const branch = `codex/${slug}-groom`;
+  const worktree = path.join(repo, ".owned", slug);
+  execFileSync("git", ["remote", "add", "origin", repo], { cwd: repo });
+  execFileSync("git", ["worktree", "add", "-q", "-b", branch, worktree], { cwd: repo });
+  const base = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).trim();
+  const urlHash = crypto.createHash("sha256").update(repo).digest("hex");
+  for (const [key, value] of [
+    [`branch.${branch}.pmArtifactBase`, base],
+    [`branch.${branch}.pmArtifactKind`, "groom"],
+    [`branch.${branch}.pmArtifactRemote`, "origin"],
+    [`branch.${branch}.pmArtifactDefaultBranch`, "main"],
+    [`branch.${branch}.pmArtifactRemoteUrlSha256`, urlHash],
+  ])
+    execFileSync("git", ["config", key, value], { cwd: repo });
+  return worktree;
 }

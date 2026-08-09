@@ -7,6 +7,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -63,6 +64,27 @@ function setupRepo() {
       fs.rmSync(root, { recursive: true, force: true });
     },
   };
+}
+
+function makeOwnedGroomArtifact(repo, slug) {
+  const branch = `codex/${slug}-groom`;
+  const worktree = path.join(repo, ".owned", slug);
+  execFileSync("git", ["remote", "add", "origin", repo], { cwd: repo });
+  execFileSync("git", ["worktree", "add", "-q", "-b", branch, worktree], { cwd: repo });
+  const base = execFileSync("git", ["rev-parse", "HEAD"], {
+    cwd: repo,
+    encoding: "utf8",
+  }).trim();
+  const urlHash = crypto.createHash("sha256").update(repo).digest("hex");
+  for (const [key, value] of [
+    [`branch.${branch}.pmArtifactBase`, base],
+    [`branch.${branch}.pmArtifactKind`, "groom"],
+    [`branch.${branch}.pmArtifactRemote`, "origin"],
+    [`branch.${branch}.pmArtifactDefaultBranch`, "main"],
+    [`branch.${branch}.pmArtifactRemoteUrlSha256`, urlHash],
+  ])
+    execFileSync("git", ["config", key, value], { cwd: repo });
+  return worktree;
 }
 
 function readJsonLines(root, name) {
@@ -443,6 +465,7 @@ test("groom phase recording emits spans once per attempt and reuses the mapped r
     ]);
     assert.equal(init.status, 0, init.stderr);
     const sessionPath = JSON.parse(init.stdout).session_path;
+    const artifact = makeOwnedGroomArtifact(root, "groom-flow");
 
     const factsPath = path.join(root, "facts.json");
     fs.writeFileSync(
@@ -452,6 +475,7 @@ test("groom phase recording emits spans once per attempt and reuses the mapped r
         outcome: "Signal",
         source_kind: "idea",
         evidence_refs: [],
+        artifact_repo_root: artifact,
       })
     );
     assert.equal(

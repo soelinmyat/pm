@@ -96,7 +96,7 @@
           "type": "resume",
           "prompt_ref": "evals/quality/cases/rfc.md",
           "scenario_ref": "quality-rfc-resume",
-          "scenario_contract_hash": "sha256:41b5a4d5eb9d01b9e247b364eb79abae840e96b915179367bb0e830e3c52b88b"
+          "scenario_contract_hash": "sha256:9f7a13d54a78a404377e3a2af3d52e612d774e7e908c4650f24f19209183757b"
         },
         {
           "id": "rfc-blocked-and-recovery",

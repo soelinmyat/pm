@@ -33,4 +33,5 @@ printf '%s\n' 'rfc resume change' >> docs/architecture.md
 git add docs/architecture.md
 git commit -qm "fixture feature change"
 printf '%s\n' 'user continuation' >> user-owned-dirt.txt
+git --git-dir=.pm/quality/origin.git symbolic-ref HEAD refs/heads/main
 node "$PM_PLUGIN_ROOT/scripts/evals/quality-resume.js" seed rfc "$(pwd)"

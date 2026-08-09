@@ -179,6 +179,20 @@ and rendered-evidence contract behind PM's flagship reports.
 | `/pm:board` | Open a visual Kanban view of backlog, leases, recent runs, and budget state |
 | `/pm:list` | Show the same in-flight PM state as a compact terminal-oriented inventory |
 
+Groom and RFC artifact work is isolated from the shared knowledge-base checkout. Each
+session uses a dedicated `codex/` worktree created from the Git remote's observed
+default branch, fetched from that same delivery URL, so an unrelated dirty session or
+feature branch cannot be swept into the proposal or RFC commit. Product-source identity
+and private workflow state remain anchored to the consumer repository while proposal and
+RFC artifacts are bound to the isolated knowledge-base worktree. Existing unowned branch
+collisions stop for manual recovery instead of being reused or published. Fresh RFC
+intake rejects omitted or unowned artifact roots, and resumed Groom work revalidates its
+recorded helper branch and delivery URL before proceeding. RFC work inherits only a
+clean, approval-audit-verified proposal from the matching Groom artifact branch, safely
+fast-forwarding an otherwise-unused early RFC worktree when necessary, then revalidates
+its own helper-owned branch on resume. Branch names always append the workflow kind to
+the complete session slug, preventing suffix-like slugs from aliasing another session.
+
 ### Supervised loop rollout
 
 Keep the scheduler paused or uninstalled while validating a new loop runtime. Run all

@@ -31,10 +31,10 @@ Produce one validated, commit-linked RFC HTML/JSON artifact pair whose execution
 5. Enforce the **Layered artifact requirements** and **Stable HTML contract** and generate the HTML: Decision Brief, Execution Contract, Appendix, architecture/decisions/risks, complete Test Strategy, issue cards, resolved questions, and change log. Preserve `id="execution-contract"` and all other stable anchors/classes.
 6. Generate the schema-v3 executable JSON sidecar from the same facts. Compute its SHA-256 and bind it to the HTML with `data-sidecar-hash`.
 7. Run `node ${CLAUDE_PLUGIN_ROOT}/scripts/artifact-check.js --html {pm_dir}/backlog/rfcs/{slug}.html --kind rfc --manifest .pm/artifacts/rfc-{slug}.manifest.json`. A non-zero result blocks generation; fix the artifact before returning a passed result.
-7. Run `scripts/rfc-sidecar-check.js` with sidecar, HTML, and slug. Cross-check HTML issue-card count against sidecar `issues.length`. Fix at most two bounded validation failures; otherwise record a blocker with validator output.
-8. Root verifies the artifact repository and commits HTML/JSON together. The writer cannot update proposal lifecycle, approve the RFC, create tracker issues, or start implementation.
-9. Record a generation result containing the exact artifact identity (`html_path`, `json_path`, `sidecar_hash`, `repo_root`, `commit`) and passing `artifact` evidence.
-10. When `PM_LOOP_WORKER=1`, write only beneath `PM_LOOP_RESULT_DIR`; skip normal PM/backlog writes and return the bounded document through `PM_LOOP_RESULT_FILE` after review.
+8. Run `scripts/rfc-sidecar-check.js` with sidecar, HTML, and slug. Cross-check HTML issue-card count against sidecar `issues.length`. Fix at most two bounded validation failures; otherwise record a blocker with validator output.
+9. Root verifies the artifact repository equals the intake-bound worktree returned by `artifact-worktree.js`; branch, repository root, and artifact paths must all resolve there. Commit HTML/JSON together from that worktree. The writer cannot update proposal lifecycle, approve the RFC, create tracker issues, or start implementation.
+10. Record a generation result containing the exact artifact identity (`html_path`, `json_path`, `sidecar_hash`, `repo_root`, `commit`) and passing `artifact` evidence.
+11. When `PM_LOOP_WORKER=1`, write only beneath `PM_LOOP_RESULT_DIR`; skip normal PM/backlog writes and return the bounded document through `PM_LOOP_RESULT_FILE` after review.
 
 ## Done-when
 

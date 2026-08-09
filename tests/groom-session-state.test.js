@@ -2,6 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -42,11 +43,13 @@ test("Groom tiers route proportionate depth through one approval contract", () =
     assert.ok(ROUTES.standard.includes("review"));
 
     let session = createSession({ slug: "fast-groom", sourceDir: repo, tier: "quick" });
+    const artifact = makeOwnedArtifact(repo, "fast-groom");
     session = applyContext(session, {
       title: "Fast groom",
       outcome: "A testable product decision",
       source_kind: "idea",
       evidence_refs: ["pm/research/users.md#signal-1"],
+      artifact_repo_root: artifact,
     });
     assert.deepEqual(session.routing.required_phases, ROUTES.quick);
     assert.equal(nextDecision(session, "/tmp/session.json").phase, "intake");
@@ -58,15 +61,112 @@ test("Groom tiers route proportionate depth through one approval contract", () =
   }
 });
 
+test("Groom keeps product source identity separate from proposal artifact storage", () => {
+  const sourceRepo = makeRepo();
+  const artifactRepo = makeRepo();
+  try {
+    const artifact = makeOwnedArtifact(artifactRepo, "separate-artifacts");
+    let session = applyContext(
+      createSession({ slug: "separate-artifacts", sourceDir: sourceRepo, tier: "quick" }),
+      {
+        title: "Separate artifacts",
+        outcome: "Preserve product context while isolating KB writes",
+        source_kind: "idea",
+        evidence_refs: [],
+        artifact_repo_root: artifact,
+      }
+    );
+    assert.equal(session.source.repo_root, fs.realpathSync(sourceRepo));
+    assert.equal(session.context.artifact_repo_root, fs.realpathSync(artifact));
+    assert.equal(nextDecision(session, "/tmp/session.json").phase, "intake");
+
+    session = advanceTo(session, "draft");
+    const proposalPath = path.join(artifact, "pm/backlog/proposals/separate-artifacts.json");
+    fs.mkdirSync(path.dirname(proposalPath), { recursive: true });
+    fs.writeFileSync(proposalPath, '{"revision":1,"lifecycle":"draft"}\n');
+    session = recordResult(
+      session,
+      passed(session, {
+        proposal: proposalIdentity(proposalPath, 1),
+        evidence: [evidence("proposal"), evidence("artifact")],
+      })
+    );
+
+    assert.equal(session.proposal.json_path, proposalPath);
+    assert.deepEqual(validateSession(session), []);
+  } finally {
+    fs.rmSync(sourceRepo, { recursive: true, force: true });
+    fs.rmSync(artifactRepo, { recursive: true, force: true });
+  }
+});
+
+test("fresh Groom context rejects missing and unowned artifact repositories", () => {
+  const sourceRepo = makeRepo();
+  const unownedRepo = makeRepo();
+  try {
+    const session = createSession({ slug: "ownership", sourceDir: sourceRepo, tier: "quick" });
+    const facts = {
+      title: "Ownership",
+      outcome: "Reject shared checkout writes",
+      source_kind: "idea",
+      evidence_refs: [],
+    };
+    assert.throws(() => applyContext(session, facts), /requires artifact_repo_root/);
+    assert.throws(
+      () => applyContext(session, { ...facts, artifact_repo_root: unownedRepo }),
+      /helper-owned branch/
+    );
+  } finally {
+    fs.rmSync(sourceRepo, { recursive: true, force: true });
+    fs.rmSync(unownedRepo, { recursive: true, force: true });
+  }
+});
+
+test("Groom resume rejects drifted helper-owned artifact identity", () => {
+  const sourceRepo = makeRepo();
+  const artifactRepo = makeRepo();
+  try {
+    const artifact = makeOwnedArtifact(artifactRepo, "resume-identity");
+    const session = applyContext(
+      createSession({ slug: "resume-identity", sourceDir: sourceRepo, tier: "quick" }),
+      {
+        title: "Resume identity",
+        outcome: "Reject a retargeted artifact worktree",
+        source_kind: "idea",
+        evidence_refs: [],
+        artifact_repo_root: artifact,
+      }
+    );
+    execFileSync("git", ["remote", "set-url", "--push", "origin", sourceRepo], {
+      cwd: artifact,
+    });
+
+    assert.throws(
+      () => nextDecision(session, "/tmp/session.json"),
+      /delivery URL identity changed/
+    );
+  } finally {
+    fs.rmSync(sourceRepo, { recursive: true, force: true });
+    fs.rmSync(artifactRepo, { recursive: true, force: true });
+  }
+});
+
 test("approval binds exact proposal bytes and revision, and revise invalidates it", () => {
   const repo = makeRepo();
   try {
+    const artifact = makeOwnedArtifact(repo, "approval");
     let session = applyContext(
       createSession({ slug: "approval", sourceDir: repo, tier: "quick" }),
-      { title: "Approval", outcome: "Safe approval", source_kind: "idea", evidence_refs: [] }
+      {
+        title: "Approval",
+        outcome: "Safe approval",
+        source_kind: "idea",
+        evidence_refs: [],
+        artifact_repo_root: artifact,
+      }
     );
     session = advanceTo(session, "draft");
-    const proposalPath = path.join(repo, "pm/backlog/proposals/approval.json");
+    const proposalPath = path.join(artifact, "pm/backlog/proposals/approval.json");
     fs.mkdirSync(path.dirname(proposalPath), { recursive: true });
     fs.writeFileSync(proposalPath, '{"revision":1,"lifecycle":"draft","title":"Approval"}\n');
     const proposal = proposalIdentity(proposalPath, 1);
@@ -104,12 +204,19 @@ test("approval binds exact proposal bytes and revision, and revise invalidates i
 test("review outcomes cover independent questions without fixed worker identities", () => {
   const repo = makeRepo();
   try {
+    const artifact = makeOwnedArtifact(repo, "questions");
     let session = applyContext(
       createSession({ slug: "questions", sourceDir: repo, tier: "standard" }),
-      { title: "Questions", outcome: "Bound review", source_kind: "idea", evidence_refs: [] }
+      {
+        title: "Questions",
+        outcome: "Bound review",
+        source_kind: "idea",
+        evidence_refs: [],
+        artifact_repo_root: artifact,
+      }
     );
     session = advanceTo(session, "draft");
-    const proposalPath = path.join(repo, "pm/backlog/proposals/questions.json");
+    const proposalPath = path.join(artifact, "pm/backlog/proposals/questions.json");
     fs.mkdirSync(path.dirname(proposalPath), { recursive: true });
     fs.writeFileSync(proposalPath, '{"revision":1,"lifecycle":"draft"}\n');
     const proposal = proposalIdentity(proposalPath, 1);
@@ -143,7 +250,8 @@ test("review outcomes cover independent questions without fixed worker identitie
 test("approval audit binds approved bytes after a lifecycle-only transition", () => {
   const repo = makeRepo();
   try {
-    const proposalPath = path.join(repo, "pm/backlog/proposals/structured-groom.json");
+    const artifact = makeOwnedArtifact(repo, "structured-groom");
+    const proposalPath = path.join(artifact, "pm/backlog/proposals/structured-groom.json");
     fs.mkdirSync(path.dirname(proposalPath), { recursive: true });
     const proposal = JSON.parse(
       fs.readFileSync(path.join(__dirname, "fixtures/proposals/strong-v1.json"), "utf8")
@@ -159,7 +267,13 @@ test("approval audit binds approved bytes after a lifecycle-only transition", ()
     fs.writeFileSync(proposalPath, `${JSON.stringify(proposal, null, 2)}\n`);
     let session = applyContext(
       createSession({ slug: proposal.slug, sourceDir: repo, tier: "quick" }),
-      { title: proposal.title, outcome: proposal.outcome, source_kind: "idea", evidence_refs: [] }
+      {
+        title: proposal.title,
+        outcome: proposal.outcome,
+        source_kind: "idea",
+        evidence_refs: [],
+        artifact_repo_root: artifact,
+      }
     );
     session = advanceTo(session, "draft");
     session = recordResult(
@@ -301,4 +415,22 @@ function makeRepo() {
   execFileSync("git", ["add", "."], { cwd: root });
   execFileSync("git", ["commit", "-qm", "init"], { cwd: root });
   return root;
+}
+
+function makeOwnedArtifact(repo, slug) {
+  const branch = `codex/${slug}-groom`;
+  const worktree = path.join(repo, ".owned", slug);
+  execFileSync("git", ["remote", "add", "origin", repo], { cwd: repo });
+  execFileSync("git", ["worktree", "add", "-q", "-b", branch, worktree], { cwd: repo });
+  const base = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).trim();
+  const urlHash = crypto.createHash("sha256").update(repo).digest("hex");
+  for (const [key, value] of [
+    [`branch.${branch}.pmArtifactBase`, base],
+    [`branch.${branch}.pmArtifactKind`, "groom"],
+    [`branch.${branch}.pmArtifactRemote`, "origin"],
+    [`branch.${branch}.pmArtifactDefaultBranch`, "main"],
+    [`branch.${branch}.pmArtifactRemoteUrlSha256`, urlHash],
+  ])
+    execFileSync("git", ["config", key, value], { cwd: repo });
+  return worktree;
 }

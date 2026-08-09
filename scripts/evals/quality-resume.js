@@ -13,6 +13,7 @@ const {
   planEffect,
 } = require("../lib/release-transaction-schema.js");
 const { writeSession: writeRfcSession } = require("../rfc-session.js");
+const { prepareArtifactWorktree } = require("../artifact-worktree.js");
 
 function seed(workflow, sourceDir) {
   const root = fs.realpathSync(sourceDir);
@@ -20,12 +21,18 @@ function seed(workflow, sourceDir) {
   let session = null;
   if (workflow === "rfc") {
     nativePath = path.join(root, ".pm", "rfc-sessions", "quality-resume", "session.json");
+    const artifact = prepareArtifactWorktree({
+      pmDir: root,
+      slug: "quality-resume",
+      kind: "rfc",
+    });
     session = rfc.createSession({ slug: "quality-resume", sourceDir: root });
     session = rfc.applyContext(session, {
       source_kind: "proposal",
-      proposal_path: path.join(root, "pm", "backlog", "export-v2.md"),
+      proposal_path: path.join(artifact.worktree, "pm", "backlog", "export-v2.md"),
       size: "M",
       acceptance_criteria: ["Preserve accepted export boundaries", "Revalidate source identity"],
+      artifact_repo_root: artifact.worktree,
     });
     session = rfc.recordResult(session, rfcResult(session));
     fs.mkdirSync(path.dirname(nativePath), { recursive: true });

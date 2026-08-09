@@ -13,6 +13,7 @@ const {
   hashResult,
   migrateLegacyMarkdown,
   nextDecision,
+  normalizePersistedSession,
   recordResult,
   resumeBlocked,
   reviseSession,
@@ -347,7 +348,7 @@ function readSession(sessionPath) {
   if (!fs.existsSync(sessionPath))
     throw cliError(`Groom session not found: ${sessionPath}`, EXIT.PRECONDITION);
   try {
-    return JSON.parse(fs.readFileSync(sessionPath, "utf8"));
+    return normalizePersistedSession(JSON.parse(fs.readFileSync(sessionPath, "utf8")));
   } catch (error) {
     throw cliError(`could not read Groom session: ${error.message}`, EXIT.VALIDATION);
   }

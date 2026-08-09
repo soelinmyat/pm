@@ -4,6 +4,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { inspectHtmlArtifact } = require("../artifact-check.js");
+const { verifyArtifactWorktreeOwnership } = require("../artifact-worktree.js");
 const { extractSidecarHash, validateRfcSidecar } = require("../rfc-sidecar-check.js");
 const { loadPhaseStep } = require("../step-loader.js");
 const { findGitRoot, gitRelativePath, readGitFile, runGit } = require("../loop-git.js");
@@ -68,6 +69,7 @@ function createSession(options) {
       size: null,
       acceptance_criteria: [],
       artifact_repo_root: null,
+      artifact_ownership: null,
     },
     artifact: null,
     review: {
@@ -187,16 +189,24 @@ function applyContext(session, facts, options = {}) {
   if (facts.source_kind === "linear-issue" && !nonEmpty(facts.linear_id)) {
     throw new Error("linear-issue source requires linear_id");
   }
-  const artifactCandidate = facts.artifact_repo_root
-    ? path.resolve(facts.artifact_repo_root)
-    : facts.proposal_path
-      ? path.dirname(path.resolve(facts.proposal_path))
-      : session.source.repo_root;
-  let artifactRepoRoot;
+  if (!nonEmpty(facts.artifact_repo_root))
+    throw new Error("RFC context requires artifact_repo_root from artifact preparation");
+  let artifactOwnership;
   try {
-    artifactRepoRoot = fs.realpathSync(findGitRoot(artifactCandidate));
-  } catch {
-    throw new Error(`artifact_repo_root is not a Git worktree: ${artifactCandidate}`);
+    artifactOwnership = verifyArtifactWorktreeOwnership({
+      worktree: facts.artifact_repo_root,
+      slug: session.slug,
+      kind: "rfc",
+    });
+  } catch (error) {
+    throw new Error(`invalid RFC artifact_repo_root: ${error.message}`);
+  }
+  const artifactRepoRoot = artifactOwnership.worktree;
+  if (facts.proposal_path) {
+    const proposalPath = fs.realpathSync(path.resolve(facts.proposal_path));
+    const relative = path.relative(artifactRepoRoot, proposalPath);
+    if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
+      throw new Error("proposal_path must be inside artifact_repo_root");
   }
   const next = structuredClone(session);
   next.context = {
@@ -208,6 +218,7 @@ function applyContext(session, facts, options = {}) {
     size: effectiveSize,
     acceptance_criteria: [...effectiveAcceptanceCriteria],
     artifact_repo_root: artifactRepoRoot,
+    artifact_ownership: "helper-v1",
   };
   next.updated_at = options.now || new Date().toISOString();
   assertValidSession(next);
@@ -1140,6 +1151,7 @@ function validateSession(session) {
       "size",
       "acceptance_criteria",
       "artifact_repo_root",
+      "artifact_ownership",
     ],
     "$.context",
     errors,
@@ -1153,6 +1165,8 @@ function validateSession(session) {
       if (value.artifact_repo_root !== null && !nonEmpty(value.artifact_repo_root)) {
         errors.push(issue(`${objectPath}.artifact_repo_root`, "must be null or a path"));
       }
+      if (![null, "helper-v1"].includes(value.artifact_ownership))
+        errors.push(issue(`${objectPath}.artifact_ownership`, "invalid"));
       validateProposalIdentity(value.proposal_identity, `${objectPath}.proposal_identity`, errors);
       if (
         !Array.isArray(value.acceptance_criteria) ||
@@ -1507,6 +1521,8 @@ function upgradeCompatibleSession(input) {
   const session = structuredClone(input);
   if (isObject(session.context) && !Object.hasOwn(session.context, "proposal_identity"))
     session.context.proposal_identity = null;
+  if (isObject(session.context) && !Object.hasOwn(session.context, "artifact_ownership"))
+    session.context.artifact_ownership = null;
   return session;
 }
 
@@ -1538,6 +1554,17 @@ function verifySourceIdentity(session) {
     throw new Error(
       `source branch changed: expected ${session.source.branch}, observed ${branch}; reinitialize or recertify workspace`
     );
+  }
+  if (session.context?.configured && session.context.artifact_ownership === "helper-v1") {
+    try {
+      verifyArtifactWorktreeOwnership({
+        worktree: session.context.artifact_repo_root,
+        slug: session.slug,
+        kind: "rfc",
+      });
+    } catch (error) {
+      throw new Error(`invalid RFC artifact_repo_root: ${error.message}`);
+    }
   }
 }
 

@@ -29,9 +29,23 @@ const {
   recordResult,
   resumeBlocked,
   reviseSession,
+  upgradeCompatibleSession,
   validateSession,
   verifyArtifact,
 } = require("../scripts/lib/rfc-session-schema");
+
+test("legacy RFC sessions remain resumable without claiming helper ownership", () => {
+  const repo = makeRepo();
+  try {
+    const legacy = createSession({ slug: "safe-approval", sourceDir: repo.root });
+    delete legacy.context.artifact_ownership;
+    const upgraded = upgradeCompatibleSession(legacy);
+    assert.equal(upgraded.context.artifact_ownership, null);
+    assert.deepEqual(validateSession(upgraded), []);
+  } finally {
+    repo.cleanup();
+  }
+});
 const {
   createSession: createDevSession,
   validateResult: validateDevResult,
@@ -195,7 +209,7 @@ test("Dev readiness resolves RFC state and artifacts across separate repositorie
   try {
     let session = applyContext(createSession({ slug: "safe-approval", sourceDir: source.root }), {
       source_kind: "proposal",
-      proposal_path: path.join(source.root, "proposal.md"),
+      proposal_path: path.join(artifactRepo.root, "proposal.md"),
       size: "M",
       acceptance_criteria: ["Separate repository approval remains verifiable"],
       artifact_repo_root: artifactRepo.root,
@@ -280,6 +294,75 @@ test("Dev readiness resolves RFC state and artifacts across separate repositorie
   } finally {
     source.cleanup();
     artifactRepo.cleanup();
+  }
+});
+
+test("RFC context rejects a proposal outside its isolated artifact repository", () => {
+  const source = makeRepo();
+  const artifactRepo = makeRepo();
+  try {
+    markOwnedRfcRoot(artifactRepo.root, "proposal-boundary");
+    assert.throws(
+      () =>
+        applyContext(createSession({ slug: "proposal-boundary", sourceDir: source.root }), {
+          source_kind: "proposal",
+          proposal_path: path.join(source.root, "proposal.md"),
+          size: "M",
+          acceptance_criteria: ["Proposal bytes travel with the RFC artifact repository"],
+          artifact_repo_root: artifactRepo.root,
+        }),
+      /proposal_path must be inside artifact_repo_root/
+    );
+  } finally {
+    source.cleanup();
+    artifactRepo.cleanup();
+  }
+});
+
+test("fresh RFC context rejects missing and unowned artifact repositories", () => {
+  const source = makeRepo();
+  const unowned = makeRepo();
+  try {
+    const session = createSession({ slug: "rfc-ownership", sourceDir: source.root });
+    const facts = {
+      source_kind: "proposal",
+      proposal_path: path.join(unowned.root, "proposal.md"),
+      size: "M",
+      acceptance_criteria: ["RFC writes stay isolated"],
+    };
+    assert.throws(() => applyContext(session, facts), /requires artifact_repo_root/);
+    assert.throws(
+      () => applyContext(session, { ...facts, artifact_repo_root: unowned.root }),
+      /helper-owned branch/
+    );
+  } finally {
+    source.cleanup();
+    unowned.cleanup();
+  }
+});
+
+test("RFC resume rejects drifted helper-owned artifact identity", () => {
+  const repo = makeRepo();
+  const replacement = makeRepo();
+  try {
+    const session = applyContext(createSession({ slug: "safe-approval", sourceDir: repo.root }), {
+      source_kind: "proposal",
+      proposal_path: path.join(repo.root, "proposal.md"),
+      size: "M",
+      acceptance_criteria: ["Resume only in the recorded artifact worktree"],
+      artifact_repo_root: repo.root,
+    });
+    execFileSync("git", ["remote", "set-url", "--push", "origin", replacement.root], {
+      cwd: repo.root,
+    });
+
+    assert.throws(
+      () => nextDecision(session, "/tmp/session.json"),
+      /delivery URL identity changed/
+    );
+  } finally {
+    repo.cleanup();
+    replacement.cleanup();
   }
 });
 
@@ -714,6 +797,7 @@ test("intake derives RFC scope from trusted canonical proposal and rejects stale
       "proposals",
       `${proposal.slug}.json`
     );
+    markOwnedRfcRoot(repo.root, proposal.slug);
     const approvalPath = proposalPath.replace(/\.json$/, ".approval.json");
     fs.mkdirSync(path.dirname(proposalPath), { recursive: true });
     fs.writeFileSync(proposalPath, `${JSON.stringify(proposal, null, 2)}\n`);
@@ -729,6 +813,7 @@ test("intake derives RFC scope from trusted canonical proposal and rejects stale
     const configured = applyContext(createSession({ slug: proposal.slug, sourceDir: repo.root }), {
       source_kind: "proposal",
       proposal_path: proposalPath,
+      artifact_repo_root: repo.root,
     });
     assert.equal(configured.context.size, "L");
     assert.deepEqual(configured.context.acceptance_criteria, [
@@ -739,10 +824,11 @@ test("intake derives RFC scope from trusted canonical proposal and rejects stale
 
     assert.throws(
       () =>
-        applyContext(createSession({ slug: "contradiction", sourceDir: repo.root }), {
+        applyContext(createSession({ slug: proposal.slug, sourceDir: repo.root }), {
           source_kind: "proposal",
           proposal_path: proposalPath,
           size: "M",
+          artifact_repo_root: repo.root,
         }),
       /contradicts canonical proposal size/
     );
@@ -753,9 +839,10 @@ test("intake derives RFC scope from trusted canonical proposal and rejects stale
     fs.unlinkSync(approvalPath);
     assert.throws(
       () =>
-        applyContext(createSession({ slug: "missing-audit", sourceDir: repo.root }), {
+        applyContext(createSession({ slug: proposal.slug, sourceDir: repo.root }), {
           source_kind: "proposal",
           proposal_path: proposalPath,
+          artifact_repo_root: repo.root,
         }),
       /ENOENT/
     );
@@ -1006,6 +1093,7 @@ function routedSession(repo, options = {}) {
     proposal_path: path.join(repo.root, "proposal.md"),
     size: "M",
     acceptance_criteria: ["AC-1 remains traceable"],
+    artifact_repo_root: repo.root,
   });
 }
 
@@ -1153,9 +1241,36 @@ function makeRepo() {
   fs.writeFileSync(path.join(root, "proposal.md"), "proposal\n");
   execFileSync("git", ["add", "."], { cwd: root });
   execFileSync("git", ["commit", "-qm", "fixture"], { cwd: root });
+  markOwnedRfcRoot(root, "safe-approval");
   return {
     root,
     head: () => execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim(),
     cleanup: () => fs.rmSync(root, { recursive: true, force: true }),
   };
+}
+
+function markOwnedRfcRoot(root, slug) {
+  const branch = `codex/${slug}-rfc`;
+  execFileSync("git", ["branch", "-M", branch], { cwd: root });
+  const remotes = execFileSync("git", ["remote"], { cwd: root, encoding: "utf8" })
+    .split(/\r?\n/)
+    .filter(Boolean);
+  if (!remotes.includes("origin")) {
+    execFileSync("git", ["remote", "add", "origin", root], { cwd: root });
+  } else {
+    execFileSync("git", ["remote", "set-url", "origin", root], { cwd: root });
+  }
+  const base = execFileSync("git", ["rev-parse", "HEAD"], {
+    cwd: root,
+    encoding: "utf8",
+  }).trim();
+  const urlHash = crypto.createHash("sha256").update(root).digest("hex");
+  for (const [key, value] of [
+    [`branch.${branch}.pmArtifactBase`, base],
+    [`branch.${branch}.pmArtifactKind`, "rfc"],
+    [`branch.${branch}.pmArtifactRemote`, "origin"],
+    [`branch.${branch}.pmArtifactDefaultBranch`, "main"],
+    [`branch.${branch}.pmArtifactRemoteUrlSha256`, urlHash],
+  ])
+    execFileSync("git", ["config", key, value], { cwd: root });
 }
