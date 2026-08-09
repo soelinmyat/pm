@@ -181,6 +181,7 @@ test("production planner CLI accepts only hash-bound complete execution inputs",
   git(["remote", "add", "origin", remoteRoot]);
   git(["push", "origin", "HEAD:main"]);
   const remoteUrl = git(["remote", "get-url", "--push", "origin"]).stdout.trim();
+  git(["checkout", "-b", "codex/example"]);
   fs.writeFileSync(path.join(root, "apps/mobile/a.ts"), "two\n");
   git(["add", "apps/mobile/a.ts"]);
   git(["commit", "-m", "candidate"]);
@@ -239,7 +240,7 @@ test("production planner CLI accepts only hash-bound complete execution inputs",
   const discoveryFile = writeAuthenticatedJson(inputs, "discovery.json", discovery);
   const sourceRef = git(["symbolic-ref", "--quiet", "HEAD"]).stdout.trim();
   const refsFile = writeAuthenticatedJson(inputs, "refs.json", [
-    `${sourceRef} ${head} ${sourceRef} ${base}`,
+    `${sourceRef} ${head} ${sourceRef} ${"0".repeat(base.length)}`,
   ]);
   const preflight = verifyEnvironment({
     expectations: {
