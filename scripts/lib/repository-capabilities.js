@@ -107,66 +107,19 @@ function instructionFiles(root, limit = 128) {
   return found.sort();
 }
 
-function resolveLefthook(root, env = process.env) {
-  const candidates = [];
-  if (env.LEFTHOOK_BIN) candidates.push(env.LEFTHOOK_BIN);
-  const which = childProcess.spawnSync(
-    process.platform === "win32" ? "where" : "which",
-    ["lefthook"],
-    { encoding: "utf8", env, shell: false, timeout: 1000 }
-  );
-  if (which.status === 0 && which.stdout.trim())
-    candidates.push(which.stdout.trim().split(/\r?\n/)[0]);
-  for (const relative of ["node_modules/.bin/lefthook", "node_modules/lefthook/bin/index.js"])
-    candidates.push(path.join(root, relative));
-  for (const candidate of candidates) {
-    try {
-      const real = fs.realpathSync(candidate),
-        stat = fs.lstatSync(real);
-      if (stat.isFile() && !stat.isSymbolicLink()) return real;
-    } catch {
-      /* try next bounded candidate */
-    }
-  }
-  return null;
-}
-
 function loadLefthookDump(root, options) {
-  if (options.lefthookDump)
+  if (
+    options.lefthookDump &&
+    options.lefthookAuthenticated === true &&
+    options.expectedLefthookDumpDigest &&
+    options.expectedLefthookDumpDigest === digest(options.lefthookDump)
+  )
     return {
       dump: options.lefthookDump,
       version: options.lefthookVersion || null,
       binary: options.lefthookBinary || null,
     };
-  const binary = resolveLefthook(root, options.env);
-  if (!binary) return { dump: null, version: null, binary: null };
-  const dump = childProcess.spawnSync(binary, ["dump", "--format", "json"], {
-    cwd: root,
-    env: options.env || process.env,
-    encoding: "utf8",
-    shell: false,
-    timeout: 3000,
-    maxBuffer: MAX_FILE,
-  });
-  const version = childProcess.spawnSync(binary, ["version"], {
-    cwd: root,
-    env: options.env || process.env,
-    encoding: "utf8",
-    shell: false,
-    timeout: 1000,
-    maxBuffer: 8192,
-  });
-  if (dump.status !== 0)
-    return { dump: null, version: String(version.stdout || "").trim() || null, binary };
-  try {
-    return {
-      dump: JSON.parse(dump.stdout),
-      version: String(version.stdout || "").trim() || null,
-      binary,
-    };
-  } catch {
-    return { dump: null, version: String(version.stdout || "").trim() || null, binary };
-  }
+  return { dump: null, version: null, binary: null };
 }
 
 function parseWorkflows(root, runtimes, identities) {
@@ -225,13 +178,50 @@ function parsePolicy(text, provenance) {
   }
 }
 
-function readPolicy(root, protectedRoot, identities) {
+function readPolicy(root, options, identities) {
   const relative = ".pm/repository-delivery-policy.json";
-  if (protectedRoot) {
-    const text = safeRead(protectedRoot, relative);
-    if (text !== null) {
-      identities.push(fileIdentity(protectedRoot, relative));
-      return parsePolicy(text, protectedRoot === root ? "protected" : "protected-base");
+  if (typeof options.policyVerifier === "function") {
+    const verified = options.policyVerifier({ root, relative });
+    if (
+      verified?.verified === true &&
+      typeof verified.bytes === "string" &&
+      typeof verified.source === "string" &&
+      verified.source &&
+      verified.identity
+    ) {
+      identities.push({
+        path: verified.source,
+        sha256: digest(verified.bytes),
+        authority_identity: String(verified.identity),
+      });
+      return { ...parsePolicy(verified.bytes, "authenticated"), authority: verified.source };
+    }
+  }
+  if (/^[0-9a-f]{40,64}$/i.test(options.protectedCommit || "")) {
+    const commit = options.protectedCommit;
+    const verified = childProcess.spawnSync("git", ["cat-file", "-e", `${commit}^{commit}`], {
+      cwd: root,
+      encoding: "utf8",
+      shell: false,
+      timeout: 2000,
+    });
+    const shown = childProcess.spawnSync("git", ["show", `${commit}:${relative}`], {
+      cwd: root,
+      encoding: "utf8",
+      shell: false,
+      timeout: 2000,
+      maxBuffer: MAX_FILE,
+    });
+    if (
+      verified.status === 0 &&
+      shown.status === 0 &&
+      Buffer.byteLength(shown.stdout) <= MAX_FILE
+    ) {
+      identities.push({ path: `git:${commit}:${relative}`, sha256: digest(shown.stdout) });
+      return {
+        ...parsePolicy(shown.stdout, "authenticated"),
+        authority: `git:${commit}:${relative}`,
+      };
     }
   }
   const candidate = safeRead(root, relative);
@@ -243,25 +233,78 @@ function readPolicy(root, protectedRoot, identities) {
 }
 
 function parseLefthookDump(dump) {
-  if (!dump || typeof dump !== "object" || Array.isArray(dump)) return {};
+  const unsupported = (issue) => ({ commands: {}, supported: false, issues: [issue] });
+  if (!dump || typeof dump !== "object" || Array.isArray(dump))
+    return unsupported("missing authenticated dump");
   const commands = dump["pre-push"]?.commands;
-  if (!commands || typeof commands !== "object" || Array.isArray(commands)) return {};
+  if (!commands || typeof commands !== "object" || Array.isArray(commands))
+    return unsupported("missing pre-push commands");
   const out = {};
+  const issues = [];
+  const validPattern = (value) =>
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= 1024 &&
+    !/[\0\r\n]/.test(value);
   for (const [name, command] of Object.entries(commands)) {
     if (
       !/^[A-Za-z0-9._-]+$/.test(name) ||
       !command ||
       typeof command !== "object" ||
-      typeof command.run !== "string"
-    )
+      Array.isArray(command) ||
+      typeof command.run !== "string" ||
+      !command.run.trim() ||
+      (command.glob !== undefined &&
+        !validPattern(command.glob) &&
+        (!Array.isArray(command.glob) || command.glob.some((value) => !validPattern(value)))) ||
+      (command.exclude !== undefined &&
+        command.exclude !== null &&
+        !validPattern(command.exclude) &&
+        (!Array.isArray(command.exclude) ||
+          command.exclude.some((value) => !validPattern(value)))) ||
+      Object.keys(command).some((key) => !["run", "glob", "exclude"].includes(key))
+    ) {
+      issues.push(`unsupported pre-push command ${name}`);
       continue;
+    }
     out[name] = {
       run: command.run,
       glob: command.glob || "**/*",
       exclude: command.exclude || null,
     };
   }
-  return out;
+  return issues.length
+    ? { commands: {}, supported: false, issues }
+    : { commands: out, supported: true, issues: [] };
+}
+
+function resolvePrePushHook(root) {
+  const gitPath = childProcess.spawnSync("git", ["rev-parse", "--git-path", "hooks/pre-push"], {
+    cwd: root,
+    encoding: "utf8",
+    shell: false,
+    timeout: 2000,
+  });
+  const candidate =
+    gitPath.status === 0 && gitPath.stdout.trim()
+      ? path.resolve(root, gitPath.stdout.trim())
+      : path.join(root, ".git/hooks/pre-push");
+  let hook = { exists: false, path: candidate, realpath: null, sha256: null };
+  try {
+    const stat = fs.lstatSync(candidate);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_FILE) return hook;
+    const realpath = fs.realpathSync(candidate);
+    const bytes = fs.readFileSync(realpath);
+    hook = {
+      exists: true,
+      path: candidate,
+      realpath,
+      sha256: `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`,
+    };
+  } catch {
+    /* absent or unsafe hook */
+  }
+  return hook;
 }
 
 function discoverRepositoryCapabilities(rootInput, options = {}) {
@@ -283,23 +326,10 @@ function discoverRepositoryCapabilities(rootInput, options = {}) {
   parseToolVersions(root, runtimes, identities);
   parsePackage(root, runtimes, commands, identities);
   parseWorkflows(root, runtimes, identities);
-  const protectedRoot = options.protectedRoot ? fs.realpathSync(options.protectedRoot) : null;
-  const policy = readPolicy(root, protectedRoot, identities);
-  const hookPath = path.join(root, ".git/hooks/pre-push");
-  let hook = { exists: false, path: hookPath, sha256: null };
-  if (fs.existsSync(hookPath)) {
-    const stat = fs.lstatSync(hookPath);
-    if (stat.isFile() && !stat.isSymbolicLink() && stat.size <= MAX_FILE) {
-      const bytes = fs.readFileSync(hookPath);
-      hook = {
-        exists: true,
-        path: fs.realpathSync(hookPath),
-        sha256: `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`,
-      };
-    }
-  }
+  const policy = readPolicy(root, options, identities);
+  const hook = resolvePrePushHook(root);
   const lefthook = loadLefthookDump(root, options);
-  const lefthookCommands = parseLefthookDump(lefthook.dump);
+  const lefthookContract = parseLefthookDump(lefthook.dump);
   const result = {
     schema_version: 1,
     root,
@@ -316,7 +346,9 @@ function discoverRepositoryCapabilities(rootInput, options = {}) {
     lefthook: {
       binary: lefthook.binary,
       manager_version: lefthook.version,
-      commands: lefthookCommands,
+      commands: lefthookContract.commands,
+      supported: lefthookContract.supported,
+      issues: lefthookContract.issues,
       dump_digest: digest(lefthook.dump),
     },
     policy,
@@ -326,4 +358,9 @@ function discoverRepositoryCapabilities(rootInput, options = {}) {
   return result;
 }
 
-module.exports = { safeRead, discoverRepositoryCapabilities, parseLefthookDump, resolveLefthook };
+module.exports = {
+  safeRead,
+  discoverRepositoryCapabilities,
+  parseLefthookDump,
+  resolvePrePushHook,
+};

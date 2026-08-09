@@ -17,18 +17,21 @@ const ALLOWED_PROBE_KEYS = new Set([
 const ALLOWED_EXPECTED = new Set(["database", "server", "user"]);
 
 function redactText(value) {
-  return String(value)
+  const redacted = String(value)
     .replace(/(?:postgres(?:ql)?|mysql|mongodb):\/\/[^\s]+/gi, "[REDACTED_DSN]")
+    .replace(/(authorization\s*:\s*(?:bearer|basic)\s+)[^\s]+/gi, "$1[REDACTED]")
+    .replace(/(bearer\s+)[A-Za-z0-9._~+/=-]+/gi, "$1[REDACTED]")
     .replace(/(password\s*=\s*)[^\s]+/gi, "$1[REDACTED]")
-    .replace(/(token|secret|credential)(\s*[=:]\s*)[^\s]+/gi, "$1$2[REDACTED]");
+    .replace(/(token|secret|credential|api[_-]?key|auth)(\s*[=:]\s*)[^\s]+/gi, "$1$2[REDACTED]");
+  return Buffer.from(redacted).subarray(0, 8188).toString("utf8");
 }
 
 function validateProbeDeclaration(probe) {
   if (!probe || typeof probe !== "object" || Array.isArray(probe))
     throw new Error("probe must be an object");
   if (probe.adapter !== "postgres-identity-v1") throw new Error("probe adapter is not supported");
-  if (!["protected", "protected-base", "approved", "authenticated"].includes(probe.provenance))
-    throw new Error("probe requires protected, approved, or authenticated provenance");
+  if (probe.provenance !== "authenticated")
+    throw new Error("probe requires authenticated provenance");
   for (const key of Object.keys(probe))
     if (!ALLOWED_PROBE_KEYS.has(key)) throw new Error(`probe field ${key} is not allowed`);
   if (
@@ -83,7 +86,15 @@ function satisfies(versionText, constraintText) {
     if (op === "<=") return order <= 0;
     if (op === ">") return order > 0;
     if (op === "<") return order < 0;
-    if (op === "^") return version[0] === target[0] && order >= 0;
+    if (op === "^") {
+      const upper =
+        target[0] > 0
+          ? [target[0] + 1, 0, 0]
+          : target[1] > 0
+            ? [0, target[1] + 1, 0]
+            : [0, 0, target[2] + 1];
+      return order >= 0 && cmp(version, upper) < 0;
+    }
     if (op === "~") return version[0] === target[0] && version[1] === target[1] && order >= 0;
     return order === 0;
   });
@@ -137,7 +148,7 @@ function defaultProbeRunner(probe, options = {}) {
   for (const name of ["PATH", "PGHOST", "PGPORT", "PGDATABASE", "PGUSER", "PGSSLMODE"])
     if (options.env?.[name] !== undefined) env[name] = options.env[name];
   const result = childProcess.spawnSync(
-    "psql",
+    options.executable?.realpath || options.executable?.path || "psql",
     [
       "--no-psqlrc",
       "--tuples-only",
@@ -163,12 +174,15 @@ function defaultProbeRunner(probe, options = {}) {
 }
 
 function keyedIdentity(value, key) {
+  const keyBytes = Buffer.isBuffer(key) ? key : Buffer.from(String(key || ""));
+  if (keyBytes.length < 32)
+    throw new Error("machine-local identity secret must be at least 32 bytes");
   return `hmac-sha256:${crypto
-    .createHmac("sha256", key)
+    .createHmac("sha256", keyBytes)
     .update(JSON.stringify(stable(value)))
     .digest("hex")}`;
 }
-function identityFor(resolved, env, services = []) {
+function identityFor(resolved, env, services = [], probeExecutables = []) {
   return {
     runtimes: resolved.map((x) => ({
       name: x.name,
@@ -186,6 +200,32 @@ function identityFor(resolved, env, services = []) {
       )
     ),
     services,
+    probe_executables: probeExecutables,
+  };
+}
+
+function defaultResolveProbeExecutable(env) {
+  const which = childProcess.spawnSync(process.platform === "win32" ? "where" : "which", ["psql"], {
+    encoding: "utf8",
+    env,
+    shell: false,
+    timeout: 2000,
+  });
+  if (which.status !== 0 || !which.stdout.trim())
+    return { found: false, path: null, realpath: null, version: null };
+  const executable = which.stdout.trim().split(/\r?\n/)[0];
+  const version = childProcess.spawnSync(executable, ["--version"], {
+    encoding: "utf8",
+    env,
+    shell: false,
+    timeout: 2000,
+    maxBuffer: 8192,
+  });
+  return {
+    found: version.status === 0,
+    path: executable,
+    realpath: fs.realpathSync(executable),
+    version: redactText(version.stdout || version.stderr).trim(),
   };
 }
 
@@ -194,7 +234,8 @@ function verifyEnvironment(plan, options = {}) {
     env = options.env || process.env,
     issues = [],
     resolved = [],
-    services = [];
+    services = [],
+    probeExecutables = [];
   const local = (expectations.runtimes || []).filter((x) => x.scope !== "ci");
   for (const name of [...new Set(local.map((x) => x.name))]) {
     const declarations = local.filter((x) => x.name === name);
@@ -216,7 +257,22 @@ function verifyEnvironment(plan, options = {}) {
   for (const probe of expectations.probes || []) {
     try {
       validateProbeDeclaration(probe);
-      const output = (options.probeRunner || defaultProbeRunner)(probe, { env, cwd: options.cwd });
+      if (!options.identityKey) throw new Error("machine-local identity secret is required");
+      const executable = (options.resolveProbeExecutable || defaultResolveProbeExecutable)(env);
+      if (!executable?.found || !executable.realpath || !executable.version)
+        throw new Error("probe executable identity could not be verified");
+      const executableIdentity = {
+        adapter: probe.adapter,
+        path: executable.path,
+        realpath: executable.realpath,
+        version: executable.version,
+      };
+      probeExecutables.push(executableIdentity);
+      const output = (options.probeRunner || defaultProbeRunner)(probe, {
+        env,
+        cwd: options.cwd,
+        executable,
+      });
       const json = JSON.stringify(output);
       if (Buffer.byteLength(json) > 8192) throw new Error("probe output exceeded limit");
       if (
@@ -231,12 +287,12 @@ function verifyEnvironment(plan, options = {}) {
           throw new Error(
             `service target mismatch for ${key}: expected ${expected}, resolved ${output[key]}`
           );
-      services.push(keyedIdentity(output, options.identityKey || Buffer.alloc(32, 0)));
+      services.push(keyedIdentity(output, options.identityKey));
     } catch (error) {
       issues.push({ kind: "probe-failure", message: redactText(error.message) });
     }
   }
-  const identity = identityFor(resolved, env, services);
+  const identity = identityFor(resolved, env, services, probeExecutables);
   if (
     options.requireIdentity &&
     JSON.stringify(stable(options.requireIdentity)) !== JSON.stringify(stable(identity))
@@ -279,4 +335,5 @@ module.exports = {
   constraintsIntersect,
   defaultProbeRunner,
   identityFor,
+  defaultResolveProbeExecutable,
 };

@@ -55,7 +55,66 @@ function matches(command, changedPath) {
     : String(command.glob || "**/*")
         .split(/\s+/)
         .filter(Boolean);
-  return globs.some((glob) => globToRegex(glob).test(changedPath));
+  const excludes = Array.isArray(command.exclude)
+    ? command.exclude
+    : command.exclude
+      ? String(command.exclude).split(/\s+/).filter(Boolean)
+      : [];
+  return (
+    globs.some((glob) => globToRegex(glob).test(changedPath)) &&
+    !excludes.some((glob) => globToRegex(glob).test(changedPath))
+  );
+}
+
+const SHA_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
+
+function validRef(ref) {
+  if (
+    typeof ref !== "string" ||
+    !ref.startsWith("refs/") ||
+    ref.endsWith("/") ||
+    ref.includes("//") ||
+    ref.includes("..") ||
+    ref.includes("@{")
+  )
+    return false;
+  return ref
+    .split("/")
+    .every(
+      (part, index) =>
+        index === 0 ||
+        (part &&
+          !part.startsWith(".") &&
+          !part.endsWith(".") &&
+          !part.endsWith(".lock") &&
+          /^[A-Za-z0-9._-]+$/.test(part))
+    );
+}
+
+function validateGitPushInputs(remote, remoteUrl, refUpdates) {
+  if (remote !== null && remote !== undefined && !/^[A-Za-z0-9._-]+$/.test(remote))
+    throw new Error("invalid Git remote name");
+  if (
+    remoteUrl !== null &&
+    remoteUrl !== undefined &&
+    (typeof remoteUrl !== "string" ||
+      !remoteUrl ||
+      remoteUrl.startsWith("-") ||
+      remoteUrl.length > 2048 ||
+      /[\0\r\n]/.test(remoteUrl))
+  )
+    throw new Error("invalid Git remote URL");
+  if (!Array.isArray(refUpdates)) throw new Error("Git ref updates must be an array");
+  for (const line of refUpdates) {
+    if (typeof line !== "string" || /[\r\n\0]/.test(line))
+      throw new Error("invalid Git ref-update line");
+    const fields = line.split(" ");
+    if (fields.length !== 4 || fields.some((field) => !field))
+      throw new Error("Git ref update requires exactly four fields");
+    if (!validRef(fields[0]) || !validRef(fields[2])) throw new Error("invalid Git ref name");
+    if (!SHA_RE.test(fields[1]) || !SHA_RE.test(fields[3])) throw new Error("invalid Git SHA");
+  }
+  return true;
 }
 
 function buildDeliveryPlan(input) {
@@ -80,13 +139,12 @@ function buildDeliveryPlan(input) {
   );
   const permitted =
     capabilities.policy?.provenance !== "candidate" &&
-    ["protected", "protected-base", "approved", "authenticated"].includes(
-      capabilities.policy?.provenance
-    ) &&
+    capabilities.policy?.provenance === "authenticated" &&
     declared.permitted === true &&
     skipped.every((x) => declaredSkips.has(x)) &&
     declaredSkips.size === skipped.length;
   const refLines = input.refUpdates || [];
+  validateGitPushInputs(input.remote, input.remoteUrl, refLines);
   const plan = {
     schema_version: 1,
     repository_root: input.root,
@@ -108,10 +166,11 @@ function buildDeliveryPlan(input) {
     },
     adapter: {
       kind: input.adapterKind || "lefthook-v1",
-      supported: input.adapterSupported !== false,
+      supported: input.adapterSupported !== false && capabilities.lefthook?.supported !== false,
       manager_version: input.managerVersion || null,
     },
     hook: capabilities.hooks?.pre_push?.path || input.hook || null,
+    hook_identity: capabilities.hooks?.pre_push || input.hookIdentity || null,
     remote: {
       name: input.remote || null,
       url: input.remoteUrl || null,
@@ -143,7 +202,7 @@ function main(argv = process.argv.slice(2)) {
     head = value("--head", "HEAD");
   if (!base) throw new Error("--base SHA is required");
   const capabilities = discoverRepositoryCapabilities(root, {
-    protectedRoot: value("--protected-root") || undefined,
+    protectedCommit: base,
   });
   const changedPaths = git(root, ["diff", "--name-only", `${base}...${head}`])
     .split(/\r?\n/)
@@ -168,4 +227,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { buildDeliveryPlan, verifyPlanDigest, globToRegex };
+module.exports = { buildDeliveryPlan, verifyPlanDigest, globToRegex, validateGitPushInputs };

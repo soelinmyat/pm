@@ -2,6 +2,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { buildDeliveryPlan, verifyPlanDigest } = require("../scripts/repository-delivery-plan");
+const OLD_SHA = "a".repeat(40);
+const NEW_SHA = "b".repeat(40);
 
 const commands = {
   "mobile-quality": { glob: "apps/mobile/**/*.{ts,tsx}", run: "pnpm --filter mobile test" },
@@ -18,12 +20,12 @@ test("mobile-only selects mobile and shared but excludes API", () => {
       identity: "cap",
       policy: {
         candidate_push: { permitted: true, skipped_commands: [] },
-        provenance: "protected",
+        provenance: "authenticated",
       },
     },
     remote: "origin",
     remoteUrl: "git@example/x",
-    refUpdates: ["refs/heads/x a refs/heads/x b"],
+    refUpdates: [`refs/heads/x ${OLD_SHA} refs/heads/x ${NEW_SHA}`],
   });
   assert.deepEqual(plan.targeted_commands, ["mobile-quality", "shared-checks"]);
   assert.equal(plan.targeted_commands.includes("api-full"), false);
@@ -63,7 +65,7 @@ test("protected policy must name every command skipped during candidate publicat
     capabilities: {
       identity: "x",
       policy: {
-        provenance: "protected",
+        provenance: "authenticated",
         candidate_push: {
           permitted: true,
           candidate_commands: ["mobile-quality", "shared-checks"],
@@ -80,7 +82,7 @@ test("protected policy must name every command skipped during candidate publicat
     capabilities: {
       identity: "x",
       policy: {
-        provenance: "protected",
+        provenance: "authenticated",
         candidate_push: {
           permitted: true,
           candidate_commands: ["mobile-quality", "shared-checks"],
@@ -90,6 +92,32 @@ test("protected policy must name every command skipped during candidate publicat
     },
   });
   assert.equal(allowed.candidate_push.permitted, true);
+});
+
+test("rejects malformed Git remote and exact four-field ref-update protocol", () => {
+  const base = {
+    root: "/repo",
+    changedPaths: ["apps/mobile/a.ts"],
+    commands,
+    capabilities: { identity: "cap" },
+    remote: "origin",
+    remoteUrl: "git@example/x",
+  };
+  for (const refUpdates of [
+    [`refs/heads/x ${OLD_SHA} refs/heads/x`],
+    [`refs/heads/x short refs/heads/x ${NEW_SHA}`],
+    [`refs/heads/x ${OLD_SHA} refs/heads/x ${NEW_SHA}\nINJECT`],
+    [`bad-ref ${OLD_SHA} refs/heads/x ${NEW_SHA}`],
+  ])
+    assert.throws(() => buildDeliveryPlan({ ...base, refUpdates }), /ref|sha|Git/i);
+  assert.throws(
+    () => buildDeliveryPlan({ ...base, remote: "origin\n--upload-pack=x", refUpdates: [] }),
+    /remote/i
+  );
+  assert.throws(
+    () => buildDeliveryPlan({ ...base, remoteUrl: "git@example/x\nmalformed", refUpdates: [] }),
+    /remote/i
+  );
 });
 
 test("relevant identities alter plan digest", () => {

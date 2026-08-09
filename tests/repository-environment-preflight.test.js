@@ -7,6 +7,7 @@ const {
   validateProbeDeclaration,
   keyedIdentity,
   redactText,
+  satisfies,
 } = require("../scripts/repository-environment-preflight");
 
 function basePlan(overrides = {}) {
@@ -104,7 +105,7 @@ test("rejects shell, destructive, interactive, unknown, and malformed probe decl
     { adapter: "postgres-identity-v1", interactive: true },
     { adapter: "postgres-identity-v1", query: "DROP DATABASE x" },
     { adapter: "postgres-identity-v1", extra: true },
-    { adapter: "postgres-identity-v1", provenance: "protected", expected: {} },
+    { adapter: "postgres-identity-v1", provenance: "authenticated", expected: {} },
   ])
     assert.throws(() => validateProbeDeclaration(declaration), /probe/i);
 });
@@ -116,7 +117,7 @@ test("wrong Postgres target, timeout, oversized output, probe failure, and secre
       probes: [
         {
           adapter: "postgres-identity-v1",
-          provenance: "protected",
+          provenance: "authenticated",
           expected: { database: "cleanlog_test", server: "local" },
         },
       ],
@@ -124,11 +125,25 @@ test("wrong Postgres target, timeout, oversized output, probe failure, and secre
   });
   const wrong = verifyEnvironment(plan, {
     env: {},
+    identityKey: Buffer.alloc(32, 8),
+    resolveProbeExecutable: () => ({
+      found: true,
+      path: "/usr/bin/psql",
+      realpath: "/usr/bin/psql",
+      version: "16.2",
+    }),
     probeRunner: () => ({ database: "production", server: "remote" }),
   });
   assert.equal(wrong.status, "blocked");
   const failed = verifyEnvironment(plan, {
     env: {},
+    identityKey: Buffer.alloc(32, 8),
+    resolveProbeExecutable: () => ({
+      found: true,
+      path: "/usr/bin/psql",
+      realpath: "/usr/bin/psql",
+      version: "16.2",
+    }),
     probeRunner: () => {
       const error = new Error("password=hunter2 postgresql://u:secret@db/x");
       error.code = "ETIMEDOUT";
@@ -139,9 +154,66 @@ test("wrong Postgres target, timeout, oversized output, probe failure, and secre
   assert.doesNotMatch(JSON.stringify(failed), /hunter2|secret@/);
   const huge = verifyEnvironment(plan, {
     env: {},
+    identityKey: Buffer.alloc(32, 8),
+    resolveProbeExecutable: () => ({
+      found: true,
+      path: "/usr/bin/psql",
+      realpath: "/usr/bin/psql",
+      version: "16.2",
+    }),
     probeRunner: () => ({ database: "x".repeat(9000), server: "local" }),
   });
   assert.equal(huge.status, "blocked");
+});
+
+test("probe identity requires a machine-local secret and binds executable realpath/version", () => {
+  const plan = basePlan({
+    expectations: {
+      runtimes: [],
+      probes: [
+        {
+          adapter: "postgres-identity-v1",
+          provenance: "authenticated",
+          expected: { database: "test" },
+        },
+      ],
+    },
+  });
+  const common = {
+    env: {},
+    resolveProbeExecutable: () => ({
+      found: true,
+      path: "/shim/psql",
+      realpath: "/opt/pgsql/16/bin/psql",
+      version: "16.2",
+    }),
+    probeRunner: () => ({ database: "test" }),
+  };
+  assert.equal(verifyEnvironment(plan, common).status, "blocked");
+  const verified = verifyEnvironment(plan, { ...common, identityKey: Buffer.alloc(32, 9) });
+  assert.equal(verified.status, "verified");
+  assert.deepEqual(verified.identity.probe_executables, [
+    {
+      adapter: "postgres-identity-v1",
+      path: "/shim/psql",
+      realpath: "/opt/pgsql/16/bin/psql",
+      version: "16.2",
+    },
+  ]);
+});
+
+test("caret constraints honor semver zero-major compatibility", () => {
+  assert.equal(satisfies("0.2.9", "^0.2.3"), true);
+  assert.equal(satisfies("0.3.0", "^0.2.3"), false);
+  assert.equal(satisfies("1.0.0", "^0.2.3"), false);
+});
+
+test("redaction covers bearer and authorization values", () => {
+  const redacted = redactText(
+    `Authorization: Bearer abc token=xyz postgresql://u:p@db/prod ${"🧪".repeat(9000)}`
+  );
+  assert.doesNotMatch(redacted, /abc|xyz|u:p/);
+  assert.ok(Buffer.byteLength(redacted) <= 8192);
 });
 
 test("keyed service identity is stable without persisting secrets", () => {
