@@ -776,10 +776,15 @@ function requirePlannedEffect(transaction, name) {
 }
 
 function cloneAndValidate(value) {
+  return normalizeReleaseTransaction(value).transaction;
+}
+
+function normalizeReleaseTransaction(value) {
   assertValid(value);
-  const next = migrateLegacyCreatePr(structuredClone(value));
-  assertValid(next);
-  return next;
+  const before = stableStringify(value);
+  const transaction = migrateLegacyCreatePr(structuredClone(value));
+  assertValid(transaction);
+  return { transaction, migrated: stableStringify(transaction) !== before };
 }
 
 function migrateLegacyCreatePr(transaction) {
@@ -791,6 +796,19 @@ function migrateLegacyCreatePr(transaction) {
   ) {
     return transaction;
   }
+
+  const merge = transaction.effects.merge;
+  if (
+    merge?.status === "attempting" ||
+    new Set(["blocked", "denied", "failed"]).has(merge?.status)
+  ) {
+    return transaction;
+  }
+  if (merge?.status === "verified") {
+    migrateCompletedCreatePr(transaction, effect);
+    return transaction;
+  }
+  if (merge?.status === "planned") delete transaction.effects.merge;
 
   effect.target.draft = false;
   effect.idempotency_key = effectKey(transaction, "create-pr", effect.target);
@@ -806,6 +824,23 @@ function migrateLegacyCreatePr(transaction) {
     effect.status = "attempting";
   }
   return transaction;
+}
+
+function migrateCompletedCreatePr(transaction, effect) {
+  effect.target.draft = false;
+  effect.idempotency_key = effectKey(transaction, "create-pr", effect.target);
+  for (const attempt of effect.attempts || []) {
+    if (isObject(attempt.receipt)) attempt.receipt.draft = false;
+    if (isObject(attempt.observation?.target)) attempt.observation.target.draft = false;
+    if (isObject(attempt.observation?.receipt)) attempt.observation.receipt.draft = false;
+  }
+  const bound = effect.verified_receipt;
+  if (isObject(bound)) {
+    bound.target.draft = false;
+    bound.receipt.draft = false;
+    bound.verification.target.draft = false;
+    bound.verification.receipt.draft = false;
+  }
 }
 
 function assertValid(value) {
@@ -838,6 +873,7 @@ module.exports = {
   bindReleaseEvidence,
   beginEffect,
   createReleaseTransaction,
+  normalizeReleaseTransaction,
   planEffect,
   reconcileEffect,
   releaseReadiness,

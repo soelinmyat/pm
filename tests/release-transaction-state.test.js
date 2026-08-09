@@ -125,6 +125,51 @@ function asLegacyCreatePr(value) {
   return legacy;
 }
 
+function verifiedComprehensivePr() {
+  let value = planEffect(transaction(), {
+    effect: "push",
+    target: {
+      remote: "origin",
+      repository: "acme/widget",
+      branch: "codex/release-example",
+      commit: COMMIT,
+    },
+  });
+  value = beginEffect(value, {
+    effect: "push",
+    authority: { push_feature_branch: true },
+    actor: "root",
+  }).transaction;
+  value = reconcileEffect(value, {
+    effect: "push",
+    outcome: "matched",
+    receipt: { remote_tip: COMMIT },
+    observation: { target: value.effects.push.target, receipt: { remote_tip: COMMIT } },
+  }).transaction;
+  value = planEffect(value, {
+    effect: "create-pr",
+    target: {
+      repository: "acme/widget",
+      head: "codex/release-example",
+      base: "main",
+      commit: COMMIT,
+      draft: false,
+    },
+  });
+  value = beginEffect(value, {
+    effect: "create-pr",
+    authority: { create_pr: true },
+    actor: "root",
+  }).transaction;
+  const receipt = { pr_number: 42, state: "OPEN", head_oid: COMMIT, draft: false };
+  return reconcileEffect(value, {
+    effect: "create-pr",
+    outcome: "matched",
+    receipt,
+    observation: { target: value.effects["create-pr"].target, receipt },
+  }).transaction;
+}
+
 test("release transaction binds a tagless prepared commit before final evidence", () => {
   const value = transaction();
   assert.equal(value.release.tag, "v1.2.4");
@@ -369,6 +414,56 @@ test("legacy comprehensive create-pr journals resume without replay after plugin
       }),
     /draft/
   );
+});
+
+test("legacy PR migration preserves resumable downstream Merge state", () => {
+  const mergeTarget = {
+    repository: "acme/widget",
+    pr_number: 42,
+    head_commit: COMMIT,
+    base: "main",
+    method: "squash",
+  };
+  const mergeReceipt = {
+    pr_number: 42,
+    state: "MERGED",
+    head_oid: COMMIT,
+    merge_sha: MERGE,
+  };
+
+  const planned = asLegacyCreatePr(
+    planEffect(verifiedComprehensivePr(), { effect: "merge", target: mergeTarget })
+  );
+  const reopened = beginEffect(planned, {
+    effect: "create-pr",
+    authority: { create_pr: true },
+    actor: "root",
+  });
+  assert.equal(reopened.decision, "observe-first");
+  assert.equal(reopened.transaction.effects.merge, undefined);
+
+  let attempting = beginEffect(
+    planEffect(verifiedComprehensivePr(), { effect: "merge", target: mergeTarget }),
+    { effect: "merge", authority: { merge: true }, actor: "root" }
+  ).transaction;
+  attempting = asLegacyCreatePr(attempting);
+  const reconciled = reconcileEffect(attempting, {
+    effect: "merge",
+    outcome: "matched",
+    receipt: mergeReceipt,
+    observation: { target: mergeTarget, receipt: mergeReceipt },
+  });
+  assert.equal(reconciled.decision, "verified");
+
+  const verifiedLegacy = asLegacyCreatePr(reconciled.transaction);
+  const resumed = beginEffect(verifiedLegacy, {
+    effect: "merge",
+    authority: { merge: true },
+    actor: "root",
+  });
+  assert.equal(resumed.decision, "already-verified");
+  assert.equal(resumed.transaction.effects["create-pr"].target.draft, false);
+  assert.equal(resumed.transaction.effects["create-pr"].verified_receipt.receipt.draft, false);
 });
 
 test("ambiguous outcome observes before retry and verified effects never replay", () => {

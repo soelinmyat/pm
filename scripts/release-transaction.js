@@ -20,6 +20,7 @@ const {
   bindReleaseEvidence,
   beginEffect,
   createReleaseTransaction,
+  normalizeReleaseTransaction,
   advancePreparedCommit,
   planEffect,
   reconcileEffect,
@@ -87,17 +88,15 @@ function runCommand(args, options = {}) {
     return initializeDeliveryTransaction(args, cwd, transactionPath);
   }
   if (["validate", "status"].includes(args.command)) {
-    const transaction = readJson(transactionPath, "release transaction");
-    const issues = transactionIssues(transaction);
-    if (issues.length > 0) throw new Error(`invalid release transaction: ${issues.join("; ")}`);
+    const transaction = readCanonicalTransaction(transactionPath);
+    if (args.command === "validate") requireNoPendingMigration(transaction);
     return args.command === "validate"
       ? { ok: true, transaction_path: relative(cwd, transactionPath) }
       : statusView(transaction, relative(cwd, transactionPath));
   }
   if (args.command === "verify-attestation") {
-    const transaction = readJson(transactionPath, "release transaction");
-    const issues = transactionIssues(transaction);
-    if (issues.length > 0) throw new Error(`invalid release transaction: ${issues.join("; ")}`);
+    const transaction = readCanonicalTransaction(transactionPath);
+    requireNoPendingMigration(transaction);
     const attestationPath = resolvePrivateFile(args.attestation_file, cwd, "attestation file");
     const attestation = readJson(attestationPath, "delivery attestation");
     const protectedPolicyCommit = (
@@ -136,7 +135,7 @@ function runCommand(args, options = {}) {
       {
         kind: "active-command",
         route: "optimized",
-        delivery_id: readJson(transactionPath, "release transaction").run_id,
+        delivery_id: validatedTransactionRunId(transactionPath),
       },
       () => {
         const request = {
@@ -164,7 +163,7 @@ function runCommand(args, options = {}) {
       {
         kind: "final-certification",
         route: "optimized",
-        delivery_id: readJson(transactionPath, "release transaction").run_id,
+        delivery_id: validatedTransactionRunId(transactionPath),
       },
       () => {
         const canonicalInput = {
@@ -315,9 +314,7 @@ function resolveAdvanceCommit(cwd, requested) {
 
 function initializeDeliveryTransaction(args, cwd, transactionPath) {
   if (fs.existsSync(transactionPath)) {
-    const existing = readJson(transactionPath, "release transaction");
-    const issues = transactionIssues(existing);
-    if (issues.length > 0) throw new Error(`invalid release transaction: ${issues.join("; ")}`);
+    const existing = readCanonicalTransaction(transactionPath);
     return {
       ok: true,
       decision: "already-initialized",
@@ -362,7 +359,9 @@ function mutateTransaction(transactionPath, mutation) {
     timeoutMessage: `timed out waiting for release transaction lock: ${transactionPath}`,
   });
   try {
-    const transaction = readJson(transactionPath, "release transaction");
+    const transaction = normalizeReleaseTransaction(
+      readJson(transactionPath, "release transaction")
+    ).transaction;
     const result = mutation(transaction);
     const issues = transactionIssues(result.transaction);
     if (issues.length > 0) throw new Error(`invalid release transaction: ${issues.join("; ")}`);
@@ -381,8 +380,32 @@ function mutateTransaction(transactionPath, mutation) {
   }
 }
 
+function readCanonicalTransaction(transactionPath) {
+  const release = acquireOwnedLock(`${transactionPath}.lock`, {
+    attempts: 200,
+    waitMs: 25,
+    invalidGraceMs: 1000,
+    timeoutMessage: `timed out waiting for release transaction lock: ${transactionPath}`,
+  });
+  try {
+    const normalized = normalizeReleaseTransaction(
+      readJson(transactionPath, "release transaction")
+    );
+    if (normalized.migrated) {
+      writeJsonAtomic(transactionPath, normalized.transaction, {
+        directoryMode: 0o700,
+        fileMode: 0o600,
+      });
+    }
+    return normalized.transaction;
+  } finally {
+    release();
+  }
+}
+
 function statusView(transaction, transactionPath) {
   const readiness = releaseReadiness(transaction);
+  const migrationPending = hasPendingLegacyMigration(transaction);
   return {
     schema_version: 1,
     transaction_path: transactionPath,
@@ -395,8 +418,11 @@ function statusView(transaction, transactionPath) {
       prepared_commit: transaction.release.prepared_commit,
       tag_created: transaction.release.tag_created,
     },
-    ready: readiness.ok,
-    readiness_issues: readiness.issues,
+    ready: readiness.ok && !migrationPending,
+    readiness_issues: migrationPending
+      ? [...readiness.issues, "legacy create-pr migration requires Merge reconciliation"]
+      : readiness.issues,
+    migration_pending: migrationPending,
     effects: Object.fromEntries(
       Object.entries(transaction.effects).map(([name, effect]) => [
         name,
@@ -408,6 +434,27 @@ function statusView(transaction, transactionPath) {
       ])
     ),
   };
+}
+
+function validatedTransactionRunId(transactionPath) {
+  const transaction = readCanonicalTransaction(transactionPath);
+  requireNoPendingMigration(transaction);
+  return transaction.run_id;
+}
+
+function requireNoPendingMigration(transaction) {
+  if (hasPendingLegacyMigration(transaction)) {
+    throw new Error("legacy create-pr migration requires Merge reconciliation");
+  }
+}
+
+function hasPendingLegacyMigration(transaction) {
+  const createPr = transaction.effects?.["create-pr"];
+  return (
+    !transaction.evidence?.candidate &&
+    createPr !== undefined &&
+    createPr.target?.draft === undefined
+  );
 }
 
 function githubRepository(url) {

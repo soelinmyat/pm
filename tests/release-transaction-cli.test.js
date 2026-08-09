@@ -5,9 +5,16 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const crypto = require("node:crypto");
 const { spawnSync } = require("node:child_process");
 
-const { createReleaseTransaction } = require("../scripts/lib/release-transaction-schema");
+const {
+  beginEffect,
+  createReleaseTransaction,
+  planEffect,
+  reconcileEffect,
+} = require("../scripts/lib/release-transaction-schema");
+const { stableStringify } = require("../scripts/lib/workflow-runtime/records");
 const script = path.resolve(__dirname, "../scripts/release-transaction.js");
 const COMMIT = "a".repeat(40);
 
@@ -54,6 +61,72 @@ function fixture() {
 
 function run(root, ...args) {
   return spawnSync(process.execPath, [script, ...args], { cwd: root, encoding: "utf8" });
+}
+
+function legacyVerifiedCreatePr(transaction) {
+  let value = planEffect(transaction, {
+    effect: "push",
+    target: {
+      remote: "origin",
+      repository: "acme/widget",
+      branch: "codex/example",
+      commit: COMMIT,
+    },
+  });
+  value = beginEffect(value, {
+    effect: "push",
+    authority: { push_feature_branch: true },
+    actor: "root",
+  }).transaction;
+  value = reconcileEffect(value, {
+    effect: "push",
+    outcome: "matched",
+    receipt: { remote_tip: COMMIT },
+    observation: { target: value.effects.push.target, receipt: { remote_tip: COMMIT } },
+  }).transaction;
+  value = planEffect(value, {
+    effect: "create-pr",
+    target: {
+      repository: "acme/widget",
+      head: "codex/example",
+      base: "main",
+      commit: COMMIT,
+      draft: false,
+    },
+  });
+  value = beginEffect(value, {
+    effect: "create-pr",
+    authority: { create_pr: true },
+    actor: "root",
+  }).transaction;
+  const receipt = { pr_number: 7, state: "OPEN", head_oid: COMMIT, draft: false };
+  value = reconcileEffect(value, {
+    effect: "create-pr",
+    outcome: "matched",
+    receipt,
+    observation: { target: value.effects["create-pr"].target, receipt },
+  }).transaction;
+  const effect = value.effects["create-pr"];
+  delete effect.target.draft;
+  delete effect.attempts.at(-1).receipt.draft;
+  delete effect.attempts.at(-1).observation.target.draft;
+  delete effect.attempts.at(-1).observation.receipt.draft;
+  delete effect.verified_receipt.target.draft;
+  delete effect.verified_receipt.receipt.draft;
+  delete effect.verified_receipt.verification.target.draft;
+  delete effect.verified_receipt.verification.receipt.draft;
+  effect.idempotency_key = `sha256:${crypto
+    .createHash("sha256")
+    .update(
+      stableStringify({
+        run_id: value.run_id,
+        prepared_commit: value.release.prepared_commit,
+        effect: "create-pr",
+        target: effect.target,
+      })
+    )
+    .digest("hex")}`;
+  return value;
 }
 
 test("CLI validates, plans, and durably records authority denial", () => {
@@ -104,6 +177,23 @@ test("CLI validates, plans, and durably records authority denial", () => {
     assert.equal(JSON.parse(denied.stdout).decision, "denied");
     const saved = JSON.parse(fs.readFileSync(path.join(item.root, item.transactionPath), "utf8"));
     assert.equal(saved.effects.push.attempts[0].classification, "authority");
+  } finally {
+    item.cleanup();
+  }
+});
+
+test("read-only CLI commands persist legacy PR migration before reporting status", () => {
+  const item = fixture();
+  try {
+    const file = path.join(item.root, item.transactionPath);
+    const legacy = legacyVerifiedCreatePr(JSON.parse(fs.readFileSync(file, "utf8")));
+    fs.writeFileSync(file, `${JSON.stringify(legacy, null, 2)}\n`);
+    const status = run(item.root, "status", "--transaction", item.transactionPath, "--json");
+    assert.equal(status.status, 0, status.stderr);
+    const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+    assert.equal(saved.effects["create-pr"].status, "attempting");
+    assert.equal(saved.effects["create-pr"].target.draft, false);
+    assert.equal(saved.effects["create-pr"].verified_receipt, null);
   } finally {
     item.cleanup();
   }
