@@ -15,7 +15,7 @@ function parseVersion(value, { partial = false } = {}) {
   if (wildcard !== -1 && parts.slice(wildcard + 1).some((part) => part && !/[xX*]/.test(part)))
     return null;
   const prerelease = match[4] ? match[4].split(".") : [];
-  if (prerelease.length > 0 && (specified < 3 || wildcard !== -1)) return null;
+  if (prerelease.length > 0 && (specified < 3 || (wildcard !== -1 && wildcard < 2))) return null;
   if (
     prerelease.some((identifier) => /^\d+$/.test(identifier) && !/^(0|[1-9]\d*)$/.test(identifier))
   )
@@ -115,9 +115,10 @@ function tokenBounds(token) {
   }
   const parsed = parseVersion(match[2], { partial: true });
   if (!parsed) return null;
-  const prereleaseCores = parsed.prerelease.length
-    ? new Set([`${parsed.major}.${parsed.minor}.${parsed.patch}`])
-    : new Set();
+  const prereleaseCores =
+    parsed.prerelease.length && parsed.wildcard === null
+      ? new Set([`${parsed.major}.${parsed.minor}.${parsed.patch}`])
+      : new Set();
   if (operator === "^") {
     const precision = parsed.wildcard === null ? parsed.specified : parsed.wildcard;
     const ceiling =
@@ -130,12 +131,20 @@ function tokenBounds(token) {
             : parsed.minor > 0
               ? increment(parsed, "minor")
               : increment(parsed, "patch");
-    return { ...lower(parsed), ...upper({ ...ceiling, prerelease: ["0"] }), prereleaseCores };
+    return {
+      ...lower(parsed.wildcard === null ? parsed : stableVersion(parsed)),
+      ...upper({ ...ceiling, prerelease: ["0"] }),
+      prereleaseCores,
+    };
   }
   if (operator === "~") {
     const precision = parsed.wildcard === null ? parsed.specified : parsed.wildcard;
     const ceiling = precision <= 1 ? increment(parsed, "major") : increment(parsed, "minor");
-    return { ...lower(parsed), ...upper({ ...ceiling, prerelease: ["0"] }), prereleaseCores };
+    return {
+      ...lower(parsed.wildcard === null ? parsed : stableVersion(parsed)),
+      ...upper({ ...ceiling, prerelease: ["0"] }),
+      prereleaseCores,
+    };
   }
   if (!operator || operator === "=") return { ...partialBounds(parsed), prereleaseCores };
   if (parsed.wildcard !== null || parsed.specified < 3) {
@@ -236,13 +245,15 @@ function parseAlternative(text) {
     if (!parsed) return null;
     mergeBounds(bounds, parsed);
   }
-  return nonEmpty(bounds) ? bounds : null;
+  return nonEmpty(bounds) ? bounds : { empty: true };
 }
 
 function parseRange(value) {
   const text = String(value || "").trim() || "*";
   const alternatives = text.split("||").map(parseAlternative);
-  return alternatives.some((item) => item === null) ? null : alternatives;
+  return alternatives.some((item) => item === null)
+    ? null
+    : alternatives.filter((item) => !item.empty);
 }
 
 function inNumericBounds(version, bounds) {
