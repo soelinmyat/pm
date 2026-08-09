@@ -16,6 +16,7 @@ const {
   createSession,
   grantAuthority,
   hashResult,
+  markCandidateExternalEffectStarted,
   migrateLegacyMarkdown,
   nextDecision,
   projectMarkdown,
@@ -25,11 +26,11 @@ const {
   recordResult,
   resumeBlocked,
   transitionWorkUnit,
+  transitionCandidate,
   validateResultEnvelope,
   validateSession,
   verifyRfcSidecarIdentity,
   updateWorkspace,
-  upgradeCompatibleSession,
   writeJsonAtomic,
   writeSession,
 } = require("./lib/dev-session-schema");
@@ -70,6 +71,10 @@ function main(argv) {
       return workspaceCommand(options);
     case "work-unit":
       return workUnitCommand(options);
+    case "candidate":
+      return candidateCommand(options);
+    case "candidate-effect":
+      return candidateEffectCommand(options);
     case "validate":
       return validateCommand(options);
     case "migrate":
@@ -116,6 +121,9 @@ function parseArguments(argv) {
     "legacy",
     "base-commit",
     "expected-version",
+    "state",
+    "external-effect-started-at",
+    "at",
   ];
   const spec = Object.fromEntries(valueFlags.map((name) => [`--${name}`, { type: "string" }]));
   spec["--json"] = { key: "json", type: "boolean" };
@@ -773,7 +781,7 @@ function validateCommand(options) {
   const sessionPath = path.resolve(options.session);
   let parsed;
   try {
-    parsed = upgradeCompatibleSession(JSON.parse(fs.readFileSync(sessionPath, "utf8")));
+    parsed = readSession(sessionPath);
   } catch (error) {
     throw cliError(`cannot read session ${sessionPath}: ${error.message}`, EXIT.INVALID);
   }
@@ -781,6 +789,48 @@ function validateCommand(options) {
   if (errors.length > 0)
     throw cliError(formatValidation("session is invalid", errors), EXIT.INVALID);
   emit(options, { valid: true, session_path: sessionPath }, `Valid: ${sessionPath}\n`);
+  return EXIT.OK;
+}
+
+function candidateCommand(options) {
+  requireOptions(options, ["session", "state", "reason"]);
+  const sessionPath = path.resolve(options.session);
+  let updated;
+  try {
+    updated = mutateSession(sessionPath, (session) =>
+      transitionCandidate(session, {
+        state: options.state,
+        reason: options.reason,
+        external_effect_started_at: options.externalEffectStartedAt,
+      })
+    );
+  } catch (error) {
+    throw cliError(error.message, EXIT.PRECONDITION);
+  }
+  emit(
+    options,
+    { session_path: sessionPath, candidate: updated.candidate },
+    `${updated.candidate.state}: ${updated.candidate.route}\n`
+  );
+  return EXIT.OK;
+}
+
+function candidateEffectCommand(options) {
+  requireOptions(options, ["session", "at"]);
+  const sessionPath = path.resolve(options.session);
+  let updated;
+  try {
+    updated = mutateSession(sessionPath, (session) =>
+      markCandidateExternalEffectStarted(session, { now: options.at })
+    );
+  } catch (error) {
+    throw cliError(error.message, EXIT.PRECONDITION);
+  }
+  emit(
+    options,
+    { session_path: sessionPath, candidate: updated.candidate },
+    `external effect started: ${updated.candidate.external_effect_started_at}\n`
+  );
   return EXIT.OK;
 }
 
@@ -879,6 +929,8 @@ function helpText() {
     "  advance-decision --session <path> --expected-version <n> --reason <direction> [--json]",
     "  workspace --session <path> --worktree <path> [--json]",
     "  work-unit --session <path> --id <id> --status <status> [--worktree <path>] [--result <path>] [--reason <text>] [--json]",
+    "  candidate --session <path> --state <state> --reason <text> [--external-effect-started-at <time>] [--json]",
+    "  candidate-effect --session <path> --at <time> [--json]",
     "  validate --session <path> [--json]",
     "  migrate --legacy <path> [--output <path>] [--json]",
     "  project --session <path> [--output <path>] [--json]",
