@@ -5,7 +5,9 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const crypto = require("node:crypto");
 const childProcess = require("node:child_process");
+const { stableStringify } = require("../scripts/lib/workflow-runtime/records");
 const {
   resolveAdvanceCommit,
   resolveProtectedPolicyCommit,
@@ -92,6 +94,35 @@ function transaction() {
     manifestHashes: [{ path: "plugin.config.json", sha256: `sha256:${"d".repeat(64)}` }],
     timestamp: "2026-07-14T00:00:00.000Z",
   });
+}
+
+function asLegacyCreatePr(value) {
+  const legacy = structuredClone(value);
+  const effect = legacy.effects["create-pr"];
+  delete effect.target.draft;
+  for (const attempt of effect.attempts) {
+    if (attempt.receipt) delete attempt.receipt.draft;
+    if (attempt.observation?.target) delete attempt.observation.target.draft;
+    if (attempt.observation?.receipt) delete attempt.observation.receipt.draft;
+  }
+  if (effect.verified_receipt) {
+    delete effect.verified_receipt.target.draft;
+    delete effect.verified_receipt.receipt.draft;
+    delete effect.verified_receipt.verification.target.draft;
+    delete effect.verified_receipt.verification.receipt.draft;
+  }
+  effect.idempotency_key = `sha256:${crypto
+    .createHash("sha256")
+    .update(
+      stableStringify({
+        run_id: legacy.run_id,
+        prepared_commit: legacy.release.prepared_commit,
+        effect: "create-pr",
+        target: effect.target,
+      })
+    )
+    .digest("hex")}`;
+  return legacy;
 }
 
 test("release transaction binds a tagless prepared commit before final evidence", () => {
@@ -235,6 +266,72 @@ test("missing authority is a durable denial, not an environment failure", () => 
   assert.equal(value.effects.push.status, "denied");
   assert.equal(value.effects.push.attempts[0].classification, "authority");
   assert.equal(value.effects.push.attempts[0].error, "missing authority push_feature_branch");
+});
+
+test("legacy comprehensive create-pr journals resume without replay after plugin update", () => {
+  let value = transaction();
+  value = planEffect(value, {
+    effect: "push",
+    target: {
+      remote: "origin",
+      repository: "acme/widget",
+      branch: "codex/release-example",
+      commit: COMMIT,
+    },
+  });
+  value = beginEffect(value, {
+    effect: "push",
+    authority: { push_feature_branch: true },
+    actor: "root",
+  }).transaction;
+  value = reconcileEffect(value, {
+    effect: "push",
+    outcome: "matched",
+    receipt: { remote_tip: COMMIT },
+    observation: { target: value.effects.push.target, receipt: { remote_tip: COMMIT } },
+  }).transaction;
+  value = planEffect(value, {
+    effect: "create-pr",
+    target: {
+      repository: "acme/widget",
+      head: "codex/release-example",
+      base: "main",
+      commit: COMMIT,
+      draft: false,
+    },
+  });
+  const planned = asLegacyCreatePr(value);
+  assert.deepEqual(transactionIssues(planned), []);
+  const attempting = beginEffect(planned, {
+    effect: "create-pr",
+    authority: { create_pr: true },
+    actor: "root",
+  }).transaction;
+  assert.deepEqual(transactionIssues(attempting), []);
+  assert.equal(
+    beginEffect(attempting, {
+      effect: "create-pr",
+      authority: { create_pr: true },
+      actor: "root",
+    }).decision,
+    "observe-first"
+  );
+  const receipt = { pr_number: 42, state: "OPEN", head_oid: COMMIT };
+  const verified = reconcileEffect(attempting, {
+    effect: "create-pr",
+    outcome: "matched",
+    receipt,
+    observation: { target: attempting.effects["create-pr"].target, receipt },
+  }).transaction;
+  assert.deepEqual(transactionIssues(verified), []);
+  assert.equal(
+    beginEffect(verified, {
+      effect: "create-pr",
+      authority: { create_pr: true },
+      actor: "root",
+    }).decision,
+    "already-verified"
+  );
 });
 
 test("ambiguous outcome observes before retry and verified effects never replay", () => {
@@ -447,17 +544,14 @@ test("optimized delivery journals the draft-to-ready PR mutation before merge", 
     head_oid: COMMIT,
     merge_sha: MERGE,
   };
-  assert.throws(
-    () =>
-      reconcileEffect(merge.transaction, {
-        effect: "merge",
-        outcome: "matched",
-        receipt: mergeReceipt,
-        observation: { target: merge.transaction.effects.merge.target, receipt: mergeReceipt },
-        candidateState: "invalidated",
-      }),
-    /requires candidate state merge-ready/
-  );
+  const observedAfterInvalidation = reconcileEffect(merge.transaction, {
+    effect: "merge",
+    outcome: "matched",
+    receipt: mergeReceipt,
+    observation: { target: merge.transaction.effects.merge.target, receipt: mergeReceipt },
+    candidateState: "invalidated",
+  });
+  assert.equal(observedAfterInvalidation.decision, "verified");
 });
 
 test("conflicting observation blocks instead of replaying", () => {

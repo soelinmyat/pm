@@ -138,7 +138,7 @@ Target fields: `remote`, `repository`, `branch`, `commit`. The receipt field `re
 
 ### Create PR
 
-Target fields: `repository`, `head`, `base`, `commit`, and `draft`. The runtime requires `draft: true` exactly when current candidate evidence selects optimized publication and `draft: false` for the comprehensive route. Observe through the exact GitHub owner/repository and require zero or one matching PR. The receipt records `pr_number`, URL, `state: OPEN`, `head_oid`, and the exact planned `draft` value; the head OID must equal `commit`. Multiple matches, a fork, wrong base, wrong draft state, or wrong head OID is `conflict`.
+Target fields: `repository`, `head`, `base`, `commit`, and `draft`. The runtime requires `draft: true` exactly when current candidate evidence selects optimized publication and `draft: false` for the comprehensive route. Legacy schema-v1 comprehensive journals that predate this field resume as `draft: false`; re-observe their exact PR state and never infer candidate authority from the omission. Observe through the exact GitHub owner/repository and require zero or one matching PR. The receipt records `pr_number`, URL, `state: OPEN`, `head_oid`, and the exact planned `draft` value; the head OID must equal `commit`. Multiple matches, a fork, wrong base, wrong draft state, or wrong head OID is `conflict`.
 
 ### Ready PR
 
@@ -146,7 +146,7 @@ Optimized draft delivery only. Target fields: `repository`, verified `pr_number`
 
 ### Merge
 
-Target fields: `repository`, verified `pr_number`, `head_commit`, `base`, and `method`. Optimized Merge begin, observe-first recovery, and reconciliation each reload the canonical session and require candidate state to remain `merge-ready`; invalidation revokes the retained readiness receipt and requires cancellation of any armed auto-merge before remediation. Receipt records the same `pr_number`, `state: MERGED`, `merge_sha`, merged time, and `head_oid`; the head OID must equal `head_commit`. An OPEN PR is not an absent merge and must remain in monitoring; CLOSED without merge is `conflict`.
+Target fields: `repository`, verified `pr_number`, `head_commit`, `base`, and `method`. Optimized Merge begin and observe-first recovery reload the canonical session and require candidate state to remain `merge-ready`; invalidation revokes the retained readiness receipt and requires cancellation of any armed auto-merge before remediation. If the exact PR irreversibly merged before cancellation, reconciliation must still journal that independently observed result even though the candidate is now invalidated. Receipt records the same `pr_number`, `state: MERGED`, `merge_sha`, merged time, and `head_oid`; the head OID must equal `head_commit`. An OPEN PR is not an absent merge and must remain in monitoring; CLOSED without merge is `conflict`.
 
 ### Place main tag
 

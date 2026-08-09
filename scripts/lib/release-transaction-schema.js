@@ -266,12 +266,6 @@ function reconcileEffect(transaction, input) {
   const next = cloneAndValidate(transaction);
   requireObject(input, "effect observation");
   const effect = requirePlannedEffect(next, input.effect);
-  const optimizedMerge =
-    input.effect === "merge" &&
-    (next.evidence.candidate || next.effects["ready-pr"]?.status !== undefined);
-  if (optimizedMerge && input.candidateState !== "merge-ready") {
-    throw new Error("merge requires candidate state merge-ready");
-  }
   if (effect.status === "verified") return { transaction: next, decision: "already-verified" };
   if (effect.status !== "attempting") {
     throw new Error(`${input.effect} has no ambiguous attempt to reconcile`);
@@ -612,7 +606,11 @@ function validateEffectTarget(name, target, transaction) {
     requireTargetMatch(target, "head", transaction.source.head_branch, "head branch");
     requireTargetMatch(target, "base", transaction.source.base_branch, "base branch");
     requireTargetMatch(target, "commit", transaction.release.prepared_commit, "prepared commit");
-    requireTargetMatch(target, "draft", Boolean(transaction.evidence.candidate), "delivery route");
+    const candidateDraft = Boolean(transaction.evidence.candidate);
+    // Schema-v1 comprehensive transactions created before draft binding omitted this field.
+    if (target.draft !== undefined || candidateDraft) {
+      requireTargetMatch(target, "draft", candidateDraft, "delivery route");
+    }
   }
   if (name === "ready-pr") {
     if (!transaction.evidence.candidate)
@@ -674,7 +672,9 @@ function validateMatchedReceipt(name, target, receipt) {
     }
     requireReceiptMatch(receipt, "state", "OPEN", "OPEN PR state");
     requireReceiptMatch(receipt, "head_oid", target.commit, "prepared commit");
-    requireReceiptMatch(receipt, "draft", target.draft, "planned draft state");
+    if (target.draft !== undefined || receipt.draft !== undefined) {
+      requireReceiptMatch(receipt, "draft", target.draft ?? false, "planned draft state");
+    }
     return;
   }
   if (name === "ready-pr") {
