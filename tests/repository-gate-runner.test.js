@@ -23,6 +23,8 @@ function fixture() {
     capability_identity: "cap-v1",
     environment_identity: environment,
     repository_root: root,
+    head_commit: OLD_SHA,
+    source_ref: "refs/heads/x",
     targeted_commands: ["mobile", "shared"],
     complete_commands: ["mobile", "shared"],
     hook,
@@ -52,6 +54,7 @@ function fixture() {
     preflight: () => ({ status: "verified", identity: environment }),
     discoverCapabilities: () => ({ identity: "cap-v1" }),
     verifyManager: () => true,
+    resolveHead: () => OLD_SHA,
   };
   return { root, hook, plan, options };
 }
@@ -184,6 +187,36 @@ test("optimized execution pins the authenticated manager and never lets the hook
   fs.rmSync(managerRoot, { recursive: true, force: true });
 });
 
+test("optimized execution strips ambient bypasses and PM authentication secrets", () => {
+  const { root, plan, options } = fixture();
+  let executionEnv;
+  const result = runRepositoryGates(plan, "targeted", {
+    ...options,
+    env: {
+      PATH: "/ambient/bin",
+      HOME: "/tmp/example-home",
+      LEFTHOOK: "0",
+      LEFTHOOK_EXCLUDE: "pre-push",
+      SKIP_CODEX_REVIEW: "1",
+      PM_REPOSITORY_RECEIPT_KEY: "receipt-secret".repeat(4),
+      PM_REPOSITORY_IDENTITY_KEY: "identity-secret".repeat(4),
+    },
+    spawnSync: (_file, _args, spawnOptions) => {
+      executionEnv = spawnOptions.env;
+      return { status: 0, stdout: "", stderr: "" };
+    },
+  });
+  assert.equal(result.status, "passed");
+  assert.equal(executionEnv.PATH, plan.adapter.manager_environment.PATH);
+  assert.equal(executionEnv.HOME, "/tmp/example-home");
+  assert.equal(executionEnv.LEFTHOOK, undefined);
+  assert.equal(executionEnv.LEFTHOOK_EXCLUDE, undefined);
+  assert.equal(executionEnv.SKIP_CODEX_REVIEW, undefined);
+  assert.equal(executionEnv.PM_REPOSITORY_RECEIPT_KEY, undefined);
+  assert.equal(executionEnv.PM_REPOSITORY_IDENTITY_KEY, undefined);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 test("hook bytes and realpath are revalidated immediately before execution", () => {
   const { root, hook, plan, options } = fixture();
   fs.writeFileSync(hook, "#!/bin/sh\nexit 1\n");
@@ -218,6 +251,36 @@ test("malformed ref-update input and unverified environments cannot run optimize
     preflight: () => ({ status: "unverified", identity: plan.environment_identity }),
   });
   assert.equal(result.status, "blocked");
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("optimized execution binds one exact branch update to the live planned head", () => {
+  const { root, plan, options } = fixture();
+  for (const stdin of [
+    `refs/heads/other ${OLD_SHA} refs/heads/other ${NEW_SHA}\n`,
+    `refs/heads/x ${NEW_SHA} refs/heads/x ${OLD_SHA}\n`,
+    `refs/heads/x ${OLD_SHA} refs/heads/x ${OLD_SHA}\n`,
+    `${plan.remote.stdin}refs/heads/y ${OLD_SHA} refs/heads/y ${NEW_SHA}\n`,
+  ]) {
+    let ran = false;
+    const result = runRepositoryGates({ ...plan, remote: { ...plan.remote, stdin } }, "targeted", {
+      ...options,
+      spawnSync: () => {
+        ran = true;
+        return { status: 0 };
+      },
+    });
+    assert.equal(result.status, "blocked");
+    assert.equal(result.reason, "invalid-git-push-input");
+    assert.equal(ran, false);
+  }
+  const stale = runRepositoryGates(plan, "targeted", {
+    ...options,
+    resolveHead: () => NEW_SHA,
+    spawnSync: () => ({ status: 0 }),
+  });
+  assert.equal(stale.status, "blocked");
+  assert.equal(stale.reason, "invalid-git-push-input");
   fs.rmSync(root, { recursive: true, force: true });
 });
 

@@ -33,7 +33,12 @@ test("mobile-only selects mobile and shared but excludes API", () => {
       github_capabilities: { available: true, identity: "github-v1" },
       lefthook: { supported: true, identity: "manager-v1", dump_digest: "dump-v1" },
       policy: {
-        candidate_push: { permitted: true, skipped_commands: [] },
+        candidate_push: {
+          permitted: true,
+          candidate_commands: ["mobile-quality", "shared-checks"],
+          skipped_commands: [],
+          command_identity: digest(commands),
+        },
         provenance: "authenticated",
       },
     },
@@ -93,7 +98,14 @@ test("production planner CLI accepts only hash-bound complete execution inputs",
     path.join(root, ".pm/repository-delivery-policy.json"),
     JSON.stringify({
       schema_version: 1,
-      candidate_push: { permitted: true, candidate_commands: ["mobile"], skipped_commands: [] },
+      candidate_push: {
+        permitted: true,
+        candidate_commands: ["mobile"],
+        skipped_commands: [],
+        command_identity: digest({
+          mobile: { glob: "apps/mobile/**", run: "pnpm mobile", exclude: null },
+        }),
+      },
     })
   );
   fs.writeFileSync(path.join(root, "apps/mobile/a.ts"), "one\n");
@@ -163,8 +175,9 @@ test("production planner CLI accepts only hash-bound complete execution inputs",
   const inputs = path.join(managerRoot, "inputs");
   fs.mkdirSync(inputs);
   const discoveryFile = writeAuthenticatedJson(inputs, "discovery.json", discovery);
+  const sourceRef = git(["symbolic-ref", "--quiet", "HEAD"]).stdout.trim();
   const refsFile = writeAuthenticatedJson(inputs, "refs.json", [
-    `refs/heads/main ${head} refs/heads/main ${base}`,
+    `${sourceRef} ${head} ${sourceRef} ${base}`,
   ]);
   const preflight = verifyEnvironment({
     expectations: {
@@ -303,11 +316,43 @@ test("protected policy must name every command skipped during candidate publicat
           permitted: true,
           candidate_commands: ["mobile-quality", "shared-checks"],
           skipped_commands: ["mobile-final"],
+          command_identity: digest(withFinal),
         },
       },
     },
   });
   assert.equal(allowed.candidate_push.permitted, true);
+});
+
+test("protected policy command identity must cover the complete live gate manifest", () => {
+  const protectedCommands = {
+    fast: { glob: "apps/mobile/**", run: "pnpm fast" },
+    slow: { glob: "apps/mobile/**", run: "pnpm slow" },
+  };
+  const policy = {
+    provenance: "authenticated",
+    candidate_push: {
+      permitted: true,
+      candidate_commands: ["fast", "slow"],
+      skipped_commands: [],
+      command_identity: digest(protectedCommands),
+    },
+  };
+  const complete = buildDeliveryPlan({
+    root: "/repo",
+    changedPaths: ["apps/mobile/a.ts"],
+    commands: protectedCommands,
+    capabilities: { identity: "x", policy },
+  });
+  assert.equal(complete.candidate_push.permitted, true);
+
+  const missing = buildDeliveryPlan({
+    root: "/repo",
+    changedPaths: ["apps/mobile/a.ts"],
+    commands: { fast: protectedCommands.fast },
+    capabilities: { identity: "x", policy },
+  });
+  assert.equal(missing.candidate_push.permitted, false);
 });
 
 test("rejects malformed Git remote and exact four-field ref-update protocol", () => {

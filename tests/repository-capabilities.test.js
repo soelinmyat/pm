@@ -8,6 +8,7 @@ const childProcess = require("node:child_process");
 const { discoverRepositoryCapabilities } = require("../scripts/lib/repository-capabilities");
 const { digest } = require("../scripts/lib/repository-gate-plan-schema");
 const { keyedIdentity } = require("../scripts/repository-environment-preflight");
+const COMMAND_IDENTITY = `sha256:${"a".repeat(64)}`;
 
 test("discovers instructions, runtimes, hooks, workflows and policy without writes", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-repo-cap-"));
@@ -29,7 +30,12 @@ test("discovers instructions, runtimes, hooks, workflows and policy without writ
     path.join(root, ".pm/repository-delivery-policy.json"),
     JSON.stringify({
       schema_version: 1,
-      candidate_push: { permitted: true, candidate_commands: ["mobile"], skipped_commands: [] },
+      candidate_push: {
+        permitted: true,
+        candidate_commands: ["mobile"],
+        skipped_commands: [],
+        command_identity: COMMAND_IDENTITY,
+      },
     })
   );
   const before = snapshot(root);
@@ -107,7 +113,12 @@ test("candidate policy is visible but cannot authorize when no protected root is
     path.join(root, ".pm/repository-delivery-policy.json"),
     JSON.stringify({
       schema_version: 1,
-      candidate_push: { permitted: true, candidate_commands: ["x"], skipped_commands: [] },
+      candidate_push: {
+        permitted: true,
+        candidate_commands: ["x"],
+        skipped_commands: [],
+        command_identity: COMMAND_IDENTITY,
+      },
     })
   );
   const found = discoverRepositoryCapabilities(root);
@@ -122,7 +133,15 @@ test("caller-labeled protected root cannot authorize candidate policy", () => {
   fs.mkdirSync(path.join(protectedRoot, ".pm"));
   fs.writeFileSync(
     path.join(root, ".pm/repository-delivery-policy.json"),
-    JSON.stringify({ schema_version: 1, candidate_push: { permitted: true } })
+    JSON.stringify({
+      schema_version: 1,
+      candidate_push: {
+        permitted: true,
+        candidate_commands: [],
+        skipped_commands: [],
+        command_identity: COMMAND_IDENTITY,
+      },
+    })
   );
   fs.writeFileSync(
     path.join(protectedRoot, ".pm/repository-delivery-policy.json"),
@@ -153,7 +172,15 @@ test("protected policy bytes come from the exact verified Git commit", () => {
   const commit = git(["rev-parse", "HEAD"]).stdout.trim();
   fs.writeFileSync(
     policyPath,
-    JSON.stringify({ schema_version: 1, candidate_push: { permitted: true } })
+    JSON.stringify({
+      schema_version: 1,
+      candidate_push: {
+        permitted: true,
+        candidate_commands: [],
+        skipped_commands: [],
+        command_identity: COMMAND_IDENTITY,
+      },
+    })
   );
   const found = discoverRepositoryCapabilities(root, {
     protectedCommit: commit,

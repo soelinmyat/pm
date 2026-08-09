@@ -95,6 +95,55 @@ function verifyManagerIdentity(plan, options) {
   }
 }
 
+function executionEnvironment(source, pinnedPath) {
+  const environment = {};
+  for (const [name, value] of Object.entries(source || {})) {
+    if (
+      /^LEFTHOOK(?:_|$)/.test(name) ||
+      name === "SKIP_CODEX_REVIEW" ||
+      /^PM_REPOSITORY_(?:RECEIPT|IDENTITY)_KEY$/.test(name)
+    )
+      continue;
+    environment[name] = value;
+  }
+  environment.PATH = pinnedPath;
+  return environment;
+}
+
+function validatePlannedRefUpdate(plan, options) {
+  const stdin = String(plan.remote?.stdin || "");
+  const lines = stdin.endsWith("\n") ? stdin.slice(0, -1).split("\n") : [stdin];
+  validateGitPushInputs(plan.remote?.name, plan.remote?.url, lines);
+  if (
+    lines.length !== 1 ||
+    !plan.source_ref ||
+    !plan.head_commit ||
+    typeof plan.source_ref !== "string"
+  )
+    throw new Error("optimized delivery requires one planned branch update");
+  const [localRef, localSha, remoteRef, remoteSha] = lines[0].split(" ");
+  if (
+    localRef !== plan.source_ref ||
+    remoteRef !== plan.source_ref ||
+    localSha !== plan.head_commit ||
+    remoteSha === localSha
+  )
+    throw new Error("Git ref update does not match the planned branch head");
+  const liveHead =
+    typeof options.resolveHead === "function"
+      ? options.resolveHead(plan.repository_root)
+      : childProcess
+          .spawnSync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
+            cwd: plan.repository_root,
+            encoding: "utf8",
+            shell: false,
+            timeout: 2000,
+            maxBuffer: 8192,
+          })
+          .stdout?.trim();
+  if (liveHead !== plan.head_commit) throw new Error("live HEAD differs from the planned push");
+}
+
 function runRepositoryGates(plan, mode, options = {}) {
   if (!["targeted", "complete"].includes(mode))
     return { status: "blocked", reason: "invalid-gate-mode" };
@@ -139,13 +188,7 @@ function runRepositoryGates(plan, mode, options = {}) {
   if (!verifyManagerIdentity(plan, options))
     return fallback(options, "manager-identity-or-hook-contract-unsupported");
   try {
-    validateGitPushInputs(
-      plan.remote?.name,
-      plan.remote?.url,
-      String(plan.remote?.stdin || "").endsWith("\n")
-        ? String(plan.remote.stdin).slice(0, -1).split("\n")
-        : [String(plan.remote?.stdin || "")]
-    );
+    validatePlannedRefUpdate(plan, options);
   } catch (error) {
     return {
       status: "blocked",
@@ -156,10 +199,10 @@ function runRepositoryGates(plan, mode, options = {}) {
   const args = ["run", "pre-push"];
   for (const command of commands) args.push("--command", command);
   args.push(plan.remote?.name || "", plan.remote?.url || "");
-  const executionEnv = {
-    ...(options.env || process.env),
-    PATH: plan.adapter.manager_environment.PATH,
-  };
+  const executionEnv = executionEnvironment(
+    options.env || process.env,
+    plan.adapter.manager_environment.PATH
+  );
   const result = (options.spawnSync || childProcess.spawnSync)(
     plan.adapter.manager.realpath,
     args,

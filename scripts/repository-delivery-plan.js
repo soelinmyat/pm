@@ -169,10 +169,15 @@ function buildDeliveryPlan(input) {
   const declaredSkips = new Set(
     Array.isArray(declared.skipped_commands) ? declared.skipped_commands : []
   );
+  const commandIdentity = digest(commands);
+  const declaredCommandNames = [...(candidateNames ? candidateNames : []), ...declaredSkips];
   const permitted =
     capabilities.policy?.provenance !== "candidate" &&
     capabilities.policy?.provenance === "authenticated" &&
     declared.permitted === true &&
+    candidateNames !== null &&
+    declared.command_identity === commandIdentity &&
+    declaredCommandNames.every((name) => Object.hasOwn(commands, name)) &&
     skipped.every((x) => declaredSkips.has(x)) &&
     declaredSkips.size === skipped.length;
   const refLines = input.refUpdates || [];
@@ -182,6 +187,7 @@ function buildDeliveryPlan(input) {
     repository_root: input.root,
     base_commit: input.baseCommit || null,
     head_commit: input.headCommit || null,
+    source_ref: input.sourceRef || null,
     expected_default_ref: input.expectedDefaultRef || null,
     changed_paths: changedPaths,
     capability_identity: capabilities.identity || null,
@@ -191,7 +197,7 @@ function buildDeliveryPlan(input) {
     },
     targeted_commands: targeted,
     complete_commands: complete,
-    command_identity: digest(commands),
+    command_identity: commandIdentity,
     candidate_push: {
       permitted,
       declaration_provenance: capabilities.policy?.provenance || "absent",
@@ -278,6 +284,7 @@ function main(argv = process.argv.slice(2)) {
   )
     throw new Error("destination remote does not match authenticated discovery receipt");
   const resolvedHead = git(root, ["rev-parse", "--verify", `${head}^{commit}`]);
+  const sourceRef = git(root, ["symbolic-ref", "--quiet", "HEAD"]);
   if (discoveryReceipt.repository_head !== resolvedHead)
     throw new Error("head does not match authenticated discovery receipt");
   const receiptKey = process.env.PM_REPOSITORY_RECEIPT_KEY;
@@ -297,6 +304,7 @@ function main(argv = process.argv.slice(2)) {
     root,
     baseCommit: base,
     headCommit: resolvedHead,
+    sourceRef,
     expectedDefaultRef: discoveryReceipt.expected_default_ref,
     changedPaths,
     commands: capabilities.lefthook?.commands || {},

@@ -251,12 +251,18 @@ function parsePolicy(text, provenance) {
       throw new Error("unknown policy field");
     if (
       Object.keys(parsed.candidate_push).some(
-        (key) => !["permitted", "candidate_commands", "skipped_commands"].includes(key)
+        (key) =>
+          !["permitted", "candidate_commands", "skipped_commands", "command_identity"].includes(key)
       )
     )
       throw new Error("unknown candidate policy field");
     if (typeof parsed.candidate_push.permitted !== "boolean")
       throw new Error("candidate permission must be boolean");
+    if (
+      parsed.candidate_push.permitted === true &&
+      !/^sha256:[0-9a-f]{64}$/i.test(parsed.candidate_push.command_identity || "")
+    )
+      throw new Error("candidate command identity is required");
     for (const key of ["candidate_commands", "skipped_commands"]) {
       const values = parsed.candidate_push[key] || [];
       if (
