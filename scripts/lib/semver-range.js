@@ -15,8 +15,16 @@ function parseVersion(value, { partial = false } = {}) {
   if (wildcard !== -1 && parts.slice(wildcard + 1).some((part) => part && !/[xX*]/.test(part)))
     return null;
   const prerelease = match[4] ? match[4].split(".") : [];
+  if (prerelease.length > 0 && (specified < 3 || wildcard !== -1)) return null;
   if (
     prerelease.some((identifier) => /^\d+$/.test(identifier) && !/^(0|[1-9]\d*)$/.test(identifier))
+  )
+    return null;
+  if (
+    parts.some(
+      (part) =>
+        part !== undefined && !/[xX*]/.test(part) && BigInt(part) > BigInt(Number.MAX_SAFE_INTEGER)
+    )
   )
     return null;
   return {
@@ -32,7 +40,14 @@ function parseVersion(value, { partial = false } = {}) {
 function compareIdentifiers(left, right) {
   const leftNumber = /^\d+$/.test(left);
   const rightNumber = /^\d+$/.test(right);
-  if (leftNumber && rightNumber) return Number(left) - Number(right);
+  if (leftNumber && rightNumber)
+    return left.length === right.length
+      ? left < right
+        ? -1
+        : left > right
+          ? 1
+          : 0
+      : left.length - right.length;
   if (leftNumber) return -1;
   if (rightNumber) return 1;
   return left < right ? -1 : left > right ? 1 : 0;
@@ -93,7 +108,11 @@ function tokenBounds(token) {
   const match = token.match(/^(\^|~|>=|<=|>|<|=)?\s*(.+)$/);
   if (!match) return null;
   const operator = match[1] || "";
-  if (match[2] === "*" || /^[xX]$/.test(match[2])) return {};
+  if (match[2] === "*" || /^[xX]$/.test(match[2])) {
+    if (operator === ">" || operator === "<")
+      return { ...upper(parseVersion("0.0.0-0"), false), prereleaseCores: new Set() };
+    return {};
+  }
   const parsed = parseVersion(match[2], { partial: true });
   if (!parsed) return null;
   const prereleaseCores = parsed.prerelease.length

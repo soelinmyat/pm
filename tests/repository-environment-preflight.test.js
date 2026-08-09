@@ -64,6 +64,15 @@ test("runtime range checks remain source-only in installed plugin copies", () =>
   assert.equal(satisfies("1.2.3-01", "1.2.3-01"), false);
   assert.equal(satisfies("1.2.3-alpha..1", "1.2.3-alpha..1"), false);
   assert.equal(satisfies("1.2.3+build..x", "1.2.3+build..x"), false);
+  assert.equal(satisfies("1.5.0", "1-alpha"), false);
+  assert.equal(satisfies("1.2.0", "1.2-beta"), false);
+  assert.equal(satisfies("1.5.0", "1.x-alpha"), false);
+  assert.equal(satisfies("0.0.0", ">*"), false);
+  assert.equal(satisfies("1.0.0", "<x"), false);
+  assert.equal(satisfies("1.0.0", ">=*"), true);
+  assert.equal(satisfies("9007199254740992.0.0", "*"), false);
+  assert.equal(satisfies("1.2.3-9007199254740992", ">1.2.3-9007199254740991"), true);
+  assert.equal(satisfies("1.2.3-9007199254740992", ">1.2.3-9007199254740993"), false);
   assert.equal(satisfies("1.2.3-Z", "<1.2.3-a"), true);
   assert.equal(satisfies("2.0.0-alpha", "^1 <2.0.0-beta"), false);
   assert.equal(satisfies("1.0.0-alpha", ">=1.0.0-alpha <1.x"), false);
