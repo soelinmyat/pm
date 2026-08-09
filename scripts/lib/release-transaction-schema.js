@@ -30,7 +30,9 @@ const ATTEMPT_STATUSES = new Set([
   "blocked",
   "failed",
 ]);
-const EVIDENCE_KINDS = new Set(["review", "qa", "verification"]);
+const REQUIRED_EVIDENCE_KINDS = Object.freeze(["review", "qa", "verification"]);
+const EVIDENCE_KINDS = new Set(["candidate", ...REQUIRED_EVIDENCE_KINDS]);
+const SAFE_SLUG = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
 function createReleaseTransaction(input) {
   requireObject(input, "release transaction input");
@@ -44,6 +46,9 @@ function createReleaseTransaction(input) {
     ["baseBranch", input.baseBranch],
   ]) {
     requireString(value, name);
+  }
+  if (!SAFE_SLUG.test(input.slug) || input.slug === "." || input.slug === "..") {
+    throw new Error("slug must be one safe path segment");
   }
   const releaseMode = input.releaseMode || "versioned";
   if (!new Set(["versioned", "delivery-only"]).has(releaseMode)) {
@@ -92,7 +97,7 @@ function createReleaseTransaction(input) {
       manifests: manifestHashes,
       prepared_at: timestamp,
     },
-    evidence: { review: null, qa: null, verification: null },
+    evidence: { candidate: null, review: null, qa: null, verification: null },
     effects: {},
     generation: 1,
     history: [],
@@ -133,7 +138,7 @@ function advancePreparedCommit(transaction, input) {
     });
   }
   next.release.prepared_at = timestamp;
-  next.evidence = { review: null, qa: null, verification: null };
+  next.evidence = { candidate: null, review: null, qa: null, verification: null };
   next.effects = {};
   next.updated_at = timestamp;
   assertValid(next);
@@ -163,7 +168,7 @@ function bindReleaseEvidence(transaction, input) {
 function releaseReadiness(transaction) {
   const issues = transactionIssues(transaction);
   if (issues.length > 0) return { ok: false, issues };
-  for (const kind of EVIDENCE_KINDS) {
+  for (const kind of REQUIRED_EVIDENCE_KINDS) {
     const evidence = transaction.evidence[kind];
     if (!evidence) issues.push(`missing ${kind} evidence`);
     else if (evidence.commit !== transaction.release.prepared_commit) {
@@ -335,6 +340,9 @@ function transactionIssues(value) {
   for (const field of ["run_id", "slug", "created_at", "updated_at"]) {
     if (!nonEmpty(value[field])) issues.push(`${field} is required`);
   }
+  if (!SAFE_SLUG.test(value.slug || "") || value.slug === "." || value.slug === "..") {
+    issues.push("slug must be one safe path segment");
+  }
   if (!isObject(value.owner) || value.owner.role !== "root") issues.push("owner.role must be root");
   validateSource(value.source, issues);
   validateRelease(value.release, issues);
@@ -440,6 +448,7 @@ function validateRelease(release, issues) {
 }
 
 function validateEvidence(evidence, kind, issues) {
+  if (kind === "candidate" && evidence === undefined) return;
   if (evidence === null) return;
   if (!isObject(evidence)) return issues.push(`${kind} evidence must be null or object`);
   exactKeys(evidence, ["commit", "artifact", "sha256", "checked_at"], `$.evidence.${kind}`, issues);

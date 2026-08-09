@@ -172,6 +172,40 @@ test("production canonical-file finalization writes once per transaction generat
     () => finalizeCanonicalFiles({ ...args, certification: ".pm/elsewhere.json" }, options),
     /canonical.*path/i
   );
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pm-finalize-outside-"));
+  const unsafe = JSON.parse(fs.readFileSync(path.join(root, args.transaction), "utf8"));
+  unsafe.slug = "other";
+  fs.writeFileSync(path.join(root, args.transaction), `${JSON.stringify(unsafe)}\n`);
+  fs.mkdirSync(path.join(root, ".pm/dev-sessions/other"), { recursive: true });
+  fs.symlinkSync(outside, path.join(root, ".pm/dev-sessions/other/ship"), "dir");
+  assert.throws(
+    () =>
+      finalizeCanonicalFiles(
+        {
+          ...args,
+          certification: ".pm/dev-sessions/other/ship/final-certification.json",
+          attestation: ".pm/dev-sessions/other/ship/delivery-attestation.json",
+        },
+        options
+      ),
+    /canonical|session|symlink|project root/i
+  );
+  assert.deepEqual(fs.readdirSync(outside), []);
+  unsafe.slug = "../../../escape";
+  fs.writeFileSync(path.join(root, args.transaction), `${JSON.stringify(unsafe)}\n`);
+  assert.throws(
+    () =>
+      finalizeCanonicalFiles(
+        {
+          ...args,
+          certification: ".pm/dev-sessions/../../../escape/ship/final-certification.json",
+          attestation: ".pm/dev-sessions/../../../escape/ship/delivery-attestation.json",
+        },
+        options
+      ),
+    /canonical|slug|project root/i
+  );
+  fs.rmSync(outside, { recursive: true, force: true });
   fs.rmSync(root, { recursive: true, force: true });
 });
 

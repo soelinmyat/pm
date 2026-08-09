@@ -16,7 +16,12 @@ const {
   consumePushAuthorization,
   createCandidateDeliveryAttestation,
   publicKeyIdentity,
+  verifyCanonicalCandidateAttestation,
 } = require("../scripts/delivery-attestation");
+const {
+  bindReleaseEvidence,
+  createReleaseTransaction,
+} = require("../scripts/lib/release-transaction-schema");
 
 test("candidate attestation grants only candidate hook bypass and binds targeted evidence", () => {
   const keys = crypto.generateKeyPairSync("ed25519");
@@ -47,6 +52,68 @@ test("candidate attestation grants only candidate hook bypass and binds targeted
     () => createCandidateDeliveryAttestation({ ...input(), commands: ["all"] }, {}),
     /candidate|signer/i
   );
+});
+
+test("valid release transactions can bind the canonical candidate-attestation prerequisite", () => {
+  let transaction = createReleaseTransaction({
+    releaseMode: "delivery-only",
+    runId: "run-candidate",
+    slug: "change",
+    repository: "acme/widget",
+    deliveryRemote: "origin",
+    headBranch: "codex/change",
+    baseBranch: "main",
+    pushUrlSha256: `sha256:${"8".repeat(64)}`,
+    preparedCommit: SHA_C,
+    manifestHashes: [],
+  });
+  transaction = bindReleaseEvidence(transaction, {
+    kind: "candidate",
+    commit: SHA_C,
+    artifact: ".pm/dev-sessions/change/candidate.json",
+    sha256: `sha256:${"9".repeat(64)}`,
+  });
+  const expected = verifyCanonicalCandidateAttestation({
+    session: {
+      run_id: "run-candidate",
+      candidate: {
+        state: "review-candidate",
+        invalidation: null,
+        gate_plan_identity: `sha256:${"1".repeat(64)}`,
+        repository_capability_identity: `sha256:${"2".repeat(64)}`,
+      },
+    },
+    transaction,
+    plan: {
+      head_commit: SHA_C,
+      base_commit: SHA_A,
+      merge_base_commit: SHA_A,
+      plan_digest: `sha256:${"1".repeat(64)}`,
+      capability_identity: `sha256:${"2".repeat(64)}`,
+      command_identity: `sha256:${"3".repeat(64)}`,
+      environment_identity: { id: "environment" },
+      adapter: { manager: { sha256: `sha256:${"4".repeat(64)}` } },
+      targeted_commands: ["targeted"],
+    },
+    gates: {
+      gates: [
+        {
+          name: "candidate",
+          status: "passed",
+          commit: SHA_C,
+          artifact: transaction.evidence.candidate.artifact,
+        },
+      ],
+    },
+  });
+  assert.deepEqual(expected.commands, ["targeted"]);
+  assert.deepEqual(expected.evidence, [
+    {
+      kind: "candidate",
+      path: transaction.evidence.candidate.artifact,
+      sha256: transaction.evidence.candidate.sha256,
+    },
+  ]);
 });
 
 const SHA_A = "a".repeat(40);

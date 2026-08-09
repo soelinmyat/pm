@@ -504,9 +504,10 @@ function attestCanonicalCandidateFiles(input, options = {}) {
   const transaction = readBoundJson(root, input.transaction);
   const plan = readBoundJson(root, input.plan);
   const gates = readBoundJson(root, input.gates);
-  const canonical = `.pm/dev-sessions/${transaction.slug}/ship/candidate-attestation.json`;
-  if (path.normalize(input.attestation) !== path.normalize(canonical))
+  const paths = canonicalDeliveryPaths(root, input, session, transaction);
+  if (path.resolve(root, input.attestation) !== paths.candidateAttestation)
     throw new Error("candidate attestation must use its canonical session ship path");
+  assertSafePrivateOutput(root, paths.candidateAttestation);
   verifyLiveRepository(root, plan, transaction);
   const expected = verifyCanonicalCandidateAttestation({ session, transaction, plan, gates });
   const bound = transaction.evidence.candidate;
@@ -541,7 +542,7 @@ function attestCanonicalCandidateFiles(input, options = {}) {
     },
     { signer: options.signer, signer_id: options.signerId }
   );
-  writePrivateJson(path.resolve(root, input.attestation), attestation);
+  writePrivateJson(root, paths.candidateAttestation, attestation);
   return attestation;
 }
 
@@ -612,8 +613,63 @@ function readBoundJson(root, relative, max = 1024 * 1024) {
   return JSON.parse(fs.readFileSync(absolute, "utf8"));
 }
 
-function writePrivateJson(filePath, value) {
+function canonicalDeliveryPaths(root, input, session, transaction) {
+  const slug = transaction?.slug;
+  if (
+    typeof slug !== "string" ||
+    !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(slug) ||
+    slug === "." ||
+    slug === ".."
+  )
+    throw new Error("release transaction slug must be one safe path segment");
+  if (!session?.run_id || session.run_id !== transaction.run_id)
+    throw new Error("canonical session and release transaction identity do not match");
+  const sessionRoot = path.join(root, ".pm", "dev-sessions", slug);
+  const shipRoot = path.join(sessionRoot, "ship");
+  const expectedInputs = {
+    session: path.join(sessionRoot, "session.json"),
+    transaction: path.join(shipRoot, "release-transaction.json"),
+    gates: path.join(sessionRoot, "gates.json"),
+    plan: path.join(shipRoot, "repository-delivery-plan.json"),
+  };
+  for (const [name, expected] of Object.entries(expectedInputs)) {
+    if (path.resolve(root, input[name]) !== expected)
+      throw new Error(`${name} must use the canonical session path`);
+  }
+  return {
+    ...expectedInputs,
+    shipRoot,
+    candidateAttestation: path.join(shipRoot, "candidate-attestation.json"),
+    certification: path.join(shipRoot, "final-certification.json"),
+    attestation: path.join(shipRoot, "delivery-attestation.json"),
+  };
+}
+
+function assertSafePrivateOutput(root, filePath) {
+  const rootReal = fs.realpathSync(root);
+  const relative = path.relative(rootReal, filePath);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative))
+    throw new Error("canonical output escapes project root");
+  let cursor = rootReal;
+  for (const segment of path.dirname(relative).split(path.sep).filter(Boolean)) {
+    cursor = path.join(cursor, segment);
+    if (!fs.existsSync(cursor)) break;
+    const stat = fs.lstatSync(cursor);
+    if (stat.isSymbolicLink() || !stat.isDirectory())
+      throw new Error("canonical output parent must be a real project directory");
+    const real = fs.realpathSync(cursor);
+    const rel = path.relative(rootReal, real);
+    if (rel.startsWith("..") || path.isAbsolute(rel))
+      throw new Error("canonical output parent escapes project root");
+  }
+  if (fs.existsSync(filePath) && fs.lstatSync(filePath).isSymbolicLink())
+    throw new Error("canonical output must not be a symlink");
+}
+
+function writePrivateJson(root, filePath, value) {
+  assertSafePrivateOutput(root, filePath);
   fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
+  assertSafePrivateOutput(root, filePath);
   const temporary = `${filePath}.tmp-${process.pid}-${crypto.randomBytes(8).toString("hex")}`;
   fs.writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600, flag: "wx" });
   fs.renameSync(temporary, filePath);
@@ -676,14 +732,14 @@ function finalizeCanonicalFiles(input, options = {}) {
   const gates = readBoundJson(root, input.gates);
   const plan = readBoundJson(root, input.plan);
   const context = { root, session, transaction, gates, plan };
-  const canonicalShip = `.pm/dev-sessions/${transaction.slug}/ship`;
+  const paths = canonicalDeliveryPaths(root, input, session, transaction);
   if (
-    path.normalize(input.certification) !==
-      path.normalize(`${canonicalShip}/final-certification.json`) ||
-    path.normalize(input.attestation) !==
-      path.normalize(`${canonicalShip}/delivery-attestation.json`)
+    path.resolve(root, input.certification) !== paths.certification ||
+    path.resolve(root, input.attestation) !== paths.attestation
   )
     throw new Error("certification and attestation must use their canonical session ship paths");
+  assertSafePrivateOutput(root, paths.certification);
+  assertSafePrivateOutput(root, paths.attestation);
   verifyLiveRepository(root, plan, transaction);
   const transitionedSession =
     typeof options.transitionSession === "function" ? options.transitionSession(session) : null;
@@ -694,7 +750,7 @@ function finalizeCanonicalFiles(input, options = {}) {
   const report = readBoundJson(root, transaction.evidence.review.artifact);
   if (report.outcome !== "passed" || (Array.isArray(report.findings) && report.findings.length > 0))
     throw new Error("canonical Review has not converged");
-  const certificationPath = path.resolve(root, input.certification);
+  const certificationPath = paths.certification;
   if (fs.existsSync(certificationPath))
     context.existingCertification = readBoundJson(root, input.certification);
   const result = finalizeDeliveryCandidate(context, {
@@ -705,7 +761,8 @@ function finalizeCanonicalFiles(input, options = {}) {
       throw new Error("production complete-plan executor was not provided by release transaction");
     },
   });
-  if (result.decision === "certified") writePrivateJson(certificationPath, result.certification);
+  if (result.decision === "certified")
+    writePrivateJson(root, certificationPath, result.certification);
   const effect = transaction.effects?.push;
   const attempt = effect?.attempts?.at(-1);
   if (effect?.status !== "attempting" || attempt?.status !== "attempting")
@@ -736,8 +793,8 @@ function finalizeCanonicalFiles(input, options = {}) {
     signer: options.signer,
     signer_id: options.signerId,
   });
-  writePrivateJson(path.resolve(root, input.attestation), attestation);
-  if (transitionedSession) writePrivateJson(path.resolve(root, input.session), transitionedSession);
+  writePrivateJson(root, paths.attestation, attestation);
+  if (transitionedSession) writePrivateJson(root, paths.session, transitionedSession);
   return { decision: result.decision, certification: result.certification, attestation };
 }
 

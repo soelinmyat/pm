@@ -39,8 +39,59 @@ test("release transaction binds a tagless prepared commit before final evidence"
   assert.equal(value.release.tag, "v1.2.4");
   assert.equal(value.release.prepared_commit, COMMIT);
   assert.equal(value.release.tag_created, false);
-  assert.deepEqual(value.evidence, { review: null, qa: null, verification: null });
+  assert.deepEqual(value.evidence, { candidate: null, review: null, qa: null, verification: null });
   assert.deepEqual(transactionIssues(value), []);
+});
+
+test("candidate evidence is optional, bindable, and generation-scoped", () => {
+  let value = transaction();
+  const legacy = structuredClone(value);
+  delete legacy.evidence.candidate;
+  assert.deepEqual(transactionIssues(legacy), []);
+  value = bindReleaseEvidence(value, {
+    kind: "candidate",
+    commit: COMMIT,
+    artifact: ".pm/dev-sessions/release-example/candidate.json",
+    sha256: `sha256:${"e".repeat(64)}`,
+    checkedAt: "2026-07-14T00:01:00.000Z",
+  });
+  assert.equal(value.evidence.candidate.commit, COMMIT);
+  assert.match(releaseReadiness(value).issues.join("; "), /missing review evidence/);
+  for (const kind of ["review", "qa", "verification"]) {
+    value = bindReleaseEvidence(value, {
+      kind,
+      commit: COMMIT,
+      artifact: `.pm/dev-sessions/release-example/${kind}.json`,
+      sha256: `sha256:${"f".repeat(64)}`,
+    });
+  }
+  assert.equal(releaseReadiness(value).ok, true);
+  value = advancePreparedCommit(value, {
+    commit: "e".repeat(40),
+    reason: "candidate changed",
+  });
+  assert.equal(value.evidence.candidate, null);
+});
+
+test("release transaction rejects traversal or multi-segment slugs", () => {
+  for (const slug of ["../escape", "nested/change", ".", ".."])
+    assert.throws(
+      () =>
+        createReleaseTransaction({
+          runId: "dev_release_1",
+          slug,
+          repository: "acme/widget",
+          deliveryRemote: "origin",
+          headBranch: "codex/release-example",
+          baseBranch: "main",
+          pushUrlSha256: `sha256:${"c".repeat(64)}`,
+          currentVersion: "1.2.3",
+          nextVersion: "1.2.4",
+          preparedCommit: COMMIT,
+          manifestHashes: [{ path: "plugin.config.json", sha256: `sha256:${"d".repeat(64)}` }],
+        }),
+      /slug/i
+    );
 });
 
 test("delivery-only transactions keep the same effect journal without inventing a tag", () => {
@@ -247,7 +298,7 @@ test("post-preparation commits preserve the old journal and invalidate current e
   assert.equal(value.release.prepared_commit, nextCommit);
   assert.equal(value.history[0].effects.push.status, "verified");
   assert.deepEqual(value.effects, {});
-  assert.deepEqual(value.evidence, { review: null, qa: null, verification: null });
+  assert.deepEqual(value.evidence, { candidate: null, review: null, qa: null, verification: null });
 });
 
 test("main tag cannot begin until merge is verified and conflicts never force move", () => {
