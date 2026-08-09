@@ -181,6 +181,7 @@
           "then": {
             "properties": {
               "authority": {
+                "type": "object",
                 "properties": {
                   "push_feature_branch": { "const": true },
                   "create_draft_pr": { "const": true }
@@ -191,6 +192,7 @@
           "else": {
             "properties": {
               "authority": {
+                "type": "object",
                 "properties": {
                   "push_feature_branch": { "const": false },
                   "create_draft_pr": { "const": false }

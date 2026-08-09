@@ -1936,9 +1936,30 @@ function upgradeCompatibleSession(input) {
   if (isObject(session.routing) && !Array.isArray(session.routing.decision_log)) {
     session.routing.decision_log = [];
   }
+  const loggedGrants = new Set(
+    session.authority_log
+      .filter((entry) => isObject(entry) && Array.isArray(entry.actions))
+      .flatMap((entry) => entry.actions.filter((action) => GRANTABLE_AUTHORITY.has(action)))
+  );
+  if (isObject(session.authority)) {
+    for (const action of GRANTABLE_AUTHORITY) {
+      session.authority[action] = session.authority[action] === true && loggedGrants.has(action);
+    }
+  }
   if (isObject(session.execution)) delete session.execution.capabilities;
   if (isObject(session.task) && !Object.hasOwn(session.task, "proposal"))
     session.task.proposal = null;
+  if (isObject(session.evidence)) {
+    for (const evidence of Object.values(session.evidence)) {
+      if (!isObject(evidence)) continue;
+      const hasLegacyRecertification = evidence.verified_commit || evidence.verified_at;
+      if (hasLegacyRecertification && !Array.isArray(evidence.verification_records)) {
+        delete evidence.verified_commit;
+        delete evidence.verified_at;
+        delete evidence.verification_records;
+      }
+    }
+  }
   const units = session.task?.work_units;
   let resetLegacyUnits = false;
   if (Array.isArray(units)) {
@@ -2005,6 +2026,11 @@ function upgradeCompatibleSession(input) {
       session.routing.reasons.push(
         "Legacy work-unit state was reset for safe reassignment and fresh gate evidence."
       );
+    }
+    if (isObject(session.evidence)) {
+      for (const phase of ["implementation", "design-critique", "qa", "review", "ship", "retro"]) {
+        delete session.evidence[phase];
+      }
     }
   }
   if (!Object.hasOwn(session, "migration")) session.migration = null;
