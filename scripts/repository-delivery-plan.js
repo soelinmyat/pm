@@ -9,6 +9,7 @@ const { discoverRepositoryCapabilities } = require("./lib/repository-capabilitie
 const { digest, planMaterial } = require("./lib/repository-gate-plan-schema");
 const { redactText } = require("./repository-environment-preflight");
 const { readProjectInput } = require("./lib/safe-project-output");
+const { isGitObjectId } = require("./lib/git-object-id");
 
 const MAX_INPUT = 1024 * 1024;
 
@@ -104,8 +105,6 @@ function matches(compiled, changedPath) {
   );
 }
 
-const SHA_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
-
 function validRef(ref) {
   if (
     typeof ref !== "string" ||
@@ -150,7 +149,8 @@ function validateGitPushInputs(remote, remoteUrl, refUpdates) {
     if (fields.length !== 4 || fields.some((field) => !field))
       throw new Error("Git ref update requires exactly four fields");
     if (!validRef(fields[0]) || !validRef(fields[2])) throw new Error("invalid Git ref name");
-    if (!SHA_RE.test(fields[1]) || !SHA_RE.test(fields[3])) throw new Error("invalid Git SHA");
+    if (!isGitObjectId(fields[1]) || !isGitObjectId(fields[3]))
+      throw new Error("invalid Git object ID");
   }
   return true;
 }

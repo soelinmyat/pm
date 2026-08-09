@@ -48,3 +48,15 @@ test("telemetry documentation names bounded private fields and exclusions", () =
     assert.match(text, new RegExp(phrase, "i"), phrase);
   assert.match(text, /never records?.*command output/i);
 });
+
+test("candidate contract marks effects before publication and supports both Git object formats", () => {
+  const text = fs.readFileSync(
+    path.join(ROOT, "skills/ship/references/review-candidate-contract.md"),
+    "utf8"
+  );
+  const marker = text.indexOf("Record `candidate-effect`");
+  const publish = text.indexOf("Publish the exact head");
+  assert.ok(marker >= 0 && publish >= 0 && marker < publish);
+  assert.match(text, /40- or 64-character Git object ID/);
+  assert.doesNotMatch(text, /one 40-character feature-head SHA/);
+});

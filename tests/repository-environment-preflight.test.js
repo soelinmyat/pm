@@ -8,12 +8,14 @@ const path = require("node:path");
 const childProcess = require("node:child_process");
 const {
   constraintsIntersect,
+  defaultProbeRunner,
   verifyEnvironment,
   validateProbeDeclaration,
   keyedIdentity,
   redactText,
   satisfies,
 } = require("../scripts/repository-environment-preflight");
+const { stableObjectHmac } = require("../scripts/lib/stable-authentication");
 
 test("constraint intersection is independent of comparator order", () => {
   assert.equal(
@@ -234,6 +236,29 @@ test("wrong Postgres target, timeout, oversized output, probe failure, and secre
   assert.equal(huge.status, "blocked");
 });
 
+test("Postgres process failures never expose connection identities", () => {
+  const probe = {
+    adapter: "postgres-identity-v1",
+    provenance: "authenticated",
+    expected: { database: "expected-db" },
+  };
+  assert.throws(
+    () =>
+      defaultProbeRunner(probe, {
+        spawnSync: () => ({
+          status: 2,
+          stderr:
+            'psql: connection to server "db.internal" (10.0.0.5) failed: database "secret-db" user "secret-user"',
+        }),
+      }),
+    (error) => {
+      assert.match(error.message, /probe process failed/);
+      assert.doesNotMatch(error.message, /db\.internal|10\.0\.0\.5|secret-db|secret-user/);
+      return true;
+    }
+  );
+});
+
 test("probe identity requires a machine-local secret and binds executable realpath/version", () => {
   const plan = basePlan({
     expectations: {
@@ -353,6 +378,10 @@ test("keyed service identity is stable without persisting secrets", () => {
   assert.equal(one, two);
   assert.match(one, /^hmac-sha256:/);
   assert.doesNotMatch(one, /cleanlog|local/);
+  assert.equal(
+    one,
+    stableObjectHmac({ database: "cleanlog", server: "local" }, Buffer.alloc(32, 7))
+  );
   assert.equal(
     redactText("postgresql://alice:secret@db/prod password=hunter2"),
     "[REDACTED_DSN] password=[REDACTED]"

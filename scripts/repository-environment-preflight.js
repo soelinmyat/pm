@@ -3,10 +3,10 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const crypto = require("node:crypto");
 const childProcess = require("node:child_process");
 const semver = require("semver");
 const { stable, digest } = require("./lib/repository-gate-plan-schema");
+const { stableObjectHmac } = require("./lib/stable-authentication");
 
 const ALLOWED_PROBE_KEYS = new Set([
   "adapter",
@@ -133,7 +133,7 @@ function defaultProbeRunner(probe, options = {}) {
   const env = {};
   for (const name of ["PATH", "PGHOST", "PGPORT", "PGDATABASE", "PGUSER", "PGSSLMODE"])
     if (options.env?.[name] !== undefined) env[name] = options.env[name];
-  const result = childProcess.spawnSync(
+  const result = (options.spawnSync || childProcess.spawnSync)(
     options.executable?.realpath || options.executable?.path || "psql",
     [
       "--no-psqlrc",
@@ -152,7 +152,7 @@ function defaultProbeRunner(probe, options = {}) {
     }
   );
   if (result.error || result.status !== 0)
-    throw new Error(redactText(result.error?.message || result.stderr || "probe failed"));
+    throw new Error("probe process failed; details redacted");
   if (Buffer.byteLength(result.stdout || "") > 8192) throw new Error("probe output exceeded limit");
   const fields = String(result.stdout).trim().split("|");
   if (fields.length !== 3) throw new Error("probe returned malformed fields");
@@ -160,13 +160,9 @@ function defaultProbeRunner(probe, options = {}) {
 }
 
 function keyedIdentity(value, key) {
-  const keyBytes = Buffer.isBuffer(key) ? key : Buffer.from(String(key || ""));
-  if (keyBytes.length < 32)
-    throw new Error("machine-local identity secret must be at least 32 bytes");
-  return `hmac-sha256:${crypto
-    .createHmac("sha256", keyBytes)
-    .update(JSON.stringify(stable(value)))
-    .digest("hex")}`;
+  const identity = stableObjectHmac(value, key);
+  if (!identity) throw new Error("machine-local identity secret must be at least 32 bytes");
+  return identity;
 }
 function identityFor(resolved, env, services = [], probeExecutables = []) {
   return {

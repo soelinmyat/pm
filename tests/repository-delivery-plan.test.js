@@ -25,6 +25,15 @@ test("NUL-delimited Git path output preserves Unicode and embedded newlines", ()
   ]);
 });
 
+test("delivery planning reuses the shared Git object-ID contract", () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, "../scripts/repository-delivery-plan.js"),
+    "utf8"
+  );
+  assert.match(source, /require\("\.\/lib\/git-object-id"\)/);
+  assert.doesNotMatch(source, /SHA_RE/);
+});
+
 test("delivery planning compiles each unique command glob only once", () => {
   let compilations = 0;
   buildDeliveryPlan({

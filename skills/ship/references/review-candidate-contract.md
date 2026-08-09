@@ -23,8 +23,9 @@ The optimized route performs only these actions before review convergence:
 1. Run current local diff Review on the exact feature head.
 2. Re-run environment preflight and execute the plan's targeted repository-native commands with faithful Git hook inputs.
 3. Transition the canonical candidate to `review-candidate` and require its internal authority ceiling to be `push_feature_branch: true`, `create_draft_pr: true`, and every certification/readiness/merge field false. This state never grants user authority; canonical `authority.push_feature_branch` and `authority.create_pr` must also permit the actions.
-4. Publish the exact head using only the hash-bound repository candidate-push contract, then create or reconcile a **draft** PR for the contracted repository/head/base.
-5. Record the external-effect start and transition to `reviewing`.
+4. Record `candidate-effect` immediately before candidate attestation and the first external effect. This permanently closes rollback to the v2 session snapshot.
+5. Publish the exact head using only the hash-bound repository candidate-push contract, then create or reconcile a **draft** PR for the contracted repository/head/base.
+6. After the remote head and draft PR are independently observed, transition to `reviewing`.
 
 Never mark the PR ready, arm auto-merge, claim final certification, or enter the merge loop at this boundary. If an existing matching PR is not a draft, stop rather than silently weakening the boundary.
 
@@ -34,7 +35,7 @@ Persist the private convergence record under `.pm/dev-sessions/{slug}/ship/revie
 
 The record binds:
 
-- one 40-character feature-head SHA;
+- one full 40- or 64-character Git object ID for the feature head;
 - one SHA-256 requirement-set hash;
 - the sorted, deduplicated required-source set;
 - one outcome per required source (`pending`, `passed`, `blocking`, or `unavailable`);
