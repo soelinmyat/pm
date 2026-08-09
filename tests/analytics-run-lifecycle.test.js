@@ -67,7 +67,7 @@ function setupRepo() {
 }
 
 function makeOwnedGroomArtifact(repo, slug) {
-  const branch = `codex/${slug.endsWith("-groom") ? slug : `${slug}-groom`}`;
+  const branch = `codex/${slug}-groom`;
   const worktree = path.join(repo, ".owned", slug);
   execFileSync("git", ["remote", "add", "origin", repo], { cwd: repo });
   execFileSync("git", ["worktree", "add", "-q", "-b", branch, worktree], { cwd: repo });

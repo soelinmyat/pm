@@ -29,9 +29,23 @@ const {
   recordResult,
   resumeBlocked,
   reviseSession,
+  upgradeCompatibleSession,
   validateSession,
   verifyArtifact,
 } = require("../scripts/lib/rfc-session-schema");
+
+test("legacy RFC sessions remain resumable without claiming helper ownership", () => {
+  const repo = makeRepo();
+  try {
+    const legacy = createSession({ slug: "safe-approval", sourceDir: repo.root });
+    delete legacy.context.artifact_ownership;
+    const upgraded = upgradeCompatibleSession(legacy);
+    assert.equal(upgraded.context.artifact_ownership, null);
+    assert.deepEqual(validateSession(upgraded), []);
+  } finally {
+    repo.cleanup();
+  }
+});
 const {
   createSession: createDevSession,
   validateResult: validateDevResult,
@@ -324,6 +338,31 @@ test("fresh RFC context rejects missing and unowned artifact repositories", () =
   } finally {
     source.cleanup();
     unowned.cleanup();
+  }
+});
+
+test("RFC resume rejects drifted helper-owned artifact identity", () => {
+  const repo = makeRepo();
+  const replacement = makeRepo();
+  try {
+    const session = applyContext(createSession({ slug: "safe-approval", sourceDir: repo.root }), {
+      source_kind: "proposal",
+      proposal_path: path.join(repo.root, "proposal.md"),
+      size: "M",
+      acceptance_criteria: ["Resume only in the recorded artifact worktree"],
+      artifact_repo_root: repo.root,
+    });
+    execFileSync("git", ["remote", "set-url", "--push", "origin", replacement.root], {
+      cwd: repo.root,
+    });
+
+    assert.throws(
+      () => nextDecision(session, "/tmp/session.json"),
+      /delivery URL identity changed/
+    );
+  } finally {
+    repo.cleanup();
+    replacement.cleanup();
   }
 });
 
@@ -1211,7 +1250,7 @@ function makeRepo() {
 }
 
 function markOwnedRfcRoot(root, slug) {
-  const branch = `codex/${slug.endsWith("-rfc") ? slug : `${slug}-rfc`}`;
+  const branch = `codex/${slug}-rfc`;
   execFileSync("git", ["branch", "-M", branch], { cwd: root });
   const remotes = execFileSync("git", ["remote"], { cwd: root, encoding: "utf8" })
     .split(/\r?\n/)

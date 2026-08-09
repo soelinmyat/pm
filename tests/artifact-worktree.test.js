@@ -10,6 +10,7 @@ const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
 
 const {
+  artifactBranch,
   prepareArtifactWorktree,
   resolveRemoteDefaultBranch,
 } = require("../scripts/artifact-worktree.js");
@@ -75,6 +76,62 @@ test("artifact preparation leaves a dirty feature checkout untouched and branche
   assert.equal(git(seeded.shared, "branch", "--show-current"), beforeBranch);
   assert.equal(git(seeded.shared, "status", "--porcelain=v1"), beforeStatus);
   assert.equal(fs.existsSync(path.join(prepared.worktree, "other.md")), false);
+});
+
+test("artifact branch names preserve the complete slug identity", () => {
+  assert.equal(artifactBranch("analytics", "rfc"), "codex/analytics-rfc");
+  assert.equal(artifactBranch("analytics-rfc", "rfc"), "codex/analytics-rfc-rfc");
+  assert.notEqual(artifactBranch("analytics", "rfc"), artifactBranch("analytics-rfc", "rfc"));
+});
+
+test("RFC preparation inherits the committed proposal from its owned Groom worktree", (t) => {
+  const seeded = fixture();
+  t.after(seeded.cleanup);
+  const groom = prepareArtifactWorktree({
+    pmDir: seeded.shared,
+    slug: "handoff",
+    kind: "groom",
+  });
+  const proposal = path.join(groom.worktree, "pm/backlog/proposals/handoff.md");
+  fs.mkdirSync(path.dirname(proposal), { recursive: true });
+  fs.writeFileSync(proposal, "# Approved handoff\n");
+  git(groom.worktree, "add", "pm/backlog/proposals/handoff.md");
+  git(groom.worktree, "commit", "-m", "approve handoff proposal");
+  const groomCommit = git(groom.worktree, "rev-parse", "HEAD");
+
+  const rfc = prepareArtifactWorktree({
+    pmDir: seeded.shared,
+    slug: "handoff",
+    kind: "rfc",
+  });
+
+  assert.equal(rfc.base_commit, groomCommit);
+  assert.equal(rfc.inherited_from, groom.branch);
+  assert.equal(
+    fs.readFileSync(path.join(rfc.worktree, "pm/backlog/proposals/handoff.md"), "utf8"),
+    "# Approved handoff\n"
+  );
+});
+
+test("RFC handoff refuses uncommitted Groom artifact bytes", (t) => {
+  const seeded = fixture();
+  t.after(seeded.cleanup);
+  const groom = prepareArtifactWorktree({
+    pmDir: seeded.shared,
+    slug: "dirty-handoff",
+    kind: "groom",
+  });
+  fs.writeFileSync(path.join(groom.worktree, "uncommitted.md"), "not yet approved\n");
+
+  assert.throws(
+    () =>
+      prepareArtifactWorktree({
+        pmDir: seeded.shared,
+        slug: "dirty-handoff",
+        kind: "rfc",
+      }),
+    /uncommitted changes/
+  );
 });
 
 test("artifact preparation observes a remote default-branch change instead of trusting stale origin HEAD", (t) => {

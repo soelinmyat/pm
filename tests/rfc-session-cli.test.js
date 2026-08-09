@@ -607,7 +607,7 @@ function makeRepo() {
 }
 
 function markOwnedRfcRoot(root, slug) {
-  const branch = `codex/${slug.endsWith("-rfc") ? slug : `${slug}-rfc`}`;
+  const branch = `codex/${slug}-rfc`;
   if (
     execFileSync("git", ["branch", "--show-current"], { cwd: root, encoding: "utf8" }).trim() !==
     branch

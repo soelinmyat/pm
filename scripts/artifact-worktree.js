@@ -57,8 +57,27 @@ function remoteUrlHash(remoteUrl) {
 
 function artifactBranch(slug, kind) {
   const normalized = normalizeSlug(slug);
-  const suffix = normalized.endsWith(`-${kind}`) ? normalized : `${normalized}-${kind}`;
-  return `codex/${suffix}`;
+  return `codex/${normalized}-${kind}`;
+}
+
+function groomHandoffBase(observedRoot, worktrees, slug) {
+  const branch = artifactBranch(slug, "groom");
+  const registered = worktrees.find((item) => item.branch === branch);
+  if (!registered) return null;
+  const ownership = verifyArtifactWorktreeOwnership({
+    worktree: registered.path,
+    slug,
+    kind: "groom",
+  });
+  if (git(ownership.worktree, ["status", "--porcelain=v1"])) {
+    throw new Error(
+      `Groom artifact worktree '${branch}' has uncommitted changes; commit the approved proposal before RFC handoff`
+    );
+  }
+  return {
+    branch,
+    commit: git(ownership.worktree, ["rev-parse", "HEAD"]),
+  };
 }
 
 function resolveRemoteDefaultBranch(repoRoot, remote, remoteUrl = deliveryUrl(repoRoot, remote)) {
@@ -168,6 +187,7 @@ function prepareArtifactWorktree(options) {
     const remoteKey = `branch.${branch}.pmArtifactRemote`;
     const defaultKey = `branch.${branch}.pmArtifactDefaultBranch`;
     const urlHashKey = `branch.${branch}.pmArtifactRemoteUrlSha256`;
+    const inheritedKey = `branch.${branch}.pmArtifactInheritedFrom`;
     const branchExists = gitMaybe(observedRoot, [
       "show-ref",
       "--verify",
@@ -179,6 +199,7 @@ function prepareArtifactWorktree(options) {
     const ownedRemote = gitMaybe(observedRoot, ["config", "--get", remoteKey]);
     const ownedDefault = gitMaybe(observedRoot, ["config", "--get", defaultKey]);
     const ownedUrlHash = gitMaybe(observedRoot, ["config", "--get", urlHashKey]);
+    const ownedInherited = gitMaybe(observedRoot, ["config", "--get", inheritedKey]);
     if (
       branchExists &&
       (!ownedBase.ok ||
@@ -215,6 +236,7 @@ function prepareArtifactWorktree(options) {
         default_branch: defaultBranch,
         base_ref: remote && defaultBranch ? `${remote}/${defaultBranch}` : null,
         base_commit: ownedBase.output,
+        inherited_from: ownedInherited.ok ? ownedInherited.output : null,
         repo_root: worktree,
         worktree,
         pm_dir: path.join(worktree, contentRelative),
@@ -231,6 +253,7 @@ function prepareArtifactWorktree(options) {
     let defaultBranch = ownedDefault.ok ? ownedDefault.output : null;
     let baseRef = remote && defaultBranch ? `${remote}/${defaultBranch}` : null;
     let baseCommit = ownedBase.ok ? ownedBase.output : null;
+    let inheritedFrom = ownedInherited.ok ? ownedInherited.output : null;
     try {
       if (branchExists) {
         git(observedRoot, ["worktree", "add", "--", target, branch]);
@@ -240,13 +263,21 @@ function prepareArtifactWorktree(options) {
         defaultBranch = resolveRemoteDefaultBranch(observedRoot, remote, remoteUrl);
         baseRef = `${remote}/${defaultBranch}`;
         baseCommit = git(observedRoot, ["rev-parse", "--verify", baseRef]);
-        git(observedRoot, ["worktree", "add", "--no-track", "-b", branch, target, baseRef]);
+        const handoff =
+          options.kind === "rfc" ? groomHandoffBase(observedRoot, worktrees, slug) : null;
+        if (handoff) {
+          baseRef = handoff.branch;
+          baseCommit = handoff.commit;
+          inheritedFrom = handoff.branch;
+        }
+        git(observedRoot, ["worktree", "add", "--no-track", "-b", branch, target, baseCommit]);
         createdBranch = true;
         git(observedRoot, ["config", baseKey, baseCommit]);
         git(observedRoot, ["config", kindKey, options.kind]);
         git(observedRoot, ["config", remoteKey, remote]);
         git(observedRoot, ["config", defaultKey, defaultBranch]);
         git(observedRoot, ["config", urlHashKey, remoteUrlHash(remoteUrl)]);
+        if (inheritedFrom) git(observedRoot, ["config", inheritedKey, inheritedFrom]);
       }
     } catch (error) {
       gitMaybe(observedRoot, ["worktree", "remove", "--force", "--", target]);
@@ -257,6 +288,7 @@ function prepareArtifactWorktree(options) {
         gitMaybe(observedRoot, ["config", "--unset-all", remoteKey]);
         gitMaybe(observedRoot, ["config", "--unset-all", defaultKey]);
         gitMaybe(observedRoot, ["config", "--unset-all", urlHashKey]);
+        gitMaybe(observedRoot, ["config", "--unset-all", inheritedKey]);
       }
       throw error;
     }
@@ -270,6 +302,7 @@ function prepareArtifactWorktree(options) {
       default_branch: defaultBranch,
       base_ref: baseRef,
       base_commit: baseCommit,
+      inherited_from: inheritedFrom,
       repo_root: worktree,
       worktree,
       pm_dir: path.join(worktree, contentRelative),

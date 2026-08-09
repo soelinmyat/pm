@@ -59,7 +59,8 @@
         "linear_id",
         "size",
         "acceptance_criteria",
-        "artifact_repo_root"
+        "artifact_repo_root",
+        "artifact_ownership"
       ],
       "properties": {
         "configured": { "type": "boolean" },
@@ -107,7 +108,8 @@
         "acceptance_criteria": { "type": "array", "items": { "type": "string", "minLength": 1 } },
         "artifact_repo_root": {
           "oneOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }]
-        }
+        },
+        "artifact_ownership": { "enum": ["helper-v1", null] }
       }
     },
     "artifact": { "anyOf": [{ "$ref": "#/$defs/artifact" }, { "type": "null" }] },

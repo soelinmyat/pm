@@ -227,6 +227,7 @@ function applyContext(session, facts, options = {}) {
 
 function nextDecision(session, sessionPath) {
   assertValidSession(session);
+  verifySourceIdentity(session);
   const pluginRoot = path.resolve(__dirname, "..", "..");
   const step = loadPhaseStep("groom", session.phase, session.source.repo_root, pluginRoot);
   return {
@@ -1084,17 +1085,6 @@ function assertValidSession(session) {
     throw new Error(
       `invalid Groom session: ${errors.map((entry) => `${entry.path} ${entry.message}`).join("; ")}`
     );
-  if (session.context?.configured && session.context.artifact_repo_root) {
-    try {
-      verifyArtifactWorktreeOwnership({
-        worktree: session.context.artifact_repo_root,
-        slug: session.slug,
-        kind: "groom",
-      });
-    } catch (error) {
-      throw new Error(`invalid Groom artifact_repo_root: ${error.message}`);
-    }
-  }
 }
 function validateClosedRecord(value, fields, objectPath, errors) {
   if (!isObject(value)) errors.push(issue(objectPath, "invalid"));
@@ -1139,6 +1129,17 @@ function verifySourceIdentity(session) {
     gitValue(session.source.worktree, ["branch", "--show-current"], "detached") || "detached";
   if (branch !== session.source.branch)
     throw new Error(`Groom source branch changed from ${session.source.branch} to ${branch}`);
+  if (session.context?.configured && session.context.artifact_repo_root) {
+    try {
+      verifyArtifactWorktreeOwnership({
+        worktree: session.context.artifact_repo_root,
+        slug: session.slug,
+        kind: "groom",
+      });
+    } catch (error) {
+      throw new Error(`invalid Groom artifact_repo_root: ${error.message}`);
+    }
+  }
 }
 function assertWithin(root, candidate, label) {
   const relative = path.relative(fs.realpathSync(root), fs.realpathSync(candidate));
