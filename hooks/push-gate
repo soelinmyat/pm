@@ -30,6 +30,8 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
+const crypto = require("node:crypto");
 const { spawnSync } = require("node:child_process");
 
 const PM_PLUGIN_ROOT =
@@ -43,7 +45,11 @@ const { readProjectInput } = require(
 const { validateSession } = require(
   path.join(HOOK_ROOT, "scripts", "lib", "dev-session-schema.js")
 );
-const { verifyPushBypass } = require(path.join(HOOK_ROOT, "scripts", "delivery-attestation.js"));
+const {
+  consumePushAuthorization,
+  deriveBypassPurposes,
+  verifyCanonicalDeliveryAttestation,
+} = require(path.join(HOOK_ROOT, "scripts", "delivery-attestation.js"));
 
 // The 1MB spawnSync default ENOBUFS'd on a large (e.g. 200k-row) manifest, which
 // under fail-open silently allowed the push. Give the checker plenty of room; if
@@ -2214,10 +2220,12 @@ function gatePush(baseCwd, push) {
       blockUnverified(branch, manifestRel, destination.error);
       return true;
     }
-    if (push.bypassPurpose) {
+    let bypassConsumption = null;
+    if (push.bypassRequested?.lefthook || push.bypassRequested?.skipReview) {
       const attestationPath = path.join(canonicalSessionDir, "ship", "delivery-attestation.json");
       let attestation;
       try {
+        const purposes = deriveBypassPurposes(session.candidate, push.bypassRequested);
         const stat = fs.lstatSync(attestationPath);
         if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 1024 * 1024)
           throw new Error("attestation is not a bounded regular file");
@@ -2227,18 +2235,75 @@ function gatePush(baseCwd, push) {
           ["remote", "get-url", "--push", "--", destination.remote],
           gitDir
         );
-        const verdict = verifyPushBypass(
+        const transaction = JSON.parse(
+          fs.readFileSync(
+            path.join(canonicalSessionDir, "ship", "release-transaction.json"),
+            "utf8"
+          )
+        );
+        const plan = JSON.parse(
+          fs.readFileSync(
+            path.join(canonicalSessionDir, "ship", "repository-delivery-plan.json"),
+            "utf8"
+          )
+        );
+        const gates = JSON.parse(
+          fs.readFileSync(path.join(canonicalSessionDir, "gates.json"), "utf8")
+        );
+        const derived = verifyCanonicalDeliveryAttestation({
+          root: repoDir,
+          session,
+          transaction,
+          plan,
+          gates,
+        });
+        const publicKeyPath = path.join(os.homedir(), ".pm", "delivery-attestation-public.pem");
+        const publicKeyStat = fs.lstatSync(publicKeyPath);
+        if (
+          !publicKeyStat.isFile() ||
+          publicKeyStat.isSymbolicLink() ||
+          publicKeyStat.size > 64 * 1024
+        )
+          throw new Error("trusted public key is unavailable");
+        const publicKey = crypto.createPublicKey(fs.readFileSync(publicKeyPath));
+        const remoteState = spawnSync(
+          "git",
+          ["ls-remote", "--refs", "--", remoteUrl, `refs/heads/${branch}`],
+          { cwd: repoDir, encoding: "utf8", shell: false, timeout: 30_000, maxBuffer: 8192 }
+        );
+        if (remoteState.status !== 0) throw new Error("live remote old OID is unavailable");
+        const oldOid = remoteState.stdout.trim().split(/\s+/, 1)[0] || "0".repeat(40);
+        const attempt = transaction.effects?.push?.attempts?.at(-1);
+        const consumptionDir = path.join(canonicalSessionDir, "ship", "push-authorizations");
+        const verdict = consumePushAuthorization(
           attestation,
           {
+            ...derived,
             canonical_path: path.relative(repoDir, attestationPath).split(path.sep).join("/"),
-            purpose: push.bypassPurpose,
+            purpose: purposes[0],
+            purposes,
             commit: pushedSha,
             branch,
             remote: destination.remote,
             remote_url: remoteUrl,
+            old_oid: oldOid,
+            generation: transaction.generation,
+            push_attempt: attempt?.number,
+            protected_policy_commit: plan.base_commit,
             now: new Date(),
           },
-          { key: process.env.PM_DELIVERY_ATTESTATION_KEY, root: repoDir }
+          {
+            publicKey,
+            root: repoDir,
+            consume: (authorizationId) => {
+              bypassConsumption = {
+                directory: consumptionDir,
+                name: crypto.createHash("sha256").update(authorizationId).digest("hex"),
+                value: `${transaction.generation}:${attempt?.number}\n`,
+              };
+              return true;
+            },
+          }
         );
         if (!verdict.reusable) throw new Error(verdict.reason);
       } catch (error) {
@@ -2263,7 +2328,31 @@ function gatePush(baseCwd, push) {
       blockUnverified(branch, manifestRel, detail);
       return true;
     }
-    if (result.status === 0) return false;
+    if (result.status === 0) {
+      if (bypassConsumption) {
+        fs.mkdirSync(bypassConsumption.directory, { recursive: true, mode: 0o700 });
+        try {
+          const descriptor = fs.openSync(
+            path.join(bypassConsumption.directory, `${bypassConsumption.name}.used`),
+            "wx",
+            0o600
+          );
+          fs.writeFileSync(descriptor, bypassConsumption.value);
+          fs.closeSync(descriptor);
+        } catch (error) {
+          if (error.code === "EEXIST") {
+            blockUnverified(
+              branch,
+              manifestRel,
+              "delivery bypass authorization was already consumed"
+            );
+            return true;
+          }
+          throw error;
+        }
+      }
+      return false;
+    }
     blockFailingGate(branch, manifestRel, `${result.stdout || ""}${result.stderr || ""}`);
     return true;
   } catch (err) {
@@ -2316,12 +2405,13 @@ function main() {
     process.cwd();
   const pushes = detectGitPushes(command, baseCwd);
   if (pushes.length === 0) return allow();
-  const bypassPurpose = /(?:^|[\s;])LEFTHOOK=0(?:[\s;]|$)/.test(command)
-    ? "final-hook-bypass"
-    : /(?:^|[\s;])SKIP_CODEX_REVIEW=1(?:[\s;]|$)/.test(command)
-      ? "review-bypass"
-      : null;
-  for (const push of pushes) push.bypassPurpose = bypassPurpose;
+  const bypassRequested = {
+    lefthook: /(?:^|[\s;])LEFTHOOK=0(?:[\s;]|$)/.test(command) || process.env.LEFTHOOK === "0",
+    skipReview:
+      /(?:^|[\s;])SKIP_CODEX_REVIEW=1(?:[\s;]|$)/.test(command) ||
+      process.env.SKIP_CODEX_REVIEW === "1",
+  };
+  for (const push of pushes) push.bypassRequested = bypassRequested;
   for (const push of pushes) if (gatePush(baseCwd, push)) return;
   return allow();
 }

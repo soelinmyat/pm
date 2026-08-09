@@ -4,10 +4,12 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const os = require("node:os");
 const { spawnSync } = require("node:child_process");
 const { writeJsonAtomic } = require("./lib/atomic-file");
 const { acquireOwnedLock } = require("./lib/owned-lock");
-const { verifyDeliveryAttestation } = require("./delivery-attestation");
+const { verifyDeliveryAttestation, finalizeCanonicalFiles } = require("./delivery-attestation");
+const { transitionCandidate, validateSession } = require("./lib/dev-session-schema");
 const {
   bindReleaseEvidence,
   beginEffect,
@@ -67,7 +69,12 @@ function runCommand(args, options = {}) {
         commit: transaction.release.prepared_commit,
         now: new Date(),
       },
-      { key: process.env.PM_DELIVERY_ATTESTATION_KEY, root: cwd }
+      {
+        publicKey: crypto.createPublicKey(
+          fs.readFileSync(path.join(os.homedir(), ".pm", "delivery-attestation-public.pem"))
+        ),
+        root: cwd,
+      }
     );
     if (!verdict.reusable)
       throw new Error(`delivery attestation is not reusable: ${verdict.reason}`);
@@ -78,6 +85,84 @@ function runCommand(args, options = {}) {
       prepared_commit: transaction.release.prepared_commit,
       authorization_id: verdict.authorization_id,
     };
+  }
+  if (args.command === "finalize-candidate") {
+    const canonicalRequest = {
+      schema_version: 1,
+      kind: "canonical-delivery-finalization-v1",
+      repository_root: cwd,
+      session: args.session,
+      transaction: args.transaction,
+      gates: args.gates,
+      plan: args.plan,
+      certification: args.certification,
+      attestation: args.attestation,
+    };
+    const signer = machineSigner(canonicalRequest);
+    const runner = path.join(__dirname, "repository-gate-runner.js");
+    const result = finalizeCanonicalFiles(
+      {
+        root: cwd,
+        session: args.session,
+        transaction: args.transaction,
+        gates: args.gates,
+        plan: args.plan,
+        certification: args.certification,
+        attestation: args.attestation,
+      },
+      {
+        signer: signer.sign,
+        signerId: signer.identity,
+        transitionSession: (session) => {
+          const issues = validateSession(session);
+          if (issues.length) throw new Error("canonical Dev session is invalid");
+          if (session.candidate.state === "certifying") return session;
+          return transitionCandidate(session, {
+            state: "certifying",
+            reason: "Complete final candidate certification passed",
+          });
+        },
+        runComplete: () => {
+          const childEnv = { ...process.env };
+          for (const name of Object.keys(childEnv))
+            if (/PM_DELIVERY_(?:ATTESTATION|SIGN|PRIVATE)/.test(name)) delete childEnv[name];
+          const executed = spawnSync(
+            process.execPath,
+            [
+              runner,
+              "--plan",
+              path.resolve(cwd, args.plan),
+              "--mode",
+              "complete",
+              "--expected-plan-digest",
+              readJson(path.resolve(cwd, args.plan), "repository plan").plan_digest,
+              "--expected-capability-identity",
+              readJson(path.resolve(cwd, args.plan), "repository plan").capability_identity,
+              "--discovery-receipt",
+              path.resolve(cwd, args.discovery_receipt),
+              "--discovery-receipt-sha256",
+              args.discovery_receipt_sha256,
+            ],
+            {
+              cwd,
+              encoding: "utf8",
+              shell: false,
+              env: childEnv,
+              timeout: 60 * 60 * 1000,
+              maxBuffer: 1024 * 1024,
+            }
+          );
+          if (executed.status !== 0)
+            throw new Error(`complete repository plan failed: ${executed.stderr}`);
+          const output = JSON.parse(executed.stdout);
+          return {
+            outcome: output.status === "passed" ? "passed" : "failed",
+            evidence: [{ kind: "complete-plan", identity: output.preflight_identity }],
+          };
+        },
+      }
+    );
+    return { ok: true, ...result };
   }
   return mutateTransaction(transactionPath, (transaction) => {
     if (args.command === "plan") {
@@ -288,6 +373,46 @@ function readJson(filePath, label) {
     throw new Error(`cannot read ${label} ${filePath}: ${error.message}`);
   }
   return value;
+}
+
+function machineSigner(canonicalRequest) {
+  const directory = path.join(os.homedir(), ".pm");
+  const helper = path.join(directory, "delivery-attestation-signer");
+  const publicKeyPath = path.join(directory, "delivery-attestation-public.pem");
+  for (const filePath of [helper, publicKeyPath]) {
+    const stat = fs.lstatSync(filePath);
+    if (
+      !stat.isFile() ||
+      stat.isSymbolicLink() ||
+      stat.size > 64 * 1024 ||
+      (stat.mode & 0o022) !== 0
+    )
+      throw new Error("trusted external delivery signer is unavailable");
+  }
+  const publicKey = crypto.createPublicKey(fs.readFileSync(publicKeyPath));
+  return {
+    identity: digestText(publicKey.export({ type: "spki", format: "der" })),
+    sign(bytes) {
+      const request = {
+        ...canonicalRequest,
+        requested_material_sha256: digestText(bytes),
+      };
+      const result = spawnSync(helper, ["sign-canonical-finalization"], {
+        input: `${JSON.stringify(request)}\n`,
+        encoding: "utf8",
+        shell: false,
+        env: { PATH: "/usr/bin:/bin" },
+        timeout: 5000,
+        maxBuffer: 8192,
+      });
+      if (result.status !== 0 || !result.stdout?.length)
+        throw new Error("trusted external delivery signer failed");
+      const signature = Buffer.from(result.stdout.trim(), "base64");
+      if (!crypto.verify(null, bytes, publicKey, signature))
+        throw new Error("trusted external delivery signer returned an invalid signature");
+      return signature;
+    },
+  };
 }
 
 function relative(root, filePath) {

@@ -4,6 +4,8 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const childProcess = require("node:child_process");
+const os = require("node:os");
 
 const SHA = /^[0-9a-f]{40,64}$/i;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
@@ -28,6 +30,19 @@ function authentication(value, key) {
   return `hmac-sha256:${crypto
     .createHmac("sha256", bytes)
     .update(JSON.stringify(stable(material)))
+    .digest("hex")}`;
+}
+
+function materialBytes(value) {
+  const material = { ...value };
+  delete material.authentication;
+  return Buffer.from(JSON.stringify(stable(material)));
+}
+
+function digest(value) {
+  return `sha256:${crypto
+    .createHash("sha256")
+    .update(JSON.stringify(stable(value)))
     .digest("hex")}`;
 }
 
@@ -120,9 +135,14 @@ function createDeliveryAttestation(input, options = {}) {
       `${a.kind}:${a.path}`.localeCompare(`${b.kind}:${b.path}`)
     ),
   };
+  if (typeof options.signer === "function") value.signer_id = options.signer_id;
   const issues = validateMaterial(value);
   if (issues.length) throw new Error(issues.join("; "));
-  return { ...value, authentication: authentication(value, options.key) };
+  const signature =
+    typeof options.signer === "function"
+      ? `ed25519:${Buffer.from(options.signer(materialBytes(value))).toString("base64")}`
+      : authentication(value, options.key);
+  return { ...value, authentication: signature };
 }
 
 function denied(reason) {
@@ -155,6 +175,81 @@ function verifyCanonicalEvidence(value, root) {
   return null;
 }
 
+function sha256File(filePath) {
+  return `sha256:${crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex")}`;
+}
+
+function verifyProtectedPolicy(value, expected, options) {
+  if (!options.publicKey) return "trusted attestation public key is unavailable";
+  if (!options.root || !expected.protected_policy_commit)
+    return "protected policy authority is unavailable";
+  const source = value.repository_policy?.source;
+  if (
+    !source ||
+    source.commit !== expected.protected_policy_commit ||
+    source.path !== ".pm/repository-delivery-policy.json" ||
+    !DIGEST.test(source.sha256 || "")
+  )
+    return "protected policy source mismatch";
+  const shown = childProcess.spawnSync("git", ["show", `${source.commit}:${source.path}`], {
+    cwd: options.root,
+    encoding: "utf8",
+    shell: false,
+    timeout: 3000,
+    maxBuffer: 1024 * 1024,
+  });
+  if (shown.status !== 0 || digestText(shown.stdout) !== source.sha256)
+    return "protected policy bytes are unavailable or changed";
+  let policy;
+  try {
+    policy = JSON.parse(shown.stdout);
+  } catch {
+    return "protected policy is malformed";
+  }
+  const declared = policy.delivery_bypass?.permitted_purposes;
+  if (!Array.isArray(declared) || !expected.purposes.every((purpose) => declared.includes(purpose)))
+    return "protected policy does not permit the complete bypass set";
+  if (
+    policy.delivery_bypass.signer_identity !== value.signer_id ||
+    value.signer_id !== publicKeyIdentity(options.publicKey)
+  )
+    return "protected policy signer identity mismatch";
+  return null;
+}
+
+function loadProtectedPolicy(root, source) {
+  if (
+    !source ||
+    source.path !== ".pm/repository-delivery-policy.json" ||
+    !SHA.test(source.commit || "") ||
+    !DIGEST.test(source.sha256 || "")
+  )
+    throw new Error("authenticated protected-policy source is unavailable");
+  const shown = childProcess.spawnSync("git", ["show", `${source.commit}:${source.path}`], {
+    cwd: root,
+    encoding: "utf8",
+    shell: false,
+    timeout: 3000,
+    maxBuffer: 1024 * 1024,
+  });
+  if (shown.status !== 0 || digestText(shown.stdout) !== source.sha256)
+    throw new Error("protected-policy commit/path/hash mismatch");
+  const parsed = JSON.parse(shown.stdout);
+  const declaration = parsed.delivery_bypass;
+  if (!declaration || !Array.isArray(declaration.permitted_purposes))
+    throw new Error("protected policy has no supported delivery bypass declaration");
+  return declaration;
+}
+
+function digestText(value) {
+  return `sha256:${crypto.createHash("sha256").update(value).digest("hex")}`;
+}
+
+function publicKeyIdentity(key) {
+  const object = key?.type === "public" ? key : crypto.createPublicKey(key);
+  return digestText(object.export({ type: "spki", format: "der" }));
+}
+
 function verifyDeliveryAttestation(value, expected = {}, options = {}) {
   const issues = validateMaterial(value);
   if (issues.length) return denied(issues[0]);
@@ -162,14 +257,27 @@ function verifyDeliveryAttestation(value, expected = {}, options = {}) {
     return denied("attestation is invalidated");
   const evidenceIssue = verifyCanonicalEvidence(value, options.root);
   if (evidenceIssue) return denied(evidenceIssue);
-  let signature;
-  try {
-    signature = authentication(value, options.key);
-  } catch (error) {
-    return denied(error.message);
+  if (Array.isArray(expected.purposes)) {
+    const policyIssue = verifyProtectedPolicy(value, expected, options);
+    if (policyIssue) return denied(policyIssue);
   }
-  if (!secureEqual(signature, value.authentication))
-    return denied("attestation authentication mismatch");
+  if (String(value.authentication || "").startsWith("ed25519:")) {
+    if (!options.publicKey) return denied("trusted attestation public key is unavailable");
+    if (value.signer_id !== publicKeyIdentity(options.publicKey))
+      return denied("attestation signer identity mismatch");
+    const signature = Buffer.from(value.authentication.slice("ed25519:".length), "base64");
+    if (!crypto.verify(null, materialBytes(value), options.publicKey, signature))
+      return denied("attestation signature mismatch");
+  } else {
+    let signature;
+    try {
+      signature = authentication(value, options.key);
+    } catch (error) {
+      return denied(error.message);
+    }
+    if (!secureEqual(signature, value.authentication))
+      return denied("attestation authentication mismatch");
+  }
   const canonical = path.normalize(expected.expectedCanonicalPath || expected.canonical_path || "");
   if (!canonical || path.normalize(value.canonical_path) !== canonical)
     return denied("attestation is not at its canonical path");
@@ -237,6 +345,260 @@ function verifyPushBypass(value, expected = {}, options = {}) {
   )
     return denied("attestation ref update does not match this push");
   return verifyDeliveryAttestation(value, expected, options);
+}
+
+function consumePushAuthorization(value, expected = {}, options = {}) {
+  if (value.generation !== expected.generation || value.push?.attempt !== expected.push_attempt)
+    return denied("release generation or push attempt mismatch");
+  const fields = Array.isArray(value.push?.ref_updates)
+    ? value.push.ref_updates[0]?.split(" ")
+    : [];
+  if (fields?.[3] !== expected.old_oid) return denied("live remote old OID mismatch");
+  const verdict = verifyPushBypass(value, expected, options);
+  if (!verdict.reusable) return verdict;
+  if (typeof options.consume !== "function" || options.consume(verdict.authorization_id) !== true)
+    return denied("push authorization was already consumed or cannot be consumed atomically");
+  return verdict;
+}
+
+function deriveBypassPurposes(candidate, requested = {}) {
+  const flags = [requested.lefthook, requested.skipReview].filter(Boolean).length;
+  if (flags > 1) throw new Error("combined bypass variables are not supported");
+  if (flags === 0) return [];
+  if (requested.skipReview) {
+    if (!["review-converged", "certifying", "merge-ready"].includes(candidate?.state))
+      throw new Error("review bypass is unavailable in the current candidate phase");
+    return ["review-bypass"];
+  }
+  if (candidate?.state === "review-candidate") return ["candidate-hook-bypass"];
+  if (["certifying", "merge-ready"].includes(candidate?.state)) return ["final-hook-bypass"];
+  throw new Error("hook bypass is unavailable in the current candidate phase");
+}
+
+function effectiveGateCommit(row) {
+  return row?.verified_commit || row?.commit;
+}
+
+function verifyCanonicalDeliveryAttestation(context) {
+  const { session, transaction, plan, gates } = context;
+  const commit = transaction?.release?.prepared_commit;
+  if (
+    !SHA.test(commit || "") ||
+    (session?.run_id !== transaction?.run_id && transaction?.run_id !== undefined)
+  )
+    throw new Error("canonical session and transaction do not bind one prepared commit");
+  if (
+    !["review-converged", "certifying", "merge-ready"].includes(session?.candidate?.state) ||
+    session.candidate.invalidation
+  )
+    throw new Error("candidate Review has not converged or was invalidated");
+  if (
+    plan?.head_commit !== commit ||
+    plan?.plan_digest !== session.candidate.gate_plan_identity ||
+    plan?.capability_identity !== session.candidate.repository_capability_identity
+  )
+    throw new Error("canonical repository plan identity mismatch");
+  for (const field of ["base_commit", "merge_base_commit", "command_identity"])
+    if (!SHA.test(plan?.[field] || "") && !DIGEST.test(plan?.[field] || ""))
+      throw new Error(`${field} is missing or invalid`);
+  if (!DIGEST.test(plan?.adapter?.manager?.sha256 || ""))
+    throw new Error("tool identity is missing");
+  if (!plan.environment_identity || typeof plan.environment_identity !== "object")
+    throw new Error("preflight identity is missing");
+  if (!Array.isArray(plan.complete_commands) || plan.complete_commands.length === 0)
+    throw new Error("complete command plan is missing");
+  const evidence = [];
+  for (const kind of ["review", "qa", "verification"]) {
+    const bound = transaction.evidence?.[kind];
+    const row = gates?.gates?.find((item) => item.name === kind);
+    if (
+      !bound ||
+      bound.commit !== commit ||
+      row?.status !== "passed" ||
+      effectiveGateCommit(row) !== commit ||
+      row.artifact !== bound.artifact ||
+      !DIGEST.test(bound.sha256 || "")
+    )
+      throw new Error(`canonical ${kind} evidence is missing or stale`);
+    evidence.push({ kind, path: bound.artifact, sha256: bound.sha256 });
+  }
+  return {
+    canonical_path: `.pm/dev-sessions/${transaction.slug || "change"}/ship/delivery-attestation.json`,
+    run_id: session.run_id,
+    commit,
+    base: plan.base_commit,
+    merge_base: plan.merge_base_commit,
+    plan_identity: plan.plan_digest,
+    config_identity: plan.capability_identity,
+    tool_identity: plan.adapter.manager.sha256,
+    preflight_identity: digest(plan.environment_identity),
+    command_identity: plan.command_identity,
+    commands: [...plan.complete_commands].sort(),
+    evidence: evidence.sort((a, b) => a.kind.localeCompare(b.kind)),
+    producer: { name: "pm", version: "delivery-attestation-v1" },
+    outcome: "passed",
+    invalidation: { generation: transaction.generation, findings: 0, mutated_after_review: false },
+  };
+}
+
+function finalizeDeliveryCandidate(context, options = {}) {
+  const expected = verifyCanonicalDeliveryAttestation(context);
+  const certificationDigest = digest(expected);
+  if (context.existingCertification) {
+    if (context.existingCertification.digest !== certificationDigest)
+      throw new Error("existing certification identity drift requires Review");
+    return { decision: "already-certified", certification: context.existingCertification };
+  }
+  if (typeof options.runComplete !== "function")
+    throw new Error("complete plan executor is unavailable");
+  const result = options.runComplete(expected.commands);
+  if (result?.outcome !== "passed")
+    throw new Error("complete repository plan failed; return to Review");
+  const certification = {
+    schema_version: 1,
+    generation: context.transaction.generation,
+    commit: expected.commit,
+    digest: certificationDigest,
+    outcome: "passed",
+    evidence: result.evidence || [],
+  };
+  return { decision: "certified", certification, expected };
+}
+
+function readBoundJson(root, relative, max = 1024 * 1024) {
+  const absolute = path.resolve(root, relative);
+  const rootReal = fs.realpathSync(root);
+  const rel = path.relative(rootReal, absolute);
+  if (rel.startsWith("..") || path.isAbsolute(rel))
+    throw new Error("canonical input escapes project root");
+  const stat = fs.lstatSync(absolute);
+  if (
+    !stat.isFile() ||
+    stat.isSymbolicLink() ||
+    stat.size > max ||
+    fs.realpathSync(absolute) !== absolute
+  )
+    throw new Error("canonical input is not a bounded regular file");
+  return JSON.parse(fs.readFileSync(absolute, "utf8"));
+}
+
+function writePrivateJson(filePath, value) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
+  const temporary = `${filePath}.tmp-${process.pid}-${crypto.randomBytes(8).toString("hex")}`;
+  fs.writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+  fs.renameSync(temporary, filePath);
+}
+
+function gitIdentity(root, args) {
+  const result = childProcess.spawnSync("git", args, {
+    cwd: root,
+    encoding: "utf8",
+    shell: false,
+    timeout: 5000,
+    maxBuffer: 1024 * 1024,
+  });
+  if (result.status !== 0) throw new Error("live Git identity is unavailable");
+  return result.stdout.trim();
+}
+
+function verifyLiveRepository(root, plan, transaction) {
+  if (
+    gitIdentity(root, ["rev-parse", "--verify", "HEAD^{commit}"]) !==
+    transaction.release.prepared_commit
+  )
+    throw new Error("live HEAD no longer matches the prepared release commit");
+  if (
+    gitIdentity(root, ["merge-base", plan.base_commit, plan.head_commit]) !== plan.merge_base_commit
+  )
+    throw new Error("live merge-base identity no longer matches the repository plan");
+  const prefix = `refs/remotes/${plan.remote?.name}/`;
+  if (
+    typeof plan.expected_default_ref !== "string" ||
+    !plan.expected_default_ref.startsWith(prefix)
+  )
+    throw new Error("authenticated current default-branch ref is unavailable");
+  const remoteRef = `refs/heads/${plan.expected_default_ref.slice(prefix.length)}`;
+  const remote = childProcess.spawnSync(
+    "git",
+    ["ls-remote", "--refs", "--", plan.remote.url, remoteRef],
+    {
+      cwd: root,
+      encoding: "utf8",
+      shell: false,
+      timeout: 10000,
+      maxBuffer: 64 * 1024,
+    }
+  );
+  const fields = remote.stdout.trim().split(/\s+/);
+  if (
+    remote.status !== 0 ||
+    fields.length !== 2 ||
+    fields[0] !== plan.base_commit ||
+    fields[1] !== remoteRef
+  )
+    throw new Error("protected policy is not from the current remote default-branch commit");
+}
+
+function finalizeCanonicalFiles(input, options = {}) {
+  const root = fs.realpathSync(path.resolve(input.root));
+  const session = readBoundJson(root, input.session);
+  const transaction = readBoundJson(root, input.transaction);
+  const gates = readBoundJson(root, input.gates);
+  const plan = readBoundJson(root, input.plan);
+  const context = { root, session, transaction, gates, plan };
+  verifyLiveRepository(root, plan, transaction);
+  const transitionedSession =
+    typeof options.transitionSession === "function" ? options.transitionSession(session) : null;
+  for (const bound of Object.values(transaction.evidence || {})) {
+    if (!bound || sha256File(path.resolve(root, bound.artifact)) !== bound.sha256)
+      throw new Error("canonical evidence hash mismatch");
+  }
+  const report = readBoundJson(root, transaction.evidence.review.artifact);
+  if (report.outcome !== "passed" || (Array.isArray(report.findings) && report.findings.length > 0))
+    throw new Error("canonical Review has not converged");
+  const certificationPath = path.resolve(root, input.certification);
+  if (fs.existsSync(certificationPath))
+    context.existingCertification = readBoundJson(root, input.certification);
+  const result = finalizeDeliveryCandidate(context, {
+    runComplete: (commands) => {
+      if (typeof options.runComplete === "function") return options.runComplete(commands, plan);
+      throw new Error("production complete-plan executor was not provided by release transaction");
+    },
+  });
+  if (result.decision === "certified") writePrivateJson(certificationPath, result.certification);
+  const effect = transaction.effects?.push;
+  const attempt = effect?.attempts?.at(-1);
+  if (effect?.status !== "attempting" || attempt?.status !== "attempting")
+    throw new Error("push bypass requires one active release-transaction attempt");
+  const policySource = plan.repository_policy?.source;
+  if (!policySource) throw new Error("authenticated protected-policy source is unavailable");
+  if (policySource.commit !== plan.base_commit)
+    throw new Error("protected policy is not from the planned current default-branch commit");
+  const policyDeclaration = loadProtectedPolicy(root, policySource);
+  if (policyDeclaration.signer_identity !== options.signerId)
+    throw new Error("protected policy does not trust the configured signer identity");
+  const expected = result.expected || verifyCanonicalDeliveryAttestation(context);
+  const attestationInput = {
+    ...expected,
+    generation: transaction.generation,
+    repository_policy: { source: policySource, ...policyDeclaration },
+    push: {
+      remote: plan.remote?.name,
+      remote_url: plan.remote?.url,
+      ref_updates: String(plan.remote?.stdin || "")
+        .trimEnd()
+        .split("\n"),
+      attempt: attempt.number,
+    },
+    observed_at: new Date().toISOString(),
+  };
+  const attestation = createDeliveryAttestation(attestationInput, {
+    signer: options.signer,
+    signer_id: options.signerId,
+  });
+  writePrivateJson(path.resolve(root, input.attestation), attestation);
+  if (transitionedSession) writePrivateJson(path.resolve(root, input.session), transitionedSession);
+  return { decision: result.decision, certification: result.certification, attestation };
 }
 
 function certifyFinalCandidate(state, options = {}) {
@@ -327,20 +689,24 @@ function parseArgs(argv) {
 
 function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
-  const key = process.env.PM_DELIVERY_ATTESTATION_KEY;
   if (args.command !== "verify") throw new Error("delivery-attestation command must be verify");
   const sessionPath = path.resolve(args.session || "");
   const canonicalPath = path.join(path.dirname(sessionPath), "ship", "delivery-attestation.json");
   const value = JSON.parse(fs.readFileSync(canonicalPath, "utf8"));
+  const publicKey = crypto.createPublicKey(
+    fs.readFileSync(path.join(os.homedir(), ".pm", "delivery-attestation-public.pem"))
+  );
   const result = verifyDeliveryAttestation(
     value,
     {
       canonical_path: path.relative(process.cwd(), canonicalPath),
       purpose: args.purpose,
+      purposes: [args.purpose],
       commit: args.commit,
+      protected_policy_commit: args.protected_policy_commit,
       now: new Date(),
     },
-    { key, root: process.cwd() }
+    { publicKey, root: process.cwd() }
   );
   process.stdout.write(`${JSON.stringify(result)}\n`);
   if (!result.reusable) process.exitCode = 1;
@@ -360,6 +726,12 @@ module.exports = {
   createDeliveryAttestation,
   verifyDeliveryAttestation,
   verifyPushBypass,
+  consumePushAuthorization,
+  deriveBypassPurposes,
+  verifyCanonicalDeliveryAttestation,
+  finalizeDeliveryCandidate,
+  finalizeCanonicalFiles,
+  publicKeyIdentity,
   certifyFinalCandidate,
   selectDeliveryRoute,
 };

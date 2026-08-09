@@ -10,12 +10,19 @@ const {
   createDeliveryAttestation,
   verifyDeliveryAttestation,
   verifyPushBypass,
+  deriveBypassPurposes,
+  finalizeDeliveryCandidate,
+  verifyCanonicalDeliveryAttestation,
+  consumePushAuthorization,
+  publicKeyIdentity,
 } = require("../scripts/delivery-attestation");
 
 const SHA_A = "a".repeat(40);
 const SHA_B = "b".repeat(40);
 const SHA_C = "c".repeat(40);
 const KEY = Buffer.alloc(32, 7);
+const SIGNING = crypto.generateKeyPairSync("ed25519");
+const signWithTestKey = (bytes) => crypto.sign(null, bytes, SIGNING.privateKey);
 
 function input() {
   return {
@@ -59,6 +66,53 @@ function input() {
   };
 }
 
+function canonicalFinalizationContext() {
+  const reviewPath = ".pm/dev-sessions/change/review/report.json";
+  const qaPath = ".pm/dev-sessions/change/qa.json";
+  const verificationPath = ".pm/dev-sessions/change/verification.json";
+  const session = {
+    run_id: "run-1",
+    candidate: {
+      state: "review-converged",
+      invalidation: null,
+      gate_plan_identity: "sha256:" + "1".repeat(64),
+      repository_capability_identity: "sha256:" + "2".repeat(64),
+    },
+  };
+  const transaction = {
+    generation: 3,
+    release: { prepared_commit: SHA_C },
+    evidence: {
+      review: { commit: SHA_C, artifact: reviewPath, sha256: "sha256:" + "6".repeat(64) },
+      qa: { commit: SHA_C, artifact: qaPath, sha256: "sha256:" + "7".repeat(64) },
+      verification: {
+        commit: SHA_C,
+        artifact: verificationPath,
+        sha256: "sha256:" + "8".repeat(64),
+      },
+    },
+  };
+  const plan = {
+    plan_digest: session.candidate.gate_plan_identity,
+    capability_identity: session.candidate.repository_capability_identity,
+    base_commit: SHA_A,
+    merge_base_commit: SHA_A,
+    head_commit: SHA_C,
+    command_identity: "sha256:" + "5".repeat(64),
+    environment_identity: { id: "env" },
+    adapter: { manager: { sha256: "sha256:" + "3".repeat(64) } },
+    complete_commands: ["mobile", "shared"],
+  };
+  const gates = {
+    gates: [
+      { name: "review", status: "passed", commit: SHA_C, artifact: reviewPath },
+      { name: "qa", status: "passed", commit: SHA_C, artifact: qaPath },
+      { name: "verification", status: "passed", commit: SHA_C, artifact: verificationPath },
+    ],
+  };
+  return { root: "/repo", session, transaction, plan, gates };
+}
+
 test("canonical attestation binds provenance and authorizes one exact push", () => {
   const attestation = createDeliveryAttestation(input(), { key: KEY });
   const expected = {
@@ -71,6 +125,146 @@ test("canonical attestation binds provenance and authorizes one exact push", () 
   assert.equal(verified.reusable, true);
   assert.deepEqual(verified.environment, { LEFTHOOK: "0" });
   assert.equal(verified.authorization_id, attestation.authentication);
+});
+
+test("bypass purpose comes from canonical candidate phase and rejects combined or inherited ambiguity", () => {
+  assert.deepEqual(deriveBypassPurposes({ state: "review-candidate" }, { lefthook: true }), [
+    "candidate-hook-bypass",
+  ]);
+  assert.deepEqual(deriveBypassPurposes({ state: "certifying" }, { lefthook: true }), [
+    "final-hook-bypass",
+  ]);
+  assert.deepEqual(deriveBypassPurposes({ state: "review-converged" }, { skipReview: true }), [
+    "review-bypass",
+  ]);
+  assert.throws(
+    () => deriveBypassPurposes({ state: "reviewing" }, { lefthook: true }),
+    /phase|state/i
+  );
+  assert.throws(
+    () => deriveBypassPurposes({ state: "certifying" }, { lefthook: true, skipReview: true }),
+    /combined/i
+  );
+});
+
+test("canonical verifier derives provenance and rejects omitted or self-asserted identities", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-canonical-attestation-"));
+  const sessionDir = path.join(root, ".pm/dev-sessions/change");
+  fs.mkdirSync(path.join(sessionDir, "ship"), { recursive: true });
+  const session = {
+    run_id: "run-1",
+    candidate: {
+      state: "certifying",
+      invalidation: null,
+      gate_plan_identity: "sha256:" + "1".repeat(64),
+      repository_capability_identity: "sha256:" + "2".repeat(64),
+    },
+  };
+  const transaction = {
+    generation: 3,
+    release: { prepared_commit: SHA_C },
+    evidence: {
+      review: {
+        commit: SHA_C,
+        artifact: ".pm/dev-sessions/change/review/report.json",
+        sha256: "sha256:" + "6".repeat(64),
+      },
+      qa: {
+        commit: SHA_C,
+        artifact: ".pm/dev-sessions/change/qa.json",
+        sha256: "sha256:" + "7".repeat(64),
+      },
+      verification: {
+        commit: SHA_C,
+        artifact: ".pm/dev-sessions/change/verification.json",
+        sha256: "sha256:" + "8".repeat(64),
+      },
+    },
+  };
+  const plan = {
+    plan_digest: session.candidate.gate_plan_identity,
+    capability_identity: session.candidate.repository_capability_identity,
+    base_commit: SHA_A,
+    merge_base_commit: SHA_A,
+    head_commit: SHA_C,
+    command_identity: "sha256:" + "5".repeat(64),
+    environment_identity: { id: "env" },
+    adapter: { manager: { sha256: "sha256:" + "3".repeat(64) } },
+    complete_commands: ["mobile", "shared"],
+  };
+  const gates = {
+    gates: [
+      {
+        name: "review",
+        status: "passed",
+        commit: SHA_C,
+        artifact: transaction.evidence.review.artifact,
+      },
+      { name: "qa", status: "passed", commit: SHA_C, artifact: transaction.evidence.qa.artifact },
+      {
+        name: "verification",
+        status: "passed",
+        commit: SHA_C,
+        artifact: transaction.evidence.verification.artifact,
+      },
+    ],
+  };
+  const expected = verifyCanonicalDeliveryAttestation({ root, session, transaction, plan, gates });
+  assert.equal(expected.commit, SHA_C);
+  assert.equal(expected.invalidation.generation, 3);
+  assert.throws(
+    () =>
+      verifyCanonicalDeliveryAttestation({
+        root,
+        session,
+        transaction,
+        plan: { ...plan, command_identity: null },
+        gates,
+      }),
+    /command/i
+  );
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("production finalization executes once and reuse digest invalidates on plan or evidence drift", () => {
+  let runs = 0;
+  const context = canonicalFinalizationContext();
+  const first = finalizeDeliveryCandidate(context, {
+    runComplete: () => {
+      runs++;
+      return { outcome: "passed" };
+    },
+    signer: signWithTestKey,
+  });
+  assert.equal(first.decision, "certified");
+  const reused = finalizeDeliveryCandidate(
+    { ...context, existingCertification: first.certification },
+    {
+      runComplete: () => {
+        runs++;
+      },
+      signer: signWithTestKey,
+    }
+  );
+  assert.equal(reused.decision, "already-certified");
+  assert.equal(runs, 1);
+  assert.throws(
+    () =>
+      finalizeDeliveryCandidate(
+        {
+          ...context,
+          plan: { ...context.plan, command_identity: "sha256:" + "9".repeat(64) },
+          existingCertification: first.certification,
+        },
+        {
+          runComplete: () => {
+            runs++;
+          },
+          signer: signWithTestKey,
+        }
+      ),
+    /review|identity|certification/i
+  );
 });
 
 test("push authorization rejects any destination, ref, or head mismatch", () => {
@@ -94,6 +288,49 @@ test("push authorization rejects any destination, ref, or head mismatch", () => 
       verifyPushBypass(attestation, { ...expected, ...change }, { key: KEY }).reusable,
       false
     );
+});
+
+test("production authorization uses public-key verification and consumes one release attempt", () => {
+  const value = input();
+  value.generation = 3;
+  value.push.attempt = 2;
+  const signed = createDeliveryAttestation(value, {
+    signer: signWithTestKey,
+    signer_id: publicKeyIdentity(SIGNING.publicKey),
+  });
+  assert.match(signed.authentication, /^ed25519:/);
+  const consumed = new Set();
+  const expected = {
+    ...value,
+    purpose: "final-hook-bypass",
+    branch: "main",
+    remote: "origin",
+    remote_url: value.push.remote_url,
+    old_oid: SHA_B,
+    generation: 3,
+    push_attempt: 2,
+    now: new Date("2026-08-10T00:01:00Z"),
+  };
+  const first = consumePushAuthorization(signed, expected, {
+    publicKey: SIGNING.publicKey,
+    consume: (id) => (consumed.has(id) ? false : (consumed.add(id), true)),
+  });
+  assert.equal(first.reusable, true);
+  assert.equal(
+    consumePushAuthorization(signed, expected, {
+      publicKey: SIGNING.publicKey,
+      consume: (id) => (consumed.has(id) ? false : true),
+    }).reusable,
+    false
+  );
+  assert.equal(
+    consumePushAuthorization(
+      signed,
+      { ...expected, old_oid: SHA_A },
+      { publicKey: SIGNING.publicKey, consume: () => true }
+    ).reusable,
+    false
+  );
 });
 
 test("forged, relocated, stale, unsupported, or invalidated evidence is rejected", () => {
