@@ -105,7 +105,8 @@ function tokenBounds(token) {
     return { ...lower(parsed), ...upper(ceiling), prereleaseCores };
   }
   if (operator === "~") {
-    const ceiling = parsed.specified <= 1 ? increment(parsed, "major") : increment(parsed, "minor");
+    const precision = parsed.wildcard === null ? parsed.specified : parsed.wildcard;
+    const ceiling = precision <= 1 ? increment(parsed, "major") : increment(parsed, "minor");
     return { ...lower(parsed), ...upper(ceiling), prereleaseCores };
   }
   if (!operator || operator === "=") return { ...partialBounds(parsed), prereleaseCores };
@@ -177,17 +178,17 @@ function nonEmpty(bounds) {
     : parseVersion("0.0.0");
   if (inNumericBounds(stableCandidate, bounds)) return true;
   for (const core of bounds.prereleaseCores || []) {
-    const parsed = parseVersion(`${core}-0`);
-    const stable = stableVersion(parsed);
-    const aboveLower =
-      !bounds.lower ||
-      compare(bounds.lower, stable) < 0 ||
-      (compare(bounds.lower, stable) === 0 && bounds.lowerInclusive);
-    const belowUpper =
-      !bounds.upper ||
-      compare(bounds.upper, parsed) > 0 ||
-      (compare(bounds.upper, parsed) === 0 && bounds.upperInclusive);
-    if (aboveLower && belowUpper) return true;
+    let candidate = parseVersion(`${core}-0`);
+    const lowerCore = bounds.lower
+      ? `${bounds.lower.major}.${bounds.lower.minor}.${bounds.lower.patch}`
+      : null;
+    if (lowerCore === core) {
+      if (bounds.lower.prerelease.length === 0) continue;
+      candidate = bounds.lowerInclusive
+        ? bounds.lower
+        : { ...bounds.lower, prerelease: [...bounds.lower.prerelease, "0"] };
+    }
+    if (inNumericBounds(candidate, bounds)) return true;
   }
   return false;
 }

@@ -48,6 +48,10 @@ test("runtime range checks remain source-only in installed plugin copies", () =>
   assert.equal(satisfies("18.21.0", "18.18.0 - 18.20.0"), false);
   assert.equal(satisfies("2.4.9", "~2.4"), true);
   assert.equal(satisfies("2.5.0", "~2.4"), false);
+  assert.equal(satisfies("1.5.0", "~1.x"), true);
+  assert.equal(satisfies("2.0.0", "~1.x"), false);
+  assert.equal(satisfies("0.5.0", "~0.x"), true);
+  assert.equal(satisfies("1.0.0", "~0.x"), false);
   assert.equal(satisfies("0.5.0", "^0"), true);
   assert.equal(satisfies("0.0.5", "^0.0"), true);
   assert.equal(satisfies("0.5.0", "^0.x"), true);
@@ -66,6 +70,14 @@ test("runtime range checks remain source-only in installed plugin copies", () =>
   );
   assert.equal(
     constraintsIntersect([{ constraint: ">=1.2.3-alpha" }, { constraint: "<1.2.3-beta" }]),
+    true
+  );
+  assert.equal(
+    constraintsIntersect([{ constraint: ">1.2.3-beta" }, { constraint: "<1.2.3-beta.0" }]),
+    false
+  );
+  assert.equal(
+    constraintsIntersect([{ constraint: ">1.2.3-beta" }, { constraint: "<1.2.3-beta.0.0" }]),
     true
   );
   assert.equal(
