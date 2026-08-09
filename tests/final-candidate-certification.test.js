@@ -208,17 +208,19 @@ test("production push gate fails closed when candidate bypass trust is unavailab
     path.join(sessionDir, "gates.json"),
     JSON.stringify({ schema_version: 1, run_id: session.run_id, gates: [] })
   );
-  const payload = JSON.stringify({
-    tool_name: "Bash",
-    cwd: root,
-    tool_input: { command: "LEFTHOOK=0 git push origin HEAD:feat/bypass" },
-  });
-  const result = childProcess.spawnSync(HOOK, {
-    input: payload,
-    encoding: "utf8",
-    env: { ...process.env, PM_PLUGIN_ROOT: path.resolve(__dirname, "..") },
-  });
-  assert.match(result.stdout, /deny/);
-  assert.match(result.stdout, /attestation|bypass/i);
+  for (const assignment of ["LEFTHOOK=0", "LEFTHOOK='0'", 'LEFTHOOK="0"', "LEFTHOOK=0''"]) {
+    const payload = JSON.stringify({
+      tool_name: "Bash",
+      cwd: root,
+      tool_input: { command: `${assignment} git push origin HEAD:feat/bypass` },
+    });
+    const result = childProcess.spawnSync(HOOK, {
+      input: payload,
+      encoding: "utf8",
+      env: { ...process.env, PM_PLUGIN_ROOT: path.resolve(__dirname, "..") },
+    });
+    assert.match(result.stdout, /deny/, assignment);
+    assert.match(result.stdout, /delivery bypass denied/i, assignment);
+  }
   fs.rmSync(root, { recursive: true, force: true });
 });

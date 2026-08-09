@@ -156,6 +156,8 @@ function recordConversationCheck(current, input) {
 function evaluateConvergence(current, input) {
   const state = clone(current);
   const now = requireTimestamp(input?.now, "now");
+  if (Date.parse(now) < Date.parse(state.updated_at))
+    throw new Error("stale evaluation cannot replace newer convergence state");
   const pending = pendingSources(state);
   const unresolved = state.conversations.checked ? state.conversations.unresolved : null;
   if (pending.length === 0 && unresolved === 0) {

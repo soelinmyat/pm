@@ -965,6 +965,36 @@ function parseShellAssignment(value) {
   };
 }
 
+function commandRequestsAssignment(command, name, expected, depth = 0) {
+  if (depth > 3) return false;
+  const joined = String(command).replace(/\\\r?\n/g, " ");
+  const controls = scanShellTokens(joined);
+  const segments = [];
+  let cursor = 0;
+  for (const control of controls) {
+    if (control.index > cursor) segments.push(joined.slice(cursor, control.index));
+    cursor = control.end;
+  }
+  if (cursor < joined.length) segments.push(joined.slice(cursor));
+  for (const segment of segments) {
+    for (const word of splitSimpleShellWords(segment)) {
+      const assignment = parseShellAssignment(word.value);
+      if (
+        assignment?.name === name &&
+        (assignment.complex || word.dynamic || assignment.value === expected)
+      )
+        return true;
+      if (
+        !word.dynamic &&
+        /[\s;|&(){}]/.test(word.value) &&
+        commandRequestsAssignment(word.value, name, expected, depth + 1)
+      )
+        return true;
+    }
+  }
+  return false;
+}
+
 function isCompoundAssignmentPrefix(value) {
   return /^[A-Za-z_][A-Za-z0-9_]*(?:\[[\s\S]*\])?\+?=$/.test(String(value));
 }
@@ -2430,9 +2460,9 @@ function main() {
   const pushes = detectGitPushes(command, baseCwd);
   if (pushes.length === 0) return allow();
   const bypassRequested = {
-    lefthook: /(?:^|[\s;])LEFTHOOK=0(?:[\s;]|$)/.test(command) || process.env.LEFTHOOK === "0",
+    lefthook: commandRequestsAssignment(command, "LEFTHOOK", "0") || process.env.LEFTHOOK === "0",
     skipReview:
-      /(?:^|[\s;])SKIP_CODEX_REVIEW=1(?:[\s;]|$)/.test(command) ||
+      commandRequestsAssignment(command, "SKIP_CODEX_REVIEW", "1") ||
       process.env.SKIP_CODEX_REVIEW === "1",
   };
   for (const push of pushes) push.bypassRequested = bypassRequested;

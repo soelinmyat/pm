@@ -173,6 +173,10 @@ test("timeout, silence, and unavailable sources enter bounded awaiting-decision 
     evaluateConvergence(unavailable, { now: "2026-08-09T10:02:00.000Z" }).status,
     "awaiting-decision"
   );
+  assert.throws(
+    () => evaluateConvergence(silent, { now: "2026-08-09T10:09:00.000Z" }),
+    /stale evaluation/
+  );
 });
 
 test("a missing required conversation check times out instead of lingering or passing", () => {
