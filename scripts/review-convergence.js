@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 "use strict";
 
+const { isRfc3339DateTime } = require("./lib/iso-time");
+
 const SHA = /^[0-9a-f]{40}$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
 const SOURCE = /^[a-z0-9][a-z0-9._:-]{0,127}$/i;
@@ -18,7 +20,7 @@ function requireText(value, field, max = 1000) {
 
 function requireTimestamp(value, field) {
   requireText(value, field, 64);
-  if (!Number.isFinite(Date.parse(value))) throw new TypeError(`${field} must be RFC3339`);
+  if (!isRfc3339DateTime(value)) throw new TypeError(`${field} must be RFC3339`);
   return value;
 }
 
@@ -97,6 +99,11 @@ function assertMonotonicObservation(state, previousAt, at) {
     throw new Error("stale observation cannot replace newer convergence state");
   if (previousAt && Date.parse(at) === Date.parse(previousAt))
     throw new Error("conflicting observation has the same timestamp");
+}
+
+function assertMonotonicTransition(state, at) {
+  if (Date.parse(at) < Date.parse(state.updated_at))
+    throw new Error("stale transition cannot replace newer convergence state");
 }
 
 function recordReviewSource(current, input) {
@@ -199,6 +206,7 @@ function markHeadMutation(current, input) {
   if (head === previousHead) throw new Error("head mutation requires a different head");
   const reason = requireText(input?.reason, "reason", 2000);
   const at = requireTimestamp(input?.at, "at");
+  assertMonotonicTransition(state, at);
   const deadline = requireTimestamp(input?.deadline, "deadline");
   if (Date.parse(deadline) <= Date.parse(at))
     throw new Error("deadline must be after mutation time");
@@ -224,6 +232,7 @@ function reviseRequirements(current, input) {
     throw new Error("requirement revision requires a new requirement-set hash");
   const requiredSources = normalizeSources(input?.requiredSources);
   const at = requireTimestamp(input?.at, "at");
+  assertMonotonicTransition(state, at);
   const deadline = requireTimestamp(input?.deadline, "deadline");
   if (Date.parse(deadline) <= Date.parse(at))
     throw new Error("deadline must be after revision time");

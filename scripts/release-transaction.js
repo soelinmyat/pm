@@ -99,12 +99,17 @@ function runCommand(args, options = {}) {
     if (issues.length > 0) throw new Error(`invalid release transaction: ${issues.join("; ")}`);
     const attestationPath = resolvePrivateFile(args.attestation_file, cwd, "attestation file");
     const attestation = readJson(attestationPath, "delivery attestation");
+    const protectedPolicyCommit = (
+      options.resolveProtectedPolicyCommit || resolveProtectedPolicyCommit
+    )(cwd, transaction);
     const verdict = verifyDeliveryAttestation(
       attestation,
       {
         canonical_path: relative(cwd, attestationPath),
         purpose: args.purpose,
+        purposes: [args.purpose],
         commit: transaction.release.prepared_commit,
+        protected_policy_commit: protectedPolicyCommit,
         now: new Date(),
       },
       {
@@ -161,10 +166,7 @@ function runCommand(args, options = {}) {
         delivery_id: readJson(transactionPath, "release transaction").run_id,
       },
       () => {
-        const canonicalRequest = {
-          schema_version: 1,
-          kind: "canonical-delivery-finalization-v1",
-          repository_root: cwd,
+        const canonicalInput = {
           session: args.session,
           transaction: args.transaction,
           gates: args.gates,
@@ -172,17 +174,18 @@ function runCommand(args, options = {}) {
           certification: args.certification,
           attestation: args.attestation,
         };
+        const canonicalRequest = {
+          schema_version: 1,
+          kind: "canonical-delivery-finalization-v1",
+          repository_root: cwd,
+          ...canonicalInput,
+        };
         const signer = machineSigner(canonicalRequest);
         const runner = path.join(__dirname, "repository-gate-runner.js");
         const result = finalizeCanonicalFiles(
           {
             root: cwd,
-            session: args.session,
-            transaction: args.transaction,
-            gates: args.gates,
-            plan: args.plan,
-            certification: args.certification,
-            attestation: args.attestation,
+            ...canonicalInput,
           },
           {
             signer: signer.sign,
@@ -430,6 +433,30 @@ function resolvePrivateFile(value, cwd, label) {
   return resolved;
 }
 
+function resolveProtectedPolicyCommit(root, transaction, run = spawnSync) {
+  const remote = transaction?.source?.delivery_remote;
+  const branch = transaction?.source?.base_branch;
+  if (typeof remote !== "string" || !remote || typeof branch !== "string" || !branch)
+    throw new Error("release transaction protected branch is unavailable");
+  const ref = `refs/heads/${branch}`;
+  const result = run("git", ["ls-remote", "--refs", "--exit-code", remote, ref], {
+    cwd: root,
+    encoding: "utf8",
+    shell: false,
+    timeout: 30_000,
+    maxBuffer: 8192,
+  });
+  const lines = String(result.stdout || "")
+    .trim()
+    .split(/\r?\n/)
+    .filter(Boolean);
+  if (result.status !== 0 || lines.length !== 1)
+    throw new Error("live protected branch commit is unavailable");
+  const match = lines[0].match(/^([0-9a-f]{40})\t(.+)$/);
+  if (!match || match[2] !== ref) throw new Error("live protected branch commit is malformed");
+  return match[1];
+}
+
 function resolveInputFile(value, cwd, label) {
   if (typeof value !== "string" || value.trim() === "") {
     throw new Error(`--${label.replaceAll(" ", "-")}-file is required`);
@@ -515,4 +542,11 @@ function main(argv = process.argv.slice(2)) {
 
 if (require.main === module) process.exitCode = main();
 
-module.exports = { main, parseArgs, runCommand, statusView, withDeliveryTelemetry };
+module.exports = {
+  main,
+  parseArgs,
+  resolveProtectedPolicyCommit,
+  runCommand,
+  statusView,
+  withDeliveryTelemetry,
+};

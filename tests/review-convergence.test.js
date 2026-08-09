@@ -52,6 +52,30 @@ test("converges only when every required source passes on one head and conversat
   assert.equal(state.requirement_set_hash, HASH_A);
 });
 
+test("convergence timestamps require strict RFC3339 date-times", () => {
+  assert.throws(
+    () =>
+      createConvergence({
+        head: HEAD_A,
+        requirementSetHash: HASH_A,
+        requiredSources: ["pm-review"],
+        deadline: DEADLINE,
+        now: "August 9, 2026 10:00:00",
+      }),
+    /RFC3339/
+  );
+  assert.equal(
+    createConvergence({
+      head: HEAD_A,
+      requirementSetHash: HASH_A,
+      requiredSources: ["pm-review"],
+      deadline: "2026-08-09T18:10:00+08:00",
+      now: "2026-08-09T18:00:00+08:00",
+    }).created_at,
+    "2026-08-09T18:00:00+08:00"
+  );
+});
+
 test("blocking findings and unresolved conversations return the exact head to reviewing", () => {
   let state = fresh();
   state = recordReviewSource(state, {
@@ -237,6 +261,18 @@ test("requirement revision is audited and allowed only from awaiting-decision", 
   );
 
   const awaiting = evaluateConvergence(fresh(), { now: "2026-08-09T10:11:00.000Z" });
+  assert.throws(
+    () =>
+      reviseRequirements(awaiting, {
+        approver: "maintainer@example.com",
+        reason: "stale approval",
+        requirementSetHash: HASH_B,
+        requiredSources: ["pm-review", "human"],
+        deadline: "2026-08-09T10:20:00.000Z",
+        at: "2026-08-09T10:10:00.000Z",
+      }),
+    /stale transition/
+  );
   const revised = reviseRequirements(awaiting, {
     approver: "maintainer@example.com",
     reason: "reviewer retired",
@@ -256,4 +292,18 @@ test("requirement revision is audited and allowed only from awaiting-decision", 
     required_sources: ["human", "pm-review"],
     at: "2026-08-09T10:12:00.000Z",
   });
+});
+
+test("head reset rejects a transition older than current convergence state", () => {
+  const state = evaluateConvergence(fresh(), { now: "2026-08-09T10:03:00.000Z" });
+  assert.throws(
+    () =>
+      markHeadMutation(state, {
+        head: HEAD_B,
+        reason: "late callback",
+        deadline: "2026-08-09T10:20:00.000Z",
+        at: "2026-08-09T10:02:00.000Z",
+      }),
+    /stale transition/
+  );
 });

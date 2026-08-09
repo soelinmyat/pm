@@ -408,7 +408,7 @@ function readPolicy(root, options, identities, discoveryReceipt) {
   }
   const candidate = safeRead(root, relative);
   if (candidate !== null) {
-    identities.push(fileIdentity(root, relative));
+    identities.push(textIdentity(relative, candidate));
     return parsePolicy(candidate, "candidate");
   }
   return { candidate_push: { permitted: false }, probes: [], provenance: "absent" };

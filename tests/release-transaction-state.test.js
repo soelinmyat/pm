@@ -2,6 +2,11 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const childProcess = require("node:child_process");
+const { resolveProtectedPolicyCommit } = require("../scripts/release-transaction");
 
 const {
   bindReleaseEvidence,
@@ -16,6 +21,30 @@ const {
 
 const COMMIT = "a".repeat(40);
 const MERGE = "b".repeat(40);
+
+test("attestation reuse resolves the live protected branch commit", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-protected-policy-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const git = (...args) =>
+    childProcess.spawnSync("git", ["-C", root, ...args], { encoding: "utf8" });
+  git("init", "-q");
+  git("config", "user.email", "test@example.com");
+  git("config", "user.name", "Test");
+  fs.writeFileSync(path.join(root, "README.md"), "base\n");
+  git("add", ".");
+  git("commit", "-q", "-m", "base");
+  const expected = git("rev-parse", "HEAD").stdout.trim();
+  const remote = path.join(root, "remote.git");
+  git("init", "--bare", "--initial-branch=main", remote);
+  git("remote", "add", "origin", remote);
+  git("push", "-q", "origin", "HEAD:main");
+  assert.equal(
+    resolveProtectedPolicyCommit(root, {
+      source: { delivery_remote: "origin", base_branch: "main" },
+    }),
+    expected
+  );
+});
 
 function transaction() {
   return createReleaseTransaction({
