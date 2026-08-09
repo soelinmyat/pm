@@ -49,6 +49,7 @@ const {
   consumePushAuthorization,
   deriveBypassPurposes,
   verifyCanonicalDeliveryAttestation,
+  verifyCanonicalCandidateAttestation,
 } = require(path.join(HOOK_ROOT, "scripts", "delivery-attestation.js"));
 
 // The 1MB spawnSync default ENOBUFS'd on a large (e.g. 200k-row) manifest, which
@@ -2222,7 +2223,12 @@ function gatePush(baseCwd, push) {
     }
     let bypassConsumption = null;
     if (push.bypassRequested?.lefthook || push.bypassRequested?.skipReview) {
-      const attestationPath = path.join(canonicalSessionDir, "ship", "delivery-attestation.json");
+      const candidateOnly = session.candidate.state === "review-candidate";
+      const attestationPath = path.join(
+        canonicalSessionDir,
+        "ship",
+        candidateOnly ? "candidate-attestation.json" : "delivery-attestation.json"
+      );
       let attestation;
       try {
         const purposes = deriveBypassPurposes(session.candidate, push.bypassRequested);
@@ -2250,7 +2256,29 @@ function gatePush(baseCwd, push) {
         const gates = JSON.parse(
           fs.readFileSync(path.join(canonicalSessionDir, "gates.json"), "utf8")
         );
-        const derived = verifyCanonicalDeliveryAttestation({
+        const defaultPrefix = `refs/remotes/${destination.remote}/`;
+        if (
+          typeof plan.expected_default_ref !== "string" ||
+          !plan.expected_default_ref.startsWith(defaultPrefix)
+        )
+          throw new Error("authenticated default-branch ref is unavailable");
+        const defaultRef = `refs/heads/${plan.expected_default_ref.slice(defaultPrefix.length)}`;
+        const defaultState = spawnSync(
+          "git",
+          ["ls-remote", "--refs", "--", remoteUrl, defaultRef],
+          { cwd: repoDir, encoding: "utf8", shell: false, timeout: 30_000, maxBuffer: 8192 }
+        );
+        const defaultFields = defaultState.stdout.trim().split(/\s+/);
+        if (
+          defaultState.status !== 0 ||
+          defaultFields.length !== 2 ||
+          defaultFields[0] !== plan.base_commit ||
+          defaultFields[1] !== defaultRef
+        )
+          throw new Error("protected policy is not from the live remote default branch");
+        const derived = (
+          candidateOnly ? verifyCanonicalCandidateAttestation : verifyCanonicalDeliveryAttestation
+        )({
           root: repoDir,
           session,
           transaction,

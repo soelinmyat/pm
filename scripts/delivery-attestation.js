@@ -145,6 +145,22 @@ function createDeliveryAttestation(input, options = {}) {
   return { ...value, authentication: signature };
 }
 
+function createCandidateDeliveryAttestation(input, options = {}) {
+  if (
+    typeof options.signer !== "function" ||
+    !Array.isArray(input.commands) ||
+    input.commands.length === 0 ||
+    !Array.isArray(input.evidence) ||
+    input.evidence.length !== 1 ||
+    input.evidence[0]?.kind !== "candidate" ||
+    !same(input.repository_policy?.permitted_purposes, ["candidate-hook-bypass"])
+  )
+    throw new Error(
+      "candidate attestation requires signed targeted-gate evidence and candidate-only policy"
+    );
+  return createDeliveryAttestation(input, options);
+}
+
 function denied(reason) {
   return { reusable: false, reason, environment: {} };
 }
@@ -441,13 +457,121 @@ function verifyCanonicalDeliveryAttestation(context) {
   };
 }
 
+function verifyCanonicalCandidateAttestation(context) {
+  const { session, transaction, plan, gates } = context;
+  const commit = transaction?.release?.prepared_commit;
+  if (session?.candidate?.state !== "review-candidate" || session.candidate.invalidation)
+    throw new Error("candidate attestation requires the review-candidate phase");
+  if (
+    plan?.head_commit !== commit ||
+    !Array.isArray(plan.targeted_commands) ||
+    !plan.targeted_commands.length
+  )
+    throw new Error("targeted candidate plan is unavailable");
+  const bound = transaction.evidence?.candidate;
+  const row = gates?.gates?.find((item) => item.name === "candidate");
+  if (
+    !bound ||
+    bound.commit !== commit ||
+    row?.status !== "passed" ||
+    effectiveGateCommit(row) !== commit ||
+    row.artifact !== bound.artifact ||
+    !DIGEST.test(bound.sha256 || "")
+  )
+    throw new Error("signed targeted candidate gate evidence is missing or stale");
+  return {
+    canonical_path: `.pm/dev-sessions/${transaction.slug}/ship/candidate-attestation.json`,
+    run_id: session.run_id,
+    commit,
+    base: plan.base_commit,
+    merge_base: plan.merge_base_commit,
+    plan_identity: plan.plan_digest,
+    config_identity: plan.capability_identity,
+    tool_identity: plan.adapter.manager.sha256,
+    preflight_identity: digest(plan.environment_identity),
+    command_identity: plan.command_identity,
+    commands: [...plan.targeted_commands].sort(),
+    evidence: [{ kind: "candidate", path: bound.artifact, sha256: bound.sha256 }],
+    producer: { name: "pm", version: "delivery-attestation-v1" },
+    outcome: "passed",
+    invalidation: { generation: transaction.generation, findings: 0, mutated_after_review: false },
+  };
+}
+
+function attestCanonicalCandidateFiles(input, options = {}) {
+  const root = fs.realpathSync(path.resolve(input.root));
+  const session = readBoundJson(root, input.session);
+  const transaction = readBoundJson(root, input.transaction);
+  const plan = readBoundJson(root, input.plan);
+  const gates = readBoundJson(root, input.gates);
+  const canonical = `.pm/dev-sessions/${transaction.slug}/ship/candidate-attestation.json`;
+  if (path.normalize(input.attestation) !== path.normalize(canonical))
+    throw new Error("candidate attestation must use its canonical session ship path");
+  verifyLiveRepository(root, plan, transaction);
+  const expected = verifyCanonicalCandidateAttestation({ session, transaction, plan, gates });
+  const bound = transaction.evidence.candidate;
+  if (sha256File(path.resolve(root, bound.artifact)) !== bound.sha256)
+    throw new Error("targeted candidate gate evidence hash mismatch");
+  const source = plan.repository_policy?.source;
+  const policy = loadProtectedPolicy(root, source);
+  if (
+    policy.signer_identity !== options.signerId ||
+    !policy.permitted_purposes.includes("candidate-hook-bypass")
+  )
+    throw new Error("protected policy does not grant candidate-only hook bypass");
+  const attempt = transaction.effects?.push?.attempts?.at(-1);
+  if (transaction.effects?.push?.status !== "attempting" || attempt?.status !== "attempting")
+    throw new Error("candidate push requires one active transaction attempt");
+  const attestation = createCandidateDeliveryAttestation(
+    {
+      ...expected,
+      generation: transaction.generation,
+      repository_policy: {
+        source,
+        ...policy,
+        permitted_purposes: ["candidate-hook-bypass"],
+      },
+      push: {
+        remote: plan.remote.name,
+        remote_url: plan.remote.url,
+        ref_updates: plan.remote.stdin.trimEnd().split("\n"),
+        attempt: attempt.number,
+      },
+      observed_at: new Date().toISOString(),
+    },
+    { signer: options.signer, signer_id: options.signerId }
+  );
+  writePrivateJson(path.resolve(root, input.attestation), attestation);
+  return attestation;
+}
+
 function finalizeDeliveryCandidate(context, options = {}) {
   const expected = verifyCanonicalDeliveryAttestation(context);
   const certificationDigest = digest(expected);
   if (context.existingCertification) {
-    if (context.existingCertification.digest !== certificationDigest)
+    const certification = context.existingCertification;
+    const signature = String(certification.authentication || "");
+    const material = { ...certification };
+    delete material.authentication;
+    if (
+      certification.schema_version !== 1 ||
+      certification.generation !== context.transaction.generation ||
+      certification.commit !== expected.commit ||
+      certification.digest !== certificationDigest ||
+      certification.outcome !== "passed" ||
+      !same(certification.commands, expected.commands) ||
+      !Array.isArray(certification.evidence) ||
+      !options.publicKey ||
+      !signature.startsWith("ed25519:") ||
+      !crypto.verify(
+        null,
+        materialBytes(material),
+        options.publicKey,
+        Buffer.from(signature.slice("ed25519:".length), "base64")
+      )
+    )
       throw new Error("existing certification identity drift requires Review");
-    return { decision: "already-certified", certification: context.existingCertification };
+    return { decision: "already-certified", certification };
   }
   if (typeof options.runComplete !== "function")
     throw new Error("complete plan executor is unavailable");
@@ -460,8 +584,14 @@ function finalizeDeliveryCandidate(context, options = {}) {
     commit: expected.commit,
     digest: certificationDigest,
     outcome: "passed",
+    commands: expected.commands,
     evidence: result.evidence || [],
   };
+  if (typeof options.signer !== "function")
+    throw new Error("trusted certification signer is unavailable");
+  certification.authentication = `ed25519:${Buffer.from(
+    options.signer(materialBytes(certification))
+  ).toString("base64")}`;
   return { decision: "certified", certification, expected };
 }
 
@@ -546,6 +676,14 @@ function finalizeCanonicalFiles(input, options = {}) {
   const gates = readBoundJson(root, input.gates);
   const plan = readBoundJson(root, input.plan);
   const context = { root, session, transaction, gates, plan };
+  const canonicalShip = `.pm/dev-sessions/${transaction.slug}/ship`;
+  if (
+    path.normalize(input.certification) !==
+      path.normalize(`${canonicalShip}/final-certification.json`) ||
+    path.normalize(input.attestation) !==
+      path.normalize(`${canonicalShip}/delivery-attestation.json`)
+  )
+    throw new Error("certification and attestation must use their canonical session ship paths");
   verifyLiveRepository(root, plan, transaction);
   const transitionedSession =
     typeof options.transitionSession === "function" ? options.transitionSession(session) : null;
@@ -560,6 +698,8 @@ function finalizeCanonicalFiles(input, options = {}) {
   if (fs.existsSync(certificationPath))
     context.existingCertification = readBoundJson(root, input.certification);
   const result = finalizeDeliveryCandidate(context, {
+    signer: options.signer,
+    publicKey: options.publicKey,
     runComplete: (commands) => {
       if (typeof options.runComplete === "function") return options.runComplete(commands, plan);
       throw new Error("production complete-plan executor was not provided by release transaction");
@@ -724,11 +864,14 @@ if (require.main === module) {
 module.exports = {
   authentication,
   createDeliveryAttestation,
+  createCandidateDeliveryAttestation,
   verifyDeliveryAttestation,
   verifyPushBypass,
   consumePushAuthorization,
   deriveBypassPurposes,
   verifyCanonicalDeliveryAttestation,
+  verifyCanonicalCandidateAttestation,
+  attestCanonicalCandidateFiles,
   finalizeDeliveryCandidate,
   finalizeCanonicalFiles,
   publicKeyIdentity,

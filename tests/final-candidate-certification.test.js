@@ -153,6 +153,7 @@ test("production canonical-file finalization writes once per transaction generat
   const options = {
     signer: (bytes) => crypto.sign(null, bytes, keys.privateKey),
     signerId: signerIdentity,
+    publicKey: keys.publicKey,
     runComplete: () => {
       runs++;
       return { outcome: "passed" };
@@ -162,6 +163,15 @@ test("production canonical-file finalization writes once per transaction generat
   assert.equal(finalizeCanonicalFiles(args, options).decision, "already-certified");
   assert.equal(runs, 1);
   assert.equal(fs.statSync(path.join(root, args.certification)).mode & 0o777, 0o600);
+  const certification = JSON.parse(fs.readFileSync(path.join(root, args.certification), "utf8"));
+  assert.match(certification.authentication, /^ed25519:/);
+  certification.commands = ["tampered"];
+  fs.writeFileSync(path.join(root, args.certification), JSON.stringify(certification));
+  assert.throws(() => finalizeCanonicalFiles(args, options), /certification|signature|identity/i);
+  assert.throws(
+    () => finalizeCanonicalFiles({ ...args, certification: ".pm/elsewhere.json" }, options),
+    /canonical.*path/i
+  );
   fs.rmSync(root, { recursive: true, force: true });
 });
 

@@ -8,7 +8,11 @@ const os = require("node:os");
 const { spawnSync } = require("node:child_process");
 const { writeJsonAtomic } = require("./lib/atomic-file");
 const { acquireOwnedLock } = require("./lib/owned-lock");
-const { verifyDeliveryAttestation, finalizeCanonicalFiles } = require("./delivery-attestation");
+const {
+  verifyDeliveryAttestation,
+  finalizeCanonicalFiles,
+  attestCanonicalCandidateFiles,
+} = require("./delivery-attestation");
 const { transitionCandidate, validateSession } = require("./lib/dev-session-schema");
 const {
   bindReleaseEvidence,
@@ -86,6 +90,24 @@ function runCommand(args, options = {}) {
       authorization_id: verdict.authorization_id,
     };
   }
+  if (args.command === "attest-candidate") {
+    const request = {
+      schema_version: 1,
+      kind: "canonical-candidate-attestation-v1",
+      repository_root: cwd,
+      session: args.session,
+      transaction: args.transaction,
+      gates: args.gates,
+      plan: args.plan,
+      attestation: args.attestation,
+    };
+    const signer = machineSigner(request);
+    const attestation = attestCanonicalCandidateFiles(
+      { root: cwd, ...request },
+      { signer: signer.sign, signerId: signer.identity }
+    );
+    return { ok: true, decision: "candidate-attested", attestation };
+  }
   if (args.command === "finalize-candidate") {
     const canonicalRequest = {
       schema_version: 1,
@@ -113,6 +135,7 @@ function runCommand(args, options = {}) {
       {
         signer: signer.sign,
         signerId: signer.identity,
+        publicKey: signer.publicKey,
         transitionSession: (session) => {
           const issues = validateSession(session);
           if (issues.length) throw new Error("canonical Dev session is invalid");
@@ -392,12 +415,17 @@ function machineSigner(canonicalRequest) {
   const publicKey = crypto.createPublicKey(fs.readFileSync(publicKeyPath));
   return {
     identity: digestText(publicKey.export({ type: "spki", format: "der" })),
+    publicKey,
     sign(bytes) {
       const request = {
         ...canonicalRequest,
         requested_material_sha256: digestText(bytes),
       };
-      const result = spawnSync(helper, ["sign-canonical-finalization"], {
+      const action =
+        canonicalRequest.kind === "canonical-candidate-attestation-v1"
+          ? "sign-canonical-candidate"
+          : "sign-canonical-finalization";
+      const result = spawnSync(helper, [action], {
         input: `${JSON.stringify(request)}\n`,
         encoding: "utf8",
         shell: false,

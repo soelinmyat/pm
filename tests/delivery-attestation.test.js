@@ -14,8 +14,40 @@ const {
   finalizeDeliveryCandidate,
   verifyCanonicalDeliveryAttestation,
   consumePushAuthorization,
+  createCandidateDeliveryAttestation,
   publicKeyIdentity,
 } = require("../scripts/delivery-attestation");
+
+test("candidate attestation grants only candidate hook bypass and binds targeted evidence", () => {
+  const keys = crypto.generateKeyPairSync("ed25519");
+  const value = createCandidateDeliveryAttestation(
+    {
+      ...input(),
+      canonical_path: ".pm/dev-sessions/change/ship/candidate-attestation.json",
+      commands: ["targeted"],
+      evidence: [
+        {
+          kind: "candidate",
+          path: ".pm/dev-sessions/change/candidate.json",
+          sha256: "sha256:" + "9".repeat(64),
+        },
+      ],
+      repository_policy: {
+        ...input().repository_policy,
+        permitted_purposes: ["candidate-hook-bypass"],
+      },
+    },
+    {
+      signer: (bytes) => crypto.sign(null, bytes, keys.privateKey),
+      signer_id: publicKeyIdentity(keys.publicKey),
+    }
+  );
+  assert.deepEqual(value.repository_policy.permitted_purposes, ["candidate-hook-bypass"]);
+  assert.throws(
+    () => createCandidateDeliveryAttestation({ ...input(), commands: ["all"] }, {}),
+    /candidate|signer/i
+  );
+});
 
 const SHA_A = "a".repeat(40);
 const SHA_B = "b".repeat(40);
@@ -244,6 +276,7 @@ test("production finalization executes once and reuse digest invalidates on plan
         runs++;
       },
       signer: signWithTestKey,
+      publicKey: SIGNING.publicKey,
     }
   );
   assert.equal(reused.decision, "already-certified");
@@ -261,6 +294,7 @@ test("production finalization executes once and reuse digest invalidates on plan
             runs++;
           },
           signer: signWithTestKey,
+          publicKey: SIGNING.publicKey,
         }
       ),
     /review|identity|certification/i
