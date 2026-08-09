@@ -89,6 +89,25 @@ test("planned feature ref rejects a stale old OID", () => {
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+test("complete mode authenticates the already-published candidate head", () => {
+  const { root, plan, options } = fixture();
+  let input;
+  const result = runRepositoryGates(plan, "complete", {
+    ...options,
+    resolveRemoteSourceRef: () => plan.head_commit,
+    spawnSync: (_file, _args, spawnOptions) => {
+      input = spawnOptions.input;
+      return { status: 0, stdout: "", stderr: "" };
+    },
+  });
+  assert.equal(result.status, "passed", JSON.stringify(result));
+  assert.equal(
+    input,
+    `${plan.source_ref} ${plan.head_commit} ${plan.source_ref} ${plan.head_commit}\n`
+  );
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 test("invokes installed pre-push hook once with faithful Git input", () => {
   const { root, plan, options } = fixture();
   const calls = [];

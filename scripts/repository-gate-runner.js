@@ -110,7 +110,7 @@ function executionEnvironment(source, pinnedPath) {
   return environment;
 }
 
-function validatePlannedRefUpdate(plan, options) {
+function validatePlannedRefUpdate(plan, mode, options) {
   const stdin = String(plan.remote?.stdin || "");
   const lines = stdin.endsWith("\n") ? stdin.slice(0, -1).split("\n") : [stdin];
   validateGitPushInputs(plan.remote?.name, plan.remote?.url, lines);
@@ -127,16 +127,19 @@ function validatePlannedRefUpdate(plan, options) {
   if (
     localRef !== plan.source_ref ||
     remoteRef !== plan.source_ref ||
-    localSha !== plan.head_commit ||
-    remoteSha === localSha
+    localSha !== plan.head_commit
   )
     throw new Error("Git ref update does not match the planned branch head");
   const liveRemoteSource =
     typeof options.resolveRemoteSourceRef === "function"
       ? options.resolveRemoteSourceRef(plan.repository_root, plan.remote.url, remoteRef)
       : resolveRemoteSourceRef(plan.repository_root, plan.remote.url, remoteRef);
-  if (remoteSha !== liveRemoteSource)
-    throw new Error("planned feature branch old OID differs from the live remote ref");
+  if (mode === "targeted") {
+    if (remoteSha === localSha || remoteSha !== liveRemoteSource)
+      throw new Error("planned feature branch old OID differs from the live remote ref");
+  } else if (liveRemoteSource !== plan.head_commit) {
+    throw new Error("published feature branch does not match the planned head");
+  }
   const liveHead =
     typeof options.resolveHead === "function"
       ? options.resolveHead(plan.repository_root)
@@ -231,7 +234,7 @@ function runRepositoryGates(plan, mode, options = {}) {
   if (!verifyManagerIdentity(plan, options))
     return fallback(options, "manager-identity-or-hook-contract-unsupported");
   try {
-    validatePlannedRefUpdate(plan, options);
+    validatePlannedRefUpdate(plan, mode, options);
   } catch (error) {
     return {
       status: "blocked",
@@ -252,7 +255,10 @@ function runRepositoryGates(plan, mode, options = {}) {
     {
       cwd: plan.repository_root,
       env: executionEnv,
-      input: plan.remote?.stdin || "",
+      input:
+        mode === "complete"
+          ? `${plan.source_ref} ${plan.head_commit} ${plan.source_ref} ${plan.head_commit}\n`
+          : plan.remote?.stdin || "",
       encoding: "utf8",
       shell: false,
       timeout: options.timeout || 60 * 60 * 1000,

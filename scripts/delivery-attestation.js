@@ -6,7 +6,7 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const childProcess = require("node:child_process");
 const os = require("node:os");
-const { writeJsonAtomic } = require("./lib/atomic-file");
+const { writeProjectJsonAtomic } = require("./lib/project-atomic-write");
 const { hashResult, stableStringify } = require("./lib/workflow-runtime/records");
 const { readProjectInput } = require("./lib/safe-project-output");
 
@@ -513,7 +513,6 @@ function attestCanonicalCandidateFiles(input, options = {}) {
   const paths = canonicalDeliveryPaths(root, input, session, transaction);
   if (path.resolve(root, input.attestation) !== paths.candidateAttestation)
     throw new Error("candidate attestation must use its canonical session ship path");
-  assertSafePrivateOutput(root, paths.candidateAttestation);
   verifyLiveRepository(root, plan, transaction);
   const expected = verifyCanonicalCandidateAttestation({ session, transaction, plan, gates });
   const bound = transaction.evidence.candidate;
@@ -638,33 +637,9 @@ function canonicalDeliveryPaths(root, input, session, transaction) {
   };
 }
 
-function assertSafePrivateOutput(root, filePath) {
-  const rootReal = fs.realpathSync(root);
-  const relative = path.relative(rootReal, filePath);
-  if (!relative || relative.startsWith("..") || path.isAbsolute(relative))
-    throw new Error("canonical output escapes project root");
-  let cursor = rootReal;
-  for (const segment of path.dirname(relative).split(path.sep).filter(Boolean)) {
-    cursor = path.join(cursor, segment);
-    if (!fs.existsSync(cursor)) break;
-    const stat = fs.lstatSync(cursor);
-    if (stat.isSymbolicLink() || !stat.isDirectory())
-      throw new Error("canonical output parent must be a real project directory");
-    const real = fs.realpathSync(cursor);
-    const rel = path.relative(rootReal, real);
-    if (rel.startsWith("..") || path.isAbsolute(rel))
-      throw new Error("canonical output parent escapes project root");
-  }
-  if (fs.existsSync(filePath) && fs.lstatSync(filePath).isSymbolicLink())
-    throw new Error("canonical output must not be a symlink");
-}
-
 function writePrivateJson(root, filePath, value) {
-  assertSafePrivateOutput(root, filePath);
-  fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
-  assertSafePrivateOutput(root, filePath);
-  writeJsonAtomic(filePath, value, { directoryMode: 0o700, fileMode: 0o600 });
-  assertSafePrivateOutput(root, filePath);
+  const relative = path.relative(fs.realpathSync(root), filePath);
+  writeProjectJsonAtomic(root, relative, value, { directoryMode: 0o700, fileMode: 0o600 });
 }
 
 function gitIdentity(root, args) {
@@ -730,8 +705,6 @@ function finalizeCanonicalFiles(input, options = {}) {
     path.resolve(root, input.attestation) !== paths.attestation
   )
     throw new Error("certification and attestation must use their canonical session ship paths");
-  assertSafePrivateOutput(root, paths.certification);
-  assertSafePrivateOutput(root, paths.attestation);
   verifyLiveRepository(root, plan, transaction);
   const transitionedSession =
     typeof options.transitionSession === "function" ? options.transitionSession(session) : null;

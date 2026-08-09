@@ -46,20 +46,36 @@ function parseArgs(argv) {
   return { command, ...values };
 }
 
-function withDeliveryTelemetry(transactionPath, input, operation) {
+function withDeliveryTelemetry(transactionPath, input, operation, telemetry = {}) {
   const ledgerPath = path.join(path.dirname(transactionPath), "delivery-timing.json");
-  recoverInterruptedSegments(ledgerPath);
-  const handle = beginSegment(ledgerPath, input);
+  const recover = telemetry.recoverInterruptedSegments || recoverInterruptedSegments;
+  const begin = telemetry.beginSegment || beginSegment;
+  const finish = telemetry.finishSegment || finishSegment;
+  recover(ledgerPath);
+  const handle = begin(ledgerPath, input);
+  let result;
   try {
-    const result = operation();
-    finishSegment(ledgerPath, handle, {
+    result = operation();
+  } catch (error) {
+    try {
+      finish(ledgerPath, handle, { outcome: "failed", certification_count: 0 });
+    } catch (telemetryError) {
+      error.telemetry_error = telemetryError.message;
+    }
+    throw error;
+  }
+  try {
+    finish(ledgerPath, handle, {
       outcome: "passed",
       certification_count: result?.decision === "certified" ? 1 : 0,
     });
     return result;
-  } catch (error) {
-    finishSegment(ledgerPath, handle, { outcome: "failed", certification_count: 0 });
-    throw error;
+  } catch {
+    return {
+      ...result,
+      telemetry_warning:
+        "delivery completed; telemetry recording failed; do not retry delivery effect",
+    };
   }
 }
 

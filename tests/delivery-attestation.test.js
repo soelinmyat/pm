@@ -28,7 +28,8 @@ test("canonical delivery writes reuse the shared atomic writer", () => {
     path.join(__dirname, "../scripts/delivery-attestation.js"),
     "utf8"
   );
-  assert.match(source, /require\("\.\/lib\/atomic-file"\)/);
+  assert.match(source, /require\("\.\/lib\/project-atomic-write"\)/);
+  assert.match(source, /writeProjectJsonAtomic\(root, relative/);
   assert.doesNotMatch(source, /\.tmp-\$\{process\.pid\}/);
 });
 

@@ -154,3 +154,24 @@ test("release transaction operations record real final-certification boundaries"
   assert.equal(ledger.events[0].kind, "final-certification");
   assert.equal(ledger.events[0].certification_count, 1);
 });
+
+test("telemetry failure after a completed delivery cannot turn it into a retryable failure", (t) => {
+  const transactionPath = path.join(path.dirname(temporaryLedger(t)), "release-transaction.json");
+  let completed = 0;
+  const result = withDeliveryTelemetry(
+    transactionPath,
+    { kind: "final-certification", route: "optimized", delivery_id: "run-1" },
+    () => {
+      completed++;
+      return { decision: "certified" };
+    },
+    {
+      finishSegment: () => {
+        throw new Error("ledger unavailable");
+      },
+    }
+  );
+  assert.equal(completed, 1);
+  assert.equal(result.decision, "certified");
+  assert.match(result.telemetry_warning, /delivery completed.*telemetry.*failed/i);
+});

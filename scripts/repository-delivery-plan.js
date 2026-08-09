@@ -333,7 +333,13 @@ function main(argv = process.argv.slice(2)) {
       expectedDefaultRef: discoveryReceipt.expected_default_ref,
     })
   );
-  const changedPaths = gitPathOutput(root, ["diff", "--name-only", "-z", `${base}...${head}`]);
+  const changedPaths = gitPathOutput(root, [
+    "diff",
+    "--name-only",
+    "-z",
+    "--ignore-submodules=none",
+    `${base}...${head}`,
+  ]);
   const plan = buildDeliveryPlan({
     root,
     baseCommit: base,

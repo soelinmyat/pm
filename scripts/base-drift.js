@@ -70,7 +70,17 @@ function git(root, args) {
 function changedPaths(root, range) {
   const result = childProcess.spawnSync(
     "git",
-    ["-c", "core.quotepath=false", "diff", "--name-status", "-z", "--no-ext-diff", range, "--"],
+    [
+      "-c",
+      "core.quotepath=false",
+      "diff",
+      "--name-status",
+      "-z",
+      "--ignore-submodules=none",
+      "--no-ext-diff",
+      range,
+      "--",
+    ],
     { cwd: root, encoding: null, shell: false, timeout: 5000, maxBuffer: 1024 * 1024 }
   );
   if (result.status !== 0)

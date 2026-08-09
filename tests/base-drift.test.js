@@ -197,3 +197,13 @@ test("base-side renames include both endpoints and cannot appear disjoint", () =
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("path collectors override repository submodule ignore policy", () => {
+  const driftSource = fs.readFileSync(path.join(__dirname, "../scripts/base-drift.js"), "utf8");
+  const plannerSource = fs.readFileSync(
+    path.join(__dirname, "../scripts/repository-delivery-plan.js"),
+    "utf8"
+  );
+  assert.match(driftSource, /--ignore-submodules=none/);
+  assert.match(plannerSource, /--ignore-submodules=none/);
+});
