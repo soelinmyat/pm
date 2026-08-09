@@ -280,9 +280,7 @@ function verifyEnvironment(plan, options = {}) {
         throw new Error("probe returned malformed fields");
       for (const [key, expected] of Object.entries(probe.expected))
         if (output[key] !== expected)
-          throw new Error(
-            `service target mismatch for ${key}: expected ${expected}, resolved ${output[key]}`
-          );
+          throw new Error(`service target mismatch for ${key}; identities redacted`);
       services.push(keyedIdentity(output, options.identityKey));
     } catch (error) {
       issues.push({ kind: "probe-failure", message: redactText(error.message) });

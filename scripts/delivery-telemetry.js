@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { writeJsonAtomic } = require("./lib/atomic-file");
 const { acquireOwnedLock } = require("./lib/owned-lock");
+const { processIsAlive } = require("./lib/process-liveness");
 
 const EVENT_KINDS = Object.freeze([
   "environment-preflight",
@@ -188,16 +189,6 @@ function recoverInterruptedSegments(filePath, options = {}) {
 function processIdNumber(processId) {
   const match = String(processId || "").match(/^(\d+)-/);
   return match ? Number(match[1]) : null;
-}
-
-function processIsAlive(pid) {
-  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error?.code === "EPERM";
-  }
 }
 
 function closeEvent(segment, result, endedAt, durationMs) {

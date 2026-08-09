@@ -49,6 +49,13 @@ function pendingSources(state) {
   return state.required_sources.filter((source) => state.sources[source]?.outcome !== "passed");
 }
 
+function incompleteSources(state) {
+  return state.required_sources.filter((source) => {
+    const outcome = state.sources[source]?.outcome;
+    return !outcome || outcome === "pending";
+  });
+}
+
 function unavailableSources(state) {
   return state.required_sources.filter(
     (source) => state.sources[source]?.outcome === "unavailable"
@@ -166,6 +173,10 @@ function evaluateConvergence(current, input) {
   if (Date.parse(now) < Date.parse(state.updated_at))
     throw new Error("stale evaluation cannot replace newer convergence state");
   const pending = pendingSources(state);
+  const incomplete = incompleteSources(state);
+  const blocking = state.required_sources.filter(
+    (source) => state.sources[source]?.outcome === "blocking"
+  );
   const unresolved = state.conversations.checked ? state.conversations.unresolved : null;
   if (pending.length === 0 && unresolved === 0) {
     state.status = "review-converged";
@@ -177,11 +188,14 @@ function evaluateConvergence(current, input) {
       sources: unavailableSources(state),
       recorded_at: now,
     };
+  } else if (blocking.length > 0) {
+    state.status = "reviewing";
+    state.awaiting_decision = null;
   } else if (
     Date.parse(now) >= Date.parse(state.deadline) &&
-    (pending.length > 0 || !state.conversations.checked)
+    (incomplete.length > 0 || !state.conversations.checked)
   ) {
-    const timedOut = [...pending];
+    const timedOut = [...incomplete];
     if (!state.conversations.checked) timedOut.push("pr-conversations");
     state.status = "awaiting-decision";
     state.awaiting_decision = {

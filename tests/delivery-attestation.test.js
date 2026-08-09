@@ -89,6 +89,7 @@ test("valid release transactions can bind the canonical candidate-attestation pr
       candidate: {
         state: "review-candidate",
         invalidation: null,
+        external_effect_started_at: "2026-08-10T00:00:00.000Z",
         gate_plan_identity: `sha256:${"1".repeat(64)}`,
         repository_capability_identity: `sha256:${"2".repeat(64)}`,
       },
@@ -136,6 +137,12 @@ test("valid release transactions can bind the canonical candidate-attestation pr
 test("candidate attestation binds run, permission, plan identities, and exact adapter coverage", () => {
   const context = canonicalCandidateContext();
   assert.deepEqual(verifyCanonicalCandidateAttestation(context).commands, ["targeted"]);
+  const withoutEffectMarker = structuredClone(context);
+  withoutEffectMarker.session.candidate.external_effect_started_at = null;
+  assert.throws(
+    () => verifyCanonicalCandidateAttestation(withoutEffectMarker),
+    /external-effect marker/
+  );
   for (const mutate of [
     (value) => (value.session.run_id = "other-run"),
     (value) => (value.session.candidate.gate_plan_identity = `sha256:${"f".repeat(64)}`),
@@ -272,6 +279,7 @@ function canonicalCandidateContext() {
       candidate: {
         state: "review-candidate",
         invalidation: null,
+        external_effect_started_at: "2026-08-10T00:00:00.000Z",
         gate_plan_identity: `sha256:${"1".repeat(64)}`,
         repository_capability_identity: `sha256:${"2".repeat(64)}`,
       },

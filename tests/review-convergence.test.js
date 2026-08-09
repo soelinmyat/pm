@@ -96,6 +96,32 @@ test("blocking findings and unresolved conversations return the exact head to re
   assert.equal(evaluateConvergence(state, { now: "2026-08-09T10:03:00.000Z" }).status, "reviewing");
 });
 
+test("a recorded blocker remains reviewing after the deadline", () => {
+  let state = fresh();
+  state = recordReviewSource(state, {
+    source: "pm-review",
+    head: HEAD_A,
+    outcome: "blocking",
+    finding: "P1 regression",
+    at: "2026-08-09T10:01:00.000Z",
+  });
+  state = evaluateConvergence(state, { now: "2026-08-09T10:11:00.000Z" });
+  assert.equal(state.status, "reviewing");
+  assert.equal(state.awaiting_decision, null);
+  assert.throws(
+    () =>
+      reviseRequirements(state, {
+        approver: "maintainer@example.com",
+        reason: "remove a blocking reviewer",
+        requirementSetHash: HASH_B,
+        requiredSources: ["codex", "human"],
+        deadline: "2026-08-09T10:20:00.000Z",
+        at: "2026-08-09T10:12:00.000Z",
+      }),
+    /awaiting-decision/
+  );
+});
+
 test("stale observations cannot replace newer blockers or unresolved conversations", () => {
   let state = fresh();
   state = recordReviewSource(state, {

@@ -179,7 +179,6 @@ test("production planner CLI accepts only hash-bound complete execution inputs",
     repository_root: fs.realpathSync(root),
     repository_head: head,
     protected_commit: base,
-    expected_protected_commit: base,
     expected_default_ref: "refs/remotes/origin/main",
     observed_at: new Date().toISOString(),
     default_branch: {

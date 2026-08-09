@@ -9,6 +9,7 @@ const os = require("node:os");
 const { writeProjectJsonAtomic } = require("./lib/project-atomic-write");
 const { hashResult, stableStringify } = require("./lib/workflow-runtime/records");
 const { readProjectInput } = require("./lib/safe-project-output");
+const { isRfc3339DateTime } = require("./lib/iso-time");
 
 const SHA = /^[0-9a-f]{40,64}$/i;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
@@ -452,6 +453,8 @@ function verifyCanonicalCandidateAttestation(context) {
   const commit = transaction?.release?.prepared_commit;
   if (session?.candidate?.state !== "review-candidate" || session.candidate.invalidation)
     throw new Error("candidate attestation requires the review-candidate phase");
+  if (!isRfc3339DateTime(session.candidate.external_effect_started_at))
+    throw new Error("candidate attestation requires the recorded external-effect marker");
   if (session.run_id !== transaction?.run_id)
     throw new Error("candidate attestation run does not match the release transaction");
   if (

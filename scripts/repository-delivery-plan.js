@@ -311,8 +311,8 @@ function main(argv = process.argv.slice(2)) {
     discoveryPath,
     value("--discovery-receipt-sha256")
   );
-  if (discoveryReceipt.expected_protected_commit !== base)
-    throw new Error("base does not match authenticated expected protected commit");
+  if (discoveryReceipt.protected_commit !== base)
+    throw new Error("base does not match authenticated protected commit");
   if (
     discoveryReceipt.default_branch?.remote !== remote ||
     discoveryReceipt.default_branch?.remote_url !== remoteUrl

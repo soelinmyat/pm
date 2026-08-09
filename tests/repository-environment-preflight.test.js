@@ -202,6 +202,7 @@ test("wrong Postgres target, timeout, oversized output, probe failure, and secre
     probeRunner: () => ({ database: "production", server: "remote" }),
   });
   assert.equal(wrong.status, "blocked");
+  assert.doesNotMatch(JSON.stringify(wrong), /cleanlog_test|production|local|remote/);
   const failed = verifyEnvironment(plan, {
     env: {},
     identityKey: Buffer.alloc(32, 8),

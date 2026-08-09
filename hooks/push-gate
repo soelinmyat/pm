@@ -2289,18 +2289,22 @@ function gatePush(baseCwd, push) {
         )
           throw new Error("authenticated default-branch ref is unavailable");
         const defaultRef = `refs/heads/${plan.expected_default_ref.slice(defaultPrefix.length)}`;
-        const defaultState = spawnSync(
+        const branchRef = `refs/heads/${branch}`;
+        const requestedRefs = [...new Set([defaultRef, branchRef])];
+        const remoteState = spawnSync(
           "git",
-          ["ls-remote", "--refs", "--", remoteUrl, defaultRef],
+          ["ls-remote", "--refs", "--", remoteUrl, ...requestedRefs],
           { cwd: repoDir, encoding: "utf8", shell: false, timeout: 30_000, maxBuffer: 8192 }
         );
-        const defaultFields = defaultState.stdout.trim().split(/\s+/);
-        if (
-          defaultState.status !== 0 ||
-          defaultFields.length !== 2 ||
-          defaultFields[0] !== plan.base_commit ||
-          defaultFields[1] !== defaultRef
-        )
+        if (remoteState.status !== 0) throw new Error("live remote state is unavailable");
+        const liveRefs = new Map();
+        for (const line of remoteState.stdout.trim().split("\n").filter(Boolean)) {
+          const match = line.match(/^([0-9a-f]{40})\t([^\s]+)$/);
+          if (!match || !requestedRefs.includes(match[2]) || liveRefs.has(match[2]))
+            throw new Error("live remote state is malformed");
+          liveRefs.set(match[2], match[1]);
+        }
+        if (liveRefs.get(defaultRef) !== plan.base_commit)
           throw new Error("protected policy is not from the live remote default branch");
         const derived = (
           candidateOnly ? verifyCanonicalCandidateAttestation : verifyCanonicalDeliveryAttestation
@@ -2320,13 +2324,7 @@ function gatePush(baseCwd, push) {
         )
           throw new Error("trusted public key is unavailable");
         const publicKey = crypto.createPublicKey(fs.readFileSync(publicKeyPath));
-        const remoteState = spawnSync(
-          "git",
-          ["ls-remote", "--refs", "--", remoteUrl, `refs/heads/${branch}`],
-          { cwd: repoDir, encoding: "utf8", shell: false, timeout: 30_000, maxBuffer: 8192 }
-        );
-        if (remoteState.status !== 0) throw new Error("live remote old OID is unavailable");
-        const oldOid = remoteState.stdout.trim().split(/\s+/, 1)[0] || "0".repeat(40);
+        const oldOid = liveRefs.get(branchRef) || "0".repeat(40);
         const attempt = transaction.effects?.push?.attempts?.at(-1);
         const consumptionDir = path.join(canonicalSessionDir, "ship", "push-authorizations");
         const verdict = consumePushAuthorization(

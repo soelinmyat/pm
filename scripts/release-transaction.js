@@ -200,7 +200,7 @@ function runCommand(args, options = {}) {
                 reason: "Complete final candidate certification passed",
               });
             },
-            runComplete: () => {
+            runComplete: (_commands, canonicalPlan) => {
               const childEnv = { ...process.env };
               for (const name of Object.keys(childEnv))
                 if (/PM_DELIVERY_(?:ATTESTATION|SIGN|PRIVATE)/.test(name)) delete childEnv[name];
@@ -213,9 +213,9 @@ function runCommand(args, options = {}) {
                   "--mode",
                   "complete",
                   "--expected-plan-digest",
-                  readJson(path.resolve(cwd, args.plan), "repository plan").plan_digest,
+                  canonicalPlan.plan_digest,
                   "--expected-capability-identity",
-                  readJson(path.resolve(cwd, args.plan), "repository plan").capability_identity,
+                  canonicalPlan.capability_identity,
                   "--discovery-receipt",
                   path.resolve(cwd, args.discovery_receipt),
                   "--discovery-receipt-sha256",
