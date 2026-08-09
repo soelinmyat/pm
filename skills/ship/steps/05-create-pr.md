@@ -20,6 +20,8 @@ Read and validate `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/review-candidate
 
 When canonical candidate state is `review-candidate`, require candidate `create_draft_pr: true`, every readiness/certification/merge field false, canonical user `create_pr` authority, the observed exact remote head, and a current protected candidate-publication contract.
 
+Build the exact draft-PR target from the prepared transaction and verified Push receipt. Use `release-transaction.js` plan for effect `create-pr`, then `release-transaction.js` begin for effect `create-pr`; honor every journal decision before calling GitHub. Candidate publication still uses the same effect journal and exact repository/head/base/commit identity as comprehensive Ship.
+
 Discover an existing PR by exact repository/head/base identity. A matching existing PR is usable only when its API state is open and `draft: true`; a ready/non-draft PR blocks rather than being silently accepted or converted. When no PR exists, create it with the same contracted identity and `--draft`:
 
 ```bash
@@ -27,7 +29,7 @@ gh pr create --repo "$GH_REPO" --head "$HEAD_BRANCH" --base "$BASE_BRANCH" --dra
   --title "[descriptive review-candidate title]" --body "[summary, targeted checks, and explicit not-certified status]"
 ```
 
-Re-observe the PR through the exact API identity check and require `draft: true`. Never mark it ready for review, arm auto-merge, or enter the merge loop at this boundary.
+Re-observe the PR through the exact API identity check and require `draft: true`. Save the exact observation and receipt, then use `release-transaction.js` reconcile for effect `create-pr`; only `matched` produces the verified Create PR receipt required by CI and merge. Never mark it ready for review, arm auto-merge, or enter the merge loop at this boundary.
 
 Transition the candidate to `reviewing` and initialize `.pm/dev-sessions/{slug}/ship/review-convergence.json` with `createConvergence` from `scripts/review-convergence.js`. Bind the exact head, hash of the complete configured/discovered required-source set, sorted required sources, and a bounded deadline. Record each local, PM, Codex, bot, human, and required PR-conversation result through the helper.
 
@@ -55,7 +57,7 @@ After convergence and before CI, freeze the exact converged head and finish the 
      --plan ".pm/dev-sessions/{slug}/ship/repository-delivery-plan.json" \
      --discovery-receipt ".pm/dev-sessions/{slug}/ship/repository-discovery.json" \
      --discovery-receipt-sha256 "sha256:{64 lowercase hex}" \
-     --certification ".pm/dev-sessions/{slug}/ship/repository-gate-certification.json" \
+     --certification ".pm/dev-sessions/{slug}/ship/final-certification.json" \
      --attestation ".pm/dev-sessions/{slug}/ship/delivery-attestation.json" \
      --json
    ```
@@ -152,6 +154,6 @@ Then run the Product Memory steps (backlog `prs` write is skipped — no merge y
 
 ## Done-when
 
-On the optimized route, exactly one open draft PR matches contracted repository/head/base identity, every required review source has passed on its exact current head, zero required conversations remain unresolved, and the exact prepared commit has a current signed final-candidate attestation with candidate state `certifying`; merge authority is still not implied. On the comprehensive route, exactly one PR has passed the contracted repository/head/base/prepared-commit identity check, the `create-pr` effect is observed as `verified`, any PR mutation had explicit `create_pr` authority, and merge behavior is resolved without treating a preference as consent.
+On the optimized route, exactly one open draft PR matches contracted repository/head/base identity, the transaction's `create-pr` effect is `verified`, every required review source has passed on its exact current head, zero required conversations remain unresolved, and the exact prepared commit has a current signed final-candidate attestation with candidate state `certifying`; merge authority is still not implied. On the comprehensive route, exactly one PR has passed the contracted repository/head/base/prepared-commit identity check, the `create-pr` effect is observed as `verified`, any PR mutation had explicit `create_pr` authority, and merge behavior is resolved without treating a preference as consent.
 
 **Advance:** proceed to Step 6 (CI Monitor), then Step 7 only according to the explicit merge-authority and auto-merge branch; otherwise emit the green-PR early-exit report.

@@ -33,11 +33,13 @@ npm run prepare-release -- {patch|minor|major|x.y.z} \
 
 For a delivery-only transaction, run `release-transaction.js initialize` now. Read the transaction back and require its prepared commit to equal the exact current HEAD before continuing. This is release preparation, not certification: do not bind final evidence, execute complete gates, or claim readiness here. Never prepare or commit a version mutation after convergence; any later HEAD mutation invalidates the candidate and returns to Review.
 
+Preparation changes HEAD, so discard every earlier head-bound discovery, ref-update, environment, and plan artifact. Re-run repository environment preflight and authenticated capability discovery for the prepared commit, capture the current exact four-field ref update, and regenerate `repository-delivery-plan.js` output. Re-run `selectPublicationRoute` against only those regenerated identities. If the prepared head no longer has protected permission and exact adapter coverage, select comprehensive Ship before publication.
+
 Then follow the optimized route:
 
 1. Revalidate the frozen delivery remote, authority, delivery contract, and prepared transaction without changing HEAD.
 2. Run `pm:review` in branch mode against the current exact head. A current local diff review is mandatory even when prior evidence exists.
-3. Re-run the repository environment preflight, then execute the current delivery plan in `targeted` mode through `repository-gate-runner.js`. Require `status: passed`; `comprehensive`, blocked, failed, or stale results select the legacy comprehensive path before publication.
+3. Revalidate the regenerated repository environment preflight, then execute the current prepared-head delivery plan in `targeted` mode through `repository-gate-runner.js`. Require `status: passed`; `comprehensive`, blocked, failed, or stale results select the legacy comprehensive path before publication.
 4. Revalidate protected candidate-publication permission and exact adapter coverage after the targeted run. Transition the canonical candidate to `review-candidate`; require draft-only candidate authority and the separate canonical user grants for push and PR creation.
 5. Advance to Push without binding final certification evidence. The draft review surface exists to collect feedback before that expensive boundary.
 

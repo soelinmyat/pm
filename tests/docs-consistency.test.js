@@ -63,12 +63,18 @@ test("candidate contract marks effects before publication and supports both Git 
 
 test("optimized Ship prepares the version before review and finalizes before CI", () => {
   const review = fs.readFileSync(path.join(ROOT, "skills/ship/steps/03-review.md"), "utf8");
+  const push = fs.readFileSync(path.join(ROOT, "skills/ship/steps/04-push.md"), "utf8");
   const createPr = fs.readFileSync(path.join(ROOT, "skills/ship/steps/05-create-pr.md"), "utf8");
   const ci = fs.readFileSync(path.join(ROOT, "skills/ship/steps/06-ci-monitor.md"), "utf8");
 
   const prepare = review.indexOf("npm run prepare-release");
   const candidateReview = review.indexOf("Run `pm:review` in branch mode", prepare);
   assert.ok(prepare >= 0 && candidateReview > prepare, "version preparation must precede review");
+  const refreshedPlan = review.indexOf("repository-delivery-plan.js", prepare);
+  assert.ok(
+    refreshedPlan > prepare && refreshedPlan < candidateReview,
+    "head-bound delivery inputs must be regenerated after preparation"
+  );
   assert.match(review, /never prepare or commit a version mutation after convergence/i);
 
   const converged = createPr.indexOf("`review-converged`");
@@ -76,5 +82,13 @@ test("optimized Ship prepares the version before review and finalizes before CI"
   const advance = createPr.indexOf("**Advance:**", finalize);
   assert.ok(converged >= 0 && finalize > converged && advance > finalize);
   assert.match(createPr, /prepared commit.*exact converged head/is);
+  assert.match(createPr, /--certification ".*ship\/final-certification\.json"/);
+  assert.doesNotMatch(createPr, /repository-gate-certification\.json/);
+  assert.match(push, /release-transaction\.js` (?:`)?plan.*push/is);
+  assert.match(push, /release-transaction\.js` (?:`)?begin.*push/is);
+  assert.match(push, /release-transaction\.js` (?:`)?reconcile.*push/is);
+  assert.match(createPr, /release-transaction\.js` (?:`)?plan.*create-pr/is);
+  assert.match(createPr, /release-transaction\.js` (?:`)?begin.*create-pr/is);
+  assert.match(createPr, /release-transaction\.js` (?:`)?reconcile.*create-pr/is);
   assert.match(ci, /before monitoring CI.*final-candidate attestation/is);
 });
