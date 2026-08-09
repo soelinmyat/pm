@@ -1,7 +1,7 @@
 "use strict";
 
 const VERSION =
-  /^(?:v|=)?(0|[1-9]\d*)(?:\.(0|[1-9]\d*|[xX*]))?(?:\.(0|[1-9]\d*|[xX*]))?(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
+  /^(?:v|=)?(0|[1-9]\d*)(?:\.(0|[1-9]\d*|[xX*]))?(?:\.(0|[1-9]\d*|[xX*]))?(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
 
 function parseVersion(value, { partial = false } = {}) {
   const match = String(value || "")
@@ -14,11 +14,16 @@ function parseVersion(value, { partial = false } = {}) {
   if (!partial && (specified !== 3 || wildcard !== -1)) return null;
   if (wildcard !== -1 && parts.slice(wildcard + 1).some((part) => part && !/[xX*]/.test(part)))
     return null;
+  const prerelease = match[4] ? match[4].split(".") : [];
+  if (
+    prerelease.some((identifier) => /^\d+$/.test(identifier) && !/^(0|[1-9]\d*)$/.test(identifier))
+  )
+    return null;
   return {
     major: Number(parts[0]),
     minor: parts[1] === undefined || /[xX*]/.test(parts[1]) ? 0 : Number(parts[1]),
     patch: parts[2] === undefined || /[xX*]/.test(parts[2]) ? 0 : Number(parts[2]),
-    prerelease: match[4] ? match[4].split(".") : [],
+    prerelease,
     specified,
     wildcard: wildcard === -1 ? null : wildcard,
   };
@@ -30,7 +35,7 @@ function compareIdentifiers(left, right) {
   if (leftNumber && rightNumber) return Number(left) - Number(right);
   if (leftNumber) return -1;
   if (rightNumber) return 1;
-  return left.localeCompare(right);
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function compare(left, right) {
@@ -71,12 +76,16 @@ function upper(version, inclusive = false) {
   return { upper: version, upperInclusive: inclusive };
 }
 
+function exclusiveCeiling(version, key) {
+  return upper({ ...increment(version, key), prerelease: ["0"] });
+}
+
 function partialBounds(parsed) {
   const wildcardIndex = parsed.wildcard === null ? parsed.specified : parsed.wildcard;
   if (wildcardIndex <= 1)
-    return { ...lower(stableVersion(parsed)), ...upper(increment(parsed, "major")) };
+    return { ...lower(stableVersion(parsed)), ...exclusiveCeiling(parsed, "major") };
   if (wildcardIndex === 2)
-    return { ...lower(stableVersion(parsed)), ...upper(increment(parsed, "minor")) };
+    return { ...lower(stableVersion(parsed)), ...exclusiveCeiling(parsed, "minor") };
   return { exact: parsed };
 }
 
@@ -102,12 +111,12 @@ function tokenBounds(token) {
             : parsed.minor > 0
               ? increment(parsed, "minor")
               : increment(parsed, "patch");
-    return { ...lower(parsed), ...upper(ceiling), prereleaseCores };
+    return { ...lower(parsed), ...upper({ ...ceiling, prerelease: ["0"] }), prereleaseCores };
   }
   if (operator === "~") {
     const precision = parsed.wildcard === null ? parsed.specified : parsed.wildcard;
     const ceiling = precision <= 1 ? increment(parsed, "major") : increment(parsed, "minor");
-    return { ...lower(parsed), ...upper(ceiling), prereleaseCores };
+    return { ...lower(parsed), ...upper({ ...ceiling, prerelease: ["0"] }), prereleaseCores };
   }
   if (!operator || operator === "=") return { ...partialBounds(parsed), prereleaseCores };
   if (parsed.wildcard !== null || parsed.specified < 3) {
@@ -120,8 +129,9 @@ function tokenBounds(token) {
         prereleaseCores,
       };
     if (operator === ">=") return { ...lower(bounds.lower, true), prereleaseCores };
-    if (operator === ">") return { ...lower(bounds.upper, true), prereleaseCores };
-    if (operator === "<") return { ...upper(bounds.lower, false), prereleaseCores };
+    if (operator === ">") return { ...lower(stableVersion(bounds.upper), true), prereleaseCores };
+    if (operator === "<")
+      return { ...upper({ ...bounds.lower, prerelease: ["0"] }, false), prereleaseCores };
     return { ...upper(bounds.upper, false), prereleaseCores };
   }
   if (operator === ">=") return { ...lower(parsed, true), prereleaseCores };
