@@ -255,10 +255,7 @@ function runRepositoryGates(plan, mode, options = {}) {
     {
       cwd: plan.repository_root,
       env: executionEnv,
-      input:
-        mode === "complete"
-          ? `${plan.source_ref} ${plan.head_commit} ${plan.source_ref} ${plan.head_commit}\n`
-          : plan.remote?.stdin || "",
+      input: plan.remote?.stdin || "",
       encoding: "utf8",
       shell: false,
       timeout: options.timeout || 60 * 60 * 1000,

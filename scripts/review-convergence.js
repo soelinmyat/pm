@@ -89,6 +89,16 @@ function assertHead(state, head) {
     throw new Error(`review head does not match convergence head ${state.head}`);
 }
 
+function assertMonotonicObservation(state, previousAt, at) {
+  if (
+    Date.parse(at) < Date.parse(state.updated_at) ||
+    (previousAt && Date.parse(at) < Date.parse(previousAt))
+  )
+    throw new Error("stale observation cannot replace newer convergence state");
+  if (previousAt && Date.parse(at) === Date.parse(previousAt))
+    throw new Error("conflicting observation has the same timestamp");
+}
+
 function recordReviewSource(current, input) {
   const state = clone(current);
   assertHead(state, input?.head);
@@ -99,6 +109,14 @@ function recordReviewSource(current, input) {
     throw new Error("outcome must be passed, blocking, or unavailable");
   const at = requireTimestamp(input?.at, "at");
   const finding = input.outcome === "passed" ? null : requireText(input?.finding, "finding", 2000);
+  const previous = state.sources[source];
+  if (
+    previous?.recorded_at === at &&
+    previous.outcome === input.outcome &&
+    previous.finding === finding
+  )
+    return state;
+  assertMonotonicObservation(state, previous?.recorded_at, at);
   state.sources[source] = { outcome: input.outcome, finding, recorded_at: at };
   state.status = input.outcome === "unavailable" ? "awaiting-decision" : "reviewing";
   state.awaiting_decision =
@@ -122,6 +140,13 @@ function recordConversationCheck(current, input) {
   if (!Number.isInteger(input?.unresolved) || input.unresolved < 0)
     throw new TypeError("unresolved must be a non-negative integer");
   const at = requireTimestamp(input?.at, "at");
+  if (
+    state.conversations.recorded_at === at &&
+    state.conversations.checked === true &&
+    state.conversations.unresolved === input.unresolved
+  )
+    return state;
+  assertMonotonicObservation(state, state.conversations.recorded_at, at);
   state.conversations = { checked: true, unresolved: input.unresolved, recorded_at: at };
   if (input.unresolved > 0 && unavailableSources(state).length === 0) state.status = "reviewing";
   state.updated_at = at;

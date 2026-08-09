@@ -221,7 +221,8 @@ function verifyEnvironment(plan, options = {}) {
     issues = [],
     resolved = [],
     services = [],
-    probeExecutables = [];
+    probeExecutables = [],
+    probeExecutableCache = new Map();
   const local = (expectations.runtimes || []).filter((x) => x.scope !== "ci");
   for (const name of [...new Set(local.map((x) => x.name))]) {
     const declarations = local.filter((x) => x.name === name);
@@ -244,16 +245,25 @@ function verifyEnvironment(plan, options = {}) {
     try {
       validateProbeDeclaration(probe);
       if (!options.identityKey) throw new Error("machine-local identity secret is required");
-      const executable = (options.resolveProbeExecutable || defaultResolveProbeExecutable)(env);
-      if (!executable?.found || !executable.realpath || !executable.version)
-        throw new Error("probe executable identity could not be verified");
-      const executableIdentity = {
-        adapter: probe.adapter,
-        path: executable.path,
-        realpath: executable.realpath,
-        version: executable.version,
-      };
-      probeExecutables.push(executableIdentity);
+      if (!probeExecutableCache.has(probe.adapter)) {
+        try {
+          const executable = (options.resolveProbeExecutable || defaultResolveProbeExecutable)(env);
+          if (!executable?.found || !executable.realpath || !executable.version)
+            throw new Error("probe executable identity could not be verified");
+          probeExecutableCache.set(probe.adapter, { executable });
+          probeExecutables.push({
+            adapter: probe.adapter,
+            path: executable.path,
+            realpath: executable.realpath,
+            version: executable.version,
+          });
+        } catch (error) {
+          probeExecutableCache.set(probe.adapter, { error: error.message });
+        }
+      }
+      const cached = probeExecutableCache.get(probe.adapter);
+      if (cached.error) throw new Error(cached.error);
+      const executable = cached.executable;
       const output = (options.probeRunner || defaultProbeRunner)(probe, {
         env,
         cwd: options.cwd,

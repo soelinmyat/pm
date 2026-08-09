@@ -101,10 +101,7 @@ test("complete mode authenticates the already-published candidate head", () => {
     },
   });
   assert.equal(result.status, "passed", JSON.stringify(result));
-  assert.equal(
-    input,
-    `${plan.source_ref} ${plan.head_commit} ${plan.source_ref} ${plan.head_commit}\n`
-  );
+  assert.equal(input, plan.remote.stdin);
   fs.rmSync(root, { recursive: true, force: true });
 });
 

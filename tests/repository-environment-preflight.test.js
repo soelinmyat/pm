@@ -269,6 +269,35 @@ test("probe identity requires a machine-local secret and binds executable realpa
   ]);
 });
 
+test("probe executable identity is resolved once per adapter", () => {
+  const probe = {
+    adapter: "postgres-identity-v1",
+    provenance: "authenticated",
+    expected: { database: "test" },
+  };
+  let resolutions = 0;
+  const result = verifyEnvironment(
+    basePlan({ expectations: { runtimes: [], probes: [probe, probe] } }),
+    {
+      env: {},
+      identityKey: Buffer.alloc(32, 9),
+      resolveProbeExecutable: () => {
+        resolutions += 1;
+        return {
+          found: true,
+          path: "/shim/psql",
+          realpath: "/opt/pgsql/16/bin/psql",
+          version: "16.2",
+        };
+      },
+      probeRunner: () => ({ database: "test" }),
+    }
+  );
+  assert.equal(result.status, "verified");
+  assert.equal(resolutions, 1);
+  assert.equal(result.identity.probe_executables.length, 1);
+});
+
 test("caret constraints honor semver zero-major compatibility", () => {
   assert.equal(satisfies("0.2.9", "^0.2.3"), true);
   assert.equal(satisfies("0.3.0", "^0.2.3"), false);

@@ -72,6 +72,48 @@ test("blocking findings and unresolved conversations return the exact head to re
   assert.equal(evaluateConvergence(state, { now: "2026-08-09T10:03:00.000Z" }).status, "reviewing");
 });
 
+test("stale observations cannot replace newer blockers or unresolved conversations", () => {
+  let state = fresh();
+  state = recordReviewSource(state, {
+    source: "pm-review",
+    head: HEAD_A,
+    outcome: "blocking",
+    finding: "new blocker",
+    at: "2026-08-09T10:04:00.000Z",
+  });
+  assert.throws(
+    () =>
+      recordReviewSource(state, {
+        source: "pm-review",
+        head: HEAD_A,
+        outcome: "passed",
+        at: "2026-08-09T10:03:00.000Z",
+      }),
+    /stale observation/
+  );
+  state = recordConversationCheck(state, {
+    head: HEAD_A,
+    unresolved: 2,
+    at: "2026-08-09T10:05:00.000Z",
+  });
+  assert.throws(
+    () =>
+      recordConversationCheck(state, {
+        head: HEAD_A,
+        unresolved: 0,
+        at: "2026-08-09T10:04:30.000Z",
+      }),
+    /stale observation/
+  );
+  const repeated = recordConversationCheck(state, {
+    head: HEAD_A,
+    unresolved: 2,
+    at: "2026-08-09T10:05:00.000Z",
+  });
+  assert.deepEqual(repeated, state);
+  assert.equal(evaluateConvergence(state, { now: "2026-08-09T10:06:00.000Z" }).status, "reviewing");
+});
+
 test("a head mutation invalidates all source results and requires affected review again", () => {
   let state = fresh();
   state = recordReviewSource(state, {

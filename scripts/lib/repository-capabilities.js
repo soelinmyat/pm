@@ -37,7 +37,7 @@ function textIdentity(relative, text) {
 function parsePackage(root, runtimes, commands, identities) {
   const text = safeRead(root, "package.json");
   if (text === null) return;
-  identities.push(fileIdentity(root, "package.json"));
+  identities.push(textIdentity("package.json", text));
   try {
     const pkg = JSON.parse(text);
     if (pkg.engines?.node)
@@ -64,7 +64,7 @@ function parseToolVersions(root, runtimes, identities) {
   for (const name of [".nvmrc", ".node-version"]) {
     const text = safeRead(root, name);
     if (text !== null) {
-      identities.push(fileIdentity(root, name));
+      identities.push(textIdentity(name, text));
       runtimes.push({
         name: "node",
         constraint: text.trim().replace(/^v/, ""),
@@ -75,7 +75,7 @@ function parseToolVersions(root, runtimes, identities) {
   }
   const tool = safeRead(root, ".tool-versions");
   if (tool !== null) {
-    identities.push(fileIdentity(root, ".tool-versions"));
+    identities.push(textIdentity(".tool-versions", tool));
     for (const line of tool.split(/\r?\n/)) {
       const [name, version] = line.trim().split(/\s+/, 2);
       if (name && version)
