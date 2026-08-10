@@ -8,8 +8,18 @@ const { digest } = require("./repository-gate-plan-schema");
 const { readProjectInput } = require("./safe-project-output");
 const { stableObjectHmac } = require("./stable-authentication");
 const { isGitObjectId } = require("./git-object-id");
+const {
+  MAX_RUNTIME_DECLARATIONS,
+  MAX_PROBE_DECLARATIONS,
+} = require("./repository-environment-limits");
 
 const MAX_FILE = 1024 * 1024;
+
+function addRuntime(runtimes, runtime) {
+  if (runtimes.length >= MAX_RUNTIME_DECLARATIONS)
+    throw new Error("runtime declaration count exceeds limit");
+  runtimes.push(runtime);
+}
 
 function safeRead(root, relative) {
   try {
@@ -43,14 +53,14 @@ function parsePackage(root, runtimes, commands, identities) {
   try {
     const pkg = JSON.parse(text);
     if (pkg.engines?.node)
-      runtimes.push({
+      addRuntime(runtimes, {
         name: "node",
         constraint: String(pkg.engines.node),
         source: "package.json#engines.node",
         scope: "local",
       });
     if (pkg.packageManager)
-      runtimes.push({
+      addRuntime(runtimes, {
         name: String(pkg.packageManager).split("@")[0],
         constraint: String(pkg.packageManager).split("@").slice(1).join("@"),
         source: "package.json#packageManager",
@@ -67,7 +77,7 @@ function parseToolVersions(root, runtimes, identities) {
     const text = safeRead(root, name);
     if (text !== null) {
       identities.push(textIdentity(name, text));
-      runtimes.push({
+      addRuntime(runtimes, {
         name: "node",
         constraint: text.trim().replace(/^v/, ""),
         source: name,
@@ -81,7 +91,12 @@ function parseToolVersions(root, runtimes, identities) {
     for (const line of tool.split(/\r?\n/)) {
       const [name, version] = line.trim().split(/\s+/, 2);
       if (name && version)
-        runtimes.push({ name, constraint: version, source: ".tool-versions", scope: "local" });
+        addRuntime(runtimes, {
+          name,
+          constraint: version,
+          source: ".tool-versions",
+          scope: "local",
+        });
     }
   }
 }
@@ -259,7 +274,12 @@ function parseWorkflows(root, runtimes, identities) {
     if (/merge_group/.test(text)) mergeGroup = true;
     const matches = [...text.matchAll(/node-version\s*:\s*["']?([^\s"']+)/g)];
     for (const match of matches)
-      runtimes.push({ name: "node", constraint: match[1], source: relative, scope: "ci" });
+      addRuntime(runtimes, {
+        name: "node",
+        constraint: match[1],
+        source: relative,
+        scope: "ci",
+      });
   }
   return { merge_group: mergeGroup };
 }
@@ -303,8 +323,11 @@ function parsePolicy(text, provenance) {
       )
         throw new Error(`invalid ${key}`);
     }
-    if (parsed.probes !== undefined && !Array.isArray(parsed.probes))
-      throw new Error("probes must be an array");
+    if (
+      parsed.probes !== undefined &&
+      (!Array.isArray(parsed.probes) || parsed.probes.length > MAX_PROBE_DECLARATIONS)
+    )
+      throw new Error("probes must be a bounded array");
     if (parsed.delivery_bypass !== undefined) {
       const bypass = parsed.delivery_bypass;
       const purposes = new Set(["review-bypass", "candidate-hook-bypass", "final-hook-bypass"]);

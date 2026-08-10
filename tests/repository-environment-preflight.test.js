@@ -185,9 +185,7 @@ test("executable discovery shares one bounded budget and rejects identity drift"
   });
   assert.equal(executable.found, false);
   assert.equal(executable.reason, "identity-drift");
-  assert.deepEqual(versionCalls, [
-    { command: "/runtime/node", args: ["--version"], timeout: 2000 },
-  ]);
+  assert.deepEqual(versionCalls, [{ command: "/shim/node", args: ["--version"], timeout: 2000 }]);
 
   let budgetClock = 0;
   const runtimeBudgets = [];
@@ -227,6 +225,107 @@ test("executable discovery shares one bounded budget and rejects identity drift"
   assert.deepEqual(probeBudgets, [0]);
   assert.equal(result.status, "blocked");
   assert.match(result.issues[0].message, /bounded preflight budget/);
+});
+
+test("executable discovery rejects success after its final identity check crosses the deadline", () => {
+  const clock = [0, 1000, 4999, 5001];
+  const result = resolveExecutableVersion("node", { PATH: "/bin" }, 5000, {
+    now: () => clock.shift(),
+    spawnSync(command) {
+      return command === "which"
+        ? { status: 0, stdout: "/shim/node\n", stderr: "" }
+        : { status: 0, stdout: "v20.0.0\n", stderr: "" };
+    },
+    realpathSync: () => "/runtime/node",
+  });
+  assert.equal(result.found, false);
+  assert.equal(result.reason, "discovery-timeout");
+});
+
+test("runtime and probe inventories plus probe execution share hard aggregate bounds", () => {
+  let runtimeCalls = 0;
+  const tooManyRuntimes = verifyEnvironment(
+    {
+      expectations: {
+        runtimes: Array.from({ length: 65 }, (_, index) => ({
+          name: `tool-${index}`,
+          constraint: "1.0.0",
+          source: ".tool-versions",
+          scope: "local",
+        })),
+        probes: [],
+      },
+    },
+    {
+      resolveRuntime() {
+        runtimeCalls += 1;
+        return { found: true, path: "/tool", realpath: "/tool", version: "1.0.0" };
+      },
+    }
+  );
+  assert.equal(runtimeCalls, 0);
+  assert.equal(tooManyRuntimes.status, "blocked");
+  assert.match(tooManyRuntimes.issues[0].message, /runtime declaration count exceeds limit/);
+
+  let cappedProbeCalls = 0;
+  const tooManyProbes = verifyEnvironment(
+    {
+      expectations: {
+        runtimes: [],
+        probes: Array.from({ length: 33 }, () => ({
+          adapter: "postgres-identity-v1",
+          provenance: "authenticated",
+          expected: { database: "db" },
+        })),
+      },
+    },
+    {
+      identityKey: "machine-local-probe-key-32-bytes!",
+      probeRunner() {
+        cappedProbeCalls += 1;
+        return { database: "db" };
+      },
+    }
+  );
+  assert.equal(cappedProbeCalls, 0);
+  assert.equal(tooManyProbes.status, "blocked");
+  assert.match(tooManyProbes.issues[0].message, /probe declaration count exceeds limit/);
+
+  let now = 0;
+  const timeouts = [];
+  const probes = Array.from({ length: 3 }, () => ({
+    adapter: "postgres-identity-v1",
+    provenance: "authenticated",
+    expected: { database: "db" },
+    timeout_ms: 5000,
+  }));
+  const bounded = verifyEnvironment(
+    { expectations: { runtimes: [], probes } },
+    {
+      now: () => now,
+      probeBudgetMs: 5000,
+      identityKey: "machine-local-probe-key-32-bytes!",
+      resolveProbeExecutable: () => ({
+        found: true,
+        path: "/shim/psql",
+        realpath: "/runtime/psql",
+        version: "psql 16",
+      }),
+      probeRunner(_probe, options) {
+        timeouts.push(options.timeoutMs);
+        now += 4000;
+        return { database: "db" };
+      },
+    }
+  );
+  assert.deepEqual(timeouts, [5000, 1000]);
+  assert.equal(bounded.status, "blocked");
+  assert.equal(
+    bounded.issues.filter((issue) =>
+      /probe execution exceeded the bounded preflight budget/.test(issue.message)
+    ).length,
+    1
+  );
 });
 
 function basePlan(overrides = {}) {
@@ -406,6 +505,48 @@ test("Postgres process failures never expose connection identities", () => {
       assert.doesNotMatch(error.message, /db\.internal|10\.0\.0\.5|secret-db|secret-user/);
       return true;
     }
+  );
+});
+
+test("Postgres probes preserve authenticated shim dispatch semantics", () => {
+  let executed;
+  const result = defaultProbeRunner(
+    {
+      adapter: "postgres-identity-v1",
+      provenance: "authenticated",
+      expected: { database: "db" },
+    },
+    {
+      executable: { path: "/shim/psql", realpath: "/manager/mise" },
+      realpathSync: () => "/manager/mise",
+      spawnSync(command) {
+        executed = command;
+        return { status: 0, stdout: "db|user|server\n", stderr: "" };
+      },
+    }
+  );
+  assert.equal(executed, "/shim/psql");
+  assert.equal(result.database, "db");
+
+  let checks = 0;
+  assert.throws(
+    () =>
+      defaultProbeRunner(
+        {
+          adapter: "postgres-identity-v1",
+          provenance: "authenticated",
+          expected: { database: "db" },
+        },
+        {
+          executable: { path: "/shim/psql", realpath: "/manager/mise" },
+          realpathSync() {
+            checks += 1;
+            return checks === 1 ? "/manager/mise" : "/manager/replaced";
+          },
+          spawnSync: () => ({ status: 0, stdout: "db|user|server\n", stderr: "" }),
+        }
+      ),
+    /identity drifted/
   );
 });
 

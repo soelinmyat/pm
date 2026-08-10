@@ -7,6 +7,12 @@ const childProcess = require("node:child_process");
 const { stable, digest } = require("./lib/repository-gate-plan-schema");
 const { stableObjectHmac } = require("./lib/stable-authentication");
 const semverRange = require("./lib/semver-range");
+const {
+  MAX_RUNTIME_DECLARATIONS,
+  MAX_PROBE_DECLARATIONS,
+  EXECUTABLE_DISCOVERY_BUDGET_MS,
+  SERVICE_PROBE_BUDGET_MS,
+} = require("./lib/repository-environment-limits");
 
 const ALLOWED_PROBE_KEYS = new Set([
   "adapter",
@@ -16,7 +22,6 @@ const ALLOWED_PROBE_KEYS = new Set([
   "working_directory",
 ]);
 const ALLOWED_EXPECTED = new Set(["database", "server", "user"]);
-const EXECUTABLE_DISCOVERY_BUDGET_MS = 5000;
 
 function redactText(value) {
   const redacted = String(value)
@@ -112,7 +117,7 @@ function resolveExecutableVersion(name, env, timeoutMs, options = {}) {
   }
   const remaining = deadline - now();
   if (remaining < 1) return missing("discovery-timeout");
-  const version = spawnSync(realpath, ["--version"], {
+  const version = spawnSync(executablePath, ["--version"], {
     encoding: "utf8",
     env,
     shell: false,
@@ -120,11 +125,13 @@ function resolveExecutableVersion(name, env, timeoutMs, options = {}) {
     maxBuffer: 8192,
   });
   if (version.error?.code === "ETIMEDOUT") return missing("discovery-timeout");
+  if (deadline - now() < 1) return missing("discovery-timeout");
   try {
     if (realpathSync(executablePath) !== realpath) return missing("identity-drift");
   } catch {
     return missing("identity-drift");
   }
+  if (deadline - now() < 1) return missing("discovery-timeout");
   return {
     found: version.status === 0,
     path: executablePath,
@@ -149,11 +156,28 @@ function defaultResolveRuntime(name, env, options = {}) {
 
 function defaultProbeRunner(probe, options = {}) {
   validateProbeDeclaration(probe);
+  const executablePath = options.executable?.path || options.executable?.realpath || "psql";
+  const expectedRealpath = options.executable?.realpath || null;
+  const realpathSync = options.realpathSync || fs.realpathSync;
+  const identityMatches = () => {
+    if (!expectedRealpath) return true;
+    try {
+      return realpathSync(executablePath) === expectedRealpath;
+    } catch {
+      return false;
+    }
+  };
+  if (!identityMatches()) throw new Error("probe executable identity drifted");
   const env = {};
   for (const name of ["PATH", "PGHOST", "PGPORT", "PGDATABASE", "PGUSER", "PGSSLMODE"])
     if (options.env?.[name] !== undefined) env[name] = options.env[name];
+  const timeoutMs = Math.min(
+    probe.timeout_ms || 3000,
+    options.timeoutMs ?? SERVICE_PROBE_BUDGET_MS
+  );
+  if (timeoutMs < 1) throw new Error("probe execution exceeded the bounded preflight budget");
   const result = (options.spawnSync || childProcess.spawnSync)(
-    options.executable?.realpath || options.executable?.path || "psql",
+    executablePath,
     [
       "--no-psqlrc",
       "--tuples-only",
@@ -166,10 +190,11 @@ function defaultProbeRunner(probe, options = {}) {
       env,
       encoding: "utf8",
       shell: false,
-      timeout: probe.timeout_ms || 3000,
+      timeout: timeoutMs,
       maxBuffer: 8192,
     }
   );
+  if (!identityMatches()) throw new Error("probe executable identity drifted");
   if (result.error || result.status !== 0)
     throw new Error("probe process failed; details redacted");
   if (Buffer.byteLength(result.stdout || "") > 8192) throw new Error("probe output exceeded limit");
@@ -227,9 +252,30 @@ function verifyEnvironment(plan, options = {}) {
     probeExecutables = [],
     probeExecutableCache = new Map(),
     discoveryDeadline = now() + (options.discoveryBudgetMs ?? EXECUTABLE_DISCOVERY_BUDGET_MS);
-  const local = (expectations.runtimes || []).filter((x) => x.scope !== "ci");
-  for (const name of [...new Set(local.map((x) => x.name))]) {
-    const declarations = local.filter((x) => x.name === name);
+  const runtimeRows = expectations.runtimes || [];
+  const probeRows = expectations.probes || [];
+  const localByName = new Map();
+  if (runtimeRows.length > MAX_RUNTIME_DECLARATIONS) {
+    issues.push({
+      kind: "runtime-inventory-limit",
+      message: "runtime declaration count exceeds limit",
+    });
+  } else {
+    for (const declaration of runtimeRows) {
+      if (declaration.scope === "ci") continue;
+      const declarations = localByName.get(declaration.name) || [];
+      declarations.push(declaration);
+      localByName.set(declaration.name, declarations);
+    }
+  }
+  for (const [name, declarations] of localByName) {
+    if (discoveryDeadline - now() < 1) {
+      issues.push({
+        kind: "runtime-mismatch",
+        message: "Runtime executable discovery exceeded the bounded preflight budget",
+      });
+      break;
+    }
     if (!constraintsIntersect(declarations)) {
       issues.push({
         kind: "constraint-conflict",
@@ -237,9 +283,17 @@ function verifyEnvironment(plan, options = {}) {
       });
       continue;
     }
-    const actual = (options.resolveRuntime || defaultResolveRuntime)(name, env, {
+    let actual = (options.resolveRuntime || defaultResolveRuntime)(name, env, {
       timeoutMs: Math.max(0, discoveryDeadline - now()),
     });
+    if (discoveryDeadline - now() < 1)
+      actual = {
+        found: false,
+        path: null,
+        realpath: null,
+        version: null,
+        reason: "discovery-timeout",
+      };
     resolved.push({ name, ...actual });
     if (!actual.found || declarations.some((x) => !satisfies(actual.version, x.constraint)))
       issues.push({
@@ -249,8 +303,22 @@ function verifyEnvironment(plan, options = {}) {
             ? `${name} executable discovery exceeded the bounded preflight budget`
             : `${name} expected ${declarations.map((x) => `${x.constraint} from ${x.source}`).join(" and ")}; resolved ${actual.version || "missing"} at ${actual.realpath || actual.path || "PATH"}. Install/select the declared runtime.`,
       });
+    if (actual.reason === "discovery-timeout") break;
   }
-  for (const probe of expectations.probes || []) {
+  const probeDeadline = now() + (options.probeBudgetMs ?? SERVICE_PROBE_BUDGET_MS);
+  if (probeRows.length > MAX_PROBE_DECLARATIONS)
+    issues.push({
+      kind: "probe-inventory-limit",
+      message: "probe declaration count exceeds limit",
+    });
+  for (const probe of probeRows.length > MAX_PROBE_DECLARATIONS ? [] : probeRows) {
+    if (probeDeadline - now() < 1) {
+      issues.push({
+        kind: "probe-failure",
+        message: "probe execution exceeded the bounded preflight budget",
+      });
+      break;
+    }
     try {
       validateProbeDeclaration(probe);
       if (!options.identityKey) throw new Error("machine-local identity secret is required");
@@ -286,7 +354,10 @@ function verifyEnvironment(plan, options = {}) {
         env,
         cwd: options.cwd,
         executable,
+        timeoutMs: Math.min(probe.timeout_ms || 3000, Math.max(0, probeDeadline - now())),
       });
+      if (probeDeadline - now() < 1)
+        throw new Error("probe execution exceeded the bounded preflight budget");
       const json = JSON.stringify(output);
       if (Buffer.byteLength(json) > 8192) throw new Error("probe output exceeded limit");
       if (
@@ -302,6 +373,7 @@ function verifyEnvironment(plan, options = {}) {
       services.push(keyedIdentity(output, options.identityKey));
     } catch (error) {
       issues.push({ kind: "probe-failure", message: redactText(error.message) });
+      if (/bounded preflight budget/.test(error.message)) break;
     }
   }
   const identity = identityFor(resolved, env, services, probeExecutables);
@@ -315,7 +387,7 @@ function verifyEnvironment(plan, options = {}) {
     });
   const status = issues.length
     ? "blocked"
-    : local.length || (expectations.probes || []).length
+    : localByName.size || probeRows.length
       ? "verified"
       : "unverified";
   return sanitizeDiagnosticValue({ schema_version: 1, status, identity, issues });

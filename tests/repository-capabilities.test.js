@@ -76,6 +76,42 @@ test("discovers instructions, runtimes, hooks, workflows and policy without writ
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+test("capability discovery rejects oversized runtime and probe inventories", () => {
+  const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pm-repo-runtime-limit-"));
+  fs.mkdirSync(path.join(runtimeRoot, ".git/hooks"), { recursive: true });
+  fs.writeFileSync(
+    path.join(runtimeRoot, ".tool-versions"),
+    Array.from({ length: 65 }, (_, index) => `tool-${index} 1.0.0`).join("\n")
+  );
+  assert.throws(
+    () => discoverRepositoryCapabilities(runtimeRoot),
+    /runtime declaration count exceeds limit/
+  );
+  fs.rmSync(runtimeRoot, { recursive: true, force: true });
+
+  const probeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pm-repo-probe-limit-"));
+  fs.mkdirSync(path.join(probeRoot, ".git/hooks"), { recursive: true });
+  const policy = JSON.stringify({
+    schema_version: 1,
+    candidate_push: { permitted: false },
+    probes: Array.from({ length: 33 }, () => ({
+      adapter: "postgres-identity-v1",
+      expected: { database: "db" },
+    })),
+  });
+  const found = discoverRepositoryCapabilities(probeRoot, {
+    policyVerifier: () => ({
+      verified: true,
+      bytes: policy,
+      source: "git:abc:.pm/repository-delivery-policy.json",
+      identity: "abc",
+    }),
+  });
+  assert.equal(found.policy.provenance, "malformed");
+  assert.deepEqual(found.policy.probes, []);
+  fs.rmSync(probeRoot, { recursive: true, force: true });
+});
+
 test("instruction fallback scanning has a hard visited-entry bound", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-instruction-bound-"));
   for (let index = 0; index < 5; index += 1)
