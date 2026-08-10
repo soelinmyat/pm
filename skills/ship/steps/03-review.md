@@ -14,7 +14,36 @@ Prepare the exact tree that will be delivered, then run the required pre-push re
 
 ## How
 
-Read `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/release-transaction.md` and `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/delivery-contract.md` before this step. This step owns preparation of the release transaction and creation of the run-scoped delivery contract; later steps validate them but must not silently replace either identity.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/review-candidate-contract.md`, `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/repository-delivery-adapter.md`, `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/release-transaction.md`, and `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/delivery-contract.md` before this step.
+
+### Select the delivery route before publication
+
+Before release preparation or any external effect, validate the canonical Dev session and current repository delivery plan. Use `selectPublicationRoute` from `scripts/review-convergence.js`. The optimized route requires all three current facts: the Dev classifier selected `review-candidate`, protected machine-readable policy explicitly grants candidate-publication permission for the exact skipped-command set, and the repository adapter proves exact coverage for commands, hook inputs, destination, refs, tool/environment, and configuration identity.
+
+If any fact is absent, candidate-authored, ambiguous, or stale, select **existing comprehensive Ship before candidate publication**. Do not open an early draft and do not add a later second certification. Continue with the comprehensive path below unchanged and report the unavailable optimization.
+
+For the capability-proven candidate route:
+
+Before running candidate Review, resolve and freeze the exact delivery remote and authority, create the canonical delivery contract, and establish the release transaction using the shared procedures below. For a versioned delivery, run the repository-prescribed command now, before the Review target is frozen:
+
+```bash
+npm run prepare-release -- {patch|minor|major|x.y.z} \
+  --session ".pm/dev-sessions/{slug}/session.json"
+```
+
+For a delivery-only transaction, run `release-transaction.js initialize` now. Read the transaction back and require its prepared commit to equal the exact current HEAD before continuing. This is release preparation, not certification: do not bind final evidence, execute complete gates, or claim readiness here. Never prepare or commit a version mutation after convergence; any later HEAD mutation invalidates the candidate and returns to Review.
+
+Preparation changes HEAD, so discard every earlier head-bound discovery, ref-update, environment, and plan artifact. Re-run repository environment preflight and authenticated capability discovery for the prepared commit, capture the current exact four-field ref update, and regenerate `repository-delivery-plan.js` output. Atomically bind the regenerated affected, repository-capability, and gate-plan identities to current HEAD with `dev-session.js candidate-refresh`; never edit `session.json` directly. Re-run `selectPublicationRoute` against only those regenerated identities. If the prepared head no longer has protected permission and exact adapter coverage, select comprehensive Ship before publication.
+
+Then follow the optimized route:
+
+1. Revalidate the frozen delivery remote, authority, delivery contract, and prepared transaction without changing HEAD.
+2. Run `pm:review` in branch mode against the current exact head. A current local diff review is mandatory even when prior evidence exists.
+3. Revalidate the regenerated repository environment preflight, then execute the current prepared-head delivery plan in `targeted` mode through `repository-gate-runner.js`. Require `status: passed`; `comprehensive`, blocked, failed, or stale results select the legacy comprehensive path before publication.
+4. Revalidate protected candidate-publication permission and exact adapter coverage after the targeted run. Transition the canonical candidate to `review-candidate`; require draft-only candidate authority and the separate canonical user grants for push and PR creation.
+5. Advance to Push without binding final certification evidence. The draft review surface exists to collect feedback before that expensive boundary.
+
+After candidate condition 5 succeeds, do not execute the shared preparation sections a second time or enter the comprehensive evidence-binding path; advance directly to Step 04. The remainder of this step is the preserved comprehensive path. It also remains the path for standalone Ship and every capability fallback. This step owns preparation of the final release transaction and creation of the run-scoped delivery contract; later steps validate them but must not silently replace either identity.
 
 If no canonical `session.json` exists (standalone Ship invocation), create it before Review:
 
@@ -123,6 +152,6 @@ For handling review feedback after PR creation, see `${CLAUDE_PLUGIN_ROOT}/skill
 
 ## Done-when
 
-The required version mutation (if any) is committed without a feature tag, the correct review path has run against that prepared commit and frozen remote, all routed gates are current, Review/QA/verification evidence is bound into a ready transaction, the delivery contract validates, and explicit authority for the next action is persisted.
+On the optimized route, the exact current head has passed local diff Review and targeted native checks, protected candidate-publication permission plus exact adapter coverage remain current, draft-only candidate state is recorded, and canonical push/PR authority is persisted. On the comprehensive route, the required version mutation (if any) is committed without a feature tag, the correct review path has run against that prepared commit and frozen remote, all routed gates are current, Review/QA/verification evidence is bound into a ready transaction, the delivery contract validates, and explicit authority for the next action is persisted.
 
 **Advance:** proceed to Step 04 (Push).

@@ -10,6 +10,8 @@ Before this reference, read and follow `${CLAUDE_PLUGIN_ROOT}/skills/ship/refere
 
 Before every PR mutation, revalidate both authority and contract identity. Every `gh pr` and `gh run` call below supplies `--repo "$GH_REPO"`; every PR call supplies the explicit `PR_NUMBER` except the already completed head/base discovery in Ship Step 05. `gh api` has no `--repo` flag, so its REST endpoint or GraphQL owner/repository variables must use the exact contracted `$GH_OWNER/$GH_REPOSITORY`. Re-fetch the PR through `repos/$GH_OWNER/$GH_REPOSITORY/pulls/$PR_NUMBER` and reject any repository, head, or base mismatch before continuing.
 
+If Ship selected the optimized route, reload and verify the canonical delivery attestation before each push or merge mutation. It is valid only for its frozen head and exact destination/ref update. A new commit or finding returns to Review. Base drift is classified as disjoint, overlapping, conflicting, or indeterminate; only disjoint drift preserves feature Review, and only a fresh authenticated merge-result/merge-queue capability permits optimized latest-base readiness. Every other case uses the existing comprehensive update, Review, verification, push, and CI route once.
+
 ## Prerequisites
 
 Before entering the merge loop, verify `gh` is available and authenticated:
@@ -105,7 +107,7 @@ Do NOT guess — query each one. (Gate 3 explains why unresolved conversations, 
 
 ## Step 2: Begin Merge Effect and Try Auto-Merge
 
-Plan `merge` for the exact repository, PR number, prepared head commit, base, and squash method. Call `release-transaction.js begin` before any auto-merge or manual merge mutation. `denied` stops at the green PR boundary; `observe-first` queries PR state before replay; `already-verified` skips the mutation after revalidation; only `execute` may continue below.
+Plan `merge` for the exact repository, PR number, prepared head commit, base, and squash method. Call `release-transaction.js begin` before any auto-merge or manual merge mutation. For optimized delivery, pass the canonical session to begin and require its candidate to remain `merge-ready` before any mutation or observe-first recovery. If it becomes invalidated, cancel an armed auto-merge and return to remediation; the old `ready-pr` receipt cannot authorize a new Merge. If independent observation proves the exact PR already merged before cancellation, reconcile that irreversible result even after invalidation so the transaction does not remain ambiguous. `denied` stops at the green PR boundary; `observe-first` queries PR state before replay; `already-verified` skips the mutation after revalidation; only `execute` may continue below.
 
 Attempt to arm GitHub auto-merge. If the repo supports it, GitHub will merge automatically once all branch protection rules pass.
 

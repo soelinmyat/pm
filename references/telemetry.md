@@ -137,3 +137,24 @@ stage_started_at: YYYY-MM-DDTHH:MM:SSZ   # dev/review/ship
 
 For rare substeps not represented in a state file, `scripts/pm-log.sh step`
 still accepts manual spans — see its `--help`.
+
+## Private delivery timing
+
+Risk-scoped delivery uses `scripts/delivery-telemetry.js` for local timing that
+is separate from analytics export. It records only bounded enums and
+identifiers: app, actual/proposed route, artifact identity, outcome, monotonic
+duration, wall-clock correlation time, and final-certification count. The
+allowed segment categories are `environment-preflight`, `active-command`,
+`review-wait`, `ci-queue`, `ci-run`, `merge-wait`, `invalidation`, `reuse`, and
+`final-certification`.
+
+The private ledger is mode `0600`, restart-safe, and capped at 512 events and
+1 MiB. Completed process segments use monotonic intervals. Recovery marks an
+abandoned segment interrupted with no duration; it never fabricates elapsed
+time from a wall clock that may have changed. Old records compact in stable
+sequence order into deterministic count, duration, and certification totals.
+
+Delivery timing never records command output, prompts, credentials, raw
+connection identities, evidence bodies, environment values, or arbitrary
+metadata. Shadow reports consume only the bounded projection and do not upload
+or mutate consumer data.

@@ -4,13 +4,23 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const os = require("node:os");
 const { spawnSync } = require("node:child_process");
 const { writeJsonAtomic } = require("./lib/atomic-file");
 const { acquireOwnedLock } = require("./lib/owned-lock");
+const { isGitObjectId } = require("./lib/git-object-id");
+const { beginSegment, finishSegment, recoverInterruptedSegments } = require("./delivery-telemetry");
+const {
+  verifyDeliveryAttestation,
+  finalizeCanonicalFiles,
+  attestCanonicalCandidateFiles,
+} = require("./delivery-attestation");
+const { transitionCandidate, validateSession } = require("./lib/dev-session-schema");
 const {
   bindReleaseEvidence,
   beginEffect,
   createReleaseTransaction,
+  normalizeReleaseTransaction,
   advancePreparedCommit,
   planEffect,
   reconcileEffect,
@@ -38,6 +48,39 @@ function parseArgs(argv) {
   return { command, ...values };
 }
 
+function withDeliveryTelemetry(transactionPath, input, operation, telemetry = {}) {
+  const ledgerPath = path.join(path.dirname(transactionPath), "delivery-timing.json");
+  const recover = telemetry.recoverInterruptedSegments || recoverInterruptedSegments;
+  const begin = telemetry.beginSegment || beginSegment;
+  const finish = telemetry.finishSegment || finishSegment;
+  recover(ledgerPath);
+  const handle = begin(ledgerPath, input);
+  let result;
+  try {
+    result = operation();
+  } catch (error) {
+    try {
+      finish(ledgerPath, handle, { outcome: "failed", certification_count: 0 });
+    } catch (telemetryError) {
+      error.telemetry_error = telemetryError.message;
+    }
+    throw error;
+  }
+  try {
+    finish(ledgerPath, handle, {
+      outcome: "passed",
+      certification_count: result?.decision === "certified" ? 1 : 0,
+    });
+    return result;
+  } catch {
+    return {
+      ...result,
+      telemetry_warning:
+        "delivery completed; telemetry recording failed; do not retry delivery effect",
+    };
+  }
+}
+
 function runCommand(args, options = {}) {
   const cwd = path.resolve(options.cwd || process.cwd());
   const transactionPath = resolvePrivateFile(args.transaction, cwd, "transaction");
@@ -45,12 +88,161 @@ function runCommand(args, options = {}) {
     return initializeDeliveryTransaction(args, cwd, transactionPath);
   }
   if (["validate", "status"].includes(args.command)) {
-    const transaction = readJson(transactionPath, "release transaction");
-    const issues = transactionIssues(transaction);
-    if (issues.length > 0) throw new Error(`invalid release transaction: ${issues.join("; ")}`);
+    const transaction = readCanonicalTransaction(transactionPath);
+    if (args.command === "validate") requireNoPendingMigration(transaction);
     return args.command === "validate"
       ? { ok: true, transaction_path: relative(cwd, transactionPath) }
       : statusView(transaction, relative(cwd, transactionPath));
+  }
+  if (args.command === "verify-attestation") {
+    const transaction = readCanonicalTransaction(transactionPath);
+    requireNoPendingMigration(transaction);
+    const attestationPath = resolvePrivateFile(args.attestation_file, cwd, "attestation file");
+    const attestation = readJson(attestationPath, "delivery attestation");
+    const protectedPolicyCommit = (
+      options.resolveProtectedPolicyCommit || resolveProtectedPolicyCommit
+    )(cwd, transaction);
+    const verdict = verifyDeliveryAttestation(
+      attestation,
+      {
+        canonical_path: relative(cwd, attestationPath),
+        purpose: args.purpose,
+        purposes: [args.purpose],
+        commit: transaction.release.prepared_commit,
+        protected_policy_commit: protectedPolicyCommit,
+        now: new Date(),
+      },
+      {
+        publicKey: crypto.createPublicKey(
+          fs.readFileSync(path.join(os.homedir(), ".pm", "delivery-attestation-public.pem"))
+        ),
+        root: cwd,
+      }
+    );
+    if (!verdict.reusable)
+      throw new Error(`delivery attestation is not reusable: ${verdict.reason}`);
+    return {
+      ok: true,
+      decision: "attestation-verified",
+      generation: transaction.generation,
+      prepared_commit: transaction.release.prepared_commit,
+      authorization_id: verdict.authorization_id,
+    };
+  }
+  if (args.command === "attest-candidate") {
+    return withDeliveryTelemetry(
+      transactionPath,
+      {
+        kind: "active-command",
+        route: "optimized",
+        delivery_id: validatedTransactionRunId(transactionPath),
+      },
+      () => {
+        const request = {
+          schema_version: 1,
+          kind: "canonical-candidate-attestation-v1",
+          repository_root: cwd,
+          session: args.session,
+          transaction: args.transaction,
+          gates: args.gates,
+          plan: args.plan,
+          attestation: args.attestation,
+        };
+        const signer = machineSigner(request);
+        const attestation = attestCanonicalCandidateFiles(
+          { root: cwd, ...request },
+          { signer: signer.sign, signerId: signer.identity }
+        );
+        return { ok: true, decision: "candidate-attested", attestation };
+      }
+    );
+  }
+  if (args.command === "finalize-candidate") {
+    return withDeliveryTelemetry(
+      transactionPath,
+      {
+        kind: "final-certification",
+        route: "optimized",
+        delivery_id: validatedTransactionRunId(transactionPath),
+      },
+      () => {
+        const canonicalInput = {
+          session: args.session,
+          transaction: args.transaction,
+          gates: args.gates,
+          plan: args.plan,
+          certification: args.certification,
+          attestation: args.attestation,
+        };
+        const canonicalRequest = {
+          schema_version: 1,
+          kind: "canonical-delivery-finalization-v1",
+          repository_root: cwd,
+          ...canonicalInput,
+        };
+        const signer = machineSigner(canonicalRequest);
+        const runner = path.join(__dirname, "repository-gate-runner.js");
+        const result = finalizeCanonicalFiles(
+          {
+            root: cwd,
+            ...canonicalInput,
+          },
+          {
+            signer: signer.sign,
+            signerId: signer.identity,
+            publicKey: signer.publicKey,
+            transitionSession: (session) => {
+              const issues = validateSession(session);
+              if (issues.length) throw new Error("canonical Dev session is invalid");
+              if (session.candidate.state === "certifying") return session;
+              return transitionCandidate(session, {
+                state: "certifying",
+                reason: "Complete final candidate certification passed",
+              });
+            },
+            runComplete: (_commands, canonicalPlan) => {
+              const childEnv = { ...process.env };
+              for (const name of Object.keys(childEnv))
+                if (/PM_DELIVERY_(?:ATTESTATION|SIGN|PRIVATE)/.test(name)) delete childEnv[name];
+              const executed = spawnSync(
+                process.execPath,
+                [
+                  runner,
+                  "--plan",
+                  path.resolve(cwd, args.plan),
+                  "--mode",
+                  "complete",
+                  "--expected-plan-digest",
+                  canonicalPlan.plan_digest,
+                  "--expected-capability-identity",
+                  canonicalPlan.capability_identity,
+                  "--discovery-receipt",
+                  path.resolve(cwd, args.discovery_receipt),
+                  "--discovery-receipt-sha256",
+                  args.discovery_receipt_sha256,
+                ],
+                {
+                  cwd,
+                  encoding: "utf8",
+                  shell: false,
+                  env: childEnv,
+                  timeout: 60 * 60 * 1000,
+                  maxBuffer: 1024 * 1024,
+                }
+              );
+              if (executed.status !== 0)
+                throw new Error(`complete repository plan failed: ${executed.stderr}`);
+              const output = JSON.parse(executed.stdout);
+              return {
+                outcome: output.status === "passed" ? "passed" : "failed",
+                evidence: [{ kind: "complete-plan", identity: output.preflight_identity }],
+              };
+            },
+          }
+        );
+        return { ok: true, ...result };
+      }
+    );
   }
   return mutateTransaction(transactionPath, (transaction) => {
     if (args.command === "plan") {
@@ -69,6 +261,7 @@ function runCommand(args, options = {}) {
         effect: args.effect,
         authority: session.authority,
         actor: args.actor,
+        candidateState: session.candidate?.state,
       });
     }
     if (args.command === "reconcile") {
@@ -102,7 +295,7 @@ function runCommand(args, options = {}) {
     if (args.command === "advance") {
       return {
         transaction: advancePreparedCommit(transaction, {
-          commit: args.commit || git(cwd, ["rev-parse", "HEAD"]),
+          commit: resolveAdvanceCommit(cwd, args.commit),
           reason: args.reason,
         }),
         decision: "advanced",
@@ -112,11 +305,16 @@ function runCommand(args, options = {}) {
   });
 }
 
+function resolveAdvanceCommit(cwd, requested) {
+  const head = git(cwd, ["rev-parse", "HEAD"]);
+  if (requested && requested !== head)
+    throw new Error("release advancement commit must equal the exact current HEAD");
+  return head;
+}
+
 function initializeDeliveryTransaction(args, cwd, transactionPath) {
   if (fs.existsSync(transactionPath)) {
-    const existing = readJson(transactionPath, "release transaction");
-    const issues = transactionIssues(existing);
-    if (issues.length > 0) throw new Error(`invalid release transaction: ${issues.join("; ")}`);
+    const existing = readCanonicalTransaction(transactionPath);
     return {
       ok: true,
       decision: "already-initialized",
@@ -161,8 +359,16 @@ function mutateTransaction(transactionPath, mutation) {
     timeoutMessage: `timed out waiting for release transaction lock: ${transactionPath}`,
   });
   try {
-    const transaction = readJson(transactionPath, "release transaction");
-    const result = mutation(transaction);
+    const normalized = normalizeReleaseTransaction(
+      readJson(transactionPath, "release transaction")
+    );
+    if (normalized.migrated) {
+      writeJsonAtomic(transactionPath, normalized.transaction, {
+        directoryMode: 0o700,
+        fileMode: 0o600,
+      });
+    }
+    const result = mutation(normalized.transaction);
     const issues = transactionIssues(result.transaction);
     if (issues.length > 0) throw new Error(`invalid release transaction: ${issues.join("; ")}`);
     writeJsonAtomic(transactionPath, result.transaction, {
@@ -180,8 +386,32 @@ function mutateTransaction(transactionPath, mutation) {
   }
 }
 
+function readCanonicalTransaction(transactionPath) {
+  const release = acquireOwnedLock(`${transactionPath}.lock`, {
+    attempts: 200,
+    waitMs: 25,
+    invalidGraceMs: 1000,
+    timeoutMessage: `timed out waiting for release transaction lock: ${transactionPath}`,
+  });
+  try {
+    const normalized = normalizeReleaseTransaction(
+      readJson(transactionPath, "release transaction")
+    );
+    if (normalized.migrated) {
+      writeJsonAtomic(transactionPath, normalized.transaction, {
+        directoryMode: 0o700,
+        fileMode: 0o600,
+      });
+    }
+    return normalized.transaction;
+  } finally {
+    release();
+  }
+}
+
 function statusView(transaction, transactionPath) {
   const readiness = releaseReadiness(transaction);
+  const migrationPending = hasPendingLegacyMigration(transaction);
   return {
     schema_version: 1,
     transaction_path: transactionPath,
@@ -194,8 +424,11 @@ function statusView(transaction, transactionPath) {
       prepared_commit: transaction.release.prepared_commit,
       tag_created: transaction.release.tag_created,
     },
-    ready: readiness.ok,
-    readiness_issues: readiness.issues,
+    ready: readiness.ok && !migrationPending,
+    readiness_issues: migrationPending
+      ? [...readiness.issues, "legacy create-pr migration requires Merge reconciliation"]
+      : readiness.issues,
+    migration_pending: migrationPending,
     effects: Object.fromEntries(
       Object.entries(transaction.effects).map(([name, effect]) => [
         name,
@@ -207,6 +440,33 @@ function statusView(transaction, transactionPath) {
       ])
     ),
   };
+}
+
+function validatedTransactionRunId(transactionPath) {
+  const transaction = readCanonicalTransaction(transactionPath);
+  requireNoPendingMigration(transaction);
+  return transaction.run_id;
+}
+
+function requireNoPendingMigration(transaction) {
+  if (hasPendingLegacyMigration(transaction)) {
+    throw new Error("legacy create-pr migration requires Merge reconciliation");
+  }
+}
+
+function hasPendingLegacyMigration(transaction) {
+  const createPr = transaction.effects?.["create-pr"];
+  const merge = transaction.effects?.merge;
+  const terminalDelivery =
+    merge?.status === "verified" &&
+    (transaction.release?.mode === "delivery-only" ||
+      transaction.effects?.["place-main-tag"]?.status === "verified");
+  return (
+    !terminalDelivery &&
+    !transaction.evidence?.candidate &&
+    createPr !== undefined &&
+    createPr.target?.draft === undefined
+  );
 }
 
 function githubRepository(url) {
@@ -241,6 +501,31 @@ function resolvePrivateFile(value, cwd, label) {
   return resolved;
 }
 
+function resolveProtectedPolicyCommit(root, transaction, run = spawnSync) {
+  const remote = transaction?.source?.delivery_remote;
+  const branch = transaction?.source?.base_branch;
+  if (typeof remote !== "string" || !remote || typeof branch !== "string" || !branch)
+    throw new Error("release transaction protected branch is unavailable");
+  const ref = `refs/heads/${branch}`;
+  const result = run("git", ["ls-remote", "--refs", "--exit-code", remote, ref], {
+    cwd: root,
+    encoding: "utf8",
+    shell: false,
+    timeout: 30_000,
+    maxBuffer: 8192,
+  });
+  const lines = String(result.stdout || "")
+    .trim()
+    .split(/\r?\n/)
+    .filter(Boolean);
+  if (result.status !== 0 || lines.length !== 1)
+    throw new Error("live protected branch commit is unavailable");
+  const fields = lines[0].split("\t");
+  if (fields.length !== 2 || !isGitObjectId(fields[0]) || fields[1] !== ref)
+    throw new Error("live protected branch commit is malformed");
+  return fields[0];
+}
+
 function resolveInputFile(value, cwd, label) {
   if (typeof value !== "string" || value.trim() === "") {
     throw new Error(`--${label.replaceAll(" ", "-")}-file is required`);
@@ -263,6 +548,51 @@ function readJson(filePath, label) {
   return value;
 }
 
+function machineSigner(canonicalRequest) {
+  const directory = path.join(os.homedir(), ".pm");
+  const helper = path.join(directory, "delivery-attestation-signer");
+  const publicKeyPath = path.join(directory, "delivery-attestation-public.pem");
+  for (const filePath of [helper, publicKeyPath]) {
+    const stat = fs.lstatSync(filePath);
+    if (
+      !stat.isFile() ||
+      stat.isSymbolicLink() ||
+      stat.size > 64 * 1024 ||
+      (stat.mode & 0o022) !== 0
+    )
+      throw new Error("trusted external delivery signer is unavailable");
+  }
+  const publicKey = crypto.createPublicKey(fs.readFileSync(publicKeyPath));
+  return {
+    identity: digestText(publicKey.export({ type: "spki", format: "der" })),
+    publicKey,
+    sign(bytes) {
+      const request = {
+        ...canonicalRequest,
+        requested_material_sha256: digestText(bytes),
+      };
+      const action =
+        canonicalRequest.kind === "canonical-candidate-attestation-v1"
+          ? "sign-canonical-candidate"
+          : "sign-canonical-finalization";
+      const result = spawnSync(helper, [action], {
+        input: `${JSON.stringify(request)}\n`,
+        encoding: "utf8",
+        shell: false,
+        env: { PATH: "/usr/bin:/bin" },
+        timeout: 5000,
+        maxBuffer: 8192,
+      });
+      if (result.status !== 0 || !result.stdout?.length)
+        throw new Error("trusted external delivery signer failed");
+      const signature = Buffer.from(result.stdout.trim(), "base64");
+      if (!crypto.verify(null, bytes, publicKey, signature))
+        throw new Error("trusted external delivery signer returned an invalid signature");
+      return signature;
+    },
+  };
+}
+
 function relative(root, filePath) {
   return path.relative(root, filePath).split(path.sep).join("/");
 }
@@ -281,4 +611,12 @@ function main(argv = process.argv.slice(2)) {
 
 if (require.main === module) process.exitCode = main();
 
-module.exports = { main, parseArgs, runCommand, statusView };
+module.exports = {
+  main,
+  parseArgs,
+  resolveAdvanceCommit,
+  resolveProtectedPolicyCommit,
+  runCommand,
+  statusView,
+  withDeliveryTelemetry,
+};

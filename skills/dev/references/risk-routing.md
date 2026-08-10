@@ -1,14 +1,14 @@
 ---
 title: "Dev risk routing"
 created: 2026-07-11
-updated: 2026-07-11
+updated: 2026-08-09
 ---
 
 # Dev risk routing
 
 ## Purpose
 
-Size estimates effort. Risk selects safeguards. `scripts/lib/dev-risk.js` is the executable source of truth for dev phase and gate routing; this reference explains its inputs and decisions.
+Size estimates effort. Risk selects safeguards. `scripts/lib/dev-risk.js` is the executable source of truth for phase and gate routing. The pure `classifyDeliveryCandidate` function in `scripts/lib/dev-session-schema.js` separately decides whether the optional review-candidate route is proven safe.
 
 ## Dimensions
 
@@ -38,8 +38,22 @@ Set `destructive_data: true` separately when the data operation deletes or irrev
 - UI impact adds design critique and QA.
 - Review and verification are always retained; low-risk XS/S work uses the code-scan review mode.
 
+## Delivery candidate routing
+
+Comprehensive delivery is the default. Review-candidate routing is selected only when one structured fact set proves all of the following:
+
+- Size is `XS` or `S`.
+- Every changed path is inside one normalized, repository-relative app root.
+- Dependency scope is exactly `app-local`.
+- Discovered configuration has a SHA-256 identity.
+- Every risk fact is explicitly known and false: auth, data, migration, external contract, shared surface, operational behavior, configuration, lockfile, and ambiguity.
+
+Missing, malformed, extra, or contradictory facts select `comprehensive`. The classifier returns every reason so the runner can explain the fallback. A task kind, prose claim, empty risk object, or mechanical hook escape hatch never proves eligibility.
+
+Candidate eligibility is not external-effect authority. In `review-candidate`, the candidate authority ceiling allows only `push_feature_branch` and `create_draft_pr`. It keeps certification, ready-for-review, auto-merge, and merge false, and it does not change the session's user-granted authority.
+
 ## Done-when
 
-Routing is complete when the decision record contains a risk tier, review mode, ordered phases, ordered gates, and readable reasons. Consumers persist that record rather than recomputing it from prose.
+Routing is complete when the decision record contains a risk tier, review mode, ordered phases, ordered gates, candidate route, and readable reasons. Consumers persist that record rather than recomputing it from prose.
 
 **Advance:** proceed to the phase returned by the session runner.

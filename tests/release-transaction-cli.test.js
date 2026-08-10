@@ -5,9 +5,16 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const crypto = require("node:crypto");
 const { spawnSync } = require("node:child_process");
 
-const { createReleaseTransaction } = require("../scripts/lib/release-transaction-schema");
+const {
+  beginEffect,
+  createReleaseTransaction,
+  planEffect,
+  reconcileEffect,
+} = require("../scripts/lib/release-transaction-schema");
+const { stableStringify } = require("../scripts/lib/workflow-runtime/records");
 const script = path.resolve(__dirname, "../scripts/release-transaction.js");
 const COMMIT = "a".repeat(40);
 
@@ -54,6 +61,77 @@ function fixture() {
 
 function run(root, ...args) {
   return spawnSync(process.execPath, [script, ...args], { cwd: root, encoding: "utf8" });
+}
+
+function legacyVerifiedCreatePr(transaction, legacy = true) {
+  let value = planEffect(transaction, {
+    effect: "push",
+    target: {
+      remote: "origin",
+      repository: "acme/widget",
+      branch: "codex/example",
+      commit: COMMIT,
+    },
+  });
+  value = beginEffect(value, {
+    effect: "push",
+    authority: { push_feature_branch: true },
+    actor: "root",
+  }).transaction;
+  value = reconcileEffect(value, {
+    effect: "push",
+    outcome: "matched",
+    receipt: { remote_tip: COMMIT },
+    observation: { target: value.effects.push.target, receipt: { remote_tip: COMMIT } },
+  }).transaction;
+  value = planEffect(value, {
+    effect: "create-pr",
+    target: {
+      repository: "acme/widget",
+      head: "codex/example",
+      base: "main",
+      commit: COMMIT,
+      draft: false,
+    },
+  });
+  value = beginEffect(value, {
+    effect: "create-pr",
+    authority: { create_pr: true },
+    actor: "root",
+  }).transaction;
+  const receipt = { pr_number: 7, state: "OPEN", head_oid: COMMIT, draft: false };
+  value = reconcileEffect(value, {
+    effect: "create-pr",
+    outcome: "matched",
+    receipt,
+    observation: { target: value.effects["create-pr"].target, receipt },
+  }).transaction;
+  return legacy ? asLegacyCreatePr(value) : value;
+}
+
+function asLegacyCreatePr(value) {
+  value = structuredClone(value);
+  const effect = value.effects["create-pr"];
+  delete effect.target.draft;
+  delete effect.attempts.at(-1).receipt.draft;
+  delete effect.attempts.at(-1).observation.target.draft;
+  delete effect.attempts.at(-1).observation.receipt.draft;
+  delete effect.verified_receipt.target.draft;
+  delete effect.verified_receipt.receipt.draft;
+  delete effect.verified_receipt.verification.target.draft;
+  delete effect.verified_receipt.verification.receipt.draft;
+  effect.idempotency_key = `sha256:${crypto
+    .createHash("sha256")
+    .update(
+      stableStringify({
+        run_id: value.run_id,
+        prepared_commit: value.release.prepared_commit,
+        effect: "create-pr",
+        target: effect.target,
+      })
+    )
+    .digest("hex")}`;
+  return value;
 }
 
 test("CLI validates, plans, and durably records authority denial", () => {
@@ -104,6 +182,127 @@ test("CLI validates, plans, and durably records authority denial", () => {
     assert.equal(JSON.parse(denied.stdout).decision, "denied");
     const saved = JSON.parse(fs.readFileSync(path.join(item.root, item.transactionPath), "utf8"));
     assert.equal(saved.effects.push.attempts[0].classification, "authority");
+  } finally {
+    item.cleanup();
+  }
+});
+
+test("read-only CLI commands persist legacy PR migration before reporting status", () => {
+  const item = fixture();
+  try {
+    const file = path.join(item.root, item.transactionPath);
+    const legacy = legacyVerifiedCreatePr(JSON.parse(fs.readFileSync(file, "utf8")));
+    fs.writeFileSync(file, `${JSON.stringify(legacy, null, 2)}\n`);
+    const status = run(item.root, "status", "--transaction", item.transactionPath, "--json");
+    assert.equal(status.status, 0, status.stderr);
+    const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+    assert.equal(saved.effects["create-pr"].status, "attempting");
+    assert.equal(saved.effects["create-pr"].target.draft, false);
+    assert.equal(saved.effects["create-pr"].verified_receipt, null);
+  } finally {
+    item.cleanup();
+  }
+});
+
+test("completed legacy delivery stays byte-stable across status and validate", () => {
+  const item = fixture();
+  try {
+    const file = path.join(item.root, item.transactionPath);
+    let value = legacyVerifiedCreatePr(JSON.parse(fs.readFileSync(file, "utf8")), false);
+    const mergeTarget = {
+      repository: "acme/widget",
+      pr_number: 7,
+      head_commit: COMMIT,
+      base: "main",
+      method: "squash",
+    };
+    value = planEffect(value, { effect: "merge", target: mergeTarget });
+    value = beginEffect(value, {
+      effect: "merge",
+      authority: { merge: true },
+      actor: "root",
+    }).transaction;
+    const mergeReceipt = {
+      pr_number: 7,
+      state: "MERGED",
+      head_oid: COMMIT,
+      merge_sha: "d".repeat(40),
+    };
+    value = reconcileEffect(value, {
+      effect: "merge",
+      outcome: "matched",
+      receipt: mergeReceipt,
+      observation: { target: mergeTarget, receipt: mergeReceipt },
+    }).transaction;
+    const tagTarget = {
+      remote: "origin",
+      tag: "v1.0.1",
+      merge_sha: mergeReceipt.merge_sha,
+      base: "main",
+    };
+    value = planEffect(value, { effect: "place-main-tag", target: tagTarget });
+    value = beginEffect(value, {
+      effect: "place-main-tag",
+      authority: { merge: true },
+      actor: "root",
+    }).transaction;
+    value = reconcileEffect(value, {
+      effect: "place-main-tag",
+      outcome: "matched",
+      receipt: { tag: "v1.0.1", peeled_sha: mergeReceipt.merge_sha },
+      observation: {
+        target: tagTarget,
+        receipt: { tag: "v1.0.1", peeled_sha: mergeReceipt.merge_sha },
+      },
+    }).transaction;
+    const legacy = asLegacyCreatePr(value);
+    const before = `${JSON.stringify(legacy, null, 2)}\n`;
+    fs.writeFileSync(file, before);
+    for (const command of ["status", "validate"]) {
+      const result = run(item.root, command, "--transaction", item.transactionPath, "--json");
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(fs.readFileSync(file, "utf8"), before);
+    }
+  } finally {
+    item.cleanup();
+  }
+});
+
+test("a failing begin persists planned-Merge legacy normalization", () => {
+  const item = fixture();
+  try {
+    const file = path.join(item.root, item.transactionPath);
+    let value = legacyVerifiedCreatePr(JSON.parse(fs.readFileSync(file, "utf8")), false);
+    value = planEffect(value, {
+      effect: "merge",
+      target: {
+        repository: "acme/widget",
+        pr_number: 7,
+        head_commit: COMMIT,
+        base: "main",
+        method: "squash",
+      },
+    });
+    value = asLegacyCreatePr(value);
+    fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
+    const result = run(
+      item.root,
+      "begin",
+      "--transaction",
+      item.transactionPath,
+      "--effect",
+      "merge",
+      "--session",
+      item.sessionPath,
+      "--actor",
+      "root",
+      "--json"
+    );
+    assert.notEqual(result.status, 0);
+    const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+    assert.equal(saved.effects.merge, undefined);
+    assert.equal(saved.effects["create-pr"].status, "attempting");
+    assert.equal(saved.effects["create-pr"].target.draft, false);
   } finally {
     item.cleanup();
   }

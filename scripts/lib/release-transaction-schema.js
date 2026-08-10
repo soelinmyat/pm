@@ -4,12 +4,13 @@ const crypto = require("node:crypto");
 const { bindEffectReceipt } = require("./workflow-runtime/effect-receipt");
 const { isObject, stableStringify } = require("./workflow-runtime/records");
 
-const SHA = /^[a-f0-9]{40,64}$/;
+const SHA = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 const SHA256 = /^sha256:[a-f0-9]{64}$/;
 const VERSION = /^\d+\.\d+\.\d+$/;
 const EFFECT_DEFINITIONS = Object.freeze({
   push: { authority: "push_feature_branch", dependsOn: [] },
   "create-pr": { authority: "create_pr", dependsOn: ["push"] },
+  "ready-pr": { authority: "create_pr", dependsOn: ["create-pr"] },
   merge: { authority: "merge", dependsOn: ["create-pr"] },
   "place-main-tag": { authority: "merge", dependsOn: ["merge"] },
   "tracker-update": { authority: "tracker_updates", dependsOn: ["merge"] },
@@ -30,7 +31,9 @@ const ATTEMPT_STATUSES = new Set([
   "blocked",
   "failed",
 ]);
-const EVIDENCE_KINDS = new Set(["review", "qa", "verification"]);
+const REQUIRED_EVIDENCE_KINDS = Object.freeze(["review", "qa", "verification"]);
+const EVIDENCE_KINDS = new Set(["candidate", ...REQUIRED_EVIDENCE_KINDS]);
+const SAFE_SLUG = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
 function createReleaseTransaction(input) {
   requireObject(input, "release transaction input");
@@ -44,6 +47,9 @@ function createReleaseTransaction(input) {
     ["baseBranch", input.baseBranch],
   ]) {
     requireString(value, name);
+  }
+  if (!SAFE_SLUG.test(input.slug) || input.slug === "." || input.slug === "..") {
+    throw new Error("slug must be one safe path segment");
   }
   const releaseMode = input.releaseMode || "versioned";
   if (!new Set(["versioned", "delivery-only"]).has(releaseMode)) {
@@ -92,7 +98,7 @@ function createReleaseTransaction(input) {
       manifests: manifestHashes,
       prepared_at: timestamp,
     },
-    evidence: { review: null, qa: null, verification: null },
+    evidence: { candidate: null, review: null, qa: null, verification: null },
     effects: {},
     generation: 1,
     history: [],
@@ -133,7 +139,7 @@ function advancePreparedCommit(transaction, input) {
     });
   }
   next.release.prepared_at = timestamp;
-  next.evidence = { review: null, qa: null, verification: null };
+  next.evidence = { candidate: null, review: null, qa: null, verification: null };
   next.effects = {};
   next.updated_at = timestamp;
   assertValid(next);
@@ -163,7 +169,7 @@ function bindReleaseEvidence(transaction, input) {
 function releaseReadiness(transaction) {
   const issues = transactionIssues(transaction);
   if (issues.length > 0) return { ok: false, issues };
-  for (const kind of EVIDENCE_KINDS) {
+  for (const kind of REQUIRED_EVIDENCE_KINDS) {
     const evidence = transaction.evidence[kind];
     if (!evidence) issues.push(`missing ${kind} evidence`);
     else if (evidence.commit !== transaction.release.prepared_commit) {
@@ -178,6 +184,9 @@ function planEffect(transaction, input) {
   requireObject(input, "effect plan");
   const definition = effectDefinition(input.effect);
   requireObject(input.target, `${input.effect} target`);
+  if (input.effect === "create-pr" && typeof input.target.draft !== "boolean") {
+    throw new Error("create-pr target draft must be an explicit boolean");
+  }
   if (next.effects[input.effect]) {
     const current = next.effects[input.effect];
     if (stableStringify(current.target) !== stableStringify(input.target)) {
@@ -210,11 +219,25 @@ function beginEffect(transaction, input) {
   const effect = requirePlannedEffect(next, input.effect);
   if (input.actor !== "root") throw new Error("release effects are root-owned");
   if (effect.status === "verified") return { transaction: next, decision: "already-verified" };
+  const optimizedMerge =
+    input.effect === "merge" &&
+    (next.evidence.candidate || next.effects["ready-pr"]?.status !== undefined);
+  if ((input.effect === "ready-pr" || optimizedMerge) && input.candidateState !== "merge-ready") {
+    throw new Error(`${input.effect} requires candidate state merge-ready`);
+  }
   if (effect.status === "attempting") return { transaction: next, decision: "observe-first" };
   if (effect.status === "blocked") throw new Error(`${input.effect} is blocked and cannot replay`);
   for (const dependency of effect.depends_on) {
     if (next.effects[dependency]?.status !== "verified") {
       throw new Error(`${input.effect} requires verified effect ${dependency}`);
+    }
+  }
+  if (
+    input.effect === "merge" &&
+    (next.evidence.candidate || next.effects["ready-pr"]?.status !== undefined)
+  ) {
+    if (next.effects["ready-pr"]?.status !== "verified") {
+      throw new Error("merge requires verified effect ready-pr");
     }
   }
   requireObject(input.authority, "authority envelope");
@@ -335,6 +358,9 @@ function transactionIssues(value) {
   for (const field of ["run_id", "slug", "created_at", "updated_at"]) {
     if (!nonEmpty(value[field])) issues.push(`${field} is required`);
   }
+  if (!SAFE_SLUG.test(value.slug || "") || value.slug === "." || value.slug === "..") {
+    issues.push("slug must be one safe path segment");
+  }
   if (!isObject(value.owner) || value.owner.role !== "root") issues.push("owner.role must be root");
   validateSource(value.source, issues);
   validateRelease(value.release, issues);
@@ -440,6 +466,7 @@ function validateRelease(release, issues) {
 }
 
 function validateEvidence(evidence, kind, issues) {
+  if (kind === "candidate" && evidence === undefined) return;
   if (evidence === null) return;
   if (!isObject(evidence)) return issues.push(`${kind} evidence must be null or object`);
   exactKeys(evidence, ["commit", "artifact", "sha256", "checked_at"], `$.evidence.${kind}`, issues);
@@ -582,6 +609,20 @@ function validateEffectTarget(name, target, transaction) {
     requireTargetMatch(target, "head", transaction.source.head_branch, "head branch");
     requireTargetMatch(target, "base", transaction.source.base_branch, "base branch");
     requireTargetMatch(target, "commit", transaction.release.prepared_commit, "prepared commit");
+    const candidateDraft = Boolean(transaction.evidence.candidate);
+    // Schema-v1 comprehensive transactions created before draft binding omitted this field.
+    if (target.draft !== undefined || candidateDraft) {
+      requireTargetMatch(target, "draft", candidateDraft, "delivery route");
+    }
+  }
+  if (name === "ready-pr") {
+    if (!transaction.evidence.candidate)
+      throw new Error("ready-pr requires current candidate evidence");
+    const prReceipt = transaction.effects["create-pr"]?.verified_receipt?.receipt;
+    if (!prReceipt) throw new Error("ready-pr target requires a verified create-pr receipt");
+    requireTargetMatch(target, "repository", transaction.source.repository, "repository");
+    requireTargetMatch(target, "pr_number", receiptPrNumber(prReceipt), "verified PR number");
+    requireTargetMatch(target, "commit", transaction.release.prepared_commit, "prepared commit");
   }
   if (name === "merge") {
     const prReceipt = transaction.effects["create-pr"]?.verified_receipt?.receipt;
@@ -634,6 +675,16 @@ function validateMatchedReceipt(name, target, receipt) {
     }
     requireReceiptMatch(receipt, "state", "OPEN", "OPEN PR state");
     requireReceiptMatch(receipt, "head_oid", target.commit, "prepared commit");
+    if (target.draft !== undefined || receipt.draft !== undefined) {
+      requireReceiptMatch(receipt, "draft", target.draft ?? false, "planned draft state");
+    }
+    return;
+  }
+  if (name === "ready-pr") {
+    requireReceiptMatch(receipt, "pr_number", target.pr_number, "planned PR number");
+    requireReceiptMatch(receipt, "state", "OPEN", "OPEN PR state");
+    requireReceiptMatch(receipt, "head_oid", target.commit, "prepared commit");
+    requireReceiptMatch(receipt, "draft", false, "ready PR state");
     return;
   }
   if (name === "merge") {
@@ -725,8 +776,76 @@ function requirePlannedEffect(transaction, name) {
 }
 
 function cloneAndValidate(value) {
+  return normalizeReleaseTransaction(value).transaction;
+}
+
+function normalizeReleaseTransaction(value) {
   assertValid(value);
-  return structuredClone(value);
+  const before = stableStringify(value);
+  const transaction = migrateLegacyCreatePr(structuredClone(value));
+  assertValid(transaction);
+  return { transaction, migrated: stableStringify(transaction) !== before };
+}
+
+function migrateLegacyCreatePr(transaction) {
+  const effect = transaction.effects?.["create-pr"];
+  if (
+    transaction.evidence?.candidate ||
+    !isObject(effect?.target) ||
+    Object.hasOwn(effect.target, "draft")
+  ) {
+    return transaction;
+  }
+
+  const merge = transaction.effects.merge;
+  const terminalDelivery =
+    merge?.status === "verified" &&
+    (transaction.release.mode === "delivery-only" ||
+      transaction.effects["place-main-tag"]?.status === "verified");
+  if (terminalDelivery) return transaction;
+  if (
+    merge?.status === "attempting" ||
+    new Set(["blocked", "denied", "failed"]).has(merge?.status)
+  ) {
+    return transaction;
+  }
+  if (merge?.status === "verified") {
+    migrateCompletedCreatePr(transaction, effect);
+    return transaction;
+  }
+  if (merge?.status === "planned") delete transaction.effects.merge;
+
+  effect.target.draft = false;
+  effect.idempotency_key = effectKey(transaction, "create-pr", effect.target);
+  for (const attempt of effect.attempts || []) {
+    if (isObject(attempt.observation?.target)) attempt.observation.target.draft = false;
+  }
+  if (effect.status === "verified") {
+    effect.verified_receipt = null;
+    const attempt = emptyAttempt(effect.attempts.length + 1, effect.updated_at);
+    attempt.status = "attempting";
+    attempt.classification = "observation";
+    effect.attempts.push(attempt);
+    effect.status = "attempting";
+  }
+  return transaction;
+}
+
+function migrateCompletedCreatePr(transaction, effect) {
+  effect.target.draft = false;
+  effect.idempotency_key = effectKey(transaction, "create-pr", effect.target);
+  for (const attempt of effect.attempts || []) {
+    if (isObject(attempt.receipt)) attempt.receipt.draft = false;
+    if (isObject(attempt.observation?.target)) attempt.observation.target.draft = false;
+    if (isObject(attempt.observation?.receipt)) attempt.observation.receipt.draft = false;
+  }
+  const bound = effect.verified_receipt;
+  if (isObject(bound)) {
+    bound.target.draft = false;
+    bound.receipt.draft = false;
+    bound.verification.target.draft = false;
+    bound.verification.receipt.draft = false;
+  }
 }
 
 function assertValid(value) {
@@ -759,6 +878,7 @@ module.exports = {
   bindReleaseEvidence,
   beginEffect,
   createReleaseTransaction,
+  normalizeReleaseTransaction,
   planEffect,
   reconcileEffect,
   releaseReadiness,

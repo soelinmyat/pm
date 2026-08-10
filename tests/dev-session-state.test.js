@@ -757,8 +757,9 @@ test("delivery receipt is cryptographically bound to the verified release transa
           head: session.source.branch,
           base: "main",
           commit,
+          draft: false,
         },
-        receipt: { pr_number: 42, state: "OPEN", head_oid: commit },
+        receipt: { pr_number: 42, state: "OPEN", head_oid: commit, draft: false },
       },
       {
         name: "merge",
@@ -968,11 +969,11 @@ function passedResult(session, overrides = {}) {
   };
 }
 
-test("createSession produces a strict, cold-resumable v2 state", () => {
+test("createSession produces a strict, cold-resumable v3 state", () => {
   const repo = makeRepo();
   try {
     const session = createSession({ slug: "state-harness", sourceDir: repo.root });
-    assert.equal(session.schema_version, 2);
+    assert.equal(session.schema_version, 3);
     assert.match(session.run_id, /^dev_/);
     assert.equal(session.phase, "intake");
     assert.equal(session.phase_attempt, 1);
@@ -1016,7 +1017,7 @@ test("the published JSON Schema exposes session and phase-result contracts", () 
     "dev-session.schema.json"
   );
   const schema = JSON.parse(fs.readFileSync(schemaPath, "utf8"));
-  assert.equal(schema.properties.schema_version.const, 2);
+  assert.equal(schema.properties.schema_version.const, 3);
   assert.equal(schema.additionalProperties, false);
   assert.equal(schema.$defs.phase_result.properties.schema_version.const, 1);
   assert.equal(schema.$defs.phase_result.additionalProperties, false);
@@ -1135,6 +1136,8 @@ test("readSession safely upgrades immediately preceding v2 state", () => {
   const repo = makeRepo();
   try {
     const session = createSession({ slug: "compat-v2", sourceDir: repo.root });
+    session.schema_version = 2;
+    delete session.candidate;
     delete session.authority_log;
     session.authority.push_feature_branch = true;
     session.authority.create_pr = true;
@@ -1164,6 +1167,8 @@ test("readSession resets legacy in-flight work units for safe reassignment", () 
   const repo = makeRepo();
   try {
     const session = createSession({ slug: "compat-work-units", sourceDir: repo.root });
+    session.schema_version = 2;
+    delete session.candidate;
     session.phase = "review";
     session.routing.required_phases = ["review", "ship", "retro"];
     session.evidence.implementation = {
@@ -1232,6 +1237,8 @@ test("readSession preserves legacy terminal sessions while backfilling assignmen
   try {
     for (const status of ["complete", "handoff"]) {
       const session = createSession({ slug: `compat-${status}`, sourceDir: repo.root });
+      session.schema_version = 2;
+      delete session.candidate;
       session.status = status;
       session.phase = status === "complete" ? "retro" : "ship";
       session.routing.required_phases = [session.phase];

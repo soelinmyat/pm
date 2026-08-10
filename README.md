@@ -179,6 +179,15 @@ and rendered-evidence contract behind PM's flagship reports.
 | `/pm:board` | Open a visual Kanban view of backlog, leases, recent runs, and budget state |
 | `/pm:list` | Show the same in-flight PM state as a compact terminal-oriented inventory |
 
+PM automatically discovers repository-native delivery capabilities and chooses
+the safest supported route with zero consumer edits. An optimized review-first
+route requires an explicitly authorized machine-readable candidate-publication
+policy; otherwise PM retains comprehensive Review → Push → PR → CI behavior.
+CleanLog's current contract therefore gets repository-native planning and
+guidance but stays comprehensive. Set `PM_DELIVERY_COMPREHENSIVE=1` as the
+single kill switch to force comprehensive delivery; capability guidance is
+read-only and setup changes require separate explicit authority.
+
 Groom and RFC artifact work is isolated from the shared knowledge-base checkout. Each
 session uses a dedicated `codex/` worktree created from the Git remote's observed
 default branch, fetched from that same delivery URL, so an unrelated dirty session or

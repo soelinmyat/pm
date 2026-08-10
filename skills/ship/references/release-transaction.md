@@ -73,8 +73,8 @@ node "$PM_PLUGIN_ROOT/scripts/release-transaction.js" status \
 The ordered effects are:
 
 ```text
-push → create-pr → merge → place-main-tag
-                         ↘ tracker-update
+push → create-pr → ready-pr (optimized draft only) → merge → place-main-tag
+                                                     ↘ tracker-update
 ```
 
 `place-main-tag` exists only in a versioned transaction. Tracker update remains optional and requires its own configured target and `tracker_updates` authority.
@@ -138,11 +138,15 @@ Target fields: `remote`, `repository`, `branch`, `commit`. The receipt field `re
 
 ### Create PR
 
-Target fields: `repository`, `head`, `base`, `commit`. Observe through the exact GitHub owner/repository and require zero or one matching PR. The receipt records `pr_number`, URL, `state: OPEN`, and `head_oid`; the head OID must equal `commit`. Multiple matches, a fork, wrong base, or wrong head OID is `conflict`.
+Target fields: `repository`, `head`, `base`, `commit`, and `draft`. Every new plan must provide the boolean explicitly. The runtime requires `draft: true` exactly when current candidate evidence selects optimized publication and `draft: false` for the comprehensive route. On the canonical read boundary, a legacy schema-v1 comprehensive journal that predates this field is atomically migrated to `draft: false`; a formerly verified pre-Merge effect is reopened only for observe-first recovery and cannot become verified again until the live PR proves `draft: false`. A planned Merge is durably discarded with that reopened proof even when the attempted command cannot continue. An attempting Merge must be reconciled first because it may already be irreversible, while a verified Merge proves the PR reached a mergeable non-draft state and preserves idempotent tag completion. A terminal transaction with its required Merge and main tag already verified remains byte-for-byte immutable so an existing delivery receipt cannot be invalidated. Status exposes any migration still awaiting Merge reconciliation, and validation or attestation blocks until it resolves. Never infer candidate authority or ready state from an omission. Observe through the exact GitHub owner/repository and require zero or one matching PR. The receipt records `pr_number`, URL, `state: OPEN`, `head_oid`, and the exact planned `draft` value; the head OID must equal `commit`. Multiple matches, a fork, wrong base, wrong draft state, or wrong head OID is `conflict`.
+
+### Ready PR
+
+Optimized draft delivery only. Target fields: `repository`, verified `pr_number`, and `commit`. It depends on verified `create-pr`, can begin only while the canonical candidate is `merge-ready`, and uses the existing canonical `create_pr` authority; it never inherits merge authority. Observe through the exact GitHub owner/repository. The receipt records the same `pr_number`, `state: OPEN`, `head_oid` equal to `commit`, and `draft: false`. When `ready-pr` is planned, Merge cannot begin until this effect is verified. Comprehensive non-draft PRs do not plan this effect.
 
 ### Merge
 
-Target fields: `repository`, verified `pr_number`, `head_commit`, `base`, and `method`. Receipt records the same `pr_number`, `state: MERGED`, `merge_sha`, merged time, and `head_oid`; the head OID must equal `head_commit`. An OPEN PR is not an absent merge and must remain in monitoring; CLOSED without merge is `conflict`.
+Target fields: `repository`, verified `pr_number`, `head_commit`, `base`, and `method`. Optimized Merge begin and observe-first recovery reload the canonical session and require candidate state to remain `merge-ready`; invalidation revokes the retained readiness receipt and requires cancellation of any armed auto-merge before remediation. If the exact PR irreversibly merged before cancellation, reconciliation must still journal that independently observed result even though the candidate is now invalidated. Receipt records the same `pr_number`, `state: MERGED`, `merge_sha`, merged time, and `head_oid`; the head OID must equal `head_commit`. An OPEN PR is not an absent merge and must remain in monitoring; CLOSED without merge is `conflict`.
 
 ### Place main tag
 

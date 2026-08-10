@@ -1,12 +1,12 @@
 # Dev Session State
 
-## Canonical v2 State
+## Canonical v3 State
 
-`session.json` is the lifecycle source of truth. Markdown files are compatibility inputs and optional human projections; they never advance a v2 session.
+`session.json` is the lifecycle source of truth. Markdown files are compatibility inputs and optional human projections; they never advance a v3 session.
 
 Provider-neutral record mechanics live in `scripts/lib/workflow-runtime/`; this Dev adapter owns phase routing, risk, gate-to-evidence mapping, commit reachability, delivery policy, and completion. Recertification is accepted only when its phase-local records preserve every evidence kind required by the routed final gates.
 
-Create and update v2 sessions only through `${PM_PLUGIN_ROOT}/scripts/dev-session.js`:
+Create and update v3 sessions only through `${PM_PLUGIN_ROOT}/scripts/dev-session.js`:
 
 ```text
 dev-session init --slug <slug> --source-dir <path> [--task <path-or-id>]
@@ -20,6 +20,8 @@ dev-session unblock --session <path> --reason <resolution>
 dev-session authorize --session <path> --grant <csv> --reason <consent>
 dev-session advance-decision --session <path> --expected-version <n> --reason <direction>
 dev-session workspace --session <path> --worktree <path>
+dev-session candidate --session <path> --state <state> --reason <text> [--external-effect-started-at <time>]
+dev-session candidate-effect --session <path> --at <time>
 dev-session validate --session <path>
 dev-session migrate --legacy <path> [--output <path>]
 dev-session project --session <path> [--output <path>]
@@ -60,6 +62,25 @@ intake -> workspace -> readiness -> implementation -> design-critique -> qa -> r
 ```
 
 During intake, `dev-session route` replaces that sequence with the executable decision from observed kind, size, risk, UI impact, and non-behavioral exceptions. A cold process recovers the current action solely by running `dev-session next --session ... --json`.
+
+### Candidate lifecycle
+
+The v3 `candidate` object is installed with the plugin; consumer repositories do not add integration code or configuration to activate it. Its ordered states are:
+
+```text
+implementation -> review-candidate -> reviewing -> review-converged
+  -> certifying -> base-check -> merge-ready
+```
+
+Any active candidate state may move to `invalidated`; an invalidated candidate must return to `implementation` before retrying. Every transition records from/to state, reason, and timestamp. The object also holds the affected identity, review requirements, repository-capability identity, gate-plan identity, invalidation record, and `external_effect_started_at`.
+
+`review-candidate` is a capability ceiling, not a grant of user authority. It permits feature-branch push and draft PR creation only. Certification, ready-for-review, auto-merge, and merge remain false. The existing top-level authority ledger must independently authorize any external action.
+
+### Schema upgrade and rollback
+
+Reading schema v2 upgrades it to v3 before use, validates the result, retains one adjacent `session.json.v2.snapshot.json` with mode `0600`, and atomically replaces `session.json`. Authority and evidence are preserved. Unknown later schema versions fail before a snapshot or write.
+
+The one bounded snapshot may restore v2 only while `external_effect_started_at` is null. It is deleted after session completion, or after 30 days when a blocked or handed-off session is abandoned. A repeated read never creates an unbounded snapshot series.
 
 ### Result envelope
 
@@ -108,7 +129,7 @@ Allowed statuses are `passed`, `failed`, `blocked`, and `noop`. Process exit cod
 
 ## Legacy Markdown Compatibility
 
-Legacy Markdown is read only for migration and for tools not yet moved to v2. `dev-session migrate` retains the source file and writes a new canonical `session.json`; it never deletes or overwrites the Markdown input.
+Legacy Markdown is read only for migration and for tools not yet moved to v3. `dev-session migrate` retains the source file and writes a new canonical `session.json`; it never deletes or overwrites the Markdown input.
 
 ## Location
 
@@ -136,7 +157,7 @@ On resume detection or any state file read, also check legacy paths (`.dev-state
 
 ## Context Recovery
 
-For a v2 session, run `dev-session next --session ... --json`; `session.json` is the source of truth, not conversation history. For a legacy session that has not been migrated, read the Markdown state file first.
+For a v3 session, run `dev-session next --session ... --json`; `session.json` is the source of truth, not conversation history. For a legacy session that has not been migrated, read the Markdown state file first.
 
 After compaction or if context feels stale, read this file to recover full session state.
 
@@ -164,7 +185,7 @@ Multi-task per-task agents should update the Tasks table status at each lifecycl
 
 ## Gate Manifest Sidecar
 
-Every dev session that can push, create a PR, or ship code must maintain `.pm/dev-sessions/{slug}/gates.json` for existing hooks and ship gates. In v2, `session.json` is the lifecycle source of truth and the sidecar is the executable quality-gate contract until those consumers move to v2 evidence. In legacy sessions, Markdown remains the human-readable projection.
+Every dev session that can push, create a PR, or ship code must maintain `.pm/dev-sessions/{slug}/gates.json` for existing hooks and ship gates. In v3, `session.json` is the lifecycle source of truth and the sidecar is the executable quality-gate contract until those consumers move to v3 evidence. In legacy sessions, Markdown remains the human-readable projection.
 
 Schema:
 

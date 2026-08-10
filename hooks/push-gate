@@ -30,6 +30,8 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
+const crypto = require("node:crypto");
 const { spawnSync } = require("node:child_process");
 
 const PM_PLUGIN_ROOT =
@@ -43,12 +45,22 @@ const { readProjectInput } = require(
 const { validateSession } = require(
   path.join(HOOK_ROOT, "scripts", "lib", "dev-session-schema.js")
 );
+const { isGitObjectId, zeroObjectIdLike } = require(
+  path.join(HOOK_ROOT, "scripts", "lib", "git-object-id.js")
+);
+const {
+  consumePushAuthorization,
+  deriveBypassPurposes,
+  verifyCanonicalDeliveryAttestation,
+  verifyCanonicalCandidateAttestation,
+} = require(path.join(HOOK_ROOT, "scripts", "delivery-attestation.js"));
 
 // The 1MB spawnSync default ENOBUFS'd on a large (e.g. 200k-row) manifest, which
 // under fail-open silently allowed the push. Give the checker plenty of room; if
 // it still overflows, fail-closed catches it (result.error is set → block).
 const MAX_BUFFER = 64 * 1024 * 1024;
 const MAX_SESSION_BYTES = 4 * 1024 * 1024;
+const MAX_DELIVERY_INPUT_BYTES = 1024 * 1024;
 const MAX_SESSION_DIRECTORIES = 512;
 
 // allow / emit never call process.exit(): a bare `process.exit(0)` after a stdout
@@ -954,6 +966,36 @@ function parseShellAssignment(value) {
     complex: Boolean(match[2]) || match[3] === "+=" || match[4].startsWith("("),
     value: match[4],
   };
+}
+
+function commandRequestsAssignment(command, name, expected, depth = 0) {
+  if (depth > 3) return false;
+  const joined = String(command).replace(/\\\r?\n/g, " ");
+  const controls = scanShellTokens(joined);
+  const segments = [];
+  let cursor = 0;
+  for (const control of controls) {
+    if (control.index > cursor) segments.push(joined.slice(cursor, control.index));
+    cursor = control.end;
+  }
+  if (cursor < joined.length) segments.push(joined.slice(cursor));
+  for (const segment of segments) {
+    for (const word of splitSimpleShellWords(segment)) {
+      const assignment = parseShellAssignment(word.value);
+      if (
+        assignment?.name === name &&
+        (assignment.complex || word.dynamic || assignment.value === expected)
+      )
+        return true;
+      if (
+        !word.dynamic &&
+        /[\s;|&(){}]/.test(word.value) &&
+        commandRequestsAssignment(word.value, name, expected, depth + 1)
+      )
+        return true;
+    }
+  }
+  return false;
 }
 
 function isCompoundAssignmentPrefix(value) {
@@ -2185,7 +2227,7 @@ function gatePush(baseCwd, push) {
       ["rev-parse", "--verify", `${pushed.source}^{commit}`],
       gitDir
     );
-    if (!/^[a-f0-9]{40,64}$/.test(pushedSha)) {
+    if (!isGitObjectId(pushedSha)) {
       blockUnverified(
         branch,
         manifestRel,
@@ -2213,6 +2255,122 @@ function gatePush(baseCwd, push) {
       blockUnverified(branch, manifestRel, destination.error);
       return true;
     }
+    let bypassConsumption = null;
+    if (push.bypassRequested?.lefthook || push.bypassRequested?.skipReview) {
+      const candidateOnly = session.candidate.state === "review-candidate";
+      const attestationPath = path.join(
+        canonicalSessionDir,
+        "ship",
+        candidateOnly ? "candidate-attestation.json" : "delivery-attestation.json"
+      );
+      let attestation;
+      try {
+        const readDeliveryJson = (absolute) => {
+          const relative = path.relative(repoDir, absolute);
+          return JSON.parse(
+            readProjectInput(repoDir, relative, MAX_DELIVERY_INPUT_BYTES).bytes.toString("utf8")
+          );
+        };
+        const purposes = deriveBypassPurposes(session.candidate, push.bypassRequested);
+        attestation = readDeliveryJson(attestationPath);
+        const remoteUrl = gitCapture(
+          repoDir,
+          ["remote", "get-url", "--push", "--", destination.remote],
+          gitDir
+        );
+        const transaction = readDeliveryJson(
+          path.join(canonicalSessionDir, "ship", "release-transaction.json")
+        );
+        const plan = readDeliveryJson(
+          path.join(canonicalSessionDir, "ship", "repository-delivery-plan.json")
+        );
+        const gates = readDeliveryJson(path.join(canonicalSessionDir, "gates.json"));
+        const defaultPrefix = `refs/remotes/${destination.remote}/`;
+        if (
+          typeof plan.expected_default_ref !== "string" ||
+          !plan.expected_default_ref.startsWith(defaultPrefix)
+        )
+          throw new Error("authenticated default-branch ref is unavailable");
+        const defaultRef = `refs/heads/${plan.expected_default_ref.slice(defaultPrefix.length)}`;
+        const branchRef = `refs/heads/${branch}`;
+        const requestedRefs = [...new Set([defaultRef, branchRef])];
+        const remoteState = spawnSync(
+          "git",
+          ["ls-remote", "--refs", "--", remoteUrl, ...requestedRefs],
+          { cwd: repoDir, encoding: "utf8", shell: false, timeout: 30_000, maxBuffer: 8192 }
+        );
+        if (remoteState.status !== 0) throw new Error("live remote state is unavailable");
+        const liveRefs = new Map();
+        for (const line of remoteState.stdout.trim().split("\n").filter(Boolean)) {
+          const fields = line.replace(/\r$/, "").split("\t");
+          if (
+            fields.length !== 2 ||
+            !isGitObjectId(fields[0]) ||
+            !requestedRefs.includes(fields[1]) ||
+            liveRefs.has(fields[1])
+          )
+            throw new Error("live remote state is malformed");
+          liveRefs.set(fields[1], fields[0]);
+        }
+        if (liveRefs.get(defaultRef) !== plan.base_commit)
+          throw new Error("protected policy is not from the live remote default branch");
+        const derived = (
+          candidateOnly ? verifyCanonicalCandidateAttestation : verifyCanonicalDeliveryAttestation
+        )({
+          root: repoDir,
+          session,
+          transaction,
+          plan,
+          gates,
+        });
+        const publicKeyPath = path.join(os.homedir(), ".pm", "delivery-attestation-public.pem");
+        const publicKeyStat = fs.lstatSync(publicKeyPath);
+        if (
+          !publicKeyStat.isFile() ||
+          publicKeyStat.isSymbolicLink() ||
+          publicKeyStat.size > 64 * 1024
+        )
+          throw new Error("trusted public key is unavailable");
+        const publicKey = crypto.createPublicKey(fs.readFileSync(publicKeyPath));
+        const oldOid = liveRefs.get(branchRef) || zeroObjectIdLike(plan.head_commit);
+        const attempt = transaction.effects?.push?.attempts?.at(-1);
+        const consumptionDir = path.join(canonicalSessionDir, "ship", "push-authorizations");
+        const verdict = consumePushAuthorization(
+          attestation,
+          {
+            ...derived,
+            canonical_path: path.relative(repoDir, attestationPath).split(path.sep).join("/"),
+            purpose: purposes[0],
+            purposes,
+            commit: pushedSha,
+            branch,
+            remote: destination.remote,
+            remote_url: remoteUrl,
+            old_oid: oldOid,
+            generation: transaction.generation,
+            push_attempt: attempt?.number,
+            protected_policy_commit: plan.base_commit,
+            now: new Date(),
+          },
+          {
+            publicKey,
+            root: repoDir,
+            consume: (authorizationId) => {
+              bypassConsumption = {
+                directory: consumptionDir,
+                name: crypto.createHash("sha256").update(authorizationId).digest("hex"),
+                value: `${transaction.generation}:${attempt?.number}\n`,
+              };
+              return true;
+            },
+          }
+        );
+        if (!verdict.reusable) throw new Error(verdict.reason);
+      } catch (error) {
+        blockUnverified(branch, manifestRel, `delivery bypass denied: ${error.message}`);
+        return true;
+      }
+    }
     checkerArgs.push("--remote", destination.remote);
 
     const result = spawnSync(process.execPath, [CHECKER, ...checkerArgs], {
@@ -2230,7 +2388,31 @@ function gatePush(baseCwd, push) {
       blockUnverified(branch, manifestRel, detail);
       return true;
     }
-    if (result.status === 0) return false;
+    if (result.status === 0) {
+      if (bypassConsumption) {
+        fs.mkdirSync(bypassConsumption.directory, { recursive: true, mode: 0o700 });
+        try {
+          const descriptor = fs.openSync(
+            path.join(bypassConsumption.directory, `${bypassConsumption.name}.used`),
+            "wx",
+            0o600
+          );
+          fs.writeFileSync(descriptor, bypassConsumption.value);
+          fs.closeSync(descriptor);
+        } catch (error) {
+          if (error.code === "EEXIST") {
+            blockUnverified(
+              branch,
+              manifestRel,
+              "delivery bypass authorization was already consumed"
+            );
+            return true;
+          }
+          throw error;
+        }
+      }
+      return false;
+    }
     blockFailingGate(branch, manifestRel, `${result.stdout || ""}${result.stderr || ""}`);
     return true;
   } catch (err) {
@@ -2283,6 +2465,13 @@ function main() {
     process.cwd();
   const pushes = detectGitPushes(command, baseCwd);
   if (pushes.length === 0) return allow();
+  const bypassRequested = {
+    lefthook: commandRequestsAssignment(command, "LEFTHOOK", "0") || process.env.LEFTHOOK === "0",
+    skipReview:
+      commandRequestsAssignment(command, "SKIP_CODEX_REVIEW", "1") ||
+      process.env.SKIP_CODEX_REVIEW === "1",
+  };
+  for (const push of pushes) push.bypassRequested = bypassRequested;
   for (const push of pushes) if (gatePush(baseCwd, push)) return;
   return allow();
 }

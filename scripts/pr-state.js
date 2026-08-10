@@ -15,7 +15,9 @@
 // merged" / "do not advance". UNKNOWN is never merged.
 
 const childProcess = require("node:child_process");
+const crypto = require("node:crypto");
 const { protectedSourcePaths } = require("./loop-protection.js");
+const { receiptAuthentication } = require("./lib/repository-capabilities.js");
 
 const GH_TIMEOUT_MS = 30_000;
 
@@ -26,6 +28,44 @@ const TRANSIENT =
 
 function isTransientGhError(stderr) {
   return TRANSIENT.test(String(stderr || ""));
+}
+
+function verifyMergeResultReceipt(receipt, expected = {}, options = {}) {
+  if (
+    !receipt ||
+    receipt.schema_version !== 1 ||
+    receipt.kind !== "github-merge-result-v1" ||
+    receipt.repository !== expected.repository ||
+    receipt.base_commit !== expected.base_commit ||
+    receipt.head_commit !== expected.head_commit ||
+    receipt.result_commit !== expected.result_commit ||
+    typeof receipt.identity !== "string" ||
+    typeof receipt.clean !== "boolean"
+  )
+    return { authenticated: false, reason: "merge-result scope mismatch" };
+  const provider =
+    typeof options.verifier === "function" && options.verifier(receipt, expected) === true;
+  const signed = receiptAuthentication(receipt, options.key);
+  if (!provider) {
+    const left = Buffer.from(String(signed || ""));
+    const right = Buffer.from(String(receipt.authentication || ""));
+    if (left.length === 0 || left.length !== right.length || !crypto.timingSafeEqual(left, right))
+      return { authenticated: false, reason: "merge-result authentication mismatch" };
+  }
+  const now = options.now instanceof Date ? options.now.getTime() : Date.now();
+  const observed = Date.parse(receipt.observed_at || "");
+  if (
+    !Number.isFinite(observed) ||
+    observed > now + 30_000 ||
+    now - observed > (options.maxAgeMs || 5 * 60 * 1000)
+  )
+    return { authenticated: false, reason: "merge-result receipt is stale" };
+  return {
+    authenticated: true,
+    clean: receipt.clean,
+    identity: receipt.identity,
+    result_commit: receipt.result_commit,
+  };
 }
 
 function defaultRunGh(args, timeoutMs = GH_TIMEOUT_MS) {
@@ -450,6 +490,7 @@ module.exports = {
   reconcileCrashedTask,
   runGhWithRetry,
   isTransientGhError,
+  verifyMergeResultReceipt,
 };
 
 if (require.main === module) {

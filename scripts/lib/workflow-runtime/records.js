@@ -6,15 +6,20 @@ function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function stableStringify(value) {
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+function stableValue(value) {
+  if (Array.isArray(value)) return value.map(stableValue);
   if (isObject(value)) {
-    return `{${Object.keys(value)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
-      .join(",")}}`;
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((key) => [key, stableValue(value[key])])
+    );
   }
-  return JSON.stringify(value);
+  return value;
+}
+
+function stableStringify(value) {
+  return JSON.stringify(stableValue(value));
 }
 
 function hashResult(result) {
@@ -63,4 +68,5 @@ module.exports = {
   hasCurrentEvidence,
   isObject,
   stableStringify,
+  stableValue,
 };

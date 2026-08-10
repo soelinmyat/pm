@@ -6,7 +6,10 @@ const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const { loadWorkflow, selectWorkflowStep } = require("../step-loader");
 const { findGitRoot, runGit: sharedRunGit } = require("../loop-git");
-const { writeJsonAtomic: writeAtomicJson } = require("./atomic-file");
+const {
+  writeJsonAtomic: writeAtomicJson,
+  writeTextAtomic: writeAtomicText,
+} = require("./atomic-file");
 const { markdownTableValue } = require("./session-scan");
 const { routeDevWork } = require("./dev-risk");
 const { deriveSessionSlug } = require("./session-slug");
@@ -29,8 +32,11 @@ const {
   validateSession: validateRfcSession,
 } = require("./rfc-session-schema");
 
-const RUNNER_VERSION = "2.0.0";
+const RUNNER_VERSION = "3.0.0";
 const MAX_PHASE_ATTEMPTS = 3;
+const DEV_SESSION_SCHEMA_VERSION = 3;
+const PRE_UPGRADE_SNAPSHOT_SUFFIX = ".v2.snapshot.json";
+const PRE_UPGRADE_SNAPSHOT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const PHASES = Object.freeze([
   "intake",
   "workspace",
@@ -41,6 +47,28 @@ const PHASES = Object.freeze([
   "review",
   "ship",
   "retro",
+]);
+const CANDIDATE_STATES = Object.freeze([
+  "implementation",
+  "review-candidate",
+  "reviewing",
+  "review-converged",
+  "certifying",
+  "base-check",
+  "merge-ready",
+  "invalidated",
+]);
+const CANDIDATE_STATE_SET = new Set(CANDIDATE_STATES);
+const CANDIDATE_RISK_FACTS = Object.freeze([
+  "auth",
+  "data",
+  "migration",
+  "external_contract",
+  "shared",
+  "operational",
+  "configuration",
+  "lockfile",
+  "ambiguous",
 ]);
 const SESSION_STATUSES = new Set(["active", "blocked", "handoff", "complete"]);
 const GRANTABLE_AUTHORITY = new Set([
@@ -85,6 +113,7 @@ const SESSION_TOP_LEVEL_FIELDS = new Set([
   "authority",
   "authority_log",
   "routing",
+  "candidate",
   "evidence",
   "attempts",
   "blockers",
@@ -147,10 +176,10 @@ function validateSession(session) {
   const errors = [];
   if (!isObject(session)) return [issue("$", "session must be an object")];
   validateExactFields(session, SESSION_TOP_LEVEL_FIELDS, "$", errors);
-  for (const field of SESSION_TOP_LEVEL_FIELDS) {
-    if (field !== "migration") requireField(session, field, "$", errors);
+  for (const field of SESSION_TOP_LEVEL_FIELDS) requireField(session, field, "$", errors);
+  if (session.schema_version !== DEV_SESSION_SCHEMA_VERSION) {
+    errors.push(issue("$.schema_version", `must equal ${DEV_SESSION_SCHEMA_VERSION}`));
   }
-  if (session.schema_version !== 2) errors.push(issue("$.schema_version", "must equal 2"));
   if (typeof session.run_id !== "string" || !session.run_id.startsWith("dev_")) {
     errors.push(issue("$.run_id", "must be a dev_ run identifier"));
   }
@@ -170,6 +199,7 @@ function validateSession(session) {
   validateAuthority(session.authority, errors);
   validateAuthorityLog(session.authority_log, errors);
   validateRouting(session.routing, errors);
+  validateCandidate(session.candidate, errors);
   validateStateEvidence(session.evidence, errors);
   validateAttempts(session.attempts, errors);
   validateBlockers(session.blockers, errors);
@@ -187,6 +217,134 @@ function validateSession(session) {
     }
   }
   return errors;
+}
+
+function validateCandidate(candidate, errors) {
+  if (!isObject(candidate)) {
+    errors.push(issue("$.candidate", "must be an object"));
+    return;
+  }
+  const fields = new Set([
+    "state",
+    "route",
+    "route_reasons",
+    "affected_identity",
+    "review_requirements",
+    "repository_capability_identity",
+    "gate_plan_identity",
+    "invalidation",
+    "transition_history",
+    "external_effect_started_at",
+    "authority",
+  ]);
+  validateExactFields(candidate, fields, "$.candidate", errors);
+  for (const field of fields) requireField(candidate, field, "$.candidate", errors);
+  if (!CANDIDATE_STATE_SET.has(candidate.state)) {
+    errors.push(issue("$.candidate.state", "invalid candidate state"));
+  }
+  if (!["comprehensive", "review-candidate"].includes(candidate.route)) {
+    errors.push(issue("$.candidate.route", "invalid candidate route"));
+  }
+  validateStringArray(candidate.route_reasons, "$.candidate.route_reasons", errors);
+  validateNullableIdentity(candidate.affected_identity, "$.candidate.affected_identity", errors);
+  validateStringArray(candidate.review_requirements, "$.candidate.review_requirements", errors);
+  validateNullableIdentity(
+    candidate.repository_capability_identity,
+    "$.candidate.repository_capability_identity",
+    errors
+  );
+  validateNullableIdentity(candidate.gate_plan_identity, "$.candidate.gate_plan_identity", errors);
+  if (
+    candidate.external_effect_started_at !== null &&
+    !isIsoDate(candidate.external_effect_started_at)
+  ) {
+    errors.push(issue("$.candidate.external_effect_started_at", "must be null or an ISO date"));
+  }
+  validateCandidateInvalidation(candidate.invalidation, errors);
+  validateCandidateTransitions(candidate.transition_history, errors);
+  validateCandidateAuthority(
+    candidate.authority,
+    CANDIDATE_STATE_SET.has(candidate.state) ? candidate.state : "implementation",
+    errors
+  );
+}
+
+function validateStringArray(value, objectPath, errors) {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !item.trim())) {
+    errors.push(issue(objectPath, "must be an array of non-empty strings"));
+  }
+}
+
+function validateNullableIdentity(value, objectPath, errors) {
+  if (value !== null && (typeof value !== "string" || !/^sha256:[0-9a-f]{64}$/.test(value))) {
+    errors.push(issue(objectPath, "must be null or a sha256 identity"));
+  }
+}
+
+function validateCandidateInvalidation(value, errors) {
+  if (value === null) return;
+  if (!isObject(value)) {
+    errors.push(issue("$.candidate.invalidation", "must be null or an object"));
+    return;
+  }
+  validateExactFields(
+    value,
+    new Set(["reason", "recorded_at"]),
+    "$.candidate.invalidation",
+    errors
+  );
+  if (typeof value.reason !== "string" || !value.reason.trim()) {
+    errors.push(issue("$.candidate.invalidation.reason", "must be a non-empty string"));
+  }
+  if (!isIsoDate(value.recorded_at)) {
+    errors.push(issue("$.candidate.invalidation.recorded_at", "must be an ISO date"));
+  }
+}
+
+function validateCandidateTransitions(value, errors) {
+  if (!Array.isArray(value)) {
+    errors.push(issue("$.candidate.transition_history", "must be an array"));
+    return;
+  }
+  for (const [index, entry] of value.entries()) {
+    const objectPath = `$.candidate.transition_history[${index}]`;
+    if (!isObject(entry)) {
+      errors.push(issue(objectPath, "must be an object"));
+      continue;
+    }
+    validateExactFields(
+      entry,
+      new Set(["from", "to", "reason", "recorded_at"]),
+      objectPath,
+      errors
+    );
+    if (!CANDIDATE_STATE_SET.has(entry.from))
+      errors.push(issue(`${objectPath}.from`, "invalid state"));
+    if (!CANDIDATE_STATE_SET.has(entry.to)) errors.push(issue(`${objectPath}.to`, "invalid state"));
+    if (typeof entry.reason !== "string" || !entry.reason.trim()) {
+      errors.push(issue(`${objectPath}.reason`, "must be a non-empty string"));
+    }
+    if (!isIsoDate(entry.recorded_at))
+      errors.push(issue(`${objectPath}.recorded_at`, "must be an ISO date"));
+  }
+}
+
+function validateCandidateAuthority(value, state, errors) {
+  const expected = candidateAuthorityForState(state);
+  if (!isObject(value)) {
+    errors.push(issue("$.candidate.authority", "must be an object"));
+    return;
+  }
+  const fields = new Set(Object.keys(expected));
+  validateExactFields(value, fields, "$.candidate.authority", errors);
+  for (const field of fields) {
+    requireField(value, field, "$.candidate.authority", errors);
+    if (value[field] !== expected[field]) {
+      errors.push(
+        issue(`$.candidate.authority.${field}`, `must equal ${expected[field]} in ${state}`)
+      );
+    }
+  }
 }
 
 function validateSource(source, errors) {
@@ -1129,6 +1287,219 @@ function defaultBranchHead(session) {
   return runGit(session.source.worktree, ["rev-parse", "HEAD"]);
 }
 
+function candidateAuthorityForState(state) {
+  if (!CANDIDATE_STATE_SET.has(state)) throw new Error(`invalid candidate state: ${String(state)}`);
+  return {
+    push_feature_branch: state === "review-candidate",
+    create_draft_pr: state === "review-candidate",
+    certify: state === "review-converged",
+    ready_for_review: state === "merge-ready",
+    auto_merge: false,
+    merge: false,
+  };
+}
+
+function defaultCandidate() {
+  return {
+    state: "implementation",
+    route: "comprehensive",
+    route_reasons: ["Comprehensive delivery is the default until every candidate fact is proven"],
+    affected_identity: null,
+    review_requirements: [],
+    repository_capability_identity: null,
+    gate_plan_identity: null,
+    invalidation: null,
+    transition_history: [],
+    external_effect_started_at: null,
+    authority: candidateAuthorityForState("implementation"),
+  };
+}
+
+function classifyDeliveryCandidate(facts) {
+  if (!isObject(facts)) {
+    return {
+      route: "comprehensive",
+      eligible: false,
+      reasons: ["delivery candidate facts are missing"],
+    };
+  }
+  const reasons = [];
+  if (!["XS", "S"].includes(facts.size)) {
+    reasons.push(
+      facts.size === undefined || facts.size === null
+        ? "task size is unknown"
+        : `size ${String(facts.size)} is not eligible`
+    );
+  }
+  const appRoot = normalizeRepositoryPath(facts.app_root);
+  if (!appRoot) reasons.push("app root is unknown");
+  const changedPaths = Array.isArray(facts.changed_paths)
+    ? facts.changed_paths.map(normalizeRepositoryPath)
+    : null;
+  if (!changedPaths || changedPaths.length === 0 || changedPaths.some((entry) => !entry)) {
+    reasons.push("changed paths are unknown or malformed");
+  } else if (
+    appRoot &&
+    changedPaths.some((entry) => entry !== appRoot && !entry.startsWith(`${appRoot}/`))
+  ) {
+    reasons.push(`a changed path is outside app root ${appRoot}`);
+  }
+  if (facts.dependency_scope !== "app-local") {
+    reasons.push(
+      facts.dependency_scope
+        ? `dependency scope ${String(facts.dependency_scope)} is not app-local`
+        : "dependency scope is unknown"
+    );
+  }
+  if (
+    typeof facts.configuration_identity !== "string" ||
+    !/^sha256:[0-9a-f]{64}$/.test(facts.configuration_identity)
+  ) {
+    reasons.push("configuration identity is unknown");
+  }
+  if (!isObject(facts.risk)) {
+    reasons.push("risk facts are unknown");
+  } else {
+    for (const name of CANDIDATE_RISK_FACTS) {
+      if (facts.risk[name] === true) reasons.push(`${name} risk is present`);
+      else if (facts.risk[name] !== false) reasons.push(`${name} risk is unknown`);
+    }
+    for (const name of Object.keys(facts.risk)) {
+      if (!CANDIDATE_RISK_FACTS.includes(name))
+        reasons.push(`unknown risk fact ${name} is present`);
+    }
+  }
+  if (reasons.length > 0) return { route: "comprehensive", eligible: false, reasons };
+  return {
+    route: "review-candidate",
+    eligible: true,
+    reasons: [
+      `${facts.size} change is confined to ${appRoot} with known app-local dependencies and no listed risk`,
+    ],
+  };
+}
+
+function normalizeRepositoryPath(value) {
+  if (typeof value !== "string" || !value.trim() || path.isAbsolute(value)) return null;
+  const normalized = path.posix.normalize(value.trim().replaceAll("\\", "/")).replace(/^\.\//, "");
+  if (normalized === ".." || normalized.startsWith("../")) return null;
+  return normalized.replace(/\/$/, "");
+}
+
+function transitionCandidate(session, input, options = {}) {
+  assertValidSession(session);
+  if (!isObject(input) || !CANDIDATE_STATE_SET.has(input.state)) {
+    throw new Error(`invalid candidate target state: ${String(input?.state)}`);
+  }
+  if (typeof input.reason !== "string" || !input.reason.trim()) {
+    throw new Error("candidate transition requires a non-empty reason");
+  }
+  const current = session.candidate.state;
+  const allowed = {
+    implementation: ["review-candidate", "invalidated"],
+    "review-candidate": ["reviewing", "invalidated"],
+    reviewing: ["review-candidate", "review-converged", "invalidated"],
+    "review-converged": ["certifying", "invalidated"],
+    certifying: ["base-check", "invalidated"],
+    "base-check": ["merge-ready", "invalidated"],
+    "merge-ready": ["invalidated"],
+    invalidated: ["implementation"],
+  };
+  if (!allowed[current].includes(input.state)) {
+    throw new Error(`invalid candidate transition: ${current} -> ${input.state}`);
+  }
+  if (input.state === "review-candidate" && session.candidate.route !== "review-candidate") {
+    throw new Error("comprehensive route cannot enter review-candidate");
+  }
+  const timestamp = options.now || new Date().toISOString();
+  if (!isIsoDate(timestamp)) throw new Error("candidate transition timestamp must be an ISO date");
+  const next = structuredClone(session);
+  if (current === "invalidated" && input.state === "implementation") {
+    const transitionHistory = next.candidate.transition_history;
+    next.candidate = { ...defaultCandidate(), transition_history: transitionHistory };
+  }
+  next.candidate.state = input.state;
+  next.candidate.authority = candidateAuthorityForState(input.state);
+  next.candidate.transition_history.push({
+    from: current,
+    to: input.state,
+    reason: input.reason.trim(),
+    recorded_at: timestamp,
+  });
+  next.candidate.invalidation =
+    input.state === "invalidated"
+      ? { reason: input.reason.trim(), recorded_at: timestamp }
+      : input.state === "implementation"
+        ? null
+        : next.candidate.invalidation;
+  if (input.external_effect_started_at !== undefined) {
+    if (next.candidate.external_effect_started_at !== null) {
+      throw new Error("candidate external effect start is already recorded");
+    }
+    if (input.state !== "review-candidate" || !isIsoDate(input.external_effect_started_at)) {
+      throw new Error("external_effect_started_at requires review-candidate and an ISO date");
+    }
+    next.candidate.external_effect_started_at = input.external_effect_started_at;
+  }
+  next.updated_at = timestamp;
+  assertValidSession(next);
+  return next;
+}
+
+function refreshCandidateIdentities(session, input, options = {}) {
+  assertValidSession(session);
+  if (session.candidate.route !== "review-candidate") {
+    throw new Error("candidate identity refresh requires the review-candidate route");
+  }
+  if (!new Set(["implementation", "reviewing"]).has(session.candidate.state)) {
+    throw new Error(
+      `candidate identity refresh is unavailable in state ${session.candidate.state}`
+    );
+  }
+  if (!isObject(input)) throw new Error("candidate identity refresh input is required");
+  for (const [name, value] of [
+    ["affected identity", input.affectedIdentity],
+    ["repository capability identity", input.repositoryCapabilityIdentity],
+    ["gate plan identity", input.gatePlanIdentity],
+  ]) {
+    if (typeof value !== "string" || !/^sha256:[0-9a-f]{64}$/.test(value)) {
+      throw new Error(`${name} must be a sha256 identity`);
+    }
+  }
+  const currentHead = (options.branchHead || defaultBranchHead)(session);
+  if (input.commit !== currentHead) {
+    throw new Error(`candidate identity refresh commit must equal current HEAD ${currentHead}`);
+  }
+  const timestamp = options.now || new Date().toISOString();
+  if (!isIsoDate(timestamp))
+    throw new Error("candidate identity refresh timestamp must be an ISO date");
+  const next = structuredClone(session);
+  next.candidate.affected_identity = input.affectedIdentity;
+  next.candidate.repository_capability_identity = input.repositoryCapabilityIdentity;
+  next.candidate.gate_plan_identity = input.gatePlanIdentity;
+  next.updated_at = timestamp;
+  assertValidSession(next);
+  return next;
+}
+
+function markCandidateExternalEffectStarted(session, options = {}) {
+  assertValidSession(session);
+  if (session.candidate.state !== "review-candidate") {
+    throw new Error("candidate external effects can start only in review-candidate");
+  }
+  if (session.candidate.external_effect_started_at !== null) {
+    throw new Error("candidate external effect start is already recorded");
+  }
+  const timestamp = options.now || new Date().toISOString();
+  if (!isIsoDate(timestamp))
+    throw new Error("candidate external effect timestamp must be an ISO date");
+  const next = structuredClone(session);
+  next.candidate.external_effect_started_at = timestamp;
+  next.updated_at = timestamp;
+  assertValidSession(next);
+  return next;
+}
+
 function createSession(options) {
   if (!options || !options.slug || !options.sourceDir) {
     throw new Error("createSession requires slug and sourceDir");
@@ -1159,7 +1530,7 @@ function createSession(options) {
     throw new Error("PM_LOOP_WORKER=1 requires execution mode headless");
   }
   const session = {
-    schema_version: 2,
+    schema_version: DEV_SESSION_SCHEMA_VERSION,
     run_id: options.runId || generateRunId(),
     slug,
     status: "active",
@@ -1211,6 +1582,7 @@ function createSession(options) {
       decision_log: [],
       reasons: ["Compatibility route until intake records observed risk"],
     },
+    candidate: defaultCandidate(),
     evidence: {},
     attempts: [],
     blockers: [],
@@ -1296,6 +1668,27 @@ function applyRouting(session, facts, options = {}) {
     decision_version: route.decision_version,
     decision_log: [],
     reasons: [...route.reasons],
+  };
+  const candidateRoute = classifyDeliveryCandidate({
+    ...(isObject(effectiveFacts.delivery_candidate) ? effectiveFacts.delivery_candidate : {}),
+    size: route.size,
+  });
+  next.candidate = {
+    ...next.candidate,
+    state: "implementation",
+    route: candidateRoute.route,
+    route_reasons: [...candidateRoute.reasons],
+    affected_identity: effectiveFacts.delivery_candidate?.affected_identity ?? null,
+    review_requirements: Array.isArray(effectiveFacts.delivery_candidate?.review_requirements)
+      ? [...effectiveFacts.delivery_candidate.review_requirements]
+      : [],
+    repository_capability_identity:
+      effectiveFacts.delivery_candidate?.repository_capability_identity ?? null,
+    gate_plan_identity: effectiveFacts.delivery_candidate?.gate_plan_identity ?? null,
+    invalidation: null,
+    transition_history: [],
+    external_effect_started_at: null,
+    authority: candidateAuthorityForState("implementation"),
   };
   next.updated_at = options.now || new Date().toISOString();
   assertValidSession(next);
@@ -1545,18 +1938,39 @@ function validationError(message, errors) {
 }
 
 function readSession(sessionPath) {
-  let session;
+  let input;
+  let source;
   try {
-    session = upgradeCompatibleSession(JSON.parse(fs.readFileSync(sessionPath, "utf8")));
+    source = fs.readFileSync(sessionPath, "utf8");
+    input = JSON.parse(source);
   } catch (error) {
     throw new Error(`cannot read session ${sessionPath}: ${error.message}`);
   }
+  if (!isObject(input) || !Number.isInteger(input.schema_version)) {
+    throw new Error(`cannot read session ${sessionPath}: schema_version must be an integer`);
+  }
+  if (input.schema_version > DEV_SESSION_SCHEMA_VERSION) {
+    throw new Error(
+      `cannot read session ${sessionPath}: unsupported Dev session schema version ${input.schema_version}`
+    );
+  }
+  if (input.schema_version < 2) {
+    throw new Error(
+      `cannot read session ${sessionPath}: unsupported Dev session schema version ${input.schema_version}`
+    );
+  }
+  const session = upgradeCompatibleSession(input);
   assertValidSession(session);
+  if (input.schema_version === 2) {
+    archivePreUpgradeSnapshot(sessionPath, input, source);
+    writeJsonAtomic(sessionPath, session);
+  }
   return session;
 }
 
 function upgradeCompatibleSession(input) {
-  if (!isObject(input) || input.schema_version !== 2) return input;
+  if (!isObject(input) || input.schema_version === DEV_SESSION_SCHEMA_VERSION) return input;
+  if (input.schema_version !== 2) return input;
   const session = structuredClone(input);
   if (!Array.isArray(session.authority_log)) session.authority_log = [];
   if (isObject(session.routing) && !Array.isArray(session.routing.decision_log)) {
@@ -1659,12 +2073,65 @@ function upgradeCompatibleSession(input) {
       }
     }
   }
+  if (!Object.hasOwn(session, "migration")) session.migration = null;
+  session.schema_version = DEV_SESSION_SCHEMA_VERSION;
+  session.candidate = defaultCandidate();
   return session;
+}
+
+function archivePreUpgradeSnapshot(sessionPath, input, source) {
+  const snapshotPath = `${sessionPath}${PRE_UPGRADE_SNAPSHOT_SUFFIX}`;
+  if (fs.existsSync(snapshotPath)) {
+    const existingSource = fs.readFileSync(snapshotPath, "utf8");
+    const existing = JSON.parse(existingSource);
+    if (!isObject(existing) || existing.schema_version !== 2) {
+      throw new Error(`pre-upgrade snapshot is invalid: ${snapshotPath}`);
+    }
+    if (existingSource !== source)
+      throw new Error(`pre-upgrade snapshot does not match the current v2 source: ${snapshotPath}`);
+    fs.chmodSync(snapshotPath, 0o600);
+    return snapshotPath;
+  }
+  writeAtomicText(snapshotPath, source, { directoryMode: 0o700, fileMode: 0o600 });
+  return snapshotPath;
+}
+
+function restorePreUpgradeSnapshot(sessionPath) {
+  const snapshotPath = `${sessionPath}${PRE_UPGRADE_SNAPSHOT_SUFFIX}`;
+  const current = JSON.parse(fs.readFileSync(sessionPath, "utf8"));
+  if (current.schema_version !== DEV_SESSION_SCHEMA_VERSION) {
+    throw new Error("only a v3 Dev session can restore its v2 snapshot");
+  }
+  if (current.candidate?.external_effect_started_at !== null) {
+    throw new Error("cannot restore the v2 snapshot after an external effect has started");
+  }
+  const snapshotSource = fs.readFileSync(snapshotPath, "utf8");
+  const snapshot = JSON.parse(snapshotSource);
+  if (!isObject(snapshot) || snapshot.schema_version !== 2) {
+    throw new Error("pre-upgrade snapshot is not a v2 Dev session");
+  }
+  writeAtomicText(sessionPath, snapshotSource, { directoryMode: 0o700, fileMode: 0o600 });
+  fs.rmSync(snapshotPath, { force: true });
+  return snapshot;
+}
+
+function prunePreUpgradeSnapshot(sessionPath, session, options = {}) {
+  const snapshotPath = `${sessionPath}${PRE_UPGRADE_SNAPSHOT_SUFFIX}`;
+  if (!fs.existsSync(snapshotPath)) return false;
+  const now = options.now ? new Date(options.now).getTime() : Date.now();
+  const updatedAt = new Date(session.updated_at).getTime();
+  const completed = session.status === "complete";
+  const abandoned = ["blocked", "handoff"].includes(session.status);
+  const expired = Number.isFinite(updatedAt) && now - updatedAt >= PRE_UPGRADE_SNAPSHOT_MAX_AGE_MS;
+  if (!completed && !(abandoned && expired)) return false;
+  fs.rmSync(snapshotPath, { force: true });
+  return true;
 }
 
 function writeSession(sessionPath, session) {
   assertValidSession(session);
   writeJsonAtomic(sessionPath, session);
+  prunePreUpgradeSnapshot(sessionPath, session);
 }
 
 function writeJsonAtomic(filePath, value) {
@@ -2120,6 +2587,8 @@ function projectMarkdown(session) {
 }
 
 module.exports = {
+  CANDIDATE_STATES,
+  DEV_SESSION_SCHEMA_VERSION,
   MAX_PHASE_ATTEMPTS,
   PHASES,
   resolvePhaseContract,
@@ -2127,17 +2596,23 @@ module.exports = {
   RUNNER_VERSION,
   advanceDecisionVersion,
   applyRouting,
+  candidateAuthorityForState,
+  classifyDeliveryCandidate,
   createSession,
   grantAuthority,
   hashResult,
+  markCandidateExternalEffectStarted,
   migrateLegacyMarkdown,
   nextDecision,
   projectMarkdown,
   promptMetadata,
   readSession,
+  prunePreUpgradeSnapshot,
+  refreshCandidateIdentities,
   recertifyEvidence,
   recordResult,
   resumeBlocked,
+  restorePreUpgradeSnapshot,
   validateResult,
   validateResultEnvelope,
   validateSession,
@@ -2146,6 +2621,7 @@ module.exports = {
   updateWorkspace,
   upgradeCompatibleSession,
   transitionWorkUnit,
+  transitionCandidate,
   writeJsonAtomic,
   writeSession,
 };

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pm.local/schemas/repository-environment-preflight.schema.json",
+  "title": "Repository environment preflight policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "runtimes", "probes"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "runtimes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "constraint", "scope"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z0-9._-]+$" },
+          "constraint": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "scope": { "enum": ["local", "ci"] }
+        }
+      }
+    },
+    "probes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["adapter", "expected"],
+        "properties": {
+          "adapter": { "const": "postgres-identity-v1" },
+          "expected": {
+            "type": "object",
+            "additionalProperties": false,
+            "minProperties": 1,
+            "properties": {
+              "database": { "type": "string", "maxLength": 256 },
+              "server": { "type": "string", "maxLength": 256 },
+              "user": { "type": "string", "maxLength": 256 }
+            }
+          },
+          "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 5000 },
+          "working_directory": { "type": "string", "maxLength": 1024 }
+        }
+      }
+    }
+  }
+}

@@ -8,6 +8,7 @@ const { execFileSync } = require("node:child_process");
 
 const { writeJsonAtomic } = require("./atomic-file.js");
 const { cleanGitEnv } = require("./git-env.js");
+const { processIsAlive } = require("./process-liveness.js");
 const { bindEffectReceipt } = require("./workflow-runtime/effect-receipt.js");
 const { isObject, stableStringify } = require("./workflow-runtime/records.js");
 
@@ -88,16 +89,6 @@ function readJournal(filePath) {
 function persist(filePath, value) {
   value.updated_at = new Date().toISOString();
   writeJsonAtomic(filePath, value, { fileMode: 0o600, directoryMode: 0o700 });
-}
-
-function processIsAlive(pid) {
-  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error?.code === "EPERM";
-  }
 }
 
 function readLockOwner(lockPath) {

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://pm-plugin.local/schemas/dev-session-v2.json",
-  "title": "PM dev session v2",
+  "$id": "https://pm-plugin.local/schemas/dev-session-v3.json",
+  "title": "PM dev session v3",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -19,13 +19,15 @@
     "authority",
     "authority_log",
     "routing",
+    "candidate",
     "evidence",
     "attempts",
     "blockers",
-    "history"
+    "history",
+    "migration"
   ],
   "properties": {
-    "schema_version": { "const": 2 },
+    "schema_version": { "const": 3 },
     "run_id": { "type": "string", "pattern": "^dev_" },
     "slug": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
     "status": { "enum": ["active", "blocked", "handoff", "complete"] },
@@ -42,6 +44,7 @@
       "items": { "$ref": "#/$defs/authority_grant" }
     },
     "routing": { "$ref": "#/$defs/routing" },
+    "candidate": { "$ref": "#/$defs/candidate" },
     "evidence": {
       "type": "object",
       "additionalProperties": { "$ref": "#/$defs/evidence_set" }
@@ -74,6 +77,132 @@
     }
   },
   "$defs": {
+    "candidate_state": {
+      "enum": [
+        "implementation",
+        "review-candidate",
+        "reviewing",
+        "review-converged",
+        "certifying",
+        "base-check",
+        "merge-ready",
+        "invalidated"
+      ]
+    },
+    "candidate_identity": {
+      "type": ["string", "null"],
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "candidate_authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "push_feature_branch",
+        "create_draft_pr",
+        "certify",
+        "ready_for_review",
+        "auto_merge",
+        "merge"
+      ],
+      "properties": {
+        "push_feature_branch": { "type": "boolean" },
+        "create_draft_pr": { "type": "boolean" },
+        "certify": { "const": false },
+        "ready_for_review": { "const": false },
+        "auto_merge": { "const": false },
+        "merge": { "const": false }
+      }
+    },
+    "candidate_transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to", "reason", "recorded_at"],
+      "properties": {
+        "from": { "$ref": "#/$defs/candidate_state" },
+        "to": { "$ref": "#/$defs/candidate_state" },
+        "reason": { "type": "string", "minLength": 1 },
+        "recorded_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "route",
+        "route_reasons",
+        "affected_identity",
+        "review_requirements",
+        "repository_capability_identity",
+        "gate_plan_identity",
+        "invalidation",
+        "transition_history",
+        "external_effect_started_at",
+        "authority"
+      ],
+      "properties": {
+        "state": { "$ref": "#/$defs/candidate_state" },
+        "route": { "enum": ["comprehensive", "review-candidate"] },
+        "route_reasons": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "affected_identity": { "$ref": "#/$defs/candidate_identity" },
+        "review_requirements": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "repository_capability_identity": { "$ref": "#/$defs/candidate_identity" },
+        "gate_plan_identity": { "$ref": "#/$defs/candidate_identity" },
+        "invalidation": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["reason", "recorded_at"],
+              "properties": {
+                "reason": { "type": "string", "minLength": 1 },
+                "recorded_at": { "type": "string", "format": "date-time" }
+              }
+            }
+          ]
+        },
+        "transition_history": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/candidate_transition" }
+        },
+        "external_effect_started_at": { "type": ["string", "null"], "format": "date-time" },
+        "authority": { "$ref": "#/$defs/candidate_authority" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "state": { "const": "review-candidate" } } },
+          "then": {
+            "properties": {
+              "authority": {
+                "type": "object",
+                "properties": {
+                  "push_feature_branch": { "const": true },
+                  "create_draft_pr": { "const": true }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "authority": {
+                "type": "object",
+                "properties": {
+                  "push_feature_branch": { "const": false },
+                  "create_draft_pr": { "const": false }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
     "phase": {
       "enum": [
         "intake",
