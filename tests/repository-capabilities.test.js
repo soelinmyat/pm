@@ -128,6 +128,18 @@ test("capability discovery rejects oversized runtime and probe inventories", () 
   fs.rmSync(probeRoot, { recursive: true, force: true });
 });
 
+test("non-object package manifests remain an unsupported capability instead of crashing", () => {
+  for (const value of ["null", "[]", '"package"']) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-repo-package-shape-"));
+    fs.mkdirSync(path.join(root, ".git/hooks"), { recursive: true });
+    fs.writeFileSync(path.join(root, "package.json"), value);
+    const found = discoverRepositoryCapabilities(root);
+    assert.deepEqual(found.runtimes, []);
+    assert.deepEqual(found.commands, {});
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("instruction fallback scanning has a hard visited-entry bound", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-instruction-bound-"));
   for (let index = 0; index < 5; index += 1)

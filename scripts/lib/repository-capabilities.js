@@ -57,6 +57,7 @@ function parsePackage(root, runtimes, commands, identities) {
     /* malformed files become identity inputs and unsupported capability */
     return;
   }
+  if (!pkg || typeof pkg !== "object" || Array.isArray(pkg)) return;
   if (pkg.engines?.node)
     addRuntime(runtimes, {
       name: "node",
