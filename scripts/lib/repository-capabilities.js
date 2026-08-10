@@ -50,26 +50,28 @@ function parsePackage(root, runtimes, commands, identities) {
   const text = safeRead(root, "package.json");
   if (text === null) return;
   identities.push(textIdentity("package.json", text));
+  let pkg;
   try {
-    const pkg = JSON.parse(text);
-    if (pkg.engines?.node)
-      addRuntime(runtimes, {
-        name: "node",
-        constraint: String(pkg.engines.node),
-        source: "package.json#engines.node",
-        scope: "local",
-      });
-    if (pkg.packageManager)
-      addRuntime(runtimes, {
-        name: String(pkg.packageManager).split("@")[0],
-        constraint: String(pkg.packageManager).split("@").slice(1).join("@"),
-        source: "package.json#packageManager",
-        scope: "local",
-      });
-    Object.assign(commands, pkg.scripts || {});
+    pkg = JSON.parse(text);
   } catch {
     /* malformed files become identity inputs and unsupported capability */
+    return;
   }
+  if (pkg.engines?.node)
+    addRuntime(runtimes, {
+      name: "node",
+      constraint: String(pkg.engines.node),
+      source: "package.json#engines.node",
+      scope: "local",
+    });
+  if (pkg.packageManager)
+    addRuntime(runtimes, {
+      name: String(pkg.packageManager).split("@")[0],
+      constraint: String(pkg.packageManager).split("@").slice(1).join("@"),
+      source: "package.json#packageManager",
+      scope: "local",
+    });
+  Object.assign(commands, pkg.scripts || {});
 }
 
 function parseToolVersions(root, runtimes, identities) {

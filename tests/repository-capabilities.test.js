@@ -89,6 +89,22 @@ test("capability discovery rejects oversized runtime and probe inventories", () 
   );
   fs.rmSync(runtimeRoot, { recursive: true, force: true });
 
+  const packageRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pm-repo-package-limit-"));
+  fs.mkdirSync(path.join(packageRoot, ".git/hooks"), { recursive: true });
+  fs.writeFileSync(
+    path.join(packageRoot, ".tool-versions"),
+    Array.from({ length: 64 }, (_, index) => `tool-${index} 1.0.0`).join("\n")
+  );
+  fs.writeFileSync(
+    path.join(packageRoot, "package.json"),
+    JSON.stringify({ engines: { node: ">=20" } })
+  );
+  assert.throws(
+    () => discoverRepositoryCapabilities(packageRoot),
+    /runtime declaration count exceeds limit/
+  );
+  fs.rmSync(packageRoot, { recursive: true, force: true });
+
   const probeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pm-repo-probe-limit-"));
   fs.mkdirSync(path.join(probeRoot, ".git/hooks"), { recursive: true });
   const policy = JSON.stringify({

@@ -242,6 +242,24 @@ test("executable discovery rejects success after its final identity check crosse
   assert.equal(result.reason, "discovery-timeout");
 });
 
+test("executable discovery never expands a budget when the injected clock moves backward", () => {
+  const clock = [1000, 500, 6000];
+  const timeouts = [];
+  const result = resolveExecutableVersion("node", { PATH: "/bin" }, 5000, {
+    now: () => clock.shift(),
+    spawnSync(command, _args, options) {
+      timeouts.push(options.timeout);
+      return command === "which"
+        ? { status: 0, stdout: "/shim/node\n", stderr: "" }
+        : { status: 0, stdout: "v20.0.0\n", stderr: "" };
+    },
+    realpathSync: () => "/runtime/node",
+  });
+  assert.deepEqual(timeouts, [5000, 5000]);
+  assert.equal(result.found, false);
+  assert.equal(result.reason, "discovery-timeout");
+});
+
 test("runtime and probe inventories plus probe execution share hard aggregate bounds", () => {
   let runtimeCalls = 0;
   const tooManyRuntimes = verifyEnvironment(

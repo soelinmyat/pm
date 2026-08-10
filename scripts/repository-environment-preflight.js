@@ -23,6 +23,15 @@ const ALLOWED_PROBE_KEYS = new Set([
 ]);
 const ALLOWED_EXPECTED = new Set(["database", "server", "user"]);
 
+function monotonicReader(read = () => Number(process.hrtime.bigint() / 1000000n)) {
+  let last = null;
+  return () => {
+    const current = read();
+    if (last === null || current > last) last = current;
+    return last;
+  };
+}
+
 function redactText(value) {
   const redacted = String(value)
     .replace(/(?:postgres(?:ql)?|mysql|mongodb):\/\/[^\s]+/gi, "[REDACTED_DSN]")
@@ -87,7 +96,7 @@ function constraintsIntersect(constraints) {
 }
 
 function resolveExecutableVersion(name, env, timeoutMs, options = {}) {
-  const now = options.now || Date.now;
+  const now = monotonicReader(options.now);
   const spawnSync = options.spawnSync || childProcess.spawnSync;
   const realpathSync = options.realpathSync || fs.realpathSync;
   const deadline = now() + Math.max(0, timeoutMs);
@@ -243,7 +252,7 @@ function defaultResolveProbeExecutable(env, options = {}) {
 }
 
 function verifyEnvironment(plan, options = {}) {
-  const now = options.now || Date.now;
+  const now = monotonicReader(options.now);
   const expectations = plan.expectations || { runtimes: [], probes: [] },
     env = options.env || process.env,
     issues = [],
