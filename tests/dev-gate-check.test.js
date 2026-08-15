@@ -721,7 +721,22 @@ test("review render evidence rejects forged retained-render boundaries", () => {
         mutate(value) {
           delete value.observation;
         },
-        expected: /requires the current local-observation producer identity/,
+        expected: /requires a released local-observation producer identity/,
+      },
+      {
+        name: "pre-window producer version",
+        mutate(value) {
+          value.observation.producer.version = "1.13.21";
+        },
+        expected: /requires a released local-observation producer identity/,
+      },
+      {
+        name: "future producer version",
+        mutate(value) {
+          const [major, minor, patch] = PLUGIN_VERSION.split(".").map(Number);
+          value.observation.producer.version = `${major}.${minor}.${patch + 1}`;
+        },
+        expected: /requires a released local-observation producer identity/,
       },
       {
         name: "browser executable drift",
@@ -891,6 +906,38 @@ test("review render evidence rejects forged retained-render boundaries", () => {
         result.issues.map((item) => item.message).join("\n"),
         scenario.expected,
         scenario.name
+      );
+    }
+
+    // The installed plugin runs one patch behind the tree during a release;
+    // any producer version inside the released bound-generator window must
+    // not trip the identity check.
+    const [major, minor, patch] = PLUGIN_VERSION.split(".").map(Number);
+    if (patch > 22) {
+      for (const [file, bytes] of retainedBytes) fs.writeFileSync(path.join(root, file), bytes);
+      const windowed = structuredClone(baseline);
+      windowed.observation.producer.version = `${major}.${minor}.${patch - 1}`;
+      fs.writeFileSync(manifestPath, `${JSON.stringify(windowed)}\n`);
+      const result = checkGateManifest(
+        manifest([
+          gate("review", "abc123", {
+            artifact: "review/report.html",
+            evidence_kind: "review-report-v1",
+            render_manifest: render.path,
+            render_manifest_sha256: fileDigest(manifestPath),
+          }),
+        ]),
+        {
+          artifactRoot: root,
+          currentCommit: "abc123",
+          requiredGates: ["review"],
+          reviewEvidenceMode: "enforce",
+        }
+      );
+      assert.doesNotMatch(
+        result.issues.map((item) => item.message).join("\n"),
+        /local-observation producer identity/,
+        "previous released patch version"
       );
     }
   } finally {

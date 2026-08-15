@@ -20,7 +20,6 @@ const { isUiImpactPath } = require("./lib/ui-impact");
 const { deriveSessionSlug } = require("./lib/session-slug");
 const { resolveGateEvidenceContract } = require("./lib/dev-session-schema");
 const { hasCurrentEvidence } = require("./lib/workflow-runtime/records");
-const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 const DEFAULT_MANIFEST_PATH = ".pm/dev-sessions/current.gates.json";
 const DEFAULT_REQUIRED_GATES = ["tdd", "design-critique", "qa", "review", "verification"];
@@ -582,12 +581,15 @@ function validateRenderObservation(observation, manifestPath, issues) {
   if (
     observation?.assurance_level !== OBSERVATION_ASSURANCE_LEVEL ||
     observation?.producer?.name !== OBSERVATION_PRODUCER ||
-    observation?.producer?.version !== PLUGIN_VERSION
+    // Any released bound-generator runtime may produce render evidence: while
+    // a release is in flight the installed plugin runs one patch behind the
+    // tree, and requiring exact equality here deadlocks the release gate.
+    !require("./review-check").boundTargetGeneratorVersion(observation?.producer?.version)
   )
     issues.push(
       issue(
         manifestPath,
-        "review render manifest requires the current local-observation producer identity"
+        "review render manifest requires a released local-observation producer identity"
       )
     );
   if (
