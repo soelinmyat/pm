@@ -25,7 +25,7 @@ Parse the user's argument after `/pm:sync`. Extract the first word as the subcom
 Read `.pm/config.json` and check `sync.backend`:
 
 - **If `sync.backend` is not set or is `"none"`:** Route to the setup step (Step 2). No message needed — setup will handle onboarding.
-- **If `sync.backend` is `"git"`:** Route to `sync`. This will pull then push in one pass.
+- **If `sync.backend` is `"git"` or `"productmemory"`:** Route to `sync`. This will pull then push in one pass.
 
 ### When push/pull/status is requested but no backend is configured
 

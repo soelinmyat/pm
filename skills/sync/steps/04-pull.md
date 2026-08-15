@@ -27,10 +27,25 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/kb-sync-git.js" sync
 ```
 
 The selected command is the action-specific authority grant (`pull_knowledge_base`
-or `sync_knowledge_base`). After it completes, read
-`{pm_state_dir}/sync-status.json`. Treat the operation as successful only when
-`effect_state` is `verified` and `verified_receipt` is present. For `blocked` or
-`ambiguous`, show `recovery` and do not retry blindly.
+or `sync_knowledge_base`).
+
+### Productmemory backend
+
+If `sync.backend` is `"productmemory"`, run `kb-sync-pm.js` instead — same subcommands, same status file:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/kb-sync-pm.js" pull   # explicit pull
+node "${CLAUDE_PLUGIN_ROOT}/scripts/kb-sync-pm.js" sync   # default bidirectional
+```
+
+### Report
+
+After the script completes, read `{pm_state_dir}/sync-status.json`. For the Git
+backend, treat the operation as successful only when `effect_state` is
+`verified` and `verified_receipt` is present. For `blocked` or `ambiguous`, show
+`recovery` and do not retry blindly.
+
+For the productmemory backend, counts are records, not files — report "Pulled {downloaded} records." / "Pushed {uploaded} records." If `errors` is non-empty but some records synced, list the per-record errors after the counts — they carry the server's recovery instructions verbatim.
 
 Parse the JSON and display:
 

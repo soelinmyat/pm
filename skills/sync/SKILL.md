@@ -1,6 +1,6 @@
 ---
 name: sync
-description: "Use when the user wants to sync, push, pull, upload, download, connect, or inspect the git-backed PM knowledge base. Bare /pm:sync is bidirectional; explicit /pm:sync pull, push, status, and setup are overrides. Triggers include 'sync my knowledge base', 'push kb', 'pull kb', 'upload pm', and 'download pm'."
+description: "Use when the user wants to sync, push, pull, upload, download, connect, or inspect the PM knowledge base backed by git or productmemory.io. Bare /pm:sync is bidirectional; explicit /pm:sync pull, push, status, and setup are overrides. Triggers include 'sync my knowledge base', 'push kb', 'pull kb', 'upload pm', 'download pm', and 'sync to productmemory'."
 ---
 
 # pm:sync
@@ -31,9 +31,18 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
 **Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/sync/steps/` in numeric filename order. If `.pm/workflows/sync/` exists, same-named files there override defaults. Steps that do not match the selected route skip cleanly.
 
+## Backends
+
+Two supported backends, selected by `sync.backend` in `.pm/config.json`:
+
+- **`git`** — full-file sync of everything in `pm/` to a git remote. Owned by `kb-sync-git.js`.
+- **`productmemory`** — record-level sync to productmemory.io. KB record files (`evidence/`, `insights/`, `backlog/`) map to productmemory records via the REST API with idempotent `sync_id` upserts; the dashboard at productmemory.io shows them as browsable records. Monthly note rollups (`evidence/notes/{YYYY-MM}.md`) sync push-only, one evidence record per dated entry — server-side edits to note entries do not flow back. Pushes are conditional on the last-seen server version (`if_updated_at`), so a record changed on the server since the last pull is reported as a conflict instead of silently overwritten — running `/pm:sync` pulls the server version first. Non-record files (`strategy.md`, `memory.md`, `product/`, `thinking/`, HTML artifacts) are not synced, and deletes are not propagated — choose git when full-file fidelity matters. Owned by `kb-sync-pm.js`.
+
 ## Hard rules
 
 - Never run raw git inside `pm/` for KB operations — `kb-sync-git.js` owns staging, commit, push, pull, and status; bypassing it creates state drift. (Setup similarly runs the full flow — git init, `.gitignore`, initial commit, upstream tracking, config write — don't shortcut it.)
+- Never call the productmemory REST or MCP API directly for sync operations — `kb-sync-pm.js` owns upserts, link ordering, conflict artifacts, and the local cache; ad-hoc writes bypass its `sync_id` bookkeeping and create duplicate records.
+- Never write the productmemory token into `.pm/config.json` or any file inside `pm/` — it lives in `~/.pm/credentials` only.
 - Bare `/pm:sync` is bidirectional (pull then push). Don't prompt for a push/pull choice unless the user explicitly asks for a one-way override.
 - When no backend is configured, route through the setup step — it needs user input (repo name/URL); never configure silently.
 - Report results as readable text, never raw JSON. On repeated failure, surface the real auth/config/remote cause rather than retrying blindly.

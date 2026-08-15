@@ -97,6 +97,8 @@ test("sync skill keeps bare sync bidirectional with explicit pull and push overr
   assert.match(command, /With no subcommand, run bidirectional sync/);
   assert.match(parse, /Route to `sync`/);
   assert.match(pullStep, /kb-sync-git\.js" sync/);
+  assert.match(pullStep, /kb-sync-pm\.js" sync/);
+  assert.match(pushStep, /kb-sync-pm\.js" push/);
   assert.match(pushStep, /selected route is `push`/);
   assert.doesNotMatch(
     `${parse}\n${pullStep}\n${pushStep}`,

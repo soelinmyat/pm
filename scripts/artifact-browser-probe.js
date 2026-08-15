@@ -137,7 +137,13 @@ async function main() {
     } catch {
       // The browser may have exited between the state check and the kill.
     }
-    fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 50 });
+    try {
+      fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 50 });
+    } catch {
+      // A Chromium straggler can hold Default/ past the retry window; the
+      // parent reclaims this dir via the fd-3 control channel after we exit,
+      // so cleanup failure must not fail an otherwise-successful probe.
+    }
   };
   for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"]) {
     process.once(signal, () => {

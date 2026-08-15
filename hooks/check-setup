@@ -25,8 +25,11 @@ fi
 SYNC_ACTIVE=$(node -e "
   try {
     const c = JSON.parse(require('fs').readFileSync('$PROJECT_DIR/.pm/config.json','utf8'));
-    if (!c.projectId) process.exit();
     const s = c.sync || {};
+    const backend = s.backend || 'none';
+    // Only backends the kb-pull/kb-push hooks actually route; anything else
+    // (legacy server configs) must not report active, or the setup hint hides.
+    if (backend !== 'git' && backend !== 'productmemory') process.exit();
     const enabled = s.enabled !== undefined ? s.enabled : true;
     if (enabled) process.stdout.write('active');
   } catch {}

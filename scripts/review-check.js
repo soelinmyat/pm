@@ -1983,6 +1983,7 @@ function normalizeText(value) {
 if (require.main === module) process.exitCode = main();
 
 module.exports = {
+  boundTargetGeneratorVersion,
   buildCanonicalReport,
   checkReview,
   expandFromReport,

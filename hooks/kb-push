@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SessionEnd hook — pushes modified pm/ files to remote if dirty marker exists.
-# Supports git and server backends. Always exits 0 — push failure must never block the session.
+# Supports git and productmemory backends. Always exits 0 — push failure must never block the session.
 
 set -euo pipefail
 
@@ -33,8 +33,8 @@ fi
 # Push based on backend
 if [ "$SYNC_INFO" = "git" ]; then
   node "$PLUGIN_ROOT/scripts/kb-sync-git.js" push 2>/dev/null || true
-else
-  node "$PLUGIN_ROOT/scripts/kb-sync.js" push 2>/dev/null || true
+elif [ "$SYNC_INFO" = "productmemory" ]; then
+  node "$PLUGIN_ROOT/scripts/kb-sync-pm.js" push 2>/dev/null || true
 fi
 
 # Remove dirty marker regardless of push result

@@ -20,10 +20,24 @@ Run the sync script:
 node "${CLAUDE_PLUGIN_ROOT}/scripts/kb-sync-git.js" push
 ```
 
-The explicit command is the `push_knowledge_base` authority grant. After it
-completes, read `{pm_state_dir}/sync-status.json`. Report success only when
-`effect_state` is `verified` and `verified_receipt` is present. If the effect is
-`blocked` or `ambiguous`, show its recovery action and do not retry blindly.
+The explicit command is the `push_knowledge_base` authority grant.
+
+### Productmemory backend
+
+If `sync.backend` is `"productmemory"`, run instead:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/kb-sync-pm.js" push
+```
+
+### Report
+
+After the script completes, read `{pm_state_dir}/sync-status.json`. For the Git
+backend, report success only when `effect_state` is `verified` and
+`verified_receipt` is present. If the effect is `blocked` or `ambiguous`, show
+its recovery action and do not retry blindly.
+
+For the productmemory backend, counts are records — report "Pushed {uploaded} records." Surface any per-record errors verbatim; they carry the server's recovery instructions.
 
 Parse the JSON and display:
 
