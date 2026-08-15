@@ -26,7 +26,7 @@ Knowledge base sync is owned by the backend-aware session hooks, not this step:
 - `kb-pull` (SessionStart) pulls the latest `pm/` files for the active backend.
 - `kb-push` (SessionEnd) pushes local changes for the active backend when the dirty marker is set.
 
-Both branch on `config.sync.backend`, so git-backend and server-backend projects are both covered. Do **not** push from this step. A previous in-skill push was hardcoded to the server backend and gated on `projectId`, so it silently skipped every git-backend user and double-pushed server users. Rely on the hooks as the single source of truth.
+Both branch on `config.sync.backend`, so git-backend and productmemory-backend projects are both covered. Do **not** push from this step. A previous in-skill push was hardcoded to one backend and gated on `projectId`, so it silently skipped every other backend's users and double-pushed its own. Rely on the hooks as the single source of truth.
 
 3. Evidence detection:
 

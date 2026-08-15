@@ -532,9 +532,14 @@ function resolveSyncConfigured(projectDir, credentialsPath) {
     return true;
   }
 
-  // Server backend: requires a projectId plus a stored credentials token.
-  if (!config.projectId) {
+  // Productmemory backend: requires a project slug plus a token from the
+  // PRODUCTMEMORY_TOKEN env var or ~/.pm/credentials (key productmemory_token).
+  if (!config.sync || config.sync.backend !== "productmemory" || !config.sync.project) {
     return false;
+  }
+
+  if (process.env.PRODUCTMEMORY_TOKEN) {
+    return true;
   }
 
   const credsPath = credentialsPath || path.join(os.homedir(), ".pm", "credentials");
@@ -545,11 +550,7 @@ function resolveSyncConfigured(projectDir, credentialsPath) {
     return false;
   }
 
-  if (!creds || !creds.token) {
-    return false;
-  }
-
-  return true;
+  return Boolean(creds && creds.productmemory_token);
 }
 
 function timeAgo(isoString) {

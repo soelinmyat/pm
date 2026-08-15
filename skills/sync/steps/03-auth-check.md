@@ -45,10 +45,19 @@ branch. If it reports no upstream, stop and relay the `git push --set-upstream
 
 If `ok: true`: proceed to the selected subcommand step.
 
+**If backend is `"productmemory"`:** Verify config and token:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/kb-sync-pm.js" status
+```
+
+If the output has `"ok": false`, surface its `error` field (missing project, missing token, etc.) and tell the user to run `/pm:sync setup`. Then stop. Otherwise proceed to the selected subcommand step.
+
 ## Done-when
 
-The selected data route has a configured Git backend, attached branch, and
-reachable configured upstream, or execution has stopped with the helper's exact
-repair guidance.
+The selected data route has a configured backend, or execution has stopped with
+the helper's exact repair guidance. For the Git backend that means an attached
+branch and reachable configured upstream; for productmemory it means project
+config plus a resolvable token.
 
 **Advance:** proceed to Step 4 (Pull / Sync); route-specific steps skip cleanly.

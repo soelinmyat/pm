@@ -1685,7 +1685,8 @@ function runPluginMode(args) {
   }
   if (!fs.existsSync(rootDir)) {
     console.log(JSON.stringify({ ok: false, error: `plugin root not found: ${rootDir}` }));
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
   // Only enforced rules enter the authoritative plugin check. The authoring
   // contract graduated to error severity after the runtime tree reached a
@@ -1708,7 +1709,9 @@ function runPluginMode(args) {
     issues,
   };
   console.log(JSON.stringify(out, null, 2));
-  process.exit(hasError ? 1 : 0);
+  // exitCode, not process.exit(): a hard exit drops piped stdout past the
+  // first 8KB chunk, truncating large issue lists mid-JSON.
+  process.exitCode = hasError ? 1 : 0;
 }
 
 function main() {
@@ -1736,7 +1739,8 @@ function main() {
 
   if (!fs.existsSync(pmDir)) {
     console.log(JSON.stringify({ ok: false, error: `pm directory not found: ${pmDir}` }));
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
 
   const { errors, warnings, backlogCount } = validate(pmDir, { sourceDir });
@@ -1767,7 +1771,7 @@ function main() {
   }
 
   console.log(JSON.stringify(result, null, 2));
-  process.exit(errors.length > 0 ? 1 : 0);
+  process.exitCode = errors.length > 0 ? 1 : 0;
 }
 
 // Export before invoking main() so that lazy requires from submodules (e.g.

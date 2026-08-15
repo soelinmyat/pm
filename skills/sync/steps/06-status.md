@@ -46,9 +46,29 @@ If everything is zero: "All synced."
 If status reports detached HEAD or a missing upstream, show its repair guidance
 and stop. Do not display zero ahead/behind values for an undefined comparison.
 
+### Productmemory backend
+
+If `sync.backend` is `"productmemory"`, run instead:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/kb-sync-pm.js" status
+```
+
+Parse the JSON output and display:
+
+```text
+Backend: productmemory.io
+Project: {project}
+Tracked records: {tracked}
+Pending push:    {pending}
+Last pull:       {lastPull, formatted}
+```
+
+If `pending > 0`, add: "Run `/pm:sync` to sync."
+
 ### No backend configured
 
-If the status script returns `ok: false` with an error about no git repo:
+If the status script returns `ok: false` with an error about no git repo (or, for productmemory, a missing project/token):
 
 > No sync configured. Run `/pm:sync setup` to get started.
 

@@ -854,112 +854,122 @@ test("readSyncStatus returns parsed status from valid JSON", () => {
 
 // --- resolveSyncConfigured tests ---
 
-test("resolveSyncConfigured returns true with projectId + token + sync.enabled=true", () => {
+// A PRODUCTMEMORY_TOKEN in the developer's real env would flip the negative
+// cases that reach the token check — clear it for the duration of the test.
+function withoutEnvToken(fn) {
+  const saved = process.env.PRODUCTMEMORY_TOKEN;
+  delete process.env.PRODUCTMEMORY_TOKEN;
+  try {
+    fn();
+  } finally {
+    if (saved !== undefined) process.env.PRODUCTMEMORY_TOKEN = saved;
+  }
+}
+
+function pmSyncConfig(syncOverrides) {
+  return JSON.stringify({
+    sync: { backend: "productmemory", project: "acme", ...syncOverrides },
+  });
+}
+
+test("resolveSyncConfigured returns true for git backend without credentials", () => {
   const project = createProject();
   try {
-    project.write(
-      ".pm/config.json",
-      JSON.stringify({ projectId: "proj_123", sync: { enabled: true } })
-    );
-    const credsDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-creds-"));
-    const credsPath = path.join(credsDir, "credentials");
-    fs.writeFileSync(credsPath, JSON.stringify({ token: "tok_abc" }));
-
-    const result = resolveSyncConfigured(project.root, credsPath);
-    assert.equal(result, true);
-
-    fs.rmSync(credsDir, { recursive: true, force: true });
+    project.write(".pm/config.json", JSON.stringify({ sync: { backend: "git" } }));
+    assert.equal(resolveSyncConfigured(project.root), true);
   } finally {
     project.cleanup();
   }
 });
 
-test("resolveSyncConfigured returns true when sync key is absent (default enabled)", () => {
+test("resolveSyncConfigured returns true with productmemory backend + project + stored token", () => {
+  const project = createProject();
+  const credsDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-creds-"));
+  try {
+    project.write(".pm/config.json", pmSyncConfig({}));
+    const credsPath = path.join(credsDir, "credentials");
+    fs.writeFileSync(credsPath, JSON.stringify({ productmemory_token: "tok_abc" }));
+
+    assert.equal(resolveSyncConfigured(project.root, credsPath), true);
+  } finally {
+    fs.rmSync(credsDir, { recursive: true, force: true });
+    project.cleanup();
+  }
+});
+
+test("resolveSyncConfigured returns true via PRODUCTMEMORY_TOKEN env without credentials file", () => {
+  const saved = process.env.PRODUCTMEMORY_TOKEN;
+  process.env.PRODUCTMEMORY_TOKEN = "tok_env";
   const project = createProject();
   try {
-    project.write(".pm/config.json", JSON.stringify({ projectId: "proj_123" }));
-    const credsDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-creds-"));
-    const credsPath = path.join(credsDir, "credentials");
-    fs.writeFileSync(credsPath, JSON.stringify({ token: "tok_abc" }));
+    project.write(".pm/config.json", pmSyncConfig({}));
+    const credsPath = path.join(os.tmpdir(), "nonexistent-pm-creds", "credentials");
 
-    const result = resolveSyncConfigured(project.root, credsPath);
-    assert.equal(result, true);
-
-    fs.rmSync(credsDir, { recursive: true, force: true });
+    assert.equal(resolveSyncConfigured(project.root, credsPath), true);
   } finally {
+    if (saved !== undefined) process.env.PRODUCTMEMORY_TOKEN = saved;
+    else delete process.env.PRODUCTMEMORY_TOKEN;
     project.cleanup();
   }
 });
 
 test("resolveSyncConfigured returns false with sync.enabled=false", () => {
   const project = createProject();
+  const credsDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-creds-"));
   try {
-    project.write(
-      ".pm/config.json",
-      JSON.stringify({ projectId: "proj_123", sync: { enabled: false } })
-    );
-    const credsDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-creds-"));
+    project.write(".pm/config.json", pmSyncConfig({ enabled: false }));
     const credsPath = path.join(credsDir, "credentials");
-    fs.writeFileSync(credsPath, JSON.stringify({ token: "tok_abc" }));
+    fs.writeFileSync(credsPath, JSON.stringify({ productmemory_token: "tok_abc" }));
 
-    const result = resolveSyncConfigured(project.root, credsPath);
-    assert.equal(result, false);
-
-    fs.rmSync(credsDir, { recursive: true, force: true });
+    assert.equal(resolveSyncConfigured(project.root, credsPath), false);
   } finally {
+    fs.rmSync(credsDir, { recursive: true, force: true });
     project.cleanup();
   }
 });
 
 test("resolveSyncConfigured returns false with empty token", () => {
-  const project = createProject();
-  try {
-    project.write(
-      ".pm/config.json",
-      JSON.stringify({ projectId: "proj_123", sync: { enabled: true } })
-    );
+  withoutEnvToken(() => {
+    const project = createProject();
     const credsDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-creds-"));
-    const credsPath = path.join(credsDir, "credentials");
-    fs.writeFileSync(credsPath, JSON.stringify({ token: "" }));
+    try {
+      project.write(".pm/config.json", pmSyncConfig({}));
+      const credsPath = path.join(credsDir, "credentials");
+      fs.writeFileSync(credsPath, JSON.stringify({ productmemory_token: "" }));
 
-    const result = resolveSyncConfigured(project.root, credsPath);
-    assert.equal(result, false);
-
-    fs.rmSync(credsDir, { recursive: true, force: true });
-  } finally {
-    project.cleanup();
-  }
+      assert.equal(resolveSyncConfigured(project.root, credsPath), false);
+    } finally {
+      fs.rmSync(credsDir, { recursive: true, force: true });
+      project.cleanup();
+    }
+  });
 });
 
 test("resolveSyncConfigured returns false with missing credentials file", () => {
-  const project = createProject();
-  try {
-    project.write(
-      ".pm/config.json",
-      JSON.stringify({ projectId: "proj_123", sync: { enabled: true } })
-    );
-    const credsPath = path.join(os.tmpdir(), "nonexistent-pm-creds", "credentials");
+  withoutEnvToken(() => {
+    const project = createProject();
+    try {
+      project.write(".pm/config.json", pmSyncConfig({}));
+      const credsPath = path.join(os.tmpdir(), "nonexistent-pm-creds", "credentials");
 
-    const result = resolveSyncConfigured(project.root, credsPath);
-    assert.equal(result, false);
-  } finally {
-    project.cleanup();
-  }
+      assert.equal(resolveSyncConfigured(project.root, credsPath), false);
+    } finally {
+      project.cleanup();
+    }
+  });
 });
 
-test("resolveSyncConfigured returns false with missing projectId", () => {
+test("resolveSyncConfigured returns false with missing sync.project", () => {
   const project = createProject();
+  const credsDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-creds-"));
   try {
-    project.write(".pm/config.json", JSON.stringify({ sync: { enabled: true } }));
-    const credsDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-creds-"));
+    project.write(".pm/config.json", JSON.stringify({ sync: { backend: "productmemory" } }));
     const credsPath = path.join(credsDir, "credentials");
-    fs.writeFileSync(credsPath, JSON.stringify({ token: "tok_abc" }));
+    fs.writeFileSync(credsPath, JSON.stringify({ productmemory_token: "tok_abc" }));
 
-    const result = resolveSyncConfigured(project.root, credsPath);
-    assert.equal(result, false);
-
-    fs.rmSync(credsDir, { recursive: true, force: true });
+    assert.equal(resolveSyncConfigured(project.root, credsPath), false);
   } finally {
+    fs.rmSync(credsDir, { recursive: true, force: true });
     project.cleanup();
   }
 });
@@ -1053,9 +1063,15 @@ test("buildStatus syncStatus reflects configured sync with valid status file", (
   const credsDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-creds-"));
   try {
     project.mkdir("pm");
-    project.write(".pm/config.json", JSON.stringify({ config_schema: 1, projectId: "proj_test" }));
+    project.write(
+      ".pm/config.json",
+      JSON.stringify({
+        config_schema: 1,
+        sync: { backend: "productmemory", project: "test" },
+      })
+    );
     const credsPath = path.join(credsDir, "credentials");
-    fs.writeFileSync(credsPath, JSON.stringify({ token: "tok_test" }));
+    fs.writeFileSync(credsPath, JSON.stringify({ productmemory_token: "tok_test" }));
 
     const syncData = {
       lastSync: "2026-04-13T08:00:00.000Z",

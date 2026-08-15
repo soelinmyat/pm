@@ -1,12 +1,12 @@
 ---
 name: Setup
 order: 2
-description: Interactive setup — create or connect a git repo for KB sync
+description: Interactive setup — choose a backend (git or productmemory.io), then configure it
 ---
 
 ## Goal
 
-Configure git-based sync for the `pm/` directory. Either create a new private GitHub repo or connect to an existing one.
+Configure KB sync for the `pm/` directory: either git (full-file sync to a repo) or productmemory.io (record-level sync to the hosted dashboard).
 
 ## How
 
@@ -26,13 +26,63 @@ node -e "
 "
 ```
 
-If already configured as `"git"`, show current remote and ask:
+If already configured (`"git"` or `"productmemory"`), describe the current setup and ask:
 
-> Sync is already configured (git). Remote: `{remote_url}`. Want to reconfigure?
+> Sync is already configured ({backend}). Want to reconfigure?
 
 If the user says no, stop.
 
-### 2. Ask: create new or connect existing
+### 2. Ask: which backend
+
+Ask the user ONE question (yes/no):
+
+> **Do you want to sync to productmemory.io?** It gives you a hosted dashboard of your evidence, insights, and backlog. (If not, I'll set up git sync — full-file backup of everything in `pm/`.)
+
+- **Yes** → follow the **productmemory backend** section below, then stop (skip the git sections).
+- **No** → continue with the git flow (section 3).
+
+### Productmemory backend
+
+1. Ask for the project slug or key (ONE question). If `.pm/config.json` has a project name, suggest it as the default:
+
+   > What's your productmemory project slug? (Create one at https://productmemory.io/settings if you haven't.)
+
+2. Ask for an API token (ONE question):
+
+   > Paste an API token from https://productmemory.io/settings (Tokens section).
+
+3. Store the token in `~/.pm/credentials` (JSON, key `productmemory_token`, mode 0600). Preserve any other keys in that file. Never write the token into `.pm/config.json` or anywhere inside `pm/`.
+
+4. Update `.pm/config.json`, preserving all other fields:
+
+   ```javascript
+   config.sync = config.sync || {};
+   config.sync.backend = "productmemory";
+   config.sync.enabled = true;
+   config.sync.auto_pull = true;
+   config.sync.auto_push = true;
+   config.sync.project = "{slug}";
+   // config.sync.url only if the user runs a self-hosted instance; defaults to https://productmemory.io
+   ```
+
+5. Verify the connection and run the first sync:
+
+   ```bash
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/kb-sync-pm.js" sync
+   ```
+
+   Read `{pm_state_dir}/sync-status.json`. On auth failure, surface the error and ask for a fresh token. On success:
+
+   > Sync configured. Backend: productmemory.io, project `{slug}`.
+   > Pushed {uploaded} records, pulled {downloaded}.
+   >
+   > Note: only record files (evidence, insights, backlog) sync to productmemory. `strategy.md`, `memory.md`, and HTML artifacts stay local — use the git backend if you need full-file backup too.
+   >
+   > Auto-sync is enabled: pull on session start, push on session end.
+
+   Then stop — the git sections below don't apply.
+
+### 3. Git: create new or connect existing
 
 Ask the user ONE question:
 

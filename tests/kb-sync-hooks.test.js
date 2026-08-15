@@ -30,14 +30,14 @@ function withProject(config, opts = {}) {
   const fakeScripts = path.join(root, "fake-plugin", "scripts");
   fs.mkdirSync(fakeScripts, { recursive: true });
 
-  // Server backend script
+  // Productmemory backend script
   fs.writeFileSync(
-    path.join(fakeScripts, "kb-sync.js"),
+    path.join(fakeScripts, "kb-sync-pm.js"),
     `const fs = require("fs");
 const path = require("path");
 const mode = process.argv[2];
 const marker = path.join(process.env.CLAUDE_PROJECT_DIR || ".", ".pm", "sync-called-" + mode);
-fs.writeFileSync(marker, "server");
+fs.writeFileSync(marker, "productmemory");
 `
   );
 
@@ -132,7 +132,19 @@ test("PM-201: kb-pull calls kb-sync-git.js when backend is git", (t) => {
   assert.equal(fs.readFileSync(p.pullMarker, "utf8"), "git", "should use git script");
 });
 
-test("PM-201: kb-pull calls kb-sync.js when backend is server", (t) => {
+test("kb-pull calls kb-sync-pm.js when backend is productmemory", (t) => {
+  const p = withProject({
+    config_schema: 2,
+    sync: { backend: "productmemory", enabled: true, auto_pull: true },
+  });
+  t.after(p.cleanup);
+
+  runHook(KB_PULL, p.root, p.pluginRoot);
+  assert.ok(fs.existsSync(p.pullMarker), "pull should run for productmemory backend");
+  assert.equal(fs.readFileSync(p.pullMarker, "utf8"), "productmemory");
+});
+
+test("kb-pull skips unknown backends (legacy server config)", (t) => {
   const p = withProject({
     config_schema: 2,
     sync: { backend: "server", enabled: true, auto_pull: true },
@@ -140,16 +152,7 @@ test("PM-201: kb-pull calls kb-sync.js when backend is server", (t) => {
   t.after(p.cleanup);
 
   runHook(KB_PULL, p.root, p.pluginRoot);
-  assert.ok(fs.existsSync(p.pullMarker), "pull should run for server backend");
-  assert.equal(fs.readFileSync(p.pullMarker, "utf8"), "server", "should use server script");
-});
-
-test("PM-201: kb-pull skips when no projectId and no sync block (legacy config)", (t) => {
-  const p = withProject({ config_schema: 2 });
-  t.after(p.cleanup);
-
-  runHook(KB_PULL, p.root, p.pluginRoot);
-  assert.ok(!fs.existsSync(p.pullMarker), "pull should NOT run with no sync config");
+  assert.ok(!fs.existsSync(p.pullMarker), "pull should NOT run for an unknown backend");
 });
 
 // ---------------------------------------------------------------------------
@@ -168,7 +171,19 @@ test("PM-201: kb-push calls kb-sync-git.js when backend is git and dirty", (t) =
   assert.equal(fs.readFileSync(p.pushMarker, "utf8"), "git", "should use git script");
 });
 
-test("PM-201: kb-push calls kb-sync.js when backend is server and dirty", (t) => {
+test("kb-push calls kb-sync-pm.js when backend is productmemory and dirty", (t) => {
+  const p = withProject(
+    { config_schema: 2, sync: { backend: "productmemory", enabled: true } },
+    { dirty: true }
+  );
+  t.after(p.cleanup);
+
+  runHook(KB_PUSH, p.root, p.pluginRoot);
+  assert.ok(fs.existsSync(p.pushMarker), "push should run for productmemory backend");
+  assert.equal(fs.readFileSync(p.pushMarker, "utf8"), "productmemory");
+});
+
+test("kb-push skips unknown backends but still clears the dirty marker", (t) => {
   const p = withProject(
     { config_schema: 2, sync: { backend: "server", enabled: true } },
     { dirty: true }
@@ -176,8 +191,8 @@ test("PM-201: kb-push calls kb-sync.js when backend is server and dirty", (t) =>
   t.after(p.cleanup);
 
   runHook(KB_PUSH, p.root, p.pluginRoot);
-  assert.ok(fs.existsSync(p.pushMarker), "push should run for server backend");
-  assert.equal(fs.readFileSync(p.pushMarker, "utf8"), "server", "should use server script");
+  assert.ok(!fs.existsSync(p.pushMarker), "push should NOT run for an unknown backend");
+  assert.ok(!fs.existsSync(path.join(p.dotPm, "sync-dirty")), "dirty marker should be cleared");
 });
 
 test("PM-201: kb-push skips when sync.enabled is false", (t) => {
