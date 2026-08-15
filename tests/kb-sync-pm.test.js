@@ -135,6 +135,52 @@ test("recordPath uses kb_path when present, slugs server-born records by type", 
   assert.equal(recordPath({ type: "research", title: "Q", meta: null }), "evidence/research/q.md");
 });
 
+test("status maps cover the canonical local vocabulary in both directions", () => {
+  const { BACKLOG_STATUS, LOCAL_STATUS } = require("../scripts/kb-sync-pm.js");
+  const { CANONICAL_CARD_STATUSES } = require("../scripts/loop-card-state.js");
+  for (const status of CANONICAL_CARD_STATUSES)
+    assert.ok(BACKLOG_STATUS[status], `push map missing local status ${status}`);
+  for (const [server, local] of Object.entries(LOCAL_STATUS))
+    assert.ok(
+      CANONICAL_CARD_STATUSES.includes(local),
+      `pull map sends server ${server} to non-canonical ${local}`
+    );
+});
+
+test("local-only statuses push as active server statuses, never idea", () => {
+  const shipping = toRecord(
+    "backlog/a.md",
+    { type: "backlog", title: "A", status: "shipping" },
+    ""
+  );
+  assert.equal(shipping.payload.status, "in-progress");
+  const needsHuman = toRecord(
+    "backlog/b.md",
+    { type: "backlog", title: "B", status: "needs-human" },
+    ""
+  );
+  assert.equal(needsHuman.payload.status, "blocked");
+});
+
+test("server-only statuses pull as canonical local statuses", () => {
+  const record = {
+    type: "backlog_item",
+    title: "T",
+    outcome: "O",
+    status: "blocked",
+    priority: null,
+    tags: [],
+    body: "Body.",
+    updated_at: "2026-08-15T10:00:00Z",
+    meta: { kb_path: "backlog/t.md", fm: { type: "backlog", title: "T", status: "in-progress" } },
+  };
+  assert.equal(parseFrontmatter(recordToMarkdown(record)).data.status, "needs-human");
+  assert.equal(
+    parseFrontmatter(recordToMarkdown({ ...record, status: "canceled" })).data.status,
+    "needs-human"
+  );
+});
+
 test("push upserts in dependency order with links; pull writes conflict artifact", async () => {
   const fs = require("node:fs");
   const path = require("node:path");
@@ -236,6 +282,63 @@ test("push upserts in dependency order with links; pull writes conflict artifact
     const last = created[created.length - 1];
     assert.equal(last.sync_id, "kb:PM-1");
     assert.equal(last.if_updated_at, "2026-08-15T12:00:00Z");
+  } finally {
+    server.close();
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("pull disambiguates slug collisions and writes state files owner-only", async () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const os = require("node:os");
+  const http = require("node:http");
+  const { pull } = require("../scripts/kb-sync-pm.js");
+
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "kb-sync-pm-collide-"));
+  const pmDir = path.join(tmp, "pm");
+  const stateDir = path.join(tmp, ".pm");
+  fs.mkdirSync(pmDir, { recursive: true });
+
+  const record = (id) => ({
+    id,
+    type: "backlog_item",
+    sync_id: null,
+    title: "Same Name",
+    outcome: "Same Name",
+    status: "idea",
+    priority: null,
+    tags: [],
+    body: `Body of ${id}.`,
+    updated_at: "2026-08-15T12:00:00Z",
+    meta: {},
+  });
+  const server = http.createServer((req, res) => {
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ records: [record("rec_a"), record("rec_b")], next_cursor: null }));
+  });
+  await new Promise((resolve) => server.listen(0, resolve));
+  const config = { url: `http://127.0.0.1:${server.address().port}`, project: "test", token: "t" };
+
+  try {
+    const result = await pull(pmDir, stateDir, config);
+    assert.equal(result.ok, true);
+    assert.equal(result.downloaded, 2);
+    const files = fs.readdirSync(path.join(pmDir, "backlog")).sort();
+    assert.deepEqual(files, ["same-name-recb.md", "same-name.md"]);
+    assert.match(fs.readFileSync(path.join(pmDir, "backlog", "same-name.md"), "utf8"), /rec_a/);
+    assert.match(
+      fs.readFileSync(path.join(pmDir, "backlog", "same-name-recb.md"), "utf8"),
+      /rec_b/
+    );
+
+    // Idempotent: a second pull rewrites nothing.
+    const again = await pull(pmDir, stateDir, config);
+    assert.equal(again.downloaded, 0);
+
+    // Sync state is written atomically with owner-only permissions.
+    const cacheMode = fs.statSync(path.join(stateDir, "sync-pm-cache.json")).mode & 0o777;
+    assert.equal(cacheMode, 0o600);
   } finally {
     server.close();
     fs.rmSync(tmp, { recursive: true, force: true });

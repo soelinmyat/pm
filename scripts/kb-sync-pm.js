@@ -13,6 +13,7 @@ const path = require("path");
 const os = require("os");
 const crypto = require("crypto");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
+const { writeJsonAtomic } = require("./lib/atomic-file.js");
 const { parseFrontmatter } = require("./kb-frontmatter.js");
 const { parseNotesFile } = require("./note-helpers.js");
 
@@ -21,17 +22,33 @@ const CREDENTIALS_PATH = path.join(process.env.HOME || os.homedir(), ".pm", "cre
 const CACHE_FILE = "sync-pm-cache.json";
 const KB_TYPES = ["evidence", "research", "insight", "backlog_item"];
 
-// Local KB status vocabulary → server BacklogItem::STATUSES.
-// Server values map to themselves so pulled records round-trip unchanged.
+// Local KB status vocabulary → server BacklogItem::STATUSES. Covers every
+// CANONICAL_CARD_STATUSES value (loop-card-state.js) plus the two server-only
+// values for tolerance of hand-edited files.
 const BACKLOG_STATUS = {
   idea: "idea",
   proposed: "planned",
   drafted: "planned",
   planned: "planned",
   "in-progress": "in-progress",
+  shipping: "in-progress",
+  "needs-human": "blocked",
   blocked: "blocked",
   done: "done",
   canceled: "canceled",
+};
+// Server status → local vocabulary, so pulled frontmatter always passes the
+// validate.js status enum. Lossy mappings are safe: push skips files whose
+// hash matches the pull cache, so a pull→push cycle never rewrites the server.
+// ponytail: server "canceled" surfaces as needs-human; add a local canceled
+// status to CANONICAL_CARD_STATUSES if cancellation becomes a local workflow.
+const LOCAL_STATUS = {
+  idea: "idea",
+  planned: "planned",
+  "in-progress": "in-progress",
+  blocked: "needs-human",
+  done: "done",
+  canceled: "needs-human",
 };
 const PRIORITIES = ["critical", "high", "medium", "low"];
 const SOURCE_ORIGINS = ["internal", "external", "mixed"];
@@ -281,7 +298,7 @@ const SERVER_FIELDS = {
   backlog_item: (r) => ({
     title: r.title,
     outcome: r.outcome,
-    status: r.status,
+    status: LOCAL_STATUS[r.status] || "idea",
     priority: r.priority,
     labels: r.tags,
   }),
@@ -380,8 +397,10 @@ function loadCache(pmStateDir) {
 }
 
 function saveCache(pmStateDir, cache) {
-  fs.mkdirSync(pmStateDir, { recursive: true });
-  fs.writeFileSync(path.join(pmStateDir, CACHE_FILE), JSON.stringify(cache, null, 2) + "\n");
+  writeJsonAtomic(path.join(pmStateDir, CACHE_FILE), cache, {
+    fileMode: 0o600,
+    directoryMode: 0o700,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -522,7 +541,21 @@ async function pull(pmDir, pmStateDir, config) {
     // edits to them don't round-trip.
     if (record.sync_id && record.sync_id.includes(".md#")) continue;
 
-    const relPath = recordPath(record);
+    let relPath = recordPath(record);
+    // Slug collision: a different server record already owns this path (two
+    // same-type records with identically-normalized titles and no kb_path).
+    // Suffix with the record id so neither silently overwrites the other.
+    // ponytail: if the cache is deleted, re-pull order decides who keeps the
+    // unsuffixed path; stale duplicates are visible files, not data loss.
+    const owner = cache.files[relPath];
+    if (owner && owner.serverId && owner.serverId !== record.id) {
+      const idSuffix =
+        String(record.id)
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "")
+          .slice(0, 8) || "dup";
+      relPath = relPath.replace(/\.md$/, `-${idSuffix}.md`);
+    }
     const filePath = path.resolve(pmDir, relPath);
     if (!filePath.startsWith(path.resolve(pmDir) + path.sep)) continue;
     const content = recordToMarkdown(record);
@@ -601,22 +634,18 @@ function status(pmDir, pmStateDir, config) {
 // ---------------------------------------------------------------------------
 
 function writeSyncStatus(pmStateDir, result) {
-  fs.mkdirSync(pmStateDir, { recursive: true });
-  fs.writeFileSync(
+  writeJsonAtomic(
     path.join(pmStateDir, "sync-status.json"),
-    JSON.stringify(
-      {
-        lastSync: new Date().toISOString(),
-        mode: result.mode,
-        backend: "productmemory",
-        uploaded: result.uploaded || 0,
-        downloaded: result.downloaded || 0,
-        errors: result.errors || [],
-        ok: result.ok,
-      },
-      null,
-      2
-    ) + "\n"
+    {
+      lastSync: new Date().toISOString(),
+      mode: result.mode,
+      backend: "productmemory",
+      uploaded: result.uploaded || 0,
+      downloaded: result.downloaded || 0,
+      errors: result.errors || [],
+      ok: result.ok,
+    },
+    { fileMode: 0o600, directoryMode: 0o700 }
   );
 }
 
@@ -666,6 +695,8 @@ if (require.main === module) {
 }
 
 module.exports = {
+  BACKLOG_STATUS,
+  LOCAL_STATUS,
   resolveConfig,
   scanKbFiles,
   toRecord,
