@@ -4,9 +4,11 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const zlib = require("node:zlib");
 const {
+  PRODUCT_UI_VISUAL_THRESHOLDS,
   inspectPdfBytes,
   inspectPngBytes,
   inspectPngVisualBytes,
+  visualDifference,
   visualDistance,
 } = require("../scripts/lib/media-inspect");
 
@@ -45,8 +47,30 @@ test("visual PNG metrics expose a one-pixel beacon as spatially near blank", () 
   assert.equal(inspected.visiblePixels, 10_000);
   assert.equal(inspected.hasVisualVariation, true);
   assert.equal(inspected.meaningfulPixelRatio, 0.0001);
-  assert.equal(inspected.meaningfulTileRatio, 1 / 64);
+  assert.equal(inspected.meaningfulTileRatio, 0);
   assert.equal(inspected.colorBucketCount, 2);
+});
+
+test("visual PNG metrics reject a 99.75 percent uniform two-tile beacon", () => {
+  const width = 1024;
+  const height = 600;
+  const changedPixels = Math.ceil(width * height * 0.0025);
+  const changedPerTile = Math.ceil(changedPixels / 2);
+  const tileWidth = width / 8;
+  const inspected = inspectPngVisualBytes(
+    rgbaPng(width, height, (x, y) => {
+      const firstTileIndex = y * tileWidth + x;
+      const secondTileIndex = y * tileWidth + x - tileWidth;
+      const changed =
+        (x < tileWidth && firstTileIndex < changedPerTile) ||
+        (x >= tileWidth && x < tileWidth * 2 && secondTileIndex < changedPixels - changedPerTile);
+      return changed ? [0, 0, 0, 255] : [250, 250, 250, 255];
+    })
+  );
+  assert.ok(inspected.meaningfulPixelRatio >= 0.002);
+  assert.ok(inspected.meaningfulPixelRatio < 0.003);
+  assert.equal(inspected.meaningfulTileRatio, 2 / 64);
+  assert.ok(inspected.meaningfulPixelRatio < PRODUCT_UI_VISUAL_THRESHOLDS.minMeaningfulPixelRatio);
 });
 
 test("perceptual distance is deterministic and detects materially different UI pixels", () => {
@@ -61,6 +85,24 @@ test("perceptual distance is deterministic and detects materially different UI p
   );
   assert.equal(visualDistance(first, same), 0);
   assert.ok(visualDistance(first, changed) > 0.2);
+});
+
+test("visual difference does not treat a 200-pixel patch as material full-page change", () => {
+  const width = 1024;
+  const height = 600;
+  const base = inspectPngVisualBytes(
+    rgbaPng(width, height, (x) => (x < width / 2 ? [20, 40, 180, 255] : [240, 240, 250, 255]))
+  );
+  const changed = inspectPngVisualBytes(
+    rgbaPng(width, height, (x, y) => {
+      const index = y * width + x;
+      if (index >= width * height - 200) return [0, 0, 0, 255];
+      return x < width / 2 ? [20, 40, 180, 255] : [240, 240, 250, 255];
+    })
+  );
+  const difference = visualDifference(base, changed);
+  assert.ok(difference.distance < PRODUCT_UI_VISUAL_THRESHOLDS.minVisualDistance);
+  assert.ok(difference.changedTileRatio < PRODUCT_UI_VISUAL_THRESHOLDS.minChangedTileRatio);
 });
 
 test("visual PNG inspection rejects transparency it cannot canonicalize", () => {

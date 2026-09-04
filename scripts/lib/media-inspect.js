@@ -7,6 +7,16 @@ const zlib = require("node:zlib");
 const PNG_SIGNATURE = Buffer.from("89504e470d0a1a0a", "hex");
 const MIN_RENDER_BYTES = 1024;
 const MAX_DECODED_BYTES = 128 * 1024 * 1024;
+const PRODUCT_UI_VISUAL_THRESHOLDS = Object.freeze({
+  minVisiblePixelRatio: 0.01,
+  minMeaningfulPixelRatio: 0.01,
+  minMeaningfulTileRatio: 0.03,
+  minMeaningfulPixelsPerTileRatio: 0.01,
+  minLuminanceRange: 16,
+  minVisualDistance: 0.005,
+  minChangedTileRatio: 0.03,
+  minChangedTileDistance: 0.01,
+});
 const PDF_TOKEN = new RegExp(String.raw`^[^\s<>\[\]()%/]+`);
 const VALID_DEPTHS = Object.freeze({
   0: new Set([1, 2, 4, 8, 16]),
@@ -344,7 +354,13 @@ function createVisualMetrics(width, height) {
     let meaningfulTiles = 0;
     for (let cell = 0; cell < gridSize * gridSize; cell += 1) {
       const dominantInCell = tileBuckets[cell * bucketCount + dominantBucket];
-      if (visibleCellCounts[cell] > dominantInCell) meaningfulTiles += 1;
+      const nonDominantInCell = visibleCellCounts[cell] - dominantInCell;
+      if (
+        visibleCellCounts[cell] > 0 &&
+        nonDominantInCell / visibleCellCounts[cell] >=
+          PRODUCT_UI_VISUAL_THRESHOLDS.minMeaningfulPixelsPerTileRatio
+      )
+        meaningfulTiles += 1;
     }
     const perceptual = Buffer.alloc(gridSize * gridSize * 3);
     for (let cell = 0; cell < gridSize * gridSize; cell += 1) {
@@ -367,15 +383,29 @@ function createVisualMetrics(width, height) {
 }
 
 function visualDistance(left, right) {
+  return visualDifference(left, right)?.distance ?? null;
+}
+
+function visualDifference(left, right) {
   if (typeof left?.perceptualGrid !== "string" || typeof right?.perceptualGrid !== "string")
     return null;
   const leftGrid = Buffer.from(left.perceptualGrid, "base64");
   const rightGrid = Buffer.from(right.perceptualGrid, "base64");
   if (leftGrid.length !== 192 || rightGrid.length !== leftGrid.length) return null;
   let difference = 0;
-  for (let index = 0; index < leftGrid.length; index += 1)
-    difference += Math.abs(leftGrid[index] - rightGrid[index]);
-  return difference / (leftGrid.length * 255);
+  let changedTiles = 0;
+  for (let index = 0; index < leftGrid.length; index += 3) {
+    let tileDifference = 0;
+    for (let channel = 0; channel < 3; channel += 1)
+      tileDifference += Math.abs(leftGrid[index + channel] - rightGrid[index + channel]);
+    difference += tileDifference;
+    if (tileDifference / (3 * 255) >= PRODUCT_UI_VISUAL_THRESHOLDS.minChangedTileDistance)
+      changedTiles += 1;
+  }
+  return {
+    distance: difference / (leftGrid.length * 255),
+    changedTileRatio: changedTiles / (leftGrid.length / 3),
+  };
 }
 
 function inspectPdf(filePath) {
@@ -748,10 +778,12 @@ function crc32(bytes) {
 }
 
 module.exports = {
+  PRODUCT_UI_VISUAL_THRESHOLDS,
   inspectPdf,
   inspectPdfBytes,
   inspectPng,
   inspectPngBytes,
   inspectPngVisualBytes,
+  visualDifference,
   visualDistance,
 };

@@ -7,7 +7,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { execFileSync, spawnSync } = require("node:child_process");
 const { normalizeRawAudit } = require("./design-critique-audit-normalize");
-const { inspectPngVisualBytes } = require("./lib/media-inspect");
+const { PRODUCT_UI_VISUAL_THRESHOLDS, inspectPngVisualBytes } = require("./lib/media-inspect");
 const { readProjectInput } = require("./lib/project-file");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
@@ -17,10 +17,12 @@ const MAX_RAW_AUDIT_BYTES = 1024 * 1024;
 const MAX_NETWORK_BYTES = 1024 * 1024;
 const MAX_CAPTURE_BYTES = 64 * 1024 * 1024;
 const MAX_ASSERTION_BYTES = 64 * 1024;
-const MIN_VISIBLE_PIXEL_RATIO = 0.01;
-const MIN_MEANINGFUL_PIXEL_RATIO = 0.002;
-const MIN_MEANINGFUL_TILE_RATIO = 0.03;
-const MIN_LUMINANCE_RANGE = 16;
+const {
+  minVisiblePixelRatio: MIN_VISIBLE_PIXEL_RATIO,
+  minMeaningfulPixelRatio: MIN_MEANINGFUL_PIXEL_RATIO,
+  minMeaningfulTileRatio: MIN_MEANINGFUL_TILE_RATIO,
+  minLuminanceRange: MIN_LUMINANCE_RANGE,
+} = PRODUCT_UI_VISUAL_THRESHOLDS;
 const CAPTURE_ASSURANCE = "workflow-attested-non-cryptographic";
 const BROWSER_ARGS_PROFILE = "pm-product-ui-capture-v2";
 const ACQUISITION_METHOD = "native-cdp-dom-ax-plus-two-pixel-stability-samples-and-network-barrier";
@@ -350,8 +352,8 @@ function validateStateAssertion(assertion, expected = null) {
     throw new Error(
       "state assertion.state_marker must require data-pm-state equal to the routed state"
     );
-  if (!Array.isArray(assertion.all) || assertion.all.length > 20)
-    throw new Error("state assertion.all must contain 0 through 20 guard clauses");
+  if (!Array.isArray(assertion.all) || assertion.all.length < 1 || assertion.all.length > 20)
+    throw new Error("state assertion.all must contain 1 through 20 guard clauses");
   for (const [index, clause] of assertion.all.entries()) {
     exactObject(clause, ["locator", "expect"], `state assertion.all[${index}]`);
     exactObject(clause.locator, ["by", "value"], `state assertion.all[${index}].locator`);
@@ -396,7 +398,55 @@ function validateStateAssertion(assertion, expected = null) {
     )
       throw new Error(`state assertion.all[${index}].expect.value is invalid`);
   }
+  validateSemanticStateGuard(assertion);
   return assertion;
+}
+
+function validateSemanticStateGuard(assertion) {
+  const roleFor = (clause) =>
+    clause.locator.by === "role-name"
+      ? clause.locator.value.slice(0, clause.locator.value.indexOf(":")).trim().toLowerCase()
+      : "";
+  const visibleRole = (clause, roles) =>
+    clause.expect.kind === "visible" && roles.has(roleFor(clause));
+  const attributeEquals = (clause, name, value) =>
+    clause.expect.kind === "attribute-equals" &&
+    clause.expect.name === name &&
+    clause.expect.value === value;
+  const guards = assertion.all;
+  const sameLocator = (left, right) =>
+    left.locator.by === right.locator.by && left.locator.value === right.locator.value;
+  const visiblyGuarded = (guard) =>
+    guards.some((clause) => clause.expect.kind === "visible" && sameLocator(clause, guard));
+  let satisfied = true;
+  let requirement = "";
+  if (new Set(["focus", "keyboard"]).has(assertion.state)) {
+    satisfied = guards.some((clause) => clause.expect.kind === "focused" && visiblyGuarded(clause));
+    requirement = "focused and visible guards for the same node";
+  } else if (assertion.state === "disabled") {
+    satisfied = guards.some(
+      (clause) =>
+        (attributeEquals(clause, "aria-disabled", "true") ||
+          attributeEquals(clause, "disabled", "") ||
+          attributeEquals(clause, "disabled", "disabled")) &&
+        visiblyGuarded(clause)
+    );
+    requirement = "a visible disabled or aria-disabled node";
+  } else if (assertion.state === "modal") {
+    satisfied = guards.some((clause) => visibleRole(clause, new Set(["dialog", "alertdialog"])));
+    requirement = "a visible dialog or alertdialog guard";
+  } else if (assertion.state === "error") {
+    satisfied = guards.some((clause) => visibleRole(clause, new Set(["alert"])));
+    requirement = "a visible alert guard";
+  } else if (assertion.state === "loading") {
+    satisfied = guards.some(
+      (clause) =>
+        visibleRole(clause, new Set(["progressbar", "status"])) ||
+        (attributeEquals(clause, "aria-busy", "true") && visiblyGuarded(clause))
+    );
+    requirement = "a visible progressbar/status or visible aria-busy node";
+  }
+  if (!satisfied) throw new Error(`state assertion for ${assertion.state} requires ${requirement}`);
 }
 
 function prepareCapturePlan(route, routePath, options) {
@@ -422,6 +472,8 @@ function prepareCapturePlan(route, routePath, options) {
   const expected = redactedUrlIdentity(options.expectedUrl || options.url, "expected final URL");
   const requestedUrl = requested.canonical;
   const expectedUrl = expected.canonical;
+  if (requested.public.origin !== expected.public.origin)
+    throw new Error("expected final URL origin must match the requested page origin");
   if (!urlMatchesSurface(requestedUrl, subject.surface))
     throw new Error("capture URL path does not match the routed subject surface");
   if (!urlMatchesSurface(expectedUrl, subject.surface))

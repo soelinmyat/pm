@@ -179,6 +179,56 @@ test("certifying state assertions are closed declarative data, not JavaScript", 
   assert.doesNotThrow(() => validateStateAssertion(assertion()));
 });
 
+test("semantic UI states require a state-specific declarative guard", () => {
+  assert.throws(
+    () => validateStateAssertion({ ...assertion(), all: [] }),
+    /must contain 1 through 20 guard clauses/
+  );
+  const guards = {
+    error: [
+      {
+        locator: { by: "role-name", value: "alert:Payment failed" },
+        expect: { kind: "visible" },
+      },
+    ],
+    loading: [
+      {
+        locator: { by: "role-name", value: "progressbar:Loading account" },
+        expect: { kind: "visible" },
+      },
+    ],
+    focus: [
+      { locator: { by: "id", value: "account-name" }, expect: { kind: "focused" } },
+      { locator: { by: "id", value: "account-name" }, expect: { kind: "visible" } },
+    ],
+    disabled: [
+      {
+        locator: { by: "id", value: "save" },
+        expect: { kind: "attribute-equals", name: "aria-disabled", value: "true" },
+      },
+      { locator: { by: "id", value: "save" }, expect: { kind: "visible" } },
+    ],
+    keyboard: [
+      { locator: { by: "id", value: "account-name" }, expect: { kind: "focused" } },
+      { locator: { by: "id", value: "account-name" }, expect: { kind: "visible" } },
+    ],
+    modal: [
+      {
+        locator: { by: "role-name", value: "dialog:Confirm changes" },
+        expect: { kind: "visible" },
+      },
+    ],
+  };
+  for (const [state, guard] of Object.entries(guards)) {
+    const candidate = { ...assertion(state), all: [] };
+    assert.throws(
+      () => validateStateAssertion(candidate),
+      new RegExp(`state assertion for ${state} requires`)
+    );
+    assert.doesNotThrow(() => validateStateAssertion({ ...candidate, all: guard }));
+  }
+});
+
 test("web route patterns bind only safe exact path segments", () => {
   assert.doesNotThrow(() => validateSurfacePattern("/accounts/:id"));
   for (const unsafe of [
@@ -274,6 +324,18 @@ test("capture plan refuses noncanonical assertion and output locations", () => {
       ),
     /expected final URL path does not match/
   );
+  assert.throws(
+    () =>
+      prepareCapturePlan(
+        frozen,
+        ".pm/dev-sessions/test/design-critique/route.json",
+        planOptions({
+          expectedUrl: "https://lookalike.test/accounts/1",
+          allowedOrigins: ["https://lookalike.test"],
+        })
+      ),
+    /expected final URL origin must match the requested page origin/
+  );
 });
 
 test("probe validation fails closed on URL, viewport, or network drift", () => {
@@ -319,7 +381,7 @@ test("probe validation fails closed on URL, viewport, or network drift", () => {
         {
           label: "state marker",
           asserted_backend_node_id: 1,
-          hit_backend_node_id: 2,
+          hit_backend_node_id: 1,
           x: 10,
           y: 10,
         },
@@ -566,7 +628,7 @@ test("visible assertions account for ancestors, clipping, and viewport intersect
   assert.equal(nodeVisibleInViewport(offscreen, [root, offscreen], style, metrics), false);
 });
 
-test("native hit testing rejects a fully occluded required visible node", async () => {
+test("native hit testing distinguishes legitimate nested content from occluding overlays", async () => {
   const metrics = {
     cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 100, clientHeight: 100 },
   };
@@ -615,6 +677,34 @@ test("native hit testing rejects a fully occluded required visible node", async 
     metrics
   );
   assert.equal(passed.verified_nodes, 1);
+
+  const nestedWrapper = {
+    index: 2,
+    backendNodeId: 3,
+    parentIndex: target.index,
+    attributes: {},
+    layout: { bounds: [10, 10, 40, 40] },
+    styles: {},
+  };
+  const nestedOverlay = {
+    index: 3,
+    backendNodeId: 4,
+    parentIndex: nestedWrapper.index,
+    attributes: {},
+    layout: { bounds: [0, 0, 100, 100] },
+    styles: { position: "fixed" },
+  };
+  await assert.rejects(
+    () =>
+      verifyAssertionHitTargets(
+        { send: async () => ({ backendNodeId: nestedOverlay.backendNodeId }) },
+        [{ label: "state marker", node: target }],
+        [target, descendant, nestedWrapper, nestedOverlay],
+        style,
+        metrics
+      ),
+    /covered by a positioned descendant/
+  );
 });
 
 test("observation limits fail loudly instead of truncating evidence", () => {
@@ -652,6 +742,7 @@ test("observation limits fail loudly instead of truncating evidence", () => {
 function createBrowserFixture({
   externalRequest = false,
   occluded = false,
+  descendantOccluded = false,
   lateRequest = false,
 } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-trusted-capture-"));
@@ -659,12 +750,15 @@ function createBrowserFixture({
   const overlay = occluded
     ? '<div style="position:fixed;inset:0;background:#111;z-index:9999">Overlay</div>'
     : "";
+  const descendantOverlay = descendantOccluded
+    ? '<div class="overlay-wrapper"><div style="position:fixed;inset:0;background:#111;z-index:9999">Nested overlay</div></div>'
+    : "";
   const late = lateRequest
     ? '<script>setTimeout(()=>fetch("https://example.invalid/late"),300)</script>'
     : "";
   const html = `<!doctype html><html><head><meta charset="utf-8"><style>
 *{box-sizing:border-box}body{margin:0;background:#eef2ff;color:#172033;font:16px system-ui}header{background:#18264a;color:white;padding:18px 28px}nav a{color:white;margin-right:16px}main{max-width:900px;margin:30px auto;padding:24px;background:white;border-radius:16px}h1{font-size:32px}h2{font-size:22px}.cards{display:grid;grid-template-columns:1fr 1fr;gap:16px}.card{padding:18px;border:1px solid #ccd3e1;border-radius:12px}button{padding:10px 18px;background:#3157d5;color:white;border:0;border-radius:8px}
-</style></head><body><header><nav aria-label="Primary"><a href="#account">Accounts</a></nav></header><main id="account" data-testid="account-state" data-pm-state="primary"><header><h1>Account overview</h1></header><section aria-labelledby="summary"><h2 id="summary">Summary</h2><div class="cards"><article class="card"><h2>Usage</h2><p>Stable product evidence.</p></article><article class="card"><h2>Plan</h2><p>Professional tier.</p></article></div><button>Save changes</button></section></main>${external}${overlay}${late}</body></html>`;
+</style></head><body><header><nav aria-label="Primary"><a href="#account">Accounts</a></nav></header><main id="account" data-testid="account-state" data-pm-state="primary"><header><h1>Account overview</h1></header><section aria-labelledby="summary"><h2 id="summary">Summary</h2><div class="cards"><article class="card"><h2>Usage</h2><p>Stable product evidence.</p></article><article class="card"><h2>Plan</h2><p>Professional tier.</p></article></div><button>Save changes</button></section>${descendantOverlay}</main>${external}${overlay}${late}</body></html>`;
   return {
     root,
     url: `data:text/html;charset=utf-8,${encodeURIComponent(html)}`,
@@ -768,6 +862,20 @@ test(
     const fixture = createBrowserFixture({ occluded: true });
     try {
       assert.throws(() => runBrowserCapture(fixture), /fully occluded/);
+      assert.equal(fs.existsSync(fixture.outputPath), false);
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
+  "browser helper rejects a state marker covered by its own descendant overlay",
+  { skip: browserSkip },
+  () => {
+    const fixture = createBrowserFixture({ descendantOccluded: true });
+    try {
+      assert.throws(() => runBrowserCapture(fixture), /covered by a positioned descendant/);
       assert.equal(fs.existsSync(fixture.outputPath), false);
     } finally {
       fs.rmSync(fixture.root, { recursive: true, force: true });

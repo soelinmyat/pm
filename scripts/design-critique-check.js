@@ -15,10 +15,11 @@ const {
 } = require("./artifact-render-check");
 const { isRfc3339DateTime } = require("./lib/iso-time");
 const {
+  PRODUCT_UI_VISUAL_THRESHOLDS,
   inspectPdfBytes,
   inspectPngBytes,
   inspectPngVisualBytes,
-  visualDistance,
+  visualDifference,
 } = require("./lib/media-inspect");
 const { readProjectInput } = require("./lib/project-file");
 const { MAX_RAW_AUDIT_BYTES, normalizeAuditBytes } = require("./design-critique-audit-normalize");
@@ -48,6 +49,18 @@ const REVIEW_EXECUTION_MODES = new Set(["delegated", "same-runtime-isolated"]);
 const REVIEW_ASSURANCE = "workflow-attested-non-cryptographic";
 const REVIEW_BASES = new Set(["objective", "craft", "uncertain"]);
 const REVIEW_CONFIDENCE = new Set(["high", "medium", "low"]);
+const FRESH_INTERFACE_TERM = new RegExp(
+  String.raw`\b(?:badge|banner|breadcrumb|button|card|chart|column|dialog|field|footer|form|header|heading|icon|image|input|label|link|list|menu|message|modal|navigation|panel|row|sidebar|tab|table|title)s?\b`,
+  "i"
+);
+const FRESH_VISUAL_DETAIL_TERM = new RegExp(
+  String.raw`\b(?:above|adjacent|after|aligned|alignment|background|before|below|beneath|beside|between|blue|bold|border|bottom|bright|centered|column|contrast|cropped|dark|dense|disabled|evenly|first|focused|gray|green|grey|grid|grouped|hidden|hierarchy|inside|larger|left|light|margin|misaligned|muted|narrow|near|next to|order|overlap|overflow|padding|placement|position|prominent|red|right|scale|second|separated|short|smaller|spacing|stacked|subordinate|tall|top|truncated|weight|whitespace|wide|wrapped)\b`,
+  "i"
+);
+const FRESH_PLACEHOLDER_PROSE = new RegExp(
+  String.raw`(?:\b(?:current )?rendered evidence\b|\bwas inspected directly\b|\bshows?\s+\S+\s+with clear purpose\b|\b(?:looks|is|are)(?:\s+\w+){0,2}\s+(?:good|clear|consistent)\b)`,
+  "i"
+);
 const RECONCILIATION_AGREEMENTS = new Set(["single-source", "aligned", "disputed"]);
 const RECONCILIATION_DISPOSITIONS = new Set(["accepted", "dismissed"]);
 const VIEWPORTS = new Set(["desktop", "tablet", "narrow", "device", "print"]);
@@ -57,11 +70,14 @@ const PRODUCT_UI_WEB_VIEWPORT_WIDTHS = Object.freeze({
   narrow: Object.freeze({ min: 320, max: 600, minHeight: 480 }),
 });
 const PRODUCT_UI_DEVICE_BOUNDS = Object.freeze({ min: 240, minHeight: 400 });
-const MIN_VISIBLE_PIXEL_RATIO = 0.01;
-const MIN_MEANINGFUL_PIXEL_RATIO = 0.002;
-const MIN_MEANINGFUL_TILE_RATIO = 0.03;
-const MIN_LUMINANCE_RANGE = 16;
-const MIN_CROSS_STATE_VISUAL_DISTANCE = 0.0001;
+const {
+  minVisiblePixelRatio: MIN_VISIBLE_PIXEL_RATIO,
+  minMeaningfulPixelRatio: MIN_MEANINGFUL_PIXEL_RATIO,
+  minMeaningfulTileRatio: MIN_MEANINGFUL_TILE_RATIO,
+  minLuminanceRange: MIN_LUMINANCE_RANGE,
+  minVisualDistance: MIN_CROSS_STATE_VISUAL_DISTANCE,
+  minChangedTileRatio: MIN_CROSS_STATE_CHANGED_TILE_RATIO,
+} = PRODUCT_UI_VISUAL_THRESHOLDS;
 const PASSING_SCORE_FLOOR = 3;
 const PRODUCT_UI_STATES = Object.freeze([
   "primary",
@@ -164,7 +180,11 @@ function checkDesignCritiqueUncached(options) {
   if (options.verifyGit !== false) {
     const sourceAfter = currentGitTreeIdentity(root, "after", issues);
     if (currentSource && sourceAfter && !isDeepStrictEqual(currentSource, sourceAfter))
-      add(issues, "git", "Git HEAD or tree changed while checking trusted capture evidence");
+      add(
+        issues,
+        "git",
+        "Git HEAD, tree, or tracked status changed while checking trusted capture evidence"
+      );
   }
   const legacyRouteMode = options.legacyRouteMode || "enforce";
   const legacyReportMode = options.legacyReportMode || legacyRouteMode;
@@ -303,8 +323,20 @@ function currentGitTreeIdentity(root, phase, issues) {
       cwd: root,
       encoding: "utf8",
     }).trim();
+    const status = execFileSync("git", ["status", "--porcelain=v1", "-z", "--untracked-files=no"], {
+      cwd: root,
+      encoding: null,
+    });
     if (!sha(head) || !sha(tree)) throw new Error("Git returned an invalid object identity");
-    return { head, tree };
+    const identity = {
+      head,
+      tree,
+      tracked_status_sha256: digest(status),
+      clean: status.length === 0,
+    };
+    if (!identity.clean)
+      add(issues, "git", `${phase} tracked source must be clean before certification`);
+    return identity;
   } catch (error) {
     add(issues, "git", `cannot resolve ${phase} Git tree identity: ${error.message}`);
     return null;
@@ -656,11 +688,11 @@ function validateCrossStateVisualDistance(captureRows, coverage, decodedByCaptur
         leftCoverage.state === rightCoverage.state
       )
         continue;
-      const distance = visualDistance(
+      const difference = visualDifference(
         decodedByCapture.get(left.id),
         decodedByCapture.get(right.id)
       );
-      if (distance === null || distance < MIN_CROSS_STATE_VISUAL_DISTANCE)
+      if (!isMaterialVisualDifference(difference))
         add(
           issues,
           `captures.captures.${right.id}`,
@@ -931,6 +963,18 @@ function validateTrustedPage(manifest, capture, route, coverage, label, issues) 
       add(issues, `${label}.page.${field}`, error.message);
     }
   }
+  if (
+    new Set(
+      [page.requested_url, page.expected_url, page.final_url]
+        .map((identity) => identity?.origin)
+        .filter(Boolean)
+    ).size !== 1
+  )
+    add(
+      issues,
+      `${label}.page.requested_url`,
+      "requested, expected, and final URL origins must match"
+    );
   if (!isDeepStrictEqual(page.final_url, page.expected_url))
     add(issues, `${label}.page.final_url`, "must equal the asserted expected URL");
   for (const field of ["target_id", "main_frame_id", "loader_id"])
@@ -1016,12 +1060,12 @@ function validateTrustedObservationIdentity(
     )
       add(issues, `${label}.source.${side}`, "must match the clean routed source identity");
   }
-  if (
-    runtime.currentSource &&
-    (source.before.head !== runtime.currentSource.head ||
-      source.before.tree !== runtime.currentSource.tree)
-  )
-    add(issues, `${label}.source`, "does not match the current local Git HEAD and tree");
+  if (runtime.currentSource && !isDeepStrictEqual(source.before, runtime.currentSource))
+    add(
+      issues,
+      `${label}.source`,
+      "does not match the current local Git HEAD and tree or clean tracked status identity"
+    );
   const configuration = observation.configuration;
   if (
     !Number.isSafeInteger(configuration.readiness_timeout_ms) ||
@@ -2324,6 +2368,11 @@ function validateReviewResult(review, inputState, route, captureById, evidenceBy
     closed(result, ["first_impression", "answers", "observations", "findings"], label, issues);
     if (!boundedText(result.first_impression, 10_000))
       add(issues, `${label}.first_impression`, "is required");
+    else
+      validateFreshVisualProse(result.first_impression, `${label}.first_impression`, issues, {
+        minimumBytes: 60,
+        requireVisualDetail: false,
+      });
     validateFreshAnswers(result.answers, inputState, label, issues);
     validateFreshObservations(result.observations, inputState, route, captureById, label, issues);
   }
@@ -2390,12 +2439,17 @@ function validateFreshObservations(observations, inputState, route, captureById,
     else {
       const normalized = normalizeVisible(observation.observation);
       const normalizedKey = normalized.toLowerCase();
+      const substanceKey = freshObservationSubstanceKey(normalized, observation, coverage);
       if (Buffer.byteLength(normalized, "utf8") < 40)
         add(
           issues,
           `${rowAt}.observation`,
           "must contain a substantive capture-specific observation"
         );
+      validateFreshVisualProse(normalized, `${rowAt}.observation`, issues, {
+        minimumBytes: 40,
+        requireVisualDetail: true,
+      });
       if (
         coverage &&
         (!containsObservationToken(normalizedKey, coverage.state) ||
@@ -2406,14 +2460,14 @@ function validateFreshObservations(observations, inputState, route, captureById,
           `${rowAt}.observation`,
           `must explicitly name the routed ${coverage.state} state and ${coverage.viewport} viewport`
         );
-      const priorCapture = seenObservationText.get(normalizedKey);
+      const priorCapture = seenObservationText.get(substanceKey);
       if (priorCapture && priorCapture !== observation.capture_id)
         add(
           issues,
           `${rowAt}.observation`,
-          `must be distinct from the observation for capture ${priorCapture}`
+          `must contain visual substance distinct from the observation for capture ${priorCapture}, not only different capture metadata`
         );
-      else seenObservationText.set(normalizedKey, observation.capture_id);
+      else seenObservationText.set(substanceKey, observation.capture_id);
     }
   }
   const missing = [...expected].filter((id) => !seen.has(id));
@@ -2423,6 +2477,44 @@ function validateFreshObservations(observations, inputState, route, captureById,
       at,
       `must contain one observation for every supplied capture: ${missing.join(", ")}`
     );
+}
+
+function validateFreshVisualProse(value, label, issues, { minimumBytes, requireVisualDetail }) {
+  const normalized = normalizeVisible(value);
+  const words = normalized.match(/[\p{L}\p{N}]+/gu) || [];
+  if (Buffer.byteLength(normalized, "utf8") < minimumBytes || words.length < 8)
+    add(issues, label, "must contain substantive visual reasoning, not a short conclusion");
+  if (
+    FRESH_PLACEHOLDER_PROSE.test(normalized) ||
+    !FRESH_INTERFACE_TERM.test(normalized) ||
+    (requireVisualDetail && !FRESH_VISUAL_DETAIL_TERM.test(normalized))
+  )
+    add(
+      issues,
+      label,
+      requireVisualDetail
+        ? "must name a concrete interface element and a directly observed visual property or relationship"
+        : "must name a concrete interface element instead of giving a generic conclusion"
+    );
+}
+
+function freshObservationSubstanceKey(value, observation, coverage) {
+  let normalized = value.toLowerCase();
+  for (const token of [
+    observation.capture_id,
+    observation.coverage_id,
+    observation.state,
+    observation.viewport,
+    coverage?.id,
+  ]) {
+    const candidate = normalizeVisible(String(token || "")).toLowerCase();
+    if (candidate) normalized = normalized.replace(new RegExp(escapeRegex(candidate), "g"), " ");
+  }
+  return normalized
+    .replace(/\b(?:capture|coverage|state|viewport)\b/g, " ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .replace(/\s+/g, " ");
 }
 
 function containsObservationToken(value, token) {
@@ -2474,6 +2566,11 @@ function validateFreshAnswers(answers, inputState, label, issues) {
     }
     closed(answer, ["text", "evidence_ids"], `${at}.${key}`, issues);
     if (!boundedText(answer.text, 10_000)) add(issues, `${at}.${key}.text`, "is required");
+    else
+      validateFreshVisualProse(answer.text, `${at}.${key}.text`, issues, {
+        minimumBytes: 50,
+        requireVisualDetail: key !== "purpose",
+      });
     if (
       !uniqueTextArray(answer.evidence_ids, 200) ||
       answer.evidence_ids.some((id) => !allowed.has(id))
@@ -3111,9 +3208,9 @@ function validateFindings(root, findings, route, captures, outcome, issues) {
         route.mode === "product-ui" &&
         before?.kind === "screenshot" &&
         after?.kind === "screenshot";
-      const resolvedVisualDistance =
+      const resolvedVisualDifference =
         requiresPixelIdentity && before && after
-          ? visualDistanceForCaptures(root, before, after)
+          ? visualDifferenceForCaptures(root, before, after)
           : null;
       const subjectCoverage = new Set(
         (route.coverage || [])
@@ -3128,8 +3225,7 @@ function validateFindings(root, findings, route, captures, outcome, issues) {
           (!sha256(before.pixel_sha256) ||
             !sha256(after.pixel_sha256) ||
             before.pixel_sha256 === after.pixel_sha256 ||
-            resolvedVisualDistance === null ||
-            resolvedVisualDistance < MIN_CROSS_STATE_VISUAL_DISTANCE)) ||
+            !isMaterialVisualDifference(resolvedVisualDifference))) ||
         before.coverage_id !== after.coverage_id ||
         !subjectCoverage.has(before.coverage_id) ||
         before.active !== false ||
@@ -3171,18 +3267,26 @@ function validateFindings(root, findings, route, captures, outcome, issues) {
     );
 }
 
-function visualDistanceForCaptures(root, before, after) {
+function visualDifferenceForCaptures(root, before, after) {
   try {
     const beforeFile = readBoundFile(root, before.path, "before capture", []);
     const afterFile = readBoundFile(root, after.path, "after capture", []);
     if (!beforeFile || !afterFile) return null;
-    return visualDistance(
+    return visualDifference(
       inspectPngVisualBytes(beforeFile.bytes),
       inspectPngVisualBytes(afterFile.bytes)
     );
   } catch {
     return null;
   }
+}
+
+function isMaterialVisualDifference(difference) {
+  return (
+    difference !== null &&
+    difference.distance >= MIN_CROSS_STATE_VISUAL_DISTANCE &&
+    difference.changedTileRatio >= MIN_CROSS_STATE_CHANGED_TILE_RATIO
+  );
 }
 
 function validateCaptureBytes(root, item, label, issues) {

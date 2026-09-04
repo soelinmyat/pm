@@ -424,6 +424,35 @@ function isNodeOrDescendant(hitBackendNodeId, assertedNode, model) {
   return false;
 }
 
+function descendantChain(hitBackendNodeId, assertedNode, model) {
+  let current = model.find((node) => node.backendNodeId === hitBackendNodeId);
+  if (!current) return [];
+  const seen = new Set();
+  const chain = [];
+  while (current && !seen.has(current.index)) {
+    if (current.index === assertedNode.index) return chain;
+    seen.add(current.index);
+    chain.push(current);
+    current = current.parentIndex >= 0 ? model[current.parentIndex] : null;
+  }
+  return [];
+}
+
+function positionedDescendantCovers(node, assertedIntersection, model, style, metrics) {
+  if (!node || !new Set(["absolute", "fixed", "sticky"]).has(style(node, "position"))) return false;
+  const descendantIntersection = visibleIntersection(node, model, style, metrics);
+  if (!descendantIntersection) return false;
+  const left = Math.max(assertedIntersection.left, descendantIntersection.left);
+  const top = Math.max(assertedIntersection.top, descendantIntersection.top);
+  const right = Math.min(assertedIntersection.right, descendantIntersection.right);
+  const bottom = Math.min(assertedIntersection.bottom, descendantIntersection.bottom);
+  const assertedArea =
+    (assertedIntersection.right - assertedIntersection.left) *
+    (assertedIntersection.bottom - assertedIntersection.top);
+  const overlapArea = Math.max(0, right - left) * Math.max(0, bottom - top);
+  return assertedArea > 0 && overlapArea / assertedArea >= 0.9;
+}
+
 async function verifyAssertionHitTargets(client, requirements, model, style, metrics) {
   const checks = [];
   for (const requirement of requirements) {
@@ -443,7 +472,7 @@ async function verifyAssertionHitTargets(client, requirements, model, style, met
       x: Math.floor(intersection.left + width * xRatio - pageX),
       y: Math.floor(intersection.top + height * yRatio - pageY),
     }));
-    let accepted = null;
+    const accepted = [];
     for (const point of points) {
       const hit = await client.send("DOM.getNodeForLocation", {
         x: point.x,
@@ -451,18 +480,29 @@ async function verifyAssertionHitTargets(client, requirements, model, style, met
         includeUserAgentShadowDOM: true,
         ignorePointerEventsNone: true,
       });
-      if (isNodeOrDescendant(hit.backendNodeId, requirement.node, model)) {
-        accepted = { ...point, backend_node_id: hit.backendNodeId };
-        break;
-      }
+      if (isNodeOrDescendant(hit.backendNodeId, requirement.node, model))
+        accepted.push({ ...point, backend_node_id: hit.backendNodeId });
     }
-    if (!accepted) throw new Error(`${requirement.label} is fully occluded`);
+    if (accepted.length === 0) throw new Error(`${requirement.label} is fully occluded`);
+    if (requirement.label === "state marker" && accepted.length === points.length) {
+      const chains = accepted.map((hit) =>
+        descendantChain(hit.backend_node_id, requirement.node, model)
+      );
+      const commonCoveringDescendant = (chains[0] || []).find(
+        (node) =>
+          chains.every((chain) => chain.some((candidate) => candidate.index === node.index)) &&
+          positionedDescendantCovers(node, intersection, model, style, metrics)
+      );
+      if (commonCoveringDescendant)
+        throw new Error(`${requirement.label} is covered by a positioned descendant`);
+    }
+    const acceptedPoint = accepted[0];
     checks.push({
       label: requirement.label,
       asserted_backend_node_id: requirement.node.backendNodeId,
-      hit_backend_node_id: accepted.backend_node_id,
-      x: accepted.x,
-      y: accepted.y,
+      hit_backend_node_id: acceptedPoint.backend_node_id,
+      x: acceptedPoint.x,
+      y: acceptedPoint.y,
     });
   }
   return {
@@ -1166,6 +1206,7 @@ async function main() {
       "overflow-x",
       "overflow-y",
       "content-visibility",
+      "position",
       "margin-bottom",
     ];
     criticalWindow = true;

@@ -449,24 +449,39 @@ function makeReviews(root, route, captures, scores, rounds) {
         input: freshInput,
         execution: reviewExecution(`fresh-r${round}`, round),
         result: {
-          first_impression: "The purpose and primary action are immediately clear.",
-          answers: Object.fromEntries(
-            ["purpose", "visual_focus", "inconsistencies"].map((key) => [
-              key,
-              {
-                text: `${key} is clear in the current rendered evidence.`,
-                evidence_ids: [activeCaptureIds[0]],
-              },
-            ])
-          ),
+          first_impression:
+            "A dark account header sits above two summary cards, while the blue Save account button anchors the action hierarchy.",
+          answers: {
+            purpose: {
+              text: "The Account detail heading above the summary cards identifies the account review purpose.",
+              evidence_ids: [activeCaptureIds[0]],
+            },
+            visual_focus: {
+              text: "The dark header draws attention first, followed by the blue Save account button below the cards.",
+              evidence_ids: [activeCaptureIds[0]],
+            },
+            inconsistencies: {
+              text: "The two summary cards keep aligned left edges and equal padding; no spacing mismatch is visible.",
+              evidence_ids: [activeCaptureIds[0]],
+            },
+          },
           observations: selected.map((capture) => {
             const coverage = route.coverage.find((item) => item.id === capture.coverage_id);
+            const subject = route.subjects.find((item) => item.id === coverage.subject_id);
+            const layout =
+              {
+                desktop: "a wide two-column card grid",
+                tablet: "a medium-width two-column card grid",
+                narrow: "a single stacked card column",
+                print: "a print-ready single-page card stack",
+                device: "a compact device-width card column",
+              }[coverage.viewport] || "a bounded card layout";
             return {
               capture_id: capture.id,
               coverage_id: coverage.id,
               state: coverage.state,
               viewport: coverage.viewport,
-              observation: `The ${coverage.state} state at the ${coverage.viewport} viewport shows ${coverage.id} with clear purpose, focus, and consistency.`,
+              observation: `The ${coverage.state} state at the ${coverage.viewport} viewport places the ${subject.title} heading above ${layout}, with the blue Save account button below the cards.`,
             };
           }),
           findings: [],
@@ -715,10 +730,10 @@ function addProductUiSubject(fixture, subjectId) {
   rewriteReportAndHtml(fixture);
 }
 
-function configureResolvedPrimaryFinding(fixture) {
+function configureResolvedPrimaryFinding(fixture, replacementBytes = null) {
   const before = fixture.captures.captures.find((item) => item.coverage_id === "ui-primary");
   before.active = false;
-  const afterBytes = validPng(1440, 1000, 21);
+  const afterBytes = replacementBytes || validPng(1440, 1000, 21);
   const afterFile = write(fixture.root, "evidence/files/ui-primary-after.png", afterBytes);
   const after = {
     ...before,
@@ -897,7 +912,12 @@ function attachTrustedCaptureObservation(root, route, routeBinding, capture, evi
       attribute: "data-pm-state",
       value: coverage.state,
     },
-    all: [],
+    all: [
+      {
+        locator: { by: "role-name", value: "button:Save account" },
+        expect: { kind: "visible" },
+      },
+    ],
   };
   const assertionBinding = write(
     root,
@@ -952,14 +972,21 @@ function attachTrustedCaptureObservation(root, route, routeBinding, capture, evi
   const assertionVisibility = {
     method: "cdp-dom-get-node-for-location-v1",
     effective_opacity_floor: 0.01,
-    verified_nodes: 1,
+    verified_nodes: 2,
     checks: [
       {
         label: "state marker",
         asserted_backend_node_id: 1,
-        hit_backend_node_id: 2,
+        hit_backend_node_id: 1,
         x: 10,
         y: 10,
+      },
+      {
+        label: "state assertion clause 1",
+        asserted_backend_node_id: 2,
+        hit_backend_node_id: 2,
+        x: 20,
+        y: 20,
       },
     ],
   };
@@ -1120,8 +1147,15 @@ function rewriteNormalizedAudit(fixture, evidence, mutate) {
   evidence.sha256 = rebound.sha256;
 }
 
-function validPng(width, height, marker = 0, ancillaryBytes = 0, onePixelMarker = null) {
-  const cacheKey = `${width}:${height}:${marker}:${ancillaryBytes}:${onePixelMarker}`;
+function validPng(
+  width,
+  height,
+  marker = 0,
+  ancillaryBytes = 0,
+  onePixelMarker = null,
+  markerPixelCount = 1
+) {
+  const cacheKey = `${width}:${height}:${marker}:${ancillaryBytes}:${onePixelMarker}:${markerPixelCount}`;
   if (PNG_CACHE.has(cacheKey)) return PNG_CACHE.get(cacheKey);
   const header = Buffer.alloc(13);
   header.writeUInt32BE(width, 0);
@@ -1158,10 +1192,15 @@ function validPng(width, height, marker = 0, ancillaryBytes = 0, onePixelMarker 
     }
   }
   if (onePixelMarker !== null) {
-    const lastPixel = rows.length - 4;
-    rows[lastPixel] = onePixelMarker;
-    rows[lastPixel + 1] = 10;
-    rows[lastPixel + 2] = 20;
+    for (let index = 0; index < markerPixelCount; index += 1) {
+      const pixelIndex = width * height - 1 - index;
+      const row = Math.floor(pixelIndex / width);
+      const column = pixelIndex % width;
+      const pixel = row * (width * 4 + 1) + 1 + column * 4;
+      rows[pixel] = onePixelMarker;
+      rows[pixel + 1] = 10;
+      rows[pixel + 2] = 20;
+    }
   }
   const chunks = [
     Buffer.from("89504e470d0a1a0a", "hex"),
@@ -1195,6 +1234,42 @@ function onePixelBeaconPng(width, height) {
   rows[lastPixel] = 0;
   rows[lastPixel + 1] = 0;
   rows[lastPixel + 2] = 0;
+  return Buffer.concat([
+    Buffer.from("89504e470d0a1a0a", "hex"),
+    pngChunk("IHDR", header),
+    pngChunk("tEXt", Buffer.alloc(1024, 65)),
+    pngChunk("IDAT", zlib.deflateSync(rows)),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+function nearUniformTwoTilePng(width, height) {
+  const changedPixels = Math.ceil(width * height * 0.0025);
+  const changedPerTile = Math.ceil(changedPixels / 2);
+  const tileWidth = Math.ceil(width / 8);
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 6;
+  const rows = Buffer.alloc((width * 4 + 1) * height);
+  for (let row = 0; row < height; row += 1) {
+    const rowOffset = row * (width * 4 + 1);
+    for (let column = 0; column < width; column += 1) {
+      const firstTileIndex = row * tileWidth + column;
+      const secondTileIndex = row * tileWidth + column - tileWidth;
+      const changed =
+        (column < tileWidth && firstTileIndex < changedPerTile) ||
+        (column >= tileWidth &&
+          column < tileWidth * 2 &&
+          secondTileIndex < changedPixels - changedPerTile);
+      const pixel = rowOffset + 1 + column * 4;
+      rows[pixel] = changed ? 0 : 250;
+      rows[pixel + 1] = changed ? 0 : 250;
+      rows[pixel + 2] = changed ? 0 : 250;
+      rows[pixel + 3] = 255;
+    }
+  }
   return Buffer.concat([
     Buffer.from("89504e470d0a1a0a", "hex"),
     pngChunk("IHDR", header),
@@ -1558,6 +1633,33 @@ test("rejects navigation drift inside a rebound trusted capture manifest", () =>
   assert.match(JSON.stringify(result.issues), /must equal the asserted expected URL/);
 });
 
+test("rejects a cross-origin lookalike route even when that origin is allowlisted", () => {
+  const fixture = makeFixture();
+  const capture = fixture.captures.captures[0];
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(fixture.root, capture.observation.path), "utf8")
+  );
+  const lookalike = redactedUrlIdentity("https://lookalike.test/accounts/1", "fixture URL").public;
+  manifest.page.expected_url = lookalike;
+  manifest.page.final_url = lookalike;
+  manifest.observation.network.allowed_origins.push(lookalike.origin);
+  capture.observation = write(
+    fixture.root,
+    capture.observation.path,
+    `${JSON.stringify(manifest, null, 2)}\n`
+  );
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(
+    JSON.stringify(result.issues),
+    /requested, expected, and final URL origins must match/
+  );
+});
+
 test("rejects arbitrary-code state assertions even when their hashes are rebound", () => {
   const fixture = makeFixture();
   const capture = fixture.captures.captures[0];
@@ -1819,6 +1921,27 @@ test("rejects an opaque near-blank screenshot with a one-pixel beacon", () => {
   const result = check(fixture);
   assert.equal(result.ok, false);
   assert.match(JSON.stringify(result.issues), /meaningful pixels|spatial tiles/);
+});
+
+test("rejects a 99.75 percent uniform screenshot spread across enough tiles to mimic content", () => {
+  const fixture = makeFixture();
+  const capture = fixture.captures.captures[0];
+  const bytes = nearUniformTwoTilePng(capture.width, capture.height);
+  const inspected = inspectPngVisualBytes(bytes);
+  assert.ok(inspected.meaningfulPixelRatio >= 0.002);
+  assert.ok(inspected.meaningfulPixelRatio < 0.003);
+  assert.equal(inspected.meaningfulTileRatio, 2 / 64);
+  const rebound = write(fixture.root, capture.path, bytes);
+  capture.sha256 = rebound.sha256;
+  capture.pixel_sha256 = inspected.pixelSha256;
+  refreshTrustedCaptureObservations(fixture);
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /meaningful pixels must cover at least 1%/);
 });
 
 test("rejects a transparent product UI screenshot", () => {
@@ -2566,6 +2689,7 @@ test("verifies the frozen git diff hash when enabled", () => {
   execFileSync("git", ["init", "-q", "-b", "main"], { cwd: fixture.root });
   execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: fixture.root });
   execFileSync("git", ["config", "user.name", "Test"], { cwd: fixture.root });
+  write(fixture.root, ".gitignore", "/evidence/\n");
   write(fixture.root, "source.txt", "base\n");
   execFileSync("git", ["add", "."], { cwd: fixture.root });
   execFileSync("git", ["commit", "-qm", "base"], { cwd: fixture.root });
@@ -2622,6 +2746,24 @@ test("verifies the frozen git diff hash when enabled", () => {
     verifyBrowser: false,
   });
   assert.deepEqual(result, { ok: true, issues: [] });
+
+  write(fixture.root, "source.txt", "dirty tracked UI mutation\n");
+  const dirtySource = checkDesignCritique({
+    root: fixture.root,
+    routePath: fixture.routePath,
+    capturesPath: fixture.capturesPath,
+    reportPath: fixture.reportPath,
+    commit,
+    baseRef: "origin/main",
+    baseCommit: base,
+    verifyBrowser: false,
+  });
+  assert.equal(dirtySource.ok, false);
+  assert.match(
+    JSON.stringify(dirtySource.issues),
+    /tracked source must be clean before certification/
+  );
+  write(fixture.root, "source.txt", "changed\n");
 
   const capture = fixture.captures.captures[0];
   const manifest = JSON.parse(
@@ -2842,6 +2984,16 @@ test("accepts a resolved P1 with inactive before and active after captures", () 
   const unordered = check(fixture);
   assert.equal(unordered.ok, false);
   assert.match(JSON.stringify(unordered.issues), /chronologically ordered/);
+});
+
+test("rejects resolved P1 evidence whose only visual change is 200 pixels", () => {
+  const fixture = makeFixture();
+  const before = fixture.captures.captures.find((item) => item.coverage_id === "ui-primary");
+  configureResolvedPrimaryFinding(fixture, validPng(before.width, before.height, 0, 0, 1, 200));
+
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /decoded pixels must differ materially/);
 });
 
 test("rejects an active capture older than an inactive later round", () => {
@@ -3188,6 +3340,26 @@ test("Fresh Eyes observations bind the routed state and viewport", () => {
   assert.match(JSON.stringify(result.issues), /must match the supplied capture's route coverage/);
 });
 
+test("Fresh Eyes rejects metadata-templated prose without concrete visual substance", () => {
+  const fixture = makeFixture();
+  const round = fixture.reviews.rounds[0];
+  const fresh = round.reviews.find((item) => item.perspective === "fresh-eyes");
+  fresh.result.first_impression = "The purpose and primary action are immediately clear.";
+  for (const answer of Object.values(fresh.result.answers))
+    answer.text = "The current rendered evidence is clear and consistent for this answer.";
+  for (const observation of fresh.result.observations)
+    observation.observation = `The ${observation.state} state at the ${observation.viewport} viewport shows ${observation.coverage_id} with clear purpose, focus, and consistency.`;
+  attachReviewReceipt(fixture.root, fresh, round.round);
+  rewriteReviewsAndReport(fixture);
+
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(
+    JSON.stringify(result.issues),
+    /concrete interface element|directly observed visual property|substantive visual reasoning/
+  );
+});
+
 test("Fresh Eyes cannot repeat boilerplate across captures", () => {
   const fixture = makeFixture();
   addProductUiSubject(fixture, "billing-detail");
@@ -3205,7 +3377,10 @@ test("Fresh Eyes cannot repeat boilerplate across captures", () => {
 
   const result = check(fixture);
   assert.equal(result.ok, false);
-  assert.match(JSON.stringify(result.issues), /must be distinct from the observation for capture/);
+  assert.match(
+    JSON.stringify(result.issues),
+    /must contain visual substance distinct from the observation for capture/
+  );
 });
 
 test("review receipts bind the exact result and expose non-cryptographic assurance", () => {
