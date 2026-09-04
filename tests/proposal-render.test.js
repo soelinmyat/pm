@@ -6,6 +6,10 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { inspectHtmlArtifact } = require("../scripts/artifact-check.js");
+const {
+  renderArtifact: renderArtifactInBrowser,
+  resolveBrowser,
+} = require("../scripts/artifact-render-check.js");
 const { renderProposal, main } = require("../scripts/proposal-render.js");
 const { check } = require("../scripts/proposal-check.js");
 const {
@@ -20,6 +24,12 @@ const {
 } = require("./helpers/groom-review-fixture.js");
 
 const FIXTURE = path.join(__dirname, "fixtures", "proposals", "strong-v1.json");
+let installedBrowser = null;
+try {
+  installedBrowser = resolveBrowser();
+} catch {
+  installedBrowser = null;
+}
 
 function source() {
   const bytes = fs.readFileSync(FIXTURE);
@@ -173,6 +183,33 @@ test("generated proposal reader passes the shared offline artifact contract", ()
   );
   assert.equal(result.metadata.source.sha256, rendered.source_sha256);
 });
+
+test(
+  "generated proposal reader has no horizontal overflow at canonical viewports",
+  { skip: !installedBrowser && "Chromium is not installed" },
+  () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "proposal-render-browser-"));
+    try {
+      const input = source();
+      const rendered = renderProposal(input.proposal, {
+        sourceBytes: input.bytes,
+        sourcePath: "pm/backlog/proposals/structured-groom.json",
+        version: "test",
+      });
+      const htmlPath = path.join(root, "structured-groom.html");
+      fs.writeFileSync(htmlPath, rendered.html);
+      const result = renderArtifactInBrowser({
+        htmlPath,
+        outputDir: path.join(root, "renders"),
+        browserPath: installedBrowser,
+        projectRoot: root,
+      });
+      assert.ok(result.captures.every((capture) => !capture.metrics.horizontalOverflow));
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+);
 
 test("UI proposals surface their approved prototype without embedding executable content", () => {
   const input = source();
