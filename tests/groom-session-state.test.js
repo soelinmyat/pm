@@ -44,6 +44,7 @@ test("Groom tiers route proportionate depth through one approval contract", () =
     assert.ok(ROUTES.standard.includes("review"));
 
     let session = createSession({ slug: "fast-groom", sourceDir: repo, tier: "quick" });
+    assert.equal(session.schema_version, 2);
     const artifact = makeOwnedArtifact(repo, "fast-groom");
     session = applyContext(session, {
       title: "Fast groom",
@@ -61,6 +62,41 @@ test("Groom tiers route proportionate depth through one approval contract", () =
     session = recordResult(session, passed(session));
     assert.equal(session.phase, "research");
     assert.deepEqual(validateSession(session), []);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("legacy schema-v1 Quick sessions resume on their frozen pre-design route", () => {
+  const repo = makeRepo();
+  try {
+    const artifact = makeOwnedArtifact(repo, "legacy-quick-route");
+    let session = applyContext(
+      createSession({ slug: "legacy-quick-route", sourceDir: repo, tier: "quick" }),
+      {
+        title: "Legacy quick route",
+        outcome: "Resume without rewriting immutable workflow history",
+        source_kind: "idea",
+        evidence_refs: [],
+        artifact_repo_root: artifact,
+      }
+    );
+    session.schema_version = 1;
+    session.routing.required_phases = [
+      "intake",
+      "research",
+      "scope",
+      "draft",
+      "approval",
+      "handoff",
+      "retro",
+    ];
+    session.routing.review_questions = [];
+    assert.deepEqual(validateSession(session), []);
+    session = recordResult(session, passed(session));
+    session = recordResult(session, passed(session));
+    session = recordResult(session, passed(session));
+    assert.equal(session.phase, "draft");
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
   }

@@ -34,6 +34,13 @@ const PHASES = [
   "handoff",
   "retro",
 ];
+const GROOM_SCHEMA_VERSION = 2;
+const LEGACY_ROUTES = Object.freeze({
+  quick: ["intake", "research", "scope", "draft", "approval", "handoff", "retro"],
+  standard: PHASES.filter((phase) => phase !== "presentation"),
+  full: [...PHASES],
+  agent: [...PHASES],
+});
 const ROUTES = Object.freeze({
   quick: [
     "intake",
@@ -111,7 +118,7 @@ function createSession(options) {
   const now = options.now || new Date().toISOString();
   const reviewTier = tier === "agent" ? "full" : tier;
   const session = {
-    schema_version: 1,
+    schema_version: GROOM_SCHEMA_VERSION,
     run_id: options.runId || `groom_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`,
     slug: normalizeSlug(options.slug),
     status: "active",
@@ -235,9 +242,14 @@ function applyContext(session, facts, options = {}) {
     artifact_repo_root: artifactRepoRoot,
   };
   const reviewTier = tier === "agent" ? "full" : tier;
+  const routes = session.schema_version >= GROOM_SCHEMA_VERSION ? ROUTES : LEGACY_ROUTES;
   next.routing = {
-    required_phases: [...ROUTES[tier]],
-    review_questions: structuredClone(REVIEW_QUESTIONS[reviewTier] || []),
+    required_phases: [...routes[tier]],
+    review_questions: structuredClone(
+      session.schema_version >= GROOM_SCHEMA_VERSION || reviewTier !== "quick"
+        ? REVIEW_QUESTIONS[reviewTier] || []
+        : []
+    ),
     kb_gate: tier === "agent" ? "strict" : "normal",
   };
   next.updated_at = options.now || new Date().toISOString();
@@ -811,7 +823,13 @@ function validateSession(session) {
     "migration",
   ];
   collectExact(session, fields, "$", errors);
-  if (session.schema_version !== 1) errors.push(issue("$.schema_version", "must equal 1"));
+  if (![1, GROOM_SCHEMA_VERSION].includes(session.schema_version))
+    errors.push(
+      issue(
+        "$.schema_version",
+        `must equal legacy version 1 or current version ${GROOM_SCHEMA_VERSION}`
+      )
+    );
   if (!/^groom_[A-Za-z0-9_-]+$/.test(session.run_id || ""))
     errors.push(issue("$.run_id", "invalid"));
   if (!nonEmpty(session.slug)) errors.push(issue("$.slug", "required"));
@@ -878,9 +896,10 @@ function validateSession(session) {
       "$.routing",
       errors
     );
+    const routes = session.schema_version >= GROOM_SCHEMA_VERSION ? ROUTES : LEGACY_ROUTES;
     if (
       JSON.stringify(session.routing.required_phases) !==
-      JSON.stringify(ROUTES[session.context?.tier])
+      JSON.stringify(routes[session.context?.tier])
     )
       errors.push(issue("$.routing.required_phases", "does not match tier"));
     if (!Array.isArray(session.routing.review_questions))
@@ -1175,6 +1194,8 @@ function nonEmpty(value) {
 
 module.exports = {
   AUTHORITY_ACTIONS,
+  GROOM_SCHEMA_VERSION,
+  LEGACY_ROUTES,
   PHASES,
   REVIEW_QUESTIONS,
   ROUTES,

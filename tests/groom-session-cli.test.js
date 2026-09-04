@@ -124,6 +124,7 @@ test("Groom CLI upgrades pre-artifact-root sessions on read and resumes", () => 
       run(repo, ["init", "--slug", "legacy-resume", "--source-dir", repo, "--json"]).stdout
     );
     const legacy = JSON.parse(fs.readFileSync(init.session_path, "utf8"));
+    legacy.schema_version = 1;
     legacy.context = {
       configured: true,
       tier: "standard",

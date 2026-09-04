@@ -84,7 +84,7 @@ Tier routing is defined in `tier-gating.md`. Approval is never a normal phase re
 }
 ```
 
-The executable closed schema is `scripts/lib/groom-session-schema.js`.
+The executable closed schema is `scripts/lib/groom-session-schema.js`. Newly created sessions use schema v2, whose Quick route includes bounded Design and Review. Existing schema-v1 sessions remain resumable on the route they froze; never rewrite their completed history to imitate v2.
 Fresh context requires `artifact_repo_root` to identify the matching helper-owned
 `codex/{slug}-groom` worktree. On read, v1 sessions written before this field existed
 are normalized to `null` so in-flight work can resume against the historical source
