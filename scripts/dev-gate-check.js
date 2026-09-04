@@ -1027,9 +1027,10 @@ function usage() {
 
 // These four helpers are intentionally NOT pulled from scripts/lib/check-cli.js
 // (where rfc-sidecar-check.js gets them). .githooks/pre-push runs the archived
-// `scripts/` tree plus plugin.config.json from the pushed commit in /tmp. Review
-// evidence validation may use that archived tree, but adding dependencies outside
-// it would break the push gate. Keep these trivial CLI helpers local.
+// `scripts/` tree, plugin.config.json, and the Dev/RFC model-profile data from the
+// pushed commit in /tmp. Review evidence validation may use that archived bundle,
+// but adding undeclared dependencies outside it would break the push gate. Keep
+// these trivial CLI helpers local.
 function issue(file, message) {
   return { file: toRel(file), message };
 }

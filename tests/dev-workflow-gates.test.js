@@ -380,7 +380,13 @@ test("source repo pre-push hook uses the shared gate checker for PM runtime chan
   assert.match(text, /git show "\$commit:plugin\.config\.json"/);
   assert.match(text, /commands\/\$\{name\}\.md/);
   assert.match(text, /skills\/\$\{name\}\/SKILL\.md/);
-  assert.match(text, /git archive --format=tar --output="\$checker_archive" "\$local_oid" scripts/);
+  const archiveStart = text.indexOf("git archive --format=tar");
+  const archiveEnd = text.indexOf("; then", archiveStart);
+  const archiveCommand = text.slice(archiveStart, archiveEnd);
+  assert.match(archiveCommand, /\bscripts\b/);
+  assert.match(archiveCommand, /\bplugin\.config\.json\b/);
+  assert.match(archiveCommand, /skills\/dev\/references\/model-profiles\.json/);
+  assert.match(archiveCommand, /skills\/rfc\/references\/model-profiles\.json/);
   assert.match(text, /tar -xf "\$checker_archive" -C "\$checker_tmp"/);
   assert.match(text, /if ! node "\$checker_tmp\/scripts\/dev-gate-check\.js"/);
   assert.doesNotMatch(text, /if ! node scripts\/dev-gate-check\.js/);
@@ -502,6 +508,8 @@ test("pre-push runs the dev gate checker from the pushed commit, not the dirty w
     assert.equal(git("config", "user.name", "Test User").status, 0);
     fs.mkdirSync(path.join(dir, "commands"), { recursive: true });
     fs.mkdirSync(path.join(dir, "skills", "dev"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "skills", "dev", "references"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "skills", "rfc", "references"), { recursive: true });
     fs.mkdirSync(path.join(dir, "scripts", "lib"), { recursive: true });
     fs.writeFileSync(
       path.join(dir, "plugin.config.json"),
@@ -512,6 +520,8 @@ test("pre-push runs the dev gate checker from the pushed commit, not the dirty w
       path.join(dir, "skills", "dev", "SKILL.md"),
       "---\nname: dev\ndescription: dev skill\n---\n"
     );
+    fs.writeFileSync(path.join(dir, "skills", "dev", "references", "model-profiles.json"), "{}\n");
+    fs.writeFileSync(path.join(dir, "skills", "rfc", "references", "model-profiles.json"), "{}\n");
     fs.writeFileSync(
       path.join(dir, "scripts", "dev-gate-check.js"),
       'require("./lib/checker-helper");\n'
@@ -545,6 +555,42 @@ test("pre-push runs the dev gate checker from the pushed commit, not the dirty w
     assert.notEqual(result.status, 0, result.stdout + result.stderr);
     assert.doesNotMatch(result.stdout + result.stderr, /missing 'description'/);
     assert.match(result.stdout + result.stderr, /Checking PM dev gates for CODEX\/Harden\+\+Gate/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("pre-push checker clean-room bundle loads its complete dependency closure", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-pre-push-checker-bundle-"));
+  try {
+    const archive = path.join(dir, "checker.tar");
+    const archived = spawnSync(
+      "git",
+      [
+        "archive",
+        "--format=tar",
+        `--output=${archive}`,
+        "HEAD",
+        "scripts",
+        "plugin.config.json",
+        "skills/dev/references/model-profiles.json",
+        "skills/rfc/references/model-profiles.json",
+      ],
+      { cwd: repoRoot, encoding: "utf8" }
+    );
+    assert.equal(archived.status, 0, archived.stderr);
+    const extracted = spawnSync("tar", ["-xf", archive, "-C", dir], { encoding: "utf8" });
+    assert.equal(extracted.status, 0, extracted.stderr);
+    const loaded = spawnSync(
+      process.execPath,
+      [path.join(dir, "scripts", "dev-gate-check.js"), "--help"],
+      {
+        cwd: dir,
+        encoding: "utf8",
+      }
+    );
+    assert.equal(loaded.status, 0, loaded.stderr);
+    assert.match(loaded.stdout, /Usage: node scripts\/dev-gate-check\.js/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
