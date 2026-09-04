@@ -220,7 +220,15 @@ test("semantic UI states require a state-specific declarative guard", () => {
     ],
   };
   for (const [state, guard] of Object.entries(guards)) {
-    const candidate = { ...assertion(state), all: [] };
+    const candidate = {
+      ...assertion(state),
+      all: [
+        {
+          locator: { by: "test-id", value: "unrelated-content" },
+          expect: { kind: "visible" },
+        },
+      ],
+    };
     assert.throws(
       () => validateStateAssertion(candidate),
       new RegExp(`state assertion for ${state} requires`)
