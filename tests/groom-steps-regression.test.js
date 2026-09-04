@@ -66,7 +66,9 @@ test("Groom v2 tier filtering changes depth but preserves integrity phases", () 
       "Intake",
       "Research",
       "Scope",
+      "Design",
       "Draft",
+      "Review",
       "Approval",
       "Handoff",
       "Retro",
@@ -146,8 +148,8 @@ test("Groom review and approval steps close the canonical lifecycle mechanically
   assert.match(review, /review\.status: passed/i);
   assert.match(review, /draft` to `reviewed/i);
   assert.match(review, /proposal-check\.js --projections/i);
-  assert.match(approval, /review:quick-integrity/i);
-  assert.match(approval, /draft → reviewed/i);
+  assert.match(approval, /quick.*review phase/i);
+  assert.doesNotMatch(approval, /review:quick-integrity/i);
   assert.match(approval, /reviewed` to `approved/i);
   assert.match(approval, /exact approved bytes/i);
   assert.match(approval, /session decision ID\/hash/i);

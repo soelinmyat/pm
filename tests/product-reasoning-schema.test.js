@@ -14,6 +14,7 @@ const {
   rankIdeaBriefs,
   reconcileFeatureInventory,
   validateDecisionBrief,
+  validateIdeaForSave,
   validateFeatureSourceRefs,
   validateFeatureInventory,
 } = require("../scripts/lib/product-reasoning-schema");
@@ -281,6 +282,29 @@ test("idea evidence labels are calibrated to distinct cited signals", () => {
     { ref: "evidence/research/three.md", evidence_id: null, note: "Third signal" }
   );
   assert.deepEqual(validateDecisionBrief(inflated), []);
+});
+
+test("newly saved ideas require explicit customer-value judgments while legacy reads remain valid", () => {
+  const legacy = brief("idea", "legacy-neutral-values");
+  assert.deepEqual(validateDecisionBrief(legacy), []);
+  assert.match(validateIdeaForSave(legacy).join("\n"), /requires.*customer-value fields/i);
+
+  const current = structuredClone(legacy);
+  Object.assign(current.alignment, {
+    customer_impact: "high",
+    reach: "segment",
+    urgency: "soon",
+    expected_outcome: "meaningful",
+    learning_value: "high",
+    value_basis: {
+      customer_impact: "Two observed teams lose hours in this workflow each week.",
+      reach: "The workflow applies to the core operations segment in current evidence.",
+      urgency: "The issue blocks this quarter's adoption target for those teams.",
+      expected_outcome: "Success removes repeated manual reconciliation from the primary journey.",
+      learning_value: "A bounded release tests whether automation changes weekly retention.",
+    },
+  });
+  assert.deepEqual(validateIdeaForSave(current), []);
 });
 
 test("idea alignment enums reject inherited object keys", () => {

@@ -18,7 +18,7 @@ Read and validate `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/review-candidate
 
 ### Reviewer handoff contract
 
-Before creating either a draft or ready PR, build the reviewer-facing body from
+Before creating or accepting either a draft or ready PR, build the reviewer-facing body from
 the canonical Dev task/acceptance criteria, approved proposal or RFC when
 present, current Review/QA/verification evidence, and release transaction. Save
 the exact body at `.pm/dev-sessions/{slug}/ship/pr-body.md` and pass it with
@@ -113,13 +113,18 @@ Discover by all three identity dimensions, not by ambient repository context:
 
 ```bash
 gh pr list --repo "$GH_REPO" --head "$HEAD_BRANCH" --base "$BASE_BRANCH" \
-  --state open --json number,url,title,state --limit 2
+  --state open --json number,url,title,state,isDraft,body --limit 2
 ```
 
-Require zero or one result. Multiple matches are ambiguous and block Ship. For one result, run `gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json number,url,title,state`, then validate its exact API identity through `gh api "repos/$GH_OWNER/$GH_REPOSITORY/pulls/$PR_NUMBER"` as required by `delivery-contract.md`. Reject a fork, owner/repo mismatch, head mismatch, or base mismatch.
+Require zero or one result. Multiple matches are ambiguous and block Ship. For one result, run `gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json number,url,title,state,isDraft,body`, then validate its exact API identity through `gh api "repos/$GH_OWNER/$GH_REPOSITORY/pulls/$PR_NUMBER"` as required by `delivery-contract.md`. Reject a fork, owner/repo mismatch, head mismatch, base mismatch, or body above the bounded 128 KiB reviewer-handoff limit.
+
+Treat an existing PR body as untrusted external state. Build and validate the current `PR_BODY_FILE` from the same canonical handoff inputs used for a new PR, preserve the observed body bytes under the session evidence directory, and compare the observed UTF-8 body exactly with `PR_BODY_FILE`. A missing required section, stale prepared commit, unmapped acceptance criterion, or any other mismatch blocks reconciliation. Never accept a matching head with a stale reviewer handoff.
+
+If the body differs, report the exact missing/stale sections and request explicit user authorization scoped to updating that PR body. Only with that authority may Ship run `gh pr edit "$PR_NUMBER" --repo "$GH_REPO" --body-file "$PR_BODY_FILE"`; then re-observe the PR, require the returned body to equal the exact `PR_BODY_FILE` bytes, and retain the before/after body hashes. Without that authority, stop at the existing-PR boundary. Authority to create, push, or merge does not imply authority to rewrite an existing PR description.
 
 **If PR exists and is open on the comprehensive path:**
 - Report: "PR #N already exists: [URL]"
+- Require its exact observed body to match the validated `PR_BODY_FILE`, or complete the explicitly authorized update-and-reobserve sequence above.
 - Reconcile the `create-pr` effect with a receipt containing number, URL, state, and exact head OID.
 - Continue to the CI monitoring step
 

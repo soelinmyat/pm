@@ -39,7 +39,8 @@ test("Groom tiers route proportionate depth through one approval contract", () =
       "retro",
     ]);
     assert.deepEqual(ROUTES.agent, ROUTES.full);
-    assert.ok(!ROUTES.quick.includes("review"));
+    assert.ok(ROUTES.quick.includes("design"));
+    assert.ok(ROUTES.quick.includes("review"));
     assert.ok(ROUTES.standard.includes("review"));
 
     let session = createSession({ slug: "fast-groom", sourceDir: repo, tier: "quick" });
@@ -52,6 +53,10 @@ test("Groom tiers route proportionate depth through one approval contract", () =
       artifact_repo_root: artifact,
     });
     assert.deepEqual(session.routing.required_phases, ROUTES.quick);
+    assert.deepEqual(
+      session.routing.review_questions.map((question) => question.id),
+      ["assumption-risk", "experience"]
+    );
     assert.equal(nextDecision(session, "/tmp/session.json").phase, "intake");
     session = recordResult(session, passed(session));
     assert.equal(session.phase, "research");
@@ -174,6 +179,7 @@ test("approval binds exact proposal bytes and revision, and revise invalidates i
       session,
       passed(session, { proposal, evidence: [evidence("proposal"), evidence("artifact")] })
     );
+    session = passCurrentReview(session, proposal);
     assert.equal(session.phase, "approval");
     assert.equal(session.status, "awaiting_approval");
 
@@ -280,6 +286,7 @@ test("approval audit binds approved bytes after a lifecycle-only transition", ()
       session,
       passed(session, { proposal: proposalIdentity(proposalPath, 1) })
     );
+    session = passCurrentReview(session, proposalIdentity(proposalPath, 1));
     session = approveSession(
       session,
       { approvedBy: "product-owner" },
@@ -357,6 +364,24 @@ test("session validation rejects phases outside the route and incoherent approva
 function advanceTo(session, target) {
   while (session.phase !== target) session = recordResult(session, passed(session));
   return session;
+}
+
+function passCurrentReview(session, proposal) {
+  assert.equal(session.phase, "review");
+  return recordResult(
+    session,
+    passed(session, {
+      proposal,
+      question_outcomes: session.routing.review_questions.map((question) => ({
+        question_id: question.id,
+        proposal_hash: proposal.content_hash,
+        verdict: "pass",
+        blocking: [],
+        advisory: [],
+      })),
+      evidence: [evidence("review")],
+    })
+  );
 }
 
 function passed(session, overrides = {}) {

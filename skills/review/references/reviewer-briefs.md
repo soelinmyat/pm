@@ -23,7 +23,7 @@ Use only the lenses assigned in `target.json`. The shared result schema and evid
 | `reuse` | A specific existing helper/component/pattern that replaces new duplicated code | Both changed source and named reusable source locators |
 | `quality` | Dead/redundant state, misleading boundaries, copy-paste, parameter sprawl, avoidable complexity | Source/contract locator and concrete maintenance consequence |
 | `efficiency` | Repeated I/O, N+1, hot-path work, avoidable recomputation/waits, missed safe concurrency | Source plus benchmark/trace when measurable |
-| `security` | Authorization boundaries, privacy/data exposure, secret handling, injection, dependency/supply-chain risk, and abuse cases | Concrete attack or exposure path plus source, contract, test, dependency, or trace locator |
+| `security` | Authorization boundaries, privacy/data exposure, secret handling, injection, dependency/supply-chain risk, and abuse cases | Concrete attack or exposure path plus a supported source, contract, test, or trace locator; cite dependency changes through their lockfile/manifest source lines |
 
 ### `security` — risk-triggered inspection brief
 

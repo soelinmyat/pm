@@ -114,6 +114,48 @@ test("decision validation authenticates canonical Markdown binding bytes", (t) =
   assert.match(result.stdout, /existing regular file|ENOENT/);
 });
 
+test("validate-idea-save rejects legacy-neutral values and accepts explicit bound judgments", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-idea-save-cli-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, "backlog"));
+  const markdown = Buffer.from(
+    "---\nreasoning_version: 2\ndecision_brief: backlog/guided-evidence-refresh.decision.json\n---\n\n# Guided evidence refresh\n"
+  );
+  fs.writeFileSync(path.join(root, "backlog", "guided-evidence-refresh.md"), markdown);
+  const idea = JSON.parse(
+    fs.readFileSync(
+      path.join(__dirname, "..", "evals", "product-reasoning-quality", "strong", "decision.json"),
+      "utf8"
+    )
+  );
+  idea.source_artifacts[0].sha256 = sha(markdown);
+  const input = path.join(root, "backlog", "guided-evidence-refresh.decision.json");
+  fs.writeFileSync(input, JSON.stringify(idea));
+
+  let result = run(["validate-idea-save", "--root", root, "--input", input]);
+  assert.equal(result.status, 2, result.stderr);
+  assert.match(result.stdout, /customer-value fields/);
+
+  Object.assign(idea.alignment, {
+    customer_impact: "high",
+    reach: "segment",
+    urgency: "soon",
+    expected_outcome: "meaningful",
+    learning_value: "high",
+    value_basis: {
+      customer_impact: "Current research shows repeated weekly operational friction.",
+      reach: "The cited signal covers the core operations segment.",
+      urgency: "The friction blocks adoption in the current planning horizon.",
+      expected_outcome: "The idea removes a repeated manual reconciliation step.",
+      learning_value: "A bounded release tests the retention mechanism directly.",
+    },
+  });
+  fs.writeFileSync(input, JSON.stringify(idea));
+  result = run(["validate-idea-save", "--root", root, "--input", input]);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.equal(JSON.parse(result.stdout).ok, true);
+});
+
 test("feature-snapshot publishes deterministic bounded non-Git provenance", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-feature-snapshot-cli-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

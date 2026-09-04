@@ -23,6 +23,7 @@ const {
   rankIdeaBriefs,
   reconcileFeatureInventory,
   validateDecisionBrief,
+  validateIdeaForSave,
   validateFeatureSourceRefs,
   validateFeatureInventory,
 } = require("./lib/product-reasoning-schema");
@@ -58,6 +59,17 @@ function main(argv = process.argv.slice(2)) {
           );
         }
       } else throw new Error("input document_type must be decision-brief or feature-inventory");
+      result = { ok: issues.length === 0, issues };
+      if (issues.length) process.exitCode = 2;
+    } else if (command === "validate-idea-save") {
+      const root = path.resolve(required(args, "root"));
+      const inputPath = path.resolve(required(args, "input"));
+      const inputRelative = path.relative(root, inputPath).split(path.sep).join("/");
+      const value = JSON.parse(
+        readProjectInput(root, inputRelative, 4 * 1024 * 1024).bytes.toString("utf8")
+      );
+      const issues = validateIdeaForSave(value);
+      if (issues.length === 0) issues.push(...verifyDecisionBriefBindings(root, value));
       result = { ok: issues.length === 0, issues };
       if (issues.length) process.exitCode = 2;
     } else if (command === "rank-ideas") {
@@ -128,7 +140,7 @@ function main(argv = process.argv.slice(2)) {
       result = refreshReader(root, required(args, "decision"));
     } else
       throw new Error(
-        "command must be decision-id, feature-id, validate, rank-ideas, reconcile-features, feature-snapshot, promote, or refresh-reader"
+        "command must be decision-id, feature-id, validate, validate-idea-save, rank-ideas, reconcile-features, feature-snapshot, promote, or refresh-reader"
       );
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
   } catch (error) {

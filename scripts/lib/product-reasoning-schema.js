@@ -214,6 +214,24 @@ function validateDecisionBrief(value) {
   return issues;
 }
 
+function validateIdeaForSave(value) {
+  const issues = validateDecisionBrief(value);
+  if (!record(value) || value.kind !== "idea") {
+    issues.push("new idea save requires an idea decision brief");
+    return issues;
+  }
+  const alignment = value.alignment;
+  if (
+    !record(alignment) ||
+    VALUE_FIELDS.some((field) => alignment[field] === undefined) ||
+    !record(alignment?.value_basis) ||
+    VALUE_FIELDS.some((field) => !Object.hasOwn(alignment.value_basis, field))
+  ) {
+    issues.push("new idea save requires all five customer-value fields and a value_basis for each");
+  }
+  return [...new Set(issues)];
+}
+
 function canonicalDecisionReader(kind, slugValue) {
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slugValue || "")) return null;
   if (kind === "think") return `thinking/${slugValue}.md`;
@@ -1023,6 +1041,7 @@ module.exports = {
   rankIdeaBriefs,
   reconcileFeatureInventory,
   validateDecisionBrief,
+  validateIdeaForSave,
   validateFeatureSourceRefs,
   validateFeatureInventory,
 };

@@ -35,7 +35,17 @@ const PHASES = [
   "retro",
 ];
 const ROUTES = Object.freeze({
-  quick: ["intake", "research", "scope", "draft", "approval", "handoff", "retro"],
+  quick: [
+    "intake",
+    "research",
+    "scope",
+    "design",
+    "draft",
+    "review",
+    "approval",
+    "handoff",
+    "retro",
+  ],
   standard: PHASES.filter((phase) => phase !== "presentation"),
   full: [...PHASES],
   agent: [...PHASES],
@@ -44,6 +54,16 @@ const STATUSES = new Set(["active", "awaiting_approval", "approved", "blocked", 
 const RESULT_STATUSES = new Set(["passed", "failed", "blocked"]);
 const AUTHORITY_ACTIONS = ["tracker_create", "open_browser", "start_rfc", "external_research"];
 const REVIEW_QUESTIONS = Object.freeze({
+  quick: [
+    {
+      id: "assumption-risk",
+      text: "Which evidence gap or assumption is most likely to reverse this recommendation?",
+    },
+    {
+      id: "experience",
+      text: "Are the primary experience, consequential states, and design requirements complete?",
+    },
+  ],
   standard: [
     {
       id: "problem-evidence",

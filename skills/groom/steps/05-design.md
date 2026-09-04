@@ -3,7 +3,7 @@ name: Design
 order: 5
 description: Define user flows, states, interaction requirements, and optional prototype evidence
 phase: design
-applies_to: [standard, full, agent]
+applies_to: [quick, standard, full, agent]
 required_evidence: [design]
 result_schema: groom-phase-result-v1
 ---
@@ -15,6 +15,8 @@ Turn scope into implementation-neutral design requirements covering the primary 
 ## How
 
 Use existing product patterns and `references/prototype-format.md`. Produce structured design requirements whether or not a visual prototype is warranted. Non-visual features still define API/CLI/operator experience and error states.
+
+For `quick`, keep this pass bounded to the primary experience and consequential alternate states. Knowledge-base depth never removes experience risk: state unsupported choices as assumptions and make the riskiest one visible to Review.
 
 For a user-facing visual surface, run this concise craft loop:
 

@@ -139,6 +139,9 @@ test("Engineering guidance is consistent, project-neutral, and risk-aware", () =
     /Acceptance evidence/i,
   ])
     assert.match(ship, context);
+  assert.match(ship, /existing PR.*body/is);
+  assert.match(ship, /body.*exact.*PR_BODY_FILE/is);
+  assert.match(ship, /explicit.*author.*gh pr edit/is);
   const merge = read("skills/ship/steps/07-merge-loop.md");
   assert.match(merge, /pre-existing.*unrelated.*failure/is);
   assert.match(merge, /do not.*expand.*scope/is);
@@ -152,6 +155,11 @@ test("Engineering Review adds a dedicated security lens for risky Dev work", () 
   assert.match(contract, /security_review_required/);
   assert.match(briefs, /`security`/);
   assert.match(briefs, /authorization|privacy|secret|dependency/i);
+  assert.match(
+    briefs,
+    /source, contract, test, or trace locator.*lockfile\/manifest source lines/is
+  );
+  assert.doesNotMatch(briefs, /source, contract, test, dependency, or trace locator/i);
   assert.match(dispatch, /security.*risk/i);
 });
 
