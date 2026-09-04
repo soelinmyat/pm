@@ -9,6 +9,10 @@ const { hashTree } = require("./stage.js");
 const root = path.resolve(__dirname, "../..");
 const suitePath = path.join(root, "evals", "quality", "suite.json");
 const suite = JSON.parse(fs.readFileSync(suitePath, "utf8"));
+const responsiveReportFixture = fs.readFileSync(
+  path.join(root, "evals", "quality", "fixtures", "design-critique", "responsive-report.html"),
+  "utf8"
+);
 
 for (const workflow of suite.workflows) {
   for (const item of workflow.cases) {
@@ -291,14 +295,7 @@ function workflowFiles(workflow) {
       "package.json": `${JSON.stringify({ scripts: { test: "node tests/items.test.js" } }, null, 2)}\n`,
     },
     "design-critique": {
-      "ui/report.html":
-        "<!doctype html><meta name=viewport content='width=device-width'><style>.report{width:900px}.actions{position:fixed;right:0}</style><main class=report><h1>Workflow report</h1><button class=actions>Export</button></main>",
-      "renders/desktop.txt":
-        "Viewport 1440x900: report visible; fixed export action overlaps heading.\n",
-      "renders/mobile.txt":
-        "Viewport 375x812: 900px report causes horizontal overflow; action is off-screen.\n",
-      "renders/print.txt":
-        "Print: fixed action obscures first heading and navigation remains visible.\n",
+      "ui/design-critique/responsive-report.html": responsiveReportFixture,
     },
     ship: {
       ".pm/quality/hosted-state.json": `${JSON.stringify({ pr: 42, head: "release", checks: "green", merge_authorized: true, tag: "v9.9.9" }, null, 2)}\n`,
@@ -321,11 +318,7 @@ function workflowPreconditions(workflow) {
       "file-exists src/items.js",
       "file-exists tests/items.test.js",
     ],
-    "design-critique": [
-      "file-exists ui/report.html",
-      "file-exists renders/mobile.txt",
-      "file-exists renders/print.txt",
-    ],
+    "design-critique": ["file-exists ui/design-critique/responsive-report.html"],
     ship: ["file-exists .pm/quality/hosted-state.json", "file-exists release.txt"],
   }[workflow];
 }
@@ -415,7 +408,7 @@ function gitSetup(workflow, type) {
         : workflow === "review"
           ? "src/items.js"
           : workflow === "design-critique"
-            ? "ui/report.html"
+            ? "ui/design-critique/responsive-report.html"
             : workflow === "ship"
               ? "release.txt"
               : "docs/workflow.md";

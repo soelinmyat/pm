@@ -1,0 +1,199 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "design-critique-hidden-v1",
+  "minimum_repeats": 3,
+  "thresholds": {
+    "p0_p1_recall": 0.9,
+    "objective_precision": 0.8,
+    "clean_control_false_block_rate": 0.05,
+    "locator_accuracy": 0.9,
+    "severity_accuracy": 0.9,
+    "claimed_fix_success": 0.9
+  },
+  "cases": [
+    {
+      "id": "responsive-report",
+      "fixture_ref": "evals/quality/fixtures/design-critique/responsive-report.html",
+      "fixture_sha256": "sha256:2b1c9c3121db4582455ca73fdbce01063020aca60935f6321ff135897055d003",
+      "clean_control": false,
+      "defects": [
+        {
+          "id": "responsive-shell-overflow",
+          "severity": "high",
+          "objective": true,
+          "route": "/reports/quarterly",
+          "state": "narrow-375x812",
+          "locator": ".app-shell",
+          "fix_oracle": "document.documentElement.scrollWidth <= window.innerWidth"
+        },
+        {
+          "id": "export-heading-occlusion",
+          "severity": "high",
+          "objective": true,
+          "route": "/reports/quarterly",
+          "state": "viewport-900x800",
+          "locator": ".export-action",
+          "fix_oracle": "rect(.export-action) does not intersect rect(h1)"
+        },
+        {
+          "id": "focus-indicator-suppressed",
+          "severity": "high",
+          "objective": true,
+          "route": "/reports/quarterly",
+          "state": "keyboard-focus",
+          "locator": "button:focus, a:focus",
+          "fix_oracle": "focused actions have a visible outline or equivalent two-color focus indicator"
+        },
+        {
+          "id": "row-action-target-small",
+          "severity": "medium",
+          "objective": true,
+          "route": "/reports/quarterly",
+          "state": "pointer-and-touch",
+          "locator": ".icon-button",
+          "fix_oracle": "all .icon-button rectangles are at least 44 by 44 CSS pixels"
+        },
+        {
+          "id": "print-chrome-obscures-content",
+          "severity": "medium",
+          "objective": true,
+          "route": "/reports/quarterly",
+          "state": "print",
+          "locator": "nav, .export-action",
+          "fix_oracle": "print media hides navigation and non-document actions, with no fixed control intersecting report content"
+        }
+      ]
+    },
+    {
+      "id": "modal-workflow",
+      "fixture_ref": "evals/quality/fixtures/design-critique/modal-workflow.html",
+      "fixture_sha256": "sha256:d5bf669c4ef9ef7f0700a0e301092e59f70df5009471664a4bca36b9bb1d50f1",
+      "clean_control": false,
+      "defects": [
+        {
+          "id": "modal-semantics-missing",
+          "severity": "high",
+          "objective": true,
+          "route": "/settings/members",
+          "state": "modal-open",
+          "locator": ".dialog",
+          "fix_oracle": ".dialog has role=dialog and aria-modal=true while visible"
+        },
+        {
+          "id": "modal-initial-focus-missing",
+          "severity": "high",
+          "objective": true,
+          "route": "/settings/members",
+          "state": "after-open",
+          "locator": "#email",
+          "fix_oracle": "document.activeElement is #email or another intentional control inside .dialog"
+        },
+        {
+          "id": "modal-escape-close-missing",
+          "severity": "high",
+          "objective": true,
+          "route": "/settings/members",
+          "state": "modal-open-keyboard",
+          "locator": "#scrim",
+          "fix_oracle": "pressing Escape closes #scrim and returns focus to #invite"
+        },
+        {
+          "id": "modal-focus-trap-missing",
+          "severity": "high",
+          "objective": true,
+          "route": "/settings/members",
+          "state": "modal-open-tab-cycle",
+          "locator": ".dialog",
+          "fix_oracle": "Tab and Shift+Tab keep document.activeElement within .dialog"
+        },
+        {
+          "id": "modal-background-interactive",
+          "severity": "high",
+          "objective": true,
+          "route": "/settings/members",
+          "state": "modal-open",
+          "locator": "main",
+          "fix_oracle": "background content is inert while #scrim is visible"
+        },
+        {
+          "id": "modal-return-focus-missing",
+          "severity": "high",
+          "objective": true,
+          "route": "/settings/members",
+          "state": "modal-close",
+          "locator": "#invite",
+          "fix_oracle": "closing the dialog by any supported action returns focus to #invite"
+        }
+      ]
+    },
+    {
+      "id": "state-clarity",
+      "fixture_ref": "evals/quality/fixtures/design-critique/state-clarity.html",
+      "fixture_sha256": "sha256:fa52e1f8cf58a8a12864301ddd1b28ee8c5852c98b85e9b96c21c9576034c022",
+      "clean_control": false,
+      "defects": [
+        {
+          "id": "loading-allows-repeat-submit",
+          "severity": "high",
+          "objective": true,
+          "route": "/settings/notifications",
+          "state": "saving",
+          "locator": "button[type=submit]",
+          "fix_oracle": "submit control is disabled from request start until the request settles"
+        },
+        {
+          "id": "loading-status-unannounced",
+          "severity": "high",
+          "objective": true,
+          "route": "/settings/notifications",
+          "state": "saving",
+          "locator": "#notice",
+          "fix_oracle": "#notice exposes status semantics and saving state is announced once"
+        },
+        {
+          "id": "validation-error-unbound",
+          "severity": "high",
+          "objective": true,
+          "route": "/settings/notifications",
+          "state": "invalid-email-submit",
+          "locator": "#team-email",
+          "fix_oracle": "invalid email has aria-invalid=true and aria-describedby references its error message"
+        },
+        {
+          "id": "success-feedback-ephemeral",
+          "severity": "medium",
+          "objective": false,
+          "route": "/settings/notifications",
+          "state": "save-success",
+          "locator": "#notice",
+          "fix_oracle": "success confirmation remains available until the next user action or for at least four seconds"
+        },
+        {
+          "id": "secondary-action-competes",
+          "severity": "medium",
+          "objective": false,
+          "route": "/settings/notifications",
+          "state": "default",
+          "locator": "#test",
+          "fix_oracle": "secondary test action is visually distinct from the primary save action"
+        },
+        {
+          "id": "failure-has-no-recovery",
+          "severity": "medium",
+          "objective": false,
+          "route": "/settings/notifications",
+          "state": "test-send-failure",
+          "locator": "#notice",
+          "fix_oracle": "failure message identifies the failed action and provides a retry or recovery path"
+        }
+      ]
+    },
+    {
+      "id": "clean-control",
+      "fixture_ref": "evals/quality/fixtures/design-critique/clean-control.html",
+      "fixture_sha256": "sha256:4d2eb4ec52421fab7cb093ddddb50d22178445a22c92f27aa5f27d12420c201b",
+      "clean_control": true,
+      "defects": []
+    }
+  ]
+}

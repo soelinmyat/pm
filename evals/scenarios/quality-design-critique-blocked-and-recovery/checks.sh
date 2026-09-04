@@ -3,9 +3,7 @@ pre() {
   file-exists case-state.md
   file-matches case-state.md "Workflow: pm:design-critique"
   file-matches case-state.md "Case: blocked-and-recovery"
-  file-exists ui/report.html
-  file-exists renders/mobile.txt
-  file-exists renders/print.txt
+  file-exists ui/design-critique/responsive-report.html
   file-exists dependency-contract.md
   file-exists contract-check.js
   command-fails "node contract-check.js"

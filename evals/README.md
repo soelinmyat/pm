@@ -155,9 +155,16 @@ The committed quality contract lives under `evals/quality/`:
 
 The workhorse profiles are intentionally explicit:
 
-- `sol-high` uses `gpt-5.6-sol` with `high` reasoning. OpenAI documents
+- `sol-high` remains the default PM workhorse and uses `gpt-5.6-sol` with
+  `high` reasoning. OpenAI documents
   `gpt-5.6-sol` as the model ID and lists `high` among its supported reasoning
   levels: <https://developers.openai.com/api/docs/models/gpt-5.6-sol>.
+- `astra-high` is an opt-in comparative lane using `gpt-6-astra` with `high`
+  reasoning. Astra supports `low`, `medium`, `high`, `xhigh`, and `max`, but not
+  `none`. For stable agent runs, state when delegation is useful and give exact
+  worker counts or bounds. Calibrate verification to risk so small, reversible
+  edits do not trigger unnecessary broad or repeated tests:
+  <https://developers.openai.com/api/docs/guides/latest-model>.
 - `opus-xhigh` uses `claude-opus-4-8` with `xhigh` effort. Anthropic recommends
   `xhigh` as the starting point for Opus 4.8 coding and agentic work:
   <https://platform.claude.com/docs/en/build-with-claude/effort>.
@@ -179,6 +186,9 @@ PM_EVAL_CODEX_HOME_TEMPLATE="$HOME/.codex" \
 node scripts/evals/run.js evals/scenarios/quality-dev-happy-path \
   --agent codex --quality-case dev-happy-path --quality-profile sol-high
 ```
+
+To compare Astra without changing the PM default, run the same frozen case and
+repeat index with `--quality-profile astra-high`.
 
 ```bash
 PM_EVAL_CLAUDE_LIVE=1 \
@@ -222,8 +232,8 @@ npm run eval:quality -- capture \
   --out eval-results/dev-happy-candidates.json
 ```
 
-Repeat with `opus-xhigh` and repeat indexes 1–3. Capture appends to the ledger
-and rejects duplicate case/profile/repeat tuples.
+Repeat with each compared profile and repeat indexes 1–3. Capture appends to the
+ledger and rejects duplicate case/profile/repeat tuples.
 
 ### 3. Build the blind packet
 
@@ -304,6 +314,40 @@ validated. The first end-to-end smoke result is
 `groom-happy-sol-vs-opus-2026-07-12.md`: both profiles passed from one frozen
 source/scenario identity, two blind judges preferred Sol High, and the report
 explicitly declines a variance claim because each profile has only one repeat.
+Adding an opt-in profile does not require historical scorecards to contain that
+profile; they remain point-in-time comparisons.
+
+## Hidden Design-Critique Capability Benchmark
+
+The host-only contract is `evals/capabilities/design-critique/oracle.json`.
+Candidate runs receive HTML fixtures through generated scenarios, never the
+oracle, defect IDs, expected locations, severities, or fix checks. The eval
+runtime stages plugin runtime paths and the selected scenario; it does not stage
+`evals/` wholesale. Run `npm run eval:quality:scenarios` after fixture changes,
+then `npm run eval:check` to verify fixture hashes, case composition, and absence
+of oracle truth in candidate scenarios.
+
+After each isolated candidate run, an adjudicator with access to the oracle maps
+each reported finding to an `oracle_id`, or `null` for an unmatched finding. The
+adjudicated report is a closed JSON object with `schema_version`, `benchmark_id`,
+`profile`, and `repeats`. Every repeat contains every `case_id`; every case has a
+`blocked` verdict and findings with severity, objective/blocking classification,
+location correctness, and claimed/verified fix booleans. Repeat numbers must be
+distinct. Keep candidate output separate from this adjudication step.
+
+Score a report with:
+
+```bash
+node scripts/evals/design-critique-capability.js \
+  --oracle evals/capabilities/design-critique/oracle.json \
+  --report /path/to/adjudicated-report.json
+```
+
+The scorer reports P0/P1 recall, objective precision, clean-control false-block
+rate, locator accuracy, severity accuracy, and success for fixes the candidate
+claimed. A result is claimable only after three distinct repeats. Release passes
+only when every metric meets its threshold; a non-claimable or failed report
+returns a nonzero exit code.
 
 ## Scenario Shape
 

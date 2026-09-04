@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Workspace members</title>
+    <style>
+      :root {
+        font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+        color: #152238;
+        background: #f4f6fa;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+      }
+      header,
+      main {
+        max-width: 940px;
+        margin: 0 auto;
+        padding: 24px;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      button,
+      input {
+        min-height: 44px;
+        border: 1px solid #8290a8;
+        border-radius: 8px;
+        font: inherit;
+      }
+      button {
+        padding: 0 16px;
+        color: #fff;
+        background: #215ccc;
+      }
+      button:focus-visible,
+      input:focus-visible {
+        outline: 3px solid #935300;
+        outline-offset: 2px;
+      }
+      .member-list {
+        display: grid;
+        gap: 12px;
+        padding: 0;
+        list-style: none;
+      }
+      .member-list li {
+        display: flex;
+        justify-content: space-between;
+        padding: 18px;
+        border: 1px solid #d7deea;
+        border-radius: 10px;
+        background: #fff;
+      }
+      .scrim {
+        position: fixed;
+        inset: 0;
+        display: none;
+        place-items: center;
+        padding: 20px;
+        background: rgb(20 31 50 / 62%);
+      }
+      .dialog {
+        width: min(520px, 100%);
+        padding: 24px;
+        border-radius: 14px;
+        background: #fff;
+        box-shadow: 0 24px 70px rgb(20 31 50 / 35%);
+      }
+      .field {
+        display: grid;
+        gap: 8px;
+        margin: 20px 0;
+      }
+      .field input {
+        padding: 0 12px;
+      }
+      .dialog-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+      }
+      .secondary {
+        color: #253550;
+        background: #fff;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>Northstar</strong>
+      <a href="/settings">Workspace settings</a>
+    </header>
+    <main>
+      <h1>Workspace members</h1>
+      <p>Manage access for the product organization.</p>
+      <button id="invite" type="button">Invite member</button>
+      <ul class="member-list">
+        <li><span>Mina Park</span><span>Admin</span></li>
+        <li><span>Dev Shah</span><span>Editor</span></li>
+      </ul>
+    </main>
+    <div class="scrim" id="scrim">
+      <section class="dialog" aria-labelledby="dialog-title">
+        <h2 id="dialog-title">Invite a member</h2>
+        <p>They will receive an email with workspace access.</p>
+        <label class="field">Email address <input id="email" type="email" /></label>
+        <div class="dialog-actions">
+          <button class="secondary" id="cancel" type="button">Cancel</button>
+          <button id="send" type="button">Send invite</button>
+        </div>
+      </section>
+    </div>
+    <script>
+      const scrim = document.querySelector("#scrim");
+      document.querySelector("#invite").addEventListener("click", () => {
+        scrim.style.display = "grid";
+      });
+      document.querySelector("#cancel").addEventListener("click", () => {
+        scrim.style.display = "none";
+      });
+      document.querySelector("#send").addEventListener("click", () => {
+        scrim.style.display = "none";
+      });
+    </script>
+  </body>
+</html>
