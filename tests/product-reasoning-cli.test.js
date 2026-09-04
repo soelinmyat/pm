@@ -7,11 +7,19 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
-const { buildApproval, proposalContentHash } = require("../scripts/lib/proposal-schema");
+const {
+  buildApproval,
+  deriveApprovalDecision,
+  proposalContentHash,
+} = require("../scripts/lib/proposal-schema");
 const { decisionId } = require("../scripts/lib/product-reasoning-schema");
 const { verifyCanonicalReaderMarker } = require("../scripts/lib/product-reasoning-bindings");
 const { promote, validatePromotionReader } = require("../scripts/product-reasoning");
 const { validate } = require("../scripts/validate");
+const {
+  bindCurrentReviewContract,
+  materializeProposalSources,
+} = require("./helpers/groom-review-fixture");
 
 const CLI = path.join(__dirname, "..", "scripts", "product-reasoning.js");
 
@@ -253,8 +261,9 @@ test("rank-ideas rejects malformed or empty idea collections with stable diagnos
 });
 
 test("promote requires exact approved Groom lineage and atomically closes origin lineage", (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reasoning-promote-"));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reasoning-promote-"));
+  const root = path.join(projectRoot, "pm");
+  t.after(() => fs.rmSync(projectRoot, { recursive: true, force: true }));
   const decisionPath = "backlog/guided-evidence-refresh.decision.json";
   const targetRef = "backlog/proposals/guided-evidence-refresh.json";
   const approvalRef = "backlog/proposals/guided-evidence-refresh.approval.json";
@@ -285,7 +294,7 @@ test("promote requires exact approved Groom lineage and atomically closes origin
   });
   fs.writeFileSync(path.join(root, targetRef), `${JSON.stringify(proposal, null, 2)}\n`);
   const requestPath = path.join(root, "request.json");
-  const approvalDecision = { id: "groom-decision-01", sha256: `sha256:${"2".repeat(64)}` };
+  let approvalDecision = { id: "groom-decision-01", sha256: `sha256:${"2".repeat(64)}` };
   fs.writeFileSync(
     requestPath,
     JSON.stringify({
@@ -350,6 +359,16 @@ test("promote requires exact approved Groom lineage and atomically closes origin
 
   result = run(["promote", "--root", root, "--request", requestPath]);
   assert.equal(result.status, 1);
+  assert.match(result.stderr, /legacy-unbound-review-contract.*migration and re-review/);
+
+  const originLineage = proposal.source.lineage.pop();
+  bindCurrentReviewContract(proposal);
+  materializeProposalSources(projectRoot, proposal);
+  proposal.source.lineage.push(originLineage);
+  assert.equal(fs.existsSync(path.join(root, "pm")), false);
+  fs.writeFileSync(path.join(root, targetRef), `${JSON.stringify(proposal, null, 2)}\n`);
+  result = run(["promote", "--root", root, "--request", requestPath]);
+  assert.equal(result.status, 1);
   assert.match(result.stderr, /not approved/);
 
   proposal.lifecycle = "approved";
@@ -365,6 +384,12 @@ test("promote requires exact approved Groom lineage and atomically closes origin
   assert.equal(result.status, 1);
   assert.match(result.stderr, /approval/);
 
+  approvalDecision = deriveApprovalDecision(proposal, {
+    approvedBy: "user:owner",
+    approvedAt: "2026-07-14T01:30:00.000Z",
+  });
+  requestValue.approval_decision = approvalDecision;
+  fs.writeFileSync(requestPath, JSON.stringify(requestValue));
   const approval = buildApproval(proposal, proposalBytes, {
     approvedBy: "user:owner",
     approvedAt: "2026-07-14T01:30:00.000Z",
@@ -377,38 +402,52 @@ test("promote requires exact approved Groom lineage and atomically closes origin
   proposal.review.content_sha256 = proposalContentHash(proposal);
   let variantBytes = Buffer.from(`${JSON.stringify(proposal, null, 2)}\n`);
   fs.writeFileSync(path.join(root, targetRef), variantBytes);
+  const missingLineageDecision = deriveApprovalDecision(proposal, {
+    approvedBy: "user:owner",
+    approvedAt: "2026-07-14T01:30:00.000Z",
+  });
   fs.writeFileSync(
     path.join(root, approvalRef),
     `${JSON.stringify(
       buildApproval(proposal, variantBytes, {
         approvedBy: "user:owner",
         approvedAt: "2026-07-14T01:30:00.000Z",
-        decisionId: approvalDecision.id,
-        decisionSha256: approvalDecision.sha256,
+        decisionId: missingLineageDecision.id,
+        decisionSha256: missingLineageDecision.sha256,
       }),
       null,
       2
     )}\n`
   );
-  assert.throws(() => promote(root, requestValue), /source lineage must bind/);
+  assert.throws(
+    () => promote(root, { ...requestValue, approval_decision: missingLineageDecision }),
+    /source lineage must bind/
+  );
   proposal.source.lineage.push({ ...exactLineage, sha256: `sha256:${"f".repeat(64)}` });
   proposal.review.content_sha256 = proposalContentHash(proposal);
   variantBytes = Buffer.from(`${JSON.stringify(proposal, null, 2)}\n`);
   fs.writeFileSync(path.join(root, targetRef), variantBytes);
+  const mismatchedLineageDecision = deriveApprovalDecision(proposal, {
+    approvedBy: "user:owner",
+    approvedAt: "2026-07-14T01:30:00.000Z",
+  });
   fs.writeFileSync(
     path.join(root, approvalRef),
     `${JSON.stringify(
       buildApproval(proposal, variantBytes, {
         approvedBy: "user:owner",
         approvedAt: "2026-07-14T01:30:00.000Z",
-        decisionId: approvalDecision.id,
-        decisionSha256: approvalDecision.sha256,
+        decisionId: mismatchedLineageDecision.id,
+        decisionSha256: mismatchedLineageDecision.sha256,
       }),
       null,
       2
     )}\n`
   );
-  assert.throws(() => promote(root, requestValue), /source lineage must bind/);
+  assert.throws(
+    () => promote(root, { ...requestValue, approval_decision: mismatchedLineageDecision }),
+    /does not match the retained source bytes/
+  );
   proposal.source.lineage[proposal.source.lineage.length - 1] = exactLineage;
   fs.writeFileSync(path.join(root, targetRef), proposalBytes);
   fs.writeFileSync(path.join(root, approvalRef), `${JSON.stringify(approval, null, 2)}\n`);
@@ -464,7 +503,24 @@ test("promote requires exact approved Groom lineage and atomically closes origin
   assert.match(promoted.promotion.origin_decision_sha256, /^sha256:[a-f0-9]{64}$/);
   assert.equal(promoted.source_artifacts[0].path, targetRef);
   result = run(["validate", "--root", root, "--input", path.join(root, decisionPath)]);
-  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  const promotedBytes = fs.readFileSync(path.join(root, decisionPath));
+  const wrongOriginHash = JSON.parse(promotedBytes.toString("utf8"));
+  wrongOriginHash.promotion.origin_decision_sha256 = `sha256:${"e".repeat(64)}`;
+  fs.writeFileSync(path.join(root, decisionPath), `${JSON.stringify(wrongOriginHash, null, 2)}\n`);
+  result = run(["validate", "--root", root, "--input", path.join(root, decisionPath)]);
+  assert.equal(result.status, 2);
+  assert.match(result.stdout, /does not match the retained source bytes/);
+  fs.writeFileSync(path.join(root, decisionPath), promotedBytes);
+
+  const retainedEvidencePath = path.join(projectRoot, proposal.source.lineage[0].path);
+  const retainedEvidenceBytes = fs.readFileSync(retainedEvidencePath);
+  fs.appendFileSync(retainedEvidencePath, "unapproved second drift\n");
+  result = run(["validate", "--root", root, "--input", path.join(root, decisionPath)]);
+  assert.equal(result.status, 2);
+  assert.match(result.stdout, /does not match the retained source bytes/);
+  fs.writeFileSync(retainedEvidencePath, retainedEvidenceBytes);
 
   const lifecycleReader = fs
     .readFileSync(path.join(root, markdownPath), "utf8")

@@ -32,7 +32,7 @@ Do not include future phase instructions. The root owns phase transitions and an
 - State each instruction once.
 - Keep workflow instruction under 1,200 words, excluding task artifacts.
 - Reject missing outcomes, ACs, rules, evidence, stop conditions, authority, or result schema instead of inserting placeholders.
-- Preserve design requirements, prototype identity, critical states, and visual invariants byte-for-byte from a supplied `design_context`; workers may not silently reinterpret it.
+- Preserve UI-impact classification, design requirements, complete prototype identity, critical states, and applicable experience/visual invariants byte-for-byte from a supplied `design_context`; workers may not silently reinterpret or selectively copy it.
 - Record UTF-8 bytes and whitespace-delimited words for comparison across models.
 
 ## Done-when

@@ -8,7 +8,16 @@ const path = require("node:path");
 const { inspectHtmlArtifact } = require("../scripts/artifact-check.js");
 const { renderProposal, main } = require("../scripts/proposal-render.js");
 const { check } = require("../scripts/proposal-check.js");
-const { reviewRowForTier } = require("./helpers/groom-review-fixture.js");
+const {
+  buildApproval,
+  deriveApprovalDecision,
+  proposalContentHash,
+} = require("../scripts/lib/proposal-schema.js");
+const {
+  bindCurrentReviewContract,
+  materializeProposalSources,
+  reviewRowForTier,
+} = require("./helpers/groom-review-fixture.js");
 
 const FIXTURE = path.join(__dirname, "fixtures", "proposals", "strong-v1.json");
 
@@ -36,7 +45,20 @@ test("proposal renderer is byte-deterministic and binds both projections to cano
   assert.match(first.html, /id="decision-brief"/);
   assert.match(first.html, /id="execution-contract"/);
   assert.match(first.html, /id="appendix"/);
+  assert.match(first.html, /UI impact/);
+  assert.match(first.html, /Visual UI change/);
   assert.match(first.html, /Critical states/);
+  assert.match(
+    first.html,
+    /Reviewers can identify the current decision state before inspecting implementation detail\./
+  );
+  assert.match(first.html, /Evidence provenance/);
+  assert.match(first.html, /Observed\.<\/strong> 2026-07-14T01:00:00\.000Z/);
+  assert.match(first.html, /Source lineage/);
+  assert.match(
+    first.html,
+    /sha256:1111111111111111111111111111111111111111111111111111111111111111/
+  );
   assert.match(first.html, /stale approval/);
   assert.match(first.html, /Lifecycle and approval state remain visible at narrow widths/);
   assert.match(first.html, /class="toc-group"/);
@@ -53,7 +75,22 @@ test("proposal renderer is byte-deterministic and binds both projections to cano
   assert.doesNotMatch(first.html, /approval\.:/i);
   assert.match(first.html, /<strong>Outcome\.<\/strong> Pass/);
   assert.match(first.markdown, /### Critical states/);
+  assert.match(first.markdown, /### UI impact/);
+  assert.match(first.markdown, /Visual UI change/);
+  assert.match(first.markdown, /### Experience invariants/);
+  assert.match(
+    first.markdown,
+    /Reviewers can identify the current decision state before inspecting implementation detail\./
+  );
   assert.match(first.markdown, /### Visual invariants/);
+  assert.match(first.markdown, /## Evidence & provenance/);
+  assert.match(first.markdown, /Observed: 2026-07-14T01:00:00\.000Z/);
+  assert.match(first.markdown, /### Source lineage/);
+  assert.match(first.markdown, /source:research/);
+  assert.match(
+    first.markdown,
+    /sha256:1111111111111111111111111111111111111111111111111111111111111111/
+  );
   assert.match(first.markdown, /Do not edit by hand/);
 });
 
@@ -159,6 +196,40 @@ test("UI proposals surface their approved prototype without embedding executable
   assert.equal(inspected.ok, true, JSON.stringify(inspected.issues));
 });
 
+test("multi-file prototype projections expose the complete bound tree identity", () => {
+  const input = source();
+  const treeSha256 = `sha256:${"c".repeat(64)}`;
+  input.proposal.design_context.prototype = {
+    path: "pm/backlog/wireframes/structured-groom/index.html",
+    sha256: `sha256:${"b".repeat(64)}`,
+    manifest: {
+      schema_version: 1,
+      files: [
+        { path: "base.css", sha256: `sha256:${"1".repeat(64)}` },
+        { path: "index.html", sha256: `sha256:${"2".repeat(64)}` },
+        { path: "meta.json", sha256: `sha256:${"3".repeat(64)}` },
+        { path: "screens/review.html", sha256: `sha256:${"4".repeat(64)}` },
+      ],
+      tree_sha256: treeSha256,
+    },
+  };
+
+  const rendered = renderProposal(input.proposal, {
+    sourceBytes: Buffer.from(`${JSON.stringify(input.proposal, null, 2)}\n`),
+    version: "test",
+  });
+
+  for (const projection of [rendered.html, rendered.markdown]) {
+    assert.match(projection, new RegExp(treeSha256));
+    assert.match(projection, /4 bound files/);
+    assert.match(projection, /screens\/review\.html/);
+    assert.match(
+      projection,
+      /sha256:4444444444444444444444444444444444444444444444444444444444444444/
+    );
+  }
+});
+
 test("proposal tables carry mobile row labels for a readable stacked layout", () => {
   const input = source();
   const rendered = renderProposal(input.proposal, {
@@ -174,7 +245,7 @@ test("proposal tables carry mobile row labels for a readable stacked layout", ()
   );
 });
 
-test("post-approval lifecycle readers preserve approval and show the current state", () => {
+test("post-approval lifecycle never claims verification without a supplied verified state", () => {
   for (const lifecycle of ["planned", "in-progress", "done"]) {
     const input = source();
     input.proposal.lifecycle = lifecycle;
@@ -194,9 +265,41 @@ test("post-approval lifecycle readers preserve approval and show the current sta
       rendered.html,
       new RegExp(`Approved[^<]*.*${lifecycle.replace("-", "[ -]")}`, "i")
     );
-    assert.match(rendered.html, /Approval is valid for this exact proposal/);
-    assert.match(rendered.html, new RegExp(`/pm:rfc ${input.proposal.slug}`));
+    assert.doesNotMatch(rendered.html, /Approval is valid for this exact proposal/);
+    assert.doesNotMatch(rendered.html, /Approval verified/);
+    assert.match(rendered.html, /verified approval state was not supplied to this renderer/i);
+    assert.match(rendered.markdown, /verified approval state was not supplied to this renderer/i);
     assert.doesNotMatch(rendered.html, /Review must finish before approval/);
+
+    const verified = renderProposal(input.proposal, {
+      sourceBytes: Buffer.from(`${JSON.stringify(input.proposal, null, 2)}\n`),
+      version: "test",
+      actuallyVerifiedApproval: {
+        trustedApproval: true,
+        approval: {
+          revision: input.proposal.revision,
+          content_sha256: rendered.content_sha256,
+        },
+      },
+    });
+    assert.match(verified.html, /Approval is valid for this exact proposal/);
+    assert.match(verified.html, /Approval verified/);
+    assert.match(verified.html, new RegExp(`/pm:rfc ${input.proposal.slug}`));
+    assert.match(verified.markdown, /Approval audit: \*\*verified for this exact proposal\*\*/i);
+
+    const staleApproval = renderProposal(input.proposal, {
+      sourceBytes: Buffer.from(`${JSON.stringify(input.proposal, null, 2)}\n`),
+      version: "test",
+      actuallyVerifiedApproval: {
+        trustedApproval: true,
+        approval: {
+          revision: input.proposal.revision,
+          content_sha256: `sha256:${"f".repeat(64)}`,
+        },
+      },
+    });
+    assert.doesNotMatch(staleApproval.html, /Approval verified/);
+    assert.match(staleApproval.html, /verified approval state was not supplied/i);
   }
 });
 
@@ -234,6 +337,55 @@ test("CLI atomically writes canonical HTML and Markdown locations", () => {
     const drifted = check({ proposal: proposalPath, projectRoot: project, projections: true });
     assert.equal(drifted.ok, false);
     assert.match(drifted.issues.map((item) => item.message).join("\n"), /Markdown/);
+  } finally {
+    fs.rmSync(project, { recursive: true, force: true });
+  }
+});
+
+test("CLI and projection checker agree on a canonically verified approval audit", () => {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), "proposal-render-approved-"));
+  try {
+    const input = source();
+    bindCurrentReviewContract(input.proposal);
+    materializeProposalSources(project, input.proposal);
+    input.proposal.lifecycle = "approved";
+    input.proposal.review = {
+      status: "passed",
+      revision: input.proposal.revision,
+      content_sha256: proposalContentHash(input.proposal),
+      completed_at: "2026-07-14T02:00:00.000Z",
+    };
+    const proposalDir = path.join(project, "pm", "backlog", "proposals");
+    const proposalPath = path.join(proposalDir, "structured-groom.json");
+    const approvalPath = proposalPath.replace(/\.json$/, ".approval.json");
+    fs.mkdirSync(proposalDir, { recursive: true });
+    fs.writeFileSync(proposalPath, `${JSON.stringify(input.proposal, null, 2)}\n`);
+    const approvalInput = {
+      approvedBy: "user:owner",
+      approvedAt: "2026-07-14T03:00:00.000Z",
+    };
+    const decision = deriveApprovalDecision(input.proposal, approvalInput);
+    const approval = buildApproval(input.proposal, fs.readFileSync(proposalPath), {
+      ...approvalInput,
+      decisionId: decision.id,
+      decisionSha256: decision.sha256,
+    });
+    fs.writeFileSync(approvalPath, `${JSON.stringify(approval, null, 2)}\n`);
+
+    assert.equal(main(["--proposal", proposalPath, "--project-root", project, "--json"]), 0);
+    const html = fs.readFileSync(path.join(proposalDir, "structured-groom.html"), "utf8");
+    const markdown = fs.readFileSync(
+      path.join(project, "pm", "backlog", "structured-groom.md"),
+      "utf8"
+    );
+    assert.match(html, /Approval verified/);
+    assert.match(html, /Approval is valid for this exact proposal/);
+    assert.match(markdown, /Approval audit: \*\*verified for this exact proposal\*\*/i);
+
+    const verified = check({ proposal: proposalPath, projectRoot: project, projections: true });
+    assert.equal(verified.ok, true, verified.issues?.map((item) => item.message).join("\n"));
+    assert.equal(verified.approval_verified, true);
+    assert.equal(verified.projections_verified, true);
   } finally {
     fs.rmSync(project, { recursive: true, force: true });
   }

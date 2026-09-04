@@ -76,6 +76,8 @@ function validateRfcSidecar(sidecar, sidecarPath = DEFAULT_SIDECAR_PATH, opts = 
     try {
       validateDesignContext(sidecar.design_context, "design_context", {
         repoRoot: opts.repoRoot,
+        requireCurrentPrototypeIdentity: opts.requireCurrentDesignContext,
+        requireExperienceClassification: opts.requireCurrentDesignContext,
       });
     } catch (error) {
       issues.push(issue(sidecarPath, error.message));

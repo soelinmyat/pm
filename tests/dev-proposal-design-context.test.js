@@ -9,7 +9,15 @@ const os = require("node:os");
 const path = require("node:path");
 
 const { applyRouting, createSession, nextDecision } = require("../scripts/lib/dev-session-schema");
-const { buildApproval, proposalContentHash } = require("../scripts/lib/proposal-schema");
+const {
+  buildApproval,
+  deriveApprovalDecision,
+  proposalContentHash,
+} = require("../scripts/lib/proposal-schema");
+const {
+  bindCurrentReviewContract,
+  materializeProposalSources,
+} = require("./helpers/groom-review-fixture.js");
 
 test("direct proposal intake preserves approved design context and detects later drift", () => {
   const repo = makeRepo();
@@ -37,6 +45,8 @@ test("direct proposal intake preserves approved design context and detects later
     });
 
     assert.equal(session.task.size, "S");
+    assert.ok(session.routing.required_gates.includes("design-critique"));
+    assert.ok(session.routing.required_gates.includes("qa"));
     assert.deepEqual(session.task.design_context, prepared.proposal.design_context);
     assert.deepEqual(
       session.task.work_units[0].contract.design_context,
@@ -105,6 +115,8 @@ function writeApprovedProposal(repo, { size, withDesignContext = true, withProto
   );
   proposal.size = size;
   if (!withDesignContext) delete proposal.design_context;
+  bindCurrentReviewContract(proposal, "full");
+  materializeProposalSources(repo, proposal);
   let prototypePath = null;
   if (withPrototype) {
     const prototypeRelativePath = "pm/backlog/wireframes/structured-groom.html";
@@ -128,11 +140,15 @@ function writeApprovedProposal(repo, { size, withDesignContext = true, withProto
   const approvalPath = proposalPath.replace(/\.json$/, ".approval.json");
   fs.mkdirSync(path.dirname(proposalPath), { recursive: true });
   fs.writeFileSync(proposalPath, `${JSON.stringify(proposal, null, 2)}\n`);
-  const approval = buildApproval(proposal, fs.readFileSync(proposalPath), {
+  const approvalInput = {
     approvedBy: "user:owner",
     approvedAt: "2026-07-14T03:00:00.000Z",
-    decisionId: "groom-approval:groom_test",
-    decisionSha256: `sha256:${"6".repeat(64)}`,
+  };
+  const decision = deriveApprovalDecision(proposal, approvalInput);
+  const approval = buildApproval(proposal, fs.readFileSync(proposalPath), {
+    ...approvalInput,
+    decisionId: decision.id,
+    decisionSha256: decision.sha256,
   });
   fs.writeFileSync(approvalPath, `${JSON.stringify(approval, null, 2)}\n`);
   proposal.lifecycle = "planned";

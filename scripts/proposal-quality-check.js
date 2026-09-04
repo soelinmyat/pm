@@ -56,22 +56,41 @@ function designContextMinimum(proposal) {
   const expectedRequirements = Array.isArray(proposal.design_requirements)
     ? proposal.design_requirements.map((row) => row.requirement)
     : [];
+  const classified = typeof context?.ui_impact === "boolean";
+  const experienceIsSubstantive =
+    Array.isArray(context?.experience_invariants) &&
+    context.experience_invariants.length > 0 &&
+    context.experience_invariants.every((invariant) => specific(invariant, 24, 4));
+  const visualIsHonest =
+    classified && context.ui_impact
+      ? Array.isArray(context.visual_invariants) &&
+        context.visual_invariants.length > 0 &&
+        context.visual_invariants.every((invariant) => specific(invariant, 24, 4))
+      : classified &&
+        Array.isArray(context.visual_invariants) &&
+        context.visual_invariants.length === 0 &&
+        context.prototype === null;
+  const prototypeIsBound =
+    context?.prototype === null ||
+    (typeof context?.prototype === "object" &&
+      typeof context.prototype.path === "string" &&
+      /^sha256:[a-f0-9]{64}$/.test(context.prototype.sha256 || "") &&
+      (!/(?:^|\/)index\.html$/.test(context.prototype.path) ||
+        (typeof context.prototype.manifest === "object" &&
+          /^sha256:[a-f0-9]{64}$/.test(context.prototype.manifest.tree_sha256 || ""))));
   const passed =
     context !== null &&
     typeof context === "object" &&
     !Array.isArray(context) &&
+    classified &&
     Array.isArray(context.design_requirements) &&
     JSON.stringify(context.design_requirements) === JSON.stringify(expectedRequirements) &&
     Array.isArray(context.critical_states) &&
     context.critical_states.length > 0 &&
     context.critical_states.every((state) => meaningful(state)) &&
-    Array.isArray(context.visual_invariants) &&
-    context.visual_invariants.length > 0 &&
-    context.visual_invariants.every((invariant) => specific(invariant, 24, 4)) &&
-    (context.prototype === null ||
-      (typeof context.prototype === "object" &&
-        typeof context.prototype.path === "string" &&
-        /^sha256:[a-f0-9]{64}$/.test(context.prototype.sha256 || "")));
+    experienceIsSubstantive &&
+    visualIsHonest &&
+    prototypeIsBound;
   return {
     applicable: true,
     passed,
@@ -80,7 +99,7 @@ function designContextMinimum(proposal) {
     total: context === undefined ? 0 : 1,
     reason: passed
       ? "Durable design context meets its handoff floor"
-      : "Durable design context requires matching requirements, critical states, visual invariants, and a source-bound prototype or null",
+      : "Durable design context requires explicit UI impact, matching requirements, critical states, substantive experience invariants, honest conditional visual invariants, and a complete prototype identity or null",
   };
 }
 

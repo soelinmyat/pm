@@ -255,6 +255,14 @@ function validateCanonicalQaDeliveryEvidence(
     );
     return;
   }
+  if (
+    typeof passingTests[0].command !== "string" ||
+    !/qa-report-check(?:\.js)?(?:\s|$)/i.test(passingTests[0].command)
+  ) {
+    issues.push(
+      issue(manifestPath, "canonical QA evidence must record the executed qa-report-check command")
+    );
+  }
   const reportPath = passingTests[0].artifact;
   if (typeof reportPath !== "string" || !path.isAbsolute(reportPath)) {
     issues.push(

@@ -484,8 +484,10 @@ test("route converts an RFC schema-v3 sidecar into the persisted Dev DAG", () =>
       .digest("hex")}`;
     const designContext = {
       design_requirements: ["Keep the primary action visually dominant."],
+      ui_impact: true,
       prototype: { path: prototypeRelativePath, sha256: prototypeHash },
       critical_states: ["loading", "empty", "error", "success"],
+      experience_invariants: ["Every transition keeps its current status understandable."],
       visual_invariants: ["Navigation remains visible at narrow widths."],
     };
     const issue = (num, depends_on, owns) => ({

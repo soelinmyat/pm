@@ -17,11 +17,13 @@ function executableSidecar() {
     size: "L",
     design_context: {
       design_requirements: ["Keep the primary action visually dominant."],
+      ui_impact: true,
       prototype: {
         path: "backlog/wireframes/multi-issue.html",
         sha256: `sha256:${"b".repeat(64)}`,
       },
       critical_states: ["loading", "empty", "error", "success"],
+      experience_invariants: ["Every transition keeps its current status understandable."],
       visual_invariants: ["Navigation remains visible at narrow widths."],
     },
     issues: [

@@ -11,10 +11,16 @@ const {
   reviewFindingQuality,
   reviewQuestionForTier,
   reviewQuestionIdsForTier,
+  reviewTextTokens,
 } = require("./groom-review-contract.js");
 
 const SCHEMA_VERSION = 1;
 const MAX_PROPOSAL_BYTES = 2 * 1024 * 1024;
+const MAX_EVIDENCE_SOURCE_BYTES = 8 * 1024 * 1024;
+const MAX_EVIDENCE_SOURCES = 64;
+const MAX_EVIDENCE_TOTAL_BYTES = 32 * 1024 * 1024;
+const MAX_LOCATED_EVIDENCE_BYTES = 64 * 1024;
+const MAX_LINE_LOCATOR_SPAN = 80;
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const STABLE_ID = /^[a-z][a-z0-9-]*:[a-z0-9][a-z0-9._-]*$/;
 const QUESTION_ID = /^[a-z][a-z0-9-]*$/;
@@ -158,20 +164,24 @@ function rows(value, at, issues, fields, required, validate, { nonEmpty = false 
 }
 
 function validatePath(value, at, issues) {
-  if (
-    !isString(value) ||
-    path.isAbsolute(value) ||
-    /^[A-Za-z]:[\\/]/.test(value) ||
-    /^[a-z][a-z0-9+.-]*:/i.test(value) ||
-    value.includes("\\") ||
-    value.split("/").includes("..") ||
-    value.split("/").includes(".") ||
-    value.startsWith("/") ||
-    value.endsWith("/") ||
-    value.includes("//")
-  ) {
+  if (!isNormalizedProjectPath(value)) {
     issues.push(issue(at, "must be a normalized project-relative path"));
   }
+}
+
+function isNormalizedProjectPath(value) {
+  return (
+    isString(value) &&
+    !path.isAbsolute(value) &&
+    !/^[A-Za-z]:[\\/]/.test(value) &&
+    !/^[a-z][a-z0-9+.-]*:/i.test(value) &&
+    !value.includes("\\") &&
+    !value.split("/").includes("..") &&
+    !value.split("/").includes(".") &&
+    !value.startsWith("/") &&
+    !value.endsWith("/") &&
+    !value.includes("//")
+  );
 }
 
 function validateProposal(proposal, options = {}) {
@@ -408,6 +418,8 @@ function validateProposal(proposal, options = {}) {
     try {
       validateDesignContext(proposal.design_context, `${at}.design_context`, {
         repoRoot: options.projectRoot,
+        requireCurrentPrototypeIdentity: options.requireCurrentPrototypeIdentity,
+        requireExperienceClassification: options.requireExperienceClassification,
       });
       const requirements = Array.isArray(proposal.design_requirements)
         ? proposal.design_requirements.map((entry) => entry?.requirement)
@@ -680,12 +692,364 @@ function validateProposal(proposal, options = {}) {
 
   validateGlobalIds(proposal, at, issues);
   validateIdNamespaces(proposal, at, issues);
+  if (
+    options.projectRoot &&
+    proposal.schema_version === SCHEMA_VERSION &&
+    isObject(proposal.review_contract)
+  ) {
+    const evidenceResult = validateCurrentProposalEvidence(proposal, options.projectRoot, {
+      path: at,
+      allowedHistoricalLineage: options.allowedHistoricalLineage,
+    });
+    issues.push(...evidenceResult.issues);
+  }
 
   return {
     ok: issues.length === 0,
     issues,
     content_sha256: issues.length === 0 ? proposalContentHash(proposal) : null,
   };
+}
+
+function validateCurrentProposalEvidence(proposal, projectRoot, options = {}) {
+  const issues = [];
+  const at = options.path || "$";
+  if (!isObject(proposal)) {
+    issues.push(issue(at, "current proposal evidence requires a proposal object"));
+    return { ok: false, issues };
+  }
+  if (!isObject(proposal.review_contract)) {
+    issues.push(
+      issue(`${at}.review_contract`, "current proposal evidence requires a review contract")
+    );
+    return { ok: false, issues };
+  }
+  if (!isString(projectRoot)) {
+    issues.push(issue(at, "current proposal evidence requires a project root"));
+    return { ok: false, issues };
+  }
+  validateCurrentEvidenceSources(proposal, projectRoot, at, issues, options);
+  return { ok: issues.length === 0, issues };
+}
+
+function validateCurrentEvidenceSources(proposal, projectRoot, at, issues, options = {}) {
+  const lineage = Array.isArray(proposal.source?.lineage) ? proposal.source.lineage : [];
+  const evidence = Array.isArray(proposal.evidence) ? proposal.evidence : [];
+  const evidencePaths = new Set(evidence.map((entry) => entry?.path).filter(isString));
+  const sources = new Map();
+  if (lineage.length > MAX_EVIDENCE_SOURCES) {
+    issues.push(
+      issue(
+        `${at}.source.lineage`,
+        `must contain at most ${MAX_EVIDENCE_SOURCES} retained evidence sources`
+      )
+    );
+    return;
+  }
+  let root;
+  try {
+    root = fs.realpathSync(path.resolve(projectRoot));
+  } catch (error) {
+    issues.push(issue(at, `cannot resolve project root for evidence validation: ${error.message}`));
+    return;
+  }
+
+  let totalSourceBytes = 0;
+  for (const [index, entry] of lineage.entries()) {
+    const sourcePath = `${at}.source.lineage[${index}]`;
+    if (!isNormalizedProjectPath(entry?.path)) continue;
+    if (sources.has(entry.path)) {
+      issues.push(issue(`${sourcePath}.path`, "duplicates a source lineage path"));
+      continue;
+    }
+    let source;
+    try {
+      source = readBoundEvidenceFile(root, entry.path, {
+        remainingBytes: MAX_EVIDENCE_TOTAL_BYTES - totalSourceBytes,
+      });
+      totalSourceBytes += source.bytes.length;
+      sources.set(entry.path, source);
+    } catch (error) {
+      issues.push(issue(`${sourcePath}.path`, error.message));
+      continue;
+    }
+    if (
+      SHA256.test(entry.sha256 || "") &&
+      entry.sha256 !== source.sha256 &&
+      !isAllowedHistoricalLineage(entry, options.allowedHistoricalLineage, evidencePaths)
+    ) {
+      issues.push(issue(`${sourcePath}.sha256`, "does not match the retained source bytes"));
+    }
+  }
+
+  const evidenceById = new Map();
+  for (const [index, entry] of evidence.entries()) {
+    evidenceById.set(entry?.id, entry);
+    if (!isNormalizedProjectPath(entry?.path)) continue;
+    if (!sources.has(entry.path)) {
+      issues.push(
+        issue(
+          `${at}.evidence[${index}].path`,
+          "must reference an existing hash-bound source.lineage path"
+        )
+      );
+    }
+  }
+
+  if (!Array.isArray(proposal.question_reviews)) return;
+  for (const [reviewIndex, review] of proposal.question_reviews.entries()) {
+    if (!Array.isArray(review?.evidence)) continue;
+    for (const [citationIndex, citation] of review.evidence.entries()) {
+      const citationPath = `${at}.question_reviews[${reviewIndex}].evidence[${citationIndex}]`;
+      const evidenceRecord = evidenceById.get(citation?.evidence_id);
+      const source = evidenceRecord ? sources.get(evidenceRecord.path) : null;
+      if (!source || !isString(citation?.locator)) continue;
+      const resolution = resolveEvidenceLocator(source, citation.locator);
+      if (resolution.status === "unsupported") continue;
+      if (resolution.status === "missing") {
+        issues.push(issue(`${citationPath}.locator`, resolution.reason));
+        continue;
+      }
+      if (
+        !reviewEvidenceFitsSource(
+          resolution.text,
+          review.conclusion,
+          review.rationale,
+          citation.relevance
+        )
+      ) {
+        issues.push(
+          issue(
+            `${citationPath}.relevance`,
+            "does not connect the located source content to this review answer"
+          )
+        );
+      }
+    }
+  }
+}
+
+function isAllowedHistoricalLineage(entry, allowed, evidencePaths) {
+  if (!isObject(allowed) || !isString(allowed.path) || !SHA256.test(allowed.sha256 || "")) {
+    return false;
+  }
+  // The promotion origin is a transition preimage, not product evidence. Any
+  // lineage path cited as evidence remains bound to its current retained bytes.
+  if (evidencePaths.has(entry.path)) return false;
+  const observed = entry.path.replaceAll("\\", "/");
+  const expected = allowed.path.replaceAll("\\", "/");
+  return (
+    entry.sha256 === allowed.sha256 && (observed === expected || observed.endsWith(`/${expected}`))
+  );
+}
+
+function readBoundEvidenceFile(root, relativePath, options = {}) {
+  const candidate = path.resolve(root, relativePath);
+  if (!isWithin(root, candidate)) throw new Error("evidence source escapes the project root");
+  let current = root;
+  for (const part of relativePath.split("/")) {
+    current = path.join(current, part);
+    let stat;
+    try {
+      stat = fs.lstatSync(current);
+    } catch (error) {
+      if (error.code === "ENOENT") throw new Error("retained evidence source does not exist");
+      throw error;
+    }
+    if (stat.isSymbolicLink()) throw new Error("retained evidence source must not use symlinks");
+  }
+  const real = fs.realpathSync(candidate);
+  if (!isWithin(root, real)) throw new Error("evidence source escapes the project root");
+  const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0);
+  const fd = fs.openSync(real, flags);
+  try {
+    const before = fs.fstatSync(fd);
+    if (!before.isFile()) throw new Error("retained evidence source must be a regular file");
+    if (before.size > MAX_EVIDENCE_SOURCE_BYTES)
+      throw new Error("retained evidence source exceeds the 8 MiB validation limit");
+    if (before.size > options.remainingBytes) {
+      throw new Error("retained evidence sources exceed the aggregate 32 MiB validation limit");
+    }
+    const bytes = Buffer.alloc(before.size);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const count = fs.readSync(fd, bytes, offset, bytes.length - offset, offset);
+      if (count === 0) throw new Error("retained evidence source changed during validation");
+      offset += count;
+    }
+    const after = fs.fstatSync(fd);
+    if (after.size !== before.size || after.mtimeMs !== before.mtimeMs)
+      throw new Error("retained evidence source changed during validation");
+    return {
+      path: real,
+      extension: path.extname(relativePath).toLowerCase(),
+      bytes,
+      sha256: proposalBytesHash(bytes),
+    };
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function resolveEvidenceLocator(source, locator) {
+  const textExtensions = new Set([
+    ".csv",
+    ".html",
+    ".json",
+    ".jsonl",
+    ".md",
+    ".text",
+    ".txt",
+    ".yaml",
+    ".yml",
+  ]);
+  const text = source.bytes.toString("utf8");
+  if (!textExtensions.has(source.extension) && !looksLikeTextSource(source.bytes, text)) {
+    return { status: "unsupported" };
+  }
+  if (text.includes("\uFFFD")) {
+    return { status: "missing", reason: "text evidence source is not valid UTF-8" };
+  }
+  const normalizedLocator = locator.trim();
+  const lineMatch = normalizedLocator.match(
+    /^(?:L|lines?\s*[: ]?)(\d+)(?:\s*[-–]\s*(?:L)?(\d+))?$/i
+  );
+  if (lineMatch) {
+    const lines = text.split(/\r?\n/);
+    const start = Number(lineMatch[1]);
+    const end = Number(lineMatch[2] || lineMatch[1]);
+    if (start < 1 || end < start || end > lines.length)
+      return { status: "missing", reason: "line locator is outside the retained source" };
+    if (end - start + 1 > MAX_LINE_LOCATOR_SPAN) {
+      return {
+        status: "missing",
+        reason: `line locator is too broad; select at most ${MAX_LINE_LOCATOR_SPAN} lines`,
+      };
+    }
+    return boundedLocatorResult(lines.slice(start - 1, end).join("\n"));
+  }
+  const pointer =
+    source.extension === ".json" && normalizedLocator.startsWith("/") ? normalizedLocator : null;
+  if (pointer) {
+    try {
+      let value = JSON.parse(text);
+      for (const part of pointer
+        .slice(1)
+        .split("/")
+        .map((item) => item.replace(/~1/g, "/").replace(/~0/g, "~"))) {
+        if ((isObject(value) || Array.isArray(value)) && Object.hasOwn(value, part))
+          value = value[part];
+        else return { status: "missing", reason: "JSON Pointer does not resolve in the source" };
+      }
+      return boundedLocatorResult(JSON.stringify(value));
+    } catch {
+      return { status: "missing", reason: "JSON locator requires a valid retained JSON source" };
+    }
+  }
+  if (source.extension === ".md" && normalizedLocator.startsWith("#")) {
+    const anchor = normalizedLocator.slice(1).toLowerCase();
+    const lines = text.split(/\r?\n/);
+    const index = lines.findIndex((line) => {
+      const heading = line.match(/^#{1,6}\s+(.+?)\s*#*$/);
+      return heading && markdownAnchor(heading[1]) === anchor;
+    });
+    if (index === -1)
+      return { status: "missing", reason: "Markdown heading locator does not resolve" };
+    const level = lines[index].match(/^#+/)[0].length;
+    let end = index + 1;
+    while (end < lines.length) {
+      const next = lines[end].match(/^(#+)\s+/);
+      if (next && next[1].length <= level) break;
+      end += 1;
+    }
+    return boundedLocatorResult(lines.slice(index, end).join("\n"));
+  }
+  if (!specificLiteralLocator(normalizedLocator)) {
+    return {
+      status: "missing",
+      reason:
+        "literal locator is too broad; use a line range, Markdown heading, JSON Pointer, stable marker, or specific phrase",
+    };
+  }
+  const matchedLines = text
+    .split(/\r?\n/)
+    .filter((line) => line.toLowerCase().includes(normalizedLocator.toLowerCase()));
+  if (matchedLines.length === 0)
+    return { status: "missing", reason: "locator does not occur in the retained source" };
+  if (matchedLines.length > 1) {
+    return {
+      status: "missing",
+      reason: "literal locator is ambiguous; use a unique marker or a structured locator",
+    };
+  }
+  return boundedLocatorResult(matchedLines[0]);
+}
+
+function specificLiteralLocator(locator) {
+  if (/^[a-z]{1,12}-?\d{1,8}$/i.test(locator)) return true;
+  if (/^[a-z][a-z0-9._-]*(?::|#)[a-z0-9][a-z0-9._:-]*$/i.test(locator)) return true;
+  const words = locator.match(/[a-z0-9]+/gi) || [];
+  return locator.length >= 8 && (words.length >= 2 || locator.length >= 12);
+}
+
+function boundedLocatorResult(text) {
+  if (Buffer.byteLength(text, "utf8") > MAX_LOCATED_EVIDENCE_BYTES) {
+    return {
+      status: "missing",
+      reason: "locator resolves to more than 64 KiB; select a narrower evidence location",
+    };
+  }
+  return { status: "resolved", text };
+}
+
+function looksLikeTextSource(bytes, decoded) {
+  if (decoded.includes("\uFFFD") || bytes.includes(0)) return false;
+  if (bytes.length === 0) return true;
+  let controls = 0;
+  for (const byte of bytes) {
+    if (byte < 32 && ![9, 10, 13].includes(byte)) controls += 1;
+  }
+  return controls / bytes.length < 0.01;
+}
+
+function markdownAnchor(value) {
+  return String(value)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-");
+}
+
+function reviewEvidenceFitsSource(sourceText, conclusion, rationale, relevance) {
+  const generic = new Set([
+    "answer",
+    "baseline",
+    "conclusion",
+    "current",
+    "document",
+    "evidence",
+    "observation",
+    "proposal",
+    "rationale",
+    "record",
+    "review",
+    "source",
+    "support",
+  ]);
+  const sourceTokens = reviewTextTokens(sourceText, generic);
+  const answerTokens = new Set([
+    ...reviewTextTokens(conclusion, generic),
+    ...reviewTextTokens(rationale, generic),
+  ]);
+  const relevanceTokens = reviewTextTokens(relevance, generic);
+  const answerOverlap = [...sourceTokens].filter((token) => answerTokens.has(token));
+  const relevanceOverlap = [...sourceTokens].filter((token) => relevanceTokens.has(token));
+  return (
+    answerOverlap.length > 0 &&
+    relevanceOverlap.length > 0 &&
+    new Set([...answerOverlap, ...relevanceOverlap]).size >= 2
+  );
 }
 
 function validateReviewEvidence(value, at, issues, reviewRefs, answer) {
@@ -1014,6 +1378,35 @@ function proposalApprovalSnapshotHash(proposal) {
   return proposalBytesHash(Buffer.from(canonicalStringify(snapshot)));
 }
 
+function deriveApprovalDecision(proposal, { approvedBy, approvedAt } = {}) {
+  if (!isObject(proposal?.review_contract) || !isString(proposal.review_contract.session_id)) {
+    throw new Error("canonical approval decision requires a bound proposal review session");
+  }
+  if (!isString(approvedBy)) {
+    throw new Error("canonical approval decision requires an explicit approver");
+  }
+  if (!ISO_8601.test(approvedAt || "") || Number.isNaN(Date.parse(approvedAt))) {
+    throw new Error("canonical approval decision requires an ISO-8601 UTC timestamp");
+  }
+  const decisionId = `groom-approval:${proposal.review_contract.session_id}`;
+  const decision = {
+    schema_version: 1,
+    decision_id: decisionId,
+    review_session_id: proposal.review_contract.session_id,
+    proposal_hash: proposalContentHash(proposal),
+    proposal_revision: proposal.revision,
+    review_revision: proposal.review?.revision ?? null,
+    review_content_sha256: proposal.review?.content_sha256 ?? null,
+    review_completed_at: proposal.review?.completed_at ?? null,
+    approved_by: approvedBy.trim(),
+    approved_at: approvedAt,
+  };
+  return Object.freeze({
+    id: decisionId,
+    sha256: proposalBytesHash(Buffer.from(canonicalStringify(decision))),
+  });
+}
+
 function validateRevisionTransition(previous, next) {
   const issues = [];
   const previousResult = validateProposal(previous, { path: "$previous" });
@@ -1144,6 +1537,33 @@ function validateApproval(proposal, approval, options = {}) {
     if (!SHA256.test(approval.decision_sha256 || ""))
       issues.push(issue(`${at}.decision_sha256`, "must be a sha256 hash"));
   }
+  if (isObject(proposal.review_contract)) {
+    if (approval.decision_id === null || approval.decision_sha256 === null) {
+      issues.push(
+        issue(at, "current proposal approval requires the canonical Groom approval decision")
+      );
+    } else if (
+      isString(proposal.review_contract.session_id) &&
+      isString(approval.approved_by) &&
+      ISO_8601.test(approval.approved_at || "") &&
+      !Number.isNaN(Date.parse(approval.approved_at))
+    ) {
+      const canonicalDecision = deriveApprovalDecision(proposal, {
+        approvedBy: approval.approved_by,
+        approvedAt: approval.approved_at,
+      });
+      if (approval.decision_id !== canonicalDecision.id) {
+        issues.push(
+          issue(`${at}.decision_id`, "does not match the canonical Groom approval decision")
+        );
+      }
+      if (approval.decision_sha256 !== canonicalDecision.sha256) {
+        issues.push(
+          issue(`${at}.decision_sha256`, "does not match the canonical Groom approval decision")
+        );
+      }
+    }
+  }
   if (
     options.requireDecision &&
     (approval.decision_id === null || approval.decision_sha256 === null)
@@ -1195,6 +1615,12 @@ function buildApproval(
     throw new Error("decisionId must be a non-empty decision identity");
   if (decisionSha256 !== null && !SHA256.test(decisionSha256))
     throw new Error("decisionSha256 must be a sha256 hash");
+  if (isObject(proposal.review_contract)) {
+    const canonicalDecision = deriveApprovalDecision(proposal, { approvedBy, approvedAt });
+    if (decisionId !== canonicalDecision.id || decisionSha256 !== canonicalDecision.sha256) {
+      throw new Error("current proposal approval must use the canonical Groom approval decision");
+    }
+  }
   return {
     schema_version: 1,
     kind: "proposal-approval",
@@ -1246,7 +1672,15 @@ function readApprovedProposal(filePath, options = {}) {
   const source = readProposal(filePath, {
     projectRoot: options.projectRoot,
     expectedSlug: options.expectedSlug,
+    allowedHistoricalLineage: options.allowedHistoricalLineage,
+    requireCurrentPrototypeIdentity: options.requireCurrentPrototypeIdentity,
+    requireExperienceClassification: options.requireExperienceClassification,
   });
+  if (!source.reviewContractBound) {
+    throw new Error(
+      "approved canonical proposal uses a legacy-unbound-review-contract; return to pm:groom for migration and re-review"
+    );
+  }
   if (
     source.proposal.lifecycle !== "approved" &&
     !POST_APPROVAL_LIFECYCLES.has(source.proposal.lifecycle)
@@ -1322,6 +1756,9 @@ function readProposal(filePath, options = {}) {
       path: absolute,
       expectedSlug: options.expectedSlug,
       projectRoot: options.projectRoot,
+      allowedHistoricalLineage: options.allowedHistoricalLineage,
+      requireCurrentPrototypeIdentity: options.requireCurrentPrototypeIdentity,
+      requireExperienceClassification: options.requireExperienceClassification,
     });
     if (!result.ok)
       throw new Error(
@@ -1488,9 +1925,11 @@ module.exports = {
   canonicalStringify,
   proposalContentHash,
   proposalApprovalSnapshotHash,
+  deriveApprovalDecision,
   proposalReviewCoverage,
   proposalBytesHash,
   validateProposal,
+  validateCurrentProposalEvidence,
   validateApproval,
   buildApproval,
   validateRevisionTransition,

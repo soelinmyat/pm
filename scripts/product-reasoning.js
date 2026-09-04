@@ -11,6 +11,7 @@ const { readApprovedProposal } = require("./lib/proposal-schema");
 const {
   canonicalReaderPaths,
   lineagePathMatches,
+  proposalProjectRoot,
   verifyArtifactBindings,
   verifyCanonicalReaderMarker,
   verifyDecisionBriefBindings,
@@ -253,7 +254,7 @@ function promote(root, request, options = {}) {
   if (request.target_ref !== canonicalTarget)
     throw new Error(`promotion target_ref must equal ${canonicalTarget}`);
   const approved = readApprovedProposal(path.resolve(root, request.target_ref), {
-    projectRoot: root,
+    projectRoot: proposalProjectRoot(root),
     expectedSlug: brief.slug,
     expectedDecision: request.approval_decision,
   });

@@ -14,7 +14,7 @@ Deliver an approved, machine-consumable product contract to RFC/Dev and perform 
 
 ## How
 
-Run `proposal-check.js` in approved mode and verify RFC/Dev can read scope, non-goals, acceptance criteria, design requirements, edge cases, evidence, and open decisions directly from JSON. Verify `design_context` contains the approved design requirements; the prototype path plus its recomputed SHA-256 identity (or an explicit `null` when no prototype was approved); every critical state; and the visual invariants that implementation must not trade away. This canonical field—not a hand-authored RFC sidecar—is the design handoff. The generated backlog Markdown remains a compatibility projection.
+Run `proposal-check.js --approved --projections` with the session decision ID/hash and verify RFC/Dev can read scope, non-goals, acceptance criteria, design requirements, edge cases, evidence, and open decisions directly from JSON. The `--approved` mode is mandatory for handoff; ordinary proposal inspection is intentionally compatibility-readable and is not approval certification. Verify `design_context` contains the approved design requirements, explicit UI-impact classification, every critical state, and the applicable experience/visual invariants. Its prototype is `null` for nonvisual work, a recomputed single-file binding, or a recomputed multi-file tree manifest; an `index.html`-only legacy binding cannot enter a current handoff. This canonical field—not a hand-authored RFC sidecar—is the design handoff. The generated backlog Markdown remains a compatibility projection.
 
 Before completing handoff, commit the approved canonical proposal, approval audit, and
 current projection together on the session's helper-owned Groom artifact branch. Leave
@@ -28,7 +28,7 @@ For Linear or another tracker, require explicit `tracker_updates` authority and 
 
 ## Done-when
 
-The approved execution contract, including any UI design requirements, source-bound prototype identity, critical states, and visual invariants, is independently readable and committed on the clean
+The approved execution contract, including UI-impact classification, experience requirements, complete source-bound prototype identity, critical states, and applicable invariants, is independently readable and committed on the clean
 helper-owned Groom branch, projection status is current, and every external effect is
 either verified by receipt or explicitly skipped.
 

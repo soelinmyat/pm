@@ -20,13 +20,14 @@
 {{WIREFRAME_BASE_CSS}}
 </style>
 
-<!-- For mockup-tier wireframes only: project Tailwind config + fonts. -->
+<!-- For mockup-tier wireframes only: inline the smallest required project
+     token/font CSS here. Never load Tailwind, fonts, scripts, or styles from
+     a CDN or adjacent file; single-file prototype identity covers only this
+     document's bytes. -->
 <!-- BEGIN:MOCKUP_HEAD
-<script src="https://cdn.tailwindcss.com"></script>
-<script>
-  tailwind.config = { theme: { extend: { {{PROJECT_THEME_TOKENS}} } } };
-</script>
-<link href="{{PROJECT_FONTS}}" rel="stylesheet">
+<style>
+{{PROJECT_TOKEN_AND_FONT_CSS}}
+</style>
 END:MOCKUP_HEAD -->
 
 <!-- Wireframe metadata. Read by the proposal renderer to auto-populate

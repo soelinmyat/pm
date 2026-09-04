@@ -284,6 +284,7 @@ function routeCommand(options) {
     rfcRepoRoot = findGitRoot(path.dirname(rfcSidecarPath));
     const validation = validateRfcSidecar(rfcSidecar, rfcSidecarPath, {
       repoRoot: rfcRepoRoot,
+      requireCurrentDesignContext: true,
     });
     if (!validation.ok) {
       throw cliError(
@@ -310,6 +311,7 @@ function routeCommand(options) {
           const binding = validateRfcSidecar(rfcSidecar, rfcSidecarPath, {
             expectedSlug: session.slug,
             repoRoot: rfcRepoRoot,
+            requireCurrentDesignContext: true,
           });
           if (!binding.ok) {
             throw new Error(

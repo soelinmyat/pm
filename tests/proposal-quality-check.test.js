@@ -60,6 +60,43 @@ test("quality gate requires a durable design context for downstream handoff", ()
   assert.equal(result.minimums.design_context.passed, false);
 });
 
+test("quality gate accepts honest nonvisual experience invariants without visual fiction", () => {
+  const proposal = fixture("strong-v1.json");
+  proposal.design_requirements = [
+    {
+      id: "design:cli-errors",
+      requirement:
+        "Return stable CLI exit codes with an actionable explanation for invalid and unavailable states.",
+    },
+  ];
+  proposal.design_context = {
+    design_requirements: proposal.design_requirements.map((row) => row.requirement),
+    ui_impact: false,
+    prototype: null,
+    critical_states: ["success", "invalid input", "service unavailable"],
+    experience_invariants: [
+      "Every failure keeps a stable nonzero exit code and names the caller's next action.",
+    ],
+    visual_invariants: [],
+  };
+  const validation = validateProposal(proposal, { requireExperienceClassification: true });
+  assert.equal(validation.ok, true, JSON.stringify(validation.issues));
+  const result = scoreProposal(proposal);
+  assert.equal(result.minimums.design_context.passed, true, result.minimums.design_context.reason);
+  assert.equal(result.quality_passed, true);
+});
+
+test("quality gate rejects every index.html multi-file binding without a tree manifest", () => {
+  const proposal = fixture("strong-v1.json");
+  proposal.design_context.prototype = {
+    path: "index.html",
+    sha256: `sha256:${"a".repeat(64)}`,
+  };
+  const result = scoreProposal(proposal);
+  assert.equal(result.minimums.design_context.passed, false);
+  assert.match(result.minimums.design_context.reason, /complete prototype identity/i);
+});
+
 test("quality gate rejects reviewed proposals with partial or unbound tier review coverage", () => {
   const proposal = fixture("strong-v1.json");
   proposal.lifecycle = "reviewed";

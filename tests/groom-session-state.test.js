@@ -21,7 +21,11 @@ const {
   reviseSession,
   validateSession,
 } = require("../scripts/lib/groom-session-schema");
-const { reviewOutcome, reviewRow } = require("./helpers/groom-review-fixture.js");
+const {
+  materializeProposalSources,
+  reviewOutcome,
+  reviewRow,
+} = require("./helpers/groom-review-fixture.js");
 
 test("Groom tiers route proportionate depth through one approval contract", () => {
   const repo = makeRepo();
@@ -354,6 +358,7 @@ test("approval audit binds approved bytes after a lifecycle-only transition", ()
       }
     );
     bindSessionReviewContractObject(session, proposal, { complete: true });
+    materializeProposalSources(artifact, proposal);
     proposal.review.content_sha256 = proposalContentHash(proposal);
     fs.writeFileSync(proposalPath, `${JSON.stringify(proposal, null, 2)}\n`);
     session = advanceTo(session, "draft");
@@ -361,7 +366,23 @@ test("approval audit binds approved bytes after a lifecycle-only transition", ()
       session,
       passed(session, { proposal: proposalIdentity(proposalPath, 1) })
     );
+
+    const sourcePath = path.join(artifact, proposal.source.lineage[0].path);
+    const sourceBytes = fs.readFileSync(sourcePath);
+    fs.rmSync(sourcePath);
+    assert.throws(
+      () => passCurrentReview(session, proposalIdentity(proposalPath, 1)),
+      /retained evidence source does not exist/i
+    );
+    fs.writeFileSync(sourcePath, sourceBytes);
     session = passCurrentReview(session, proposalIdentity(proposalPath, 1));
+
+    fs.writeFileSync(sourcePath, "drifted after review\n");
+    assert.throws(
+      () => approveSession(session, { approvedBy: "product-owner" }),
+      /does not match the retained source bytes/i
+    );
+    fs.writeFileSync(sourcePath, sourceBytes);
     session = approveSession(
       session,
       { approvedBy: "product-owner" },
@@ -378,6 +399,10 @@ test("approval audit binds approved bytes after a lifecycle-only transition", ()
     proposal.lifecycle = "approved";
     fs.writeFileSync(proposalPath, `${JSON.stringify(proposal, null, 2)}\n`);
     assert.deepEqual(approveSession(session, { approvedBy: "product-owner" }), session);
+
+    fs.rmSync(sourcePath);
+    assert.throws(() => buildApprovalAudit(session), /retained evidence source does not exist/i);
+    fs.writeFileSync(sourcePath, sourceBytes);
     const audit = buildApprovalAudit(session);
     assert.equal(audit.kind, "proposal-approval");
     assert.equal(audit.content_sha256, session.approval.proposal_hash);
@@ -389,7 +414,7 @@ test("approval audit binds approved bytes after a lifecycle-only transition", ()
       `${JSON.stringify(audit, null, 2)}\n`
     );
     const approved = readApprovedProposal(proposalPath, {
-      projectRoot: repo,
+      projectRoot: artifact,
       expectedDecision: {
         id: session.approval.decision_id,
         sha256: session.approval.decision_sha256,
@@ -462,6 +487,7 @@ test("full and agent sessions reject one-row proposal review coverage before pas
       bindSessionReviewContract(session, proposalPath, { complete: false });
       const oneRow = JSON.parse(fs.readFileSync(proposalPath, "utf8"));
       oneRow.question_reviews = [reviewRow(session.routing.review_questions[0])];
+      materializeProposalSources(artifact, oneRow);
       fs.writeFileSync(proposalPath, `${JSON.stringify(oneRow)}\n`);
       const proposal = proposalIdentity(proposalPath, 1);
       session = recordResult(
@@ -572,10 +598,27 @@ function proposalIdentity(jsonPath, revision) {
 function bindSessionReviewContract(session, proposalPath, options = {}) {
   const proposal = JSON.parse(fs.readFileSync(proposalPath, "utf8"));
   bindSessionReviewContractObject(session, proposal, options);
+  const projectRoot = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+    cwd: path.dirname(proposalPath),
+    encoding: "utf8",
+  }).trim();
+  materializeProposalSources(projectRoot, proposal);
   fs.writeFileSync(proposalPath, `${JSON.stringify(proposal)}\n`);
 }
 
 function bindSessionReviewContractObject(session, proposal, { complete = false } = {}) {
+  if (!proposal.design_context) {
+    proposal.design_context = {
+      design_requirements: ["Keep the proposal decision state understandable to its reviewer."],
+      ui_impact: false,
+      prototype: null,
+      critical_states: ["draft", "reviewed", "approved"],
+      experience_invariants: [
+        "Every lifecycle transition preserves a clear current decision state for the reviewer.",
+      ],
+      visual_invariants: [],
+    };
+  }
   if (!Array.isArray(proposal.evidence)) {
     proposal.evidence = [
       {
@@ -591,6 +634,16 @@ function bindSessionReviewContractObject(session, proposal, { complete = false }
     ...(proposal.source || {}),
     kind: "groom-session",
     session_id: session.run_id,
+    lineage:
+      Array.isArray(proposal.source?.lineage) && proposal.source.lineage.length
+        ? proposal.source.lineage
+        : [
+            {
+              id: "source:baseline",
+              path: "pm/research/baseline.md",
+              sha256: `sha256:${"0".repeat(64)}`,
+            },
+          ],
   };
   proposal.review_contract = {
     session_id: session.run_id,

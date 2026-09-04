@@ -24,8 +24,13 @@ const {
 } = require("../scripts/lib/rfc-session-schema.js");
 const {
   buildApproval: buildProposalApproval,
+  deriveApprovalDecision,
   proposalContentHash,
 } = require("../scripts/lib/proposal-schema.js");
+const {
+  bindCurrentReviewContract,
+  materializeProposalSources,
+} = require("./helpers/groom-review-fixture.js");
 const execFileAsync = promisify(execFile);
 
 function git(cwd, ...args) {
@@ -66,6 +71,9 @@ function writeApprovedProposal(pmDir, slug) {
   );
   proposal.id = `proposal:${slug}`;
   proposal.slug = slug;
+  proposal.source.session_id = `groom_${slug.replace(/-/g, "_")}`;
+  bindCurrentReviewContract(proposal, "full");
+  materializeProposalSources(pmDir, proposal);
   proposal.lifecycle = "approved";
   proposal.review = {
     status: "passed",
@@ -76,11 +84,15 @@ function writeApprovedProposal(pmDir, slug) {
   const proposalPath = path.join(pmDir, "backlog", "proposals", `${slug}.json`);
   fs.mkdirSync(path.dirname(proposalPath), { recursive: true });
   fs.writeFileSync(proposalPath, `${JSON.stringify(proposal, null, 2)}\n`);
-  const approval = buildProposalApproval(proposal, fs.readFileSync(proposalPath), {
+  const approvalInput = {
     approvedBy: "user:test-owner",
     approvedAt: "2026-08-09T00:01:00.000Z",
-    decisionId: `groom-approval:groom_${slug}`,
-    decisionSha256: `sha256:${"5".repeat(64)}`,
+  };
+  const decision = deriveApprovalDecision(proposal, approvalInput);
+  const approval = buildProposalApproval(proposal, fs.readFileSync(proposalPath), {
+    ...approvalInput,
+    decisionId: decision.id,
+    decisionSha256: decision.sha256,
   });
   fs.writeFileSync(
     proposalPath.replace(/\.json$/, ".approval.json"),
@@ -125,8 +137,8 @@ test("RFC preparation inherits the committed proposal from its owned Groom workt
     slug: "handoff",
     kind: "groom",
   });
-  const proposal = writeApprovedProposal(groom.pm_dir, "handoff");
-  git(groom.worktree, "add", path.relative(groom.worktree, path.dirname(proposal)));
+  writeApprovedProposal(groom.pm_dir, "handoff");
+  git(groom.worktree, "add", "--all");
   git(groom.worktree, "commit", "-m", "approve handoff proposal");
   const groomCommit = git(groom.worktree, "rev-parse", "HEAD");
 
@@ -149,8 +161,8 @@ test("RFC handoff refuses uncommitted Groom artifact bytes", (t) => {
     slug: "dirty-handoff",
     kind: "groom",
   });
-  const proposal = writeApprovedProposal(groom.pm_dir, "dirty-handoff");
-  git(groom.worktree, "add", path.relative(groom.worktree, path.dirname(proposal)));
+  writeApprovedProposal(groom.pm_dir, "dirty-handoff");
+  git(groom.worktree, "add", "--all");
   git(groom.worktree, "commit", "-m", "approve dirty handoff proposal");
   fs.writeFileSync(path.join(groom.worktree, "uncommitted.md"), "not committed\n");
 
@@ -202,8 +214,8 @@ test("an unused RFC worktree fast-forwards when Groom approval arrives later", (
     slug: "late-approval",
     kind: "groom",
   });
-  const proposal = writeApprovedProposal(groom.pm_dir, "late-approval");
-  git(groom.worktree, "add", path.relative(groom.worktree, path.dirname(proposal)));
+  writeApprovedProposal(groom.pm_dir, "late-approval");
+  git(groom.worktree, "add", "--all");
   git(groom.worktree, "commit", "-m", "approve proposal after RFC preparation");
 
   const resumed = prepareArtifactWorktree({

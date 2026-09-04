@@ -166,7 +166,7 @@ The sidecar is a projection of the render, not a second source of truth: it carr
 | `slug`, `title`, `size` | RFC identity — `slug` equals the RFC slug; `size` is canonical uppercase XS/S/M/L/XL |
 | `issues[]` | Executable work units: `{ num, title, size, depends_on[], owns[], acceptance_criteria[], approach, verification_commands[], test_hooks[] }` — mirrors the `.issue-detail` cards and is sufficient to build the Dev work-unit DAG without reparsing HTML |
 | `test_strategy` | `{ test_levels, new_infrastructure, regression_surface, verification_commands, open_questions }` — mirrors the `.test-strategy-block` bodies |
-| `design_context` | Closed approved design contract: `{ design_requirements[], prototype, critical_states[], visual_invariants[] }`. It is required when canonical RFC session intake carries it and must match that value exactly. Each array is non-empty and unique. `prototype` is either `null` or `{ path, sha256 }`; validation with repository context recomputes the SHA-256 from the named file. RFC and Dev preserve it verbatim. |
+| `design_context` | Closed approved experience contract with design requirements, explicit `ui_impact`, prototype identity, critical states, `experience_invariants`, and conditional `visual_invariants`. Nonvisual work uses `prototype: null` and an empty visual array. Multi-file prototypes add a complete tree manifest. RFC and Dev preserve and recompute it verbatim. |
 
 **Sidecar↔HTML binding.** The HTML root carries `data-sidecar-hash="sha256:{hash-of-json-bytes}"`. This ties the render to its sidecar so drift is detectable. `scripts/rfc-sidecar-check.js --html` verifies the attribute matches the sidecar bytes; `--slug` verifies `slug`.
 

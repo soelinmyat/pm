@@ -995,6 +995,8 @@ function validateResult(session, result, options = {}) {
       }
     }
     validatePhaseEvidence(session, result, options, errors);
+  } else if (session.phase === "qa" && new Set(["failed", "blocked"]).has(result.status)) {
+    validateQaEvidence(session, result, errors);
   }
 
   if (result.commit) validateCommit(session, result.commit, options, errors);
@@ -1045,15 +1047,36 @@ function evidenceArtifact(result, kind, errors) {
 }
 
 function validateQaEvidence(session, result, errors, basePath = "$.evidence") {
+  const resultStatus = result.status || "passed";
   const records = Array.isArray(result.evidence) ? result.evidence : [];
-  const passingTests = records.filter(
+  const checkedReports = records.filter(
     (record) => record?.kind === "test" && record.exit_code === 0
   );
-  if (passingTests.length !== 1) {
-    errors.push(issue(basePath, "QA requires exactly one passing test evidence record"));
+  if (checkedReports.length !== 1) {
+    errors.push(issue(basePath, "QA requires exactly one successful report-check evidence record"));
     return;
   }
-  const reportPath = passingTests[0].artifact;
+  if (
+    typeof checkedReports[0].command !== "string" ||
+    !/qa-report-check(?:\.js)?(?:\s|$)/i.test(checkedReports[0].command)
+  ) {
+    errors.push(
+      issue(basePath, "QA test evidence must record the executed qa-report-check command")
+    );
+  }
+  if (
+    new Set(["failed", "blocked"]).has(resultStatus) &&
+    !/--allow-nonpassing(?:\s|$)/.test(checkedReports[0].command)
+  ) {
+    errors.push(
+      issue(basePath, "failed or blocked QA evidence must record --allow-nonpassing validation")
+    );
+  }
+  if (typeof result.commit !== "string" || !result.commit) {
+    errors.push(issue(basePath, "every QA verdict requires a commit-bound report"));
+    return;
+  }
+  const reportPath = checkedReports[0].artifact;
   if (typeof reportPath !== "string" || !path.isAbsolute(reportPath)) {
     errors.push(issue(basePath, "QA test evidence requires an absolute report artifact path"));
     return;
@@ -1062,10 +1085,21 @@ function validateQaEvidence(session, result, errors, basePath = "$.evidence") {
     session,
     reportPath,
     expectedCommit: result.commit,
-    requirePassing: true,
+    requirePassing: resultStatus === "passed",
   });
   for (const reportIssue of checked.issues) {
     errors.push(issue(basePath, `QA report ${reportIssue.path}: ${reportIssue.message}`));
+  }
+  const expectedVerdicts =
+    resultStatus === "passed"
+      ? new Set(["pass", "pass-with-concerns"])
+      : resultStatus === "blocked"
+        ? new Set(["blocked"])
+        : new Set(["fail"]);
+  if (!expectedVerdicts.has(checked.verdict)) {
+    errors.push(
+      issue(basePath, `QA report verdict ${checked.verdict} contradicts ${resultStatus}`)
+    );
   }
 }
 
@@ -1691,7 +1725,11 @@ function applyRouting(session, facts, options = {}) {
   if (typeof facts.proposal_path === "string" && facts.proposal_path.trim()) {
     const proposalPath = fs.realpathSync(path.resolve(facts.proposal_path));
     const projectRoot = fs.realpathSync(findGitRoot(path.dirname(proposalPath)));
-    const canonical = readApprovedProposal(proposalPath, { projectRoot });
+    const canonical = readApprovedProposal(proposalPath, {
+      projectRoot,
+      requireCurrentPrototypeIdentity: true,
+      requireExperienceClassification: true,
+    });
     if (!canonical.contract.design_context) {
       throw new Error(
         "approved canonical proposal lacks durable design_context; return to pm:groom to recertify design intent"
@@ -1737,6 +1775,21 @@ function applyRouting(session, facts, options = {}) {
       decision_sha256: canonical.approval.decision_sha256,
     };
   }
+  const designContexts = [
+    proposalDesignContext,
+    ...(Array.isArray(effectiveFacts.work_units)
+      ? effectiveFacts.work_units.map((unit) => unit?.contract?.design_context)
+      : []),
+  ].filter(Boolean);
+  if (designContexts.some((context) => context.ui_impact === true)) {
+    effectiveFacts = {
+      ...effectiveFacts,
+      risk: {
+        ...(isObject(effectiveFacts.risk) ? effectiveFacts.risk : {}),
+        ui: Math.max(effectiveFacts.risk?.ui || 0, 1),
+      },
+    };
+  }
   const route = routeDevWork(effectiveFacts);
   const next = structuredClone(session);
   next.task.reference = effectiveFacts.reference ?? next.task.reference;
@@ -1775,6 +1828,8 @@ function applyRouting(session, facts, options = {}) {
     }
     validateWorkUnits(workUnits, {
       repoRoot: contractPath ? findGitRoot(path.dirname(contractPath)) : null,
+      requireCurrentPrototypeIdentity: true,
+      requireExperienceClassification: true,
     });
     next.task.work_units = workUnits;
   }
@@ -2328,6 +2383,8 @@ function verifyProposalIdentity(identity, expectedDesignContext, workUnits = [])
   try {
     trusted = readApprovedProposal(identity.path, {
       projectRoot,
+      requireCurrentPrototypeIdentity: true,
+      requireExperienceClassification: true,
       expectedDecision:
         identity.decision_id === null
           ? undefined

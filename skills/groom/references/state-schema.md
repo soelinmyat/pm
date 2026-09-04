@@ -142,9 +142,9 @@ For current schema-v2 sessions, `routing.review_questions` must exactly match th
 ## Approval chain
 
 1. Review certifies semantic `content_hash` plus `revision`.
-2. The user explicitly approves; `approve` first recomputes any bound prototype from current repository bytes, then records an immutable session decision ID/hash against that reviewed identity.
+2. The user explicitly approves; `approve` first recomputes any bound single-file or multi-file prototype identity from current repository bytes, then records an immutable session decision ID/hash against that reviewed identity.
 3. Canonical proposal lifecycle changes to `approved` without substantive content/revision change.
-4. `approval-audit` independently recomputes any bound prototype again, then binds the session decision and exact approved JSON bytes.
+4. `approval-audit` independently recomputes the complete bound prototype identity again, then binds the session decision and exact approved JSON bytes.
 5. `proposal-check.js` verifies proposal, audit, and generated projections before handoff.
 
 Each crash window fails closed. A substantive revision clears review and approval and routes to the requested earlier phase.

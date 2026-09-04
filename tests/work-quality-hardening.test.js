@@ -63,6 +63,47 @@ test("UI contracts preserve approved design intent and first-class interaction c
     assert.match(checker, new RegExp(`["]${state}["]`));
 });
 
+test("shared writing guidance defers to the current prototype and proposal contracts", () => {
+  const writing = read("references/writing.md");
+  assert.match(writing, /owning skill's artifact contract/i);
+  assert.match(writing, /canonical\s+JSON with generated HTML and Markdown projections/i);
+  assert.match(writing, /prototype-format\.md/);
+  assert.match(writing, /single-file wireframe is self-contained/i);
+  assert.match(writing, /multi-file wireframe.*complete.*tree manifest/is);
+  assert.doesNotMatch(writing, /Never HTML\s+for proposals/i);
+  assert.doesNotMatch(writing, /Clear labels, flow arrows/i);
+  assert.doesNotMatch(writing, /metadata lives in frontmatter of the parent markdown/i);
+});
+
+test("designer persona honors the caller contract without manufacturing a finding quota", () => {
+  const persona = read("agents/designer.md");
+  const primary = read("skills/dev/references/design-critique-reviewer.md");
+  assert.match(persona, /dispatch(?:ing)? (?:brief|contract).*output/is);
+  assert.match(persona, /structured JSON/i);
+  assert.match(persona, /applicable states/i);
+  assert.match(persona, /dispatch\/scope.*capture matrix/is);
+  assert.match(persona, /evidence gap.*unknown/is);
+  assert.match(persona, /0-3 specific positives/i);
+  assert.doesNotMatch(persona, /For each interactive element, check:/i);
+  assert.doesNotMatch(persona, /Check across 3 viewports:/i);
+  assert.doesNotMatch(persona, /8-10 findings/i);
+  assert.match(persona, /zero findings/i);
+  assert.match(primary, /Return only the Primary `result` object/i);
+});
+
+test("prototype fidelity reuses any usable visual system without inventing one", () => {
+  const prototype = read("skills/groom/references/prototype-format.md");
+  assert.match(prototype, /usable existing visual system/i);
+  assert.match(
+    prototype,
+    /Tailwind theme, CSS variables\/tokens\/theme, or established styled component primitives/i
+  );
+  assert.match(prototype, /reproduce the relevant shipped pattern faithfully and offline/i);
+  assert.match(prototype, /never invent missing tokens/i);
+  assert.match(prototype, /component-primitives/);
+  assert.doesNotMatch(prototype, /tailwind\.config\.\*.*AND token files.*mockup/i);
+});
+
 test("Product proposal quality has non-compensatory substantive minimums", () => {
   for (const field of ["alternatives", "risks", "design_requirements"]) {
     const proposal = fixture("strong-v1.json");

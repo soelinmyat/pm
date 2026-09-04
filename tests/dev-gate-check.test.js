@@ -693,8 +693,14 @@ test("delivery rejects legacy null QA evidence and requires the canonical passin
       "qa",
       "report.json"
     );
-    fs.mkdirSync(path.dirname(reportPath), { recursive: true });
-    fs.writeFileSync(reportPath, `${JSON.stringify(passingQaReport(currentCommit), null, 2)}\n`);
+    const outputPath = path.join(path.dirname(reportPath), "evidence", "run-1.json");
+    const output = passingQaOutput(currentCommit);
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+    fs.writeFileSync(outputPath, output);
+    fs.writeFileSync(
+      reportPath,
+      `${JSON.stringify(passingQaReport(currentCommit, outputPath, output), null, 2)}\n`
+    );
     canonicalSession.evidence.qa.records = [
       {
         kind: "test",
@@ -705,6 +711,24 @@ test("delivery rejects legacy null QA evidence and requires the canonical passin
     ];
     const valid = checkGateManifest(gates, options);
     assert.equal(valid.ok, true, JSON.stringify(valid.issues));
+
+    canonicalSession.evidence.qa.records[0].command = null;
+    const nullCommand = checkGateManifest(gates, options);
+    assert.equal(nullCommand.ok, false);
+    assert.match(JSON.stringify(nullCommand.issues), /executed qa-report-check command/);
+    canonicalSession.evidence.qa.records[0].command = "node scripts/qa-report-check.js";
+
+    const forged = passingQaReport(currentCommit, outputPath, output);
+    delete forged.receipts;
+    delete forged.runs[0].receipt_ids;
+    fs.writeFileSync(reportPath, `${JSON.stringify(forged, null, 2)}\n`);
+    const vacuous = checkGateManifest(gates, options);
+    assert.equal(vacuous.ok, false);
+    assert.match(JSON.stringify(vacuous.issues), /executed evidence receipt|receipt_ids/);
+    fs.writeFileSync(
+      reportPath,
+      `${JSON.stringify(passingQaReport(currentCommit, outputPath, output), null, 2)}\n`
+    );
 
     canonicalSession.evidence.qa = {
       commit: "c".repeat(40),
@@ -731,7 +755,10 @@ test("delivery rejects legacy null QA evidence and requires the canonical passin
     );
     canonicalSession.evidence.qa.verification_records[0].artifact = reportPath;
 
-    const staleReport = passingQaReport("b".repeat(40));
+    const staleCommit = "b".repeat(40);
+    const staleOutput = passingQaOutput(staleCommit);
+    fs.writeFileSync(outputPath, staleOutput);
+    const staleReport = passingQaReport(staleCommit, outputPath, staleOutput);
     fs.writeFileSync(reportPath, `${JSON.stringify(staleReport, null, 2)}\n`);
     const stale = checkGateManifest(gates, options);
     assert.equal(stale.ok, false);
@@ -741,9 +768,9 @@ test("delivery rejects legacy null QA evidence and requires the canonical passin
   }
 });
 
-function passingQaReport(commit) {
+function passingQaReport(commit, outputPath, output = passingQaOutput(commit)) {
   return {
-    schema_version: 1,
+    schema_version: 2,
     commit,
     verdict: "pass",
     health_score: 100,
@@ -761,19 +788,65 @@ function passingQaReport(commit) {
       "performance",
       "accessibility",
     ].map((category) => ({ category, score: 100 })),
+    coverage: { acceptance_criteria: [], critical_states: [] },
+    receipts: [
+      {
+        id: "qa-run-1-tests",
+        run: 1,
+        kind: "deterministic",
+        commit,
+        command: "node --test tests/acceptance.test.js",
+        exit_code: 0,
+        assertions: { passed: 12, total: 12 },
+        output: {
+          path: outputPath,
+          sha256: crypto.createHash("sha256").update(output).digest("hex"),
+          bytes: output.length,
+        },
+        screenshot_ids: [],
+      },
+    ],
     screenshots: [],
     runs: [
       {
         run: 1,
         kind: "initial",
+        commit,
         checked_at: "2026-09-04T01:00:00.000Z",
         verdict: "pass",
         health_score: 100,
         assertions: { passed: 12, total: 12 },
         finding_ids: [],
+        receipt_ids: ["qa-run-1-tests"],
       },
     ],
   };
+}
+
+function passingQaOutput(commit) {
+  return Buffer.from(
+    `${JSON.stringify(
+      {
+        schema_version: 1,
+        assurance: "workflow-attested-non-cryptographic",
+        receipt_id: "qa-run-1-tests",
+        commit,
+        kind: "deterministic",
+        command: "node --test tests/acceptance.test.js",
+        exit_code: 0,
+        assertions: Array.from({ length: 12 }, (_, index) => ({
+          id: `acceptance-${index + 1}`,
+          status: "passed",
+          probe: `acceptance assertion ${index + 1}`,
+          observed: "expected state observed",
+          expected: "expected state observed",
+          finding_ids: [],
+        })),
+      },
+      null,
+      2
+    )}\n`
+  );
 }
 
 test("review render evidence rejects forged retained-render boundaries", () => {

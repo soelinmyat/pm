@@ -37,6 +37,7 @@ const {
 } = require("../scripts/lib/dev-session-schema");
 const {
   buildApproval: buildProposalApproval,
+  deriveApprovalDecision,
   proposalContentHash,
 } = require("../scripts/lib/proposal-schema");
 const {
@@ -46,6 +47,10 @@ const {
   planEffect,
   reconcileEffect,
 } = require("../scripts/lib/release-transaction-schema");
+const {
+  bindCurrentReviewContract,
+  materializeProposalSources,
+} = require("./helpers/groom-review-fixture.js");
 
 test("decision version advances are explicit, audited, and compare-and-swap guarded", () => {
   const repo = makeRepo();
@@ -145,11 +150,37 @@ test("Dev intake derives execution scope from approved canonical proposal and de
     const approvalPath = proposalPath.replace(/\.json$/, ".approval.json");
     fs.mkdirSync(path.dirname(proposalPath), { recursive: true });
     fs.writeFileSync(proposalPath, `${JSON.stringify(proposal, null, 2)}\n`);
-    const approval = buildProposalApproval(proposal, fs.readFileSync(proposalPath), {
+    const legacyApproval = buildProposalApproval(proposal, fs.readFileSync(proposalPath), {
       approvedBy: "user:owner",
       approvedAt: "2026-07-14T03:00:00.000Z",
       decisionId: "groom-approval:groom_test",
       decisionSha256: `sha256:${"6".repeat(64)}`,
+    });
+    fs.writeFileSync(approvalPath, `${JSON.stringify(legacyApproval, null, 2)}\n`);
+    assert.throws(
+      () =>
+        applyRouting(createSession({ slug: proposal.slug, sourceDir: repo.root }), {
+          kind: "proposal",
+          risk: {},
+          proposal_path: proposalPath,
+        }),
+      /legacy-unbound-review-contract/
+    );
+
+    bindCurrentReviewContract(proposal);
+    materializeProposalSources(repo.root, proposal);
+    proposal.review.content_sha256 = proposalContentHash(proposal);
+    fs.writeFileSync(proposalPath, `${JSON.stringify(proposal, null, 2)}\n`);
+    const approvedAt = "2026-07-14T03:00:00.000Z";
+    const decision = deriveApprovalDecision(proposal, {
+      approvedBy: "user:owner",
+      approvedAt,
+    });
+    const approval = buildProposalApproval(proposal, fs.readFileSync(proposalPath), {
+      approvedBy: "user:owner",
+      approvedAt,
+      decisionId: decision.id,
+      decisionSha256: decision.sha256,
     });
     fs.writeFileSync(approvalPath, `${JSON.stringify(approval, null, 2)}\n`);
     proposal.lifecycle = "planned";

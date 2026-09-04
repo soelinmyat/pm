@@ -268,4 +268,5 @@ module.exports = {
   reviewQuestionIdsForTier,
   reviewQuestionsForTier,
   reviewTextIsSubstantive,
+  reviewTextTokens,
 };

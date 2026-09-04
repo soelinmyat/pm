@@ -31,10 +31,12 @@ const {
 } = require("./workflow-runtime/result-envelope.js");
 const {
   buildApproval,
+  deriveApprovalDecision,
   proposalApprovalSnapshotHash,
   proposalBytesHash,
   proposalContentHash,
   proposalReviewCoverage,
+  validateCurrentProposalEvidence,
 } = require("./proposal-schema.js");
 
 const PHASES = [
@@ -407,16 +409,26 @@ function approveSession(session, input, options = {}) {
   const next = structuredClone(session);
   const now = options.now || new Date().toISOString();
   const current = proposalIdentityFromPath(session.proposal.json_path, proposalRepoRoot(session));
-  const decisionId = `groom-approval:${session.run_id}`;
-  const decisionSha256 = hashResult({
-    schema_version: 1,
-    decision_id: decisionId,
-    proposal_hash: session.proposal.content_hash,
-    proposal_revision: session.proposal.revision,
-    proposal_snapshot_sha256: current.approval_snapshot_sha256,
-    approved_by: input.approvedBy.trim(),
-    approved_at: now,
-  });
+  const currentProposal = JSON.parse(fs.readFileSync(session.proposal.json_path, "utf8"));
+  const decision = currentProposal.review_contract
+    ? deriveApprovalDecision(currentProposal, {
+        approvedBy: input.approvedBy,
+        approvedAt: now,
+      })
+    : {
+        id: `groom-approval:${session.run_id}`,
+        sha256: hashResult({
+          schema_version: 1,
+          decision_id: `groom-approval:${session.run_id}`,
+          proposal_hash: session.proposal.content_hash,
+          proposal_revision: session.proposal.revision,
+          proposal_snapshot_sha256: current.approval_snapshot_sha256,
+          approved_by: input.approvedBy.trim(),
+          approved_at: now,
+        }),
+      };
+  const decisionId = decision.id;
+  const decisionSha256 = decision.sha256;
   next.approval = {
     status: "approved",
     approved_by: input.approvedBy.trim(),
@@ -800,8 +812,21 @@ function verifyProposal(proposal, repoRoot) {
 }
 
 function verifySessionProposal(session, proposal, options = {}) {
-  const parsed = verifyProposal(proposal, proposalRepoRoot(session));
+  const repoRoot = proposalRepoRoot(session);
+  const parsed = verifyProposal(proposal, repoRoot);
   if (session.schema_version < GROOM_SCHEMA_VERSION) return parsed;
+  if (!isObject(parsed.design_context)) {
+    throw new Error("current Groom proposals require a durable design_context");
+  }
+  try {
+    validateDesignContext(parsed.design_context, "proposal design_context", {
+      repoRoot,
+      requireCurrentPrototypeIdentity: true,
+      requireExperienceClassification: true,
+    });
+  } catch (error) {
+    throw new Error(`current Groom design context is not handoff-safe: ${error.message}`);
+  }
   const expectedIds = session.routing.review_questions.map((question) => question.id);
   const contract = parsed.review_contract;
   if (!isObject(contract))
@@ -816,6 +841,16 @@ function verifySessionProposal(session, proposal, options = {}) {
     throw new Error("proposal review contract tier does not match the Groom session");
   if (JSON.stringify(contract.required_question_ids) !== JSON.stringify(expectedIds))
     throw new Error("proposal review contract does not match the tier-required question IDs");
+  const evidenceResult = validateCurrentProposalEvidence(parsed, repoRoot, {
+    path: proposal.json_path,
+  });
+  if (!evidenceResult.ok) {
+    throw new Error(
+      `current Groom proposal evidence is not handoff-safe: ${evidenceResult.issues
+        .map((entry) => `${entry.path} ${entry.message}`)
+        .join("; ")}`
+    );
+  }
   if (options.requireCompleteReview) {
     const coverage = proposalReviewCoverage(parsed);
     if (!coverage.complete)

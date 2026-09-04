@@ -6,13 +6,17 @@ const path = require("node:path");
 const { checkQaReport } = require("./lib/qa-report-schema");
 
 function parseArgs(argv) {
-  const options = {};
+  const options = { requirePassing: true };
   const fields = new Map([
     ["--session", "sessionPath"],
     ["--report", "reportPath"],
     ["--commit", "expectedCommit"],
   ]);
   for (let index = 0; index < argv.length; index += 1) {
+    if (argv[index] === "--allow-nonpassing") {
+      options.requirePassing = false;
+      continue;
+    }
     const field = fields.get(argv[index]);
     if (!field) throw new Error(`unknown argument ${argv[index]}`);
     const value = argv[++index];
@@ -39,7 +43,7 @@ function main(argv = process.argv.slice(2)) {
       session,
       reportPath: options.reportPath,
       expectedCommit: options.expectedCommit,
-      requirePassing: true,
+      requirePassing: options.requirePassing,
     });
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     return result.ok ? 0 : 1;

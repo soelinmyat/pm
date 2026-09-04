@@ -3,6 +3,12 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const {
+  attributeValue,
+  rawElementBodies,
+  startTags,
+  structuralMarkup,
+} = require("../artifact-check");
 const { runGit: sharedRunGit } = require("../loop-git");
 const { isRfc3339DateTime } = require("./iso-time");
 
@@ -37,16 +43,27 @@ const RESULT_FIELDS = new Set([
 const TRANSITION_FIELDS = new Set(["from", "to", "reason", "commit", "recorded_at"]);
 const DESIGN_CONTEXT_FIELDS = new Set([
   "design_requirements",
+  "ui_impact",
   "prototype",
   "critical_states",
+  "experience_invariants",
   "visual_invariants",
 ]);
-const PROTOTYPE_FIELDS = new Set(["path", "sha256"]);
+const PROTOTYPE_FIELDS = new Set(["path", "sha256", "manifest"]);
+const PROTOTYPE_MANIFEST_FIELDS = new Set(["schema_version", "files", "tree_sha256"]);
+const PROTOTYPE_MANIFEST_FILE_FIELDS = new Set(["path", "sha256"]);
 const MAX_PROTOTYPE_BYTES = 10 * 1024 * 1024;
+const MAX_PROTOTYPE_TREE_BYTES = 32 * 1024 * 1024;
+const MAX_PROTOTYPE_FILES = 128;
+const MAX_PROTOTYPE_DEPTH = 8;
 
 function validateWorkUnits(units, options = {}) {
   if (!Array.isArray(units)) throw new TypeError("work units must be an array");
   const byId = new Map();
+  const validationOptions = {
+    ...options,
+    prototypeVerificationCache: options.prototypeVerificationCache || new Map(),
+  };
 
   for (const item of units) {
     if (!isObject(item)) throw new TypeError("each work unit must be an object");
@@ -67,7 +84,8 @@ function validateWorkUnits(units, options = {}) {
     if (!VALID_STATUSES.has(item.status)) {
       throw new Error(`work unit ${item.id} has invalid status: ${String(item.status)}`);
     }
-    if (item.contract !== undefined) validateWorkUnitContract(item.contract, item.id, options);
+    if (item.contract !== undefined)
+      validateWorkUnitContract(item.contract, item.id, validationOptions);
     if (item.result !== undefined && item.result !== null && !isObject(item.result)) {
       throw new TypeError(`work unit ${item.id} result must be null or an object`);
     }
@@ -199,6 +217,8 @@ function validateWorkUnitContract(contract, unitId, options = {}) {
   if (contract.design_context !== undefined) {
     validateDesignContext(contract.design_context, `work unit ${unitId} contract design_context`, {
       repoRoot: options.repoRoot,
+      requireCurrentPrototypeIdentity: options.requireCurrentPrototypeIdentity,
+      requireExperienceClassification: options.requireExperienceClassification,
     });
   }
 }
@@ -210,10 +230,15 @@ function validateDesignContext(context, label = "design_context", options = {}) 
       throw new Error(`${label} has unknown field ${field}`);
     }
   }
-  for (const field of DESIGN_CONTEXT_FIELDS) {
+  for (const field of [
+    "design_requirements",
+    "prototype",
+    "critical_states",
+    "visual_invariants",
+  ]) {
     if (!Object.hasOwn(context, field)) throw new Error(`${label} requires ${field}`);
   }
-  for (const field of ["design_requirements", "critical_states", "visual_invariants"]) {
+  for (const field of ["design_requirements", "critical_states"]) {
     const values = context[field];
     if (!Array.isArray(values) || values.length === 0) {
       throw new TypeError(`${label}.${field} must be a non-empty array`);
@@ -225,6 +250,32 @@ function validateDesignContext(context, label = "design_context", options = {}) 
       throw new Error(`${label}.${field} must not contain duplicates`);
     }
   }
+  const classified = Object.hasOwn(context, "ui_impact");
+  if (classified !== Object.hasOwn(context, "experience_invariants")) {
+    throw new Error(`${label}.ui_impact and ${label}.experience_invariants must appear together`);
+  }
+  if (options.requireExperienceClassification && !classified) {
+    throw new Error(
+      `${label} requires explicit ui_impact and experience_invariants for a current handoff`
+    );
+  }
+  validateUniqueStrings(context.visual_invariants, `${label}.visual_invariants`, {
+    nonEmpty: !classified || context.ui_impact === true,
+  });
+  if (classified) {
+    if (typeof context.ui_impact !== "boolean") {
+      throw new TypeError(`${label}.ui_impact must be a boolean`);
+    }
+    validateUniqueStrings(context.experience_invariants, `${label}.experience_invariants`, {
+      nonEmpty: true,
+    });
+    if (!context.ui_impact && context.visual_invariants.length > 0) {
+      throw new Error(`${label} is nonvisual, so visual_invariants must be empty`);
+    }
+    if (!context.ui_impact && context.prototype !== null) {
+      throw new Error(`${label} is nonvisual, so prototype must be null`);
+    }
+  }
   const prototype = context.prototype;
   if (prototype === null) return context;
   if (!isObject(prototype)) throw new TypeError(`${label}.prototype must be null or an object`);
@@ -233,7 +284,7 @@ function validateDesignContext(context, label = "design_context", options = {}) 
       throw new Error(`${label}.prototype has unknown field ${field}`);
     }
   }
-  for (const field of PROTOTYPE_FIELDS) {
+  for (const field of ["path", "sha256"]) {
     if (!Object.hasOwn(prototype, field)) throw new Error(`${label}.prototype requires ${field}`);
   }
   if (!nonEmpty(prototype.path)) throw new TypeError(`${label}.prototype.path is required`);
@@ -250,22 +301,193 @@ function validateDesignContext(context, label = "design_context", options = {}) 
   if (!/^sha256:[a-f0-9]{64}$/.test(prototype.sha256 || "")) {
     throw new Error(`${label}.prototype.sha256 must be a sha256:<64 lowercase hex> binding`);
   }
+  const multiFile = path.posix.basename(prototype.path) === "index.html";
+  if (prototype.manifest !== undefined) {
+    if (!multiFile) {
+      throw new Error(`${label}.prototype.manifest is only valid for a multi-file index.html`);
+    }
+    validatePrototypeManifest(prototype.manifest, `${label}.prototype.manifest`);
+  } else if (multiFile && options.requireCurrentPrototypeIdentity) {
+    throw new Error(
+      `${label}.prototype is a legacy multi-file prototype that hashes only index.html; recertify it in Groom with a tree manifest`
+    );
+  }
   if (options.repoRoot) {
-    verifyPrototypeBinding(prototype, `${label}.prototype`, options.repoRoot);
+    verifyPrototypeBinding(prototype, `${label}.prototype`, options.repoRoot, options);
   }
   return context;
 }
 
-function verifyPrototypeBinding(prototype, label, repoRoot) {
+function validateUniqueStrings(value, label, { nonEmpty: requireValues = true } = {}) {
+  if (!Array.isArray(value) || (requireValues && value.length === 0)) {
+    throw new TypeError(`${label} must be ${requireValues ? "a non-empty" : "an"} array`);
+  }
+  if (value.some((item) => !nonEmpty(item))) {
+    throw new TypeError(`${label} must contain non-empty strings`);
+  }
+  if (new Set(value).size !== value.length) {
+    throw new Error(`${label} must not contain duplicates`);
+  }
+}
+
+function buildPrototypeIdentity(prototypePath, repoRoot) {
+  if (!nonEmpty(prototypePath)) throw new TypeError("prototype path is required");
+  validateRepoRelativePattern(prototypePath, "prototype path");
+  const normalized = normalizePattern(prototypePath);
+  if (
+    prototypePath !== normalized ||
+    prototypePath.includes("\\") ||
+    /^[a-z][a-z0-9+.-]*:/i.test(prototypePath) ||
+    prototypePath.split("/").some((part) => part === "." || part === "") ||
+    hasGlob(prototypePath)
+  ) {
+    throw new Error("prototype path must identify one normalized repo-relative file");
+  }
+  if (path.posix.extname(normalized).toLowerCase() !== ".html") {
+    throw new Error("prototype entry must be an HTML file");
+  }
+  const root = resolvePrototypeRoot(repoRoot, "prototype");
+  const bytes = readPrototypeFile(root, normalized, "prototype.path");
+  const identity = {
+    path: normalized,
+    sha256: hashBytes(bytes),
+  };
+  if (path.posix.basename(normalized) === "index.html") {
+    identity.manifest = buildPrototypeManifest(root, path.posix.dirname(normalized));
+    const indexEntry = identity.manifest.files.find((entry) => entry.path === "index.html");
+    if (!indexEntry || indexEntry.sha256 !== identity.sha256) {
+      throw new Error("prototype manifest does not bind its index.html entry");
+    }
+  } else if (path.extname(normalized).toLowerCase() === ".html") {
+    validateSelfContainedPrototype(bytes, "prototype.path");
+  }
+  return identity;
+}
+
+function validatePrototypeManifest(manifest, label) {
+  if (!isObject(manifest)) throw new TypeError(`${label} must be an object`);
+  for (const field of Object.keys(manifest)) {
+    if (!PROTOTYPE_MANIFEST_FIELDS.has(field)) {
+      throw new Error(`${label} has unknown field ${field}`);
+    }
+  }
+  for (const field of PROTOTYPE_MANIFEST_FIELDS) {
+    if (!Object.hasOwn(manifest, field)) throw new Error(`${label} requires ${field}`);
+  }
+  if (manifest.schema_version !== 1) throw new Error(`${label}.schema_version must equal 1`);
+  if (
+    !Array.isArray(manifest.files) ||
+    manifest.files.length < 3 ||
+    manifest.files.length > MAX_PROTOTYPE_FILES
+  ) {
+    throw new Error(`${label}.files must contain 3-${MAX_PROTOTYPE_FILES} bounded files`);
+  }
+  const observedPaths = [];
+  for (const [index, entry] of manifest.files.entries()) {
+    const at = `${label}.files[${index}]`;
+    if (!isObject(entry)) throw new TypeError(`${at} must be an object`);
+    for (const field of Object.keys(entry)) {
+      if (!PROTOTYPE_MANIFEST_FILE_FIELDS.has(field)) {
+        throw new Error(`${at} has unknown field ${field}`);
+      }
+    }
+    for (const field of PROTOTYPE_MANIFEST_FILE_FIELDS) {
+      if (!Object.hasOwn(entry, field)) throw new Error(`${at} requires ${field}`);
+    }
+    if (
+      !nonEmpty(entry.path) ||
+      path.posix.isAbsolute(entry.path) ||
+      /^[a-z][a-z0-9+.-]*:/i.test(entry.path) ||
+      entry.path.includes("\\") ||
+      entry.path !== path.posix.normalize(entry.path) ||
+      entry.path.split("/").some((part) => part === ".." || part === "." || part === "") ||
+      hasGlob(entry.path)
+    ) {
+      throw new Error(`${at}.path must be a normalized path inside the prototype directory`);
+    }
+    if (!/^sha256:[a-f0-9]{64}$/.test(entry.sha256 || "")) {
+      throw new Error(`${at}.sha256 must be a sha256:<64 lowercase hex> binding`);
+    }
+    observedPaths.push(entry.path);
+  }
+  const sorted = [...observedPaths].sort(comparePaths);
+  if (new Set(observedPaths).size !== observedPaths.length) {
+    throw new Error(`${label}.files must not repeat paths`);
+  }
+  if (JSON.stringify(observedPaths) !== JSON.stringify(sorted)) {
+    throw new Error(`${label}.files must be sorted by path`);
+  }
+  for (const required of ["base.css", "index.html", "meta.json"]) {
+    if (!observedPaths.includes(required))
+      throw new Error(`${label}.files must include ${required}`);
+  }
+  if (!/^sha256:[a-f0-9]{64}$/.test(manifest.tree_sha256 || "")) {
+    throw new Error(`${label}.tree_sha256 must be a sha256:<64 lowercase hex> binding`);
+  }
+  const expectedTreeHash = prototypeTreeHash(manifest.files);
+  if (manifest.tree_sha256 !== expectedTreeHash) {
+    throw new Error(`${label}.tree_sha256 does not match its ordered file manifest`);
+  }
+}
+
+function verifyPrototypeBinding(prototype, label, repoRoot, options = {}) {
+  const root = resolvePrototypeRoot(repoRoot, label);
+  const cacheKey = `${root}\u0000${JSON.stringify(prototype)}`;
+  if (options.prototypeVerificationCache?.has(cacheKey)) return;
+  const multiFile = path.posix.basename(prototype.path) === "index.html";
+  if (multiFile && prototype.manifest) {
+    const relativeRoot = path.posix.dirname(prototype.path);
+    const rebuilt = buildPrototypeManifest(root, relativeRoot);
+    if (JSON.stringify(rebuilt.files) !== JSON.stringify(prototype.manifest.files)) {
+      const changed = firstManifestDifference(prototype.manifest.files, rebuilt.files);
+      throw new Error(
+        `${label}.manifest does not match repository bytes${changed ? ` at ${changed}` : ""}`
+      );
+    }
+    if (rebuilt.tree_sha256 !== prototype.manifest.tree_sha256) {
+      throw new Error(`${label}.manifest tree_sha256 does not match repository bytes`);
+    }
+    const indexEntry = prototype.manifest.files.find((entry) => entry.path === "index.html");
+    if (!indexEntry || indexEntry.sha256 !== prototype.sha256) {
+      throw new Error(`${label}.sha256 must equal the manifest hash for index.html`);
+    }
+    options.prototypeVerificationCache?.set(cacheKey, true);
+    return;
+  }
+  const bytes = readPrototypeFile(root, prototype.path, `${label}.path`);
+  const observed = hashBytes(bytes);
+  if (observed !== prototype.sha256) {
+    throw new Error(`${label}.sha256 does not match repository bytes at ${prototype.path}`);
+  }
+  if (multiFile) {
+    if (options.requireCurrentPrototypeIdentity) {
+      throw new Error(
+        `${label} is a legacy multi-file prototype that hashes only index.html; recertify it in Groom with a tree manifest`
+      );
+    }
+  } else if (
+    options.requireCurrentPrototypeIdentity &&
+    path.extname(prototype.path).toLowerCase() === ".html"
+  ) {
+    validateSelfContainedPrototype(bytes, `${label}.path`);
+  }
+  options.prototypeVerificationCache?.set(cacheKey, true);
+}
+
+function resolvePrototypeRoot(repoRoot, label) {
   let root;
   try {
     root = fs.realpathSync(path.resolve(repoRoot));
   } catch (error) {
-    throw new Error(`${label}.path repository root cannot be resolved: ${error.message}`);
+    throw new Error(`${label} repository root cannot be resolved: ${error.message}`);
   }
-  const candidate = path.resolve(root, prototype.path);
+  return root;
+}
+
+function readPrototypeFile(root, relativePath, label) {
+  const candidate = path.resolve(root, relativePath);
   if (!isWithin(root, candidate)) {
-    throw new Error(`${label}.path must stay inside the repository root`);
+    throw new Error(`${label} must stay inside the repository root`);
   }
   let current = root;
   try {
@@ -276,7 +498,7 @@ function verifyPrototypeBinding(prototype, label, repoRoot) {
       }
     }
   } catch (error) {
-    throw new Error(`${label}.path cannot be read as a repository file: ${error.message}`);
+    throw new Error(`${label} cannot be read as a repository file: ${error.message}`);
   }
   let bytes;
   const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0);
@@ -300,14 +522,448 @@ function verifyPrototypeBinding(prototype, label, repoRoot) {
       throw new Error("changed during bounded read");
     }
   } catch (error) {
-    throw new Error(`${label}.path cannot be read as a repository file: ${error.message}`);
+    throw new Error(`${label} cannot be read as a repository file: ${error.message}`);
   } finally {
     if (fd !== undefined) fs.closeSync(fd);
   }
-  const observed = `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`;
-  if (observed !== prototype.sha256) {
-    throw new Error(`${label}.sha256 does not match repository bytes at ${prototype.path}`);
+  return bytes;
+}
+
+function buildPrototypeManifest(repoRoot, relativeDirectory) {
+  const directory = path.resolve(repoRoot, relativeDirectory);
+  if (!isWithin(repoRoot, directory)) {
+    throw new Error("prototype manifest directory must stay inside the repository root");
   }
+  const before = collectPrototypeTree(directory);
+  const files = [];
+  const sourceBytes = new Map();
+  let totalBytes = 0;
+  for (const relativePath of before) {
+    const repoRelative = path.posix.join(relativeDirectory, relativePath);
+    const bytes = readPrototypeFile(repoRoot, repoRelative, `prototype manifest ${relativePath}`);
+    totalBytes += bytes.length;
+    if (totalBytes > MAX_PROTOTYPE_TREE_BYTES) {
+      throw new Error("prototype manifest exceeds the 32 MiB tree read limit");
+    }
+    sourceBytes.set(relativePath, bytes);
+    files.push({ path: relativePath, sha256: hashBytes(bytes) });
+  }
+  const after = collectPrototypeTree(directory);
+  if (JSON.stringify(before) !== JSON.stringify(after)) {
+    throw new Error("prototype tree changed during bounded read");
+  }
+  const manifest = {
+    schema_version: 1,
+    files,
+    tree_sha256: prototypeTreeHash(files),
+  };
+  validatePrototypeManifest(manifest, "prototype manifest");
+  validateManifestMetadata(repoRoot, relativeDirectory, manifest);
+  validateBundledPrototypeDependencies(sourceBytes, manifest);
+  return manifest;
+}
+
+function collectPrototypeTree(directory) {
+  const files = [];
+  function visit(current, prefix, depth) {
+    if (depth > MAX_PROTOTYPE_DEPTH) {
+      throw new Error(`prototype manifest exceeds directory depth ${MAX_PROTOTYPE_DEPTH}`);
+    }
+    let entries;
+    try {
+      entries = fs
+        .readdirSync(current, { withFileTypes: true })
+        .sort((left, right) => comparePaths(left.name, right.name));
+    } catch (error) {
+      throw new Error(`prototype manifest directory cannot be read: ${error.message}`);
+    }
+    for (const entry of entries) {
+      const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+      const absolute = path.join(current, entry.name);
+      const stat = fs.lstatSync(absolute);
+      if (stat.isSymbolicLink()) {
+        throw new Error(`prototype manifest cannot contain symbolic link ${relativePath}`);
+      }
+      if (stat.isDirectory()) visit(absolute, relativePath, depth + 1);
+      else if (stat.isFile()) files.push(relativePath);
+      else throw new Error(`prototype manifest contains non-regular entry ${relativePath}`);
+      if (files.length > MAX_PROTOTYPE_FILES) {
+        throw new Error(`prototype manifest exceeds ${MAX_PROTOTYPE_FILES} files`);
+      }
+    }
+  }
+  visit(directory, "", 0);
+  return files.sort(comparePaths);
+}
+
+function validateManifestMetadata(repoRoot, relativeDirectory, manifest) {
+  let metadata;
+  try {
+    metadata = JSON.parse(
+      readPrototypeFile(
+        repoRoot,
+        path.posix.join(relativeDirectory, "meta.json"),
+        "prototype manifest meta.json"
+      ).toString("utf8")
+    );
+  } catch (error) {
+    throw new Error(`prototype manifest meta.json is invalid: ${error.message}`);
+  }
+  if (!isObject(metadata) || !Array.isArray(metadata.screens) || metadata.screens.length === 0) {
+    throw new Error("prototype manifest meta.json requires a non-empty screens array");
+  }
+  const manifestPaths = new Set(manifest.files.map((entry) => entry.path));
+  for (const [index, screen] of metadata.screens.entries()) {
+    const file = screen?.file;
+    if (
+      !nonEmpty(file) ||
+      path.posix.isAbsolute(file) ||
+      file.includes("\\") ||
+      !file.endsWith(".html") ||
+      file === "index.html" ||
+      file !== path.posix.normalize(file) ||
+      file.split("/").some((part) => part === ".." || part === "." || part === "")
+    ) {
+      throw new Error(`prototype manifest meta.json screens[${index}].file is invalid`);
+    }
+    if (!manifestPaths.has(file)) {
+      throw new Error(`prototype manifest omits screen file ${file}`);
+    }
+  }
+}
+
+function validateSelfContainedPrototype(bytes, label) {
+  const html = bytes.toString("utf8");
+  if (html.includes("\uFFFD")) {
+    throw new Error(`${label} single-file HTML must be valid UTF-8`);
+  }
+  const tags = startTags(structuralMarkup(html));
+  const resourceAttributes = new Map([
+    ["a", ["href"]],
+    ["area", ["href"]],
+    ["audio", ["src"]],
+    ["button", ["formaction"]],
+    ["embed", ["src"]],
+    ["form", ["action"]],
+    ["frame", ["src"]],
+    ["iframe", ["src"]],
+    ["img", ["src", "srcset"]],
+    ["input", ["src", "formaction"]],
+    ["link", ["href"]],
+    ["object", ["data"]],
+    ["script", ["src"]],
+    ["source", ["src", "srcset"]],
+    ["track", ["src"]],
+    ["video", ["src", "poster"]],
+  ]);
+  for (const tag of tags) {
+    if (/(?:^|\s)on[a-z][a-z0-9:._-]*\s*=/i.test(tag.attrs)) {
+      throw new Error(
+        `${label} single-file HTML contains an inline event handler; use static states or an index.html prototype tree`
+      );
+    }
+    if (tag.name === "base") {
+      throw new Error(
+        `${label} single-file HTML contains a base URL; remove it or use an index.html prototype tree`
+      );
+    }
+    if (["embed", "frame", "iframe", "object"].includes(tag.name)) {
+      throw new Error(
+        `${label} single-file HTML contains nested or plugin content; inline the state or use an index.html prototype tree`
+      );
+    }
+    if (
+      tag.name === "meta" &&
+      attributeValue(tag.attrs, ["http-equiv"])?.trim().toLowerCase() === "refresh"
+    ) {
+      throw new Error(
+        `${label} single-file HTML contains a refresh/navigation directive; remove it or use an index.html prototype tree`
+      );
+    }
+    if (tag.name === "script") {
+      const source = attributeValue(tag.attrs, ["src"]);
+      const type = attributeValue(tag.attrs, ["type"])?.trim().toLowerCase();
+      if (source !== undefined || type !== "application/json") {
+        throw new Error(
+          `${label} single-file HTML contains an active or external script; keep only inline application/json metadata or use an index.html prototype tree`
+        );
+      }
+    }
+    for (const attribute of resourceAttributes.get(tag.name) || []) {
+      const target = attributeValue(tag.attrs, [attribute]);
+      if (target !== undefined && (attribute === "srcset" || !inlineResourceTarget(target))) {
+        throw new Error(
+          `${label} single-file HTML references ${tag.name}[${attribute}] resource ${JSON.stringify(target)}; inline it or use an index.html prototype tree`
+        );
+      }
+    }
+    if (["image", "feimage", "use"].includes(tag.name)) {
+      const target = attributeValue(tag.attrs, ["href", "xlink:href"]);
+      if (target !== undefined && !inlineResourceTarget(target)) {
+        throw new Error(
+          `${label} single-file HTML references svg ${tag.name} resource ${JSON.stringify(target)}; inline it or use an index.html prototype tree`
+        );
+      }
+    }
+  }
+  const cssText = normalizeCssForDependencyInspection(
+    [
+      ...rawElementBodies(html, "style"),
+      ...tags
+        .map((tag) => attributeValue(tag.attrs, ["style"]))
+        .filter((value) => value !== undefined),
+    ].join("\n")
+  );
+  for (const target of cssResourceTargets(cssText)) {
+    if (!inlineResourceTarget(target)) {
+      throw new Error(
+        `${label} single-file HTML references CSS resource ${JSON.stringify(target)}; inline it or use an index.html prototype tree`
+      );
+    }
+  }
+  if (/@import\b/i.test(cssText)) {
+    throw new Error(
+      `${label} single-file HTML contains a CSS import; inline it or use an index.html prototype tree`
+    );
+  }
+}
+
+function validateBundledPrototypeDependencies(sourceBytes, manifest) {
+  const manifestPaths = new Set(manifest.files.map((entry) => entry.path));
+  for (const [relativePath, bytes] of sourceBytes) {
+    const extension = path.posix.extname(relativePath).toLowerCase();
+    if (extension === ".css") {
+      validateBundledCssDependencies(bytes.toString("utf8"), relativePath, manifestPaths);
+    } else if (extension === ".html" || extension === ".svg") {
+      validateBundledMarkupDependencies(bytes, relativePath, manifestPaths);
+    } else if ([".htm", ".xhtml"].includes(extension)) {
+      throw new Error(
+        `prototype manifest contains unsupported active markup format ${relativePath}; use .html`
+      );
+    }
+  }
+}
+
+function validateBundledMarkupDependencies(bytes, relativePath, manifestPaths) {
+  const markup = bytes.toString("utf8");
+  if (markup.includes("\uFFFD")) {
+    throw new Error(`prototype manifest ${relativePath} must be valid UTF-8`);
+  }
+  const tags = startTags(structuralMarkup(markup));
+  const resourceAttributes = new Map([
+    ["a", ["href"]],
+    ["area", ["href"]],
+    ["audio", ["src"]],
+    ["button", ["formaction"]],
+    ["embed", ["src"]],
+    ["form", ["action"]],
+    ["frame", ["src"]],
+    ["iframe", ["src"]],
+    ["img", ["src", "srcset"]],
+    ["input", ["src", "formaction"]],
+    ["link", ["href"]],
+    ["object", ["data"]],
+    ["script", ["src"]],
+    ["source", ["src", "srcset"]],
+    ["track", ["src"]],
+    ["video", ["src", "poster"]],
+  ]);
+  for (const tag of tags) {
+    if (/(?:^|\s)on[a-z][a-z0-9:._-]*\s*=/i.test(tag.attrs)) {
+      throw new Error(
+        `prototype manifest ${relativePath} contains an inline event handler with uninspectable dependencies`
+      );
+    }
+    if (attributeValue(tag.attrs, ["srcdoc"]) !== undefined) {
+      throw new Error(
+        `prototype manifest ${relativePath} contains unsupported iframe srcdoc content`
+      );
+    }
+    if (tag.name === "base") {
+      throw new Error(`prototype manifest ${relativePath} cannot declare a base URL`);
+    }
+    if (
+      tag.name === "meta" &&
+      attributeValue(tag.attrs, ["http-equiv"])?.trim().toLowerCase() === "refresh"
+    ) {
+      throw new Error(
+        `prototype manifest ${relativePath} contains an unsupported refresh/navigation directive`
+      );
+    }
+    if (tag.name === "script") {
+      const source = attributeValue(tag.attrs, ["src"]);
+      const type = attributeValue(tag.attrs, ["type"])?.trim().toLowerCase();
+      if (source !== undefined || type !== "application/json") {
+        throw new Error(
+          `prototype manifest ${relativePath} contains unsupported active script content`
+        );
+      }
+    }
+    for (const attribute of resourceAttributes.get(tag.name) || []) {
+      const target = attributeValue(tag.attrs, [attribute]);
+      if (target === undefined) continue;
+      if (attribute === "srcset") {
+        throw new Error(
+          `prototype manifest ${relativePath} contains unsupported active srcset syntax`
+        );
+      }
+      validateBundledResourceTarget(target, relativePath, manifestPaths);
+    }
+    if (["image", "feimage", "use"].includes(tag.name)) {
+      const target = attributeValue(tag.attrs, ["href", "xlink:href"]);
+      if (target !== undefined) {
+        validateBundledResourceTarget(target, relativePath, manifestPaths);
+      }
+    }
+  }
+  const cssText = [
+    ...rawElementBodies(markup, "style"),
+    ...tags
+      .map((tag) => attributeValue(tag.attrs, ["style"]))
+      .filter((value) => value !== undefined),
+  ].join("\n");
+  validateBundledCssDependencies(cssText, relativePath, manifestPaths);
+}
+
+function validateBundledCssDependencies(css, relativePath, manifestPaths) {
+  const normalized = normalizeCssForDependencyInspection(css);
+  for (const target of cssResourceTargets(normalized)) {
+    validateBundledResourceTarget(target, relativePath, manifestPaths);
+  }
+}
+
+function validateBundledResourceTarget(value, sourcePath, manifestPaths) {
+  const target = String(value).trim();
+  if (target === "" || target.startsWith("#") || target.startsWith("?")) return;
+  if (/^data:/i.test(target)) return;
+  let pathname = target.split(/[?#]/, 1)[0];
+  try {
+    pathname = decodeURIComponent(pathname);
+  } catch {
+    throw new Error(
+      `prototype manifest ${sourcePath} contains an invalid resource reference ${JSON.stringify(target)}`
+    );
+  }
+  if (
+    path.posix.isAbsolute(pathname) ||
+    pathname.startsWith("//") ||
+    /^[a-z][a-z0-9+.-]*:/i.test(pathname)
+  ) {
+    throw new Error(
+      `prototype manifest ${sourcePath} references remote or absolute resource ${JSON.stringify(target)}`
+    );
+  }
+  if (
+    pathname.includes("\\") ||
+    pathname.includes("\u0000") ||
+    pathname !== path.posix.normalize(pathname)
+  ) {
+    throw new Error(
+      `prototype manifest ${sourcePath} resource reference must be normalized: ${JSON.stringify(target)}`
+    );
+  }
+  const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(sourcePath), pathname));
+  if (resolved === ".." || resolved.startsWith("../") || path.posix.isAbsolute(resolved)) {
+    throw new Error(
+      `prototype manifest ${sourcePath} resource reference stays outside the prototype directory: ${JSON.stringify(target)}`
+    );
+  }
+  if (!manifestPaths.has(resolved)) {
+    throw new Error(
+      `prototype manifest ${sourcePath} resource ${JSON.stringify(target)} is not covered by the prototype manifest`
+    );
+  }
+}
+
+function cssResourceTargets(css) {
+  const normalized = normalizeCssForDependencyInspection(css);
+  const targets = [];
+  for (const match of normalized.matchAll(/url\(\s*([^)]+?)\s*\)/gi)) {
+    targets.push(
+      match[1]
+        .trim()
+        .replace(/^["']|["']$/g, "")
+        .trim()
+    );
+  }
+  for (const match of normalized.matchAll(/@import\s+(["'])(.*?)\1/gi)) {
+    targets.push(match[2].trim());
+  }
+  for (const match of normalized.matchAll(
+    /(?:^|[^a-z-])(?:-webkit-)?(?:image-set|image|cross-fade)\s*\(([^{};]*)\)/gi
+  )) {
+    for (const quoted of match[1].matchAll(/(["'])(.*?)\1/g)) {
+      targets.push(quoted[2].trim());
+    }
+  }
+  return targets;
+}
+
+function normalizeCssForDependencyInspection(value) {
+  const source = String(value);
+  let output = "";
+  let quote = null;
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    if (quote) {
+      output += character;
+      if (character === "\\" && index + 1 < source.length) {
+        output += source[++index];
+      } else if (character === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      output += character;
+      continue;
+    }
+    if (character === "/" && source[index + 1] === "*") {
+      const end = source.indexOf("*/", index + 2);
+      index = end === -1 ? source.length : end + 1;
+      continue;
+    }
+    output += character;
+  }
+  return output
+    .replace(/\\([0-9a-f]{1,6})\s?/gi, (_match, hex) =>
+      String.fromCodePoint(Number.parseInt(hex, 16))
+    )
+    .replace(/\\([^\r\n0-9a-f])/gi, "$1");
+}
+
+function inlineResourceTarget(value) {
+  const target = String(value).trim();
+  return target === "" || /^(?:data:|#)/i.test(target);
+}
+
+function prototypeTreeHash(files) {
+  return hashBytes(
+    Buffer.from(
+      JSON.stringify({
+        schema_version: 1,
+        files: files.map((entry) => ({ path: entry.path, sha256: entry.sha256 })),
+      })
+    )
+  );
+}
+
+function hashBytes(bytes) {
+  return `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`;
+}
+
+function firstManifestDifference(expected, observed) {
+  const expectedByPath = new Map(expected.map((entry) => [entry.path, entry.sha256]));
+  const observedByPath = new Map(observed.map((entry) => [entry.path, entry.sha256]));
+  const paths = [...new Set([...expectedByPath.keys(), ...observedByPath.keys()])].sort(
+    comparePaths
+  );
+  return paths.find((entry) => expectedByPath.get(entry) !== observedByPath.get(entry)) || null;
+}
+
+function comparePaths(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function isWithin(root, candidate) {
@@ -619,6 +1275,7 @@ function nonEmpty(value) {
 
 module.exports = {
   analyzeWorkUnits,
+  buildPrototypeIdentity,
   narrowAuthority,
   ownershipOverlaps,
   validateOwnershipList,

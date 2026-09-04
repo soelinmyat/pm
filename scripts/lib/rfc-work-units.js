@@ -13,16 +13,7 @@ function rfcIssuesToDevWorkUnits(sidecar, options = {}) {
   if (sidecar?.schema_version !== 3) {
     throw new Error("executable Dev work units require an RFC schema-v3 sidecar");
   }
-  const designContext = sidecar.design_context
-    ? {
-        design_requirements: [...sidecar.design_context.design_requirements],
-        prototype: sidecar.design_context.prototype
-          ? { ...sidecar.design_context.prototype }
-          : null,
-        critical_states: [...sidecar.design_context.critical_states],
-        visual_invariants: [...sidecar.design_context.visual_invariants],
-      }
-    : null;
+  const designContext = sidecar.design_context ? structuredClone(sidecar.design_context) : null;
   const units = sidecar.issues.map((item) => ({
     id: rfcIssueId(item.num),
     title: item.title,
@@ -37,7 +28,11 @@ function rfcIssuesToDevWorkUnits(sidecar, options = {}) {
     },
     status: "pending",
   }));
-  return validateWorkUnits(units, { repoRoot: options.repoRoot });
+  return validateWorkUnits(units, {
+    repoRoot: options.repoRoot,
+    requireCurrentPrototypeIdentity: true,
+    requireExperienceClassification: true,
+  });
 }
 
 module.exports = { rfcIssueId, rfcIssuesToDevWorkUnits };

@@ -38,7 +38,7 @@ Approval verifies both current HTML and sidecar bytes equal the reviewed fingerp
 
 ## Design context
 
-For an approved canonical proposal, intake copies the proposal execution contract's closed `design_context` into `session.context.design_context`; callers cannot supply or override it. The field contains exact design requirement strings, an explicit `null` or source-bound prototype path/hash, critical states, and visual invariants. Generation, review, approval, and handoff reject an RFC sidecar whose value differs. Wherever repository context is available, validation recomputes the prototype SHA-256 from the referenced file instead of accepting hash-shaped text.
+For an approved canonical proposal, intake copies the proposal execution contract's closed `design_context` into `session.context.design_context`; callers cannot supply or override it. The field contains exact design requirement strings, explicit UI impact, an explicit `null` or source-bound prototype identity, critical states, and applicable experience/visual invariants. Multi-file prototypes carry a complete deterministic tree manifest, not only an `index.html` digest. Generation, review, approval, and handoff reject an RFC sidecar whose value differs. Wherever repository context is available, validation recomputes the complete identity instead of accepting hash-shaped text.
 
 Legacy Markdown and Linear intake store `null` because they do not provide the canonical structured handoff. A schema-v1 canonical proposal that predates the field remains readable but returns to Groom before a new RFC can begin.
 

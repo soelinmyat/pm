@@ -155,7 +155,11 @@ function applyContext(session, facts, options = {}) {
     } catch {
       throw new Error(`canonical proposal is not inside a Git worktree: ${absoluteProposal}`);
     }
-    canonical = readApprovedProposal(absoluteProposal, { projectRoot: proposalRoot });
+    canonical = readApprovedProposal(absoluteProposal, {
+      projectRoot: proposalRoot,
+      requireCurrentPrototypeIdentity: true,
+      requireExperienceClassification: true,
+    });
     if (!canonical.contract.design_context) {
       throw new Error(
         "approved canonical proposal lacks durable design_context; return to pm:groom to recertify design intent"
@@ -1652,6 +1656,8 @@ function verifyProposalIdentity(session) {
   try {
     trusted = readApprovedProposal(session.context.proposal_path, {
       projectRoot,
+      requireCurrentPrototypeIdentity: true,
+      requireExperienceClassification: true,
       expectedDecision: {
         id: identity.decision_id,
         sha256: identity.decision_sha256,

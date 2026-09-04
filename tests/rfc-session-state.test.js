@@ -52,8 +52,23 @@ const {
 } = require("../scripts/lib/dev-session-schema");
 const {
   buildApproval: buildProposalApproval,
+  deriveApprovalDecision,
   proposalContentHash,
 } = require("../scripts/lib/proposal-schema");
+const {
+  bindCurrentReviewContract,
+  materializeProposalSources,
+} = require("./helpers/groom-review-fixture.js");
+
+function buildCurrentProposalApproval(proposal, bytes, { approvedBy, approvedAt }) {
+  const decision = deriveApprovalDecision(proposal, { approvedBy, approvedAt });
+  return buildProposalApproval(proposal, bytes, {
+    approvedBy,
+    approvedAt,
+    decisionId: decision.id,
+    decisionSha256: decision.sha256,
+  });
+}
 
 test("RFC session separates technical review from explicit human approval", () => {
   const repo = makeRepo();
@@ -808,8 +823,12 @@ test("intake derives RFC scope from trusted canonical proposal and rejects stale
     );
     proposal.design_context = {
       design_requirements: proposal.design_requirements.map((item) => item.requirement),
+      ui_impact: true,
       prototype: null,
       critical_states: ["draft", "reviewed", "approved", "stale approval"],
+      experience_invariants: [
+        "Every lifecycle transition keeps the approval decision and next action explicit.",
+      ],
       visual_invariants: ["Lifecycle and approval state remain visible at narrow widths."],
     };
     proposal.lifecycle = "approved";
@@ -829,16 +848,39 @@ test("intake derives RFC scope from trusted canonical proposal and rejects stale
     markOwnedRfcRoot(repo.root, proposal.slug);
     const approvalPath = proposalPath.replace(/\.json$/, ".approval.json");
     fs.mkdirSync(path.dirname(proposalPath), { recursive: true });
-    const unboundProposal = structuredClone(proposal);
-    delete unboundProposal.design_context;
-    unboundProposal.review.content_sha256 = proposalContentHash(unboundProposal);
-    fs.writeFileSync(proposalPath, `${JSON.stringify(unboundProposal, null, 2)}\n`);
-    const unboundApproval = buildProposalApproval(unboundProposal, fs.readFileSync(proposalPath), {
+    fs.writeFileSync(proposalPath, `${JSON.stringify(proposal, null, 2)}\n`);
+    const legacyApproval = buildProposalApproval(proposal, fs.readFileSync(proposalPath), {
       approvedBy: "user:owner",
       approvedAt: "2026-07-14T03:00:00.000Z",
       decisionId: "groom-approval:groom_test",
       decisionSha256: `sha256:${"5".repeat(64)}`,
     });
+    fs.writeFileSync(approvalPath, `${JSON.stringify(legacyApproval, null, 2)}\n`);
+    assert.throws(
+      () =>
+        applyContext(createSession({ slug: proposal.slug, sourceDir: repo.root }), {
+          source_kind: "proposal",
+          proposal_path: proposalPath,
+          artifact_repo_root: repo.root,
+        }),
+      /legacy-unbound-review-contract/
+    );
+
+    bindCurrentReviewContract(proposal);
+    materializeProposalSources(repo.root, proposal);
+    proposal.review.content_sha256 = proposalContentHash(proposal);
+    const unboundProposal = structuredClone(proposal);
+    delete unboundProposal.design_context;
+    unboundProposal.review.content_sha256 = proposalContentHash(unboundProposal);
+    fs.writeFileSync(proposalPath, `${JSON.stringify(unboundProposal, null, 2)}\n`);
+    const unboundApproval = buildCurrentProposalApproval(
+      unboundProposal,
+      fs.readFileSync(proposalPath),
+      {
+        approvedBy: "user:owner",
+        approvedAt: "2026-07-14T03:00:00.000Z",
+      }
+    );
     fs.writeFileSync(approvalPath, `${JSON.stringify(unboundApproval, null, 2)}\n`);
     assert.throws(
       () =>
@@ -852,11 +894,9 @@ test("intake derives RFC scope from trusted canonical proposal and rejects stale
 
     fs.writeFileSync(proposalPath, `${JSON.stringify(proposal, null, 2)}\n`);
     const approvedProposalBytes = fs.readFileSync(proposalPath);
-    const approval = buildProposalApproval(proposal, fs.readFileSync(proposalPath), {
+    const approval = buildCurrentProposalApproval(proposal, fs.readFileSync(proposalPath), {
       approvedBy: "user:owner",
       approvedAt: "2026-07-14T03:00:00.000Z",
-      decisionId: "groom-approval:groom_test",
-      decisionSha256: `sha256:${"5".repeat(64)}`,
     });
     fs.writeFileSync(approvalPath, `${JSON.stringify(approval, null, 2)}\n`);
 
@@ -870,7 +910,7 @@ test("intake derives RFC scope from trusted canonical proposal and rejects stale
       "ac:approval: Given a reviewed proposal, when a user explicitly approves it, then the audit binds its exact bytes, content hash, revision, and approver",
     ]);
     assert.equal(configured.context.proposal_identity.trusted_approval, true);
-    assert.equal(configured.context.proposal_identity.decision_id, "groom-approval:groom_test");
+    assert.equal(configured.context.proposal_identity.decision_id, approval.decision_id);
     assert.deepEqual(configured.context.design_context, proposal.design_context);
 
     assert.throws(

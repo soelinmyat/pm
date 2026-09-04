@@ -118,7 +118,12 @@ test("design critique uses the bound two-mode evidence contract", () => {
   assert.match(publish, /\.pm\/dev-sessions\/\{slug\}\/gates\.json/);
   assert.match(publish, /\.pm\/dev-sessions\/\{slug\}\/design-critique\/report\.html/);
   assert.doesNotMatch(publish, /\.pm\/dev-sessions\/\{slug\}\.gates\.json/);
-  assert.match(contract, /deterministic identity/);
+  assert.match(contract, /canonical decoded RGBA pixels/);
+  assert.match(contract, /clean tracked source identity before\/after/);
+  assert.match(
+    contract,
+    /recomputes the invocation, native-observation, decoded-pixel, and visual-metric identities/
+  );
   const devDesign = read("skills/dev/steps/06-design-critique.md");
   assert.match(devDesign, /design-critique-capture-guide\.md/);
   assert.match(devDesign, /viewport/);

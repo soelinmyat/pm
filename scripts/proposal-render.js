@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { writeTextAtomic } = require("./lib/atomic-file.js");
 const {
+  readApprovedProposal,
   readProposal,
   proposalBytesHash,
   proposalContentHash,
@@ -44,9 +45,26 @@ function renderProposal(proposal, options = {}) {
   const sourcePath = options.sourcePath || `pm/backlog/proposals/${proposal.slug}.json`;
   const htmlPath = options.htmlPath || sourcePath.replace(/\.json$/i, ".html");
   const version = options.version || readVersion();
+  const actuallyVerifiedApproval = approvalStateMatches(
+    proposal,
+    contentSha256,
+    options.actuallyVerifiedApproval
+  );
   return {
-    html: renderHtml(proposal, { sourcePath, htmlPath, sourceSha256, contentSha256, version }),
-    markdown: renderMarkdown(proposal, { sourcePath, sourceSha256, contentSha256 }),
+    html: renderHtml(proposal, {
+      sourcePath,
+      htmlPath,
+      sourceSha256,
+      contentSha256,
+      version,
+      actuallyVerifiedApproval,
+    }),
+    markdown: renderMarkdown(proposal, {
+      sourcePath,
+      sourceSha256,
+      contentSha256,
+      actuallyVerifiedApproval,
+    }),
     source_sha256: sourceSha256,
     content_sha256: contentSha256,
   };
@@ -57,10 +75,10 @@ function renderHtml(proposal, identity) {
   const lifecycle = proposal.lifecycle;
   const approval =
     {
-      approved: "Approved",
-      planned: "Approved · planned",
-      "in-progress": "Approved · in progress",
-      done: "Approved · done",
+      approved: "Lifecycle approved",
+      planned: "Lifecycle approved · planned",
+      "in-progress": "Lifecycle approved · in progress",
+      done: "Lifecycle approved · done",
       reviewed: "Reviewed · approval pending",
       draft: "Draft",
     }[lifecycle] || lifecycle;
@@ -97,14 +115,14 @@ function renderHtml(proposal, identity) {
     ["Design requirements", listText(proposal.design_requirements, "requirement")],
     ...(proposal.design_context
       ? [
+          ["UI impact", uiImpactText(proposal.design_context)],
           ["Critical states", proposal.design_context.critical_states.join(" • ")],
-          ["Visual invariants", proposal.design_context.visual_invariants.join(" • ")],
           [
-            "Prototype",
-            proposal.design_context.prototype
-              ? `${proposal.design_context.prototype.path} · ${proposal.design_context.prototype.sha256}`
-              : "None approved",
+            "Experience invariants",
+            arrayText(proposal.design_context.experience_invariants, "None declared"),
           ],
+          ["Visual invariants", proposal.design_context.visual_invariants.join(" • ")],
+          ["Prototype", prototypeIdentityText(proposal.design_context.prototype)],
         ]
       : []),
     [
@@ -232,6 +250,14 @@ ${proposal.outcome}
 
 **Why now.** ${proposal.decision_brief.why_now}
 
+## Evidence & provenance
+
+${evidenceMarkdown(proposal)}
+
+### Source lineage
+
+${proposal.source.lineage.map((item) => `- \`${item.id}\` — \`${item.path}\` · \`${item.sha256}\``).join("\n")}
+
 ## Execution Contract
 
 ### In scope
@@ -260,6 +286,10 @@ ${proposal.open_decisions.length ? mdList(proposal.open_decisions, "question") :
 
 ${reviewAnswersMarkdown(proposal)}
 
+## Approval status
+
+${approvalStatusMarkdown(proposal, identity)}
+
 ## Reader
 
 [Open the generated proposal](proposals/${proposal.slug}.html). Lifecycle: **${proposal.lifecycle}** · revision **${proposal.revision}** · semantic content \`${identity.contentSha256}\`.
@@ -270,31 +300,86 @@ function designContextHtml(proposal) {
   const requirements = listHtml(proposal.design_requirements.map((item) => item.requirement));
   const context = proposal.design_context;
   if (!context) return requirements;
-  const prototype = context.prototype
-    ? `<code>${h(context.prototype.path)}</code><br><code>${h(context.prototype.sha256)}</code>`
-    : "No prototype approved.";
   return `${requirements}
-<h3>Prototype</h3><p>${prototype}</p>
-<h3>Critical states</h3>${listHtml(context.critical_states)}
-<h3>Visual invariants</h3>${listHtml(context.visual_invariants)}`;
+<h3>UI impact</h3><p>${h(uiImpactText(context))}</p>
+<h3>Prototype</h3>${prototypeIdentityHtml(context.prototype)}
+<h3>Critical states</h3>${listOrEmptyHtml(context.critical_states)}
+<h3>Experience invariants</h3>${listOrEmptyHtml(context.experience_invariants)}
+<h3>Visual invariants</h3>${listOrEmptyHtml(context.visual_invariants)}`;
 }
 
 function designContextMarkdown(proposal) {
   const context = proposal.design_context;
   if (!context) return "";
-  const prototype = context.prototype
-    ? `\`${context.prototype.path}\` · \`${context.prototype.sha256}\``
-    : "No prototype approved.";
   return `
 
+### UI impact
+${uiImpactText(context)}
+
 ### Prototype
-${prototype}
+${prototypeIdentityMarkdown(context.prototype)}
 
 ### Critical states
-${context.critical_states.map((item) => `- ${item}`).join("\n")}
+${markdownListOrEmpty(context.critical_states)}
+
+### Experience invariants
+${markdownListOrEmpty(context.experience_invariants)}
 
 ### Visual invariants
-${context.visual_invariants.map((item) => `- ${item}`).join("\n")}`;
+${markdownListOrEmpty(context.visual_invariants)}`;
+}
+
+function approvalStateMatches(proposal, contentSha256, state) {
+  return Boolean(
+    state &&
+    state.trustedApproval === true &&
+    state.approval &&
+    state.approval.revision === proposal.revision &&
+    state.approval.content_sha256 === contentSha256
+  );
+}
+
+function uiImpactText(context) {
+  if (context.ui_impact === true) return "Visual UI change";
+  if (context.ui_impact === false) return "No visual UI impact";
+  return "Not declared (legacy proposal)";
+}
+
+function arrayText(items, emptyText) {
+  return Array.isArray(items) && items.length ? items.join(" • ") : emptyText;
+}
+
+function listOrEmptyHtml(items) {
+  return Array.isArray(items) && items.length ? listHtml(items) : "<p>None declared.</p>";
+}
+
+function markdownListOrEmpty(items) {
+  return Array.isArray(items) && items.length
+    ? items.map((item) => `- ${item}`).join("\n")
+    : "- None declared.";
+}
+
+function prototypeIdentityText(prototype) {
+  if (!prototype) return "None approved";
+  if (!prototype.manifest) return `${prototype.path} · ${prototype.sha256}`;
+  return `${prototype.path} · entry ${prototype.sha256} · tree ${prototype.manifest.tree_sha256} · ${prototype.manifest.files.length} bound files`;
+}
+
+function prototypeIdentityHtml(prototype) {
+  if (!prototype) return "<p>No prototype approved.</p>";
+  const entry = `<p><strong>Entry.</strong> <code>${h(prototype.path)}</code><br><strong>Entry SHA-256.</strong> <code>${h(prototype.sha256)}</code></p>`;
+  if (!prototype.manifest) return entry;
+  return `${entry}<p><strong>Bound tree.</strong> <code>${h(prototype.manifest.tree_sha256)}</code> · ${prototype.manifest.files.length} bound files</p>${tableHtml(
+    ["Bound file", "SHA-256"],
+    prototype.manifest.files.map((file) => [file.path, file.sha256])
+  )}`;
+}
+
+function prototypeIdentityMarkdown(prototype) {
+  if (!prototype) return "No prototype approved.";
+  const entry = `- Entry: \`${prototype.path}\`\n- Entry SHA-256: \`${prototype.sha256}\``;
+  if (!prototype.manifest) return entry;
+  return `${entry}\n- Bound tree: \`${prototype.manifest.tree_sha256}\` · ${prototype.manifest.files.length} bound files\n${prototype.manifest.files.map((file) => `  - \`${file.path}\` · \`${file.sha256}\``).join("\n")}`;
 }
 
 function main(argv = process.argv.slice(2)) {
@@ -315,6 +400,17 @@ function main(argv = process.argv.slice(2)) {
     const paths = resolveProposalPaths(projectRoot, source.proposal.slug, options.pmDir);
     const htmlPath = options.html ? path.resolve(options.html) : paths.html;
     const markdownPath = options.markdown ? path.resolve(options.markdown) : paths.markdown;
+    let actuallyVerifiedApproval = null;
+    if (
+      source.reviewContractBound &&
+      ["approved", "planned", "in-progress", "done"].includes(source.proposal.lifecycle)
+    ) {
+      try {
+        actuallyVerifiedApproval = readApprovedProposal(source.path, { projectRoot });
+      } catch {
+        actuallyVerifiedApproval = null;
+      }
+    }
     const rendered = renderProposal(source.proposal, {
       sourceBytes: source.bytes,
       sourcePath: path
@@ -322,6 +418,7 @@ function main(argv = process.argv.slice(2)) {
         .split(path.sep)
         .join("/"),
       htmlPath: path.relative(projectRoot, htmlPath).split(path.sep).join("/"),
+      actuallyVerifiedApproval,
     });
     writeTextAtomic(htmlPath, rendered.html, { fileMode: 0o644 });
     writeTextAtomic(markdownPath, rendered.markdown, { fileMode: 0o644 });
@@ -332,6 +429,7 @@ function main(argv = process.argv.slice(2)) {
       markdown: markdownPath,
       source_sha256: rendered.source_sha256,
       content_sha256: rendered.content_sha256,
+      approval_verified: Boolean(actuallyVerifiedApproval),
     };
     process.stdout.write(
       options.json
@@ -422,12 +520,28 @@ function encodeRepoHref(value) {
   return value.split("/").map(encodeURIComponent).join("/");
 }
 function evidenceHtml(proposal) {
-  return proposal.evidence
-    .map(
-      (item) =>
-        `<div class="annotation"><span class="annotation-label">${h(item.kind)} · ${h(item.path)}</span><p>${h(item.summary)}</p></div>`
-    )
+  const lineageByPath = new Map(proposal.source.lineage.map((item) => [item.path, item]));
+  const evidence = proposal.evidence
+    .map((item) => {
+      const lineage = lineageByPath.get(item.path);
+      return `<div class="annotation"><span class="annotation-label">${h(item.id)} · ${h(item.kind)}</span><p>${h(item.summary)}</p><p><strong>Source.</strong> <code>${h(item.path)}</code><br><strong>Observed.</strong> ${h(item.observed_at)}${lineage ? `<br><strong>SHA-256.</strong> <code>${h(lineage.sha256)}</code>` : ""}</p></div>`;
+    })
     .join("");
+  const lineage = tableHtml(
+    ["Lineage ID", "Retained source", "SHA-256"],
+    proposal.source.lineage.map((item) => [item.id, item.path, item.sha256])
+  );
+  return `<h3>Evidence provenance</h3>${evidence}<h3>Source lineage</h3>${lineage}`;
+}
+
+function evidenceMarkdown(proposal) {
+  const lineageByPath = new Map(proposal.source.lineage.map((item) => [item.path, item]));
+  return proposal.evidence
+    .map((item) => {
+      const lineage = lineageByPath.get(item.path);
+      return `- **${item.id} · ${item.kind}** — ${item.summary}\n  - Source: \`${item.path}\`\n  - Observed: ${item.observed_at}${lineage ? `\n  - SHA-256: \`${lineage.sha256}\`` : ""}`;
+    })
+    .join("\n");
 }
 function jtbdHtml(proposal) {
   return `${proposal.jobs_to_be_done.map((item) => `<div class="annotation annotation-jtbd"><span class="annotation-label">Job to be done</span><p>${h(item.situation)}, ${h(item.motivation)}, ${h(item.outcome)}</p></div>`).join("")}<div class="personas">${proposal.audience.map((item) => `<div class="persona"><div class="persona-tag">Audience</div><div class="persona-name">${h(item.name)}</div><p class="persona-desc">${h(item.description)}</p></div>`).join("")}</div>`;
@@ -476,15 +590,32 @@ function decisionsHtml(proposal) {
   return `${open || "<p>No open product decisions.</p>"}<details><summary>Resolved decisions (${proposal.resolved_decisions.length})</summary><div class="resolved-list">${resolved}</div></details>`;
 }
 function statusHtml(proposal, identity) {
-  const approvalTrusted = ["approved", "planned", "in-progress", "done"].includes(
+  const postApprovalLifecycle = ["approved", "planned", "in-progress", "done"].includes(
     proposal.lifecycle
   );
-  const approval = approvalTrusted
-    ? `Approval verified; current lifecycle ${proposal.lifecycle}`
+  const approval = postApprovalLifecycle
+    ? identity.actuallyVerifiedApproval
+      ? `Approval verified; current lifecycle ${proposal.lifecycle}`
+      : `Lifecycle reports ${proposal.lifecycle}; a matching verified approval state was not supplied to this renderer`
     : proposal.lifecycle === "reviewed"
       ? "Pending explicit user decision"
       : "Review required before approval";
-  return `<h3>Review answers</h3>${reviewAnswersHtml(proposal)}<h3>Approval</h3><p>${h(approval)}</p><p>Revision ${proposal.revision}. Approval identity <code>${h(identity.contentSha256)}</code>.</p>`;
+  const identityLabel = identity.actuallyVerifiedApproval
+    ? "Verified approval identity"
+    : "Required approval identity";
+  return `<h3>Review answers</h3>${reviewAnswersHtml(proposal)}<h3>Approval</h3><p>${h(approval)}.</p><p>Revision ${proposal.revision}. ${identityLabel} <code>${h(identity.contentSha256)}</code>.</p>`;
+}
+
+function approvalStatusMarkdown(proposal, identity) {
+  const postApprovalLifecycle = ["approved", "planned", "in-progress", "done"].includes(
+    proposal.lifecycle
+  );
+  if (!postApprovalLifecycle) {
+    return `Lifecycle: **${proposal.lifecycle}**. Approval audit: **not yet applicable**.`;
+  }
+  return identity.actuallyVerifiedApproval
+    ? `Lifecycle: **${proposal.lifecycle}**. Approval audit: **verified for this exact proposal** at revision **${proposal.revision}** and content \`${identity.contentSha256}\`.`
+    : `Lifecycle: **${proposal.lifecycle}**. A matching verified approval state was not supplied to this renderer; verify the sibling audit before relying on approval.`;
 }
 
 function reviewAnswersHtml(proposal) {
@@ -526,14 +657,17 @@ function reviewAnswersMarkdown(proposal) {
     .join("\n\n");
 }
 function decisionActionHtml(proposal, identity) {
-  const approvalTrusted = ["approved", "planned", "in-progress", "done"].includes(
+  const postApprovalLifecycle = ["approved", "planned", "in-progress", "done"].includes(
     proposal.lifecycle
   );
   let title;
   let guidance;
-  if (approvalTrusted) {
+  if (postApprovalLifecycle && identity.actuallyVerifiedApproval) {
     title = "Approval is valid for this exact proposal";
     guidance = `Continue with <code>/pm:rfc ${h(proposal.slug)}</code> for technical design. Current lifecycle: <strong>${h(proposal.lifecycle)}</strong>.`;
+  } else if (postApprovalLifecycle) {
+    title = "Lifecycle is approved; approval verification is not shown";
+    guidance = `Current lifecycle: <strong>${h(proposal.lifecycle)}</strong>. Verify the sibling approval audit before continuing with <code>/pm:rfc ${h(proposal.slug)}</code>.`;
   } else if (proposal.lifecycle === "reviewed") {
     title = "Your approval is the next step";
     guidance = `Return to the active PM conversation and reply <strong>“Approve this proposal for technical design”</strong>, or describe the changes you want. If you are reopening it later, resume <code>/pm:groom ${h(proposal.slug)}</code>.`;
@@ -541,7 +675,8 @@ function decisionActionHtml(proposal, identity) {
     title = "Review must finish before approval";
     guidance = `Resume <code>/pm:groom ${h(proposal.slug)}</code> to complete review or revise this draft. Draft status never implies approval.`;
   }
-  return `<aside class="decision-action" id="decision-action" aria-label="Decision status"><div class="decision-action-label">Decision status</div><div class="decision-action-title">${title}</div><p>${guidance}</p><p class="decision-integrity">Approval applies only to revision <strong>${proposal.revision}</strong> and content <code>${h(identity.contentSha256)}</code>. Any substantive edit makes that approval stale.</p></aside>`;
+  const integrity = `Approval applies only to revision <strong>${proposal.revision}</strong> and content <code>${h(identity.contentSha256)}</code>. Any substantive edit makes that approval stale.`;
+  return `<aside class="decision-action" id="decision-action" aria-label="Decision status"><div class="decision-action-label">Decision status</div><div class="decision-action-title">${title}</div><p>${guidance}</p><p class="decision-integrity">${integrity}</p></aside>`;
 }
 function tocHtml() {
   const groups = [

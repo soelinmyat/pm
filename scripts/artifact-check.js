@@ -637,9 +637,12 @@ if (require.main === module) process.exitCode = main();
 
 module.exports = {
   MAX_HTML_BYTES,
+  attributeValue,
   buildManifest,
   inspectHtmlArtifact,
   parseArtifactMetadata,
+  rawElementBodies,
+  startTags,
   structuralMarkup,
   validateMetadata,
 };

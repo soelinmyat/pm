@@ -15,7 +15,11 @@ const {
   proposalIdentityFromPath,
 } = require("../scripts/lib/groom-session-schema");
 const { proposalContentHash } = require("../scripts/lib/proposal-schema");
-const { reviewOutcome, reviewRow } = require("./helpers/groom-review-fixture.js");
+const {
+  materializeProposalSources,
+  reviewOutcome,
+  reviewRow,
+} = require("./helpers/groom-review-fixture.js");
 
 test("Groom approval and its audit reject a changed or missing bound prototype", () => {
   const repo = makeRepo();
@@ -50,6 +54,8 @@ test("Groom approval and its audit reject a changed or missing bound prototype",
       content_sha256: proposalContentHash(proposal),
       completed_at: "2026-07-14T00:00:00.000Z",
     };
+    materializeProposalSources(repo, proposal);
+    proposal.review.content_sha256 = proposalContentHash(proposal);
     const proposalPath = path.join(repo, "pm", "backlog", "proposals", `${proposal.slug}.json`);
     fs.mkdirSync(path.dirname(proposalPath), { recursive: true });
     writeProposal(proposalPath, proposal);

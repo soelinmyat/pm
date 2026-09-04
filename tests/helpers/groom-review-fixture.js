@@ -1,6 +1,12 @@
 "use strict";
 
-const { reviewQuestionForTier } = require("../../scripts/lib/groom-review-contract.js");
+const crypto = require("node:crypto");
+const fs = require("node:fs");
+const path = require("node:path");
+const {
+  reviewQuestionForTier,
+  reviewQuestionsForTier,
+} = require("../../scripts/lib/groom-review-contract.js");
 
 const ANSWERS = Object.freeze({
   "assumption-risk": {
@@ -67,7 +73,7 @@ function reviewRow(question, index = 0, options = {}) {
     evidence: [
       {
         evidence_id: options.evidenceId || "evidence:baseline",
-        locator: options.locator || `F${(index % 2) + 1}`,
+        locator: options.locator || `F${index + 1}`,
         relevance: answer.relevance,
       },
     ],
@@ -97,4 +103,47 @@ function reviewOutcome(question, proposalHash, index = 0, options = {}) {
   };
 }
 
-module.exports = { ANSWERS, reviewOutcome, reviewRow, reviewRowForTier };
+function bindCurrentReviewContract(proposal, tier = "full") {
+  const questions = reviewQuestionsForTier(tier);
+  proposal.review_contract = {
+    session_id: proposal.source.session_id,
+    tier,
+    required_question_ids: questions.map((question) => question.id),
+  };
+  proposal.question_reviews = questions.map((question, index) => reviewRow(question, index));
+  return proposal;
+}
+
+function materializeProposalSources(projectRoot, proposal) {
+  const evidenceById = new Map(proposal.evidence.map((entry) => [entry.id, entry]));
+  for (const lineage of proposal.source.lineage) {
+    const reviewLines = proposal.question_reviews.flatMap((review) =>
+      Array.isArray(review.evidence)
+        ? review.evidence
+            .filter((citation) => evidenceById.get(citation.evidence_id)?.path === lineage.path)
+            .map(
+              (citation) =>
+                `${citation.locator} ${review.conclusion} ${review.rationale} ${citation.relevance}`
+            )
+        : []
+    );
+    const evidenceLines = proposal.evidence
+      .filter((entry) => entry.path === lineage.path)
+      .map((entry) => `${entry.id} ${entry.summary}`);
+    const bytes = Buffer.from(`${[...evidenceLines, ...reviewLines].join("\n")}\n`);
+    const absolute = path.join(projectRoot, lineage.path);
+    fs.mkdirSync(path.dirname(absolute), { recursive: true });
+    fs.writeFileSync(absolute, bytes);
+    lineage.sha256 = `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`;
+  }
+  return proposal;
+}
+
+module.exports = {
+  ANSWERS,
+  bindCurrentReviewContract,
+  materializeProposalSources,
+  reviewOutcome,
+  reviewRow,
+  reviewRowForTier,
+};

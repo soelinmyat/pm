@@ -1,6 +1,7 @@
 "use strict";
 
 const crypto = require("node:crypto");
+const fs = require("node:fs");
 const path = require("node:path");
 const { parseFrontmatter } = require("../kb-frontmatter");
 const { readProjectInput } = require("./safe-project-output");
@@ -8,6 +9,24 @@ const { readApprovedProposal } = require("./proposal-schema");
 
 const MAX_BINDING_FILE_BYTES = 16 * 1024 * 1024;
 const MAX_BINDING_TOTAL_BYTES = 64 * 1024 * 1024;
+
+function proposalProjectRoot(pmRoot) {
+  const resolvedPmRoot = path.resolve(pmRoot);
+  fs.realpathSync(resolvedPmRoot);
+  let cursor = resolvedPmRoot;
+  while (true) {
+    try {
+      const marker = fs.lstatSync(path.join(cursor, ".git"));
+      if (!marker.isSymbolicLink() && (marker.isDirectory() || marker.isFile())) return cursor;
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+    const parent = path.dirname(cursor);
+    if (parent === cursor) break;
+    cursor = parent;
+  }
+  return path.basename(resolvedPmRoot) === "pm" ? path.dirname(resolvedPmRoot) : resolvedPmRoot;
+}
 
 function lineagePathMatches(observed, expected) {
   if (typeof observed !== "string" || typeof expected !== "string") return false;
@@ -93,10 +112,21 @@ function verifyDecisionBriefBindings(root, brief, options = {}) {
       );
       return issues;
     }
+    const decisionPath =
+      brief.kind === "think"
+        ? `thinking/${brief.slug}.decision.json`
+        : `backlog/${brief.slug}.decision.json`;
     const approved = readApprovedProposal(path.resolve(root, targetRef), {
-      projectRoot: root,
+      projectRoot: proposalProjectRoot(root),
       expectedSlug: brief.slug,
       expectedDecision: brief.promotion.approval_decision,
+      // Promotion replaces the origin companion after the approved proposal has
+      // bound its pre-transition bytes. Permit only that authenticated historical
+      // path/hash; every other lineage source must still match current bytes.
+      allowedHistoricalLineage: {
+        path: decisionPath,
+        sha256: brief.promotion.origin_decision_sha256,
+      },
     });
     const targetBinding = brief.source_artifacts.find((artifact) => artifact.path === targetRef);
     if (targetBinding?.sha256 !== approved.approval.proposal_sha256)
@@ -107,10 +137,6 @@ function verifyDecisionBriefBindings(root, brief, options = {}) {
       issues.push(`${targetRef}: proposal bytes changed during validation`);
     if (!verifiedApproval?.equals(approved.approvalSource.bytes))
       issues.push(`${approvalRef}: approval bytes changed during validation`);
-    const decisionPath =
-      brief.kind === "think"
-        ? `thinking/${brief.slug}.decision.json`
-        : `backlog/${brief.slug}.decision.json`;
     if (
       !approved.source.proposal.source.lineage.some(
         (entry) =>
@@ -182,6 +208,7 @@ module.exports = {
   MAX_BINDING_TOTAL_BYTES,
   canonicalReaderPaths,
   lineagePathMatches,
+  proposalProjectRoot,
   verifyArtifactBindings,
   verifyCanonicalReaderMarker,
   verifyDecisionBriefBindings,

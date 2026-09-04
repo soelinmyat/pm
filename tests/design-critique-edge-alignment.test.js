@@ -15,8 +15,12 @@ const REVIEWER_BRIEF = path.join(PLUGIN_ROOT, "skills/dev/references/design-crit
 
 function extractConsistencyAuditScript() {
   const guide = fs.readFileSync(CAPTURE_GUIDE, "utf8");
-  const marker = "For each page, run this via `browser_evaluate`:";
-  const markerIndex = guide.indexOf(marker);
+  const section = "### Visual Consistency Audit";
+  const sectionIndex = guide.indexOf(section);
+  assert.notEqual(sectionIndex, -1, "capture guide must retain the visual consistency audit");
+
+  const marker = "run this via `browser_evaluate`";
+  const markerIndex = guide.indexOf(marker, sectionIndex);
   assert.notEqual(markerIndex, -1, "capture guide must document the browser_evaluate audit");
 
   const fencedStart = guide.indexOf("```javascript", markerIndex);
