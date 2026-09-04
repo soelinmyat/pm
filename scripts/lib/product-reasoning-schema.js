@@ -113,7 +113,7 @@ function validateDecisionBrief(value) {
     issues,
     (entry, at) => {
       if (!record(entry)) return issues.push(`${at} must be an object`);
-      closed(entry, ["ref", "evidence_id", "note"], at, issues);
+      closed(entry, ["ref", "evidence_id", "chain_id", "note"], at, issues);
       evidenceRef(entry.ref, `${at}.ref`, issues);
       if (
         entry.evidence_id !== null &&
@@ -121,6 +121,8 @@ function validateDecisionBrief(value) {
         !/^ev-[a-f0-9]{20}$/.test(entry.evidence_id)
       )
         issues.push(`${at}.evidence_id is invalid`);
+      if (entry.chain_id !== null && entry.chain_id !== undefined)
+        slug(entry.chain_id, `${at}.chain_id`, issues);
       text(entry.note, `${at}.note`, issues);
     },
     { maxItems: MAX_EVIDENCE_REFS }
@@ -228,6 +230,16 @@ function validateIdeaForSave(value) {
     VALUE_FIELDS.some((field) => !Object.hasOwn(alignment.value_basis, field))
   ) {
     issues.push("new idea save requires all five customer-value fields and a value_basis for each");
+  }
+  const evidenceRefs = Array.isArray(value.evidence_refs) ? value.evidence_refs : [];
+  if (evidenceRefs.some((entry) => !record(entry) || typeof entry.chain_id !== "string")) {
+    issues.push("new idea save requires an explicit chain_id for every evidence reference");
+  } else {
+    const chainCount = new Set(evidenceRefs.map((entry) => entry.chain_id)).size;
+    if (alignment?.evidence_strength === "strong" && chainCount < 3)
+      issues.push("strong idea evidence requires at least three independent evidence chains");
+    if (alignment?.evidence_strength === "moderate" && chainCount < 1)
+      issues.push("moderate idea evidence requires at least one credible evidence chain");
   }
   return [...new Set(issues)];
 }
@@ -395,15 +407,17 @@ function validateAlignment(alignment, evidenceRefs, issues) {
   });
   if (!Object.hasOwn(EVIDENCE_STRENGTH, alignment.evidence_strength))
     issues.push("decision.alignment.evidence_strength is invalid");
-  const evidenceCount = new Set(
-    (Array.isArray(evidenceRefs) ? evidenceRefs : [])
-      .map((entry) => entry?.evidence_id || entry?.ref)
-      .filter(Boolean)
+  const refs = Array.isArray(evidenceRefs) ? evidenceRefs : [];
+  const explicitChains = refs.map((entry) => entry?.chain_id).filter(Boolean);
+  const evidenceChainCount = new Set(
+    explicitChains.length === refs.length
+      ? explicitChains
+      : refs.map((entry) => entry?.evidence_id || entry?.ref).filter(Boolean)
   ).size;
-  if (alignment.evidence_strength === "strong" && evidenceCount < 3)
-    issues.push("strong idea evidence requires at least three distinct signals");
-  if (alignment.evidence_strength === "moderate" && (evidenceCount < 1 || evidenceCount > 2))
-    issues.push("moderate idea evidence requires one or two distinct signals");
+  if (alignment.evidence_strength === "strong" && evidenceChainCount < 3)
+    issues.push("strong idea evidence requires at least three independent evidence chains");
+  if (alignment.evidence_strength === "moderate" && evidenceChainCount < 1)
+    issues.push("moderate idea evidence requires at least one credible evidence chain");
   if (!Object.hasOwn(COMPETITOR_GAP, alignment.competitor_gap))
     issues.push("decision.alignment.competitor_gap is invalid");
   stringArray(alignment.dependencies, "decision.alignment.dependencies", issues, { unique: true });

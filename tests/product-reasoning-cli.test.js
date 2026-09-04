@@ -150,6 +150,9 @@ test("validate-idea-save rejects legacy-neutral values and accepts explicit boun
       learning_value: "A bounded release tests the retention mechanism directly.",
     },
   });
+  idea.evidence_refs.forEach((entry, index) => {
+    entry.chain_id = `source-chain-${index + 1}`;
+  });
   fs.writeFileSync(input, JSON.stringify(idea));
   result = run(["validate-idea-save", "--root", root, "--input", input]);
   assert.equal(result.status, 0, result.stdout + result.stderr);

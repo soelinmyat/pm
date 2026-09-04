@@ -75,12 +75,12 @@ Stop.
 
    - **Name** — short and descriptive (3-5 words)
    - **One-liner** — what it does for the user (outcome, not implementation)
-   - **Signal sources** — which source(s) support it, with file paths
+   - **Signal sources** — which source(s) support it, with file paths and one stable `chain_id` per original evidence chain; derivative copies share the upstream chain ID
    - **Strategic fit** — which priority it advances
    - **Competitor gap** — `unique` / `partial` / `parity`
    - **Dependencies** — other unbuilt features required, or `none`
    - **Scope signal** — `small` (< 1 day) / `medium` (1-3 days) / `large` (1+ week)
-   - **Evidence strength** — `strong` (3+ independent, claim-fit signals, including a direct or primary source when available) / `moderate` (1-2 credible evidence chains with explicit limits) / `hypothesis` (a sourced signal whose implication remains unverified). Derivative copies of one upstream claim are one chain.
+   - **Evidence strength** — `strong` (3+ independent, claim-fit evidence chains, including a direct or primary source when available) / `moderate` (at least 1 credible chain with explicit limits; keep this conservative label when several references remain correlated) / `hypothesis` (a sourced signal whose implication remains unverified). Derivative copies of one upstream claim are one chain.
    - **Customer impact** — `low` (minor convenience) / `medium` (meaningful friction or outcome improvement) / `high` (removes a critical pain or unlocks the core job)
    - **Reach** — `narrow` (edge segment) / `segment` (meaningful ICP segment) / `broad` (most of the ICP); this is a bounded category, not an invented user count
    - **Urgency** — `later` (no time pressure) / `soon` (cost grows within the planning horizon) / `now` (current blocker, churn, safety, or expiring opportunity)
@@ -108,7 +108,7 @@ Stop.
 
 6. **Present.** Show a ranked table (# / Idea / One-liner / Weighted total / Customer value / Confidence / Supports / Deps / Scope), a count of how many were filtered out with brief reasons, and quick-wins vs big-bets callouts. Keep the ordinal inputs and their cited value basis visible on request; a total never replaces judgment. Then ask how to proceed: (a) groom one now, (b) add their own ideas, (c) go deeper on one, (d) save all to backlog.
 
-7. **Write.** Only when the user confirms they want ideas saved. Immediately before writing, rebuild the exact final candidate briefs after every user addition or reshape, require the current Strategy companion to be authenticated, and rerun `rank-ideas`. Do not save while any unknown token or confirmed non-goal conflict remains unresolved. Then write each approved idea to `{pm_dir}/backlog/{idea-slug}.md`, hash it, and write `{pm_dir}/backlog/{idea-slug}.decision.json`. Before treating that new companion as saved, run `scripts/product-reasoning.js validate-idea-save --root "{pm_dir}" --input "{pm_dir}/backlog/{idea-slug}.decision.json"`; a normal legacy-readable `validate` is not the new-save gate. Fix every missing customer-value field, basis, or binding before continuing. **ID rule:** use the Linear identifier as `id` if an issue was created; otherwise fall back to the local `PM-{NNN}` sequence. Preserve the decision ID across ranking and wording changes. Then tell the user the count, paths, and that `/pm:groom {slug}` consumes this lineage and atomically marks it promoted only after approved Groom artifacts exist.
+7. **Write.** Only when the user confirms they want ideas saved. Immediately before writing, rebuild the exact final candidate briefs after every user addition or reshape, assign each evidence reference its original-source `chain_id`, require the current Strategy companion to be authenticated, and rerun `rank-ideas`. Do not save while any unknown token or confirmed non-goal conflict remains unresolved. Then write each approved idea to `{pm_dir}/backlog/{idea-slug}.md`, hash it, and write `{pm_dir}/backlog/{idea-slug}.decision.json`. Before treating that new companion as saved, run `scripts/product-reasoning.js validate-idea-save --root "{pm_dir}" --input "{pm_dir}/backlog/{idea-slug}.decision.json"`; a normal legacy-readable `validate` is not the new-save gate. Fix every missing chain ID, customer-value field, basis, or binding before continuing. **ID rule:** use the Linear identifier as `id` if an issue was created; otherwise fall back to the local `PM-{NNN}` sequence. Preserve the decision ID across ranking and wording changes. Then tell the user the count, paths, and that `/pm:groom {slug}` consumes this lineage and atomically marks it promoted only after approved Groom artifacts exist.
 
    ```markdown
    ---

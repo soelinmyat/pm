@@ -276,7 +276,7 @@ test("idea evidence labels are calibrated to distinct cited signals", () => {
       scope_signal: "small",
     },
   });
-  assert.match(validateDecisionBrief(inflated).join("\n"), /at least three distinct signals/);
+  assert.match(validateDecisionBrief(inflated).join("\n"), /three independent evidence chains/);
   inflated.evidence_refs.push(
     { ref: "evidence/research/two.md", evidence_id: null, note: "Second signal" },
     { ref: "evidence/research/three.md", evidence_id: null, note: "Third signal" }
@@ -304,7 +304,51 @@ test("newly saved ideas require explicit customer-value judgments while legacy r
       learning_value: "A bounded release tests whether automation changes weekly retention.",
     },
   });
+  current.evidence_refs[0].chain_id = "weekly-operations-study";
   assert.deepEqual(validateIdeaForSave(current), []);
+});
+
+test("new idea saves count independent evidence chains instead of filenames", () => {
+  const candidate = brief("idea", "independent-evidence-chains");
+  candidate.alignment.evidence_strength = "strong";
+  candidate.evidence_refs = [
+    {
+      ref: "evidence/research/original.md#finding-1",
+      evidence_id: null,
+      chain_id: "upstream-study",
+      note: "Original study",
+    },
+    {
+      ref: "evidence/research/summary.md#finding-1",
+      evidence_id: null,
+      chain_id: "upstream-study",
+      note: "Summary of the same study",
+    },
+    {
+      ref: "evidence/research/repost.md#finding-1",
+      evidence_id: null,
+      chain_id: "upstream-study",
+      note: "Repost of the same study",
+    },
+  ];
+  Object.assign(candidate.alignment, {
+    customer_impact: "high",
+    reach: "segment",
+    urgency: "soon",
+    expected_outcome: "meaningful",
+    learning_value: "high",
+    value_basis: {
+      customer_impact: "The cited study reports recurring operational friction.",
+      reach: "The signal applies to the target operations segment.",
+      urgency: "The current workflow blocks adoption this planning cycle.",
+      expected_outcome: "The idea removes a repeated reconciliation step.",
+      learning_value: "A bounded release tests the core retention mechanism.",
+    },
+  });
+  assert.match(validateIdeaForSave(candidate).join("\n"), /three independent evidence chains/);
+
+  candidate.alignment.evidence_strength = "moderate";
+  assert.deepEqual(validateIdeaForSave(candidate), []);
 });
 
 test("idea alignment enums reject inherited object keys", () => {
