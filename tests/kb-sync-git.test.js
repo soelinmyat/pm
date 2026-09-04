@@ -269,6 +269,105 @@ test("journaled setup commits the managed ignore file in an existing history", (
   );
 });
 
+test("journaled setup preserves pending content for the subsequent sync", (t) => {
+  const remote = withBareRemote();
+  const { pmDir, dotPm, cleanup } = withTempProject({
+    "pm/strategy.md": "# Original\n",
+    "pm/.gitignore": "*.local-conflict\n",
+  });
+  t.after(() => {
+    cleanup();
+    remote.cleanup();
+  });
+  gitExec("git init -b configuration", { cwd: pmDir });
+  gitExec("git add strategy.md .gitignore && git commit -m initial", { cwd: pmDir });
+  const headBefore = gitExec("git rev-parse HEAD", { cwd: pmDir }).toString();
+  fs.writeFileSync(path.join(pmDir, "strategy.md"), "# Staged\n");
+  gitExec("git add strategy.md", { cwd: pmDir });
+  fs.writeFileSync(path.join(pmDir, "strategy.md"), "# Unstaged\n");
+  fs.writeFileSync(path.join(pmDir, "notes.md"), "# Untracked\n");
+  const statusBefore = gitExec("git status --porcelain", { cwd: pmDir }).toString();
+  const { runSyncEffect } = require(KB_SYNC_GIT_PATH);
+  const options = {
+    mode: "setup",
+    pmDir,
+    dotPmDir: dotPm,
+    remoteUrl: remote.url,
+    authorityActions: ["configure_sync"],
+  };
+  const configured = runSyncEffect(options);
+  assert.equal(configured.state, "verified", JSON.stringify(configured));
+  assert.equal(configured.verified_receipt.receipt.worktree_clean, false);
+  assert.equal(configured.verified_receipt.receipt.branch, "configuration");
+  assert.equal(gitExec("git rev-parse HEAD", { cwd: pmDir }).toString(), headBefore);
+  assert.equal(gitExec("git status --porcelain", { cwd: pmDir }).toString(), statusBefore);
+  assert.equal(gitExec("git show :strategy.md", { cwd: pmDir }).toString(), "# Staged\n");
+  assert.equal(fs.readFileSync(path.join(pmDir, "strategy.md"), "utf8"), "# Unstaged\n");
+  assert.equal(fs.readFileSync(path.join(pmDir, "notes.md"), "utf8"), "# Untracked\n");
+  assert.equal(
+    gitExec("git show origin/configuration:strategy.md", { cwd: pmDir }).toString(),
+    "# Original\n"
+  );
+
+  // Re-observe a previously blocked setup without replaying its Git mutation.
+  const replay = runSyncEffect({
+    ...options,
+    operations: { setup: () => assert.fail("configured setup must not be replayed") },
+  });
+  const journal = JSON.parse(fs.readFileSync(replay.journal_path, "utf8"));
+  journal.state = "blocked";
+  journal.verified_receipt = null;
+  fs.writeFileSync(replay.journal_path, JSON.stringify(journal));
+  const recovered = runSyncEffect({
+    ...options,
+    operations: { setup: () => assert.fail("recovery must only observe configured setup") },
+  });
+  assert.equal(recovered.state, "verified");
+  assert.equal(recovered.verified_receipt.receipt.worktree_clean, false);
+
+  const synced = runSyncEffect({
+    mode: "sync",
+    pmDir,
+    dotPmDir: dotPm,
+    authorityActions: ["sync_knowledge_base"],
+  });
+  assert.equal(synced.state, "verified", JSON.stringify(synced));
+  assert.equal(synced.verified_receipt.receipt.worktree_clean, true);
+  assert.equal(
+    gitExec("git show origin/configuration:strategy.md", { cwd: pmDir }).toString(),
+    "# Unstaged\n"
+  );
+  assert.equal(
+    gitExec("git show origin/configuration:notes.md", { cwd: pmDir }).toString(),
+    "# Untracked\n"
+  );
+});
+
+for (const mode of ["push", "sync"]) {
+  test(`journaled ${mode} cannot verify while pending content remains`, (t) => {
+    const remote = withBareRemote();
+    const { pmDir, dotPm, cleanup } = withTempProject({ "pm/strategy.md": "# Strategy\n" });
+    t.after(() => {
+      cleanup();
+      remote.cleanup();
+    });
+    const { setup, runSyncEffect, SYNC_AUTHORITY } = require(KB_SYNC_GIT_PATH);
+    assert.equal(setup(pmDir, remote.url).ok, true);
+    fs.writeFileSync(path.join(pmDir, "strategy.md"), "# Pending\n");
+    // Inject a falsely successful transport to exercise the real postcondition.
+    const result = runSyncEffect({
+      mode,
+      pmDir,
+      dotPmDir: dotPm,
+      authorityActions: [SYNC_AUTHORITY[mode]],
+      operations: { [mode]: () => ({ ok: true }) },
+    });
+    assert.equal(result.state, "blocked");
+    assert.equal(result.verified_receipt, null);
+    assert.equal(fs.readFileSync(path.join(pmDir, "strategy.md"), "utf8"), "# Pending\n");
+  });
+}
+
 test("setup returns error for nonexistent pm directory", () => {
   const { setup } = require(KB_SYNC_GIT_PATH);
   const result = setup("/nonexistent/path/pm", "https://example.com/repo.git");

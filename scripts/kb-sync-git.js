@@ -612,7 +612,9 @@ function syncObservation(mode, pmDir, expectedRemoteHash) {
   }
   const clean = state.worktree_sha256 === sha256("");
   const aligned = state.head === state.upstream;
-  const verified = mode === "pull" ? aligned : aligned && clean;
+  // Setup configures the upstream; pending content belongs to a later sync.
+  // Keep the actual cleanliness in the receipt without imposing push's gate.
+  const verified = mode === "pull" || mode === "setup" ? aligned : aligned && clean;
   if (!verified) {
     return {
       state: "absent",

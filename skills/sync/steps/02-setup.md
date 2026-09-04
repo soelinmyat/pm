@@ -159,6 +159,12 @@ sync operations follow that branch's configured upstream, regardless of remote
 or branch name. Detached HEAD or a missing upstream is a blocking configuration
 error with repair guidance, not a reason to assume `origin/main`.
 
+In an established repository, setup preserves pending content and staging. Its
+verified receipt confirms the configured, aligned upstream and reports actual
+worktree cleanliness; it does not claim pending documents were committed or
+uploaded. Complete the config effect below, then run `/pm:sync` when the user
+also requested those documents be synchronized.
+
 The explicit setup request is the action-specific `configure_sync` authority
 grant. The helper journals it in `{pm_state_dir}/effects/`, observes an existing
 matching remote before retrying, and reports `verified`, `blocked`, or
