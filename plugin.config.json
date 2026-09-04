@@ -83,10 +83,7 @@
       "longDescription": "PM keeps market research, strategy, competitor context, groomed work, and delivery state in one place inside the repo. Context compounds over time — every session builds on prior research, decisions, and evidence.",
       "developerName": "Soe Lin Myat",
       "category": "Productivity",
-      "capabilities": [
-        "Interactive",
-        "Write"
-      ],
+      "capabilities": ["Interactive", "Write"],
       "websiteURL": "https://github.com/soelinmyat/pm",
       "privacyPolicyURL": "https://github.com/soelinmyat/pm",
       "termsOfServiceURL": "https://github.com/soelinmyat/pm",
