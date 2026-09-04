@@ -280,6 +280,11 @@ function validateCoverage(route, subjectIds, issues) {
           add(issues, `route.coverage.${subject.id}`, `must decide applicability for ${state}`);
       if (!required("primary", "desktop") && subject.platform === "web")
         add(issues, `route.coverage.${subject.id}`, "web primary desktop capture is required");
+      if (
+        subject.platform === "web" &&
+        !rows.some((item) => item.viewport === "narrow" && item.required)
+      )
+        add(issues, `route.coverage.${subject.id}`, "web narrow capture is required");
       if (!required("primary", "device") && subject.platform === "mobile")
         add(issues, `route.coverage.${subject.id}`, "mobile primary device capture is required");
     } else {

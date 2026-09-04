@@ -49,7 +49,7 @@ This contract defines the durable chain checked by `scripts/design-critique-chec
 
 Modes are `product-ui` and `pm-artifact`. Platforms are `web`, `mobile`, and `document`; document belongs only to artifact mode. States are `primary`, `empty`, `error`, `boundary`, `loading`, `success`, `focus`, `disabled`, `keyboard`, `modal`, `responsive`, and `print`. Viewports are `desktop`, `tablet`, `narrow`, `device`, and `print`.
 
-Product UI decides primary, empty, error, boundary, loading, success, focus, disabled, keyboard, and modal applicability for every subject. A non-applicable state carries a concrete product reason. Web primary desktop is always required. Add tablet/narrow rows when a surface reflows. PM artifacts require desktop, tablet, narrow, and print.
+Product UI decides primary, empty, error, boundary, loading, success, focus, disabled, keyboard, and modal applicability for every subject. A non-applicable state carries a concrete product reason. Web product UI always requires primary desktop and at least one narrow capture; add tablet when it exercises a distinct breakpoint. PM artifacts require desktop, tablet, narrow, and print.
 
 Mobile product UI requires a primary `device` row. Every PM artifact subject also includes `artifact: {path, sha256, kind}` for the exact proposal, RFC, or report HTML.
 

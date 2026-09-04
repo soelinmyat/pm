@@ -50,11 +50,11 @@ Generate `target.json` with `scripts/review-target.js`. It freezes:
 - the exact `pm:review` generator version that created the frozen target;
 - additive relevance policy `changed-hunk-anchor-v1` for newly generated targets; legacy targets without it remain readable only for inspection and cannot publish an authoritative final pass;
 - current commit, authoritative remote base ref/object, and binary diff SHA-256;
-- for Dev-routed work, canonical Dev run/slug, routed mode/version, and acceptance-criteria digest;
+- for Dev-routed work, canonical Dev run/slug, routed mode/version, acceptance-criteria digest, and the risk-derived `security_review_required` decision;
 - sorted changed-file status, old path, current byte hash, and byte count;
 - optional exact acceptance, Design Critique, and prior-report bindings;
 - non-overlapping gate ownership;
-- every logical lens with applicability deterministically derived from the frozen changed files;
+- every logical lens with applicability deterministically derived from the frozen changed files and bound Dev risk decision;
 - every physical reviewer with exact profile, runtime, and assigned lenses.
 
 Rounds after 1 bind the immediately prior non-passing report for the same run. Nested validation derives the historical report generator version from that prior report's hash-bound target, never from the consumer repository. Targets from the released pre-binding Review schema (v1.13.15–v1.13.21) remain inspection-readable and may continue their existing bounded lineage only when the HTML names one of those exact legacy versions; grafting one of those versions into a target is rejected. Present target bindings accept only canonical, exact patch versions in the v1.13.22-through-current bound-generator window. Leading-zero aliases, pre-binding versions, later patch versions, and a future minor/major line all fail closed until compatibility membership is deliberately extended. Legacy targets cannot publish an authoritative pass until the new round freezes the current generator. This keeps remediation valid when the project has no plugin source and rejects versions outside the released compatibility windows. Round 1 cannot bind a prior report. For Dev-routed work, target creation scans the bounded review inventory and rejects a new run ID while the latest matching Dev decision-version lineage is unfinished.

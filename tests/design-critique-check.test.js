@@ -46,6 +46,7 @@ function makeFixture(options = {}) {
         ]
       : [
           coverageRow("ui-primary", "primary", "desktop", true),
+          coverageRow("ui-responsive-narrow", "responsive", "narrow", true),
           coverageRow(
             "ui-empty",
             "empty",
@@ -613,6 +614,8 @@ test("requires a primary device capture for mobile UI", () => {
 
 test("requires narrow viewport evidence for web UI", () => {
   const fixture = makeFixture();
+  fixture.route.coverage = fixture.route.coverage.filter((item) => item.viewport !== "narrow");
+  rewrite(fixture.root, fixture.routePath, fixture.route);
   const result = check(fixture);
   assert.equal(result.ok, false);
   assert.match(JSON.stringify(result.issues), /web narrow capture is required/);
