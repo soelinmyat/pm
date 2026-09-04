@@ -42,6 +42,8 @@ First research activity in a new project. Produces the market overview that make
 
    Before synthesis, calibrate every headline statistic, market assertion, and positioning claim on **authority, independence, recency, and claim fit**. Trace syndication to its upstream origin: three derivative sources are one evidence chain. Prefer a current primary source for a fact it directly controls, and seek an independent source for market interpretation or disclose the single-source limit. Record `high`, `medium`, or `low` confidence with a one-line basis; these are qualitative judgments, not numeric probabilities.
 
+   Treat positioning-map coordinates the same way. Define observable category anchors for each axis before placing companies (for example, `low`, `mid`, and `high`, with the product behavior or segment evidence that qualifies for each). Map those categories to stable display coordinates such as `20`, `50`, and `80`; do not invent fine-grained values such as `63` unless a documented measurement actually produces them. The 0–100 values are renderer positions, not scores, probabilities, or measured market facts. Record each company's category, evidence IDs, confidence, and unresolved ambiguity in the Positioning Basis table.
+
 4. **Present findings for validation.** Show a structured summary before writing. Ask:
    > "Does this look like the right landscape? Anything to add or correct before I write the file?"
 
@@ -104,10 +106,17 @@ Named segments with a 1-sentence description each. Who buys, why, and at what pr
 Choose two axes that reveal strategic whitespace (e.g., vertical-specific vs horizontal, SMB vs Enterprise).
 Each row is an HTML comment with: company name, x position (0-100), y position (0-100), monthly organic traffic, segment label.
 These structured comments encode a positioning bubble chart (bubble size = traffic, color = segment).
+Coordinates are categorical display anchors, not measured scores: use stable band values such as low=`20`, mid=`50`, and high=`80` unless a documented measurement defines a different scale. Do not imply precision that the evidence does not support.
 
 X-axis: {description of left to right}.
 Y-axis: {description of bottom to top}.
 Dot size: Monthly organic traffic. Color: segment.
+
+| Company | X category + basis | Y category + basis | Evidence IDs | Confidence / limitation |
+|---|---|---|---|---|
+| Company A | high — {observable basis} | low — {observable basis} | ev_... | medium — {limitation} |
+
+Every plotted company has one row. Define category boundaries in observable terms, cite the evidence used for placement, and preserve disagreement instead of averaging it into a more precise-looking coordinate.
 
 {1-2 sentences explaining where your product sits and what the whitespace reveals.}
 
@@ -136,4 +145,4 @@ When `{pm_dir}/insights/business/landscape.md` exists and user runs landscape mo
 
 ## Done-when
 
-`{pm_dir}/insights/business/landscape.md` has all template sections populated with registered source IDs and calibrated claim confidence, the user has validated the findings, the shared ledger and PM project validate, insight routing has run or been explicitly skipped, and indexes/logs are updated. Offer competitor profiling as the next action when appropriate; do not execute another research mode in this invocation.
+`{pm_dir}/insights/business/landscape.md` has all template sections populated with registered source IDs, calibrated claim confidence, and evidence-backed categorical positioning bases; the user has validated the findings, the shared ledger and PM project validate, insight routing has run or been explicitly skipped, and indexes/logs are updated. Offer competitor profiling as the next action when appropriate; do not execute another research mode in this invocation.

@@ -237,3 +237,22 @@ test("research steps: three research modes exist as separate steps", () => {
     cleanup();
   }
 });
+
+test("research positioning maps use evidence-backed categories without false precision", () => {
+  const { pmDir, cleanup } = makeFakePmDir();
+  try {
+    const steps = loadWorkflow("research", pmDir, PLUGIN_ROOT);
+    const landscape = steps.find((step) => step.name === "Landscape Mode").body;
+    const competitors = steps.find((step) => step.name === "Competitor Mode").body;
+
+    assert.match(landscape, /observable category anchors/i);
+    assert.match(landscape, /renderer positions, not scores, probabilities, or measured/i);
+    assert.match(landscape, /Positioning Basis/i);
+    assert.match(landscape, /Evidence IDs/i);
+    assert.match(landscape, /Do not imply precision/i);
+    assert.match(competitors, /observable category anchors/i);
+    assert.match(competitors, /falsely precise coordinate/i);
+  } finally {
+    cleanup();
+  }
+});
