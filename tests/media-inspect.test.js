@@ -7,6 +7,7 @@ const {
   inspectPdfBytes,
   inspectPngBytes,
   inspectPngVisualBytes,
+  visualDistance,
 } = require("../scripts/lib/media-inspect");
 
 test("strict PNG inspection accepts a complete decodable image", () => {
@@ -30,6 +31,36 @@ test("visual PNG inspection has one pixel identity across PNG row-filter encodin
   assert.equal(new Set(inspected.map((item) => item.pixelSha256)).size, 1);
   assert.ok(inspected.every((item) => item.visiblePixels === 100));
   assert.ok(inspected.every((item) => item.hasVisualVariation === true));
+  assert.equal(new Set(inspected.map((item) => item.perceptualGrid)).size, 1);
+  assert.ok(inspected.every((item) => item.meaningfulPixelRatio > 0.9));
+  assert.ok(inspected.every((item) => item.meaningfulTileRatio > 0.9));
+  assert.ok(inspected.every((item) => item.colorBucketCount > 10));
+  assert.ok(inspected.every((item) => item.luminanceRange > 100));
+});
+
+test("visual PNG metrics expose a one-pixel beacon as spatially near blank", () => {
+  const inspected = inspectPngVisualBytes(
+    rgbaPng(100, 100, (x, y) => (x === 50 && y === 50 ? [0, 0, 0, 255] : [255, 255, 255, 255]))
+  );
+  assert.equal(inspected.visiblePixels, 10_000);
+  assert.equal(inspected.hasVisualVariation, true);
+  assert.equal(inspected.meaningfulPixelRatio, 0.0001);
+  assert.equal(inspected.meaningfulTileRatio, 1 / 64);
+  assert.equal(inspected.colorBucketCount, 2);
+});
+
+test("perceptual distance is deterministic and detects materially different UI pixels", () => {
+  const first = inspectPngVisualBytes(
+    rgbaPng(64, 64, (x) => (x < 32 ? [20, 40, 180, 255] : [240, 240, 250, 255]))
+  );
+  const same = inspectPngVisualBytes(
+    rgbaPng(64, 64, (x) => (x < 32 ? [20, 40, 180, 255] : [240, 240, 250, 255]))
+  );
+  const changed = inspectPngVisualBytes(
+    rgbaPng(64, 64, (y) => (y < 32 ? [190, 30, 40, 255] : [15, 25, 35, 255]))
+  );
+  assert.equal(visualDistance(first, same), 0);
+  assert.ok(visualDistance(first, changed) > 0.2);
 });
 
 test("visual PNG inspection rejects transparency it cannot canonicalize", () => {
@@ -211,6 +242,34 @@ function filteredRgbaPng(filter) {
                 ? Math.floor((left + up) / 2)
                 : paeth(left, up, upperLeft);
       rows[targetOffset + column + 1] = (raw - predictor) & 0xff;
+    }
+  }
+  return Buffer.concat([
+    Buffer.from("89504e470d0a1a0a", "hex"),
+    chunk("IHDR", header),
+    chunk("tEXt", Buffer.alloc(1024, 0x61)),
+    chunk("IDAT", zlib.deflateSync(rows)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+function rgbaPng(width, height, pixelAt) {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 6;
+  const rows = Buffer.alloc((width * 4 + 1) * height);
+  for (let y = 0; y < height; y += 1) {
+    const row = y * (width * 4 + 1);
+    rows[row] = 0;
+    for (let x = 0; x < width; x += 1) {
+      const [red, green, blue, alpha] = pixelAt(x, y);
+      const offset = row + 1 + x * 4;
+      rows[offset] = red;
+      rows[offset + 1] = green;
+      rows[offset + 2] = blue;
+      rows[offset + 3] = alpha;
     }
   }
   return Buffer.concat([

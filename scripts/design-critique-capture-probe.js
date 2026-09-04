@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 "use strict";
 
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const http = require("node:http");
 const os = require("node:os");
@@ -10,8 +11,35 @@ const { spawn } = require("node:child_process");
 const MAX_CDP_MESSAGE_CHARS = 96 * 1024 * 1024;
 const MAX_CAPTURE_BYTES = 64 * 1024 * 1024;
 const MAX_RESULT_BYTES = 2 * 1024 * 1024;
+const MAX_LANDMARKS = 100;
+const MAX_CONTROLS = 1000;
+const MAX_DOM_ISSUES = 200;
+const MAX_NETWORK_REQUESTS = 2000;
+const MIN_EFFECTIVE_OPACITY = 0.01;
 const INTERNAL_SCHEMES = new Set(["about:", "data:"]);
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+function digest(value) {
+  return crypto.createHash("sha256").update(value).digest("hex");
+}
+
+function redactedUrlIdentity(rawUrl) {
+  const parsed = new URL(rawUrl);
+  if (parsed.username || parsed.password) throw new Error("page URL cannot contain credentials");
+  const internal = INTERNAL_SCHEMES.has(parsed.protocol);
+  return {
+    origin: internal ? parsed.protocol : parsed.origin,
+    pathname: internal ? "" : parsed.pathname,
+    has_query: parsed.search.length > 0,
+    has_fragment: parsed.hash.length > 0,
+    full_url_sha256: digest(Buffer.from(parsed.href)),
+  };
+}
+
+function appendBoundedEvidence(collection, value, limit, label) {
+  if (collection.length >= limit) throw new Error(`${label} exceed the ${limit}-item budget`);
+  collection.push(value);
+}
 
 function writeExclusiveFile(outputPath, encoded, label) {
   if (typeof encoded !== "string" || encoded.length > Math.ceil((MAX_CAPTURE_BYTES * 4) / 3) + 4)
@@ -38,7 +66,7 @@ function writeExclusiveFile(outputPath, encoded, label) {
       size: String(stat.size),
       mtime_ns: String(stat.mtimeNs),
       ctime_ns: String(stat.ctimeNs),
-      sha256: require("node:crypto").createHash("sha256").update(bytes).digest("hex"),
+      sha256: digest(bytes),
     };
   } finally {
     if (descriptor !== undefined) fs.closeSync(descriptor);
@@ -157,15 +185,19 @@ function originForPolicy(rawUrl) {
 }
 
 function sanitizeRequest(request, sequence) {
+  const method = String(request.method || "GET");
+  const resourceType = String(request.resourceType || "Other");
+  const origin = originForPolicy(request.url);
+  if (!method || method.length > 20) throw new Error("network method exceeds 20 characters");
+  if (!resourceType || resourceType.length > 40)
+    throw new Error("network resource type exceeds 40 characters");
+  if (!origin || origin.length > 4096) throw new Error("network origin exceeds 4096 characters");
   return {
     sequence,
-    method: String(request.method || "GET").slice(0, 20),
-    resource_type: String(request.resourceType || "Other").slice(0, 40),
-    origin: originForPolicy(request.url),
-    url_sha256: require("node:crypto")
-      .createHash("sha256")
-      .update(String(request.url || ""))
-      .digest("hex"),
+    method,
+    resource_type: resourceType,
+    origin,
+    url_sha256: digest(Buffer.from(String(request.url || ""))),
   };
 }
 
@@ -215,14 +247,14 @@ function snapshotNodeModel(snapshot) {
 }
 
 function nodeLocator(node) {
-  if (node.attributes.id) return `${node.nodeName}#${node.attributes.id}`.slice(0, 500);
-  if (node.attributes["data-testid"])
-    return `[data-testid="${node.attributes["data-testid"]}"]`.slice(0, 500);
+  let locator;
+  if (node.attributes.id) locator = `${node.nodeName}#${node.attributes.id}`;
+  else if (node.attributes["data-testid"])
+    locator = `[data-testid="${node.attributes["data-testid"]}"]`;
   const classes = (node.attributes.class || "").split(/\s+/).filter(Boolean).slice(0, 3).join(".");
-  return `${node.nodeName || "node"}${classes ? `.${classes}` : ""}[backend=${node.backendNodeId}]`.slice(
-    0,
-    500
-  );
+  locator ||= `${node.nodeName || "node"}${classes ? `.${classes}` : ""}[backend=${node.backendNodeId}]`;
+  if (locator.length > 500) throw new Error("accessibility locator exceeds 500 characters");
+  return locator;
 }
 
 function tabIndexForNode(node, role) {
@@ -296,40 +328,155 @@ function accessibilityObservations(axTree, model) {
     if (!node) continue;
     const name = String(valueOf(axNode.name) || "")
       .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 1000);
+      .trim();
+    if (name.length > 1000) throw new Error("accessible name exceeds 1000 characters");
     const locator = nodeLocator(node);
-    if (landmarkRoles.has(role) && landmarks.length < 100) landmarks.push({ role, name, locator });
-    if (controlRoles.has(role) && controls.length < 1000) {
+    if (landmarkRoles.has(role)) {
+      appendBoundedEvidence(
+        landmarks,
+        { role, name, locator },
+        MAX_LANDMARKS,
+        "accessibility landmarks"
+      );
+    }
+    if (controlRoles.has(role)) {
       const properties = new Map(
         (axNode.properties || []).map((item) => [item.name, valueOf(item)])
       );
-      controls.push({
-        role,
-        name,
-        locator,
-        disabled:
-          properties.get("disabled") === true ||
-          Object.prototype.hasOwnProperty.call(node.attributes, "disabled") ||
-          node.attributes["aria-disabled"] === "true",
-        tab_index: tabIndexForNode(node, role),
-        document_index: node.index,
-      });
+      appendBoundedEvidence(
+        controls,
+        {
+          role,
+          name,
+          locator,
+          disabled:
+            properties.get("disabled") === true ||
+            Object.prototype.hasOwnProperty.call(node.attributes, "disabled") ||
+            node.attributes["aria-disabled"] === "true",
+          tab_index: tabIndexForNode(node, role),
+          document_index: node.index,
+        },
+        MAX_CONTROLS,
+        "accessibility controls"
+      );
     }
   }
   return { landmarks, controls };
 }
 
-function evaluateStateAssertion(assertion, model, axTree, computedStyles) {
+function visibleIntersection(node, model, style, metrics) {
+  const bounds = node?.layout?.bounds;
+  if (!Array.isArray(bounds) || bounds[2] <= 0 || bounds[3] <= 0) return null;
+  const viewport = metrics.cssVisualViewport;
+  let left = Math.max(bounds[0], viewport.pageX);
+  let top = Math.max(bounds[1], viewport.pageY);
+  let right = Math.min(bounds[0] + bounds[2], viewport.pageX + viewport.clientWidth);
+  let bottom = Math.min(bounds[1] + bounds[3], viewport.pageY + viewport.clientHeight);
+  if (right <= left || bottom <= top) return null;
+  let effectiveOpacity = 1;
+  let current = node;
+  const seen = new Set();
+  while (current && !seen.has(current.index)) {
+    seen.add(current.index);
+    if (
+      Object.prototype.hasOwnProperty.call(current.attributes, "hidden") ||
+      style(current, "display") === "none" ||
+      new Set(["hidden", "collapse"]).has(style(current, "visibility")) ||
+      style(current, "content-visibility") === "hidden"
+    )
+      return null;
+    const opacity = Number.parseFloat(style(current, "opacity") || "1");
+    effectiveOpacity *= Number.isFinite(opacity) ? Math.max(0, Math.min(1, opacity)) : 1;
+    if (effectiveOpacity < MIN_EFFECTIVE_OPACITY) return null;
+    if (current !== node && current.layout?.bounds) {
+      const ancestor = current.layout.bounds;
+      const overflowX = style(current, "overflow-x") || style(current, "overflow");
+      const overflowY = style(current, "overflow-y") || style(current, "overflow");
+      if (overflowX && overflowX !== "visible") {
+        left = Math.max(left, ancestor[0]);
+        right = Math.min(right, ancestor[0] + ancestor[2]);
+      }
+      if (overflowY && overflowY !== "visible") {
+        top = Math.max(top, ancestor[1]);
+        bottom = Math.min(bottom, ancestor[1] + ancestor[3]);
+      }
+      if (right <= left || bottom <= top) return null;
+    }
+    current = current.parentIndex >= 0 ? model[current.parentIndex] : null;
+  }
+  return { left, top, right, bottom, effectiveOpacity };
+}
+
+function nodeVisibleInViewport(node, model, style, metrics) {
+  return visibleIntersection(node, model, style, metrics) !== null;
+}
+
+function isNodeOrDescendant(hitBackendNodeId, assertedNode, model) {
+  const hit = model.find((node) => node.backendNodeId === hitBackendNodeId);
+  if (!hit) return false;
+  let current = hit;
+  const seen = new Set();
+  while (current && !seen.has(current.index)) {
+    if (current.index === assertedNode.index) return true;
+    seen.add(current.index);
+    current = current.parentIndex >= 0 ? model[current.parentIndex] : null;
+  }
+  return false;
+}
+
+async function verifyAssertionHitTargets(client, requirements, model, style, metrics) {
+  const checks = [];
+  for (const requirement of requirements) {
+    const intersection = visibleIntersection(requirement.node, model, style, metrics);
+    if (!intersection) throw new Error(`${requirement.label} is not visibly rendered`);
+    const width = intersection.right - intersection.left;
+    const height = intersection.bottom - intersection.top;
+    const pageX = metrics.cssVisualViewport.pageX;
+    const pageY = metrics.cssVisualViewport.pageY;
+    const points = [
+      [0.5, 0.5],
+      [0.1, 0.1],
+      [0.9, 0.1],
+      [0.1, 0.9],
+      [0.9, 0.9],
+    ].map(([xRatio, yRatio]) => ({
+      x: Math.floor(intersection.left + width * xRatio - pageX),
+      y: Math.floor(intersection.top + height * yRatio - pageY),
+    }));
+    let accepted = null;
+    for (const point of points) {
+      const hit = await client.send("DOM.getNodeForLocation", {
+        x: point.x,
+        y: point.y,
+        includeUserAgentShadowDOM: true,
+        ignorePointerEventsNone: true,
+      });
+      if (isNodeOrDescendant(hit.backendNodeId, requirement.node, model)) {
+        accepted = { ...point, backend_node_id: hit.backendNodeId };
+        break;
+      }
+    }
+    if (!accepted) throw new Error(`${requirement.label} is fully occluded`);
+    checks.push({
+      label: requirement.label,
+      asserted_backend_node_id: requirement.node.backendNodeId,
+      hit_backend_node_id: accepted.backend_node_id,
+      x: accepted.x,
+      y: accepted.y,
+    });
+  }
+  return {
+    method: "cdp-dom-get-node-for-location-v1",
+    effective_opacity_floor: MIN_EFFECTIVE_OPACITY,
+    verified_nodes: checks.length,
+    checks,
+  };
+}
+
+function evaluateStateAssertion(assertion, model, axTree, computedStyles, metrics) {
   const styleIndex = new Map(computedStyles.map((name, index) => [name, index]));
   const style = (node, name) => node.layout?.styles?.[styleIndex.get(name)] || "";
-  const visible = (node) =>
-    Boolean(
-      node?.layout?.bounds?.[2] > 0 &&
-      node?.layout?.bounds?.[3] > 0 &&
-      style(node, "display") !== "none" &&
-      style(node, "visibility") !== "hidden"
-    );
+  const visible = (node) => nodeVisibleInViewport(node, model, style, metrics);
   const byBackendId = new Map(
     model
       .filter((node) => Number.isInteger(node.backendNodeId))
@@ -340,16 +487,15 @@ function evaluateStateAssertion(assertion, model, axTree, computedStyles) {
       .filter((node) => node.ignored !== true && Number.isInteger(node.backendDOMNodeId))
       .map((node) => [node.backendDOMNodeId, node])
   );
-  for (const [index, clause] of assertion.all.entries()) {
+  const locate = (locator) => {
     let matches;
-    if (clause.locator.by === "id")
-      matches = model.filter((node) => node.attributes.id === clause.locator.value);
-    else if (clause.locator.by === "test-id")
-      matches = model.filter((node) => node.attributes["data-testid"] === clause.locator.value);
+    if (locator.by === "id") matches = model.filter((node) => node.attributes.id === locator.value);
+    else if (locator.by === "test-id")
+      matches = model.filter((node) => node.attributes["data-testid"] === locator.value);
     else {
-      const separator = clause.locator.value.indexOf(":");
-      const role = clause.locator.value.slice(0, separator).trim().toLowerCase();
-      const name = clause.locator.value
+      const separator = locator.value.indexOf(":");
+      const role = locator.value.slice(0, separator).trim().toLowerCase();
+      const name = locator.value
         .slice(separator + 1)
         .trim()
         .replace(/\s+/g, " ");
@@ -366,6 +512,20 @@ function evaluateStateAssertion(assertion, model, axTree, computedStyles) {
         .map((node) => byBackendId.get(node.backendDOMNodeId))
         .filter(Boolean);
     }
+    return matches;
+  };
+  const stateMatches = locate(assertion.state_marker.locator);
+  if (stateMatches.length !== 1)
+    throw new Error(`state marker expected exactly one match; observed ${stateMatches.length}`);
+  const stateNode = stateMatches[0];
+  if (!visible(stateNode)) throw new Error("state marker must be visibly rendered in the viewport");
+  if (stateNode.attributes[assertion.state_marker.attribute] !== assertion.state_marker.value)
+    throw new Error("state marker does not establish the routed state");
+
+  const hitRequirements = [{ label: "state marker", node: stateNode }];
+
+  for (const [index, clause] of assertion.all.entries()) {
+    const matches = locate(clause.locator);
     if (clause.expect.kind === "absent") {
       if (matches.length !== 0)
         throw new Error(`state assertion clause ${index + 1} expected absence`);
@@ -379,6 +539,8 @@ function evaluateStateAssertion(assertion, model, axTree, computedStyles) {
     const axNode = axByBackendId.get(node.backendNodeId);
     if (clause.expect.kind === "visible" && !visible(node))
       throw new Error(`state assertion clause ${index + 1} expected a visible node`);
+    if (clause.expect.kind === "visible")
+      hitRequirements.push({ label: `state assertion clause ${index + 1}`, node });
     if (
       clause.expect.kind === "attribute-equals" &&
       node.attributes[clause.expect.name] !== clause.expect.value
@@ -397,7 +559,7 @@ function evaluateStateAssertion(assertion, model, axTree, computedStyles) {
         throw new Error(`state assertion clause ${index + 1} expected focus`);
     }
   }
-  return true;
+  return hitRequirements;
 }
 
 function parsePixels(value) {
@@ -418,15 +580,20 @@ function domObservations(model, metrics, computedStyles) {
       style(node, "visibility") !== "hidden"
     );
   };
-  const issue = (code, node, detail) => ({
-    code,
-    locator: typeof node === "string" ? node.slice(0, 500) : nodeLocator(node),
-    detail: String(detail).slice(0, 1000),
-  });
+  const issue = (code, node, detail) => {
+    const locator = typeof node === "string" ? node : nodeLocator(node);
+    const description = String(detail);
+    if (locator.length > 500) throw new Error("DOM issue locator exceeds 500 characters");
+    if (description.length > 1000) throw new Error("DOM issue detail exceeds 1000 characters");
+    return { code, locator, detail: description };
+  };
   const hierarchy = [];
   const edgeAlignment = [];
   const consistency = [];
   const asymmetry = [];
+  const addIssue = (collection, value, kind) => {
+    appendBoundedEvidence(collection, value, MAX_DOM_ISSUES, `${kind} observations`);
+  };
   const visibleNodes = model.filter(visible);
   const headings = new Map();
   for (const node of visibleNodes.filter((candidate) => /^h[1-6]$/.test(candidate.nodeName))) {
@@ -452,22 +619,26 @@ function domObservations(model, metrics, computedStyles) {
     const upperSize = majorityNumber(headings.get(upper), "font-size");
     const lowerSize = majorityNumber(headings.get(lower), "font-size");
     if (lowerSize >= upperSize)
-      hierarchy.push(
+      addIssue(
+        hierarchy,
         issue(
           lowerSize > upperSize ? "inverted-heading-size" : "collapsed-heading-size",
           `${upper}>${lower}`,
           `${lower} (${lowerSize}px) is not smaller than ${upper} (${upperSize}px).`
-        )
+        ),
+        "hierarchy"
       );
     const upperWeight = majorityNumber(headings.get(upper), "font-weight");
     const lowerWeight = majorityNumber(headings.get(lower), "font-weight");
     if (lowerWeight - upperWeight >= 200)
-      hierarchy.push(
+      addIssue(
+        hierarchy,
         issue(
           "inverted-heading-weight",
           `${upper}>${lower}`,
           `${lower} (${lowerWeight}) is substantially bolder than ${upper} (${upperWeight}).`
-        )
+        ),
+        "hierarchy"
       );
   }
   const paragraphs = visibleNodes.filter((node) => node.nodeName === "p");
@@ -476,12 +647,14 @@ function domObservations(model, metrics, computedStyles) {
     const smallest = levels.at(-1);
     const headingSize = majorityNumber(headings.get(smallest), "font-size");
     if (bodySize >= headingSize)
-      hierarchy.push(
+      addIssue(
+        hierarchy,
         issue(
           "body-exceeds-heading",
           smallest,
           `Body text (${bodySize}px) is not smaller than ${smallest} (${headingSize}px).`
-        )
+        ),
+        "hierarchy"
       );
   }
 
@@ -556,13 +729,14 @@ function domObservations(model, metrics, computedStyles) {
           (left, right) => right[1] - left[1] || left[0].localeCompare(right[0])
         )[0][0];
         for (const node of nodes.filter((candidate) => style(candidate, property) !== majority)) {
-          if (consistency.length >= 200) break;
-          consistency.push(
+          addIssue(
+            consistency,
             issue(
               "visual-variance",
               node,
               `${key} ${property}: ${style(node, property)} differs from ${majority}.`
-            )
+            ),
+            "consistency"
           );
         }
       }
@@ -583,13 +757,17 @@ function domObservations(model, metrics, computedStyles) {
     const right = parsePixels(style(node, "padding-right"));
     const bottom = parsePixels(style(node, "padding-bottom"));
     const left = parsePixels(style(node, "padding-left"));
-    if (top > 4 && bottom > 4 && Math.abs(top - bottom) > 4 && asymmetry.length < 200)
-      asymmetry.push(
-        issue("asymmetric-padding", node, `vertical: top=${top}px bottom=${bottom}px`)
+    if (top > 4 && bottom > 4 && Math.abs(top - bottom) > 4)
+      addIssue(
+        asymmetry,
+        issue("asymmetric-padding", node, `vertical: top=${top}px bottom=${bottom}px`),
+        "asymmetry"
       );
-    if (left > 4 && right > 4 && Math.abs(left - right) > 4 && asymmetry.length < 200)
-      asymmetry.push(
-        issue("asymmetric-padding", node, `horizontal: left=${left}px right=${right}px`)
+    if (left > 4 && right > 4 && Math.abs(left - right) > 4)
+      addIssue(
+        asymmetry,
+        issue("asymmetric-padding", node, `horizontal: left=${left}px right=${right}px`),
+        "asymmetry"
       );
   }
 
@@ -629,13 +807,15 @@ function domObservations(model, metrics, computedStyles) {
       if (!majority || majority[1] < 2) continue;
       for (const item of values) {
         const delta = Math.abs(item.value - majority[0]);
-        if (delta >= 2 && edgeAlignment.length < 200)
-          edgeAlignment.push(
+        if (delta >= 2)
+          addIssue(
+            edgeAlignment,
             issue(
               "stacked-sibling-edge",
               item.node,
               `${edge} edge differs from sibling majority by ${delta}px.`
-            )
+            ),
+            "edge-alignment"
           );
       }
     }
@@ -650,10 +830,10 @@ function domObservations(model, metrics, computedStyles) {
         Math.ceil(metrics.cssContentSize.width)
       ),
     },
-    hierarchy: hierarchy.slice(0, 200),
-    edge_alignment: edgeAlignment.slice(0, 200),
-    consistency: consistency.slice(0, 200),
-    asymmetry: asymmetry.slice(0, 200),
+    hierarchy,
+    edge_alignment: edgeAlignment,
+    consistency,
+    asymmetry,
   };
 }
 
@@ -704,9 +884,25 @@ async function nativeSample(client, targetId, computedStyles, stateAssertion) {
   const model = snapshotNodeModel(snapshot);
   const identity = pageIdentity(frameTree, metrics);
   identity.target_id = targetId;
-  evaluateStateAssertion(stateAssertion, model, axTree, computedStyles);
+  const styleIndex = new Map(computedStyles.map((name, index) => [name, index]));
+  const style = (node, name) => node.layout?.styles?.[styleIndex.get(name)] || "";
+  const hitRequirements = evaluateStateAssertion(
+    stateAssertion,
+    model,
+    axTree,
+    computedStyles,
+    metrics
+  );
+  const assertionVisibility = await verifyAssertionHitTargets(
+    client,
+    hitRequirements,
+    model,
+    style,
+    metrics
+  );
   return {
     identity,
+    assertionVisibility,
     accessibility: accessibilityObservations(axTree, model),
     dom: domObservations(model, metrics, computedStyles),
   };
@@ -804,18 +1000,39 @@ async function main() {
     const requests = [];
     const pendingRequests = new Set();
     const violations = [];
-    const handlerErrors = [];
+    const activeFetchHandlers = new Set();
     let sequence = 0;
+    let networkEpoch = 0;
+    let networkOverflow = null;
+    let handlerError = null;
     let lastNetworkActivity = Date.now();
     let loadFired = false;
     let criticalWindow = false;
-    const criticalDrift = [];
+    let criticalDrift = null;
+    const noteNetworkActivity = () => {
+      networkEpoch += 1;
+      lastNetworkActivity = Date.now();
+      if (criticalWindow) criticalDrift ||= "network";
+    };
+    const retainRequest = (request) => {
+      try {
+        appendBoundedEvidence(requests, request, MAX_NETWORK_REQUESTS, "network requests");
+      } catch (error) {
+        networkOverflow ||= error.message;
+      }
+    };
+    const assertNetworkHealthy = () => {
+      if (handlerError) throw new Error(`network policy handler failed: ${handlerError}`);
+      if (networkOverflow) throw new Error(networkOverflow);
+      if (violations.length) throw new Error(`network policy violation: ${violations[0].origin}`);
+      if (criticalDrift) throw new Error(`page changed during atomic capture: ${criticalDrift}`);
+    };
     client.on("Page.loadEventFired", () => {
       loadFired = true;
     });
     for (const eventName of ["Page.frameNavigated", "Page.navigatedWithinDocument"])
       client.on(eventName, () => {
-        if (criticalWindow) criticalDrift.push("navigation");
+        if (criticalWindow) criticalDrift ||= "navigation";
       });
     for (const eventName of [
       "DOM.documentUpdated",
@@ -829,17 +1046,17 @@ async function main() {
       "CSS.styleSheetChanged",
     ])
       client.on(eventName, () => {
-        if (criticalWindow) criticalDrift.push("document");
+        if (criticalWindow) criticalDrift ||= "document";
       });
     client.on("Fetch.requestPaused", (event) => {
-      Promise.resolve()
+      noteNetworkActivity();
+      const handler = Promise.resolve()
         .then(async () => {
-          lastNetworkActivity = Date.now();
-          if (criticalWindow) criticalDrift.push("network");
           if (!requestAllowed(event.request?.url, allowedOrigins)) {
-            violations.push(
-              sanitizeRequest({ ...event.request, resourceType: event.resourceType }, ++sequence)
-            );
+            if (violations.length === 0)
+              violations.push(
+                sanitizeRequest({ ...event.request, resourceType: event.resourceType }, ++sequence)
+              );
             await client.send("Fetch.failRequest", {
               requestId: event.requestId,
               errorReason: "BlockedByClient",
@@ -848,30 +1065,40 @@ async function main() {
           }
           await client.send("Fetch.continueRequest", { requestId: event.requestId });
         })
-        .catch((error) => handlerErrors.push(error.message));
+        .catch((error) => {
+          handlerError ||= error.message;
+        })
+        .finally(() => activeFetchHandlers.delete(handler));
+      activeFetchHandlers.add(handler);
     });
     client.on("Network.requestWillBeSent", (event) => {
-      lastNetworkActivity = Date.now();
-      if (criticalWindow) criticalDrift.push("network");
-      if (requests.length < 2000) requests.push(sanitizeRequest(event.request, ++sequence));
+      noteNetworkActivity();
+      try {
+        retainRequest(sanitizeRequest({ ...event.request, resourceType: event.type }, ++sequence));
+      } catch (error) {
+        handlerError ||= error.message;
+      }
       pendingRequests.add(event.requestId);
     });
     const completeRequest = (event) => {
-      lastNetworkActivity = Date.now();
-      if (criticalWindow) criticalDrift.push("network");
+      noteNetworkActivity();
       pendingRequests.delete(event.requestId);
     };
     client.on("Network.loadingFinished", completeRequest);
     client.on("Network.loadingFailed", completeRequest);
     client.on("Network.webSocketCreated", (event) => {
-      lastNetworkActivity = Date.now();
-      if (criticalWindow) criticalDrift.push("network");
-      const record = sanitizeRequest(
-        { url: event.url, method: "GET", resourceType: "WebSocket" },
-        ++sequence
-      );
-      if (requests.length < 2000) requests.push(record);
-      if (!requestAllowed(event.url, allowedOrigins)) violations.push(record);
+      noteNetworkActivity();
+      try {
+        const record = sanitizeRequest(
+          { url: event.url, method: "GET", resourceType: "WebSocket" },
+          ++sequence
+        );
+        retainRequest(record);
+        if (!requestAllowed(event.url, allowedOrigins) && violations.length === 0)
+          violations.push(record);
+      } catch (error) {
+        handlerError ||= error.message;
+      }
     });
 
     await client.send("Page.enable");
@@ -899,10 +1126,13 @@ async function main() {
     const readyDeadline = Date.now() + readinessTimeoutMs;
     let readyAt = null;
     while (Date.now() < readyDeadline) {
-      if (handlerErrors.length)
-        throw new Error(`network policy handler failed: ${handlerErrors[0]}`);
-      if (violations.length) throw new Error(`network policy violation: ${violations[0].origin}`);
-      if (loadFired && pendingRequests.size === 0 && Date.now() - lastNetworkActivity >= settleMs) {
+      assertNetworkHealthy();
+      if (
+        loadFired &&
+        pendingRequests.size === 0 &&
+        activeFetchHandlers.size === 0 &&
+        Date.now() - lastNetworkActivity >= settleMs
+      ) {
         readyAt = new Date().toISOString();
         break;
       }
@@ -933,6 +1163,9 @@ async function main() {
       "background-color",
       "gap",
       "overflow",
+      "overflow-x",
+      "overflow-y",
+      "content-visibility",
       "margin-bottom",
     ];
     criticalWindow = true;
@@ -958,24 +1191,58 @@ async function main() {
       "verification screenshot"
     );
     const after = await nativeSample(client, target.id, computedStyles, config.stateAssertion);
-    criticalWindow = false;
     if (
       canonicalSample(before) !== canonicalSample(middle) ||
       canonicalSample(middle) !== canonicalSample(after)
     )
       throw new Error("page observations changed during atomic capture");
-    if (criticalDrift.length)
-      throw new Error(`page changed during atomic capture: ${criticalDrift[0]}`);
-    if (handlerErrors.length) throw new Error(`network policy handler failed: ${handlerErrors[0]}`);
-    if (violations.length) throw new Error(`network policy violation: ${violations[0].origin}`);
-    await sleep(50);
-    if (pendingRequests.size > 0 || Date.now() - lastNetworkActivity < 50)
-      throw new Error("network activity changed during atomic capture");
+    assertNetworkHealthy();
+
+    const finalSettleStartedAt = Date.now();
+    const finalSettleDeadline = finalSettleStartedAt + Math.max(1_000, settleMs * 4);
+    while (Date.now() < finalSettleDeadline) {
+      assertNetworkHealthy();
+      if (
+        pendingRequests.size === 0 &&
+        activeFetchHandlers.size === 0 &&
+        Date.now() - finalSettleStartedAt >= settleMs
+      )
+        break;
+      await sleep(25);
+    }
+    assertNetworkHealthy();
+    if (pendingRequests.size > 0 || activeFetchHandlers.size > 0)
+      throw new Error("network did not settle after atomic capture");
+
+    const barrierEpoch = networkEpoch;
+    await client.send("Page.getFrameTree");
+    assertNetworkHealthy();
+    if (networkEpoch !== barrierEpoch)
+      throw new Error("network activity crossed the final protocol barrier");
+
+    await client.send("Fetch.disable");
+    while (activeFetchHandlers.size > 0) await Promise.all([...activeFetchHandlers]);
+    assertNetworkHealthy();
+    if (pendingRequests.size > 0)
+      throw new Error("network requests remained pending after interception shutdown");
+    await client.send("Network.disable");
+    await client.send("Page.getFrameTree");
+    assertNetworkHealthy();
+    if (pendingRequests.size > 0 || activeFetchHandlers.size > 0)
+      throw new Error("network tracking did not close cleanly");
+
+    const observedFinalUrl = redactedUrlIdentity(middle.identity.final_url);
+    const expectedFinalUrl = redactedUrlIdentity(config.expectedUrl || config.url);
+    if (JSON.stringify(observedFinalUrl) !== JSON.stringify(expectedFinalUrl))
+      throw new Error("navigation drift: observed final URL does not match expected URL identity");
+    const publicPageIdentity = { ...middle.identity, final_url: observedFinalUrl };
+    criticalWindow = false;
 
     const observedOrigins = [...new Set(requests.map((item) => item.origin))].sort();
     const result = {
-      schema_version: 1,
-      page: middle.identity,
+      schema_version: 2,
+      page: publicPageIdentity,
+      assertion_visibility: middle.assertionVisibility,
       assertion_passed: true,
       accessibility_observations: middle.accessibility,
       dom_observations: middle.dom,
@@ -1011,9 +1278,16 @@ if (require.main === module)
   });
 
 module.exports = {
+  appendBoundedEvidence,
   accessibilityObservations,
   domObservations,
+  evaluateStateAssertion,
+  nodeVisibleInViewport,
   originForPolicy,
+  redactedUrlIdentity,
   requestAllowed,
+  sanitizeRequest,
   snapshotNodeModel,
+  verifyAssertionHitTargets,
+  visibleIntersection,
 };

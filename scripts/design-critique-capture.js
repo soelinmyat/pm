@@ -18,6 +18,12 @@ const MAX_NETWORK_BYTES = 1024 * 1024;
 const MAX_CAPTURE_BYTES = 64 * 1024 * 1024;
 const MAX_ASSERTION_BYTES = 64 * 1024;
 const MIN_VISIBLE_PIXEL_RATIO = 0.01;
+const MIN_MEANINGFUL_PIXEL_RATIO = 0.002;
+const MIN_MEANINGFUL_TILE_RATIO = 0.03;
+const MIN_LUMINANCE_RANGE = 16;
+const CAPTURE_ASSURANCE = "workflow-attested-non-cryptographic";
+const BROWSER_ARGS_PROFILE = "pm-product-ui-capture-v2";
+const ACQUISITION_METHOD = "native-cdp-dom-ax-plus-two-pixel-stability-samples-and-network-barrier";
 const STATES = new Set([
   "primary",
   "empty",
@@ -120,6 +126,7 @@ function validateRoute(route) {
     boundedText(subject.surface, 2000, `route.subjects[${index}].surface`);
     if (!new Set(["web", "mobile"]).has(subject.platform))
       throw new Error(`route.subjects[${index}].platform must be web or mobile`);
+    if (subject.platform === "web") validateSurfacePattern(subject.surface);
   }
   if (!Array.isArray(route.coverage) || route.coverage.length < 1 || route.coverage.length > 1000)
     throw new Error("route.coverage must contain 1 through 1000 rows");
@@ -159,6 +166,81 @@ function canonicalUrl(raw, label) {
   return parsed.href;
 }
 
+function redactedUrlIdentity(raw, label) {
+  const canonical = canonicalUrl(raw, label);
+  const parsed = new URL(canonical);
+  return {
+    canonical,
+    public: {
+      origin: parsed.origin,
+      pathname: parsed.pathname,
+      has_query: parsed.search.length > 0,
+      has_fragment: parsed.hash.length > 0,
+      full_url_sha256: digest(Buffer.from(canonical)),
+    },
+  };
+}
+
+function validateSurfacePattern(surface) {
+  boundedText(surface, 2000, "subject surface");
+  if (surface === "/") return surface;
+  if (
+    !surface.startsWith("/") ||
+    surface.endsWith("/") ||
+    surface.includes("?") ||
+    surface.includes("#") ||
+    surface.includes("\\") ||
+    surface.includes("//")
+  )
+    throw new Error("web subject surface must be an origin-free absolute path pattern");
+  for (const segment of surface.slice(1).split("/")) {
+    if (/^:[a-z][a-z0-9_-]{0,63}$/.test(segment)) continue;
+    if (segment === "." || segment === ".." || !/^[A-Za-z0-9._~-]+$/.test(segment))
+      throw new Error("web subject surface segments must be safe literals or :named parameters");
+  }
+  return surface;
+}
+
+function urlMatchesSurface(rawUrl, surface) {
+  const canonical = canonicalUrl(rawUrl, "capture URL");
+  validateSurfacePattern(surface);
+  let pathnameSegments;
+  try {
+    pathnameSegments = new URL(canonical).pathname
+      .split("/")
+      .map((segment) => decodeURIComponent(segment));
+  } catch {
+    throw new Error("capture URL path must use valid percent encoding");
+  }
+  const pathname = pathnameSegments.join("/");
+  if (
+    pathname !== "/" &&
+    pathnameSegments.some(
+      (segment, index) =>
+        index > 0 &&
+        (segment === "." ||
+          segment === ".." ||
+          segment.includes("/") ||
+          segment.includes("\\") ||
+          !/^[A-Za-z0-9._~-]+$/.test(segment))
+    )
+  )
+    throw new Error("capture URL path segments must use the safe route alphabet");
+  const pattern =
+    surface === "/"
+      ? /^\/$/
+      : new RegExp(
+          `^/${surface
+            .slice(1)
+            .split("/")
+            .map((segment) =>
+              segment.startsWith(":") ? "[^/]+" : segment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+            )
+            .join("/")}$`
+        );
+  return pattern.test(pathname);
+}
+
 function canonicalOrigin(raw, label) {
   boundedText(raw, 4096, label);
   let parsed;
@@ -187,12 +269,89 @@ function validateViewport(name, width, height) {
   return { width, height };
 }
 
-function validateStateAssertion(assertion) {
-  exactObject(assertion, ["schema_version", "all"], "state assertion");
-  if (assertion.schema_version !== 1)
-    throw new Error("state assertion schema_version must equal 1");
-  if (!Array.isArray(assertion.all) || assertion.all.length < 1 || assertion.all.length > 20)
-    throw new Error("state assertion.all must contain 1 through 20 clauses");
+function captureVisualMetrics(inspected) {
+  return {
+    meaningful_pixel_ratio: inspected.meaningfulPixelRatio,
+    meaningful_tile_ratio: inspected.meaningfulTileRatio,
+    color_bucket_count: inspected.colorBucketCount,
+    luminance_range: inspected.luminanceRange,
+    perceptual_grid: inspected.perceptualGrid,
+  };
+}
+
+function validateMeaningfulVisual(inspected) {
+  if (
+    inspected.meaningfulPixelRatio === null ||
+    inspected.meaningfulPixelRatio < MIN_MEANINGFUL_PIXEL_RATIO
+  )
+    throw new Error(
+      `product UI screenshot meaningful pixels must cover at least ${MIN_MEANINGFUL_PIXEL_RATIO * 100}%`
+    );
+  if (
+    inspected.meaningfulTileRatio === null ||
+    inspected.meaningfulTileRatio < MIN_MEANINGFUL_TILE_RATIO
+  )
+    throw new Error(
+      `product UI screenshot meaningful content must occupy at least ${MIN_MEANINGFUL_TILE_RATIO * 100}% of spatial tiles`
+    );
+  if (!Number.isSafeInteger(inspected.colorBucketCount) || inspected.colorBucketCount < 2)
+    throw new Error("product UI screenshot must contain at least two meaningful color buckets");
+  if (
+    !Number.isSafeInteger(inspected.luminanceRange) ||
+    inspected.luminanceRange < MIN_LUMINANCE_RANGE
+  )
+    throw new Error(
+      `product UI screenshot luminance range must be at least ${MIN_LUMINANCE_RANGE}`
+    );
+  if (typeof inspected.perceptualGrid !== "string" || inspected.perceptualGrid.length !== 256)
+    throw new Error("product UI screenshot lacks a canonical perceptual grid");
+  return captureVisualMetrics(inspected);
+}
+
+function validateStateAssertion(assertion, expected = null) {
+  exactObject(
+    assertion,
+    ["schema_version", "subject_id", "coverage_id", "state", "state_marker", "all"],
+    "state assertion"
+  );
+  if (assertion.schema_version !== 2)
+    throw new Error("state assertion schema_version must equal 2");
+  slug(assertion.subject_id, "state assertion.subject_id");
+  slug(assertion.coverage_id, "state assertion.coverage_id");
+  if (!STATES.has(assertion.state)) throw new Error("state assertion.state is invalid");
+  if (
+    expected &&
+    (assertion.subject_id !== expected.subject_id ||
+      assertion.coverage_id !== expected.coverage_id ||
+      assertion.state !== expected.state)
+  )
+    throw new Error("state assertion identity must match the routed subject, coverage, and state");
+  exactObject(
+    assertion.state_marker,
+    ["locator", "attribute", "value"],
+    "state assertion.state_marker"
+  );
+  exactObject(
+    assertion.state_marker.locator,
+    ["by", "value"],
+    "state assertion.state_marker.locator"
+  );
+  if (!new Set(["id", "test-id"]).has(assertion.state_marker.locator.by))
+    throw new Error("state assertion.state_marker.locator.by must be id or test-id");
+  boundedText(
+    assertion.state_marker.locator.value,
+    500,
+    "state assertion.state_marker.locator.value"
+  );
+  if (
+    assertion.state_marker.attribute !== "data-pm-state" ||
+    assertion.state_marker.value !== assertion.state
+  )
+    throw new Error(
+      "state assertion.state_marker must require data-pm-state equal to the routed state"
+    );
+  if (!Array.isArray(assertion.all) || assertion.all.length > 20)
+    throw new Error("state assertion.all must contain 0 through 20 guard clauses");
   for (const [index, clause] of assertion.all.entries()) {
     exactObject(clause, ["locator", "expect"], `state assertion.all[${index}]`);
     exactObject(clause.locator, ["by", "value"], `state assertion.all[${index}].locator`);
@@ -231,7 +390,9 @@ function validateStateAssertion(assertion) {
     }
     if (
       kind === "accessible-name-equals" &&
-      (typeof clause.expect.value !== "string" || clause.expect.value.length > 1000)
+      (typeof clause.expect.value !== "string" ||
+        !clause.expect.value.trim() ||
+        clause.expect.value.length > 1000)
     )
       throw new Error(`state assertion.all[${index}].expect.value is invalid`);
   }
@@ -251,10 +412,20 @@ function prepareCapturePlan(route, routePath, options) {
   if (coverage.subject_id !== subject.id) throw new Error("coverage belongs to another subject");
   if (coverage.required !== true) throw new Error("cannot capture a non-required coverage row");
   const viewport = validateViewport(coverage.viewport, options.width, options.height);
-  validateStateAssertion(options.assertion);
+  validateStateAssertion(options.assertion, {
+    subject_id: subject.id,
+    coverage_id: coverage.id,
+    state: coverage.state,
+  });
   sha256(options.assertionSha256, "state assertion SHA-256");
-  const requestedUrl = canonicalUrl(options.url, "capture URL");
-  const expectedUrl = canonicalUrl(options.expectedUrl || options.url, "expected final URL");
+  const requested = redactedUrlIdentity(options.url, "capture URL");
+  const expected = redactedUrlIdentity(options.expectedUrl || options.url, "expected final URL");
+  const requestedUrl = requested.canonical;
+  const expectedUrl = expected.canonical;
+  if (!urlMatchesSurface(requestedUrl, subject.surface))
+    throw new Error("capture URL path does not match the routed subject surface");
+  if (!urlMatchesSurface(expectedUrl, subject.surface))
+    throw new Error("expected final URL path does not match the routed subject surface");
   const allowedOrigins = [
     new URL(requestedUrl).origin,
     ...(options.allowedOrigins || []).map((value, index) =>
@@ -299,6 +470,8 @@ function prepareCapturePlan(route, routePath, options) {
     viewport,
     requestedUrl,
     expectedUrl,
+    requestedUrlIdentity: requested.public,
+    expectedUrlIdentity: expected.public,
     assertion: options.assertion,
     assertionPath,
     assertionSha256: options.assertionSha256,
@@ -517,6 +690,8 @@ function runCaptureProbe(configuration, runtime = {}) {
     ].some((message) => detail.includes(message));
     if (!retryable || attempt === 3) break;
   }
+  for (const filePath of [configuration.outputPath, configuration.verificationPath])
+    fs.rmSync(filePath, { force: true });
   if (result?.error) throw new Error(`trusted capture failed: ${result.error.message}`);
   throw new Error(
     `trusted capture exited ${result?.status}: ${(
@@ -537,12 +712,75 @@ function validateAttestation(value, label) {
   sha256(value.sha256, `${label}.sha256`);
 }
 
+function validateUrlIdentity(value, label) {
+  exactObject(value, ["origin", "pathname", "has_query", "has_fragment", "full_url_sha256"], label);
+  boundedText(value.origin, 4096, `${label}.origin`);
+  boundedText(value.pathname, 4096, `${label}.pathname`);
+  let publicUrl;
+  try {
+    publicUrl = new URL(value.pathname, value.origin);
+  } catch {
+    throw new Error(`${label} does not contain a valid public URL identity`);
+  }
+  if (
+    !["http:", "https:"].includes(publicUrl.protocol) ||
+    publicUrl.origin !== value.origin ||
+    publicUrl.pathname !== value.pathname ||
+    publicUrl.search ||
+    publicUrl.hash
+  )
+    throw new Error(`${label} does not contain a canonical public URL identity`);
+  for (const field of ["has_query", "has_fragment"])
+    if (typeof value[field] !== "boolean") throw new Error(`${label}.${field} must be boolean`);
+  sha256(value.full_url_sha256, `${label}.full_url_sha256`);
+  return value;
+}
+
+function sameUrlIdentity(left, right) {
+  return ["origin", "pathname", "has_query", "has_fragment", "full_url_sha256"].every(
+    (field) => left[field] === right[field]
+  );
+}
+
+function validateAssertionVisibility(value, label, expectedLabels = null) {
+  exactObject(value, ["method", "effective_opacity_floor", "verified_nodes", "checks"], label);
+  if (value.method !== "cdp-dom-get-node-for-location-v1")
+    throw new Error(`${label}.method is invalid`);
+  if (value.effective_opacity_floor !== 0.01)
+    throw new Error(`${label}.effective_opacity_floor is invalid`);
+  if (
+    !Number.isSafeInteger(value.verified_nodes) ||
+    value.verified_nodes < 1 ||
+    value.verified_nodes > 21 ||
+    !Array.isArray(value.checks) ||
+    value.checks.length !== value.verified_nodes
+  )
+    throw new Error(`${label} must contain one hit test per required visible node`);
+  for (const [index, check] of value.checks.entries()) {
+    exactObject(
+      check,
+      ["label", "asserted_backend_node_id", "hit_backend_node_id", "x", "y"],
+      `${label}.checks[${index}]`
+    );
+    boundedText(check.label, 100, `${label}.checks[${index}].label`);
+    if (expectedLabels && check.label !== expectedLabels[index])
+      throw new Error(`${label}.checks[${index}].label does not match the assertion clause`);
+    for (const field of ["asserted_backend_node_id", "hit_backend_node_id", "x", "y"])
+      if (!Number.isSafeInteger(check[field]) || check[field] < 0)
+        throw new Error(`${label}.checks[${index}].${field} is invalid`);
+  }
+  if (expectedLabels && value.verified_nodes !== expectedLabels.length)
+    throw new Error(`${label} did not hit-test every required visible assertion node`);
+  return value;
+}
+
 function validateProbeResult(result, plan) {
   exactObject(
     result,
     [
       "schema_version",
       "page",
+      "assertion_visibility",
       "assertion_passed",
       "accessibility_observations",
       "dom_observations",
@@ -553,7 +791,7 @@ function validateProbeResult(result, plan) {
     ],
     "capture probe"
   );
-  if (result.schema_version !== 1) throw new Error("capture probe schema_version must equal 1");
+  if (result.schema_version !== 2) throw new Error("capture probe schema_version must equal 2");
   exactObject(
     result.page,
     ["target_id", "main_frame_id", "loader_id", "final_url", "css_viewport"],
@@ -561,10 +799,26 @@ function validateProbeResult(result, plan) {
   );
   for (const field of ["target_id", "main_frame_id", "loader_id"])
     boundedText(result.page[field], 500, `capture probe.page.${field}`);
-  if (result.page.final_url !== plan.expectedUrl)
+  validateUrlIdentity(result.page.final_url, "capture probe.page.final_url");
+  if (!sameUrlIdentity(result.page.final_url, plan.expectedUrlIdentity))
     throw new Error(
-      `navigation drift: expected ${plan.expectedUrl}, observed ${result.page.final_url}`
+      "navigation drift: observed final URL does not match the expected URL identity"
     );
+  if (
+    !urlMatchesSurface(
+      `${result.page.final_url.origin}${result.page.final_url.pathname}`,
+      plan.subject.surface
+    )
+  )
+    throw new Error(
+      "navigation drift: observed final URL path does not match the routed subject surface"
+    );
+  validateAssertionVisibility(result.assertion_visibility, "capture probe.assertion_visibility", [
+    "state marker",
+    ...plan.assertion.all.flatMap((clause, index) =>
+      clause.expect.kind === "visible" ? [`state assertion clause ${index + 1}`] : []
+    ),
+  ]);
   exactObject(
     result.page.css_viewport,
     [
@@ -652,15 +906,16 @@ function invocationDigest(plan, routeSha256) {
           viewport: plan.coverage.viewport,
         },
         capture_id: plan.captureId,
-        requested_url: plan.requestedUrl,
-        expected_url: plan.expectedUrl,
+        route_surface: plan.subject.surface,
+        requested_url: plan.requestedUrlIdentity,
+        expected_url: plan.expectedUrlIdentity,
         viewport: plan.viewport,
         assertion: { path: plan.assertionPath, sha256: plan.assertionSha256 },
         allowed_origins: plan.allowedOrigins,
         readiness_timeout_ms: plan.readinessTimeoutMs,
         settle_ms: plan.settleMs,
-        browser_args_profile: "pm-product-ui-capture-v1",
-        acquisition: "native-cdp-dom-ax-plus-two-pixel-stability-samples",
+        browser_args_profile: BROWSER_ARGS_PROFILE,
+        acquisition: ACQUISITION_METHOD,
       })
     )
   );
@@ -761,6 +1016,7 @@ function manifestShape(manifest) {
       "path",
       "sha256",
       "pixel_sha256",
+      "visual_metrics",
       "width",
       "height",
       "full_page",
@@ -768,6 +1024,17 @@ function manifestShape(manifest) {
       "captured_at",
     ],
     "capture manifest.capture"
+  );
+  exactObject(
+    manifest.capture.visual_metrics,
+    [
+      "meaningful_pixel_ratio",
+      "meaningful_tile_ratio",
+      "color_bucket_count",
+      "luminance_range",
+      "perceptual_grid",
+    ],
+    "capture manifest.capture.visual_metrics"
   );
   exactObject(
     manifest.raw_evidence,
@@ -779,6 +1046,7 @@ function manifestShape(manifest) {
   exactObject(
     manifest.page,
     [
+      "route_surface",
       "requested_url",
       "expected_url",
       "final_url",
@@ -790,10 +1058,21 @@ function manifestShape(manifest) {
     ],
     "capture manifest.page"
   );
+  for (const field of ["requested_url", "expected_url", "final_url"])
+    validateUrlIdentity(manifest.page[field], `capture manifest.page.${field}`);
   exactObject(
     manifest.page.state_assertion,
-    ["path", "sha256", "passed"],
+    ["path", "sha256", "passed", "visibility"],
     "capture manifest.page.state_assertion"
+  );
+  exactObject(
+    manifest.page.state_assertion.visibility,
+    ["method", "effective_opacity_floor", "verified_nodes", "checks"],
+    "capture manifest.page.state_assertion.visibility"
+  );
+  validateAssertionVisibility(
+    manifest.page.state_assertion.visibility,
+    "capture manifest.page.state_assertion.visibility"
   );
   exactObject(
     manifest.page.css_viewport,
@@ -921,6 +1200,7 @@ function captureProductUi(options, runtime = {}) {
     const probe = (runtime.runProbe || runCaptureProbe)({
       browserPath: browserBefore.public.path,
       url: plan.requestedUrl,
+      expectedUrl: plan.expectedUrl,
       viewport: plan.viewport,
       stateAssertion: plan.assertion,
       allowedOrigins: plan.allowedOrigins,
@@ -950,6 +1230,7 @@ function captureProductUi(options, runtime = {}) {
       throw new Error("product UI screenshot has fewer than 1% visible pixels");
     if (screenshot.hasVisualVariation !== true)
       throw new Error("product UI screenshot has no visible pixel variation");
+    const visualMetrics = validateMeaningfulVisual(screenshot);
 
     const base = `${plan.outputDir}/`;
     const screenshotRelative = `${base}capture.png`;
@@ -1004,17 +1285,26 @@ function captureProductUi(options, runtime = {}) {
     if (digest(assertionAfter.bytes) !== assertionSha256)
       throw new Error("state assertion changed during product UI capture");
 
+    const finalUrlIdentity = probe.page.final_url;
+    const publicPageIdentity = {
+      target_id: probe.page.target_id,
+      main_frame_id: probe.page.main_frame_id,
+      loader_id: probe.page.loader_id,
+      final_url: finalUrlIdentity,
+      css_viewport: probe.page.css_viewport,
+    };
     const nativeObservationSha256 = digest(
       Buffer.from(
         JSON.stringify({
-          page: probe.page,
+          page: publicPageIdentity,
+          assertion_visibility: probe.assertion_visibility,
           accessibility: probe.accessibility_observations,
           dom: probe.dom_observations,
         })
       )
     );
     const manifest = manifestShape({
-      schema_version: 1,
+      schema_version: 2,
       kind: "product-ui-capture",
       run_id: route.run_id,
       mode: "product-ui",
@@ -1031,6 +1321,7 @@ function captureProductUi(options, runtime = {}) {
         path: screenshotRelative,
         sha256: digest(screenshotBytes),
         pixel_sha256: screenshot.pixelSha256,
+        visual_metrics: visualMetrics,
         width: screenshot.width,
         height: screenshot.height,
         full_page: false,
@@ -1043,9 +1334,10 @@ function captureProductUi(options, runtime = {}) {
         network_ledger: { path: networkRelative, sha256: digest(networkBytes) },
       },
       page: {
-        requested_url: plan.requestedUrl,
-        expected_url: plan.expectedUrl,
-        final_url: probe.page.final_url,
+        route_surface: plan.subject.surface,
+        requested_url: plan.requestedUrlIdentity,
+        expected_url: plan.expectedUrlIdentity,
+        final_url: finalUrlIdentity,
         target_id: probe.page.target_id,
         main_frame_id: probe.page.main_frame_id,
         loader_id: probe.page.loader_id,
@@ -1054,10 +1346,11 @@ function captureProductUi(options, runtime = {}) {
           path: assertionFile.relative,
           sha256: assertionSha256,
           passed: true,
+          visibility: probe.assertion_visibility,
         },
       },
       observation: {
-        assurance_level: "same-cdp-page-session",
+        assurance_level: CAPTURE_ASSURANCE,
         producer: { name: "pm:design-critique-capture", version: PLUGIN_VERSION },
         browser: {
           engine: "chromium",
@@ -1080,8 +1373,8 @@ function captureProductUi(options, runtime = {}) {
         configuration: {
           readiness_timeout_ms: plan.readinessTimeoutMs,
           settle_ms: plan.settleMs,
-          browser_args_profile: "pm-product-ui-capture-v1",
-          acquisition: "native-cdp-dom-ax-plus-two-pixel-stability-samples",
+          browser_args_profile: BROWSER_ARGS_PROFILE,
+          acquisition: ACQUISITION_METHOD,
         },
         invocation_configuration_sha256: invocationConfigurationSha256,
         stability: {
@@ -1105,6 +1398,7 @@ function captureProductUi(options, runtime = {}) {
       throw new Error("published capture manifest differs from committed bytes");
     return {
       ok: true,
+      assurance_level: CAPTURE_ASSURANCE,
       manifest: { path: manifestRelative, sha256: digest(manifestBytes) },
       capture: manifest.capture,
       raw_evidence: manifest.raw_evidence,
@@ -1174,7 +1468,7 @@ function main(argv = process.argv.slice(2)) {
     process.stdout.write(
       options.json
         ? `${JSON.stringify(result, null, 2)}\n`
-        : `Trusted product UI capture saved: ${result.manifest.path}\n`
+        : `Product UI capture saved: ${result.manifest.path}\nAssurance: ${result.assurance_level} (workflow attestation, not a signature)\n`
     );
     return 0;
   } catch (error) {
@@ -1186,19 +1480,30 @@ function main(argv = process.argv.slice(2)) {
 if (require.main === module) process.exitCode = main();
 
 module.exports = {
+  ACQUISITION_METHOD,
+  BROWSER_ARGS_PROFILE,
+  CAPTURE_ASSURANCE,
   VIEWPORT_BOUNDS,
+  browserIdentity,
   canonicalOrigin,
   canonicalUrl,
+  captureVisualMetrics,
   captureProductUi,
   invocationDigest,
   manifestShape,
   parseArgs,
   prepareCapturePlan,
+  redactedUrlIdentity,
   resolveBrowser,
   runCaptureProbe,
   sourceIdentity,
   validateProbeResult,
+  validateAssertionVisibility,
+  validateMeaningfulVisual,
   validateRoute,
   validateStateAssertion,
+  validateSurfacePattern,
+  validateUrlIdentity,
   validateViewport,
+  urlMatchesSurface,
 };

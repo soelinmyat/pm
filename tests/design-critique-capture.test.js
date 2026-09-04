@@ -9,12 +9,21 @@ const test = require("node:test");
 const {
   manifestShape,
   prepareCapturePlan,
+  redactedUrlIdentity,
   resolveBrowser,
   runCaptureProbe,
   validateProbeResult,
   validateStateAssertion,
+  validateSurfacePattern,
   validateViewport,
+  urlMatchesSurface,
 } = require("../scripts/design-critique-capture");
+const {
+  accessibilityObservations,
+  appendBoundedEvidence,
+  nodeVisibleInViewport,
+  verifyAssertionHitTargets,
+} = require("../scripts/design-critique-capture-probe");
 
 const EMPTY_DIFF_SHA256 = crypto.createHash("sha256").update(Buffer.alloc(0)).digest("hex");
 let installedBrowser = null;
@@ -62,11 +71,19 @@ function route(commit = "a".repeat(40)) {
 
 function assertion(value = "primary") {
   return {
-    schema_version: 1,
+    schema_version: 2,
+    subject_id: "account-detail",
+    coverage_id: "account-primary-desktop",
+    state: value,
+    state_marker: {
+      locator: { by: "test-id", value: "account-state" },
+      attribute: "data-pm-state",
+      value,
+    },
     all: [
       {
-        locator: { by: "test-id", value: "account-state" },
-        expect: { kind: "attribute-equals", name: "data-state", value },
+        locator: { by: "role-name", value: "button:Save changes" },
+        expect: { kind: "visible" },
       },
     ],
   };
@@ -125,7 +142,7 @@ test("certifying state assertions are closed declarative data, not JavaScript", 
   assert.throws(
     () =>
       validateStateAssertion({
-        schema_version: 1,
+        ...assertion(),
         all: [
           {
             locator: { by: "selector", value: "body" },
@@ -135,7 +152,81 @@ test("certifying state assertions are closed declarative data, not JavaScript", 
       }),
     /locator.by is invalid/
   );
+  assert.throws(
+    () =>
+      validateStateAssertion(
+        { ...assertion(), coverage_id: "account-error-desktop" },
+        {
+          subject_id: "account-detail",
+          coverage_id: "account-primary-desktop",
+          state: "primary",
+        }
+      ),
+    /identity must match/
+  );
+  assert.throws(
+    () =>
+      validateStateAssertion({
+        ...assertion(),
+        state_marker: {
+          locator: { by: "test-id", value: "account-state" },
+          attribute: "data-state",
+          value: "primary",
+        },
+      }),
+    /must require data-pm-state/
+  );
   assert.doesNotThrow(() => validateStateAssertion(assertion()));
+});
+
+test("web route patterns bind only safe exact path segments", () => {
+  assert.doesNotThrow(() => validateSurfacePattern("/accounts/:id"));
+  for (const unsafe of [
+    "accounts/:id",
+    "/accounts/*",
+    "/accounts/",
+    "/accounts/../admin",
+    "/accounts?id=1",
+  ])
+    assert.throws(() => validateSurfacePattern(unsafe), /subject surface/);
+  assert.equal(
+    urlMatchesSurface("https://app.test/accounts/acct-1?token=secret", "/accounts/:id"),
+    true
+  );
+  assert.equal(urlMatchesSurface("https://app.test/admin/acct-1", "/accounts/:id"), false);
+  assert.throws(
+    () => urlMatchesSurface("https://app.test/accounts/%2Fadmin", "/accounts/:id"),
+    /safe route alphabet/
+  );
+});
+
+test("URL identities redact query and fragment values while binding the full URL", () => {
+  const secret = "do-not-persist-this-secret";
+  const first = redactedUrlIdentity(
+    `https://app.test/accounts/acct-1?token=${secret}#${secret}`,
+    "URL"
+  );
+  const second = redactedUrlIdentity(
+    "https://app.test/accounts/acct-1?token=another#another",
+    "URL"
+  );
+  const serialized = JSON.stringify(first.public);
+  assert.equal(serialized.includes(secret), false);
+  assert.deepEqual(
+    {
+      origin: first.public.origin,
+      pathname: first.public.pathname,
+      has_query: first.public.has_query,
+      has_fragment: first.public.has_fragment,
+    },
+    {
+      origin: "https://app.test",
+      pathname: "/accounts/acct-1",
+      has_query: true,
+      has_fragment: true,
+    }
+  );
+  assert.notEqual(first.public.full_url_sha256, second.public.full_url_sha256);
 });
 
 test("routed viewport labels enforce plausible dimensions", () => {
@@ -165,6 +256,24 @@ test("capture plan refuses noncanonical assertion and output locations", () => {
       ),
     /output directory must be/
   );
+  assert.throws(
+    () =>
+      prepareCapturePlan(
+        frozen,
+        ".pm/dev-sessions/test/design-critique/route.json",
+        planOptions({ url: "http://127.0.0.1:4173/admin/1" })
+      ),
+    /capture URL path does not match/
+  );
+  assert.throws(
+    () =>
+      prepareCapturePlan(
+        frozen,
+        ".pm/dev-sessions/test/design-critique/route.json",
+        planOptions({ expectedUrl: "http://127.0.0.1:4173/admin/1" })
+      ),
+    /expected final URL path does not match/
+  );
 });
 
 test("probe validation fails closed on URL, viewport, or network drift", () => {
@@ -182,12 +291,12 @@ test("probe validation fails closed on URL, viewport, or network drift", () => {
     sha256: "c".repeat(64),
   };
   const result = {
-    schema_version: 1,
+    schema_version: 2,
     page: {
       target_id: "target",
       main_frame_id: "frame",
       loader_id: "loader",
-      final_url: plan.expectedUrl,
+      final_url: plan.expectedUrlIdentity,
       css_viewport: {
         inner_width: 1024,
         inner_height: 600,
@@ -201,6 +310,27 @@ test("probe validation fails closed on URL, viewport, or network drift", () => {
         visual_scale: 1,
         page_zoom: 1,
       },
+    },
+    assertion_visibility: {
+      method: "cdp-dom-get-node-for-location-v1",
+      effective_opacity_floor: 0.01,
+      verified_nodes: 2,
+      checks: [
+        {
+          label: "state marker",
+          asserted_backend_node_id: 1,
+          hit_backend_node_id: 2,
+          x: 10,
+          y: 10,
+        },
+        {
+          label: "state assertion clause 1",
+          asserted_backend_node_id: 3,
+          hit_backend_node_id: 3,
+          x: 20,
+          y: 20,
+        },
+      ],
     },
     assertion_passed: true,
     accessibility_observations: { landmarks: [], controls: [] },
@@ -231,7 +361,13 @@ test("probe validation fails closed on URL, viewport, or network drift", () => {
   assert.throws(
     () =>
       validateProbeResult(
-        { ...result, page: { ...result.page, final_url: `${plan.expectedUrl}?drift=1` } },
+        {
+          ...result,
+          page: {
+            ...result.page,
+            final_url: redactedUrlIdentity(`${plan.expectedUrl}?drift=1`, "URL").public,
+          },
+        },
         plan
       ),
     /navigation drift/
@@ -264,8 +400,9 @@ test("probe validation fails closed on URL, viewport, or network drift", () => {
 });
 
 test("capture manifest rejects unknown fields at nested boundaries", () => {
+  const publicUrl = redactedUrlIdentity("http://127.0.0.1/accounts/1", "URL").public;
   const fixture = {
-    schema_version: 1,
+    schema_version: 2,
     kind: "product-ui-capture",
     run_id: "dc_test",
     mode: "product-ui",
@@ -278,6 +415,13 @@ test("capture manifest rejects unknown fields at nested boundaries", () => {
       path: ".pm/example/capture.png",
       sha256: "c".repeat(64),
       pixel_sha256: "d".repeat(64),
+      visual_metrics: {
+        meaningful_pixel_ratio: 0.4,
+        meaningful_tile_ratio: 0.8,
+        color_bucket_count: 12,
+        luminance_range: 180,
+        perceptual_grid: Buffer.alloc(192, 64).toString("base64"),
+      },
       width: 1024,
       height: 600,
       full_page: false,
@@ -290,9 +434,10 @@ test("capture manifest rejects unknown fields at nested boundaries", () => {
       network_ledger: { path: ".pm/example/network.json", sha256: "0".repeat(64) },
     },
     page: {
-      requested_url: "http://127.0.0.1/",
-      expected_url: "http://127.0.0.1/",
-      final_url: "http://127.0.0.1/",
+      route_surface: "/accounts/:id",
+      requested_url: publicUrl,
+      expected_url: publicUrl,
+      final_url: publicUrl,
       target_id: "target",
       main_frame_id: "frame",
       loader_id: "loader",
@@ -309,10 +454,35 @@ test("capture manifest rejects unknown fields at nested boundaries", () => {
         visual_scale: 1,
         page_zoom: 1,
       },
-      state_assertion: { path: ".pm/example/assertion.json", sha256: "1".repeat(64), passed: true },
+      state_assertion: {
+        path: ".pm/example/assertion.json",
+        sha256: "1".repeat(64),
+        passed: true,
+        visibility: {
+          method: "cdp-dom-get-node-for-location-v1",
+          effective_opacity_floor: 0.01,
+          verified_nodes: 2,
+          checks: [
+            {
+              label: "state marker",
+              asserted_backend_node_id: 1,
+              hit_backend_node_id: 2,
+              x: 10,
+              y: 10,
+            },
+            {
+              label: "state assertion clause 1",
+              asserted_backend_node_id: 3,
+              hit_backend_node_id: 3,
+              x: 20,
+              y: 20,
+            },
+          ],
+        },
+      },
     },
     observation: {
-      assurance_level: "same-cdp-page-session",
+      assurance_level: "workflow-attested-non-cryptographic",
       producer: { name: "pm:design-critique-capture", version: "1.0.0" },
       browser: {
         engine: "chromium",
@@ -335,8 +505,8 @@ test("capture manifest rejects unknown fields at nested boundaries", () => {
       configuration: {
         readiness_timeout_ms: 15_000,
         settle_ms: 250,
-        browser_args_profile: "pm-product-ui-capture-v1",
-        acquisition: "native-cdp-dom-ax-plus-two-pixel-stability-samples",
+        browser_args_profile: "pm-product-ui-capture-v2",
+        acquisition: "native-cdp-dom-ax-plus-two-pixel-stability-samples-and-network-barrier",
       },
       invocation_configuration_sha256: "5".repeat(64),
       stability: {
@@ -359,12 +529,142 @@ test("capture manifest rejects unknown fields at nested boundaries", () => {
   );
 });
 
-function createBrowserFixture({ externalRequest = false } = {}) {
+test("visible assertions account for ancestors, clipping, and viewport intersection", () => {
+  const metrics = {
+    cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 100, clientHeight: 100 },
+  };
+  const createNode = (index, parentIndex, bounds, styles = {}, attributes = {}) => ({
+    index,
+    parentIndex,
+    attributes,
+    layout: { bounds },
+    styles,
+  });
+  const style = (node, name) => node.styles[name] || "";
+
+  const root = createNode(0, -1, [0, 0, 100, 100]);
+  const partial = createNode(1, 0, [95, 95, 20, 20]);
+  assert.equal(nodeVisibleInViewport(partial, [root, partial], style, metrics), true);
+
+  const transparentRoot = createNode(0, -1, [0, 0, 100, 100], { opacity: "0" });
+  const child = createNode(1, 0, [10, 10, 20, 20]);
+  assert.equal(nodeVisibleInViewport(child, [transparentRoot, child], style, metrics), false);
+  const nearTransparentRoot = createNode(0, -1, [0, 0, 100, 100], { opacity: "0.009" });
+  assert.equal(nodeVisibleInViewport(child, [nearTransparentRoot, child], style, metrics), false);
+
+  const clippedRoot = createNode(0, -1, [0, 0, 50, 50], {
+    "overflow-x": "hidden",
+    "overflow-y": "hidden",
+  });
+  const clippedChild = createNode(1, 0, [60, 60, 20, 20]);
+  assert.equal(
+    nodeVisibleInViewport(clippedChild, [clippedRoot, clippedChild], style, metrics),
+    false
+  );
+
+  const offscreen = createNode(1, 0, [101, 10, 20, 20]);
+  assert.equal(nodeVisibleInViewport(offscreen, [root, offscreen], style, metrics), false);
+});
+
+test("native hit testing rejects a fully occluded required visible node", async () => {
+  const metrics = {
+    cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 100, clientHeight: 100 },
+  };
+  const target = {
+    index: 0,
+    backendNodeId: 1,
+    parentIndex: -1,
+    attributes: {},
+    layout: { bounds: [10, 10, 40, 40] },
+    styles: {},
+  };
+  const descendant = {
+    index: 1,
+    backendNodeId: 2,
+    parentIndex: 0,
+    attributes: {},
+    layout: { bounds: [15, 15, 10, 10] },
+    styles: {},
+  };
+  const overlay = {
+    index: 2,
+    backendNodeId: 3,
+    parentIndex: -1,
+    attributes: {},
+    layout: { bounds: [0, 0, 100, 100] },
+    styles: {},
+  };
+  const model = [target, descendant, overlay];
+  const style = (node, name) => node.styles[name] || "";
+  await assert.rejects(
+    () =>
+      verifyAssertionHitTargets(
+        { send: async () => ({ backendNodeId: overlay.backendNodeId }) },
+        [{ label: "state marker", node: target }],
+        model,
+        style,
+        metrics
+      ),
+    /fully occluded/
+  );
+  const passed = await verifyAssertionHitTargets(
+    { send: async () => ({ backendNodeId: descendant.backendNodeId }) },
+    [{ label: "state marker", node: target }],
+    model,
+    style,
+    metrics
+  );
+  assert.equal(passed.verified_nodes, 1);
+});
+
+test("observation limits fail loudly instead of truncating evidence", () => {
+  const landmarkModel = Array.from({ length: 101 }, (_, index) => ({
+    index,
+    backendNodeId: index + 1,
+    parentIndex: -1,
+    nodeName: "nav",
+    attributes: { id: `nav-${index}` },
+    layout: { bounds: [0, 0, 10, 10], styles: [] },
+  }));
+  const landmarkTree = {
+    nodes: landmarkModel.map((node) => ({
+      ignored: false,
+      backendDOMNodeId: node.backendNodeId,
+      role: { value: "navigation" },
+      name: { value: `Navigation ${node.index}` },
+      properties: [],
+    })),
+  };
+  assert.throws(
+    () => accessibilityObservations(landmarkTree, landmarkModel),
+    /accessibility landmarks exceed/
+  );
+
+  const values = [];
+  appendBoundedEvidence(values, "first", 1, "network requests");
+  assert.throws(
+    () => appendBoundedEvidence(values, "second", 1, "network requests"),
+    /network requests exceed/
+  );
+  assert.deepEqual(values, ["first"]);
+});
+
+function createBrowserFixture({
+  externalRequest = false,
+  occluded = false,
+  lateRequest = false,
+} = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-trusted-capture-"));
   const external = externalRequest ? '<img src="https://example.invalid/tracker.png" alt="">' : "";
+  const overlay = occluded
+    ? '<div style="position:fixed;inset:0;background:#111;z-index:9999">Overlay</div>'
+    : "";
+  const late = lateRequest
+    ? '<script>setTimeout(()=>fetch("https://example.invalid/late"),300)</script>'
+    : "";
   const html = `<!doctype html><html><head><meta charset="utf-8"><style>
 *{box-sizing:border-box}body{margin:0;background:#eef2ff;color:#172033;font:16px system-ui}header{background:#18264a;color:white;padding:18px 28px}nav a{color:white;margin-right:16px}main{max-width:900px;margin:30px auto;padding:24px;background:white;border-radius:16px}h1{font-size:32px}h2{font-size:22px}.cards{display:grid;grid-template-columns:1fr 1fr;gap:16px}.card{padding:18px;border:1px solid #ccd3e1;border-radius:12px}button{padding:10px 18px;background:#3157d5;color:white;border:0;border-radius:8px}
-</style></head><body data-testid="account-state" data-state="primary"><header><nav aria-label="Primary"><a href="#account">Accounts</a></nav></header><main id="account"><header><h1>Account overview</h1></header><section aria-labelledby="summary"><h2 id="summary">Summary</h2><div class="cards"><article class="card"><h2>Usage</h2><p>Stable product evidence.</p></article><article class="card"><h2>Plan</h2><p>Professional tier.</p></article></div><button>Save changes</button></section></main>${external}</body></html>`;
+</style></head><body><header><nav aria-label="Primary"><a href="#account">Accounts</a></nav></header><main id="account" data-testid="account-state" data-pm-state="primary"><header><h1>Account overview</h1></header><section aria-labelledby="summary"><h2 id="summary">Summary</h2><div class="cards"><article class="card"><h2>Usage</h2><p>Stable product evidence.</p></article><article class="card"><h2>Plan</h2><p>Professional tier.</p></article></div><button>Save changes</button></section></main>${external}${overlay}${late}</body></html>`;
   return {
     root,
     url: `data:text/html;charset=utf-8,${encodeURIComponent(html)}`,
@@ -378,6 +678,7 @@ function runBrowserCapture(fixture) {
   return runCaptureProbe({
     browserPath: installedBrowser,
     url: fixture.url,
+    expectedUrl: fixture.url,
     viewport: { width: 1024, height: 600 },
     stateAssertion: fixture.stateAssertion,
     allowedOrigins: [],
@@ -395,7 +696,14 @@ test(
     const fixture = createBrowserFixture();
     try {
       const result = runBrowserCapture(fixture);
-      assert.equal(result.page.final_url, fixture.url);
+      assert.equal(result.schema_version, 2);
+      assert.equal(result.page.final_url.origin, "data:");
+      assert.equal(result.page.final_url.pathname, "");
+      assert.equal(
+        result.page.final_url.full_url_sha256,
+        crypto.createHash("sha256").update(new URL(fixture.url).href).digest("hex")
+      );
+      assert.equal(JSON.stringify(result).includes("<!doctype html>"), false);
       assert.ok(result.page.target_id);
       assert.ok(result.page.main_frame_id);
       assert.ok(result.page.loader_id);
@@ -430,7 +738,7 @@ test(
       fixture.stateAssertion = assertion("error");
       assert.throws(
         () => runBrowserCapture(fixture),
-        /state assertion clause 1 attribute did not match/
+        /state marker does not establish the routed state/
       );
       assert.equal(fs.existsSync(fixture.outputPath), false);
     } finally {
@@ -446,6 +754,34 @@ test(
     const fixture = createBrowserFixture({ externalRequest: true });
     try {
       assert.throws(() => runBrowserCapture(fixture), /network policy violation/);
+      assert.equal(fs.existsSync(fixture.outputPath), false);
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
+  "browser helper rejects a state marker hidden beneath a full-page overlay",
+  { skip: browserSkip },
+  () => {
+    const fixture = createBrowserFixture({ occluded: true });
+    try {
+      assert.throws(() => runBrowserCapture(fixture), /fully occluded/);
+      assert.equal(fs.existsSync(fixture.outputPath), false);
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
+  "browser helper catches a network request in the final settle window",
+  { skip: browserSkip },
+  () => {
+    const fixture = createBrowserFixture({ lateRequest: true });
+    try {
+      assert.throws(() => runBrowserCapture(fixture), /network policy violation|atomic capture/);
       assert.equal(fs.existsSync(fixture.outputPath), false);
     } finally {
       fs.rmSync(fixture.root, { recursive: true, force: true });

@@ -60,7 +60,7 @@ You are seeing this interface for the first time. You have no history with it an
 }
 ```
 
-Return exactly one observation row for every supplied capture, including every routed state and viewport. `coverage_id`, `state`, and `viewport` must match that capture's route row. Each finding uses exactly `id`, `subject_id`, `region`, `rule`, `coverage_ids`, `evidence_ids`, `priority`, `owner`, `basis`, `confidence`, `summary`, `impact`, and `remediation`. `region` and `rule` are stable kebab-case tokens. Cite only rendered capture IDs supplied to this invocation—never an audit or other evidence ID. The caller computes deterministic IDs, binds the exact input/result, and writes a `workflow-attested-non-cryptographic` receipt; this is durable workflow evidence, not proof of separate model execution.
+Return exactly one observation row for every supplied capture, including every routed state and viewport. `coverage_id`, `state`, and `viewport` must match that capture's route row. Write at least 40 UTF-8 bytes of direct visual observation, explicitly name the routed state and viewport, and make the wording specific to that capture; duplicated boilerplate across captures is invalid. Each finding uses exactly `id`, `subject_id`, `region`, `rule`, `coverage_ids`, `evidence_ids`, `priority`, `owner`, `basis`, `confidence`, `summary`, `impact`, and `remediation`. `region` and `rule` are stable kebab-case tokens. Cite only rendered capture IDs supplied to this invocation—never an audit or other evidence ID. The caller computes deterministic IDs, binds the exact input/result, and writes a `workflow-attested-non-cryptographic` receipt; this is durable workflow evidence, not proof of separate model execution.
 
 ## Limits
 

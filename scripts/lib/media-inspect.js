@@ -180,6 +180,11 @@ function visualPixelEvidence(header, pixels) {
       visiblePixels: null,
       totalPixels,
       hasVisualVariation: null,
+      meaningfulPixelRatio: null,
+      meaningfulTileRatio: null,
+      colorBucketCount: null,
+      luminanceRange: null,
+      perceptualGrid: null,
     };
   }
   const channels = { 0: 1, 2: 3, 4: 2, 6: 4 }[header.colorType];
@@ -188,9 +193,13 @@ function visualPixelEvidence(header, pixels) {
   let visiblePixels = 0;
   let firstVisible = null;
   let hasVisualVariation = false;
+  const metrics = createVisualMetrics(header.width, header.height);
   if (header.colorType === 6) {
     let canonicalPixels = null;
     for (let offset = 0; offset < pixels.length; offset += 4) {
+      const pixel = offset / 4;
+      const x = pixel % header.width;
+      const y = Math.floor(pixel / header.width);
       if (pixels[offset + 3] === 0) {
         if (pixels[offset] !== 0 || pixels[offset + 1] !== 0 || pixels[offset + 2] !== 0) {
           canonicalPixels ||= Buffer.from(pixels);
@@ -198,6 +207,7 @@ function visualPixelEvidence(header, pixels) {
           canonicalPixels[offset + 1] = 0;
           canonicalPixels[offset + 2] = 0;
         }
+        metrics.observe(x, y, 0, 0, 0, 0);
         continue;
       }
       visiblePixels += 1;
@@ -210,6 +220,14 @@ function visualPixelEvidence(header, pixels) {
         pixels[offset + 3] !== firstVisible[3]
       )
         hasVisualVariation = true;
+      metrics.observe(
+        x,
+        y,
+        pixels[offset],
+        pixels[offset + 1],
+        pixels[offset + 2],
+        pixels[offset + 3]
+      );
     }
     hash.update(canonicalPixels || pixels);
     return {
@@ -217,6 +235,7 @@ function visualPixelEvidence(header, pixels) {
       visiblePixels,
       totalPixels,
       hasVisualVariation,
+      ...metrics.finish(),
     };
   }
   for (let row = 0; row < header.height; row += 1) {
@@ -256,6 +275,14 @@ function visualPixelEvidence(header, pixels) {
         )
           hasVisualVariation = true;
       }
+      metrics.observe(
+        column,
+        row,
+        normalized[target],
+        normalized[target + 1],
+        normalized[target + 2],
+        alpha
+      );
     }
     hash.update(normalized);
   }
@@ -264,7 +291,91 @@ function visualPixelEvidence(header, pixels) {
     visiblePixels,
     totalPixels,
     hasVisualVariation,
+    ...metrics.finish(),
   };
+}
+
+function createVisualMetrics(width, height) {
+  const gridSize = 8;
+  const bucketCount = 16 * 16 * 16;
+  const buckets = new Uint32Array(bucketCount);
+  const tileBuckets = new Uint32Array(gridSize * gridSize * bucketCount);
+  const redSums = new Float64Array(gridSize * gridSize);
+  const greenSums = new Float64Array(gridSize * gridSize);
+  const blueSums = new Float64Array(gridSize * gridSize);
+  const cellCounts = new Uint32Array(gridSize * gridSize);
+  const visibleCellCounts = new Uint32Array(gridSize * gridSize);
+  let minimumLuminance = 255;
+  let maximumLuminance = 0;
+
+  function observe(x, y, red, green, blue, alpha) {
+    const cellX = Math.min(gridSize - 1, Math.floor((x * gridSize) / width));
+    const cellY = Math.min(gridSize - 1, Math.floor((y * gridSize) / height));
+    const cell = cellY * gridSize + cellX;
+    const normalizedAlpha = alpha / 255;
+    redSums[cell] += red * normalizedAlpha;
+    greenSums[cell] += green * normalizedAlpha;
+    blueSums[cell] += blue * normalizedAlpha;
+    cellCounts[cell] += 1;
+    if (alpha === 0) return;
+    visibleCellCounts[cell] += 1;
+    const bucket = (red >> 4) * 256 + (green >> 4) * 16 + (blue >> 4);
+    buckets[bucket] += 1;
+    tileBuckets[cell * bucketCount + bucket] += 1;
+    const luminance = Math.round((54 * red + 183 * green + 19 * blue) / 256);
+    minimumLuminance = Math.min(minimumLuminance, luminance);
+    maximumLuminance = Math.max(maximumLuminance, luminance);
+  }
+
+  function finish() {
+    let dominantBucket = 0;
+    let dominantPixels = 0;
+    let visiblePixels = 0;
+    let colorBucketCount = 0;
+    for (let bucket = 0; bucket < buckets.length; bucket += 1) {
+      const count = buckets[bucket];
+      visiblePixels += count;
+      if (count > 0) colorBucketCount += 1;
+      if (count > dominantPixels) {
+        dominantPixels = count;
+        dominantBucket = bucket;
+      }
+    }
+    let meaningfulTiles = 0;
+    for (let cell = 0; cell < gridSize * gridSize; cell += 1) {
+      const dominantInCell = tileBuckets[cell * bucketCount + dominantBucket];
+      if (visibleCellCounts[cell] > dominantInCell) meaningfulTiles += 1;
+    }
+    const perceptual = Buffer.alloc(gridSize * gridSize * 3);
+    for (let cell = 0; cell < gridSize * gridSize; cell += 1) {
+      const count = cellCounts[cell] || 1;
+      perceptual[cell * 3] = Math.round(redSums[cell] / count);
+      perceptual[cell * 3 + 1] = Math.round(greenSums[cell] / count);
+      perceptual[cell * 3 + 2] = Math.round(blueSums[cell] / count);
+    }
+    return {
+      meaningfulPixelRatio:
+        visiblePixels === 0 ? 0 : (visiblePixels - dominantPixels) / visiblePixels,
+      meaningfulTileRatio: meaningfulTiles / (gridSize * gridSize),
+      colorBucketCount,
+      luminanceRange: visiblePixels === 0 ? 0 : maximumLuminance - minimumLuminance,
+      perceptualGrid: perceptual.toString("base64"),
+    };
+  }
+
+  return { observe, finish };
+}
+
+function visualDistance(left, right) {
+  if (typeof left?.perceptualGrid !== "string" || typeof right?.perceptualGrid !== "string")
+    return null;
+  const leftGrid = Buffer.from(left.perceptualGrid, "base64");
+  const rightGrid = Buffer.from(right.perceptualGrid, "base64");
+  if (leftGrid.length !== 192 || rightGrid.length !== leftGrid.length) return null;
+  let difference = 0;
+  for (let index = 0; index < leftGrid.length; index += 1)
+    difference += Math.abs(leftGrid[index] - rightGrid[index]);
+  return difference / (leftGrid.length * 255);
 }
 
 function inspectPdf(filePath) {
@@ -642,4 +753,5 @@ module.exports = {
   inspectPng,
   inspectPngBytes,
   inspectPngVisualBytes,
+  visualDistance,
 };

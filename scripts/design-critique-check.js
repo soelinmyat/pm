@@ -14,12 +14,26 @@ const {
   validateMetrics,
 } = require("./artifact-render-check");
 const { isRfc3339DateTime } = require("./lib/iso-time");
-const { inspectPdfBytes, inspectPngBytes, inspectPngVisualBytes } = require("./lib/media-inspect");
+const {
+  inspectPdfBytes,
+  inspectPngBytes,
+  inspectPngVisualBytes,
+  visualDistance,
+} = require("./lib/media-inspect");
 const { readProjectInput } = require("./lib/project-file");
 const { MAX_RAW_AUDIT_BYTES, normalizeAuditBytes } = require("./design-critique-audit-normalize");
 const {
+  ACQUISITION_METHOD: TRUSTED_CAPTURE_ACQUISITION,
+  BROWSER_ARGS_PROFILE: TRUSTED_CAPTURE_BROWSER_PROFILE,
+  CAPTURE_ASSURANCE: TRUSTED_CAPTURE_ASSURANCE,
+  browserIdentity,
+  captureVisualMetrics,
   manifestShape: validateCaptureManifestShape,
+  validateAssertionVisibility,
   validateStateAssertion,
+  validateSurfacePattern,
+  validateUrlIdentity,
+  urlMatchesSurface,
 } = require("./design-critique-capture");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
@@ -44,6 +58,10 @@ const PRODUCT_UI_WEB_VIEWPORT_WIDTHS = Object.freeze({
 });
 const PRODUCT_UI_DEVICE_BOUNDS = Object.freeze({ min: 240, minHeight: 400 });
 const MIN_VISIBLE_PIXEL_RATIO = 0.01;
+const MIN_MEANINGFUL_PIXEL_RATIO = 0.002;
+const MIN_MEANINGFUL_TILE_RATIO = 0.03;
+const MIN_LUMINANCE_RANGE = 16;
+const MIN_CROSS_STATE_VISUAL_DISTANCE = 0.0001;
 const PASSING_SCORE_FLOOR = 3;
 const PRODUCT_UI_STATES = Object.freeze([
   "primary",
@@ -64,9 +82,6 @@ const MAX_JSON_BYTES = 4 * 1024 * 1024;
 const MAX_CACHE_BYTES = 256 * 1024 * 1024;
 const EMPTY_SHA256 = crypto.createHash("sha256").update(Buffer.alloc(0)).digest("hex");
 const TRUSTED_CAPTURE_PRODUCER = "pm:design-critique-capture";
-const TRUSTED_CAPTURE_ASSURANCE = "same-cdp-page-session";
-const TRUSTED_CAPTURE_BROWSER_PROFILE = "pm-product-ui-capture-v1";
-const TRUSTED_CAPTURE_ACQUISITION = "native-cdp-dom-ax-plus-two-pixel-stability-samples";
 const ARTIFACT_VIEWPORT_NAMES = Object.freeze(ARTIFACT_VIEWPORTS.map((item) => item.name));
 let activeReadCache = null;
 const SCORE_KEYS = Object.freeze({
@@ -100,7 +115,7 @@ const REVIEW_PROMPTS = Object.freeze({
 
 function checkDesignCritique(options) {
   const previousCache = activeReadCache;
-  activeReadCache = { files: new Map(), bytes: 0 };
+  activeReadCache = { files: new Map(), bytes: 0, browsers: new Map() };
   try {
     return checkDesignCritiqueUncached(options);
   } finally {
@@ -127,10 +142,12 @@ function checkDesignCritiqueUncached(options) {
     options.verifyGit === false
       ? { commit: options.commit, baseRef: options.baseRef, baseCommit: options.baseCommit }
       : resolveGitIdentity(root, options, issues);
+  const currentSource =
+    options.verifyGit === false ? null : currentGitTreeIdentity(root, "before", issues);
   validateRoute(route, gitIdentity.commit, gitIdentity.baseRef, gitIdentity.baseCommit, issues);
   if (options.verifyGit !== false)
     validateDiffIdentity(root, route, gitIdentity.baseCommit, issues);
-  validateCaptures(root, captures, route, routeFile, issues);
+  validateCaptures(root, captures, route, routeFile, { options, currentSource }, issues);
   validateReport(
     root,
     report,
@@ -143,6 +160,12 @@ function checkDesignCritiqueUncached(options) {
     options,
     issues
   );
+  if (shouldVerifyCaptureBrowser(options)) finalizeBrowserIdentities(issues);
+  if (options.verifyGit !== false) {
+    const sourceAfter = currentGitTreeIdentity(root, "after", issues);
+    if (currentSource && sourceAfter && !isDeepStrictEqual(currentSource, sourceAfter))
+      add(issues, "git", "Git HEAD or tree changed while checking trusted capture evidence");
+  }
   const legacyRouteMode = options.legacyRouteMode || "enforce";
   const legacyReportMode = options.legacyReportMode || legacyRouteMode;
   if (!new Set(["enforce", "inspect"]).has(legacyRouteMode))
@@ -270,6 +293,73 @@ function resolveGitIdentity(root, options, issues) {
   };
 }
 
+function currentGitTreeIdentity(root, phase, issues) {
+  try {
+    const head = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: root,
+      encoding: "utf8",
+    }).trim();
+    const tree = execFileSync("git", ["rev-parse", "HEAD^{tree}"], {
+      cwd: root,
+      encoding: "utf8",
+    }).trim();
+    if (!sha(head) || !sha(tree)) throw new Error("Git returned an invalid object identity");
+    return { head, tree };
+  } catch (error) {
+    add(issues, "git", `cannot resolve ${phase} Git tree identity: ${error.message}`);
+    return null;
+  }
+}
+
+function validateCurrentBrowserIdentity(expected, options, label, issues) {
+  if (!object(expected) || !text(expected.path)) return;
+  let key;
+  let expectedPath;
+  try {
+    key = fs.realpathSync(resolveBrowser(options.browserPath));
+    expectedPath = fs.realpathSync(expected.path);
+  } catch (error) {
+    add(issues, label, `cannot resolve current browser executable: ${error.message}`);
+    return;
+  }
+  if (expectedPath !== key) {
+    add(
+      issues,
+      label,
+      "does not name the configured current browser executable; pass --browser for a non-default capture browser"
+    );
+    return;
+  }
+  let entry = activeReadCache?.browsers.get(key);
+  if (!entry) {
+    try {
+      entry = { before: browserIdentity(key).public, expected: [] };
+      activeReadCache?.browsers.set(key, entry);
+    } catch (error) {
+      add(issues, label, `cannot revalidate current browser executable: ${error.message}`);
+      return;
+    }
+  }
+  entry.expected.push({ identity: expected, label });
+  if (!isDeepStrictEqual(entry.before, expected))
+    add(issues, label, "does not match the current browser executable identity");
+}
+
+function finalizeBrowserIdentities(issues) {
+  for (const [browserPath, entry] of activeReadCache?.browsers || []) {
+    try {
+      const after = browserIdentity(browserPath).public;
+      if (!isDeepStrictEqual(entry.before, after))
+        add(issues, "captures", "browser executable changed while checking trusted evidence");
+      for (const expected of entry.expected)
+        if (!isDeepStrictEqual(after, expected.identity))
+          add(issues, expected.label, "does not match the final browser executable identity");
+    } catch (error) {
+      add(issues, "captures", `cannot complete browser executable revalidation: ${error.message}`);
+    }
+  }
+}
+
 function resolveTrustedBase(root, issues) {
   try {
     const output = execFileSync("git", ["ls-remote", "--symref", "origin", "HEAD"], {
@@ -379,7 +469,7 @@ function validateCoverage(route, subjectIds, issues) {
   }
 }
 
-function validateCaptures(root, captures, route, routeFile, issues) {
+function validateCaptures(root, captures, route, routeFile, runtime, issues) {
   if (!object(captures)) return add(issues, "captures", "must be an object");
   closed(
     captures,
@@ -466,6 +556,8 @@ function validateCaptures(root, captures, route, routeFile, issues) {
         route,
         routeFile,
         coverage.get(item.coverage_id),
+        decoded,
+        runtime,
         at,
         issues
       );
@@ -497,6 +589,7 @@ function validateCaptures(root, captures, route, routeFile, issues) {
       add(issues, `captures.captures`, `non-applicable coverage ${item.id} cannot have a capture`);
   }
   validateDistinctActiveCaptures(root, captures.captures || [], coverage, decodedByCapture, issues);
+  validateCrossStateVisualDistance(captures.captures || [], coverage, decodedByCapture, issues);
   validateEvidence(
     root,
     captures.evidence,
@@ -543,12 +636,48 @@ function validateDistinctActiveCaptures(root, captureRows, coverage, decodedByCa
   }
 }
 
+function validateCrossStateVisualDistance(captureRows, coverage, decodedByCapture, issues) {
+  const active = captureRows.filter(
+    (capture) =>
+      capture?.active === true &&
+      coverage.get(capture.coverage_id)?.required === true &&
+      capture.kind === "screenshot" &&
+      decodedByCapture.has(capture.id)
+  );
+  for (let leftIndex = 0; leftIndex < active.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < active.length; rightIndex += 1) {
+      const left = active[leftIndex];
+      const right = active[rightIndex];
+      const leftCoverage = coverage.get(left.coverage_id);
+      const rightCoverage = coverage.get(right.coverage_id);
+      if (
+        leftCoverage.subject_id !== rightCoverage.subject_id ||
+        leftCoverage.viewport !== rightCoverage.viewport ||
+        leftCoverage.state === rightCoverage.state
+      )
+        continue;
+      const distance = visualDistance(
+        decodedByCapture.get(left.id),
+        decodedByCapture.get(right.id)
+      );
+      if (distance === null || distance < MIN_CROSS_STATE_VISUAL_DISTANCE)
+        add(
+          issues,
+          `captures.captures.${right.id}`,
+          `states ${leftCoverage.state} and ${rightCoverage.state} for the same subject and viewport require materially different decoded pixels`
+        );
+    }
+  }
+}
+
 function validateTrustedCaptureObservation(
   root,
   capture,
   route,
   routeFile,
   coverage,
+  decoded,
+  runtime,
   label,
   issues
 ) {
@@ -576,7 +705,7 @@ function validateTrustedCaptureObservation(
   }
 
   if (
-    manifest.schema_version !== 1 ||
+    manifest.schema_version !== 2 ||
     manifest.kind !== "product-ui-capture" ||
     manifest.run_id !== route.run_id ||
     manifest.mode !== "product-ui" ||
@@ -600,6 +729,7 @@ function validateTrustedCaptureObservation(
     path: capture.path,
     sha256: capture.sha256,
     pixel_sha256: capture.pixel_sha256,
+    visual_metrics: decoded ? captureVisualMetrics(decoded) : manifest.capture.visual_metrics,
     width: capture.width,
     height: capture.height,
     full_page: capture.full_page,
@@ -627,7 +757,7 @@ function validateTrustedCaptureObservation(
     issues
   );
   const network = validateTrustedNetworkLedger(root, manifest, at, issues);
-  validateTrustedPage(manifest, capture, at, issues);
+  validateTrustedPage(manifest, capture, route, coverage, at, issues);
   validateTrustedObservationIdentity(
     manifest,
     route,
@@ -636,6 +766,7 @@ function validateTrustedCaptureObservation(
     a11y,
     dom,
     network,
+    runtime,
     at,
     issues
   );
@@ -654,6 +785,12 @@ function validateTrustedStateAssertion(root, manifest, routeFile, coverage, labe
     );
   if (assertion.passed !== true)
     add(issues, `${label}.page.state_assertion.passed`, "must equal true");
+  const visibility = assertion.visibility;
+  try {
+    validateAssertionVisibility(visibility, "capture manifest.page.state_assertion.visibility");
+  } catch (error) {
+    add(issues, `${label}.page.state_assertion.visibility`, error.message);
+  }
   const file = readBoundFile(
     root,
     assertion.path,
@@ -666,7 +803,21 @@ function validateTrustedStateAssertion(root, manifest, routeFile, coverage, labe
     add(issues, `${label}.page.state_assertion.sha256`, "does not match assertion bytes");
   try {
     const value = JSON.parse(file.bytes.toString("utf8"));
-    validateStateAssertion(value);
+    validateStateAssertion(value, {
+      subject_id: coverage?.subject_id,
+      coverage_id: coverage?.id,
+      state: coverage?.state,
+    });
+    const expectedVisibleNodes =
+      1 + value.all.filter((clause) => clause.expect.kind === "visible").length;
+    validateAssertionVisibility(visibility, "capture manifest.page.state_assertion.visibility", [
+      "state marker",
+      ...value.all.flatMap((clause, index) =>
+        clause.expect.kind === "visible" ? [`state assertion clause ${index + 1}`] : []
+      ),
+    ]);
+    if (visibility.verified_nodes !== expectedVisibleNodes)
+      throw new Error("state assertion visibility count does not match the assertion");
   } catch (error) {
     add(issues, `${label}.page.state_assertion`, `invalid declarative assertion: ${error.message}`);
   }
@@ -761,23 +912,26 @@ function validateTrustedNetworkLedger(root, manifest, label, issues) {
   return { file, ledger };
 }
 
-function validateTrustedPage(manifest, capture, label, issues) {
+function validateTrustedPage(manifest, capture, route, coverage, label, issues) {
   const page = manifest.page;
+  const subject = (route.subjects || []).find((item) => item.id === coverage?.subject_id);
+  if (!subject || page.route_surface !== subject.surface)
+    add(issues, `${label}.page.route_surface`, "must equal the routed subject surface");
+  try {
+    validateSurfacePattern(page.route_surface);
+  } catch (error) {
+    add(issues, `${label}.page.route_surface`, error.message);
+  }
   for (const field of ["requested_url", "expected_url", "final_url"]) {
     try {
-      const parsed = new URL(page[field]);
-      if (
-        !["http:", "https:"].includes(parsed.protocol) ||
-        parsed.username ||
-        parsed.password ||
-        parsed.href !== page[field]
-      )
-        throw new Error("not a canonical credential-free HTTP URL");
-    } catch {
-      add(issues, `${label}.page.${field}`, "must be a canonical credential-free HTTP URL");
+      validateUrlIdentity(page[field], `capture manifest.page.${field}`);
+      if (!urlMatchesSurface(`${page[field].origin}${page[field].pathname}`, page.route_surface))
+        add(issues, `${label}.page.${field}`, "path must match the routed subject surface");
+    } catch (error) {
+      add(issues, `${label}.page.${field}`, error.message);
     }
   }
-  if (page.final_url !== page.expected_url)
+  if (!isDeepStrictEqual(page.final_url, page.expected_url))
     add(issues, `${label}.page.final_url`, "must equal the asserted expected URL");
   for (const field of ["target_id", "main_frame_id", "loader_id"])
     if (!boundedText(page[field], 500)) add(issues, `${label}.page.${field}`, "is required");
@@ -816,6 +970,7 @@ function validateTrustedObservationIdentity(
   a11y,
   dom,
   network,
+  runtime,
   label,
   issues
 ) {
@@ -825,7 +980,11 @@ function validateTrustedObservationIdentity(
     observation.producer.name !== TRUSTED_CAPTURE_PRODUCER ||
     observation.producer.version !== PLUGIN_VERSION
   )
-    add(issues, label, "must identify the current trusted same-session capture producer");
+    add(
+      issues,
+      label,
+      "must identify the current workflow-attested, non-cryptographic capture producer"
+    );
   const browser = observation.browser;
   if (browser.engine !== "chromium" || !isDeepStrictEqual(browser.before, browser.after))
     add(issues, `${label}.browser`, "must attest one unchanged Chromium executable");
@@ -840,6 +999,8 @@ function validateTrustedObservationIdentity(
     )
       add(issues, `${label}.browser.${side}`, "has an invalid executable identity");
   }
+  if (shouldVerifyCaptureBrowser(runtime.options))
+    validateCurrentBrowserIdentity(browser.before, runtime.options, `${label}.browser`, issues);
   const source = observation.source;
   if (
     source.guard !== "clean-tracked-tree-before-and-after" ||
@@ -855,6 +1016,12 @@ function validateTrustedObservationIdentity(
     )
       add(issues, `${label}.source.${side}`, "must match the clean routed source identity");
   }
+  if (
+    runtime.currentSource &&
+    (source.before.head !== runtime.currentSource.head ||
+      source.before.tree !== runtime.currentSource.tree)
+  )
+    add(issues, `${label}.source`, "does not match the current local Git HEAD and tree");
   const configuration = observation.configuration;
   if (
     !Number.isSafeInteger(configuration.readiness_timeout_ms) ||
@@ -879,7 +1046,7 @@ function validateTrustedObservationIdentity(
   )
     add(issues, `${label}.network`, "must exactly summarize the bound violation-free ledger");
   try {
-    const requestedOrigin = new URL(manifest.page.requested_url).origin;
+    const requestedOrigin = manifest.page.requested_url.origin;
     if (!net.allowed_origins.includes(requestedOrigin))
       add(issues, `${label}.network.allowed_origins`, "must include the requested page origin");
   } catch {
@@ -893,6 +1060,7 @@ function validateTrustedObservationIdentity(
     subject_id: manifest.subject_id,
     coverage: manifest.coverage,
     capture_id: manifest.capture.id,
+    route_surface: manifest.page.route_surface,
     requested_url: manifest.page.requested_url,
     expected_url: manifest.page.expected_url,
     viewport: { width: manifest.capture.width, height: manifest.capture.height },
@@ -919,6 +1087,7 @@ function validateTrustedObservationIdentity(
   };
   const nativeObservations = {
     page: pageIdentity,
+    assertion_visibility: manifest.page.state_assertion.visibility,
     accessibility: a11y?.raw.observations,
     dom: dom?.raw.observations,
   };
@@ -1457,7 +1626,7 @@ function validateReport(
   if ((captures.captures || []).some((item) => item.round > report.rounds))
     add(issues, "report.rounds", "must include every recorded capture round");
   validateScores(root, report.scores, route, captures, report.outcome, issues);
-  validateFindings(report.findings, route, captures, report.outcome, issues);
+  validateFindings(root, report.findings, route, captures, report.outcome, issues);
   if (report.schema_version === 2 && reviewState) {
     validateReconciliation(report, route, captures, reviewState, issues);
     validateSourceBlockingOutcome(report, reviewState, issues);
@@ -1630,7 +1799,7 @@ function validateReviews(root, reviews, route, captures, routeFile, capturesFile
         at,
         issues
       );
-      validateReviewExecution(
+      const executionState = validateReviewExecution(
         root,
         review,
         inputState,
@@ -1654,6 +1823,7 @@ function validateReviews(root, reviews, route, captures, routeFile, capturesFile
         review,
         round: roundRow.round,
         inputState,
+        executionState,
         resultState,
         resultSha256: digest(Buffer.from(canonicalJson(review.result ?? null))),
       };
@@ -1676,6 +1846,7 @@ function validateReviews(root, reviews, route, captures, routeFile, capturesFile
   for (const expected of expectedRounds)
     if (!seenRounds.has(expected)) add(issues, "reviews.rounds", `missing round ${expected}`);
   validatePriorFindingRefs(state, issues);
+  validateReviewRoundChronology(state, captures, report.rounds, issues);
   if (!isDeepStrictEqual(report.scores, state.finalPrimaryScores))
     add(issues, "report.scores", "must exactly equal the final-round Primary scores");
   return state;
@@ -1795,13 +1966,11 @@ function validateReviewInput(
     if (round === 1 && state.priorFindingRefs.length > 0)
       add(issues, `${label}.prior_finding_refs`, "round 1 cannot contain prior findings");
     const requiredEvidence = requiredReviewEvidenceIds(root, route, captures, state.captureIds);
-    const supplied = new Set(state.evidenceIds);
-    const missing = requiredEvidence.filter((id) => !supplied.has(id));
-    if (missing.length > 0)
+    if (!sameStringSet(state.evidenceIds, requiredEvidence))
       add(
         issues,
         `${label}.evidence_ids`,
-        `must include required review evidence: ${missing.join(", ")}`
+        `must exactly equal the evidence bound to this round's captures: ${requiredEvidence.join(", ")}`
       );
   }
   const payload = { ...input };
@@ -1942,14 +2111,40 @@ function validateReviewCaptureManifest(
 
 function requiredReviewEvidenceIds(root, route, captures, captureIds) {
   const selected = new Set(captureIds);
-  if (route.mode === "pm-artifact") return (captures.evidence || []).map((item) => item.id);
   return (captures.evidence || [])
-    .filter((item) => ["accessibility-tree", "dom-audit"].includes(item.kind))
     .filter((item) => {
-      const audit = readEvidenceJson(root, item, `captures.evidence.${item.id}`, []);
-      return (audit?.capture_ids || []).some((id) => selected.has(id));
+      if (["accessibility-tree", "dom-audit"].includes(item.kind)) {
+        const audit = readEvidenceJson(root, item, `captures.evidence.${item.id}`, []);
+        return (
+          Array.isArray(audit?.capture_ids) &&
+          audit.capture_ids.length > 0 &&
+          audit.capture_ids.every((id) => selected.has(id))
+        );
+      }
+      if (route.mode !== "pm-artifact") return false;
+      if (item.kind === "artifact-structural") return true;
+      if (item.kind !== "artifact-render") return false;
+      const render = readEvidenceJson(root, item, `captures.evidence.${item.id}`, []);
+      if (!render) return false;
+      const renderedFiles = [
+        ...(render.captures || []).map((capture) => capture.full_page),
+        render.print,
+      ].filter(Boolean);
+      const renderedIdentities = renderedFiles.map(fileBindingIdentity);
+      const selectedIdentities = (captures.captures || [])
+        .filter((capture) => selected.has(capture.id))
+        .map(fileBindingIdentity);
+      return sameStringSet(renderedIdentities, selectedIdentities);
     })
     .map((item) => item.id);
+}
+
+function fileBindingIdentity(binding) {
+  const normalizedPath = String(binding?.path || "")
+    .replaceAll("\\", "/")
+    .replace(/^\.\//, "");
+  const normalizedSha = String(binding?.sha256 || "").replace(/^sha256:/, "");
+  return `${normalizedPath}|${normalizedSha}`;
 }
 
 function validateReviewExecution(
@@ -1964,7 +2159,11 @@ function validateReviewExecution(
   issues
 ) {
   const label = `${at}.execution`;
-  if (!object(execution)) return add(issues, label, "must be an object");
+  const state = { startedAt: null, completedAt: null, receiptRecordedAt: null };
+  if (!object(execution)) {
+    add(issues, label, "must be an object");
+    return state;
+  }
   closed(
     execution,
     [
@@ -2005,8 +2204,10 @@ function validateReviewExecution(
   }
   if (!isRfc3339DateTime(execution.started_at))
     add(issues, `${label}.started_at`, "must be RFC 3339");
+  else state.startedAt = execution.started_at;
   if (!isRfc3339DateTime(execution.completed_at))
     add(issues, `${label}.completed_at`, "must be RFC 3339");
+  else state.completedAt = execution.completed_at;
   if (
     isRfc3339DateTime(execution.started_at) &&
     isRfc3339DateTime(execution.completed_at) &&
@@ -2029,7 +2230,7 @@ function validateReviewExecution(
       Date.parse(sourceTime) > Date.parse(execution.started_at)
     )
       add(issues, `${label}.started_at`, `must not precede the bound ${sourceLabel}`);
-  validateReviewReceipt(
+  state.receiptRecordedAt = validateReviewReceipt(
     root,
     execution.receipt,
     review,
@@ -2038,17 +2239,24 @@ function validateReviewExecution(
     label,
     issues
   );
+  return state;
 }
 
 function validateReviewReceipt(root, binding, review, inputState, reviewsCheckedAt, label, issues) {
   const at = `${label}.receipt`;
-  if (!object(binding)) return add(issues, at, "requires a path and SHA-256 binding");
+  if (!object(binding)) {
+    add(issues, at, "requires a path and SHA-256 binding");
+    return null;
+  }
   closed(binding, ["path", "sha256"], at, issues);
   const file = text(binding.path) ? readJsonFile(root, binding.path, at, issues) : null;
-  if (!file) return;
+  if (!file) return null;
   validateBinding(binding, file, at, issues);
   const receipt = file.value;
-  if (!object(receipt)) return add(issues, at, "must bind a JSON object");
+  if (!object(receipt)) {
+    add(issues, at, "must bind a JSON object");
+    return null;
+  }
   closed(
     receipt,
     [
@@ -2097,6 +2305,7 @@ function validateReviewReceipt(root, binding, review, inputState, reviewsChecked
     )
       add(issues, `${at}.recorded_at`, "must not be later than reviews.checked_at");
   }
+  return isRfc3339DateTime(receipt.recorded_at) ? receipt.recorded_at : null;
 }
 
 function validateReviewResult(review, inputState, route, captureById, evidenceById, at, issues) {
@@ -2146,6 +2355,7 @@ function validateFreshObservations(observations, inputState, route, captureById,
   if (!Array.isArray(observations)) return add(issues, at, "must be an array");
   const expected = new Set(inputState.captureIds);
   const seen = new Set();
+  const seenObservationText = new Map();
   for (const [index, observation] of observations.entries()) {
     const rowAt = `${at}[${index}]`;
     if (!object(observation)) {
@@ -2177,6 +2387,34 @@ function validateFreshObservations(observations, inputState, route, captureById,
       );
     if (!boundedText(observation.observation, 10_000))
       add(issues, `${rowAt}.observation`, "is required");
+    else {
+      const normalized = normalizeVisible(observation.observation);
+      const normalizedKey = normalized.toLowerCase();
+      if (Buffer.byteLength(normalized, "utf8") < 40)
+        add(
+          issues,
+          `${rowAt}.observation`,
+          "must contain a substantive capture-specific observation"
+        );
+      if (
+        coverage &&
+        (!containsObservationToken(normalizedKey, coverage.state) ||
+          !containsObservationToken(normalizedKey, coverage.viewport))
+      )
+        add(
+          issues,
+          `${rowAt}.observation`,
+          `must explicitly name the routed ${coverage.state} state and ${coverage.viewport} viewport`
+        );
+      const priorCapture = seenObservationText.get(normalizedKey);
+      if (priorCapture && priorCapture !== observation.capture_id)
+        add(
+          issues,
+          `${rowAt}.observation`,
+          `must be distinct from the observation for capture ${priorCapture}`
+        );
+      else seenObservationText.set(normalizedKey, observation.capture_id);
+    }
   }
   const missing = [...expected].filter((id) => !seen.has(id));
   if (missing.length > 0)
@@ -2185,6 +2423,16 @@ function validateFreshObservations(observations, inputState, route, captureById,
       at,
       `must contain one observation for every supplied capture: ${missing.join(", ")}`
     );
+}
+
+function containsObservationToken(value, token) {
+  const normalizedToken = String(token || "")
+    .toLowerCase()
+    .replace(/[-_]+/g, " ");
+  const normalizedValue = String(value).replace(/[-_]+/g, " ");
+  return new RegExp(`(?:^|[^a-z0-9])${escapeRegex(normalizedToken)}(?:$|[^a-z0-9])`).test(
+    normalizedValue
+  );
 }
 
 function validatePerspectiveScores(scores, mode, inputState, label, issues) {
@@ -2382,6 +2630,81 @@ function validatePriorFindingRefs(state, issues) {
   }
 }
 
+function validateReviewRoundChronology(state, captures, reportRounds, issues) {
+  if (!Number.isInteger(reportRounds) || reportRounds < 2) return;
+  const rowsByRound = new Map();
+  for (const row of state.rows) {
+    if (!rowsByRound.has(row.round)) rowsByRound.set(row.round, []);
+    rowsByRound.get(row.round).push(row);
+  }
+  const captureById = new Map((captures.captures || []).map((item) => [item.id, item]));
+  for (let round = 2; round <= reportRounds; round += 1) {
+    const previousRows = rowsByRound.get(round - 1) || [];
+    const currentRows = rowsByRound.get(round) || [];
+    const previousBoundary = latestTimestamp(
+      previousRows.flatMap((row) => [
+        row.executionState?.completedAt,
+        row.executionState?.receiptRecordedAt,
+      ])
+    );
+    const currentStart = earliestTimestamp(currentRows.map((row) => row.executionState?.startedAt));
+    const currentManifest = earliestTimestamp(
+      currentRows.map((row) => row.inputState?.captureManifestCreatedAt)
+    );
+    if (
+      previousBoundary !== null &&
+      (currentManifest === null || currentManifest <= previousBoundary)
+    )
+      add(
+        issues,
+        `reviews.rounds[${round - 1}]`,
+        `round ${round} capture manifest must be created after every round ${round - 1} review receipt`
+      );
+    if (previousBoundary !== null && (currentStart === null || currentStart <= previousBoundary))
+      add(
+        issues,
+        `reviews.rounds[${round - 1}]`,
+        `round ${round} execution must start after every round ${round - 1} review receipt`
+      );
+
+    const selectedIds = new Set(currentRows.flatMap((row) => row.inputState?.captureIds || []));
+    const newRoundCaptures = [...selectedIds]
+      .map((id) => captureById.get(id))
+      .filter((capture) => capture?.round === round);
+    if (newRoundCaptures.length === 0)
+      add(
+        issues,
+        `reviews.rounds[${round - 1}]`,
+        `round ${round} must include at least one capture produced after the prior review round`
+      );
+    for (const capture of newRoundCaptures)
+      if (
+        previousBoundary !== null &&
+        isRfc3339DateTime(capture.captured_at) &&
+        Date.parse(capture.captured_at) <= previousBoundary
+      )
+        add(
+          issues,
+          `reviews.rounds[${round - 1}]`,
+          `round ${round} capture ${capture.id} must postdate every round ${round - 1} review receipt`
+        );
+  }
+}
+
+function earliestTimestamp(values) {
+  const timestamps = values
+    .filter((value) => isRfc3339DateTime(value))
+    .map((value) => Date.parse(value));
+  return timestamps.length > 0 ? Math.min(...timestamps) : null;
+}
+
+function latestTimestamp(values) {
+  const timestamps = values
+    .filter((value) => isRfc3339DateTime(value))
+    .map((value) => Date.parse(value));
+  return timestamps.length > 0 ? Math.max(...timestamps) : null;
+}
+
 function validateReconciliation(report, route, captures, reviewState, issues) {
   if (!Array.isArray(report.reconciliation)) {
     add(issues, "report.reconciliation", "must be an array");
@@ -2391,6 +2714,13 @@ function validateReconciliation(report, route, captures, reviewState, issues) {
   const knownEvidence = new Set([
     ...(captures.captures || []).map((item) => item.id),
     ...(captures.evidence || []).map((item) => item.id),
+  ]);
+  const evidenceIdentityById = new Map([
+    ...(captures.captures || []).map((item) => [
+      item.id,
+      item.pixel_sha256 ? `pixels:${item.pixel_sha256}` : `bytes:${item.sha256}`,
+    ]),
+    ...(captures.evidence || []).map((item) => [item.id, `bytes:${item.sha256}`]),
   ]);
   const consumedSources = new Set();
   const consumedFinal = new Set();
@@ -2500,6 +2830,13 @@ function validateReconciliation(report, route, captures, reviewState, issues) {
       const sourceEvidence = uniqueSorted(
         sources.flatMap((item) => item.finding.evidence_ids || [])
       );
+      const sourceEvidenceIdentities = new Set(
+        sourceEvidence.map((id) => evidenceIdentityById.get(id)).filter(Boolean)
+      );
+      const hasNovelDecisionEvidence = decisionEvidenceIds.some((id) => {
+        const identity = evidenceIdentityById.get(id);
+        return identity && !sourceEvidenceIdentities.has(identity);
+      });
       const expectedEvidence = uniqueSorted([...sourceEvidence, ...decisionEvidenceIds]);
       if (!sameStringSet(finalFinding.evidence_ids, expectedEvidence))
         add(
@@ -2525,22 +2862,23 @@ function validateReconciliation(report, route, captures, reviewState, issues) {
         worstPriority &&
         PRIORITIES.has(finalFinding.priority) &&
         PRIORITY_RANK[finalFinding.priority] < PRIORITY_RANK[worstPriority] &&
-        (decisionEvidenceIds.length === 0 || normalizeVisible(row.rationale).length < 20)
+        (!hasNovelDecisionEvidence || normalizeVisible(row.rationale).length < 20)
       )
         add(
           issues,
           `${at}.final_finding_id`,
-          "severity escalation requires decision evidence and a concrete rationale"
+          "severity escalation requires new decision evidence and a concrete rationale"
         );
-      const designBlockingSource = sources.some(
-        (item) =>
-          item.finding.owner === "design-critique" && ["P0", "P1"].includes(item.finding.priority)
-      );
-      if (designBlockingSource && finalFinding.owner !== "design-critique")
+      const designOwnedSource = sources.some((item) => item.finding.owner === "design-critique");
+      if (
+        designOwnedSource &&
+        ["P0", "P1"].includes(finalFinding.priority) &&
+        finalFinding.owner !== "design-critique"
+      )
         add(
           issues,
           `${at}.final_finding_id`,
-          "Design Critique P0/P1 ownership cannot be reassigned to another gate"
+          "a Design Critique source that remains or becomes P0/P1 cannot be reassigned to another gate"
         );
       for (const source of sources)
         reviewState.reconciledFinalBySource.set(
@@ -2696,7 +3034,7 @@ function requiredScoreEvidence(root, key, route, captures) {
   return activeCaptures.map((item) => item.id);
 }
 
-function validateFindings(findings, route, captures, outcome, issues) {
+function validateFindings(root, findings, route, captures, outcome, issues) {
   if (!Array.isArray(findings)) return add(issues, "report.findings", "must be an array");
   const captureById = new Map((captures.captures || []).map((item) => [item.id, item]));
   const evidenceById = new Map((captures.evidence || []).map((item) => [item.id, item]));
@@ -2773,6 +3111,10 @@ function validateFindings(findings, route, captures, outcome, issues) {
         route.mode === "product-ui" &&
         before?.kind === "screenshot" &&
         after?.kind === "screenshot";
+      const resolvedVisualDistance =
+        requiresPixelIdentity && before && after
+          ? visualDistanceForCaptures(root, before, after)
+          : null;
       const subjectCoverage = new Set(
         (route.coverage || [])
           .filter((item) => item.subject_id === finding.subject_id)
@@ -2785,7 +3127,9 @@ function validateFindings(findings, route, captures, outcome, issues) {
         (requiresPixelIdentity &&
           (!sha256(before.pixel_sha256) ||
             !sha256(after.pixel_sha256) ||
-            before.pixel_sha256 === after.pixel_sha256)) ||
+            before.pixel_sha256 === after.pixel_sha256 ||
+            resolvedVisualDistance === null ||
+            resolvedVisualDistance < MIN_CROSS_STATE_VISUAL_DISTANCE)) ||
         before.coverage_id !== after.coverage_id ||
         !subjectCoverage.has(before.coverage_id) ||
         before.active !== false ||
@@ -2802,7 +3146,7 @@ function validateFindings(findings, route, captures, outcome, issues) {
         add(
           issues,
           at,
-          "resolved P0/P1 requires chronologically ordered, distinct before and after capture hashes, including decoded pixels for product UI"
+          "resolved P0/P1 requires chronologically ordered, distinct before and after capture hashes, including decoded pixels for product UI; decoded pixels must differ materially"
         );
     }
     if (
@@ -2825,6 +3169,20 @@ function validateFindings(findings, route, captures, outcome, issues) {
       "report.outcome",
       "passed cannot contain open or deferred P0/P1 findings, or dismissed Design Critique P0/P1 findings"
     );
+}
+
+function visualDistanceForCaptures(root, before, after) {
+  try {
+    const beforeFile = readBoundFile(root, before.path, "before capture", []);
+    const afterFile = readBoundFile(root, after.path, "after capture", []);
+    if (!beforeFile || !afterFile) return null;
+    return visualDistance(
+      inspectPngVisualBytes(beforeFile.bytes),
+      inspectPngVisualBytes(afterFile.bytes)
+    );
+  } catch {
+    return null;
+  }
 }
 
 function validateCaptureBytes(root, item, label, issues) {
@@ -2887,6 +3245,39 @@ function validateProductUiViewport(
       );
     if (!decoded.hasVisualVariation)
       add(issues, label, "product UI screenshot must contain non-uniform visible content");
+    if (
+      decoded.meaningfulPixelRatio === null ||
+      decoded.meaningfulPixelRatio < MIN_MEANINGFUL_PIXEL_RATIO
+    )
+      add(
+        issues,
+        label,
+        `product UI screenshot meaningful pixels must cover at least ${MIN_MEANINGFUL_PIXEL_RATIO * 100}%`
+      );
+    if (
+      decoded.meaningfulTileRatio === null ||
+      decoded.meaningfulTileRatio < MIN_MEANINGFUL_TILE_RATIO
+    )
+      add(
+        issues,
+        label,
+        `product UI screenshot meaningful content must occupy at least ${MIN_MEANINGFUL_TILE_RATIO * 100}% of spatial tiles`
+      );
+    if (!Number.isSafeInteger(decoded.colorBucketCount) || decoded.colorBucketCount < 2)
+      add(
+        issues,
+        label,
+        "product UI screenshot must contain at least two meaningful color buckets"
+      );
+    if (
+      !Number.isSafeInteger(decoded.luminanceRange) ||
+      decoded.luminanceRange < MIN_LUMINANCE_RANGE
+    )
+      add(
+        issues,
+        label,
+        `product UI screenshot luminance range must be at least ${MIN_LUMINANCE_RANGE}`
+      );
   }
   const platform = subjects.get(coverage.subject_id)?.platform;
   const bounds =
@@ -3551,6 +3942,11 @@ function realPathMaybe(value) {
 }
 function object(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function shouldVerifyCaptureBrowser(options) {
+  return options.verifyCaptureBrowser === undefined
+    ? options.verifyBrowser !== false
+    : options.verifyCaptureBrowser !== false;
 }
 function text(value) {
   return typeof value === "string" && value.trim().length > 0;

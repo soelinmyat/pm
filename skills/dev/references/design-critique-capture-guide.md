@@ -59,22 +59,24 @@ The certifying helper launches a clean, disposable Chromium profile for every ca
 
 ## Trusted Web Capture
 
-Route-schema-v2 web product UI uses `scripts/design-critique-capture.js`. It acquires the PNG, Chromium accessibility tree, DOM snapshot, page identity, and network ledger from one CDP target/session. It evaluates a closed declarative state assertion against the native browser observations, takes two internal screenshot samples, and publishes only after the observations and decoded pixels remain stable.
+Route-schema-v2 web product UI uses `scripts/design-critique-capture.js`. It acquires the PNG, Chromium accessibility tree, DOM snapshot, page identity, native hit-test observations, and network ledger from one CDP target/session. It evaluates a closed declarative state assertion against the native browser observations, takes two internal screenshot samples, and publishes only after the observations, decoded pixels, URL, source, browser, and network state remain stable.
+
+The routed subject surface is part of the capture identity. A certifying web surface is `/` or an origin-free absolute path made from slash-separated safe ASCII literal segments (`A-Z`, `a-z`, `0-9`, `.`, `_`, `~`, `-`) and named parameters such as `:id`. Wildcards, query strings, fragments, backslashes, empty segments, dot segments, and trailing slashes are not supported. A named parameter matches exactly one safe decoded segment. The requested, expected, and final URLs must share an origin and match that surface; redirects to a different path fail closed.
 
 Create the assertion at the canonical path for the coverage row:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
+  "subject_id": "account-detail",
+  "coverage_id": "account-primary-desktop",
+  "state": "primary",
+  "state_marker": {
+    "locator": { "by": "test-id", "value": "account-state" },
+    "attribute": "data-pm-state",
+    "value": "primary"
+  },
   "all": [
-    {
-      "locator": { "by": "test-id", "value": "account-state" },
-      "expect": {
-        "kind": "attribute-equals",
-        "name": "data-state",
-        "value": "primary"
-      }
-    },
     {
       "locator": { "by": "role-name", "value": "button:Save changes" },
       "expect": { "kind": "visible" }
@@ -83,7 +85,11 @@ Create the assertion at the canonical path for the coverage row:
 }
 ```
 
-Allowed locators are `id`, `test-id`, and `role-name` (`role:accessible-name`). Allowed expectations are `exists`, `absent`, `visible`, `focused`, `attribute-equals` for the bounded attribute allowlist, and `accessible-name-equals`. JavaScript expressions and arbitrary CSS selectors are intentionally unsupported. If the state cannot be expressed, treat a manual capture as non-authoritative and block certification rather than weakening the assertion.
+`subject_id`, `coverage_id`, and `state` must exactly equal the routed coverage row. `state_marker` is mandatory, uses an `id` or `test-id` locator, and requires `data-pm-state` to equal that exact routed state. This prevents a generic assertion such as “the page has a heading” from certifying primary, error, loading, or another materially different state.
+
+Allowed guard locators are `id`, `test-id`, and `role-name` (`role:accessible-name`). Allowed expectations are `exists`, `absent`, `visible`, `focused`, `attribute-equals` for the bounded attribute allowlist, and `accessible-name-equals`. JavaScript expressions and arbitrary CSS selectors are intentionally unsupported. If the state cannot be expressed, treat a manual capture as non-authoritative and block certification rather than weakening the assertion.
+
+For the state marker and every `visible` guard, visible means the node and its ancestors are not hidden, use visible layout, have at least 1% effective multiplied opacity, survive ancestor overflow clipping, and intersect the visual viewport. The helper also asks Chromium to hit-test the center and four inset points; at least one point must hit the asserted node or one of its descendants. A full overlay therefore fails. This sampled hit test is deterministic but is not a complete paint-order proof: irregular or partial occlusion between the five sample points can remain undetected.
 
 ### Capture sequence
 
@@ -103,7 +109,9 @@ node "$PM_PLUGIN_ROOT/scripts/design-critique-capture.js" \
   --json
 ```
 
-Repeat `--allow-origin "https://api.example.test"` only for origins the real page needs. The requested page origin is always included. Any other HTTP, HTTPS, or WebSocket origin fails the capture. The helper also fails on redirect drift, a false state assertion, a viewport mismatch, iframe content, network activity during the critical sample window, changed source/browser/route/assertion bytes, transparent or uniform screenshots, or differing decoded pixels between its two samples. Output paths are exclusive: recapture with a new capture ID instead of overwriting evidence.
+Repeat `--allow-origin "https://api.example.test"` only for origins the real page needs. The requested page origin is always included. Any other HTTP, HTTPS, or WebSocket origin fails the capture. The helper settles the network, keeps interception active through both screenshots and all native observations, performs a final browser barrier, disables interception, drains its handlers, and fails on any late request, overflow, or handler error. It also fails on redirect drift, a false or generic state assertion, a viewport mismatch, iframe content, changed source/browser/route/assertion bytes, a transparent, uniform, or near-blank screenshot, or differing decoded pixels between its two samples. Output paths are exclusive: recapture with a new capture ID instead of overwriting evidence.
+
+Retained URL identities contain only `origin`, `pathname`, booleans indicating whether a query or fragment existed, and a SHA-256 of the full URL. Query and fragment values are never persisted in the manifest, raw page observation, network ledger, CLI output, or error details. Use privacy-safe seed URLs anyway: a digest is an identifier, not a license to put credentials in a URL.
 
 The atomic bundle contains:
 
@@ -135,13 +143,14 @@ node "$PM_PLUGIN_ROOT/scripts/design-critique-audit-normalize.js" \
 | Tablet | 768×1024 | 601–1023 wide and at least 600 high | When layout has a distinct breakpoint |
 | Narrow | 375×812 | 320–600 wide and at least 480 high | Primary state, always |
 
-Route schema v2 binds each web viewport label to the PNG's decoded dimensions and canonical decoded-RGBA pixel SHA-256. It requires at least 1% visible pixels, non-uniform content, and distinct decoded pixels for distinct active required rows. A narrow capture of another state does not replace the primary narrow capture. Schema v1 is resume-only for routes that were already frozen—never author or downgrade a route to v1 to bypass these checks.
+Route schema v2 binds each web viewport label to the PNG's decoded dimensions and canonical decoded-RGBA pixel SHA-256. It requires at least 1% visible pixels plus meaningful decoded-pixel coverage, spatial coverage, color variety, and luminance range. Distinct active states at the same subject and viewport—and resolved product P0/P1 before/after pairs—must also have a material decoded-pixel-grid distance; changing one beacon pixel or re-encoding the same image does not count. A narrow capture of another state does not replace the primary narrow capture. Schema v1 is resume-only for routes that were already frozen—never author or downgrade a route to v1 to bypass these checks.
 
 ### Limits
 
 - Max 20 screenshots per capture round; route coverage, not convenience, determines the exact count
 - Preserve every cited round so before/after evidence remains verifiable
-- The helper proves capture-time consistency, not that a generic development server served the current Git commit. When that provenance matters, expose an application/build identifier and include it in the declarative state assertion.
+- The manifest's assurance level is `workflow-attested-non-cryptographic`. Its hashes make local evidence internally checkable; they are not signatures and do not prove who created the files. The checker independently re-hashes the evidence and revalidates the current browser executable plus committed Git HEAD/tree before accepting a local run.
+- The helper proves capture-time consistency, not that a generic development server served the current Git commit or build. When that provenance matters, expose an application/build identifier and verify it with an additional declarative guard. This build/server identity is the remaining provenance limitation.
 - Iframe documents are not certifiable in this version.
 
 ## Mobile Capture (Maestro MCP)
