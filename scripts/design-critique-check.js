@@ -14,7 +14,7 @@ const {
   validateMetrics,
 } = require("./artifact-render-check");
 const { isRfc3339DateTime } = require("./lib/iso-time");
-const { inspectPdfBytes, inspectPngBytes } = require("./lib/media-inspect");
+const { inspectPdfBytes, inspectPngBytes, inspectPngVisualBytes } = require("./lib/media-inspect");
 const { readProjectInput } = require("./lib/project-file");
 const { MAX_RAW_AUDIT_BYTES, normalizeAuditBytes } = require("./design-critique-audit-normalize");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
@@ -26,10 +26,13 @@ const PRIORITIES = new Set(["P0", "P1", "P2", "P3"]);
 const FINDING_STATUSES = new Set(["open", "resolved", "deferred", "dismissed"]);
 const VIEWPORTS = new Set(["desktop", "tablet", "narrow", "device", "print"]);
 const PRODUCT_UI_WEB_VIEWPORT_WIDTHS = Object.freeze({
-  desktop: Object.freeze({ min: 1024 }),
-  tablet: Object.freeze({ min: 601, max: 1023 }),
-  narrow: Object.freeze({ max: 600 }),
+  desktop: Object.freeze({ min: 1024, minHeight: 600 }),
+  tablet: Object.freeze({ min: 601, max: 1023, minHeight: 600 }),
+  narrow: Object.freeze({ min: 320, max: 600, minHeight: 480 }),
 });
+const PRODUCT_UI_DEVICE_BOUNDS = Object.freeze({ min: 240, minHeight: 400 });
+const MIN_VISIBLE_PIXEL_RATIO = 0.01;
+const PASSING_SCORE_FLOOR = 3;
 const PRODUCT_UI_STATES = Object.freeze([
   "primary",
   "empty",
@@ -351,6 +354,7 @@ function validateCaptures(root, captures, route, routeFile, issues) {
   const captureIds = new Set();
   const activeCoverage = new Map();
   const allCoverage = new Map();
+  const decodedByCapture = new Map();
   if (!Array.isArray(captures.captures)) add(issues, "captures.captures", "must be an array");
   for (const [index, item] of (captures.captures || []).entries()) {
     const at = `captures.captures[${index}]`;
@@ -373,6 +377,7 @@ function validateCaptures(root, captures, route, routeFile, issues) {
         "height",
         "full_page",
         "pages",
+        "pixel_sha256",
       ],
       at,
       issues
@@ -390,6 +395,7 @@ function validateCaptures(root, captures, route, routeFile, issues) {
       add(issues, `${at}.kind`, "must be screenshot or pdf");
     validateFileBinding(root, item, at, issues);
     const decoded = validateCaptureBytes(root, item, at, issues);
+    if (decoded) decodedByCapture.set(item.id, decoded);
     validateProductUiViewport(
       item,
       coverage.get(item.coverage_id),
@@ -425,13 +431,14 @@ function validateCaptures(root, captures, route, routeFile, issues) {
     if (!item.required && totalCount > 0)
       add(issues, `captures.captures`, `non-applicable coverage ${item.id} cannot have a capture`);
   }
-  validateDistinctActiveCaptures(root, captures.captures || [], coverage, issues);
+  validateDistinctActiveCaptures(root, captures.captures || [], coverage, decodedByCapture, issues);
   validateEvidence(root, captures.evidence, route, captures.captures || [], issues);
 }
 
-function validateDistinctActiveCaptures(root, captureRows, coverage, issues) {
+function validateDistinctActiveCaptures(root, captureRows, coverage, decodedByCapture, issues) {
   const paths = new Map();
   const hashes = new Map();
+  const pixelHashes = new Map();
   for (const capture of captureRows) {
     if (capture?.active !== true || !coverage.get(capture.coverage_id)?.required) continue;
     const file = readBoundFile(root, capture.path, `captures.captures.${capture.id}.path`, []);
@@ -452,6 +459,15 @@ function validateDistinctActiveCaptures(root, captureRows, coverage, issues) {
         `distinct required coverage ${priorHash} and ${capture.coverage_id} must use a distinct capture content hash`
       );
     else hashes.set(file.sha256, capture.coverage_id);
+    const pixelHash = decodedByCapture.get(capture.id)?.pixelSha256;
+    const priorPixels = pixelHashes.get(pixelHash);
+    if (pixelHash && priorPixels && priorPixels !== capture.coverage_id)
+      add(
+        issues,
+        `captures.captures.${capture.id}`,
+        `distinct required coverage ${priorPixels} and ${capture.coverage_id} must use a distinct decoded-pixel hash`
+      );
+    else if (pixelHash) pixelHashes.set(pixelHash, capture.coverage_id);
   }
 }
 
@@ -909,7 +925,7 @@ function validateReport(
     add(issues, "report.rounds", "must be 1 or 2");
   if ((captures.captures || []).some((item) => item.round > report.rounds))
     add(issues, "report.rounds", "must include every recorded capture round");
-  validateScores(report.scores, route.mode, captures, issues);
+  validateScores(root, report.scores, route, captures, report.outcome, issues);
   validateFindings(report.findings, route, captures, report.outcome, issues);
   const required = (route.coverage || []).filter((item) => item.required).length;
   const captured = new Set(
@@ -953,9 +969,9 @@ function validateReport(
   validateHumanReport(root, report.human_report, report, reportFile, capturesFile, options, issues);
 }
 
-function validateScores(scores, mode, captures, issues) {
+function validateScores(root, scores, route, captures, outcome, issues) {
   if (!object(scores)) return add(issues, "report.scores", "must be an object");
-  const expected = new Set(SCORE_KEYS[mode] || []);
+  const expected = new Set(SCORE_KEYS[route.mode] || []);
   const evidenceIds = new Set([
     ...(captures.captures || []).filter((item) => item.active === true).map((item) => item.id),
     ...(captures.evidence || []).map((item) => item.id),
@@ -971,6 +987,12 @@ function validateScores(scores, mode, captures, issues) {
     closed(score, ["value", "rationale", "evidence_ids"], `report.scores.${key}`, issues);
     if (!Number.isInteger(score.value) || score.value < 1 || score.value > 5)
       add(issues, `report.scores.${key}.value`, "must be an integer from 1 to 5");
+    else if (outcome === "passed" && score.value < PASSING_SCORE_FLOOR)
+      add(
+        issues,
+        `report.scores.${key}.value`,
+        `passed requires every score to be at least ${PASSING_SCORE_FLOOR}`
+      );
     if (!text(score.rationale)) add(issues, `report.scores.${key}.rationale`, "is required");
     if (
       !Array.isArray(score.evidence_ids) ||
@@ -978,13 +1000,74 @@ function validateScores(scores, mode, captures, issues) {
       score.evidence_ids.some((id) => !evidenceIds.has(id))
     )
       add(issues, `report.scores.${key}.evidence_ids`, "must cite known evidence");
+    else {
+      const requiredEvidence = requiredScoreEvidence(root, key, route, captures);
+      const cited = new Set(score.evidence_ids);
+      const missing = requiredEvidence.filter((id) => !cited.has(id));
+      if (missing.length > 0)
+        add(
+          issues,
+          `report.scores.${key}.evidence_ids`,
+          `must cite the required ${key} evidence: ${missing.join(", ")}`
+        );
+    }
   }
+}
+
+function requiredScoreEvidence(root, key, route, captures) {
+  const coverageById = new Map((route.coverage || []).map((item) => [item.id, item]));
+  const activeCaptures = (captures.captures || []).filter((item) => item.active === true);
+  const activeCaptureIds = new Set(activeCaptures.map((item) => item.id));
+  const evidence = captures.evidence || [];
+  const idsOfKind = (...kinds) =>
+    evidence
+      .filter((item) => kinds.includes(item.kind))
+      .filter((item) => {
+        if (
+          route.schema_version !== 2 ||
+          route.mode !== "product-ui" ||
+          !["accessibility-tree", "dom-audit"].includes(item.kind)
+        )
+          return true;
+        const audit = readEvidenceJson(root, item, `captures.evidence.${item.id}`, []);
+        return audit?.capture_ids?.some((id) => activeCaptureIds.has(id));
+      })
+      .map((item) => item.id);
+  if (key === "accessibility") return idsOfKind("accessibility-tree");
+  if (key === "consistency")
+    return route.mode === "product-ui"
+      ? idsOfKind("dom-audit")
+      : idsOfKind("artifact-structural", "artifact-render");
+  if (key === "responsive") {
+    const rendered = activeCaptures
+      .filter((item) =>
+        ["desktop", "tablet", "narrow", "device"].includes(
+          coverageById.get(item.coverage_id)?.viewport
+        )
+      )
+      .map((item) => item.id);
+    return [
+      ...rendered,
+      ...(route.mode === "product-ui" ? idsOfKind("dom-audit") : idsOfKind("artifact-render")),
+    ];
+  }
+  if (key === "state-clarity") return activeCaptures.map((item) => item.id);
+  if (key === "print-navigation") {
+    return [
+      ...activeCaptures
+        .filter((item) => coverageById.get(item.coverage_id)?.viewport === "print")
+        .map((item) => item.id),
+      ...idsOfKind("artifact-structural", "artifact-render"),
+    ];
+  }
+  return activeCaptures.map((item) => item.id);
 }
 
 function validateFindings(findings, route, captures, outcome, issues) {
   if (!Array.isArray(findings)) return add(issues, "report.findings", "must be an array");
   const captureById = new Map((captures.captures || []).map((item) => [item.id, item]));
-  const evidenceIds = new Set((captures.evidence || []).map((item) => item.id));
+  const evidenceById = new Map((captures.evidence || []).map((item) => [item.id, item]));
+  const coverageById = new Map((route.coverage || []).map((item) => [item.id, item]));
   const ids = new Set();
   for (const [index, finding] of findings.entries()) {
     const at = `report.findings[${index}]`;
@@ -1034,12 +1117,29 @@ function validateFindings(findings, route, captures, outcome, issues) {
     if (!Array.isArray(finding.evidence_ids) || finding.evidence_ids.length === 0)
       add(issues, `${at}.evidence_ids`, "must cite evidence");
     else
-      for (const id of finding.evidence_ids)
-        if (!captureById.has(id) && !evidenceIds.has(id))
+      for (const id of finding.evidence_ids) {
+        if (!captureById.has(id) && !evidenceById.has(id))
           add(issues, `${at}.evidence_ids`, `unknown evidence ${id}`);
+        else {
+          const citedSubject = captureById.has(id)
+            ? coverageById.get(captureById.get(id).coverage_id)?.subject_id
+            : evidenceById.get(id)?.subject_id;
+          if (citedSubject !== finding.subject_id)
+            add(
+              issues,
+              `${at}.evidence_ids`,
+              `evidence ${id} belongs to subject ${citedSubject || "unknown"}, not ${finding.subject_id}`
+            );
+        }
+      }
     if (["P0", "P1"].includes(finding.priority) && finding.status === "resolved") {
       const before = captureById.get(finding.before_capture_id);
       const after = captureById.get(finding.after_capture_id);
+      const requiresPixelIdentity =
+        route.schema_version === 2 &&
+        route.mode === "product-ui" &&
+        before?.kind === "screenshot" &&
+        after?.kind === "screenshot";
       const subjectCoverage = new Set(
         (route.coverage || [])
           .filter((item) => item.subject_id === finding.subject_id)
@@ -1049,6 +1149,10 @@ function validateFindings(findings, route, captures, outcome, issues) {
         !before ||
         !after ||
         before.sha256 === after.sha256 ||
+        (requiresPixelIdentity &&
+          (!sha256(before.pixel_sha256) ||
+            !sha256(after.pixel_sha256) ||
+            before.pixel_sha256 === after.pixel_sha256)) ||
         before.coverage_id !== after.coverage_id ||
         !subjectCoverage.has(before.coverage_id) ||
         before.active !== false ||
@@ -1059,7 +1163,11 @@ function validateFindings(findings, route, captures, outcome, issues) {
         !finding.evidence_ids.includes(before.id) ||
         !finding.evidence_ids.includes(after.id)
       )
-        add(issues, at, "resolved P0/P1 requires distinct before and after capture hashes");
+        add(
+          issues,
+          at,
+          "resolved P0/P1 requires distinct before and after capture hashes, including decoded pixels for product UI"
+        );
     }
     if (
       finding.status === "deferred" &&
@@ -1073,10 +1181,14 @@ function validateFindings(findings, route, captures, outcome, issues) {
       (f) =>
         f.owner === "design-critique" &&
         ["P0", "P1"].includes(f.priority) &&
-        ["open", "deferred"].includes(f.status)
+        ["open", "deferred", "dismissed"].includes(f.status)
     )
   )
-    add(issues, "report.outcome", "passed cannot contain open or deferred P0/P1 findings");
+    add(
+      issues,
+      "report.outcome",
+      "passed cannot contain open or deferred P0/P1 findings, or dismissed Design Critique P0/P1 findings"
+    );
 }
 
 function validateCaptureBytes(root, item, label, issues) {
@@ -1085,7 +1197,7 @@ function validateCaptureBytes(root, item, label, issues) {
   if (!file) return;
   try {
     if (item.kind === "screenshot") {
-      const dimensions = inspectPngBytes(file.bytes);
+      const dimensions = inspectPngVisualBytes(file.bytes);
       if (dimensions.width !== item.width || dimensions.height !== item.height)
         add(
           issues,
@@ -1115,31 +1227,57 @@ function validateProductUiViewport(
   label,
   issues
 ) {
-  if (
-    mode !== "product-ui" ||
-    routeSchemaVersion !== 2 ||
-    !coverage ||
-    subjects.get(coverage.subject_id)?.platform !== "web"
-  )
-    return;
-  const bounds = PRODUCT_UI_WEB_VIEWPORT_WIDTHS[coverage.viewport];
-  if (!bounds) return;
+  if (mode !== "product-ui" || routeSchemaVersion !== 2 || !coverage) return;
   if (item.kind !== "screenshot") {
-    add(issues, `${label}.kind`, `${coverage.viewport} web coverage requires a screenshot`);
+    add(issues, `${label}.kind`, "product UI coverage requires a screenshot");
     return;
   }
   if (!decoded || !positiveInt(decoded.width)) return;
+  if (!sha256(item.pixel_sha256) || item.pixel_sha256 !== decoded.pixelSha256)
+    add(issues, `${label}.pixel_sha256`, "must equal the canonical decoded-pixel SHA-256");
+  if (
+    decoded.pixelSha256 === null ||
+    decoded.visiblePixels === null ||
+    decoded.hasVisualVariation === null
+  )
+    add(issues, label, "product UI screenshots must use 8-bit grayscale, RGB, or RGBA pixels");
+  else {
+    const visibleRatio = decoded.visiblePixels / decoded.totalPixels;
+    if (visibleRatio < MIN_VISIBLE_PIXEL_RATIO)
+      add(
+        issues,
+        label,
+        `product UI screenshot visible pixels must cover at least ${Math.round(MIN_VISIBLE_PIXEL_RATIO * 100)}% of the image`
+      );
+    if (!decoded.hasVisualVariation)
+      add(issues, label, "product UI screenshot must contain non-uniform visible content");
+  }
+  const platform = subjects.get(coverage.subject_id)?.platform;
+  const bounds =
+    platform === "web"
+      ? PRODUCT_UI_WEB_VIEWPORT_WIDTHS[coverage.viewport]
+      : platform === "mobile" && coverage.viewport === "device"
+        ? PRODUCT_UI_DEVICE_BOUNDS
+        : null;
+  if (!bounds) return;
+  const surface = platform === "web" ? "web" : "product UI";
   if (bounds.min && decoded.width < bounds.min)
     add(
       issues,
       label,
-      `${coverage.viewport} web capture width must be at least ${bounds.min} pixels; decoded width is ${decoded.width}`
+      `${coverage.viewport} ${surface} capture width must be at least ${bounds.min} pixels; decoded width is ${decoded.width}`
     );
   if (bounds.max && decoded.width > bounds.max)
     add(
       issues,
       label,
-      `${coverage.viewport} web capture width must be at most ${bounds.max} pixels; decoded width is ${decoded.width}`
+      `${coverage.viewport} ${surface} capture width must be at most ${bounds.max} pixels; decoded width is ${decoded.width}`
+    );
+  if (bounds.minHeight && decoded.height < bounds.minHeight)
+    add(
+      issues,
+      label,
+      `${coverage.viewport} product UI capture height must be at least ${bounds.minHeight} pixels; decoded height is ${decoded.height}`
     );
 }
 

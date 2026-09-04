@@ -11,9 +11,11 @@ const zlib = require("node:zlib");
 const { buildManifest, inspectHtmlArtifact } = require("../scripts/artifact-check");
 const { normalizeAuditBytes } = require("../scripts/design-critique-audit-normalize");
 const { checkDesignCritique, findingId } = require("../scripts/design-critique-check");
+const { inspectPngVisualBytes } = require("../scripts/lib/media-inspect");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 const COMMIT = "a".repeat(40);
+const PNG_CACHE = new Map();
 
 function digest(bytes) {
   return crypto.createHash("sha256").update(bytes).digest("hex");
@@ -141,11 +143,9 @@ function makeFixture(options = {}) {
     const viewport = artifactDimensions[row.viewport] || { width: 1440, height: 1000 };
     const captureHeight =
       mode === "pm-artifact" && !isPrint ? viewport.height + 200 : viewport.height;
-    const file = write(
-      root,
-      `evidence/files/${row.id}.${isPrint ? "pdf" : "png"}`,
-      isPrint ? validPdf() : validPng(viewport.width, captureHeight)
-    );
+    const captureBytes = isPrint ? validPdf() : validPng(viewport.width, captureHeight);
+    const file = write(root, `evidence/files/${row.id}.${isPrint ? "pdf" : "png"}`, captureBytes);
+    const pixels = isPrint ? null : inspectPngVisualBytes(captureBytes);
     captures.push({
       id: `capture-${row.id}`,
       coverage_id: row.id,
@@ -155,7 +155,12 @@ function makeFixture(options = {}) {
       round: 1,
       ...(isPrint
         ? { pages: 1 }
-        : { width: viewport.width, height: captureHeight, full_page: mode === "pm-artifact" }),
+        : {
+            width: viewport.width,
+            height: captureHeight,
+            full_page: mode === "pm-artifact",
+            ...(mode === "product-ui" ? { pixel_sha256: pixels.pixelSha256 } : {}),
+          }),
       captured_at: "2026-07-12T00:01:00Z",
     });
   }
@@ -278,7 +283,7 @@ function makeFixture(options = {}) {
         {
           value: 4,
           rationale: `${key} is supported by the cited current capture.`,
-          evidence_ids: [captures[0].id],
+          evidence_ids: scoreEvidenceIds(key, mode, coverage, captures, evidence),
         },
       ])
     ),
@@ -297,11 +302,155 @@ function makeFixture(options = {}) {
   return { root, routePath, capturesPath, reportPath, route, captures: captureDoc, report };
 }
 
+function scoreEvidenceIds(key, mode, coverage, captures, evidence) {
+  const active = captures.filter((item) => item.active === true);
+  const coverageById = new Map(coverage.map((item) => [item.id, item]));
+  const idsOfKind = (...kinds) =>
+    evidence.filter((item) => kinds.includes(item.kind)).map((item) => item.id);
+  if (key === "accessibility") return idsOfKind("accessibility-tree");
+  if (key === "consistency")
+    return mode === "product-ui"
+      ? idsOfKind("dom-audit")
+      : idsOfKind("artifact-structural", "artifact-render");
+  if (key === "responsive")
+    return [
+      ...active
+        .filter((item) =>
+          ["desktop", "tablet", "narrow", "device"].includes(
+            coverageById.get(item.coverage_id)?.viewport
+          )
+        )
+        .map((item) => item.id),
+      ...(mode === "product-ui" ? idsOfKind("dom-audit") : idsOfKind("artifact-render")),
+    ];
+  if (key === "state-clarity") return active.map((item) => item.id);
+  if (key === "print-navigation")
+    return [
+      ...active
+        .filter((item) => coverageById.get(item.coverage_id)?.viewport === "print")
+        .map((item) => item.id),
+      ...idsOfKind("artifact-structural", "artifact-render"),
+    ];
+  return active.map((item) => item.id);
+}
+
+function addRequiredStateCapture(fixture, state, bytes) {
+  const coverage = fixture.route.coverage.find((item) => item.id === `ui-${state}`);
+  coverage.required = true;
+  coverage.reason = "";
+  rewrite(fixture.root, fixture.routePath, fixture.route);
+  fixture.captures.route = binding(fixture.root, fixture.routePath);
+  const decoded = inspectPngVisualBytes(bytes);
+  const file = write(fixture.root, `evidence/files/ui-${state}.png`, bytes);
+  const capture = {
+    id: `capture-ui-${state}`,
+    coverage_id: coverage.id,
+    kind: "screenshot",
+    ...file,
+    active: true,
+    round: 1,
+    width: decoded.width,
+    height: decoded.height,
+    full_page: false,
+    pixel_sha256: decoded.pixelSha256,
+    captured_at: "2026-07-12T00:04:00Z",
+  };
+  fixture.captures.captures.push(capture);
+  fixture.captures.evidence.push(
+    auditEvidenceFile(fixture.root, `a11y-capture-ui-${state}`, "accessibility-tree", [capture], 2),
+    auditEvidenceFile(fixture.root, `dom-capture-ui-${state}`, "dom-audit", [capture], 2)
+  );
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.route = fixture.captures.route;
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  const required = fixture.route.coverage.filter((item) => item.required).length;
+  fixture.report.coverage = { required, captured: required, percent: 100 };
+  for (const [key, score] of Object.entries(fixture.report.scores))
+    score.evidence_ids = scoreEvidenceIds(
+      key,
+      fixture.route.mode,
+      fixture.route.coverage,
+      fixture.captures.captures,
+      fixture.captures.evidence
+    );
+  rewriteReportAndHtml(fixture);
+}
+
+function addProductUiSubject(fixture, subjectId) {
+  fixture.route.subjects.push({
+    id: subjectId,
+    title: "Billing detail",
+    surface: "/billing/1",
+    platform: "web",
+  });
+  const addedCoverage = fixture.route.coverage.map((item) => ({
+    ...item,
+    id: item.id.replace(/^ui-/, `${subjectId}-`),
+    subject_id: subjectId,
+  }));
+  fixture.route.coverage.push(...addedCoverage);
+  rewrite(fixture.root, fixture.routePath, fixture.route);
+  fixture.captures.route = binding(fixture.root, fixture.routePath);
+
+  let marker = 10;
+  for (const row of addedCoverage.filter((item) => item.required)) {
+    const viewport =
+      row.viewport === "narrow" ? { width: 500, height: 812 } : { width: 1440, height: 1000 };
+    const bytes = validPng(viewport.width, viewport.height, marker++);
+    const file = write(fixture.root, `evidence/files/${row.id}.png`, bytes);
+    const capture = {
+      id: `capture-${row.id}`,
+      coverage_id: row.id,
+      kind: "screenshot",
+      ...file,
+      active: true,
+      round: 1,
+      ...viewport,
+      full_page: false,
+      pixel_sha256: inspectPngVisualBytes(bytes).pixelSha256,
+      captured_at: "2026-07-12T00:01:00Z",
+    };
+    fixture.captures.captures.push(capture);
+    fixture.captures.evidence.push(
+      auditEvidenceFile(
+        fixture.root,
+        `a11y-${capture.id}`,
+        "accessibility-tree",
+        [capture],
+        2,
+        subjectId
+      ),
+      auditEvidenceFile(fixture.root, `dom-${capture.id}`, "dom-audit", [capture], 2, subjectId)
+    );
+  }
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.route = fixture.captures.route;
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  const required = fixture.route.coverage.filter((item) => item.required).length;
+  fixture.report.coverage = { required, captured: required, percent: 100 };
+  for (const [key, score] of Object.entries(fixture.report.scores))
+    score.evidence_ids = scoreEvidenceIds(
+      key,
+      fixture.route.mode,
+      fixture.route.coverage,
+      fixture.captures.captures,
+      fixture.captures.evidence
+    );
+  rewriteReportAndHtml(fixture);
+}
+
 function coverageRow(id, state, viewport, required, reason = "") {
   return { id, subject_id: "account-detail", state, viewport, required, reason };
 }
 
-function auditEvidenceFile(root, id, kind, captures, routeSchemaVersion) {
+function auditEvidenceFile(
+  root,
+  id,
+  kind,
+  captures,
+  routeSchemaVersion,
+  subjectId = "account-detail"
+) {
   const checks =
     kind === "accessibility-tree"
       ? { landmarks: true, names: true, focus_order: true }
@@ -319,7 +468,7 @@ function auditEvidenceFile(root, id, kind, captures, routeSchemaVersion) {
   if (routeSchemaVersion === 1) {
     audit = {
       schema_version: 1,
-      subject_id: "account-detail",
+      subject_id: subjectId,
       commit: COMMIT,
       capture_ids: captureIds,
       checks,
@@ -331,7 +480,7 @@ function auditEvidenceFile(root, id, kind, captures, routeSchemaVersion) {
         ? {
             schema_version: 1,
             kind,
-            subject_id: "account-detail",
+            subject_id: subjectId,
             commit: COMMIT,
             capture_ids: captureIds,
             observations: {
@@ -351,7 +500,7 @@ function auditEvidenceFile(root, id, kind, captures, routeSchemaVersion) {
         : {
             schema_version: 1,
             kind,
-            subject_id: "account-detail",
+            subject_id: subjectId,
             commit: COMMIT,
             capture_ids: captureIds,
             observations: {
@@ -371,7 +520,7 @@ function auditEvidenceFile(root, id, kind, captures, routeSchemaVersion) {
   }
   return {
     id: `evidence-${id}`,
-    subject_id: "account-detail",
+    subject_id: subjectId,
     kind,
     ...write(root, `evidence/files/${id}.json`, `${JSON.stringify(audit)}\n`),
   };
@@ -395,18 +544,51 @@ function rewriteNormalizedAudit(fixture, evidence, mutate) {
 }
 
 function validPng(width, height, marker = 0, ancillaryBytes = 0) {
+  const cacheKey = `${width}:${height}:${marker}:${ancillaryBytes}`;
+  if (PNG_CACHE.has(cacheKey)) return PNG_CACHE.get(cacheKey);
   const header = Buffer.alloc(13);
   header.writeUInt32BE(width, 0);
   header.writeUInt32BE(height, 4);
   header[8] = 8;
   header[9] = 6;
   const rows = Buffer.alloc((width * 4 + 1) * height);
-  for (let row = 0; row < height; row += 1) rows[row * (width * 4 + 1)] = 0;
-  rows[rows.length - 1] = marker;
+  for (let row = 0; row < height; row += 1) {
+    const offset = row * (width * 4 + 1);
+    rows[offset] = 0;
+    for (let column = 0; column < width; column += 1) {
+      const pixel = offset + 1 + column * 4;
+      rows[pixel] = 245;
+      rows[pixel + 1] = 245;
+      rows[pixel + 2] = 245;
+      rows[pixel + 3] = 255;
+    }
+  }
+  const lastPixel = rows.length - 4;
+  rows[lastPixel] = marker;
+  rows[lastPixel + 1] = 30;
+  rows[lastPixel + 2] = 60;
+  rows[lastPixel + 3] = 255;
   const chunks = [Buffer.from("89504e470d0a1a0a", "hex"), pngChunk("IHDR", header)];
   if (ancillaryBytes > 0) chunks.push(pngChunk("tEXt", Buffer.alloc(ancillaryBytes, 65)));
   chunks.push(pngChunk("IDAT", zlib.deflateSync(rows)), pngChunk("IEND", Buffer.alloc(0)));
-  return Buffer.concat(chunks);
+  const png = Buffer.concat(chunks);
+  PNG_CACHE.set(cacheKey, png);
+  return png;
+}
+
+function transparentPng(width, height) {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 6;
+  const rows = Buffer.alloc((width * 4 + 1) * height);
+  return Buffer.concat([
+    Buffer.from("89504e470d0a1a0a", "hex"),
+    pngChunk("IHDR", header),
+    pngChunk("IDAT", zlib.deflateSync(rows)),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
 }
 
 function validPdf() {
@@ -667,6 +849,82 @@ test("rejects identical capture bytes stored under distinct required-state paths
   const result = check(fixture);
   assert.equal(result.ok, false);
   assert.match(JSON.stringify(result.issues), /distinct required coverage.*capture content hash/);
+});
+
+test("rejects re-encoded identical pixels for distinct required states", () => {
+  const fixture = makeFixture();
+  const desktop = fixture.captures.captures.find((item) => item.coverage_id === "ui-primary");
+  const reencoded = validPng(desktop.width, desktop.height, 0, 64);
+  addRequiredStateCapture(fixture, "success", reencoded);
+
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /distinct required coverage.*decoded-pixel hash/);
+});
+
+test("rejects a transparent product UI screenshot", () => {
+  const fixture = makeFixture();
+  const capture = fixture.captures.captures[0];
+  const bytes = transparentPng(capture.width, capture.height);
+  const rebound = write(fixture.root, capture.path, bytes);
+  capture.sha256 = rebound.sha256;
+  capture.pixel_sha256 = inspectPngVisualBytes(bytes).pixelSha256;
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /visible pixels must cover at least/);
+});
+
+for (const [coverageId, width] of [
+  ["ui-primary", 1440],
+  ["ui-primary-narrow", 500],
+]) {
+  test(`rejects a one-pixel-tall ${coverageId} capture`, () => {
+    const fixture = makeFixture();
+    const capture = fixture.captures.captures.find((item) => item.coverage_id === coverageId);
+    const bytes = validPng(width, 1, 0, 1024);
+    const rebound = write(fixture.root, capture.path, bytes);
+    capture.sha256 = rebound.sha256;
+    capture.pixel_sha256 = inspectPngVisualBytes(bytes).pixelSha256;
+    capture.width = width;
+    capture.height = 1;
+    rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+    fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+    rewriteReportAndHtml(fixture);
+
+    const result = check(fixture);
+    assert.equal(result.ok, false);
+    assert.match(JSON.stringify(result.issues), /capture height must be at least/);
+  });
+}
+
+test("rejects a PDF substituted for a mobile product UI capture", () => {
+  const fixture = makeFixture();
+  fixture.route.subjects[0].platform = "mobile";
+  fixture.route.coverage.find((item) => item.id === "ui-primary").viewport = "device";
+  rewrite(fixture.root, fixture.routePath, fixture.route);
+  fixture.captures.route = binding(fixture.root, fixture.routePath);
+  const capture = fixture.captures.captures.find((item) => item.coverage_id === "ui-primary");
+  const rebound = write(fixture.root, "evidence/files/ui-primary.pdf", validPdf());
+  capture.kind = "pdf";
+  capture.path = rebound.path;
+  capture.sha256 = rebound.sha256;
+  capture.pages = 1;
+  delete capture.width;
+  delete capture.height;
+  delete capture.full_page;
+  delete capture.pixel_sha256;
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.route = fixture.captures.route;
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /product UI coverage requires a screenshot/);
 });
 
 test("rejects screenshot bindings whose bytes are not an image", () => {
@@ -992,6 +1250,28 @@ test("rejects a passed report with an open P1", () => {
   assert.match(JSON.stringify(result.issues), /passed cannot contain open or deferred P0\/P1/);
 });
 
+test("rejects a passed report with an unevidenced dismissed Design Critique P1", () => {
+  const fixture = makeFixture();
+  const finding = {
+    subject_id: "account-detail",
+    region: "header",
+    rule: "hierarchy",
+    evidence_ids: [fixture.captures.captures[0].id],
+    priority: "P1",
+    status: "dismissed",
+    owner: "design-critique",
+    summary: "Primary action is visually subordinate.",
+    remediation: "Increase action prominence.",
+  };
+  finding.id = findingId(finding);
+  fixture.report.findings = [finding];
+  rewriteReportAndHtml(fixture);
+
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /dismissed Design Critique P0\/P1/);
+});
+
 test("allows a passed design gate to hand a P1 to QA without owning its verdict", () => {
   const fixture = makeFixture();
   const finding = {
@@ -1207,6 +1487,48 @@ test("rejects a human report whose visible score diverges from JSON", () => {
   assert.match(JSON.stringify(result.issues), /visible score hierarchy must match report JSON/);
 });
 
+test("rejects a passed report whose noncompensatory scores fall below three", () => {
+  const fixture = makeFixture();
+  for (const score of Object.values(fixture.report.scores)) score.value = 1;
+  rewriteReportAndHtml(fixture);
+
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /passed requires every score to be at least 3/);
+});
+
+test("rejects score evidence from the wrong modality", () => {
+  const fixture = makeFixture();
+  fixture.report.scores.accessibility.evidence_ids = [fixture.captures.captures[0].id];
+  rewriteReportAndHtml(fixture);
+
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /required accessibility evidence/);
+});
+
+test("score evidence must cover every active subject", () => {
+  const fixture = makeFixture();
+  addProductUiSubject(fixture, "billing-detail");
+  fixture.report.scores.accessibility.evidence_ids =
+    fixture.report.scores.accessibility.evidence_ids.filter((id) => !id.includes("billing-detail"));
+  rewriteReportAndHtml(fixture);
+
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /required accessibility evidence:.*billing-detail/);
+});
+
+test("state-clarity scores must cite every active required state capture", () => {
+  const fixture = makeFixture();
+  fixture.report.scores["state-clarity"].evidence_ids = [fixture.captures.captures[0].id];
+  rewriteReportAndHtml(fixture);
+
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /required state-clarity evidence/);
+});
+
 test("verifies the frozen git diff hash when enabled", () => {
   const fixture = makeFixture();
   execFileSync("git", ["init", "-q", "-b", "main"], { cwd: fixture.root });
@@ -1340,19 +1662,118 @@ test("rejects resolved P1 without distinct before and after evidence", () => {
   assert.match(JSON.stringify(result.issues), /distinct before and after capture hashes/);
 });
 
+test("rejects re-encoded identical pixels as resolved product UI evidence", () => {
+  const fixture = makeFixture();
+  const before = fixture.captures.captures.find((item) => item.coverage_id === "ui-primary");
+  before.active = false;
+  const afterBytes = validPng(before.width, before.height, 0, 64);
+  const afterFile = write(fixture.root, "evidence/files/ui-primary-reencoded.png", afterBytes);
+  const after = {
+    ...before,
+    id: "capture-ui-primary-reencoded",
+    ...afterFile,
+    pixel_sha256: inspectPngVisualBytes(afterBytes).pixelSha256,
+    active: true,
+    round: 2,
+    captured_at: "2026-07-12T00:04:00Z",
+  };
+  fixture.captures.captures.push(after);
+  fixture.captures.evidence.push(
+    auditEvidenceFile(
+      fixture.root,
+      "a11y-capture-ui-primary-reencoded",
+      "accessibility-tree",
+      [after],
+      2
+    ),
+    auditEvidenceFile(fixture.root, "dom-capture-ui-primary-reencoded", "dom-audit", [after], 2)
+  );
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  const finding = {
+    subject_id: "account-detail",
+    region: "header",
+    rule: "hierarchy",
+    evidence_ids: [before.id, after.id],
+    priority: "P1",
+    status: "resolved",
+    owner: "design-critique",
+    summary: "Primary action hierarchy was repaired.",
+    remediation: "Keep the corrected hierarchy.",
+    before_capture_id: before.id,
+    after_capture_id: after.id,
+  };
+  finding.id = findingId(finding);
+  fixture.report.rounds = 2;
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  fixture.report.findings = [finding];
+  for (const [key, score] of Object.entries(fixture.report.scores))
+    score.evidence_ids = scoreEvidenceIds(
+      key,
+      fixture.route.mode,
+      fixture.route.coverage,
+      fixture.captures.captures,
+      fixture.captures.evidence
+    );
+  rewriteReportAndHtml(fixture);
+
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /including decoded pixels for product UI/);
+});
+
+test("resolved PM artifact evidence does not require product UI pixel fields", () => {
+  const fixture = makeFixture({ mode: "pm-artifact" });
+  const after = fixture.captures.captures.find((item) => item.coverage_id === "artifact-desktop");
+  after.round = 2;
+  after.captured_at = "2026-07-12T00:04:00Z";
+  const beforeFile = write(
+    fixture.root,
+    "evidence/files/artifact-desktop-before.png",
+    validPng(after.width, after.height, 4)
+  );
+  const before = {
+    ...after,
+    id: "capture-artifact-desktop-before",
+    ...beforeFile,
+    active: false,
+    round: 1,
+    captured_at: "2026-07-12T00:01:00Z",
+  };
+  fixture.captures.captures.push(before);
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  const finding = {
+    subject_id: "account-detail",
+    region: "summary",
+    rule: "hierarchy",
+    evidence_ids: [before.id, after.id],
+    priority: "P1",
+    status: "resolved",
+    owner: "design-critique",
+    summary: "The artifact summary hierarchy was repaired.",
+    remediation: "Keep the corrected summary hierarchy.",
+    before_capture_id: before.id,
+    after_capture_id: after.id,
+  };
+  finding.id = findingId(finding);
+  fixture.report.rounds = 2;
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  fixture.report.findings = [finding];
+  rewriteReportAndHtml(fixture);
+
+  assert.deepEqual(check(fixture), { ok: true, issues: [] });
+});
+
 test("accepts a resolved P1 with inactive before and active after captures", () => {
   const fixture = makeFixture();
   const before = fixture.captures.captures[0];
   before.active = false;
-  const afterFile = write(
-    fixture.root,
-    "evidence/files/ui-primary-after.png",
-    validPng(1440, 1000, 1)
-  );
+  const afterBytes = validPng(1440, 1000, 1);
+  const afterFile = write(fixture.root, "evidence/files/ui-primary-after.png", afterBytes);
   const after = {
     ...before,
     id: "capture-ui-primary-after",
     ...afterFile,
+    pixel_sha256: inspectPngVisualBytes(afterBytes).pixelSha256,
     active: true,
     round: 2,
     captured_at: "2026-07-12T00:04:00Z",
@@ -1386,7 +1807,14 @@ test("accepts a resolved P1 with inactive before and active after captures", () 
   fixture.report.rounds = 2;
   fixture.report.captures = binding(fixture.root, fixture.capturesPath);
   fixture.report.findings = [finding];
-  for (const score of Object.values(fixture.report.scores)) score.evidence_ids = [after.id];
+  for (const [key, score] of Object.entries(fixture.report.scores))
+    score.evidence_ids = scoreEvidenceIds(
+      key,
+      fixture.route.mode,
+      fixture.route.coverage,
+      fixture.captures.captures,
+      fixture.captures.evidence
+    );
   rewriteReportAndHtml(fixture);
   assert.deepEqual(check(fixture), { ok: true, issues: [] });
 });
@@ -1394,15 +1822,13 @@ test("accepts a resolved P1 with inactive before and active after captures", () 
 test("rejects an active capture older than an inactive later round", () => {
   const fixture = makeFixture();
   const before = fixture.captures.captures[0];
-  const laterFile = write(
-    fixture.root,
-    "evidence/files/ui-primary-later.png",
-    validPng(1440, 1000, 3)
-  );
+  const laterBytes = validPng(1440, 1000, 3);
+  const laterFile = write(fixture.root, "evidence/files/ui-primary-later.png", laterBytes);
   const later = {
     ...before,
     id: "capture-ui-primary-later",
     ...laterFile,
+    pixel_sha256: inspectPngVisualBytes(laterBytes).pixelSha256,
     active: false,
     round: 2,
     captured_at: "2026-07-12T00:04:00Z",

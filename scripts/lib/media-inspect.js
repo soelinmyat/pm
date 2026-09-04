@@ -1,5 +1,6 @@
 "use strict";
 
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const zlib = require("node:zlib");
 
@@ -20,6 +21,15 @@ function inspectPng(filePath) {
 }
 
 function inspectPngBytes(bytes) {
+  const inspected = inspectPngInternal(bytes, false);
+  return { width: inspected.width, height: inspected.height };
+}
+
+function inspectPngVisualBytes(bytes) {
+  return inspectPngInternal(bytes, true);
+}
+
+function inspectPngInternal(bytes, includeVisualEvidence) {
   if (
     !Buffer.isBuffer(bytes) ||
     bytes.length < MIN_RENDER_BYTES ||
@@ -55,12 +65,22 @@ function inspectPngBytes(bytes) {
       if (dataEnded) throw new Error("PNG IDAT chunks must be consecutive");
       sawData = true;
       compressed.push(data);
+    } else if (type === "tRNS" && includeVisualEvidence) {
+      throw new Error("PNG transparency chunks are unsupported for visual identity");
     } else if (type === "IEND") {
       if (length !== 0 || !sawData || end !== bytes.length)
         throw new Error("invalid PNG end chunk");
       validatePalette(header.colorType, sawPalette);
-      validatePixels(header, compressed);
-      return { width: header.width, height: header.height };
+      const pixelStream = validatePixelStream(header, compressed);
+      if (!includeVisualEvidence) return { width: header.width, height: header.height };
+      const pixels = decodePixels(header, pixelStream);
+      return {
+        width: header.width,
+        height: header.height,
+        bitDepth: header.bitDepth,
+        colorType: header.colorType,
+        ...visualPixelEvidence(header, pixels),
+      };
     } else if (sawData) dataEnded = true;
     offset = end;
   }
@@ -91,7 +111,7 @@ function validatePalette(colorType, sawPalette) {
   if ([0, 4].includes(colorType) && sawPalette) throw new Error("grayscale PNG forbids a palette");
 }
 
-function validatePixels(header, compressed) {
+function validatePixelStream(header, compressed) {
   const channels = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }[header.colorType];
   const rowBytes = Math.ceil((header.width * channels * header.bitDepth) / 8);
   const expected = (rowBytes + 1) * header.height;
@@ -106,6 +126,145 @@ function validatePixels(header, compressed) {
   if (pixels.length !== expected) throw new Error("invalid PNG pixel length");
   for (let row = 0; row < header.height; row += 1)
     if (pixels[row * (rowBytes + 1)] > 4) throw new Error("invalid PNG row filter");
+  return { channels, rowBytes, pixels };
+}
+
+function decodePixels(header, pixelStream) {
+  const { channels, rowBytes, pixels } = pixelStream;
+  const bytesPerPixel = Math.max(1, Math.ceil((channels * header.bitDepth) / 8));
+  const decoded = Buffer.alloc(rowBytes * header.height);
+  for (let row = 0; row < header.height; row += 1) {
+    const filter = pixels[row * (rowBytes + 1)];
+    const sourceOffset = row * (rowBytes + 1) + 1;
+    const targetOffset = row * rowBytes;
+    if (filter === 0) {
+      pixels.copy(decoded, targetOffset, sourceOffset, sourceOffset + rowBytes);
+      continue;
+    }
+    for (let column = 0; column < rowBytes; column += 1) {
+      const raw = pixels[sourceOffset + column];
+      const left = column >= bytesPerPixel ? decoded[targetOffset + column - bytesPerPixel] : 0;
+      const up = row > 0 ? decoded[targetOffset + column - rowBytes] : 0;
+      const upperLeft =
+        row > 0 && column >= bytesPerPixel
+          ? decoded[targetOffset + column - rowBytes - bytesPerPixel]
+          : 0;
+      decoded[targetOffset + column] = unfilteredByte(filter, raw, left, up, upperLeft);
+    }
+  }
+  return decoded;
+}
+
+function unfilteredByte(filter, raw, left, up, upperLeft) {
+  if (filter === 0) return raw;
+  if (filter === 1) return (raw + left) & 0xff;
+  if (filter === 2) return (raw + up) & 0xff;
+  if (filter === 3) return (raw + Math.floor((left + up) / 2)) & 0xff;
+  return (raw + paeth(left, up, upperLeft)) & 0xff;
+}
+
+function paeth(left, up, upperLeft) {
+  const estimate = left + up - upperLeft;
+  const leftDistance = Math.abs(estimate - left);
+  const upDistance = Math.abs(estimate - up);
+  const upperLeftDistance = Math.abs(estimate - upperLeft);
+  if (leftDistance <= upDistance && leftDistance <= upperLeftDistance) return left;
+  return upDistance <= upperLeftDistance ? up : upperLeft;
+}
+
+function visualPixelEvidence(header, pixels) {
+  const totalPixels = header.width * header.height;
+  if (header.bitDepth !== 8 || !new Set([0, 2, 4, 6]).has(header.colorType)) {
+    return {
+      pixelSha256: null,
+      visiblePixels: null,
+      totalPixels,
+      hasVisualVariation: null,
+    };
+  }
+  const channels = { 0: 1, 2: 3, 4: 2, 6: 4 }[header.colorType];
+  const hash = crypto.createHash("sha256");
+  hash.update(`rgba8:${header.width}x${header.height}\0`);
+  let visiblePixels = 0;
+  let firstVisible = null;
+  let hasVisualVariation = false;
+  if (header.colorType === 6) {
+    let canonicalPixels = null;
+    for (let offset = 0; offset < pixels.length; offset += 4) {
+      if (pixels[offset + 3] === 0) {
+        if (pixels[offset] !== 0 || pixels[offset + 1] !== 0 || pixels[offset + 2] !== 0) {
+          canonicalPixels ||= Buffer.from(pixels);
+          canonicalPixels[offset] = 0;
+          canonicalPixels[offset + 1] = 0;
+          canonicalPixels[offset + 2] = 0;
+        }
+        continue;
+      }
+      visiblePixels += 1;
+      if (firstVisible === null)
+        firstVisible = [pixels[offset], pixels[offset + 1], pixels[offset + 2], pixels[offset + 3]];
+      else if (
+        pixels[offset] !== firstVisible[0] ||
+        pixels[offset + 1] !== firstVisible[1] ||
+        pixels[offset + 2] !== firstVisible[2] ||
+        pixels[offset + 3] !== firstVisible[3]
+      )
+        hasVisualVariation = true;
+    }
+    hash.update(canonicalPixels || pixels);
+    return {
+      pixelSha256: hash.digest("hex"),
+      visiblePixels,
+      totalPixels,
+      hasVisualVariation,
+    };
+  }
+  for (let row = 0; row < header.height; row += 1) {
+    const normalized = Buffer.alloc(header.width * 4);
+    const rowOffset = row * header.width * channels;
+    for (let column = 0; column < header.width; column += 1) {
+      const source = rowOffset + column * channels;
+      const target = column * 4;
+      let red;
+      let green;
+      let blue;
+      let alpha;
+      if (header.colorType === 0) {
+        red = green = blue = pixels[source];
+        alpha = 255;
+      } else if (header.colorType === 2) {
+        [red, green, blue] = pixels.subarray(source, source + 3);
+        alpha = 255;
+      } else if (header.colorType === 4) {
+        red = green = blue = pixels[source];
+        alpha = pixels[source + 1];
+      } else {
+        [red, green, blue, alpha] = pixels.subarray(source, source + 4);
+      }
+      normalized[target] = alpha === 0 ? 0 : red;
+      normalized[target + 1] = alpha === 0 ? 0 : green;
+      normalized[target + 2] = alpha === 0 ? 0 : blue;
+      normalized[target + 3] = alpha;
+      if (alpha > 0) {
+        visiblePixels += 1;
+        if (firstVisible === null) firstVisible = [red, green, blue, alpha];
+        else if (
+          red !== firstVisible[0] ||
+          green !== firstVisible[1] ||
+          blue !== firstVisible[2] ||
+          alpha !== firstVisible[3]
+        )
+          hasVisualVariation = true;
+      }
+    }
+    hash.update(normalized);
+  }
+  return {
+    pixelSha256: hash.digest("hex"),
+    visiblePixels,
+    totalPixels,
+    hasVisualVariation,
+  };
 }
 
 function inspectPdf(filePath) {
@@ -477,4 +636,10 @@ function crc32(bytes) {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-module.exports = { inspectPdf, inspectPdfBytes, inspectPng, inspectPngBytes };
+module.exports = {
+  inspectPdf,
+  inspectPdfBytes,
+  inspectPng,
+  inspectPngBytes,
+  inspectPngVisualBytes,
+};
