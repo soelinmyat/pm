@@ -8,7 +8,7 @@ This contract defines the durable chain checked by `scripts/design-critique-chec
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "run_id": "dc_01...",
   "created_at": "2026-07-12T00:00:00Z",
   "mode": "product-ui",
@@ -36,6 +36,14 @@ This contract defines the durable chain checked by `scripts/design-critique-chec
       "reason": "Primary changed route"
     },
     {
+      "id": "account-primary-narrow",
+      "subject_id": "account-detail",
+      "state": "primary",
+      "viewport": "narrow",
+      "required": true,
+      "reason": "Primary changed route at narrow width"
+    },
+    {
       "id": "account-empty-desktop",
       "subject_id": "account-detail",
       "state": "empty",
@@ -49,9 +57,11 @@ This contract defines the durable chain checked by `scripts/design-critique-chec
 
 Modes are `product-ui` and `pm-artifact`. Platforms are `web`, `mobile`, and `document`; document belongs only to artifact mode. States are `primary`, `empty`, `error`, `boundary`, `loading`, `success`, `focus`, `disabled`, `keyboard`, `modal`, `responsive`, and `print`. Viewports are `desktop`, `tablet`, `narrow`, `device`, and `print`.
 
-Product UI decides primary, empty, error, boundary, loading, success, focus, disabled, keyboard, and modal applicability for every subject. A non-applicable state carries a concrete product reason. Web product UI always requires primary desktop and at least one narrow capture; add tablet when it exercises a distinct breakpoint. PM artifacts require desktop, tablet, narrow, and print.
+Product UI decides primary, empty, error, boundary, loading, success, focus, disabled, keyboard, and modal applicability for every subject. A non-applicable state carries a concrete product reason. In route schema v2, every web product UI subject requires both a `primary` desktop row and a separate `primary` narrow row; a responsive or other narrow state cannot substitute. Add tablet when it exercises a distinct breakpoint. PM artifacts require desktop, tablet, narrow, and print.
 
 Mobile product UI requires a primary `device` row. Every PM artifact subject also includes `artifact: {path, sha256, kind}` for the exact proposal, RFC, or report HTML.
+
+New routes always use schema version 2. Never create a new route with schema version 1 and never downgrade a v2 route. The checker accepts schema v1 only to resume an already-frozen route whose source identity remains current: v1 retains its legacy requirement of a primary desktop row plus any required narrow row and does not apply the v2 product-UI width bands. If source identity changes, freeze a new v2 run instead of rewriting the old route. This is a route-only migration; `captures.json` and `report.json` remain schema v1 because their shapes did not change.
 
 ## Captures
 
@@ -92,7 +102,7 @@ Mobile product UI requires a primary `device` row. Every PM artifact subject als
 }
 ```
 
-Capture kinds are `screenshot` (valid PNG bytes with decoded dimensions equal to `width`/`height`) and `pdf` (valid non-empty PDF with decoded `pages`). Evidence kinds are `accessibility-tree`, `dom-audit`, `artifact-structural`, and `artifact-render`. Every subject requires accessibility evidence. Web UI also requires a DOM audit. Artifact mode requires structural and render manifests.
+Capture kinds are `screenshot` (valid PNG bytes with decoded dimensions equal to `width`/`height`) and `pdf` (valid non-empty PDF with decoded `pages`). For schema-v2 web product UI, desktop, tablet, and narrow coverage require screenshots whose decoded PNG widths match the label: desktop is at least 1024 pixels, tablet is 601–1023 pixels, and narrow is at most 600 pixels. The decoded bytes are authoritative, so a wide PNG cannot pass by declaring a narrow label or width. PM artifact capture sizing remains bound to the exact canonical renderer viewports rather than these product-UI bands. Evidence kinds are `accessibility-tree`, `dom-audit`, `artifact-structural`, and `artifact-render`. Every subject requires accessibility evidence. Web UI also requires a DOM audit. Artifact mode requires structural and render manifests.
 
 Each capture records `round` (1 or 2) and `active`. Keep before and after entries when a blocking finding is fixed: the historical capture becomes inactive and exactly one latest-round capture stays active for each required coverage ID. Resolved P0/P1 proof uses the same subject and coverage ID, cites both IDs in the finding, and orders an inactive earlier `before` before the active later `after`. IDs include the round; coverage IDs stay stable.
 

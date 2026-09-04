@@ -18,10 +18,16 @@ const { readProjectInput } = require("./lib/project-file");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 const MODES = new Set(["product-ui", "pm-artifact"]);
+const ROUTE_SCHEMA_VERSIONS = new Set([1, 2]);
 const OUTCOMES = new Set(["passed", "failed", "blocked", "deferred"]);
 const PRIORITIES = new Set(["P0", "P1", "P2", "P3"]);
 const FINDING_STATUSES = new Set(["open", "resolved", "deferred", "dismissed"]);
 const VIEWPORTS = new Set(["desktop", "tablet", "narrow", "device", "print"]);
+const PRODUCT_UI_WEB_VIEWPORT_WIDTHS = Object.freeze({
+  desktop: Object.freeze({ min: 1024 }),
+  tablet: Object.freeze({ min: 601, max: 1023 }),
+  narrow: Object.freeze({ max: 600 }),
+});
 const PRODUCT_UI_STATES = Object.freeze([
   "primary",
   "empty",
@@ -110,7 +116,8 @@ function validateRoute(route, commit, baseRef, baseCommit, issues) {
     "route",
     issues
   );
-  if (route.schema_version !== 1) add(issues, "route.schema_version", "must equal 1");
+  if (!ROUTE_SCHEMA_VERSIONS.has(route.schema_version))
+    add(issues, "route.schema_version", "must equal 1 or 2");
   if (!text(route.run_id)) add(issues, "route.run_id", "is required");
   if (!isRfc3339DateTime(route.created_at)) add(issues, "route.created_at", "must be RFC 3339");
   if (!MODES.has(route.mode)) add(issues, "route.mode", "must be product-ui or pm-artifact");
@@ -280,11 +287,14 @@ function validateCoverage(route, subjectIds, issues) {
           add(issues, `route.coverage.${subject.id}`, `must decide applicability for ${state}`);
       if (!required("primary", "desktop") && subject.platform === "web")
         add(issues, `route.coverage.${subject.id}`, "web primary desktop capture is required");
-      if (
-        subject.platform === "web" &&
-        !rows.some((item) => item.viewport === "narrow" && item.required)
-      )
-        add(issues, `route.coverage.${subject.id}`, "web narrow capture is required");
+      if (subject.platform === "web") {
+        if (route.schema_version === 1) {
+          if (!rows.some((item) => item.viewport === "narrow" && item.required))
+            add(issues, `route.coverage.${subject.id}`, "web narrow capture is required");
+        } else if (!required("primary", "narrow")) {
+          add(issues, `route.coverage.${subject.id}`, "web primary narrow capture is required");
+        }
+      }
       if (!required("primary", "device") && subject.platform === "mobile")
         add(issues, `route.coverage.${subject.id}`, "mobile primary device capture is required");
     } else {
@@ -317,6 +327,7 @@ function validateCaptures(root, captures, route, routeFile, issues) {
     add(issues, "captures.checked_at", "must be RFC 3339");
   validateBinding(captures.route, routeFile, "captures.route", issues);
   const coverage = new Map((route.coverage || []).map((item) => [item.id, item]));
+  const subjects = new Map((route.subjects || []).map((item) => [item.id, item]));
   const captureIds = new Set();
   const activeCoverage = new Map();
   const allCoverage = new Map();
@@ -358,7 +369,17 @@ function validateCaptures(root, captures, route, routeFile, issues) {
     if (!["screenshot", "pdf"].includes(item.kind))
       add(issues, `${at}.kind`, "must be screenshot or pdf");
     validateFileBinding(root, item, at, issues);
-    validateCaptureBytes(root, item, at, issues);
+    const decoded = validateCaptureBytes(root, item, at, issues);
+    validateProductUiViewport(
+      item,
+      coverage.get(item.coverage_id),
+      subjects,
+      route.mode,
+      route.schema_version,
+      decoded,
+      at,
+      issues
+    );
     if (!isRfc3339DateTime(item.captured_at)) add(issues, `${at}.captured_at`, "must be RFC 3339");
     if (item.kind === "screenshot" && (!positiveInt(item.width) || !positiveInt(item.height)))
       add(issues, at, "screenshots require positive width and height");
@@ -919,15 +940,55 @@ function validateCaptureBytes(root, item, label, issues) {
           label,
           `declared dimensions must equal ${dimensions.width}x${dimensions.height}`
         );
+      return dimensions;
     }
     if (item.kind === "pdf") {
       const inspected = inspectPdfBytes(file.bytes);
       if (!positiveInt(item.pages) || item.pages !== inspected.pages)
         add(issues, label, `declared pages must equal ${inspected.pages}`);
+      return inspected;
     }
   } catch (error) {
     add(issues, label, error.message);
   }
+}
+
+function validateProductUiViewport(
+  item,
+  coverage,
+  subjects,
+  mode,
+  routeSchemaVersion,
+  decoded,
+  label,
+  issues
+) {
+  if (
+    mode !== "product-ui" ||
+    routeSchemaVersion !== 2 ||
+    !coverage ||
+    subjects.get(coverage.subject_id)?.platform !== "web"
+  )
+    return;
+  const bounds = PRODUCT_UI_WEB_VIEWPORT_WIDTHS[coverage.viewport];
+  if (!bounds) return;
+  if (item.kind !== "screenshot") {
+    add(issues, `${label}.kind`, `${coverage.viewport} web coverage requires a screenshot`);
+    return;
+  }
+  if (!decoded || !positiveInt(decoded.width)) return;
+  if (bounds.min && decoded.width < bounds.min)
+    add(
+      issues,
+      label,
+      `${coverage.viewport} web capture width must be at least ${bounds.min} pixels; decoded width is ${decoded.width}`
+    );
+  if (bounds.max && decoded.width > bounds.max)
+    add(
+      issues,
+      label,
+      `${coverage.viewport} web capture width must be at most ${bounds.max} pixels; decoded width is ${decoded.width}`
+    );
 }
 
 function validateHumanReport(root, human, report, reportFile, capturesFile, options, issues) {

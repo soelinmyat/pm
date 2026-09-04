@@ -15,14 +15,15 @@ Create `route.json`, a complete and reviewable coverage contract bound to the cu
    - `product-ui` for a running web/mobile interface;
    - `pm-artifact` for rendered proposal, RFC, report, or other PM HTML.
 3. Keep ownership explicit: Design Critique owns rendered hierarchy, density, consistency, accessibility evidence, state presentation, responsive behavior, and print/navigation craft. QA owns functional behavior. Review owns source correctness and maintainability.
-4. List each changed route, screen, component, or document as a stable subject. For product UI, decide applicability for primary, empty, error, boundary/long-content, loading, success, focus, disabled, keyboard, and modal states. Capture every applicable state; require desktop and narrow evidence for web, add tablet where it exposes a distinct breakpoint, and use device evidence for mobile. For PM artifacts, require desktop, tablet, narrow, and print rows.
+4. List each changed route, screen, component, or document as a stable subject. For product UI, decide applicability for primary, empty, error, boundary/long-content, loading, success, focus, disabled, keyboard, and modal states. Capture every applicable state; require both `primary` desktop and `primary` narrow evidence for web, add tablet where it exposes a distinct breakpoint, and use device evidence for mobile. For PM artifacts, require desktop, tablet, narrow, and print rows.
 5. For every non-applicable row, record a specific product reason. “Not needed” is not a reason.
-6. Save the route under `.pm/dev-sessions/{slug}/design-critique/route.json` using `evidence-contract.md`. Do not delete an earlier valid run; namespace a new run when HEAD changes.
+6. Save the route under `.pm/dev-sessions/{slug}/design-critique/route.json` using `evidence-contract.md`. Always create a new route with schema version 2; never create a new route with schema version 1 or downgrade a v2 route. Resume a v1 route only when it was already frozen and its commit, base, and diff bindings remain current. Do not delete an earlier valid run; namespace a new v2 run when HEAD changes.
 7. If the diff has proven no visual impact, do not fabricate a critique route. Record `design-critique: skipped` in the Dev sidecar with the exact current commit and specific no-visual-impact reason, preserving all other rows.
 
 ## Done-when
 
 - Subject mode, source commit/base/diff identity, ownership, subjects, and every applicable/non-applicable coverage row are explicit.
+- The route uses schema v2 unless this run is resuming an unchanged, already-frozen v1 route.
 - A reviewer can identify every required state and viewport without reading the source diff again.
 - A routed skip, if applicable, is current and passes the Dev gate checker.
 

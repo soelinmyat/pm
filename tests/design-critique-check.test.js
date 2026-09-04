@@ -31,6 +31,7 @@ function makeFixture(options = {}) {
   const capturesPath = "evidence/captures.json";
   const reportPath = "evidence/report.json";
   const mode = options.mode || "product-ui";
+  const routeSchemaVersion = options.routeSchemaVersion ?? 2;
   const platform = mode === "pm-artifact" ? "document" : "web";
   const artifact =
     mode === "pm-artifact"
@@ -46,7 +47,12 @@ function makeFixture(options = {}) {
         ]
       : [
           coverageRow("ui-primary", "primary", "desktop", true),
-          coverageRow("ui-responsive-narrow", "responsive", "narrow", true),
+          coverageRow(
+            "ui-primary-narrow",
+            routeSchemaVersion === 1 ? "responsive" : "primary",
+            "narrow",
+            true
+          ),
           coverageRow(
             "ui-empty",
             "empty",
@@ -79,7 +85,7 @@ function makeFixture(options = {}) {
           ),
         ];
   const route = {
-    schema_version: 1,
+    schema_version: routeSchemaVersion,
     run_id: "dc-test-run",
     created_at: "2026-07-12T00:00:00Z",
     mode,
@@ -612,13 +618,77 @@ test("requires a primary device capture for mobile UI", () => {
   assert.match(JSON.stringify(result.issues), /mobile primary device capture is required/);
 });
 
-test("requires narrow viewport evidence for web UI", () => {
+test("requires primary narrow viewport evidence for web UI", () => {
   const fixture = makeFixture();
   fixture.route.coverage = fixture.route.coverage.filter((item) => item.viewport !== "narrow");
   rewrite(fixture.root, fixture.routePath, fixture.route);
   const result = check(fixture);
   assert.equal(result.ok, false);
-  assert.match(JSON.stringify(result.issues), /web narrow capture is required/);
+  assert.match(JSON.stringify(result.issues), /web primary narrow capture is required/);
+});
+
+test("does not let a responsive narrow state replace the primary narrow capture", () => {
+  const fixture = makeFixture();
+  const narrow = fixture.route.coverage.find((item) => item.viewport === "narrow");
+  narrow.state = "responsive";
+  rewrite(fixture.root, fixture.routePath, fixture.route);
+  fixture.captures.route = binding(fixture.root, fixture.routePath);
+  fixture.report.route = fixture.captures.route;
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /web primary narrow capture is required/);
+});
+
+test("rejects a wide product UI screenshot labeled narrow", () => {
+  const fixture = makeFixture();
+  const narrowCoverage = fixture.route.coverage.find((item) => item.viewport === "narrow");
+  const capture = fixture.captures.captures.find((item) => item.coverage_id === narrowCoverage.id);
+  const rebound = write(fixture.root, capture.path, validPng(1440, 1000));
+  capture.sha256 = rebound.sha256;
+  capture.width = 1440;
+  capture.height = 1000;
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(
+    JSON.stringify(result.issues),
+    /narrow web capture width must be at most 600 pixels/
+  );
+});
+
+test("accepts a frozen route v1 under legacy narrow coverage semantics", () => {
+  const fixture = makeFixture({ routeSchemaVersion: 1 });
+  const narrowCoverage = fixture.route.coverage.find((item) => item.viewport === "narrow");
+  const capture = fixture.captures.captures.find((item) => item.coverage_id === narrowCoverage.id);
+  const rebound = write(fixture.root, capture.path, validPng(1440, 1000));
+  capture.sha256 = rebound.sha256;
+  capture.width = 1440;
+  capture.height = 1000;
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+
+  assert.deepEqual(check(fixture), { ok: true, issues: [] });
+});
+
+test("documents route v2 as the only schema for newly authored critique routes", () => {
+  const contract = fs.readFileSync(
+    path.join(__dirname, "../skills/design-critique/references/evidence-contract.md"),
+    "utf8"
+  );
+  const scope = fs.readFileSync(
+    path.join(__dirname, "../skills/design-critique/steps/01-scope.md"),
+    "utf8"
+  );
+  assert.match(contract, /"schema_version": 2/);
+  assert.match(`${contract}\n${scope}`, /never create a new route with schema version 1/i);
 });
 
 test("rejects empty accessibility audit evidence", () => {

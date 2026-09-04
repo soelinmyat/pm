@@ -78,9 +78,9 @@ The session persists across all subsequent interactions in the same browser cont
 3. Open browser, log in as seed user
 4. For each target page:
    a. browser_navigate to URL
-   b. browser_screenshot at desktop width (1440px)
+   b. browser_screenshot of the primary state at desktop width (1440px)
    c. browser_resize to 768px → browser_screenshot (if responsive matters)
-   d. browser_resize to 375px → browser_screenshot (if responsive matters)
+   d. browser_resize to 375px → browser_screenshot of the primary state (always)
    e. Capture interactive states (browser_click to open modals, expand sections)
 5. Capture into scratch space, then copy accepted evidence to `.pm/dev-sessions/{slug}/design-critique/round-{N}/`
 6. Record the files and SHA-256 values in `captures.json`
@@ -88,11 +88,13 @@ The session persists across all subsequent interactions in the same browser cont
 
 ### Viewport sizes
 
-| Name    | Width  | When to use                              |
-|---------|--------|------------------------------------------|
-| Desktop | 1440px | Always                                   |
-| Tablet  | 768px  | When layout has responsive breakpoints   |
-| Mobile  | 375px  | When layout has responsive breakpoints   |
+| Label | Target | Accepted decoded PNG width | When to use |
+|---|---:|---:|---|
+| Desktop | 1440px | At least 1024px | Primary state, always |
+| Tablet | 768px | 601–1023px | When layout has a distinct breakpoint |
+| Narrow | 375px | At most 600px | Primary state, always |
+
+Route schema v2 binds each web viewport label to the PNG's decoded width. Verify the saved file dimensions rather than assuming the resize succeeded; device-pixel-ratio scaling or a stale wide browser can otherwise produce mislabeled evidence. A narrow capture of another state does not replace the primary narrow capture. Schema v1 is resume-only for routes that were already frozen—never author or downgrade a route to v1 to bypass these checks.
 
 ### Limits
 
