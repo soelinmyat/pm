@@ -9,6 +9,7 @@ const os = require("node:os");
 const path = require("node:path");
 const zlib = require("node:zlib");
 const { buildManifest, inspectHtmlArtifact } = require("../scripts/artifact-check");
+const { normalizeAuditBytes } = require("../scripts/design-critique-audit-normalize");
 const { checkDesignCritique, findingId } = require("../scripts/design-critique-check");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
@@ -138,8 +139,11 @@ function makeFixture(options = {}) {
       captured_at: "2026-07-12T00:01:00Z",
     });
   }
-  const evidence = [auditEvidenceFile(root, "a11y", "accessibility-tree", captures)];
-  if (mode === "product-ui") evidence.push(auditEvidenceFile(root, "dom", "dom-audit", captures));
+  const evidence = [
+    auditEvidenceFile(root, "a11y", "accessibility-tree", captures, routeSchemaVersion),
+  ];
+  if (mode === "product-ui")
+    evidence.push(auditEvidenceFile(root, "dom", "dom-audit", captures, routeSchemaVersion));
   else {
     const artifactPath = path.join(root, artifact.path);
     const structural = buildManifest(
@@ -261,25 +265,85 @@ function coverageRow(id, state, viewport, required, reason = "") {
   return { id, subject_id: "account-detail", state, viewport, required, reason };
 }
 
-function auditEvidenceFile(root, id, kind, captures) {
+function auditEvidenceFile(root, id, kind, captures, routeSchemaVersion) {
   const checks =
     kind === "accessibility-tree"
       ? { landmarks: true, names: true, focus_order: true }
       : { overflow: true, edge_alignment: true, hierarchy: true };
-  const audit = {
-    schema_version: 1,
-    subject_id: "account-detail",
-    commit: COMMIT,
-    capture_ids: captures.map((item) => item.id),
-    checks,
-    findings: [],
-  };
+  const captureIds = captures.map((item) => item.id);
+  let audit;
+  if (routeSchemaVersion === 1) {
+    audit = {
+      schema_version: 1,
+      subject_id: "account-detail",
+      commit: COMMIT,
+      capture_ids: captureIds,
+      checks,
+      findings: [],
+    };
+  } else {
+    const raw =
+      kind === "accessibility-tree"
+        ? {
+            schema_version: 1,
+            kind,
+            subject_id: "account-detail",
+            commit: COMMIT,
+            capture_ids: captureIds,
+            observations: {
+              landmarks: [{ role: "main", name: "", locator: "main#content" }],
+              controls: [
+                {
+                  role: "button",
+                  name: "Save account",
+                  locator: "button#save",
+                  disabled: false,
+                  tab_index: 0,
+                  document_index: 0,
+                },
+              ],
+            },
+          }
+        : {
+            schema_version: 1,
+            kind,
+            subject_id: "account-detail",
+            commit: COMMIT,
+            capture_ids: captureIds,
+            observations: {
+              viewport: { inner_width: 1440, client_width: 1425, scroll_width: 1425 },
+              hierarchy: [],
+              edge_alignment: [],
+              consistency: [],
+              asymmetry: [],
+            },
+          };
+    const rawFile = write(root, `evidence/files/${id}-raw.json`, `${JSON.stringify(raw)}\n`);
+    audit = normalizeAuditBytes(fs.readFileSync(path.join(root, rawFile.path)), rawFile);
+  }
   return {
     id: `evidence-${id}`,
     subject_id: "account-detail",
     kind,
     ...write(root, `evidence/files/${id}.json`, `${JSON.stringify(audit)}\n`),
   };
+}
+
+function rewriteNormalizedAudit(fixture, evidence, mutate) {
+  const audit = JSON.parse(fs.readFileSync(path.join(fixture.root, evidence.path), "utf8"));
+  if (audit.schema_version === 1) {
+    mutate(audit);
+  } else {
+    const raw = JSON.parse(fs.readFileSync(path.join(fixture.root, audit.raw.path), "utf8"));
+    mutate(raw);
+    const rawFile = write(fixture.root, audit.raw.path, `${JSON.stringify(raw)}\n`);
+    Object.assign(
+      audit,
+      normalizeAuditBytes(fs.readFileSync(path.join(fixture.root, rawFile.path)), rawFile)
+    );
+  }
+  const rebound = write(fixture.root, evidence.path, `${JSON.stringify(audit)}\n`);
+  evidence.sha256 = rebound.sha256;
 }
 
 function validPng(width, height, marker = 0, ancillaryBytes = 0) {
@@ -702,6 +766,68 @@ test("rejects empty accessibility audit evidence", () => {
   assert.match(JSON.stringify(result.issues), /requires passing landmarks, names, focus_order/);
 });
 
+test("rejects a normalized audit when its raw probe bytes are tampered", () => {
+  const fixture = makeFixture();
+  const evidence = fixture.captures.evidence.find((item) => item.kind === "accessibility-tree");
+  const audit = JSON.parse(fs.readFileSync(path.join(fixture.root, evidence.path), "utf8"));
+  fs.appendFileSync(path.join(fixture.root, audit.raw.path), "\n");
+
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /does not match raw probe bytes/);
+});
+
+test("rejects a claimed passing boolean contradicted by the raw probe", () => {
+  const fixture = makeFixture();
+  const evidence = fixture.captures.evidence.find((item) => item.kind === "dom-audit");
+  const audit = JSON.parse(fs.readFileSync(path.join(fixture.root, evidence.path), "utf8"));
+  const raw = JSON.parse(fs.readFileSync(path.join(fixture.root, audit.raw.path), "utf8"));
+  raw.observations.viewport.scroll_width = raw.observations.viewport.client_width + 20;
+  const rawFile = write(fixture.root, audit.raw.path, `${JSON.stringify(raw)}\n`);
+  const contradicted = normalizeAuditBytes(
+    fs.readFileSync(path.join(fixture.root, rawFile.path)),
+    rawFile
+  );
+  contradicted.checks.overflow = true;
+  const rebound = write(fixture.root, evidence.path, `${JSON.stringify(contradicted)}\n`);
+  evidence.sha256 = rebound.sha256;
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /deterministic normalization of the bound raw probe/);
+});
+
+test("rejects normalized audit evidence when the retained raw probe is missing", () => {
+  const fixture = makeFixture();
+  const evidence = fixture.captures.evidence.find((item) => item.kind === "dom-audit");
+  const audit = JSON.parse(fs.readFileSync(path.join(fixture.root, evidence.path), "utf8"));
+  fs.unlinkSync(path.join(fixture.root, audit.raw.path));
+
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /ENOENT|input must be an existing regular file/);
+});
+
+test("rejects a self-attested schema-v1 audit on a route-v2 run", () => {
+  const fixture = makeFixture();
+  const evidence = fixture.captures.evidence.find((item) => item.kind === "accessibility-tree");
+  const audit = JSON.parse(fs.readFileSync(path.join(fixture.root, evidence.path), "utf8"));
+  audit.schema_version = 1;
+  delete audit.raw;
+  const rebound = write(fixture.root, evidence.path, `${JSON.stringify(audit)}\n`);
+  evidence.sha256 = rebound.sha256;
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /requires a raw probe path and SHA-256/);
+});
+
 test("rejects a passed report with an open P1", () => {
   const fixture = makeFixture();
   const finding = {
@@ -978,12 +1104,10 @@ test("verifies the frozen git diff hash when enabled", () => {
   fixture.captures.route = binding(fixture.root, fixture.routePath);
   for (const evidence of fixture.captures.evidence.filter((item) =>
     ["accessibility-tree", "dom-audit"].includes(item.kind)
-  )) {
-    const audit = JSON.parse(fs.readFileSync(path.join(fixture.root, evidence.path), "utf8"));
-    audit.commit = commit;
-    const rebound = write(fixture.root, evidence.path, `${JSON.stringify(audit)}\n`);
-    evidence.sha256 = rebound.sha256;
-  }
+  ))
+    rewriteNormalizedAudit(fixture, evidence, (audit) => {
+      audit.commit = commit;
+    });
   rewrite(fixture.root, fixture.capturesPath, fixture.captures);
   fixture.report.commit = commit;
   fixture.report.route = binding(fixture.root, fixture.routePath);
@@ -1093,12 +1217,10 @@ test("accepts a resolved P1 with inactive before and active after captures", () 
   fixture.captures.captures.push(after);
   for (const evidence of fixture.captures.evidence.filter((item) =>
     ["accessibility-tree", "dom-audit"].includes(item.kind)
-  )) {
-    const audit = JSON.parse(fs.readFileSync(path.join(fixture.root, evidence.path), "utf8"));
-    audit.capture_ids.push(after.id);
-    const rebound = write(fixture.root, evidence.path, `${JSON.stringify(audit)}\n`);
-    evidence.sha256 = rebound.sha256;
-  }
+  ))
+    rewriteNormalizedAudit(fixture, evidence, (audit) => {
+      audit.capture_ids.push(after.id);
+    });
   rewrite(fixture.root, fixture.capturesPath, fixture.captures);
   const finding = {
     subject_id: "account-detail",
@@ -1141,12 +1263,10 @@ test("rejects an active capture older than an inactive later round", () => {
   fixture.captures.captures.push(later);
   for (const evidence of fixture.captures.evidence.filter((item) =>
     ["accessibility-tree", "dom-audit"].includes(item.kind)
-  )) {
-    const audit = JSON.parse(fs.readFileSync(path.join(fixture.root, evidence.path), "utf8"));
-    audit.capture_ids.push(later.id);
-    const rebound = write(fixture.root, evidence.path, `${JSON.stringify(audit)}\n`);
-    evidence.sha256 = rebound.sha256;
-  }
+  ))
+    rewriteNormalizedAudit(fixture, evidence, (audit) => {
+      audit.capture_ids.push(later.id);
+    });
   rewrite(fixture.root, fixture.capturesPath, fixture.captures);
   fixture.report.rounds = 2;
   fixture.report.captures = binding(fixture.root, fixture.capturesPath);

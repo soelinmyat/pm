@@ -5,6 +5,7 @@ const crypto = require("node:crypto");
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { isDeepStrictEqual } = require("node:util");
 const { inspectHtmlArtifact, structuralMarkup } = require("./artifact-check");
 const {
   VIEWPORTS: ARTIFACT_VIEWPORTS,
@@ -15,6 +16,7 @@ const {
 const { isRfc3339DateTime } = require("./lib/iso-time");
 const { inspectPdfBytes, inspectPngBytes } = require("./lib/media-inspect");
 const { readProjectInput } = require("./lib/project-file");
+const { MAX_RAW_AUDIT_BYTES, normalizeAuditBytes } = require("./design-critique-audit-normalize");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 const MODES = new Set(["product-ui", "pm-artifact"]);
@@ -411,18 +413,28 @@ function validateCaptures(root, captures, route, routeFile, issues) {
 function validateAuditEvidence(root, entry, route, captureRows, label, issues) {
   const audit = readEvidenceJson(root, entry, label, issues);
   if (!audit) return;
+  const normalizedAuditRequired = route.schema_version === 2;
   closed(
     audit,
-    ["schema_version", "subject_id", "commit", "capture_ids", "checks", "findings"],
+    [
+      "schema_version",
+      "subject_id",
+      "commit",
+      "capture_ids",
+      ...(normalizedAuditRequired ? ["raw"] : []),
+      "checks",
+      "findings",
+    ],
     label,
     issues
   );
   if (
-    audit.schema_version !== 1 ||
+    audit.schema_version !== (normalizedAuditRequired ? 2 : 1) ||
     audit.subject_id !== entry.subject_id ||
     audit.commit !== route.source?.commit
   )
     add(issues, label, "audit schema, subject, and commit must match the route");
+  if (normalizedAuditRequired) validateNormalizedAudit(root, audit, entry, label, issues);
   const subjectCoverage = new Set(
     (route.coverage || [])
       .filter((item) => item.subject_id === entry.subject_id)
@@ -450,6 +462,44 @@ function validateAuditEvidence(root, entry, route, captureRows, label, issues) {
   if (!object(audit.checks) || requiredChecks.some((name) => audit.checks[name] !== true))
     add(issues, `${label}.checks`, `requires passing ${requiredChecks.join(", ")}`);
   if (!Array.isArray(audit.findings)) add(issues, `${label}.findings`, "must be an array");
+}
+
+function validateNormalizedAudit(root, audit, entry, label, issues) {
+  if (!object(audit.raw)) {
+    add(issues, `${label}.raw`, "requires a raw probe path and SHA-256");
+    return;
+  }
+  closed(audit.raw, ["path", "sha256"], `${label}.raw`, issues);
+  if (!text(audit.raw.path) || !sha256(audit.raw.sha256)) {
+    add(issues, `${label}.raw`, "requires a raw probe path and SHA-256");
+    return;
+  }
+  if (audit.raw.path === entry.path) {
+    add(issues, `${label}.raw.path`, "must differ from the normalized audit path");
+    return;
+  }
+  const rawFile = readBoundFile(
+    root,
+    audit.raw.path,
+    `${label}.raw.path`,
+    issues,
+    MAX_RAW_AUDIT_BYTES
+  );
+  if (!rawFile) return;
+  if (rawFile.sha256 !== audit.raw.sha256)
+    add(issues, `${label}.raw.sha256`, "does not match raw probe bytes");
+  let expected;
+  try {
+    expected = normalizeAuditBytes(rawFile.bytes, {
+      path: rawFile.relative,
+      sha256: rawFile.sha256,
+    });
+  } catch (error) {
+    add(issues, `${label}.raw`, `cannot normalize raw probe: ${error.message}`);
+    return;
+  }
+  if (!isDeepStrictEqual(audit, expected))
+    add(issues, label, "must exactly equal the deterministic normalization of the bound raw probe");
 }
 
 function validateEvidence(root, evidence, route, captureRows, issues) {
@@ -1340,7 +1390,7 @@ function readJsonFile(root, rel, label, issues) {
   }
 }
 
-function readBoundFile(root, rel, label, issues) {
+function readBoundFile(root, rel, label, issues, maxBytes = MAX_EVIDENCE_BYTES) {
   if (!text(rel) || path.isAbsolute(rel)) {
     add(issues, label, "must be a relative path");
     return null;
@@ -1353,7 +1403,9 @@ function readBoundFile(root, rel, label, issues) {
   try {
     const cacheKey = path.relative(root, resolved).split(path.sep).join("/");
     const cached = activeReadCache?.files.get(cacheKey);
-    const loaded = cached || readProjectInput(root, cacheKey, MAX_EVIDENCE_BYTES);
+    if (cached && cached.bytes.length > maxBytes)
+      throw new Error(`input exceeds ${maxBytes}-byte budget`);
+    const loaded = cached || readProjectInput(root, cacheKey, maxBytes);
     const file = cached || { path: loaded.path, bytes: loaded.bytes };
     if (!cached) {
       file.sha256 = digest(file.bytes);

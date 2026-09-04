@@ -106,7 +106,11 @@ Capture kinds are `screenshot` (valid PNG bytes with decoded dimensions equal to
 
 Each capture records `round` (1 or 2) and `active`. Keep before and after entries when a blocking finding is fixed: the historical capture becomes inactive and exactly one latest-round capture stays active for each required coverage ID. Resolved P0/P1 proof uses the same subject and coverage ID, cites both IDs in the finding, and orders an inactive earlier `before` before the active later `after`. IDs include the round; coverage IDs stay stable.
 
-Accessibility and DOM evidence are JSON objects bound to the route commit, subject, and cited capture IDs. Accessibility checks require passing `landmarks`, `names`, and `focus_order`; DOM audits require passing `overflow`, `edge_alignment`, and `hierarchy`. Both retain a `findings` array, including when empty.
+For route schema v2, accessibility and DOM audit evidence use schema v2 and are generated only by `scripts/design-critique-audit-normalize.js`. Each normalized object contains exactly `schema_version`, `subject_id`, `commit`, `capture_ids`, `raw: {path, sha256}`, `checks`, and `findings`. The checker bounded-reads the raw path, verifies its SHA-256, reruns normalization, and requires the complete normalized object to match. Hand-authored booleans or findings cannot pass.
+
+The raw probe is schema v1 with exactly `schema_version`, `kind`, `subject_id`, `commit`, `capture_ids`, and `observations`. For `accessibility-tree`, observations contain bounded `landmarks` (`role`, `name`, `locator`) and `controls` (`role`, `name`, `locator`, `disabled`, `tab_index`, `document_index`). The helper derives `landmarks`, `names`, and `focus_order`. For `dom-audit`, observations contain numeric `viewport` (`inner_width`, `client_width`, `scroll_width`) plus bounded `hierarchy`, `edge_alignment`, `consistency`, and `asymmetry` issue arrays; every issue has only `code`, `locator`, and `detail`. The helper derives `overflow`, `edge_alignment`, and `hierarchy` and retains the other measured issues as deterministic findings. See the capture guide for the exact browser probes and CLI invocation.
+
+Audit schema v1 without a raw binding is accepted only when resuming an already-frozen route schema v1. Never author a new schema-v1 audit or downgrade route/audit evidence to bypass normalization.
 
 ## Report
 

@@ -145,16 +145,27 @@ After all screenshots for a page are captured, collect two additional artifacts 
 
 ### Checker-compatible normalized audit envelope
 
-Raw browser snapshots and consistency-audit output are reviewer inputs, but they are not valid `accessibility-tree` or `dom-audit` evidence by themselves. For each subject and evidence kind, normalize the observations into the exact closed JSON envelope accepted by `scripts/design-critique-check.js`, save that JSON under the current round directory, and register the normalized file in `captures.json`.
+Retain one bounded raw JSON probe for each audit. Generate the registered `accessibility-tree` or `dom-audit` only with `scripts/design-critique-audit-normalize.js`; never type or revise its booleans or findings. The helper derives them from the raw observations and binds the raw path plus SHA-256. `scripts/design-critique-check.js` rereads those bytes, reruns the same normalization, and requires the complete normalized object to match.
 
-Both kinds use the same top-level keys. Do not add other top-level keys or extra check names. A complete `accessibility-tree` envelope is:
+```bash
+node "$PM_PLUGIN_ROOT/scripts/design-critique-audit-normalize.js" \
+  --root "{absolute-project-root}" \
+  --raw ".pm/dev-sessions/{slug}/design-critique/round-{N}/{subject}-a11y-raw.json" \
+  --output ".pm/dev-sessions/{slug}/design-critique/round-{N}/{subject}-a11y.json"
+```
+
+The helper uses a 1 MiB raw-input budget, rejects unrecognized fields and unbounded collections, and writes atomically while re-attesting the raw file. A generated `accessibility-tree` envelope is:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "subject_id": "account-detail",
   "commit": "<route.source.commit>",
   "capture_ids": ["capture-account-primary-desktop-r1"],
+  "raw": {
+    "path": ".pm/.../round-1/account-detail-a11y-raw.json",
+    "sha256": "<64-hex>"
+  },
   "checks": {
     "landmarks": true,
     "names": true,
@@ -164,14 +175,18 @@ Both kinds use the same top-level keys. Do not add other top-level keys or extra
 }
 ```
 
-A complete `dom-audit` envelope is:
+A generated `dom-audit` envelope is:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "subject_id": "account-detail",
   "commit": "<route.source.commit>",
   "capture_ids": ["capture-account-primary-desktop-r1"],
+  "raw": {
+    "path": ".pm/.../round-1/account-detail-dom-raw.json",
+    "sha256": "<64-hex>"
+  },
   "checks": {
     "overflow": true,
     "edge_alignment": true,
@@ -181,20 +196,110 @@ A complete `dom-audit` envelope is:
 }
 ```
 
-The `capture_ids` array must cite only captures for the same subject and must include every active capture for that subject. `findings` is always an array; preserve the relevant role/name, element locator, measurement, and observed impact in each finding so the reviewer can verify the check. A check is `true` only after it was actually run and passed. A `false` check is retained with a concrete finding and blocks passing evidence until corrected and recaptured.
+The raw probe carries the route-bound subject, commit, and every active capture ID. The helper copies that identity into the audit. `findings` is derived from the measured roles, names, tab indexes, viewport widths, and issue rows; a derived `false` check blocks passing evidence until the UI is corrected and recaptured.
 
-The `captures.json` evidence row contains only the normalized audit's manifest identity (`id`, `subject_id`, `kind`, `path`, and `sha256`). Keep raw tool output beside it when useful for review, but point the registered evidence row at the normalized audit envelope.
+The `captures.json` evidence row contains only the normalized audit's manifest identity (`id`, `subject_id`, `kind`, `path`, and `sha256`). The normalized file binds the mandatory raw probe; do not register the raw file as a second evidence row.
 
 ### Accessibility Snapshot
 
-Use Playwright MCP's `browser_snapshot` tool on each page after the screenshot is taken. This returns the accessibility tree: element roles, accessible names, states, tab order, ARIA attributes.
+Use Playwright MCP's `browser_snapshot` for reviewer context, then run this structured probe with `browser_evaluate`. Replace the three identity placeholders from the frozen route and current captures before execution. The probe emits measurements, never pass/fail booleans.
 
-```
-# After browser_screenshot for each page:
-browser_snapshot  # returns full accessibility tree
+```javascript
+(() => {
+  const subjectId = "{subject-id}";
+  const commit = "{route.source.commit}";
+  const captureIds = ["{every-active-capture-id-for-subject}"];
+  const all = [...document.querySelectorAll("*")];
+  const index = new Map(all.map((element, position) => [element, position]));
+
+  function visible(element) {
+    const rect = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return (
+      rect.width > 0 &&
+      rect.height > 0 &&
+      style.visibility !== "hidden" &&
+      !element.closest('[aria-hidden="true"],[inert]')
+    );
+  }
+
+  function locator(element) {
+    if (element.id) return `${element.tagName.toLowerCase()}#${element.id}`.slice(0, 500);
+    const testId = element.getAttribute("data-testid");
+    if (testId) return `[data-testid="${testId}"]`.slice(0, 500);
+    return `${element.tagName.toLowerCase()}:nth-of-type(${[
+      ...(element.parentElement?.children || []),
+    ].filter((sibling) => sibling.tagName === element.tagName).indexOf(element) + 1})`.slice(
+      0,
+      500
+    );
+  }
+
+  function textFromIds(value) {
+    return (value || "")
+      .split(/\s+/)
+      .map((id) => document.getElementById(id)?.textContent || "")
+      .join(" ");
+  }
+
+  function accessibleName(element) {
+    const labels = element.labels ? [...element.labels].map((label) => label.textContent) : [];
+    return (
+      textFromIds(element.getAttribute("aria-labelledby")) ||
+      element.getAttribute("aria-label") ||
+      labels.join(" ") ||
+      element.getAttribute("alt") ||
+      element.getAttribute("title") ||
+      (element.matches('input[type="button"],input[type="submit"]') ? element.value : "") ||
+      element.textContent ||
+      ""
+    )
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 1000);
+  }
+
+  function role(element) {
+    if (element.getAttribute("role")) return element.getAttribute("role").split(/\s+/)[0];
+    const tag = element.tagName.toLowerCase();
+    if (tag === "a") return "link";
+    if (tag === "button") return "button";
+    if (tag === "select") return "combobox";
+    if (tag === "textarea") return "textbox";
+    if (tag === "input") return element.type === "checkbox" ? "checkbox" : element.type === "radio" ? "radio" : "textbox";
+    return ({ header: "banner", nav: "navigation", main: "main", aside: "complementary", footer: "contentinfo", form: "form" })[tag] || "region";
+  }
+
+  const landmarks = [...document.querySelectorAll(
+    'header,nav,main,aside,footer,form,[role="banner"],[role="navigation"],[role="main"],[role="complementary"],[role="contentinfo"],[role="form"],[role="region"],[role="search"]'
+  )]
+    .filter(visible)
+    .map((element) => ({ role: role(element), name: accessibleName(element), locator: locator(element) }));
+  const controls = [...document.querySelectorAll(
+    'a[href],button,input:not([type="hidden"]),select,textarea,[role="button"],[role="link"],[role="checkbox"],[role="radio"],[role="switch"],[role="tab"],[role="menuitem"],[role="option"],[role="slider"],[role="spinbutton"],[role="textbox"],[role="combobox"],[tabindex]:not([tabindex="-1"])'
+  )]
+    .filter(visible)
+    .map((element) => ({
+      role: role(element),
+      name: accessibleName(element),
+      locator: locator(element),
+      disabled: element.matches(":disabled") || element.getAttribute("aria-disabled") === "true",
+      tab_index: element.tabIndex,
+      document_index: index.get(element),
+    }));
+
+  return JSON.stringify({
+    schema_version: 1,
+    kind: "accessibility-tree",
+    subject_id: subjectId,
+    commit,
+    capture_ids: captureIds,
+    observations: { landmarks, controls },
+  }, null, 2);
+})()
 ```
 
-Save the raw output under `.pm/dev-sessions/{slug}/design-critique/round-{N}/`. Inspect it for landmarks, accessible names, states, and focus order; then write and register the normalized `accessibility-tree` audit envelope above. Do not register a Markdown dump or the raw tool response as checker evidence.
+Save the returned JSON as `{subject}-a11y-raw.json`, run the normalizer, and register its normalized output. Keep the accessibility snapshot beside it for review, but do not use a Markdown dump or hand-authored summary as checker evidence.
 
 Concrete data for WCAG findings: missing aria-labels, broken tab order, missing landmarks, elements without accessible names. No guessing from PNGs.
 
@@ -208,6 +313,9 @@ For each page, run this via `browser_evaluate`:
 
 ```javascript
 (() => {
+  const subjectId = "{subject-id}";
+  const commit = "{route.source.commit}";
+  const captureIds = ["{every-active-capture-id-for-subject}"];
   const inconsistencies = {};
   const hierarchy = [];
   const asymmetry = [];
@@ -538,23 +646,53 @@ For each page, run this via `browser_evaluate`:
 
   edgeAlignment.sort((a, b) => parseFloat(b.delta) - parseFloat(a.delta));
 
+  const consistencyIssues = Object.entries(inconsistencies).flatMap(([group, variances]) =>
+    Object.entries(variances).flatMap(([property, variance]) =>
+      variance.outliers.map(outlier => ({
+        code: 'visual-variance',
+        locator: String(outlier.element).slice(0, 500),
+        detail: `${group} ${property}: ${outlier.value} differs from ${outlier.majorityValue}`.slice(0, 1000),
+      }))
+    )
+  ).slice(0, 200);
+  const hierarchyIssues = hierarchy.slice(0, 200).map(item => ({
+    code: item.issue || 'hierarchy-issue',
+    locator: `${item.upper || item.heading || 'heading'}${item.lower ? ` > ${item.lower}` : ''}`.slice(0, 500),
+    detail: String(item.detail || JSON.stringify(item)).slice(0, 1000),
+  }));
+  const edgeIssues = edgeAlignment.slice(0, 20).map(item => ({
+    code: item.type || 'edge-drift',
+    locator: String(item.element || item.scope).slice(0, 500),
+    detail: String(item.detail).slice(0, 1000),
+  }));
+  const asymmetryIssues = asymmetry.slice(0, 10).map(item => ({
+    code: 'asymmetric-padding',
+    locator: String(item.element).slice(0, 500),
+    detail: `${item.axis}: ${item.values}`.slice(0, 1000),
+  }));
+
   return JSON.stringify({
-    inconsistencies,
-    hierarchy,
-    asymmetry: asymmetry.slice(0, 10),
-    edgeAlignment: edgeAlignment.slice(0, 20),
-    _meta: {
-      groups_checked: Object.keys(inconsistencies).length,
-      groups_with_variance: Object.values(inconsistencies).filter(v => Object.keys(v).length > 0).length,
-      hierarchy_issues: hierarchy.length,
-      asymmetric_elements: asymmetry.length,
-      edge_alignment_issues: edgeAlignment.length,
-    }
+    schema_version: 1,
+    kind: 'dom-audit',
+    subject_id: subjectId,
+    commit,
+    capture_ids: captureIds,
+    observations: {
+      viewport: {
+        inner_width: Math.round(document.defaultView?.innerWidth || document.documentElement.clientWidth),
+        client_width: document.documentElement.clientWidth,
+        scroll_width: document.documentElement.scrollWidth,
+      },
+      hierarchy: hierarchyIssues,
+      edge_alignment: edgeIssues,
+      consistency: consistencyIssues,
+      asymmetry: asymmetryIssues,
+    },
   }, null, 2);
 })()
 ```
 
-Save the raw JSON output under `.pm/dev-sessions/{slug}/design-critique/round-{N}/`. Combine it with an explicit viewport overflow check, normalize hierarchy, edge-alignment, and overflow results into the `dom-audit` envelope above, and register that normalized file in `captures.json`. Do not register this raw consistency object directly.
+Save the returned JSON as `{subject}-dom-raw.json`, run `design-critique-audit-normalize.js`, and register the generated `dom-audit`. The helper derives overflow from `scroll_width > client_width`, derives hierarchy and edge-alignment from their measured issue arrays, and retains consistency/asymmetry rows as deterministic findings. Do not edit the generated output or register the raw object directly.
 
 Then write a human-readable report:
 
@@ -615,7 +753,7 @@ Then write a human-readable report:
 - {N} edge-alignment issues
 ```
 
-If a human-readable projection is useful, save it beside the raw audit; the raw hash-bound JSON remains authoritative.
+If a human-readable projection is useful, save it beside the raw audit; the normalized audit plus its raw path/SHA binding remain authoritative.
 
 Run at desktop viewport (1440px). One audit per page is sufficient.
 
@@ -647,11 +785,12 @@ Add enriched artifacts to the manifest:
 
 | File | Type | Description |
 |------|------|-------------|
-| a11y-snapshot-{page}.md | Raw accessibility snapshot | Element roles, names, states, tab order; reviewer input only |
-| accessibility-audit-{page}.json | Normalized `accessibility-tree` | Checker evidence with landmarks, names, and focus-order results |
-| consistency-{page}.json | Raw consistency data | Full variance detection output; reviewer input only |
+| a11y-snapshot-{page}.md | Accessibility snapshot | Optional reviewer context; not checker evidence |
+| {subject}-a11y-raw.json | Raw accessibility probe | Mandatory bounded roles, names, and focus measurements |
+| accessibility-audit-{page}.json | Normalized `accessibility-tree` | Generated checker evidence bound to the raw probe |
+| {subject}-dom-raw.json | Raw DOM probe | Mandatory bounded viewport, hierarchy, alignment, and consistency measurements |
 | consistency-{page}.md | Consistency report | Typography hierarchy, group inconsistencies, asymmetric padding, edge alignment |
-| dom-audit-{page}.json | Normalized `dom-audit` | Checker evidence with overflow, edge-alignment, and hierarchy results |
+| dom-audit-{page}.json | Normalized `dom-audit` | Generated checker evidence bound to the raw probe |
 ```
 
 ## Cleanup
