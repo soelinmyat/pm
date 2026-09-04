@@ -188,12 +188,33 @@ async function main() {
     client = await connect(target.webSocketDebuggerUrl);
     await client.send("Page.enable");
     await client.send("Runtime.enable");
+    if (config.networkIsolation !== undefined && config.networkIsolation !== true) {
+      throw new Error("browser probe networkIsolation may only be true when present");
+    }
+    if (config.networkIsolation === true) {
+      await client.send("Network.enable");
+      await client.send("Network.setBlockedURLs", {
+        urls: ["http://*", "https://*", "ws://*", "wss://*", "ftp://*"],
+      });
+      await client.send("Network.emulateNetworkConditions", {
+        offline: true,
+        latency: 0,
+        downloadThroughput: 0,
+        uploadThroughput: 0,
+      });
+    }
     await client.send("Emulation.setDeviceMetricsOverride", {
       width: config.viewport.width,
       height: config.viewport.height,
       deviceScaleFactor: 1,
       mobile: false,
     });
+    if (config.emulatedMedia !== undefined) {
+      if (!["screen", "print"].includes(config.emulatedMedia)) {
+        throw new Error("browser probe emulatedMedia must be screen or print");
+      }
+      await client.send("Emulation.setEmulatedMedia", { media: config.emulatedMedia });
+    }
     await client.send("Page.navigate", { url: pathToFileURL(config.htmlPath).href });
     const readinessDeadline = Date.now() + readinessTimeoutMs;
     let ready = false;

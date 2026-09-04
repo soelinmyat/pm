@@ -320,27 +320,112 @@ profile; they remain point-in-time comparisons.
 ## Hidden Design-Critique Capability Benchmark
 
 The host-only contract is `evals/capabilities/design-critique/oracle.json`.
-Candidate runs receive HTML fixtures through generated scenarios, never the
-oracle, defect IDs, expected locations, severities, or fix checks. The eval
-runtime stages plugin runtime paths and the selected scenario; it does not stage
-`evals/` wholesale. Run `npm run eval:quality:scenarios` after fixture changes,
-then `npm run eval:check` to verify fixture hashes, case composition, and absence
-of oracle truth in candidate scenarios.
+The dedicated runner creates one isolated scenario for every oracle fixture.
+Candidate runs receive the fixture implementation, but never the oracle,
+defect IDs, expected locations, severities, or fix checks. The eval runtime
+stages plugin runtime paths and the selected generated scenario; it does not
+stage `evals/` wholesale. Run `npm run eval:check` after fixture changes to
+verify fixture hashes and case composition.
+
+Run all fixtures once for a configured model profile with:
+
+```bash
+npm run eval:design-critique:run -- --profile sol-high --repeat 1
+npm run eval:design-critique:run -- --profile astra-high --repeat 1
+```
+
+For a claimable profile result, execute at least the oracle's minimum of three
+distinct repeats:
+
+```bash
+for repeat in 1 2 3; do
+  npm run eval:design-critique:run -- --profile sol-high --repeat "$repeat"
+done
+```
+
+Each command writes a private, gitignored capture under
+`eval-results/capabilities/design-critique/<benchmark>/<profile>/repeat-N.json`.
+It exits nonzero if any fixture run is not a behavioral pass or if captured
+bytes do not match the fixture oracle. Each successful case binds the immutable
+pre-candidate fixture bytes, runtime profile identity, verdict, normalized
+transcript, candidate output, and post-candidate HTML subject by canonical run
+path and SHA-256 digest.
 
 After each isolated candidate run, an adjudicator with access to the oracle maps
 each reported finding to an `oracle_id`, or `null` for an unmatched finding. The
-adjudicated report is a closed JSON object with `schema_version`, `benchmark_id`,
-`profile`, and `repeats`. Every repeat contains every `case_id`; every case has a
-`blocked` verdict and findings with severity, objective/blocking classification,
-location correctness, and claimed/verified fix booleans. Repeat numbers must be
-distinct. Keep candidate output separate from this adjudication step.
+adjudicated report is a closed JSON object with `schema_version: 2`,
+`benchmark_id`, `profile`, and `repeats`. Write only the human decisions for one
+capture as a closed judgments JSON object; the sealing command copies and binds
+the run evidence:
+
+```json
+{
+  "schema_version": 1,
+  "repeat": 1,
+  "cases": [
+    {
+      "case_id": "responsive-report",
+      "blocked": true,
+      "findings": [
+        {
+          "oracle_id": "responsive-shell-overflow",
+          "severity": "high",
+          "objective": true,
+          "blocking": true,
+          "location_correct": true,
+          "claimed_fixed": true
+        }
+      ]
+    }
+  ]
+}
+```
+
+Include one row for every capture case. Use `oracle_id: null` for an unmatched
+finding. Do not author `fix_verified`: the host verifier derives it from the
+post-run subject. Seal each repeat into the same report (the command appends a
+new repeat):
+
+```bash
+npm run eval:design-critique:adjudicate -- \
+  --capture eval-results/capabilities/design-critique/design-critique-hidden-v1/sol-high/repeat-1.json \
+  --judgments /absolute/path/to/repeat-1-judgments.json \
+  --report /absolute/path/to/sol-high-adjudicated-report.json
+```
+
+Chromium is auto-detected for sealing and scoring. If needed, append
+`--browser /path/to/chromium` or set `PM_ARTIFACT_BROWSER`.
+
+Sealing first copies the post-run HTML into an empty private directory, rejects
+network-capable or externally loaded markup, disables all outbound HTTP(S),
+WebSocket, and FTP traffic in Chromium, and executes every original defect's
+host-only fix oracle. It writes one per-defect fix-verification artifact under
+`eval-results/capabilities/design-critique/fix-verification/`. A claimed fix
+must produce a conclusive result; its `fix_verified` value is derived from that
+result.
+
+The command also creates a closed adjudication artifact for each row under
+`eval-results/capabilities/design-critique/adjudications/`. It binds the semantic
+oracle SHA, exact profile/repeat/case, fixture/run/scenario/adapter identities,
+and hashes of the runtime profile, verdict, normalized transcript, candidate
+output, post-run subject, and fix-verification result. Its `blocked` and
+`findings` values must exactly match the report row. Every repeat must contain
+every oracle case, and repeat numbers must be distinct. Keep the oracle
+unavailable to the candidate process; only the post-run adjudicator reads it.
+
+The scorer resolves every evidence path under the repository, rereads the
+bytes, checks every digest, and cross-checks the scenario/profile/run identity
+against the verdict. It independently reruns the host fix verifier against the
+bound post-run bytes and requires the result to match the sealed artifact.
+Missing, moved, substituted, harness-only, indeterminate claimed-fix, or
+tampered evidence makes the entire report invalid rather than silently lowering
+a score.
 
 Score a report with:
 
 ```bash
-node scripts/evals/design-critique-capability.js \
-  --oracle evals/capabilities/design-critique/oracle.json \
-  --report /path/to/adjudicated-report.json
+npm run eval:design-critique:score -- \
+  --report /absolute/path/to/adjudicated-report.json
 ```
 
 The scorer reports P0/P1 recall, objective precision, clean-control false-block
@@ -348,6 +433,10 @@ rate, locator accuracy, severity accuracy, and success for fixes the candidate
 claimed. A result is claimable only after three distinct repeats. Release passes
 only when every metric meets its threshold; a non-claimable or failed report
 returns a nonzero exit code.
+
+Legacy `schema_version: 1` reports contain no run or byte bindings and cannot be
+migrated into a capability claim. Re-run and adjudicate the benchmark to produce
+schema 2 evidence.
 
 ## Scenario Shape
 

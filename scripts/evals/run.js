@@ -102,12 +102,17 @@ function runEval(opts) {
   const qualityProfile = opts.qualityProfile
     ? loadQualityProfile(rootDir, opts.qualityProfile)
     : null;
+  if (qualityProfile && opts.runtimeProfile) {
+    throw new Error("runtimeProfile cannot be combined with --quality-profile");
+  }
+  const runtimeProfile = opts.runtimeProfile || qualityProfile;
   if (qualityProfile && !qualityCase) {
     throw new Error("--quality-profile requires --quality-case");
   }
   if (qualityCase && ["codex", "claude"].includes(agent) && !qualityProfile) {
     throw new Error("live quality runs require --quality-profile");
   }
+  if (runtimeProfile) validateRuntimeProfile(runtimeProfile, agent);
   if (qualityProfile && qualityProfile.adapter !== agent) {
     throw new Error(
       `quality profile ${qualityProfile.id} requires adapter ${qualityProfile.adapter}, not ${agent}`
@@ -120,7 +125,10 @@ function runEval(opts) {
   paths.scenarioDir = scenarioDir;
   paths.scenarioId = scenarioId;
   paths.runId = runId;
-  paths.qualityProfile = qualityProfile;
+  // Adapters consume this path field for model/effort selection. A dedicated
+  // capability runner can supply a trusted runtime profile without pretending
+  // the run is one of the generic generated quality cases.
+  paths.qualityProfile = runtimeProfile;
 
   stageRuntime(rootDir, paths.runtimeDir);
   safeCopyTree(scenarioDir, paths.scenarioStageDir);
@@ -134,6 +142,16 @@ function runEval(opts) {
       adapter: qualityProfile.adapter,
       model: qualityProfile.model,
       effort: qualityProfile.effort,
+    });
+  }
+  if (runtimeProfile) {
+    writeJson(path.join(paths.metadataDir, "runtime_profile_identity.json"), {
+      schema_version: 1,
+      id: runtimeProfile.id,
+      adapter: runtimeProfile.adapter,
+      model: runtimeProfile.model,
+      effort: runtimeProfile.effort,
+      ...(runtimeProfile.harness_only === true ? { harness_only: true } : {}),
     });
   }
   writeJson(
@@ -151,6 +169,7 @@ function runEval(opts) {
     run_id: runId,
     isolated_home: rel(paths.homeDir, runDir),
     staged_plugin_root: rel(paths.runtimeDir, runDir),
+    runtime_profile: runtimeProfile ? runtimeProfile.id : null,
     argv: [
       "node",
       "scripts/evals/run.js",
@@ -189,6 +208,7 @@ function runEval(opts) {
     writeJson(path.join(runDir, "verdict.json"), verdict);
     return verdict;
   }
+  if (opts.captureInputs) captureRunInputs(paths, opts.captureInputs);
 
   const pre = runCheckPhase(paths, "pre");
   const hostRepoBefore = hostRepoSnapshot(rootDir);
@@ -264,6 +284,79 @@ function runEval(opts) {
   });
   writeJson(path.join(runDir, "verdict.json"), verdict);
   return verdict;
+}
+
+function validateRuntimeProfile(profile, agent) {
+  if (!profile || typeof profile !== "object" || Array.isArray(profile)) {
+    throw new Error("runtime profile must be an object");
+  }
+  const allowed = new Set(["id", "adapter", "model", "effort", "harness_only"]);
+  for (const key of Object.keys(profile)) {
+    if (!allowed.has(key)) throw new Error(`runtime profile has unknown field ${key}`);
+  }
+  for (const field of ["id", "adapter", "model", "effort"]) {
+    if (typeof profile[field] !== "string" || !profile[field].trim()) {
+      throw new Error(`runtime profile ${field} is required`);
+    }
+  }
+  if (!/^[a-z0-9][a-z0-9-]{0,100}$/.test(profile.id)) {
+    throw new Error("runtime profile id must be a lowercase slug");
+  }
+  if (profile.adapter !== agent) {
+    throw new Error(
+      `runtime profile ${profile.id} requires adapter ${profile.adapter}, not ${agent}`
+    );
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(profile, "harness_only") &&
+    profile.harness_only !== true
+  ) {
+    throw new Error("runtime profile harness_only may only be true when present");
+  }
+}
+
+function captureRunInputs(paths, captures) {
+  if (!Array.isArray(captures) || captures.length === 0) {
+    throw new Error("captureInputs must be a non-empty array");
+  }
+  const inputDir = path.join(paths.metadataDir, "inputs");
+  fs.mkdirSync(inputDir, { recursive: true });
+  for (const [index, capture] of captures.entries()) {
+    if (!capture || typeof capture !== "object" || Array.isArray(capture)) {
+      throw new Error(`captureInputs[${index}] must be an object`);
+    }
+    const keys = Object.keys(capture);
+    if (keys.length !== 2 || !keys.includes("source") || !keys.includes("name")) {
+      throw new Error(`captureInputs[${index}] must contain only source and name`);
+    }
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$/.test(String(capture.name || ""))) {
+      throw new Error(`captureInputs[${index}].name must be a safe filename`);
+    }
+    if (typeof capture.source !== "string" || !capture.source || path.isAbsolute(capture.source)) {
+      throw new Error(`captureInputs[${index}].source must be a relative workdir path`);
+    }
+    const source = path.resolve(paths.workdir, capture.source);
+    if (!inside(paths.workdir, source)) {
+      throw new Error(`captureInputs[${index}].source escapes the workdir`);
+    }
+    const stat = fs.lstatSync(source);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) {
+      throw new Error(`captureInputs[${index}].source must be a regular non-linked file`);
+    }
+    if (stat.size > 4 * 1024 * 1024) {
+      throw new Error(`captureInputs[${index}].source exceeds 4194304 bytes`);
+    }
+    const real = fs.realpathSync(source);
+    if (!inside(fs.realpathSync(paths.workdir), real)) {
+      throw new Error(`captureInputs[${index}].source real path escapes the workdir`);
+    }
+    fs.copyFileSync(source, path.join(inputDir, capture.name), fs.constants.COPYFILE_EXCL);
+  }
+}
+
+function inside(rootDir, candidate) {
+  const relative = path.relative(rootDir, candidate);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
 function validateQualityCaseCompatibility(scenarioDir, qualityCase) {
