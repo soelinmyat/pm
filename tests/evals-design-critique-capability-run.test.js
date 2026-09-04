@@ -2,6 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { execFileSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -226,6 +227,8 @@ test(
 );
 
 test("sandbox attestation revalidates policy semantics instead of trusting file hashes", () => {
+  const rootDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pm-capability-binding-")));
+  execFileSync("git", ["init", "-q"], { cwd: rootDir });
   const token = crypto.randomBytes(5).toString("hex");
   const runIdentity = {
     run_id: `20260905T000000Z--dc-cap-binding-${token}-r1--codex`,
@@ -233,7 +236,7 @@ test("sandbox attestation revalidates policy semantics instead of trusting file 
     adapter: "codex",
   };
   const prepared = _private.prepareCandidateIsolation({
-    rootDir: ROOT,
+    rootDir,
     runIdentity,
     runtimeProfile: { adapter: "codex", harness_only: false },
     sandboxExecPath: "/usr/bin/sandbox-exec",
@@ -242,8 +245,7 @@ test("sandbox attestation revalidates policy semantics instead of trusting file 
       return { status: 0, signal: null, error: null };
     },
   });
-  const runDir = path.join(ROOT, "eval-results", "runs", runIdentity.run_id);
-  const isolationDir = path.join(ROOT, "eval-results", "capability-isolation", runIdentity.run_id);
+  const runDir = path.join(rootDir, "eval-results", "runs", runIdentity.run_id);
   try {
     fs.mkdirSync(path.join(runDir, "metadata"), { recursive: true });
     fs.writeFileSync(prepared.receiptPath, prepared.receiptBytes);
@@ -252,20 +254,20 @@ test("sandbox attestation revalidates policy semantics instead of trusting file 
       `${JSON.stringify({ command: prepared.launchBin })}\n`
     );
     const finalized = _private.finalizeCandidateIsolation({
-      rootDir: ROOT,
+      rootDir,
       runIdentity,
       prepared,
     });
     assert.deepEqual(
       validateOracleIsolationEvidence({
         isolation: finalized,
-        rootDir: ROOT,
+        rootDir,
         runId: runIdentity.run_id,
       }),
       []
     );
 
-    const policyPath = path.join(ROOT, finalized.bindings.policy.path);
+    const policyPath = path.join(rootDir, finalized.bindings.policy.path);
     fs.writeFileSync(policyPath, "(version 1)\n(allow default)\n");
     finalized.bindings.policy.sha256 = `sha256:${crypto
       .createHash("sha256")
@@ -274,15 +276,14 @@ test("sandbox attestation revalidates policy semantics instead of trusting file 
     assert.match(
       validateOracleIsolationEvidence({
         isolation: finalized,
-        rootDir: ROOT,
+        rootDir,
         runId: runIdentity.run_id,
       }).join("\n"),
       /policy must deny the Git boundary and allow only the exact run/
     );
   } finally {
     prepared.cleanup();
-    fs.rmSync(runDir, { recursive: true, force: true });
-    fs.rmSync(isolationDir, { recursive: true, force: true });
+    fs.rmSync(rootDir, { recursive: true, force: true });
   }
 });
 
