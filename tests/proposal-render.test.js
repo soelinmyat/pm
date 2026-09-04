@@ -74,6 +74,44 @@ test("generated proposal reader passes the shared offline artifact contract", ()
   assert.equal(result.metadata.source.sha256, rendered.source_sha256);
 });
 
+test("UI proposals surface their approved prototype without embedding executable content", () => {
+  const input = source();
+  input.proposal.design_context.prototype = {
+    path: "pm/backlog/wireframes/structured-groom.html",
+    sha256: `sha256:${"b".repeat(64)}`,
+  };
+  const rendered = renderProposal(input.proposal, {
+    sourceBytes: Buffer.from(`${JSON.stringify(input.proposal, null, 2)}\n`),
+    sourcePath: "pm/backlog/proposals/structured-groom.json",
+    htmlPath: "pm/backlog/proposals/structured-groom.html",
+    version: "test",
+  });
+
+  assert.match(rendered.html, /<figure class="hero-prototype"/);
+  assert.match(rendered.html, /href="\.\.\/wireframes\/structured-groom\.html"/);
+  assert.match(rendered.html, /Bound interaction prototype/);
+  assert.match(rendered.html, /draft · reviewed · approved · stale approval/);
+  assert.doesNotMatch(rendered.html, /<iframe\b/i);
+  assert.doesNotMatch(rendered.html, /<script[^>]+src=/i);
+  const inspected = inspectHtmlArtifact(Buffer.from(rendered.html), { expectedKind: "proposal" });
+  assert.equal(inspected.ok, true, JSON.stringify(inspected.issues));
+});
+
+test("proposal tables carry mobile row labels for a readable stacked layout", () => {
+  const input = source();
+  const rendered = renderProposal(input.proposal, {
+    sourceBytes: input.bytes,
+    sourcePath: "pm/backlog/proposals/structured-groom.json",
+    version: "test",
+  });
+
+  assert.match(rendered.html, /<td data-label="Field">Scope<\/td>/);
+  assert.match(
+    rendered.html,
+    /<td data-label="Contract">A strict proposal schema and checker\.<\/td>/
+  );
+});
+
 test("post-approval lifecycle readers preserve approval and show the current state", () => {
   for (const lifecycle of ["planned", "in-progress", "done"]) {
     const input = source();

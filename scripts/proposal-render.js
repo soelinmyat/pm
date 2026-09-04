@@ -42,9 +42,10 @@ function renderProposal(proposal, options = {}) {
   const sourceSha256 = proposalBytesHash(sourceBytes);
   const contentSha256 = proposalContentHash(proposal);
   const sourcePath = options.sourcePath || `pm/backlog/proposals/${proposal.slug}.json`;
+  const htmlPath = options.htmlPath || sourcePath.replace(/\.json$/i, ".html");
   const version = options.version || readVersion();
   return {
-    html: renderHtml(proposal, { sourcePath, sourceSha256, contentSha256, version }),
+    html: renderHtml(proposal, { sourcePath, htmlPath, sourceSha256, contentSha256, version }),
     markdown: renderMarkdown(proposal, { sourcePath, sourceSha256, contentSha256 }),
     source_sha256: sourceSha256,
     content_sha256: contentSha256,
@@ -166,6 +167,7 @@ function renderHtml(proposal, identity) {
 <main class="page" id="content">
   <header class="masthead"><span class="masthead-id">${h(proposal.id)}</span><div class="masthead-meta"><span class="status-mark" data-pm-lifecycle>${h(approval)}</span><span>Revision ${proposal.revision}</span><span>Priority ${h(proposal.priority)}</span><span>Size ${h(proposal.size)}</span></div></header>
   <div class="title-block"><h1>${h(proposal.title)}</h1><p class="lede">${h(proposal.outcome)}</p></div>
+  ${prototypeHeroHtml(proposal, identity)}
   <div class="tldr"><dl><dt>For</dt><dd>${h(proposal.audience.map((item) => item.name).join(", "))}</dd><dt>What</dt><dd>${h(proposal.decision_brief.recommendation)}</dd><dt>Why now</dt><dd>${h(proposal.decision_brief.why_now)}</dd></dl></div>
   <section class="decision-brief" id="decision-brief"><h2><span class="sec-num">00</span>Decision Brief</h2><p>${h(proposal.decision_brief.recommendation)}</p></section>
   <section class="execution-contract" id="execution-contract"><div class="execution-contract-label">Execution Contract</div>${tableHtml(["Field", "Contract"], contractRows)}</section>
@@ -315,6 +317,7 @@ function main(argv = process.argv.slice(2)) {
         .relative(projectRoot, path.resolve(options.proposal))
         .split(path.sep)
         .join("/"),
+      htmlPath: path.relative(projectRoot, htmlPath).split(path.sep).join("/"),
     });
     writeTextAtomic(htmlPath, rendered.html, { fileMode: 0o644 });
     writeTextAtomic(markdownPath, rendered.markdown, { fileMode: 0o644 });
@@ -385,7 +388,25 @@ function section(id, numeral, title, body) {
   return `<section id="${id}"><h2><span class="sec-num">${numeral}</span>${h(title)}</h2>${body}</section>`;
 }
 function tableHtml(headers, rows) {
-  return `<table><thead><tr>${headers.map((item) => `<th>${h(item)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((item) => `<td>${h(item)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+  return `<table data-responsive="true"><thead><tr>${headers.map((item) => `<th>${h(item)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((item, index) => `<td data-label="${h(headers[index] || "Value")}">${h(item)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+}
+function prototypeHeroHtml(proposal, identity) {
+  const prototype = proposal.design_context?.prototype;
+  if (!prototype) return "";
+  const outputDirectory = path.posix.dirname(String(identity.htmlPath).replace(/\\/g, "/"));
+  const href =
+    path.posix.relative(outputDirectory, prototype.path) || path.posix.basename(prototype.path);
+  const prototypeName = path.posix.basename(prototype.path, path.posix.extname(prototype.path));
+  const criticalStates = proposal.design_context.critical_states.join(" · ");
+  return `<figure class="hero-prototype">
+    <div class="hero-prototype-header"><span class="hero-prototype-label">Bound interaction prototype</span><span class="hero-prototype-fig">Design evidence</span></div>
+    <div class="hero-prototype-frame-wrap"><div class="hero-prototype-preview" role="group" aria-label="Prototype summary for ${h(proposal.title)}"><strong class="hero-prototype-title">${h(prototypeName)}</strong><span class="hero-prototype-summary">Open the approved flow and inspect every critical state.</span></div></div>
+    <figcaption class="hero-prototype-footer"><span><span class="hero-prototype-screens-label">Critical states</span>${h(criticalStates)}</span><a class="hero-prototype-link" href="${h(encodeRepoHref(href))}" target="_blank" rel="noopener">Open prototype →</a></figcaption>
+    <p class="hero-prototype-note">Source-bound to <code>${h(prototype.sha256)}</code>.</p>
+  </figure>`;
+}
+function encodeRepoHref(value) {
+  return value.split("/").map(encodeURIComponent).join("/");
 }
 function evidenceHtml(proposal) {
   return proposal.evidence
