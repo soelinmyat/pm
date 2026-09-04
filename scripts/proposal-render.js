@@ -187,10 +187,10 @@ function renderHtml(proposal, identity) {
   <header class="masthead"><span class="masthead-id">${h(proposal.id)}</span><div class="masthead-meta"><a class="status-mark" data-pm-lifecycle href="#decision-action" aria-label="${h(approval)}; go to decision status">${h(approval)}</a><span>Revision ${proposal.revision}</span><span>Priority ${h(proposal.priority)}</span><span>Size ${h(proposal.size)}</span></div></header>
   <div class="title-block"><h1>${h(proposal.title)}</h1><p class="lede">${h(proposal.outcome)}</p></div>
   ${prototypeHeroHtml(proposal, identity)}
-  <div class="tldr"><dl><dt>For</dt><dd>${h(proposal.audience.map((item) => item.name).join(", "))}</dd><dt>What</dt><dd>${h(proposal.decision_brief.recommendation)}</dd><dt>Why now</dt><dd>${h(proposal.decision_brief.why_now)}</dd></dl></div>
-  <section class="decision-brief" id="decision-brief"><h2><span class="sec-num">00</span>Decision Brief</h2><p>${h(proposal.decision_brief.recommendation)}</p></section>
-  <section class="execution-contract" id="execution-contract"><div class="execution-contract-label">Execution Contract</div>${tableHtml(["Field", "Contract"], contractRows)}</section>
   ${decisionActionHtml(proposal, identity)}
+  <div class="tldr"><dl><dt>For</dt><dd>${h(proposal.audience.map((item) => item.name).join(", "))}</dd><dt>What</dt><dd>${h(proposal.decision_brief.recommendation)}</dd><dt>Why now</dt><dd>${h(proposal.decision_brief.why_now)}</dd></dl></div>
+  <section class="decision-brief" id="decision-brief"><h2><span class="sec-num" aria-hidden="true">00</span>Decision Brief</h2><p>${h(proposal.decision_brief.recommendation)}</p></section>
+  <section class="execution-contract" id="execution-contract"><div class="execution-contract-label">Execution Contract</div>${tableHtml(["Field", "Contract"], contractRows)}</section>
   <details class="appendix-disclosure" open><summary><span>Detailed evidence &amp; delivery appendix</span><span class="appendix-disclosure-meta"><span class="appendix-disclosure-meta-open">12 sections · collapse to focus</span><span class="appendix-disclosure-meta-closed">12 sections · expand for evidence</span></span></summary><nav class="toc" aria-label="Proposal sections">${tocHtml()}</nav><div id="appendix">${sections}</div></details>
   <footer><span>Content ${h(identity.contentSha256.slice(0, 22))}…</span><span>Source revision ${proposal.revision}</span></footer>
 </main>
@@ -496,7 +496,7 @@ function listHtml(items) {
   return `<ul>${items.map((item) => `<li>${h(item)}</li>`).join("")}</ul>`;
 }
 function section(id, numeral, title, body) {
-  return `<section id="${id}"><h2><span class="sec-num">${numeral}</span>${h(title)}</h2>${body}</section>`;
+  return `<section id="${id}"><h2><span class="sec-num" aria-hidden="true">${numeral}</span>${h(title)}</h2>${body}</section>`;
 }
 function tableHtml(headers, rows) {
   return `<table data-responsive="true" aria-label="${h(headers.join(" and "))}"><thead><tr>${headers.map((item) => `<th>${h(item)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((item, index) => `<td data-label="${h(headers[index] || "Value")}">${h(item)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
@@ -550,7 +550,7 @@ function requirementsHtml(proposal) {
   return proposal.acceptance_criteria
     .map(
       (item, index) =>
-        `<div class="usecase"><div class="usecase-title"><span class="usecase-num">${String(index + 1).padStart(2, "0")}</span>${h(item.id)}</div><dl><dt>Given</dt><dd>${h(item.given)}</dd><dt>When</dt><dd>${h(item.when)}</dd><dt>Then</dt><dd>${h(item.then)}</dd></dl></div>`
+        `<div class="usecase"><div class="usecase-title"><span class="usecase-num" aria-hidden="true">${String(index + 1).padStart(2, "0")}</span>${h(item.id)}</div><dl><dt>Given</dt><dd>${h(item.given)}</dd><dt>When</dt><dd>${h(item.when)}</dd><dt>Then</dt><dd>${h(item.then)}</dd></dl></div>`
     )
     .join("");
 }
@@ -630,8 +630,8 @@ function reviewAnswersHtml(proposal) {
           )
         : listHtml((item.evidence_refs || []).map((entry) => `Evidence reference: ${entry}`));
       const answer = Object.hasOwn(item, "conclusion")
-        ? `<p class="open-q-rec"><strong>Conclusion.</strong> ${h(item.conclusion)}</p><p><strong>Rationale.</strong> ${h(item.rationale)}</p><p><strong>Confidence.</strong> ${h(sentenceCase(item.confidence))} · <strong>Outcome.</strong> ${h(sentenceCase(item.outcome))}</p>`
-        : `<p class="open-q-rec"><strong>Outcome.</strong> ${h(sentenceCase(item.outcome))}</p><p>Legacy review record; no retained conclusion or rationale.</p>`;
+        ? `<p class="open-q-rec"><strong>Conclusion.</strong> ${h(item.conclusion)}</p><p><strong>Rationale.</strong> ${h(item.rationale)}</p><p><strong>Confidence.</strong> ${h(sentenceCase(item.confidence))} · <strong>Question result.</strong> ${h(sentenceCase(item.outcome))}</p>`
+        : `<p class="open-q-rec"><strong>Question result.</strong> ${h(sentenceCase(item.outcome))}</p><p>Legacy review record; no retained conclusion or rationale.</p>`;
       const finding = item.finding ? `<p><strong>Finding.</strong> ${h(item.finding)}</p>` : "";
       return `<article class="open-q"><div class="open-q-q">${h(item.question)}</div>${answer}<div><strong>Evidence.</strong>${evidence}</div>${finding}</article>`;
     })
@@ -650,9 +650,9 @@ function reviewAnswersMarkdown(proposal) {
             .join("\n")
         : (item.evidence_refs || []).map((entry) => `  - \`${entry}\``).join("\n");
       if (!Object.hasOwn(item, "conclusion")) {
-        return `### ${item.question}\n\n- **Outcome:** ${sentenceCase(item.outcome)}\n- **Evidence:**\n${evidence}\n- Legacy review record; no retained conclusion or rationale.`;
+        return `### ${item.question}\n\n- **Question result:** ${sentenceCase(item.outcome)}\n- **Evidence:**\n${evidence}\n- Legacy review record; no retained conclusion or rationale.`;
       }
-      return `### ${item.question}\n\n- **Conclusion:** ${item.conclusion}\n- **Rationale:** ${item.rationale}\n- **Confidence:** ${sentenceCase(item.confidence)}\n- **Outcome:** ${sentenceCase(item.outcome)}\n- **Evidence:**\n${evidence}${item.finding ? `\n- **Finding:** ${item.finding}` : ""}`;
+      return `### ${item.question}\n\n- **Conclusion:** ${item.conclusion}\n- **Rationale:** ${item.rationale}\n- **Confidence:** ${sentenceCase(item.confidence)}\n- **Question result:** ${sentenceCase(item.outcome)}\n- **Evidence:**\n${evidence}${item.finding ? `\n- **Finding:** ${item.finding}` : ""}`;
     })
     .join("\n\n");
 }
@@ -675,8 +675,21 @@ function decisionActionHtml(proposal, identity) {
     title = "Review must finish before approval";
     guidance = `Resume <code>/pm:groom ${h(proposal.slug)}</code> to complete review or revise this draft. Draft status never implies approval.`;
   }
-  const integrity = `Approval applies only to revision <strong>${proposal.revision}</strong> and content <code>${h(identity.contentSha256)}</code>. Any substantive edit makes that approval stale.`;
-  return `<aside class="decision-action" id="decision-action" aria-label="Decision status"><div class="decision-action-label">Decision status</div><div class="decision-action-title">${title}</div><p>${guidance}</p><p class="decision-integrity">${integrity}</p></aside>`;
+  const proposalState = sentenceCase(String(proposal.lifecycle).replaceAll("-", " "));
+  const reviewState = sentenceCase(proposal.review?.status || "unknown");
+  const approvalState = postApprovalLifecycle
+    ? identity.actuallyVerifiedApproval
+      ? "Verified"
+      : "Verification required"
+    : proposal.lifecycle === "reviewed"
+      ? "Pending"
+      : "Blocked";
+  const integrity = `Approval applies only to revision <strong>${proposal.revision}</strong> and content <code title="Full content identity: ${h(identity.contentSha256)}">${h(abbreviatedSha(identity.contentSha256))}</code>. Any substantive edit makes that approval stale.`;
+  return `<aside class="decision-action" id="decision-action" aria-label="Decision status"><div class="decision-action-label">Decision status</div><p class="decision-state-summary"><span>Proposal <strong>${h(proposalState)}</strong></span><span>Review <strong>${h(reviewState)}</strong></span><span>Approval <strong>${h(approvalState)}</strong></span></p><div class="decision-action-title">${title}</div><p>${guidance}</p><p class="decision-integrity">${integrity}</p></aside>`;
+}
+function abbreviatedSha(value) {
+  const text = String(value || "");
+  return /^sha256:[a-f0-9]{64}$/.test(text) ? `${text.slice(0, 15)}…${text.slice(-8)}` : text;
 }
 function tocHtml() {
   const groups = [
@@ -717,7 +730,10 @@ function tocHtml() {
     .map(
       ([group, links]) =>
         `<div class="toc-group"><span class="toc-group-label">${group}</span>${links
-          .map(([id, n, label]) => `<a href="#${id}"><span class="toc-num">${n}</span>${label}</a>`)
+          .map(
+            ([id, n, label]) =>
+              `<a href="#${id}"><span class="toc-num" aria-hidden="true">${n}</span>${label}</a>`
+          )
           .join("")}</div>`
     )
     .join("");

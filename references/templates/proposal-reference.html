@@ -264,8 +264,8 @@
   .toc a:hover { color: var(--accent); }
   .toc-num {
     font-family: var(--mono);
-    font-size: 0.7rem;
-    color: var(--ink-4);
+    font-size: 0.75rem;
+    color: var(--ink-2);
     margin-right: 0.6em;
     letter-spacing: 0.04em;
   }
@@ -289,8 +289,8 @@
   }
   h2 .sec-num {
     font-family: var(--mono);
-    font-size: 0.75rem;
-    color: var(--ink-4);
+    font-size: 0.78rem;
+    color: var(--ink-2);
     font-weight: 400;
     letter-spacing: 0.04em;
     flex-shrink: 0;
@@ -433,7 +433,7 @@
   .usecase-num {
     font-family: var(--mono);
     font-size: 0.78rem;
-    color: var(--ink-4);
+    color: var(--ink-2);
     flex-shrink: 0;
     letter-spacing: 0.04em;
   }
@@ -559,7 +559,7 @@
   .open-q-num {
     font-family: var(--mono);
     font-size: 0.78rem;
-    color: var(--ink-4);
+    color: var(--ink-2);
     flex-shrink: 0;
   }
   .open-q-rec {
@@ -679,7 +679,7 @@
     background: var(--accent-bg);
   }
   .decision-action {
-    margin-top: var(--space-6);
+    margin: 0 0 var(--space-6);
     padding: var(--space-5);
     border: 1px solid color-mix(in oklch, var(--accent) 28%, var(--rule));
     border-left: 4px solid var(--accent);
@@ -702,6 +702,18 @@
     font-weight: 600;
     line-height: 1.35;
   }
+  .decision-state-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-4);
+    margin-bottom: var(--space-3);
+    padding-bottom: var(--space-3);
+    border-bottom: 1px solid color-mix(in oklch, var(--accent) 18%, var(--rule));
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    color: var(--ink-2);
+  }
+  .decision-state-summary strong { color: var(--ink); }
   .decision-action p { color: var(--ink-2); font-size: 0.95rem; }
   .decision-action p + p { margin-top: var(--space-2); }
   .decision-action code { color: var(--accent); background: transparent; font-weight: 600; }
@@ -858,6 +870,14 @@
     <p class="hero-prototype-note">Lo-fi by intent — fidelity comes during implementation when real components are wired in.</p>
   </figure>
 
+  <aside class="decision-action" id="decision-action" aria-label="Decision status">
+    <div class="decision-action-label">Decision status</div>
+    <p class="decision-state-summary"><span>Proposal <strong>Reviewed</strong></span><span>Review <strong>Passed</strong></span><span>Approval <strong>Pending</strong></span></p>
+    <div class="decision-action-title">Your approval is the next step</div>
+    <p>Return to the active PM conversation and reply <strong>“Approve this proposal for technical design”</strong>, or describe the changes you want. If you are reopening it later, resume <code>/pm:groom multi-language-support</code>.</p>
+    <p class="decision-integrity">Approval applies only to revision <strong>1</strong> and its exact semantic content. Any substantive edit makes that approval stale.</p>
+  </aside>
+
   <!-- TL;DR -->
   <div class="tldr">
     <dl>
@@ -867,27 +887,20 @@
     </dl>
   </div>
 
-  <aside class="decision-action" id="decision-action" aria-label="Decision status">
-    <div class="decision-action-label">Decision status</div>
-    <div class="decision-action-title">Your approval is the next step</div>
-    <p>Return to the active PM conversation and reply <strong>“Approve this proposal for technical design”</strong>, or describe the changes you want. If you are reopening it later, resume <code>/pm:groom multi-language-support</code>.</p>
-    <p class="decision-integrity">Approval applies only to revision <strong>1</strong> and its exact semantic content. Any substantive edit makes that approval stale.</p>
-  </aside>
-
   <details class="appendix-disclosure" open>
     <summary><span>Detailed evidence &amp; delivery appendix</span><span class="appendix-disclosure-meta"><span class="appendix-disclosure-meta-open">12 sections · collapse to focus</span><span class="appendix-disclosure-meta-closed">12 sections · expand for evidence</span></span></summary>
 
   <!-- TOC -->
   <nav class="toc" aria-label="Sections">
-    <div class="toc-group"><span class="toc-group-label">Understand</span><a href="#problem"><span class="toc-num">I</span>Problem</a><a href="#jtbd"><span class="toc-num">II</span>Users &amp; JTBD</a></div>
-    <div class="toc-group"><span class="toc-group-label">Define</span><a href="#usecases"><span class="toc-num">III</span>Use Cases</a><a href="#scope"><span class="toc-num">IV</span>Scope</a><a href="#requirements"><span class="toc-num">V</span>Requirements</a><a href="#edge"><span class="toc-num">VI</span>Edge Cases</a><a href="#flow"><span class="toc-num">VII</span>Flow</a></div>
-    <div class="toc-group"><span class="toc-group-label">Challenge</span><a href="#competitive"><span class="toc-num">VIII</span>Competitive</a><a href="#feasibility"><span class="toc-num">IX</span>Feasibility</a><a href="#open-q"><span class="toc-num">X</span>Open Questions</a></div>
-    <div class="toc-group"><span class="toc-group-label">Decide</span><a href="#metrics"><span class="toc-num">XI</span>Metrics</a><a href="#status"><span class="toc-num">XII</span>Status</a></div>
+    <div class="toc-group"><span class="toc-group-label">Understand</span><a href="#problem"><span class="toc-num" aria-hidden="true">I</span>Problem</a><a href="#jtbd"><span class="toc-num" aria-hidden="true">II</span>Users &amp; JTBD</a></div>
+    <div class="toc-group"><span class="toc-group-label">Define</span><a href="#usecases"><span class="toc-num" aria-hidden="true">III</span>Use Cases</a><a href="#scope"><span class="toc-num" aria-hidden="true">IV</span>Scope</a><a href="#requirements"><span class="toc-num" aria-hidden="true">V</span>Requirements</a><a href="#edge"><span class="toc-num" aria-hidden="true">VI</span>Edge Cases</a><a href="#flow"><span class="toc-num" aria-hidden="true">VII</span>Flow</a></div>
+    <div class="toc-group"><span class="toc-group-label">Challenge</span><a href="#competitive"><span class="toc-num" aria-hidden="true">VIII</span>Competitive</a><a href="#feasibility"><span class="toc-num" aria-hidden="true">IX</span>Feasibility</a><a href="#open-q"><span class="toc-num" aria-hidden="true">X</span>Open Questions</a></div>
+    <div class="toc-group"><span class="toc-group-label">Decide</span><a href="#metrics"><span class="toc-num" aria-hidden="true">XI</span>Metrics</a><a href="#status"><span class="toc-num" aria-hidden="true">XII</span>Status</a></div>
   </nav>
 
   <!-- ─── I. Problem ─── -->
   <section id="problem">
-    <h2><span class="sec-num">I</span>Problem &amp; Context</h2>
+    <h2><span class="sec-num" aria-hidden="true">I</span>Problem &amp; Context</h2>
     <p class="lead">Non-English-speaking users bounce at onboarding because every label, tooltip, and help string is hardcoded in English.</p>
     <p>28% of trial signups come from non-English markets but only 4% convert — a 7x gap vs. English users. The strategic driver is geographic expansion (Q2 priority). Competitors Acme and Globex already ship 5+ languages; we're losing deals to localized alternatives in LATAM and APAC.</p>
     <div class="annotation">
@@ -898,7 +911,7 @@
 
   <!-- ─── II. Users & JTBD ─── -->
   <section id="jtbd">
-    <h2><span class="sec-num">II</span>Users &amp; Job to be Done</h2>
+    <h2><span class="sec-num" aria-hidden="true">II</span>Users &amp; Job to be Done</h2>
 
     <div class="annotation annotation-jtbd">
       <span class="annotation-label">Primary JTBD</span>
@@ -921,12 +934,12 @@
 
   <!-- ─── III. Use Cases ─── -->
   <section id="usecases">
-    <h2><span class="sec-num">III</span>Use Cases</h2>
+    <h2><span class="sec-num" aria-hidden="true">III</span>Use Cases</h2>
     <p class="lead">Top three user scenarios — ranked by frequency.</p>
 
     <div class="usecases">
       <div class="usecase">
-        <div class="usecase-title"><span class="usecase-num">01</span>Switch language during first session</div>
+        <div class="usecase-title"><span class="usecase-num" aria-hidden="true">01</span>Switch language during first session</div>
         <dl>
           <dt>Trigger</dt><dd>User opens Settings → Language</dd>
           <dt>Action</dt><dd>Picker shows English / Spanish / Japanese; selection persists per-user</dd>
@@ -935,7 +948,7 @@
       </div>
 
       <div class="usecase">
-        <div class="usecase-title"><span class="usecase-num">02</span>Browser-locale auto-detection on signup</div>
+        <div class="usecase-title"><span class="usecase-num" aria-hidden="true">02</span>Browser-locale auto-detection on signup</div>
         <dl>
           <dt>Trigger</dt><dd>New user lands on signup page with non-English browser locale</dd>
           <dt>Action</dt><dd>Page renders in detected language; banner offers to switch if mis-detected</dd>
@@ -944,7 +957,7 @@
       </div>
 
       <div class="usecase">
-        <div class="usecase-title"><span class="usecase-num">03</span>User-generated content stays in original language</div>
+        <div class="usecase-title"><span class="usecase-num" aria-hidden="true">03</span>User-generated content stays in original language</div>
         <dl>
           <dt>Trigger</dt><dd>User writes a note in Japanese, then switches UI to English</dd>
           <dt>Action</dt><dd>Chrome translates; content stays Japanese</dd>
@@ -956,7 +969,7 @@
 
   <!-- ─── IV. Scope ─── -->
   <section id="scope">
-    <h2><span class="sec-num">IV</span>Scope <span style="font-family:var(--sans); font-size:0.78rem; color:var(--ink-3); font-weight:400; letter-spacing:0">— Phase 1</span></h2>
+    <h2><span class="sec-num" aria-hidden="true">IV</span>Scope <span style="font-family:var(--sans); font-size:0.78rem; color:var(--ink-3); font-weight:400; letter-spacing:0">— Phase 1</span></h2>
 
     <div class="scope">
       <div class="scope-col">
@@ -982,7 +995,7 @@
 
   <!-- ─── V. Functional Requirements ─── -->
   <section id="requirements">
-    <h2><span class="sec-num">V</span>Functional Requirements</h2>
+    <h2><span class="sec-num" aria-hidden="true">V</span>Functional Requirements</h2>
     <p class="lead">What each in-scope item must support, grouped by scope item.</p>
 
     <h3>1 · i18n framework</h3>
@@ -1017,7 +1030,7 @@
 
   <!-- ─── VI. Edge Cases ─── -->
   <section id="edge">
-    <h2><span class="sec-num">VI</span>Edge Cases &amp; Constraints</h2>
+    <h2><span class="sec-num" aria-hidden="true">VI</span>Edge Cases &amp; Constraints</h2>
     <p class="lead">Boundary conditions and failure modes — each must have a defined handling.</p>
 
     <table>
@@ -1051,7 +1064,7 @@
 
   <!-- ─── VII. Flow ─── -->
   <section id="flow">
-    <h2><span class="sec-num">VII</span>User Flow</h2>
+    <h2><span class="sec-num" aria-hidden="true">VII</span>User Flow</h2>
     <div class="diagram">
       <pre class="diagram-text" aria-label="Delivery sequence diagram">
 flowchart TD
@@ -1072,7 +1085,7 @@ flowchart TD
 
   <!-- ─── VIII. Competitive ─── -->
   <section id="competitive">
-    <h2><span class="sec-num">VIII</span>Competitive Context</h2>
+    <h2><span class="sec-num" aria-hidden="true">VIII</span>Competitive Context</h2>
     <table>
       <thead>
         <tr><th>Tool</th><th>Languages</th><th>Approach</th></tr>
@@ -1091,7 +1104,7 @@ flowchart TD
 
   <!-- ─── IX. Feasibility ─── -->
   <section id="feasibility">
-    <h2><span class="sec-num">IX</span>Technical Feasibility</h2>
+    <h2><span class="sec-num" aria-hidden="true">IX</span>Technical Feasibility</h2>
     <p class="lead"><strong>Verdict:</strong> Feasible.</p>
     <p><strong>Build on:</strong> existing React component library, user profile schema, settings page infrastructure.</p>
     <p><strong>Build new:</strong> ICU MessageFormat integration, locale file structure, translation vendor pipeline, lint rule for hardcoded strings.</p>
@@ -1100,17 +1113,17 @@ flowchart TD
 
   <!-- ─── X. Open Questions ─── -->
   <section id="open-q">
-    <h2><span class="sec-num">X</span>Open Questions</h2>
+    <h2><span class="sec-num" aria-hidden="true">X</span>Open Questions</h2>
     <p class="lead">Decisions not yet made. Each carries a recommended answer.</p>
 
     <div class="open-q">
-      <div class="open-q-q"><span class="open-q-num">01</span>Do we ship all three languages at GA, or roll out one at a time?</div>
+      <div class="open-q-q"><span class="open-q-num" aria-hidden="true">01</span>Do we ship all three languages at GA, or roll out one at a time?</div>
       <p class="open-q-rec"><strong>Recommendation:</strong> ship all three at GA. Reduces "is X supported?" support load; sales motion is cleaner.</p>
       <div class="open-q-meta"><span><strong>Owner</strong>Product</span><span><strong>By</strong>Pre-GA cut</span></div>
     </div>
 
     <div class="open-q">
-      <div class="open-q-q"><span class="open-q-num">02</span>How do we source translations long-term?</div>
+      <div class="open-q-q"><span class="open-q-num" aria-hidden="true">02</span>How do we source translations long-term?</div>
       <p class="open-q-rec"><strong>Recommendation:</strong> Phase 1 uses a professional vendor; Phase 2 introduces an in-app contribution flow for community languages.</p>
       <div class="open-q-meta"><span><strong>Owner</strong>Engineering</span><span><strong>By</strong>Phase 2 kickoff</span></div>
     </div>
@@ -1136,7 +1149,7 @@ flowchart TD
 
   <!-- ─── XI. Metrics ─── -->
   <section id="metrics">
-    <h2><span class="sec-num">XI</span>Success Metrics</h2>
+    <h2><span class="sec-num" aria-hidden="true">XI</span>Success Metrics</h2>
     <table>
       <thead>
         <tr><th>Metric</th><th>Baseline</th><th>Target</th><th>By</th></tr>
@@ -1152,7 +1165,7 @@ flowchart TD
 
   <!-- ─── XII. Status ─── -->
   <section id="status">
-    <h2><span class="sec-num">XII</span>Status &amp; Next Steps</h2>
+    <h2><span class="sec-num" aria-hidden="true">XII</span>Status &amp; Next Steps</h2>
 
     <div class="pipeline">
       <div class="pipeline-row"><div class="pipeline-step">Intake</div><div class="pipeline-verdict">Greenfield; clear strategic alignment</div></div>

@@ -76,15 +76,28 @@ test("proposal renderer is byte-deterministic and binds both projections to cano
   assert.match(first.html, /12 sections · collapse to focus/);
   assert.match(first.html, /12 sections · expand for evidence/);
   assert.match(first.html, /Review must finish before approval/);
+  assert.ok(first.html.indexOf('id="decision-action"') < first.html.indexOf('class="tldr"'));
+  assert.match(
+    first.html,
+    /Proposal <strong>Draft<\/strong>[\s\S]*Review <strong>Pending<\/strong>[\s\S]*Approval <strong>Blocked<\/strong>/
+  );
   assert.match(first.html, /data-pm-lifecycle href="#decision-action"/);
   assert.match(first.html, /Draft status never implies approval/);
   assert.match(first.html, /Approval applies only to revision <strong>1<\/strong>/);
+  assert.match(
+    first.html,
+    /title="Full content identity: sha256:[a-f0-9]{64}">sha256:[a-f0-9]{8}…[a-f0-9]{8}<\/code>/
+  );
   assert.match(first.html, /\.masthead \{[\s\S]*position: sticky/);
   assert.match(first.html, /\.masthead-meta \{[\s\S]*grid-template-columns: repeat\(2/);
   assert.match(first.html, /aria-label="Field and Contract"/);
+  assert.match(first.html, /<span class="toc-num" aria-hidden="true">I<\/span>Problem/);
+  assert.match(first.html, /<span class="sec-num" aria-hidden="true">00<\/span>Decision Brief/);
+  assert.match(first.html, /\.toc-num\s*\{[^}]*color:\s*var\(--ink-2\)/s);
   assert.match(first.html, /code\s*\{[^}]*overflow-wrap:\s*anywhere;[^}]*word-break:\s*normal;/s);
   assert.doesNotMatch(first.html, /approval\.:/i);
-  assert.match(first.html, /<strong>Outcome\.<\/strong> Pass/);
+  assert.match(first.html, /<strong>Question result\.<\/strong> Pass/);
+  assert.match(first.markdown, /\*\*Question result:\*\* Pass/);
   assert.match(first.markdown, /### Critical states/);
   assert.match(first.markdown, /### UI impact/);
   assert.match(first.markdown, /Visual UI change/);
