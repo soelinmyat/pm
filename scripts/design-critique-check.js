@@ -22,7 +22,19 @@ const OUTCOMES = new Set(["passed", "failed", "blocked", "deferred"]);
 const PRIORITIES = new Set(["P0", "P1", "P2", "P3"]);
 const FINDING_STATUSES = new Set(["open", "resolved", "deferred", "dismissed"]);
 const VIEWPORTS = new Set(["desktop", "tablet", "narrow", "device", "print"]);
-const STATES = new Set(["primary", "empty", "error", "boundary", "responsive", "print"]);
+const PRODUCT_UI_STATES = Object.freeze([
+  "primary",
+  "empty",
+  "error",
+  "boundary",
+  "loading",
+  "success",
+  "focus",
+  "disabled",
+  "keyboard",
+  "modal",
+]);
+const STATES = new Set([...PRODUCT_UI_STATES, "responsive", "print"]);
 const MAX_EVIDENCE_BYTES = 64 * 1024 * 1024;
 const MAX_JSON_BYTES = 4 * 1024 * 1024;
 const MAX_CACHE_BYTES = 256 * 1024 * 1024;
@@ -263,7 +275,7 @@ function validateCoverage(route, subjectIds, issues) {
     const required = (state, viewport) =>
       rows.some((item) => item.state === state && item.viewport === viewport && item.required);
     if (route.mode === "product-ui") {
-      for (const state of ["primary", "empty", "error", "boundary"])
+      for (const state of PRODUCT_UI_STATES)
         if (!rows.some((item) => item.state === state))
           add(issues, `route.coverage.${subject.id}`, `must decide applicability for ${state}`);
       if (!required("primary", "desktop") && subject.platform === "web")

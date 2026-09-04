@@ -26,7 +26,7 @@ Produce one validated, commit-linked RFC HTML/JSON artifact pair whose execution
 
 1. Read the canonical session and only the input paths saved during intake. Follow `writing-rfcs.md` and `generation-contract.md`; the former owns document quality and stable artifact rules, while the latter owns execution packet and result requirements.
 2. Map relevant code before choosing architecture. Cite exact files and commands. Do not invent product decisions missing from the proposal; preserve them as explicit open questions.
-3. Decompose work into independently testable issues with dependencies, owned files, AC traces, and Test hooks. Use raw sub-issue design/spec review only when existing proposal detail is insufficient; do not spawn one worker per trivial issue.
+3. Decompose work into independently testable issues with dependencies, owned files, AC traces, and Test hooks. For UI work, copy the approved design handoff into one closed `design_context`: design requirements, prototype path and SHA-256 identity (or explicit `null`), critical states, and visual invariants. Preserve those values verbatim instead of weakening or reconstructing them. Use raw sub-issue design/spec review only when existing proposal detail is insufficient; do not spawn one worker per trivial issue.
 4. Build the current-phase packet with `scripts/rfc-prompt.js`. Use the resolved runtime/model/reasoning/mode in `session.execution`; it is validated from `references/model-profiles.json`, not prompt coaching. Run inline for a cohesive RFC; delegate one bounded writer only when isolation materially helps.
 5. Enforce the **Layered artifact requirements** and **Stable HTML contract** and generate the HTML: Decision Brief, Execution Contract, Appendix, architecture/decisions/risks, complete Test Strategy, issue cards, resolved questions, and change log. Preserve `id="execution-contract"` and all other stable anchors/classes.
 6. Generate the schema-v3 executable JSON sidecar from the same facts. Compute its SHA-256 and bind it to the HTML with `data-sidecar-hash`.
@@ -40,7 +40,7 @@ Produce one validated, commit-linked RFC HTML/JSON artifact pair whose execution
 
 - The HTML and sidecar exist, agree, and pass schema/hash/slug/count validation.
 - Decision Brief and Execution Contract satisfy their budgets and required content.
-- Every issue has size, dependencies, ACs, files, test hooks, and verification commands.
+- Every issue has size, dependencies, ACs, files, test hooks, and verification commands; applicable UI work retains its source-bound design context.
 - The artifact pair is committed together and its identity is recorded by the runner.
 
 **Advance:** proceed to Step 03 (RFC Review).

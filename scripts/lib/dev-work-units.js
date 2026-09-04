@@ -33,6 +33,13 @@ const RESULT_FIELDS = new Set([
   "runtime",
 ]);
 const TRANSITION_FIELDS = new Set(["from", "to", "reason", "commit", "recorded_at"]);
+const DESIGN_CONTEXT_FIELDS = new Set([
+  "design_requirements",
+  "prototype",
+  "critical_states",
+  "visual_invariants",
+]);
+const PROTOTYPE_FIELDS = new Set(["path", "sha256"]);
 
 function validateWorkUnits(units, options = {}) {
   if (!Array.isArray(units)) throw new TypeError("work units must be an array");
@@ -159,12 +166,18 @@ function validateTransition(unitId, transition, index) {
 
 function validateWorkUnitContract(contract, unitId) {
   if (!isObject(contract)) throw new TypeError(`work unit ${unitId} contract must be an object`);
-  const fields = ["acceptance_criteria", "approach", "verification_commands", "test_hooks"];
+  const fields = [
+    "acceptance_criteria",
+    "approach",
+    "verification_commands",
+    "test_hooks",
+    "design_context",
+  ];
   for (const field of Object.keys(contract)) {
     if (!fields.includes(field))
       throw new Error(`work unit ${unitId} contract has unknown field ${field}`);
   }
-  for (const field of fields) {
+  for (const field of fields.filter((name) => name !== "design_context")) {
     if (!Object.hasOwn(contract, field)) {
       throw new Error(`work unit ${unitId} contract requires ${field}`);
     }
@@ -180,6 +193,53 @@ function validateWorkUnitContract(contract, unitId) {
   if (!nonEmpty(contract.approach)) {
     throw new TypeError(`work unit ${unitId} contract approach is required`);
   }
+  if (contract.design_context !== undefined) {
+    validateDesignContext(contract.design_context, `work unit ${unitId} contract design_context`);
+  }
+}
+
+function validateDesignContext(context, label = "design_context") {
+  if (!isObject(context)) throw new TypeError(`${label} must be an object`);
+  for (const field of Object.keys(context)) {
+    if (!DESIGN_CONTEXT_FIELDS.has(field)) {
+      throw new Error(`${label} has unknown field ${field}`);
+    }
+  }
+  for (const field of DESIGN_CONTEXT_FIELDS) {
+    if (!Object.hasOwn(context, field)) throw new Error(`${label} requires ${field}`);
+  }
+  for (const field of ["design_requirements", "critical_states", "visual_invariants"]) {
+    const values = context[field];
+    if (!Array.isArray(values) || values.length === 0) {
+      throw new TypeError(`${label}.${field} must be a non-empty array`);
+    }
+    if (values.some((item) => !nonEmpty(item))) {
+      throw new TypeError(`${label}.${field} must contain non-empty strings`);
+    }
+    if (new Set(values).size !== values.length) {
+      throw new Error(`${label}.${field} must not contain duplicates`);
+    }
+  }
+  const prototype = context.prototype;
+  if (prototype === null) return context;
+  if (!isObject(prototype)) throw new TypeError(`${label}.prototype must be null or an object`);
+  for (const field of Object.keys(prototype)) {
+    if (!PROTOTYPE_FIELDS.has(field)) {
+      throw new Error(`${label}.prototype has unknown field ${field}`);
+    }
+  }
+  for (const field of PROTOTYPE_FIELDS) {
+    if (!Object.hasOwn(prototype, field)) throw new Error(`${label}.prototype requires ${field}`);
+  }
+  if (!nonEmpty(prototype.path)) throw new TypeError(`${label}.prototype.path is required`);
+  validateRepoRelativePattern(prototype.path, `${label}.prototype.path`);
+  if (hasGlob(prototype.path)) {
+    throw new Error(`${label}.prototype.path must identify one repo-relative file`);
+  }
+  if (!/^sha256:[a-f0-9]{64}$/.test(prototype.sha256 || "")) {
+    throw new Error(`${label}.prototype.sha256 must be a sha256:<64 lowercase hex> binding`);
+  }
+  return context;
 }
 
 function analyzeWorkUnits(units) {
@@ -489,6 +549,7 @@ module.exports = {
   narrowAuthority,
   ownershipOverlaps,
   validateOwnershipList,
+  validateDesignContext,
   validateRepoRelativePattern,
   validateWorkUnitResult,
   validateWorkUnits,

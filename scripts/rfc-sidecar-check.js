@@ -5,7 +5,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { issue, requireValue, printResult } = require("./lib/check-cli.js");
-const { validateRepoRelativePattern } = require("./lib/dev-work-units");
+const { validateDesignContext, validateRepoRelativePattern } = require("./lib/dev-work-units");
 
 // The RFC sidecar is the machine-readable twin of the human-render RFC HTML.
 // Machine consumers (dev intake, groom re-discovery, rfc review child cards)
@@ -34,6 +34,7 @@ const ALLOWED_TOP_KEYS = new Set([
   "size",
   "issues",
   "test_strategy",
+  "design_context",
 ]);
 const TEST_STRATEGY_FIELDS = [
   "test_levels",
@@ -54,7 +55,7 @@ function validateRfcSidecar(sidecar, sidecarPath = DEFAULT_SIDECAR_PATH, opts = 
     issues.push(issue(sidecarPath, `schema_version must equal 2 or ${SCHEMA_VERSION}`));
   }
   for (const key of Object.keys(sidecar)) {
-    if (!ALLOWED_TOP_KEYS.has(key)) {
+    if (!ALLOWED_TOP_KEYS.has(key) || (key === "design_context" && sidecar.schema_version !== 3)) {
       issues.push(issue(sidecarPath, `unknown field ${key}`));
     }
   }
@@ -69,6 +70,13 @@ function validateRfcSidecar(sidecar, sidecarPath = DEFAULT_SIDECAR_PATH, opts = 
   }
   validateIssues(sidecar.issues, sidecarPath, issues, sidecar.schema_version);
   validateTestStrategy(sidecar.test_strategy, sidecarPath, issues);
+  if (sidecar.schema_version === SCHEMA_VERSION && sidecar.design_context !== undefined) {
+    try {
+      validateDesignContext(sidecar.design_context, "design_context");
+    } catch (error) {
+      issues.push(issue(sidecarPath, error.message));
+    }
+  }
 
   if (
     opts.expectedSlug !== undefined &&

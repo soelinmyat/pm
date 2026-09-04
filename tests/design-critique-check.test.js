@@ -67,6 +67,15 @@ function makeFixture(options = {}) {
             false,
             "The fixed label has a validated maximum length."
           ),
+          ...["loading", "success", "focus", "disabled", "keyboard", "modal"].map((state) =>
+            coverageRow(
+              `ui-${state}`,
+              state,
+              "desktop",
+              false,
+              `The ${state} state is not present on this static detail surface.`
+            )
+          ),
         ];
   const route = {
     schema_version: 1,

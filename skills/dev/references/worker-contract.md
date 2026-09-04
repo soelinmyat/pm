@@ -16,7 +16,7 @@ Every worker prompt has these sections exactly once:
 
 1. Outcome.
 2. Scope and exclusions.
-3. Inputs and context, including only the active phase contract.
+3. Inputs and context, including only the active phase contract and its durable `design_context` when present.
 4. Acceptance criteria.
 5. Applicable repository rules.
 6. Authorized actions, including explicit denials.
@@ -32,6 +32,7 @@ Do not include future phase instructions. The root owns phase transitions and an
 - State each instruction once.
 - Keep workflow instruction under 1,200 words, excluding task artifacts.
 - Reject missing outcomes, ACs, rules, evidence, stop conditions, authority, or result schema instead of inserting placeholders.
+- Preserve design requirements, prototype identity, critical states, and visual invariants byte-for-byte from a supplied `design_context`; workers may not silently reinterpret it.
 - Record UTF-8 bytes and whitespace-delimited words for comparison across models.
 
 ## Done-when
@@ -39,4 +40,3 @@ Do not include future phase instructions. The root owns phase transitions and an
 The generated prompt contains the nine sections once, reports its byte and word counts, includes the active contract, and excludes all future contracts.
 
 **Advance:** dispatch or execute the active phase using the selected runtime profile.
-
