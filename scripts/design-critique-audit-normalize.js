@@ -217,6 +217,8 @@ function normalizeDom(observations) {
       overflow: !findings.some((item) => item.check === "overflow"),
       edge_alignment: !findings.some((item) => item.check === "edge_alignment"),
       hierarchy: !findings.some((item) => item.check === "hierarchy"),
+      consistency: !findings.some((item) => item.check === "consistency"),
+      asymmetry: !findings.some((item) => item.check === "asymmetry"),
     },
     findings,
   };

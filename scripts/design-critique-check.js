@@ -108,6 +108,23 @@ function checkDesignCritiqueUncached(options) {
     options,
     issues
   );
+  const legacyRouteMode = options.legacyRouteMode || "enforce";
+  if (!new Set(["enforce", "inspect"]).has(legacyRouteMode))
+    add(issues, "route.schema_version", "legacyRouteMode must be enforce or inspect");
+  if (route.schema_version === 1) {
+    if (legacyRouteMode === "inspect")
+      return {
+        ok: false,
+        authoritative: false,
+        inspection_ok: issues.length === 0,
+        issues,
+      };
+    add(
+      issues,
+      "route.schema_version",
+      "schema version 1 is migration-only and cannot certify a current Design Critique gate; create and run a schema-version-2 route"
+    );
+  }
   return { ok: issues.length === 0, issues };
 }
 
@@ -408,7 +425,34 @@ function validateCaptures(root, captures, route, routeFile, issues) {
     if (!item.required && totalCount > 0)
       add(issues, `captures.captures`, `non-applicable coverage ${item.id} cannot have a capture`);
   }
+  validateDistinctActiveCaptures(root, captures.captures || [], coverage, issues);
   validateEvidence(root, captures.evidence, route, captures.captures || [], issues);
+}
+
+function validateDistinctActiveCaptures(root, captureRows, coverage, issues) {
+  const paths = new Map();
+  const hashes = new Map();
+  for (const capture of captureRows) {
+    if (capture?.active !== true || !coverage.get(capture.coverage_id)?.required) continue;
+    const file = readBoundFile(root, capture.path, `captures.captures.${capture.id}.path`, []);
+    if (!file) continue;
+    const priorPath = paths.get(file.path);
+    if (priorPath && priorPath !== capture.coverage_id)
+      add(
+        issues,
+        `captures.captures.${capture.id}`,
+        `distinct required coverage ${priorPath} and ${capture.coverage_id} must use a distinct canonical capture path`
+      );
+    else paths.set(file.path, capture.coverage_id);
+    const priorHash = hashes.get(file.sha256);
+    if (priorHash && priorHash !== capture.coverage_id)
+      add(
+        issues,
+        `captures.captures.${capture.id}`,
+        `distinct required coverage ${priorHash} and ${capture.coverage_id} must use a distinct capture content hash`
+      );
+    else hashes.set(file.sha256, capture.coverage_id);
+  }
 }
 
 function validateAuditEvidence(root, entry, route, captureRows, label, issues) {
@@ -474,7 +518,12 @@ function validateAuditEvidence(root, entry, route, captureRows, label, issues) {
   const requiredChecks =
     entry.kind === "accessibility-tree"
       ? ["landmarks", "names", "focus_order"]
-      : ["overflow", "edge_alignment", "hierarchy"];
+      : [
+          "overflow",
+          "edge_alignment",
+          "hierarchy",
+          ...(normalizedAuditRequired ? ["consistency", "asymmetry"] : []),
+        ];
   if (object(audit.checks)) closed(audit.checks, requiredChecks, `${label}.checks`, issues);
   if (!object(audit.checks) || requiredChecks.some((name) => audit.checks[name] !== true))
     add(issues, `${label}.checks`, `requires passing ${requiredChecks.join(", ")}`);

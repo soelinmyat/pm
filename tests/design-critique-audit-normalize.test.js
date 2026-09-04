@@ -117,10 +117,39 @@ test("derives DOM checks from measured overflow and probe issue rows", () => {
     overflow: false,
     edge_alignment: true,
     hierarchy: false,
+    consistency: true,
+    asymmetry: true,
   });
   assert.deepEqual(
     audit.findings.map((item) => item.check),
     ["hierarchy", "overflow"]
+  );
+});
+
+test("derives failing checks for measured consistency and asymmetry defects", () => {
+  const raw = domRaw();
+  raw.observations.consistency.push({
+    code: "inconsistent-control-height",
+    locator: "button.primary, button.secondary",
+    detail: "Peer actions render at different heights.",
+  });
+  raw.observations.asymmetry.push({
+    code: "unbalanced-panel-gutters",
+    locator: "main > section",
+    detail: "The right gutter is 24px wider than the left gutter.",
+  });
+  const audit = normalize(raw, "evidence/raw-dom.json");
+
+  assert.deepEqual(audit.checks, {
+    overflow: true,
+    edge_alignment: true,
+    hierarchy: true,
+    consistency: false,
+    asymmetry: false,
+  });
+  assert.deepEqual(
+    audit.findings.map((item) => item.check),
+    ["consistency", "asymmetry"]
   );
 });
 
@@ -159,6 +188,12 @@ test("CLI atomically writes an audit bound to the raw probe", () => {
 
   assert.equal(output.ok, true);
   assert.equal(audit.schema_version, 2);
-  assert.deepEqual(audit.checks, { overflow: true, edge_alignment: true, hierarchy: true });
+  assert.deepEqual(audit.checks, {
+    overflow: true,
+    edge_alignment: true,
+    hierarchy: true,
+    consistency: true,
+    asymmetry: true,
+  });
   assert.deepEqual(audit.raw, { path: rawPath, sha256: sha256(rawBytes) });
 });

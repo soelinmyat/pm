@@ -692,7 +692,7 @@ For each page, run this via `browser_evaluate`:
 })()
 ```
 
-Save the returned JSON as `{subject}-{coverage-id}-dom-raw.json`, run `design-critique-audit-normalize.js`, and register the generated `dom-audit`. Run it separately for every active web capture while the cited state and viewport are loaded; the measured `inner_width` must equal that screenshot's decoded width. The helper derives overflow from `scroll_width > client_width`, derives hierarchy and edge-alignment from their measured issue arrays, and retains consistency/asymmetry rows as deterministic findings. Do not edit the generated output or register the raw object directly.
+Save the returned JSON as `{subject}-{coverage-id}-dom-raw.json`, run `design-critique-audit-normalize.js`, and register the generated `dom-audit`. Run it separately for every active web capture while the cited state and viewport are loaded; the measured `inner_width` must equal that screenshot's decoded width. The helper derives overflow from `scroll_width > client_width` and derives hierarchy, edge-alignment, consistency, and asymmetry from their measured issue arrays. Every normalized issue kind is a failing check; none may be left as an informational finding in a passing audit. Do not edit the generated output or register the raw object directly.
 
 Then write a human-readable report:
 

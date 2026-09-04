@@ -305,7 +305,15 @@ function auditEvidenceFile(root, id, kind, captures, routeSchemaVersion) {
   const checks =
     kind === "accessibility-tree"
       ? { landmarks: true, names: true, focus_order: true }
-      : { overflow: true, edge_alignment: true, hierarchy: true };
+      : routeSchemaVersion === 1
+        ? { overflow: true, edge_alignment: true, hierarchy: true }
+        : {
+            overflow: true,
+            edge_alignment: true,
+            hierarchy: true,
+            consistency: true,
+            asymmetry: true,
+          };
   const captureIds = captures.map((item) => item.id);
   let audit;
   if (routeSchemaVersion === 1) {
@@ -632,6 +640,35 @@ test("rejects changed capture bytes", () => {
   assert.match(JSON.stringify(result.issues), /does not match file bytes/);
 });
 
+test("rejects one canonical capture path reused for distinct required states", () => {
+  const fixture = makeFixture();
+  const [desktop, narrow] = fixture.captures.captures;
+  narrow.path = desktop.path;
+  narrow.sha256 = desktop.sha256;
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /distinct required coverage.*canonical capture path/);
+});
+
+test("rejects identical capture bytes stored under distinct required-state paths", () => {
+  const fixture = makeFixture();
+  const [desktop, narrow] = fixture.captures.captures;
+  const desktopBytes = fs.readFileSync(path.join(fixture.root, desktop.path));
+  const rebound = write(fixture.root, narrow.path, desktopBytes);
+  narrow.sha256 = rebound.sha256;
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /distinct required coverage.*capture content hash/);
+});
+
 test("rejects screenshot bindings whose bytes are not an image", () => {
   const fixture = makeFixture();
   const capture = fixture.captures.captures[0];
@@ -767,9 +804,18 @@ test("rejects a wide product UI screenshot labeled narrow", () => {
   );
 });
 
-test("accepts a genuinely frozen route v1 without v2 states or narrow coverage", () => {
+test("legacy route v1 is readable for migration but cannot certify a current pass", () => {
   const fixture = makeFixture({ routeSchemaVersion: 1 });
-  assert.deepEqual(check(fixture), { ok: true, issues: [] });
+  const enforced = check(fixture);
+  assert.equal(enforced.ok, false);
+  assert.match(JSON.stringify(enforced.issues), /schema version 1 is migration-only/);
+
+  assert.deepEqual(check(fixture, COMMIT, { legacyRouteMode: "inspect" }), {
+    ok: false,
+    authoritative: false,
+    inspection_ok: true,
+    issues: [],
+  });
 });
 
 test("documents route v2 as the only schema for newly authored critique routes", () => {
@@ -829,6 +875,27 @@ test("rejects a claimed passing boolean contradicted by the raw probe", () => {
   assert.equal(result.ok, false);
   assert.match(JSON.stringify(result.issues), /deterministic normalization of the bound raw probe/);
 });
+
+for (const issueKind of ["consistency", "asymmetry"]) {
+  test(`rejects a normalized DOM audit with a measured ${issueKind} defect`, () => {
+    const fixture = makeFixture();
+    const evidence = fixture.captures.evidence.find((item) => item.kind === "dom-audit");
+    rewriteNormalizedAudit(fixture, evidence, (raw) => {
+      raw.observations[issueKind].push({
+        code: `${issueKind}-defect`,
+        locator: "main > section",
+        detail: `Measured ${issueKind} defect in the rendered interface.`,
+      });
+    });
+    rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+    fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+    rewriteReportAndHtml(fixture);
+
+    const result = check(fixture);
+    assert.equal(result.ok, false);
+    assert.match(JSON.stringify(result.issues), new RegExp(`requires passing.*${issueKind}`));
+  });
+}
 
 test("rejects one desktop DOM probe claiming both desktop and narrow captures", () => {
   const fixture = makeFixture();
