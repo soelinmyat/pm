@@ -258,6 +258,9 @@ function makeFixture(options = {}) {
       ...write(root, "evidence/files/render.json", `${JSON.stringify(render)}\n`),
     });
   }
+  if (mode === "product-ui" && routeSchemaVersion === 2)
+    for (const capture of captures)
+      attachTrustedCaptureObservation(root, route, routeBinding, capture, evidence);
   const captureDoc = {
     schema_version: 1,
     run_id: route.run_id,
@@ -496,6 +499,7 @@ function addRequiredStateCapture(fixture, state, bytes) {
     auditEvidenceFile(fixture.root, `a11y-capture-ui-${state}`, "accessibility-tree", [capture], 2),
     auditEvidenceFile(fixture.root, `dom-capture-ui-${state}`, "dom-audit", [capture], 2)
   );
+  refreshTrustedCaptureObservations(fixture);
   rewrite(fixture.root, fixture.capturesPath, fixture.captures);
   fixture.report.route = fixture.captures.route;
   fixture.report.captures = binding(fixture.root, fixture.capturesPath);
@@ -559,6 +563,7 @@ function addProductUiSubject(fixture, subjectId) {
       auditEvidenceFile(fixture.root, `dom-${capture.id}`, "dom-audit", [capture], 2, subjectId)
     );
   }
+  refreshTrustedCaptureObservations(fixture);
   rewrite(fixture.root, fixture.capturesPath, fixture.captures);
   fixture.report.route = fixture.captures.route;
   fixture.report.captures = binding(fixture.root, fixture.capturesPath);
@@ -660,6 +665,212 @@ function auditEvidenceFile(
     kind,
     ...write(root, `evidence/files/${id}.json`, `${JSON.stringify(audit)}\n`),
   };
+}
+
+function refreshTrustedCaptureObservations(fixture) {
+  const routeBinding = binding(fixture.root, fixture.routePath);
+  for (const capture of fixture.captures.captures)
+    attachTrustedCaptureObservation(
+      fixture.root,
+      fixture.route,
+      routeBinding,
+      capture,
+      fixture.captures.evidence
+    );
+}
+
+function attachTrustedCaptureObservation(root, route, routeBinding, capture, evidence) {
+  const coverage = route.coverage.find((item) => item.id === capture.coverage_id);
+  const subject = route.subjects.find((item) => item.id === coverage.subject_id);
+  const audits = Object.fromEntries(
+    ["accessibility-tree", "dom-audit"].map((kind) => {
+      const entry = evidence.find((item) => {
+        if (item.kind !== kind || item.subject_id !== subject.id) return false;
+        const audit = JSON.parse(fs.readFileSync(path.join(root, item.path), "utf8"));
+        return audit.capture_ids.includes(capture.id);
+      });
+      if (!entry) throw new Error(`test fixture lacks ${kind} evidence for ${capture.id}`);
+      const audit = JSON.parse(fs.readFileSync(path.join(root, entry.path), "utf8"));
+      const raw = JSON.parse(fs.readFileSync(path.join(root, audit.raw.path), "utf8"));
+      return [kind, { binding: audit.raw, raw }];
+    })
+  );
+  const assertion = {
+    schema_version: 1,
+    all: [
+      {
+        locator: { by: "test-id", value: "account-state" },
+        expect: { kind: "attribute-equals", name: "data-state", value: coverage.state },
+      },
+    ],
+  };
+  const assertionBinding = write(
+    root,
+    `${path.posix.dirname(routeBinding.path)}/state-assertions/${coverage.id}.json`,
+    `${JSON.stringify(assertion, null, 2)}\n`
+  );
+  const requestedUrl = new URL(subject.surface, "http://127.0.0.1:4173").href;
+  const allowedOrigins = [new URL(requestedUrl).origin];
+  const requests = [
+    {
+      sequence: 1,
+      method: "GET",
+      resource_type: "Document",
+      origin: allowedOrigins[0],
+      url_sha256: digest(Buffer.from(requestedUrl)),
+    },
+  ];
+  const networkLedger = {
+    schema_version: 1,
+    policy: "explicit-origin-allowlist",
+    allowed_origins: allowedOrigins,
+    observed_origins: allowedOrigins,
+    requests,
+    violations: [],
+  };
+  const networkBinding = write(
+    root,
+    `evidence/files/${capture.id}-network.json`,
+    `${JSON.stringify(networkLedger, null, 2)}\n`
+  );
+  const cssViewport = {
+    inner_width: capture.width,
+    inner_height: capture.height,
+    client_width: capture.width,
+    client_height: capture.height,
+    scroll_width: capture.width,
+    scroll_height: capture.height,
+    device_scale_factor: 1,
+    scroll_x: 0,
+    scroll_y: 0,
+    visual_scale: 1,
+    page_zoom: 1,
+  };
+  const pageIdentity = {
+    target_id: `target-${capture.id}`,
+    main_frame_id: `frame-${capture.id}`,
+    loader_id: `loader-${capture.id}`,
+    final_url: requestedUrl,
+    css_viewport: cssViewport,
+  };
+  const sourceIdentity = {
+    head: route.source.commit,
+    tree: "d".repeat(40),
+    tracked_status_sha256: digest(Buffer.alloc(0)),
+    clean: true,
+  };
+  const browserIdentity = {
+    path: "/opt/pm-test/chromium",
+    bytes: 1,
+    sha256: "e".repeat(64),
+    version: "Chromium 140.0.0.0",
+  };
+  const configuration = {
+    readiness_timeout_ms: 15_000,
+    settle_ms: 250,
+    browser_args_profile: "pm-product-ui-capture-v1",
+    acquisition: "native-cdp-dom-ax-plus-two-pixel-stability-samples",
+  };
+  const captureManifest = {
+    id: capture.id,
+    path: capture.path,
+    sha256: capture.sha256,
+    pixel_sha256: capture.pixel_sha256,
+    width: capture.width,
+    height: capture.height,
+    full_page: capture.full_page,
+    round: capture.round,
+    captured_at: capture.captured_at,
+  };
+  const invocation = {
+    producer: { name: "pm:design-critique-capture", version: PLUGIN_VERSION },
+    route_sha256: routeBinding.sha256,
+    run_id: route.run_id,
+    commit: route.source.commit,
+    subject_id: subject.id,
+    coverage: { id: coverage.id, state: coverage.state, viewport: coverage.viewport },
+    capture_id: capture.id,
+    requested_url: requestedUrl,
+    expected_url: requestedUrl,
+    viewport: { width: capture.width, height: capture.height },
+    assertion: assertionBinding,
+    allowed_origins: allowedOrigins,
+    readiness_timeout_ms: configuration.readiness_timeout_ms,
+    settle_ms: configuration.settle_ms,
+    browser_args_profile: configuration.browser_args_profile,
+    acquisition: configuration.acquisition,
+  };
+  const timestamps = {
+    started_at: capture.captured_at,
+    page_ready_at: capture.captured_at,
+    captured_at: capture.captured_at,
+    completed_at: capture.captured_at,
+  };
+  const manifest = {
+    schema_version: 1,
+    kind: "product-ui-capture",
+    run_id: route.run_id,
+    mode: "product-ui",
+    commit: route.source.commit,
+    route: routeBinding,
+    subject_id: subject.id,
+    coverage: invocation.coverage,
+    capture: captureManifest,
+    raw_evidence: {
+      accessibility_tree: audits["accessibility-tree"].binding,
+      dom_audit: audits["dom-audit"].binding,
+      network_ledger: networkBinding,
+    },
+    page: {
+      requested_url: requestedUrl,
+      expected_url: requestedUrl,
+      final_url: requestedUrl,
+      target_id: pageIdentity.target_id,
+      main_frame_id: pageIdentity.main_frame_id,
+      loader_id: pageIdentity.loader_id,
+      css_viewport: cssViewport,
+      state_assertion: { ...assertionBinding, passed: true },
+    },
+    observation: {
+      assurance_level: "same-cdp-page-session",
+      producer: invocation.producer,
+      browser: { engine: "chromium", before: browserIdentity, after: browserIdentity },
+      source: {
+        before: sourceIdentity,
+        after: sourceIdentity,
+        guard: "clean-tracked-tree-before-and-after",
+      },
+      network: {
+        policy: networkLedger.policy,
+        allowed_origins: networkLedger.allowed_origins,
+        observed_origins: networkLedger.observed_origins,
+        request_count: requests.length,
+        ledger_sha256: networkBinding.sha256,
+        violations: 0,
+      },
+      configuration,
+      invocation_configuration_sha256: digest(Buffer.from(JSON.stringify(invocation))),
+      stability: {
+        samples: 2,
+        native_observations_sha256: digest(
+          Buffer.from(
+            JSON.stringify({
+              page: pageIdentity,
+              accessibility: audits["accessibility-tree"].raw.observations,
+              dom: audits["dom-audit"].raw.observations,
+            })
+          )
+        ),
+        decoded_pixels_sha256: capture.pixel_sha256,
+      },
+    },
+    timestamps,
+  };
+  capture.observation = write(
+    root,
+    `evidence/files/${capture.id}-capture.json`,
+    `${JSON.stringify(manifest, null, 2)}\n`
+  );
 }
 
 function rewriteNormalizedAudit(fixture, evidence, mutate) {
@@ -1052,6 +1263,84 @@ test("accepts a complete product UI evidence chain", () => {
   assert.deepEqual(check(fixture), { ok: true, issues: [] });
 });
 
+test("requires a trusted same-session observation for schema-v2 web captures", () => {
+  const fixture = makeFixture();
+  delete fixture.captures.captures[0].observation;
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /require a trusted capture manifest/);
+});
+
+test("rejects navigation drift inside a rebound trusted capture manifest", () => {
+  const fixture = makeFixture();
+  const capture = fixture.captures.captures[0];
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(fixture.root, capture.observation.path), "utf8")
+  );
+  manifest.page.final_url = `${manifest.page.expected_url}?drift=1`;
+  capture.observation = write(
+    fixture.root,
+    capture.observation.path,
+    `${JSON.stringify(manifest, null, 2)}\n`
+  );
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /must equal the asserted expected URL/);
+});
+
+test("rejects arbitrary-code state assertions even when their hashes are rebound", () => {
+  const fixture = makeFixture();
+  const capture = fixture.captures.captures[0];
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(fixture.root, capture.observation.path), "utf8")
+  );
+  const assertionBinding = write(
+    fixture.root,
+    manifest.page.state_assertion.path,
+    `${JSON.stringify({ schema_version: 1, expression: "window.ready === true" })}\n`
+  );
+  manifest.page.state_assertion.sha256 = assertionBinding.sha256;
+  const configuration = manifest.observation.configuration;
+  const invocation = {
+    producer: manifest.observation.producer,
+    route_sha256: manifest.route.sha256,
+    run_id: manifest.run_id,
+    commit: manifest.commit,
+    subject_id: manifest.subject_id,
+    coverage: manifest.coverage,
+    capture_id: manifest.capture.id,
+    requested_url: manifest.page.requested_url,
+    expected_url: manifest.page.expected_url,
+    viewport: { width: manifest.capture.width, height: manifest.capture.height },
+    assertion: { path: assertionBinding.path, sha256: assertionBinding.sha256 },
+    allowed_origins: manifest.observation.network.allowed_origins,
+    readiness_timeout_ms: configuration.readiness_timeout_ms,
+    settle_ms: configuration.settle_ms,
+    browser_args_profile: configuration.browser_args_profile,
+    acquisition: configuration.acquisition,
+  };
+  manifest.observation.invocation_configuration_sha256 = digest(
+    Buffer.from(JSON.stringify(invocation))
+  );
+  capture.observation = write(
+    fixture.root,
+    capture.observation.path,
+    `${JSON.stringify(manifest, null, 2)}\n`
+  );
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /invalid declarative assertion:.*unknown field/);
+});
+
 test("accepts a complete PM artifact evidence chain", () => {
   const fixture = makeFixture({ mode: "pm-artifact" });
   assert.deepEqual(check(fixture), { ok: true, issues: [] });
@@ -1281,6 +1570,7 @@ test("reads a large bound capture only once per validation run", () => {
   const capture = fixture.captures.captures[0];
   const large = write(fixture.root, capture.path, validPng(1440, 1000, 0, 4 * 1024 * 1024 + 1));
   capture.sha256 = large.sha256;
+  refreshTrustedCaptureObservations(fixture);
   rewrite(fixture.root, fixture.capturesPath, fixture.captures);
   fixture.report.captures = binding(fixture.root, fixture.capturesPath);
   rewriteReportAndHtml(fixture);
@@ -1877,6 +2167,7 @@ test("verifies the frozen git diff hash when enabled", () => {
     rewriteNormalizedAudit(fixture, evidence, (audit) => {
       audit.commit = commit;
     });
+  refreshTrustedCaptureObservations(fixture);
   rewrite(fixture.root, fixture.capturesPath, fixture.captures);
   fixture.report.commit = commit;
   fixture.report.route = binding(fixture.root, fixture.routePath);
@@ -1992,6 +2283,7 @@ test("rejects re-encoded identical pixels as resolved product UI evidence", () =
     ),
     auditEvidenceFile(fixture.root, "dom-capture-ui-primary-reencoded", "dom-audit", [after], 2)
   );
+  refreshTrustedCaptureObservations(fixture);
   rewrite(fixture.root, fixture.capturesPath, fixture.captures);
   const finding = {
     subject_id: "account-detail",
@@ -2093,6 +2385,7 @@ test("accepts a resolved P1 with inactive before and active after captures", () 
     ),
     auditEvidenceFile(fixture.root, "dom-capture-ui-primary-after", "dom-audit", [after], 2)
   );
+  refreshTrustedCaptureObservations(fixture);
   rewrite(fixture.root, fixture.capturesPath, fixture.captures);
   const finding = {
     subject_id: "account-detail",
@@ -2144,6 +2437,7 @@ test("rejects an active capture older than an inactive later round", () => {
     rewriteNormalizedAudit(fixture, evidence, (audit) => {
       audit.capture_ids.push(later.id);
     });
+  refreshTrustedCaptureObservations(fixture);
   rewrite(fixture.root, fixture.capturesPath, fixture.captures);
   fixture.report.rounds = 2;
   fixture.report.captures = binding(fixture.root, fixture.capturesPath);

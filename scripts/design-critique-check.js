@@ -17,6 +17,10 @@ const { isRfc3339DateTime } = require("./lib/iso-time");
 const { inspectPdfBytes, inspectPngBytes, inspectPngVisualBytes } = require("./lib/media-inspect");
 const { readProjectInput } = require("./lib/project-file");
 const { MAX_RAW_AUDIT_BYTES, normalizeAuditBytes } = require("./design-critique-audit-normalize");
+const {
+  manifestShape: validateCaptureManifestShape,
+  validateStateAssertion,
+} = require("./design-critique-capture");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 const MODES = new Set(["product-ui", "pm-artifact"]);
@@ -57,6 +61,11 @@ const STATES = new Set([...PRODUCT_UI_STATES, "responsive", "print"]);
 const MAX_EVIDENCE_BYTES = 64 * 1024 * 1024;
 const MAX_JSON_BYTES = 4 * 1024 * 1024;
 const MAX_CACHE_BYTES = 256 * 1024 * 1024;
+const EMPTY_SHA256 = crypto.createHash("sha256").update(Buffer.alloc(0)).digest("hex");
+const TRUSTED_CAPTURE_PRODUCER = "pm:design-critique-capture";
+const TRUSTED_CAPTURE_ASSURANCE = "same-cdp-page-session";
+const TRUSTED_CAPTURE_BROWSER_PROFILE = "pm-product-ui-capture-v1";
+const TRUSTED_CAPTURE_ACQUISITION = "native-cdp-dom-ax-plus-two-pixel-stability-samples";
 const ARTIFACT_VIEWPORT_NAMES = Object.freeze(ARTIFACT_VIEWPORTS.map((item) => item.name));
 let activeReadCache = null;
 const SCORE_KEYS = Object.freeze({
@@ -392,6 +401,7 @@ function validateCaptures(root, captures, route, routeFile, issues) {
   const activeCoverage = new Map();
   const allCoverage = new Map();
   const decodedByCapture = new Map();
+  const observationByCapture = new Map();
   if (!Array.isArray(captures.captures)) add(issues, "captures.captures", "must be an array");
   for (const [index, item] of (captures.captures || []).entries()) {
     const at = `captures.captures[${index}]`;
@@ -415,6 +425,7 @@ function validateCaptures(root, captures, route, routeFile, issues) {
         "full_page",
         "pages",
         "pixel_sha256",
+        "observation",
       ],
       at,
       issues
@@ -443,6 +454,22 @@ function validateCaptures(root, captures, route, routeFile, issues) {
       at,
       issues
     );
+    if (
+      route.schema_version === 2 &&
+      route.mode === "product-ui" &&
+      subjects.get(coverage.get(item.coverage_id)?.subject_id)?.platform === "web"
+    ) {
+      const observation = validateTrustedCaptureObservation(
+        root,
+        item,
+        route,
+        routeFile,
+        coverage.get(item.coverage_id),
+        at,
+        issues
+      );
+      if (observation) observationByCapture.set(item.id, observation);
+    }
     if (!isRfc3339DateTime(item.captured_at)) add(issues, `${at}.captured_at`, "must be RFC 3339");
     if (item.kind === "screenshot" && (!positiveInt(item.width) || !positiveInt(item.height)))
       add(issues, at, "screenshots require positive width and height");
@@ -469,7 +496,14 @@ function validateCaptures(root, captures, route, routeFile, issues) {
       add(issues, `captures.captures`, `non-applicable coverage ${item.id} cannot have a capture`);
   }
   validateDistinctActiveCaptures(root, captures.captures || [], coverage, decodedByCapture, issues);
-  validateEvidence(root, captures.evidence, route, captures.captures || [], issues);
+  validateEvidence(
+    root,
+    captures.evidence,
+    route,
+    captures.captures || [],
+    observationByCapture,
+    issues
+  );
 }
 
 function validateDistinctActiveCaptures(root, captureRows, coverage, decodedByCapture, issues) {
@@ -508,7 +542,421 @@ function validateDistinctActiveCaptures(root, captureRows, coverage, decodedByCa
   }
 }
 
-function validateAuditEvidence(root, entry, route, captureRows, label, issues) {
+function validateTrustedCaptureObservation(
+  root,
+  capture,
+  route,
+  routeFile,
+  coverage,
+  label,
+  issues
+) {
+  const at = `${label}.observation`;
+  if (!object(capture.observation)) {
+    add(issues, at, "schema-v2 product UI captures require a trusted capture manifest");
+    return null;
+  }
+  closed(capture.observation, ["path", "sha256"], at, issues);
+  if (!sha256(capture.observation.sha256)) {
+    add(issues, at, "requires path and SHA-256");
+    return null;
+  }
+  const file = readBoundFile(root, capture.observation.path, `${at}.path`, issues, MAX_JSON_BYTES);
+  if (!file) return null;
+  if (file.sha256 !== capture.observation.sha256)
+    add(issues, `${at}.sha256`, "does not match trusted capture manifest bytes");
+  let manifest;
+  try {
+    manifest = JSON.parse(file.bytes.toString("utf8"));
+    validateCaptureManifestShape(manifest);
+  } catch (error) {
+    add(issues, at, `invalid trusted capture manifest: ${error.message}`);
+    return null;
+  }
+
+  if (
+    manifest.schema_version !== 1 ||
+    manifest.kind !== "product-ui-capture" ||
+    manifest.run_id !== route.run_id ||
+    manifest.mode !== "product-ui" ||
+    manifest.commit !== route.source?.commit
+  )
+    add(issues, at, "schema, run, mode, and commit must match the route");
+  if (manifest.route.path !== routeFile.relative || manifest.route.sha256 !== routeFile.sha256)
+    add(issues, `${at}.route`, "must bind the exact frozen route bytes");
+  if (
+    !coverage ||
+    manifest.subject_id !== coverage.subject_id ||
+    !isDeepStrictEqual(manifest.coverage, {
+      id: coverage.id,
+      state: coverage.state,
+      viewport: coverage.viewport,
+    })
+  )
+    add(issues, `${at}.coverage`, "must match the routed subject, state, and viewport");
+  const expectedCapture = {
+    id: capture.id,
+    path: capture.path,
+    sha256: capture.sha256,
+    pixel_sha256: capture.pixel_sha256,
+    width: capture.width,
+    height: capture.height,
+    full_page: capture.full_page,
+    round: capture.round,
+    captured_at: capture.captured_at,
+  };
+  if (!isDeepStrictEqual(manifest.capture, expectedCapture))
+    add(issues, `${at}.capture`, "must exactly bind the capture row and decoded-pixel hash");
+
+  const assertion = validateTrustedStateAssertion(root, manifest, routeFile, coverage, at, issues);
+  const a11y = validateTrustedRawAudit(
+    root,
+    manifest.raw_evidence.accessibility_tree,
+    "accessibility-tree",
+    manifest,
+    `${at}.raw_evidence.accessibility_tree`,
+    issues
+  );
+  const dom = validateTrustedRawAudit(
+    root,
+    manifest.raw_evidence.dom_audit,
+    "dom-audit",
+    manifest,
+    `${at}.raw_evidence.dom_audit`,
+    issues
+  );
+  const network = validateTrustedNetworkLedger(root, manifest, at, issues);
+  validateTrustedPage(manifest, capture, at, issues);
+  validateTrustedObservationIdentity(
+    manifest,
+    route,
+    routeFile,
+    assertion,
+    a11y,
+    dom,
+    network,
+    at,
+    issues
+  );
+  validateTrustedTimestamps(manifest, at, issues);
+  return { manifest, manifestFile: file };
+}
+
+function validateTrustedStateAssertion(root, manifest, routeFile, coverage, label, issues) {
+  const assertion = manifest.page.state_assertion;
+  const expectedPath = `${path.posix.dirname(routeFile.relative)}/state-assertions/${coverage?.id}.json`;
+  if (assertion.path !== expectedPath)
+    add(
+      issues,
+      `${label}.page.state_assertion.path`,
+      "must be the canonical coverage assertion path"
+    );
+  if (assertion.passed !== true)
+    add(issues, `${label}.page.state_assertion.passed`, "must equal true");
+  const file = readBoundFile(
+    root,
+    assertion.path,
+    `${label}.page.state_assertion.path`,
+    issues,
+    64 * 1024
+  );
+  if (!file) return null;
+  if (file.sha256 !== assertion.sha256)
+    add(issues, `${label}.page.state_assertion.sha256`, "does not match assertion bytes");
+  try {
+    const value = JSON.parse(file.bytes.toString("utf8"));
+    validateStateAssertion(value);
+  } catch (error) {
+    add(issues, `${label}.page.state_assertion`, `invalid declarative assertion: ${error.message}`);
+  }
+  return file;
+}
+
+function validateTrustedRawAudit(root, binding, kind, manifest, label, issues) {
+  const file = readBoundFile(root, binding.path, `${label}.path`, issues, MAX_RAW_AUDIT_BYTES);
+  if (!file) return null;
+  if (file.sha256 !== binding.sha256)
+    add(issues, `${label}.sha256`, "does not match raw audit bytes");
+  let raw;
+  try {
+    raw = JSON.parse(file.bytes.toString("utf8"));
+    normalizeAuditBytes(file.bytes, { path: file.relative, sha256: file.sha256 });
+  } catch (error) {
+    add(issues, label, `invalid normalized-audit source: ${error.message}`);
+    return null;
+  }
+  if (
+    raw.schema_version !== 1 ||
+    raw.kind !== kind ||
+    raw.subject_id !== manifest.subject_id ||
+    raw.commit !== manifest.commit ||
+    !isDeepStrictEqual(raw.capture_ids, [manifest.capture.id])
+  )
+    add(issues, label, "must identify the same kind, subject, commit, and single capture");
+  return { file, raw };
+}
+
+function validateTrustedNetworkLedger(root, manifest, label, issues) {
+  const binding = manifest.raw_evidence.network_ledger;
+  const at = `${label}.raw_evidence.network_ledger`;
+  const file = readBoundFile(root, binding.path, `${at}.path`, issues, MAX_JSON_BYTES);
+  if (!file) return null;
+  if (file.sha256 !== binding.sha256)
+    add(issues, `${at}.sha256`, "does not match network ledger bytes");
+  let ledger;
+  try {
+    ledger = JSON.parse(file.bytes.toString("utf8"));
+  } catch (error) {
+    add(issues, at, `invalid JSON: ${error.message}`);
+    return null;
+  }
+  if (!object(ledger)) {
+    add(issues, at, "must be an object");
+    return null;
+  }
+  closed(
+    ledger,
+    ["schema_version", "policy", "allowed_origins", "observed_origins", "requests", "violations"],
+    at,
+    issues
+  );
+  if (ledger.schema_version !== 1 || ledger.policy !== "explicit-origin-allowlist")
+    add(issues, at, "requires schema 1 and the explicit-origin-allowlist policy");
+  if (!boundedUniqueTextArray(ledger.allowed_origins, 100, false))
+    add(issues, `${at}.allowed_origins`, "must be a bounded unique origin array");
+  if (!boundedUniqueTextArray(ledger.observed_origins, 100, true))
+    add(issues, `${at}.observed_origins`, "must be a bounded unique origin array");
+  if (!Array.isArray(ledger.requests) || ledger.requests.length > 2000)
+    add(issues, `${at}.requests`, "must contain at most 2000 requests");
+  let priorSequence = 0;
+  for (const [index, request] of (ledger.requests || []).entries()) {
+    const requestAt = `${at}.requests[${index}]`;
+    if (!object(request)) {
+      add(issues, requestAt, "must be an object");
+      continue;
+    }
+    closed(
+      request,
+      ["sequence", "method", "resource_type", "origin", "url_sha256"],
+      requestAt,
+      issues
+    );
+    if (!Number.isSafeInteger(request.sequence) || request.sequence <= priorSequence)
+      add(issues, `${requestAt}.sequence`, "must increase monotonically");
+    priorSequence = request.sequence;
+    if (!boundedText(request.method, 20) || !boundedText(request.resource_type, 40))
+      add(issues, requestAt, "requires bounded method and resource type");
+    if (!boundedText(request.origin, 4096) || !sha256(request.url_sha256))
+      add(issues, requestAt, "requires an origin and redacted URL SHA-256");
+  }
+  if (!Array.isArray(ledger.violations) || ledger.violations.length !== 0)
+    add(issues, `${at}.violations`, "must be empty");
+  const observed = uniqueSorted((ledger.requests || []).map((request) => request?.origin));
+  if (!isDeepStrictEqual(ledger.observed_origins, observed))
+    add(issues, `${at}.observed_origins`, "must exactly equal the sorted request origins");
+  const allowed = new Set(ledger.allowed_origins || []);
+  if (observed.some((origin) => !allowed.has(origin) && !new Set(["about:", "data:"]).has(origin)))
+    add(issues, `${at}.observed_origins`, "contains an origin outside the explicit allowlist");
+  return { file, ledger };
+}
+
+function validateTrustedPage(manifest, capture, label, issues) {
+  const page = manifest.page;
+  for (const field of ["requested_url", "expected_url", "final_url"]) {
+    try {
+      const parsed = new URL(page[field]);
+      if (
+        !["http:", "https:"].includes(parsed.protocol) ||
+        parsed.username ||
+        parsed.password ||
+        parsed.href !== page[field]
+      )
+        throw new Error("not a canonical credential-free HTTP URL");
+    } catch {
+      add(issues, `${label}.page.${field}`, "must be a canonical credential-free HTTP URL");
+    }
+  }
+  if (page.final_url !== page.expected_url)
+    add(issues, `${label}.page.final_url`, "must equal the asserted expected URL");
+  for (const field of ["target_id", "main_frame_id", "loader_id"])
+    if (!boundedText(page[field], 500)) add(issues, `${label}.page.${field}`, "is required");
+  const viewport = page.css_viewport;
+  for (const field of [
+    "inner_width",
+    "inner_height",
+    "client_width",
+    "client_height",
+    "scroll_width",
+    "scroll_height",
+  ])
+    if (!positiveInt(viewport[field]))
+      add(issues, `${label}.page.css_viewport.${field}`, "must be positive");
+  if (
+    viewport.inner_width !== capture.width ||
+    viewport.inner_height !== capture.height ||
+    viewport.client_width !== capture.width ||
+    viewport.client_height !== capture.height ||
+    viewport.scroll_width < capture.width ||
+    viewport.scroll_height < capture.height ||
+    viewport.device_scale_factor !== 1 ||
+    viewport.scroll_x !== 0 ||
+    viewport.scroll_y !== 0 ||
+    viewport.visual_scale !== 1 ||
+    viewport.page_zoom !== 1
+  )
+    add(issues, `${label}.page.css_viewport`, "must exactly attest the routed CSS viewport");
+}
+
+function validateTrustedObservationIdentity(
+  manifest,
+  route,
+  routeFile,
+  assertion,
+  a11y,
+  dom,
+  network,
+  label,
+  issues
+) {
+  const observation = manifest.observation;
+  if (
+    observation.assurance_level !== TRUSTED_CAPTURE_ASSURANCE ||
+    observation.producer.name !== TRUSTED_CAPTURE_PRODUCER ||
+    observation.producer.version !== PLUGIN_VERSION
+  )
+    add(issues, label, "must identify the current trusted same-session capture producer");
+  const browser = observation.browser;
+  if (browser.engine !== "chromium" || !isDeepStrictEqual(browser.before, browser.after))
+    add(issues, `${label}.browser`, "must attest one unchanged Chromium executable");
+  for (const [side, identity] of Object.entries({ before: browser.before, after: browser.after })) {
+    if (
+      !text(identity.path) ||
+      !path.isAbsolute(identity.path) ||
+      !positiveInt(identity.bytes) ||
+      !sha256(identity.sha256) ||
+      !boundedText(identity.version, 500) ||
+      !/(chrome|chromium|edge)/i.test(identity.version)
+    )
+      add(issues, `${label}.browser.${side}`, "has an invalid executable identity");
+  }
+  const source = observation.source;
+  if (
+    source.guard !== "clean-tracked-tree-before-and-after" ||
+    !isDeepStrictEqual(source.before, source.after)
+  )
+    add(issues, `${label}.source`, "must attest one unchanged clean tracked tree");
+  for (const [side, identity] of Object.entries({ before: source.before, after: source.after })) {
+    if (
+      identity.head !== route.source?.commit ||
+      !sha(identity.tree) ||
+      identity.tracked_status_sha256 !== EMPTY_SHA256 ||
+      identity.clean !== true
+    )
+      add(issues, `${label}.source.${side}`, "must match the clean routed source identity");
+  }
+  const configuration = observation.configuration;
+  if (
+    !Number.isSafeInteger(configuration.readiness_timeout_ms) ||
+    configuration.readiness_timeout_ms < 1000 ||
+    configuration.readiness_timeout_ms > 30000 ||
+    !Number.isSafeInteger(configuration.settle_ms) ||
+    configuration.settle_ms < 100 ||
+    configuration.settle_ms > 2000 ||
+    configuration.browser_args_profile !== TRUSTED_CAPTURE_BROWSER_PROFILE ||
+    configuration.acquisition !== TRUSTED_CAPTURE_ACQUISITION
+  )
+    add(issues, `${label}.configuration`, "contains an unsupported trusted capture configuration");
+  const net = observation.network;
+  if (
+    !network ||
+    net.policy !== "explicit-origin-allowlist" ||
+    !isDeepStrictEqual(net.allowed_origins, network.ledger.allowed_origins) ||
+    !isDeepStrictEqual(net.observed_origins, network.ledger.observed_origins) ||
+    net.request_count !== network.ledger.requests.length ||
+    net.ledger_sha256 !== network.file.sha256 ||
+    net.violations !== 0
+  )
+    add(issues, `${label}.network`, "must exactly summarize the bound violation-free ledger");
+  try {
+    const requestedOrigin = new URL(manifest.page.requested_url).origin;
+    if (!net.allowed_origins.includes(requestedOrigin))
+      add(issues, `${label}.network.allowed_origins`, "must include the requested page origin");
+  } catch {
+    // The URL-specific issue is reported by validateTrustedPage.
+  }
+  const invocation = {
+    producer: { name: TRUSTED_CAPTURE_PRODUCER, version: PLUGIN_VERSION },
+    route_sha256: routeFile.sha256,
+    run_id: manifest.run_id,
+    commit: manifest.commit,
+    subject_id: manifest.subject_id,
+    coverage: manifest.coverage,
+    capture_id: manifest.capture.id,
+    requested_url: manifest.page.requested_url,
+    expected_url: manifest.page.expected_url,
+    viewport: { width: manifest.capture.width, height: manifest.capture.height },
+    assertion: {
+      path: manifest.page.state_assertion.path,
+      sha256: assertion?.sha256 || manifest.page.state_assertion.sha256,
+    },
+    allowed_origins: net.allowed_origins,
+    readiness_timeout_ms: configuration.readiness_timeout_ms,
+    settle_ms: configuration.settle_ms,
+    browser_args_profile: configuration.browser_args_profile,
+    acquisition: configuration.acquisition,
+  };
+  if (
+    observation.invocation_configuration_sha256 !== digest(Buffer.from(JSON.stringify(invocation)))
+  )
+    add(issues, `${label}.invocation_configuration_sha256`, "does not match the bound invocation");
+  const pageIdentity = {
+    target_id: manifest.page.target_id,
+    main_frame_id: manifest.page.main_frame_id,
+    loader_id: manifest.page.loader_id,
+    final_url: manifest.page.final_url,
+    css_viewport: manifest.page.css_viewport,
+  };
+  const nativeObservations = {
+    page: pageIdentity,
+    accessibility: a11y?.raw.observations,
+    dom: dom?.raw.observations,
+  };
+  if (
+    !a11y ||
+    !dom ||
+    observation.stability.samples !== 2 ||
+    observation.stability.native_observations_sha256 !==
+      digest(Buffer.from(JSON.stringify(nativeObservations))) ||
+    observation.stability.decoded_pixels_sha256 !== manifest.capture.pixel_sha256
+  )
+    add(
+      issues,
+      `${label}.stability`,
+      "must bind two stable native observations and decoded pixels"
+    );
+}
+
+function validateTrustedTimestamps(manifest, label, issues) {
+  let previous = 0;
+  for (const field of ["started_at", "page_ready_at", "captured_at", "completed_at"]) {
+    const parsed = Date.parse(manifest.timestamps[field]);
+    if (!isRfc3339DateTime(manifest.timestamps[field]) || parsed < previous)
+      add(issues, `${label}.timestamps`, "must contain ordered RFC 3339 timestamps");
+    previous = Number.isFinite(parsed) ? parsed : previous;
+  }
+  if (manifest.timestamps.captured_at !== manifest.capture.captured_at)
+    add(issues, `${label}.timestamps.captured_at`, "must equal the capture timestamp");
+}
+
+function validateAuditEvidence(
+  root,
+  entry,
+  route,
+  captureRows,
+  observationByCapture,
+  label,
+  issues
+) {
   const audit = readEvidenceJson(root, entry, label, issues);
   if (!audit) return null;
   const normalizedAuditRequired = route.schema_version === 2;
@@ -555,6 +1003,14 @@ function validateAuditEvidence(root, entry, route, captureRows, label, issues) {
   else if (normalizedAuditRequired && route.mode === "product-ui") {
     if (audit.capture_ids.length !== 1)
       add(issues, `${label}.capture_ids`, "must cite exactly one capture for the subject");
+    const trusted = observationByCapture.get(audit.capture_ids[0]);
+    const rawKey = entry.kind === "accessibility-tree" ? "accessibility_tree" : "dom_audit";
+    if (trusted && raw && !isDeepStrictEqual(audit.raw, trusted.manifest.raw_evidence[rawKey]))
+      add(
+        issues,
+        `${label}.raw`,
+        "must bind the raw observations from the trusted capture manifest"
+      );
     if (entry.kind === "dom-audit" && raw) {
       const capture = captureRows.find((item) => item.id === audit.capture_ids[0]);
       if (capture?.kind !== "screenshot")
@@ -627,7 +1083,7 @@ function validateNormalizedAudit(root, audit, entry, label, issues) {
   }
 }
 
-function validateEvidence(root, evidence, route, captureRows, issues) {
+function validateEvidence(root, evidence, route, captureRows, observationByCapture, issues) {
   if (!Array.isArray(evidence)) return add(issues, "captures.evidence", "must be an array");
   const ids = new Set();
   const audits = [];
@@ -647,7 +1103,15 @@ function validateEvidence(root, evidence, route, captureRows, issues) {
       add(issues, `${at}.kind`, "is invalid");
     validateFileBinding(root, item, at, issues);
     if (["accessibility-tree", "dom-audit"].includes(item?.kind)) {
-      const audit = validateAuditEvidence(root, item, route, captureRows, at, issues);
+      const audit = validateAuditEvidence(
+        root,
+        item,
+        route,
+        captureRows,
+        observationByCapture,
+        at,
+        issues
+      );
       if (audit) audits.push({ entry: item, audit });
     }
   }

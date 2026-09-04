@@ -55,51 +55,94 @@ adb devices | grep -q "device$" || echo "No Android device connected"
 
 ## Authentication (Web)
 
-Playwright MCP logs in via the real login flow using the seed user credentials. No mock tokens.
+The certifying helper launches a clean, disposable Chromium profile for every capture. Prepare a real, privacy-safe seeded application route that establishes the review principal without request mocks, browser-profile reuse, or credentials in the URL. A local-only single-use review-session endpoint is acceptable when it exercises the real application and stores no secret in retained evidence. If the product cannot expose the routed state to a clean profile safely, record a blocked capture; a screenshot from a separately authenticated browser is useful for diagnosis but is not certifying evidence.
 
+## Trusted Web Capture
+
+Route-schema-v2 web product UI uses `scripts/design-critique-capture.js`. It acquires the PNG, Chromium accessibility tree, DOM snapshot, page identity, and network ledger from one CDP target/session. It evaluates a closed declarative state assertion against the native browser observations, takes two internal screenshot samples, and publishes only after the observations and decoded pixels remain stable.
+
+Create the assertion at the canonical path for the coverage row:
+
+```json
+{
+  "schema_version": 1,
+  "all": [
+    {
+      "locator": { "by": "test-id", "value": "account-state" },
+      "expect": {
+        "kind": "attribute-equals",
+        "name": "data-state",
+        "value": "primary"
+      }
+    },
+    {
+      "locator": { "by": "role-name", "value": "button:Save changes" },
+      "expect": { "kind": "visible" }
+    }
+  ]
+}
 ```
-# Using Playwright MCP tools:
-1. browser_navigate to http://localhost:5173/login
-2. browser_type email field with "design-review@example.com"
-3. browser_type password field with "password123"
-4. browser_click submit button
-5. browser_navigate to authenticated route — verify not redirected to login
-```
 
-The session persists across all subsequent interactions in the same browser context. No need to re-authenticate between pages.
-
-## Web Capture (Playwright MCP)
+Allowed locators are `id`, `test-id`, and `role-name` (`role:accessible-name`). Allowed expectations are `exists`, `absent`, `visible`, `focused`, `attribute-equals` for the bounded attribute allowlist, and `accessible-name-equals`. JavaScript expressions and arbitrary CSS selectors are intentionally unsupported. If the state cannot be expressed, treat a manual capture as non-authoritative and block certification rather than weakening the assertion.
 
 ### Capture sequence
 
+```bash
+node "$PM_PLUGIN_ROOT/scripts/design-critique-capture.js" \
+  --root "{absolute-project-root}" \
+  --route ".pm/dev-sessions/{slug}/design-critique/route.json" \
+  --subject "account-detail" \
+  --coverage "account-primary-desktop" \
+  --capture "capture-account-primary-desktop-r1" \
+  --url "http://127.0.0.1:5173/accounts/seeded-review" \
+  --expect-url "http://127.0.0.1:5173/accounts/seeded-review" \
+  --state-assertion ".pm/dev-sessions/{slug}/design-critique/state-assertions/account-primary-desktop.json" \
+  --width 1440 \
+  --height 900 \
+  --out-dir ".pm/dev-sessions/{slug}/design-critique/round-1/capture-account-primary-desktop-r1" \
+  --json
 ```
-1. Ensure servers running (health check)
-2. Run seed: cd apps/api && bin/rails design:seed:{feature_slug}
-3. Open browser, log in as seed user
-4. For each target page:
-   a. browser_navigate to URL
-   b. browser_screenshot of the primary state at desktop width (1440px)
-   c. browser_resize to 768px → browser_screenshot (if responsive matters)
-   d. browser_resize to 375px → browser_screenshot of the primary state (always)
-   e. Capture interactive states (browser_click to open modals, expand sections)
-5. Capture into scratch space, then copy accepted evidence to `.pm/dev-sessions/{slug}/design-critique/round-{N}/`
-6. Record the files and SHA-256 values in `captures.json`
+
+Repeat `--allow-origin "https://api.example.test"` only for origins the real page needs. The requested page origin is always included. Any other HTTP, HTTPS, or WebSocket origin fails the capture. The helper also fails on redirect drift, a false state assertion, a viewport mismatch, iframe content, network activity during the critical sample window, changed source/browser/route/assertion bytes, transparent or uniform screenshots, or differing decoded pixels between its two samples. Output paths are exclusive: recapture with a new capture ID instead of overwriting evidence.
+
+The atomic bundle contains:
+
+- `capture.png` — the only screenshot registered in `captures.json`
+- `accessibility-tree-raw.json` — native Chromium AX-derived observations
+- `dom-audit-raw.json` — native DOMSnapshot-derived measurements
+- `network-ledger.json` — bounded, URL-redacted request records
+- `capture.json` — the hash-bound capture observation manifest
+
+Register `capture.json` as the capture row's `observation` binding. Then normalize both raw audits to files outside the immutable bundle directory and register those normalized files in `captures.json.evidence`:
+
+```bash
+node "$PM_PLUGIN_ROOT/scripts/design-critique-audit-normalize.js" \
+  --root "{absolute-project-root}" \
+  --raw ".pm/dev-sessions/{slug}/design-critique/round-1/capture-account-primary-desktop-r1/accessibility-tree-raw.json" \
+  --output ".pm/dev-sessions/{slug}/design-critique/round-1/account-primary-desktop-a11y.json"
+
+node "$PM_PLUGIN_ROOT/scripts/design-critique-audit-normalize.js" \
+  --root "{absolute-project-root}" \
+  --raw ".pm/dev-sessions/{slug}/design-critique/round-1/capture-account-primary-desktop-r1/dom-audit-raw.json" \
+  --output ".pm/dev-sessions/{slug}/design-critique/round-1/account-primary-desktop-dom.json"
 ```
 
 ### Viewport sizes
 
 | Label | Target | Accepted decoded PNG width | When to use |
 |---|---:|---:|---|
-| Desktop | 1440px | At least 1024px | Primary state, always |
-| Tablet | 768px | 601–1023px | When layout has a distinct breakpoint |
-| Narrow | 375px | At most 600px | Primary state, always |
+| Desktop | 1440×900 | At least 1024 wide and 600 high | Primary state, always |
+| Tablet | 768×1024 | 601–1023 wide and at least 600 high | When layout has a distinct breakpoint |
+| Narrow | 375×812 | 320–600 wide and at least 480 high | Primary state, always |
 
-Route schema v2 binds each web viewport label to the PNG's decoded width. Verify the saved file dimensions rather than assuming the resize succeeded; device-pixel-ratio scaling or a stale wide browser can otherwise produce mislabeled evidence. A narrow capture of another state does not replace the primary narrow capture. Schema v1 is resume-only for routes that were already frozen—never author or downgrade a route to v1 to bypass these checks.
+Route schema v2 binds each web viewport label to the PNG's decoded dimensions and canonical decoded-RGBA pixel SHA-256. It requires at least 1% visible pixels, non-uniform content, and distinct decoded pixels for distinct active required rows. A narrow capture of another state does not replace the primary narrow capture. Schema v1 is resume-only for routes that were already frozen—never author or downgrade a route to v1 to bypass these checks.
 
 ### Limits
 
 - Max 20 screenshots per capture round; route coverage, not convenience, determines the exact count
 - Preserve every cited round so before/after evidence remains verifiable
+- The helper proves capture-time consistency, not that a generic development server served the current Git commit. When that provenance matters, expose an application/build identifier and include it in the declarative state assertion.
+- Iframe documents are not certifiable in this version.
 
 ## Mobile Capture (Maestro MCP)
 
@@ -139,9 +182,9 @@ Route schema v2 binds each web viewport label to the PNG's decoded width. Verify
 
 Use the machine-readable `route.json` and `captures.json` contract in `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/evidence-contract.md`. Every screenshot maps to one coverage ID and records path, SHA-256, dimensions, kind, and full-page behavior. Markdown screenshot inventories are not gate evidence.
 
-## Enriched Capture (after screenshots)
+## Raw Audit Interpretation and Legacy Manual Probes
 
-After all screenshots for a page are captured, collect two additional artifacts that give the reviewer hard data instead of visual guesses.
+The trusted web helper already collects the two raw artifacts that give the reviewer hard data instead of visual guesses. Normalize those exact bundle files as shown above. The manual browser scripts later in this section are retained only for diagnosis and route-schema-v1 migration; they cannot produce a certifying schema-v2 web capture because their screenshot, DOM, and accessibility observations are separate operations without the capture manifest.
 
 ### Checker-compatible normalized audit envelope
 
@@ -196,13 +239,13 @@ A generated `dom-audit` envelope is:
 }
 ```
 
-The raw probe carries the route-bound subject, commit, and every active capture ID. The helper copies that identity into the audit. `findings` is derived from the measured roles, names, tab indexes, viewport widths, and issue rows; a derived `false` check blocks passing evidence until the UI is corrected and recaptured.
+The raw probe carries the route-bound subject, commit, and exactly one capture ID. The normalizer copies that identity into the audit. `findings` is derived from the measured roles, names, tab indexes, viewport widths, and issue rows; a derived `false` check blocks passing evidence until the UI is corrected and recaptured.
 
 The `captures.json` evidence row contains only the normalized audit's manifest identity (`id`, `subject_id`, `kind`, `path`, and `sha256`). The normalized file binds the mandatory raw probe; do not register the raw file as a second evidence row.
 
 ### Accessibility Snapshot
 
-Use Playwright MCP's `browser_snapshot` for reviewer context, then run this structured probe with `browser_evaluate`. Replace the three identity placeholders from the frozen route and current captures before execution. The probe emits measurements, never pass/fail booleans.
+For non-authoritative diagnosis or schema-v1 migration, use a browser accessibility snapshot for reviewer context and this structured probe for measurements. Never register this manually evaluated result as schema-v2 web evidence; use the trusted helper's native Chromium AX output instead. Replace the three identity placeholders before diagnostic execution.
 
 ```javascript
 (() => {
@@ -299,7 +342,7 @@ Use Playwright MCP's `browser_snapshot` for reviewer context, then run this stru
 })()
 ```
 
-Run the probe immediately after each active screenshot while that exact state and viewport are still loaded. Save the returned JSON as `{subject}-{coverage-id}-a11y-raw.json`, run the normalizer, and register its normalized output. Keep the accessibility snapshot beside it for review, but do not use a Markdown dump or hand-authored summary as checker evidence. Browser text content is used only for native controls whose accessible-name algorithm permits it; landmark names come from their authored labeling, so repeated unlabeled or identically labeled regions cannot appear distinct by descendant text accident.
+For schema-v1 migration, run the probe immediately after each active screenshot while that exact state and viewport are still loaded. For schema v2, the trusted helper instead derives roles and accessible names from Chromium's AX tree, including context-sensitive HTML-AAM landmark semantics such as a top-level banner versus a nested generic header.
 
 Concrete data for WCAG findings: missing aria-labels, broken tab order, missing landmarks, elements without accessible names. No guessing from PNGs.
 
@@ -309,7 +352,7 @@ Concrete data for WCAG findings: missing aria-labels, broken tab order, missing 
 
 **The test:** Group elements by visual role. Within each group, flag variance. Then measure cross-component edge alignment numerically so 1-8px gutter drift is visible to the reviewer.
 
-For each page, run this via `browser_evaluate`:
+For non-authoritative diagnosis or schema-v1 migration, run this via `browser_evaluate`. Schema-v2 web certification uses the trusted helper's native DOMSnapshot measurements:
 
 ```javascript
 (() => {
@@ -778,20 +821,7 @@ Run once per active web capture at that capture's exact viewport and state. A de
 
 ### Manifest Update
 
-Add enriched artifacts to the manifest:
-
-```markdown
-## Enriched Artifacts
-
-| File | Type | Description |
-|------|------|-------------|
-| a11y-snapshot-{page}.md | Accessibility snapshot | Optional reviewer context; not checker evidence |
-| {subject}-{coverage-id}-a11y-raw.json | Raw accessibility probe | Mandatory bounded roles, names, and focus measurements for one active capture |
-| accessibility-audit-{page}.json | Normalized `accessibility-tree` | Generated checker evidence bound to the raw probe |
-| {subject}-{coverage-id}-dom-raw.json | Raw DOM probe | Mandatory bounded viewport, hierarchy, alignment, and consistency measurements for one active web capture |
-| consistency-{page}.md | Consistency report | Typography hierarchy, group inconsistencies, asymmetric padding, edge alignment |
-| dom-audit-{page}.json | Normalized `dom-audit` | Generated checker evidence bound to the raw probe |
-```
+For a schema-v2 web capture, copy the helper result into `captures.json` without weakening its bindings: the capture row uses the returned screenshot path, byte SHA-256, decoded-pixel SHA-256, dimensions, and capture time, plus `observation` equal to the returned `capture.json` path/SHA binding. Register the two generated normalized audits as the `accessibility-tree` and `dom-audit` evidence rows. Optional Markdown accessibility or consistency projections may sit beside them for reviewer context, but are never checker evidence.
 
 ## Cleanup
 

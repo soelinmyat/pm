@@ -61,7 +61,7 @@ Product UI decides primary, empty, error, boundary, loading, success, focus, dis
 
 Mobile product UI requires a primary `device` row. Every PM artifact subject also includes `artifact: {path, sha256, kind}` for the exact proposal, RFC, or report HTML.
 
-New routes always use schema version 2. Never create a new route with schema version 1 and never downgrade a v2 route. The checker can parse schema v1 only in explicit, non-authoritative inspection mode so an existing run can be read and migrated; inspection never returns a certifying pass and cannot create, update, or recertify a gate row. To certify current work, freeze and execute a new schema-v2 route. During migration, v1 is interpreted with its original primary, empty, error, and boundary decisions plus primary desktop for web; it does not gain v2's blanket narrow requirement or width bands. `captures.json` and `report.json` remain schema v1 because their shapes did not change.
+New routes always use schema version 2. Never create a new route with schema version 1 and never downgrade a v2 route. The checker can parse schema v1 only in explicit, non-authoritative inspection mode so an existing run can be read and migrated; inspection never returns a certifying pass and cannot create, update, or recertify a gate row. To certify current work, freeze and execute a new schema-v2 route. During migration, v1 is interpreted with its original primary, empty, error, and boundary decisions plus primary desktop for web; it does not gain v2's blanket narrow requirement or trusted-capture requirements. `captures.json` and `report.json` retain schema version 1 while adding the fields defined below.
 
 ## Captures
 
@@ -84,9 +84,14 @@ New routes always use schema version 2. Never create a new route with schema ver
       "width": 1440,
       "height": 1000,
       "full_page": false,
+      "pixel_sha256": "<canonical-decoded-RGBA-64-hex>",
       "round": 1,
       "active": true,
-      "captured_at": "2026-07-12T00:01:00Z"
+      "captured_at": "2026-07-12T00:01:00Z",
+      "observation": {
+        "path": ".pm/.../round-1/capture-account-primary-desktop-r1/capture.json",
+        "sha256": "<64-hex>"
+      }
     }
   ],
   "evidence": [
@@ -102,9 +107,13 @@ New routes always use schema version 2. Never create a new route with schema ver
 }
 ```
 
-Capture kinds are `screenshot` (valid PNG bytes with decoded dimensions equal to `width`/`height`) and `pdf` (valid non-empty PDF with decoded `pages`). For schema-v2 web product UI, desktop, tablet, and narrow coverage require screenshots whose decoded PNG widths match the label: desktop is at least 1024 pixels, tablet is 601–1023 pixels, and narrow is at most 600 pixels. The decoded bytes are authoritative, so a wide PNG cannot pass by declaring a narrow label or width. PM artifact capture sizing remains bound to the exact canonical renderer viewports rather than these product-UI bands. Evidence kinds are `accessibility-tree`, `dom-audit`, `artifact-structural`, and `artifact-render`. Every subject requires accessibility evidence. Web UI also requires a DOM audit. Artifact mode requires structural and render manifests.
+Capture kinds are `screenshot` (valid PNG bytes with decoded dimensions equal to `width`/`height`) and `pdf` (valid non-empty PDF with decoded `pages`). Schema-v2 product UI is screenshot-only. Web dimensions must be plausible for the routed label: desktop is at least 1024×600, tablet is 601–1023 pixels wide and at least 600 high, and narrow is 320–600 pixels wide and at least 480 high. Mobile device captures are at least 240×400. The checker decodes the pixels, requires at least 1% visible pixels and non-uniform visible content, and recomputes `pixel_sha256` from canonical decoded RGBA pixels. Declared dimensions and file-byte hashes cannot substitute for this decoded identity. PM artifact capture sizing remains bound to the exact canonical renderer viewports rather than these product-UI bands. Evidence kinds are `accessibility-tree`, `dom-audit`, `artifact-structural`, and `artifact-render`. Every subject requires accessibility evidence. Web UI also requires a DOM audit. Artifact mode requires structural and render manifests.
 
-Each capture records `round` (1 or 2) and `active`. Every active required coverage row must resolve to its own canonical file path and its own content hash; copying one image to another path or relabeling one file cannot impersonate a second state or viewport. Keep before and after entries when a blocking finding is fixed: the historical capture becomes inactive and exactly one latest-round capture stays active for each required coverage ID. Resolved P0/P1 proof uses the same subject and coverage ID, cites both IDs in the finding, and orders an inactive earlier `before` before the active later `after`. IDs include the round; coverage IDs stay stable.
+Every schema-v2 web product-UI screenshot includes `observation: {path, sha256}` for the `capture.json` emitted by `scripts/design-critique-capture.js`. The closed manifest binds the exact route and capture row; coverage state and viewport; requested, expected, and final URL; a passing declarative state assertion; CSS viewport; raw accessibility, DOM, and network files; browser executable identity before/after; clean tracked source identity before/after; plugin version; invocation configuration; ordered timestamps; screenshot byte SHA-256; and canonical decoded-pixel SHA-256. The checker rereads every binding, recomputes the invocation and native-observation digests, and requires the registered normalized audits to use the raw files named by this manifest. A manual screenshot or a manifest assembled after independent probes cannot certify a schema-v2 web capture.
+
+The manifest attests capture-time consistency, not a signed provenance chain. In particular, a generic development server does not prove that its responses came from the routed Git commit. Use the project's documented server command and a clean build; if stronger provenance is required, expose an app/build identifier that the declarative state assertion can verify. The helper rejects iframe documents and starts a clean browser profile, so authenticated review must use a privacy-safe seeded or single-use application route without retaining secrets in the URL.
+
+Each capture records `round` (1 or 2) and `active`. Every active required coverage row must resolve to its own canonical file path, file-byte hash, and decoded-pixel hash; copying, re-encoding, or relabeling one image cannot impersonate a second state or viewport. Keep before and after entries when a blocking finding is fixed: the historical capture becomes inactive and exactly one latest-round capture stays active for each required coverage ID. Resolved product-UI P0/P1 proof uses the same subject and coverage ID, cites both IDs in the finding, and orders an inactive earlier `before` before the active later `after`; before and after must have distinct decoded-pixel hashes. IDs include the round; coverage IDs stay stable.
 
 For route schema v2, accessibility and DOM audit evidence use schema v2 and are generated only by `scripts/design-critique-audit-normalize.js`. Each normalized object contains exactly `schema_version`, `subject_id`, `commit`, `capture_ids`, `raw: {path, sha256}`, `checks`, and `findings`. Product-UI audits cite exactly one active capture: every active capture needs one accessibility audit, and every active web capture also needs one DOM audit. The raw DOM `inner_width` must equal the decoded cited screenshot width, binding responsive measurements to the rendered evidence instead of allowing one desktop probe to cover other viewports or states. The checker bounded-reads the raw path, verifies its SHA-256, reruns normalization, and requires the complete normalized object to match. Hand-authored booleans or findings cannot pass.
 
