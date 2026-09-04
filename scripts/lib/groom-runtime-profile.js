@@ -44,7 +44,9 @@ function resolveGroomProfile(options = {}) {
   } catch (error) {
     if (/model profile/.test(error.message))
       throw new Error(`unknown ${provider} Groom profile: ${options.profile}`);
-    throw new Error(`unknown Groom runtime: ${provider}`);
+    if (/unknown runtime/.test(error.message))
+      throw new Error(`unknown Groom runtime: ${provider}`);
+    throw error;
   }
   return {
     profile: profile.name,

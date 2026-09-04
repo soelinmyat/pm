@@ -256,6 +256,10 @@ ${designContextMarkdown(proposal)}
 ### Open decisions
 ${proposal.open_decisions.length ? mdList(proposal.open_decisions, "question") : "- None"}
 
+## Review answers
+
+${reviewAnswersMarkdown(proposal)}
+
 ## Reader
 
 [Open the generated proposal](proposals/${proposal.slug}.html). Lifecycle: **${proposal.lifecycle}** · revision **${proposal.revision}** · semantic content \`${identity.contentSha256}\`.
@@ -475,16 +479,51 @@ function statusHtml(proposal, identity) {
   const approvalTrusted = ["approved", "planned", "in-progress", "done"].includes(
     proposal.lifecycle
   );
-  const rows = proposal.question_reviews.map((item) => [item.question, sentenceCase(item.outcome)]);
-  rows.push([
-    "Approval",
-    approvalTrusted
-      ? `Approval verified; current lifecycle ${proposal.lifecycle}`
-      : proposal.lifecycle === "reviewed"
-        ? "Pending explicit user decision"
-        : "Review required before approval",
-  ]);
-  return `${tableHtml(["Question", "Outcome"], rows)}<p>Revision ${proposal.revision}. Approval identity <code>${h(identity.contentSha256)}</code>.</p>`;
+  const approval = approvalTrusted
+    ? `Approval verified; current lifecycle ${proposal.lifecycle}`
+    : proposal.lifecycle === "reviewed"
+      ? "Pending explicit user decision"
+      : "Review required before approval";
+  return `<h3>Review answers</h3>${reviewAnswersHtml(proposal)}<h3>Approval</h3><p>${h(approval)}</p><p>Revision ${proposal.revision}. Approval identity <code>${h(identity.contentSha256)}</code>.</p>`;
+}
+
+function reviewAnswersHtml(proposal) {
+  if (!proposal.question_reviews.length) return "<p>No review answers recorded.</p>";
+  return proposal.question_reviews
+    .map((item) => {
+      const evidence = Array.isArray(item.evidence)
+        ? listHtml(
+            item.evidence.map(
+              (entry) => `${entry.evidence_id} · ${entry.locator} — ${entry.relevance}`
+            )
+          )
+        : listHtml((item.evidence_refs || []).map((entry) => `Evidence reference: ${entry}`));
+      const answer = Object.hasOwn(item, "conclusion")
+        ? `<p class="open-q-rec"><strong>Conclusion.</strong> ${h(item.conclusion)}</p><p><strong>Rationale.</strong> ${h(item.rationale)}</p><p><strong>Confidence.</strong> ${h(sentenceCase(item.confidence))} · <strong>Outcome.</strong> ${h(sentenceCase(item.outcome))}</p>`
+        : `<p class="open-q-rec"><strong>Outcome.</strong> ${h(sentenceCase(item.outcome))}</p><p>Legacy review record; no retained conclusion or rationale.</p>`;
+      const finding = item.finding ? `<p><strong>Finding.</strong> ${h(item.finding)}</p>` : "";
+      return `<article class="open-q"><div class="open-q-q">${h(item.question)}</div>${answer}<div><strong>Evidence.</strong>${evidence}</div>${finding}</article>`;
+    })
+    .join("");
+}
+
+function reviewAnswersMarkdown(proposal) {
+  if (!proposal.question_reviews.length) return "No review answers recorded.";
+  return proposal.question_reviews
+    .map((item) => {
+      const evidence = Array.isArray(item.evidence)
+        ? item.evidence
+            .map(
+              (entry) => `  - \`${entry.evidence_id}\` · \`${entry.locator}\` — ${entry.relevance}`
+            )
+            .join("\n")
+        : (item.evidence_refs || []).map((entry) => `  - \`${entry}\``).join("\n");
+      if (!Object.hasOwn(item, "conclusion")) {
+        return `### ${item.question}\n\n- **Outcome:** ${sentenceCase(item.outcome)}\n- **Evidence:**\n${evidence}\n- Legacy review record; no retained conclusion or rationale.`;
+      }
+      return `### ${item.question}\n\n- **Conclusion:** ${item.conclusion}\n- **Rationale:** ${item.rationale}\n- **Confidence:** ${sentenceCase(item.confidence)}\n- **Outcome:** ${sentenceCase(item.outcome)}\n- **Evidence:**\n${evidence}${item.finding ? `\n- **Finding:** ${item.finding}` : ""}`;
+    })
+    .join("\n\n");
 }
 function decisionActionHtml(proposal, identity) {
   const approvalTrusted = ["approved", "planned", "in-progress", "done"].includes(

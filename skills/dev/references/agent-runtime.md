@@ -39,10 +39,13 @@ Defaults are data-driven:
 | Profile | Provider | Model | Effort | Permission boundary |
 |---|---|---|---|---|
 | `codex-workhorse` | Codex | `gpt-5.6-sol` | `high` | `workspace-write`, approvals never |
+| `codex-astra` | Codex | `gpt-6-astra` | `high` | `workspace-write`, approvals never |
 | `claude-workhorse` | Claude | `claude-opus-4-8` | `xhigh` | `auto` |
 | `claude-frontier` | Claude | `claude-fable-5` | `xhigh` | `auto` |
 
 Environment overrides are supported by the adapter. Broad modes (`danger-full-access`, `bypassPermissions`) require `PM_DEV_ALLOW_BROAD_PERMISSIONS=1` and are never the default.
+
+`gpt-6-astra` is explicit opt-in: select the named `codex-astra` base profile. A model environment variable or `--model` override cannot turn another profile into Astra, and an Astra profile cannot override its model/provider identity. Supported Astra effort overrides are `low`, `medium`, `high`, `xhigh`, and `max`. Persisted sessions and phase results revalidate this binding on every read and update.
 
 Override precedence is provider-specific variable, then generic variable, then profile default:
 

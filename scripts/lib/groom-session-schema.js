@@ -9,7 +9,21 @@ const { markdownTableValue } = require("./session-scan.js");
 const { loadPhaseStep } = require("../step-loader.js");
 const { verifyArtifactWorktreeOwnership } = require("../artifact-worktree.js");
 const { validateDesignContext } = require("./dev-work-units.js");
+const { PROFILES: GROOM_MODEL_PROFILES } = require("./groom-runtime-profile.js");
+const {
+  REVIEW_QUESTIONS,
+  normalizeReviewText,
+  questionTier,
+  reviewAnswerQuality,
+  reviewEvidenceRelevanceQuality,
+  reviewFindingQuality,
+  reviewQuestionsForTier,
+} = require("./groom-review-contract.js");
 const { grantActions } = require("./workflow-runtime/authority.js");
+const {
+  assertAstraProfileIntegrity,
+  assertRuntimeMatchesAstraProfile,
+} = require("./workflow-runtime/model-profile.js");
 const { createTransition, hashResult, isObject } = require("./workflow-runtime/records.js");
 const {
   evidenceRecordIssues,
@@ -20,6 +34,7 @@ const {
   proposalApprovalSnapshotHash,
   proposalBytesHash,
   proposalContentHash,
+  proposalReviewCoverage,
 } = require("./proposal-schema.js");
 
 const PHASES = [
@@ -61,49 +76,6 @@ const ROUTES = Object.freeze({
 const STATUSES = new Set(["active", "awaiting_approval", "approved", "blocked", "complete"]);
 const RESULT_STATUSES = new Set(["passed", "failed", "blocked"]);
 const AUTHORITY_ACTIONS = ["tracker_create", "open_browser", "start_rfc", "external_research"];
-const REVIEW_QUESTIONS = Object.freeze({
-  quick: [
-    {
-      id: "assumption-risk",
-      text: "Which evidence gap or assumption is most likely to reverse this recommendation?",
-    },
-    {
-      id: "experience",
-      text: "Are the primary experience, consequential states, and design requirements complete?",
-    },
-  ],
-  standard: [
-    {
-      id: "problem-evidence",
-      text: "Is the problem and evidence chain sufficient for this decision?",
-    },
-    { id: "scope", text: "Is the scope coherent, minimal, and explicit about non-goals?" },
-    { id: "acceptance", text: "Are acceptance criteria observable and implementation-neutral?" },
-    { id: "experience", text: "Are user flows, failure states, and design requirements complete?" },
-    {
-      id: "feasibility",
-      text: "Is feasibility credible without smuggling in an engineering design?",
-    },
-  ],
-  full: [
-    {
-      id: "problem-evidence",
-      text: "Is the problem and evidence chain sufficient for this decision?",
-    },
-    { id: "scope", text: "Is the scope coherent, minimal, and explicit about non-goals?" },
-    { id: "acceptance", text: "Are acceptance criteria observable and implementation-neutral?" },
-    { id: "experience", text: "Are user flows, failure states, and design requirements complete?" },
-    {
-      id: "feasibility",
-      text: "Is feasibility credible without smuggling in an engineering design?",
-    },
-    {
-      id: "reversal",
-      text: "What assumption, counterexample, or competitive fact could reverse the recommendation?",
-    },
-  ],
-});
-
 function createSession(options) {
   if (!options?.slug || !options?.sourceDir)
     throw new Error("createSession requires slug and sourceDir");
@@ -117,7 +89,6 @@ function createSession(options) {
     throw new Error(`source directory is not a Git worktree: ${sourceDir}`);
   }
   const now = options.now || new Date().toISOString();
-  const reviewTier = tier === "agent" ? "full" : tier;
   const session = {
     schema_version: GROOM_SCHEMA_VERSION,
     run_id: options.runId || `groom_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`,
@@ -145,7 +116,7 @@ function createSession(options) {
     },
     routing: {
       required_phases: [...ROUTES[tier]],
-      review_questions: structuredClone(REVIEW_QUESTIONS[reviewTier] || []),
+      review_questions: reviewQuestionsForTier(tier) || [],
       kb_gate: tier === "agent" ? "strict" : "normal",
     },
     proposal: null,
@@ -242,13 +213,12 @@ function applyContext(session, facts, options = {}) {
     evidence_refs: [...facts.evidence_refs],
     artifact_repo_root: artifactRepoRoot,
   };
-  const reviewTier = tier === "agent" ? "full" : tier;
   const routes = session.schema_version >= GROOM_SCHEMA_VERSION ? ROUTES : LEGACY_ROUTES;
   next.routing = {
     required_phases: [...routes[tier]],
     review_questions: structuredClone(
-      session.schema_version >= GROOM_SCHEMA_VERSION || reviewTier !== "quick"
-        ? REVIEW_QUESTIONS[reviewTier] || []
+      session.schema_version >= GROOM_SCHEMA_VERSION || questionTier(tier) !== "quick"
+        ? reviewQuestionsForTier(tier) || []
         : []
     ),
     kb_gate: tier === "agent" ? "strict" : "normal",
@@ -355,7 +325,9 @@ function validatePassedResult(session, result, now) {
   if (session.phase === "intake" && !session.context.configured)
     throw new Error("intake requires configured Groom context");
   if (result.proposal) {
-    verifyProposal(result.proposal, proposalRepoRoot(session));
+    verifySessionProposal(session, result.proposal, {
+      requireCompleteReview: session.phase === "review",
+    });
     if (session.proposal && result.proposal.revision < session.proposal.revision)
       throw new Error("proposal revision cannot decrease");
     if (
@@ -370,7 +342,10 @@ function validatePassedResult(session, result, now) {
     throw new Error(`${session.phase} requires proposal identity`);
   for (const kind of requiredEvidence(session.phase)) requireEvidence(result, kind);
   if (session.phase === "review") {
-    validateQuestionOutcomes(session, result.question_outcomes);
+    const reviewedProposal = verifySessionProposal(session, session.proposal, {
+      requireCompleteReview: true,
+    });
+    validateQuestionOutcomes(session, result.question_outcomes, reviewedProposal);
     session.review = {
       status: "passed",
       proposal_hash: session.proposal.content_hash,
@@ -382,7 +357,7 @@ function validatePassedResult(session, result, now) {
   if (session.phase === "handoff") {
     if (session.approval.status !== "approved")
       throw new Error("handoff requires explicit human approval");
-    verifyProposal(session.proposal, proposalRepoRoot(session));
+    verifySessionProposal(session, session.proposal, { requireCompleteReview: true });
     if (
       session.proposal.content_hash !== session.approval.proposal_hash ||
       session.proposal.revision !== session.approval.proposal_revision
@@ -404,6 +379,9 @@ function approveSession(session, input, options = {}) {
     let current;
     try {
       current = proposalIdentityFromPath(session.proposal.json_path, proposalRepoRoot(session));
+      verifySessionProposal(session, proposalIdentityOnly(current), {
+        requireCompleteReview: true,
+      });
     } catch {
       throw new Error("proposal changed after approval; revise and approve again");
     }
@@ -419,7 +397,7 @@ function approveSession(session, input, options = {}) {
     throw new Error("Groom proposal is not awaiting approval");
   if (!nonEmpty(input?.approvedBy)) throw new Error("approval requires approvedBy");
   if (!session.proposal) throw new Error("approval requires a proposal");
-  verifyProposal(session.proposal, proposalRepoRoot(session));
+  verifySessionProposal(session, session.proposal, { requireCompleteReview: true });
   if (
     session.routing.required_phases.includes("review") &&
     (session.review.status !== "passed" ||
@@ -475,7 +453,7 @@ function reviseSession(session, input, options = {}) {
   if (!nonEmpty(input?.reason)) throw new Error("Groom revision requires a reason");
   const proposal = input.proposal || session.proposal;
   if (!proposal) throw new Error("Groom revision requires current proposal identity");
-  verifyProposal(proposal, proposalRepoRoot(session));
+  verifySessionProposal(session, proposal);
   if (
     session.proposal &&
     proposal.content_hash !== session.proposal.content_hash &&
@@ -582,6 +560,7 @@ function buildApprovalAudit(session) {
   if (session.approval.status !== "approved" || !session.proposal)
     throw new Error("approval audit requires an explicitly approved proposal");
   const proposal = proposalIdentityFromPath(session.proposal.json_path, proposalRepoRoot(session));
+  verifySessionProposal(session, proposalIdentityOnly(proposal), { requireCompleteReview: true });
   if (
     proposal.content_hash !== session.approval.proposal_hash ||
     proposal.revision !== session.approval.proposal_revision ||
@@ -611,6 +590,16 @@ function proposalIdentityFromPath(jsonPath, repoRoot) {
   };
   verifyProposal(identity, repoRoot);
   return { ...identity, approval_snapshot_sha256: proposalApprovalSnapshotHash(parsed) };
+}
+
+function proposalIdentityOnly(proposal) {
+  return {
+    json_path: proposal.json_path,
+    proposal_sha256: proposal.proposal_sha256,
+    content_hash: proposal.content_hash,
+    revision: proposal.revision,
+    lifecycle: proposal.lifecycle,
+  };
 }
 
 function migrateLegacyMarkdown(legacyPath, options = {}) {
@@ -685,6 +674,15 @@ function validateResultIdentity(session, result) {
     requireSessionId: true,
   });
   if (runtimeIssues.length) throw new Error("phase result runtime is invalid");
+  try {
+    assertRuntimeMatchesAstraProfile({
+      data: GROOM_MODEL_PROFILES,
+      execution: session.execution,
+      runtime: result.runtime,
+    });
+  } catch (error) {
+    throw new Error(`phase result runtime is invalid: ${error.message}`);
+  }
   result.capability_downgrades.forEach((item) => {
     exactFields(item, ["capability", "reason", "fallback"], "capability downgrade");
     if (![item.capability, item.reason, item.fallback].every(nonEmpty))
@@ -699,12 +697,24 @@ function validateResultIdentity(session, result) {
   }
 }
 
-function validateQuestionOutcomes(session, outcomes) {
+function validateQuestionOutcomes(session, outcomes, proposal) {
   const byId = new Map();
   for (const item of outcomes) {
+    const current = session.schema_version >= GROOM_SCHEMA_VERSION;
     exactFields(
       item,
-      ["question_id", "proposal_hash", "verdict", "blocking", "advisory"],
+      current
+        ? [
+            "question_id",
+            "proposal_hash",
+            "verdict",
+            "conclusion",
+            "rationale",
+            "evidence",
+            "confidence",
+            "finding",
+          ]
+        : ["question_id", "proposal_hash", "verdict", "blocking", "advisory"],
       "question outcome"
     );
     if (!session.routing.review_questions.some((question) => question.id === item.question_id))
@@ -713,18 +723,43 @@ function validateQuestionOutcomes(session, outcomes) {
       throw new Error(`duplicate review question: ${item.question_id}`);
     if (item.proposal_hash !== session.proposal.content_hash)
       throw new Error(`review question ${item.question_id} is stale`);
-    if (
+    if (current) {
+      const question = session.routing.review_questions.find(
+        (candidate) => candidate.id === item.question_id
+      );
+      validateCurrentReviewAnswer(item, question, proposal, "verdict", "question outcome");
+      const canonical = proposal.question_reviews.find(
+        (candidate) => candidate.question_id === item.question_id
+      );
+      if (!canonical || canonical.outcome !== item.verdict)
+        throw new Error(`question outcome ${item.question_id} does not match canonical review`);
+      for (const field of ["conclusion", "rationale", "evidence", "confidence", "finding"]) {
+        if (JSON.stringify(canonical[field]) !== JSON.stringify(item[field]))
+          throw new Error(
+            `question outcome ${item.question_id} ${field} does not match canonical review`
+          );
+      }
+    } else if (
       !["pass", "block"].includes(item.verdict) ||
       !Array.isArray(item.blocking) ||
       !Array.isArray(item.advisory)
-    )
+    ) {
       throw new Error(`invalid outcome for ${item.question_id}`);
+    }
     byId.set(item.question_id, item);
   }
   for (const question of session.routing.review_questions)
     if (!byId.has(question.id)) throw new Error(`missing review question: ${question.id}`);
-  if ([...byId.values()].some((item) => item.verdict !== "pass" || item.blocking.length))
+  if (
+    [...byId.values()].some((item) =>
+      session.schema_version >= GROOM_SCHEMA_VERSION
+        ? !["pass", "advisory"].includes(item.verdict)
+        : item.verdict !== "pass" || item.blocking.length
+    )
+  )
     throw new Error("question review has blocking findings");
+  if (session.schema_version >= GROOM_SCHEMA_VERSION)
+    validateReviewIndependence([...byId.values()], "question outcomes");
 }
 
 function verifyProposal(proposal, repoRoot) {
@@ -761,7 +796,119 @@ function verifyProposal(proposal, repoRoot) {
     throw new Error("proposal revision must be a positive integer");
   if (!["draft", "reviewed", "approved"].includes(proposal.lifecycle))
     throw new Error("proposal lifecycle is invalid");
-  return proposal;
+  return parsed;
+}
+
+function verifySessionProposal(session, proposal, options = {}) {
+  const parsed = verifyProposal(proposal, proposalRepoRoot(session));
+  if (session.schema_version < GROOM_SCHEMA_VERSION) return parsed;
+  const expectedIds = session.routing.review_questions.map((question) => question.id);
+  const contract = parsed.review_contract;
+  if (!isObject(contract))
+    throw new Error("current Groom proposals require a bound review_contract");
+  if (
+    parsed.source?.kind !== "groom-session" ||
+    parsed.source?.session_id !== session.run_id ||
+    contract.session_id !== session.run_id
+  )
+    throw new Error("proposal review contract must bind the current Groom session");
+  if (contract.tier !== session.context.tier)
+    throw new Error("proposal review contract tier does not match the Groom session");
+  if (JSON.stringify(contract.required_question_ids) !== JSON.stringify(expectedIds))
+    throw new Error("proposal review contract does not match the tier-required question IDs");
+  if (options.requireCompleteReview) {
+    const coverage = proposalReviewCoverage(parsed);
+    if (!coverage.complete)
+      throw new Error(
+        `canonical proposal is missing tier-required question reviews: ${coverage.missing_question_ids.join(", ") || "coverage is invalid"}`
+      );
+    const questions = new Map(
+      session.routing.review_questions.map((question) => [question.id, question])
+    );
+    for (const row of parsed.question_reviews) {
+      const question = questions.get(row?.question_id);
+      if (
+        !isObject(row) ||
+        row.id !== `review:${row.question_id}` ||
+        row.question !== question?.text
+      )
+        throw new Error("canonical proposal question review rows are invalid or stale");
+      validateCurrentReviewAnswer(row, question, parsed, "outcome", "canonical review answer");
+    }
+    validateReviewIndependence(parsed.question_reviews, "canonical review answers");
+  }
+  return parsed;
+}
+
+function validateCurrentReviewAnswer(row, question, proposal, outcomeField, label) {
+  if (!question) throw new Error(`${label} has an unknown question`);
+  if (!["pass", "advisory"].includes(row?.[outcomeField]))
+    throw new Error(`${label} ${question.id} is not passing`);
+  const answerQuality = reviewAnswerQuality(row.conclusion, row.rationale, question.text);
+  if (!answerQuality.ok) throw new Error(`${label} ${question.id} ${answerQuality.reason}`);
+  if (!["high", "medium", "low"].includes(row.confidence))
+    throw new Error(`${label} ${question.id} has invalid confidence`);
+  if (row[outcomeField] === "pass" && row.confidence === "low")
+    throw new Error(`${label} ${question.id} low confidence requires an advisory finding`);
+  if (row[outcomeField] === "pass" && row.finding !== null)
+    throw new Error(`${label} ${question.id} pass cannot carry a finding`);
+  if (row[outcomeField] === "advisory") {
+    const findingQuality = reviewFindingQuality(
+      row.finding,
+      row.conclusion,
+      row.rationale,
+      question.text
+    );
+    if (!findingQuality.ok) throw new Error(`${label} ${question.id} ${findingQuality.reason}`);
+  }
+  if (!Array.isArray(row.evidence) || row.evidence.length === 0)
+    throw new Error(`${label} ${question.id} requires evidence`);
+  const evidenceIds = proposal
+    ? new Set(Array.isArray(proposal.evidence) ? proposal.evidence.map((entry) => entry?.id) : [])
+    : null;
+  const locations = new Set();
+  for (const evidence of row.evidence) {
+    const relevanceQuality = reviewEvidenceRelevanceQuality(
+      evidence?.relevance,
+      row.conclusion,
+      row.rationale,
+      question.text
+    );
+    if (
+      !isObject(evidence) ||
+      Object.keys(evidence).sort().join(",") !== "evidence_id,locator,relevance" ||
+      (evidenceIds && !evidenceIds.has(evidence.evidence_id)) ||
+      !nonEmpty(evidence.locator) ||
+      !relevanceQuality.ok
+    )
+      throw new Error(`${label} ${question.id} has invalid or unbound evidence`);
+    const location = `${evidence.evidence_id}\u0000${evidence.locator}`;
+    if (locations.has(location))
+      throw new Error(`${label} ${question.id} repeats an evidence location`);
+    locations.add(location);
+  }
+}
+
+function validateReviewIndependence(rows, label) {
+  if (rows.length < 2) return;
+  const conclusions = rows.map((row) => normalizeReviewText(row.conclusion));
+  if (
+    conclusions.some((conclusion) => !conclusion) ||
+    new Set(conclusions).size !== conclusions.length
+  )
+    throw new Error(`${label} must contain a distinct answer for every question`);
+  const rationales = new Set(rows.map((row) => normalizeReviewText(row.rationale)));
+  if (rationales.size !== rows.length)
+    throw new Error(`${label} must contain a distinct rationale for every question`);
+  const locations = new Set(
+    rows.flatMap((row) => row.evidence.map((entry) => `${entry.evidence_id}\u0000${entry.locator}`))
+  );
+  if (locations.size < 2) throw new Error(`${label} must bind more than one evidence location`);
+  const relevances = new Set(
+    rows.flatMap((row) => row.evidence.map((entry) => normalizeReviewText(entry.relevance)))
+  );
+  if (relevances.size < 2)
+    throw new Error(`${label} must explain evidence relevance for the individual answers`);
 }
 
 function proposalRepoRoot(session) {
@@ -912,7 +1059,7 @@ function validateSession(session) {
       errors.push(issue("$.routing.required_phases", "does not match tier"));
     if (!Array.isArray(session.routing.review_questions))
       errors.push(issue("$.routing.review_questions", "invalid"));
-    else
+    else {
       session.routing.review_questions.forEach((question, index) => {
         validateClosedRecord(
           question,
@@ -923,6 +1070,14 @@ function validateSession(session) {
         if (!nonEmpty(question?.id) || !nonEmpty(question?.text))
           errors.push(issue(`$.routing.review_questions[${index}]`, "id and text required"));
       });
+      if (session.schema_version >= GROOM_SCHEMA_VERSION) {
+        if (
+          JSON.stringify(session.routing.review_questions) !==
+          JSON.stringify(reviewQuestionsForTier(session.context?.tier) || [])
+        )
+          errors.push(issue("$.routing.review_questions", "does not match tier review contract"));
+      }
+    }
     if (!["normal", "strict"].includes(session.routing.kb_gate))
       errors.push(issue("$.routing.kb_gate", "invalid"));
   }
@@ -951,21 +1106,87 @@ function validateSession(session) {
     if (!Number.isInteger(session.review.rounds) || session.review.rounds < 0)
       errors.push(issue("$.review.rounds", "invalid"));
     if (!Array.isArray(session.review.outcomes)) errors.push(issue("$.review.outcomes", "invalid"));
-    else
-      session.review.outcomes.forEach((outcome, index) =>
+    else {
+      const current = session.schema_version >= GROOM_SCHEMA_VERSION;
+      session.review.outcomes.forEach((outcome, index) => {
+        const outcomePath = `$.review.outcomes[${index}]`;
         validateClosedRecord(
           outcome,
-          ["question_id", "proposal_hash", "verdict", "blocking", "advisory"],
-          `$.review.outcomes[${index}]`,
+          current
+            ? [
+                "question_id",
+                "proposal_hash",
+                "verdict",
+                "conclusion",
+                "rationale",
+                "evidence",
+                "confidence",
+                "finding",
+              ]
+            : ["question_id", "proposal_hash", "verdict", "blocking", "advisory"],
+          outcomePath,
           errors
-        )
-      );
+        );
+        if (current) {
+          const question = session.routing?.review_questions?.find(
+            (candidate) => candidate.id === outcome?.question_id
+          );
+          try {
+            validateCurrentReviewAnswer(
+              outcome,
+              question,
+              null,
+              "verdict",
+              "persisted question outcome"
+            );
+          } catch (error) {
+            errors.push(issue(outcomePath, error.message));
+          }
+        }
+      });
+      if (current && session.review.outcomes.length > 1) {
+        try {
+          validateReviewIndependence(session.review.outcomes, "persisted question outcomes");
+        } catch (error) {
+          errors.push(issue("$.review.outcomes", error.message));
+        }
+      }
+    }
     if (
       session.review.status === "passed" &&
       (!/^sha256:[0-9a-f]{64}$/.test(session.review.proposal_hash || "") ||
         !isIsoDate(session.review.reviewed_at))
     )
       errors.push(issue("$.review", "passed review requires current hash and timestamp"));
+    if (
+      session.schema_version >= GROOM_SCHEMA_VERSION &&
+      session.review.status === "passed" &&
+      Array.isArray(session.review.outcomes)
+    ) {
+      const expectedIds = Array.isArray(session.routing?.review_questions)
+        ? session.routing.review_questions.map((question) => question.id)
+        : [];
+      const actualIds = session.review.outcomes.map((outcome) => outcome?.question_id);
+      if (
+        actualIds.length !== expectedIds.length ||
+        new Set(actualIds).size !== actualIds.length ||
+        expectedIds.some((questionId) => !actualIds.includes(questionId))
+      )
+        errors.push(issue("$.review.outcomes", "must exactly cover the routed review questions"));
+      session.review.outcomes.forEach((outcome, index) => {
+        const current = session.schema_version >= GROOM_SCHEMA_VERSION;
+        if (
+          outcome?.proposal_hash !== session.review.proposal_hash ||
+          (current
+            ? !["pass", "advisory"].includes(outcome?.verdict)
+            : outcome?.verdict !== "pass" ||
+              !Array.isArray(outcome?.blocking) ||
+              outcome.blocking.length > 0 ||
+              !Array.isArray(outcome?.advisory))
+        )
+          errors.push(issue(`$.review.outcomes[${index}]`, "is not a current passing outcome"));
+      });
+    }
   }
   validateClosedRecord(
     session.approval,
@@ -1023,6 +1244,18 @@ function validateSession(session) {
         errors.push(issue(`$.execution.${field}`, "required"));
     if (typeof session.execution.headless !== "boolean")
       errors.push(issue("$.execution.headless", "invalid"));
+    try {
+      assertAstraProfileIntegrity({
+        data: GROOM_MODEL_PROFILES,
+        provider: session.execution.runtime,
+        profileName: session.execution.profile,
+        model: session.execution.model,
+        effort: session.execution.reasoning,
+        profileWasExplicit: true,
+      });
+    } catch (error) {
+      errors.push(issue("$.execution", error.message));
+    }
   }
   if (!isObject(session.authority)) errors.push(issue("$.authority", "invalid"));
   else {
@@ -1069,6 +1302,17 @@ function validateSession(session) {
         requireSessionId: true,
       }))
         errors.push(runtimeIssue);
+      if (isObject(session.execution) && isObject(entry?.runtime)) {
+        try {
+          assertRuntimeMatchesAstraProfile({
+            data: GROOM_MODEL_PROFILES,
+            execution: session.execution,
+            runtime: entry.runtime,
+          });
+        } catch (error) {
+          errors.push(issue(`${at}.runtime`, error.message));
+        }
+      }
     });
   if (Array.isArray(session.history))
     session.history.forEach((entry, index) => {
@@ -1223,4 +1467,5 @@ module.exports = {
   reviseSession,
   validateSession,
   verifyProposal,
+  verifySessionProposal,
 };

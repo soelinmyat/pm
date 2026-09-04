@@ -10,6 +10,7 @@ const { recordSessionTelemetry } = require("./lib/telemetry");
 const { validateRfcSidecar } = require("./rfc-sidecar-check");
 const { rfcIssuesToDevWorkUnits } = require("./lib/rfc-work-units");
 const { findGitRoot } = require("./loop-git");
+const { resolveProfile } = require("./dev-runtime");
 
 const {
   advanceDecisionVersion,
@@ -156,16 +157,25 @@ function initCommand(options) {
   }
   let session;
   try {
+    const runtime = options.runtime || "inline";
+    const profile = resolveProfile({
+      provider: runtime,
+      profileName: options.profile,
+      overrides: {
+        ...(options.model ? { model: options.model } : {}),
+        ...(options.reasoning ? { effort: options.reasoning } : {}),
+      },
+    });
     session = createSession({
       slug: options.slug,
       sourceDir,
       task: options.task,
       kind: options.kind,
       size: options.size,
-      profile: options.profile,
-      runtime: options.runtime,
-      model: options.model,
-      reasoning: options.reasoning,
+      profile: profile.name,
+      runtime,
+      model: profile.model,
+      reasoning: profile.effort,
       mode: options.mode,
     });
   } catch (error) {

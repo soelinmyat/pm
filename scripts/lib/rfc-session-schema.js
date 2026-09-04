@@ -14,6 +14,10 @@ const { readApprovedProposal } = require("./proposal-schema.js");
 const { validateDesignContext } = require("./dev-work-units.js");
 const { grantActions } = require("./workflow-runtime/authority.js");
 const {
+  assertAstraProfileIntegrity,
+  assertRuntimeMatchesAstraProfile,
+} = require("./workflow-runtime/model-profile.js");
+const {
   createTransition,
   hashResult,
   isObject: isRecordObject,
@@ -23,6 +27,7 @@ const {
   evidenceRecordIssues,
   runtimeRecordIssues,
 } = require("./workflow-runtime/result-envelope.js");
+const RFC_MODEL_PROFILES = require("../../skills/rfc/references/model-profiles.json");
 
 const PHASES = ["intake", "generation", "review", "approval", "handoff"];
 const STATUSES = new Set(["active", "awaiting_approval", "approved", "blocked", "complete"]);
@@ -701,6 +706,15 @@ function validateResultIdentity(session, result) {
   if (runtimeIssues.some((item) => item.path.endsWith(".session_id"))) {
     throw new Error("phase result runtime.session_id must be null or string");
   }
+  try {
+    assertRuntimeMatchesAstraProfile({
+      data: RFC_MODEL_PROFILES,
+      execution: session.execution,
+      runtime: result.runtime,
+    });
+  } catch (error) {
+    throw new Error(`phase result runtime is invalid: ${error.message}`);
+  }
   if (
     result.status === "blocked" &&
     (!isObject(result.blocker) ||
@@ -1222,7 +1236,20 @@ function validateSession(session) {
     if (!Array.isArray(session[field])) errors.push(issue(`$.${field}`, "must be an array"));
   }
   if (Array.isArray(session.attempts)) {
-    session.attempts.forEach((value, index) => validateAttempt(value, index, errors));
+    session.attempts.forEach((value, index) => {
+      validateAttempt(value, index, errors);
+      if (isObject(session.execution) && isObject(value?.runtime)) {
+        try {
+          assertRuntimeMatchesAstraProfile({
+            data: RFC_MODEL_PROFILES,
+            execution: session.execution,
+            runtime: value.runtime,
+          });
+        } catch (error) {
+          errors.push(issue(`$.attempts[${index}].runtime`, error.message));
+        }
+      }
+    });
   }
   if (Array.isArray(session.history)) {
     session.history.forEach((value, index) => validateHistory(value, index, errors));
@@ -1531,6 +1558,18 @@ function validateExecutionShape(value, errors) {
         errors.push(issue("$.execution.runtime_session_id", "must be null or string"));
       if (typeof execution.headless !== "boolean") {
         errors.push(issue("$.execution.headless", "must be boolean"));
+      }
+      try {
+        assertAstraProfileIntegrity({
+          data: RFC_MODEL_PROFILES,
+          provider: execution.runtime,
+          profileName: execution.profile,
+          model: execution.model,
+          effort: execution.reasoning,
+          profileWasExplicit: true,
+        });
+      } catch (error) {
+        errors.push(issue("$.execution", error.message));
       }
     }
   );

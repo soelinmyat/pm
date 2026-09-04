@@ -40,7 +40,7 @@ If an agent gate fails, offer `standard` or the relevant `pm:strategy` / `pm:res
 
 - `quick`: bounded assumption-risk and experience-completeness questions; use explicit assumptions where evidence is thin.
 - `standard`: core independent questions in `review-questions.md`.
-- `full`: core plus alternatives, strategy/competition, measurement, and adversarial assumption questions.
-- `agent`: full plus sampled citation integrity.
+- `full`: the `standard` questions plus the required reversal question; deeper strategy, measurement, and adversarial analysis may be captured as advisory enrichment.
+- `agent`: the same required question IDs as `full`, with stricter freshness and citation integrity inside the required answers.
 
-Question coverage is authoritative. Worker count and persona names are execution details.
+Question coverage is authoritative: use the canonical ordered IDs in `review-questions.md`. Worker count and persona names are execution details. Adding another required ID needs a coordinated session-schema/runtime migration.

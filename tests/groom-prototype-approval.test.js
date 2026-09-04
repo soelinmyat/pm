@@ -15,6 +15,7 @@ const {
   proposalIdentityFromPath,
 } = require("../scripts/lib/groom-session-schema");
 const { proposalContentHash } = require("../scripts/lib/proposal-schema");
+const { reviewOutcome, reviewRow } = require("./helpers/groom-review-fixture.js");
 
 test("Groom approval and its audit reject a changed or missing bound prototype", () => {
   const repo = makeRepo();
@@ -27,6 +28,16 @@ test("Groom approval and its audit reject a changed or missing bound prototype",
 
     const proposal = JSON.parse(
       fs.readFileSync(path.join(__dirname, "fixtures/proposals/strong-v1.json"), "utf8")
+    );
+    let session = createSession({ slug: "structured-groom", sourceDir: repo, tier: "quick" });
+    proposal.source.session_id = session.run_id;
+    proposal.review_contract = {
+      session_id: session.run_id,
+      tier: "quick",
+      required_question_ids: session.routing.review_questions.map((question) => question.id),
+    };
+    proposal.question_reviews = session.routing.review_questions.map((question, index) =>
+      reviewRow(question, index)
     );
     proposal.lifecycle = "reviewed";
     proposal.design_context.prototype = {
@@ -43,7 +54,7 @@ test("Groom approval and its audit reject a changed or missing bound prototype",
     fs.mkdirSync(path.dirname(proposalPath), { recursive: true });
     writeProposal(proposalPath, proposal);
 
-    let session = approvalSession(repo, proposalPath);
+    session = approvalSession(session, repo, proposalPath);
     fs.writeFileSync(prototypePath, "<main>Changed after review</main>\n");
     assert.throws(
       () => approveSession(session, { approvedBy: "product-owner" }),
@@ -78,8 +89,7 @@ test("Groom approval and its audit reject a changed or missing bound prototype",
   }
 });
 
-function approvalSession(repo, proposalPath) {
-  const session = createSession({ slug: "structured-groom", sourceDir: repo, tier: "quick" });
+function approvalSession(session, repo, proposalPath) {
   const current = proposalIdentityFromPath(proposalPath, repo);
   const { approval_snapshot_sha256: _approvalSnapshot, ...identity } = current;
   session.phase = "approval";
@@ -89,7 +99,9 @@ function approvalSession(repo, proposalPath) {
     status: "passed",
     proposal_hash: identity.content_hash,
     rounds: 1,
-    outcomes: [],
+    outcomes: session.routing.review_questions.map((question, index) =>
+      reviewOutcome(question, identity.content_hash, index)
+    ),
     reviewed_at: "2026-07-14T00:30:00.000Z",
   };
   return session;

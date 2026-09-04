@@ -102,7 +102,7 @@ Invoke `pm:review` in branch mode (no PR number argument):
 Invoke pm:review (no arguments — it will diff current branch against the default branch)
 ```
 
-This freezes the target, plans six logical lenses across available reviewers, validates structured evidence, preserves disagreement, runs bounded fix rounds, and publishes checked JSON plus HTML.
+This freezes the target, plans six baseline lenses plus risk-triggered security across available reviewers, validates structured evidence, preserves disagreement, runs bounded fix rounds, and publishes checked JSON plus HTML.
 
 For the full workflow, see `${CLAUDE_PLUGIN_ROOT}/skills/review/SKILL.md`.
 

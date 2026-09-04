@@ -59,6 +59,55 @@ test("RFC session CLI initializes, configures context, and selects one phase", (
   }
 });
 
+test("RFC CLI rejects Astra model laundering and unsupported effort", () => {
+  const repo = makeRepo();
+  try {
+    const cases = [
+      [
+        "non-astra-base",
+        "--profile",
+        "gpt-5.6-sol-high",
+        "--model",
+        "gpt-6-astra",
+        /requires an explicitly selected named base profile/,
+      ],
+      [
+        "astra-model-swap",
+        "--profile",
+        "gpt-6-astra-high",
+        "--model",
+        "gpt-5.6-sol",
+        /cannot override model identity/,
+      ],
+      [
+        "astra-effort",
+        "--profile",
+        "gpt-6-astra-high",
+        "--reasoning",
+        "ultra",
+        /effort must be one of low, medium, high, xhigh, max/,
+      ],
+    ];
+    for (const [slug, ...rest] of cases) {
+      const pattern = rest.pop();
+      const result = repo.run([
+        "init",
+        "--slug",
+        slug,
+        "--source-dir",
+        repo.root,
+        "--runtime",
+        "codex",
+        ...rest,
+      ]);
+      assert.equal(result.status, 3, result.stderr);
+      assert.match(result.stderr, pattern);
+    }
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test("RFC session CLI rejects non-Git initialization with precondition exit", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-rfc-no-git-"));
   try {

@@ -14,7 +14,7 @@ Establish whether the exact draft is decision-ready and implementation-useful th
 
 ## How
 
-Read `references/review-questions.md`. Freeze proposal identity, select tier-required questions, and answer them independently inline or through available workers. Each answer carries verdict, evidence, confidence, and actionable finding. Synthesize disagreements explicitly.
+Read `references/review-questions.md`. Freeze proposal identity, select tier-required questions, and answer them independently inline or through available workers. Each answer carries a separate conclusion and rationale, verdict, precise evidence locator with answer-specific relevance, confidence, and actionable finding. Reject copied prompts, repeated rationales, and one generic evidence explanation reused across the question set. Synthesize disagreements explicitly.
 
 For `quick`, run the two routed questions (`assumption-risk` and `experience`) as a bounded adversarial pass. Sparse knowledge increases scrutiny of assumptions; it does not justify skipping design or independent review. Standard/full/agent keep their broader question sets.
 
@@ -22,7 +22,7 @@ If the frozen proposal has prototype evidence, also read the `@designer` — Vis
 
 Blocking revisions increment the proposal revision, invalidate prior review/approval, regenerate projections, rerun `proposal-quality-check.js`, and rerun every affected question. A run lineage has at most three remediation rounds. Advisory debt remains visible without inventing another round.
 
-When all routed questions pass, persist their answers in `question_reviews`, set `review.status: passed` with the current revision, semantic content hash, and completion time, and transition the canonical lifecycle from `draft` to `reviewed`. Regenerate both projections and run `proposal-check.js --projections` before recording the Review phase result. The session proposal identity recorded by that result must point to these reviewed canonical bytes.
+When all routed questions pass, persist exactly one answer per `review_contract.required_question_ids` entry in `question_reviews`, with the same `question_id` and `id: review:{question_id}`. Copy the exact normalized answer into the Review phase result; the runtime rejects any divergence between canonical and session rows. Do not accept one representative answer as coverage. Set `review.status: passed` with the current revision, semantic content hash, and completion time, and transition the canonical lifecycle from `draft` to `reviewed`. If writing review answers changes canonical semantic content after Draft was recorded, advance the proposal revision before recording Review. Regenerate both projections and run `proposal-check.js --projections` before recording the Review phase result. The session proposal identity recorded by that result must point to these reviewed canonical bytes.
 
 ## Done-when
 

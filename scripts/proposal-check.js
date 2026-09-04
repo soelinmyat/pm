@@ -73,6 +73,8 @@ function check(options) {
       lifecycle: source.proposal.lifecycle,
       content_sha256: source.contentSha256,
       proposal_sha256: source.bytesSha256,
+      review_contract_bound: source.reviewContractBound,
+      compatibility: source.compatibility,
       approval_verified: false,
     };
     const approvalPath =

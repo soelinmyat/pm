@@ -23,3 +23,41 @@ test("RFC runtime profiles reject provider/profile mismatch", () => {
     /unknown codex RFC profile/
   );
 });
+
+test("RFC runtime profiles enforce Astra identity and supported effort", () => {
+  assert.throws(
+    () =>
+      resolveRfcProfile({
+        runtime: "codex",
+        profile: "gpt-5.6-sol-high",
+        model: "gpt-6-astra",
+      }),
+    /requires an explicitly selected named base profile/
+  );
+  assert.throws(
+    () =>
+      resolveRfcProfile({
+        runtime: "codex",
+        profile: "gpt-6-astra-high",
+        model: "gpt-5.6-sol",
+      }),
+    /cannot override model identity/
+  );
+  assert.throws(
+    () =>
+      resolveRfcProfile({
+        runtime: "codex",
+        profile: "gpt-6-astra-high",
+        reasoning: "ultra",
+      }),
+    /effort must be one of low, medium, high, xhigh, max/
+  );
+  assert.equal(
+    resolveRfcProfile({
+      runtime: "codex",
+      profile: "gpt-6-astra-high",
+      reasoning: "max",
+    }).reasoning,
+    "max"
+  );
+});

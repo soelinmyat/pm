@@ -58,6 +58,55 @@ test("Groom CLI initializes canonical private state and configures context", () 
   }
 });
 
+test("Groom CLI rejects Astra model laundering and unsupported effort", () => {
+  const repo = makeRepo();
+  try {
+    const cases = [
+      [
+        "non-astra-base",
+        "--profile",
+        "gpt-5.6-sol-high",
+        "--model",
+        "gpt-6-astra",
+        /requires an explicitly selected named base profile/,
+      ],
+      [
+        "astra-model-swap",
+        "--profile",
+        "gpt-6-astra-high",
+        "--model",
+        "gpt-5.6-sol",
+        /cannot override model identity/,
+      ],
+      [
+        "astra-effort",
+        "--profile",
+        "gpt-6-astra-high",
+        "--reasoning",
+        "ultra",
+        /effort must be one of low, medium, high, xhigh, max/,
+      ],
+    ];
+    for (const [slug, ...rest] of cases) {
+      const pattern = rest.pop();
+      const result = run(repo, [
+        "init",
+        "--slug",
+        slug,
+        "--source-dir",
+        repo,
+        "--runtime",
+        "codex",
+        ...rest,
+      ]);
+      assert.equal(result.status, 3, result.stderr);
+      assert.match(result.stderr, pattern);
+    }
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test("Groom CLI records exact retries idempotently and rejects copied state", () => {
   const repo = makeRepo();
   try {

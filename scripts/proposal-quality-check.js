@@ -3,7 +3,13 @@
 
 const path = require("node:path");
 const fs = require("node:fs");
-const { readProposal } = require("./lib/proposal-schema");
+const { proposalReviewCoverage, readProposal } = require("./lib/proposal-schema");
+const {
+  normalizeReviewText,
+  reviewAnswerQuality,
+  reviewEvidenceRelevanceQuality,
+  reviewFindingQuality,
+} = require("./lib/groom-review-contract");
 const { findGitRoot } = require("./loop-git");
 
 const GENERIC =
@@ -78,6 +84,117 @@ function designContextMinimum(proposal) {
   };
 }
 
+function reviewCoverageMinimum(proposal, applicable) {
+  const coverage = proposalReviewCoverage(proposal);
+  const passed =
+    !applicable ||
+    (coverage.bound &&
+      coverage.complete &&
+      coverage.session_id === proposal.source?.session_id &&
+      proposal.question_reviews.every((row) => row.outcome !== "fail"));
+  return {
+    applicable,
+    passed,
+    required: coverage.expected_question_ids.length,
+    substantive: coverage.reviewed_question_ids.length,
+    total: Array.isArray(proposal.question_reviews) ? proposal.question_reviews.length : 0,
+    tier: coverage.tier,
+    missing_question_ids: coverage.missing_question_ids,
+    unexpected_question_ids: coverage.unexpected_question_ids,
+    reason: !applicable
+      ? "not applicable at the current lifecycle"
+      : passed
+        ? "Question reviews exactly cover the bound Groom review contract"
+        : "Reviewed proposals require a session-bound tier and exact required question coverage",
+  };
+}
+
+function questionReviewMinimum(proposal, applicable) {
+  const coverage = reviewCoverageMinimum(proposal, applicable);
+  const rows = Array.isArray(proposal.question_reviews) ? proposal.question_reviews : [];
+  const substance = minimum(
+    rows,
+    (row) => {
+      const answerQuality = reviewAnswerQuality(row.conclusion, row.rationale, row.question);
+      const findingQuality =
+        row.outcome === "pass"
+          ? { ok: row.finding === null }
+          : reviewFindingQuality(row.finding, row.conclusion, row.rationale, row.question);
+      return (
+        answerQuality.ok &&
+        ["pass", "advisory"].includes(row.outcome) &&
+        ["high", "medium", "low"].includes(row.confidence) &&
+        !(row.outcome === "pass" && row.confidence === "low") &&
+        Array.isArray(row.evidence) &&
+        row.evidence.length > 0 &&
+        row.evidence.every(
+          (item) =>
+            meaningful(item.evidence_id) &&
+            meaningful(item.locator) &&
+            reviewEvidenceRelevanceQuality(
+              item.relevance,
+              row.conclusion,
+              row.rationale,
+              row.question
+            ).ok
+        ) &&
+        findingQuality.ok
+      );
+    },
+    {
+      applicable,
+      label: "Question reviews",
+      required: applicable ? coverage.required || 1 : 1,
+    }
+  );
+  const answerIdentities = rows.map((row) => normalizeReviewText(row.conclusion)).filter(Boolean);
+  const rationaleIdentities = rows.map((row) => normalizeReviewText(row.rationale)).filter(Boolean);
+  const evidenceLocations = new Set(
+    rows.flatMap((row) =>
+      Array.isArray(row.evidence)
+        ? row.evidence.map((item) => `${item?.evidence_id || ""}\u0000${item?.locator || ""}`)
+        : []
+    )
+  );
+  const requiredEvidenceLocations = Math.min(rows.length, 2);
+  const evidenceRelevances = new Set(
+    rows.flatMap((row) =>
+      Array.isArray(row.evidence)
+        ? row.evidence.map((item) => normalizeReviewText(item?.relevance))
+        : []
+    )
+  );
+  const independencePassed =
+    !applicable ||
+    (answerIdentities.length === rows.length &&
+      new Set(answerIdentities).size === rows.length &&
+      rationaleIdentities.length === rows.length &&
+      new Set(rationaleIdentities).size === rows.length &&
+      evidenceLocations.size >= requiredEvidenceLocations &&
+      evidenceRelevances.size >= requiredEvidenceLocations);
+  return {
+    ...substance,
+    passed: substance.passed && coverage.passed && independencePassed,
+    tier: coverage.tier,
+    missing_question_ids: coverage.missing_question_ids,
+    unexpected_question_ids: coverage.unexpected_question_ids,
+    distinct_answer_conclusions: new Set(answerIdentities).size,
+    distinct_answer_rationales: new Set(rationaleIdentities).size,
+    distinct_evidence_locations: evidenceLocations.size,
+    distinct_evidence_relevances: evidenceRelevances.size,
+    required_evidence_locations: requiredEvidenceLocations,
+    independence_passed: independencePassed,
+    reason:
+      substance.passed && coverage.passed && independencePassed
+        ? coverage.reason
+        : !coverage.passed
+          ? coverage.reason
+          : !independencePassed
+            ? "Question reviews require distinct answers plus answer-specific evidence locations and relevance explanations"
+            : substance.reason,
+  };
+}
+
 function scoreProposal(proposal) {
   const dimensions = {};
   const evidenceRatio = ratio(
@@ -145,15 +262,7 @@ function scoreProposal(proposal) {
       { label: "Experience or design requirements" }
     ),
     design_context: designContextMinimum(proposal),
-    question_reviews: minimum(
-      proposal.question_reviews,
-      (row) =>
-        specific(row.question, 12, 3) &&
-        meaningful(row.outcome) &&
-        Array.isArray(row.evidence_refs) &&
-        row.evidence_refs.length > 0,
-      { applicable: reviewedOrLater, label: "Question reviews" }
-    ),
+    question_reviews: questionReviewMinimum(proposal, reviewedOrLater),
   };
 
   const traceChecks = [
@@ -170,7 +279,9 @@ function scoreProposal(proposal) {
     Array.isArray(proposal.question_reviews) &&
       proposal.question_reviews.length > 0 &&
       proposal.question_reviews.every(
-        (row) => Array.isArray(row.evidence_refs) && row.evidence_refs.length > 0
+        (row) =>
+          (Array.isArray(row.evidence) && row.evidence.length > 0) ||
+          (Array.isArray(row.evidence_refs) && row.evidence_refs.length > 0)
       ),
   ];
   dimensions.traceability = Math.round(

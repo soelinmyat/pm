@@ -88,6 +88,90 @@ test("init rejects a source directory outside a Git worktree as a precondition",
   }
 });
 
+test("init enforces explicit Astra profile identity while preserving non-Astra model overrides", () => {
+  const repo = makeRepo();
+  try {
+    for (const [slug, args, pattern] of [
+      [
+        "astra-default-bypass",
+        ["--runtime", "codex", "--model", "gpt-6-astra", "--reasoning", "high"],
+        /explicitly selected named base profile/,
+      ],
+      [
+        "astra-profile-bypass",
+        [
+          "--runtime",
+          "codex",
+          "--profile",
+          "codex-workhorse",
+          "--model",
+          "gpt-6-astra",
+          "--reasoning",
+          "high",
+        ],
+        /explicitly selected named base profile/,
+      ],
+      [
+        "astra-effort-bypass",
+        ["--runtime", "codex", "--profile", "codex-astra", "--reasoning", "ultra"],
+        /effort must be one of/,
+      ],
+    ]) {
+      const result = repo.run(["init", "--slug", slug, "--source-dir", repo.root, ...args]);
+      assert.equal(result.status, 3, result.stderr);
+      assert.match(result.stderr, pattern);
+    }
+
+    const astra = repo.run([
+      "init",
+      "--slug",
+      "astra-valid",
+      "--source-dir",
+      repo.root,
+      "--runtime",
+      "codex",
+      "--profile",
+      "codex-astra",
+      "--reasoning",
+      "max",
+      "--json",
+    ]);
+    assert.equal(astra.status, 0, astra.stderr);
+    assert.deepEqual(JSON.parse(astra.stdout).session.execution, {
+      profile: "codex-astra",
+      runtime: "codex",
+      model: "gpt-6-astra",
+      reasoning: "max",
+      mode: "inline",
+      runtime_session_id: null,
+    });
+
+    const legacyOverride = repo.run([
+      "init",
+      "--slug",
+      "non-astra-override",
+      "--source-dir",
+      repo.root,
+      "--runtime",
+      "codex",
+      "--profile",
+      "codex-workhorse",
+      "--model",
+      "private-compatible-model",
+      "--reasoning",
+      "max",
+      "--json",
+    ]);
+    assert.equal(legacyOverride.status, 0, legacyOverride.stderr);
+    assert.equal(
+      JSON.parse(legacyOverride.stdout).session.execution.model,
+      "private-compatible-model"
+    );
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test("record rejects mismatched results with exit 4 and preserves state", () => {
   const repo = makeRepo();
   try {

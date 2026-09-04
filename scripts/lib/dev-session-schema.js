@@ -29,6 +29,10 @@ const {
   isObject: isRecordObject,
 } = require("./workflow-runtime/records");
 const { evidenceRecordIssues, runtimeRecordIssues } = require("./workflow-runtime/result-envelope");
+const {
+  assertAstraProfileIntegrity,
+  assertRuntimeMatchesAstraProfile,
+} = require("./workflow-runtime/model-profile");
 const { bindEffectReceipt } = require("./workflow-runtime/effect-receipt");
 const { transactionIssues } = require("./release-transaction-schema");
 const { checkQaReport } = require("./qa-report-schema");
@@ -37,6 +41,7 @@ const {
   approvalTransitionDigest,
   validateSession: validateRfcSession,
 } = require("./rfc-session-schema");
+const devModelProfiles = require("../../skills/dev/references/model-profiles.json");
 
 const RUNNER_VERSION = "3.0.0";
 const MAX_PHASE_ATTEMPTS = 3;
@@ -208,6 +213,16 @@ function validateSession(session) {
   validateCandidate(session.candidate, errors);
   validateStateEvidence(session.evidence, errors);
   validateAttempts(session.attempts, errors);
+  if (isObject(session.execution) && Array.isArray(session.attempts)) {
+    session.attempts.forEach((attempt, index) => {
+      validateAstraRuntimeBinding(
+        session.execution,
+        attempt?.runtime,
+        errors,
+        `$.attempts[${index}].runtime`
+      );
+    });
+  }
   validateBlockers(session.blockers, errors);
   if (Array.isArray(session.history)) validateHistory(session.history, errors);
   if (session.migration !== null && session.migration !== undefined) {
@@ -575,6 +590,18 @@ function validateExecution(execution, errors) {
   if (execution.runtime_session_id !== null && typeof execution.runtime_session_id !== "string") {
     errors.push(issue("$.execution.runtime_session_id", "must be null or a string"));
   }
+  try {
+    assertAstraProfileIntegrity({
+      data: devModelProfiles,
+      provider: execution.runtime,
+      profileName: execution.profile,
+      model: execution.model,
+      effort: execution.reasoning,
+      profileWasExplicit: true,
+    });
+  } catch (error) {
+    errors.push(issue("$.execution", error.message));
+  }
 }
 
 function validateAuthority(authority, errors) {
@@ -929,6 +956,7 @@ function validateResultRuntime(runtime, errors, runtimePath = "$.runtime") {
 function validateResult(session, result, options = {}) {
   const errors = [...validateResultEnvelope(result)];
   if (!isObject(session) || !isObject(result)) return errors;
+  validateAstraRuntimeBinding(session.execution, result.runtime, errors, "$.runtime");
   if (result.run_id !== session.run_id)
     errors.push(issue("$.run_id", "does not match session run_id"));
   if (result.phase !== session.phase) errors.push(issue("$.phase", "does not match session phase"));
@@ -971,6 +999,19 @@ function validateResult(session, result, options = {}) {
 
   if (result.commit) validateCommit(session, result.commit, options, errors);
   return errors;
+}
+
+function validateAstraRuntimeBinding(execution, runtime, errors, runtimePath) {
+  if (!isObject(execution) || !isObject(runtime)) return;
+  try {
+    assertRuntimeMatchesAstraProfile({
+      data: devModelProfiles,
+      execution,
+      runtime,
+    });
+  } catch (error) {
+    errors.push(issue(runtimePath, error.message));
+  }
 }
 
 function validatePhaseEvidence(session, result, options, errors) {

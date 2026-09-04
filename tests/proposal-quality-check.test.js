@@ -9,6 +9,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { validateProposal } = require("../scripts/lib/proposal-schema");
 const { scoreProposal } = require("../scripts/proposal-quality-check");
+const { reviewRowForTier } = require("./helpers/groom-review-fixture.js");
 
 const fixtureRoot = path.join(__dirname, "fixtures", "proposals");
 
@@ -57,6 +58,72 @@ test("quality gate requires a durable design context for downstream handoff", ()
   const result = scoreProposal(proposal);
   assert.equal(result.quality_passed, false);
   assert.equal(result.minimums.design_context.passed, false);
+});
+
+test("quality gate rejects reviewed proposals with partial or unbound tier review coverage", () => {
+  const proposal = fixture("strong-v1.json");
+  proposal.lifecycle = "reviewed";
+  proposal.review_contract = {
+    session_id: proposal.source.session_id,
+    tier: "full",
+    required_question_ids: ["problem-evidence", "scope", "acceptance"],
+  };
+  proposal.question_reviews = [reviewRowForTier("full", "problem-evidence")];
+  let result = scoreProposal(proposal);
+  assert.equal(result.quality_passed, false);
+  assert.deepEqual(result.minimums.question_reviews.missing_question_ids, [
+    "scope",
+    "acceptance",
+    "experience",
+    "feasibility",
+    "reversal",
+  ]);
+
+  delete proposal.review_contract;
+  delete proposal.question_reviews[0].question_id;
+  result = scoreProposal(proposal);
+  assert.equal(result.quality_passed, false);
+  assert.match(result.minimums.question_reviews.reason, /session-bound tier/);
+});
+
+test("quality gate rejects a six-row review that only restates prompts despite a 100-point proposal", () => {
+  const proposal = fixture("strong-v1.json");
+  proposal.lifecycle = "reviewed";
+  proposal.review_contract = {
+    session_id: proposal.source.session_id,
+    tier: "full",
+    required_question_ids: [
+      "problem-evidence",
+      "scope",
+      "acceptance",
+      "experience",
+      "feasibility",
+      "reversal",
+    ],
+  };
+  proposal.question_reviews = proposal.review_contract.required_question_ids.map(
+    (questionId, index) => {
+      const row = reviewRowForTier("full", questionId, index);
+      return {
+        ...row,
+        conclusion: row.question,
+        rationale:
+          "This generic rationale merely claims that the current review answer is adequate.",
+        evidence: [
+          {
+            evidence_id: "evidence:baseline",
+            locator: `F${(index % 2) + 1}`,
+            relevance: "This evidence is directly relevant to this review conclusion.",
+          },
+        ],
+      };
+    }
+  );
+
+  const result = scoreProposal(proposal);
+  assert.equal(result.score, 100);
+  assert.equal(result.quality_passed, false);
+  assert.equal(result.minimums.question_reviews.substantive, 0);
 });
 
 test("CLI resolves repo-relative prototype paths from the nearest git root by default", () => {

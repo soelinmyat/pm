@@ -8,6 +8,7 @@ const path = require("node:path");
 const { inspectHtmlArtifact } = require("../scripts/artifact-check.js");
 const { renderProposal, main } = require("../scripts/proposal-render.js");
 const { check } = require("../scripts/proposal-check.js");
+const { reviewRowForTier } = require("./helpers/groom-review-fixture.js");
 
 const FIXTURE = path.join(__dirname, "fixtures", "proposals", "strong-v1.json");
 
@@ -50,10 +51,58 @@ test("proposal renderer is byte-deterministic and binds both projections to cano
   assert.match(first.html, /\.masthead-meta \{[\s\S]*grid-template-columns: repeat\(2/);
   assert.match(first.html, /aria-label="Field and Contract"/);
   assert.doesNotMatch(first.html, /approval\.:/i);
-  assert.match(first.html, />Pass<\/td>/);
+  assert.match(first.html, /<strong>Outcome\.<\/strong> Pass/);
   assert.match(first.markdown, /### Critical states/);
   assert.match(first.markdown, /### Visual invariants/);
   assert.match(first.markdown, /Do not edit by hand/);
+});
+
+test("canonical projections expose review conclusions, rationales, confidence, evidence locators, and findings", () => {
+  const input = source();
+  const questionIds = [
+    "problem-evidence",
+    "scope",
+    "acceptance",
+    "experience",
+    "feasibility",
+    "reversal",
+  ];
+  input.proposal.review_contract = {
+    session_id: input.proposal.source.session_id,
+    tier: "full",
+    required_question_ids: questionIds,
+  };
+  input.proposal.question_reviews = questionIds.map((questionId, index) =>
+    reviewRowForTier("full", questionId, index)
+  );
+  input.proposal.question_reviews[0] = reviewRowForTier("full", "problem-evidence", 0, {
+    outcome: "advisory",
+    confidence: "medium",
+    finding:
+      "Longitudinal renewal behavior remains an unresolved evidence gap for enterprise teams.",
+    advisoryDebtIds: ["debt:renewal-gap"],
+  });
+  input.proposal.advisory_debt = [
+    {
+      id: "debt:renewal-gap",
+      summary: "Validate enterprise renewal behavior after launch.",
+      severity: "medium",
+      status: "open",
+    },
+  ];
+
+  const rendered = renderProposal(input.proposal, {
+    sourceBytes: Buffer.from(`${JSON.stringify(input.proposal, null, 2)}\n`),
+    version: "test",
+  });
+  for (const projection of [rendered.html, rendered.markdown]) {
+    assert.match(projection, /Repeated stale approvals establish a decision-worthy user problem/);
+    assert.match(projection, /Two observed approval failures connect changed proposal bytes/);
+    assert.match(projection, /evidence:baseline/);
+    assert.match(projection, /F1/);
+    assert.match(projection, /Medium/);
+    assert.match(projection, /Longitudinal renewal behavior remains an unresolved evidence gap/);
+  }
 });
 
 test("Ideate-origin proposals preserve the v2 companion marker in the generated projection", () => {

@@ -16,6 +16,7 @@ const {
   canonicalStringify,
   proposalContentHash,
   proposalBytesHash,
+  proposalReviewCoverage,
   validateProposal,
   validateApproval,
   buildApproval,
@@ -25,6 +26,7 @@ const {
   readProposal,
   readApprovedProposal,
 } = require("../scripts/lib/proposal-schema.js");
+const { reviewRowForTier } = require("./helpers/groom-review-fixture.js");
 
 function fixture() {
   return JSON.parse(fs.readFileSync(fixturePath, "utf8"));
@@ -42,6 +44,27 @@ function designContext(overrides = {}) {
 
 function messages(result) {
   return result.issues.map((entry) => `${entry.path}: ${entry.message}`).join("\n");
+}
+
+const FULL_REVIEW_IDS = [
+  "problem-evidence",
+  "scope",
+  "acceptance",
+  "experience",
+  "feasibility",
+  "reversal",
+];
+
+function bindReviewContract(proposal, questionIds = FULL_REVIEW_IDS) {
+  proposal.review_contract = {
+    session_id: proposal.source.session_id,
+    tier: "full",
+    required_question_ids: [...questionIds],
+  };
+  proposal.question_reviews = questionIds.map((questionId, index) =>
+    reviewRowForTier("full", questionId, index)
+  );
+  return proposal;
 }
 
 function tmpProject() {
@@ -274,6 +297,36 @@ test("reviewed and approved lifecycle require review bound to current revision a
   assert.match(messages(validateProposal(staleDraft)), /review content hash does not match/);
 });
 
+test("bound review contracts require exact tier question IDs while legacy proposals stay explicit", () => {
+  const reviewed = bindReviewContract(fixture());
+  reviewed.lifecycle = "reviewed";
+  reviewed.question_reviews = reviewed.question_reviews.slice(0, 1);
+  reviewed.review = {
+    status: "passed",
+    revision: reviewed.revision,
+    content_sha256: proposalContentHash(reviewed),
+    completed_at: "2026-07-14T02:00:00.000Z",
+  };
+  const partial = validateProposal(reviewed);
+  assert.equal(partial.ok, false);
+  assert.match(messages(partial), /missing review question: scope/);
+  assert.deepEqual(proposalReviewCoverage(reviewed).missing_question_ids, FULL_REVIEW_IDS.slice(1));
+
+  bindReviewContract(reviewed);
+  reviewed.review.content_sha256 = proposalContentHash(reviewed);
+  assert.equal(validateProposal(reviewed).ok, true, messages(validateProposal(reviewed)));
+
+  const mismatched = bindReviewContract(fixture());
+  mismatched.review_contract.session_id = "groom_other";
+  assert.match(messages(validateProposal(mismatched)), /must match source\.session_id/);
+
+  const shortened = bindReviewContract(fixture(), ["problem-evidence"]);
+  assert.match(
+    messages(validateProposal(shortened)),
+    /must exactly match the selected tier review question IDs/
+  );
+});
+
 test("revision transition hook separates lifecycle changes from substantive revisions", () => {
   const previous = fixture();
   const reviewed = structuredClone(previous);
@@ -482,6 +535,8 @@ test("approved reader preserves trust after lifecycle-only downstream transition
     const exact = readApprovedProposal(paths.json, { projectRoot: project.dir });
     assert.equal(exact.exactBytesCurrent, true);
     assert.equal(exact.approvalBasis, "exact-approved-bytes");
+    assert.equal(exact.reviewContractBound, false);
+    assert.equal(exact.compatibility, "legacy-unbound-review-contract");
 
     proposal.lifecycle = "planned";
     proposal.updated_at = "2026-07-14T04:00:00.000Z";
@@ -513,6 +568,8 @@ test("bounded reader validates canonical JSON and keeps legacy Markdown inspecti
     assert.equal(canonical.trustedApproval, false);
     assert.equal(canonical.proposal.slug, "structured-groom");
     assert.equal(canonical.bytesSha256, proposalBytesHash(fs.readFileSync(paths.json)));
+    assert.equal(canonical.reviewContractBound, false);
+    assert.equal(canonical.compatibility, "legacy-unbound-review-contract");
 
     const legacyFile = path.join(project.dir, "pm", "backlog", "legacy-proposal.md");
     fs.copyFileSync(legacyPath, legacyFile);

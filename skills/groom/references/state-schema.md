@@ -106,7 +106,24 @@ Every non-approval phase returns `groom-phase-result-v1`:
   "summary": "What this phase decided",
   "proposal": null,
   "evidence": [{ "kind": "scope", "command": "...", "exit_code": 0, "artifact": null }],
-  "question_outcomes": [],
+  "question_outcomes": [
+    {
+      "question_id": "scope",
+      "proposal_hash": "sha256:...",
+      "verdict": "pass | advisory",
+      "conclusion": "Decision reached",
+      "rationale": "Why it follows",
+      "evidence": [
+        {
+          "evidence_id": "evidence:registered-id",
+          "locator": "Precise location",
+          "relevance": "How this location bears on this answer"
+        }
+      ],
+      "confidence": "high | medium | low",
+      "finding": null
+    }
+  ],
   "capability_downgrades": [],
   "blocker": null,
   "runtime": {
@@ -118,7 +135,9 @@ Every non-approval phase returns `groom-phase-result-v1`:
 }
 ```
 
-The Draft and later applicable results carry exact proposal identity. Review results contain one current outcome for every routed independent question. Capability downgrades state the missing capability and chosen execution fallback; they never change product policy.
+The Draft and later applicable results carry exact proposal identity. Review results contain one current outcome for every routed independent question. Each result outcome must exactly match the canonical proposal row's conclusion, rationale, evidence, confidence, finding, and outcome/verdict before the session records Review as passed. Capability downgrades state the missing capability and chosen execution fallback; they never change product policy.
+
+For current schema-v2 sessions, `routing.review_questions` must exactly match the selected tier's built-in contract. The canonical proposal copies the session ID, tier, and ordered IDs into `review_contract`; Review and Approval recompute that binding and reject partial, duplicate, extra, or stale question rows. Legacy sessions and proposals remain readable with an explicit compatibility label, but their unbound rows cannot impersonate current review coverage.
 
 ## Approval chain
 

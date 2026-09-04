@@ -21,6 +21,7 @@ const {
   reviseSession,
   validateSession,
 } = require("../scripts/lib/groom-session-schema");
+const { reviewOutcome, reviewRow } = require("./helpers/groom-review-fixture.js");
 
 test("Groom tiers route proportionate depth through one approval contract", () => {
   const repo = makeRepo();
@@ -143,6 +144,7 @@ test("Groom keeps product source identity separate from proposal artifact storag
     const proposalPath = path.join(artifact, "pm/backlog/proposals/separate-artifacts.json");
     fs.mkdirSync(path.dirname(proposalPath), { recursive: true });
     fs.writeFileSync(proposalPath, '{"revision":1,"lifecycle":"draft"}\n');
+    bindSessionReviewContract(session, proposalPath);
     session = recordResult(
       session,
       passed(session, {
@@ -228,6 +230,7 @@ test("approval binds exact proposal bytes and revision, and revise invalidates i
     const proposalPath = path.join(artifact, "pm/backlog/proposals/approval.json");
     fs.mkdirSync(path.dirname(proposalPath), { recursive: true });
     fs.writeFileSync(proposalPath, '{"revision":1,"lifecycle":"draft","title":"Approval"}\n');
+    bindSessionReviewContract(session, proposalPath, { complete: true });
     const proposal = proposalIdentity(proposalPath, 1);
     session = recordResult(
       session,
@@ -242,7 +245,11 @@ test("approval binds exact proposal bytes and revision, and revise invalidates i
     assert.equal(session.approval.proposal_revision, 1);
     assert.equal(session.phase, "handoff");
 
-    fs.writeFileSync(proposalPath, '{"revision":2,"lifecycle":"draft","title":"Changed"}\n');
+    const changed = JSON.parse(fs.readFileSync(proposalPath, "utf8"));
+    changed.revision = 2;
+    changed.lifecycle = "draft";
+    changed.title = "Changed";
+    fs.writeFileSync(proposalPath, `${JSON.stringify(changed)}\n`);
     assert.throws(
       () => approveSession(session, { approvedBy: "product-owner" }),
       /changed after approval/
@@ -279,19 +286,31 @@ test("review outcomes cover independent questions without fixed worker identitie
     const proposalPath = path.join(artifact, "pm/backlog/proposals/questions.json");
     fs.mkdirSync(path.dirname(proposalPath), { recursive: true });
     fs.writeFileSync(proposalPath, '{"revision":1,"lifecycle":"draft"}\n');
+    bindSessionReviewContract(session, proposalPath, { complete: true });
     const proposal = proposalIdentity(proposalPath, 1);
     session = recordResult(
       session,
       passed(session, { proposal, evidence: [evidence("proposal"), evidence("artifact")] })
     );
     assert.equal(session.phase, "review");
-    const outcomes = session.routing.review_questions.map((question) => ({
-      question_id: question.id,
-      proposal_hash: proposal.content_hash,
-      verdict: "pass",
-      blocking: [],
-      advisory: [],
-    }));
+    const outcomes = session.routing.review_questions.map((question, index) =>
+      reviewOutcome(question, proposal.content_hash, index)
+    );
+    const divergent = structuredClone(outcomes);
+    divergent[0].conclusion =
+      "A different conclusion claims the review passed for unrelated operational reasons.";
+    assert.throws(
+      () =>
+        recordResult(
+          session,
+          passed(session, {
+            proposal,
+            question_outcomes: divergent,
+            evidence: [evidence("review")],
+          })
+        ),
+      /conclusion does not match canonical review/
+    );
     session = recordResult(
       session,
       passed(session, {
@@ -324,7 +343,6 @@ test("approval audit binds approved bytes after a lifecycle-only transition", ()
       content_sha256: proposalContentHash(proposal),
       completed_at: "2026-07-14T00:00:00Z",
     };
-    fs.writeFileSync(proposalPath, `${JSON.stringify(proposal, null, 2)}\n`);
     let session = applyContext(
       createSession({ slug: proposal.slug, sourceDir: repo, tier: "quick" }),
       {
@@ -335,6 +353,9 @@ test("approval audit binds approved bytes after a lifecycle-only transition", ()
         artifact_repo_root: artifact,
       }
     );
+    bindSessionReviewContractObject(session, proposal, { complete: true });
+    proposal.review.content_sha256 = proposalContentHash(proposal);
+    fs.writeFileSync(proposalPath, `${JSON.stringify(proposal, null, 2)}\n`);
     session = advanceTo(session, "draft");
     session = recordResult(
       session,
@@ -410,8 +431,75 @@ test("session validation rejects phases outside the route and incoherent approva
     const approval = createSession({ slug: "approval-coherence", sourceDir: repo });
     approval.phase = "approval";
     assert.match(JSON.stringify(validateSession(approval)), /must be awaiting_approval/);
+
+    const narrowed = createSession({ slug: "narrowed-review", sourceDir: repo, tier: "full" });
+    narrowed.routing.review_questions = narrowed.routing.review_questions.slice(0, 1);
+    assert.match(JSON.stringify(validateSession(narrowed)), /tier review contract/);
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("full and agent sessions reject one-row proposal review coverage before pass or approval", () => {
+  for (const tier of ["full", "agent"]) {
+    const repo = makeRepo();
+    try {
+      const artifact = makeOwnedArtifact(repo, `${tier}-coverage`);
+      let session = applyContext(
+        createSession({ slug: `${tier}-coverage`, sourceDir: repo, tier }),
+        {
+          title: `${tier} coverage`,
+          outcome: "Reject partial canonical review coverage",
+          source_kind: "idea",
+          evidence_refs: [],
+          artifact_repo_root: artifact,
+        }
+      );
+      session = advanceTo(session, "draft");
+      const proposalPath = path.join(artifact, `pm/backlog/proposals/${tier}-coverage.json`);
+      fs.mkdirSync(path.dirname(proposalPath), { recursive: true });
+      fs.writeFileSync(proposalPath, '{"revision":1,"lifecycle":"draft"}\n');
+      bindSessionReviewContract(session, proposalPath, { complete: false });
+      const oneRow = JSON.parse(fs.readFileSync(proposalPath, "utf8"));
+      oneRow.question_reviews = [reviewRow(session.routing.review_questions[0])];
+      fs.writeFileSync(proposalPath, `${JSON.stringify(oneRow)}\n`);
+      const proposal = proposalIdentity(proposalPath, 1);
+      session = recordResult(
+        session,
+        passed(session, { proposal, evidence: [evidence("proposal"), evidence("artifact")] })
+      );
+      const outcomes = session.routing.review_questions.map((question, index) =>
+        reviewOutcome(question, proposal.content_hash, index)
+      );
+      assert.throws(
+        () =>
+          recordResult(
+            session,
+            passed(session, {
+              proposal,
+              question_outcomes: outcomes,
+              evidence: [evidence("review")],
+            })
+          ),
+        /missing tier-required question reviews/
+      );
+
+      session.phase = "approval";
+      session.status = "awaiting_approval";
+      session.review = {
+        status: "passed",
+        proposal_hash: proposal.content_hash,
+        rounds: 1,
+        outcomes,
+        reviewed_at: new Date().toISOString(),
+      };
+      assert.throws(
+        () => approveSession(session, { approvedBy: "product-owner" }),
+        /missing tier-required question reviews/
+      );
+    } finally {
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
   }
 });
 
@@ -426,13 +514,9 @@ function passCurrentReview(session, proposal) {
     session,
     passed(session, {
       proposal,
-      question_outcomes: session.routing.review_questions.map((question) => ({
-        question_id: question.id,
-        proposal_hash: proposal.content_hash,
-        verdict: "pass",
-        blocking: [],
-        advisory: [],
-      })),
+      question_outcomes: session.routing.review_questions.map((question, index) =>
+        reviewOutcome(question, proposal.content_hash, index)
+      ),
       evidence: [evidence("review")],
     })
   );
@@ -483,6 +567,39 @@ function proposalIdentity(jsonPath, revision) {
     revision,
     lifecycle: proposal.lifecycle || "draft",
   };
+}
+
+function bindSessionReviewContract(session, proposalPath, options = {}) {
+  const proposal = JSON.parse(fs.readFileSync(proposalPath, "utf8"));
+  bindSessionReviewContractObject(session, proposal, options);
+  fs.writeFileSync(proposalPath, `${JSON.stringify(proposal)}\n`);
+}
+
+function bindSessionReviewContractObject(session, proposal, { complete = false } = {}) {
+  if (!Array.isArray(proposal.evidence)) {
+    proposal.evidence = [
+      {
+        id: "evidence:baseline",
+        kind: "research",
+        path: "pm/research/baseline.md",
+        summary: "Baseline observations for the proposal review contract.",
+        observed_at: "2026-07-14T00:00:00.000Z",
+      },
+    ];
+  }
+  proposal.source = {
+    ...(proposal.source || {}),
+    kind: "groom-session",
+    session_id: session.run_id,
+  };
+  proposal.review_contract = {
+    session_id: session.run_id,
+    tier: session.context.tier,
+    required_question_ids: session.routing.review_questions.map((question) => question.id),
+  };
+  proposal.question_reviews = complete
+    ? session.routing.review_questions.map((question, index) => reviewRow(question, index))
+    : [];
 }
 
 function makeRepo() {

@@ -76,7 +76,31 @@ The executable schema lives in `scripts/lib/proposal-schema.js`; this reference 
   "risks": [],
   "open_decisions": [],
   "resolved_decisions": [],
-  "question_reviews": [],
+  "review_contract": {
+    "session_id": "groom_...",
+    "tier": "quick | standard | full | agent",
+    "required_question_ids": ["exact IDs from session.routing.review_questions"]
+  },
+  "question_reviews": [
+    {
+      "id": "review:scope",
+      "question_id": "scope",
+      "question": "Exact canonical question text",
+      "conclusion": "Decision reached",
+      "rationale": "Why it follows",
+      "outcome": "pass | advisory | fail",
+      "evidence": [
+        {
+          "evidence_id": "evidence:registered-id",
+          "locator": "Precise section, row, finding, or line",
+          "relevance": "How this location bears on this answer"
+        }
+      ],
+      "confidence": "high | medium | low",
+      "finding": null,
+      "advisory_debt_ids": []
+    }
+  ],
   "advisory_debt": [],
   "review": {
     "status": "pending",
@@ -127,7 +151,7 @@ Evidence records what was observed, where, and when. Assumptions state what is b
 
 ### Review questions and advisory debt
 
-Store answers from `review-questions.md` against the current revision and semantic content hash. Blocking answers prevent `reviewed`; advisory findings receive stable debt IDs and remain visible through approval/handoff.
+Copy `review_contract.session_id`, `tier`, and the ordered `required_question_ids` from the trusted Groom session during Draft. Each completed `question_reviews` row records that exact `question_id` and uses `id: review:{question_id}`. Keep the decision-bearing `conclusion` separate from its `rationale`; neither may merely restate the canonical question. Bind each answer to registered evidence with a precise locator and answer-specific relevance. Review passes only when the rows exactly cover the frozen contract, their answers and evidence explanations are independent, and the phase result matches the canonical rows exactly. Failing answers prevent `reviewed`; advisory findings receive stable debt IDs and remain visible through approval/handoff.
 
 ## Human reader order
 
@@ -144,3 +168,5 @@ Visible metadata includes lifecycle, approval state, revision, semantic content 
 Markdown-only proposals remain inspection-readable for List, Board, and migration. They do not gain trusted approval merely from `status: proposed`. RFC/Dev may use the legacy path only when no canonical JSON exists, and must label the handoff as legacy/unbound until the migration or explicit compatibility rule is satisfied.
 
 Canonical schema-v1 proposals created before `design_context` remain readable, but they cannot start a new RFC from reconstructed sidecar prose. Return them to Groom for a substantive revision that records and approves the durable context.
+
+Canonical schema-v1 proposals created before `review_contract` also remain inspection-readable and are reported as `legacy-unbound-review-contract`. They cannot satisfy the current Groom quality or approval gate until a current session binds the tier and exact required question IDs.

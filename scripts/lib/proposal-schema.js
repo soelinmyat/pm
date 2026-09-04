@@ -4,11 +4,20 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { validateDesignContext } = require("./dev-work-units.js");
+const {
+  normalizeReviewText,
+  reviewAnswerQuality,
+  reviewEvidenceRelevanceQuality,
+  reviewFindingQuality,
+  reviewQuestionForTier,
+  reviewQuestionIdsForTier,
+} = require("./groom-review-contract.js");
 
 const SCHEMA_VERSION = 1;
 const MAX_PROPOSAL_BYTES = 2 * 1024 * 1024;
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const STABLE_ID = /^[a-z][a-z0-9-]*:[a-z0-9][a-z0-9._-]*$/;
+const QUESTION_ID = /^[a-z][a-z0-9-]*$/;
 const SHA256 = /^sha256:[0-9a-f]{64}$/;
 const ISO_8601 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
 const LIFECYCLES = ["draft", "reviewed", "approved", "planned", "in-progress", "done"];
@@ -50,7 +59,7 @@ const TOP_FIELDS = [
   "presentation",
   "handoff",
 ];
-const OPTIONAL_TOP_FIELDS = ["design_context"];
+const OPTIONAL_TOP_FIELDS = ["design_context", "review_contract"];
 const APPROVAL_FIELDS = [
   "schema_version",
   "kind",
@@ -236,6 +245,7 @@ function validateProposal(proposal, options = {}) {
       { nonEmpty: true }
     );
   }
+  validateReviewContract(proposal, at, issues);
   if (
     closed(
       proposal.decision_brief,
@@ -512,13 +522,41 @@ function validateProposal(proposal, options = {}) {
     }
   );
   const reviewRefs = [];
+  const hasReviewContract = Object.hasOwn(proposal, "review_contract");
+  const questionReviewFields = hasReviewContract
+    ? [
+        "id",
+        "question_id",
+        "question",
+        "conclusion",
+        "rationale",
+        "outcome",
+        "evidence",
+        "confidence",
+        "finding",
+        "advisory_debt_ids",
+      ]
+    : ["id", "question", "outcome", "evidence_refs", "advisory_debt_ids"];
   rows(
     proposal.question_reviews,
     `${at}.question_reviews`,
     issues,
-    ["id", "question", "outcome", "evidence_refs", "advisory_debt_ids"],
-    ["id", "question", "outcome", "evidence_refs", "advisory_debt_ids"],
+    questionReviewFields,
+    questionReviewFields,
     (entry, rowPath) => {
+      const canonicalQuestion = hasReviewContract
+        ? reviewQuestionForTier(proposal.review_contract?.tier, entry.question_id)
+        : null;
+      if (hasReviewContract) {
+        if (!QUESTION_ID.test(entry.question_id || ""))
+          issues.push(issue(`${rowPath}.question_id`, "must be a canonical question id"));
+        if (entry.id !== `review:${entry.question_id}`)
+          issues.push(issue(`${rowPath}.id`, "must equal review:{question_id}"));
+        if (canonicalQuestion && entry.question !== canonicalQuestion.text)
+          issues.push(
+            issue(`${rowPath}.question`, "must match the canonical question for question_id")
+          );
+      }
       requiredString(entry.question, `${rowPath}.question`, issues);
       enumValue(
         entry.outcome,
@@ -527,10 +565,66 @@ function validateProposal(proposal, options = {}) {
         issues,
         "outcome"
       );
-      stringArray(entry.evidence_refs, `${rowPath}.evidence_refs`, issues, { nonEmpty: true });
       stringArray(entry.advisory_debt_ids, `${rowPath}.advisory_debt_ids`, issues);
-      for (const id of Array.isArray(entry.evidence_refs) ? entry.evidence_refs : [])
-        reviewRefs.push(["evidence", id, `${rowPath}.evidence_refs`]);
+      if (hasReviewContract) {
+        requiredString(entry.conclusion, `${rowPath}.conclusion`, issues);
+        requiredString(entry.rationale, `${rowPath}.rationale`, issues);
+        if (canonicalQuestion) {
+          const answerQuality = reviewAnswerQuality(
+            entry.conclusion,
+            entry.rationale,
+            canonicalQuestion.text
+          );
+          if (!answerQuality.ok) issues.push(issue(`${rowPath}.conclusion`, answerQuality.reason));
+        }
+        enumValue(
+          entry.confidence,
+          ["high", "medium", "low"],
+          `${rowPath}.confidence`,
+          issues,
+          "confidence"
+        );
+        validateReviewEvidence(entry.evidence, `${rowPath}.evidence`, issues, reviewRefs, {
+          conclusion: entry.conclusion,
+          rationale: entry.rationale,
+          question: canonicalQuestion?.text || entry.question,
+        });
+        if (entry.finding !== null) requiredString(entry.finding, `${rowPath}.finding`, issues);
+        if (entry.outcome === "pass" && entry.finding !== null)
+          issues.push(issue(`${rowPath}.finding`, "must be null when outcome is pass"));
+        if (entry.outcome === "pass" && entry.confidence === "low")
+          issues.push(
+            issue(`${rowPath}.confidence`, "low confidence requires an advisory finding")
+          );
+        if (["advisory", "fail"].includes(entry.outcome) && !isString(entry.finding))
+          issues.push(issue(`${rowPath}.finding`, "is required for advisory or fail outcomes"));
+        if (["advisory", "fail"].includes(entry.outcome) && isString(entry.finding)) {
+          const findingQuality = reviewFindingQuality(
+            entry.finding,
+            entry.conclusion,
+            entry.rationale,
+            canonicalQuestion?.text || entry.question
+          );
+          if (!findingQuality.ok) issues.push(issue(`${rowPath}.finding`, findingQuality.reason));
+        }
+        if (
+          entry.outcome === "advisory" &&
+          (!Array.isArray(entry.advisory_debt_ids) || entry.advisory_debt_ids.length === 0)
+        )
+          issues.push(
+            issue(`${rowPath}.advisory_debt_ids`, "advisory outcomes require tracked debt")
+          );
+        if (
+          entry.outcome === "pass" &&
+          Array.isArray(entry.advisory_debt_ids) &&
+          entry.advisory_debt_ids.length > 0
+        )
+          issues.push(issue(`${rowPath}.advisory_debt_ids`, "pass outcomes cannot carry debt"));
+      } else {
+        stringArray(entry.evidence_refs, `${rowPath}.evidence_refs`, issues, { nonEmpty: true });
+        for (const id of Array.isArray(entry.evidence_refs) ? entry.evidence_refs : [])
+          reviewRefs.push(["evidence", id, `${rowPath}.evidence_refs`]);
+      }
       for (const id of Array.isArray(entry.advisory_debt_ids) ? entry.advisory_debt_ids : [])
         reviewRefs.push(["debt", id, `${rowPath}.advisory_debt_ids`]);
     }
@@ -541,6 +635,19 @@ function validateProposal(proposal, options = {}) {
       issues.push(
         issue(refPath, `unknown ${kind === "evidence" ? "evidence" : "advisory debt"} id ${id}`)
       );
+  }
+
+  if (hasReviewContract) {
+    validateBoundReviewIndependence(proposal.question_reviews, `${at}.question_reviews`, issues);
+    const coverage = proposalReviewCoverage(proposal);
+    for (const questionId of coverage.duplicate_question_ids)
+      issues.push(issue(`${at}.question_reviews`, `duplicate question_id ${questionId}`));
+    for (const questionId of coverage.unexpected_question_ids)
+      issues.push(issue(`${at}.question_reviews`, `unexpected review question: ${questionId}`));
+    if (proposal.review?.status === "passed") {
+      for (const questionId of coverage.missing_question_ids)
+        issues.push(issue(`${at}.question_reviews`, `missing review question: ${questionId}`));
+    }
   }
 
   validateReview(proposal, at, issues);
@@ -579,6 +686,171 @@ function validateProposal(proposal, options = {}) {
     issues,
     content_sha256: issues.length === 0 ? proposalContentHash(proposal) : null,
   };
+}
+
+function validateReviewEvidence(value, at, issues, reviewRefs, answer) {
+  if (!Array.isArray(value) || value.length === 0) {
+    issues.push(issue(at, "evidence must be a non-empty array"));
+    return;
+  }
+  const seen = new Set();
+  value.forEach((entry, index) => {
+    const rowPath = `${at}[${index}]`;
+    if (!closed(entry, ["evidence_id", "locator", "relevance"], rowPath, issues)) return;
+    for (const field of ["evidence_id", "locator", "relevance"])
+      if (!(field in entry)) issues.push(issue(`${rowPath}.${field}`, "is required"));
+    if (!STABLE_ID.test(entry.evidence_id || "") || !entry.evidence_id.startsWith("evidence:"))
+      issues.push(issue(`${rowPath}.evidence_id`, "must be an evidence: stable id"));
+    requiredString(entry.locator, `${rowPath}.locator`, issues);
+    requiredString(entry.relevance, `${rowPath}.relevance`, issues);
+    const relevanceQuality = reviewEvidenceRelevanceQuality(
+      entry.relevance,
+      answer.conclusion,
+      answer.rationale,
+      answer.question
+    );
+    if (!relevanceQuality.ok) issues.push(issue(`${rowPath}.relevance`, relevanceQuality.reason));
+    const identity = `${entry.evidence_id}\u0000${entry.locator}`;
+    if (seen.has(identity))
+      issues.push(issue(rowPath, "duplicates an evidence id and locator in this answer"));
+    seen.add(identity);
+    reviewRefs.push(["evidence", entry.evidence_id, `${rowPath}.evidence_id`]);
+  });
+}
+
+function validateBoundReviewIndependence(value, at, issues) {
+  if (!Array.isArray(value) || value.length < 2) return;
+  const conclusions = value.map((entry) => normalizeReviewText(entry?.conclusion));
+  if (
+    conclusions.some((conclusion) => !conclusion) ||
+    new Set(conclusions).size !== conclusions.length
+  ) {
+    issues.push(issue(at, "must contain a distinct answer for every question"));
+  }
+  const rationales = new Set(value.map((entry) => normalizeReviewText(entry?.rationale)));
+  if (rationales.size !== value.length) {
+    issues.push(issue(at, "must contain a distinct rationale for every question"));
+  }
+  const locations = new Set(
+    value.flatMap((entry) =>
+      Array.isArray(entry?.evidence)
+        ? entry.evidence.map(
+            (evidence) => `${evidence?.evidence_id || ""}\u0000${evidence?.locator || ""}`
+          )
+        : []
+    )
+  );
+  if (locations.size < 2) issues.push(issue(at, "must bind more than one evidence location"));
+  const relevances = new Set(
+    value.flatMap((entry) =>
+      Array.isArray(entry?.evidence)
+        ? entry.evidence.map((evidence) => normalizeReviewText(evidence?.relevance))
+        : []
+    )
+  );
+  if (relevances.size < 2) {
+    issues.push(issue(at, "must explain evidence relevance for the individual answers"));
+  }
+}
+
+function validateReviewContract(proposal, at, issues) {
+  if (!Object.hasOwn(proposal, "review_contract")) return;
+  const contractPath = `${at}.review_contract`;
+  if (
+    !closed(
+      proposal.review_contract,
+      ["session_id", "tier", "required_question_ids"],
+      contractPath,
+      issues
+    )
+  )
+    return;
+  requiredString(proposal.review_contract.session_id, `${contractPath}.session_id`, issues);
+  enumValue(
+    proposal.review_contract.tier,
+    ["quick", "standard", "full", "agent"],
+    `${contractPath}.tier`,
+    issues,
+    "tier"
+  );
+  stringArray(
+    proposal.review_contract.required_question_ids,
+    `${contractPath}.required_question_ids`,
+    issues,
+    { nonEmpty: true }
+  );
+  for (const [index, questionId] of (Array.isArray(proposal.review_contract.required_question_ids)
+    ? proposal.review_contract.required_question_ids
+    : []
+  ).entries()) {
+    if (!QUESTION_ID.test(questionId || ""))
+      issues.push(
+        issue(`${contractPath}.required_question_ids[${index}]`, "must be a canonical question id")
+      );
+  }
+  if (proposal.review_contract.session_id !== proposal.source?.session_id)
+    issues.push(issue(`${contractPath}.session_id`, "must match source.session_id"));
+  const expectedIds = reviewQuestionIdsForTier(proposal.review_contract.tier);
+  if (
+    expectedIds &&
+    canonicalStringify(proposal.review_contract.required_question_ids) !==
+      canonicalStringify(expectedIds)
+  )
+    issues.push(
+      issue(
+        `${contractPath}.required_question_ids`,
+        "must exactly match the selected tier review question IDs"
+      )
+    );
+}
+
+function proposalReviewCoverage(proposal) {
+  const contract = isObject(proposal?.review_contract) ? proposal.review_contract : null;
+  const questionReviews = Array.isArray(proposal?.question_reviews)
+    ? proposal.question_reviews
+    : [];
+  const required = Array.isArray(contract?.required_question_ids)
+    ? contract.required_question_ids.filter((value) => typeof value === "string")
+    : [];
+  const actual = questionReviews
+    .map((entry) => entry?.question_id)
+    .filter((value) => typeof value === "string");
+  const seen = new Set();
+  const duplicates = new Set();
+  for (const questionId of actual) {
+    if (seen.has(questionId)) duplicates.add(questionId);
+    seen.add(questionId);
+  }
+  const expected = reviewQuestionIdsForTier(contract?.tier);
+  const tierContractCurrent =
+    Array.isArray(expected) && canonicalStringify(required) === canonicalStringify(expected);
+  const authoritative = Array.isArray(expected) ? expected : required;
+  const requiredSet = new Set(authoritative);
+  return Object.freeze({
+    bound: contract !== null,
+    session_id: contract?.session_id || null,
+    tier: contract?.tier || null,
+    required_question_ids: Object.freeze([...required]),
+    expected_question_ids: Object.freeze([...authoritative]),
+    reviewed_question_ids: Object.freeze([...actual]),
+    missing_question_ids: Object.freeze(
+      authoritative.filter((questionId) => !seen.has(questionId))
+    ),
+    unexpected_question_ids: Object.freeze(
+      [...seen].filter((questionId) => !requiredSet.has(questionId))
+    ),
+    duplicate_question_ids: Object.freeze([...duplicates]),
+    tier_contract_current: tierContractCurrent,
+    complete:
+      contract !== null &&
+      tierContractCurrent &&
+      authoritative.length > 0 &&
+      new Set(authoritative).size === authoritative.length &&
+      duplicates.size === 0 &&
+      questionReviews.length === actual.length &&
+      authoritative.length === actual.length &&
+      authoritative.every((questionId) => seen.has(questionId)),
+  });
 }
 
 function validateGlobalIds(proposal, at, issues) {
@@ -1002,6 +1274,8 @@ function readApprovedProposal(filePath, options = {}) {
   return Object.freeze({
     kind: "approved-canonical-json",
     trustedApproval: true,
+    reviewContractBound: source.reviewContractBound,
+    compatibility: source.compatibility,
     source,
     approval: approvalSource.approval,
     approvalSource,
@@ -1056,6 +1330,10 @@ function readProposal(filePath, options = {}) {
     return Object.freeze({
       kind: "canonical-json",
       trustedApproval: false,
+      reviewContractBound: Boolean(proposal.review_contract),
+      compatibility: proposal.review_contract
+        ? "current-review-contract"
+        : "legacy-unbound-review-contract",
       proposal,
       contentSha256: result.content_sha256,
       bytesSha256: proposalBytesHash(bytes),
@@ -1210,6 +1488,7 @@ module.exports = {
   canonicalStringify,
   proposalContentHash,
   proposalApprovalSnapshotHash,
+  proposalReviewCoverage,
   proposalBytesHash,
   validateProposal,
   validateApproval,
