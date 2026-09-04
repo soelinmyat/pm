@@ -611,6 +611,13 @@ test("requires a primary device capture for mobile UI", () => {
   assert.match(JSON.stringify(result.issues), /mobile primary device capture is required/);
 });
 
+test("requires narrow viewport evidence for web UI", () => {
+  const fixture = makeFixture();
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /web narrow capture is required/);
+});
+
 test("rejects empty accessibility audit evidence", () => {
   const fixture = makeFixture();
   const evidence = fixture.captures.evidence.find((item) => item.kind === "accessibility-tree");
