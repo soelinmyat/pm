@@ -23,24 +23,81 @@ const DECISION_ACTIONS = Object.freeze([
   "defer",
 ]);
 
+const SECURITY_PATH_SEGMENTS = new Set([
+  "auth",
+  "authentication",
+  "authorization",
+  "crypto",
+  "credential",
+  "credentials",
+  "login",
+  "oauth",
+  "oidc",
+  "password",
+  "permissions",
+  "security",
+  "sso",
+]);
+const DEPENDENCY_MANIFESTS = new Set([
+  "cargo.lock",
+  "cargo.toml",
+  "composer.json",
+  "composer.lock",
+  "gemfile",
+  "gemfile.lock",
+  "go.mod",
+  "go.sum",
+  "package-lock.json",
+  "package.json",
+  "pipfile",
+  "pipfile.lock",
+  "pnpm-lock.yaml",
+  "poetry.lock",
+  "requirements.txt",
+  "yarn.lock",
+]);
+
+function isStandaloneSecurityImpactPath(filePath) {
+  const normalized = String(filePath || "")
+    .replaceAll("\\", "/")
+    .toLowerCase();
+  const basename = normalized.split("/").at(-1) || "";
+  if (DEPENDENCY_MANIFESTS.has(basename) || /^requirements(?:-[a-z0-9._-]+)?\.txt$/.test(basename))
+    return true;
+  return normalized
+    .split(/[/. _-]+/)
+    .filter(Boolean)
+    .some((segment) => SECURITY_PATH_SEGMENTS.has(segment));
+}
+
 function deriveLensApplicability(mode, changedFiles, devContext = null) {
   if (!new Set(["full", "code-scan"]).has(mode)) throw new Error("unknown Review mode");
   const logical = mode === "full" ? [...LENSES] : LENSES.filter((lens) => lens !== "design");
   const designApplicable = Array.isArray(changedFiles)
     ? changedFiles.some((item) => isUiImpactPath(item?.path))
     : false;
+  const inferredSecurityApplicable =
+    devContext === null &&
+    Array.isArray(changedFiles) &&
+    changedFiles.some((item) => isStandaloneSecurityImpactPath(item?.path));
   return logical.map((name) => {
     if (name === "security") {
-      return devContext?.security_review_required === true
+      return devContext?.security_review_required === true || inferredSecurityApplicable
         ? {
             name,
             applicable: true,
-            reason: "canonical Dev risk route requires dedicated security review",
+            reason:
+              devContext?.security_review_required === true
+                ? "canonical Dev risk route requires dedicated security review"
+                : "standalone diff touches a security-sensitive path or dependency manifest",
           }
         : {
             name,
             applicable: false,
-            reason: "canonical Dev route does not require dedicated security review",
+            reason:
+              devContext === null
+                ? "standalone diff has no security-sensitive paths or dependency manifests"
+                : "canonical Dev route does not require dedicated security review",
           };
     }
     if (name !== "design")
@@ -301,6 +358,7 @@ module.exports = {
   allocateLenses,
   changeAnchorText,
   deriveLensApplicability,
+  isStandaloneSecurityImpactPath,
   devReviewContext,
   findingId,
   mergeSignals,

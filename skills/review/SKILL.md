@@ -31,7 +31,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
 | Gate | Owns |
 |---|---|
-| Review | Source correctness, contracts, tests, reuse, maintainability, efficiency, source-level design-system compliance, and security when required by the Dev risk route |
+| Review | Source correctness, contracts, tests, reuse, maintainability, efficiency, source-level design-system compliance, and security when required by the Dev risk route or conservatively inferred from a standalone diff |
 | Design Critique | Rendered hierarchy, density, responsive/print craft, presentation accessibility |
 | QA | Live behavior, navigation, state transitions, integrations, runtime recovery |
 
@@ -62,7 +62,7 @@ Resolve session paths with `deriveSessionSlug` from `scripts/lib/session-slug.js
 - **"The finding sounds similar, so I can merge it."** Keep deterministic identity; semantic guessing can erase evidence.
 - **"Confidence above 80 means the fix is safe."** Check Review ownership, dispute state, decision state, and `fix_kind: mechanical` before any auto-fix.
 - **"Design Critique passed, so source design review is redundant."** Keep rendered craft and source-level design-system compliance in their distinct ownership domains.
-- **"The bug or edge reviewer will notice security issues anyway."** Stop: security is a distinct risk-triggered lens; include its own verdict when `security_review_required` is true.
+- **"The bug or edge reviewer will notice security issues anyway."** Stop: security is a distinct risk-triggered lens; include its own verdict when `security_review_required` is true or a standalone diff touches security-sensitive paths or dependency manifests.
 - **"I fixed the blocker, so the old results still count."** Stop and recertify because any source mutation invalidates the target/results/report chain.
 - **"A reviewer called it dismissed, so I can ignore it."** Stop and require a target-bound human decision with approver, rationale, and timestamp.
 

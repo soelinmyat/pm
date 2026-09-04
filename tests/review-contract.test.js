@@ -173,7 +173,7 @@ test("Dev review context binds route identity and ordered acceptance criteria", 
   );
 });
 
-test("Review security applicability follows the bound Dev risk decision", () => {
+test("Review security applicability follows Dev risk or conservative standalone paths", () => {
   const context = devReviewContext({
     run_id: "dev_sensitive",
     slug: "sensitive",
@@ -196,6 +196,28 @@ test("Review security applicability follows the bound Dev risk decision", () => 
   );
   assert.equal(
     deriveLensApplicability("code-scan", [{ path: "server/account.js" }], null).find(
+      (item) => item.name === "security"
+    ).applicable,
+    false
+  );
+  assert.deepEqual(
+    deriveLensApplicability("full", [{ path: "src/auth/login.js" }], null).find(
+      (item) => item.name === "security"
+    ),
+    {
+      name: "security",
+      applicable: true,
+      reason: "standalone diff touches a security-sensitive path or dependency manifest",
+    }
+  );
+  assert.equal(
+    deriveLensApplicability("code-scan", [{ path: "package-lock.json" }], null).find(
+      (item) => item.name === "security"
+    ).applicable,
+    true
+  );
+  assert.equal(
+    deriveLensApplicability("full", [{ path: "src/author.js" }], null).find(
       (item) => item.name === "security"
     ).applicable,
     false
