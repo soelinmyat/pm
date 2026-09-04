@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { scoreProposal } = require("../scripts/proposal-quality-check");
+const { PROFILES: GROOM_PROFILES } = require("../scripts/lib/groom-runtime-profile");
 
 const ROOT = path.resolve(__dirname, "..");
 const read = (relative) => fs.readFileSync(path.join(ROOT, relative), "utf8");
@@ -165,6 +166,8 @@ test("Model profiles keep Sol default and add explicit Astra comparative coverag
   assert.equal(dev.profiles["codex-astra"].effort, "high");
   assert.equal(rfc.profiles["gpt-6-astra-high"].model, "gpt-6-astra");
   assert.equal(rfc.profiles["gpt-6-astra-high"].effort, "high");
+  assert.equal(GROOM_PROFILES.profiles["gpt-6-astra-high"].model, "gpt-6-astra");
+  assert.equal(GROOM_PROFILES.profiles["gpt-6-astra-high"].effort, "high");
   assert.ok(suite.profiles.some((profile) => profile.id === "astra-high"));
   assert.equal(suite.minimum_repeats, 3);
 });
