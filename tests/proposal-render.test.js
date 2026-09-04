@@ -72,6 +72,7 @@ test("proposal renderer is byte-deterministic and binds both projections to cano
   assert.match(first.html, /\.masthead \{[\s\S]*position: sticky/);
   assert.match(first.html, /\.masthead-meta \{[\s\S]*grid-template-columns: repeat\(2/);
   assert.match(first.html, /aria-label="Field and Contract"/);
+  assert.match(first.html, /code\s*\{[^}]*overflow-wrap:\s*anywhere;[^}]*word-break:\s*normal;/s);
   assert.doesNotMatch(first.html, /approval\.:/i);
   assert.match(first.html, /<strong>Outcome\.<\/strong> Pass/);
   assert.match(first.markdown, /### Critical states/);
