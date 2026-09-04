@@ -10,7 +10,12 @@ const path = require("node:path");
 const zlib = require("node:zlib");
 const { buildManifest, inspectHtmlArtifact } = require("../scripts/artifact-check");
 const { normalizeAuditBytes } = require("../scripts/design-critique-audit-normalize");
-const { checkDesignCritique, findingId } = require("../scripts/design-critique-check");
+const {
+  checkDesignCritique,
+  findingId,
+  reconciliationId,
+  reviewFindingId,
+} = require("../scripts/design-critique-check");
 const { inspectPngVisualBytes } = require("../scripts/lib/media-inspect");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
@@ -32,6 +37,7 @@ function makeFixture(options = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-design-critique-"));
   const routePath = "evidence/route.json";
   const capturesPath = "evidence/captures.json";
+  const reviewsPath = "evidence/reviews.json";
   const reportPath = "evidence/report.json";
   const mode = options.mode || "product-ui";
   const routeSchemaVersion = options.routeSchemaVersion ?? 2;
@@ -264,30 +270,37 @@ function makeFixture(options = {}) {
   };
   write(root, capturesPath, `${JSON.stringify(captureDoc, null, 2)}\n`);
 
+  const scores = Object.fromEntries(
+    (mode === "product-ui"
+      ? ["hierarchy", "density", "consistency", "accessibility", "responsive", "state-clarity"]
+      : ["hierarchy", "density", "consistency", "accessibility", "responsive", "print-navigation"]
+    ).map((key) => [
+      key,
+      {
+        value: 4,
+        rationale: `${key} is supported by the cited current capture.`,
+        evidence_ids: scoreEvidenceIds(key, mode, coverage, captures, evidence),
+      },
+    ])
+  );
+  const reviews = makeReviews(route, captureDoc, scores, 1);
+  reviews.route = routeBinding;
+  reviews.captures = binding(root, capturesPath);
+  write(root, reviewsPath, `${JSON.stringify(reviews, null, 2)}\n`);
   const report = {
-    schema_version: 1,
+    schema_version: 2,
     run_id: route.run_id,
     mode,
     commit: COMMIT,
     route: routeBinding,
     captures: binding(root, capturesPath),
+    reviews: binding(root, reviewsPath),
     outcome: "passed",
     rounds: 1,
     coverage: { required: captures.length, captured: captures.length, percent: 100 },
-    scores: Object.fromEntries(
-      (mode === "product-ui"
-        ? ["hierarchy", "density", "consistency", "accessibility", "responsive", "state-clarity"]
-        : ["hierarchy", "density", "consistency", "accessibility", "responsive", "print-navigation"]
-      ).map((key) => [
-        key,
-        {
-          value: 4,
-          rationale: `${key} is supported by the cited current capture.`,
-          evidence_ids: scoreEvidenceIds(key, mode, coverage, captures, evidence),
-        },
-      ])
-    ),
+    scores,
     findings: [],
+    reconciliation: [],
     top_issue: "No unresolved design issue.",
     next_action: "Proceed to QA.",
     human_report: { path: "evidence/report.html" },
@@ -297,9 +310,132 @@ function makeFixture(options = {}) {
   write(
     root,
     "evidence/report.html",
-    htmlReport(binding(root, reportPath), binding(root, capturesPath), report)
+    htmlReport(
+      binding(root, reportPath),
+      binding(root, capturesPath),
+      binding(root, reviewsPath),
+      reviews,
+      report
+    )
   );
-  return { root, routePath, capturesPath, reportPath, route, captures: captureDoc, report };
+  return {
+    root,
+    routePath,
+    capturesPath,
+    reviewsPath,
+    reportPath,
+    route,
+    captures: captureDoc,
+    reviews,
+    report,
+  };
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
+  if (value !== null && typeof value === "object")
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+      .join(",")}}`;
+  return JSON.stringify(value);
+}
+
+function promptHash(perspective) {
+  const name =
+    perspective === "primary" ? "design-critique-reviewer.md" : "design-critique-fresh-eyes.md";
+  return digest(fs.readFileSync(path.join(__dirname, `../skills/dev/references/${name}`)));
+}
+
+function withPayloadHash(input) {
+  return { ...input, payload_sha256: digest(Buffer.from(canonicalJson(input))) };
+}
+
+function makeReviews(route, captures, scores, rounds) {
+  const activeCaptureIds = captures.captures.filter((item) => item.active).map((item) => item.id);
+  const evidenceIds = captures.evidence.map((item) => item.id);
+  const brief = {
+    page_description: route.subjects[0].title,
+    persona: "Account administrator",
+    job_to_be_done: "Understand status and take the next action.",
+  };
+  const principles = ["Use the established product hierarchy."];
+  const reviewRounds = [];
+  for (let round = 1; round <= rounds; round += 1) {
+    const primaryInput = withPayloadHash({
+      prompt_profile: "primary-v1",
+      prompt_sha256: promptHash("primary"),
+      brief,
+      design_principles: principles,
+      acceptance_criteria: ["The primary action remains visible at every required viewport."],
+      capture_ids: activeCaptureIds,
+      evidence_ids: evidenceIds,
+      prior_finding_refs: [],
+    });
+    const freshInput = withPayloadHash({
+      prompt_profile: "fresh-eyes-v1",
+      prompt_sha256: promptHash("fresh-eyes"),
+      brief,
+      design_principles: principles,
+      capture_ids: activeCaptureIds,
+    });
+    reviewRounds.push({
+      round,
+      reviews: [
+        {
+          review_id: `dc-test-r${round}-primary`,
+          perspective: "primary",
+          input: primaryInput,
+          execution: reviewExecution(`primary-r${round}`),
+          result: {
+            summary: "The rendered interface is clear and supported by current evidence.",
+            scores: JSON.parse(JSON.stringify(scores)),
+            findings: [],
+          },
+        },
+        {
+          review_id: `dc-test-r${round}-fresh-eyes`,
+          perspective: "fresh-eyes",
+          input: freshInput,
+          execution: reviewExecution(`fresh-r${round}`),
+          result: {
+            first_impression: "The purpose and primary action are immediately clear.",
+            answers: Object.fromEntries(
+              ["purpose", "visual_focus", "inconsistencies"].map((key) => [
+                key,
+                {
+                  text: `${key} is clear in the current rendered evidence.`,
+                  evidence_ids: [activeCaptureIds[0]],
+                },
+              ])
+            ),
+            findings: [],
+          },
+        },
+      ],
+    });
+  }
+  return {
+    schema_version: 1,
+    run_id: route.run_id,
+    mode: route.mode,
+    commit: route.source.commit,
+    route: null,
+    captures: null,
+    rounds: reviewRounds,
+    checked_at: "2026-07-12T00:02:50Z",
+  };
+}
+
+function reviewExecution(suffix) {
+  return {
+    mode: "same-runtime-isolated",
+    runtime: { provider: "openai", model: "gpt-5.6-sol", reasoning: "high" },
+    context_id: `ctx-${suffix}`,
+    invocation_id: `invoke-${suffix}`,
+    started_at: "2026-07-12T00:02:10Z",
+    completed_at: "2026-07-12T00:02:40Z",
+  };
 }
 
 function scoreEvidenceIds(key, mode, coverage, captures, evidence) {
@@ -634,9 +770,13 @@ function binding(root, rel) {
   return { path: rel, sha256: digest(fs.readFileSync(path.join(root, rel))) };
 }
 
-function htmlReport(source, captures, report) {
+function htmlReport(source, captures, reviewsBinding, reviews, report) {
   source = { path: source.path, sha256: `sha256:${source.sha256}` };
   captures = { path: captures.path, sha256: `sha256:${captures.sha256}` };
+  reviewsBinding = {
+    path: reviewsBinding.path,
+    sha256: `sha256:${reviewsBinding.sha256}`,
+  };
   const meta = {
     schema_version: 1,
     id: "report:design-critique-test",
@@ -647,7 +787,7 @@ function htmlReport(source, captures, report) {
     generated_at: "2026-07-12T00:00:00Z",
     generator: { name: "pm:design-critique", version: PLUGIN_VERSION },
     source,
-    evidence: [captures],
+    evidence: [captures, reviewsBinding],
   };
   const findingMarkers = (report.findings || [])
     .map((finding) => {
@@ -672,9 +812,43 @@ function htmlReport(source, captures, report) {
         `<span data-dc-score-key="${key}" data-dc-score-value="${score.value}">${key} ${score.value} ${score.rationale}</span>`
     )
     .join("");
+  const reviewMarkers = (reviews.rounds || [])
+    .flatMap((round) =>
+      round.reviews.map((review) => {
+        const summary =
+          review.perspective === "primary" ? review.result.summary : review.result.first_impression;
+        const projection = {
+          review_id: review.review_id,
+          perspective: review.perspective,
+          round: round.round,
+          execution_mode: review.execution.mode,
+          model: review.execution.runtime.model,
+          summary,
+          finding_count: review.result.findings.length,
+        };
+        return `<article data-dc-review-id="${review.review_id}" data-dc-perspective="${review.perspective}" data-dc-review-sha256="${digest(Buffer.from(canonicalJson(projection)))}">${review.perspective} ${review.execution.runtime.model} ${summary} ${review.result.findings.length}</article>`;
+      })
+    )
+    .join("");
+  const reconciliationMarkers = (report.reconciliation || [])
+    .map((row) => {
+      const projection = {
+        id: row.id,
+        agreement: row.agreement,
+        disposition: row.disposition,
+        rationale: row.rationale,
+        source_finding_refs: row.source_finding_refs,
+        final_finding_id: row.final_finding_id,
+      };
+      const refs = row.source_finding_refs
+        .map((ref) => `${ref.review_id}:${ref.finding_id}`)
+        .join(" ");
+      return `<article data-dc-reconciliation-id="${row.id}" data-dc-reconciliation-sha256="${digest(Buffer.from(canonicalJson(projection)))}">${row.agreement} ${row.disposition} ${row.rationale} ${row.final_finding_id} ${refs}</article>`;
+    })
+    .join("");
   const nextHash = digest(Buffer.from(report.next_action));
   const topIssueHash = digest(Buffer.from(report.top_issue));
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Design critique test</title><script id="pm-artifact" type="application/json">${JSON.stringify(meta)}</script><style>.skip-link{position:absolute}.skip-link:focus{position:static}:focus-visible{outline:3px solid #05f}@media(max-width:600px){main{padding:1rem}}@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto}}@media print{nav{display:none}}</style></head><body><a class="skip-link" href="#main">Skip</a><nav aria-label="Report"><a href="#findings">Findings</a></nav><main id="main"><h1>Design critique test</h1><p>Reviewed</p><p data-dc-outcome="${report.outcome}">${report.outcome}</p><p data-dc-coverage="${report.coverage.percent}">${report.coverage.percent}%</p><p data-dc-top-issue-sha256="${topIssueHash}">${report.top_issue}</p><p data-dc-next-action-sha256="${nextHash}">${report.next_action}</p>${scoreMarkers}<section id="findings"><h2>Findings</h2><p>No blocking findings.</p>${findingMarkers}</section></main></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Design critique test</title><script id="pm-artifact" type="application/json">${JSON.stringify(meta)}</script><style>.skip-link{position:absolute}.skip-link:focus{position:static}:focus-visible{outline:3px solid #05f}@media(max-width:600px){main{padding:1rem}}@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto}}@media print{nav{display:none}}</style></head><body><a class="skip-link" href="#main">Skip</a><nav aria-label="Report"><a href="#findings">Findings</a></nav><main id="main"><h1>Design critique test</h1><p>Reviewed</p><p data-dc-outcome="${report.outcome}">${report.outcome}</p><p data-dc-coverage="${report.coverage.percent}">${report.coverage.percent}%</p><p data-dc-top-issue-sha256="${topIssueHash}">${report.top_issue}</p><p data-dc-next-action-sha256="${nextHash}">${report.next_action}</p>${scoreMarkers}<section id="reviews"><h2>Review perspectives</h2>${reviewMarkers}${reconciliationMarkers}</section><section id="findings"><h2>Findings</h2><p>No blocking findings.</p>${findingMarkers}</section></main></body></html>`;
 }
 
 function artifactSubjectHtml() {
@@ -731,6 +905,11 @@ function rewrite(root, rel, value) {
 }
 
 function rewriteReportAndHtml(fixture) {
+  refreshReviews(fixture);
+  rewriteBoundReportAndHtml(fixture);
+}
+
+function rewriteBoundReportAndHtml(fixture) {
   rewrite(fixture.root, fixture.reportPath, fixture.report);
   write(
     fixture.root,
@@ -738,9 +917,134 @@ function rewriteReportAndHtml(fixture) {
     htmlReport(
       binding(fixture.root, fixture.reportPath),
       binding(fixture.root, fixture.capturesPath),
+      binding(fixture.root, fixture.reviewsPath),
+      fixture.reviews,
       fixture.report
     )
   );
+}
+
+function rewriteReviewsAndReport(fixture) {
+  rewrite(fixture.root, fixture.reviewsPath, fixture.reviews);
+  fixture.report.reviews = binding(fixture.root, fixture.reviewsPath);
+  rewriteBoundReportAndHtml(fixture);
+}
+
+function refreshReviews(fixture) {
+  const rebuilt = makeReviews(
+    fixture.route,
+    fixture.captures,
+    fixture.report.scores,
+    fixture.report.rounds
+  );
+  rebuilt.route = binding(fixture.root, fixture.routePath);
+  rebuilt.captures = binding(fixture.root, fixture.capturesPath);
+  const requiredCoverage = fixture.route.coverage.filter((item) => item.required);
+  for (const round of rebuilt.rounds) {
+    const primary = round.reviews.find((item) => item.perspective === "primary");
+    const fresh = round.reviews.find((item) => item.perspective === "fresh-eyes");
+    const selected =
+      round.round === fixture.report.rounds
+        ? fixture.captures.captures.filter((item) => item.active)
+        : requiredCoverage
+            .map(
+              (coverage) =>
+                fixture.captures.captures
+                  .filter((item) => item.coverage_id === coverage.id)
+                  .sort((left, right) => left.round - right.round)[0]
+            )
+            .filter(Boolean);
+    const selectedIds = selected.map((item) => item.id);
+    primary.input.capture_ids = selectedIds;
+    primary.input.evidence_ids = fixture.captures.evidence.map((item) => item.id);
+    fresh.input.capture_ids = selectedIds;
+    for (const review of [primary, fresh]) {
+      if (review.perspective === "fresh-eyes")
+        for (const answer of Object.values(review.result.answers))
+          answer.evidence_ids = [selectedIds[0]];
+      const payload = { ...review.input };
+      delete payload.payload_sha256;
+      review.input.payload_sha256 = digest(Buffer.from(canonicalJson(payload)));
+    }
+    if (round.round !== fixture.report.rounds)
+      for (const score of Object.values(primary.result.scores))
+        score.evidence_ids = [selectedIds[0]];
+  }
+  fixture.report.reconciliation = [];
+  for (const finalFinding of fixture.report.findings || []) {
+    const sourceRound =
+      fixture.report.rounds === 2 &&
+      finalFinding.status === "resolved" &&
+      ["P0", "P1"].includes(finalFinding.priority)
+        ? 1
+        : fixture.report.rounds;
+    const primary = rebuilt.rounds[sourceRound - 1].reviews.find(
+      (item) => item.perspective === "primary"
+    );
+    const sourceEvidence =
+      sourceRound === 1 && finalFinding.before_capture_id
+        ? [finalFinding.before_capture_id]
+        : finalFinding.evidence_ids.filter((id) =>
+            [...primary.input.capture_ids, ...primary.input.evidence_ids].includes(id)
+          );
+    const coverageIds = uniqueCoverageIds(fixture, finalFinding, sourceEvidence);
+    const reviewFinding = {
+      subject_id: finalFinding.subject_id,
+      region: finalFinding.region,
+      rule: finalFinding.rule,
+      coverage_ids: coverageIds,
+      evidence_ids: sourceEvidence,
+      priority: finalFinding.priority,
+      owner: finalFinding.owner,
+      basis: "objective",
+      confidence: "high",
+      summary: finalFinding.summary,
+      impact: "The rendered evidence demonstrates the reported user impact.",
+      remediation: finalFinding.remediation,
+    };
+    reviewFinding.id = reviewFindingId(primary.review_id, reviewFinding);
+    primary.result.findings.push(reviewFinding);
+    const ref = { review_id: primary.review_id, finding_id: reviewFinding.id };
+    if (sourceRound < fixture.report.rounds) {
+      const finalPrimary = rebuilt.rounds
+        .at(-1)
+        .reviews.find((item) => item.perspective === "primary");
+      finalPrimary.input.prior_finding_refs.push(ref);
+      const payload = { ...finalPrimary.input };
+      delete payload.payload_sha256;
+      finalPrimary.input.payload_sha256 = digest(Buffer.from(canonicalJson(payload)));
+    }
+    const row = {
+      subject_id: finalFinding.subject_id,
+      region: finalFinding.region,
+      rule: finalFinding.rule,
+      coverage_ids: coverageIds,
+      source_finding_refs: [ref],
+      agreement: "single-source",
+      disposition: finalFinding.status === "dismissed" ? "dismissed" : "accepted",
+      final_finding_id: finalFinding.id,
+      decision_evidence_ids: finalFinding.evidence_ids.filter((id) => !sourceEvidence.includes(id)),
+      rationale: "The final report preserves the evidence-bound reviewer finding.",
+    };
+    row.id = reconciliationId(row);
+    fixture.report.reconciliation.push(row);
+  }
+  fixture.reviews = rebuilt;
+  rewrite(fixture.root, fixture.reviewsPath, fixture.reviews);
+  fixture.report.reviews = binding(fixture.root, fixture.reviewsPath);
+}
+
+function uniqueCoverageIds(fixture, finalFinding, evidenceIds) {
+  const coverage = new Set();
+  for (const id of evidenceIds) {
+    const capture = fixture.captures.captures.find((item) => item.id === id);
+    if (capture) coverage.add(capture.coverage_id);
+  }
+  if (coverage.size === 0) {
+    for (const item of fixture.route.coverage)
+      if (item.subject_id === finalFinding.subject_id && item.required) coverage.add(item.id);
+  }
+  return [...coverage].sort();
 }
 
 test("accepts a complete product UI evidence chain", () => {
@@ -1856,4 +2160,216 @@ test("rejects evidence paths that escape the project root", () => {
   const result = check(fixture);
   assert.equal(result.ok, false);
   assert.match(JSON.stringify(result.issues), /escapes the project root/);
+});
+
+test("report schema v1 is inspection-only and cannot certify route v2", () => {
+  const fixture = makeFixture();
+  fixture.report.schema_version = 1;
+  delete fixture.report.reviews;
+  delete fixture.report.reconciliation;
+  rewriteBoundReportAndHtml(fixture);
+
+  const enforced = check(fixture);
+  assert.equal(enforced.ok, false);
+  assert.match(JSON.stringify(enforced.issues), /schema version 1 is inspection-only/);
+  assert.deepEqual(check(fixture, COMMIT, { legacyReportMode: "inspect" }), {
+    ok: false,
+    authoritative: false,
+    inspection_ok: true,
+    issues: [],
+  });
+});
+
+test("requires exactly one Primary and one Fresh Eyes review per round", () => {
+  const fixture = makeFixture();
+  fixture.reviews.rounds[0].reviews[1].perspective = "primary";
+  rewriteReviewsAndReport(fixture);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /exactly one Primary and one Fresh Eyes/);
+});
+
+for (const [field, message] of [
+  ["context_id", /globally unique bounded identity/],
+  ["invocation_id", /globally unique bounded identity/],
+]) {
+  test(`same-runtime perspectives cannot reuse ${field}`, () => {
+    const fixture = makeFixture();
+    const [primary, fresh] = fixture.reviews.rounds[0].reviews;
+    fresh.execution[field] = primary.execution[field];
+    rewriteReviewsAndReport(fixture);
+    const result = check(fixture);
+    assert.equal(result.ok, false);
+    assert.match(JSON.stringify(result.issues), message);
+  });
+}
+
+test("Primary and Fresh Eyes cannot reuse the same input payload", () => {
+  const fixture = makeFixture();
+  const [primary, fresh] = fixture.reviews.rounds[0].reviews;
+  fresh.input = JSON.parse(JSON.stringify(primary.input));
+  rewriteReviewsAndReport(fixture);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /distinct input payloads/);
+});
+
+test("Primary and Fresh Eyes cannot reuse the same result object", () => {
+  const fixture = makeFixture();
+  const [primary, fresh] = fixture.reviews.rounds[0].reviews;
+  fresh.result = JSON.parse(JSON.stringify(primary.result));
+  rewriteReviewsAndReport(fixture);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /cannot reuse the same result object/);
+});
+
+for (const [field, value] of [
+  ["prior_finding_refs", []],
+  ["evidence_ids", []],
+  ["acceptance_criteria", ["Leaked implementation acceptance context."]],
+  ["implementation_rationale", "The implementation used a grid."],
+]) {
+  test(`Fresh Eyes rejects leaked ${field}`, () => {
+    const fixture = makeFixture();
+    const fresh = fixture.reviews.rounds[0].reviews.find(
+      (item) => item.perspective === "fresh-eyes"
+    );
+    fresh.input[field] = value;
+    const payload = { ...fresh.input };
+    delete payload.payload_sha256;
+    fresh.input.payload_sha256 = digest(Buffer.from(canonicalJson(payload)));
+    rewriteReviewsAndReport(fixture);
+    const result = check(fixture);
+    assert.equal(result.ok, false);
+    assert.match(JSON.stringify(result.issues), new RegExp(`${field}.*unknown field`));
+  });
+}
+
+test("Fresh Eyes findings cannot cite normalized audit evidence", () => {
+  const fixture = makeFixture();
+  const fresh = fixture.reviews.rounds[0].reviews.find((item) => item.perspective === "fresh-eyes");
+  const auditId = fixture.captures.evidence[0].id;
+  const finding = {
+    subject_id: "account-detail",
+    region: "header-actions",
+    rule: "primary-action-hierarchy",
+    coverage_ids: ["ui-primary"],
+    evidence_ids: [auditId],
+    priority: "P2",
+    owner: "design-critique",
+    basis: "craft",
+    confidence: "medium",
+    summary: "The action competes with metadata.",
+    impact: "A first-time user may scan the wrong region first.",
+    remediation: "Increase the primary action prominence.",
+  };
+  finding.id = reviewFindingId(fresh.review_id, finding);
+  fresh.result.findings = [finding];
+  rewriteReviewsAndReport(fixture);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(
+    JSON.stringify(result.issues),
+    /Fresh Eyes findings must cite supplied rendered captures only/
+  );
+});
+
+test("review prompt profiles bind the exact reviewer instruction bytes", () => {
+  const fixture = makeFixture();
+  fixture.reviews.rounds[0].reviews[0].input.prompt_sha256 = "0".repeat(64);
+  rewriteReviewsAndReport(fixture);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /exact reviewer instruction bytes/);
+});
+
+test("report scores must exactly equal the final Primary scores", () => {
+  const fixture = makeFixture();
+  fixture.report.scores.hierarchy.rationale = "A different report-only rationale.";
+  rewriteBoundReportAndHtml(fixture);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /final-round Primary scores/);
+});
+
+test("reconciliation cannot drop a reviewer finding", () => {
+  const fixture = makeFixture();
+  const finalFinding = {
+    subject_id: "account-detail",
+    region: "save-flow",
+    rule: "functional-navigation",
+    evidence_ids: [fixture.captures.captures[0].id],
+    priority: "P1",
+    status: "open",
+    owner: "qa",
+    summary: "The post-save destination needs functional verification.",
+    remediation: "Exercise the save flow in QA.",
+  };
+  finalFinding.id = findingId(finalFinding);
+  fixture.report.findings = [finalFinding];
+  rewriteReportAndHtml(fixture);
+  fixture.report.reconciliation = [];
+  rewriteBoundReportAndHtml(fixture);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /dropped reviewer finding|orphan final finding/);
+});
+
+test("reconciliation cannot hide a reviewer disagreement", () => {
+  const fixture = makeFixture();
+  const finalFinding = {
+    subject_id: "account-detail",
+    region: "header-actions",
+    rule: "primary-action-hierarchy",
+    evidence_ids: [fixture.captures.captures[0].id],
+    priority: "P1",
+    status: "open",
+    owner: "qa",
+    summary: "The action destination needs verification.",
+    remediation: "Verify the destination in QA.",
+  };
+  finalFinding.id = findingId(finalFinding);
+  fixture.report.findings = [finalFinding];
+  rewriteReportAndHtml(fixture);
+  const row = fixture.report.reconciliation[0];
+  const fresh = fixture.reviews.rounds[0].reviews.find((item) => item.perspective === "fresh-eyes");
+  const freshFinding = {
+    subject_id: "account-detail",
+    region: "header-actions",
+    rule: "primary-action-hierarchy",
+    coverage_ids: ["ui-primary"],
+    evidence_ids: [fixture.captures.captures[0].id],
+    priority: "P0",
+    owner: "design-critique",
+    basis: "craft",
+    confidence: "medium",
+    summary: "The action appears visually lost.",
+    impact: "A first-time user may miss the main action.",
+    remediation: "Restore clear action hierarchy.",
+  };
+  freshFinding.id = reviewFindingId(fresh.review_id, freshFinding);
+  fresh.result.findings.push(freshFinding);
+  row.source_finding_refs.push({ review_id: fresh.review_id, finding_id: freshFinding.id });
+  row.id = reconciliationId(row);
+  rewriteReviewsAndReport(fixture);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /must preserve reviewer agreement as disputed/);
+});
+
+test("human report metadata binds the exact reviews manifest", () => {
+  const fixture = makeFixture();
+  const htmlPath = path.join(fixture.root, fixture.report.human_report.path);
+  const boundHash = `sha256:${fixture.report.reviews.sha256}`;
+  fs.writeFileSync(
+    htmlPath,
+    fs.readFileSync(htmlPath, "utf8").replace(boundHash, `sha256:${"0".repeat(64)}`)
+  );
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(
+    JSON.stringify(result.issues),
+    /metadata evidence must bind the exact reviews manifest/
+  );
 });

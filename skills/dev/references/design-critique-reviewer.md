@@ -26,6 +26,24 @@ Follow the tiered methodology: data-backed (Tier 1) before screenshots (Tier 2) 
 Calibrate severity by user impact. Objective defects can block when they violate an applicable requirement or prevent the job; subjective craft concerns stay P2/P3 unless independent evidence shows user confusion or task failure. Missing intent is uncertainty to record, not permission to invent a P1.
 ```
 
+Return only the Primary `result` object required by `reviews.json`:
+
+```json
+{
+  "summary": "Evidence-based overall assessment.",
+  "scores": {
+    "hierarchy": {
+      "value": 4,
+      "rationale": "Concrete rationale.",
+      "evidence_ids": ["capture-id"]
+    }
+  },
+  "findings": []
+}
+```
+
+Include all six mode-specific score keys. Each finding uses exactly `id`, `subject_id`, `region`, `rule`, `coverage_ids`, `evidence_ids`, `priority`, `owner`, `basis`, `confidence`, `summary`, `impact`, and `remediation`. `region` and `rule` are stable kebab-case tokens. `basis` is `objective`, `craft`, or `uncertain`; `confidence` is `high`, `medium`, or `low`. Use no more than 50 findings. The caller computes deterministic IDs, records the exact input payload, and binds this result into `reviews.json`; do not add prose outside the result object.
+
 ---
 
 ## Verify Mode (re-invocation after fixes)

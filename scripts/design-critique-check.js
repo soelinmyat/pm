@@ -23,7 +23,14 @@ const MODES = new Set(["product-ui", "pm-artifact"]);
 const ROUTE_SCHEMA_VERSIONS = new Set([1, 2]);
 const OUTCOMES = new Set(["passed", "failed", "blocked", "deferred"]);
 const PRIORITIES = new Set(["P0", "P1", "P2", "P3"]);
+const PRIORITY_RANK = Object.freeze({ P0: 0, P1: 1, P2: 2, P3: 3 });
 const FINDING_STATUSES = new Set(["open", "resolved", "deferred", "dismissed"]);
+const REVIEW_PERSPECTIVES = new Set(["primary", "fresh-eyes"]);
+const REVIEW_EXECUTION_MODES = new Set(["delegated", "same-runtime-isolated"]);
+const REVIEW_BASES = new Set(["objective", "craft", "uncertain"]);
+const REVIEW_CONFIDENCE = new Set(["high", "medium", "low"]);
+const RECONCILIATION_AGREEMENTS = new Set(["single-source", "aligned", "disputed"]);
+const RECONCILIATION_DISPOSITIONS = new Set(["accepted", "dismissed"]);
 const VIEWPORTS = new Set(["desktop", "tablet", "narrow", "device", "print"]);
 const PRODUCT_UI_WEB_VIEWPORT_WIDTHS = Object.freeze({
   desktop: Object.freeze({ min: 1024, minHeight: 600 }),
@@ -70,6 +77,16 @@ const SCORE_KEYS = Object.freeze({
     "print-navigation",
   ],
 });
+const REVIEW_PROMPTS = Object.freeze({
+  primary: Object.freeze({
+    profile: "primary-v1",
+    path: path.join(__dirname, "../skills/dev/references/design-critique-reviewer.md"),
+  }),
+  "fresh-eyes": Object.freeze({
+    profile: "fresh-eyes-v1",
+    path: path.join(__dirname, "../skills/dev/references/design-critique-fresh-eyes.md"),
+  }),
+});
 
 function checkDesignCritique(options) {
   const previousCache = activeReadCache;
@@ -92,6 +109,10 @@ function checkDesignCritiqueUncached(options) {
   const route = routeFile.value;
   const captures = capturesFile.value;
   const report = reportFile.value;
+  const reviewsFile =
+    report?.schema_version === 2 && object(report.reviews) && text(report.reviews.path)
+      ? readJsonFile(root, report.reviews.path, "reviews", issues)
+      : null;
   const gitIdentity =
     options.verifyGit === false
       ? { commit: options.commit, baseRef: options.baseRef, baseCommit: options.baseCommit }
@@ -107,26 +128,42 @@ function checkDesignCritiqueUncached(options) {
     captures,
     routeFile,
     capturesFile,
+    reviewsFile,
     reportFile,
     options,
     issues
   );
   const legacyRouteMode = options.legacyRouteMode || "enforce";
+  const legacyReportMode = options.legacyReportMode || legacyRouteMode;
   if (!new Set(["enforce", "inspect"]).has(legacyRouteMode))
     add(issues, "route.schema_version", "legacyRouteMode must be enforce or inspect");
-  if (route.schema_version === 1) {
-    if (legacyRouteMode === "inspect")
+  if (!new Set(["enforce", "inspect"]).has(legacyReportMode))
+    add(issues, "report.schema_version", "legacyReportMode must be enforce or inspect");
+  const legacyRoute = route.schema_version === 1;
+  const legacyReport = report.schema_version === 1;
+  if (legacyRoute || legacyReport) {
+    const inspectionAllowed =
+      (!legacyRoute || legacyRouteMode === "inspect") &&
+      (!legacyReport || legacyReportMode === "inspect");
+    if (inspectionAllowed)
       return {
         ok: false,
         authoritative: false,
         inspection_ok: issues.length === 0,
         issues,
       };
-    add(
-      issues,
-      "route.schema_version",
-      "schema version 1 is migration-only and cannot certify a current Design Critique gate; create and run a schema-version-2 route"
-    );
+    if (legacyRoute)
+      add(
+        issues,
+        "route.schema_version",
+        "schema version 1 is migration-only and cannot certify a current Design Critique gate; create and run a schema-version-2 route"
+      );
+    if (legacyReport)
+      add(
+        issues,
+        "report.schema_version",
+        "schema version 1 is inspection-only and cannot certify Primary and Fresh Eyes review; create a schema-version-2 report with reviews.json"
+      );
   }
   return { ok: issues.length === 0, issues };
 }
@@ -866,6 +903,7 @@ function validateReport(
   captures,
   routeFile,
   capturesFile,
+  reviewsFile,
   reportFile,
   options,
   issues
@@ -880,6 +918,7 @@ function validateReport(
       "commit",
       "route",
       "captures",
+      ...(report.schema_version === 2 ? ["reviews"] : []),
       "outcome",
       "reason",
       "authority",
@@ -887,6 +926,7 @@ function validateReport(
       "coverage",
       "scores",
       "findings",
+      ...(report.schema_version === 2 ? ["reconciliation"] : []),
       "top_issue",
       "next_action",
       "human_report",
@@ -898,6 +938,7 @@ function validateReport(
   for (const [name, binding] of [
     ["route", report.route],
     ["captures", report.captures],
+    ...(report.schema_version === 2 ? [["reviews", report.reviews]] : []),
   ])
     if (object(binding)) closed(binding, ["path", "sha256"], `report.${name}`, issues);
   if (object(report.coverage))
@@ -906,7 +947,8 @@ function validateReport(
     closed(report.human_report, ["path"], "report.human_report", issues);
   if (object(report.authority))
     closed(report.authority, ["approver", "decision"], "report.authority", issues);
-  if (report.schema_version !== 1) add(issues, "report.schema_version", "must equal 1");
+  if (![1, 2].includes(report.schema_version))
+    add(issues, "report.schema_version", "must equal 1 or 2");
   if (!isRfc3339DateTime(report.checked_at)) add(issues, "report.checked_at", "must be RFC 3339");
   if (
     report.run_id !== route.run_id ||
@@ -916,6 +958,23 @@ function validateReport(
     add(issues, "report", "run_id, mode, and commit must match route");
   validateBinding(report.route, routeFile, "report.route", issues);
   validateBinding(report.captures, capturesFile, "report.captures", issues);
+  let reviewState = null;
+  if (report.schema_version === 2) {
+    if (!reviewsFile) add(issues, "report.reviews", "requires a readable reviews.json binding");
+    else {
+      validateBinding(report.reviews, reviewsFile, "report.reviews", issues);
+      reviewState = validateReviews(
+        root,
+        reviewsFile.value,
+        route,
+        captures,
+        routeFile,
+        capturesFile,
+        report,
+        issues
+      );
+    }
+  }
   if (!OUTCOMES.has(report.outcome)) add(issues, "report.outcome", "is invalid");
   if (!text(report.next_action)) add(issues, "report.next_action", "is required");
   const expectedTopIssue = deriveTopIssue(report);
@@ -927,6 +986,8 @@ function validateReport(
     add(issues, "report.rounds", "must include every recorded capture round");
   validateScores(root, report.scores, route, captures, report.outcome, issues);
   validateFindings(report.findings, route, captures, report.outcome, issues);
+  if (report.schema_version === 2 && reviewState)
+    validateReconciliation(report, route, captures, reviewState, issues);
   const required = (route.coverage || []).filter((item) => item.required).length;
   const captured = new Set(
     (captures.captures || []).filter((item) => item.active === true).map((item) => item.coverage_id)
@@ -966,7 +1027,747 @@ function validateReport(
       !text(report.authority.decision))
   )
     add(issues, "report.authority", "deferred requires approver and decision");
-  validateHumanReport(root, report.human_report, report, reportFile, capturesFile, options, issues);
+  validateHumanReport(
+    root,
+    report.human_report,
+    report,
+    reportFile,
+    capturesFile,
+    reviewsFile,
+    reviewState,
+    options,
+    issues
+  );
+}
+
+function validateReviews(root, reviews, route, captures, routeFile, capturesFile, report, issues) {
+  const state = {
+    reviews: new Map(),
+    findings: new Map(),
+    finalPrimaryScores: null,
+    rows: [],
+  };
+  if (!object(reviews)) {
+    add(issues, "reviews", "must be an object");
+    return state;
+  }
+  closed(
+    reviews,
+    ["schema_version", "run_id", "mode", "commit", "route", "captures", "rounds", "checked_at"],
+    "reviews",
+    issues
+  );
+  if (reviews.schema_version !== 1) add(issues, "reviews.schema_version", "must equal 1");
+  if (
+    reviews.run_id !== route.run_id ||
+    reviews.mode !== route.mode ||
+    reviews.commit !== route.source?.commit
+  )
+    add(issues, "reviews", "run_id, mode, and commit must match the route");
+  for (const [name, binding] of [
+    ["route", reviews.route],
+    ["captures", reviews.captures],
+  ])
+    if (object(binding)) closed(binding, ["path", "sha256"], `reviews.${name}`, issues);
+  validateBinding(reviews.route, routeFile, "reviews.route", issues);
+  validateBinding(reviews.captures, capturesFile, "reviews.captures", issues);
+  if (!isRfc3339DateTime(reviews.checked_at)) add(issues, "reviews.checked_at", "must be RFC 3339");
+  if (
+    isRfc3339DateTime(reviews.checked_at) &&
+    isRfc3339DateTime(report.checked_at) &&
+    Date.parse(reviews.checked_at) > Date.parse(report.checked_at)
+  )
+    add(issues, "reviews.checked_at", "must not be later than report.checked_at");
+  if (!Array.isArray(reviews.rounds)) {
+    add(issues, "reviews.rounds", "must be an array");
+    return state;
+  }
+  if (reviews.rounds.length !== report.rounds)
+    add(issues, "reviews.rounds", "must contain exactly one entry per report round");
+
+  const captureById = new Map((captures.captures || []).map((item) => [item.id, item]));
+  const evidenceById = new Map((captures.evidence || []).map((item) => [item.id, item]));
+  const coverageById = new Map((route.coverage || []).map((item) => [item.id, item]));
+  const expectedRounds = new Set(
+    Array.from(
+      { length: Number.isInteger(report.rounds) ? report.rounds : 0 },
+      (_, index) => index + 1
+    )
+  );
+  const seenRounds = new Set();
+  const seenReviewIds = new Set();
+  const seenContextIds = new Set();
+  const seenInvocationIds = new Set();
+
+  for (const [roundIndex, roundRow] of reviews.rounds.entries()) {
+    const roundAt = `reviews.rounds[${roundIndex}]`;
+    if (!object(roundRow)) {
+      add(issues, roundAt, "must be an object");
+      continue;
+    }
+    closed(roundRow, ["round", "reviews"], roundAt, issues);
+    if (!expectedRounds.has(roundRow.round) || seenRounds.has(roundRow.round))
+      add(issues, `${roundAt}.round`, "must be a unique consecutive report round");
+    seenRounds.add(roundRow.round);
+    if (!Array.isArray(roundRow.reviews) || roundRow.reviews.length !== 2) {
+      add(issues, `${roundAt}.reviews`, "must contain exactly Primary and Fresh Eyes");
+      continue;
+    }
+    const pair = [];
+    for (const [reviewIndex, review] of roundRow.reviews.entries()) {
+      const at = `${roundAt}.reviews[${reviewIndex}]`;
+      if (!object(review)) {
+        add(issues, at, "must be an object");
+        continue;
+      }
+      closed(review, ["review_id", "perspective", "input", "execution", "result"], at, issues);
+      if (!reviewId(review.review_id) || seenReviewIds.has(review.review_id))
+        add(issues, `${at}.review_id`, "must be a unique bounded review identity");
+      seenReviewIds.add(review.review_id);
+      if (!REVIEW_PERSPECTIVES.has(review.perspective))
+        add(issues, `${at}.perspective`, "must be primary or fresh-eyes");
+      const inputState = validateReviewInput(
+        root,
+        review.input,
+        review.perspective,
+        roundRow.round,
+        route,
+        captures,
+        captureById,
+        evidenceById,
+        at,
+        issues
+      );
+      validateReviewExecution(
+        review.execution,
+        reviews.checked_at,
+        seenContextIds,
+        seenInvocationIds,
+        at,
+        issues
+      );
+      const resultState = validateReviewResult(
+        review,
+        inputState,
+        route,
+        captureById,
+        evidenceById,
+        at,
+        issues
+      );
+      const row = {
+        review,
+        round: roundRow.round,
+        inputState,
+        resultState,
+        resultSha256: digest(Buffer.from(canonicalJson(review.result ?? null))),
+      };
+      pair.push(row);
+      state.rows.push(row);
+      state.reviews.set(review.review_id, row);
+      for (const finding of resultState.findings)
+        state.findings.set(`${review.review_id}:${finding.id}`, {
+          review_id: review.review_id,
+          perspective: review.perspective,
+          round: roundRow.round,
+          finding,
+        });
+    }
+    validateReviewPair(pair, roundRow.round, report.rounds, captures, coverageById, issues);
+    const primary = pair.find((item) => item.review.perspective === "primary");
+    if (roundRow.round === report.rounds && primary)
+      state.finalPrimaryScores = primary.review.result?.scores || null;
+  }
+  for (const expected of expectedRounds)
+    if (!seenRounds.has(expected)) add(issues, "reviews.rounds", `missing round ${expected}`);
+  validatePriorFindingRefs(state, issues);
+  if (!isDeepStrictEqual(report.scores, state.finalPrimaryScores))
+    add(issues, "report.scores", "must exactly equal the final-round Primary scores");
+  return state;
+}
+
+function validateReviewInput(
+  root,
+  input,
+  perspective,
+  round,
+  route,
+  captures,
+  captureById,
+  evidenceById,
+  at,
+  issues
+) {
+  const label = `${at}.input`;
+  const state = { captureIds: [], evidenceIds: [], priorFindingRefs: [], payloadSha256: "" };
+  if (!object(input)) {
+    add(issues, label, "must be an object");
+    return state;
+  }
+  const common = [
+    "prompt_profile",
+    "prompt_sha256",
+    "brief",
+    "design_principles",
+    "capture_ids",
+    "payload_sha256",
+  ];
+  closed(
+    input,
+    perspective === "primary"
+      ? [...common, "acceptance_criteria", "evidence_ids", "prior_finding_refs"]
+      : common,
+    label,
+    issues
+  );
+  const prompt = REVIEW_PROMPTS[perspective];
+  if (!prompt || input.prompt_profile !== prompt.profile)
+    add(issues, `${label}.prompt_profile`, `must equal ${prompt?.profile || "a known profile"}`);
+  else {
+    const expectedHash = digest(fs.readFileSync(prompt.path));
+    if (input.prompt_sha256 !== expectedHash)
+      add(issues, `${label}.prompt_sha256`, "must bind the exact reviewer instruction bytes");
+  }
+  if (!object(input.brief)) add(issues, `${label}.brief`, "must be an object");
+  else {
+    closed(
+      input.brief,
+      ["page_description", "persona", "job_to_be_done"],
+      `${label}.brief`,
+      issues
+    );
+    for (const key of ["page_description", "persona", "job_to_be_done"])
+      if (!boundedText(input.brief[key], 2_000))
+        add(issues, `${label}.brief.${key}`, "is required");
+  }
+  if (
+    !Array.isArray(input.design_principles) ||
+    input.design_principles.length > 20 ||
+    input.design_principles.some((item) => !boundedText(item, 1_000))
+  )
+    add(issues, `${label}.design_principles`, "must contain at most 20 bounded text principles");
+  if (!uniqueTextArray(input.capture_ids, 200))
+    add(issues, `${label}.capture_ids`, "must be a non-empty unique bounded array");
+  else {
+    state.captureIds = input.capture_ids;
+    for (const id of input.capture_ids)
+      if (!captureById.has(id)) add(issues, `${label}.capture_ids`, `unknown capture ${id}`);
+  }
+  if (perspective === "primary") {
+    if (
+      !Array.isArray(input.acceptance_criteria) ||
+      input.acceptance_criteria.length === 0 ||
+      input.acceptance_criteria.length > 50 ||
+      input.acceptance_criteria.some((item) => !boundedText(item, 2_000))
+    )
+      add(issues, `${label}.acceptance_criteria`, "must contain bounded acceptance criteria");
+    if (!uniqueTextArray(input.evidence_ids, 400))
+      add(issues, `${label}.evidence_ids`, "must be a non-empty unique bounded array");
+    else {
+      state.evidenceIds = input.evidence_ids;
+      for (const id of input.evidence_ids)
+        if (!evidenceById.has(id)) add(issues, `${label}.evidence_ids`, `unknown evidence ${id}`);
+    }
+    if (!Array.isArray(input.prior_finding_refs) || input.prior_finding_refs.length > 100)
+      add(issues, `${label}.prior_finding_refs`, "must be a bounded array");
+    else {
+      state.priorFindingRefs = input.prior_finding_refs;
+      for (const [index, ref] of input.prior_finding_refs.entries()) {
+        const refAt = `${label}.prior_finding_refs[${index}]`;
+        if (!object(ref)) add(issues, refAt, "must be an object");
+        else {
+          closed(ref, ["review_id", "finding_id"], refAt, issues);
+          if (!text(ref.review_id) || !text(ref.finding_id))
+            add(issues, refAt, "requires review_id and finding_id");
+        }
+      }
+    }
+    if (round === 1 && state.priorFindingRefs.length > 0)
+      add(issues, `${label}.prior_finding_refs`, "round 1 cannot contain prior findings");
+    const requiredEvidence = requiredReviewEvidenceIds(root, route, captures, state.captureIds);
+    const supplied = new Set(state.evidenceIds);
+    const missing = requiredEvidence.filter((id) => !supplied.has(id));
+    if (missing.length > 0)
+      add(
+        issues,
+        `${label}.evidence_ids`,
+        `must include required review evidence: ${missing.join(", ")}`
+      );
+  }
+  const payload = { ...input };
+  delete payload.payload_sha256;
+  const expectedPayload = digest(Buffer.from(canonicalJson(payload)));
+  state.payloadSha256 = expectedPayload;
+  if (input.payload_sha256 !== expectedPayload)
+    add(issues, `${label}.payload_sha256`, "must match the canonical reviewer input payload");
+  return state;
+}
+
+function requiredReviewEvidenceIds(root, route, captures, captureIds) {
+  const selected = new Set(captureIds);
+  if (route.mode === "pm-artifact") return (captures.evidence || []).map((item) => item.id);
+  return (captures.evidence || [])
+    .filter((item) => ["accessibility-tree", "dom-audit"].includes(item.kind))
+    .filter((item) => {
+      const audit = readEvidenceJson(root, item, `captures.evidence.${item.id}`, []);
+      return (audit?.capture_ids || []).some((id) => selected.has(id));
+    })
+    .map((item) => item.id);
+}
+
+function validateReviewExecution(
+  execution,
+  reviewsCheckedAt,
+  seenContextIds,
+  seenInvocationIds,
+  at,
+  issues
+) {
+  const label = `${at}.execution`;
+  if (!object(execution)) return add(issues, label, "must be an object");
+  closed(
+    execution,
+    ["mode", "runtime", "context_id", "invocation_id", "started_at", "completed_at"],
+    label,
+    issues
+  );
+  if (!REVIEW_EXECUTION_MODES.has(execution.mode))
+    add(issues, `${label}.mode`, "must be delegated or same-runtime-isolated");
+  if (!object(execution.runtime)) add(issues, `${label}.runtime`, "must be an object");
+  else {
+    closed(execution.runtime, ["provider", "model", "reasoning"], `${label}.runtime`, issues);
+    for (const key of ["provider", "model", "reasoning"])
+      if (!boundedText(execution.runtime[key], 200))
+        add(issues, `${label}.runtime.${key}`, "is required");
+  }
+  for (const [key, seen] of [
+    ["context_id", seenContextIds],
+    ["invocation_id", seenInvocationIds],
+  ]) {
+    if (!reviewId(execution[key]) || seen.has(execution[key]))
+      add(issues, `${label}.${key}`, "must be a globally unique bounded identity");
+    seen.add(execution[key]);
+  }
+  if (!isRfc3339DateTime(execution.started_at))
+    add(issues, `${label}.started_at`, "must be RFC 3339");
+  if (!isRfc3339DateTime(execution.completed_at))
+    add(issues, `${label}.completed_at`, "must be RFC 3339");
+  if (
+    isRfc3339DateTime(execution.started_at) &&
+    isRfc3339DateTime(execution.completed_at) &&
+    Date.parse(execution.started_at) > Date.parse(execution.completed_at)
+  )
+    add(issues, label, "completed_at must not precede started_at");
+  if (
+    isRfc3339DateTime(execution.completed_at) &&
+    isRfc3339DateTime(reviewsCheckedAt) &&
+    Date.parse(execution.completed_at) > Date.parse(reviewsCheckedAt)
+  )
+    add(issues, `${label}.completed_at`, "must not be later than reviews.checked_at");
+}
+
+function validateReviewResult(review, inputState, route, captureById, evidenceById, at, issues) {
+  const label = `${at}.result`;
+  const result = review.result;
+  const state = { findings: [] };
+  if (!object(result)) {
+    add(issues, label, "must be an object");
+    return state;
+  }
+  if (review.perspective === "primary") {
+    closed(result, ["summary", "scores", "findings"], label, issues);
+    if (!boundedText(result.summary, 10_000)) add(issues, `${label}.summary`, "is required");
+    validatePerspectiveScores(result.scores, route.mode, inputState, `${label}.scores`, issues);
+  } else {
+    closed(result, ["first_impression", "answers", "findings"], label, issues);
+    if (!boundedText(result.first_impression, 10_000))
+      add(issues, `${label}.first_impression`, "is required");
+    validateFreshAnswers(result.answers, inputState, label, issues);
+  }
+  const limit = review.perspective === "fresh-eyes" ? 5 : 50;
+  if (!Array.isArray(result.findings) || result.findings.length > limit)
+    add(issues, `${label}.findings`, `must be an array with at most ${limit} findings`);
+  else {
+    const ids = new Set();
+    for (const [index, finding] of result.findings.entries()) {
+      validateReviewFinding(
+        finding,
+        review,
+        inputState,
+        route,
+        captureById,
+        evidenceById,
+        `${label}.findings[${index}]`,
+        ids,
+        issues
+      );
+      if (object(finding)) state.findings.push(finding);
+    }
+  }
+  return state;
+}
+
+function validatePerspectiveScores(scores, mode, inputState, label, issues) {
+  if (!object(scores)) return add(issues, label, "must be an object");
+  const expected = new Set(SCORE_KEYS[mode] || []);
+  const allowedEvidence = new Set([...inputState.captureIds, ...inputState.evidenceIds]);
+  for (const key of Object.keys(scores))
+    if (!expected.has(key)) add(issues, `${label}.${key}`, "is not valid for this mode");
+  for (const key of expected) {
+    const score = scores[key];
+    const at = `${label}.${key}`;
+    if (!object(score)) {
+      add(issues, at, "must be an evidence-backed score object");
+      continue;
+    }
+    closed(score, ["value", "rationale", "evidence_ids"], at, issues);
+    if (!Number.isInteger(score.value) || score.value < 1 || score.value > 5)
+      add(issues, `${at}.value`, "must be an integer from 1 to 5");
+    if (!boundedText(score.rationale, 10_000)) add(issues, `${at}.rationale`, "is required");
+    if (
+      !uniqueTextArray(score.evidence_ids, 400) ||
+      score.evidence_ids.some((id) => !allowedEvidence.has(id))
+    )
+      add(issues, `${at}.evidence_ids`, "must cite supplied Primary evidence");
+  }
+}
+
+function validateFreshAnswers(answers, inputState, label, issues) {
+  const at = `${label}.answers`;
+  if (!object(answers)) return add(issues, at, "must be an object");
+  const keys = ["purpose", "visual_focus", "inconsistencies"];
+  closed(answers, keys, at, issues);
+  const allowed = new Set(inputState.captureIds);
+  for (const key of keys) {
+    const answer = answers[key];
+    if (!object(answer)) {
+      add(issues, `${at}.${key}`, "must be an evidence-backed answer");
+      continue;
+    }
+    closed(answer, ["text", "evidence_ids"], `${at}.${key}`, issues);
+    if (!boundedText(answer.text, 10_000)) add(issues, `${at}.${key}.text`, "is required");
+    if (
+      !uniqueTextArray(answer.evidence_ids, 200) ||
+      answer.evidence_ids.some((id) => !allowed.has(id))
+    )
+      add(issues, `${at}.${key}.evidence_ids`, "must cite supplied rendered captures only");
+  }
+}
+
+function validateReviewFinding(
+  finding,
+  review,
+  inputState,
+  route,
+  captureById,
+  evidenceById,
+  at,
+  ids,
+  issues
+) {
+  if (!object(finding)) return add(issues, at, "must be an object");
+  closed(
+    finding,
+    [
+      "id",
+      "subject_id",
+      "region",
+      "rule",
+      "coverage_ids",
+      "evidence_ids",
+      "priority",
+      "owner",
+      "basis",
+      "confidence",
+      "summary",
+      "impact",
+      "remediation",
+    ],
+    at,
+    issues
+  );
+  const expectedId = reviewFindingId(review.review_id, finding);
+  if (finding.id !== expectedId || ids.has(finding.id))
+    add(issues, `${at}.id`, `must equal deterministic identity ${expectedId}`);
+  ids.add(finding.id);
+  if (!(route.subjects || []).some((subject) => subject.id === finding.subject_id))
+    add(issues, `${at}.subject_id`, "must reference a route subject");
+  if (!slug(finding.region) || !slug(finding.rule))
+    add(issues, at, "region and rule must be kebab-case");
+  if (!uniqueTextArray(finding.coverage_ids, 100))
+    add(issues, `${at}.coverage_ids`, "must be a non-empty unique array");
+  else
+    for (const id of finding.coverage_ids) {
+      const coverage = (route.coverage || []).find((item) => item.id === id);
+      if (!coverage || coverage.subject_id !== finding.subject_id)
+        add(issues, `${at}.coverage_ids`, `invalid subject coverage ${id}`);
+    }
+  const allowedEvidence = new Set([
+    ...inputState.captureIds,
+    ...(review.perspective === "primary" ? inputState.evidenceIds : []),
+  ]);
+  if (
+    !uniqueTextArray(finding.evidence_ids, 400) ||
+    finding.evidence_ids.some((id) => !allowedEvidence.has(id))
+  )
+    add(
+      issues,
+      `${at}.evidence_ids`,
+      review.perspective === "fresh-eyes"
+        ? "Fresh Eyes findings must cite supplied rendered captures only"
+        : "must cite supplied Primary evidence"
+    );
+  for (const id of finding.evidence_ids || []) {
+    const capture = captureById.get(id);
+    const evidence = evidenceById.get(id);
+    if (capture) {
+      const coverage = (route.coverage || []).find((item) => item.id === capture.coverage_id);
+      if (coverage?.subject_id !== finding.subject_id)
+        add(issues, `${at}.evidence_ids`, `capture ${id} belongs to another subject`);
+    } else if (evidence?.subject_id !== finding.subject_id)
+      add(issues, `${at}.evidence_ids`, `evidence ${id} belongs to another subject`);
+  }
+  if (!PRIORITIES.has(finding.priority)) add(issues, `${at}.priority`, "is invalid");
+  if (review.perspective === "fresh-eyes" && finding.priority === "P3")
+    add(issues, `${at}.priority`, "Fresh Eyes findings are limited to P0-P2");
+  if (!["design-critique", "qa", "review"].includes(finding.owner))
+    add(issues, `${at}.owner`, "is invalid");
+  if (!REVIEW_BASES.has(finding.basis)) add(issues, `${at}.basis`, "is invalid");
+  if (!REVIEW_CONFIDENCE.has(finding.confidence)) add(issues, `${at}.confidence`, "is invalid");
+  for (const key of ["summary", "impact", "remediation"])
+    if (!boundedText(finding[key], 10_000)) add(issues, `${at}.${key}`, "is required");
+}
+
+function validateReviewPair(pair, round, reportRounds, captures, coverageById, issues) {
+  const label = `reviews.rounds[${Math.max(0, round - 1)}].reviews`;
+  const primaryRows = pair.filter((item) => item.review.perspective === "primary");
+  const freshRows = pair.filter((item) => item.review.perspective === "fresh-eyes");
+  if (primaryRows.length !== 1 || freshRows.length !== 1) {
+    add(issues, label, "must contain exactly one Primary and one Fresh Eyes review");
+    return;
+  }
+  const primary = primaryRows[0];
+  const fresh = freshRows[0];
+  if (!isDeepStrictEqual(primary.review.input?.brief, fresh.review.input?.brief))
+    add(issues, label, "Primary and Fresh Eyes must receive the same brief");
+  if (
+    !isDeepStrictEqual(
+      primary.review.input?.design_principles,
+      fresh.review.input?.design_principles
+    )
+  )
+    add(issues, label, "Primary and Fresh Eyes must receive the same design principles");
+  if (!sameStringSet(primary.inputState.captureIds, fresh.inputState.captureIds))
+    add(issues, label, "Primary and Fresh Eyes must review the same rendered captures");
+  if (primary.inputState.payloadSha256 === fresh.inputState.payloadSha256)
+    add(issues, label, "Primary and Fresh Eyes must use distinct input payloads");
+  if (primary.resultSha256 === fresh.resultSha256)
+    add(issues, label, "Primary and Fresh Eyes cannot reuse the same result object");
+  if (round === reportRounds) {
+    const expected = (captures.captures || [])
+      .filter((item) => item.active === true && coverageById.get(item.coverage_id)?.required)
+      .map((item) => item.id);
+    if (!sameStringSet(primary.inputState.captureIds, expected))
+      add(issues, label, "final-round reviews must cover every active required capture");
+  } else {
+    const reviewedCoverage = new Set(
+      primary.inputState.captureIds
+        .map((id) => (captures.captures || []).find((item) => item.id === id)?.coverage_id)
+        .filter(Boolean)
+    );
+    const missing = [...coverageById.values()]
+      .filter((item) => item.required)
+      .map((item) => item.id)
+      .filter((id) => !reviewedCoverage.has(id));
+    if (missing.length > 0)
+      add(
+        issues,
+        label,
+        `initial review must cover every required route row: ${missing.join(", ")}`
+      );
+  }
+}
+
+function validatePriorFindingRefs(state, issues) {
+  for (const row of state.rows) {
+    for (const [index, ref] of row.inputState.priorFindingRefs.entries()) {
+      const source = state.findings.get(`${ref.review_id}:${ref.finding_id}`);
+      if (!source || source.round >= row.round)
+        add(
+          issues,
+          `reviews.${row.review.review_id}.input.prior_finding_refs[${index}]`,
+          "must reference a finding from an earlier review round"
+        );
+    }
+  }
+}
+
+function validateReconciliation(report, route, captures, reviewState, issues) {
+  if (!Array.isArray(report.reconciliation)) {
+    add(issues, "report.reconciliation", "must be an array");
+    return;
+  }
+  const finalById = new Map((report.findings || []).map((finding) => [finding.id, finding]));
+  const knownEvidence = new Set([
+    ...(captures.captures || []).map((item) => item.id),
+    ...(captures.evidence || []).map((item) => item.id),
+  ]);
+  const consumedSources = new Set();
+  const consumedFinal = new Set();
+  const ids = new Set();
+  for (const [index, row] of report.reconciliation.entries()) {
+    const at = `report.reconciliation[${index}]`;
+    if (!object(row)) {
+      add(issues, at, "must be an object");
+      continue;
+    }
+    closed(
+      row,
+      [
+        "id",
+        "subject_id",
+        "region",
+        "rule",
+        "coverage_ids",
+        "source_finding_refs",
+        "agreement",
+        "disposition",
+        "final_finding_id",
+        "decision_evidence_ids",
+        "rationale",
+      ],
+      at,
+      issues
+    );
+    if (!slug(row.region) || !slug(row.rule)) add(issues, at, "region and rule must be kebab-case");
+    if (!uniqueTextArray(row.coverage_ids, 100))
+      add(issues, `${at}.coverage_ids`, "must be a non-empty unique array");
+    const sourceRefs = Array.isArray(row.source_finding_refs) ? row.source_finding_refs : [];
+    if (sourceRefs.length === 0)
+      add(issues, `${at}.source_finding_refs`, "must contain source findings");
+    const sources = [];
+    for (const [refIndex, ref] of sourceRefs.entries()) {
+      const refAt = `${at}.source_finding_refs[${refIndex}]`;
+      if (!object(ref)) {
+        add(issues, refAt, "must be an object");
+        continue;
+      }
+      closed(ref, ["review_id", "finding_id"], refAt, issues);
+      const key = `${ref.review_id}:${ref.finding_id}`;
+      const source = reviewState.findings.get(key);
+      if (!source) add(issues, refAt, "must reference a reviewer finding");
+      else {
+        if (consumedSources.has(key)) add(issues, refAt, "reviewer finding is reconciled twice");
+        consumedSources.add(key);
+        sources.push(source);
+      }
+    }
+    const expectedId = reconciliationId(row);
+    if (row.id !== expectedId || ids.has(row.id))
+      add(issues, `${at}.id`, `must equal deterministic identity ${expectedId}`);
+    ids.add(row.id);
+    if (!RECONCILIATION_AGREEMENTS.has(row.agreement)) add(issues, `${at}.agreement`, "is invalid");
+    if (!RECONCILIATION_DISPOSITIONS.has(row.disposition))
+      add(issues, `${at}.disposition`, "is invalid");
+    if (!boundedText(row.rationale, 10_000)) add(issues, `${at}.rationale`, "is required");
+    const decisionEvidenceIds = Array.isArray(row.decision_evidence_ids)
+      ? row.decision_evidence_ids
+      : [];
+    if (!boundedUniqueTextArray(row.decision_evidence_ids, 400, true))
+      add(issues, `${at}.decision_evidence_ids`, "must be a bounded array");
+    else
+      for (const id of decisionEvidenceIds)
+        if (!knownEvidence.has(id))
+          add(issues, `${at}.decision_evidence_ids`, `unknown evidence ${id}`);
+    const subjectIds = new Set(sources.map((item) => item.finding.subject_id));
+    if (subjectIds.size > 1 || (subjectIds.size === 1 && !subjectIds.has(row.subject_id)))
+      add(issues, `${at}.subject_id`, "must match every source finding");
+    if (
+      sources.some((item) => item.finding.region !== row.region || item.finding.rule !== row.rule)
+    )
+      add(issues, at, "canonical region and rule must match every source finding");
+    const expectedCoverage = uniqueSorted(
+      sources.flatMap((item) => item.finding.coverage_ids || [])
+    );
+    if (!sameStringSet(row.coverage_ids, expectedCoverage))
+      add(issues, `${at}.coverage_ids`, "must equal the union of source finding coverage");
+    const perspectives = new Set(sources.map((item) => item.perspective));
+    const verdicts = new Set(
+      sources.map((item) =>
+        JSON.stringify([item.finding.priority, item.finding.owner, item.finding.basis])
+      )
+    );
+    const expectedAgreement =
+      perspectives.size === 1 ? "single-source" : verdicts.size === 1 ? "aligned" : "disputed";
+    if (row.agreement !== expectedAgreement)
+      add(issues, `${at}.agreement`, `must preserve reviewer agreement as ${expectedAgreement}`);
+    const finalFinding = finalById.get(row.final_finding_id);
+    if (!finalFinding) add(issues, `${at}.final_finding_id`, "must reference a final finding");
+    else {
+      if (consumedFinal.has(finalFinding.id))
+        add(issues, `${at}.final_finding_id`, "final finding is reconciled twice");
+      consumedFinal.add(finalFinding.id);
+      if (
+        finalFinding.subject_id !== row.subject_id ||
+        finalFinding.region !== row.region ||
+        finalFinding.rule !== row.rule
+      )
+        add(
+          issues,
+          `${at}.final_finding_id`,
+          "final finding must match the canonical subject, region, and rule"
+        );
+      const sourceEvidence = uniqueSorted(
+        sources.flatMap((item) => item.finding.evidence_ids || [])
+      );
+      const expectedEvidence = uniqueSorted([...sourceEvidence, ...decisionEvidenceIds]);
+      if (!sameStringSet(finalFinding.evidence_ids, expectedEvidence))
+        add(
+          issues,
+          `${at}.final_finding_id`,
+          "final finding evidence must equal source plus decision evidence"
+        );
+      const worstPriority = sources
+        .map((item) => item.finding.priority)
+        .filter((priority) => PRIORITIES.has(priority))
+        .sort((left, right) => PRIORITY_RANK[left] - PRIORITY_RANK[right])[0];
+      if (worstPriority && finalFinding.priority !== worstPriority)
+        add(
+          issues,
+          `${at}.final_finding_id`,
+          `cannot lower reviewer priority below ${worstPriority}`
+        );
+      if (row.disposition === "dismissed") {
+        if (finalFinding.status !== "dismissed")
+          add(
+            issues,
+            `${at}.final_finding_id`,
+            "dismissed reconciliation requires a dismissed final finding"
+          );
+        if (decisionEvidenceIds.length === 0)
+          add(issues, `${at}.decision_evidence_ids`, "dismissal requires decision evidence");
+        if (
+          ["P0", "P1"].includes(worstPriority) &&
+          !decisionEvidenceIds.some((id) => !sourceEvidence.includes(id))
+        )
+          add(
+            issues,
+            `${at}.decision_evidence_ids`,
+            "dismissed P0/P1 requires new contrary evidence"
+          );
+      } else if (finalFinding.status === "dismissed")
+        add(
+          issues,
+          `${at}.final_finding_id`,
+          "accepted reconciliation cannot dismiss the final finding"
+        );
+    }
+  }
+  for (const key of reviewState.findings.keys())
+    if (!consumedSources.has(key))
+      add(issues, "report.reconciliation", `dropped reviewer finding ${key}`);
+  for (const id of finalById.keys())
+    if (!consumedFinal.has(id)) add(issues, "report.reconciliation", `orphan final finding ${id}`);
 }
 
 function validateScores(root, scores, route, captures, outcome, issues) {
@@ -1281,7 +2082,17 @@ function validateProductUiViewport(
     );
 }
 
-function validateHumanReport(root, human, report, reportFile, capturesFile, options, issues) {
+function validateHumanReport(
+  root,
+  human,
+  report,
+  reportFile,
+  capturesFile,
+  reviewsFile,
+  reviewState,
+  options,
+  issues
+) {
   if (!object(human) || !text(human.path))
     return add(issues, "report.human_report", "requires an HTML path");
   const htmlFile = readBoundFile(root, human.path, "report.human_report.path", issues);
@@ -1312,6 +2123,15 @@ function validateHumanReport(root, human, report, reportFile, capturesFile, opti
     )
   )
     add(issues, "report.human_report", "metadata evidence must bind the exact captures manifest");
+  if (
+    report.schema_version === 2 &&
+    (!reviewsFile ||
+      !(metadata.evidence || []).some(
+        (item) =>
+          item.path === reviewsFile.relative && item.sha256 === `sha256:${reviewsFile.sha256}`
+      ))
+  )
+    add(issues, "report.human_report", "metadata evidence must bind the exact reviews manifest");
   const rawHtml = htmlFile.bytes.toString("utf8");
   const html = structuralMarkup(rawHtml);
   const css = [...rawHtml.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)]
@@ -1383,6 +2203,54 @@ function validateHumanReport(root, human, report, reportFile, capturesFile, opti
     )
       add(issues, "report.human_report", `missing visible finding ${finding.id}`);
   }
+  for (const row of reviewState?.rows || []) {
+    const projection = reviewProjection(row);
+    const marker = visibleMarker(
+      html,
+      {
+        "data-dc-review-id": row.review.review_id,
+        "data-dc-perspective": row.review.perspective,
+        "data-dc-review-sha256": digest(Buffer.from(canonicalJson(projection))),
+      },
+      css
+    );
+    const visibleText = normalizeVisible(marker?.text || "");
+    if (
+      !marker ||
+      ![
+        row.review.perspective,
+        row.review.execution?.runtime?.model,
+        reviewSummary(row.review),
+        String(row.resultState.findings.length),
+      ].every((value) => visibleText.includes(normalizeVisible(value)))
+    )
+      add(issues, "report.human_report", `missing visible review ${row.review.review_id}`);
+  }
+  for (const row of Array.isArray(report.reconciliation) ? report.reconciliation : []) {
+    const projection = reconciliationProjection(row);
+    const marker = visibleMarker(
+      html,
+      {
+        "data-dc-reconciliation-id": row.id,
+        "data-dc-reconciliation-sha256": digest(Buffer.from(canonicalJson(projection))),
+      },
+      css
+    );
+    const visibleText = normalizeVisible(marker?.text || "");
+    if (
+      !marker ||
+      ![
+        row.agreement,
+        row.disposition,
+        row.rationale,
+        row.final_finding_id,
+        ...(Array.isArray(row.source_finding_refs) ? row.source_finding_refs : []).map(
+          (ref) => `${ref?.review_id}:${ref?.finding_id}`
+        ),
+      ].every((value) => visibleText.includes(normalizeVisible(value)))
+    )
+      add(issues, "report.human_report", `missing visible reconciliation ${row.id}`);
+  }
   if (options.verifyBrowser !== false) {
     try {
       const markers = options.markerProbe
@@ -1392,7 +2260,7 @@ function validateHumanReport(root, human, report, reportFile, capturesFile, opti
             htmlFile.path,
             path.dirname(htmlFile.path)
           );
-      validateRenderedMarkers(markers, report, issues);
+      validateRenderedMarkers(markers, report, reviewState, issues);
     } catch (error) {
       add(
         issues,
@@ -1403,7 +2271,7 @@ function validateHumanReport(root, human, report, reportFile, capturesFile, opti
   }
 }
 
-function validateRenderedMarkers(markers, report, issues) {
+function validateRenderedMarkers(markers, report, reviewState, issues) {
   const expected = [
     {
       attributes: { "data-dc-outcome": report.outcome },
@@ -1444,6 +2312,36 @@ function validateRenderedMarkers(markers, report, issues) {
         "data-dc-finding-sha256": digest(Buffer.from(JSON.stringify(findingProjection(finding)))),
       },
       requiredText: [finding.summary, finding.remediation, finding.owner, ...finding.evidence_ids],
+    })),
+    ...(reviewState?.rows || []).map((row) => ({
+      attributes: {
+        "data-dc-review-id": row.review.review_id,
+        "data-dc-perspective": row.review.perspective,
+        "data-dc-review-sha256": digest(Buffer.from(canonicalJson(reviewProjection(row)))),
+      },
+      requiredText: [
+        row.review.perspective,
+        row.review.execution?.runtime?.model,
+        reviewSummary(row.review),
+        String(row.resultState.findings.length),
+      ],
+    })),
+    ...(Array.isArray(report.reconciliation) ? report.reconciliation : []).map((row) => ({
+      attributes: {
+        "data-dc-reconciliation-id": row.id,
+        "data-dc-reconciliation-sha256": digest(
+          Buffer.from(canonicalJson(reconciliationProjection(row)))
+        ),
+      },
+      requiredText: [
+        row.agreement,
+        row.disposition,
+        row.rationale,
+        row.final_finding_id,
+        ...(Array.isArray(row.source_finding_refs) ? row.source_finding_refs : []).map(
+          (ref) => `${ref?.review_id}:${ref?.finding_id}`
+        ),
+      ],
     })),
   ];
   for (const item of expected) {
@@ -1589,6 +2487,35 @@ function findingProjection(finding) {
   };
 }
 
+function reviewSummary(review) {
+  return review?.perspective === "primary"
+    ? review.result?.summary || ""
+    : review?.result?.first_impression || "";
+}
+
+function reviewProjection(row) {
+  return {
+    review_id: row.review.review_id,
+    perspective: row.review.perspective,
+    round: row.round,
+    execution_mode: row.review.execution?.mode,
+    model: row.review.execution?.runtime?.model,
+    summary: reviewSummary(row.review),
+    finding_count: row.resultState.findings.length,
+  };
+}
+
+function reconciliationProjection(row) {
+  return {
+    id: row.id,
+    agreement: row.agreement,
+    disposition: row.disposition,
+    rationale: row.rationale,
+    source_finding_refs: Array.isArray(row.source_finding_refs) ? row.source_finding_refs : [],
+    final_finding_id: row.final_finding_id,
+  };
+}
+
 function deriveTopIssue(report) {
   const priority = { P0: 0, P1: 1, P2: 2, P3: 3 };
   const unresolved = (report.findings || [])
@@ -1613,6 +2540,73 @@ function findingId(finding) {
     [...(finding.evidence_ids || [])].sort(),
   ]);
   return `dc-${crypto.createHash("sha256").update(material).digest("hex").slice(0, 16)}`;
+}
+
+function reviewFindingId(reviewIdValue, finding) {
+  const material = canonicalJson([
+    reviewIdValue || "",
+    finding.subject_id || "",
+    finding.region || "",
+    finding.rule || "",
+    uniqueSorted(finding.coverage_ids || []),
+    uniqueSorted(finding.evidence_ids || []),
+  ]);
+  return `drf-${crypto.createHash("sha256").update(material).digest("hex").slice(0, 16)}`;
+}
+
+function reconciliationId(row) {
+  const refs = (Array.isArray(row.source_finding_refs) ? row.source_finding_refs : [])
+    .map((ref) => [ref?.review_id || "", ref?.finding_id || ""])
+    .sort((left, right) => `${left[0]}:${left[1]}`.localeCompare(`${right[0]}:${right[1]}`));
+  const material = canonicalJson([
+    row.subject_id || "",
+    row.region || "",
+    row.rule || "",
+    uniqueSorted(row.coverage_ids || []),
+    refs,
+  ]);
+  return `dcr-${crypto.createHash("sha256").update(material).digest("hex").slice(0, 16)}`;
+}
+
+function reviewId(value) {
+  return typeof value === "string" && /^[a-z0-9][a-z0-9._:-]{2,127}$/.test(value);
+}
+
+function boundedText(value, max) {
+  return text(value) && Buffer.byteLength(value, "utf8") <= max;
+}
+
+function uniqueTextArray(value, maxLength) {
+  return boundedUniqueTextArray(value, maxLength, false);
+}
+
+function boundedUniqueTextArray(value, maxLength, allowEmpty) {
+  return (
+    Array.isArray(value) &&
+    (allowEmpty || value.length > 0) &&
+    value.length <= maxLength &&
+    value.every((item) => boundedText(item, 500)) &&
+    new Set(value).size === value.length
+  );
+}
+
+function uniqueSorted(value) {
+  const items = Array.isArray(value) ? value : [];
+  return [...new Set(items.filter((item) => typeof item === "string"))].sort();
+}
+
+function sameStringSet(left, right) {
+  return isDeepStrictEqual(uniqueSorted(left), uniqueSorted(right));
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
+  if (object(value))
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+      .join(",")}}`;
+  return JSON.stringify(value === undefined ? null : value);
 }
 
 function readJsonFile(root, rel, label, issues) {
@@ -1757,4 +2751,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { checkDesignCritique, findingId };
+module.exports = { checkDesignCritique, findingId, reconciliationId, reviewFindingId };
