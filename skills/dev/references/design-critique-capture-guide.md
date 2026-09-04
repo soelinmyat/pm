@@ -208,7 +208,7 @@ Use Playwright MCP's `browser_snapshot` for reviewer context, then run this stru
 (() => {
   const subjectId = "{subject-id}";
   const commit = "{route.source.commit}";
-  const captureIds = ["{every-active-capture-id-for-subject}"];
+  const captureIds = ["{one-active-capture-id-for-this-exact-state-and-viewport}"];
   const all = [...document.querySelectorAll("*")];
   const index = new Map(all.map((element, position) => [element, position]));
 
@@ -251,7 +251,7 @@ Use Playwright MCP's `browser_snapshot` for reviewer context, then run this stru
       element.getAttribute("alt") ||
       element.getAttribute("title") ||
       (element.matches('input[type="button"],input[type="submit"]') ? element.value : "") ||
-      element.textContent ||
+      (element.matches('button,a[href],summary,option') ? element.textContent : "") ||
       ""
     )
       .replace(/\s+/g, " ")
@@ -299,7 +299,7 @@ Use Playwright MCP's `browser_snapshot` for reviewer context, then run this stru
 })()
 ```
 
-Save the returned JSON as `{subject}-a11y-raw.json`, run the normalizer, and register its normalized output. Keep the accessibility snapshot beside it for review, but do not use a Markdown dump or hand-authored summary as checker evidence.
+Run the probe immediately after each active screenshot while that exact state and viewport are still loaded. Save the returned JSON as `{subject}-{coverage-id}-a11y-raw.json`, run the normalizer, and register its normalized output. Keep the accessibility snapshot beside it for review, but do not use a Markdown dump or hand-authored summary as checker evidence. Browser text content is used only for native controls whose accessible-name algorithm permits it; landmark names come from their authored labeling, so repeated unlabeled or identically labeled regions cannot appear distinct by descendant text accident.
 
 Concrete data for WCAG findings: missing aria-labels, broken tab order, missing landmarks, elements without accessible names. No guessing from PNGs.
 
@@ -315,7 +315,7 @@ For each page, run this via `browser_evaluate`:
 (() => {
   const subjectId = "{subject-id}";
   const commit = "{route.source.commit}";
-  const captureIds = ["{every-active-capture-id-for-subject}"];
+  const captureIds = ["{one-active-capture-id-for-this-exact-state-and-viewport}"];
   const inconsistencies = {};
   const hierarchy = [];
   const asymmetry = [];
@@ -692,7 +692,7 @@ For each page, run this via `browser_evaluate`:
 })()
 ```
 
-Save the returned JSON as `{subject}-dom-raw.json`, run `design-critique-audit-normalize.js`, and register the generated `dom-audit`. The helper derives overflow from `scroll_width > client_width`, derives hierarchy and edge-alignment from their measured issue arrays, and retains consistency/asymmetry rows as deterministic findings. Do not edit the generated output or register the raw object directly.
+Save the returned JSON as `{subject}-{coverage-id}-dom-raw.json`, run `design-critique-audit-normalize.js`, and register the generated `dom-audit`. Run it separately for every active web capture while the cited state and viewport are loaded; the measured `inner_width` must equal that screenshot's decoded width. The helper derives overflow from `scroll_width > client_width`, derives hierarchy and edge-alignment from their measured issue arrays, and retains consistency/asymmetry rows as deterministic findings. Do not edit the generated output or register the raw object directly.
 
 Then write a human-readable report:
 
@@ -755,7 +755,7 @@ Then write a human-readable report:
 
 If a human-readable projection is useful, save it beside the raw audit; the normalized audit plus its raw path/SHA binding remain authoritative.
 
-Run at desktop viewport (1440px). One audit per page is sufficient.
+Run once per active web capture at that capture's exact viewport and state. A desktop audit never covers narrow, modal, loading, or any other separately captured condition.
 
 **What this catches that linting can't:**
 - h3 is visually larger than h2 — both use valid tokens, hierarchy is broken
@@ -786,9 +786,9 @@ Add enriched artifacts to the manifest:
 | File | Type | Description |
 |------|------|-------------|
 | a11y-snapshot-{page}.md | Accessibility snapshot | Optional reviewer context; not checker evidence |
-| {subject}-a11y-raw.json | Raw accessibility probe | Mandatory bounded roles, names, and focus measurements |
+| {subject}-{coverage-id}-a11y-raw.json | Raw accessibility probe | Mandatory bounded roles, names, and focus measurements for one active capture |
 | accessibility-audit-{page}.json | Normalized `accessibility-tree` | Generated checker evidence bound to the raw probe |
-| {subject}-dom-raw.json | Raw DOM probe | Mandatory bounded viewport, hierarchy, alignment, and consistency measurements |
+| {subject}-{coverage-id}-dom-raw.json | Raw DOM probe | Mandatory bounded viewport, hierarchy, alignment, and consistency measurements for one active web capture |
 | consistency-{page}.md | Consistency report | Typography hierarchy, group inconsistencies, asymmetric padding, edge alignment |
 | dom-audit-{page}.json | Normalized `dom-audit` | Generated checker evidence bound to the raw probe |
 ```

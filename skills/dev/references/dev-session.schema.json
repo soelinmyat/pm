@@ -322,6 +322,12 @@
             }
           ]
         },
+        "design_context": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/design_context" }
+          ]
+        },
         "kind": { "type": "string", "minLength": 1 },
         "size": { "enum": ["XS", "S", "M", "L", "XL", "unknown"] },
         "risk": { "$ref": "#/$defs/risk" },
@@ -340,6 +346,57 @@
         "reason": { "type": "string", "minLength": 1 },
         "commit": { "type": ["string", "null"] },
         "recorded_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "design_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "design_requirements",
+        "prototype",
+        "critical_states",
+        "visual_invariants"
+      ],
+      "properties": {
+        "design_requirements": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "prototype": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "sha256"],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^(?!/)(?![A-Za-z]:/)(?!.*(?:^|/)\\.\\.(?:/|$))[^*?{}\\[\\]]+$"
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                }
+              }
+            }
+          ]
+        },
+        "critical_states": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "visual_invariants": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
       }
     },
     "work_unit": {
@@ -470,57 +527,7 @@
           "type": "array",
           "items": { "type": "string", "minLength": 1 }
         },
-        "design_context": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "design_requirements",
-            "prototype",
-            "critical_states",
-            "visual_invariants"
-          ],
-          "properties": {
-            "design_requirements": {
-              "type": "array",
-              "minItems": 1,
-              "uniqueItems": true,
-              "items": { "type": "string", "minLength": 1 }
-            },
-            "prototype": {
-              "oneOf": [
-                { "type": "null" },
-                {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": ["path", "sha256"],
-                  "properties": {
-                    "path": {
-                      "type": "string",
-                      "minLength": 1,
-                      "pattern": "^(?!/)(?![A-Za-z]:/)(?!.*(?:^|/)\\.\\.(?:/|$))[^*?{}\\[\\]]+$"
-                    },
-                    "sha256": {
-                      "type": "string",
-                      "pattern": "^sha256:[a-f0-9]{64}$"
-                    }
-                  }
-                }
-              ]
-            },
-            "critical_states": {
-              "type": "array",
-              "minItems": 1,
-              "uniqueItems": true,
-              "items": { "type": "string", "minLength": 1 }
-            },
-            "visual_invariants": {
-              "type": "array",
-              "minItems": 1,
-              "uniqueItems": true,
-              "items": { "type": "string", "minLength": 1 }
-            }
-          }
-        }
+        "design_context": { "$ref": "#/$defs/design_context" }
       }
     },
     "work_unit_result": {

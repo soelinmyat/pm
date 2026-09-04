@@ -88,6 +88,21 @@ test("derives accessibility checks from raw roles, names, and focus measurements
   );
 });
 
+test("repeated landmark roles require distinct accessible names", () => {
+  const raw = accessibilityRaw();
+  raw.observations.landmarks.push(
+    { role: "navigation", name: "Primary", locator: "nav#primary" },
+    { role: "navigation", name: " primary ", locator: "nav#secondary" }
+  );
+  const audit = normalize(raw);
+
+  assert.equal(audit.checks.landmarks, false);
+  assert.equal(
+    audit.findings.filter((finding) => finding.code === "duplicate-landmark-name").length,
+    2
+  );
+});
+
 test("derives DOM checks from measured overflow and probe issue rows", () => {
   const raw = domRaw();
   raw.observations.viewport.scroll_width = 1450;

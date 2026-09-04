@@ -8,6 +8,7 @@ const { isRfc3339DateTime: isIsoDate } = require("./iso-time.js");
 const { markdownTableValue } = require("./session-scan.js");
 const { loadPhaseStep } = require("../step-loader.js");
 const { verifyArtifactWorktreeOwnership } = require("../artifact-worktree.js");
+const { validateDesignContext } = require("./dev-work-units.js");
 const { grantActions } = require("./workflow-runtime/authority.js");
 const { createTransition, hashResult, isObject } = require("./workflow-runtime/records.js");
 const {
@@ -743,6 +744,13 @@ function verifyProposal(proposal, repoRoot) {
     throw new Error("proposal path escapes the project repository");
   const bytes = fs.readFileSync(proposal.json_path);
   const parsed = JSON.parse(bytes);
+  if (parsed.design_context !== undefined) {
+    try {
+      validateDesignContext(parsed.design_context, "proposal design_context", { repoRoot });
+    } catch (error) {
+      throw new Error(`proposal prototype binding is no longer current: ${error.message}`);
+    }
+  }
   if (proposal.proposal_sha256 !== proposalBytesHash(bytes))
     throw new Error("proposal source hash does not match exact bytes");
   if (proposal.content_hash !== proposalContentHash(parsed))

@@ -176,7 +176,7 @@ The `<ol class="callout-notes">` sits outside the canvas, below it. CSS auto-num
 
 The proposal HTML is an inert, self-contained artifact. It never frames or executes a prototype. Instead, show a metadata-derived preview card between the title block and TL;DR and link to the standalone prototype:
 
-The canonical proposal JSON also records the prototype in `design_context.prototype` as `{ "path": "project-relative/path", "sha256": "sha256:..." }`, or explicit `null` when no prototype was approved. Compute the hash from the current file bytes after the final refinement. Proposal, RFC, and Dev validation recompute this binding whenever the repository is available; never copy a stale digest or invent one from the filename.
+The canonical proposal JSON also records the prototype in `design_context.prototype` as `{ "path": "project-relative/path", "sha256": "sha256:..." }`, or explicit `null` when no prototype was approved. Compute the hash from the current file bytes after the final refinement. Groom recomputes the binding both when recording human approval and when creating its approval audit; RFC and Dev recheck it during downstream intake and resume. A changed, missing, symlinked, or out-of-bounds file blocks the transition—never copy a stale digest or invent one from the filename.
 
 ```html
 <figure class="hero-prototype">

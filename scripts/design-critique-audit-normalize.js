@@ -114,13 +114,31 @@ function normalizeAccessibility(observations) {
   }
   for (const [landmarkRole, items] of byRole) {
     if (items.length < 2) continue;
-    for (const item of items.filter((candidate) => candidate.name.trim() === ""))
-      findings.push({
-        check: "landmarks",
-        code: "unnamed-duplicate-landmark",
-        locator: item.locator,
-        detail: `Repeated ${landmarkRole} landmarks require distinct accessible names.`,
-      });
+    const names = new Map();
+    for (const item of items) {
+      const name = item.name.trim().replace(/\s+/g, " ").toLowerCase();
+      if (!name) {
+        findings.push({
+          check: "landmarks",
+          code: "unnamed-duplicate-landmark",
+          locator: item.locator,
+          detail: `Repeated ${landmarkRole} landmarks require distinct accessible names.`,
+        });
+        continue;
+      }
+      const matches = names.get(name) || [];
+      matches.push(item);
+      names.set(name, matches);
+    }
+    for (const duplicates of names.values())
+      if (duplicates.length > 1)
+        for (const item of duplicates)
+          findings.push({
+            check: "landmarks",
+            code: "duplicate-landmark-name",
+            locator: item.locator,
+            detail: `Repeated ${landmarkRole} landmarks use the same accessible name.`,
+          });
   }
   for (const item of controls.filter((candidate) => candidate.name.trim() === ""))
     findings.push({

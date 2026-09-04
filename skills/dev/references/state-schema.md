@@ -63,6 +63,8 @@ intake -> workspace -> readiness -> implementation -> design-critique -> qa -> r
 
 During intake, `dev-session route` replaces that sequence with the executable decision from observed kind, size, risk, UI impact, and non-behavioral exceptions. A cold process recovers the current action solely by running `dev-session next --session ... --json`.
 
+For a direct approved XS/S proposal route, `task.design_context` is the exact closed context from the canonical proposal execution contract. The runner derives it rather than trusting caller prose, carries it into any supplied work-unit contract, recomputes a bound prototype from the proposal repository, and rechecks both persisted copies on every `next`. Non-proposal routes use `null`; RFC work units retain their existing per-contract context.
+
 ### Candidate lifecycle
 
 The v3 `candidate` object is installed with the plugin; consumer repositories do not add integration code or configuration to activate it. Its ordered states are:
@@ -298,6 +300,8 @@ Tasks are populated during intake from the RFC's JSON sidecar `issues[]` when it
 ## QA Evidence
 - Canonical report: `.pm/dev-sessions/{slug}/qa/report.json`
 - Keep verdict, findings, confidence, and run history in that standalone JSON artifact. Do not append a parallel `## QA` verdict to `session.json` or its Markdown projection.
+- A passing QA phase has exactly one passing `test` evidence record, and its artifact is the exact absolute canonical report path. `qa-report-check.js` rejects aliases, symlinks, paths outside the session, commit drift, unknown report fields, inconsistent totals/counts/history, invalid score/verdict thresholds, and unresolved Critical/High findings.
+- Legacy sessions remain readable, but old null or generic QA evidence is not grandfathered into a current gate. Rerun QA, replace the canonical report with one bound to current HEAD, and use that checked report for recertification.
 
 ## Review
 - Review gate: pending

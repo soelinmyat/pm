@@ -42,6 +42,7 @@ const PRODUCT_UI_STATES = Object.freeze([
   "keyboard",
   "modal",
 ]);
+const LEGACY_PRODUCT_UI_STATES = Object.freeze(["primary", "empty", "error", "boundary"]);
 const STATES = new Set([...PRODUCT_UI_STATES, "responsive", "print"]);
 const MAX_EVIDENCE_BYTES = 64 * 1024 * 1024;
 const MAX_JSON_BYTES = 4 * 1024 * 1024;
@@ -284,19 +285,19 @@ function validateCoverage(route, subjectIds, issues) {
     const required = (state, viewport) =>
       rows.some((item) => item.state === state && item.viewport === viewport && item.required);
     if (route.mode === "product-ui") {
-      for (const state of PRODUCT_UI_STATES)
+      const requiredStateDecisions =
+        route.schema_version === 1 ? LEGACY_PRODUCT_UI_STATES : PRODUCT_UI_STATES;
+      for (const state of requiredStateDecisions)
         if (!rows.some((item) => item.state === state))
           add(issues, `route.coverage.${subject.id}`, `must decide applicability for ${state}`);
       if (!required("primary", "desktop") && subject.platform === "web")
         add(issues, `route.coverage.${subject.id}`, "web primary desktop capture is required");
-      if (subject.platform === "web") {
-        if (route.schema_version === 1) {
-          if (!rows.some((item) => item.viewport === "narrow" && item.required))
-            add(issues, `route.coverage.${subject.id}`, "web narrow capture is required");
-        } else if (!required("primary", "narrow")) {
-          add(issues, `route.coverage.${subject.id}`, "web primary narrow capture is required");
-        }
-      }
+      if (
+        subject.platform === "web" &&
+        route.schema_version === 2 &&
+        !required("primary", "narrow")
+      )
+        add(issues, `route.coverage.${subject.id}`, "web primary narrow capture is required");
       if (!required("primary", "device") && subject.platform === "mobile")
         add(issues, `route.coverage.${subject.id}`, "mobile primary device capture is required");
     } else {
@@ -412,7 +413,7 @@ function validateCaptures(root, captures, route, routeFile, issues) {
 
 function validateAuditEvidence(root, entry, route, captureRows, label, issues) {
   const audit = readEvidenceJson(root, entry, label, issues);
-  if (!audit) return;
+  if (!audit) return null;
   const normalizedAuditRequired = route.schema_version === 2;
   closed(
     audit,
@@ -434,7 +435,9 @@ function validateAuditEvidence(root, entry, route, captureRows, label, issues) {
     audit.commit !== route.source?.commit
   )
     add(issues, label, "audit schema, subject, and commit must match the route");
-  if (normalizedAuditRequired) validateNormalizedAudit(root, audit, entry, label, issues);
+  const raw = normalizedAuditRequired
+    ? validateNormalizedAudit(root, audit, entry, label, issues)
+    : null;
   const subjectCoverage = new Set(
     (route.coverage || [])
       .filter((item) => item.subject_id === entry.subject_id)
@@ -452,7 +455,21 @@ function validateAuditEvidence(root, entry, route, captureRows, label, issues) {
     audit.capture_ids.some((id) => !validCaptureIds.has(id))
   )
     add(issues, `${label}.capture_ids`, "must cite captures for the same subject");
-  else if (activeCaptureIds.some((id) => !audit.capture_ids.includes(id)))
+  else if (normalizedAuditRequired && route.mode === "product-ui") {
+    if (audit.capture_ids.length !== 1)
+      add(issues, `${label}.capture_ids`, "must cite exactly one capture for the subject");
+    if (entry.kind === "dom-audit" && raw) {
+      const capture = captureRows.find((item) => item.id === audit.capture_ids[0]);
+      if (capture?.kind !== "screenshot")
+        add(issues, `${label}.capture_ids`, "DOM audit must cite an active screenshot");
+      else if (raw.observations?.viewport?.inner_width !== capture.width)
+        add(
+          issues,
+          `${label}.raw.observations.viewport.inner_width`,
+          `must equal cited capture width ${capture.width}`
+        );
+    }
+  } else if (activeCaptureIds.some((id) => !audit.capture_ids.includes(id)))
     add(issues, `${label}.capture_ids`, "must include every active capture for the subject");
   const requiredChecks =
     entry.kind === "accessibility-tree"
@@ -462,21 +479,22 @@ function validateAuditEvidence(root, entry, route, captureRows, label, issues) {
   if (!object(audit.checks) || requiredChecks.some((name) => audit.checks[name] !== true))
     add(issues, `${label}.checks`, `requires passing ${requiredChecks.join(", ")}`);
   if (!Array.isArray(audit.findings)) add(issues, `${label}.findings`, "must be an array");
+  return audit;
 }
 
 function validateNormalizedAudit(root, audit, entry, label, issues) {
   if (!object(audit.raw)) {
     add(issues, `${label}.raw`, "requires a raw probe path and SHA-256");
-    return;
+    return null;
   }
   closed(audit.raw, ["path", "sha256"], `${label}.raw`, issues);
   if (!text(audit.raw.path) || !sha256(audit.raw.sha256)) {
     add(issues, `${label}.raw`, "requires a raw probe path and SHA-256");
-    return;
+    return null;
   }
   if (audit.raw.path === entry.path) {
     add(issues, `${label}.raw.path`, "must differ from the normalized audit path");
-    return;
+    return null;
   }
   const rawFile = readBoundFile(
     root,
@@ -485,7 +503,7 @@ function validateNormalizedAudit(root, audit, entry, label, issues) {
     issues,
     MAX_RAW_AUDIT_BYTES
   );
-  if (!rawFile) return;
+  if (!rawFile) return null;
   if (rawFile.sha256 !== audit.raw.sha256)
     add(issues, `${label}.raw.sha256`, "does not match raw probe bytes");
   let expected;
@@ -496,15 +514,21 @@ function validateNormalizedAudit(root, audit, entry, label, issues) {
     });
   } catch (error) {
     add(issues, `${label}.raw`, `cannot normalize raw probe: ${error.message}`);
-    return;
+    return null;
   }
   if (!isDeepStrictEqual(audit, expected))
     add(issues, label, "must exactly equal the deterministic normalization of the bound raw probe");
+  try {
+    return JSON.parse(rawFile.bytes.toString("utf8"));
+  } catch {
+    return null;
+  }
 }
 
 function validateEvidence(root, evidence, route, captureRows, issues) {
   if (!Array.isArray(evidence)) return add(issues, "captures.evidence", "must be an array");
   const ids = new Set();
+  const audits = [];
   for (const [index, item] of evidence.entries()) {
     const at = `captures.evidence[${index}]`;
     if (!object(item) || !slug(item.id) || ids.has(item.id))
@@ -520,8 +544,10 @@ function validateEvidence(root, evidence, route, captureRows, issues) {
     )
       add(issues, `${at}.kind`, "is invalid");
     validateFileBinding(root, item, at, issues);
-    if (["accessibility-tree", "dom-audit"].includes(item?.kind))
-      validateAuditEvidence(root, item, route, captureRows, at, issues);
+    if (["accessibility-tree", "dom-audit"].includes(item?.kind)) {
+      const audit = validateAuditEvidence(root, item, route, captureRows, at, issues);
+      if (audit) audits.push({ entry: item, audit });
+    }
   }
   for (const subject of route.subjects || []) {
     const kinds = new Set(
@@ -531,6 +557,33 @@ function validateEvidence(root, evidence, route, captureRows, issues) {
       add(issues, `captures.evidence.${subject.id}`, "requires accessibility-tree evidence");
     if (route.mode === "product-ui" && subject.platform === "web" && !kinds.has("dom-audit"))
       add(issues, `captures.evidence.${subject.id}`, "web UI requires dom-audit evidence");
+    if (route.schema_version === 2 && route.mode === "product-ui") {
+      const subjectCoverage = new Set(
+        (route.coverage || [])
+          .filter((item) => item.subject_id === subject.id)
+          .map((item) => item.id)
+      );
+      const activeCaptures = captureRows.filter(
+        (item) => item.active === true && subjectCoverage.has(item.coverage_id)
+      );
+      const requiredKinds =
+        subject.platform === "web" ? ["accessibility-tree", "dom-audit"] : ["accessibility-tree"];
+      for (const capture of activeCaptures)
+        for (const kind of requiredKinds) {
+          const count = audits.filter(
+            ({ entry, audit }) =>
+              entry.subject_id === subject.id &&
+              entry.kind === kind &&
+              audit.capture_ids?.includes(capture.id)
+          ).length;
+          if (count !== 1)
+            add(
+              issues,
+              `captures.evidence.${subject.id}`,
+              `${kind} must cover active capture ${capture.id} exactly once`
+            );
+        }
+    }
     if (route.mode === "pm-artifact") {
       for (const kind of ["artifact-structural", "artifact-render"])
         if (!kinds.has(kind))

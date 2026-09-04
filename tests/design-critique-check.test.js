@@ -46,45 +46,65 @@ function makeFixture(options = {}) {
           coverageRow("artifact-narrow", "responsive", "narrow", true),
           coverageRow("artifact-print", "print", "print", true),
         ]
-      : [
-          coverageRow("ui-primary", "primary", "desktop", true),
-          coverageRow(
-            "ui-primary-narrow",
-            routeSchemaVersion === 1 ? "responsive" : "primary",
-            "narrow",
-            true
-          ),
-          coverageRow(
-            "ui-empty",
-            "empty",
-            "desktop",
-            false,
-            "The changed detail route has no empty collection state."
-          ),
-          coverageRow(
-            "ui-error",
-            "error",
-            "desktop",
-            false,
-            "Error rendering is unchanged and outside this surface."
-          ),
-          coverageRow(
-            "ui-boundary",
-            "boundary",
-            "desktop",
-            false,
-            "The fixed label has a validated maximum length."
-          ),
-          ...["loading", "success", "focus", "disabled", "keyboard", "modal"].map((state) =>
+      : routeSchemaVersion === 1
+        ? [
+            coverageRow("ui-primary", "primary", "desktop", true),
             coverageRow(
-              `ui-${state}`,
-              state,
+              "ui-empty",
+              "empty",
               "desktop",
               false,
-              `The ${state} state is not present on this static detail surface.`
-            )
-          ),
-        ];
+              "The changed detail route has no empty collection state."
+            ),
+            coverageRow(
+              "ui-error",
+              "error",
+              "desktop",
+              false,
+              "Error rendering is unchanged and outside this surface."
+            ),
+            coverageRow(
+              "ui-boundary",
+              "boundary",
+              "desktop",
+              false,
+              "The fixed label has a validated maximum length."
+            ),
+          ]
+        : [
+            coverageRow("ui-primary", "primary", "desktop", true),
+            coverageRow("ui-primary-narrow", "primary", "narrow", true),
+            coverageRow(
+              "ui-empty",
+              "empty",
+              "desktop",
+              false,
+              "The changed detail route has no empty collection state."
+            ),
+            coverageRow(
+              "ui-error",
+              "error",
+              "desktop",
+              false,
+              "Error rendering is unchanged and outside this surface."
+            ),
+            coverageRow(
+              "ui-boundary",
+              "boundary",
+              "desktop",
+              false,
+              "The fixed label has a validated maximum length."
+            ),
+            ...["loading", "success", "focus", "disabled", "keyboard", "modal"].map((state) =>
+              coverageRow(
+                `ui-${state}`,
+                state,
+                "desktop",
+                false,
+                `The ${state} state is not present on this static detail surface.`
+              )
+            ),
+          ];
   const route = {
     schema_version: routeSchemaVersion,
     run_id: "dc-test-run",
@@ -139,12 +159,28 @@ function makeFixture(options = {}) {
       captured_at: "2026-07-12T00:01:00Z",
     });
   }
-  const evidence = [
-    auditEvidenceFile(root, "a11y", "accessibility-tree", captures, routeSchemaVersion),
-  ];
-  if (mode === "product-ui")
+  const evidence = [];
+  if (mode === "product-ui" && routeSchemaVersion === 2) {
+    for (const capture of captures) {
+      evidence.push(
+        auditEvidenceFile(
+          root,
+          `a11y-${capture.id}`,
+          "accessibility-tree",
+          [capture],
+          routeSchemaVersion
+        ),
+        auditEvidenceFile(root, `dom-${capture.id}`, "dom-audit", [capture], routeSchemaVersion)
+      );
+    }
+  } else {
+    evidence.push(
+      auditEvidenceFile(root, "a11y", "accessibility-tree", captures, routeSchemaVersion)
+    );
+  }
+  if (mode === "product-ui" && routeSchemaVersion === 1)
     evidence.push(auditEvidenceFile(root, "dom", "dom-audit", captures, routeSchemaVersion));
-  else {
+  if (mode === "pm-artifact") {
     const artifactPath = path.join(root, artifact.path);
     const structural = buildManifest(
       artifactPath,
@@ -311,7 +347,11 @@ function auditEvidenceFile(root, id, kind, captures, routeSchemaVersion) {
             commit: COMMIT,
             capture_ids: captureIds,
             observations: {
-              viewport: { inner_width: 1440, client_width: 1425, scroll_width: 1425 },
+              viewport: {
+                inner_width: captures[0].width,
+                client_width: captures[0].width,
+                scroll_width: captures[0].width,
+              },
               hierarchy: [],
               edge_alignment: [],
               consistency: [],
@@ -727,18 +767,8 @@ test("rejects a wide product UI screenshot labeled narrow", () => {
   );
 });
 
-test("accepts a frozen route v1 under legacy narrow coverage semantics", () => {
+test("accepts a genuinely frozen route v1 without v2 states or narrow coverage", () => {
   const fixture = makeFixture({ routeSchemaVersion: 1 });
-  const narrowCoverage = fixture.route.coverage.find((item) => item.viewport === "narrow");
-  const capture = fixture.captures.captures.find((item) => item.coverage_id === narrowCoverage.id);
-  const rebound = write(fixture.root, capture.path, validPng(1440, 1000));
-  capture.sha256 = rebound.sha256;
-  capture.width = 1440;
-  capture.height = 1000;
-  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
-  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
-  rewriteReportAndHtml(fixture);
-
   assert.deepEqual(check(fixture), { ok: true, issues: [] });
 });
 
@@ -798,6 +828,52 @@ test("rejects a claimed passing boolean contradicted by the raw probe", () => {
   const result = check(fixture);
   assert.equal(result.ok, false);
   assert.match(JSON.stringify(result.issues), /deterministic normalization of the bound raw probe/);
+});
+
+test("rejects one desktop DOM probe claiming both desktop and narrow captures", () => {
+  const fixture = makeFixture();
+  const desktop = fixture.captures.captures.find((item) => item.width === 1440);
+  const narrow = fixture.captures.captures.find((item) => item.width === 500);
+  const desktopEvidence = fixture.captures.evidence.find((item) => {
+    if (item.kind !== "dom-audit") return false;
+    const audit = JSON.parse(fs.readFileSync(path.join(fixture.root, item.path), "utf8"));
+    return audit.capture_ids.includes(desktop.id);
+  });
+  fixture.captures.evidence = fixture.captures.evidence.filter((item) => {
+    if (item.kind !== "dom-audit" || item === desktopEvidence) return true;
+    const audit = JSON.parse(fs.readFileSync(path.join(fixture.root, item.path), "utf8"));
+    return !audit.capture_ids.includes(narrow.id);
+  });
+  rewriteNormalizedAudit(fixture, desktopEvidence, (raw) => {
+    raw.capture_ids = [desktop.id, narrow.id];
+  });
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /must cite exactly one capture/);
+});
+
+test("rejects a narrow DOM probe measured at the desktop viewport", () => {
+  const fixture = makeFixture();
+  const narrow = fixture.captures.captures.find((item) => item.width === 500);
+  const evidence = fixture.captures.evidence.find((item) => {
+    if (item.kind !== "dom-audit") return false;
+    const audit = JSON.parse(fs.readFileSync(path.join(fixture.root, item.path), "utf8"));
+    return audit.capture_ids.includes(narrow.id);
+  });
+  rewriteNormalizedAudit(fixture, evidence, (raw) => {
+    raw.observations.viewport = { inner_width: 1440, client_width: 1440, scroll_width: 1440 };
+  });
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /must equal cited capture width 500/);
 });
 
 test("rejects normalized audit evidence when the retained raw probe is missing", () => {
@@ -1215,12 +1291,16 @@ test("accepts a resolved P1 with inactive before and active after captures", () 
     captured_at: "2026-07-12T00:04:00Z",
   };
   fixture.captures.captures.push(after);
-  for (const evidence of fixture.captures.evidence.filter((item) =>
-    ["accessibility-tree", "dom-audit"].includes(item.kind)
-  ))
-    rewriteNormalizedAudit(fixture, evidence, (audit) => {
-      audit.capture_ids.push(after.id);
-    });
+  fixture.captures.evidence.push(
+    auditEvidenceFile(
+      fixture.root,
+      "a11y-capture-ui-primary-after",
+      "accessibility-tree",
+      [after],
+      2
+    ),
+    auditEvidenceFile(fixture.root, "dom-capture-ui-primary-after", "dom-audit", [after], 2)
+  );
   rewrite(fixture.root, fixture.capturesPath, fixture.captures);
   const finding = {
     subject_id: "account-detail",
