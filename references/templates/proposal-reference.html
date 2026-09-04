@@ -738,8 +738,14 @@
       box-shadow: 0 1px 0 var(--rule);
       backdrop-filter: blur(10px);
     }
-    .masthead-meta { gap: var(--space-2) var(--space-3); }
-    .masthead-meta > :not(:last-child)::after { margin-left: var(--space-3); }
+    .masthead-meta {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, max-content));
+      justify-content: space-between;
+      gap: var(--space-1) var(--space-4);
+      width: 100%;
+    }
+    .masthead-meta > :not(:last-child)::after { display: none; }
     .tldr dl { grid-template-columns: 1fr; gap: var(--space-1); }
     .tldr dt { margin-top: var(--space-2); }
     .usecase dl, .pipeline-row { grid-template-columns: 1fr; margin-left: 0; gap: var(--space-1); }

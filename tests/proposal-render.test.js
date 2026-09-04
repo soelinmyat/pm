@@ -47,6 +47,7 @@ test("proposal renderer is byte-deterministic and binds both projections to cano
   assert.match(first.html, /Draft status never implies approval/);
   assert.match(first.html, /Approval applies only to revision <strong>1<\/strong>/);
   assert.match(first.html, /\.masthead \{[\s\S]*position: sticky/);
+  assert.match(first.html, /\.masthead-meta \{[\s\S]*grid-template-columns: repeat\(2/);
   assert.match(first.html, /aria-label="Field and Contract"/);
   assert.doesNotMatch(first.html, /approval\.:/i);
   assert.match(first.html, />Pass<\/td>/);
