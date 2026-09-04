@@ -171,7 +171,7 @@ and rendered-evidence contract behind PM's flagship reports.
 | `/pm:bug <title>` | File a bug report with observed/expected/reproduction stubs — skips groom/RFC, feeds straight into `/pm:dev` |
 | `/pm:rfc <feature-slug>` | Generate a technical RFC from the trusted execution contract of an approved groomed proposal |
 | `/pm:dev [ticket]` | Routes by canonical proposal scope and observed risk, resumes phase-local state, implements with TDD, and verifies delivery evidence |
-| `/pm:design-critique` | Review product UI or PM HTML artifacts with trusted state/viewport captures, decoded-pixel and accessibility evidence, independent Primary and Fresh Eyes judgment, explicit reconciliation, and an accessible commit-bound report |
+| `/pm:design-critique` | Review product UI or PM HTML artifacts with trusted state/viewport captures, decoded-pixel and accessibility evidence, separately recorded Primary and Fresh Eyes perspectives with workflow-attested isolation, explicit reconciliation, and an accessible commit-bound report |
 | `/pm:review` | Run evidence-bound source review with adaptive six-lens coverage, disagreement handling, bounded fix rounds, and a checked HTML report |
 | `/pm:ship [PR]` | Prepare the final tree, bind the reviewed PR body through creation and a fresh pre-merge attestation, then resumably push, monitor CI, merge, and place any release tag on the verified main SHA |
 | `/pm:loop status` | Show the git-backed loop board and scheduler-safe orchestration; unattended stages use validated stage results and park contract or approval failures at non-dispatchable `needs-human` |
