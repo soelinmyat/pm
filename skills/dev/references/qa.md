@@ -623,15 +623,22 @@ Every finding has an evidence type that determines its confidence:
 
 Every finding MUST include evidence:
 
-```markdown
-### [SEVERITY] Category: Short description
-
-**Route:** /path
-**Evidence type:** ASSERTION | STRUCTURAL | CONSOLE | VISUAL
-**Evidence:** `browser_evaluate('.card-title', 'fontSize')` → "14px" (expected: "18px")
-**Screenshot:** `/tmp/qa/{feature}/NN-page-state.png` (supporting)
-**Expected:** 18px per heading-md token
-**Actual:** 14px
+```json
+{
+  "id": "qa-stable-local-id",
+  "severity": "high",
+  "category": "visual",
+  "summary": "Heading token is not applied",
+  "route": "/path",
+  "evidence": {
+    "type": "assertion",
+    "probe": "computed font size for .card-title",
+    "observed": "14px",
+    "expected": "18px",
+    "screenshot": "/tmp/qa/{feature}/NN-page-state.png"
+  },
+  "disposition": "open"
+}
 ```
 
 <HARD-RULE>
@@ -644,9 +651,9 @@ NEVER report a finding without evidence. Prefer ASSERTION/STRUCTURAL/CONSOLE evi
 
 | Verdict | Criteria | Action |
 |---------|----------|--------|
-| **Pass** | Health >= 80, zero Critical, zero High | Ship it. |
-| **Pass with concerns** | Health >= 60, zero Critical, <= 2 High | Ship with caution. Note High issues for immediate backlog. |
-| **Fail** | Health < 60, OR any Critical, OR > 2 High | Do not ship. Must fix and re-verify. |
+| **Pass** | Health >= 80, no unresolved Critical or High finding | Continue with the current QA evidence. |
+| **Pass with concerns** | Health >= 60 and < 80, no unresolved Critical or High finding | Continue only with the remaining Medium/Low concerns called out explicitly. |
+| **Fail** | Health < 60, OR any unresolved Critical or High finding | Do not ship. Fix and re-verify. |
 | **Blocked** | Servers won't start, can't authenticate, env broken | Cannot test. Fix environment first. |
 
 ```
@@ -657,40 +664,50 @@ Verdict: {PASS / PASS WITH CONCERNS / FAIL / BLOCKED}
 
 ## Phase 6: Report
 
-### Embedded mode (dev session exists)
+Write one standalone machine-readable artifact at
+`.pm/dev-sessions/{slug}/qa/report.json` in both persistent and manual-reference
+modes. Derive `{slug}` from the canonical Dev session when one exists; otherwise
+use the shared session-slug normalization for the current branch or requested
+feature. Create only the `qa/` directory needed for this artifact.
 
-Append structured report to `.pm/dev-sessions/{slug}/session.json` under `## QA`:
+`session.json` remains lifecycle state. QA may read it for context, but never
+inserts prose, headings, findings, or report payloads into it. The Dev runner
+records the phase result and gate pointer separately.
 
-```markdown
-## QA
+The report keeps the latest decision at the top level and immutable summaries of
+each attempt in `runs`:
 
-### Run 1 — {date}
-- **Verdict:** {Pass/Pass with concerns/Fail/Blocked}
-- **Health:** {score}/100
-- **Tier:** {Quick/Focused/Full}
-- **Platform:** {web/mobile}
-- **Assertions run:** {count passed}/{count total}
-- **Screenshots:** /tmp/qa/{feature}/
-
-#### Findings ({N} total: {C} critical, {H} high, {M} medium, {L} low)
-
-{findings in severity order, each with evidence type + evidence}
-
-#### Category Breakdown
-| Category | Score | Findings | Evidence Types |
-|----------|-------|----------|----------------|
-| Console | {score} | {count} | {CONSOLE} |
-| Links | {score} | {count} | {STRUCTURAL} |
-| Visual | {score} | {count} | {ASSERTION, VISUAL} |
-| Functional | {score} | {count} | {ASSERTION} |
-| UX | {score} | {count} | {VISUAL} |
-| Performance | {score} | {count} | {CONSOLE} |
-| Accessibility | {score} | {count} | {STRUCTURAL} |
+```json
+{
+  "schema_version": 1,
+  "commit": "<current HEAD>",
+  "verdict": "pass | pass-with-concerns | fail | blocked",
+  "health_score": 100,
+  "tier": "quick | focused | full",
+  "platform": "web | mobile",
+  "assertions": { "passed": 12, "total": 12 },
+  "finding_counts": { "critical": 0, "high": 0, "medium": 0, "low": 0 },
+  "findings": [],
+  "category_breakdown": [],
+  "screenshots": [],
+  "runs": [
+    {
+      "run": 1,
+      "kind": "initial",
+      "checked_at": "<RFC3339>",
+      "verdict": "pass",
+      "health_score": 100,
+      "assertions": { "passed": 12, "total": 12 },
+      "finding_ids": []
+    }
+  ]
+}
 ```
 
-### Manual reference mode (no dev session)
-
-Write full report to `/tmp/qa/{feature}/report.md`.
+Write atomically. Preserve prior `runs` entries on re-verification, update the
+top-level fields to the latest observed state, and keep fixed findings with an
+explicit `fixed` disposition rather than deleting their history. A passing
+artifact must have zero unresolved Critical and zero unresolved High findings.
 
 ### Print summary to user
 
@@ -738,7 +755,7 @@ Do NOT re-run Phase 0 (environment is still ready). Jump to Phase 3 re-verify.
 6. Smoke-check adjacent routes for regressions (navigate, check console, verify key elements)
 7. Recompute health score with updated findings
 8. Update verdict
-9. Write results to `.pm/dev-sessions/{slug}/session.json` and return verdict to orchestrator
+9. Atomically update `.pm/dev-sessions/{slug}/qa/report.json`, preserving prior `runs`, and return the verdict to the orchestrator
 
 **What the worker skips on re-verify:**
 - Phase 0 (servers already running, auth active, tokens discovered)
@@ -748,34 +765,19 @@ Do NOT re-run Phase 0 (environment is still ready). Jump to Phase 3 re-verify.
 
 ### Re-verify flow (manual reference mode)
 
-For manual reference runs, re-verify works the old way:
+For manual reference runs, re-verify from the same standalone artifact:
 
-1. Read previous findings from `.pm/dev-sessions/{slug}/session.json` `## QA` section
+1. Read previous findings from `.pm/dev-sessions/{slug}/qa/report.json`
 2. Re-run Phase 0 (environment readiness — cold start needed)
 3. Filter to Critical and High, re-run assertions, update verdict
 
 ### Report format (re-verify, both modes)
 
-Append to existing `## QA` section. Do NOT overwrite previous runs.
-
-```markdown
-### Run 2 (Re-verify) — {date}
-- **Previous verdict:** {Fail}
-- **Updated verdict:** {Pass/Pass with concerns/Fail}
-- **Previous health:** {score}/100
-- **Updated health:** {score}/100
-- **Mode:** persistent-agent | manual-reference
-
-#### Fixed
-- [HIGH] Font size mismatch on .card-title — FIXED (now 18px, was 14px)
-- [CRITICAL] Sort order reversed — FIXED (verified descending)
-
-#### Still Present
-- [HIGH] {description} — NOT FIXED (browser_evaluate still returns {wrong value})
-
-#### New Issues
-- {any regressions found during smoke-check}
-```
+Append a structured `reverify` entry to the report's `runs` array; do not
+overwrite prior entries. Record the previous and updated verdict/health,
+assertions re-run, fixed finding IDs, still-open finding IDs, and new finding
+IDs. Then update the top-level latest-state fields. Never write re-verification
+history into `session.json`.
 
 ---
 
@@ -816,9 +818,10 @@ ALWAYS kill servers you started when QA is fully done (final passing verdict in 
 
 ---
 
-## State File Integration
+## State and Report Integration
 
-QA reads from and writes to `.pm/dev-sessions/{slug}/session.json`.
+QA reads lifecycle context from `.pm/dev-sessions/{slug}/session.json` when it
+exists and writes evidence only to `.pm/dev-sessions/{slug}/qa/report.json`.
 
 **Reads:**
 - Feature description, platform, affected routes, **acceptance criteria** (Phase 1 — manual reference mode only; persistent agent gets these from spawn prompt)
@@ -826,12 +829,13 @@ QA reads from and writes to `.pm/dev-sessions/{slug}/session.json`.
 - Design critique status for layer selection (Phase 3)
 
 **Writes:**
-- `## QA` section with verdict, health score, assertion results, findings (Phase 6)
-- Re-verify results appended to same section (both modes)
+- Latest verdict, health score, assertion results, and findings in `qa/report.json`
+- Re-verify summaries appended to that report's `runs` array in both modes
 
-If `.pm/dev-sessions/` does not exist, create it (`mkdir -p .pm/dev-sessions`) before writing.
-
-Legacy path: also check `.dev-state-{slug}.md` at repo root. Read from legacy if found, write to new path.
+If the report directory does not exist, create
+`.pm/dev-sessions/{slug}/qa/` before the atomic write. A legacy
+`.dev-state-{slug}.md` may supply read-only context, but all new QA evidence goes
+to the standalone JSON report.
 
 ---
 
@@ -864,6 +868,6 @@ Legacy path: also check `.dev-state-{slug}.md` at repo root. Read from legacy if
 8. <MUST>For Full tier: every acceptance criterion must have at least one DOM assertion.</MUST>
 9. <MUST>For Full tier: test at minimum 3 viewports (1440px, 768px, 375px).</MUST>
 10. <MUST>For re-verify: re-run the exact assertions from previous findings, don't just re-screenshot.</MUST>
-11. <MUST>For re-verify: append to existing QA section, never overwrite previous runs.</MUST>
+11. <MUST>For re-verify: preserve prior entries in `qa/report.json` and append one structured run summary.</MUST>
 12. <MUST>Print the summary to orchestrator/user on every run, regardless of mode.</MUST>
 13. <MUST>Verify server health before re-running assertions in persistent mode.</MUST>

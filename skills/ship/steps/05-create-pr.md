@@ -16,6 +16,36 @@ Create or detect the one PR whose repository, head, and base exactly match the r
 
 Read and validate `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/review-candidate-contract.md`, `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/release-transaction.md`, and `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/delivery-contract.md`. Export `GH_OWNER`, `GH_REPOSITORY`, `GH_REPO`, `HEAD_BRANCH`, and `BASE_BRANCH` only from matching current records.
 
+### Reviewer handoff contract
+
+Before creating either a draft or ready PR, build the reviewer-facing body from
+the canonical Dev task/acceptance criteria, approved proposal or RFC when
+present, current Review/QA/verification evidence, and release transaction. Save
+the exact body at `.pm/dev-sessions/{slug}/ship/pr-body.md` and pass it with
+`--body-file`; do not squeeze the decision context into a generated commit list.
+Set `PR_BODY_FILE=.pm/dev-sessions/{slug}/ship/pr-body.md` for both routes.
+
+The body must use these sections:
+
+- **Summary** — the user-visible and technical outcomes, not a file inventory.
+- **Rationale** — the problem, why this approach was chosen, and material
+  alternatives or trade-offs.
+- **Risks** — concrete failure modes and affected systems/data. Write “None
+  identified” only with a short basis; unknown risk is missing context.
+- **Rollout** — release order, migrations, feature flags, compatibility,
+  monitoring, and success signal as applicable.
+- **Rollback** — the safe reversal path, including data or migration handling.
+  If rollback is not safe, state the forward-recovery plan explicitly.
+- **Limitations** — known gaps, deferred work, and deliberate out-of-scope
+  behavior.
+- **Acceptance evidence** — map each acceptance criterion to the current test,
+  QA, Review, or verification artifact that demonstrates it. Include the exact
+  prepared commit and concise commands/results, not unbounded logs.
+
+For a review candidate, add an explicit draft/not-certified status above those
+sections. Never invent missing rationale or evidence. A material blank blocks PR
+creation and returns to the owning Dev/Groom/RFC gate for completion.
+
 ### Candidate route: draft PR and convergence
 
 When canonical candidate state is `review-candidate`, require candidate `create_draft_pr: true`, every readiness/certification/merge field false, canonical user `create_pr` authority, the observed exact remote head, and a current protected candidate-publication contract.
@@ -26,7 +56,7 @@ Discover an existing PR by exact repository/head/base identity. A matching exist
 
 ```bash
 gh pr create --repo "$GH_REPO" --head "$HEAD_BRANCH" --base "$BASE_BRANCH" --draft \
-  --title "[descriptive review-candidate title]" --body "[summary, targeted checks, and explicit not-certified status]"
+  --title "[descriptive review-candidate title]" --body-file "$PR_BODY_FILE"
 ```
 
 Re-observe the PR through the exact API identity check and require `draft: true`. Save the exact observation and receipt, then use `release-transaction.js` reconcile for effect `create-pr`; only `matched` produces the verified Create PR receipt required by CI and merge. Never mark it ready for review, arm auto-merge, or enter the merge loop at this boundary.
@@ -100,26 +130,24 @@ Require zero or one result. Multiple matches are ambiguous and block Ship. For o
 2. Get context for PR description:
    - `git log {DEFAULT_BRANCH}..HEAD --oneline` for commit summary
    - `git diff {DEFAULT_BRANCH}...HEAD --stat` for files changed
+   - canonical task rationale, decisions, acceptance criteria, risks, and rollout/rollback constraints
+   - current Review, QA, verification, and release evidence bound to the prepared commit
 
-3. Create the PR against the explicit reviewed identity:
+3. Write and verify `PR_BODY_FILE=.pm/dev-sessions/{slug}/ship/pr-body.md`
+   using the Reviewer handoff contract above. Confirm every required heading is
+   present and every acceptance criterion has evidence or an explicit blocker.
+
+4. Create the PR against the explicit reviewed identity:
    ```
    gh pr create --repo "$GH_REPO" --head "$HEAD_BRANCH" --base "$BASE_BRANCH" \
-     --title "[descriptive title]" --body "$(cat <<'EOF'
-   ## Summary
-   [2-3 bullet points from commit log]
-
-   ## Test plan
-   - [ ] Verify [key behavior 1]
-   - [ ] Verify [key behavior 2]
-   EOF
-   )"
+     --title "[descriptive title]" --body-file "$PR_BODY_FILE"
    ```
 
-4. Read the returned PR number, re-run the exact API identity validation, and persist `PR_NUMBER` only if repository/head/base all match. Then report the PR URL.
+5. Read the returned PR number, re-run the exact API identity validation, and persist `PR_NUMBER` only if repository/head/base all match. Then report the PR URL.
 
-5. Reconcile the attempted effect only after the independent API observation matches the planned target and prepared head OID. Zero matches after an ambiguous attempt is `absent`/retry-safe; multiple matches, a fork, wrong base, or wrong head OID is `conflict`/blocked.
+6. Reconcile the attempted effect only after the independent API observation matches the planned target and prepared head OID. Zero matches after an ambiguous attempt is `absent`/retry-safe; multiple matches, a fork, wrong base, or wrong head OID is `conflict`/blocked.
 
-6. **Request Codex review (if configured):**
+7. **Request Codex review (if configured):**
    Check CLAUDE.md or AGENTS.md for `codex_review: true`. If enabled:
    ```bash
    gh pr comment "$PR_NUMBER" --repo "$GH_REPO" --body "@codex review"

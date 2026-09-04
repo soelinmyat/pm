@@ -1,381 +1,214 @@
+# Risk-Aware Test-Driven Development
 
-# Test-Driven Development (TDD)
+## Purpose
 
-## Overview
-
-Write the test first. Watch it fail. Write minimal code to pass.
+Use executable evidence to prove a change is necessary, correct, and safe. The
+default for new behavior and bug fixes is a witnessed red-green-refactor cycle;
+the mode changes when the work is legacy characterization, a disposable spike,
+generated code, or configuration.
 
 ## Telemetry (opt-in)
 
 If analytics are enabled, read `${CLAUDE_PLUGIN_ROOT}/references/telemetry.md`.
 
 Minimum coverage for `tdd`:
+
 - run start / run end
-- one step span per completed cycle: `red`, `green`, and `refactor`
+- one step span for each completed `red`, `green`, and `refactor` cycle
+- the selected mode and any reason a conventional red test was not applicable
 
-**Core principle:** If you didn't watch the test fail, you don't know if it tests the right thing.
+## Core rule
 
-**Violating the letter of the rules is violating the spirit of the rules.**
+**NEVER CLAIM TEST-FIRST PROOF WITHOUT OBSERVING A RELEVANT FAILURE BEFORE THE
+BEHAVIORAL FIX.**
 
-## When to Use
+Do not delete useful pre-existing work merely because tests were written late.
+Preserve it, choose the honest mode below, and create evidence that can fail for
+the defect or contract being changed.
 
-Always. Every feature, bug fix, and behavior change across all apps in the monorepo.
+## Choose the mode
 
-**Exceptions (ask your human partner):**
-- Throwaway prototypes
-- Generated code
-- Configuration files
+Use the mode that matches the work, not the one that makes the gate easiest.
 
-Thinking "skip TDD just this once"? Stop. That's rationalization.
+| Mode | Use when | Required proof |
+|---|---|---|
+| **New behavior** | A new user-visible or programmatic contract is being added | A focused test fails because the behavior is absent, then passes after the smallest implementation |
+| **Regression** | Existing behavior is wrong | A test reproduces the reported defect on the pre-fix state, then passes after the root-cause fix |
+| **Legacy characterization** | Existing code lacks reliable tests and must be changed safely | Characterization tests first pin intentional current behavior; a separate failing test expresses the intended change whenever the behavior can be isolated |
+| **Disposable spike** | The team must learn whether an approach is viable | Time-box the spike and keep it out of the delivery diff; discard it, then implement from a failing acceptance test |
+| **Generated code** | Output is produced by a generator, schema, or template | Test the generator/input contract and representative generated output; change the source generator and regenerate, never hand-maintain generated output |
+| **Configuration** | Behavior is controlled mainly by config, manifests, or wiring | Start with a failing schema, parser, build, integration, or smoke check that demonstrates the missing or invalid configuration |
 
-## The Iron Law
+Pure prose or metadata with no executable behavior may be routed past TDD by the
+Dev risk contract. Do not invent a meaningless test only to satisfy a ritual.
 
-```
-NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST
-```
+### Existing implementation discovered before RED
 
-Write code before the test? Delete it. Start over.
+Do not destroy or hide it. First determine whether it is user work, a prior
+commit, a spike, or an incomplete implementation. Then use the least risky way
+to prove test sensitivity:
 
-**No exceptions:**
-- Don't keep it as "reference"
-- Don't "adapt" it while writing tests
-- Don't look at it
-- Delete means delete
+1. Run the new test against the known pre-fix commit or a clean comparison
+   worktree when available.
+2. For a regression, temporarily exercise the unfixed path without committing a
+   destructive revert.
+3. For legacy behavior, add characterization coverage and use a narrowly scoped
+   mutation or differential check to show that the assertion detects the
+   relevant change.
+4. If none is safe, record that the test is post-hoc verification rather than
+   test-first proof and strengthen it with contract, integration, or boundary
+   evidence. Never relabel it TDD.
 
-Implement fresh from tests. Period.
+## The working cycle
 
-## Red-Green-Refactor
+### 1. RED — specify one behavior
 
-1. **RED** — Write one failing test. Verify it fails for the right reason (not a syntax error or wrong import). If it fails for the wrong reason, fix the test first.
-2. **GREEN** — Write the minimal code to make the test pass. Run all tests — everything must be green. If something else broke, fix it before moving on.
-3. **REFACTOR** — Clean up the implementation. Run tests after every change — stay green throughout. Never refactor red.
-4. **Repeat** — pick the next behavior and go back to RED.
+Write the smallest test that states the observable contract. Prefer public
+behavior over implementation detail and real collaborators over mocks.
 
-### RED - Write Failing Test
-
-Write one minimal test showing what should happen.
-
-<Good>
-```typescript
-test('retries failed operations 3 times', async () => {
+```javascript
+test("retries a transient failure up to the configured limit", async () => {
   let attempts = 0;
-  const operation = () => {
-    attempts++;
-    if (attempts < 3) throw new Error('fail');
-    return 'success';
+  const operation = async () => {
+    attempts += 1;
+    if (attempts < 3) throw new Error("temporary");
+    return "ok";
   };
 
-  const result = await retryOperation(operation);
-
-  expect(result).toBe('success');
-  expect(attempts).toBe(3);
-});
-```
-Clear name, tests real behavior, one thing
-</Good>
-
-<Bad>
-```typescript
-test('retry works', async () => {
-  const mock = jest.fn()
-    .mockRejectedValueOnce(new Error())
-    .mockRejectedValueOnce(new Error())
-    .mockResolvedValueOnce('success');
-  await retryOperation(mock);
-  expect(mock).toHaveBeenCalledTimes(3);
-});
-```
-Vague name, tests mock not code
-</Bad>
-
-**Requirements:**
-- One behavior
-- Clear name
-- Real code (no mocks unless unavoidable)
-
-### Verify RED - Watch It Fail
-
-**MANDATORY. Never skip.**
-
-```bash
-npm test path/to/test.test.ts
-```
-
-Confirm:
-- Test fails (not errors)
-- Failure message is expected
-- Fails because feature missing (not typos)
-
-**Test passes?** You're testing existing behavior. Fix test.
-
-**Test errors?** Fix error, re-run until it fails correctly.
-
-### GREEN - Minimal Code
-
-Write simplest code to pass the test.
-
-<Good>
-```typescript
-async function retryOperation<T>(fn: () => Promise<T>): Promise<T> {
-  for (let i = 0; i < 3; i++) {
-    try {
-      return await fn();
-    } catch (e) {
-      if (i === 2) throw e;
-    }
-  }
-  throw new Error('unreachable');
-}
-```
-Just enough to pass
-</Good>
-
-<Bad>
-```typescript
-async function retryOperation<T>(
-  fn: () => Promise<T>,
-  options?: {
-    maxRetries?: number;
-    backoff?: 'linear' | 'exponential';
-    onRetry?: (attempt: number) => void;
-  }
-): Promise<T> {
-  // YAGNI
-}
-```
-Over-engineered
-</Bad>
-
-Don't add features, refactor other code, or "improve" beyond the test.
-
-### Verify GREEN - Watch It Pass
-
-**MANDATORY.**
-
-```bash
-npm test path/to/test.test.ts
-```
-
-Confirm:
-- Test passes
-- Other tests still pass
-- Output pristine (no errors, warnings)
-
-**Test fails?** Fix code, not test.
-
-**Other tests fail?** Fix now.
-
-### REFACTOR - Clean Up
-
-After green only:
-- Remove duplication
-- Improve names
-- Extract helpers
-
-Keep tests green. Don't add behavior.
-
-### Repeat
-
-Next failing test for next feature.
-
-## Good Tests
-
-| Quality | Good | Bad |
-|---------|------|-----|
-| **Minimal** | One thing. "and" in name? Split it. | `test('validates email and domain and whitespace')` |
-| **Clear** | Name describes behavior | `test('test1')` |
-| **Shows intent** | Demonstrates desired API | Obscures what code should do |
-
-## Why Order Matters
-
-**"I'll write tests after to verify it works"**
-
-Tests written after code pass immediately. Passing immediately proves nothing:
-- Might test wrong thing
-- Might test implementation, not behavior
-- Might miss edge cases you forgot
-- You never saw it catch the bug
-
-Test-first forces you to see the test fail, proving it actually tests something.
-
-**"I already manually tested all the edge cases"**
-
-Manual testing is ad-hoc. You think you tested everything but:
-- No record of what you tested
-- Can't re-run when code changes
-- Easy to forget cases under pressure
-- "It worked when I tried it" ≠ comprehensive
-
-Automated tests are systematic. They run the same way every time.
-
-**"Deleting X hours of work is wasteful"**
-
-Sunk cost fallacy. The time is already gone. Your choice now:
-- Delete and rewrite with TDD (X more hours, high confidence)
-- Keep it and add tests after (30 min, low confidence, likely bugs)
-
-The "waste" is keeping code you can't trust. Working code without real tests is technical debt.
-
-**"TDD is dogmatic, being pragmatic means adapting"**
-
-TDD IS pragmatic:
-- Finds bugs before commit (faster than debugging after)
-- Prevents regressions (tests catch breaks immediately)
-- Documents behavior (tests show how to use code)
-- Enables refactoring (change freely, tests catch breaks)
-
-"Pragmatic" shortcuts = debugging in production = slower.
-
-**"Tests after achieve the same goals - it's spirit not ritual"**
-
-No. Tests-after answer "What does this do?" Tests-first answer "What should this do?"
-
-Tests-after are biased by your implementation. You test what you built, not what's required. You verify remembered edge cases, not discovered ones.
-
-Tests-first force edge case discovery before implementing. Tests-after verify you remembered everything (you didn't).
-
-30 minutes of tests after ≠ TDD. You get coverage, lose proof tests work.
-
-## Common Rationalizations
-
-| Excuse | Reality |
-|--------|---------|
-| "Too simple to test" | Simple code breaks. Test takes 30 seconds. |
-| "I'll test after" | Tests passing immediately prove nothing. |
-| "Tests after achieve same goals" | Tests-after = "what does this do?" Tests-first = "what should this do?" |
-| "Already manually tested" | Ad-hoc ≠ systematic. No record, can't re-run. |
-| "Deleting X hours is wasteful" | Sunk cost fallacy. Keeping unverified code is technical debt. |
-| "Keep as reference, write tests first" | You'll adapt it. That's testing after. Delete means delete. |
-| "Need to explore first" | Fine. Throw away exploration, start with TDD. |
-| "Test hard = design unclear" | Listen to test. Hard to test = hard to use. |
-| "TDD will slow me down" | TDD faster than debugging. Pragmatic = test-first. |
-| "Manual test faster" | Manual doesn't prove edge cases. You'll re-test every change. |
-| "Existing code has no tests" | You're improving it. Add tests for existing code. |
-| "Contract sync can wait" | Frontend tests against stale types give false confidence. Sync first. |
-
-## Red Flags - STOP and Start Over
-
-- Code before test
-- Test after implementation
-- Test passes immediately
-- Can't explain why test failed
-- Tests added "later"
-- Rationalizing "just this once"
-- "I already manually tested it"
-- "Tests after achieve the same purpose"
-- "It's about spirit not ritual"
-- "Keep as reference" or "adapt existing code"
-- "Already spent X hours, deleting is wasteful"
-- "TDD is dogmatic, I'm being pragmatic"
-- "This is different because..."
-
-**All of these mean: Delete code. Start over with TDD.**
-
-## Example: Bug Fix
-
-**Bug:** Empty email accepted
-
-**RED**
-```typescript
-test('rejects empty email', async () => {
-  const result = await submitForm({ email: '' });
-  expect(result.error).toBe('Email required');
+  assert.equal(await retry(operation, { attempts: 3 }), "ok");
+  assert.equal(attempts, 3);
 });
 ```
 
-**Verify RED**
-```bash
-$ npm test
-FAIL: expected 'Email required', got undefined
-```
+Run the narrowest repository-declared command that executes the test. Confirm:
 
-**GREEN**
-```typescript
-function submitForm(data: FormData) {
-  if (!data.email?.trim()) {
-    return { error: 'Email required' };
-  }
-  // ...
-}
-```
+- it fails rather than crashing during setup;
+- the message is the expected missing-behavior or reproduced-defect signal;
+- changing an unrelated input would not produce the same failure;
+- the failure is not caused by a stale fixture, typo, wrong import, or unavailable
+  environment.
 
-**Verify GREEN**
-```bash
-$ npm test
-PASS
-```
+If it passes immediately, learn why. The behavior may already exist, the test
+may be observing the wrong boundary, or the requirement may be wrong. Do not
+weaken the assertion to manufacture red.
 
-**REFACTOR**
-Extract validation for multiple fields if needed.
+### 2. GREEN — make the focused proof pass
 
-## Verification Checklist
+Implement the smallest coherent change that satisfies the contract. Avoid
+unrelated cleanup, speculative options, or widening public APIs. Run the focused
+test, then the nearest affected suite.
 
-Before marking work complete:
+Fix implementation defects, not a correct expectation. Change the test only
+when new evidence shows the expectation or fixture is wrong, and record that
+reason.
 
-- [ ] Every new function/method has a test
-- [ ] Watched each test fail before implementing
-- [ ] Each test failed for expected reason (feature missing, not typo)
-- [ ] Wrote minimal code to pass each test
-- [ ] All tests pass
-- [ ] Output pristine (no errors, warnings)
-- [ ] Tests use real code (mocks only if unavoidable)
-- [ ] Edge cases and errors covered
+### 3. REFACTOR — improve without changing behavior
 
-Can't check all boxes? You skipped TDD. Start over.
+Only after green:
 
-## Stack-Specific TDD Patterns
+- remove duplication;
+- clarify names and boundaries;
+- replace test scaffolding that obscures behavior;
+- run the focused and affected suites after each coherent refactor.
 
-### Rails API (apps/api)
-- **Model specs first** — business logic lives in models. Test validations, scopes, associations, callbacks.
-- **Request specs for API** — test the full HTTP cycle (routing, auth, serialization, status codes). Use rswag for contract validation.
-- **Run:** `cd apps/api && bundle exec rails test test/models/... test/controllers/...`
-- **Contract sync:** After adding/changing API endpoints, run `bin/sync-api` before writing frontend tests.
+Add the next behavior with a new red cycle. Do not bundle several acceptance
+criteria into one ambiguous test.
 
-### React Web Client (apps/web-client)
-- **Component tests with Vitest** — test behavior, not implementation. Use Testing Library queries.
-- **Integration tests** — test feature modules with MSW handlers mocking API responses.
-- **Run:** `cd apps/web-client && pnpm test`
-- **Generated types:** Import from `@cleanlog/shared`. Never manually define API response types.
+## Mode-specific guidance
 
-### React Native Mobile (apps/mobile) and Display (apps/display)
-- **Component tests with Jest/Testing Library** — test screen rendering and navigation.
-- **Run:** `cd apps/mobile && pnpm test` or `cd apps/display && pnpm test`
+### Regression fixes
 
-### Cross-Layer Changes (full-stack)
-- **Order:** Backend TDD first → contract sync (`bin/sync-api`) → frontend TDD
-- **Contract gate:** Frontend tests MUST NOT start until API spec is regenerated and frontend types are updated.
+Reproduce the smallest externally meaningful symptom before editing production
+behavior. When the failure is intermittent, first make the trigger deterministic
+with controlled time, scheduling, inputs, or dependencies. A test that fails for
+an unrelated environment problem is not regression evidence.
 
-### Shared Package (packages/shared)
-- **Type check:** `cd packages/shared && pnpm typecheck`
-- **Rebuild after changes:** `cd packages/shared && pnpm build` before testing consuming apps.
+### Legacy code
 
-## When Stuck
+Characterization tests document what the system does today; they do not endorse
+every current behavior. Identify which outputs and side effects must remain,
+write those tests, then add a failing test for the intended change. Prefer seams
+at stable boundaries over large snapshot files. When refactoring is needed to
+make the behavior observable, separate and verify that no-behavior-change step
+before the functional edit.
 
-| Problem | Solution |
-|---------|----------|
-| Don't know how to test | Write wished-for API. Write assertion first. Ask your human partner. |
-| Test too complicated | Design too complicated. Simplify interface. |
-| Must mock everything | Code too coupled. Use dependency injection. |
-| Test setup huge | Extract helpers. Still complex? Simplify design. |
+### Spikes
 
-## Debugging Integration
+Label a spike disposable, isolate it from the delivery branch when practical,
+and define the question and time limit before starting. Its result is learning,
+not production proof. If retaining spike code is genuinely safer, treat it as
+legacy code: characterize what is worth preserving, add failing acceptance
+coverage for the deliverable behavior, and review the retained design explicitly.
 
-Bug found? Write failing test reproducing it. Follow TDD cycle. Test proves fix and prevents regression.
+### Generated code
 
-Never fix bugs without a test.
+Test the source of generation: schema, template, generator, or transformation.
+Use a small representative output or structural assertions rather than checking
+in huge brittle snapshots without intent. Regenerate with the repository's
+documented command and verify drift. Never edit the generated artifact as the
+primary fix unless the repository declares it hand-maintained.
 
-## Testing Anti-Patterns
+### Configuration and wiring
 
-When adding mocks or test utilities, read `testing-anti-patterns.md` in this directory to avoid common pitfalls:
-- Testing mock behavior instead of real behavior
-- Adding test-only methods to production classes
-- Mocking without understanding dependencies
+Choose the closest executable consumer. Useful red evidence includes schema
+validation, a parser assertion, a build that rejects a missing key, an integration
+test for dependency wiring, or a bounded smoke test. Secrets and machine-local
+values stay out of fixtures and captured output.
 
-## Final Rule
+## Match test depth to risk
 
-```
-Production code → test exists and failed first
-Otherwise → not TDD
-```
+- **Low risk:** focused unit or contract assertion plus the nearest affected
+  suite.
+- **Boundary or integration risk:** exercise serialization, persistence,
+  retries, partial failure, and compatibility at the real boundary.
+- **Authorization, privacy, or data risk:** cover allowed and denied actors,
+  cross-tenant/resource access, redaction, and failure paths. A happy-path unit
+  test is insufficient.
+- **Concurrency or operational risk:** use deterministic scheduling where
+  possible and cover retry, idempotency, cancellation, timeout, and cleanup.
+- **UI behavior:** test state transitions and semantics at component or
+  integration level; use browser QA for rendering and live interaction evidence.
 
-No exceptions without your human partner's permission.
+Follow the routed test strategy and repository conventions. More tests are not
+automatically better; each test should protect a decision, boundary, or failure
+mode.
+
+## Test quality checks
+
+- Name the behavior and condition, not the implementation method.
+- Assert outcomes and durable side effects; avoid asserting incidental call
+  order unless order is the contract.
+- Mock only an understood boundary. Do not test that a mock returns what it was
+  programmed to return.
+- Keep fixtures minimal but realistic enough to expose the boundary.
+- Prove negative cases where a permissive implementation would be dangerous.
+- Avoid sleeps; prefer condition-based waiting or controlled clocks.
+- Keep command output free of unexpected warnings and unhandled errors.
+
+When adding mocks or test utilities, read `testing-anti-patterns.md` in this
+directory.
+
+## Evidence to retain
+
+For each behavioral cycle, record:
+
+- selected mode;
+- focused command;
+- expected RED signal and observed non-zero result;
+- GREEN result on the fixed state;
+- affected-suite result;
+- any justified deviation, such as legacy characterization or generated output.
+
+A command name without its observed outcome is not evidence. A broad suite that
+never exercises the changed behavior does not replace the focused proof.
+
+## Before marking implementation complete
+
+- [ ] Every changed behavior has an appropriate mode and focused test evidence.
+- [ ] New behavior or a regression has an observed relevant RED before the fix,
+      unless the deviation is explicitly and honestly recorded.
+- [ ] Legacy invariants that must remain are characterized.
+- [ ] Spike code is discarded or promoted through the legacy path.
+- [ ] Generated code/config changes test their source contract and consumer.
+- [ ] Focused tests and the affected repository suite pass on the final tree.
+- [ ] Edge cases match the change's actual risk, not a generic checklist.

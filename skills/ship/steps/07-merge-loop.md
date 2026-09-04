@@ -31,6 +31,16 @@ For an optimized delivery, also verify `delivery-attestation-v1` for `remote_tip
 
 This enforces ship's Iron Law — "NEVER MERGE WITHOUT READING THE DIFF" — structurally. A stale review SHA means code is about to ship that no review ever read.
 
+If a pre-merge check exposes a **pre-existing unrelated default-branch
+failure**, require comparison evidence from the same command, toolchain, and
+current authoritative default-branch commit. Do not call the gate or Ship
+successful, bypass required checks, or expand scope automatically to repair it.
+Keep delivery blocked at the PR boundary, preserve both outputs, and ask for
+explicit authority to create a separate remediation unit. If remediation changes
+either branch, rerun the complete post-mutation recertification path before
+another merge attempt. A known baseline failure is context, never a passing
+result.
+
 Read and follow `${CLAUDE_PLUGIN_ROOT}/references/merge-loop.md` for the full procedure. Supply its variables only from the validated delivery contract. Every repository-aware `gh pr` / `gh run` call passes `--repo "$GH_REPO"` and the explicit `PR_NUMBER`; API calls use the persisted owner/repository. Wrap every network call with `gh_retry` so a transient 5xx / gateway / timeout does not abort the merge.
 
 After the merge command or auto-merge, independently observe the PR. Reconcile `merge` as matched only when state is `MERGED`, observed head OID equals the prepared commit, and a merge SHA is present. OPEN remains `attempting` while monitoring; CLOSED without merge or a different head is `conflict`.
