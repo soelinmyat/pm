@@ -286,7 +286,7 @@ function makeFixture(options = {}) {
       },
     ])
   );
-  const reviews = makeReviews(route, captureDoc, scores, 1);
+  const reviews = makeReviews(root, route, captureDoc, scores, 1);
   reviews.route = routeBinding;
   reviews.captures = binding(root, capturesPath);
   write(root, reviewsPath, `${JSON.stringify(reviews, null, 2)}\n`);
@@ -298,6 +298,7 @@ function makeFixture(options = {}) {
     route: routeBinding,
     captures: binding(root, capturesPath),
     reviews: binding(root, reviewsPath),
+    review_assurance: "workflow-attested-non-cryptographic",
     outcome: "passed",
     rounds: 1,
     coverage: { required: captures.length, captured: captures.length, percent: 100 },
@@ -307,7 +308,7 @@ function makeFixture(options = {}) {
     top_issue: "No unresolved design issue.",
     next_action: "Proceed to QA.",
     human_report: { path: "evidence/report.html" },
-    checked_at: "2026-07-12T00:03:00Z",
+    checked_at: "2026-07-12T02:00:00Z",
   };
   write(root, reportPath, `${JSON.stringify(report, null, 2)}\n`);
   write(
@@ -354,22 +355,62 @@ function withPayloadHash(input) {
   return { ...input, payload_sha256: digest(Buffer.from(canonicalJson(input))) };
 }
 
-function makeReviews(route, captures, scores, rounds) {
-  const activeCaptureIds = captures.captures.filter((item) => item.active).map((item) => item.id);
+function makeReviews(root, route, captures, scores, rounds) {
   const evidenceIds = captures.evidence.map((item) => item.id);
-  const brief = {
-    page_description: route.subjects[0].title,
-    persona: "Account administrator",
-    job_to_be_done: "Understand status and take the next action.",
+  const routeBinding = binding(root, "evidence/route.json");
+  const contextSource = {
+    schema_version: 1,
+    run_id: route.run_id,
+    commit: route.source.commit,
+    route: routeBinding,
+    brief: {
+      page_description: route.subjects[0].title,
+      persona: "Account administrator",
+      job_to_be_done: "Understand status and take the next action.",
+    },
+    design_principles: ["Use the established product hierarchy."],
+    created_at: "2026-07-12T01:00:00Z",
   };
-  const principles = ["Use the established product hierarchy."];
+  const contextBinding = write(
+    root,
+    "evidence/review-context.json",
+    `${JSON.stringify(contextSource, null, 2)}\n`
+  );
+  const requiredCoverage = route.coverage.filter((item) => item.required);
   const reviewRounds = [];
   for (let round = 1; round <= rounds; round += 1) {
+    const selected =
+      round === rounds
+        ? captures.captures.filter((item) => item.active)
+        : requiredCoverage
+            .map(
+              (coverage) =>
+                captures.captures
+                  .filter((item) => item.coverage_id === coverage.id)
+                  .sort((left, right) => left.round - right.round)[0]
+            )
+            .filter(Boolean);
+    const activeCaptureIds = selected.map((item) => item.id);
+    const minute = 10 + round * 10;
+    const captureManifest = {
+      schema_version: 1,
+      run_id: route.run_id,
+      round,
+      commit: route.source.commit,
+      route: routeBinding,
+      capture_ids: activeCaptureIds,
+      created_at: `2026-07-12T01:${String(minute).padStart(2, "0")}:00Z`,
+    };
+    const captureManifestBinding = write(
+      root,
+      `evidence/review-round-${round}-captures.json`,
+      `${JSON.stringify(captureManifest, null, 2)}\n`
+    );
     const primaryInput = withPayloadHash({
       prompt_profile: "primary-v1",
       prompt_sha256: promptHash("primary"),
-      brief,
-      design_principles: principles,
+      context_source: contextBinding,
+      capture_manifest: captureManifestBinding,
       acceptance_criteria: ["The primary action remains visible at every required viewport."],
       capture_ids: activeCaptureIds,
       evidence_ids: evidenceIds,
@@ -378,45 +419,54 @@ function makeReviews(route, captures, scores, rounds) {
     const freshInput = withPayloadHash({
       prompt_profile: "fresh-eyes-v1",
       prompt_sha256: promptHash("fresh-eyes"),
-      brief,
-      design_principles: principles,
+      context_source: contextBinding,
+      capture_manifest: captureManifestBinding,
       capture_ids: activeCaptureIds,
     });
-    reviewRounds.push({
-      round,
-      reviews: [
-        {
-          review_id: `dc-test-r${round}-primary`,
-          perspective: "primary",
-          input: primaryInput,
-          execution: reviewExecution(`primary-r${round}`),
-          result: {
-            summary: "The rendered interface is clear and supported by current evidence.",
-            scores: JSON.parse(JSON.stringify(scores)),
-            findings: [],
-          },
+    const pair = [
+      {
+        review_id: `dc-test-r${round}-primary`,
+        perspective: "primary",
+        input: primaryInput,
+        execution: reviewExecution(`primary-r${round}`, round),
+        result: {
+          summary: "The rendered interface is clear and supported by current evidence.",
+          scores: JSON.parse(JSON.stringify(scores)),
+          findings: [],
         },
-        {
-          review_id: `dc-test-r${round}-fresh-eyes`,
-          perspective: "fresh-eyes",
-          input: freshInput,
-          execution: reviewExecution(`fresh-r${round}`),
-          result: {
-            first_impression: "The purpose and primary action are immediately clear.",
-            answers: Object.fromEntries(
-              ["purpose", "visual_focus", "inconsistencies"].map((key) => [
-                key,
-                {
-                  text: `${key} is clear in the current rendered evidence.`,
-                  evidence_ids: [activeCaptureIds[0]],
-                },
-              ])
-            ),
-            findings: [],
-          },
+      },
+      {
+        review_id: `dc-test-r${round}-fresh-eyes`,
+        perspective: "fresh-eyes",
+        input: freshInput,
+        execution: reviewExecution(`fresh-r${round}`, round),
+        result: {
+          first_impression: "The purpose and primary action are immediately clear.",
+          answers: Object.fromEntries(
+            ["purpose", "visual_focus", "inconsistencies"].map((key) => [
+              key,
+              {
+                text: `${key} is clear in the current rendered evidence.`,
+                evidence_ids: [activeCaptureIds[0]],
+              },
+            ])
+          ),
+          observations: selected.map((capture) => {
+            const coverage = route.coverage.find((item) => item.id === capture.coverage_id);
+            return {
+              capture_id: capture.id,
+              coverage_id: coverage.id,
+              state: coverage.state,
+              viewport: coverage.viewport,
+              observation: "The rendered state was inspected for purpose, focus, and consistency.",
+            };
+          }),
+          findings: [],
         },
-      ],
-    });
+      },
+    ];
+    for (const review of pair) attachReviewReceipt(root, review, round);
+    reviewRounds.push({ round, reviews: pair });
   }
   return {
     schema_version: 1,
@@ -425,20 +475,46 @@ function makeReviews(route, captures, scores, rounds) {
     commit: route.source.commit,
     route: null,
     captures: null,
+    assurance: "workflow-attested-non-cryptographic",
     rounds: reviewRounds,
-    checked_at: "2026-07-12T00:02:50Z",
+    checked_at: "2026-07-12T01:50:00Z",
   };
 }
 
-function reviewExecution(suffix) {
+function reviewExecution(suffix, round) {
+  const minute = 10 + round * 10;
   return {
     mode: "same-runtime-isolated",
     runtime: { provider: "openai", model: "gpt-5.6-sol", reasoning: "high" },
     context_id: `ctx-${suffix}`,
     invocation_id: `invoke-${suffix}`,
-    started_at: "2026-07-12T00:02:10Z",
-    completed_at: "2026-07-12T00:02:40Z",
+    assurance: "workflow-attested-non-cryptographic",
+    receipt: null,
+    started_at: `2026-07-12T01:${String(minute).padStart(2, "0")}:10Z`,
+    completed_at: `2026-07-12T01:${String(minute).padStart(2, "0")}:40Z`,
   };
+}
+
+function attachReviewReceipt(root, review, round) {
+  const receipt = {
+    schema_version: 1,
+    assurance: "workflow-attested-non-cryptographic",
+    review_id: review.review_id,
+    perspective: review.perspective,
+    context_id: review.execution.context_id,
+    invocation_id: review.execution.invocation_id,
+    input_payload_sha256: review.input.payload_sha256,
+    prompt_sha256: review.input.prompt_sha256,
+    result_sha256: digest(Buffer.from(canonicalJson(review.result))),
+    started_at: review.execution.started_at,
+    completed_at: review.execution.completed_at,
+    recorded_at: `2026-07-12T01:${String(10 + round * 10).padStart(2, "0")}:50Z`,
+  };
+  review.execution.receipt = write(
+    root,
+    `evidence/review-receipts/${review.review_id}.json`,
+    `${JSON.stringify(receipt, null, 2)}\n`
+  );
 }
 
 function scoreEvidenceIds(key, mode, coverage, captures, evidence) {
@@ -1033,11 +1109,12 @@ function htmlReport(source, captures, reviewsBinding, reviews, report) {
           perspective: review.perspective,
           round: round.round,
           execution_mode: review.execution.mode,
+          assurance: review.execution.assurance,
           model: review.execution.runtime.model,
           summary,
           finding_count: review.result.findings.length,
         };
-        return `<article data-dc-review-id="${review.review_id}" data-dc-perspective="${review.perspective}" data-dc-review-sha256="${digest(Buffer.from(canonicalJson(projection)))}">${review.perspective} ${review.execution.runtime.model} ${summary} ${review.result.findings.length}</article>`;
+        return `<article data-dc-review-id="${review.review_id}" data-dc-perspective="${review.perspective}" data-dc-review-sha256="${digest(Buffer.from(canonicalJson(projection)))}">${review.perspective} ${review.execution.assurance} ${review.execution.runtime.model} ${summary} ${review.result.findings.length}</article>`;
       })
     )
     .join("");
@@ -1059,7 +1136,7 @@ function htmlReport(source, captures, reviewsBinding, reviews, report) {
     .join("");
   const nextHash = digest(Buffer.from(report.next_action));
   const topIssueHash = digest(Buffer.from(report.top_issue));
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Design critique test</title><script id="pm-artifact" type="application/json">${JSON.stringify(meta)}</script><style>.skip-link{position:absolute}.skip-link:focus{position:static}:focus-visible{outline:3px solid #05f}@media(max-width:600px){main{padding:1rem}}@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto}}@media print{nav{display:none}}</style></head><body><a class="skip-link" href="#main">Skip</a><nav aria-label="Report"><a href="#findings">Findings</a></nav><main id="main"><h1>Design critique test</h1><p>Reviewed</p><p data-dc-outcome="${report.outcome}">${report.outcome}</p><p data-dc-coverage="${report.coverage.percent}">${report.coverage.percent}%</p><p data-dc-top-issue-sha256="${topIssueHash}">${report.top_issue}</p><p data-dc-next-action-sha256="${nextHash}">${report.next_action}</p>${scoreMarkers}<section id="reviews"><h2>Review perspectives</h2>${reviewMarkers}${reconciliationMarkers}</section><section id="findings"><h2>Findings</h2><p>No blocking findings.</p>${findingMarkers}</section></main></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Design critique test</title><script id="pm-artifact" type="application/json">${JSON.stringify(meta)}</script><style>.skip-link{position:absolute}.skip-link:focus{position:static}:focus-visible{outline:3px solid #05f}@media(max-width:600px){main{padding:1rem}}@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto}}@media print{nav{display:none}}</style></head><body><a class="skip-link" href="#main">Skip</a><nav aria-label="Report"><a href="#findings">Findings</a></nav><main id="main"><h1>Design critique test</h1><p>Reviewed</p><p data-dc-outcome="${report.outcome}">${report.outcome}</p><p data-dc-coverage="${report.coverage.percent}">${report.coverage.percent}%</p><p data-dc-top-issue-sha256="${topIssueHash}">${report.top_issue}</p><p data-dc-next-action-sha256="${nextHash}">${report.next_action}</p>${scoreMarkers}<section id="reviews"><h2>Review perspectives</h2><p data-dc-review-assurance="${report.review_assurance}">${report.review_assurance}</p>${reviewMarkers}${reconciliationMarkers}</section><section id="findings"><h2>Findings</h2><p>No blocking findings.</p>${findingMarkers}</section></main></body></html>`;
 }
 
 function artifactSubjectHtml() {
@@ -1143,6 +1220,7 @@ function rewriteReviewsAndReport(fixture) {
 
 function refreshReviews(fixture) {
   const rebuilt = makeReviews(
+    fixture.root,
     fixture.route,
     fixture.captures,
     fixture.report.scores,
@@ -1150,36 +1228,11 @@ function refreshReviews(fixture) {
   );
   rebuilt.route = binding(fixture.root, fixture.routePath);
   rebuilt.captures = binding(fixture.root, fixture.capturesPath);
-  const requiredCoverage = fixture.route.coverage.filter((item) => item.required);
   for (const round of rebuilt.rounds) {
     const primary = round.reviews.find((item) => item.perspective === "primary");
-    const fresh = round.reviews.find((item) => item.perspective === "fresh-eyes");
-    const selected =
-      round.round === fixture.report.rounds
-        ? fixture.captures.captures.filter((item) => item.active)
-        : requiredCoverage
-            .map(
-              (coverage) =>
-                fixture.captures.captures
-                  .filter((item) => item.coverage_id === coverage.id)
-                  .sort((left, right) => left.round - right.round)[0]
-            )
-            .filter(Boolean);
-    const selectedIds = selected.map((item) => item.id);
-    primary.input.capture_ids = selectedIds;
-    primary.input.evidence_ids = fixture.captures.evidence.map((item) => item.id);
-    fresh.input.capture_ids = selectedIds;
-    for (const review of [primary, fresh]) {
-      if (review.perspective === "fresh-eyes")
-        for (const answer of Object.values(review.result.answers))
-          answer.evidence_ids = [selectedIds[0]];
-      const payload = { ...review.input };
-      delete payload.payload_sha256;
-      review.input.payload_sha256 = digest(Buffer.from(canonicalJson(payload)));
-    }
     if (round.round !== fixture.report.rounds)
       for (const score of Object.values(primary.result.scores))
-        score.evidence_ids = [selectedIds[0]];
+        score.evidence_ids = [primary.input.capture_ids[0]];
   }
   fixture.report.reconciliation = [];
   for (const finalFinding of fixture.report.findings || []) {
@@ -1240,6 +1293,8 @@ function refreshReviews(fixture) {
     row.id = reconciliationId(row);
     fixture.report.reconciliation.push(row);
   }
+  for (const round of rebuilt.rounds)
+    for (const review of round.reviews) attachReviewReceipt(fixture.root, review, round.round);
   fixture.reviews = rebuilt;
   rewrite(fixture.root, fixture.reviewsPath, fixture.reviews);
   fixture.report.reviews = binding(fixture.root, fixture.reviewsPath);
@@ -1683,6 +1738,27 @@ test("documents route v2 as the only schema for newly authored critique routes",
   assert.match(`${contract}\n${scope}`, /never create a new route with schema version 1/i);
 });
 
+test("documents the complete schema-v2 reviewer evidence contract", () => {
+  const contract = fs.readFileSync(
+    path.join(__dirname, "../skills/design-critique/references/evidence-contract.md"),
+    "utf8"
+  );
+  for (const required of [
+    /report\.json.*schema-v2 machine outcome/i,
+    /"schema_version": 2/,
+    /"reviews".*reviews\.json/,
+    /workflow-attested-non-cryptographic/,
+    /shared context source/i,
+    /round capture manifest/i,
+    /one observation.*every supplied capture/i,
+    /Every reviewer finding appears in exactly one reconciliation row/i,
+    /Design Critique-owned P0\/P1 source finding cannot be reassigned/i,
+    /data-dc-review-assurance/,
+    /Schema v1.*inspection mode.*never certify/i,
+  ])
+    assert.match(contract, required);
+});
+
 test("rejects empty accessibility audit evidence", () => {
   const fixture = makeFixture();
   const evidence = fixture.captures.evidence.find((item) => item.kind === "accessibility-tree");
@@ -1866,7 +1942,7 @@ test("rejects a passed report with an unevidenced dismissed Design Critique P1",
   assert.match(JSON.stringify(result.issues), /dismissed Design Critique P0\/P1/);
 });
 
-test("allows a passed design gate to hand a P1 to QA without owning its verdict", () => {
+test("allows a genuine QA P1 handoff but rejects Design blocker ownership laundering", () => {
   const fixture = makeFixture();
   const finding = {
     subject_id: "account-detail",
@@ -1883,6 +1959,18 @@ test("allows a passed design gate to hand a P1 to QA without owning its verdict"
   fixture.report.findings = [finding];
   rewriteReportAndHtml(fixture);
   assert.deepEqual(check(fixture), { ok: true, issues: [] });
+
+  const round = fixture.reviews.rounds[0];
+  const primary = round.reviews.find((item) => item.perspective === "primary");
+  primary.result.findings[0].owner = "design-critique";
+  attachReviewReceipt(fixture.root, primary, round.round);
+  rewriteReviewsAndReport(fixture);
+  const laundered = check(fixture);
+  assert.equal(laundered.ok, false);
+  assert.match(
+    JSON.stringify(laundered.issues),
+    /ownership cannot be reassigned|source Design Critique blocker/
+  );
 });
 
 test("rejects a human report whose visible outcome diverges from JSON", () => {
@@ -2414,6 +2502,15 @@ test("accepts a resolved P1 with inactive before and active after captures", () 
     );
   rewriteReportAndHtml(fixture);
   assert.deepEqual(check(fixture), { ok: true, issues: [] });
+
+  after.captured_at = before.captured_at;
+  refreshTrustedCaptureObservations(fixture);
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  const unordered = check(fixture);
+  assert.equal(unordered.ok, false);
+  assert.match(JSON.stringify(unordered.issues), /chronologically ordered/);
 });
 
 test("rejects an active capture older than an inactive later round", () => {
@@ -2460,6 +2557,7 @@ test("report schema v1 is inspection-only and cannot certify route v2", () => {
   const fixture = makeFixture();
   fixture.report.schema_version = 1;
   delete fixture.report.reviews;
+  delete fixture.report.review_assurance;
   delete fixture.report.reconciliation;
   rewriteBoundReportAndHtml(fixture);
 
@@ -2523,6 +2621,8 @@ for (const [field, value] of [
   ["evidence_ids", []],
   ["acceptance_criteria", ["Leaked implementation acceptance context."]],
   ["implementation_rationale", "The implementation used a grid."],
+  ["brief", { page_description: "Unbound context" }],
+  ["design_principles", ["Unbound principle"]],
 ]) {
   test(`Fresh Eyes rejects leaked ${field}`, () => {
     const fixture = makeFixture();
@@ -2576,6 +2676,112 @@ test("review prompt profiles bind the exact reviewer instruction bytes", () => {
   const result = check(fixture);
   assert.equal(result.ok, false);
   assert.match(JSON.stringify(result.issues), /exact reviewer instruction bytes/);
+});
+
+test("shared brief and principles are hash-bound before review", () => {
+  const fixture = makeFixture();
+  const context = fixture.reviews.rounds[0].reviews[0].input.context_source;
+  const file = path.join(fixture.root, context.path);
+  fs.writeFileSync(file, `${fs.readFileSync(file, "utf8")} `);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /must bind .*review-context\.json/);
+});
+
+test("Primary and Fresh Eyes cannot bind different shared context sources", () => {
+  const fixture = makeFixture();
+  const round = fixture.reviews.rounds[0];
+  const fresh = round.reviews.find((item) => item.perspective === "fresh-eyes");
+  const source = JSON.parse(
+    fs.readFileSync(path.join(fixture.root, fresh.input.context_source.path), "utf8")
+  );
+  source.brief.job_to_be_done = "A different unshared job was smuggled into Fresh Eyes.";
+  fresh.input.context_source = write(
+    fixture.root,
+    "evidence/review-context-fresh.json",
+    `${JSON.stringify(source, null, 2)}\n`
+  );
+  fresh.input = withPayloadHash(
+    Object.fromEntries(Object.entries(fresh.input).filter(([key]) => key !== "payload_sha256"))
+  );
+  attachReviewReceipt(fixture.root, fresh, round.round);
+  rewriteReviewsAndReport(fixture);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /must bind the same brief and design principles/);
+});
+
+test("a round capture manifest must exist before reviewer execution", () => {
+  const fixture = makeFixture();
+  const round = fixture.reviews.rounds[0];
+  const original = round.reviews[0].input.capture_manifest;
+  const manifest = JSON.parse(fs.readFileSync(path.join(fixture.root, original.path), "utf8"));
+  manifest.created_at = "2026-07-12T01:40:00Z";
+  const rebound = write(fixture.root, original.path, `${JSON.stringify(manifest, null, 2)}\n`);
+  for (const review of round.reviews) {
+    review.input.capture_manifest = rebound;
+    const payload = { ...review.input };
+    delete payload.payload_sha256;
+    review.input = withPayloadHash(payload);
+    attachReviewReceipt(fixture.root, review, round.round);
+  }
+  rewriteReviewsAndReport(fixture);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(
+    JSON.stringify(result.issues),
+    /started_at.*must not precede the bound capture manifest/
+  );
+});
+
+test("review cannot cite a capture created after its round manifest", () => {
+  const fixture = makeFixture();
+  fixture.captures.captures[0].captured_at = "2026-07-12T01:25:00Z";
+  refreshTrustedCaptureObservations(fixture);
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(
+    JSON.stringify(result.issues),
+    /capture_manifest\.created_at.*must not precede capture/
+  );
+});
+
+test("Fresh Eyes must observe every supplied capture", () => {
+  const fixture = makeFixture();
+  const round = fixture.reviews.rounds[0];
+  const fresh = round.reviews.find((item) => item.perspective === "fresh-eyes");
+  fresh.result.observations.pop();
+  attachReviewReceipt(fixture.root, fresh, round.round);
+  rewriteReviewsAndReport(fixture);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /one observation for every supplied capture/);
+});
+
+test("Fresh Eyes observations bind the routed state and viewport", () => {
+  const fixture = makeFixture();
+  const round = fixture.reviews.rounds[0];
+  const fresh = round.reviews.find((item) => item.perspective === "fresh-eyes");
+  fresh.result.observations[0].state = "success";
+  attachReviewReceipt(fixture.root, fresh, round.round);
+  rewriteReviewsAndReport(fixture);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /must match the supplied capture's route coverage/);
+});
+
+test("review receipts bind the exact result and expose non-cryptographic assurance", () => {
+  const fixture = makeFixture();
+  const review = fixture.reviews.rounds[0].reviews[0];
+  review.result.summary = "Caller-edited result after receipt creation.";
+  rewriteReviewsAndReport(fixture);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /result_sha256.*must match the exact review record/);
+  assert.equal(fixture.report.review_assurance, "workflow-attested-non-cryptographic");
 });
 
 test("report scores must exactly equal the final Primary scores", () => {
@@ -2650,6 +2856,90 @@ test("reconciliation cannot hide a reviewer disagreement", () => {
   const result = check(fixture);
   assert.equal(result.ok, false);
   assert.match(JSON.stringify(result.issues), /must preserve reviewer agreement as disputed/);
+});
+
+test("reconciliation forbids lowering a source reviewer severity", () => {
+  const fixture = makeFixture();
+  const finalFinding = {
+    subject_id: "account-detail",
+    region: "header-actions",
+    rule: "primary-action-hierarchy",
+    evidence_ids: [fixture.captures.captures[0].id],
+    priority: "P2",
+    status: "open",
+    owner: "design-critique",
+    summary: "The primary action is visually subordinate.",
+    remediation: "Restore clear action hierarchy.",
+  };
+  finalFinding.id = findingId(finalFinding);
+  fixture.report.outcome = "failed";
+  fixture.report.reason = "A reviewer blocker remains unresolved.";
+  fixture.report.top_issue = finalFinding.summary;
+  fixture.report.findings = [finalFinding];
+  rewriteReportAndHtml(fixture);
+  const round = fixture.reviews.rounds[0];
+  const primary = round.reviews.find((item) => item.perspective === "primary");
+  primary.result.findings[0].priority = "P1";
+  attachReviewReceipt(fixture.root, primary, round.round);
+  rewriteReviewsAndReport(fixture);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /cannot lower reviewer priority below P1/);
+});
+
+test("severity escalation requires decision evidence and rationale", () => {
+  const fixture = makeFixture();
+  const finalFinding = {
+    subject_id: "account-detail",
+    region: "header-actions",
+    rule: "primary-action-hierarchy",
+    evidence_ids: [fixture.captures.captures[0].id],
+    priority: "P1",
+    status: "open",
+    owner: "design-critique",
+    summary: "The primary action is visually subordinate.",
+    remediation: "Restore clear action hierarchy.",
+  };
+  finalFinding.id = findingId(finalFinding);
+  fixture.report.outcome = "failed";
+  fixture.report.top_issue = finalFinding.summary;
+  fixture.report.findings = [finalFinding];
+  rewriteReportAndHtml(fixture);
+  const round = fixture.reviews.rounds[0];
+  const primary = round.reviews.find((item) => item.perspective === "primary");
+  primary.result.findings[0].priority = "P2";
+  attachReviewReceipt(fixture.root, primary, round.round);
+  rewriteReviewsAndReport(fixture);
+  const missingDecision = check(fixture);
+  assert.equal(missingDecision.ok, false);
+  assert.match(
+    JSON.stringify(missingDecision.issues),
+    /severity escalation requires decision evidence/
+  );
+
+  const row = fixture.report.reconciliation[0];
+  const decisionEvidence = fixture.captures.evidence[0].id;
+  row.decision_evidence_ids = [decisionEvidence];
+  row.rationale = "The normalized accessibility evidence raises the user impact to blocking.";
+  finalFinding.evidence_ids.push(decisionEvidence);
+  finalFinding.id = findingId(finalFinding);
+  row.final_finding_id = finalFinding.id;
+  rewriteReviewsAndReport(fixture);
+  assert.deepEqual(check(fixture), { ok: true, issues: [] });
+});
+
+test("human report must disclose workflow-attested non-cryptographic assurance", () => {
+  const fixture = makeFixture();
+  const htmlPath = path.join(fixture.root, fixture.report.human_report.path);
+  fs.writeFileSync(
+    htmlPath,
+    fs
+      .readFileSync(htmlPath, "utf8")
+      .replace("data-dc-review-assurance", "data-hidden-review-assurance")
+  );
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /visible reviewer assurance/);
 });
 
 test("human report metadata binds the exact reviews manifest", () => {

@@ -13,11 +13,11 @@ Dispatch with this context:
 ```
 Review these screenshots for visual quality, accessibility, design system compliance, and interaction resilience.
 
-**Screenshots:** Read the files referenced by `.pm/dev-sessions/{slug}/design-critique/captures.json`.
-**Manifest:** Read the hash-bound `route.json` and `captures.json` from the same directory.
+**Screenshots:** Read only the capture IDs frozen in the hash-bound round capture manifest.
+**Manifest:** Read the hash-bound `route.json`, `captures.json`, shared review context source, and round capture manifest from the same directory. The shared context source is the only source for the page brief and design principles.
 **Accessibility snapshots:** Read the normalized `accessibility-tree` evidence entries from `captures.json`, including their role/name/focus observations and findings. Use the retained element roles, accessible names, ARIA states, and focus-order evidence for concrete [HIGH] confidence accessibility findings; do not infer a clean tree merely from a passing summary boolean.
 **Visual consistency audit:** Read the normalized `dom-audit` evidence entries from `captures.json` and the raw observations they retain. These group elements by visual role (headings, buttons, cards, siblings) and flag variance within each group — plus overflow, asymmetric padding, and edge-alignment drift. Treat measured overflow and edge-alignment rows as data-backed [HIGH] confidence findings when sibling component edges or popover/menu trailing controls differ by >=2px. Remember: these are NOT automatically token compliance issues (linters catch those). These are cases where valid tokens can still produce inconsistent visual results.
-**Design principles:** Read CLAUDE.md from the project root
+**Design principles:** Read the bound shared context source; do not reread mutable project prose after dispatch starts.
 **Ticket context:** {ticket/issue description or PM context}
 {IF verify mode} **Previous findings:** {insert previous round findings for comparison}
 
@@ -42,7 +42,7 @@ Return only the Primary `result` object required by `reviews.json`:
 }
 ```
 
-Include all six mode-specific score keys. Each finding uses exactly `id`, `subject_id`, `region`, `rule`, `coverage_ids`, `evidence_ids`, `priority`, `owner`, `basis`, `confidence`, `summary`, `impact`, and `remediation`. `region` and `rule` are stable kebab-case tokens. `basis` is `objective`, `craft`, or `uncertain`; `confidence` is `high`, `medium`, or `low`. Use no more than 50 findings. The caller computes deterministic IDs, records the exact input payload, and binds this result into `reviews.json`; do not add prose outside the result object.
+Include all six mode-specific score keys. Each finding uses exactly `id`, `subject_id`, `region`, `rule`, `coverage_ids`, `evidence_ids`, `priority`, `owner`, `basis`, `confidence`, `summary`, `impact`, and `remediation`. `region` and `rule` are stable kebab-case tokens. `basis` is `objective`, `craft`, or `uncertain`; `confidence` is `high`, `medium`, or `low`. Use no more than 50 findings. The caller computes deterministic IDs, records the exact input/result hashes, and writes a durable execution receipt that binds the prompt profile, context/invocation IDs, and timestamps. The assurance is `workflow-attested-non-cryptographic`: the receipt is an audit record, not a signed provider proof. Do not add prose outside the result object.
 
 ---
 

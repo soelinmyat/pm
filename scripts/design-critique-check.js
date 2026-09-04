@@ -31,6 +31,7 @@ const PRIORITY_RANK = Object.freeze({ P0: 0, P1: 1, P2: 2, P3: 3 });
 const FINDING_STATUSES = new Set(["open", "resolved", "deferred", "dismissed"]);
 const REVIEW_PERSPECTIVES = new Set(["primary", "fresh-eyes"]);
 const REVIEW_EXECUTION_MODES = new Set(["delegated", "same-runtime-isolated"]);
+const REVIEW_ASSURANCE = "workflow-attested-non-cryptographic";
 const REVIEW_BASES = new Set(["objective", "craft", "uncertain"]);
 const REVIEW_CONFIDENCE = new Set(["high", "medium", "low"]);
 const RECONCILIATION_AGREEMENTS = new Set(["single-source", "aligned", "disputed"]);
@@ -1383,6 +1384,7 @@ function validateReport(
       "route",
       "captures",
       ...(report.schema_version === 2 ? ["reviews"] : []),
+      ...(report.schema_version === 2 ? ["review_assurance"] : []),
       "outcome",
       "reason",
       "authority",
@@ -1424,6 +1426,12 @@ function validateReport(
   validateBinding(report.captures, capturesFile, "report.captures", issues);
   let reviewState = null;
   if (report.schema_version === 2) {
+    if (report.review_assurance !== REVIEW_ASSURANCE)
+      add(
+        issues,
+        "report.review_assurance",
+        `must equal ${REVIEW_ASSURANCE}; reviewer independence is workflow-attested, not cryptographically proven`
+      );
     if (!reviewsFile) add(issues, "report.reviews", "requires a readable reviews.json binding");
     else {
       validateBinding(report.reviews, reviewsFile, "report.reviews", issues);
@@ -1450,8 +1458,10 @@ function validateReport(
     add(issues, "report.rounds", "must include every recorded capture round");
   validateScores(root, report.scores, route, captures, report.outcome, issues);
   validateFindings(report.findings, route, captures, report.outcome, issues);
-  if (report.schema_version === 2 && reviewState)
+  if (report.schema_version === 2 && reviewState) {
     validateReconciliation(report, route, captures, reviewState, issues);
+    validateSourceBlockingOutcome(report, reviewState, issues);
+  }
   const required = (route.coverage || []).filter((item) => item.required).length;
   const captured = new Set(
     (captures.captures || []).filter((item) => item.active === true).map((item) => item.coverage_id)
@@ -1508,6 +1518,7 @@ function validateReviews(root, reviews, route, captures, routeFile, capturesFile
   const state = {
     reviews: new Map(),
     findings: new Map(),
+    reconciledFinalBySource: new Map(),
     finalPrimaryScores: null,
     rows: [],
   };
@@ -1517,11 +1528,27 @@ function validateReviews(root, reviews, route, captures, routeFile, capturesFile
   }
   closed(
     reviews,
-    ["schema_version", "run_id", "mode", "commit", "route", "captures", "rounds", "checked_at"],
+    [
+      "schema_version",
+      "run_id",
+      "mode",
+      "commit",
+      "route",
+      "captures",
+      "assurance",
+      "rounds",
+      "checked_at",
+    ],
     "reviews",
     issues
   );
   if (reviews.schema_version !== 1) add(issues, "reviews.schema_version", "must equal 1");
+  if (reviews.assurance !== REVIEW_ASSURANCE)
+    add(
+      issues,
+      "reviews.assurance",
+      `must equal ${REVIEW_ASSURANCE}; reviewer independence is workflow-attested, not cryptographically proven`
+    );
   if (
     reviews.run_id !== route.run_id ||
     reviews.mode !== route.mode ||
@@ -1596,6 +1623,7 @@ function validateReviews(root, reviews, route, captures, routeFile, capturesFile
         review.perspective,
         roundRow.round,
         route,
+        routeFile,
         captures,
         captureById,
         evidenceById,
@@ -1603,6 +1631,9 @@ function validateReviews(root, reviews, route, captures, routeFile, capturesFile
         issues
       );
       validateReviewExecution(
+        root,
+        review,
+        inputState,
         review.execution,
         reviews.checked_at,
         seenContextIds,
@@ -1656,6 +1687,7 @@ function validateReviewInput(
   perspective,
   round,
   route,
+  routeFile,
   captures,
   captureById,
   evidenceById,
@@ -1663,7 +1695,16 @@ function validateReviewInput(
   issues
 ) {
   const label = `${at}.input`;
-  const state = { captureIds: [], evidenceIds: [], priorFindingRefs: [], payloadSha256: "" };
+  const state = {
+    captureIds: [],
+    evidenceIds: [],
+    priorFindingRefs: [],
+    payloadSha256: "",
+    contextBinding: null,
+    contextCreatedAt: null,
+    captureManifestBinding: null,
+    captureManifestCreatedAt: null,
+  };
   if (!object(input)) {
     add(issues, label, "must be an object");
     return state;
@@ -1671,8 +1712,8 @@ function validateReviewInput(
   const common = [
     "prompt_profile",
     "prompt_sha256",
-    "brief",
-    "design_principles",
+    "context_source",
+    "capture_manifest",
     "capture_ids",
     "payload_sha256",
   ];
@@ -1692,24 +1733,16 @@ function validateReviewInput(
     if (input.prompt_sha256 !== expectedHash)
       add(issues, `${label}.prompt_sha256`, "must bind the exact reviewer instruction bytes");
   }
-  if (!object(input.brief)) add(issues, `${label}.brief`, "must be an object");
-  else {
-    closed(
-      input.brief,
-      ["page_description", "persona", "job_to_be_done"],
-      `${label}.brief`,
-      issues
-    );
-    for (const key of ["page_description", "persona", "job_to_be_done"])
-      if (!boundedText(input.brief[key], 2_000))
-        add(issues, `${label}.brief.${key}`, "is required");
-  }
-  if (
-    !Array.isArray(input.design_principles) ||
-    input.design_principles.length > 20 ||
-    input.design_principles.some((item) => !boundedText(item, 1_000))
-  )
-    add(issues, `${label}.design_principles`, "must contain at most 20 bounded text principles");
+  const contextState = validateReviewContextSource(
+    root,
+    input.context_source,
+    route,
+    routeFile,
+    `${label}.context_source`,
+    issues
+  );
+  state.contextBinding = contextState.binding;
+  state.contextCreatedAt = contextState.createdAt;
   if (!uniqueTextArray(input.capture_ids, 200))
     add(issues, `${label}.capture_ids`, "must be a non-empty unique bounded array");
   else {
@@ -1717,6 +1750,19 @@ function validateReviewInput(
     for (const id of input.capture_ids)
       if (!captureById.has(id)) add(issues, `${label}.capture_ids`, `unknown capture ${id}`);
   }
+  const captureManifestState = validateReviewCaptureManifest(
+    root,
+    input.capture_manifest,
+    state.captureIds,
+    round,
+    route,
+    routeFile,
+    captureById,
+    `${label}.capture_manifest`,
+    issues
+  );
+  state.captureManifestBinding = captureManifestState.binding;
+  state.captureManifestCreatedAt = captureManifestState.createdAt;
   if (perspective === "primary") {
     if (
       !Array.isArray(input.acceptance_criteria) ||
@@ -1767,6 +1813,133 @@ function validateReviewInput(
   return state;
 }
 
+function validateReviewContextSource(root, binding, route, routeFile, label, issues) {
+  const state = { binding: null, createdAt: null };
+  if (!object(binding)) {
+    add(issues, label, "requires a path and SHA-256 binding");
+    return state;
+  }
+  closed(binding, ["path", "sha256"], label, issues);
+  const file = text(binding.path) ? readJsonFile(root, binding.path, label, issues) : null;
+  if (!file) return state;
+  validateBinding(binding, file, label, issues);
+  state.binding = { path: file.relative, sha256: file.sha256 };
+  const source = file.value;
+  if (!object(source)) {
+    add(issues, label, "must bind a JSON object");
+    return state;
+  }
+  closed(
+    source,
+    ["schema_version", "run_id", "commit", "route", "brief", "design_principles", "created_at"],
+    label,
+    issues
+  );
+  if (source.schema_version !== 1) add(issues, `${label}.schema_version`, "must equal 1");
+  if (source.run_id !== route.run_id || source.commit !== route.source?.commit)
+    add(issues, label, "run_id and commit must match the route");
+  if (object(source.route)) closed(source.route, ["path", "sha256"], `${label}.route`, issues);
+  validateBinding(source.route, routeFile, `${label}.route`, issues);
+  if (!object(source.brief)) add(issues, `${label}.brief`, "must be an object");
+  else {
+    closed(
+      source.brief,
+      ["page_description", "persona", "job_to_be_done"],
+      `${label}.brief`,
+      issues
+    );
+    for (const key of ["page_description", "persona", "job_to_be_done"])
+      if (!boundedText(source.brief[key], 2_000))
+        add(issues, `${label}.brief.${key}`, "is required");
+  }
+  if (
+    !Array.isArray(source.design_principles) ||
+    source.design_principles.length > 20 ||
+    source.design_principles.some((item) => !boundedText(item, 1_000))
+  )
+    add(issues, `${label}.design_principles`, "must contain at most 20 bounded text principles");
+  if (!isRfc3339DateTime(source.created_at)) add(issues, `${label}.created_at`, "must be RFC 3339");
+  else {
+    state.createdAt = source.created_at;
+    if (
+      isRfc3339DateTime(route.created_at) &&
+      Date.parse(source.created_at) < Date.parse(route.created_at)
+    )
+      add(issues, `${label}.created_at`, "must not precede route.created_at");
+  }
+  return state;
+}
+
+function validateReviewCaptureManifest(
+  root,
+  binding,
+  inputCaptureIds,
+  round,
+  route,
+  routeFile,
+  captureById,
+  label,
+  issues
+) {
+  const state = { binding: null, createdAt: null };
+  if (!object(binding)) {
+    add(issues, label, "requires a path and SHA-256 binding");
+    return state;
+  }
+  closed(binding, ["path", "sha256"], label, issues);
+  const file = text(binding.path) ? readJsonFile(root, binding.path, label, issues) : null;
+  if (!file) return state;
+  validateBinding(binding, file, label, issues);
+  state.binding = { path: file.relative, sha256: file.sha256 };
+  const manifest = file.value;
+  if (!object(manifest)) {
+    add(issues, label, "must bind a JSON object");
+    return state;
+  }
+  closed(
+    manifest,
+    ["schema_version", "run_id", "round", "commit", "route", "capture_ids", "created_at"],
+    label,
+    issues
+  );
+  if (manifest.schema_version !== 1) add(issues, `${label}.schema_version`, "must equal 1");
+  if (
+    manifest.run_id !== route.run_id ||
+    manifest.commit !== route.source?.commit ||
+    manifest.round !== round
+  )
+    add(issues, label, "run_id, commit, and round must match the review round");
+  if (object(manifest.route)) closed(manifest.route, ["path", "sha256"], `${label}.route`, issues);
+  validateBinding(manifest.route, routeFile, `${label}.route`, issues);
+  if (!uniqueTextArray(manifest.capture_ids, 200))
+    add(issues, `${label}.capture_ids`, "must be a non-empty unique bounded array");
+  else if (!sameStringSet(manifest.capture_ids, inputCaptureIds))
+    add(issues, `${label}.capture_ids`, "must exactly match input.capture_ids");
+  if (!isRfc3339DateTime(manifest.created_at))
+    add(issues, `${label}.created_at`, "must be RFC 3339");
+  else {
+    state.createdAt = manifest.created_at;
+    if (
+      isRfc3339DateTime(route.created_at) &&
+      Date.parse(manifest.created_at) < Date.parse(route.created_at)
+    )
+      add(issues, `${label}.created_at`, "must not precede route.created_at");
+  }
+  for (const id of manifest.capture_ids || []) {
+    const capture = captureById.get(id);
+    if (!capture) continue;
+    if (!Number.isInteger(capture.round) || capture.round > round)
+      add(issues, `${label}.capture_ids`, `capture ${id} belongs to a later round`);
+    if (
+      isRfc3339DateTime(capture.captured_at) &&
+      state.createdAt &&
+      Date.parse(capture.captured_at) > Date.parse(state.createdAt)
+    )
+      add(issues, `${label}.created_at`, `must not precede capture ${id}`);
+  }
+  return state;
+}
+
 function requiredReviewEvidenceIds(root, route, captures, captureIds) {
   const selected = new Set(captureIds);
   if (route.mode === "pm-artifact") return (captures.evidence || []).map((item) => item.id);
@@ -1780,6 +1953,9 @@ function requiredReviewEvidenceIds(root, route, captures, captureIds) {
 }
 
 function validateReviewExecution(
+  root,
+  review,
+  inputState,
   execution,
   reviewsCheckedAt,
   seenContextIds,
@@ -1791,12 +1967,27 @@ function validateReviewExecution(
   if (!object(execution)) return add(issues, label, "must be an object");
   closed(
     execution,
-    ["mode", "runtime", "context_id", "invocation_id", "started_at", "completed_at"],
+    [
+      "mode",
+      "runtime",
+      "context_id",
+      "invocation_id",
+      "assurance",
+      "receipt",
+      "started_at",
+      "completed_at",
+    ],
     label,
     issues
   );
   if (!REVIEW_EXECUTION_MODES.has(execution.mode))
     add(issues, `${label}.mode`, "must be delegated or same-runtime-isolated");
+  if (execution.assurance !== REVIEW_ASSURANCE)
+    add(
+      issues,
+      `${label}.assurance`,
+      `must equal ${REVIEW_ASSURANCE}; identities are workflow attestations, not provider signatures`
+    );
   if (!object(execution.runtime)) add(issues, `${label}.runtime`, "must be an object");
   else {
     closed(execution.runtime, ["provider", "model", "reasoning"], `${label}.runtime`, issues);
@@ -1828,6 +2019,84 @@ function validateReviewExecution(
     Date.parse(execution.completed_at) > Date.parse(reviewsCheckedAt)
   )
     add(issues, `${label}.completed_at`, "must not be later than reviews.checked_at");
+  for (const [sourceLabel, sourceTime] of [
+    ["context source", inputState.contextCreatedAt],
+    ["capture manifest", inputState.captureManifestCreatedAt],
+  ])
+    if (
+      isRfc3339DateTime(sourceTime) &&
+      isRfc3339DateTime(execution.started_at) &&
+      Date.parse(sourceTime) > Date.parse(execution.started_at)
+    )
+      add(issues, `${label}.started_at`, `must not precede the bound ${sourceLabel}`);
+  validateReviewReceipt(
+    root,
+    execution.receipt,
+    review,
+    inputState,
+    reviewsCheckedAt,
+    label,
+    issues
+  );
+}
+
+function validateReviewReceipt(root, binding, review, inputState, reviewsCheckedAt, label, issues) {
+  const at = `${label}.receipt`;
+  if (!object(binding)) return add(issues, at, "requires a path and SHA-256 binding");
+  closed(binding, ["path", "sha256"], at, issues);
+  const file = text(binding.path) ? readJsonFile(root, binding.path, at, issues) : null;
+  if (!file) return;
+  validateBinding(binding, file, at, issues);
+  const receipt = file.value;
+  if (!object(receipt)) return add(issues, at, "must bind a JSON object");
+  closed(
+    receipt,
+    [
+      "schema_version",
+      "assurance",
+      "review_id",
+      "perspective",
+      "context_id",
+      "invocation_id",
+      "input_payload_sha256",
+      "prompt_sha256",
+      "result_sha256",
+      "started_at",
+      "completed_at",
+      "recorded_at",
+    ],
+    at,
+    issues
+  );
+  if (receipt.schema_version !== 1) add(issues, `${at}.schema_version`, "must equal 1");
+  if (receipt.assurance !== REVIEW_ASSURANCE)
+    add(issues, `${at}.assurance`, `must equal ${REVIEW_ASSURANCE}`);
+  const expected = {
+    review_id: review.review_id,
+    perspective: review.perspective,
+    context_id: review.execution?.context_id,
+    invocation_id: review.execution?.invocation_id,
+    input_payload_sha256: inputState.payloadSha256,
+    prompt_sha256: review.input?.prompt_sha256,
+    result_sha256: digest(Buffer.from(canonicalJson(review.result ?? null))),
+    started_at: review.execution?.started_at,
+    completed_at: review.execution?.completed_at,
+  };
+  for (const [key, value] of Object.entries(expected))
+    if (receipt[key] !== value) add(issues, `${at}.${key}`, "must match the exact review record");
+  if (!isRfc3339DateTime(receipt.recorded_at)) add(issues, `${at}.recorded_at`, "must be RFC 3339");
+  else {
+    if (
+      isRfc3339DateTime(receipt.completed_at) &&
+      Date.parse(receipt.recorded_at) < Date.parse(receipt.completed_at)
+    )
+      add(issues, `${at}.recorded_at`, "must not precede completed_at");
+    if (
+      isRfc3339DateTime(reviewsCheckedAt) &&
+      Date.parse(receipt.recorded_at) > Date.parse(reviewsCheckedAt)
+    )
+      add(issues, `${at}.recorded_at`, "must not be later than reviews.checked_at");
+  }
 }
 
 function validateReviewResult(review, inputState, route, captureById, evidenceById, at, issues) {
@@ -1843,10 +2112,11 @@ function validateReviewResult(review, inputState, route, captureById, evidenceBy
     if (!boundedText(result.summary, 10_000)) add(issues, `${label}.summary`, "is required");
     validatePerspectiveScores(result.scores, route.mode, inputState, `${label}.scores`, issues);
   } else {
-    closed(result, ["first_impression", "answers", "findings"], label, issues);
+    closed(result, ["first_impression", "answers", "observations", "findings"], label, issues);
     if (!boundedText(result.first_impression, 10_000))
       add(issues, `${label}.first_impression`, "is required");
     validateFreshAnswers(result.answers, inputState, label, issues);
+    validateFreshObservations(result.observations, inputState, route, captureById, label, issues);
   }
   const limit = review.perspective === "fresh-eyes" ? 5 : 50;
   if (!Array.isArray(result.findings) || result.findings.length > limit)
@@ -1869,6 +2139,52 @@ function validateReviewResult(review, inputState, route, captureById, evidenceBy
     }
   }
   return state;
+}
+
+function validateFreshObservations(observations, inputState, route, captureById, label, issues) {
+  const at = `${label}.observations`;
+  if (!Array.isArray(observations)) return add(issues, at, "must be an array");
+  const expected = new Set(inputState.captureIds);
+  const seen = new Set();
+  for (const [index, observation] of observations.entries()) {
+    const rowAt = `${at}[${index}]`;
+    if (!object(observation)) {
+      add(issues, rowAt, "must be an object");
+      continue;
+    }
+    closed(
+      observation,
+      ["capture_id", "coverage_id", "state", "viewport", "observation"],
+      rowAt,
+      issues
+    );
+    if (!expected.has(observation.capture_id))
+      add(issues, `${rowAt}.capture_id`, "must reference a supplied rendered capture");
+    if (seen.has(observation.capture_id)) add(issues, `${rowAt}.capture_id`, "must be unique");
+    seen.add(observation.capture_id);
+    const capture = captureById.get(observation.capture_id);
+    const coverage = (route.coverage || []).find((item) => item.id === capture?.coverage_id);
+    if (
+      !coverage ||
+      observation.coverage_id !== coverage.id ||
+      observation.state !== coverage.state ||
+      observation.viewport !== coverage.viewport
+    )
+      add(
+        issues,
+        rowAt,
+        "coverage_id, state, and viewport must match the supplied capture's route coverage"
+      );
+    if (!boundedText(observation.observation, 10_000))
+      add(issues, `${rowAt}.observation`, "is required");
+  }
+  const missing = [...expected].filter((id) => !seen.has(id));
+  if (missing.length > 0)
+    add(
+      issues,
+      at,
+      `must contain one observation for every supplied capture: ${missing.join(", ")}`
+    );
 }
 
 function validatePerspectiveScores(scores, mode, inputState, label, issues) {
@@ -2012,15 +2328,15 @@ function validateReviewPair(pair, round, reportRounds, captures, coverageById, i
   }
   const primary = primaryRows[0];
   const fresh = freshRows[0];
-  if (!isDeepStrictEqual(primary.review.input?.brief, fresh.review.input?.brief))
-    add(issues, label, "Primary and Fresh Eyes must receive the same brief");
+  if (!isDeepStrictEqual(primary.inputState.contextBinding, fresh.inputState.contextBinding))
+    add(issues, label, "Primary and Fresh Eyes must bind the same brief and design principles");
   if (
     !isDeepStrictEqual(
-      primary.review.input?.design_principles,
-      fresh.review.input?.design_principles
+      primary.inputState.captureManifestBinding,
+      fresh.inputState.captureManifestBinding
     )
   )
-    add(issues, label, "Primary and Fresh Eyes must receive the same design principles");
+    add(issues, label, "Primary and Fresh Eyes must bind the same round capture manifest");
   if (!sameStringSet(primary.inputState.captureIds, fresh.inputState.captureIds))
     add(issues, label, "Primary and Fresh Eyes must review the same rendered captures");
   if (primary.inputState.payloadSha256 === fresh.inputState.payloadSha256)
@@ -2195,11 +2511,41 @@ function validateReconciliation(report, route, captures, reviewState, issues) {
         .map((item) => item.finding.priority)
         .filter((priority) => PRIORITIES.has(priority))
         .sort((left, right) => PRIORITY_RANK[left] - PRIORITY_RANK[right])[0];
-      if (worstPriority && finalFinding.priority !== worstPriority)
+      if (
+        worstPriority &&
+        PRIORITIES.has(finalFinding.priority) &&
+        PRIORITY_RANK[finalFinding.priority] > PRIORITY_RANK[worstPriority]
+      )
         add(
           issues,
           `${at}.final_finding_id`,
           `cannot lower reviewer priority below ${worstPriority}`
+        );
+      if (
+        worstPriority &&
+        PRIORITIES.has(finalFinding.priority) &&
+        PRIORITY_RANK[finalFinding.priority] < PRIORITY_RANK[worstPriority] &&
+        (decisionEvidenceIds.length === 0 || normalizeVisible(row.rationale).length < 20)
+      )
+        add(
+          issues,
+          `${at}.final_finding_id`,
+          "severity escalation requires decision evidence and a concrete rationale"
+        );
+      const designBlockingSource = sources.some(
+        (item) =>
+          item.finding.owner === "design-critique" && ["P0", "P1"].includes(item.finding.priority)
+      );
+      if (designBlockingSource && finalFinding.owner !== "design-critique")
+        add(
+          issues,
+          `${at}.final_finding_id`,
+          "Design Critique P0/P1 ownership cannot be reassigned to another gate"
+        );
+      for (const source of sources)
+        reviewState.reconciledFinalBySource.set(
+          `${source.review_id}:${source.finding.id}`,
+          finalFinding
         );
       if (row.disposition === "dismissed") {
         if (finalFinding.status !== "dismissed")
@@ -2232,6 +2578,28 @@ function validateReconciliation(report, route, captures, reviewState, issues) {
       add(issues, "report.reconciliation", `dropped reviewer finding ${key}`);
   for (const id of finalById.keys())
     if (!consumedFinal.has(id)) add(issues, "report.reconciliation", `orphan final finding ${id}`);
+}
+
+function validateSourceBlockingOutcome(report, reviewState, issues) {
+  if (report.outcome !== "passed") return;
+  for (const [key, source] of reviewState.findings.entries()) {
+    if (
+      source.finding.owner !== "design-critique" ||
+      !["P0", "P1"].includes(source.finding.priority)
+    )
+      continue;
+    const finalFinding = reviewState.reconciledFinalBySource.get(key);
+    if (
+      !finalFinding ||
+      finalFinding.owner !== "design-critique" ||
+      finalFinding.status !== "resolved"
+    )
+      add(
+        issues,
+        "report.outcome",
+        `passed requires source Design Critique blocker ${key} to remain Design-owned and resolve with before/after proof`
+      );
+  }
 }
 
 function validateScores(root, scores, route, captures, outcome, issues) {
@@ -2425,13 +2793,16 @@ function validateFindings(findings, route, captures, outcome, issues) {
         !Number.isInteger(before.round) ||
         !Number.isInteger(after.round) ||
         before.round >= after.round ||
+        !isRfc3339DateTime(before.captured_at) ||
+        !isRfc3339DateTime(after.captured_at) ||
+        Date.parse(before.captured_at) >= Date.parse(after.captured_at) ||
         !finding.evidence_ids.includes(before.id) ||
         !finding.evidence_ids.includes(after.id)
       )
         add(
           issues,
           at,
-          "resolved P0/P1 requires distinct before and after capture hashes, including decoded pixels for product UI"
+          "resolved P0/P1 requires chronologically ordered, distinct before and after capture hashes, including decoded pixels for product UI"
         );
     }
     if (
@@ -2601,6 +2972,22 @@ function validateHumanReport(
   const css = [...rawHtml.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)]
     .map((match) => match[1])
     .join("\n");
+  if (report.schema_version === 2) {
+    const assurance = visibleMarker(
+      html,
+      { "data-dc-review-assurance": report.review_assurance },
+      css
+    );
+    if (
+      !assurance ||
+      !normalizeVisible(assurance.text).includes(normalizeVisible(report.review_assurance))
+    )
+      add(
+        issues,
+        "report.human_report",
+        "visible reviewer assurance must state the workflow-attested non-cryptographic level"
+      );
+  }
   const outcome = visibleMarker(html, { "data-dc-outcome": report.outcome }, css);
   if (!outcome || normalizeVisible(outcome.text).toLowerCase() !== report.outcome)
     add(issues, "report.human_report", "visible outcome marker must match report JSON");
@@ -2683,6 +3070,7 @@ function validateHumanReport(
       !marker ||
       ![
         row.review.perspective,
+        row.review.execution?.assurance,
         row.review.execution?.runtime?.model,
         reviewSummary(row.review),
         String(row.resultState.findings.length),
@@ -2737,6 +3125,14 @@ function validateHumanReport(
 
 function validateRenderedMarkers(markers, report, reviewState, issues) {
   const expected = [
+    ...(report.schema_version === 2
+      ? [
+          {
+            attributes: { "data-dc-review-assurance": report.review_assurance },
+            requiredText: [report.review_assurance],
+          },
+        ]
+      : []),
     {
       attributes: { "data-dc-outcome": report.outcome },
       exactText: report.outcome,
@@ -2785,6 +3181,7 @@ function validateRenderedMarkers(markers, report, reviewState, issues) {
       },
       requiredText: [
         row.review.perspective,
+        row.review.execution?.assurance,
         row.review.execution?.runtime?.model,
         reviewSummary(row.review),
         String(row.resultState.findings.length),
@@ -2963,6 +3360,7 @@ function reviewProjection(row) {
     perspective: row.review.perspective,
     round: row.round,
     execution_mode: row.review.execution?.mode,
+    assurance: row.review.execution?.assurance,
     model: row.review.execution?.runtime?.model,
     summary: reviewSummary(row.review),
     finding_count: row.resultState.findings.length,

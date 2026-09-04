@@ -5,13 +5,13 @@ Zero-context regression check. Sees the page as a user would — for the first t
 ## The Rule
 
 This reviewer receives ZERO context from the design reviewer or prior rounds. It sees ONLY:
-- Current screenshots
-- A brief: page description, target persona, job to be done
-- The project's CLAUDE.md design principles
+- The current screenshots frozen in the bound round capture manifest
+- The brief in the bound shared context source: page description, target persona, job to be done
+- The design principles in that same bound source
 
 It does NOT receive: reviewer findings, round history, previous screenshots, or any context about what was changed.
 
-It also does not receive normalized audits, acceptance criteria, ticket context, implementation rationale, or the Primary result. The invocation must use a fresh context identity. Using the same provider, model, or runtime is allowed; continuing inside a context that already saw prohibited material is not.
+It also does not receive normalized audits, acceptance criteria, ticket context, implementation rationale, or the Primary result. Do not copy the brief or principles into unbound input fields. The invocation must use a fresh context identity. Using the same provider, model, or runtime is allowed; continuing inside a context that already saw prohibited material is not.
 
 ## Purpose
 
@@ -47,11 +47,20 @@ You are seeing this interface for the first time. You have no history with it an
     "visual_focus": { "text": "Where attention goes first.", "evidence_ids": ["capture-id"] },
     "inconsistencies": { "text": "What feels off, or that none was found.", "evidence_ids": ["capture-id"] }
   },
+  "observations": [
+    {
+      "capture_id": "capture-id",
+      "coverage_id": "route-coverage-id",
+      "state": "primary",
+      "viewport": "desktop",
+      "observation": "What was directly observed in this exact rendered state."
+    }
+  ],
   "findings": []
 }
 ```
 
-Each finding uses exactly `id`, `subject_id`, `region`, `rule`, `coverage_ids`, `evidence_ids`, `priority`, `owner`, `basis`, `confidence`, `summary`, `impact`, and `remediation`. `region` and `rule` are stable kebab-case tokens. Cite only rendered capture IDs supplied to this invocation—never an audit or other evidence ID. The caller computes deterministic IDs and binds the exact input and result into `reviews.json`.
+Return exactly one observation row for every supplied capture, including every routed state and viewport. `coverage_id`, `state`, and `viewport` must match that capture's route row. Each finding uses exactly `id`, `subject_id`, `region`, `rule`, `coverage_ids`, `evidence_ids`, `priority`, `owner`, `basis`, `confidence`, `summary`, `impact`, and `remediation`. `region` and `rule` are stable kebab-case tokens. Cite only rendered capture IDs supplied to this invocation—never an audit or other evidence ID. The caller computes deterministic IDs, binds the exact input/result, and writes a `workflow-attested-non-cryptographic` receipt; this is durable workflow evidence, not proof of separate model execution.
 
 ## Limits
 
