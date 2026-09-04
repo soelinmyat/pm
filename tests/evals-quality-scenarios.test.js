@@ -15,7 +15,7 @@ const workflowMarker = {
   rfc: "docs/architecture.md",
   dev: "change-request.md",
   review: "review-intent.md",
-  "design-critique": "ui/report.html",
+  "design-critique": "ui/design-critique/responsive-report.html",
   ship: ".pm/quality/hosted-state.json",
 };
 
