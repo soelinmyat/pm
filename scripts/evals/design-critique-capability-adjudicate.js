@@ -10,8 +10,10 @@ const {
   capabilityAdjudicationPath,
   capabilityFixVerificationPath,
   capabilityOracleHash,
+  validateCandidateFindingsLedger,
   validateCapabilityOracle,
   validateCapabilityReport,
+  validateOracleIsolationEvidence,
 } = require("./design-critique-capability.js");
 
 function sealCapabilityAdjudication(options) {
@@ -20,7 +22,7 @@ function sealCapabilityAdjudication(options) {
   const capture = options.capture;
   const judgments = options.judgments;
   const reportPath = path.resolve(options.reportPath);
-  validateInputs({ oracle, capture, judgments });
+  validateInputs({ rootDir, oracle, capture, judgments });
 
   const report = loadOrCreateReport(reportPath, oracle, capture.profile);
   if (report.repeats.some((item) => item.repeat === capture.repeat)) {
@@ -32,6 +34,8 @@ function sealCapabilityAdjudication(options) {
   const rows = oracle.cases.map((oracleCase) => {
     const evidence = captureByCase.get(oracleCase.id);
     const judgment = judgmentByCase.get(oracleCase.id);
+    const candidateLedger = loadCandidateLedger(rootDir, evidence);
+    loadOracleIsolation(rootDir, evidence);
     const fixVerification = sealFixVerification({
       rootDir,
       oracle,
@@ -42,13 +46,15 @@ function sealCapabilityAdjudication(options) {
       fixVerifier: options.fixVerifier,
       browserPath: options.browserPath,
     });
-    const findings = deriveAdjudicatedFindings(
-      judgment.findings,
-      fixVerification.results,
-      `judgments case ${oracleCase.id}`
-    );
+    const findings = deriveAdjudicatedFindings({
+      candidateLedger,
+      mappings: judgment.mappings,
+      oracleCase,
+      verificationResults: fixVerification.results,
+      where: `judgments case ${oracleCase.id}`,
+    });
     const artifact = {
-      schema_version: 1,
+      schema_version: 2,
       benchmark_id: oracle.benchmark_id,
       oracle_sha256: capabilityOracleHash(oracle),
       profile: structuredClone(capture.profile),
@@ -59,14 +65,17 @@ function sealCapabilityAdjudication(options) {
         run_id: evidence.run.run_id,
         scenario_id: evidence.run.scenario_id,
         adapter: evidence.run.adapter,
+        source_identity_sha256: evidence.source_identity.sha256,
         runtime_profile_sha256: evidence.run.runtime_profile.sha256,
         verdict_sha256: evidence.run.verdict.sha256,
         normalized_transcript_sha256: evidence.normalized_transcript.sha256,
         candidate_output_sha256: evidence.candidate_output.sha256,
+        candidate_findings_sha256: evidence.candidate_findings.sha256,
+        oracle_isolation_sha256: evidence.oracle_isolation.sha256,
         post_subject_sha256: evidence.post_subject.sha256,
         fix_verification_sha256: fixVerification.binding.sha256,
       },
-      blocked: judgment.blocked,
+      blocked: candidateLedger.blocked,
       findings,
     };
     const relativeArtifactPath = capabilityAdjudicationPath({
@@ -84,7 +93,7 @@ function sealCapabilityAdjudication(options) {
         path: relativeArtifactPath,
         sha256: digest(fs.readFileSync(absoluteArtifactPath)),
       },
-      blocked: judgment.blocked,
+      blocked: candidateLedger.blocked,
       findings: structuredClone(findings),
     };
   });
@@ -103,7 +112,7 @@ function sealCapabilityAdjudication(options) {
   return { report, reportPath };
 }
 
-function validateInputs({ oracle, capture, judgments }) {
+function validateInputs({ rootDir, oracle, capture, judgments }) {
   const oracleIssues = validateCapabilityOracle(oracle);
   if (oracleIssues.length > 0) {
     throw new Error(`invalid design-critique oracle:\n${oracleIssues.join("\n")}`);
@@ -124,7 +133,7 @@ function validateInputs({ oracle, capture, judgments }) {
     ],
     "capture"
   );
-  if (capture.schema_version !== 1) throw new Error("capture.schema_version must equal 1");
+  if (capture.schema_version !== 2) throw new Error("capture.schema_version must equal 2");
   if (capture.benchmark_id !== oracle.benchmark_id) {
     throw new Error("capture benchmark does not match the oracle");
   }
@@ -147,23 +156,26 @@ function validateInputs({ oracle, capture, judgments }) {
     "case_id",
     "fixture",
     "run",
+    "source_identity",
     "normalized_transcript",
     "candidate_output",
+    "candidate_findings",
+    "oracle_isolation",
     "post_subject",
   ]);
 
   requireClosedObject(judgments, ["schema_version", "repeat", "cases"], "judgments");
-  if (judgments.schema_version !== 1) {
-    throw new Error("judgments.schema_version must equal 1");
+  if (judgments.schema_version !== 2) {
+    throw new Error("judgments.schema_version must equal 2");
   }
   if (judgments.repeat !== capture.repeat) {
     throw new Error("judgments.repeat must match capture.repeat");
   }
-  requireExactCases(judgments.cases, oracle.cases, "judgments.cases", [
-    "case_id",
-    "blocked",
-    "findings",
-  ]);
+  requireExactCases(judgments.cases, oracle.cases, "judgments.cases", ["case_id", "mappings"]);
+  for (const item of capture.cases) {
+    loadCandidateLedger(rootDir, item);
+    loadOracleIsolation(rootDir, item);
+  }
 }
 
 function sealFixVerification({
@@ -213,54 +225,152 @@ function sealFixVerification({
   };
 }
 
-function deriveAdjudicatedFindings(findings, verificationResults, where) {
-  if (!Array.isArray(findings)) throw new Error(`${where}.findings must be an array`);
+function loadCandidateLedger(rootDir, evidence) {
+  const runId = evidence?.run?.run_id;
+  const expectedPath = `eval-results/runs/${runId}/artifacts/capability-findings.json`;
+  const ledger = readBoundCaptureJson(
+    rootDir,
+    evidence?.candidate_findings,
+    expectedPath,
+    "capture candidate_findings"
+  );
+  const issues = validateCandidateFindingsLedger(ledger);
+  if (issues.length > 0) {
+    throw new Error(`invalid candidate findings ledger:\n${issues.join("\n")}`);
+  }
+  return ledger;
+}
+
+function loadOracleIsolation(rootDir, evidence) {
+  const runId = evidence?.run?.run_id;
+  const expectedPath = `eval-results/runs/${runId}/metadata/oracle_isolation.json`;
+  const isolation = readBoundCaptureJson(
+    rootDir,
+    evidence?.oracle_isolation,
+    expectedPath,
+    "capture oracle_isolation"
+  );
+  const issues = validateOracleIsolationEvidence({ isolation, rootDir, runId });
+  if (issues.length > 0) {
+    throw new Error(`invalid oracle isolation evidence:\n${issues.join("\n")}`);
+  }
+  return isolation;
+}
+
+function readBoundCaptureJson(rootDir, binding, expectedPath, where) {
+  requireClosedObject(binding, ["path", "sha256"], where);
+  if (binding.path !== expectedPath) throw new Error(`${where}.path must equal ${expectedPath}`);
+  const absolute = path.resolve(rootDir, binding.path);
+  if (!inside(rootDir, absolute)) throw new Error(`${where}.path escapes the evidence root`);
+  const stat = fs.lstatSync(absolute);
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) {
+    throw new Error(`${where} must be a regular non-linked file`);
+  }
+  const real = fs.realpathSync(absolute);
+  if (!inside(rootDir, real) || real !== absolute) {
+    throw new Error(`${where} path must not traverse symlinks`);
+  }
+  const bytes = fs.readFileSync(real);
+  if (digest(bytes) !== binding.sha256)
+    throw new Error(`${where}.sha256 must match evidence bytes`);
+  let value;
+  try {
+    value = JSON.parse(bytes.toString("utf8"));
+  } catch (error) {
+    throw new Error(`${where} must contain valid JSON: ${error.message}`);
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${where} must contain a JSON object`);
+  }
+  return value;
+}
+
+function deriveAdjudicatedFindings({
+  candidateLedger,
+  mappings,
+  oracleCase,
+  verificationResults,
+  where,
+}) {
+  if (!Array.isArray(mappings)) throw new Error(`${where}.mappings must be an array`);
+  const candidates = new Map(candidateLedger.findings.map((finding) => [finding.id, finding]));
+  const defects = new Map(oracleCase.defects.map((defect) => [defect.id, defect]));
   const verificationById = new Map(
     verificationResults.map((result) => [result.oracle_id, result.status])
   );
-  return findings.map((finding, index) => {
-    const findingWhere = `${where}.findings[${index}]`;
-    if (!finding || typeof finding !== "object" || Array.isArray(finding)) {
-      throw new Error(`${findingWhere} must be an object`);
-    }
-    const required = [
-      "oracle_id",
-      "severity",
-      "objective",
-      "blocking",
-      "location_correct",
-      "claimed_fixed",
-    ];
-    const allowed = new Set([...required, "fix_verified"]);
-    for (const key of Object.keys(finding)) {
-      if (!allowed.has(key)) throw new Error(`${findingWhere} has unknown field ${key}`);
-    }
-    for (const key of required) {
-      if (!Object.prototype.hasOwnProperty.call(finding, key)) {
-        throw new Error(`${findingWhere} is missing field ${key}`);
-      }
-    }
+  const mappingByCandidate = new Map();
+  const mappedOracles = new Set();
 
+  for (const [index, mapping] of mappings.entries()) {
+    const mappingWhere = `${where}.mappings[${index}]`;
+    requireClosedObject(
+      mapping,
+      ["candidate_finding_id", "oracle_id", "judge_objective", "location_correct"],
+      mappingWhere
+    );
+    if (!candidates.has(mapping.candidate_finding_id)) {
+      throw new Error(`${mappingWhere}.candidate_finding_id is unknown or invented`);
+    }
+    if (mappingByCandidate.has(mapping.candidate_finding_id)) {
+      throw new Error(`${mappingWhere}.candidate_finding_id is duplicated`);
+    }
+    if (mapping.oracle_id !== null && !defects.has(mapping.oracle_id)) {
+      throw new Error(`${mappingWhere}.oracle_id is unknown for case ${oracleCase.id}`);
+    }
+    if (mapping.oracle_id !== null && mappedOracles.has(mapping.oracle_id)) {
+      throw new Error(`${mappingWhere}.oracle_id duplicates ${mapping.oracle_id}`);
+    }
+    if (typeof mapping.judge_objective !== "boolean") {
+      throw new Error(`${mappingWhere}.judge_objective must be a boolean`);
+    }
+    if (typeof mapping.location_correct !== "boolean") {
+      throw new Error(`${mappingWhere}.location_correct must be a boolean`);
+    }
+    if (mapping.oracle_id === null && mapping.location_correct) {
+      throw new Error(`${mappingWhere}.location_correct cannot be true without an oracle_id`);
+    }
+    const defect = mapping.oracle_id === null ? null : defects.get(mapping.oracle_id);
+    if (defect && mapping.judge_objective !== defect.objective) {
+      throw new Error(`${mappingWhere}.judge_objective must match the oracle truth`);
+    }
+    mappingByCandidate.set(mapping.candidate_finding_id, mapping);
+    if (mapping.oracle_id !== null) mappedOracles.add(mapping.oracle_id);
+  }
+
+  for (const candidateId of candidates.keys()) {
+    if (!mappingByCandidate.has(candidateId)) {
+      throw new Error(`${where}.mappings is missing candidate finding ${candidateId}`);
+    }
+  }
+  if (mappingByCandidate.size !== candidates.size) {
+    throw new Error(`${where}.mappings must map every candidate finding exactly once`);
+  }
+
+  return candidateLedger.findings.map((candidate) => {
+    const mapping = mappingByCandidate.get(candidate.id);
     let fixVerified = false;
-    if (finding.claimed_fixed === true) {
-      if (!finding.oracle_id) {
-        throw new Error(`${findingWhere}.claimed_fixed requires a matched oracle_id`);
-      }
-      const status = verificationById.get(finding.oracle_id);
+    if (candidate.claimed_fixed === true && mapping.oracle_id !== null) {
+      const status = verificationById.get(mapping.oracle_id);
       if (!status || status === "indeterminate") {
-        throw new Error(`${findingWhere}.claimed_fixed requires a conclusive fix-verification`);
+        throw new Error(
+          `${where}.mappings ${candidate.id}.claimed_fixed requires a conclusive fix-verification`
+        );
       }
       fixVerified = status === "pass";
     }
-    if (
-      Object.prototype.hasOwnProperty.call(finding, "fix_verified") &&
-      finding.fix_verified !== fixVerified
-    ) {
-      throw new Error(
-        `${findingWhere}.fix_verified is verifier-derived and must equal ${fixVerified}`
-      );
-    }
-    return { ...structuredClone(finding), fix_verified: fixVerified };
+    return {
+      candidate_finding_id: candidate.id,
+      severity: candidate.severity,
+      objective: candidate.objective,
+      blocking: candidate.blocking,
+      locator: candidate.locator,
+      claimed_fixed: candidate.claimed_fixed,
+      summary: candidate.summary,
+      oracle_id: mapping.oracle_id,
+      judge_objective: mapping.judge_objective,
+      location_correct: mapping.location_correct,
+      fix_verified: fixVerified,
+    };
   });
 }
 
@@ -303,14 +413,14 @@ function requireClosedObject(value, keys, where) {
 function loadOrCreateReport(reportPath, oracle, profile) {
   if (!fs.existsSync(reportPath)) {
     return {
-      schema_version: 2,
+      schema_version: 3,
       benchmark_id: oracle.benchmark_id,
       profile: structuredClone(profile),
       repeats: [],
     };
   }
   const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
-  if (report.schema_version !== 2 || report.benchmark_id !== oracle.benchmark_id) {
+  if (report.schema_version !== 3 || report.benchmark_id !== oracle.benchmark_id) {
     throw new Error("existing report does not match this capability benchmark");
   }
   if (!isDeepStrictEqual(report.profile, profile)) {
@@ -330,6 +440,11 @@ function writePrivateJson(filePath, value) {
 
 function digest(bytes) {
   return `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`;
+}
+
+function inside(rootDir, candidate) {
+  const relative = path.relative(rootDir, candidate);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
 function parseArgs(argv) {

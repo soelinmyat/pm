@@ -2,19 +2,28 @@
 "use strict";
 
 const crypto = require("node:crypto");
+const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 
 const {
+  candidateOutputReferencesFinding,
   capabilityOracleHash,
+  capabilitySandboxLauncher,
+  capabilitySandboxPolicy,
   capabilityScenarioId,
+  resolveCapabilitySourceBoundary,
+  validateCandidateFindingsLedger,
   validateCapabilityOracle,
+  validateOracleIsolationArtifact,
 } = require("./design-critique-capability.js");
 const { loadQualityProfile } = require("./quality.js");
 const { runEval, timestamp } = require("./run.js");
 
 const FIXTURE_NAME = "design-critique-fixture.html";
 const WORKDIR_FIXTURE = "ui/design-critique/capability-case.html";
+const CANDIDATE_FINDINGS_NAME = "capability-findings.json";
+const ORACLE_ISOLATION_NAME = "oracle_isolation.json";
 
 function runCapabilityBatch(options) {
   const rootDir = fs.realpathSync(path.resolve(options.rootDir || process.cwd()));
@@ -52,14 +61,39 @@ function runCapabilityBatch(options) {
       writeCapabilityScenario({ scenarioDir, scenarioId, fixtureBytes });
       assertNoOracleLeak(scenarioDir, oracle);
 
-      const verdict = runEval({
-        rootDir,
-        scenarioArg: relative(rootDir, scenarioDir),
-        agent: runtimeProfile.adapter,
-        runId,
-        runtimeProfile,
-        captureInputs: [{ source: WORKDIR_FIXTURE, name: FIXTURE_NAME }],
-      });
+      const isolation = prepareCandidateIsolation({ rootDir, runIdentity, runtimeProfile });
+      let verdict;
+      const hadCodexBin = Object.prototype.hasOwnProperty.call(process.env, "PM_EVAL_CODEX_BIN");
+      const previousCodexBin = process.env.PM_EVAL_CODEX_BIN;
+      try {
+        if (isolation.launchBin) process.env.PM_EVAL_CODEX_BIN = isolation.launchBin;
+        verdict = runEval({
+          rootDir,
+          scenarioArg: relative(rootDir, scenarioDir),
+          agent: runtimeProfile.adapter,
+          runId,
+          runtimeProfile,
+          captureInputs: [{ source: WORKDIR_FIXTURE, name: FIXTURE_NAME }],
+        });
+      } finally {
+        if (hadCodexBin) process.env.PM_EVAL_CODEX_BIN = previousCodexBin;
+        else delete process.env.PM_EVAL_CODEX_BIN;
+        try {
+          const evidence = finalizeCandidateIsolation({
+            rootDir,
+            runIdentity,
+            prepared: isolation,
+          });
+          if (fs.existsSync(path.join(rootDir, "eval-results", "runs", runId))) {
+            writeOracleIsolation({ rootDir, runIdentity, evidence });
+          }
+        } finally {
+          isolation.cleanup();
+        }
+      }
+      if (runtimeProfile.harness_only === true && verdict.status === "pass") {
+        writeStubHarnessLedger(rootDir, runIdentity.run_id);
+      }
       if (verdict.status !== "pass") {
         failures.push({
           case_id: item.id,
@@ -83,7 +117,7 @@ function runCapabilityBatch(options) {
   }
 
   const bundle = {
-    schema_version: 1,
+    schema_version: 2,
     benchmark_id: oracle.benchmark_id,
     oracle_sha256: capabilityOracleHash(oracle),
     profile: publicProfile(runtimeProfile),
@@ -96,7 +130,7 @@ function runCapabilityBatch(options) {
   };
   const outPath = path.resolve(options.outPath || defaultOutPath(rootDir, bundle));
   writePrivateJson(outPath, bundle);
-  return { exitCode: failures.length === 0 ? 0 : 1, bundle, outPath };
+  return { exitCode: failures.length === 0 ? 0 : 1, bundle, outPath, rootDir };
 }
 
 function resolveRuntimeProfile(profile, adapterOverride) {
@@ -141,7 +175,7 @@ function writeCapabilityScenario({ scenarioDir, scenarioId, fixtureBytes }) {
 function story(scenarioId) {
   return `---
 id: ${scenarioId}
-title: Design Critique hidden-fixture capability run
+title: Design Critique oracle-withheld capability run
 status: ready
 tier: full
 tags:
@@ -160,7 +194,33 @@ Stop condition: The design critique reaches its normal completion or evidence-bo
 - The transcript shows pm:design-critique was used.
 - The critique is grounded in the staged interface rather than assumed benchmark truth.
 - quality-output.md contains the candidate's user-facing critique.
+- capability-findings.json is the candidate-authored, closed findings ledger described below.
 - quality-outcome.json records a complete design-critique lifecycle outcome.
+
+## Candidate findings ledger
+
+Write capability-findings.json as one closed JSON object with exactly these fields:
+
+    {
+      "schema_version": 1,
+      "blocked": false,
+      "summary": "Concise outcome summary",
+      "findings": [
+        {
+          "id": "finding-stable-slug",
+          "severity": "low|medium|high|critical",
+          "objective": true,
+          "blocking": true,
+          "locator": "route, state, viewport, and selector or visible target",
+          "claimed_fixed": false,
+          "summary": "Concise defect statement"
+        }
+      ]
+    }
+
+Use a unique stable lowercase finding-* slug for every finding. Put every critique finding in this
+ledger exactly once, and include its exact ID in quality-output.md. Use an empty
+findings array for a clean result. Do not add benchmark or oracle identifiers.
 `;
 }
 
@@ -180,7 +240,7 @@ function setup(fixtureBytes) {
     "# Capability case state",
     "",
     "Workflow: pm:design-critique",
-    "Fixture case: hidden capability input",
+    "Fixture case: oracle-withheld capability input",
     "State: An implemented interface is ready for an evidence-bound design critique.",
     "",
   ].join("\n");
@@ -258,6 +318,360 @@ function assertNoOracleLeak(scenarioDir, oracle) {
   }
 }
 
+function prepareCandidateIsolation({
+  rootDir,
+  runIdentity,
+  runtimeProfile,
+  sourceBoundary = null,
+  sandboxExecPath = null,
+  codexBin = null,
+  sandboxRunner = spawnSync,
+}) {
+  rootDir = fs.realpathSync(path.resolve(rootDir));
+  const runDir = path.join(rootDir, "eval-results", "runs", runIdentity.run_id);
+  const noCleanup = () => {};
+  if (runtimeProfile.harness_only === true) {
+    return {
+      launchBin: null,
+      evidence: unattestedIsolation(
+        runIdentity.run_id,
+        "stub-harness",
+        "stub harness does not execute a claimable candidate process"
+      ),
+      cleanup: noCleanup,
+    };
+  }
+  if (runtimeProfile.adapter !== "codex") {
+    return {
+      launchBin: null,
+      evidence: unattestedIsolation(
+        runIdentity.run_id,
+        "unattested",
+        "the built-in source-read boundary is available only for capability Codex runs"
+      ),
+      cleanup: noCleanup,
+    };
+  }
+  if (process.platform !== "darwin" && sandboxExecPath === null) {
+    return {
+      launchBin: null,
+      evidence: unattestedIsolation(
+        runIdentity.run_id,
+        "unattested",
+        "macOS sandbox-exec is unavailable on this platform; use an externally attested container"
+      ),
+      cleanup: noCleanup,
+    };
+  }
+
+  let boundary;
+  let sandboxBin;
+  let candidateBin;
+  try {
+    boundary = fs.realpathSync(sourceBoundary || resolveCapabilitySourceBoundary(rootDir));
+    sandboxBin = fs.realpathSync(sandboxExecPath || "/usr/bin/sandbox-exec");
+    candidateBin = fs.realpathSync(codexBin || resolveExecutable(process.env.PM_EVAL_CODEX_BIN));
+  } catch (error) {
+    return {
+      launchBin: null,
+      evidence: unattestedIsolation(
+        runIdentity.run_id,
+        "unattested",
+        `could not resolve the sandbox boundary or executable: ${error.message}`
+      ),
+      cleanup: noCleanup,
+    };
+  }
+
+  if (
+    boundary === path.parse(boundary).root ||
+    !inside(boundary, rootDir) ||
+    !inside(boundary, runDir)
+  ) {
+    return {
+      launchBin: null,
+      evidence: unattestedIsolation(
+        runIdentity.run_id,
+        "unattested",
+        "the Git common repository boundary cannot safely contain the source root and exact run"
+      ),
+      cleanup: noCleanup,
+    };
+  }
+  if (!isExecutableFile(sandboxBin) || !isExecutableFile(candidateBin)) {
+    return {
+      launchBin: null,
+      evidence: unattestedIsolation(
+        runIdentity.run_id,
+        "unattested",
+        "sandbox-exec or the Codex executable is unavailable"
+      ),
+      cleanup: noCleanup,
+    };
+  }
+  if (inside(boundary, candidateBin)) {
+    return {
+      launchBin: null,
+      evidence: unattestedIsolation(
+        runIdentity.run_id,
+        "unattested",
+        "the Codex executable is inside the denied source boundary"
+      ),
+      cleanup: noCleanup,
+    };
+  }
+
+  const isolationDir = path.join(
+    rootDir,
+    "eval-results",
+    "capability-isolation",
+    runIdentity.run_id
+  );
+  const policyPath = path.join(isolationDir, "sandbox.sb");
+  const launcherPath = path.join(isolationDir, "codex-sandboxed");
+  const preflightPath = path.join(isolationDir, "preflight.json");
+  const receiptPath = path.join(isolationDir, "launch-receipt.json");
+  const sourceCanaryDir = path.join(rootDir, "eval-results", "oracle-isolation-preflight");
+  const sourceCanaryPath = path.join(
+    sourceCanaryDir,
+    `${runIdentity.run_id}-${crypto.randomBytes(8).toString("hex")}.txt`
+  );
+  const runCanaryPath = path.join(runDir, ".oracle-isolation-canary");
+  const sourceCanaryBytes = crypto.randomBytes(32);
+  const runCanaryBytes = crypto.randomBytes(32);
+  const launchNonce = crypto.randomBytes(32).toString("hex");
+  let createdIsolationDir = false;
+  let createdRunDir = false;
+  const cleanup = () => {
+    try {
+      fs.rmSync(sourceCanaryPath, { force: true });
+      fs.rmdirSync(sourceCanaryDir);
+    } catch {
+      // The shared canary directory can contain another concurrent run.
+    }
+  };
+
+  try {
+    if (fs.existsSync(runDir)) {
+      throw new Error("exact run directory already exists before isolation preflight");
+    }
+    fs.mkdirSync(path.dirname(isolationDir), { recursive: true });
+    fs.mkdirSync(isolationDir, { recursive: false });
+    createdIsolationDir = true;
+    fs.mkdirSync(sourceCanaryDir, { recursive: true });
+    fs.writeFileSync(sourceCanaryPath, sourceCanaryBytes, { mode: 0o600, flag: "wx" });
+    fs.mkdirSync(path.dirname(runDir), { recursive: true });
+    fs.mkdirSync(runDir, { recursive: false });
+    createdRunDir = true;
+    fs.writeFileSync(runCanaryPath, runCanaryBytes, { mode: 0o600, flag: "wx" });
+
+    const policyBytes = Buffer.from(capabilitySandboxPolicy(boundary, runDir));
+    fs.writeFileSync(policyPath, policyBytes, { mode: 0o600, flag: "wx" });
+    const policySha256 = digest(policyBytes);
+    const receiptBytes = Buffer.from(
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          run_id: runIdentity.run_id,
+          launch_nonce: launchNonce,
+          policy_sha256: policySha256,
+        },
+        null,
+        2
+      )}\n`
+    );
+    const launcherBytes = Buffer.from(
+      capabilitySandboxLauncher({
+        sandboxBin,
+        policyPath,
+        candidateBin,
+        receiptPath,
+        receiptBytes,
+      })
+    );
+    fs.writeFileSync(launcherPath, launcherBytes, { mode: 0o700, flag: "wx" });
+
+    const preflight = sandboxRunner(
+      sandboxBin,
+      [
+        "-f",
+        policyPath,
+        "/bin/sh",
+        "-c",
+        'if ! /bin/cat "$1" >/dev/null; then exit 70; fi\nif /bin/cat "$2" >/dev/null 2>&1; then exit 71; fi\nexit 0',
+        "pm-oracle-isolation-preflight",
+        runCanaryPath,
+        sourceCanaryPath,
+      ],
+      { encoding: "utf8", timeout: 10_000 }
+    );
+    fs.rmSync(runCanaryPath, { force: true });
+    fs.rmdirSync(runDir);
+    createdRunDir = false;
+
+    if (preflight.error || preflight.signal || preflight.status !== 0) {
+      fs.rmSync(isolationDir, { recursive: true, force: true });
+      createdIsolationDir = false;
+      cleanup();
+      return {
+        launchBin: null,
+        evidence: unattestedIsolation(
+          runIdentity.run_id,
+          "unattested",
+          `sandbox-exec preflight failed (exit ${String(preflight.status)})`
+        ),
+        cleanup: noCleanup,
+      };
+    }
+
+    const preflightArtifact = {
+      schema_version: 1,
+      run_id: runIdentity.run_id,
+      status: "pass",
+      policy_sha256: policySha256,
+      source_canary_sha256: digest(sourceCanaryBytes),
+      run_canary_sha256: digest(runCanaryBytes),
+      sandbox_exec: sandboxBin,
+      candidate_bin: candidateBin,
+    };
+    writePrivateJson(preflightPath, preflightArtifact);
+    const bindings = {
+      policy: fileBinding(rootDir, relative(rootDir, policyPath)),
+      launcher: fileBinding(rootDir, relative(rootDir, launcherPath)),
+      preflight: fileBinding(rootDir, relative(rootDir, preflightPath)),
+      launch_receipt: null,
+      command: null,
+    };
+    return {
+      launchBin: launcherPath,
+      profilePath: policyPath,
+      receiptPath,
+      receiptBytes,
+      evidence: {
+        schema_version: 2,
+        run_id: runIdentity.run_id,
+        mode: "sandbox-exec",
+        os_enforced: true,
+        source_read_denied: true,
+        run_read_allowed: true,
+        preflight: {
+          denied_source_read: "pass",
+          allowed_run_read: "pass",
+        },
+        bindings,
+        producer: {
+          id: "pm-capability-oracle-isolation-attestor",
+          version: 2,
+        },
+        reason: null,
+      },
+      cleanup,
+    };
+  } catch (error) {
+    try {
+      if (createdRunDir && fs.existsSync(runCanaryPath)) {
+        fs.rmSync(runCanaryPath, { force: true });
+      }
+      if (createdRunDir && fs.existsSync(runDir)) fs.rmdirSync(runDir);
+    } catch {
+      // Leave an unexpected non-empty run directory intact for diagnosis.
+    }
+    if (createdIsolationDir) fs.rmSync(isolationDir, { recursive: true, force: true });
+    cleanup();
+    return {
+      launchBin: null,
+      evidence: unattestedIsolation(
+        runIdentity.run_id,
+        "unattested",
+        `sandbox-exec isolation setup failed: ${error.message}`
+      ),
+      cleanup: noCleanup,
+    };
+  }
+}
+
+function finalizeCandidateIsolation({ rootDir, runIdentity, prepared }) {
+  rootDir = fs.realpathSync(path.resolve(rootDir));
+  if (prepared.evidence.mode !== "sandbox-exec") return prepared.evidence;
+  try {
+    const receiptBytes = fs.readFileSync(prepared.receiptPath);
+    if (!receiptBytes.equals(prepared.receiptBytes)) {
+      throw new Error("launch receipt does not match the host-generated nonce and policy");
+    }
+    const commandPath = path.join(
+      rootDir,
+      "eval-results",
+      "runs",
+      runIdentity.run_id,
+      "metadata",
+      "codex_command.json"
+    );
+    const command = JSON.parse(fs.readFileSync(commandPath, "utf8"));
+    if (path.resolve(String(command.command || "")) !== path.resolve(prepared.launchBin)) {
+      throw new Error("Codex adapter command does not bind the sandbox launcher");
+    }
+    return {
+      ...prepared.evidence,
+      bindings: {
+        ...prepared.evidence.bindings,
+        launch_receipt: fileBinding(rootDir, relative(rootDir, prepared.receiptPath)),
+        command: fileBinding(rootDir, relative(rootDir, commandPath)),
+      },
+    };
+  } catch (error) {
+    return unattestedIsolation(
+      runIdentity.run_id,
+      "unattested",
+      `sandbox launch attestation failed: ${error.message}`
+    );
+  }
+}
+
+function resolveExecutable(requested) {
+  const name = typeof requested === "string" && requested.trim() ? requested.trim() : "codex";
+  if (name.includes(path.sep)) {
+    if (isExecutableFile(name)) return path.resolve(name);
+    throw new Error(`executable is unavailable: ${name}`);
+  }
+  for (const entry of (process.env.PATH || "/usr/bin:/bin").split(path.delimiter)) {
+    if (!entry) continue;
+    const candidate = path.join(entry, name);
+    if (isExecutableFile(candidate)) return candidate;
+  }
+  throw new Error(`executable is unavailable: ${name}`);
+}
+
+function isExecutableFile(filePath) {
+  try {
+    const stat = fs.statSync(filePath);
+    fs.accessSync(filePath, fs.constants.X_OK);
+    return stat.isFile();
+  } catch {
+    return false;
+  }
+}
+
+function unattestedIsolation(runId, mode, reason) {
+  return {
+    schema_version: 2,
+    run_id: runId,
+    mode,
+    os_enforced: false,
+    source_read_denied: false,
+    run_read_allowed: false,
+    preflight: {
+      denied_source_read: "not-run",
+      allowed_run_read: "not-run",
+    },
+    bindings: null,
+    producer: {
+      id: "pm-capability-oracle-isolation-attestor",
+      version: 2,
+    },
+    reason,
+  };
+}
+
 function collectEvidence({ rootDir, item, verdict, runtimeProfile, runIdentity }) {
   const runRoot = `eval-results/runs/${runIdentity.run_id}`;
   const fixture = fileBinding(
@@ -281,16 +695,36 @@ function collectEvidence({ rootDir, item, verdict, runtimeProfile, runIdentity }
     throw new Error("runtime profile harness identity does not match");
   }
   const verdictBinding = fileBinding(rootDir, `${runRoot}/verdict.json`);
+  const sourceIdentity = fileBinding(rootDir, `${runRoot}/metadata/source_identity.json`);
   const transcript = fileBinding(rootDir, `${runRoot}/metadata/transcript.normalized.jsonl`);
   const candidateOutput = fileBinding(rootDir, `${runRoot}/artifacts/quality-output.md`);
+  const candidateFindings = fileBinding(rootDir, `${runRoot}/artifacts/${CANDIDATE_FINDINGS_NAME}`);
+  const oracleIsolation = fileBinding(rootDir, `${runRoot}/metadata/${ORACLE_ISOLATION_NAME}`);
   const postSubject = fileBinding(rootDir, `${runRoot}/workdir/${WORKDIR_FIXTURE}`);
-  if (!fs.readFileSync(path.join(rootDir, candidateOutput.path), "utf8").trim()) {
+  const candidateOutputText = fs.readFileSync(path.join(rootDir, candidateOutput.path), "utf8");
+  if (!candidateOutputText.trim()) {
     throw new Error("candidate output is empty");
+  }
+  const ledger = JSON.parse(fs.readFileSync(path.join(rootDir, candidateFindings.path), "utf8"));
+  const ledgerIssues = validateCandidateFindingsLedger(ledger);
+  if (ledgerIssues.length > 0) {
+    throw new Error(`invalid candidate findings ledger:\n${ledgerIssues.join("\n")}`);
+  }
+  for (const finding of ledger.findings) {
+    if (!candidateOutputReferencesFinding(candidateOutputText, finding.id)) {
+      throw new Error(`candidate output must reference candidate finding ${finding.id}`);
+    }
+  }
+  const isolation = JSON.parse(fs.readFileSync(path.join(rootDir, oracleIsolation.path), "utf8"));
+  const isolationIssues = validateOracleIsolationArtifact(isolation, runIdentity.run_id);
+  if (isolationIssues.length > 0) {
+    throw new Error(`invalid oracle isolation evidence:\n${isolationIssues.join("\n")}`);
   }
 
   return {
     case_id: item.id,
     fixture,
+    source_identity: sourceIdentity,
     run: {
       ...runIdentity,
       status: verdict.status,
@@ -300,8 +734,36 @@ function collectEvidence({ rootDir, item, verdict, runtimeProfile, runIdentity }
     },
     normalized_transcript: transcript,
     candidate_output: candidateOutput,
+    candidate_findings: candidateFindings,
+    oracle_isolation: oracleIsolation,
     post_subject: postSubject,
   };
+}
+
+function writeStubHarnessLedger(rootDir, runId) {
+  writePrivateJson(
+    path.join(rootDir, "eval-results", "runs", runId, "artifacts", CANDIDATE_FINDINGS_NAME),
+    {
+      schema_version: 1,
+      blocked: false,
+      summary: "Stub harness completed without candidate-authored findings.",
+      findings: [],
+    }
+  );
+}
+
+function writeOracleIsolation({ rootDir, runIdentity, evidence }) {
+  writePrivateJson(
+    path.join(
+      rootDir,
+      "eval-results",
+      "runs",
+      runIdentity.run_id,
+      "metadata",
+      ORACLE_ISOLATION_NAME
+    ),
+    evidence
+  );
 }
 
 function fileBinding(rootDir, relativePath, expectedHash = null) {
@@ -311,7 +773,11 @@ function fileBinding(rootDir, relativePath, expectedHash = null) {
   if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) {
     throw new Error(`evidence is not a regular non-linked file: ${relativePath}`);
   }
-  const bytes = fs.readFileSync(absolute);
+  const real = fs.realpathSync(absolute);
+  if (!inside(rootDir, real) || real !== absolute) {
+    throw new Error(`evidence path must not traverse symlinks: ${relativePath}`);
+  }
+  const bytes = fs.readFileSync(real);
   const sha256 = digest(bytes);
   if (expectedHash && sha256 !== expectedHash) {
     throw new Error(`evidence sha256 mismatch: ${relativePath}`);
@@ -322,7 +788,9 @@ function fileBinding(rootDir, relativePath, expectedHash = null) {
 function nextRunId(rootDir, scenarioId, adapter) {
   for (let offset = 0; offset < 10_000; offset += 1) {
     const runId = `${timestamp(new Date(Date.now() + offset * 1000))}--${scenarioId}--${adapter}`;
-    if (!fs.existsSync(path.join(rootDir, "eval-results", "runs", runId))) return runId;
+    const runDir = path.join(rootDir, "eval-results", "runs", runId);
+    const isolationDir = path.join(rootDir, "eval-results", "capability-isolation", runId);
+    if (!fs.existsSync(runDir) && !fs.existsSync(isolationDir)) return runId;
   }
   throw new Error(`could not allocate a run id for ${scenarioId}`);
 }
@@ -401,6 +869,23 @@ function parseArgs(argv) {
 function main(argv) {
   try {
     const result = runCapabilityBatch(parseArgs(argv));
+    const sourceBoundaryAttested =
+      result.bundle.failures.length === 0 &&
+      result.bundle.cases.length > 0 &&
+      result.bundle.cases.every((item) => {
+        const evidence = JSON.parse(
+          fs.readFileSync(path.join(result.rootDir, item.oracle_isolation.path))
+        );
+        return (
+          evidence.mode === "sandbox-exec" &&
+          evidence.os_enforced === true &&
+          evidence.source_read_denied === true &&
+          evidence.run_read_allowed === true &&
+          evidence.preflight?.denied_source_read === "pass" &&
+          evidence.preflight?.allowed_run_read === "pass" &&
+          evidence.bindings !== null
+        );
+      });
     process.stdout.write(
       `${JSON.stringify(
         {
@@ -408,6 +893,10 @@ function main(argv) {
           output: result.outPath,
           cases: result.bundle.cases.length,
           failures: result.bundle.failures,
+          source_boundary_attested: sourceBoundaryAttested,
+          claimable: false,
+          claimability_reason:
+            "no current mode verifies network denial and every oracle-bearing source/plugin mirror",
         },
         null,
         2
@@ -423,6 +912,13 @@ function main(argv) {
 if (require.main === module) process.exitCode = main(process.argv.slice(2));
 
 module.exports = {
+  _private: {
+    finalizeCandidateIsolation,
+    prepareCandidateIsolation,
+    resolveCapabilitySourceBoundary,
+    sandboxLauncher: capabilitySandboxLauncher,
+    sandboxPolicy: capabilitySandboxPolicy,
+  },
   assertNoOracleLeak,
   collectEvidence,
   parseArgs,

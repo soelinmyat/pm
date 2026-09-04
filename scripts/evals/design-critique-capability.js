@@ -3,8 +3,10 @@
 
 const fs = require("node:fs");
 const crypto = require("node:crypto");
+const { execFileSync } = require("node:child_process");
 const path = require("node:path");
 const { isDeepStrictEqual } = require("node:util");
+const { hashTree } = require("./stage.js");
 const { parseJsonl } = require("./transcript.js");
 
 const METRICS = Object.freeze([
@@ -19,10 +21,98 @@ const SEVERITIES = new Set(["low", "medium", "high", "critical"]);
 const BLOCKING_SEVERITIES = new Set(["high", "critical"]);
 const HASH_PATTERN = /^sha256:[a-f0-9]{64}$/;
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,100}$/;
+const CANDIDATE_ID_PATTERN = /^finding-[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const FIXTURE_PATTERN =
   /^evals\/quality\/fixtures\/design-critique\/[a-zA-Z0-9][a-zA-Z0-9._/-]*\.html$/;
 const RUN_ID_PATTERN = /^[0-9]{8}T[0-9]{6}Z--[a-z0-9][a-z0-9-]{0,80}--[a-z0-9][a-z0-9-]{0,40}$/;
 const MAX_EVIDENCE_BYTES = 4 * 1024 * 1024;
+const CANDIDATE_FINDING_FIELDS = Object.freeze([
+  "id",
+  "severity",
+  "objective",
+  "blocking",
+  "locator",
+  "claimed_fixed",
+  "summary",
+]);
+const REPORT_FINDING_FIELDS = Object.freeze([
+  "candidate_finding_id",
+  "severity",
+  "objective",
+  "blocking",
+  "locator",
+  "claimed_fixed",
+  "summary",
+  "oracle_id",
+  "judge_objective",
+  "location_correct",
+  "fix_verified",
+]);
+const ISOLATION_MODES = new Set([
+  "stub-harness",
+  "unattested",
+  "external-container",
+  "sandbox-exec",
+]);
+const ISOLATION_BINDING_FIELDS = Object.freeze([
+  "policy",
+  "launcher",
+  "preflight",
+  "launch_receipt",
+  "command",
+]);
+
+function resolveCapabilitySourceBoundary(rootDir) {
+  let commonDir;
+  try {
+    commonDir = execFileSync(
+      "git",
+      ["-C", rootDir, "rev-parse", "--path-format=absolute", "--git-common-dir"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
+    ).trim();
+  } catch {
+    const legacy = execFileSync("git", ["-C", rootDir, "rev-parse", "--git-common-dir"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+    commonDir = path.resolve(rootDir, legacy);
+  }
+  const realCommonDir = fs.realpathSync(commonDir);
+  const bare =
+    execFileSync("git", ["-C", rootDir, "rev-parse", "--is-bare-repository"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim() === "true";
+  return bare ? realCommonDir : path.dirname(realCommonDir);
+}
+
+function capabilitySandboxPolicy(sourceBoundary, runDir) {
+  const writable = ["workdir", "home", "xdg-cache", "xdg-config", "xdg-data", "tmp"].map((entry) =>
+    path.join(runDir, entry)
+  );
+  return [
+    "(version 1)",
+    "(allow default)",
+    `(deny file-read* file-write* (subpath "${seatbeltString(sourceBoundary)}"))`,
+    `(allow file-read* (subpath "${seatbeltString(runDir)}"))`,
+    ...writable.map((entry) => `(allow file-write* (subpath "${seatbeltString(entry)}"))`),
+    "",
+  ].join("\n");
+}
+
+function capabilitySandboxLauncher({
+  sandboxBin,
+  policyPath,
+  candidateBin,
+  receiptPath,
+  receiptBytes,
+}) {
+  return `#!/bin/sh\nset -eu\numask 077\n/bin/printf %s ${shellQuote(
+    receiptBytes.toString("base64")
+  )} | /usr/bin/base64 -D > ${shellQuote(receiptPath)}\nexec ${shellQuote(
+    sandboxBin
+  )} -f ${shellQuote(policyPath)} ${shellQuote(candidateBin)} "$@"\n`;
+}
 
 function capabilityScenarioId(caseId, profileId, repeat) {
   const caseToken = sha256(`design-critique-capability:${caseId}`).slice(-12);
@@ -55,6 +145,208 @@ function capabilityFixVerificationPath({ benchmarkId, profileId, repeat, caseId 
     `repeat-${repeat}`,
     `${caseId}.json`,
   ].join("/");
+}
+
+function validateCandidateFindingsLedger(ledger, where = "candidate_findings") {
+  const issues = [];
+  if (
+    !closedObject(
+      ledger,
+      ["schema_version", "blocked", "summary", "findings"],
+      ["schema_version", "blocked", "summary", "findings"],
+      where,
+      issues
+    )
+  ) {
+    return issues;
+  }
+  if (ledger.schema_version !== 1) issues.push(`${where}.schema_version must equal 1`);
+  if (typeof ledger.blocked !== "boolean") issues.push(`${where}.blocked must be a boolean`);
+  if (!nonempty(ledger.summary)) issues.push(`${where}.summary is required`);
+  if (!Array.isArray(ledger.findings)) {
+    issues.push(`${where}.findings must be an array`);
+    return issues;
+  }
+
+  const findingIds = new Set();
+  for (const [index, finding] of ledger.findings.entries()) {
+    const findingWhere = `${where}.findings[${index}]`;
+    if (
+      !closedObject(
+        finding,
+        CANDIDATE_FINDING_FIELDS,
+        CANDIDATE_FINDING_FIELDS,
+        findingWhere,
+        issues
+      )
+    ) {
+      continue;
+    }
+    if (!CANDIDATE_ID_PATTERN.test(String(finding.id || ""))) {
+      issues.push(`${findingWhere}.id must be a lowercase finding-* slug`);
+    } else if (findingIds.has(finding.id)) {
+      issues.push(`${findingWhere}.id duplicates ${finding.id}`);
+    }
+    findingIds.add(finding.id);
+    if (!SEVERITIES.has(finding.severity)) {
+      issues.push(`${findingWhere}.severity must be low, medium, high, or critical`);
+    }
+    for (const field of ["objective", "blocking", "claimed_fixed"]) {
+      if (typeof finding[field] !== "boolean") {
+        issues.push(`${findingWhere}.${field} must be a boolean`);
+      }
+    }
+    for (const field of ["locator", "summary"]) {
+      if (!nonempty(finding[field])) issues.push(`${findingWhere}.${field} is required`);
+    }
+  }
+  return issues;
+}
+
+function candidateOutputReferencesFinding(output, findingId) {
+  const escaped = String(findingId).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^a-z0-9-])${escaped}([^a-z0-9-]|$)`, "m").test(String(output));
+}
+
+function validateOracleIsolationArtifact(isolation, expectedRunId, where = "oracle_isolation") {
+  const issues = [];
+  if (
+    !closedObject(
+      isolation,
+      [
+        "schema_version",
+        "run_id",
+        "mode",
+        "os_enforced",
+        "source_read_denied",
+        "run_read_allowed",
+        "preflight",
+        "bindings",
+        "producer",
+        "reason",
+      ],
+      [
+        "schema_version",
+        "run_id",
+        "mode",
+        "os_enforced",
+        "source_read_denied",
+        "run_read_allowed",
+        "preflight",
+        "bindings",
+        "producer",
+        "reason",
+      ],
+      where,
+      issues
+    )
+  ) {
+    return issues;
+  }
+  if (isolation.schema_version !== 2) issues.push(`${where}.schema_version must equal 2`);
+  if (isolation.run_id !== expectedRunId) issues.push(`${where}.run_id must match the run`);
+  if (!ISOLATION_MODES.has(isolation.mode)) issues.push(`${where}.mode is unsupported`);
+  for (const field of ["os_enforced", "source_read_denied", "run_read_allowed"]) {
+    if (typeof isolation[field] !== "boolean") issues.push(`${where}.${field} must be a boolean`);
+  }
+  if (
+    closedObject(
+      isolation.preflight,
+      ["denied_source_read", "allowed_run_read"],
+      ["denied_source_read", "allowed_run_read"],
+      `${where}.preflight`,
+      issues
+    )
+  ) {
+    for (const field of ["denied_source_read", "allowed_run_read"]) {
+      if (!["pass", "fail", "not-run"].includes(isolation.preflight[field])) {
+        issues.push(`${where}.preflight.${field} must be pass, fail, or not-run`);
+      }
+    }
+  }
+  if (isolation.bindings !== null) {
+    if (
+      closedObject(
+        isolation.bindings,
+        ISOLATION_BINDING_FIELDS,
+        ISOLATION_BINDING_FIELDS,
+        `${where}.bindings`,
+        issues
+      )
+    ) {
+      for (const field of ISOLATION_BINDING_FIELDS) {
+        validateBindingShape(isolation.bindings[field], `${where}.bindings.${field}`, issues);
+      }
+    }
+  }
+  if (
+    closedObject(
+      isolation.producer,
+      ["id", "version"],
+      ["id", "version"],
+      `${where}.producer`,
+      issues
+    )
+  ) {
+    if (isolation.producer.id !== "pm-capability-oracle-isolation-attestor") {
+      issues.push(`${where}.producer.id must identify the oracle isolation attestor`);
+    }
+    if (isolation.producer.version !== 2) {
+      issues.push(`${where}.producer.version must equal 2`);
+    }
+  }
+
+  const attested = oracleIsolationAttested(isolation);
+  if (attested) {
+    if (!["external-container", "sandbox-exec"].includes(isolation.mode)) {
+      issues.push(`${where}.mode must identify an OS-enforced boundary`);
+    }
+    if (!plainObject(isolation.bindings)) {
+      issues.push(`${where}.bindings are required when attested`);
+    }
+    if (isolation.reason !== null) issues.push(`${where}.reason must be null when attested`);
+  } else {
+    if (isolation.mode === "external-container" || isolation.mode === "sandbox-exec") {
+      issues.push(`${where}.${isolation.mode} evidence must pass every isolation check`);
+    }
+    if (!nonempty(isolation.reason)) issues.push(`${where}.reason is required when unattested`);
+  }
+  return issues;
+}
+
+function oracleIsolationAttested(isolation) {
+  return Boolean(
+    isolation &&
+    isolation.os_enforced === true &&
+    isolation.source_read_denied === true &&
+    isolation.run_read_allowed === true &&
+    isolation.preflight?.denied_source_read === "pass" &&
+    isolation.preflight?.allowed_run_read === "pass" &&
+    plainObject(isolation.bindings) &&
+    ISOLATION_BINDING_FIELDS.every((field) => plainObject(isolation.bindings[field]))
+  );
+}
+
+function oracleIsolationClaimable(_isolation) {
+  // Neither current evidence mode proves that every oracle-bearing host mirror
+  // and outbound network path was unavailable to the candidate. `sandbox-exec`
+  // proves only the local Git-boundary denial, while `external-container` has
+  // no trusted semantic verifier. Keep both useful for diagnostics, but never
+  // promote either self-attestation into a capability claim.
+  return false;
+}
+
+function validateOracleIsolationEvidence({
+  isolation,
+  rootDir,
+  runId,
+  where = "oracle_isolation",
+}) {
+  const issues = validateOracleIsolationArtifact(isolation, runId, where);
+  if (issues.length === 0) {
+    validateOracleIsolationBindings({ isolation, rootDir, runId, where, issues });
+  }
+  return issues;
 }
 
 function validateCapabilityOracle(oracle) {
@@ -189,13 +481,13 @@ function validateCapabilityReport(report, oracle, options = {}) {
   ) {
     return issues;
   }
-  if (report.schema_version === 1) {
+  if (report.schema_version === 1 || report.schema_version === 2) {
     issues.push(
-      "report.schema_version 1 cannot support evidence-bound claims; rerun the capability benchmark and adjudication to create schema 2 evidence"
+      `report.schema_version ${report.schema_version} cannot support candidate-ledger and oracle-isolation claims; rerun the capability benchmark and adjudication to create schema 3 evidence`
     );
     return issues;
   }
-  if (report.schema_version !== 2) issues.push("report.schema_version must equal 2");
+  if (report.schema_version !== 3) issues.push("report.schema_version must equal 3");
   if (report.benchmark_id !== oracle.benchmark_id) {
     issues.push("report.benchmark_id must match the oracle");
   }
@@ -226,6 +518,7 @@ function validateCapabilityReport(report, oracle, options = {}) {
 
   const expectedCases = new Map(oracle.cases.map((item) => [item.id, item]));
   const repeatIds = new Set();
+  let frozenSourceIdentity = null;
   for (const [repeatIndex, repeat] of report.repeats.entries()) {
     const repeatWhere = `report.repeats[${repeatIndex}]`;
     if (!closedObject(repeat, ["repeat", "cases"], ["repeat", "cases"], repeatWhere, issues)) {
@@ -252,8 +545,11 @@ function validateCapabilityReport(report, oracle, options = {}) {
             "case_id",
             "fixture",
             "run",
+            "source_identity",
             "normalized_transcript",
             "candidate_output",
+            "candidate_findings",
+            "oracle_isolation",
             "post_subject",
             "fix_verification",
             "adjudication",
@@ -264,8 +560,11 @@ function validateCapabilityReport(report, oracle, options = {}) {
             "case_id",
             "fixture",
             "run",
+            "source_identity",
             "normalized_transcript",
             "candidate_output",
+            "candidate_findings",
+            "oracle_isolation",
             "post_subject",
             "fix_verification",
             "adjudication",
@@ -285,7 +584,7 @@ function validateCapabilityReport(report, oracle, options = {}) {
       }
       foundCases.add(result.case_id);
       if (expected && rootDir && plainObject(report.profile)) {
-        validateEvidenceRow({
+        const sourceIdentity = validateEvidenceRow({
           result,
           expected,
           repeat: repeat.repeat,
@@ -298,6 +597,14 @@ function validateCapabilityReport(report, oracle, options = {}) {
           where: caseWhere,
           issues,
         });
+        if (sourceIdentity) {
+          if (frozenSourceIdentity === null) frozenSourceIdentity = sourceIdentity;
+          else if (!isDeepStrictEqual(sourceIdentity, frozenSourceIdentity)) {
+            issues.push(
+              `${caseWhere}.source_identity must match every other capability run exactly`
+            );
+          }
+        }
       }
       if (typeof result.blocked !== "boolean") issues.push(`${caseWhere}.blocked must be boolean`);
       if (!Array.isArray(result.findings)) {
@@ -306,35 +613,28 @@ function validateCapabilityReport(report, oracle, options = {}) {
       }
       const knownDefects = new Set((expected?.defects || []).map((item) => item.id));
       const matchedDefects = new Set();
+      const candidateFindingIds = new Set();
       for (const [findingIndex, finding] of result.findings.entries()) {
         const findingWhere = `${caseWhere}.findings[${findingIndex}]`;
         if (
           !closedObject(
             finding,
-            [
-              "oracle_id",
-              "severity",
-              "objective",
-              "blocking",
-              "location_correct",
-              "claimed_fixed",
-              "fix_verified",
-            ],
-            [
-              "oracle_id",
-              "severity",
-              "objective",
-              "blocking",
-              "location_correct",
-              "claimed_fixed",
-              "fix_verified",
-            ],
+            [...REPORT_FINDING_FIELDS],
+            [...REPORT_FINDING_FIELDS],
             findingWhere,
             issues
           )
         ) {
           continue;
         }
+        if (!CANDIDATE_ID_PATTERN.test(String(finding.candidate_finding_id || ""))) {
+          issues.push(`${findingWhere}.candidate_finding_id must be a lowercase finding-* slug`);
+        } else if (candidateFindingIds.has(finding.candidate_finding_id)) {
+          issues.push(
+            `${findingWhere}.candidate_finding_id duplicates ${finding.candidate_finding_id}`
+          );
+        }
+        candidateFindingIds.add(finding.candidate_finding_id);
         if (finding.oracle_id !== null) {
           if (!knownDefects.has(finding.oracle_id)) {
             issues.push(`${findingWhere}.oracle_id is unknown for case ${result.case_id}`);
@@ -346,12 +646,17 @@ function validateCapabilityReport(report, oracle, options = {}) {
         } else if (finding.location_correct === true) {
           issues.push(`${findingWhere}.location_correct cannot be true without an oracle_id`);
         }
+        const defect = expected?.defects?.find((item) => item.id === finding.oracle_id);
+        if (defect && finding.judge_objective !== defect.objective) {
+          issues.push(`${findingWhere}.judge_objective must match the oracle truth`);
+        }
         if (!SEVERITIES.has(finding.severity)) {
           issues.push(`${findingWhere}.severity must be low, medium, high, or critical`);
         }
         for (const field of [
           "objective",
           "blocking",
+          "judge_objective",
           "location_correct",
           "claimed_fixed",
           "fix_verified",
@@ -362,6 +667,9 @@ function validateCapabilityReport(report, oracle, options = {}) {
         }
         if (finding.claimed_fixed === false && finding.fix_verified === true) {
           issues.push(`${findingWhere}.fix_verified requires claimed_fixed`);
+        }
+        for (const field of ["locator", "summary"]) {
+          if (!nonempty(finding[field])) issues.push(`${findingWhere}.${field} is required`);
         }
       }
     }
@@ -395,7 +703,7 @@ function validateEvidenceRow({
       issues
     )
   ) {
-    return;
+    return null;
   }
 
   const run = result.run;
@@ -417,6 +725,20 @@ function validateEvidenceRow({
   }
 
   const runRoot = `eval-results/runs/${run.run_id}`;
+  const sourceIdentityBytes = validateBoundFile(
+    rootDir,
+    result.source_identity,
+    `${runRoot}/metadata/source_identity.json`,
+    `${where}.source_identity`,
+    issues
+  );
+  const sourceIdentity = validateSourceIdentity({
+    bytes: sourceIdentityBytes,
+    rootDir,
+    runRoot,
+    where: `${where}.source_identity`,
+    issues,
+  });
   const fixtureBytes = validateBoundFile(
     rootDir,
     result.fixture,
@@ -501,6 +823,59 @@ function validateEvidenceRow({
   );
   if (outputBytes && !outputBytes.toString("utf8").trim()) {
     issues.push(`${where}.candidate_output must not be empty`);
+  }
+
+  const candidateFindingsBytes = validateBoundFile(
+    rootDir,
+    result.candidate_findings,
+    `${runRoot}/artifacts/capability-findings.json`,
+    `${where}.candidate_findings`,
+    issues
+  );
+  let candidateFindings = null;
+  if (candidateFindingsBytes) {
+    candidateFindings = parseJsonEvidence(
+      candidateFindingsBytes,
+      `${where}.candidate_findings`,
+      issues
+    );
+    if (candidateFindings) {
+      issues.push(
+        ...validateCandidateFindingsLedger(candidateFindings, `${where}.candidate_findings`)
+      );
+      validateCandidateDerivation(result, candidateFindings, where, issues);
+      if (outputBytes) {
+        const output = outputBytes.toString("utf8");
+        for (const finding of Array.isArray(candidateFindings.findings)
+          ? candidateFindings.findings
+          : []) {
+          if (nonempty(finding?.id) && !candidateOutputReferencesFinding(output, finding.id)) {
+            issues.push(`${where}.candidate_output must reference candidate finding ${finding.id}`);
+          }
+        }
+      }
+    }
+  }
+
+  const oracleIsolationBytes = validateBoundFile(
+    rootDir,
+    result.oracle_isolation,
+    `${runRoot}/metadata/oracle_isolation.json`,
+    `${where}.oracle_isolation`,
+    issues
+  );
+  if (oracleIsolationBytes) {
+    const isolation = parseJsonEvidence(oracleIsolationBytes, `${where}.oracle_isolation`, issues);
+    if (isolation) {
+      issues.push(
+        ...validateOracleIsolationEvidence({
+          isolation,
+          rootDir,
+          runId: run.run_id,
+          where: `${where}.oracle_isolation`,
+        })
+      );
+    }
   }
 
   const postSubjectBytes = validateBoundFile(
@@ -601,10 +976,13 @@ function validateEvidenceRow({
             run_id: run.run_id,
             scenario_id: run.scenario_id,
             adapter: run.adapter,
+            source_identity_sha256: result.source_identity?.sha256,
             runtime_profile_sha256: run.runtime_profile?.sha256,
             verdict_sha256: run.verdict?.sha256,
             normalized_transcript_sha256: result.normalized_transcript?.sha256,
             candidate_output_sha256: result.candidate_output?.sha256,
+            candidate_findings_sha256: result.candidate_findings?.sha256,
+            oracle_isolation_sha256: result.oracle_isolation?.sha256,
             post_subject_sha256: result.post_subject?.sha256,
             fix_verification_sha256: result.fix_verification?.sha256,
           },
@@ -617,6 +995,74 @@ function validateEvidenceRow({
 
   if (fixtureBytes && sha256(fixtureBytes) !== expected.fixture_sha256) {
     issues.push(`${where}.fixture bytes must match the oracle fixture`);
+  }
+  return sourceIdentity;
+}
+
+function validateSourceIdentity({ bytes, rootDir, runRoot, where, issues }) {
+  if (!bytes) return null;
+  const identity = parseJsonEvidence(bytes, where, issues);
+  if (!identity) return null;
+  const fields = ["source_ref", "branch", "dirty", "runtime_hash", "runtime_ref"];
+  if (!closedObject(identity, fields, fields, where, issues)) return null;
+  if (!nonempty(identity.source_ref)) issues.push(`${where}.source_ref is required`);
+  if (!nonempty(identity.branch)) issues.push(`${where}.branch is required`);
+  if (identity.dirty !== false) {
+    issues.push(`${where}.dirty must be false for capability evidence`);
+  }
+  if (!HASH_PATTERN.test(String(identity.runtime_hash || ""))) {
+    issues.push(`${where}.runtime_hash must be a sha256 digest`);
+  }
+  if (identity.runtime_ref !== "runtime/pm") {
+    issues.push(`${where}.runtime_ref must equal runtime/pm`);
+  }
+  try {
+    const observedRuntimeHash = hashTree(path.join(rootDir, runRoot, "runtime", "pm")).hash;
+    if (identity.runtime_hash !== observedRuntimeHash) {
+      issues.push(`${where}.runtime_hash must match the retained staged runtime`);
+    }
+  } catch (error) {
+    issues.push(`${where} could not verify the retained staged runtime: ${error.message}`);
+  }
+  return identity;
+}
+
+function validateCandidateDerivation(result, ledger, where, issues) {
+  if (result.blocked !== ledger.blocked) {
+    issues.push(`${where}.blocked must be derived from candidate_findings.blocked`);
+  }
+  if (!Array.isArray(result.findings) || !Array.isArray(ledger.findings)) return;
+
+  const resultById = new Map();
+  for (const finding of result.findings) {
+    if (!finding || !nonempty(finding.candidate_finding_id)) continue;
+    resultById.set(finding.candidate_finding_id, finding);
+  }
+  if (result.findings.length !== ledger.findings.length) {
+    issues.push(`${where}.findings must map every candidate finding exactly once`);
+  }
+  for (const candidate of ledger.findings) {
+    const derived = resultById.get(candidate?.id);
+    if (!derived) {
+      if (nonempty(candidate?.id)) {
+        issues.push(`${where}.findings is missing candidate finding ${candidate.id}`);
+      }
+      continue;
+    }
+    const expected = {
+      candidate_finding_id: candidate.id,
+      severity: candidate.severity,
+      objective: candidate.objective,
+      blocking: candidate.blocking,
+      locator: candidate.locator,
+      claimed_fixed: candidate.claimed_fixed,
+      summary: candidate.summary,
+    };
+    for (const [field, value] of Object.entries(expected)) {
+      if (!isDeepStrictEqual(derived[field], value)) {
+        issues.push(`${where}.findings ${candidate.id}.${field} must be derived from the ledger`);
+      }
+    }
   }
 }
 
@@ -780,7 +1226,7 @@ function validateAdjudicationArtifact(adjudication, expected, where, issues) {
   ) {
     return;
   }
-  if (adjudication.schema_version !== 1) issues.push(`${where}.schema_version must equal 1`);
+  if (adjudication.schema_version !== 2) issues.push(`${where}.schema_version must equal 2`);
   if (adjudication.benchmark_id !== expected.benchmarkId) {
     issues.push(`${where}.benchmark_id must match the report benchmark`);
   }
@@ -810,10 +1256,13 @@ function validateAdjudicationArtifact(adjudication, expected, where, issues) {
     "run_id",
     "scenario_id",
     "adapter",
+    "source_identity_sha256",
     "runtime_profile_sha256",
     "verdict_sha256",
     "normalized_transcript_sha256",
     "candidate_output_sha256",
+    "candidate_findings_sha256",
+    "oracle_isolation_sha256",
     "post_subject_sha256",
     "fix_verification_sha256",
   ];
@@ -844,6 +1293,138 @@ function evidenceRoot(rootDir, issues) {
   } catch (error) {
     issues.push(`report evidence root is unavailable: ${error.code || error.message}`);
     return null;
+  }
+}
+
+function validateOracleIsolationBindings({ isolation, rootDir, runId, where, issues }) {
+  if (!oracleIsolationAttested(isolation)) return;
+  const sandboxBase = `eval-results/capability-isolation/${runId}`;
+  const expectedPaths =
+    isolation.mode === "sandbox-exec"
+      ? {
+          policy: `${sandboxBase}/sandbox.sb`,
+          launcher: `${sandboxBase}/codex-sandboxed`,
+          preflight: `${sandboxBase}/preflight.json`,
+          launch_receipt: `${sandboxBase}/launch-receipt.json`,
+          command: `eval-results/runs/${runId}/metadata/codex_command.json`,
+        }
+      : Object.fromEntries(
+          ISOLATION_BINDING_FIELDS.map((field) => [field, isolation.bindings[field]?.path])
+        );
+  const bytes = {};
+  for (const field of ISOLATION_BINDING_FIELDS) {
+    bytes[field] = validateBoundFile(
+      rootDir,
+      isolation.bindings[field],
+      expectedPaths[field],
+      `${where}.bindings.${field}`,
+      issues
+    );
+  }
+  if (isolation.mode !== "sandbox-exec") return;
+  if (Object.values(bytes).some((value) => !value)) return;
+
+  let boundary;
+  try {
+    boundary = fs.realpathSync(resolveCapabilitySourceBoundary(rootDir));
+  } catch (error) {
+    issues.push(`${where} cannot resolve the Git common repository boundary: ${error.message}`);
+    return;
+  }
+  const runDir = path.join(rootDir, "eval-results", "runs", runId);
+  if (
+    boundary === path.parse(boundary).root ||
+    !inside(boundary, rootDir) ||
+    !inside(boundary, runDir)
+  ) {
+    issues.push(`${where} Git common repository boundary is not a safe source/read boundary`);
+    return;
+  }
+  if (!bytes.policy.equals(Buffer.from(capabilitySandboxPolicy(boundary, runDir)))) {
+    issues.push(`${where}.bindings.policy must deny the Git boundary and allow only the exact run`);
+  }
+
+  const preflight = parseJsonEvidence(bytes.preflight, `${where}.bindings.preflight`, issues);
+  const receipt = parseJsonEvidence(
+    bytes.launch_receipt,
+    `${where}.bindings.launch_receipt`,
+    issues
+  );
+  const command = parseJsonEvidence(bytes.command, `${where}.bindings.command`, issues);
+  if (!preflight || !receipt || !command) return;
+  const preflightFields = [
+    "schema_version",
+    "run_id",
+    "status",
+    "policy_sha256",
+    "source_canary_sha256",
+    "run_canary_sha256",
+    "sandbox_exec",
+    "candidate_bin",
+  ];
+  if (
+    closedObject(preflight, preflightFields, preflightFields, `${where}.bindings.preflight`, issues)
+  ) {
+    if (preflight.schema_version !== 1) {
+      issues.push(`${where}.bindings.preflight.schema_version must equal 1`);
+    }
+    if (preflight.run_id !== runId || preflight.status !== "pass") {
+      issues.push(`${where}.bindings.preflight must be a passing check for the exact run`);
+    }
+    if (preflight.policy_sha256 !== isolation.bindings.policy.sha256) {
+      issues.push(`${where}.bindings.preflight must bind the exact sandbox policy`);
+    }
+    for (const field of ["source_canary_sha256", "run_canary_sha256"]) {
+      if (!HASH_PATTERN.test(String(preflight[field] || ""))) {
+        issues.push(`${where}.bindings.preflight.${field} must be a sha256 digest`);
+      }
+    }
+    if (preflight.sandbox_exec !== "/usr/bin/sandbox-exec") {
+      issues.push(`${where}.bindings.preflight.sandbox_exec must be /usr/bin/sandbox-exec`);
+    }
+    if (
+      !path.isAbsolute(String(preflight.candidate_bin || "")) ||
+      inside(boundary, path.resolve(String(preflight.candidate_bin || "")))
+    ) {
+      issues.push(`${where}.bindings.preflight.candidate_bin must be outside the denied boundary`);
+    }
+  }
+
+  const receiptFields = ["schema_version", "run_id", "launch_nonce", "policy_sha256"];
+  if (
+    closedObject(receipt, receiptFields, receiptFields, `${where}.bindings.launch_receipt`, issues)
+  ) {
+    if (receipt.schema_version !== 1 || receipt.run_id !== runId) {
+      issues.push(`${where}.bindings.launch_receipt must identify the exact run`);
+    }
+    if (!/^[a-f0-9]{64}$/.test(String(receipt.launch_nonce || ""))) {
+      issues.push(`${where}.bindings.launch_receipt.launch_nonce must be a random 256-bit token`);
+    }
+    if (receipt.policy_sha256 !== isolation.bindings.policy.sha256) {
+      issues.push(`${where}.bindings.launch_receipt must bind the exact sandbox policy`);
+    }
+  }
+
+  const launcherPath = path.join(rootDir, isolation.bindings.launcher.path);
+  const expectedLauncher = capabilitySandboxLauncher({
+    sandboxBin: preflight.sandbox_exec,
+    policyPath: path.join(rootDir, isolation.bindings.policy.path),
+    candidateBin: preflight.candidate_bin,
+    receiptPath: path.join(rootDir, isolation.bindings.launch_receipt.path),
+    receiptBytes: bytes.launch_receipt,
+  });
+  if (!bytes.launcher.equals(Buffer.from(expectedLauncher))) {
+    issues.push(`${where}.bindings.launcher must match the bound policy, receipt, and candidate`);
+  }
+  try {
+    if ((fs.statSync(launcherPath).mode & 0o111) === 0) {
+      issues.push(`${where}.bindings.launcher must remain executable`);
+    }
+  } catch {
+    // validateBoundFile already reported the missing launcher.
+  }
+  if (path.resolve(String(command.command || "")) !== path.resolve(launcherPath)) {
+    issues.push(`${where}.bindings.command must show that the adapter used the bound launcher`);
   }
 }
 
@@ -889,6 +1470,10 @@ function validateBoundFile(rootDir, binding, expectedPath, where, issues) {
     issues.push(`${where} evidence real path escapes the evidence root`);
     return null;
   }
+  if (real !== absolute) {
+    issues.push(`${where} evidence path must not traverse symlinks`);
+    return null;
+  }
   const bytes = fs.readFileSync(real);
   if (sha256(bytes) !== binding.sha256) {
     issues.push(`${where}.sha256 must match evidence bytes`);
@@ -918,8 +1503,10 @@ function scoreCapabilityReport(oracle, report, options = {}) {
 
   const cases = new Map(oracle.cases.map((item) => [item.id, item]));
   const totals = {
+    defectsExpected: 0,
     blockingExpected: 0,
     blockingDetected: 0,
+    objectiveExpected: 0,
     objectiveReported: 0,
     objectiveMatched: 0,
     cleanRuns: 0,
@@ -927,53 +1514,101 @@ function scoreCapabilityReport(oracle, report, options = {}) {
     matched: 0,
     correctLocations: 0,
     correctSeverities: 0,
-    claimedFixes: 0,
-    verifiedFixes: 0,
+    verifiedBlockingFixes: 0,
   };
+  const unattestedCases = [];
+  const sourceBoundaryUnattestedCases = [];
+  const evidenceRootDir = fs.realpathSync(path.resolve(options.rootDir));
 
   for (const repeat of report.repeats) {
     for (const result of repeat.cases) {
       const expected = cases.get(result.case_id);
       const defects = new Map(expected.defects.map((item) => [item.id, item]));
+      totals.defectsExpected += expected.defects.length;
+      const isolation = JSON.parse(
+        fs.readFileSync(path.join(evidenceRootDir, result.oracle_isolation.path), "utf8")
+      );
+      if (!oracleIsolationAttested(isolation)) {
+        sourceBoundaryUnattestedCases.push({
+          repeat: repeat.repeat,
+          case_id: result.case_id,
+          mode: isolation.mode,
+        });
+      }
+      if (!oracleIsolationClaimable(isolation)) {
+        unattestedCases.push({
+          repeat: repeat.repeat,
+          case_id: result.case_id,
+          mode: isolation.mode,
+        });
+      }
       if (expected.clean_control) {
         totals.cleanRuns += 1;
         if (result.blocked || result.findings.some((finding) => finding.blocking)) {
           totals.cleanFalseBlocks += 1;
         }
       }
+      totals.objectiveExpected += expected.defects.filter((defect) => defect.objective).length;
       for (const defect of expected.defects) {
         if (!BLOCKING_SEVERITIES.has(defect.severity)) continue;
         totals.blockingExpected += 1;
-        if (result.findings.some((finding) => finding.oracle_id === defect.id)) {
+        const finding = result.findings.find((candidate) => candidate.oracle_id === defect.id);
+        if (
+          finding &&
+          finding.blocking === true &&
+          finding.objective === defect.objective &&
+          finding.judge_objective === defect.objective
+        ) {
           totals.blockingDetected += 1;
+        }
+        if (finding?.claimed_fixed === true && finding.fix_verified === true) {
+          totals.verifiedBlockingFixes += 1;
         }
       }
       for (const finding of result.findings) {
         const defect = finding.oracle_id === null ? null : defects.get(finding.oracle_id);
         if (finding.objective) {
           totals.objectiveReported += 1;
-          if (defect?.objective === true) totals.objectiveMatched += 1;
+          if (finding.judge_objective === true && defect?.objective === true) {
+            totals.objectiveMatched += 1;
+          }
         }
         if (defect) {
           totals.matched += 1;
           if (finding.location_correct) totals.correctLocations += 1;
           if (finding.severity === defect.severity) totals.correctSeverities += 1;
         }
-        if (finding.claimed_fixed) {
-          totals.claimedFixes += 1;
-          if (finding.fix_verified) totals.verifiedFixes += 1;
-        }
       }
     }
   }
 
   const metrics = {
-    p0_p1_recall: ratio(totals.blockingDetected, totals.blockingExpected, 1),
-    objective_precision: ratio(totals.objectiveMatched, totals.objectiveReported, 1),
+    p0_p1_recall: ratio(
+      totals.blockingDetected,
+      totals.blockingExpected,
+      totals.blockingExpected > 0 ? 0 : 1
+    ),
+    objective_precision: ratio(
+      totals.objectiveMatched,
+      totals.objectiveReported,
+      totals.objectiveExpected > 0 ? 0 : 1
+    ),
     clean_control_false_block_rate: ratio(totals.cleanFalseBlocks, totals.cleanRuns, 0),
-    locator_accuracy: ratio(totals.correctLocations, totals.matched, 1),
-    severity_accuracy: ratio(totals.correctSeverities, totals.matched, 1),
-    claimed_fix_success: ratio(totals.verifiedFixes, totals.claimedFixes, 1),
+    locator_accuracy: ratio(
+      totals.correctLocations,
+      totals.matched,
+      totals.defectsExpected > 0 ? 0 : 1
+    ),
+    severity_accuracy: ratio(
+      totals.correctSeverities,
+      totals.matched,
+      totals.defectsExpected > 0 ? 0 : 1
+    ),
+    claimed_fix_success: ratio(
+      totals.verifiedBlockingFixes,
+      totals.blockingExpected,
+      totals.blockingExpected > 0 ? 0 : 1
+    ),
   };
   const threshold_results = Object.fromEntries(
     METRICS.map((metric) => {
@@ -987,9 +1622,11 @@ function scoreCapabilityReport(oracle, report, options = {}) {
     })
   );
   const repeatCount = new Set(report.repeats.map((item) => item.repeat)).size;
-  const claimable = repeatCount >= oracle.minimum_repeats;
+  const repeatSufficient = repeatCount >= oracle.minimum_repeats;
+  const isolationAttested = unattestedCases.length === 0;
+  const claimable = repeatSufficient && isolationAttested;
   return {
-    schema_version: 1,
+    schema_version: 2,
     benchmark_id: oracle.benchmark_id,
     profile: structuredClone(report.profile),
     repeat_count: repeatCount,
@@ -999,6 +1636,13 @@ function scoreCapabilityReport(oracle, report, options = {}) {
       claimable && Object.values(threshold_results).every((result) => result.passed === true),
     metrics,
     threshold_results,
+    oracle_isolation: {
+      attested: isolationAttested,
+      source_boundary_attested: sourceBoundaryUnattestedCases.length === 0,
+      claimability_reason:
+        "no current mode verifies network denial and every oracle-bearing source/plugin mirror",
+      unattested_cases: unattestedCases,
+    },
   };
 }
 
@@ -1016,6 +1660,18 @@ function closedObject(value, allowed, required, where, issues) {
       issues.push(`${where} is missing field ${key}`);
   }
   return true;
+}
+
+function validateBindingShape(binding, where, issues) {
+  if (!closedObject(binding, ["path", "sha256"], ["path", "sha256"], where, issues)) {
+    return;
+  }
+  if (!nonempty(binding.path) || path.isAbsolute(binding.path) || binding.path.includes("\\")) {
+    issues.push(`${where}.path must be a repository-relative POSIX path`);
+  }
+  if (!HASH_PATTERN.test(String(binding.sha256 || ""))) {
+    issues.push(`${where}.sha256 must be a sha256 digest`);
+  }
 }
 
 function plainObject(value) {
@@ -1051,6 +1707,14 @@ function canonicalValue(value) {
       .sort()
       .map((key) => [key, canonicalValue(value[key])])
   );
+}
+
+function seatbeltString(value) {
+  return String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+}
+
+function shellQuote(value) {
+  return `'${String(value).replaceAll("'", `'"'"'`)}'`;
 }
 
 function ratio(numerator, denominator, emptyValue) {
@@ -1102,11 +1766,18 @@ if (require.main === module) process.exitCode = main(process.argv.slice(2));
 
 module.exports = {
   METRICS,
+  candidateOutputReferencesFinding,
+  capabilitySandboxLauncher,
+  capabilitySandboxPolicy,
   capabilityAdjudicationPath,
   capabilityFixVerificationPath,
   capabilityOracleHash,
   capabilityScenarioId,
   scoreCapabilityReport,
+  resolveCapabilitySourceBoundary,
+  validateCandidateFindingsLedger,
   validateCapabilityOracle,
   validateCapabilityReport,
+  validateOracleIsolationArtifact,
+  validateOracleIsolationEvidence,
 };

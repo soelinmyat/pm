@@ -317,15 +317,48 @@ explicitly declines a variance claim because each profile has only one repeat.
 Adding an opt-in profile does not require historical scorecards to contain that
 profile; they remain point-in-time comparisons.
 
-## Hidden Design-Critique Capability Benchmark
+## Oracle-Withheld Design-Critique Capability Benchmark
 
-The host-only contract is `evals/capabilities/design-critique/oracle.json`.
-The dedicated runner creates one isolated scenario for every oracle fixture.
-Candidate runs receive the fixture implementation, but never the oracle,
-defect IDs, expected locations, severities, or fix checks. The eval runtime
-stages plugin runtime paths and the selected generated scenario; it does not
-stage `evals/` wholesale. Run `npm run eval:check` after fixture changes to
-verify fixture hashes and case composition.
+The host-side adjudication contract is
+`evals/capabilities/design-critique/oracle.json`. It is committed test data, not
+a secret; the benchmark stages no copy into the candidate run.
+The dedicated runner creates one scenario for every oracle fixture. Candidate
+prompts and staged runtime files omit the oracle, defect IDs, expected
+locations, severities, and fix checks. This is an **oracle-withheld** boundary,
+not proof that the candidate process cannot read the source repository.
+
+Every run binds schema-2 `metadata/oracle_isolation.json`. For live Codex runs on
+macOS, the dedicated capability runner attempts an additional `sandbox-exec`
+boundary around the Codex process only. The policy denies reads and writes below
+the Git common repository boundary, then re-allows reads in the exact run. Within
+that boundary, writes are re-allowed only in the run's workdir, isolated
+home/cache/config/data, and temp paths. The
+same policy must read a random run-side canary and fail to read a random
+source-side canary before launch. The launcher, policy, preflight result,
+unguessable launch receipt, and adapter command are retained as hash-bound files.
+This proves only that one local source boundary was enforced. It does not deny
+outbound network access or establish that another installed/marketplace copy of
+the plugin lacks the committed oracle.
+
+If any setup, canary, launch-receipt, command-binding, platform, or nested-sandbox
+check is inconclusive, the runner executes with its normal adapter behavior and
+records `mode: unattested`; harness self-tests use `stub-harness`. These captures
+may be adjudicated for diagnostics. The built-in `sandbox-exec` evidence is also
+diagnostic-only: the scorer returns `claimable: false` and
+`release_passed: false` because it cannot prove network denial and exclusion of
+every oracle-bearing source/plugin mirror. Generic `external-container`
+self-attestations are likewise nonclaimable because PM has no trusted semantic
+verifier for them. A future claimable runner must use a mechanically verified
+OS boundary that mounts only the staged runtime, scenario, workdir, home, temp,
+and artifact paths; excludes the source repository, `.git/`, `evals/`, and every
+known plugin/cache/marketplace mirror; denies arbitrary outbound network access;
+and binds the exact policy, launcher, preflight, launch receipt, and command.
+
+`sandbox-exec` is deprecated and may be blocked by the host or a nested sandbox.
+Binary presence alone never counts as enforcement. If the source-denial and
+run-allowance preflight cannot execute conclusively, the result remains
+unattested. Run `npm run eval:check` after fixture changes to verify fixture
+hashes and case composition.
 
 Run all fixtures once for a configured model profile with:
 
@@ -334,8 +367,9 @@ npm run eval:design-critique:run -- --profile sol-high --repeat 1
 npm run eval:design-critique:run -- --profile astra-high --repeat 1
 ```
 
-For a claimable profile result, execute at least the oracle's minimum of three
-distinct repeats:
+For a statistically sufficient diagnostic result, execute at least the oracle's
+minimum of three distinct repeats from one exact clean source/runtime identity.
+Repeat sufficiency alone does not make a current local run claimable:
 
 ```bash
 for repeat in 1 2 3; do
@@ -345,35 +379,48 @@ done
 
 Each command writes a private, gitignored capture under
 `eval-results/capabilities/design-critique/<benchmark>/<profile>/repeat-N.json`.
-It exits nonzero if any fixture run is not a behavioral pass or if captured
-bytes do not match the fixture oracle. Each successful case binds the immutable
-pre-candidate fixture bytes, runtime profile identity, verdict, normalized
-transcript, candidate output, and post-candidate HTML subject by canonical run
-path and SHA-256 digest.
+It exits nonzero if any fixture run is not a behavioral pass, its candidate
+ledger is missing or invalid, or captured bytes do not match the fixture
+oracle. Each successful case binds the immutable pre-candidate fixture bytes,
+source/runtime identity, runtime profile identity, verdict, normalized
+transcript, user-facing candidate output, candidate-authored
+`capability-findings.json`, oracle-isolation evidence, and post-candidate HTML
+subject by canonical run path and SHA-256 digest. Adjudication rejects dirty
+source identities, retained runtime hash mismatches, or any identity difference
+across cases and repeats.
 
-After each isolated candidate run, an adjudicator with access to the oracle maps
-each reported finding to an `oracle_id`, or `null` for an unmatched finding. The
-adjudicated report is a closed JSON object with `schema_version: 2`,
+The candidate ledger is a closed object with `schema_version`, case-level
+`blocked`, `summary`, and `findings`. Every finding has a unique stable
+`finding-*` ID,
+`severity`, candidate-authored `objective`, `blocking`, `locator`,
+`claimed_fixed`, and `summary`. Every ledger ID must also appear in
+`quality-output.md`; a clean result uses an empty findings array. Oracle IDs are
+never candidate fields.
+
+After each candidate run, a trusted adjudicator with access to the oracle maps
+each ledger finding exactly once by `candidate_finding_id` to an `oracle_id`, or
+`null` for an unmatched finding. The adjudicator supplies semantic truth and
+location correctness; candidate-authored severity, objectivity, blocking,
+locator, fix claim, summary, and case blocked outcome are derived from the bound
+ledger and cannot be replaced by judgments. The adjudicated report is a closed
+JSON object with `schema_version: 3`,
 `benchmark_id`, `profile`, and `repeats`. Write only the human decisions for one
 capture as a closed judgments JSON object; the sealing command copies and binds
 the run evidence:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "repeat": 1,
   "cases": [
     {
       "case_id": "responsive-report",
-      "blocked": true,
-      "findings": [
+      "mappings": [
         {
+          "candidate_finding_id": "finding-responsive-overflow",
           "oracle_id": "responsive-shell-overflow",
-          "severity": "high",
-          "objective": true,
-          "blocking": true,
-          "location_correct": true,
-          "claimed_fixed": true
+          "judge_objective": true,
+          "location_correct": true
         }
       ]
     }
@@ -381,10 +428,12 @@ the run evidence:
 }
 ```
 
-Include one row for every capture case. Use `oracle_id: null` for an unmatched
-finding. Do not author `fix_verified`: the host verifier derives it from the
-post-run subject. Seal each repeat into the same report (the command appends a
-new repeat):
+Include one row for every capture case and exactly one mapping for every bound
+candidate finding. Invented, missing, duplicate, unknown, or omitted candidate
+IDs are rejected. Use `oracle_id: null` for an unmatched finding. Do not author
+candidate fields or `fix_verified`: the host verifier derives fix verification
+from the post-run subject. Seal each repeat into the same report (the command
+appends a new repeat):
 
 ```bash
 npm run eval:design-critique:adjudicate -- \
@@ -408,10 +457,13 @@ The command also creates a closed adjudication artifact for each row under
 `eval-results/capabilities/design-critique/adjudications/`. It binds the semantic
 oracle SHA, exact profile/repeat/case, fixture/run/scenario/adapter identities,
 and hashes of the runtime profile, verdict, normalized transcript, candidate
-output, post-run subject, and fix-verification result. Its `blocked` and
-`findings` values must exactly match the report row. Every repeat must contain
-every oracle case, and repeat numbers must be distinct. Keep the oracle
-unavailable to the candidate process; only the post-run adjudicator reads it.
+output, candidate findings ledger, oracle-isolation record, post-run subject,
+and fix-verification result. Its `blocked` and `findings` values must exactly
+match the report row and the candidate-authored fields must exactly match the
+ledger. Every repeat must contain every oracle case, and repeat numbers must be
+distinct. The candidate prompt and staged runtime withhold the oracle. Current
+local and generic external evidence does not establish that every alternate
+filesystem or network route to it was unavailable to the process.
 
 The scorer resolves every evidence path under the repository, rereads the
 bytes, checks every digest, and cross-checks the scenario/profile/run identity
@@ -429,14 +481,21 @@ npm run eval:design-critique:score -- \
 ```
 
 The scorer reports P0/P1 recall, objective precision, clean-control false-block
-rate, locator accuracy, severity accuracy, and success for fixes the candidate
-claimed. A result is claimable only after three distinct repeats. Release passes
-only when every metric meets its threshold; a non-claimable or failed report
-returns a nonzero exit code.
+rate, locator accuracy, severity accuracy, and independently verified fixes for
+expected blocking defects. Recall requires an expected blocking defect to be
+reported with its correct objective/subjective basis and as blocking. Empty
+objective or blocking-fix denominators do not receive perfect scores when those
+dimensions are applicable. Metrics remain useful diagnostics, but no currently
+implemented isolation mode is claimable: built-in `sandbox-exec` is source-only,
+and generic external-container files are not a trusted attestation protocol.
+Accordingly, the scorer currently returns `claimable: false`,
+`release_passed: false`, and a nonzero exit code even when every quality metric
+meets its threshold.
 
-Legacy `schema_version: 1` reports contain no run or byte bindings and cannot be
-migrated into a capability claim. Re-run and adjudicate the benchmark to produce
-schema 2 evidence.
+Legacy `schema_version: 1` reports contain no run or byte bindings, and version
+2 reports contain no candidate-ledger or oracle-isolation bindings. Neither can
+be migrated into a capability claim. Re-run and adjudicate the benchmark to
+produce schema 3 evidence.
 
 ## Scenario Shape
 
