@@ -249,6 +249,10 @@ shutdown grace, with timestamps and signals persisted in the ledger and durable 
 | `/pm:setup` | Enable or disable integrations (Linear, Ahrefs) |
 | `/pm:sync [pull\|push\|status]` | Bidirectionally synchronize the git-backed PM knowledge base, with explicit one-way and inspection modes |
 
+Git sync setup preserves pending edits in an existing KB repository. A successful
+setup verifies its upstream; run `/pm:sync` afterward to pull, commit, and publish
+those edits.
+
 Compatibility: deprecated `/pm:simplify` redirects to `/pm:review`; Review owns its
 reuse, quality, and efficiency lenses, so Simplify is not a separate workflow or gate.
 
