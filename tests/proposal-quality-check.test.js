@@ -2,7 +2,10 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
+const { execFileSync, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { validateProposal } = require("../scripts/lib/proposal-schema");
 const { scoreProposal } = require("../scripts/proposal-quality-check");
@@ -54,4 +57,38 @@ test("quality gate requires a durable design context for downstream handoff", ()
   const result = scoreProposal(proposal);
   assert.equal(result.quality_passed, false);
   assert.equal(result.minimums.design_context.passed, false);
+});
+
+test("CLI resolves repo-relative prototype paths from the nearest git root by default", () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), "proposal-quality-root-"));
+  try {
+    execFileSync("git", ["init", "-q"], { cwd: repo });
+    const proposal = fixture("strong-v1.json");
+    const prototypePath = "pm/backlog/wireframes/structured-groom.html";
+    const prototypeBytes = Buffer.from("<main>Bound prototype</main>\n");
+    proposal.design_context.prototype = {
+      path: prototypePath,
+      sha256: `sha256:${crypto.createHash("sha256").update(prototypeBytes).digest("hex")}`,
+    };
+    const proposalPath = path.join(repo, "pm/backlog/proposals/structured-groom.json");
+    fs.mkdirSync(path.dirname(proposalPath), { recursive: true });
+    fs.mkdirSync(path.dirname(path.join(repo, prototypePath)), { recursive: true });
+    fs.writeFileSync(path.join(repo, prototypePath), prototypeBytes);
+    fs.writeFileSync(proposalPath, `${JSON.stringify(proposal, null, 2)}\n`);
+
+    const run = spawnSync(
+      process.execPath,
+      [
+        path.join(__dirname, "../scripts/proposal-quality-check.js"),
+        "--proposal",
+        proposalPath,
+        "--json",
+      ],
+      { encoding: "utf8" }
+    );
+    assert.equal(run.status, 0, run.stderr || run.stdout);
+    assert.equal(JSON.parse(run.stdout).quality_passed, true);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
 });

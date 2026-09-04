@@ -2,7 +2,9 @@
 "use strict";
 
 const path = require("node:path");
+const fs = require("node:fs");
 const { readProposal } = require("./lib/proposal-schema");
+const { findGitRoot } = require("./loop-git");
 
 const GENERIC =
   /^(improve|better|good|nice|user[- ]friendly|tbd|todo|make it work|improve the experience)[ .!]*$/i;
@@ -198,12 +200,16 @@ function main(argv = process.argv.slice(2)) {
     process.stderr.write("proposal-quality-check: --proposal is required\n");
     return 2;
   }
-  const proposalPath = path.resolve(argv[proposalIndex + 1]);
-  const projectRoot =
-    rootIndex >= 0 && argv[rootIndex + 1]
-      ? path.resolve(argv[rootIndex + 1])
-      : path.dirname(proposalPath);
+  const requestedProposalPath = path.resolve(argv[proposalIndex + 1]);
   try {
+    const proposalPath = fs.realpathSync(requestedProposalPath);
+    const requestedProjectRoot =
+      rootIndex >= 0 && argv[rootIndex + 1]
+        ? path.resolve(argv[rootIndex + 1])
+        : findGitRoot(path.dirname(proposalPath)) || path.dirname(proposalPath);
+    const projectRoot = fs.existsSync(requestedProjectRoot)
+      ? fs.realpathSync(requestedProjectRoot)
+      : requestedProjectRoot;
     const source = readProposal(proposalPath, { projectRoot });
     const result = scoreProposal(source.proposal);
     if (json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);

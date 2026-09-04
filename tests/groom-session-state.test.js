@@ -97,6 +97,24 @@ test("legacy schema-v1 Quick sessions resume on their frozen pre-design route", 
     session = recordResult(session, passed(session));
     session = recordResult(session, passed(session));
     assert.equal(session.phase, "draft");
+
+    const proposalPath = path.join(artifact, "pm/backlog/proposals/legacy-quick-route.json");
+    fs.mkdirSync(path.dirname(proposalPath), { recursive: true });
+    fs.writeFileSync(proposalPath, '{"revision":1,"lifecycle":"draft"}\n');
+    session = recordResult(
+      session,
+      passed(session, {
+        proposal: proposalIdentity(proposalPath, 1),
+        evidence: [evidence("proposal"), evidence("artifact")],
+      })
+    );
+    assert.equal(session.phase, "approval");
+    assert.equal(session.status, "awaiting_approval");
+    assert.equal(session.review.status, "not_started");
+
+    session = approveSession(session, { approvedBy: "product-owner" });
+    assert.equal(session.phase, "handoff");
+    assert.equal(session.approval.status, "approved");
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
   }
