@@ -153,3 +153,33 @@ test("Engineering Review adds a dedicated security lens for risky Dev work", () 
   assert.match(briefs, /authorization|privacy|secret|dependency/i);
   assert.match(dispatch, /security.*risk/i);
 });
+
+test("Model profiles keep Sol default and add explicit Astra comparative coverage", () => {
+  const dev = JSON.parse(read("skills/dev/references/model-profiles.json"));
+  const rfc = JSON.parse(read("skills/rfc/references/model-profiles.json"));
+  const suite = JSON.parse(read("evals/quality/suite.json"));
+
+  assert.equal(dev.profiles[dev.defaults.codex].model, "gpt-5.6-sol");
+  assert.equal(rfc.profiles[rfc.defaults.codex].model, "gpt-5.6-sol");
+  assert.equal(dev.profiles["codex-astra"].model, "gpt-6-astra");
+  assert.equal(dev.profiles["codex-astra"].effort, "high");
+  assert.equal(rfc.profiles["gpt-6-astra-high"].model, "gpt-6-astra");
+  assert.equal(rfc.profiles["gpt-6-astra-high"].effort, "high");
+  assert.ok(suite.profiles.some((profile) => profile.id === "astra-high"));
+  assert.equal(suite.minimum_repeats, 3);
+});
+
+test("Design Critique capability benchmark keeps defect truth outside candidate scenarios", () => {
+  const oracle = JSON.parse(read("evals/capabilities/design-critique/oracle.json"));
+  assert.equal(oracle.minimum_repeats, 3);
+  assert.ok(oracle.cases.some((item) => item.clean_control === true));
+  for (const item of oracle.cases.filter((entry) => !entry.clean_control)) {
+    assert.ok(item.defects.length >= 3 && item.defects.length <= 6);
+    assert.ok(item.fixture_ref.startsWith("evals/quality/fixtures/design-critique/"));
+  }
+
+  const generator = read("scripts/evals/generate-quality-scenarios.js");
+  assert.doesNotMatch(generator, /fixed export action overlaps heading/i);
+  assert.doesNotMatch(generator, /action is off-screen/i);
+  assert.match(generator, /design-critique\/responsive-report\.html/);
+});
