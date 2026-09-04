@@ -299,7 +299,7 @@ Tasks are populated during intake from the RFC's JSON sidecar `issues[]` when it
 
 ## QA Evidence
 - Canonical report: `.pm/dev-sessions/{slug}/qa/report.json`
-- Keep verdict, findings, confidence, and run history in that standalone JSON artifact. Do not append a parallel `## QA` verdict to `session.json` or its Markdown projection.
+- Keep verdict, findings, typed evidence, and run history in that standalone JSON artifact. Do not append a parallel `## QA` verdict to `session.json` or its Markdown projection.
 - A passing QA phase has exactly one passing `test` evidence record, and its artifact is the exact absolute canonical report path. `qa-report-check.js` rejects aliases, symlinks, paths outside the session, commit drift, unknown report fields, inconsistent totals/counts/history, invalid score/verdict thresholds, and unresolved Critical/High findings.
 - Legacy sessions remain readable, but old null or generic QA evidence is not grandfathered into a current gate. Rerun QA, replace the canonical report with one bound to current HEAD, and use that checked report for recertification.
 

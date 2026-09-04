@@ -482,7 +482,7 @@ test("review recertification must preserve every gate kind needed for final arch
   }
 });
 
-test("UI gate recertification requires Design Critique review and QA test evidence", () => {
+test("UI gate recertification rejects an unbound QA test record", () => {
   const repo = makeRepo();
   try {
     const session = createSession({ slug: "recertify-ui-gates", sourceDir: repo.root });
@@ -499,12 +499,16 @@ test("UI gate recertification requires Design Critique review and QA test eviden
       records: [{ kind: "test", command: "qa", exit_code: 0, artifact: null }],
       recorded_at: "2026-07-14T00:00:00.000Z",
     };
-    const recertified = recertifyEvidence(session, ["design-critique", "qa"], repo.head(), {
-      "design-critique": [{ kind: "review", command: "critique", exit_code: 0, artifact: null }],
-      qa: [{ kind: "test", command: "qa", exit_code: 0, artifact: null }],
-    });
-    assert.equal(recertified.evidence["design-critique"].verification_records[0].kind, "review");
-    assert.equal(recertified.evidence.qa.verification_records[0].kind, "test");
+    assert.throws(
+      () =>
+        recertifyEvidence(session, ["design-critique", "qa"], repo.head(), {
+          "design-critique": [
+            { kind: "review", command: "critique", exit_code: 0, artifact: null },
+          ],
+          qa: [{ kind: "test", command: "qa", exit_code: 0, artifact: null }],
+        }),
+      /QA test evidence requires an absolute report artifact path/
+    );
   } finally {
     repo.cleanup();
   }

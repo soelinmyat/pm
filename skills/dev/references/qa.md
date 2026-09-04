@@ -577,7 +577,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/qa-issue-taxonomy.md` for full
 | **Console** | 15% | Layer 1 (Structural) |
 | **Links** | 10% | Layer 1 (Structural) |
 | **Visual** | 10% | Layer 2 (DOM) + Layer 5 (Screenshots) |
-| **Functional** | 20% | Layer 3 (Data) + Layer 4 (Interaction) |
+| **Functional** | 25% | Layer 3 (Data) + Layer 4 (Interaction) |
 | **UX** | 15% | Layer 4 (Interaction) + Layer 5 (Screenshots) |
 | **Performance** | 10% | Layer 1 (Console/Network timing) |
 | **Accessibility** | 15% | Layer 1 (ARIA tree) + Layer 2 (contrast via DOM) |
@@ -642,7 +642,7 @@ Every finding MUST include evidence:
 ```
 
 <HARD-RULE>
-NEVER report a finding without evidence. Prefer ASSERTION/STRUCTURAL/CONSOLE evidence over VISUAL. If a finding can only be evidenced by a screenshot, mark confidence as Medium.
+NEVER report a finding without evidence. Prefer ASSERTION/STRUCTURAL/CONSOLE evidence over VISUAL. The `visual` evidence type is explicitly the Medium-confidence lane; do not present it as deterministic proof.
 </HARD-RULE>
 
 ---
@@ -670,6 +670,18 @@ modes. Derive `{slug}` from the canonical Dev session when one exists; otherwise
 use the shared session-slug normalization for the current branch or requested
 feature. Create only the `qa/` directory needed for this artifact.
 
+For a Dev gate, the report path is a closed trust boundary: use the exact absolute
+`.pm/dev-sessions/{slug}/qa/report.json` path, with no symlink or path alias. The
+report's `commit` must equal the phase-result commit and current HEAD. Validate it
+before recording the result:
+
+```bash
+node ${PM_PLUGIN_ROOT}/scripts/qa-report-check.js \
+  --session <absolute-session.json> \
+  --report <absolute-report.json> \
+  --commit <current-HEAD>
+```
+
 `session.json` remains lifecycle state. QA may read it for context, but never
 inserts prose, headings, findings, or report payloads into it. The Dev runner
 records the phase result and gate pointer separately.
@@ -688,7 +700,15 @@ each attempt in `runs`:
   "assertions": { "passed": 12, "total": 12 },
   "finding_counts": { "critical": 0, "high": 0, "medium": 0, "low": 0 },
   "findings": [],
-  "category_breakdown": [],
+  "category_breakdown": [
+    { "category": "console", "score": 100 },
+    { "category": "links", "score": 100 },
+    { "category": "visual", "score": 100 },
+    { "category": "functional", "score": 100 },
+    { "category": "ux", "score": 100 },
+    { "category": "performance", "score": 100 },
+    { "category": "accessibility", "score": 100 }
+  ],
   "screenshots": [],
   "runs": [
     {
@@ -703,6 +723,16 @@ each attempt in `runs`:
   ]
 }
 ```
+
+The checker treats every object as closed. `finding_counts` counts only findings
+whose disposition is `open`; fixed findings stay in `findings` without lowering
+the latest category or health score. Every finding uses the exact fields shown in
+the Finding Format, a disposition of `open` or `fixed`, and evidence type
+`assertion`, `structural`, `console`, or `visual`. Visual evidence requires an
+absolute screenshot path also listed in `screenshots`. The seven category rows
+are mandatory and are recomputed from open findings. Category weights total 100%
+(Console 15, Links 10, Visual 10, Functional 25, UX 15, Performance 10,
+Accessibility 15), so the checker also recomputes `health_score`.
 
 Write atomically. Preserve prior `runs` entries on re-verification, update the
 top-level fields to the latest observed state, and keep fixed findings with an
@@ -778,6 +808,12 @@ overwrite prior entries. Record the previous and updated verdict/health,
 assertions re-run, fixed finding IDs, still-open finding IDs, and new finding
 IDs. Then update the top-level latest-state fields. Never write re-verification
 history into `session.json`.
+
+An initial run has exactly the fields in the example above. Every later run uses
+`kind: "reverify"` and additionally includes `previous_verdict`,
+`previous_health_score`, `fixed_finding_ids`, `still_open_finding_ids`, and
+`new_finding_ids`. Run numbers are contiguous from 1; the latest verdict, health,
+assertions, and complete finding-ID set must equal the top-level state.
 
 ---
 
