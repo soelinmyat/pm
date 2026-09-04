@@ -12,6 +12,12 @@ const PROFILES = Object.freeze({
       effort: "high",
       mode: "workspace-write",
     },
+    "gpt-6-astra-high": {
+      provider: "codex",
+      model: "gpt-6-astra",
+      effort: "high",
+      mode: "workspace-write",
+    },
     "claude-opus-4-8-xhigh": {
       provider: "claude",
       model: "claude-opus-4-8",
