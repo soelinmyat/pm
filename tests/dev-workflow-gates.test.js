@@ -64,14 +64,14 @@ test("review absorbed the simplify lenses (v1.9)", () => {
   const skill = read("skills/review/SKILL.md");
   const briefs = read("skills/review/references/reviewer-briefs.md");
   const contract = read("scripts/lib/review-contract.js");
-  assert.match(skill, /six logical lenses/);
+  assert.match(skill, /six logical lenses as the baseline/i);
   assert.match(briefs, /`bug`/);
   assert.match(briefs, /`design`/);
   assert.match(briefs, /`edge`/);
   assert.match(briefs, /`reuse`/);
   assert.match(briefs, /`quality`/);
   assert.match(briefs, /`efficiency`/);
-  assert.match(contract, /"bug", "design", "edge", "reuse", "quality", "efficiency"/);
+  assert.match(contract, /"security"/);
   // the dev step is gone; the skill file survives only as a deprecation stub
   // (the pre-push hook requires a SKILL.md for every configured command)
   const stub = read("skills/simplify/SKILL.md");
@@ -103,7 +103,10 @@ test("design critique uses the bound two-mode evidence contract", () => {
   assert.match(skill, /`pm-artifact`/);
   assert.match(skill, /NEVER PASS WITHOUT COMPLETE, CURRENT, HASH-BOUND RENDERED EVIDENCE/);
   assert.match(scope, /diff --binary/);
-  assert.match(scope, /primary, empty, error, and boundary/);
+  assert.match(
+    scope,
+    /primary, empty, error, boundary\/long-content, loading, success, focus, disabled, keyboard, and modal/
+  );
   assert.match(capture, /artifact-render-check\.js/);
   assert.match(capture, /passing evidence cannot live only in `\/tmp`/);
   assert.match(evaluate, /Fresh Eyes/);
@@ -200,6 +203,7 @@ test("low-risk S work receives a code scan instead of silently skipping review",
   assert.match(risk, /low-risk XS\/S work uses the code-scan review mode/);
   assert.match(review, /session\.routing\.review_mode/);
   assert.match(review, /`code-scan` targets bug, edge, reuse, quality, and efficiency/);
+  assert.match(review, /security_review_required.*security lens/is);
   assert.doesNotMatch(review, /S tasks skip both code scan and full review/);
 });
 

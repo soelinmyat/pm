@@ -218,7 +218,7 @@ Rules:
 - Update the row immediately after each gate runs or is explicitly skipped.
 - `commit` is the evidence commit where the gate ran or was explicitly skipped.
 - `verified_commit` / `verified_at` are optional recertification fields written after later commits. They mean the original gate evidence was rechecked against that final tree. These two fields must be written together.
-- The `review` row carries a `lenses` array recording which lenses actually ran (e.g. `["bug", "design", "edge", "reuse", "quality", "efficiency"]`, minus `design` when conditionally skipped). On M/L/XL manifests the checker requires the absorbed lenses `reuse`, `quality`, `efficiency` to be present — a pre-v1.9 3-lens review row does not pass.
+- The `review` row carries a `lenses` array recording only applicable lenses that actually ran: the baseline `bug`, `design`, `edge`, `reuse`, `quality`, and `efficiency` set (minus `design` when conditionally skipped), plus `security` exactly once when the bound Dev context records `security_review_required: true`. On M/L/XL manifests the checker requires the absorbed lenses `reuse`, `quality`, `efficiency` to be present — a pre-v1.9 3-lens review row does not pass.
 - Final push/ship checks accept a row only when either `commit` or `verified_commit` equals `git rev-parse HEAD`; otherwise the row is stale.
 - `passed` rows need an existing artifact path. State-file section anchors such as `.pm/dev-sessions/{slug}/session.json#review` are valid when the file exists. `skipped`, `failed`, and `blocked` rows need a concrete reason.
 - `tdd`, `design-critique`, and `qa` may be skipped only when the workflow has an explicit valid skip reason. `review` and `verification` cannot satisfy push/ship checks as `skipped`; they must be `passed`.
@@ -295,14 +295,9 @@ Tasks are populated during intake from the RFC's JSON sidecar `issues[]` when it
 - Size routing: S (lite, 1 round) | M/L/XL (full)
 - Report: (not yet run)
 
-## QA
-- QA verdict: pending
-- Ship recommendation: pending
-- Issues found: pending
-- Issues fixed: none
-- Issues deferred: none
-- Confidence: pending
-- Re-runs: 0
+## QA Evidence
+- Canonical report: `.pm/dev-sessions/{slug}/qa/report.json`
+- Keep verdict, findings, confidence, and run history in that standalone JSON artifact. Do not append a parallel `## QA` verdict to `session.json` or its Markdown projection.
 
 ## Review
 - Review gate: pending

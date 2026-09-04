@@ -3,7 +3,15 @@
 const crypto = require("node:crypto");
 const { isUiImpactPath } = require("./ui-impact");
 
-const LENSES = Object.freeze(["bug", "design", "edge", "reuse", "quality", "efficiency"]);
+const LENSES = Object.freeze([
+  "bug",
+  "design",
+  "edge",
+  "reuse",
+  "quality",
+  "efficiency",
+  "security",
+]);
 const SEVERITIES = Object.freeze(["low", "medium", "high", "critical"]);
 const OWNERS = Object.freeze(["review", "design-critique", "qa"]);
 const DISPOSITIONS = Object.freeze(["open", "resolved", "dismissed", "deferred"]);
@@ -15,13 +23,26 @@ const DECISION_ACTIONS = Object.freeze([
   "defer",
 ]);
 
-function deriveLensApplicability(mode, changedFiles) {
+function deriveLensApplicability(mode, changedFiles, devContext = null) {
   if (!new Set(["full", "code-scan"]).has(mode)) throw new Error("unknown Review mode");
   const logical = mode === "full" ? [...LENSES] : LENSES.filter((lens) => lens !== "design");
   const designApplicable = Array.isArray(changedFiles)
     ? changedFiles.some((item) => isUiImpactPath(item?.path))
     : false;
   return logical.map((name) => {
+    if (name === "security") {
+      return devContext?.security_review_required === true
+        ? {
+            name,
+            applicable: true,
+            reason: "canonical Dev risk route requires dedicated security review",
+          }
+        : {
+            name,
+            applicable: false,
+            reason: "canonical Dev route does not require dedicated security review",
+          };
+    }
     if (name !== "design")
       return { name, applicable: true, reason: "required source-quality lens" };
     return designApplicable
@@ -38,12 +59,19 @@ function devReviewContext(session) {
   const acceptance = Array.isArray(session?.task?.acceptance_criteria)
     ? session.task.acceptance_criteria
     : [];
+  const risk = session?.task?.risk || {};
+  const securityReviewRequired =
+    risk.destructive_data === true ||
+    ["security", "auth", "data"].some(
+      (dimension) => Number.isFinite(risk[dimension]) && risk[dimension] > 0
+    );
   return {
     run_id: session?.run_id,
     slug: session?.slug,
     review_mode: session?.routing?.review_mode,
     decision_version: session?.routing?.decision_version,
     acceptance_sha256: crypto.createHash("sha256").update(JSON.stringify(acceptance)).digest("hex"),
+    security_review_required: securityReviewRequired,
   };
 }
 

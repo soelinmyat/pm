@@ -115,7 +115,7 @@ Final health score is the weighted average of all 7 category scores.
 
 | Verdict              | Conditions                                    |
 |----------------------|-----------------------------------------------|
-| **Pass**             | health >= 80, no critical, no high            |
-| **Pass with concerns** | health >= 60, no critical, <= 2 high       |
-| **Fail**             | health < 60, or any critical, or > 2 high     |
+| **Pass**             | health >= 80, no unresolved critical or high  |
+| **Pass with concerns** | health >= 60 and < 80, no unresolved critical or high |
+| **Fail**             | health < 60, or any unresolved critical or high |
 | **Blocked**          | Unable to test (environment issue)            |

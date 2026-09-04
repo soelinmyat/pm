@@ -93,7 +93,7 @@ test("complete adaptively allocated review evidence produces a current passing r
   });
   assert.equal(checked.ok, true, JSON.stringify(checked.issues, null, 2));
   assert.equal(checked.report.coverage.required.length, 5);
-  assert.deepEqual(checked.report.coverage.not_applicable, ["design"]);
+  assert.deepEqual(checked.report.coverage.not_applicable, ["design", "security"]);
   assert.equal(checked.validated_human_report.path, fixture.htmlPath);
   assert.equal(
     checked.validated_human_report.sha256,

@@ -74,6 +74,7 @@ const REQUIRED_EVIDENCE = Object.freeze({
   reuse: new Set(["source"]),
   quality: new Set(["source", "contract"]),
   efficiency: new Set(["source", "benchmark", "trace"]),
+  security: new Set(["source", "test", "contract", "trace"]),
 });
 const FROZEN_MERGE_BASE = Symbol("review-frozen-merge-base");
 const CHANGE_HUNK_CACHE = Symbol("review-change-hunk-cache");
@@ -345,7 +346,14 @@ function validateDevContext(context, issues) {
   if (!object(context)) return add(issues, "target.dev_context", "must be null or an object");
   closed(
     context,
-    ["run_id", "slug", "review_mode", "decision_version", "acceptance_sha256"],
+    [
+      "run_id",
+      "slug",
+      "review_mode",
+      "decision_version",
+      "acceptance_sha256",
+      "security_review_required",
+    ],
     "target.dev_context",
     issues
   );
@@ -356,7 +364,8 @@ function validateDevContext(context, issues) {
     !new Set(["full", "code-scan"]).has(context.review_mode) ||
     !Number.isInteger(context.decision_version) ||
     context.decision_version < 1 ||
-    !sha256(context.acceptance_sha256)
+    !sha256(context.acceptance_sha256) ||
+    typeof context.security_review_required !== "boolean"
   )
     add(issues, "target.dev_context", "must contain a valid canonical Dev context");
 }
@@ -607,7 +616,10 @@ function validateLensesAndAllocation(target, issues) {
     target.changed_files.every((item) => object(item) && typeof item.path === "string")
   ) {
     const derived = new Map(
-      deriveLensApplicability(target.mode, target.changed_files).map((item) => [item.name, item])
+      deriveLensApplicability(target.mode, target.changed_files, target.dev_context).map((item) => [
+        item.name,
+        item,
+      ])
     );
     for (const [name, lens] of logical) {
       const expectedLens = derived.get(name);

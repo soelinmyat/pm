@@ -124,7 +124,7 @@ Review passes only with complete current logical-lens coverage, no unresolved Re
 
 | Size | Review bar |
 |------|-----------|
-| XS/S via `pm:dev` | Checked `code-scan` report with bug, edge, reuse, quality, and efficiency coverage |
+| XS/S via `pm:dev` | Checked `code-scan` report with bug, edge, reuse, quality, and efficiency coverage, plus security when required by the bound Dev risk route |
 | Standalone `pm:ship` | Run `pm:review` unless a current `review` gate already exists |
 | M | Checked full report; safe mechanical fixes may run automatically; disputes require decisions. |
 | L/XL | Same machine gate; every handoff, advisory, decision, and fix round remains in the report. |

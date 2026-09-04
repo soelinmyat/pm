@@ -58,14 +58,8 @@ function buildReviewTarget(options) {
   );
   if (designEvidence && designEvidence.commit !== commit)
     throw new Error(`design critique report must attest current HEAD ${commit}`);
-  const lenses = deriveLensApplicability(mode, changedFiles);
   const profile = loadProfile(options.profile || "codex-workhorse");
   const maxWorkers = positiveInt(options.maxWorkers || 3, "max workers");
-  const allocation = allocateLenses(
-    lenses.filter((item) => item.applicable).map((item) => item.name),
-    maxWorkers,
-    options.profile || "codex-workhorse"
-  ).map((worker) => ({ ...worker, runtime: profile }));
   const round = positiveInt(options.round || 1, "round");
   if (round > 3) throw new Error("review round cannot exceed 3");
   const priorLoaded = optionalJsonFileBinding(root, options.priorReportPath, "prior report");
@@ -97,6 +91,12 @@ function buildReviewTarget(options) {
         expectedMode: mode,
       })
     : null;
+  const lenses = deriveLensApplicability(mode, changedFiles, devContext);
+  const allocation = allocateLenses(
+    lenses.filter((item) => item.applicable).map((item) => item.name),
+    maxWorkers,
+    options.profile || "codex-workhorse"
+  ).map((worker) => ({ ...worker, runtime: profile }));
   if (
     acceptanceLoaded &&
     devContext &&
@@ -126,7 +126,15 @@ function buildReviewTarget(options) {
     acceptance,
     upstream: { design_critique: designEvidence },
     ownership: {
-      review: ["source-correctness", "contracts", "tests", "reuse", "quality", "efficiency"],
+      review: [
+        "source-correctness",
+        "contracts",
+        "tests",
+        "reuse",
+        "quality",
+        "efficiency",
+        "security",
+      ],
       design_critique: ["rendered-hierarchy", "density", "responsive-craft", "print-craft"],
       qa: ["live-behavior", "navigation", "state-transitions", "integrations"],
     },
