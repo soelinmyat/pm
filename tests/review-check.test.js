@@ -920,6 +920,21 @@ test("Dev-routed targets require the canonical sibling session and routed mode",
   const target = buildReviewTarget(options);
   assert.equal(target.dev_context.slug, "example");
   assert.equal(target.dev_context.review_mode, "full");
+  assert.equal(target.dev_context.security_review_required, false);
+  assert.equal(target.lenses.find((item) => item.name === "security").applicable, false);
+
+  const securityRouted = structuredClone(session);
+  securityRouted.task.risk.security = 2;
+  write(fixture.root, canonical, securityRouted);
+  const securityTarget = buildReviewTarget(options);
+  assert.equal(securityTarget.dev_context.security_review_required, true);
+  assert.equal(securityTarget.lenses.find((item) => item.name === "security").applicable, true);
+  assert.equal(
+    securityTarget.allocation.flatMap((item) => item.lenses).filter((name) => name === "security")
+      .length,
+    1
+  );
+  write(fixture.root, canonical, session);
 
   const alias = ".pm/dev-sessions/example/session-copy.json";
   write(fixture.root, alias, session);
