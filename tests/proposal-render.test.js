@@ -95,6 +95,7 @@ test("proposal renderer is byte-deterministic and binds both projections to cano
   assert.match(first.html, /<span class="sec-num" aria-hidden="true">00<\/span>Decision Brief/);
   assert.match(first.html, /\.toc-num\s*\{[^}]*color:\s*var\(--ink-2\)/s);
   assert.match(first.html, /code\s*\{[^}]*overflow-wrap:\s*anywhere;[^}]*word-break:\s*normal;/s);
+  assert.match(first.html, /@media print \{ \.skip-link \{ display: none !important; \} \}/);
   assert.doesNotMatch(first.html, /approval\.:/i);
   assert.match(first.html, /<strong>Question result\.<\/strong> Pass/);
   assert.match(first.markdown, /\*\*Question result:\*\* Pass/);
