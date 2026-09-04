@@ -9,7 +9,7 @@ function rfcIssueId(num) {
   return `rfc-${num}`;
 }
 
-function rfcIssuesToDevWorkUnits(sidecar) {
+function rfcIssuesToDevWorkUnits(sidecar, options = {}) {
   if (sidecar?.schema_version !== 3) {
     throw new Error("executable Dev work units require an RFC schema-v3 sidecar");
   }
@@ -37,7 +37,7 @@ function rfcIssuesToDevWorkUnits(sidecar) {
     },
     status: "pending",
   }));
-  return validateWorkUnits(units);
+  return validateWorkUnits(units, { repoRoot: options.repoRoot });
 }
 
 module.exports = { rfcIssueId, rfcIssuesToDevWorkUnits };

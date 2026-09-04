@@ -9,6 +9,7 @@ const { parseCliArgs } = require("./loop-args");
 const { recordSessionTelemetry } = require("./lib/telemetry");
 const { validateRfcSidecar } = require("./rfc-sidecar-check");
 const { rfcIssuesToDevWorkUnits } = require("./lib/rfc-work-units");
+const { findGitRoot } = require("./loop-git");
 
 const {
   advanceDecisionVersion,
@@ -247,6 +248,7 @@ function routeCommand(options) {
   let rfcSidecar = null;
   let rfcSidecarPath = null;
   let rfcSidecarIdentity = null;
+  let rfcRepoRoot = null;
   try {
     facts = JSON.parse(fs.readFileSync(factsPath, "utf8"));
   } catch (error) {
@@ -269,7 +271,10 @@ function routeCommand(options) {
     } catch (error) {
       throw cliError(`cannot read RFC sidecar ${rfcSidecarPath}: ${error.message}`, EXIT.INVALID);
     }
-    const validation = validateRfcSidecar(rfcSidecar, rfcSidecarPath);
+    rfcRepoRoot = findGitRoot(path.dirname(rfcSidecarPath));
+    const validation = validateRfcSidecar(rfcSidecar, rfcSidecarPath, {
+      repoRoot: rfcRepoRoot,
+    });
     if (!validation.ok) {
       throw cliError(
         `invalid RFC sidecar: ${validation.issues.map((entry) => entry.message).join("; ")}`,
@@ -280,7 +285,7 @@ function routeCommand(options) {
       facts = {
         ...facts,
         reference: facts.reference ?? rfcSidecarPath,
-        work_units: rfcIssuesToDevWorkUnits(rfcSidecar),
+        work_units: rfcIssuesToDevWorkUnits(rfcSidecar, { repoRoot: rfcRepoRoot }),
       };
     } catch (error) {
       throw cliError(error.message, EXIT.PRECONDITION);
@@ -294,6 +299,7 @@ function routeCommand(options) {
         if (rfcSidecar) {
           const binding = validateRfcSidecar(rfcSidecar, rfcSidecarPath, {
             expectedSlug: session.slug,
+            repoRoot: rfcRepoRoot,
           });
           if (!binding.ok) {
             throw new Error(

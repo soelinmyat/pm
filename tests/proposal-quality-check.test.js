@@ -47,3 +47,11 @@ test("quality score is bounded, dimensioned, and does not replace schema eligibi
     "traceability",
   ]);
 });
+
+test("quality gate requires a durable design context for downstream handoff", () => {
+  const proposal = fixture("strong-v1.json");
+  delete proposal.design_context;
+  const result = scoreProposal(proposal);
+  assert.equal(result.quality_passed, false);
+  assert.equal(result.minimums.design_context.passed, false);
+});

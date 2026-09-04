@@ -31,7 +31,7 @@ Establish whether an RFC is warranted and persist complete, source-backed produc
    ```
 
    Keep the canonical RFC session under `source_dir`, but use the returned artifact worktree as `artifact_repo_root` and the returned `pm_dir` for every RFC artifact path and commit. Remap a KB-backed `proposal_path` into the returned `pm_dir` and stop if the same trusted proposal bytes are absent there; never bind RFC context to a proposal that exists only in the shared checkout. When the same slug has a clean helper-owned Groom worktree whose canonical proposal and sibling approval audit verify, the helper creates or safely fast-forwards an otherwise-unused `codex/{slug}-rfc` branch to that Groom commit, transferring the approved bytes without a network fetch. Otherwise it fetches and uses the authoritative remote default without moving the shared checkout. It reuses only worktrees it previously marked as owned. If Groom has uncommitted changes, an earlier RFC worktree already contains work, or the helper reports an existing unowned branch or path, stop with its recovery message; never switch, clean, commit, or attach an upstream in the shared KB checkout.
-8. For fresh work, initialize the canonical session. Write a facts JSON file containing `source_kind`, the returned `artifact_repo_root`, and either `proposal_path` or `linear_id`. For canonical proposal JSON, omit duplicated `size` and `acceptance_criteria`; the runner derives both and records a compact trusted proposal identity. For legacy Markdown or Linear, include caller-confirmed size and acceptance criteria. Persist it with:
+8. For fresh work, initialize the canonical session. Write a facts JSON file containing `source_kind`, the returned `artifact_repo_root`, and either `proposal_path` or `linear_id`. For canonical proposal JSON, omit duplicated `size`, `acceptance_criteria`, and design details; the runner derives them and records a compact trusted proposal identity plus the exact approved `design_context`. A canonical proposal without that durable field returns to Groom instead of inviting RFC to reconstruct it. For legacy Markdown or Linear, include caller-confirmed size and acceptance criteria. Persist it with:
 
    ```bash
    node ${CLAUDE_PLUGIN_ROOT}/scripts/rfc-session.js context \
@@ -44,7 +44,7 @@ Establish whether an RFC is warranted and persist complete, source-backed produc
 
 - Product context is approved/dev-ready and traceable to a proposal or complete Linear issue.
 - Size is confirmed as M/L/XL; XS/S has stopped with a `pm:dev` handoff.
-- Acceptance criteria are non-empty, source-derived where canonical JSON exists, and saved with proposal identity plus the returned isolated artifact worktree in canonical RFC state.
+- Acceptance criteria are non-empty and source-derived where canonical JSON exists; the exact approved design context, proposal identity, and isolated artifact worktree are saved in canonical RFC state.
 - The intake result is recorded and `rfc-session next` returns generation.
 
 **Advance:** proceed to Step 02 (RFC Generation).

@@ -420,6 +420,29 @@ test("review requires every lens to pass against the generated artifact", () => 
   }
 });
 
+test("generation rejects a sidecar that reconstructs intake-bound design context", () => {
+  const repo = makeRepo();
+  try {
+    let session = routedSession(repo);
+    session.context.design_context = {
+      design_requirements: ["Keep approval state visible beside the proposal revision."],
+      prototype: null,
+      critical_states: ["draft", "approved", "stale approval"],
+      visual_invariants: ["Approval state remains visible at narrow widths."],
+    };
+    session = recordResult(session, passed(session));
+    const substituted = structuredClone(session.context.design_context);
+    substituted.visual_invariants = ["A weaker reconstructed invariant."];
+    const artifact = makeArtifact(repo, { designContext: substituted });
+    assert.throws(
+      () => recordResult(session, passed(session, { artifact, evidence: [evidence("artifact")] })),
+      /design_context must match the approved proposal execution contract/i
+    );
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test("noop cannot bypass approval or handoff evidence", () => {
   const repo = makeRepo();
   try {
@@ -783,6 +806,12 @@ test("intake derives RFC scope from trusted canonical proposal and rejects stale
     const proposal = JSON.parse(
       fs.readFileSync(path.join(__dirname, "fixtures", "proposals", "strong-v1.json"), "utf8")
     );
+    proposal.design_context = {
+      design_requirements: proposal.design_requirements.map((item) => item.requirement),
+      prototype: null,
+      critical_states: ["draft", "reviewed", "approved", "stale approval"],
+      visual_invariants: ["Lifecycle and approval state remain visible at narrow widths."],
+    };
     proposal.lifecycle = "approved";
     proposal.review = {
       status: "passed",
@@ -800,6 +829,27 @@ test("intake derives RFC scope from trusted canonical proposal and rejects stale
     markOwnedRfcRoot(repo.root, proposal.slug);
     const approvalPath = proposalPath.replace(/\.json$/, ".approval.json");
     fs.mkdirSync(path.dirname(proposalPath), { recursive: true });
+    const unboundProposal = structuredClone(proposal);
+    delete unboundProposal.design_context;
+    unboundProposal.review.content_sha256 = proposalContentHash(unboundProposal);
+    fs.writeFileSync(proposalPath, `${JSON.stringify(unboundProposal, null, 2)}\n`);
+    const unboundApproval = buildProposalApproval(unboundProposal, fs.readFileSync(proposalPath), {
+      approvedBy: "user:owner",
+      approvedAt: "2026-07-14T03:00:00.000Z",
+      decisionId: "groom-approval:groom_test",
+      decisionSha256: `sha256:${"5".repeat(64)}`,
+    });
+    fs.writeFileSync(approvalPath, `${JSON.stringify(unboundApproval, null, 2)}\n`);
+    assert.throws(
+      () =>
+        applyContext(createSession({ slug: proposal.slug, sourceDir: repo.root }), {
+          source_kind: "proposal",
+          proposal_path: proposalPath,
+          artifact_repo_root: repo.root,
+        }),
+      /lacks durable design_context/i
+    );
+
     fs.writeFileSync(proposalPath, `${JSON.stringify(proposal, null, 2)}\n`);
     const approvedProposalBytes = fs.readFileSync(proposalPath);
     const approval = buildProposalApproval(proposal, fs.readFileSync(proposalPath), {
@@ -821,6 +871,7 @@ test("intake derives RFC scope from trusted canonical proposal and rejects stale
     ]);
     assert.equal(configured.context.proposal_identity.trusted_approval, true);
     assert.equal(configured.context.proposal_identity.decision_id, "groom-approval:groom_test");
+    assert.deepEqual(configured.context.design_context, proposal.design_context);
 
     assert.throws(
       () =>
@@ -1128,7 +1179,7 @@ function requiredVerdicts(artifactHash) {
   }));
 }
 
-function makeArtifact(repo) {
+function makeArtifact(repo, options = {}) {
   const jsonPath = path.join(repo.root, "rfc.json");
   const htmlPath = path.join(repo.root, "rfc.html");
   fs.writeFileSync(
@@ -1138,6 +1189,7 @@ function makeArtifact(repo) {
       slug: "safe-approval",
       title: "Safe approval",
       size: "M",
+      ...(options.designContext ? { design_context: options.designContext } : {}),
       issues: [
         {
           num: 1,

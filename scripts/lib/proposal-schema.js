@@ -3,6 +3,7 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const { validateDesignContext } = require("./dev-work-units.js");
 
 const SCHEMA_VERSION = 1;
 const MAX_PROPOSAL_BYTES = 2 * 1024 * 1024;
@@ -49,6 +50,7 @@ const TOP_FIELDS = [
   "presentation",
   "handoff",
 ];
+const OPTIONAL_TOP_FIELDS = ["design_context"];
 const APPROVAL_FIELDS = [
   "schema_version",
   "kind",
@@ -166,7 +168,9 @@ function validatePath(value, at, issues) {
 function validateProposal(proposal, options = {}) {
   const issues = [];
   const at = options.path || "$";
-  if (!closed(proposal, TOP_FIELDS, at, issues)) return { ok: false, issues };
+  if (!closed(proposal, [...TOP_FIELDS, ...OPTIONAL_TOP_FIELDS], at, issues)) {
+    return { ok: false, issues };
+  }
   for (const field of TOP_FIELDS)
     if (!(field in proposal)) issues.push(issue(`${at}.${field}`, "is required"));
 
@@ -390,6 +394,29 @@ function validateProposal(proposal, options = {}) {
     ["id", "requirement"],
     (entry, rowPath) => requiredString(entry.requirement, `${rowPath}.requirement`, issues)
   );
+  if (proposal.design_context !== undefined) {
+    try {
+      validateDesignContext(proposal.design_context, `${at}.design_context`, {
+        repoRoot: options.projectRoot,
+      });
+      const requirements = Array.isArray(proposal.design_requirements)
+        ? proposal.design_requirements.map((entry) => entry?.requirement)
+        : [];
+      if (
+        canonicalStringify(proposal.design_context.design_requirements) !==
+        canonicalStringify(requirements)
+      ) {
+        issues.push(
+          issue(
+            `${at}.design_context.design_requirements`,
+            "must match design_requirements in the same order"
+          )
+        );
+      }
+    } catch (error) {
+      issues.push(issue(`${at}.design_context`, error.message));
+    }
+  }
   rows(
     proposal.success_metrics,
     `${at}.success_metrics`,
@@ -930,6 +957,9 @@ function executionContract(proposal) {
       acceptance_criteria: proposal.acceptance_criteria,
       edge_cases: proposal.edge_cases,
       design_requirements: proposal.design_requirements,
+      ...(proposal.design_context
+        ? { design_context: structuredClone(proposal.design_context) }
+        : {}),
       success_metrics: proposal.success_metrics,
       open_decisions: proposal.open_decisions,
       risks: proposal.risks,
@@ -1017,6 +1047,7 @@ function readProposal(filePath, options = {}) {
     const result = validateProposal(proposal, {
       path: absolute,
       expectedSlug: options.expectedSlug,
+      projectRoot: options.projectRoot,
     });
     if (!result.ok)
       throw new Error(

@@ -444,7 +444,9 @@ function validateTask(task, errors) {
     errors.push(issue("$.task.work_units", "must be an array"));
   } else {
     try {
-      validateWorkUnits(task.work_units, { persisted: true });
+      const contractPath = task.rfc_sidecar?.path || task.proposal?.path;
+      const repoRoot = contractPath ? findGitRoot(path.dirname(contractPath)) : null;
+      validateWorkUnits(task.work_units, { persisted: true, repoRoot });
     } catch (error) {
       errors.push(issue("$.task.work_units", error.message));
     }
@@ -1002,6 +1004,7 @@ function validateReadinessEvidence(session, result, errors) {
       htmlPath,
       storedHash: extractSidecarHash(html),
       sidecarHash: `sha256:${sha256Hex(sidecarBytes)}`,
+      repoRoot: findGitRoot(path.dirname(sidecarPath)),
     });
     if (!validation.ok) {
       errors.push(
@@ -1655,7 +1658,10 @@ function applyRouting(session, facts, options = {}) {
   }
   if (facts.work_units !== undefined) {
     if (!Array.isArray(facts.work_units)) throw new TypeError("work_units must be an array");
-    validateWorkUnits(facts.work_units);
+    const contractPath = options.rfcSidecar?.path || proposalIdentity?.path;
+    validateWorkUnits(facts.work_units, {
+      repoRoot: contractPath ? findGitRoot(path.dirname(contractPath)) : null,
+    });
     next.task.work_units = structuredClone(facts.work_units);
   }
   if (options.rfcSidecar !== undefined) {

@@ -36,6 +36,12 @@ The state binds generation, review, approval, and handoff to:
 
 Approval verifies both current HTML and sidecar bytes equal the reviewed fingerprint. A content edit routes back through review. The expected approval metadata-only HTML/commit update may change the HTML hash and commit but not the sidecar hash, and requires passing lifecycle-only evidence.
 
+## Design context
+
+For an approved canonical proposal, intake copies the proposal execution contract's closed `design_context` into `session.context.design_context`; callers cannot supply or override it. The field contains exact design requirement strings, an explicit `null` or source-bound prototype path/hash, critical states, and visual invariants. Generation, review, approval, and handoff reject an RFC sidecar whose value differs. Wherever repository context is available, validation recomputes the prototype SHA-256 from the referenced file instead of accepting hash-shaped text.
+
+Legacy Markdown and Linear intake store `null` because they do not provide the canonical structured handoff. A schema-v1 canonical proposal that predates the field remains readable but returns to Groom before a new RFC can begin.
+
 ## External authority
 
 `linear_create`, `loop_approval`, `open_browser`, and `start_implementation` default false. Each grant has an audit record with action, reason, and timestamp. RFC approval does not expand these booleans.

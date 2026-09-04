@@ -2,6 +2,10 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const { validateRfcSidecar } = require("../scripts/rfc-sidecar-check");
 const { rfcIssuesToDevWorkUnits } = require("../scripts/lib/rfc-work-units");
 
@@ -108,6 +112,61 @@ test("RFC design context is closed, source-bound, and required to remain useful"
       .join("\n"),
     /visual_invariants.*non-empty/i
   );
+
+  for (const unsafePath of [
+    "https://example.com/prototype",
+    "./prototype.html",
+    "ui\\prototype.html",
+  ]) {
+    const unsafe = structuredClone(source);
+    unsafe.design_context.prototype.path = unsafePath;
+    assert.match(
+      validateRfcSidecar(unsafe)
+        .issues.map((item) => item.message)
+        .join("\n"),
+      /normalized repo-relative file/i
+    );
+  }
+});
+
+test("RFC validation binds design context to intake and prototype repository bytes", () => {
+  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pm-rfc-design-context-"));
+  try {
+    const prototypePath = "backlog/wireframes/multi-issue.html";
+    const absolutePrototype = path.join(repoRoot, prototypePath);
+    fs.mkdirSync(path.dirname(absolutePrototype), { recursive: true });
+    fs.writeFileSync(absolutePrototype, "<main>approved prototype</main>\n");
+    const sidecar = executableSidecar();
+    sidecar.design_context.prototype.sha256 = `sha256:${crypto
+      .createHash("sha256")
+      .update(fs.readFileSync(absolutePrototype))
+      .digest("hex")}`;
+    const expectedDesignContext = structuredClone(sidecar.design_context);
+
+    assert.equal(
+      validateRfcSidecar(sidecar, "rfc.json", { repoRoot, expectedDesignContext }).ok,
+      true
+    );
+
+    const substituted = structuredClone(sidecar);
+    substituted.design_context.visual_invariants = ["A weaker reconstructed invariant."];
+    assert.match(
+      validateRfcSidecar(substituted, "rfc.json", { repoRoot, expectedDesignContext })
+        .issues.map((item) => item.message)
+        .join("\n"),
+      /design_context.*approved proposal/i
+    );
+
+    fs.writeFileSync(absolutePrototype, "<main>drifted prototype</main>\n");
+    assert.match(
+      validateRfcSidecar(sidecar, "rfc.json", { repoRoot, expectedDesignContext })
+        .issues.map((item) => item.message)
+        .join("\n"),
+      /prototype.*sha256.*does not match repository bytes/i
+    );
+  } finally {
+    fs.rmSync(repoRoot, { recursive: true, force: true });
+  }
 });
 
 test("legacy RFC schema-v2 sidecars remain readable but are not auto-routed", () => {

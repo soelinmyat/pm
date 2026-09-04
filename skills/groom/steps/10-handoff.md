@@ -14,7 +14,7 @@ Deliver an approved, machine-consumable product contract to RFC/Dev and perform 
 
 ## How
 
-Run `proposal-check.js` in approved mode and verify RFC/Dev can read scope, non-goals, acceptance criteria, design requirements, edge cases, evidence, and open decisions directly from JSON. For UI work, make the design handoff durable: preserve the approved design requirements; the prototype path plus its SHA-256 identity (or an explicit `null` when no prototype was approved); every critical state; and the visual invariants that implementation must not trade away. The generated backlog Markdown remains a compatibility projection.
+Run `proposal-check.js` in approved mode and verify RFC/Dev can read scope, non-goals, acceptance criteria, design requirements, edge cases, evidence, and open decisions directly from JSON. Verify `design_context` contains the approved design requirements; the prototype path plus its recomputed SHA-256 identity (or an explicit `null` when no prototype was approved); every critical state; and the visual invariants that implementation must not trade away. This canonical field—not a hand-authored RFC sidecar—is the design handoff. The generated backlog Markdown remains a compatibility projection.
 
 Before completing handoff, commit the approved canonical proposal, approval audit, and
 current projection together on the session's helper-owned Groom artifact branch. Leave

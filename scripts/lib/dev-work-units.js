@@ -1,5 +1,7 @@
 "use strict";
 
+const crypto = require("node:crypto");
+const fs = require("node:fs");
 const path = require("node:path");
 const { runGit: sharedRunGit } = require("../loop-git");
 const { isRfc3339DateTime } = require("./iso-time");
@@ -40,6 +42,7 @@ const DESIGN_CONTEXT_FIELDS = new Set([
   "visual_invariants",
 ]);
 const PROTOTYPE_FIELDS = new Set(["path", "sha256"]);
+const MAX_PROTOTYPE_BYTES = 10 * 1024 * 1024;
 
 function validateWorkUnits(units, options = {}) {
   if (!Array.isArray(units)) throw new TypeError("work units must be an array");
@@ -64,7 +67,7 @@ function validateWorkUnits(units, options = {}) {
     if (!VALID_STATUSES.has(item.status)) {
       throw new Error(`work unit ${item.id} has invalid status: ${String(item.status)}`);
     }
-    if (item.contract !== undefined) validateWorkUnitContract(item.contract, item.id);
+    if (item.contract !== undefined) validateWorkUnitContract(item.contract, item.id, options);
     if (item.result !== undefined && item.result !== null && !isObject(item.result)) {
       throw new TypeError(`work unit ${item.id} result must be null or an object`);
     }
@@ -164,7 +167,7 @@ function validateTransition(unitId, transition, index) {
   }
 }
 
-function validateWorkUnitContract(contract, unitId) {
+function validateWorkUnitContract(contract, unitId, options = {}) {
   if (!isObject(contract)) throw new TypeError(`work unit ${unitId} contract must be an object`);
   const fields = [
     "acceptance_criteria",
@@ -194,11 +197,13 @@ function validateWorkUnitContract(contract, unitId) {
     throw new TypeError(`work unit ${unitId} contract approach is required`);
   }
   if (contract.design_context !== undefined) {
-    validateDesignContext(contract.design_context, `work unit ${unitId} contract design_context`);
+    validateDesignContext(contract.design_context, `work unit ${unitId} contract design_context`, {
+      repoRoot: options.repoRoot,
+    });
   }
 }
 
-function validateDesignContext(context, label = "design_context") {
+function validateDesignContext(context, label = "design_context", options = {}) {
   if (!isObject(context)) throw new TypeError(`${label} must be an object`);
   for (const field of Object.keys(context)) {
     if (!DESIGN_CONTEXT_FIELDS.has(field)) {
@@ -233,13 +238,81 @@ function validateDesignContext(context, label = "design_context") {
   }
   if (!nonEmpty(prototype.path)) throw new TypeError(`${label}.prototype.path is required`);
   validateRepoRelativePattern(prototype.path, `${label}.prototype.path`);
-  if (hasGlob(prototype.path)) {
-    throw new Error(`${label}.prototype.path must identify one repo-relative file`);
+  if (
+    prototype.path !== normalizePattern(prototype.path) ||
+    prototype.path.includes("\\") ||
+    /^[a-z][a-z0-9+.-]*:/i.test(prototype.path) ||
+    prototype.path.split("/").some((part) => part === "." || part === "") ||
+    hasGlob(prototype.path)
+  ) {
+    throw new Error(`${label}.prototype.path must identify one normalized repo-relative file`);
   }
   if (!/^sha256:[a-f0-9]{64}$/.test(prototype.sha256 || "")) {
     throw new Error(`${label}.prototype.sha256 must be a sha256:<64 lowercase hex> binding`);
   }
+  if (options.repoRoot) {
+    verifyPrototypeBinding(prototype, `${label}.prototype`, options.repoRoot);
+  }
   return context;
+}
+
+function verifyPrototypeBinding(prototype, label, repoRoot) {
+  let root;
+  try {
+    root = fs.realpathSync(path.resolve(repoRoot));
+  } catch (error) {
+    throw new Error(`${label}.path repository root cannot be resolved: ${error.message}`);
+  }
+  const candidate = path.resolve(root, prototype.path);
+  if (!isWithin(root, candidate)) {
+    throw new Error(`${label}.path must stay inside the repository root`);
+  }
+  let current = root;
+  try {
+    for (const part of path.relative(root, candidate).split(path.sep).filter(Boolean)) {
+      current = path.join(current, part);
+      if (fs.lstatSync(current).isSymbolicLink()) {
+        throw new Error("contains a symbolic link");
+      }
+    }
+  } catch (error) {
+    throw new Error(`${label}.path cannot be read as a repository file: ${error.message}`);
+  }
+  let bytes;
+  const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0);
+  let fd;
+  try {
+    fd = fs.openSync(candidate, flags);
+    const before = fs.fstatSync(fd);
+    if (!before.isFile()) throw new Error("must identify a regular file");
+    if (before.size > MAX_PROTOTYPE_BYTES) {
+      throw new Error("exceeds the 10 MiB read limit");
+    }
+    bytes = Buffer.alloc(before.size);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const count = fs.readSync(fd, bytes, offset, bytes.length - offset, offset);
+      if (count === 0) throw new Error("changed during bounded read");
+      offset += count;
+    }
+    const after = fs.fstatSync(fd);
+    if (after.size !== before.size || after.mtimeMs !== before.mtimeMs) {
+      throw new Error("changed during bounded read");
+    }
+  } catch (error) {
+    throw new Error(`${label}.path cannot be read as a repository file: ${error.message}`);
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+  const observed = `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`;
+  if (observed !== prototype.sha256) {
+    throw new Error(`${label}.sha256 does not match repository bytes at ${prototype.path}`);
+  }
+}
+
+function isWithin(root, candidate) {
+  const relative = path.relative(path.resolve(root), path.resolve(candidate));
+  return relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
 }
 
 function analyzeWorkUnits(units) {

@@ -93,6 +93,18 @@ function renderHtml(proposal, identity) {
       proposal.edge_cases.map((item) => `${item.scenario}: ${item.expected_behavior}`).join(" • "),
     ],
     ["Design requirements", listText(proposal.design_requirements, "requirement")],
+    ...(proposal.design_context
+      ? [
+          ["Critical states", proposal.design_context.critical_states.join(" • ")],
+          ["Visual invariants", proposal.design_context.visual_invariants.join(" • ")],
+          [
+            "Prototype",
+            proposal.design_context.prototype
+              ? `${proposal.design_context.prototype.path} · ${proposal.design_context.prototype.sha256}`
+              : "None approved",
+          ],
+        ]
+      : []),
     [
       "Open decisions",
       proposal.open_decisions.length
@@ -120,12 +132,7 @@ function renderHtml(proposal, identity) {
         proposal.edge_cases.map((item) => [item.scenario, item.expected_behavior])
       )
     ),
-    section(
-      "flow",
-      "VII",
-      "Design Requirements",
-      listHtml(proposal.design_requirements.map((item) => item.requirement))
-    ),
+    section("flow", "VII", "Design Requirements", designContextHtml(proposal)),
     section("competitive", "VIII", "Alternatives", alternativesHtml(proposal)),
     section("feasibility", "IX", "Risks & Feasibility", risksHtml(proposal)),
     section("open-q", "X", "Decisions", decisionsHtml(proposal)),
@@ -242,6 +249,7 @@ ${proposal.edge_cases.map((item) => `- **${item.scenario}** — ${item.expected_
 
 ### Design requirements
 ${mdList(proposal.design_requirements, "requirement")}
+${designContextMarkdown(proposal)}
 
 ### Open decisions
 ${proposal.open_decisions.length ? mdList(proposal.open_decisions, "question") : "- None"}
@@ -250,6 +258,37 @@ ${proposal.open_decisions.length ? mdList(proposal.open_decisions, "question") :
 
 [Open the generated proposal](proposals/${proposal.slug}.html). Lifecycle: **${proposal.lifecycle}** · revision **${proposal.revision}** · semantic content \`${identity.contentSha256}\`.
 `;
+}
+
+function designContextHtml(proposal) {
+  const requirements = listHtml(proposal.design_requirements.map((item) => item.requirement));
+  const context = proposal.design_context;
+  if (!context) return requirements;
+  const prototype = context.prototype
+    ? `<code>${h(context.prototype.path)}</code><br><code>${h(context.prototype.sha256)}</code>`
+    : "No prototype approved.";
+  return `${requirements}
+<h3>Prototype</h3><p>${prototype}</p>
+<h3>Critical states</h3>${listHtml(context.critical_states)}
+<h3>Visual invariants</h3>${listHtml(context.visual_invariants)}`;
+}
+
+function designContextMarkdown(proposal) {
+  const context = proposal.design_context;
+  if (!context) return "";
+  const prototype = context.prototype
+    ? `\`${context.prototype.path}\` · \`${context.prototype.sha256}\``
+    : "No prototype approved.";
+  return `
+
+### Prototype
+${prototype}
+
+### Critical states
+${context.critical_states.map((item) => `- ${item}`).join("\n")}
+
+### Visual invariants
+${context.visual_invariants.map((item) => `- ${item}`).join("\n")}`;
 }
 
 function main(argv = process.argv.slice(2)) {

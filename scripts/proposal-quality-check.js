@@ -43,6 +43,39 @@ function minimum(rows, predicate, { applicable = true, label, required = 1 } = {
   };
 }
 
+function designContextMinimum(proposal) {
+  const context = proposal.design_context;
+  const expectedRequirements = Array.isArray(proposal.design_requirements)
+    ? proposal.design_requirements.map((row) => row.requirement)
+    : [];
+  const passed =
+    context !== null &&
+    typeof context === "object" &&
+    !Array.isArray(context) &&
+    Array.isArray(context.design_requirements) &&
+    JSON.stringify(context.design_requirements) === JSON.stringify(expectedRequirements) &&
+    Array.isArray(context.critical_states) &&
+    context.critical_states.length > 0 &&
+    context.critical_states.every((state) => meaningful(state)) &&
+    Array.isArray(context.visual_invariants) &&
+    context.visual_invariants.length > 0 &&
+    context.visual_invariants.every((invariant) => specific(invariant, 24, 4)) &&
+    (context.prototype === null ||
+      (typeof context.prototype === "object" &&
+        typeof context.prototype.path === "string" &&
+        /^sha256:[a-f0-9]{64}$/.test(context.prototype.sha256 || "")));
+  return {
+    applicable: true,
+    passed,
+    required: 1,
+    substantive: passed ? 1 : 0,
+    total: context === undefined ? 0 : 1,
+    reason: passed
+      ? "Durable design context meets its handoff floor"
+      : "Durable design context requires matching requirements, critical states, visual invariants, and a source-bound prototype or null",
+  };
+}
+
 function scoreProposal(proposal) {
   const dimensions = {};
   const evidenceRatio = ratio(
@@ -109,6 +142,7 @@ function scoreProposal(proposal) {
       (row) => specific(row.requirement, 28),
       { label: "Experience or design requirements" }
     ),
+    design_context: designContextMinimum(proposal),
     question_reviews: minimum(
       proposal.question_reviews,
       (row) =>

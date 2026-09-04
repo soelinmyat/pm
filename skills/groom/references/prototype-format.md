@@ -176,6 +176,8 @@ The `<ol class="callout-notes">` sits outside the canvas, below it. CSS auto-num
 
 The proposal HTML is an inert, self-contained artifact. It never frames or executes a prototype. Instead, show a metadata-derived preview card between the title block and TL;DR and link to the standalone prototype:
 
+The canonical proposal JSON also records the prototype in `design_context.prototype` as `{ "path": "project-relative/path", "sha256": "sha256:..." }`, or explicit `null` when no prototype was approved. Compute the hash from the current file bytes after the final refinement. Proposal, RFC, and Dev validation recompute this binding whenever the repository is available; never copy a stale digest or invent one from the filename.
+
 ```html
 <figure class="hero-prototype">
   <div class="hero-prototype-header">
@@ -225,3 +227,4 @@ Before marking a wireframe done in Step 5:
 - [ ] Metadata complete and valid per §6 schema
 - [ ] Callouts (if any) use the standard pattern per §7 — no floating text inside canvas
 - [ ] Opens cleanly when previewed standalone from the proposal link
+- [ ] Canonical proposal `design_context.prototype` names this file and matches its current SHA-256, or is explicitly `null` when no prototype was approved

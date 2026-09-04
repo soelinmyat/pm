@@ -11,6 +11,7 @@ const { findGitRoot, gitRelativePath, readGitFile, runGit } = require("../loop-g
 const { isRfc3339DateTime: isIsoDate } = require("./iso-time.js");
 const { markdownTableValue } = require("./session-scan.js");
 const { readApprovedProposal } = require("./proposal-schema.js");
+const { validateDesignContext } = require("./dev-work-units.js");
 const { grantActions } = require("./workflow-runtime/authority.js");
 const {
   createTransition,
@@ -65,6 +66,7 @@ function createSession(options) {
       source_kind: null,
       proposal_path: null,
       proposal_identity: null,
+      design_context: null,
       linear_id: null,
       size: null,
       acceptance_criteria: [],
@@ -134,6 +136,7 @@ function applyContext(session, facts, options = {}) {
   }
   let canonical = null;
   let proposalIdentity = null;
+  let effectiveDesignContext = null;
   let effectiveSize = facts.size;
   let effectiveAcceptanceCriteria = facts.acceptance_criteria;
   if (
@@ -148,6 +151,11 @@ function applyContext(session, facts, options = {}) {
       throw new Error(`canonical proposal is not inside a Git worktree: ${absoluteProposal}`);
     }
     canonical = readApprovedProposal(absoluteProposal, { projectRoot: proposalRoot });
+    if (!canonical.contract.design_context) {
+      throw new Error(
+        "approved canonical proposal lacks durable design_context; return to pm:groom to recertify design intent"
+      );
+    }
     const contractCriteria = canonical.contract.acceptance_criteria.map(formatAcceptanceCriterion);
     if (facts.size !== undefined && facts.size !== canonical.contract.size)
       throw new Error(
@@ -162,6 +170,9 @@ function applyContext(session, facts, options = {}) {
       );
     effectiveSize = canonical.contract.size;
     effectiveAcceptanceCriteria = contractCriteria;
+    effectiveDesignContext = canonical.contract.design_context
+      ? structuredClone(canonical.contract.design_context)
+      : null;
     proposalIdentity = {
       kind: canonical.kind,
       trusted_approval: true,
@@ -214,6 +225,7 @@ function applyContext(session, facts, options = {}) {
     source_kind: facts.source_kind,
     proposal_path: facts.proposal_path ? path.resolve(facts.proposal_path) : null,
     proposal_identity: proposalIdentity,
+    design_context: effectiveDesignContext,
     linear_id: facts.linear_id || null,
     size: effectiveSize,
     acceptance_criteria: [...effectiveAcceptanceCriteria],
@@ -345,6 +357,7 @@ function validatePassedResult(session, result, options) {
       ...options,
       expectedSlug: session.slug,
       expectedRepoRoot: session.context.artifact_repo_root,
+      expectedDesignContext: session.context.design_context,
       forbidApproved: true,
       requireHead: true,
     });
@@ -357,6 +370,7 @@ function validatePassedResult(session, result, options) {
       ...options,
       expectedSlug: session.slug,
       expectedRepoRoot: session.context.artifact_repo_root,
+      expectedDesignContext: session.context.design_context,
       forbidApproved: true,
       requireHead: true,
     });
@@ -381,6 +395,7 @@ function validatePassedResult(session, result, options) {
       ...options,
       expectedSlug: session.slug,
       expectedRepoRoot: session.context.artifact_repo_root,
+      expectedDesignContext: session.context.design_context,
       requireApproved: true,
       requireHead: true,
     });
@@ -419,6 +434,7 @@ function approveSession(session, input, options = {}) {
       ...options,
       expectedSlug: session.slug,
       expectedRepoRoot: session.context.artifact_repo_root,
+      expectedDesignContext: session.context.design_context,
       forbidApproved: true,
       requireHead: false,
     });
@@ -438,6 +454,7 @@ function approveSession(session, input, options = {}) {
     ...options,
     expectedSlug: session.slug,
     expectedRepoRoot: session.context.artifact_repo_root,
+    expectedDesignContext: session.context.design_context,
     forbidApproved: true,
     requireHead: false,
   });
@@ -802,6 +819,8 @@ function verifyArtifact(artifact, options = {}) {
     htmlPath: artifact.html_path,
     storedHash: extractSidecarHash(html),
     sidecarHash: observed,
+    repoRoot,
+    expectedDesignContext: options.expectedDesignContext,
   });
   if (!validation.ok) {
     throw new Error(
@@ -1029,6 +1048,7 @@ function buildApprovalAudit(session, artifact, options = {}) {
     ...options,
     expectedSlug: session.slug,
     expectedRepoRoot: session.context.artifact_repo_root,
+    expectedDesignContext: session.context.design_context,
     requireApproved: true,
     requireHead: true,
   });
@@ -1147,6 +1167,7 @@ function validateSession(session) {
       "source_kind",
       "proposal_path",
       "proposal_identity",
+      "design_context",
       "linear_id",
       "size",
       "acceptance_criteria",
@@ -1168,6 +1189,15 @@ function validateSession(session) {
       if (![null, "helper-v1"].includes(value.artifact_ownership))
         errors.push(issue(`${objectPath}.artifact_ownership`, "invalid"));
       validateProposalIdentity(value.proposal_identity, `${objectPath}.proposal_identity`, errors);
+      if (value.design_context !== null) {
+        try {
+          validateDesignContext(value.design_context, `${objectPath}.design_context`, {
+            repoRoot: nonEmpty(value.artifact_repo_root) ? value.artifact_repo_root : undefined,
+          });
+        } catch (error) {
+          errors.push(issue(`${objectPath}.design_context`, error.message));
+        }
+      }
       if (
         !Array.isArray(value.acceptance_criteria) ||
         value.acceptance_criteria.some((item) => !nonEmpty(item))
@@ -1521,6 +1551,8 @@ function upgradeCompatibleSession(input) {
   const session = structuredClone(input);
   if (isObject(session.context) && !Object.hasOwn(session.context, "proposal_identity"))
     session.context.proposal_identity = null;
+  if (isObject(session.context) && !Object.hasOwn(session.context, "design_context"))
+    session.context.design_context = null;
   if (isObject(session.context) && !Object.hasOwn(session.context, "artifact_ownership"))
     session.context.artifact_ownership = null;
   return session;
@@ -1601,6 +1633,10 @@ function verifyProposalIdentity(session) {
   for (const [field, value] of Object.entries(observed)) {
     if (identity[field] !== value)
       throw new Error(`proposal identity ${field} drifted; re-run RFC intake`);
+  }
+  const trustedDesignContext = trusted.contract.design_context || null;
+  if (stableStringify(session.context.design_context) !== stableStringify(trustedDesignContext)) {
+    throw new Error("proposal design_context drifted; re-run RFC intake");
   }
   const order = { approved: 0, planned: 1, "in-progress": 2, done: 3 };
   if (

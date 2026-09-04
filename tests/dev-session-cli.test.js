@@ -2,6 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -389,6 +390,20 @@ test("route converts an RFC schema-v3 sidecar into the persisted Dev DAG", () =>
       })
     );
     const sidecarPath = path.join(repo.root, "approved-rfc.json");
+    const prototypeRelativePath = "wireframes/rfc-route-cli.html";
+    const prototypePath = path.join(repo.root, prototypeRelativePath);
+    fs.mkdirSync(path.dirname(prototypePath), { recursive: true });
+    fs.writeFileSync(prototypePath, "<main>approved RFC prototype</main>\n");
+    const prototypeHash = `sha256:${crypto
+      .createHash("sha256")
+      .update(fs.readFileSync(prototypePath))
+      .digest("hex")}`;
+    const designContext = {
+      design_requirements: ["Keep the primary action visually dominant."],
+      prototype: { path: prototypeRelativePath, sha256: prototypeHash },
+      critical_states: ["loading", "empty", "error", "success"],
+      visual_invariants: ["Navigation remains visible at narrow widths."],
+    };
     const issue = (num, depends_on, owns) => ({
       num,
       title: `Issue ${num}`,
@@ -407,6 +422,7 @@ test("route converts an RFC schema-v3 sidecar into the persisted Dev DAG", () =>
         slug: "rfc-route-cli",
         title: "Approved RFC",
         size: "L",
+        design_context: designContext,
         issues: [issue(1, [], ["scripts/shared.js"]), issue(2, [1], ["scripts/consumer.js"])],
         test_strategy: {
           test_levels: "Unit and integration",
@@ -439,6 +455,7 @@ test("route converts an RFC schema-v3 sidecar into the persisted Dev DAG", () =>
           approach: "Implement issue 1",
           verification_commands: ["node --test"],
           test_hooks: ["AC-1"],
+          design_context: designContext,
         },
         status: "pending",
       },
@@ -452,6 +469,7 @@ test("route converts an RFC schema-v3 sidecar into the persisted Dev DAG", () =>
           approach: "Implement issue 2",
           verification_commands: ["node --test"],
           test_hooks: ["AC-2"],
+          design_context: designContext,
         },
         status: "pending",
       },
@@ -462,6 +480,12 @@ test("route converts an RFC schema-v3 sidecar into the persisted Dev DAG", () =>
     assert.equal(cold.task.rfc_sidecar.path, sidecarPath);
     assert.match(cold.task.rfc_sidecar.sha256, /^sha256:[0-9a-f]{64}$/);
     assert.deepEqual(cold.task.work_units[1].contract.acceptance_criteria, ["AC-2"]);
+    fs.writeFileSync(prototypePath, "<main>drifted RFC prototype</main>\n");
+    const driftedPrototype = repo.run(["next", "--session", initialized.session_path]);
+    assert.notEqual(driftedPrototype.status, 0);
+    assert.match(driftedPrototype.stderr, /prototype.*sha256.*does not match repository bytes/i);
+    fs.writeFileSync(prototypePath, "<main>approved RFC prototype</main>\n");
+    assert.equal(repo.run(["next", "--session", initialized.session_path]).status, 0);
     fs.appendFileSync(sidecarPath, "\n");
     const drifted = repo.run(["next", "--session", initialized.session_path]);
     assert.notEqual(drifted.status, 0);

@@ -56,6 +56,7 @@
         "source_kind",
         "proposal_path",
         "proposal_identity",
+        "design_context",
         "linear_id",
         "size",
         "acceptance_criteria",
@@ -102,6 +103,9 @@
               }
             }
           ]
+        },
+        "design_context": {
+          "oneOf": [{ "$ref": "#/$defs/design_context" }, { "type": "null" }]
         },
         "linear_id": { "type": ["string", "null"] },
         "size": { "type": ["string", "null"], "enum": ["M", "L", "XL", null] },
@@ -218,6 +222,57 @@
     }
   ],
   "$defs": {
+    "design_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "design_requirements",
+        "prototype",
+        "critical_states",
+        "visual_invariants"
+      ],
+      "properties": {
+        "design_requirements": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "prototype": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "sha256"],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^(?!/)(?![A-Za-z]:/)(?!.*(?:^|/)\\.\\.(?:/|$))[^*?{}\\[\\]]+$"
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                }
+              }
+            }
+          ]
+        },
+        "critical_states": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "visual_invariants": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
     "authority": {
       "type": "object",
       "additionalProperties": false,

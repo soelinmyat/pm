@@ -62,6 +62,15 @@ The executable schema lives in `scripts/lib/proposal-schema.js`; this reference 
   "acceptance_criteria": [],
   "edge_cases": [],
   "design_requirements": [],
+  "design_context": {
+    "design_requirements": ["Exact requirement text copied from design_requirements"],
+    "prototype": {
+      "path": "pm/backlog/wireframes/{slug}.html",
+      "sha256": "sha256:{hash-of-current-prototype-bytes}"
+    },
+    "critical_states": ["loading", "empty", "error", "success"],
+    "visual_invariants": ["Implementation constraint that must survive technical tradeoffs"]
+  },
   "success_metrics": [],
   "alternatives": [],
   "risks": [],
@@ -107,6 +116,9 @@ RFC and Dev consume the structured scope, non-goals, requirements, acceptance cr
 - Acceptance criteria use Given/When/Then and reference the requirements they prove.
 - Every non-goal includes the adjacent outcome intentionally excluded.
 - Every open decision has a recommendation, owner, and decision boundary when the schema requires it.
+- `design_context.design_requirements` exactly mirrors the ordered requirement text from `design_requirements`; this gives RFC and Dev one closed object to copy without discarding the stable proposal IDs.
+- `prototype` is explicitly `null` when no prototype was approved. Otherwise its normalized project-relative path and SHA-256 bind the exact repository file. The checker recomputes the digest whenever it has repository context; a plausible-looking hash is not evidence.
+- `critical_states` names the states implementation and QA must exercise. `visual_invariants` records the hierarchy, responsive, accessibility, and interaction properties technical tradeoffs must preserve.
 - `implementation_ready` remains false until the required technical approval exists.
 
 ### Evidence and assumptions
@@ -130,3 +142,5 @@ Visible metadata includes lifecycle, approval state, revision, semantic content 
 ## Legacy compatibility
 
 Markdown-only proposals remain inspection-readable for List, Board, and migration. They do not gain trusted approval merely from `status: proposed`. RFC/Dev may use the legacy path only when no canonical JSON exists, and must label the handoff as legacy/unbound until the migration or explicit compatibility rule is satisfied.
+
+Canonical schema-v1 proposals created before `design_context` remain readable, but they cannot start a new RFC from reconstructed sidecar prose. Return them to Groom for a substantive revision that records and approves the durable context.

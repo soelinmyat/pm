@@ -35,6 +35,11 @@ test("proposal renderer is byte-deterministic and binds both projections to cano
   assert.match(first.html, /id="decision-brief"/);
   assert.match(first.html, /id="execution-contract"/);
   assert.match(first.html, /id="appendix"/);
+  assert.match(first.html, /Critical states/);
+  assert.match(first.html, /stale approval/);
+  assert.match(first.html, /Lifecycle and approval state remain visible at narrow widths/);
+  assert.match(first.markdown, /### Critical states/);
+  assert.match(first.markdown, /### Visual invariants/);
   assert.match(first.markdown, /Do not edit by hand/);
 });
 

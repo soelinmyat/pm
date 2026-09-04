@@ -30,6 +30,16 @@ function fixture() {
   return JSON.parse(fs.readFileSync(fixturePath, "utf8"));
 }
 
+function designContext(overrides = {}) {
+  return {
+    design_requirements: ["Show lifecycle, revision, approval state, and open decisions visibly."],
+    prototype: null,
+    critical_states: ["draft", "reviewed", "approved", "stale approval"],
+    visual_invariants: ["Lifecycle and approval state remain visible at narrow widths."],
+    ...overrides,
+  };
+}
+
 function messages(result) {
   return result.issues.map((entry) => `${entry.path}: ${entry.message}`).join("\n");
 }
@@ -50,6 +60,56 @@ test("schema-v1 fixture is a strict executable proposal", () => {
   );
   assert.equal(contract.approval_required, true);
   assert.equal(Object.isFrozen(contract), true);
+});
+
+test("proposal execution contract preserves one closed design context", () => {
+  const proposal = fixture();
+  proposal.design_context = designContext();
+  const result = validateProposal(proposal);
+  assert.equal(result.ok, true, messages(result));
+  assert.deepEqual(executionContract(proposal).design_context, proposal.design_context);
+
+  proposal.design_context.design_requirements[0] = "A different requirement.";
+  assert.match(messages(validateProposal(proposal)), /must match design_requirements/i);
+});
+
+test("bounded proposal reads recompute prototype hashes from repository bytes", () => {
+  const project = tmpProject();
+  try {
+    const prototypePath = "pm/backlog/wireframes/structured-groom.html";
+    const absolutePrototype = path.join(project.dir, prototypePath);
+    fs.mkdirSync(path.dirname(absolutePrototype), { recursive: true });
+    fs.writeFileSync(absolutePrototype, "<main>approved prototype</main>\n");
+    const prototypeHash = `sha256:${crypto
+      .createHash("sha256")
+      .update(fs.readFileSync(absolutePrototype))
+      .digest("hex")}`;
+    const proposal = fixture();
+    proposal.design_context = designContext({
+      prototype: { path: prototypePath, sha256: prototypeHash },
+    });
+    const proposalPath = path.join(
+      project.dir,
+      "pm",
+      "backlog",
+      "proposals",
+      "structured-groom.json"
+    );
+    fs.mkdirSync(path.dirname(proposalPath), { recursive: true });
+    fs.writeFileSync(proposalPath, `${JSON.stringify(proposal, null, 2)}\n`);
+
+    assert.equal(
+      readProposal(proposalPath, { projectRoot: project.dir }).proposal.slug,
+      proposal.slug
+    );
+    fs.writeFileSync(absolutePrototype, "<main>drifted prototype</main>\n");
+    assert.throws(
+      () => readProposal(proposalPath, { projectRoot: project.dir }),
+      /prototype.*sha256.*does not match repository bytes/i
+    );
+  } finally {
+    project.cleanup();
+  }
 });
 
 test("public validators return structured failures for malformed values", () => {

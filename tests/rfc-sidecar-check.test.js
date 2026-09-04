@@ -379,11 +379,22 @@ test("rfc sidecar checker reports the sidecar path in issue locations", () => {
 
 // --- CLI -------------------------------------------------------------------
 
-test("rfc sidecar checker CLI parses --sidecar, --html, --slug, and --json", () => {
-  const parsed = parseArgs(["--sidecar", "a.json", "--html", "a.html", "--slug", "a", "--json"]);
+test("rfc sidecar checker CLI parses artifact identity and repository context", () => {
+  const parsed = parseArgs([
+    "--sidecar",
+    "a.json",
+    "--html",
+    "a.html",
+    "--slug",
+    "a",
+    "--repo-root",
+    "/repo",
+    "--json",
+  ]);
   assert.equal(parsed.sidecarPath, "a.json");
   assert.equal(parsed.htmlPath, "a.html");
   assert.equal(parsed.expectedSlug, "a");
+  assert.equal(parsed.repoRoot, "/repo");
   assert.equal(parsed.json, true);
 });
 
