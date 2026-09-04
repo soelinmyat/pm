@@ -23,6 +23,8 @@ Before writing a durable claim, register its source through `${CLAUDE_PLUGIN_ROO
 
 Every new or materially updated profile file includes `provenance_version: 2` in frontmatter, adds `evidence_id` beside each source entry, and places `[evidence:ev_...]` after important factual claims and representative review themes. Label analyst judgment `Inference:`. Preserve disagreement as `Contradiction:` rather than selecting the tidier source.
 
+Every file also ends with a compact `## Confidence Notes` section for decision-relevant claims or claim clusters. Use this form: `{claim} — {high|medium|low}: authority={basis}; independence={basis}; recency={basis}; claim fit={basis}; limitation={none or unresolved uncertainty}`. Trace sources to upstream origins before judging independence. Routine facts can be grouped; do not bury a low-confidence central comparison under many high-confidence incidental facts.
+
 After each file write, run:
 
 ```bash
@@ -345,4 +347,5 @@ Before marking a competitor complete, verify all five files exist and contain:
 - [ ] `api.md` — auth model documented, entity model present (or "No public API" noted)
 - [ ] `seo.md` — top keywords table present (or "SEO data unavailable" noted with reason)
 - [ ] `sentiment.md` — at least 2 praise themes and 2 complaint themes present
+- [ ] Every file calibrates decision-relevant claim confidence by authority, independence, recency, and claim fit
 - [ ] Every materially touched file passes Evidence v2 citation binding and standard PM validation

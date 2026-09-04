@@ -25,6 +25,24 @@ function ratio(rows, predicate) {
   return rows.filter(predicate).length / rows.length;
 }
 
+function minimum(rows, predicate, { applicable = true, label, required = 1 } = {}) {
+  const collection = Array.isArray(rows) ? rows : [];
+  const substantive = collection.filter(predicate).length;
+  const passed = !applicable || (substantive >= required && substantive === collection.length);
+  return {
+    applicable,
+    passed,
+    required,
+    substantive,
+    total: collection.length,
+    reason: !applicable
+      ? "not applicable at the current lifecycle"
+      : passed
+        ? `${label} meets its substantive floor`
+        : `${label} requires at least ${required} substantive entr${required === 1 ? "y" : "ies"} and no filler entries`,
+  };
+}
+
 function scoreProposal(proposal) {
   const dimensions = {};
   const evidenceRatio = ratio(
@@ -72,16 +90,59 @@ function scoreProposal(proposal) {
     10 * ratio(proposal.design_requirements, (row) => specific(row.requirement, 28))
   );
 
+  const reviewedOrLater = new Set(["reviewed", "approved", "planned", "in-progress", "done"]).has(
+    proposal.lifecycle
+  );
+  const minimums = {
+    alternatives: minimum(
+      proposal.alternatives,
+      (row) => specific(row.name, 12, 3) && specific(row.reason_rejected, 20, 4),
+      { label: "Alternatives" }
+    ),
+    risks: minimum(
+      proposal.risks,
+      (row) => specific(row.risk, 20, 4) && specific(row.mitigation, 20, 4),
+      { label: "Material risks" }
+    ),
+    design_requirements: minimum(
+      proposal.design_requirements,
+      (row) => specific(row.requirement, 28),
+      { label: "Experience or design requirements" }
+    ),
+    question_reviews: minimum(
+      proposal.question_reviews,
+      (row) =>
+        specific(row.question, 12, 3) &&
+        meaningful(row.outcome) &&
+        Array.isArray(row.evidence_refs) &&
+        row.evidence_refs.length > 0,
+      { applicable: reviewedOrLater, label: "Question reviews" }
+    ),
+  };
+
   const traceChecks = [
-    proposal.jobs_to_be_done.every((row) => row.audience_ids.length > 0),
-    proposal.acceptance_criteria.every((row) => row.requirement_ids.length > 0),
-    proposal.question_reviews.every((row) => row.evidence_refs.length > 0),
+    Array.isArray(proposal.jobs_to_be_done) &&
+      proposal.jobs_to_be_done.length > 0 &&
+      proposal.jobs_to_be_done.every(
+        (row) => Array.isArray(row.audience_ids) && row.audience_ids.length > 0
+      ),
+    Array.isArray(proposal.acceptance_criteria) &&
+      proposal.acceptance_criteria.length > 0 &&
+      proposal.acceptance_criteria.every(
+        (row) => Array.isArray(row.requirement_ids) && row.requirement_ids.length > 0
+      ),
+    Array.isArray(proposal.question_reviews) &&
+      proposal.question_reviews.length > 0 &&
+      proposal.question_reviews.every(
+        (row) => Array.isArray(row.evidence_refs) && row.evidence_refs.length > 0
+      ),
   ];
   dimensions.traceability = Math.round(
     15 * (traceChecks.filter(Boolean).length / traceChecks.length)
   );
 
   const total = Object.values(dimensions).reduce((sum, score) => sum + score, 0);
+  const minimumsPassed = Object.values(minimums).every((result) => result.passed);
   return {
     schema_version: 1,
     proposal_id: proposal.id,
@@ -89,8 +150,9 @@ function scoreProposal(proposal) {
     score: total,
     maximum: 100,
     threshold: 70,
-    quality_passed: total >= 70,
+    quality_passed: total >= 70 && minimumsPassed,
     dimensions,
+    minimums,
   };
 }
 

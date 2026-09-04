@@ -31,7 +31,7 @@ Atomically write the version-1 envelope to `PM_LOOP_RESULT_FILE`. Exact statuses
 ## Hard rules
 
 - **Check existing KB before searching.** Every mode reads current `{pm_dir}/` state first. Update stale knowledge in place — never create parallel or duplicate files for the same topic.
-- **Three sources make a finding; one is an anecdote.** Follow threads until convergence or explicit contradiction — no artificial depth limit. Check the `updated:` date before citing — staleness thresholds vary by data type (SEO ages fastest at 30 days, profiles/sentiment 60, landscape/topic 90); see `${CLAUDE_PLUGIN_ROOT}/skills/refresh/references/staleness-thresholds.md` for the canonical table.
+- **Confidence follows source quality, not source count.** Calibrate each material claim on four dimensions: **authority** (how directly the source can know), **independence** (whether it has a distinct upstream origin), **recency** (against the claim's staleness window), and **claim fit** (whether it supports the exact claim rather than an adjacent one). Three derivative sources repeating one upstream assertion count as one evidence chain, not three-source corroboration. A current primary source may outweigh three derivative sources for a fact it directly controls; claims about market response, user experience, or causality still need an independent perspective or an explicit single-source limitation. Follow threads only while another source could change confidence or the decision. Check the `updated:` date before citing — staleness thresholds vary by data type (SEO ages fastest at 30 days, profiles/sentiment 60, landscape/topic 90); see `${CLAUDE_PLUGIN_ROOT}/skills/refresh/references/staleness-thresholds.md` for the canonical table.
 - **Separate facts from inferences.** Register durable sources in Evidence v2, cite their IDs on v2 findings, keep full source URLs and access dates in reader artifacts, and label inferences `Hypothesis:`. When a source contradicts existing knowledge, note the conflict explicitly — don't silently overwrite.
 - **Use SEO tools when the provider is configured.** Web search shows what's loud; SEO shows what users actually search for.
 - **Synthesis is not optional.** Raw profiles are data; synthesis is what makes them usable by strategy, ideate, and groom — enforced by the competitor-mode HARD-GATE.
@@ -52,7 +52,7 @@ Factual questions that don't need a research file ("what's React Server Componen
 
 ## Red Flags — Self-Check
 
-- **"One authoritative source is enough."** Keep searching until sources converge or the contradiction is explicit.
+- **"I found three links, so the claim is corroborated."** Check their upstream origin first; repeated derivative coverage is one chain, while a source with direct authority can be stronger for the fact it controls.
 - **"This conclusion is obvious from the facts."** Include a hypothesis label and show the inference basis.
 - **"The old file is easier to replace."** Use the canonical artifact and preserve user-authored context.
 - **"No result means the search failed."** Capture the searched gap as a finding instead of fabricating coverage.
@@ -74,7 +74,7 @@ Factual questions that don't need a research file ("what's React Server Componen
 
 ## Before Marking Done
 
-- [ ] The canonical research artifact is saved with full source URLs, access dates, Evidence v2 citations, and explicit hypotheses.
+- [ ] The canonical research artifact is saved with full source URLs, access dates, Evidence v2 citations, explicit hypotheses, and claim confidence calibrated by authority, independence, recency, and claim fit.
 - [ ] The user confirmed ambiguous mode/scope decisions and any high-cost provider use.
 - [ ] Existing-KB, source convergence, staleness, synthesis, contradiction, provenance, writeback, and standard PM validation gates passed.
 

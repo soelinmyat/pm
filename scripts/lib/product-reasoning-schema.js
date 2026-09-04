@@ -15,6 +15,39 @@ const EVIDENCE_STRENGTH = Object.freeze({ hypothesis: 0, moderate: 1, strong: 2 
 const STRATEGIC_ALIGNMENT = Object.freeze({ weak: 0, partial: 1, strong: 2 });
 const COMPETITOR_GAP = Object.freeze({ parity: 0, partial: 1, unique: 2 });
 const SCOPE_EFFICIENCY = Object.freeze({ large: 0, medium: 1, small: 2 });
+const CUSTOMER_IMPACT = Object.freeze({ low: 0, medium: 1, high: 2 });
+const REACH = Object.freeze({ narrow: 0, segment: 1, broad: 2 });
+const URGENCY = Object.freeze({ later: 0, soon: 1, now: 2 });
+const EXPECTED_OUTCOME = Object.freeze({ incremental: 0, meaningful: 1, "step-change": 2 });
+const LEARNING_VALUE = Object.freeze({ low: 0, medium: 1, high: 2 });
+const VALUE_FIELDS = Object.freeze([
+  "customer_impact",
+  "reach",
+  "urgency",
+  "expected_outcome",
+  "learning_value",
+]);
+const VALUE_DEFAULTS = Object.freeze({
+  customer_impact: "medium",
+  reach: "segment",
+  urgency: "soon",
+  expected_outcome: "meaningful",
+  learning_value: "medium",
+});
+// These weights express product-decision priorities, not forecast precision. No direct
+// ordinal supplies more than 20 of 100 points, so one judgment cannot dictate rank.
+const IDEA_WEIGHTS = Object.freeze({
+  customer_impact: 20,
+  reach: 12,
+  urgency: 10,
+  expected_outcome: 14,
+  learning_value: 10,
+  strategic_alignment: 14,
+  competitor_gap: 8,
+  dependency_efficiency: 6,
+  scope_efficiency: 6,
+});
+const EVIDENCE_CONFIDENCE = Object.freeze({ hypothesis: 0.75, moderate: 0.9, strong: 1 });
 const MAX_BINDINGS = 16;
 const MAX_EVIDENCE_REFS = 128;
 const MAX_ALTERNATIVES = 16;
@@ -322,6 +355,12 @@ function validateAlignment(alignment, evidenceRefs, issues) {
       "competitor_gap",
       "dependencies",
       "scope_signal",
+      "customer_impact",
+      "reach",
+      "urgency",
+      "expected_outcome",
+      "learning_value",
+      "value_basis",
     ],
     "decision.alignment",
     issues
@@ -352,6 +391,31 @@ function validateAlignment(alignment, evidenceRefs, issues) {
   stringArray(alignment.dependencies, "decision.alignment.dependencies", issues, { unique: true });
   if (!Object.hasOwn(SCOPE_EFFICIENCY, alignment.scope_signal))
     issues.push("decision.alignment.scope_signal is invalid");
+
+  const suppliedValueFields = VALUE_FIELDS.filter((field) => alignment[field] !== undefined);
+  if (suppliedValueFields.length > 0 && suppliedValueFields.length !== VALUE_FIELDS.length) {
+    issues.push("decision.alignment customer-value fields must be supplied together");
+  }
+  for (const [field, scale] of [
+    ["customer_impact", CUSTOMER_IMPACT],
+    ["reach", REACH],
+    ["urgency", URGENCY],
+    ["expected_outcome", EXPECTED_OUTCOME],
+    ["learning_value", LEARNING_VALUE],
+  ]) {
+    if (alignment[field] !== undefined && !Object.hasOwn(scale, alignment[field]))
+      issues.push(`decision.alignment.${field} is invalid`);
+  }
+  if (suppliedValueFields.length > 0) validateValueBasis(alignment.value_basis, issues);
+  else if (alignment.value_basis !== undefined)
+    issues.push("decision.alignment.value_basis requires all customer-value fields");
+}
+
+function validateValueBasis(valueBasis, issues) {
+  if (!record(valueBasis)) return issues.push("decision.alignment.value_basis must be an object");
+  closed(valueBasis, VALUE_FIELDS, "decision.alignment.value_basis", issues);
+  for (const field of VALUE_FIELDS)
+    text(valueBasis[field], `decision.alignment.value_basis.${field}`, issues);
 }
 
 function rankIdeaBriefs(briefs, strategyBrief = null) {
@@ -386,10 +450,32 @@ function rankIdeaBriefs(briefs, strategyBrief = null) {
         competitor_gap: COMPETITOR_GAP[a.competitor_gap],
         dependency_efficiency: Math.max(0, 2 - a.dependencies.length),
         scope_efficiency: SCOPE_EFFICIENCY[a.scope_signal],
+        customer_impact: CUSTOMER_IMPACT[a.customer_impact || VALUE_DEFAULTS.customer_impact],
+        reach: REACH[a.reach || VALUE_DEFAULTS.reach],
+        urgency: URGENCY[a.urgency || VALUE_DEFAULTS.urgency],
+        expected_outcome: EXPECTED_OUTCOME[a.expected_outcome || VALUE_DEFAULTS.expected_outcome],
+        learning_value: LEARNING_VALUE[a.learning_value || VALUE_DEFAULTS.learning_value],
       };
+      const customerValue = VALUE_FIELDS.reduce(
+        (sum, field) => sum + (components[field] / 2) * IDEA_WEIGHTS[field],
+        0
+      );
+      const confidenceAdjustedValue = Math.round(
+        customerValue * EVIDENCE_CONFIDENCE[a.evidence_strength]
+      );
+      const deliveryAndStrategyValue =
+        (components.strategic_alignment / 2) * IDEA_WEIGHTS.strategic_alignment +
+        (components.competitor_gap / 2) * IDEA_WEIGHTS.competitor_gap +
+        (components.dependency_efficiency / 2) * IDEA_WEIGHTS.dependency_efficiency +
+        (components.scope_efficiency / 2) * IDEA_WEIGHTS.scope_efficiency;
+      components.customer_value = customerValue;
+      components.confidence_multiplier = EVIDENCE_CONFIDENCE[a.evidence_strength];
+      components.confidence_adjusted_value = confidenceAdjustedValue;
+      components.weighted_total = Math.round(confidenceAdjustedValue + deliveryAndStrategyValue);
       return {
         brief,
         components,
+        value_inputs_legacy_defaulted: VALUE_FIELDS.every((field) => a[field] === undefined),
         unknown_priorities: unknownPriorities,
         non_goal_conflicts: conflicts,
         unknown_non_goals: unknownNonGoals,
@@ -400,6 +486,7 @@ function rankIdeaBriefs(briefs, strategyBrief = null) {
       rank: index + 1,
       decision_id: entry.brief.decision_id,
       components: entry.components,
+      value_inputs_legacy_defaulted: entry.value_inputs_legacy_defaulted,
       unknown_priorities: entry.unknown_priorities,
       non_goal_conflicts: entry.non_goal_conflicts,
       unknown_non_goals: entry.unknown_non_goals,
@@ -436,7 +523,10 @@ function promoteDecisionBrief(
 }
 
 function compareRanked(left, right) {
+  if (left.components.weighted_total !== right.components.weighted_total)
+    return right.components.weighted_total - left.components.weighted_total;
   for (const key of [
+    "confidence_adjusted_value",
     "strategic_alignment",
     "evidence_strength",
     "competitor_gap",

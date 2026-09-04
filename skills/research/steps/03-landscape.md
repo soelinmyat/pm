@@ -40,6 +40,8 @@ First research activity in a new project. Produces the market overview that make
 
    Register every source that supports a durable landscape claim through `scripts/evidence.js register` using `freshness_kind: landscape`. Use portable labels and keep its Evidence-ID beside the source entry. Because the landscape is an insight artifact rather than an evidence artifact, leave `artifact_paths` empty; downstream routed evidence files establish strict claim bindings.
 
+   Before synthesis, calibrate every headline statistic, market assertion, and positioning claim on **authority, independence, recency, and claim fit**. Trace syndication to its upstream origin: three derivative sources are one evidence chain. Prefer a current primary source for a fact it directly controls, and seek an independent source for market interpretation or disclose the single-source limit. Record `high`, `medium`, or `low` confidence with a one-line basis; these are qualitative judgments, not numeric probabilities.
+
 4. **Present findings for validation.** Show a structured summary before writing. Ask:
    > "Does this look like the right landscape? Anything to add or correct before I write the file?"
 
@@ -111,6 +113,10 @@ Dot size: Monthly organic traffic. Color: segment.
 
 ## Initial Observations
 3-5 bullets. Gaps, tensions, underserved segments, or early hypotheses worth testing.
+
+## Confidence Notes
+For each decision-relevant claim or tightly related claim cluster: `{claim} — {high|medium|low}: authority={basis}; independence={basis}; recency={basis}; claim fit={basis}; limitation={none or what remains uncertain}`.
+Set the document-level confidence from the central claims, and call out when a low-confidence central claim limits the whole landscape.
 ```
 
 ### Step 6: Route Findings to Insights
@@ -130,4 +136,4 @@ When `{pm_dir}/insights/business/landscape.md` exists and user runs landscape mo
 
 ## Done-when
 
-`{pm_dir}/insights/business/landscape.md` has all template sections populated with registered source IDs, the user has validated the findings, the shared ledger and PM project validate, insight routing has run or been explicitly skipped, and indexes/logs are updated. Offer competitor profiling as the next action when appropriate; do not execute another research mode in this invocation.
+`{pm_dir}/insights/business/landscape.md` has all template sections populated with registered source IDs and calibrated claim confidence, the user has validated the findings, the shared ledger and PM project validate, insight routing has run or been explicitly skipped, and indexes/logs are updated. Offer competitor profiling as the next action when appropriate; do not execute another research mode in this invocation.

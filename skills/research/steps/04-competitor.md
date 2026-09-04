@@ -39,6 +39,8 @@ The goal is to find **genuinely close competitors** — not just well-known play
 
 **5-file completeness check (used throughout this phase and the synthesis gate):** every competitor slug must have all five files under `{pm_dir}/evidence/competitors/{slug}/` — `profile.md`, `features.md`, `api.md`, `seo.md` (note if SEO data is unavailable per provider config), `sentiment.md`. Every materially touched file must also pass `evidence.js validate --artifact` and standard PM validation. If any file is missing or its provenance fails, re-run only that section before proceeding.
 
+For each material comparison, calibrate confidence on **authority, independence, recency, and claim fit**. A vendor's current documentation is a primary source for what it offers, but not independent proof of usability or adoption. Three derivative sources that repeat the vendor or one report remain one evidence chain; seek direct customer or market evidence for experience claims. Write `high`, `medium`, or `low` with a short basis and preserve contradictions instead of averaging them away.
+
 Determine dispatch strategy based on candidate count and runtime capability. Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` and `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` for the runtime-neutral dispatch mechanics — do not hardcode any one runtime's dispatch syntax.
 
 **1 competitor:** Profile inline. Read the methodology in `${CLAUDE_PLUGIN_ROOT}/skills/research/references/competitor-profiling.md`, create the five files, then run the completeness check before Phase 3.
@@ -96,4 +98,4 @@ Only continue after explicit confirmation.
 
 ## Done-when
 
-All confirmed competitors pass the 5-file and Evidence v2 checks, the competitor index is updated with links and market gaps, the landscape reflects new players, standard PM validation passes, routing is complete or skipped, and logs are appended. Offer strategy, ideation, or grooming as the next action; do not execute another research mode.
+All confirmed competitors pass the 5-file and Evidence v2 checks, material comparisons include calibrated confidence, the competitor index is updated with links and market gaps, the landscape reflects new players, standard PM validation passes, routing is complete or skipped, and logs are appended. Offer strategy, ideation, or grooming as the next action; do not execute another research mode.
