@@ -141,6 +141,48 @@ Use the machine-readable `route.json` and `captures.json` contract in `${CLAUDE_
 
 After all screenshots for a page are captured, collect two additional artifacts that give the reviewer hard data instead of visual guesses.
 
+### Checker-compatible normalized audit envelope
+
+Raw browser snapshots and consistency-audit output are reviewer inputs, but they are not valid `accessibility-tree` or `dom-audit` evidence by themselves. For each subject and evidence kind, normalize the observations into the exact closed JSON envelope accepted by `scripts/design-critique-check.js`, save that JSON under the current round directory, and register the normalized file in `captures.json`.
+
+Both kinds use the same top-level keys. Do not add other top-level keys or extra check names. A complete `accessibility-tree` envelope is:
+
+```json
+{
+  "schema_version": 1,
+  "subject_id": "account-detail",
+  "commit": "<route.source.commit>",
+  "capture_ids": ["capture-account-primary-desktop-r1"],
+  "checks": {
+    "landmarks": true,
+    "names": true,
+    "focus_order": true
+  },
+  "findings": []
+}
+```
+
+A complete `dom-audit` envelope is:
+
+```json
+{
+  "schema_version": 1,
+  "subject_id": "account-detail",
+  "commit": "<route.source.commit>",
+  "capture_ids": ["capture-account-primary-desktop-r1"],
+  "checks": {
+    "overflow": true,
+    "edge_alignment": true,
+    "hierarchy": true
+  },
+  "findings": []
+}
+```
+
+The `capture_ids` array must cite only captures for the same subject and must include every active capture for that subject. `findings` is always an array; preserve the relevant role/name, element locator, measurement, and observed impact in each finding so the reviewer can verify the check. A check is `true` only after it was actually run and passed. A `false` check is retained with a concrete finding and blocks passing evidence until corrected and recaptured.
+
+The `captures.json` evidence row contains only the normalized audit's manifest identity (`id`, `subject_id`, `kind`, `path`, and `sha256`). Keep raw tool output beside it when useful for review, but point the registered evidence row at the normalized audit envelope.
+
 ### Accessibility Snapshot
 
 Use Playwright MCP's `browser_snapshot` tool on each page after the screenshot is taken. This returns the accessibility tree: element roles, accessible names, states, tab order, ARIA attributes.
@@ -150,7 +192,7 @@ Use Playwright MCP's `browser_snapshot` tool on each page after the screenshot i
 browser_snapshot  # returns full accessibility tree
 ```
 
-Save accepted output under `.pm/dev-sessions/{slug}/design-critique/round-{N}/` and register it as `accessibility-tree` evidence in `captures.json`.
+Save the raw output under `.pm/dev-sessions/{slug}/design-critique/round-{N}/`. Inspect it for landmarks, accessible names, states, and focus order; then write and register the normalized `accessibility-tree` audit envelope above. Do not register a Markdown dump or the raw tool response as checker evidence.
 
 Concrete data for WCAG findings: missing aria-labels, broken tab order, missing landmarks, elements without accessible names. No guessing from PNGs.
 
@@ -510,7 +552,7 @@ For each page, run this via `browser_evaluate`:
 })()
 ```
 
-Save the raw JSON output under `.pm/dev-sessions/{slug}/design-critique/round-{N}/` and register it as `dom-audit` evidence in `captures.json`.
+Save the raw JSON output under `.pm/dev-sessions/{slug}/design-critique/round-{N}/`. Combine it with an explicit viewport overflow check, normalize hierarchy, edge-alignment, and overflow results into the `dom-audit` envelope above, and register that normalized file in `captures.json`. Do not register this raw consistency object directly.
 
 Then write a human-readable report:
 
@@ -603,9 +645,11 @@ Add enriched artifacts to the manifest:
 
 | File | Type | Description |
 |------|------|-------------|
-| a11y-snapshot-{page}.md | Accessibility tree | Element roles, names, states, tab order |
-| consistency-{page}.json | Raw consistency data | Full variance detection output |
+| a11y-snapshot-{page}.md | Raw accessibility snapshot | Element roles, names, states, tab order; reviewer input only |
+| accessibility-audit-{page}.json | Normalized `accessibility-tree` | Checker evidence with landmarks, names, and focus-order results |
+| consistency-{page}.json | Raw consistency data | Full variance detection output; reviewer input only |
 | consistency-{page}.md | Consistency report | Typography hierarchy, group inconsistencies, asymmetric padding, edge alignment |
+| dom-audit-{page}.json | Normalized `dom-audit` | Checker evidence with overflow, edge-alignment, and hierarchy results |
 ```
 
 ## Cleanup

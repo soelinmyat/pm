@@ -1,6 +1,6 @@
 # Prototype Format
 
-How wireframes are created, named, and organized in the PM knowledge base. Used by `pm:groom` Step 6 (Design) to generate prototypes and by Step 7 (Draft Proposal) to link them from an offline-safe preview.
+How wireframes are created, named, and organized in the PM knowledge base. Used by `pm:groom` Step 5 (Design) to generate prototypes and by Step 6 (Draft) to link them from an offline-safe preview.
 
 For shared base styles and the starter template, see:
 - `${CLAUDE_PLUGIN_ROOT}/references/templates/wireframe-base.css`
@@ -40,7 +40,7 @@ Pick one tier per wireframe. Recorded in metadata.
 | `wireframe` | Default for most UI features. Real text and proportions, but no project design tokens applied | System fonts, neutral palette, disciplined CSS via `wireframe-base.css` |
 | `mockup` | Project has a Tailwind config + tokens AND the feature needs visual review before implementation | Uses the real design system; close to running app appearance |
 
-**Auto-selection in Step 6:**
+**Auto-selection in Step 5:**
 - If `tailwind.config.*` AND token files (`tokens.ts`, CSS variables, etc.) are detected → `mockup`
 - Otherwise default → `wireframe`
 - User can override to `sketch` for early-grooming structural exploration
@@ -80,7 +80,7 @@ For any wireframe with dynamic content, the file MUST include separate screen bl
 
 Static or one-shot UI (e.g., a settings layout that only ever shows configuration) can declare `populated`-only.
 
-State coverage is checked by the `@designer` reviewer in Step 8. Missing states are blocking unless metadata declares `"states_only": ["populated"]` with a brief justification.
+State coverage is checked by the `@designer` reviewer in Step 7. Missing states are blocking unless metadata declares `"states_only": ["populated"]` with a brief justification.
 
 ---
 
@@ -123,7 +123,7 @@ Every wireframe carries metadata. **Single-file**: embedded as `<script type="ap
 ### Field semantics
 
 - `slug` — matches the proposal slug (e.g., `dashboard-proposal-hero`)
-- `fidelity` — selected by Step 6 per §2 rules
+- `fidelity` — selected by Step 5 per §2 rules
 - `screens[].id` — kebab-case, used as `data-screen` attribute
 - `screens[].states` — list of states actually rendered in the wireframe (not the states the feature could theoretically have)
 - `screens[].file` — only set for multi-file wireframes; relative to the wireframe folder
@@ -135,13 +135,13 @@ Every wireframe carries metadata. **Single-file**: embedded as `<script type="ap
   - `fallback` — design system not found; using `wireframe-base.css` primitives (wireframe tier)
   - `none` — sketch tier, no styling system
 
-### Read by Step 7
+### Read by Step 6
 
-When generating the proposal HTML, Step 7 reads the wireframe metadata to auto-populate the "Screens" caption under the hero prototype. The caption format is:
+When generating the proposal HTML, Step 6 reads the wireframe metadata to auto-populate the "Screens" caption under the hero prototype. The caption format is:
 
 > Screens — {label1} · {label2} · {label3}
 
-If metadata is missing, Step 7 falls back to a generic "View prototype" caption with no screens listed.
+If metadata is missing, Step 6 falls back to a generic "View prototype" caption with no screens listed.
 
 ---
 
@@ -214,7 +214,7 @@ The proposal HTML is an inert, self-contained artifact. It never frames or execu
 
 ## 9. Quality checklist
 
-Before marking a wireframe done in Step 6:
+Before marking a wireframe done in Step 5:
 
 - [ ] File at the correct path per §1 (single-file at `{slug}.html`, or subfolder at `{slug}/`)
 - [ ] Fidelity tier set in metadata, matches the visual treatment

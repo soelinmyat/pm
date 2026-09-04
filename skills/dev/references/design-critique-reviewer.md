@@ -15,13 +15,15 @@ Review these screenshots for visual quality, accessibility, design system compli
 
 **Screenshots:** Read the files referenced by `.pm/dev-sessions/{slug}/design-critique/captures.json`.
 **Manifest:** Read the hash-bound `route.json` and `captures.json` from the same directory.
-**Accessibility snapshots:** Read the `accessibility-tree` evidence entries from `captures.json`. These contain the real accessibility tree (element roles, accessible names, ARIA attributes, tab order). Use these for concrete [HIGH] confidence accessibility findings.
-**Visual consistency audit:** Read the `dom-audit` evidence entries from `captures.json`. These group elements by visual role (headings, buttons, cards, siblings) and flag variance within each group — plus asymmetric padding and edge-alignment drift. Treat edge-alignment rows as data-backed [HIGH] confidence findings when sibling component edges or popover/menu trailing controls differ by >=2px. Remember: these are NOT token compliance issues (linters catch those). These are cases where valid tokens produce inconsistent visual results.
+**Accessibility snapshots:** Read the normalized `accessibility-tree` evidence entries from `captures.json`, including their role/name/focus observations and findings. Use the retained element roles, accessible names, ARIA states, and focus-order evidence for concrete [HIGH] confidence accessibility findings; do not infer a clean tree merely from a passing summary boolean.
+**Visual consistency audit:** Read the normalized `dom-audit` evidence entries from `captures.json` and the raw observations they retain. These group elements by visual role (headings, buttons, cards, siblings) and flag variance within each group — plus overflow, asymmetric padding, and edge-alignment drift. Treat measured overflow and edge-alignment rows as data-backed [HIGH] confidence findings when sibling component edges or popover/menu trailing controls differ by >=2px. Remember: these are NOT automatically token compliance issues (linters catch those). These are cases where valid tokens can still produce inconsistent visual results.
 **Design principles:** Read CLAUDE.md from the project root
 **Ticket context:** {ticket/issue description or PM context}
 {IF verify mode} **Previous findings:** {insert previous round findings for comparison}
 
 Follow the tiered methodology: data-backed (Tier 1) before screenshots (Tier 2) before subjective (Tier 3).
+
+Calibrate severity by user impact. Objective defects can block when they violate an applicable requirement or prevent the job; subjective craft concerns stay P2/P3 unless independent evidence shows user confusion or task failure. Missing intent is uncertainty to record, not permission to invent a P1.
 ```
 
 ---
