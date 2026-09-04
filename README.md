@@ -160,7 +160,7 @@ and rendered-evidence contract behind PM's flagship reports.
 | `/pm:think` | Structured product thinking with a traceable decision brief and verified promotion |
 | `/pm:research <topic>` | Source-register market landscape, competitor profiles, or claim-level cited topic research |
 | `/pm:strategy` | Create or update strategy plus stable priority/non-goal tokens for downstream checks |
-| `/pm:groom [idea]` | Build a resumable, evidence-backed product proposal with canonical JSON, generated HTML/Markdown readers, quality calibration, and explicit hash-bound approval |
+| `/pm:groom [idea]` | Build a resumable, evidence-backed product proposal with canonical JSON, responsive HTML/Markdown readers, a visible source-bound prototype entry point for UI work, quality calibration, and explicit hash-bound approval |
 | `/pm:ideate` | Mine evidence-backed ideas, rank them deterministically, and flag strategy conflicts |
 
 ### Development and delivery
@@ -171,9 +171,9 @@ and rendered-evidence contract behind PM's flagship reports.
 | `/pm:bug <title>` | File a bug report with observed/expected/reproduction stubs — skips groom/RFC, feeds straight into `/pm:dev` |
 | `/pm:rfc <feature-slug>` | Generate a technical RFC from the trusted execution contract of an approved groomed proposal |
 | `/pm:dev [ticket]` | Routes by canonical proposal scope and observed risk, resumes phase-local state, implements with TDD, and verifies delivery evidence |
-| `/pm:design-critique` | Review product UI or PM HTML artifacts with commit-bound captures, accessibility/viewport/print evidence, structured findings, and an accessible report |
+| `/pm:design-critique` | Review product UI or PM HTML artifacts with trusted state/viewport captures, decoded-pixel and accessibility evidence, independent Primary and Fresh Eyes judgment, explicit reconciliation, and an accessible commit-bound report |
 | `/pm:review` | Run evidence-bound source review with adaptive six-lens coverage, disagreement handling, bounded fix rounds, and a checked HTML report |
-| `/pm:ship [PR]` | Prepare the final tree, review it, and resumably push, reconcile/create a PR, monitor CI, merge, and place any release tag on the verified main SHA |
+| `/pm:ship [PR]` | Prepare the final tree, bind the reviewed PR body through creation and a fresh pre-merge attestation, then resumably push, monitor CI, merge, and place any release tag on the verified main SHA |
 | `/pm:loop status` | Show the git-backed loop board and scheduler-safe orchestration; unattended stages use validated stage results and park contract or approval failures at non-dispatchable `needs-human` |
 | `/pm:loop reconcile` | Dry-run stale-card classification from durable run/recovery and repository-pinned PR evidence; `--apply` requires Git readiness and isolated PM transactions |
 | `/pm:board` | Open a visual Kanban view of backlog, leases, recent runs, and budget state |

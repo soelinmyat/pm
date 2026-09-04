@@ -38,6 +38,18 @@ test("proposal renderer is byte-deterministic and binds both projections to cano
   assert.match(first.html, /Critical states/);
   assert.match(first.html, /stale approval/);
   assert.match(first.html, /Lifecycle and approval state remain visible at narrow widths/);
+  assert.match(first.html, /class="toc-group"/);
+  assert.match(first.html, /<details class="appendix-disclosure" open>/);
+  assert.match(first.html, /12 sections · collapse to focus/);
+  assert.match(first.html, /12 sections · expand for evidence/);
+  assert.match(first.html, /Review must finish before approval/);
+  assert.match(first.html, /data-pm-lifecycle href="#decision-action"/);
+  assert.match(first.html, /Draft status never implies approval/);
+  assert.match(first.html, /Approval applies only to revision <strong>1<\/strong>/);
+  assert.match(first.html, /\.masthead \{[\s\S]*position: sticky/);
+  assert.match(first.html, /aria-label="Field and Contract"/);
+  assert.doesNotMatch(first.html, /approval\.:/i);
+  assert.match(first.html, />Pass<\/td>/);
   assert.match(first.markdown, /### Critical states/);
   assert.match(first.markdown, /### Visual invariants/);
   assert.match(first.markdown, /Do not edit by hand/);
@@ -132,9 +144,24 @@ test("post-approval lifecycle readers preserve approval and show the current sta
       rendered.html,
       new RegExp(`Approved[^<]*.*${lifecycle.replace("-", "[ -]")}`, "i")
     );
-    assert.match(rendered.html, /Product approval remains valid/);
-    assert.doesNotMatch(rendered.html, /Approval is still required/);
+    assert.match(rendered.html, /Approval is valid for this exact proposal/);
+    assert.match(rendered.html, new RegExp(`/pm:rfc ${input.proposal.slug}`));
+    assert.doesNotMatch(rendered.html, /Review must finish before approval/);
   }
+});
+
+test("reviewed proposals give the approver one concrete, revision-bound next step", () => {
+  const input = source();
+  input.proposal.lifecycle = "reviewed";
+  const rendered = renderProposal(input.proposal, {
+    sourceBytes: Buffer.from(`${JSON.stringify(input.proposal, null, 2)}\n`),
+    version: "test",
+  });
+
+  assert.match(rendered.html, /Your approval is the next step/);
+  assert.match(rendered.html, /Approve this proposal for technical design/);
+  assert.match(rendered.html, new RegExp(`/pm:groom ${input.proposal.slug}`));
+  assert.match(rendered.html, /Any substantive edit makes that approval stale/);
 });
 
 test("CLI atomically writes canonical HTML and Markdown locations", () => {

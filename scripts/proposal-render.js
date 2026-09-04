@@ -64,7 +64,6 @@ function renderHtml(proposal, identity) {
       reviewed: "Reviewed · approval pending",
       draft: "Draft",
     }[lifecycle] || lifecycle;
-  const approvalTrusted = ["approved", "planned", "in-progress", "done"].includes(lifecycle);
   const metadata = {
     schema_version: 1,
     id: proposal.id,
@@ -91,7 +90,9 @@ function renderHtml(proposal, identity) {
     ],
     [
       "Edge cases",
-      proposal.edge_cases.map((item) => `${item.scenario}: ${item.expected_behavior}`).join(" • "),
+      proposal.edge_cases
+        .map((item) => `${sentenceStem(item.scenario)}: ${item.expected_behavior}`)
+        .join(" • "),
     ],
     ["Design requirements", listText(proposal.design_requirements, "requirement")],
     ...(proposal.design_context
@@ -165,15 +166,14 @@ function renderHtml(proposal, identity) {
 <body data-proposal-revision="${proposal.revision}" data-content-sha256="${h(identity.contentSha256)}" data-source-sha256="${h(identity.sourceSha256)}">
 <a class="skip-link" href="#content">Skip to content</a>
 <main class="page" id="content">
-  <header class="masthead"><span class="masthead-id">${h(proposal.id)}</span><div class="masthead-meta"><span class="status-mark" data-pm-lifecycle>${h(approval)}</span><span>Revision ${proposal.revision}</span><span>Priority ${h(proposal.priority)}</span><span>Size ${h(proposal.size)}</span></div></header>
+  <header class="masthead"><span class="masthead-id">${h(proposal.id)}</span><div class="masthead-meta"><a class="status-mark" data-pm-lifecycle href="#decision-action" aria-label="${h(approval)}; go to decision status">${h(approval)}</a><span>Revision ${proposal.revision}</span><span>Priority ${h(proposal.priority)}</span><span>Size ${h(proposal.size)}</span></div></header>
   <div class="title-block"><h1>${h(proposal.title)}</h1><p class="lede">${h(proposal.outcome)}</p></div>
   ${prototypeHeroHtml(proposal, identity)}
   <div class="tldr"><dl><dt>For</dt><dd>${h(proposal.audience.map((item) => item.name).join(", "))}</dd><dt>What</dt><dd>${h(proposal.decision_brief.recommendation)}</dd><dt>Why now</dt><dd>${h(proposal.decision_brief.why_now)}</dd></dl></div>
   <section class="decision-brief" id="decision-brief"><h2><span class="sec-num">00</span>Decision Brief</h2><p>${h(proposal.decision_brief.recommendation)}</p></section>
   <section class="execution-contract" id="execution-contract"><div class="execution-contract-label">Execution Contract</div>${tableHtml(["Field", "Contract"], contractRows)}</section>
-  <nav class="toc" aria-label="Proposal sections">${tocHtml()}</nav>
-  <div id="appendix">${sections}</div>
-  <p class="closing">${approvalTrusted ? `Product approval remains valid. Current lifecycle: <strong>${h(lifecycle)}</strong>.` : "Approval is still required before technical design."}</p>
+  ${decisionActionHtml(proposal, identity)}
+  <details class="appendix-disclosure" open><summary><span>Detailed evidence &amp; delivery appendix</span><span class="appendix-disclosure-meta"><span class="appendix-disclosure-meta-open">12 sections · collapse to focus</span><span class="appendix-disclosure-meta-closed">12 sections · expand for evidence</span></span></summary><nav class="toc" aria-label="Proposal sections">${tocHtml()}</nav><div id="appendix">${sections}</div></details>
   <footer><span>Content ${h(identity.contentSha256.slice(0, 22))}…</span><span>Source revision ${proposal.revision}</span></footer>
 </main>
 </body>
@@ -381,6 +381,15 @@ function mdList(items, field) {
 function listText(items, field) {
   return items.map((item) => item[field]).join(" • ");
 }
+function sentenceStem(value) {
+  return String(value ?? "")
+    .trim()
+    .replace(/[.:;!?]+$/, "");
+}
+function sentenceCase(value) {
+  const text = String(value ?? "").trim();
+  return text ? `${text.charAt(0).toUpperCase()}${text.slice(1)}` : text;
+}
 function listHtml(items) {
   return `<ul>${items.map((item) => `<li>${h(item)}</li>`).join("")}</ul>`;
 }
@@ -388,7 +397,7 @@ function section(id, numeral, title, body) {
   return `<section id="${id}"><h2><span class="sec-num">${numeral}</span>${h(title)}</h2>${body}</section>`;
 }
 function tableHtml(headers, rows) {
-  return `<table data-responsive="true"><thead><tr>${headers.map((item) => `<th>${h(item)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((item, index) => `<td data-label="${h(headers[index] || "Value")}">${h(item)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+  return `<table data-responsive="true" aria-label="${h(headers.join(" and "))}"><thead><tr>${headers.map((item) => `<th>${h(item)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((item, index) => `<td data-label="${h(headers[index] || "Value")}">${h(item)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
 }
 function prototypeHeroHtml(proposal, identity) {
   const prototype = proposal.design_context?.prototype;
@@ -463,31 +472,80 @@ function decisionsHtml(proposal) {
   return `${open || "<p>No open product decisions.</p>"}<details><summary>Resolved decisions (${proposal.resolved_decisions.length})</summary><div class="resolved-list">${resolved}</div></details>`;
 }
 function statusHtml(proposal, identity) {
-  const rows = proposal.question_reviews.map((item) => [item.question, item.outcome]);
+  const approvalTrusted = ["approved", "planned", "in-progress", "done"].includes(
+    proposal.lifecycle
+  );
+  const rows = proposal.question_reviews.map((item) => [item.question, sentenceCase(item.outcome)]);
   rows.push([
     "Approval",
-    ["approved", "planned", "in-progress", "done"].includes(proposal.lifecycle)
+    approvalTrusted
       ? `Approval verified; current lifecycle ${proposal.lifecycle}`
-      : "Pending explicit user decision",
+      : proposal.lifecycle === "reviewed"
+        ? "Pending explicit user decision"
+        : "Review required before approval",
   ]);
-  return `${tableHtml(["Question", "Outcome"], rows)}<p>Revision ${proposal.revision}. Semantic content <code>${h(identity.contentSha256)}</code>.</p>`;
+  return `${tableHtml(["Question", "Outcome"], rows)}<p>Revision ${proposal.revision}. Approval identity <code>${h(identity.contentSha256)}</code>.</p>`;
+}
+function decisionActionHtml(proposal, identity) {
+  const approvalTrusted = ["approved", "planned", "in-progress", "done"].includes(
+    proposal.lifecycle
+  );
+  let title;
+  let guidance;
+  if (approvalTrusted) {
+    title = "Approval is valid for this exact proposal";
+    guidance = `Continue with <code>/pm:rfc ${h(proposal.slug)}</code> for technical design. Current lifecycle: <strong>${h(proposal.lifecycle)}</strong>.`;
+  } else if (proposal.lifecycle === "reviewed") {
+    title = "Your approval is the next step";
+    guidance = `Return to the active PM conversation and reply <strong>“Approve this proposal for technical design”</strong>, or describe the changes you want. If you are reopening it later, resume <code>/pm:groom ${h(proposal.slug)}</code>.`;
+  } else {
+    title = "Review must finish before approval";
+    guidance = `Resume <code>/pm:groom ${h(proposal.slug)}</code> to complete review or revise this draft. Draft status never implies approval.`;
+  }
+  return `<aside class="decision-action" id="decision-action" aria-label="Decision status"><div class="decision-action-label">Decision status</div><div class="decision-action-title">${title}</div><p>${guidance}</p><p class="decision-integrity">Approval applies only to revision <strong>${proposal.revision}</strong> and content <code>${h(identity.contentSha256)}</code>. Any substantive edit makes that approval stale.</p></aside>`;
 }
 function tocHtml() {
-  return [
-    ["problem", "I", "Problem"],
-    ["jtbd", "II", "Users & JTBD"],
-    ["usecases", "III", "Acceptance"],
-    ["scope", "IV", "Scope"],
-    ["requirements", "V", "Requirements"],
-    ["edge", "VI", "Edge cases"],
-    ["flow", "VII", "Design"],
-    ["competitive", "VIII", "Alternatives"],
-    ["feasibility", "IX", "Risks"],
-    ["open-q", "X", "Decisions"],
-    ["metrics", "XI", "Metrics"],
-    ["status", "XII", "Status"],
-  ]
-    .map(([id, n, label]) => `<a href="#${id}"><span class="toc-num">${n}</span>${label}</a>`)
+  const groups = [
+    [
+      "Understand",
+      [
+        ["problem", "I", "Problem"],
+        ["jtbd", "II", "Users & JTBD"],
+      ],
+    ],
+    [
+      "Define",
+      [
+        ["usecases", "III", "Acceptance"],
+        ["scope", "IV", "Scope"],
+        ["requirements", "V", "Requirements"],
+        ["edge", "VI", "Edge cases"],
+        ["flow", "VII", "Design"],
+      ],
+    ],
+    [
+      "Challenge",
+      [
+        ["competitive", "VIII", "Alternatives"],
+        ["feasibility", "IX", "Risks"],
+        ["open-q", "X", "Decisions"],
+      ],
+    ],
+    [
+      "Decide",
+      [
+        ["metrics", "XI", "Metrics"],
+        ["status", "XII", "Status"],
+      ],
+    ],
+  ];
+  return groups
+    .map(
+      ([group, links]) =>
+        `<div class="toc-group"><span class="toc-group-label">${group}</span>${links
+          .map(([id, n, label]) => `<a href="#${id}"><span class="toc-num">${n}</span>${label}</a>`)
+          .join("")}</div>`
+    )
     .join("");
 }
 

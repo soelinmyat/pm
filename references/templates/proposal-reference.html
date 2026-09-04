@@ -74,23 +74,25 @@
     margin-bottom: var(--space-6);
     border-bottom: 1px solid var(--rule);
     font-family: var(--sans);
-    font-size: 0.75rem;
-    color: var(--ink-3);
+    font-size: 0.875rem;
+    color: var(--ink-2);
     text-transform: uppercase;
     letter-spacing: 0.08em;
   }
   .masthead-id { font-family: var(--mono); letter-spacing: 0.04em; }
   .masthead-meta { display: flex; gap: var(--space-4); flex-wrap: wrap; }
-  .masthead-meta span:not(:last-child)::after {
+  .masthead-meta > :not(:last-child)::after {
     content: '·'; margin-left: var(--space-4); color: var(--ink-4);
   }
   .status-mark {
     font-family: var(--sans);
-    font-size: 0.7rem;
+    font-size: 0.875rem;
     color: var(--accent);
     font-weight: 500;
     letter-spacing: 0.08em;
+    text-decoration: none;
   }
+  .status-mark:hover { text-decoration: underline; }
 
   /* ───────────── Title block ───────────── */
   .title-block { margin-bottom: var(--space-7); max-width: var(--measure); }
@@ -234,13 +236,24 @@
     border-top: 1px solid var(--rule);
     border-bottom: 1px solid var(--rule);
     font-family: var(--sans);
-    font-size: 0.78rem;
+    font-size: 0.82rem;
     color: var(--ink-3);
-    column-count: 2;
-    column-gap: var(--space-6);
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4) var(--space-6);
     max-width: var(--measure);
   }
-  @media (min-width: 720px) { .toc { column-count: 3; } }
+  @media (min-width: 720px) { .toc { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+  .toc-group { min-width: 0; }
+  .toc-group-label {
+    display: block;
+    margin-bottom: var(--space-1);
+    color: var(--ink-3);
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
   .toc a {
     display: block;
     padding: var(--space-1) 0;
@@ -584,6 +597,36 @@
   summary::-webkit-details-marker { display: none; }
   summary::before { content: '▸ '; color: var(--ink-4); }
   details[open] summary::before { content: '▾ '; }
+  .appendix-disclosure {
+    max-width: var(--wide);
+    margin: var(--space-7) 0 0;
+    padding: var(--space-4) 0;
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+  }
+  .appendix-disclosure > summary {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-4);
+    color: var(--ink-2);
+    font-size: 0.875rem;
+    font-weight: 700;
+  }
+  .appendix-disclosure > summary::before { flex: 0 0 auto; }
+  .appendix-disclosure-meta {
+    margin-left: auto;
+    color: var(--ink-3);
+    font-size: 0.75rem;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-align: right;
+  }
+  .appendix-disclosure-meta-closed { display: none; }
+  .appendix-disclosure:not([open]) .appendix-disclosure-meta-open { display: none; }
+  .appendix-disclosure:not([open]) .appendix-disclosure-meta-closed { display: inline; }
+  .appendix-disclosure .toc { margin-bottom: var(--space-7); }
+  .appendix-disclosure #appendix { padding-top: var(--space-2); }
   .resolved-list { margin-top: var(--space-3); }
   .resolved-q {
     padding: var(--space-3) 0;
@@ -632,6 +675,34 @@
     color: var(--accent);
     background: var(--accent-bg);
   }
+  .decision-action {
+    margin-top: var(--space-6);
+    padding: var(--space-5);
+    border: 1px solid color-mix(in oklch, var(--accent) 28%, var(--rule));
+    border-left: 4px solid var(--accent);
+    background: var(--accent-bg);
+    max-width: var(--measure);
+  }
+  .decision-action-label {
+    margin-bottom: var(--space-2);
+    font-family: var(--sans);
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .decision-action-title {
+    margin-bottom: var(--space-2);
+    font-family: var(--serif);
+    font-size: 1.2rem;
+    font-weight: 600;
+    line-height: 1.35;
+  }
+  .decision-action p { color: var(--ink-2); font-size: 0.95rem; }
+  .decision-action p + p { margin-top: var(--space-2); }
+  .decision-action code { color: var(--accent); background: transparent; font-weight: 600; }
+  .decision-integrity { font-family: var(--sans); font-size: 0.875rem !important; }
 
   /* Footer */
   footer {
@@ -639,8 +710,8 @@
     padding-top: var(--space-4);
     border-top: 1px solid var(--rule);
     font-family: var(--sans);
-    font-size: 0.7rem;
-    color: var(--ink-4);
+    font-size: 0.8rem;
+    color: var(--ink-3);
     text-transform: uppercase;
     letter-spacing: 0.08em;
     display: flex;
@@ -650,11 +721,25 @@
   ::selection { background: var(--accent-bg); color: var(--accent); }
 
   @media (max-width: 640px) {
+    html { scroll-padding-top: 8rem; }
     body { font-size: 1rem; }
     .page { padding-left: var(--space-4); padding-right: var(--space-4); }
-    .masthead { align-items: flex-start; flex-direction: column; gap: var(--space-2); }
+    .masthead {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      align-items: flex-start;
+      flex-direction: column;
+      gap: var(--space-2);
+      margin-left: calc(-1 * var(--space-4));
+      margin-right: calc(-1 * var(--space-4));
+      padding: var(--space-3) var(--space-4);
+      background: color-mix(in oklch, var(--bg) 94%, transparent);
+      box-shadow: 0 1px 0 var(--rule);
+      backdrop-filter: blur(10px);
+    }
     .masthead-meta { gap: var(--space-2) var(--space-3); }
-    .masthead-meta span:not(:last-child)::after { margin-left: var(--space-3); }
+    .masthead-meta > :not(:last-child)::after { margin-left: var(--space-3); }
     .tldr dl { grid-template-columns: 1fr; gap: var(--space-1); }
     .tldr dt { margin-top: var(--space-2); }
     .usecase dl, .pipeline-row { grid-template-columns: 1fr; margin-left: 0; gap: var(--space-1); }
@@ -700,12 +785,25 @@
       text-transform: uppercase;
       letter-spacing: 0.07em;
     }
+    .execution-contract table[data-responsive="true"] td::before { display: none; }
+    .execution-contract table[data-responsive="true"] td:first-child {
+      padding-bottom: 0;
+      color: var(--ink-2);
+      font-family: var(--sans);
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+    }
+    .execution-contract table[data-responsive="true"] td + td { padding-top: var(--space-1); }
+    .appendix-disclosure > summary { align-items: flex-start; flex-wrap: wrap; }
+    .appendix-disclosure-meta { width: 100%; margin-left: 1.15rem; text-align: left; }
   }
   .skip-link { position: fixed; left: 1rem; top: -4rem; z-index: 1000; padding: .6rem .8rem; background: var(--ink); color: var(--bg); font-family: var(--sans); }
   .skip-link:focus { top: 1rem; }
   :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }
-  @media print { body { background: #fff; color: #000; } .page { max-width: none; padding: 0; } .toc { display: none; } .hero-prototype-preview { min-height: 0; padding: var(--space-3); } .hero-prototype-link[href]::after { content: ' (' attr(href) ')'; } table[data-responsive="true"] { display: table; } table[data-responsive="true"] thead { position: static; width: auto; height: auto; margin: 0; overflow: visible; clip: auto; white-space: normal; } table[data-responsive="true"] tbody { display: table-row-group; } table[data-responsive="true"] tr { display: table-row; } table[data-responsive="true"] td { display: table-cell; width: auto; } table[data-responsive="true"] td::before { display: none; } *, *::before, *::after { overflow: visible !important; box-shadow: none !important; } section, table, .execution-contract, .hero-prototype { break-inside: avoid; } }
+  @media print { body { background: #fff; color: #000; } .page { max-width: none; padding: 0; } .masthead { position: static; } .toc, .appendix-disclosure > summary { display: none; } .appendix-disclosure { border: 0; padding: 0; } .appendix-disclosure:not([open]) > :not(summary) { display: block !important; } .hero-prototype-preview { min-height: 0; padding: var(--space-3); } .hero-prototype-link[href]::after { content: ' (' attr(href) ')'; } table[data-responsive="true"] { display: table; } table[data-responsive="true"] thead { position: static; width: auto; height: auto; margin: 0; overflow: visible; clip: auto; white-space: normal; } table[data-responsive="true"] tbody { display: table-row-group; } table[data-responsive="true"] tr { display: table-row; } table[data-responsive="true"] td { display: table-cell; width: auto; } table[data-responsive="true"] td::before { display: none; } *, *::before, *::after { overflow: visible !important; box-shadow: none !important; } section, table, .execution-contract, .hero-prototype, .decision-action { break-inside: avoid; } }
 </style>
 </head>
 <body>
@@ -717,7 +815,7 @@
   <header class="masthead">
     <span class="masthead-id">PM-042</span>
     <div class="masthead-meta">
-      <span class="status-mark">Reviewed · Proposed</span>
+      <a class="status-mark" href="#decision-action" aria-label="Reviewed; approval pending; go to decision status">Reviewed · Approval pending</a>
       <span>Priority high</span>
       <span>Size M</span>
       <span>Apr 10, 2026</span>
@@ -760,20 +858,22 @@
     </dl>
   </div>
 
+  <aside class="decision-action" id="decision-action" aria-label="Decision status">
+    <div class="decision-action-label">Decision status</div>
+    <div class="decision-action-title">Your approval is the next step</div>
+    <p>Return to the active PM conversation and reply <strong>“Approve this proposal for technical design”</strong>, or describe the changes you want. If you are reopening it later, resume <code>/pm:groom multi-language-support</code>.</p>
+    <p class="decision-integrity">Approval applies only to revision <strong>1</strong> and its exact semantic content. Any substantive edit makes that approval stale.</p>
+  </aside>
+
+  <details class="appendix-disclosure" open>
+    <summary><span>Detailed evidence &amp; delivery appendix</span><span class="appendix-disclosure-meta"><span class="appendix-disclosure-meta-open">12 sections · collapse to focus</span><span class="appendix-disclosure-meta-closed">12 sections · expand for evidence</span></span></summary>
+
   <!-- TOC -->
   <nav class="toc" aria-label="Sections">
-    <a href="#problem"><span class="toc-num">I</span>Problem</a>
-    <a href="#jtbd"><span class="toc-num">II</span>Users &amp; JTBD</a>
-    <a href="#usecases"><span class="toc-num">III</span>Use Cases</a>
-    <a href="#scope"><span class="toc-num">IV</span>Scope</a>
-    <a href="#requirements"><span class="toc-num">V</span>Requirements</a>
-    <a href="#edge"><span class="toc-num">VI</span>Edge Cases</a>
-    <a href="#flow"><span class="toc-num">VII</span>Flow</a>
-    <a href="#competitive"><span class="toc-num">VIII</span>Competitive</a>
-    <a href="#feasibility"><span class="toc-num">IX</span>Feasibility</a>
-    <a href="#open-q"><span class="toc-num">X</span>Open Questions</a>
-    <a href="#metrics"><span class="toc-num">XI</span>Metrics</a>
-    <a href="#status"><span class="toc-num">XII</span>Status</a>
+    <div class="toc-group"><span class="toc-group-label">Understand</span><a href="#problem"><span class="toc-num">I</span>Problem</a><a href="#jtbd"><span class="toc-num">II</span>Users &amp; JTBD</a></div>
+    <div class="toc-group"><span class="toc-group-label">Define</span><a href="#usecases"><span class="toc-num">III</span>Use Cases</a><a href="#scope"><span class="toc-num">IV</span>Scope</a><a href="#requirements"><span class="toc-num">V</span>Requirements</a><a href="#edge"><span class="toc-num">VI</span>Edge Cases</a><a href="#flow"><span class="toc-num">VII</span>Flow</a></div>
+    <div class="toc-group"><span class="toc-group-label">Challenge</span><a href="#competitive"><span class="toc-num">VIII</span>Competitive</a><a href="#feasibility"><span class="toc-num">IX</span>Feasibility</a><a href="#open-q"><span class="toc-num">X</span>Open Questions</a></div>
+    <div class="toc-group"><span class="toc-group-label">Decide</span><a href="#metrics"><span class="toc-num">XI</span>Metrics</a><a href="#status"><span class="toc-num">XII</span>Status</a></div>
   </nav>
 
   <!-- ─── I. Problem ─── -->
@@ -1055,8 +1155,8 @@ flowchart TD
       <div class="pipeline-row"><div class="pipeline-step">Bar raiser</div><div class="pipeline-verdict">Ready</div></div>
     </div>
 
-    <p class="closing">Ready for engineering. Run <code>pm:rfc multi-language-support</code> to generate the technical RFC, then <code>pm:dev multi-language-support</code> to implement.</p>
   </section>
+  </details>
 
   <footer>
     <span>PM-042 · Multi-Language Support</span>
