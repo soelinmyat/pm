@@ -68,6 +68,7 @@ test("line range validation counts newline-dense buffers without materializing l
 
 test("complete adaptively allocated review evidence produces a current passing report", () => {
   const fixture = makeFixture({ maxWorkers: 3 });
+  assert.equal(fixture.target.schema_version, 2);
   const generated = checkReview({
     root: fixture.root,
     targetPath: fixture.targetPath,
@@ -111,6 +112,36 @@ test("complete adaptively allocated review evidence produces a current passing r
     })
   );
   assert.equal(resumed.ok, true, JSON.stringify(resumed.issues, null, 2));
+});
+
+test("pre-security schema v1 targets remain resumable with their frozen legacy lens plan", () => {
+  const fixture = makeFixture({ maxWorkers: 3 });
+  fixture.target.schema_version = 1;
+  fixture.target.lenses = fixture.target.lenses.filter((item) => item.name !== "security");
+  fixture.target.ownership.review = fixture.target.ownership.review.filter(
+    (item) => item !== "security"
+  );
+  write(fixture.root, fixture.targetPath, fixture.target);
+  const targetBinding = binding(fixture.root, fixture.targetPath);
+  for (const resultPath of fixture.resultPaths) {
+    const result = JSON.parse(fs.readFileSync(path.join(fixture.root, resultPath), "utf8"));
+    result.target = targetBinding;
+    write(fixture.root, resultPath, result);
+  }
+
+  const checked = checkReview({
+    root: fixture.root,
+    targetPath: fixture.targetPath,
+    resultPaths: fixture.resultPaths,
+    reportPath: fixture.reportPath,
+    humanReportPath: fixture.htmlPath,
+    writeReport: true,
+    verifyBrowser: false,
+  });
+
+  assert.equal(checked.ok, true, JSON.stringify(checked.issues, null, 2));
+  assert.equal(checked.report.coverage.required.includes("security"), false);
+  assert.equal(checked.report.coverage.not_applicable.includes("security"), false);
 });
 
 test("a fresh run keeps evidence run-scoped while publishing the pass canonically", () => {

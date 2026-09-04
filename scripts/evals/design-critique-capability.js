@@ -64,7 +64,7 @@ function validateCapabilityOracle(oracle) {
       !closedObject(
         item,
         ["id", "fixture_ref", "fixture_sha256", "clean_control", "defects"],
-        ["id", "fixture_ref", "clean_control", "defects"],
+        ["id", "fixture_ref", "fixture_sha256", "clean_control", "defects"],
         where,
         issues
       )
@@ -77,7 +77,7 @@ function validateCapabilityOracle(oracle) {
     if (!FIXTURE_PATTERN.test(String(item.fixture_ref || "")) || item.fixture_ref.includes("..")) {
       issues.push(`${where}.fixture_ref must be a safe design-critique HTML fixture path`);
     }
-    if (item.fixture_sha256 !== undefined && !HASH_PATTERN.test(String(item.fixture_sha256))) {
+    if (!HASH_PATTERN.test(String(item.fixture_sha256 || ""))) {
       issues.push(`${where}.fixture_sha256 must be a sha256 digest`);
     }
     if (typeof item.clean_control !== "boolean") {

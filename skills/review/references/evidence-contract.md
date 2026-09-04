@@ -46,6 +46,8 @@ Review JSON bindings (targets, results, decisions, reports, gate-row references,
 
 Generate `target.json` with `scripts/review-target.js`. It freezes:
 
+- `schema_version: 2`. The checker can finish an already frozen schema-v1 target with its original six-lens plan, but every newly generated target uses v2 and cannot omit the risk-routed security decision or lens. Resume never rewrites immutable evidence in place.
+
 - run ID, round 1–3, iteration cap 3, mode, timestamp;
 - the exact `pm:review` generator version that created the frozen target;
 - additive relevance policy `changed-hunk-anchor-v1` for newly generated targets; legacy targets without it remain readable only for inspection and cannot publish an authoritative final pass;

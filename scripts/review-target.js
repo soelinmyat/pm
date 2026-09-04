@@ -106,7 +106,7 @@ function buildReviewTarget(options) {
     throw new Error("acceptance criteria must canonically equal the bound Dev session criteria");
 
   return {
-    schema_version: 1,
+    schema_version: 2,
     relevance_policy: "changed-hunk-anchor-v1",
     run_id: options.runId || `review-${crypto.randomUUID()}`,
     review_round: round,

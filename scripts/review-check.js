@@ -86,6 +86,7 @@ const MAX_CHANGE_ANCHORS = 8;
 const LINE_COUNT_CACHE = new WeakMap();
 const MAX_ANCHOR_PATHS = 500;
 const MAX_ANCHOR_RELATION_CHARS = 500;
+const TARGET_SCHEMA_VERSION = 2;
 
 function checkReview(options) {
   const root = fs.realpathSync(path.resolve(options.root || process.cwd()));
@@ -283,7 +284,12 @@ function validateTarget(target, issues) {
     "target",
     issues
   );
-  if (target.schema_version !== 1) add(issues, "target.schema_version", "must equal 1");
+  if (![1, TARGET_SCHEMA_VERSION].includes(target.schema_version))
+    add(
+      issues,
+      "target.schema_version",
+      `must equal legacy version 1 or current version ${TARGET_SCHEMA_VERSION}`
+    );
   if (
     target.relevance_policy !== undefined &&
     target.relevance_policy !== CHANGE_HUNK_ANCHOR_POLICY
@@ -307,7 +313,7 @@ function validateTarget(target, issues) {
       `must bind pm:review to a released bound-generator version from 1.13.22 through ${PLUGIN_VERSION}`
     );
   validateSource(target.source, "target.source", issues);
-  validateDevContext(target.dev_context, issues);
+  validateDevContext(target.dev_context, target.schema_version, issues);
   validateBindingShape(target.acceptance, "target.acceptance", issues, true);
   validateBindingShape(target.prior_report, "target.prior_report", issues, true);
   if (target.review_round === 1 && target.prior_report !== null)
@@ -341,7 +347,7 @@ function validateTarget(target, issues) {
   validateLensesAndAllocation(target, issues);
 }
 
-function validateDevContext(context, issues) {
+function validateDevContext(context, schemaVersion, issues) {
   if (context === null || context === undefined) return;
   if (!object(context)) return add(issues, "target.dev_context", "must be null or an object");
   closed(
@@ -365,7 +371,10 @@ function validateDevContext(context, issues) {
     !Number.isInteger(context.decision_version) ||
     context.decision_version < 1 ||
     !sha256(context.acceptance_sha256) ||
-    typeof context.security_review_required !== "boolean"
+    (schemaVersion >= TARGET_SCHEMA_VERSION
+      ? typeof context.security_review_required !== "boolean"
+      : context.security_review_required !== undefined &&
+        typeof context.security_review_required !== "boolean")
   )
     add(issues, "target.dev_context", "must contain a valid canonical Dev context");
 }
@@ -607,7 +616,12 @@ function validateLensesAndAllocation(target, issues) {
     if (typeof item.applicable !== "boolean" || !text(item.reason))
       add(issues, at, "requires applicability and reason");
   }
-  const expected = target.mode === "full" ? LENSES : LENSES.filter((lens) => lens !== "design");
+  const schemaLenses =
+    target.schema_version >= TARGET_SCHEMA_VERSION
+      ? LENSES
+      : LENSES.filter((lens) => lens !== "security");
+  const expected =
+    target.mode === "full" ? schemaLenses : schemaLenses.filter((lens) => lens !== "design");
   if (expected.some((lens) => !logical.has(lens)) || logical.size !== expected.length)
     add(issues, "target.lenses", `must exactly cover ${expected.join(", ")}`);
   if (
@@ -616,10 +630,9 @@ function validateLensesAndAllocation(target, issues) {
     target.changed_files.every((item) => object(item) && typeof item.path === "string")
   ) {
     const derived = new Map(
-      deriveLensApplicability(target.mode, target.changed_files, target.dev_context).map((item) => [
-        item.name,
-        item,
-      ])
+      deriveLensApplicability(target.mode, target.changed_files, target.dev_context)
+        .filter((item) => expected.includes(item.name))
+        .map((item) => [item.name, item])
     );
     for (const [name, lens] of logical) {
       const expectedLens = derived.get(name);

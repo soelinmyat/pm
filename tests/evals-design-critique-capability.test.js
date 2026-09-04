@@ -25,6 +25,7 @@ function oracle() {
       {
         id: "defect-case",
         fixture_ref: "evals/quality/fixtures/design-critique/defect.html",
+        fixture_sha256: `sha256:${"a".repeat(64)}`,
         clean_control: false,
         defects: [
           {
@@ -41,6 +42,7 @@ function oracle() {
       {
         id: "clean-case",
         fixture_ref: "evals/quality/fixtures/design-critique/clean.html",
+        fixture_sha256: `sha256:${"b".repeat(64)}`,
         clean_control: true,
         defects: [],
       },
@@ -102,6 +104,9 @@ test("hidden capability oracle and report schemas are closed and validated", () 
     validateCapabilityOracle({ ...oracle(), leaked_hint: "overflow" }).join("\n"),
     /unknown field/
   );
+  const unbound = oracle();
+  delete unbound.cases[0].fixture_sha256;
+  assert.match(validateCapabilityOracle(unbound).join("\n"), /missing field fixture_sha256/);
 });
 
 test("capability scoring measures recall precision false blocking location severity and fixes", () => {
