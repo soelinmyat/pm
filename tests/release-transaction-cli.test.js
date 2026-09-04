@@ -9,6 +9,7 @@ const crypto = require("node:crypto");
 const { spawnSync } = require("node:child_process");
 
 const {
+  attestPrBody,
   beginEffect,
   createReleaseTransaction,
   planEffect,
@@ -17,12 +18,15 @@ const {
 const { stableStringify } = require("../scripts/lib/workflow-runtime/records");
 const script = path.resolve(__dirname, "../scripts/release-transaction.js");
 const COMMIT = "a".repeat(40);
+const PR_BODY = "## Summary\n\nCanonical reviewer handoff.\n";
+const PR_BODY_SHA256 = `sha256:${crypto.createHash("sha256").update(PR_BODY).digest("hex")}`;
 
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-release-cli-"));
   const sessionDir = path.join(root, ".pm/dev-sessions/example");
   fs.mkdirSync(path.join(sessionDir, "ship"), { recursive: true });
   const transactionPath = path.join(sessionDir, "ship/release-transaction.json");
+  fs.writeFileSync(path.join(sessionDir, "ship/pr-body.md"), PR_BODY);
   fs.writeFileSync(
     transactionPath,
     `${JSON.stringify(
@@ -92,6 +96,7 @@ function legacyVerifiedCreatePr(transaction, legacy = true) {
       base: "main",
       commit: COMMIT,
       draft: false,
+      body_sha256: PR_BODY_SHA256,
     },
   });
   value = beginEffect(value, {
@@ -99,7 +104,13 @@ function legacyVerifiedCreatePr(transaction, legacy = true) {
     authority: { create_pr: true },
     actor: "root",
   }).transaction;
-  const receipt = { pr_number: 7, state: "OPEN", head_oid: COMMIT, draft: false };
+  const receipt = {
+    pr_number: 7,
+    state: "OPEN",
+    head_oid: COMMIT,
+    draft: false,
+    body_sha256: PR_BODY_SHA256,
+  };
   value = reconcileEffect(value, {
     effect: "create-pr",
     outcome: "matched",
@@ -131,6 +142,62 @@ function asLegacyCreatePr(value) {
       })
     )
     .digest("hex")}`;
+  return value;
+}
+
+function asLegacyPrBody(value) {
+  value = structuredClone(value);
+  const effect = value.effects["create-pr"];
+  delete effect.target.body_sha256;
+  for (const attempt of effect.attempts) {
+    if (attempt.receipt) delete attempt.receipt.body_sha256;
+    if (attempt.observation?.target) delete attempt.observation.target.body_sha256;
+    if (attempt.observation?.receipt) delete attempt.observation.receipt.body_sha256;
+  }
+  if (effect.verified_receipt) {
+    delete effect.verified_receipt.target.body_sha256;
+    delete effect.verified_receipt.receipt.body_sha256;
+    delete effect.verified_receipt.verification.target.body_sha256;
+    delete effect.verified_receipt.verification.receipt.body_sha256;
+  }
+  delete value.pr_body_attestation;
+  effect.idempotency_key = `sha256:${crypto
+    .createHash("sha256")
+    .update(
+      stableStringify({
+        run_id: value.run_id,
+        prepared_commit: value.release.prepared_commit,
+        effect: "create-pr",
+        target: effect.target,
+      })
+    )
+    .digest("hex")}`;
+  const merge = value.effects.merge;
+  if (merge) {
+    delete merge.target.body_sha256;
+    for (const attempt of merge.attempts) {
+      if (attempt.receipt) delete attempt.receipt.body_sha256;
+      if (attempt.observation?.target) delete attempt.observation.target.body_sha256;
+      if (attempt.observation?.receipt) delete attempt.observation.receipt.body_sha256;
+    }
+    if (merge.verified_receipt) {
+      delete merge.verified_receipt.target.body_sha256;
+      delete merge.verified_receipt.receipt.body_sha256;
+      delete merge.verified_receipt.verification.target.body_sha256;
+      delete merge.verified_receipt.verification.receipt.body_sha256;
+    }
+    merge.idempotency_key = `sha256:${crypto
+      .createHash("sha256")
+      .update(
+        stableStringify({
+          run_id: value.run_id,
+          prepared_commit: value.release.prepared_commit,
+          effect: "merge",
+          target: merge.target,
+        })
+      )
+      .digest("hex")}`;
+  }
   return value;
 }
 
@@ -187,6 +254,205 @@ test("CLI validates, plans, and durably records authority denial", () => {
   }
 });
 
+test("CLI plans create-pr only when body_sha256 matches canonical pr-body.md", () => {
+  const item = fixture();
+  try {
+    const targetPath = ".pm/dev-sessions/example/ship/create-pr-target.json";
+    const target = {
+      repository: "acme/widget",
+      head: "codex/example",
+      base: "main",
+      commit: COMMIT,
+      draft: false,
+      body_sha256: PR_BODY_SHA256,
+    };
+    fs.writeFileSync(path.join(item.root, targetPath), `${JSON.stringify(target)}\n`);
+    const planned = run(
+      item.root,
+      "plan",
+      "--transaction",
+      item.transactionPath,
+      "--effect",
+      "create-pr",
+      "--target-file",
+      targetPath,
+      "--json"
+    );
+    assert.equal(planned.status, 0, planned.stderr);
+
+    const next = fixture();
+    try {
+      target.body_sha256 = `sha256:${"0".repeat(64)}`;
+      fs.writeFileSync(path.join(next.root, targetPath), `${JSON.stringify(target)}\n`);
+      const rejected = run(
+        next.root,
+        "plan",
+        "--transaction",
+        next.transactionPath,
+        "--effect",
+        "create-pr",
+        "--target-file",
+        targetPath,
+        "--json"
+      );
+      assert.notEqual(rejected.status, 0);
+      assert.match(rejected.stderr, /does not match canonical pr-body\.md bytes/);
+    } finally {
+      next.cleanup();
+    }
+  } finally {
+    item.cleanup();
+  }
+});
+
+test("CLI gives legacy journals an explicit body rebind and re-observation path", () => {
+  const item = fixture();
+  try {
+    const file = path.join(item.root, item.transactionPath);
+    const original = JSON.parse(fs.readFileSync(file, "utf8"));
+    fs.writeFileSync(
+      file,
+      `${JSON.stringify(asLegacyPrBody(legacyVerifiedCreatePr(original, false)), null, 2)}\n`
+    );
+    const before = run(item.root, "status", "--transaction", item.transactionPath, "--json");
+    assert.equal(before.status, 0, before.stderr);
+    assert.equal(JSON.parse(before.stdout).migration_pending, true);
+    assert.match(JSON.parse(before.stdout).readiness_issues.join("; "), /migrate-pr-body/);
+
+    const migrated = run(
+      item.root,
+      "migrate-pr-body",
+      "--transaction",
+      item.transactionPath,
+      "--json"
+    );
+    assert.equal(migrated.status, 0, migrated.stderr);
+    let saved = JSON.parse(fs.readFileSync(file, "utf8"));
+    assert.equal(saved.effects["create-pr"].target.body_sha256, PR_BODY_SHA256);
+    assert.equal(saved.effects["create-pr"].status, "attempting");
+
+    const receipt = {
+      pr_number: 7,
+      state: "OPEN",
+      head_oid: COMMIT,
+      draft: false,
+      body_sha256: PR_BODY_SHA256,
+    };
+    const receiptPath = ".pm/dev-sessions/example/ship/receipts/create-pr.json";
+    const observationPath = ".pm/dev-sessions/example/ship/observations/create-pr.json";
+    fs.mkdirSync(path.dirname(path.join(item.root, receiptPath)), { recursive: true });
+    fs.mkdirSync(path.dirname(path.join(item.root, observationPath)), { recursive: true });
+    fs.writeFileSync(path.join(item.root, receiptPath), `${JSON.stringify(receipt)}\n`);
+    fs.writeFileSync(
+      path.join(item.root, observationPath),
+      `${JSON.stringify({ target: saved.effects["create-pr"].target, receipt })}\n`
+    );
+    const reconciled = run(
+      item.root,
+      "reconcile",
+      "--transaction",
+      item.transactionPath,
+      "--effect",
+      "create-pr",
+      "--outcome",
+      "matched",
+      "--observation-file",
+      observationPath,
+      "--receipt-file",
+      receiptPath,
+      "--json"
+    );
+    assert.equal(reconciled.status, 0, reconciled.stderr);
+    saved = JSON.parse(fs.readFileSync(file, "utf8"));
+    assert.equal(saved.effects["create-pr"].status, "verified");
+    assert.equal(saved.effects["create-pr"].verified_receipt.receipt.body_sha256, PR_BODY_SHA256);
+  } finally {
+    item.cleanup();
+  }
+});
+
+test("CLI requires a fresh raw-body observation before beginning Merge", () => {
+  const item = fixture();
+  try {
+    const file = path.join(item.root, item.transactionPath);
+    const original = JSON.parse(fs.readFileSync(file, "utf8"));
+    fs.writeFileSync(file, `${JSON.stringify(legacyVerifiedCreatePr(original, false), null, 2)}\n`);
+    fs.writeFileSync(
+      path.join(item.root, item.sessionPath),
+      `${JSON.stringify({ run_id: "dev_release_cli", authority: { merge: true } })}\n`
+    );
+    const targetPath = ".pm/dev-sessions/example/ship/merge-target.json";
+    const target = {
+      repository: "acme/widget",
+      pr_number: 7,
+      head_commit: COMMIT,
+      base: "main",
+      method: "squash",
+      body_sha256: PR_BODY_SHA256,
+    };
+    fs.writeFileSync(path.join(item.root, targetPath), `${JSON.stringify(target)}\n`);
+    const planned = run(
+      item.root,
+      "plan",
+      "--transaction",
+      item.transactionPath,
+      "--effect",
+      "merge",
+      "--target-file",
+      targetPath,
+      "--json"
+    );
+    assert.equal(planned.status, 0, planned.stderr);
+
+    const observationPath = ".pm/dev-sessions/example/ship/observations/pr-body.json";
+    fs.mkdirSync(path.dirname(path.join(item.root, observationPath)), { recursive: true });
+    fs.writeFileSync(
+      path.join(item.root, observationPath),
+      `${JSON.stringify({
+        repository: "acme/widget",
+        pr_number: 7,
+        state: "OPEN",
+        head_oid: COMMIT,
+        base: "main",
+        draft: false,
+        body: PR_BODY,
+      })}\n`
+    );
+    const attested = run(
+      item.root,
+      "attest-pr-body",
+      "--transaction",
+      item.transactionPath,
+      "--observation-file",
+      observationPath,
+      "--json"
+    );
+    assert.equal(attested.status, 0, attested.stderr);
+    assert.equal(JSON.parse(attested.stdout).decision, "pr-body-attested");
+
+    const begun = run(
+      item.root,
+      "begin",
+      "--transaction",
+      item.transactionPath,
+      "--effect",
+      "merge",
+      "--session",
+      item.sessionPath,
+      "--actor",
+      "root",
+      "--json"
+    );
+    assert.equal(begun.status, 0, begun.stderr);
+    assert.equal(JSON.parse(begun.stdout).decision, "execute");
+    const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+    assert.equal(saved.pr_body_attestation.body_sha256, PR_BODY_SHA256);
+    assert.equal(saved.pr_body_attestation.consumed_by_attempt, 1);
+  } finally {
+    item.cleanup();
+  }
+});
+
 test("read-only CLI commands persist legacy PR migration before reporting status", () => {
   const item = fixture();
   try {
@@ -215,8 +481,20 @@ test("completed legacy delivery stays byte-stable across status and validate", (
       head_commit: COMMIT,
       base: "main",
       method: "squash",
+      body_sha256: PR_BODY_SHA256,
     };
     value = planEffect(value, { effect: "merge", target: mergeTarget });
+    value = attestPrBody(value, {
+      observation: {
+        repository: "acme/widget",
+        pr_number: 7,
+        state: "OPEN",
+        head_oid: COMMIT,
+        base: "main",
+        draft: false,
+        body: PR_BODY,
+      },
+    });
     value = beginEffect(value, {
       effect: "merge",
       authority: { merge: true },
@@ -227,6 +505,7 @@ test("completed legacy delivery stays byte-stable across status and validate", (
       state: "MERGED",
       head_oid: COMMIT,
       merge_sha: "d".repeat(40),
+      body_sha256: PR_BODY_SHA256,
     };
     value = reconcileEffect(value, {
       effect: "merge",
@@ -255,7 +534,7 @@ test("completed legacy delivery stays byte-stable across status and validate", (
         receipt: { tag: "v1.0.1", peeled_sha: mergeReceipt.merge_sha },
       },
     }).transaction;
-    const legacy = asLegacyCreatePr(value);
+    const legacy = asLegacyPrBody(asLegacyCreatePr(value));
     const before = `${JSON.stringify(legacy, null, 2)}\n`;
     fs.writeFileSync(file, before);
     for (const command of ["status", "validate"]) {
@@ -281,6 +560,7 @@ test("a failing begin persists planned-Merge legacy normalization", () => {
         head_commit: COMMIT,
         base: "main",
         method: "squash",
+        body_sha256: PR_BODY_SHA256,
       },
     });
     value = asLegacyCreatePr(value);

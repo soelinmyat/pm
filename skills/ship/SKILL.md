@@ -31,6 +31,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating the PR desc
 - **Armed is not merged.** Verify the PR state is MERGED before reporting success — auto-merge can be blocked by late review requests, branch-protection changes, or conflicts.
 - **Prepare before freezing Review.** A required version mutation happens before the final Review target; no post-review bump may stale a passing report.
 - **Observe before replay.** An `attempting` effect with an ambiguous outcome must be reconciled from authoritative remote state before another mutation.
+- **Ship the reviewed handoff.** The exact canonical `pr-body.md` bytes are hash-bound into Create PR and freshly re-observed immediately before Merge; a matching head never excuses a stale or externally edited reviewer handoff.
 - **Tag only the verified main result.** The new Ship path never creates an installable tag on a feature commit and never force-moves a conflicting tag.
 - **Never skip the conflict check**, even when the user says "ship it" — shipping with conflicts corrupts the merge.
 - **Never bypass hooks (`--no-verify`).** Hook failures are bugs; fix them, don't ship them.
@@ -43,7 +44,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating the PR desc
 
 - **"The diff is tiny, so CI is enough."** Stop and read the exact contracted diff before pushing.
 - **"Auto-merge is enabled, so merge is authorized."** Check persisted merge authority separately from preference.
-- **"The PR is green, so comments can wait."** Include current review feedback in the readiness gate.
+- **"The PR is green, so its comments and description are still current."** Check feedback and freshly attest the exact reviewer-handoff body before Merge.
 - **"The hook is flaky."** Stop and diagnose it; never use `--no-verify`.
 - **"The command timed out, so retry it."** The effect may have completed; use the release transaction's observer first.
 - **"We can bump after review; only manifests changed."** The reviewed binary diff changed; instead, prepare the release before the frozen Review target.
@@ -97,6 +98,6 @@ The following reference files provide detailed guidance for specific ship phases
 
 ## Before Marking Done
 
-- [ ] The prepared tree, release transaction, delivery contract, PR description, gate evidence, delivery receipt, and required Product Memory artifacts are saved and identity-bound.
+- [ ] The prepared tree, release transaction, delivery contract, exact PR-description bytes, fresh pre-merge body attestation, gate evidence, delivery receipt, and required Product Memory artifacts are saved and identity-bound.
 - [ ] The user granted each requested external effect, including merge when applicable.
 - [ ] Diff review, conflict, hook, CI, feedback, remote identity, merge verification, optional main-tag verification, tracker, and cleanup gates passed.

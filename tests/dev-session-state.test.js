@@ -40,6 +40,7 @@ const {
   proposalContentHash,
 } = require("../scripts/lib/proposal-schema");
 const {
+  attestPrBody,
   beginEffect,
   createReleaseTransaction,
   planEffect,
@@ -729,6 +730,8 @@ test("delivery receipt is cryptographically bound to the verified release transa
       "User authorized transaction delivery"
     );
     const commit = repo.head();
+    const prBody = "## Summary\n\nDelivery receipt fixture.\n";
+    const prBodySha256 = `sha256:${crypto.createHash("sha256").update(prBody).digest("hex")}`;
     let transaction = createReleaseTransaction({
       releaseMode: "delivery-only",
       runId: session.run_id,
@@ -762,8 +765,15 @@ test("delivery receipt is cryptographically bound to the verified release transa
           base: "main",
           commit,
           draft: false,
+          body_sha256: prBodySha256,
         },
-        receipt: { pr_number: 42, state: "OPEN", head_oid: commit, draft: false },
+        receipt: {
+          pr_number: 42,
+          state: "OPEN",
+          head_oid: commit,
+          draft: false,
+          body_sha256: prBodySha256,
+        },
       },
       {
         name: "merge",
@@ -774,17 +784,32 @@ test("delivery receipt is cryptographically bound to the verified release transa
           head_commit: commit,
           base: "main",
           method: "squash",
+          body_sha256: prBodySha256,
         },
         receipt: {
           state: "MERGED",
           pr_number: 42,
           merge_sha: "b".repeat(40),
           head_oid: commit,
+          body_sha256: prBodySha256,
         },
       },
     ];
     for (const effect of effects) {
       transaction = planEffect(transaction, { effect: effect.name, target: effect.target });
+      if (effect.name === "merge") {
+        transaction = attestPrBody(transaction, {
+          observation: {
+            repository: "example/repo",
+            pr_number: 42,
+            state: "OPEN",
+            head_oid: commit,
+            base: "main",
+            draft: false,
+            body: prBody,
+          },
+        });
+      }
       transaction = beginEffect(transaction, {
         effect: effect.name,
         authority: effect.authority,
