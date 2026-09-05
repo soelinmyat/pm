@@ -209,6 +209,9 @@ function checkQaReport(options) {
       requirePassing: options.requirePassing !== false,
       evidenceRoot: path.join(path.dirname(expectedPath), "evidence"),
       session: options.session,
+      qaCandidate: options.qaCandidate,
+      qaHistoryAnchor: options.qaHistoryAnchor === true,
+      reportSha256: digest(bytes),
     })
   );
   return {
@@ -217,6 +220,8 @@ function checkQaReport(options) {
     expected_path: expectedPath,
     verdict: report?.verdict,
     health_score: report?.health_score,
+    run_count: Array.isArray(report?.runs) ? report.runs.length : null,
+    run_anchors: buildQaRunAnchors(report, digest(bytes)),
   };
 }
 
@@ -344,7 +349,11 @@ function validateQaReport(report, options = {}) {
   }
   validateSessionCoverage(report, options.session, receipts, retained, issues);
   validateReverifyEvidence(report, retained, issues);
-  validateSessionQaHistory(report, options.session, issues);
+  validateSessionQaHistory(report, options.session, issues, {
+    qaCandidate: options.qaCandidate,
+    qaHistoryAnchor: options.qaHistoryAnchor,
+    reportSha256: options.reportSha256,
+  });
   validateGitCommitLineage(report, options.session?.source?.repo_root, issues);
   return issues;
 }
@@ -1212,23 +1221,37 @@ function validateFindingTransition(run, before, after, assertions, at, issues) {
   }
 }
 
-function validateSessionQaHistory(report, session, issues) {
+function validateSessionQaHistory(report, session, issues, options = {}) {
   if (!object(session) || !Array.isArray(session.attempts) || !Array.isArray(report.runs)) return;
   const attempts = session.attempts.filter((attempt) => attempt?.phase === "qa");
-  const includesCandidate = session.phase === "qa" ? 1 : 0;
-  const minimumRuns = attempts.length + includesCandidate;
-  if (
-    report.runs.length < minimumRuns ||
-    (includesCandidate === 1 && report.runs.length !== minimumRuns)
-  ) {
-    add(
-      issues,
-      "report.runs",
-      includesCandidate === 1
-        ? `must contain exactly ${minimumRuns} runs: one per recorded QA attempt plus the current candidate`
-        : "cannot discard QA runs already recorded by the Dev session"
-    );
-    return;
+  const qaEvidence = session.evidence?.qa;
+  const anchoredRuns = Number.isInteger(session.evidence?.qa?.qa_run_count)
+    ? session.evidence.qa.qa_run_count
+    : session.evidence?.qa?.commit
+      ? Math.max(1, attempts.length)
+      : attempts.length;
+  const recordedRuns = Math.max(attempts.length, anchoredRuns);
+  const qaCandidate = options.qaCandidate;
+  if (options.qaHistoryAnchor === true && !Number.isInteger(qaEvidence?.qa_run_count)) {
+    const minimumRuns = Math.max(attempts.length, qaEvidence?.commit ? 1 : 0);
+    if (report.runs.length < minimumRuns) {
+      add(
+        issues,
+        "report.runs",
+        `must contain at least ${minimumRuns} runs to cover the runner-recorded QA history`
+      );
+      return;
+    }
+  } else {
+    const allowedRunCounts = qaCandidate === "required" ? [recordedRuns + 1] : [recordedRuns];
+    if (!allowedRunCounts.includes(report.runs.length)) {
+      const expectation =
+        qaCandidate === "required"
+          ? `exactly ${recordedRuns + 1} runs: one per runner-recorded QA run plus the current candidate`
+          : `exactly ${recordedRuns} runs: one per runner-recorded QA run`;
+      add(issues, "report.runs", `must contain ${expectation}`);
+      return;
+    }
   }
   for (const [index, attempt] of attempts.entries()) {
     const expectedVerdicts =
@@ -1249,6 +1272,64 @@ function validateSessionQaHistory(report, session, issues) {
       );
     }
   }
+  validateSessionQaRunAnchors(report, qaEvidence, issues, options);
+}
+
+function validateSessionQaRunAnchors(report, qaEvidence, issues, options) {
+  if (!object(qaEvidence)) return;
+  const anchors = qaEvidence.qa_run_anchors;
+  const runCount = qaEvidence.qa_run_count;
+  if (!Array.isArray(anchors)) {
+    if (Number.isInteger(runCount) && options.qaHistoryAnchor !== true) {
+      add(
+        issues,
+        "session.evidence.qa.qa_run_anchors",
+        "must immutably bind every accepted QA run; run dev-session anchor-qa-history"
+      );
+    }
+    return;
+  }
+  if (!Number.isInteger(runCount) || anchors.length !== runCount) {
+    add(
+      issues,
+      "session.evidence.qa.qa_run_anchors",
+      "must contain exactly one anchor per accepted QA run"
+    );
+    return;
+  }
+  for (const [index, anchor] of anchors.entries()) {
+    const at = `session.evidence.qa.qa_run_anchors[${index}]`;
+    const run = report.runs[index];
+    if (
+      !object(anchor) ||
+      anchor.run !== index + 1 ||
+      anchor.commit !== run?.commit ||
+      anchor.verdict !== run?.verdict
+    ) {
+      add(issues, at, "must equal the accepted QA run identity");
+      continue;
+    }
+    const observedReportSha256 =
+      index === report.runs.length - 1
+        ? options.reportSha256
+        : report.runs[index + 1]?.previous_report?.sha256;
+    if (typeof observedReportSha256 !== "string" || anchor.report_sha256 !== observedReportSha256) {
+      add(issues, `${at}.report_sha256`, "must bind the exact accepted QA report bytes");
+    }
+  }
+}
+
+function buildQaRunAnchors(report, currentReportSha256) {
+  if (!object(report) || !Array.isArray(report.runs) || !sha256(currentReportSha256)) return null;
+  return report.runs.map((run, index) => ({
+    run: index + 1,
+    commit: run?.commit,
+    verdict: run?.verdict,
+    report_sha256:
+      index === report.runs.length - 1
+        ? currentReportSha256
+        : report.runs[index + 1]?.previous_report?.sha256,
+  }));
 }
 
 function validateGitCommitLineage(report, repoRoot, issues) {

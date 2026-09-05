@@ -425,37 +425,195 @@ function nodeLocator(node) {
   return locator;
 }
 
-function tabIndexForNode(node, role) {
+function tabIndexForNode(node, properties) {
   if (Object.prototype.hasOwnProperty.call(node.attributes, "tabindex")) {
     const value = Number(node.attributes.tabindex);
     return Number.isInteger(value) && value >= -1 && value <= 32767 ? value : -1;
   }
-  if (
-    ["a", "area", "button", "input", "select", "textarea", "summary"].includes(node.nodeName) ||
-    node.attributes.contenteditable === "" ||
-    node.attributes.contenteditable === "true"
-  )
-    return 0;
-  return [
-    "button",
-    "link",
-    "checkbox",
-    "radio",
-    "switch",
-    "tab",
-    "menuitem",
-    "option",
-    "slider",
-    "spinbutton",
-    "textbox",
-    "combobox",
-    "searchbox",
-  ].includes(role)
-    ? -1
-    : 0;
+  return properties.get("focusable") === true ? 0 : -1;
 }
 
-function accessibilityObservations(axTree, model) {
+const COMPOSITE_OWNER_ROLES = Object.freeze({
+  menuitem: new Set(["menu", "menubar"]),
+  option: new Set(["combobox", "listbox"]),
+  radio: new Set(["radiogroup"]),
+  tab: new Set(["tablist"]),
+});
+const COMPOSITE_ARROW_KEYS = Object.freeze({
+  combobox: Object.freeze(["ArrowDown", "ArrowUp"]),
+  listbox: Object.freeze(["ArrowDown", "ArrowUp"]),
+  menu: Object.freeze(["ArrowDown", "ArrowUp", "ArrowRight", "ArrowLeft"]),
+  menubar: Object.freeze(["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp"]),
+  radiogroup: Object.freeze(["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp"]),
+  tablist: Object.freeze(["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp"]),
+});
+
+function hasDomAncestor(node, model, predicate) {
+  const visited = new Set();
+  let parentIndex = node.parentIndex;
+  while (Number.isInteger(parentIndex) && parentIndex >= 0 && !visited.has(parentIndex)) {
+    visited.add(parentIndex);
+    const parent = model[parentIndex];
+    if (!parent) return false;
+    if (predicate(parent)) return true;
+    parentIndex = parent.parentIndex;
+  }
+  return false;
+}
+
+function compositeOwnerForNode(axNode, role, byAxId) {
+  const ownerRoles = COMPOSITE_OWNER_ROLES[role];
+  if (!ownerRoles) return null;
+  const visited = new Set();
+  let parentId = axNode.parentId;
+  while (parentId && !visited.has(parentId)) {
+    visited.add(parentId);
+    const parent = byAxId.get(parentId);
+    if (!parent) return null;
+    if (ownerRoles.has(String(valueOf(parent.role) || "").toLowerCase())) return parent;
+    parentId = parent.parentId;
+  }
+  return null;
+}
+
+function axProperties(axNode) {
+  return new Map((axNode.properties || []).map((item) => [item.name, valueOf(item)]));
+}
+
+function disabledControl(node, properties) {
+  return (
+    properties.get("disabled") === true ||
+    Object.prototype.hasOwnProperty.call(node.attributes, "disabled") ||
+    node.attributes["aria-disabled"] === "true"
+  );
+}
+
+function documentTabStopIndex(node, properties) {
+  if (Object.prototype.hasOwnProperty.call(node.attributes, "tabindex")) {
+    return tabIndexForNode(node, properties);
+  }
+  const nativeTabStop =
+    ["button", "input", "select", "summary", "textarea"].includes(node.nodeName) ||
+    (["a", "area"].includes(node.nodeName) &&
+      Object.prototype.hasOwnProperty.call(node.attributes, "href")) ||
+    node.attributes.contenteditable === "" ||
+    node.attributes.contenteditable === "true";
+  return nativeTabStop && properties.get("focusable") === true ? 0 : -1;
+}
+
+function documentKeyboardEntryProbes(axTree, byBackendId, model) {
+  const entries = [];
+  for (const axNode of axTree.nodes || []) {
+    if (axNode.ignored === true) continue;
+    const node = byBackendId.get(axNode.backendDOMNodeId);
+    if (!node) continue;
+    const role = String(valueOf(axNode.role) || "").toLowerCase();
+    if (role === "option" && hasDomAncestor(node, model, (parent) => parent.nodeName === "select"))
+      continue;
+    const properties = axProperties(axNode);
+    const tabIndex = documentTabStopIndex(node, properties);
+    if (properties.get("focusable") === true && tabIndex >= 0 && !disabledControl(node, properties))
+      entries.push({ backendNodeId: node.backendNodeId, documentIndex: node.index, tabIndex });
+  }
+  entries.sort((left, right) => {
+    const leftOrder = left.tabIndex > 0 ? 0 : 1;
+    const rightOrder = right.tabIndex > 0 ? 0 : 1;
+    return (
+      leftOrder - rightOrder ||
+      left.tabIndex - right.tabIndex ||
+      left.documentIndex - right.documentIndex
+    );
+  });
+  const probes = new Map();
+  for (const [index, entry] of entries.entries()) {
+    if (index > 0) {
+      probes.set(entry.backendNodeId, {
+        from_backend_node_id: entries[index - 1].backendNodeId,
+        modifiers: 0,
+      });
+    } else if (entries.length > 1) {
+      probes.set(entry.backendNodeId, {
+        from_backend_node_id: entries[1].backendNodeId,
+        modifiers: 8,
+      });
+    }
+  }
+  return probes;
+}
+
+function compositeKeyboardCandidates(axTree, model) {
+  const byBackendId = new Map(
+    model
+      .filter((node) => Number.isInteger(node.backendNodeId))
+      .map((node) => [node.backendNodeId, node])
+  );
+  const entryProbes = documentKeyboardEntryProbes(axTree, byBackendId, model);
+  const byAxId = new Map(
+    (axTree.nodes || [])
+      .filter((node) => typeof node.nodeId === "string" && node.nodeId)
+      .map((node) => [node.nodeId, node])
+  );
+  const groups = new Map();
+  for (const axNode of axTree.nodes || []) {
+    const role = String(valueOf(axNode.role) || "").toLowerCase();
+    const owner = compositeOwnerForNode(axNode, role, byAxId);
+    if (!owner) continue;
+    const node = byBackendId.get(axNode.backendDOMNodeId);
+    if (
+      !node ||
+      (role === "option" && hasDomAncestor(node, model, (parent) => parent.nodeName === "select"))
+    )
+      continue;
+    if (!groups.has(owner.nodeId)) {
+      groups.set(owner.nodeId, {
+        owner_backend_node_id: owner.backendDOMNodeId,
+        owner_role: String(valueOf(owner.role) || "").toLowerCase(),
+        member_backend_node_ids: [],
+        entry_backend_node_ids: [],
+        entry_probes: {},
+      });
+    }
+    const group = groups.get(owner.nodeId);
+    group.member_backend_node_ids.push(node.backendNodeId);
+    const properties = axProperties(axNode);
+    if (
+      properties.get("focusable") === true &&
+      documentTabStopIndex(node, properties) >= 0 &&
+      !disabledControl(node, properties)
+    )
+      group.entry_backend_node_ids.push(node.backendNodeId);
+  }
+  for (const [ownerId, group] of groups) {
+    const owner = byAxId.get(ownerId);
+    const node = byBackendId.get(owner.backendDOMNodeId);
+    if (!node) continue;
+    const properties = axProperties(owner);
+    if (
+      properties.get("focusable") === true &&
+      documentTabStopIndex(node, properties) >= 0 &&
+      !disabledControl(node, properties)
+    )
+      group.entry_backend_node_ids.push(node.backendNodeId);
+  }
+  const candidates = [];
+  for (const group of groups.values()) {
+    group.member_backend_node_ids = [...new Set(group.member_backend_node_ids)];
+    group.entry_backend_node_ids = [...new Set(group.entry_backend_node_ids)];
+    for (const backendNodeId of group.entry_backend_node_ids) {
+      const probe = entryProbes.get(backendNodeId);
+      if (probe) group.entry_probes[backendNodeId] = probe;
+    }
+    if (
+      group.member_backend_node_ids.length > 1 &&
+      group.entry_backend_node_ids.length > 0 &&
+      COMPOSITE_ARROW_KEYS[group.owner_role]
+    )
+      appendBoundedEvidence(candidates, group, MAX_CONTROLS, "composite keyboard candidates");
+  }
+  return candidates;
+}
+
+function accessibilityEvidence(axTree, model, compositeBackendNodeIds = new Set()) {
   const byBackendId = new Map(
     model
       .filter((node) => Number.isInteger(node.backendNodeId))
@@ -463,6 +621,7 @@ function accessibilityObservations(axTree, model) {
   );
   const landmarks = [];
   const controls = [];
+  const controlBackendNodeIds = [];
   const landmarkRoles = new Set([
     "banner",
     "navigation",
@@ -508,28 +667,38 @@ function accessibilityObservations(axTree, model) {
       );
     }
     if (controlRoles.has(role)) {
-      const properties = new Map(
-        (axNode.properties || []).map((item) => [item.name, valueOf(item)])
-      );
+      const properties = axProperties(axNode);
+      const tabIndex = documentTabStopIndex(node, properties);
+      const compositeDescendant =
+        compositeBackendNodeIds.has(node.backendNodeId) ||
+        (role === "option" &&
+          hasDomAncestor(node, model, (parent) => parent.nodeName === "select"));
+      const focusContext =
+        compositeDescendant && (tabIndex < 0 || node.nodeName === "option")
+          ? "composite"
+          : "document";
       appendBoundedEvidence(
         controls,
         {
           role,
           name,
           locator,
-          disabled:
-            properties.get("disabled") === true ||
-            Object.prototype.hasOwnProperty.call(node.attributes, "disabled") ||
-            node.attributes["aria-disabled"] === "true",
-          tab_index: tabIndexForNode(node, role),
+          disabled: disabledControl(node, properties),
+          tab_index: tabIndex,
+          focus_context: focusContext,
           document_index: node.index,
         },
         MAX_CONTROLS,
         "accessibility controls"
       );
+      controlBackendNodeIds.push(node.backendNodeId);
     }
   }
-  return { landmarks, controls };
+  return { observations: { landmarks, controls }, controlBackendNodeIds };
+}
+
+function accessibilityObservations(axTree, model, compositeBackendNodeIds = new Set()) {
+  return accessibilityEvidence(axTree, model, compositeBackendNodeIds).observations;
 }
 
 function cssLengthPixels(value, reference) {
@@ -1368,6 +1537,180 @@ function pageIdentity(frameTree, metrics) {
   };
 }
 
+const KEYBOARD_EVENT_BUDGET = 8192;
+const KEY_DEFINITIONS = Object.freeze({
+  ArrowDown: Object.freeze({ code: "ArrowDown", windowsVirtualKeyCode: 40 }),
+  ArrowLeft: Object.freeze({ code: "ArrowLeft", windowsVirtualKeyCode: 37 }),
+  ArrowRight: Object.freeze({ code: "ArrowRight", windowsVirtualKeyCode: 39 }),
+  ArrowUp: Object.freeze({ code: "ArrowUp", windowsVirtualKeyCode: 38 }),
+  Tab: Object.freeze({ code: "Tab", windowsVirtualKeyCode: 9 }),
+});
+
+async function dispatchKeyboardKey(client, key, budget, modifiers = 0) {
+  if (budget.remaining < 1) return false;
+  budget.remaining -= 1;
+  const definition = KEY_DEFINITIONS[key];
+  if (!definition) throw new Error(`unsupported composite keyboard probe key: ${key}`);
+  const event = {
+    key,
+    code: definition.code,
+    windowsVirtualKeyCode: definition.windowsVirtualKeyCode,
+    nativeVirtualKeyCode: definition.windowsVirtualKeyCode,
+    modifiers,
+  };
+  await client.send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...event });
+  await client.send("Input.dispatchKeyEvent", { type: "keyUp", ...event });
+  await client.send("Runtime.evaluate", { expression: "void 0", returnByValue: true });
+  return true;
+}
+
+async function focusedBackendNodeId(client, executionContextId) {
+  const focused = await client.send("Runtime.evaluate", {
+    expression: "document.activeElement",
+    contextId: executionContextId,
+    objectGroup: "pm-composite-keyboard-probe",
+    returnByValue: false,
+    silent: true,
+  });
+  if (!focused.result?.objectId || focused.exceptionDetails) return null;
+  try {
+    const described = await client.send("DOM.describeNode", {
+      objectId: focused.result.objectId,
+      depth: 0,
+    });
+    return Number.isInteger(described.node?.backendNodeId) ? described.node.backendNodeId : null;
+  } finally {
+    await client.send("Runtime.releaseObject", { objectId: focused.result.objectId });
+  }
+}
+
+function activeDescendantBackendNodeId(axNode) {
+  const property = (axNode?.properties || []).find((item) => item.name === "activedescendant");
+  const related = property?.value?.relatedNodes;
+  const backendNodeId = Array.isArray(related) ? related[0]?.backendDOMNodeId : null;
+  return Number.isInteger(backendNodeId) ? backendNodeId : null;
+}
+
+async function compositeFocusState(client, executionContextId, candidate) {
+  const [focusedBackendNodeIdValue, partialTree] = await Promise.all([
+    focusedBackendNodeId(client, executionContextId),
+    client.send("Accessibility.getPartialAXTree", {
+      backendNodeId: candidate.owner_backend_node_id,
+      fetchRelatives: false,
+    }),
+  ]);
+  const owner = (partialTree.nodes || []).find(
+    (node) => node.backendDOMNodeId === candidate.owner_backend_node_id
+  );
+  return {
+    activeDescendantBackendNodeId: activeDescendantBackendNodeId(owner),
+    focusedBackendNodeId: focusedBackendNodeIdValue,
+  };
+}
+
+function focusedCompositeMember(state, candidate, members) {
+  if (members.has(state.focusedBackendNodeId)) return state.focusedBackendNodeId;
+  if (
+    state.focusedBackendNodeId === candidate.owner_backend_node_id &&
+    members.has(state.activeDescendantBackendNodeId)
+  )
+    return state.activeDescendantBackendNodeId;
+  return null;
+}
+
+async function entryHasDocumentKeyboardReach(
+  client,
+  executionContextId,
+  entryBackendNodeId,
+  entryProbe,
+  budget
+) {
+  if (entryProbe) {
+    await client.send("DOM.focus", { backendNodeId: entryProbe.from_backend_node_id });
+    const focusedFrom = await focusedBackendNodeId(client, executionContextId);
+    if (
+      focusedFrom !== entryProbe.from_backend_node_id ||
+      !(await dispatchKeyboardKey(client, "Tab", budget, entryProbe.modifiers))
+    )
+      return false;
+    const focusedAfterTab = await focusedBackendNodeId(client, executionContextId);
+    return focusedAfterTab === entryBackendNodeId;
+  }
+  for (const [leaveModifiers, returnModifiers] of [
+    [0, 8],
+    [8, 0],
+  ]) {
+    await client.send("DOM.focus", { backendNodeId: entryBackendNodeId });
+    if ((await focusedBackendNodeId(client, executionContextId)) !== entryBackendNodeId) continue;
+    if (!(await dispatchKeyboardKey(client, "Tab", budget, leaveModifiers))) return false;
+    const departed = await focusedBackendNodeId(client, executionContextId);
+    if (departed === entryBackendNodeId) continue;
+    if (!(await dispatchKeyboardKey(client, "Tab", budget, returnModifiers))) return false;
+    if ((await focusedBackendNodeId(client, executionContextId)) === entryBackendNodeId)
+      return true;
+  }
+  return false;
+}
+
+async function probeCompositeKeyboardAccess(client, candidates) {
+  if (candidates.length === 0) return new Set();
+  const frameTree = await client.send("Page.getFrameTree");
+  const frameId = frameTree.frameTree?.frame?.id;
+  if (typeof frameId !== "string" || !frameId)
+    throw new Error("browser omitted the frame for composite keyboard probing");
+  const isolatedWorld = await client.send("Page.createIsolatedWorld", {
+    frameId,
+    worldName: "pm-composite-keyboard-probe",
+    grantUniveralAccess: false,
+  });
+  if (!Number.isInteger(isolatedWorld.executionContextId))
+    throw new Error("browser omitted the isolated composite keyboard context");
+  const executionContextId = isolatedWorld.executionContextId;
+  const budget = { remaining: KEYBOARD_EVENT_BUDGET };
+  const observedMembers = new Set();
+  try {
+    for (const candidate of candidates) {
+      const members = new Set(candidate.member_backend_node_ids);
+      for (const entryBackendNodeId of candidate.entry_backend_node_ids) {
+        let documentReachable = false;
+        try {
+          documentReachable = await entryHasDocumentKeyboardReach(
+            client,
+            executionContextId,
+            entryBackendNodeId,
+            candidate.entry_probes[entryBackendNodeId],
+            budget
+          );
+        } catch {
+          continue;
+        }
+        if (!documentReachable) continue;
+        for (const key of COMPOSITE_ARROW_KEYS[candidate.owner_role]) {
+          try {
+            await client.send("DOM.focus", { backendNodeId: entryBackendNodeId });
+            let state = await compositeFocusState(client, executionContextId, candidate);
+            let previous = focusedCompositeMember(state, candidate, members);
+            for (let step = 0; step < members.size; step += 1) {
+              if (!(await dispatchKeyboardKey(client, key, budget))) return observedMembers;
+              state = await compositeFocusState(client, executionContextId, candidate);
+              const current = focusedCompositeMember(state, candidate, members);
+              if (current === null || current === previous) break;
+              observedMembers.add(current);
+              previous = current;
+            }
+          } catch {
+            // A detached or replaced widget cannot certify the frozen control rows.
+          }
+          if ([...members].every((member) => observedMembers.has(member))) break;
+        }
+      }
+    }
+    return observedMembers;
+  } finally {
+    await client.send("Runtime.releaseObjectGroup", { objectGroup: "pm-composite-keyboard-probe" });
+  }
+}
+
 async function nativeSample(client, targetId, computedStyles, stateAssertion) {
   const [frameTree, metrics, snapshot, axTree] = await Promise.all([
     client.send("Page.getFrameTree"),
@@ -1403,10 +1746,13 @@ async function nativeSample(client, targetId, computedStyles, stateAssertion) {
     metrics,
     visibilityEvaluator
   );
+  const accessibility = accessibilityEvidence(axTree, model);
   return {
     identity,
     assertionVisibility,
-    accessibility: accessibilityObservations(axTree, model),
+    accessibility: accessibility.observations,
+    accessibilityControlBackendNodeIds: accessibility.controlBackendNodeIds,
+    compositeKeyboardCandidates: compositeKeyboardCandidates(axTree, model),
     dom: domObservations(model, metrics, computedStyles, visibilityEvaluator),
   };
 }
@@ -2024,6 +2370,53 @@ async function main() {
       throw new Error("navigation drift: observed final URL does not match expected URL identity");
     const publicPageIdentity = { ...middle.identity, final_url: observedFinalUrl };
     criticalWindow = false;
+
+    // Exercise widget handlers only after the retained screenshot and DOM/AX samples are frozen.
+    const compositeBackendNodeIds = await probeCompositeKeyboardAccess(
+      client,
+      middle.compositeKeyboardCandidates
+    );
+    for (const [index, backendNodeId] of middle.accessibilityControlBackendNodeIds.entries()) {
+      const control = middle.accessibility.controls[index];
+      if (compositeBackendNodeIds.has(backendNodeId) && control?.tab_index < 0) {
+        control.focus_context = "composite";
+      }
+    }
+    const probeSettleStartedAt = Date.now();
+    const probeSettleDeadline = probeSettleStartedAt + Math.max(1_000, settleMs * 4);
+    while (Date.now() < probeSettleDeadline) {
+      assertNetworkHealthy();
+      if (
+        violations.length === 0 &&
+        pendingRequests.size === 0 &&
+        pendingWebSockets.size === 0 &&
+        activeFetchHandlers.size === 0 &&
+        activeTargetHandlers.size === 0 &&
+        Date.now() - lastNetworkActivity >= settleMs
+      )
+        break;
+      await sleep(25);
+    }
+    assertNetworkHealthy();
+    if (
+      pendingRequests.size > 0 ||
+      pendingWebSockets.size > 0 ||
+      activeFetchHandlers.size > 0 ||
+      activeTargetHandlers.size > 0
+    )
+      throw new Error("network did not settle after composite keyboard probing");
+    const probeBarrierEpoch = networkEpoch;
+    await crossTargetBarrier();
+    assertNetworkHealthy();
+    if (networkEpoch !== probeBarrierEpoch)
+      throw new Error("network activity crossed the composite keyboard protocol barrier");
+    const postProbeFrameTree = await client.send("Page.getFrameTree");
+    const postProbeUrl = postProbeFrameTree.frameTree?.frame?.url;
+    if (
+      typeof postProbeUrl !== "string" ||
+      JSON.stringify(redactedUrlIdentity(postProbeUrl)) !== JSON.stringify(expectedFinalUrl)
+    )
+      throw new Error("navigation drift during composite keyboard probing");
 
     const observedOrigins = [...new Set(requests.map((item) => item.origin))].sort();
     const result = {

@@ -76,9 +76,10 @@ function normalizeAccessibility(observations) {
   });
   const controls = observations.controls.map((item, index) => {
     const label = `raw accessibility controls[${index}]`;
-    exactObject(
+    exactObjectWithOptional(
       item,
       ["role", "name", "locator", "disabled", "tab_index", "document_index"],
+      ["focus_context"],
       label
     );
     role(item.role, `${label}.role`);
@@ -87,9 +88,11 @@ function normalizeAccessibility(observations) {
     if (typeof item.disabled !== "boolean") throw new Error(`${label}.disabled must be boolean`);
     if (!Number.isInteger(item.tab_index) || item.tab_index < -1 || item.tab_index > 32767)
       throw new Error(`${label}.tab_index must be an integer from -1 through 32767`);
+    if (item.focus_context !== undefined && !["document", "composite"].includes(item.focus_context))
+      throw new Error(`${label}.focus_context must be document or composite`);
     if (!Number.isInteger(item.document_index) || item.document_index < 0)
       throw new Error(`${label}.document_index must be a non-negative integer`);
-    return item;
+    return { ...item, focus_context: item.focus_context || "document" };
   });
   const indexes = new Set();
   for (const item of controls) {
@@ -149,7 +152,7 @@ function normalizeAccessibility(observations) {
     });
 
   const enabled = controls
-    .filter((item) => !item.disabled)
+    .filter((item) => !item.disabled && item.focus_context === "document")
     .sort((left, right) => left.document_index - right.document_index);
   for (const item of enabled) {
     if (item.tab_index < 0)
@@ -253,6 +256,18 @@ function exactObject(value, fields, label) {
   const allowed = new Set(fields);
   const unknown = Object.keys(value).find((field) => !allowed.has(field));
   const missing = fields.find((field) => !Object.prototype.hasOwnProperty.call(value, field));
+  if (unknown) throw new Error(`${label}.${unknown} is an unknown field`);
+  if (missing) throw new Error(`${label}.${missing} is required`);
+}
+
+function exactObjectWithOptional(value, requiredFields, optionalFields, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error(`${label} must be an object`);
+  const allowed = new Set([...requiredFields, ...optionalFields]);
+  const unknown = Object.keys(value).find((field) => !allowed.has(field));
+  const missing = requiredFields.find(
+    (field) => !Object.prototype.hasOwnProperty.call(value, field)
+  );
   if (unknown) throw new Error(`${label}.${unknown} is an unknown field`);
   if (missing) throw new Error(`${label}.${missing} is required`);
 }

@@ -39,6 +39,29 @@ function inspectPngVisualBytes(bytes) {
   return inspectPngInternal(bytes, true);
 }
 
+function inspectPngHeaderBytes(bytes) {
+  if (
+    !Buffer.isBuffer(bytes) ||
+    bytes.length < MIN_RENDER_BYTES ||
+    !bytes.subarray(0, 8).equals(PNG_SIGNATURE)
+  ) {
+    throw new Error("invalid PNG capture");
+  }
+  const length = bytes.readUInt32BE(8);
+  const end = 8 + 12 + length;
+  const type = bytes.subarray(12, 16).toString("ascii");
+  if (length !== 13 || type !== "IHDR" || end > bytes.length) {
+    throw new Error("invalid PNG header order");
+  }
+  const data = bytes.subarray(16, 16 + length);
+  if (
+    crc32(Buffer.concat([Buffer.from(type, "ascii"), data])) !== bytes.readUInt32BE(16 + length)
+  ) {
+    throw new Error("invalid PNG IHDR checksum");
+  }
+  return parseHeader(data);
+}
+
 function inspectPngInternal(bytes, includeVisualEvidence) {
   if (
     !Buffer.isBuffer(bytes) ||
@@ -794,6 +817,7 @@ module.exports = {
   inspectPdfBytes,
   inspectPng,
   inspectPngBytes,
+  inspectPngHeaderBytes,
   inspectPngVisualBytes,
   visualDifference,
   visualDistance,

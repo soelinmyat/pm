@@ -22,6 +22,77 @@ function write(root, relative, value) {
   return target;
 }
 
+function assertRejectsAtomicSameSizeReplacement(options) {
+  const { targetPath, replacementPath, replacement, run, expected } = options;
+  const targetIdentity = fs.statSync(targetPath, { bigint: true });
+  const replacementBytes = Buffer.from(replacement);
+  assert.equal(BigInt(replacementBytes.length), targetIdentity.size);
+  fs.writeFileSync(replacementPath, replacementBytes);
+
+  const originalReadSync = fs.readSync;
+  let replaced = false;
+  fs.readSync = function replaceTargetAfterRead(descriptor, ...args) {
+    const count = Reflect.apply(originalReadSync, fs, [descriptor, ...args]);
+    const openedIdentity = fs.fstatSync(descriptor, { bigint: true });
+    if (
+      !replaced &&
+      openedIdentity.dev === targetIdentity.dev &&
+      openedIdentity.ino === targetIdentity.ino
+    ) {
+      fs.renameSync(replacementPath, targetPath);
+      replaced = true;
+    }
+    return count;
+  };
+
+  try {
+    assert.throws(run, expected);
+    assert.equal(replaced, true);
+  } finally {
+    fs.readSync = originalReadSync;
+    fs.rmSync(replacementPath, { force: true });
+  }
+}
+
+function assertRejectsAncestorSymlinkSwap(options) {
+  const { ancestorPath, attackerPath, targetPath, swapAt, restoreAt, run, expected } = options;
+  const canonicalTargetPath = fs.realpathSync(targetPath);
+  const originalPath = `${ancestorPath}.original`;
+  const originalLstatSync = fs.lstatSync;
+  let targetLstats = 0;
+  let swapped = false;
+  let restored = false;
+  fs.lstatSync = function swapAncestorAroundLeafChecks(file, ...args) {
+    const isTarget = path.resolve(String(file)) === canonicalTargetPath;
+    if (isTarget) {
+      targetLstats += 1;
+      if (targetLstats === swapAt) {
+        fs.renameSync(ancestorPath, originalPath);
+        fs.symlinkSync(attackerPath, ancestorPath, "dir");
+        swapped = true;
+      }
+    }
+    const result = Reflect.apply(originalLstatSync, fs, [file, ...args]);
+    if (isTarget && swapped && targetLstats === restoreAt) {
+      fs.unlinkSync(ancestorPath);
+      fs.renameSync(originalPath, ancestorPath);
+      restored = true;
+    }
+    return result;
+  };
+
+  try {
+    assert.throws(run, expected);
+    assert.equal(swapped, true);
+  } finally {
+    fs.lstatSync = originalLstatSync;
+    if (swapped && !restored) {
+      fs.rmSync(ancestorPath, { force: true });
+      fs.renameSync(originalPath, ancestorPath);
+    }
+  }
+}
+
 function writeMultiFilePrototype(root) {
   const prefix = "pm/backlog/wireframes/account-settings";
   write(root, `${prefix}/index.html`, '<a href="profile.html">Profile</a>\n');
@@ -111,6 +182,199 @@ test("multi-file prototype identity binds every file in a deterministic bounded 
         }),
       /prototype.*(?:manifest|tree|security\.html).*repository bytes/i
     );
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("single-file identity rejects an atomic same-sized pathname replacement", () => {
+  const project = tempProject();
+  try {
+    const prototypePath = "pm/backlog/wireframes/inline.html";
+    const targetPath = write(project.root, prototypePath, "<!doctype html><main>AAAA</main>\n");
+    assertRejectsAtomicSameSizeReplacement({
+      targetPath,
+      replacementPath: path.join(project.root, ".single-file-replacement"),
+      replacement: "<!doctype html><main>BBBB</main>\n",
+      run: () => buildPrototypeIdentity(prototypePath, project.root),
+      expected: /prototype\.path cannot be read.*input (?:path )?changed during bounded read/i,
+    });
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("multi-file manifest rejects an atomic same-sized pathname replacement", () => {
+  const project = tempProject();
+  try {
+    const prototypePath = writeMultiFilePrototype(project.root);
+    const targetPath = path.join(project.root, "pm/backlog/wireframes/account-settings/base.css");
+    assertRejectsAtomicSameSizeReplacement({
+      targetPath,
+      replacementPath: path.join(project.root, ".manifest-file-replacement"),
+      replacement: ".screen { display: flex; }\n",
+      run: () => buildPrototypeIdentity(prototypePath, project.root),
+      expected:
+        /prototype manifest base\.css cannot be read.*input (?:path )?changed during bounded read/i,
+    });
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("multi-file manifest rejects replacement of an already-read file before the next opens", () => {
+  const project = tempProject();
+  try {
+    const prototypePath = writeMultiFilePrototype(project.root);
+    const basePath = path.join(project.root, "pm/backlog/wireframes/account-settings/base.css");
+    const indexPath = fs.realpathSync(
+      path.join(project.root, "pm/backlog/wireframes/account-settings/index.html")
+    );
+    const originalOpenSync = fs.openSync;
+    let indexOpens = 0;
+    let replaced = false;
+    fs.openSync = function replaceEarlierFileBeforeNextOpen(file, ...args) {
+      if (path.resolve(String(file)) === indexPath) {
+        indexOpens += 1;
+        if (indexOpens === 2) {
+          fs.writeFileSync(basePath, ".screen { display: flex; }\n");
+          replaced = true;
+        }
+      }
+      return Reflect.apply(originalOpenSync, fs, [file, ...args]);
+    };
+    try {
+      assert.throws(
+        () => buildPrototypeIdentity(prototypePath, project.root),
+        /prototype tree changed during bounded read at base\.css/i
+      );
+      assert.equal(replaced, true);
+    } finally {
+      fs.openSync = originalOpenSync;
+    }
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("multi-file manifest rejects an early file changed after its verification read", () => {
+  const project = tempProject();
+  try {
+    const prototypePath = writeMultiFilePrototype(project.root);
+    const basePath = path.join(project.root, "pm/backlog/wireframes/account-settings/base.css");
+    const indexPath = fs.realpathSync(
+      path.join(project.root, "pm/backlog/wireframes/account-settings/index.html")
+    );
+    const originalOpenSync = fs.openSync;
+    let indexOpens = 0;
+    let changed = false;
+    fs.openSync = function changeEarlierFileAfterVerification(file, ...args) {
+      if (path.resolve(String(file)) === indexPath) {
+        indexOpens += 1;
+        if (indexOpens === 3) {
+          fs.writeFileSync(basePath, ".screen { display: flex; }\n");
+          changed = true;
+        }
+      }
+      return Reflect.apply(originalOpenSync, fs, [file, ...args]);
+    };
+    try {
+      assert.throws(
+        () => buildPrototypeIdentity(prototypePath, project.root),
+        /prototype tree changed during final verification at base\.css/i
+      );
+      assert.equal(changed, true);
+    } finally {
+      fs.openSync = originalOpenSync;
+    }
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("multi-file manifest rejects a file added after the last verification sample", () => {
+  const project = tempProject();
+  try {
+    const prototypePath = writeMultiFilePrototype(project.root);
+    const prototypeDirectory = path.join(project.root, "pm/backlog/wireframes/account-settings");
+    const lastPath = fs.realpathSync(path.join(prototypeDirectory, "security.html"));
+    const originalOpenSync = fs.openSync;
+    const originalCloseSync = fs.closeSync;
+    let lastOpens = 0;
+    let verificationDescriptor;
+    let added = false;
+    fs.openSync = function trackLastVerificationOpen(file, ...args) {
+      const descriptor = Reflect.apply(originalOpenSync, fs, [file, ...args]);
+      if (path.resolve(String(file)) === lastPath) {
+        lastOpens += 1;
+        if (lastOpens === 2) verificationDescriptor = descriptor;
+      }
+      return descriptor;
+    };
+    fs.closeSync = function addFileAfterLastVerification(descriptor) {
+      const result = Reflect.apply(originalCloseSync, fs, [descriptor]);
+      if (!added && descriptor === verificationDescriptor) {
+        fs.writeFileSync(path.join(prototypeDirectory, "unbound.html"), "<main>Unbound</main>\n");
+        added = true;
+      }
+      return result;
+    };
+    try {
+      assert.throws(
+        () => buildPrototypeIdentity(prototypePath, project.root),
+        /prototype tree changed during final verification/i
+      );
+      assert.equal(added, true);
+    } finally {
+      fs.openSync = originalOpenSync;
+      fs.closeSync = originalCloseSync;
+    }
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("single-file identity rejects a checked ancestor swapped to a same-parent symlink", () => {
+  const project = tempProject();
+  try {
+    const prototypePath = "pm/backlog/wireframes/inline/preview.html";
+    const targetPath = write(project.root, prototypePath, "<!doctype html><main>AAAA</main>\n");
+    const ancestorPath = path.dirname(targetPath);
+    const attackerPath = `${ancestorPath}.attacker`;
+    write(attackerPath, "preview.html", "<!doctype html><main>BBBB</main>\n");
+    assertRejectsAncestorSymlinkSwap({
+      ancestorPath,
+      attackerPath,
+      targetPath,
+      swapAt: 2,
+      restoreAt: 3,
+      run: () => buildPrototypeIdentity(prototypePath, project.root),
+      expected: /prototype\.path cannot be read.*(?:symlink|containment|path changed)/i,
+    });
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("multi-file manifest rejects a checked ancestor swapped to a same-parent symlink", () => {
+  const project = tempProject();
+  try {
+    const prototypePath = writeMultiFilePrototype(project.root);
+    const ancestorPath = path.join(project.root, path.dirname(prototypePath));
+    const attackerPath = `${ancestorPath}.attacker`;
+    fs.cpSync(ancestorPath, attackerPath, { recursive: true });
+    const targetPath = path.join(ancestorPath, "base.css");
+    fs.writeFileSync(path.join(attackerPath, "base.css"), ".screen { display: flex; }\n");
+    assertRejectsAncestorSymlinkSwap({
+      ancestorPath,
+      attackerPath,
+      targetPath,
+      swapAt: 3,
+      restoreAt: 4,
+      run: () => buildPrototypeIdentity(prototypePath, project.root),
+      expected:
+        /prototype manifest base\.css cannot be read.*(?:symlink|containment|path changed)/i,
+    });
   } finally {
     project.cleanup();
   }

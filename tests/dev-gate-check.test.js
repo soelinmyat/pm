@@ -661,6 +661,7 @@ test("delivery rejects legacy null QA evidence and requires the canonical passin
         records: [{ kind: "test", exit_code: 0, artifact: null }],
       },
     },
+    attempts: [{ phase: "qa", status: "passed", commit: currentCommit }],
   };
   const options = {
     artifactRoot: root,
@@ -711,6 +712,20 @@ test("delivery rejects legacy null QA evidence and requires the canonical passin
     ];
     const valid = checkGateManifest(gates, options);
     assert.equal(valid.ok, true, JSON.stringify(valid.issues));
+
+    canonicalSession.evidence.qa.qa_run_count = 1;
+    appendPassingQaReverification(reportPath, currentCommit);
+    const unrecordedExtraRun = checkGateManifest(gates, options);
+    assert.equal(unrecordedExtraRun.ok, false);
+    assert.match(
+      JSON.stringify(unrecordedExtraRun.issues),
+      /must contain exactly 1 runs: one per runner-recorded QA run/
+    );
+    fs.writeFileSync(
+      reportPath,
+      `${JSON.stringify(passingQaReport(currentCommit, outputPath, output), null, 2)}\n`
+    );
+    fs.rmSync(path.join(path.dirname(reportPath), "evidence", "report-run-1.json"));
 
     canonicalSession.evidence.qa.records[0].command = null;
     const nullCommand = checkGateManifest(gates, options);
@@ -823,19 +838,71 @@ function passingQaReport(commit, outputPath, output = passingQaOutput(commit)) {
   };
 }
 
-function passingQaOutput(commit) {
+function appendPassingQaReverification(reportPath, commit) {
+  const previousBytes = fs.readFileSync(reportPath);
+  const report = JSON.parse(previousBytes);
+  const run = report.runs.length + 1;
+  const evidenceRoot = path.join(path.dirname(reportPath), "evidence");
+  const snapshotPath = path.join(evidenceRoot, `report-run-${run - 1}.json`);
+  const receiptId = `qa-run-${run}-tests`;
+  const outputPath = path.join(evidenceRoot, `run-${run}.json`);
+  const output = passingQaOutput(commit, receiptId, `reverify-${run}`);
+  fs.writeFileSync(snapshotPath, previousBytes);
+  fs.writeFileSync(outputPath, output);
+  report.commit = commit;
+  report.receipts.push({
+    id: receiptId,
+    run,
+    kind: "deterministic",
+    commit,
+    command: "node --test tests/acceptance.test.js",
+    exit_code: 0,
+    assertions: { passed: 12, total: 12 },
+    output: {
+      path: outputPath,
+      sha256: crypto.createHash("sha256").update(output).digest("hex"),
+      bytes: output.length,
+    },
+    screenshot_ids: [],
+  });
+  report.runs.push({
+    run,
+    kind: "reverify",
+    commit,
+    checked_at: "2026-09-04T02:00:00.000Z",
+    verdict: "pass",
+    health_score: 100,
+    assertions: { passed: 12, total: 12 },
+    finding_ids: [],
+    receipt_ids: [receiptId],
+    previous_verdict: "pass",
+    previous_health_score: 100,
+    fixed_finding_ids: [],
+    still_open_finding_ids: [],
+    new_finding_ids: [],
+    fixed_finding_evidence: [],
+    previous_report: {
+      path: snapshotPath,
+      sha256: crypto.createHash("sha256").update(previousBytes).digest("hex"),
+      bytes: previousBytes.length,
+    },
+  });
+  fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+}
+
+function passingQaOutput(commit, receiptId = "qa-run-1-tests", idPrefix = "acceptance") {
   return Buffer.from(
     `${JSON.stringify(
       {
         schema_version: 1,
         assurance: "workflow-attested-non-cryptographic",
-        receipt_id: "qa-run-1-tests",
+        receipt_id: receiptId,
         commit,
         kind: "deterministic",
         command: "node --test tests/acceptance.test.js",
         exit_code: 0,
         assertions: Array.from({ length: 12 }, (_, index) => ({
-          id: `acceptance-${index + 1}`,
+          id: `${idPrefix}-${index + 1}`,
           status: "passed",
           probe: `acceptance assertion ${index + 1}`,
           observed: "expected state observed",

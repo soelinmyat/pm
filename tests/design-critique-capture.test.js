@@ -1,13 +1,14 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const { spawn } = require("node:child_process");
+const { execFileSync, spawn } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const {
+  MAX_VIEWPORT_PIXELS,
   manifestShape,
   prepareCapturePlan,
   redactedUrlIdentity,
@@ -31,6 +32,7 @@ const {
   webSocketBlockPatterns,
   webSocketPolicyOrigins,
 } = require("../scripts/design-critique-capture-probe");
+const { normalizeRawAudit } = require("../scripts/design-critique-audit-normalize");
 
 const EMPTY_DIFF_SHA256 = crypto.createHash("sha256").update(Buffer.alloc(0)).digest("hex");
 let installedBrowser = null;
@@ -296,9 +298,110 @@ test("URL identities redact query and fragment values while binding the full URL
 
 test("routed viewport labels enforce plausible dimensions", () => {
   assert.deepEqual(validateViewport("narrow", 320, 480), { width: 320, height: 480 });
+  assert.deepEqual(validateViewport("desktop", 4096, 4096), { width: 4096, height: 4096 });
+  assert.deepEqual(validateViewport("desktop", 8192, 600), { width: 8192, height: 600 });
+  assert.deepEqual(validateViewport("narrow", 320, 8192), { width: 320, height: 8192 });
   assert.throws(() => validateViewport("narrow", 319, 480), /outside its accepted range/);
   assert.throws(() => validateViewport("tablet", 768, 599), /at least 600/);
   assert.throws(() => validateViewport("desktop", 1023, 800), /outside its accepted range/);
+  assert.throws(
+    () => validateViewport("desktop", Number.MAX_SAFE_INTEGER, 600),
+    /outside its accepted range/
+  );
+  assert.throws(
+    () => validateViewport("desktop", 1024, Number.MAX_SAFE_INTEGER),
+    /must be at most 8192/
+  );
+  assert.throws(
+    () => validateViewport("desktop", 8192, 8192),
+    new RegExp(`exceeds the ${MAX_VIEWPORT_PIXELS}-pixel budget`)
+  );
+  assert.throws(
+    () =>
+      prepareCapturePlan(
+        route(),
+        ".pm/dev-sessions/test/design-critique/route.json",
+        planOptions({ width: 8192, height: 8192 })
+      ),
+    /exceeds the 16777216-pixel budget/
+  );
+});
+
+test("composite controls require a browser-observed document focus entry point", () => {
+  const model = [
+    { index: 0, backendNodeId: 1, parentIndex: -1, nodeName: "main", attributes: {} },
+    {
+      index: 1,
+      backendNodeId: 2,
+      parentIndex: 0,
+      nodeName: "div",
+      attributes: { role: "tablist" },
+    },
+    {
+      index: 2,
+      backendNodeId: 3,
+      parentIndex: 1,
+      nodeName: "button",
+      attributes: { id: "summary-tab", role: "tab", tabindex: "-1" },
+    },
+    {
+      index: 3,
+      backendNodeId: 4,
+      parentIndex: 1,
+      nodeName: "button",
+      attributes: { id: "history-tab", role: "tab", tabindex: "-1" },
+    },
+  ];
+  const axTree = {
+    nodes: [
+      {
+        nodeId: "main",
+        backendDOMNodeId: 1,
+        role: { value: "main" },
+        name: { value: "" },
+        properties: [],
+      },
+      {
+        nodeId: "views",
+        parentId: "main",
+        backendDOMNodeId: 2,
+        role: { value: "tablist" },
+        name: { value: "Views" },
+        properties: [],
+      },
+      {
+        nodeId: "summary",
+        parentId: "views",
+        backendDOMNodeId: 3,
+        role: { value: "tab" },
+        name: { value: "Summary" },
+        properties: [],
+      },
+      {
+        nodeId: "history",
+        parentId: "views",
+        backendDOMNodeId: 4,
+        role: { value: "tab" },
+        name: { value: "History" },
+        properties: [],
+      },
+    ],
+  };
+  const observations = accessibilityObservations(axTree, model);
+  assert.ok(observations.controls.every((item) => item.focus_context === "document"));
+  const audit = normalizeRawAudit(
+    {
+      schema_version: 1,
+      kind: "accessibility-tree",
+      subject_id: "broken-tabs",
+      commit: "a".repeat(40),
+      capture_ids: ["capture-broken-tabs-primary-desktop-r1"],
+      observations,
+    },
+    { path: ".pm/test/raw-a11y.json", sha256: "b".repeat(64) }
+  );
+  assert.equal(audit.checks.focus_order, false);
+  assert.equal(audit.findings.filter((item) => item.code === "not-keyboard-reachable").length, 2);
 });
 
 test("capture plan refuses noncanonical assertion and output locations", () => {
@@ -1332,6 +1435,33 @@ function waitForChildLine(child, timeoutMs = 5_000) {
   });
 }
 
+function waitForChildResult(child, timeoutMs = 90_000) {
+  return new Promise((resolve, reject) => {
+    let stdout = "";
+    let stderr = "";
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error("child command timed out"));
+    }, timeoutMs);
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.once("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.once("exit", (code) => {
+      clearTimeout(timeout);
+      resolve({ code, stdout, stderr });
+    });
+  });
+}
+
 function stopChild(child) {
   if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
   return new Promise((resolve) => {
@@ -1457,6 +1587,7 @@ function createBrowserFixture({
   webSocketUrl = null,
   webSocketFrameDelayMs = 0,
   persistentWorker = false,
+  focusabilityControls = false,
 } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-trusted-capture-"));
   const external = externalRequest ? '<img src="https://example.invalid/tracker.png" alt="">' : "";
@@ -1479,9 +1610,18 @@ function createBrowserFixture({
   const persistentWorkerScript = persistentWorker
     ? '<script>new Worker("data:text/javascript;charset=utf-8,"+encodeURIComponent("setInterval(()=>{},10000)"));</script>'
     : "";
+  const focusabilityMarkup =
+    focusabilityControls === "active-descendant"
+      ? '<section aria-label="Active descendant example"><div id="plans" role="listbox" aria-label="Plans" aria-activedescendant="plan-free" tabindex="0"><div id="plan-free" role="option" tabindex="-1">Free</div><div id="plan-pro" role="option" tabindex="-1">Pro</div><div id="plan-team" role="option" tabindex="-1">Team</div></div></section><script>{const listbox=document.querySelector("#plans");const options=[...listbox.querySelectorAll("[role=option]")];listbox.addEventListener("keydown",event=>{const direction=event.key==="ArrowDown"?1:event.key==="ArrowUp"?-1:0;if(!direction)return;event.preventDefault();const current=options.findIndex(option=>option.id===listbox.getAttribute("aria-activedescendant"));const next=(current+direction+options.length)%options.length;listbox.setAttribute("aria-activedescendant",options[next].id)})}</script>'
+      : focusabilityControls
+        ? '<section aria-label="Focus examples"><a id="no-destination" role="link">No destination</a><a id="destination" href="#account">Destination</a><label for="plan-select">Plan</label><select id="plan-select"><option>Free</option><option>Pro</option></select><div id="views" role="tablist" aria-label="Views"><button id="summary-tab" role="tab" tabindex="0">Summary tab</button><button id="history-tab" role="tab" tabindex="-1">History tab</button><button id="nameless-tab" role="tab" tabindex="-1"></button></div></section>' +
+          (focusabilityControls === "working"
+            ? '<script>{const tabs=[...document.querySelectorAll("#views>[role=tab]")];document.querySelector("#views").addEventListener("keydown",event=>{const direction=event.key==="ArrowRight"?1:event.key==="ArrowLeft"?-1:0;if(!direction)return;event.preventDefault();const current=tabs.indexOf(document.activeElement);const next=(current+direction+tabs.length)%tabs.length;tabs.forEach((tab,index)=>{tab.tabIndex=index===next?0:-1});tabs[next].focus()})}</script>'
+            : "")
+        : "";
   const html = `<!doctype html><html><head><meta charset="utf-8"><style>
 *{box-sizing:border-box}body{margin:0;background:#eef2ff;color:#172033;font:16px system-ui}header{background:#18264a;color:white;padding:18px 28px}nav a{color:white;margin-right:16px}main{max-width:900px;margin:30px auto;padding:24px;background:white;border-radius:16px}h1{font-size:32px}h2{font-size:22px}.cards{display:grid;grid-template-columns:1fr 1fr;gap:16px}.card{padding:18px;border:1px solid #ccd3e1;border-radius:12px}button{padding:10px 18px;background:#3157d5;color:white;border:0;border-radius:8px}
-</style></head><body><header><nav aria-label="Primary"><a href="#account">Accounts</a></nav></header><main id="account" data-testid="account-state" data-pm-state="primary"><header><h1>Account overview</h1></header><section aria-labelledby="summary"><h2 id="summary">Summary</h2><div class="cards"><article class="card"><h2>Usage</h2><p>Stable product evidence.</p></article><article class="card"><h2>Plan</h2><p>Professional tier.</p></article></div><button>Save changes</button></section>${descendantOverlay}</main>${external}${overlay}${late}${webSocket}${persistentWorkerScript}</body></html>`;
+</style></head><body><header><nav aria-label="Primary"><a href="#account">Accounts</a></nav></header><main id="account" data-testid="account-state" data-pm-state="primary"><header><h1>Account overview</h1></header><section aria-labelledby="summary"><h2 id="summary">Summary</h2><div class="cards"><article class="card"><h2>Usage</h2><p>Stable product evidence.</p></article><article class="card"><h2>Plan</h2><p>Professional tier.</p></article></div><button>Save changes</button>${focusabilityMarkup}</section>${descendantOverlay}</main>${external}${overlay}${late}${webSocket}${persistentWorkerScript}</body></html>`;
   return {
     root,
     url: `data:text/html;charset=utf-8,${encodeURIComponent(html)}`,
@@ -1542,6 +1682,209 @@ test(
       assert.ok(fs.statSync(fixture.verificationPath).size > 1024);
     } finally {
       fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
+  "browser focus evidence rejects a statically tabbable composite without arrow navigation",
+  { skip: browserSkip },
+  () => {
+    const fixture = createBrowserFixture({ focusabilityControls: "broken" });
+    try {
+      const result = runBrowserCapture(fixture);
+      const controls = result.accessibility_observations.controls;
+      const byLocator = new Map(controls.map((item) => [item.locator, item]));
+      assert.equal(byLocator.get("button#summary-tab").focus_context, "document");
+      assert.equal(byLocator.get("button#history-tab").focus_context, "document");
+      assert.equal(byLocator.get("button#nameless-tab").focus_context, "document");
+      const audit = normalizeRawAudit(
+        {
+          schema_version: 1,
+          kind: "accessibility-tree",
+          subject_id: "account-detail",
+          commit: "a".repeat(40),
+          capture_ids: ["capture-account-primary-desktop-r1"],
+          observations: result.accessibility_observations,
+        },
+        { path: ".pm/test/raw-a11y.json", sha256: "b".repeat(64) }
+      );
+      assert.equal(audit.checks.focus_order, false);
+      assert.ok(
+        audit.findings.some(
+          (item) => item.code === "not-keyboard-reachable" && item.locator === "button#history-tab"
+        )
+      );
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
+  "browser focus evidence follows native tab stops and observed roving keyboard ownership",
+  { skip: browserSkip },
+  () => {
+    const fixture = createBrowserFixture({ focusabilityControls: "working" });
+    try {
+      const result = runBrowserCapture(fixture);
+      const controls = result.accessibility_observations.controls;
+      const byLocator = new Map(controls.map((item) => [item.locator, item]));
+      assert.equal(byLocator.get("a#no-destination").tab_index, -1);
+      assert.equal(byLocator.get("a#no-destination").focus_context, "document");
+      assert.equal(byLocator.get("a#destination").tab_index, 0);
+      assert.equal(byLocator.get("a#destination").focus_context, "document");
+      assert.equal(byLocator.get("select#plan-select").tab_index, 0);
+      assert.equal(byLocator.get("select#plan-select").focus_context, "document");
+      assert.equal(byLocator.get("button#summary-tab").tab_index, 0);
+      assert.equal(byLocator.get("button#summary-tab").focus_context, "document");
+      assert.equal(byLocator.get("button#history-tab").tab_index, -1);
+      assert.equal(byLocator.get("button#history-tab").focus_context, "composite");
+      assert.equal(byLocator.get("button#nameless-tab").name, "");
+      assert.equal(byLocator.get("button#nameless-tab").focus_context, "composite");
+      const options = controls.filter((item) => item.role === "option");
+      assert.ok(options.length >= 1);
+      assert.ok(options.every((item) => item.focus_context === "composite"));
+
+      const normalize = (observations) =>
+        normalizeRawAudit(
+          {
+            schema_version: 1,
+            kind: "accessibility-tree",
+            subject_id: "account-detail",
+            commit: "a".repeat(40),
+            capture_ids: ["capture-account-primary-desktop-r1"],
+            observations,
+          },
+          { path: ".pm/test/raw-a11y.json", sha256: "b".repeat(64) }
+        );
+      const completeAudit = normalize(result.accessibility_observations);
+      assert.equal(completeAudit.checks.focus_order, false);
+      assert.equal(completeAudit.checks.names, false);
+      assert.ok(
+        completeAudit.findings.some(
+          (item) =>
+            item.code === "missing-accessible-name" && item.locator === "button#nameless-tab"
+        )
+      );
+      const reachableAudit = normalize({
+        ...result.accessibility_observations,
+        controls: controls.filter((item) => item.locator !== "a#no-destination"),
+      });
+      assert.equal(reachableAudit.checks.focus_order, true);
+      assert.equal(reachableAudit.checks.names, false);
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
+  "browser focus evidence accepts observed aria-activedescendant navigation",
+  { skip: browserSkip },
+  () => {
+    const fixture = createBrowserFixture({ focusabilityControls: "active-descendant" });
+    try {
+      const result = runBrowserCapture(fixture);
+      const controls = result.accessibility_observations.controls;
+      const byLocator = new Map(controls.map((item) => [item.locator, item]));
+      for (const locator of ["div#plan-free", "div#plan-pro", "div#plan-team"]) {
+        assert.equal(byLocator.get(locator).tab_index, -1);
+        assert.equal(byLocator.get(locator).focus_context, "composite");
+      }
+      const audit = normalizeRawAudit(
+        {
+          schema_version: 1,
+          kind: "accessibility-tree",
+          subject_id: "account-detail",
+          commit: "a".repeat(40),
+          capture_ids: ["capture-account-primary-desktop-r1"],
+          observations: result.accessibility_observations,
+        },
+        { path: ".pm/test/raw-a11y.json", sha256: "b".repeat(64) }
+      );
+      assert.equal(audit.checks.focus_order, true);
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
+  "capture CLI publishes a closed trusted evidence bundle after keyboard probing",
+  { skip: browserSkip },
+  async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-capture-cli-"));
+    const { server, port } = await startLoopbackWebSocketServer(root);
+    try {
+      execFileSync("git", ["init", "-q"], { cwd: root });
+      execFileSync("git", ["config", "user.name", "PM Test"], { cwd: root });
+      execFileSync("git", ["config", "user.email", "pm-test@example.invalid"], { cwd: root });
+      fs.writeFileSync(path.join(root, "source.txt"), "trusted capture source\n");
+      execFileSync("git", ["add", "source.txt"], { cwd: root });
+      execFileSync("git", ["commit", "-q", "-m", "fixture"], { cwd: root });
+      const commit = execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: root,
+        encoding: "utf8",
+      }).trim();
+      const routePath = ".pm/dev-sessions/cli-test/design-critique/route.json";
+      const assertionPath =
+        ".pm/dev-sessions/cli-test/design-critique/state-assertions/account-primary-desktop.json";
+      const outputDir =
+        ".pm/dev-sessions/cli-test/design-critique/round-1/capture-account-primary-desktop-r1";
+      const routeValue = route(commit);
+      routeValue.source.base_commit = commit;
+      routeValue.subjects[0].surface = "/capture";
+      fs.mkdirSync(path.join(root, path.dirname(assertionPath)), { recursive: true });
+      fs.writeFileSync(path.join(root, routePath), `${JSON.stringify(routeValue, null, 2)}\n`);
+      fs.writeFileSync(path.join(root, assertionPath), `${JSON.stringify(assertion(), null, 2)}\n`);
+      const url = `http://127.0.0.1:${port}/capture?directSocket=0`;
+      const child = spawn(
+        process.execPath,
+        [
+          path.join(__dirname, "../scripts/design-critique-capture.js"),
+          "--root",
+          root,
+          "--route",
+          routePath,
+          "--subject",
+          "account-detail",
+          "--coverage",
+          "account-primary-desktop",
+          "--capture",
+          "capture-account-primary-desktop-r1",
+          "--url",
+          url,
+          "--expect-url",
+          url,
+          "--state-assertion",
+          assertionPath,
+          "--width",
+          "1024",
+          "--height",
+          "600",
+          "--out-dir",
+          outputDir,
+          "--browser",
+          installedBrowser,
+          "--settle-ms",
+          "100",
+          "--json",
+        ],
+        { cwd: root, stdio: ["ignore", "pipe", "pipe"] }
+      );
+      const executed = await waitForChildResult(child);
+      assert.equal(executed.code, 0, executed.stderr);
+      const result = JSON.parse(executed.stdout);
+      assert.equal(result.ok, true);
+      assert.equal(result.manifest.path, `${outputDir}/capture.json`);
+      const raw = JSON.parse(
+        fs.readFileSync(path.join(root, outputDir, "accessibility-tree-raw.json"), "utf8")
+      );
+      assert.ok(raw.observations.controls.every((control) => control.focus_context));
+    } finally {
+      await stopChild(server);
+      fs.rmSync(root, { recursive: true, force: true });
     }
   }
 );

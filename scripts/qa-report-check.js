@@ -19,6 +19,16 @@ function parseArgs(argv) {
       options.requirePassing = false;
       continue;
     }
+    if (argv[index] === "--qa-candidate") {
+      if (options.qaCandidate) throw new Error("duplicate argument --qa-candidate");
+      options.qaCandidate = "required";
+      continue;
+    }
+    if (argv[index] === "--qa-history-anchor") {
+      if (options.qaHistoryAnchor) throw new Error("duplicate argument --qa-history-anchor");
+      options.qaHistoryAnchor = true;
+      continue;
+    }
     const field = fields.get(argv[index]);
     if (!field) throw new Error(`unknown argument ${argv[index]}`);
     const value = argv[++index];
@@ -27,6 +37,9 @@ function parseArgs(argv) {
   }
   for (const field of ["sessionPath", "reportPath", "expectedCommit"]) {
     if (!options[field]) throw new Error(`missing required ${field}`);
+  }
+  if (options.qaCandidate && options.qaHistoryAnchor) {
+    throw new Error("--qa-candidate and --qa-history-anchor are mutually exclusive");
   }
   return options;
 }
@@ -48,6 +61,12 @@ function main(argv = process.argv.slice(2)) {
       reportPath: options.reportPath,
       expectedCommit: options.expectedCommit,
       requirePassing: options.requirePassing,
+      qaCandidate:
+        options.qaHistoryAnchor === true
+          ? undefined
+          : options.qaCandidate ||
+            (session.status === "active" && session.phase === "qa" ? "required" : undefined),
+      qaHistoryAnchor: options.qaHistoryAnchor,
     });
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     return result.ok ? 0 : 1;

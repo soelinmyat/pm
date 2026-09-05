@@ -213,6 +213,18 @@ function validateSession(session) {
   validateCandidate(session.candidate, errors);
   validateStateEvidence(session.evidence, errors);
   validateAttempts(session.attempts, errors);
+  const recordedQaAttempts = Array.isArray(session.attempts)
+    ? session.attempts.filter((attempt) => attempt?.phase === "qa").length
+    : 0;
+  const qaRunCount = session.evidence?.qa?.qa_run_count;
+  if (Number.isInteger(qaRunCount) && qaRunCount < recordedQaAttempts) {
+    errors.push(
+      issue(
+        "$.evidence.qa.qa_run_count",
+        "cannot be less than the number of runner-recorded QA attempts"
+      )
+    );
+  }
   if (isObject(session.execution) && Array.isArray(session.attempts)) {
     session.attempts.forEach((attempt, index) => {
       validateAstraRuntimeBinding(
@@ -783,6 +795,8 @@ function validateStateEvidence(evidence, errors) {
       "verified_commit",
       "verified_at",
       "verification_records",
+      "qa_run_count",
+      "qa_run_anchors",
     ]);
     validateExactFields(evidenceSet, fields, evidencePath, errors);
     for (const field of ["commit", "records", "recorded_at"]) {
@@ -803,6 +817,20 @@ function validateStateEvidence(evidence, errors) {
     }
     if (!isIsoDate(evidenceSet.recorded_at)) {
       errors.push(issue(`${evidencePath}.recorded_at`, "must be an ISO date"));
+    }
+    if (Object.prototype.hasOwnProperty.call(evidenceSet, "qa_run_count")) {
+      if (phase !== "qa") {
+        errors.push(issue(`${evidencePath}.qa_run_count`, "is only valid for QA evidence"));
+      } else if (!Number.isInteger(evidenceSet.qa_run_count) || evidenceSet.qa_run_count < 1) {
+        errors.push(issue(`${evidencePath}.qa_run_count`, "must be a positive integer"));
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(evidenceSet, "qa_run_anchors")) {
+      if (phase !== "qa") {
+        errors.push(issue(`${evidencePath}.qa_run_anchors`, "is only valid for QA evidence"));
+      } else {
+        validateQaRunAnchors(evidenceSet, evidencePath, errors);
+      }
     }
     const hasVerifiedCommit = Object.prototype.hasOwnProperty.call(evidenceSet, "verified_commit");
     const hasVerifiedAt = Object.prototype.hasOwnProperty.call(evidenceSet, "verified_at");
@@ -829,6 +857,46 @@ function validateStateEvidence(evidence, errors) {
       }
     }
   }
+}
+
+function validateQaRunAnchors(evidenceSet, evidencePath, errors) {
+  const anchors = evidenceSet.qa_run_anchors;
+  if (!Array.isArray(anchors) || anchors.length === 0) {
+    errors.push(issue(`${evidencePath}.qa_run_anchors`, "must be a non-empty array"));
+    return;
+  }
+  if (!Number.isInteger(evidenceSet.qa_run_count)) {
+    errors.push(issue(`${evidencePath}.qa_run_count`, "is required with QA run anchors"));
+  } else if (anchors.length !== evidenceSet.qa_run_count) {
+    errors.push(
+      issue(`${evidencePath}.qa_run_anchors`, "must contain exactly qa_run_count entries")
+    );
+  }
+  anchors.forEach((anchor, index) => {
+    const anchorPath = `${evidencePath}.qa_run_anchors[${index}]`;
+    if (!isObject(anchor)) {
+      errors.push(issue(anchorPath, "must be an object"));
+      return;
+    }
+    const fields = new Set(["run", "commit", "verdict", "report_sha256"]);
+    validateExactFields(anchor, fields, anchorPath, errors);
+    for (const field of fields) requireField(anchor, field, anchorPath, errors);
+    if (anchor.run !== index + 1) {
+      errors.push(issue(`${anchorPath}.run`, `must equal ${index + 1}`));
+    }
+    if (
+      typeof anchor.commit !== "string" ||
+      !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(anchor.commit)
+    ) {
+      errors.push(issue(`${anchorPath}.commit`, "must be a Git object ID"));
+    }
+    if (!new Set(["pass", "pass-with-concerns", "fail", "blocked"]).has(anchor.verdict)) {
+      errors.push(issue(`${anchorPath}.verdict`, "is invalid"));
+    }
+    if (typeof anchor.report_sha256 !== "string" || !/^[a-f0-9]{64}$/.test(anchor.report_sha256)) {
+      errors.push(issue(`${anchorPath}.report_sha256`, "must be a SHA-256 digest"));
+    }
+  });
 }
 
 function validateAttempts(attempts, errors) {
@@ -996,7 +1064,7 @@ function validateResult(session, result, options = {}) {
     }
     validatePhaseEvidence(session, result, options, errors);
   } else if (session.phase === "qa" && new Set(["failed", "blocked"]).has(result.status)) {
-    validateQaEvidence(session, result, errors);
+    validateQaEvidence(session, result, errors, "$.evidence", { qaCandidate: "required" });
   }
 
   if (result.commit) validateCommit(session, result.commit, options, errors);
@@ -1031,7 +1099,9 @@ function validatePhaseEvidence(session, result, options, errors) {
       );
     }
   }
-  if (session.phase === "qa") validateQaEvidence(session, result, errors);
+  if (session.phase === "qa") {
+    validateQaEvidence(session, result, errors, "$.evidence", { qaCandidate: "required" });
+  }
   if (session.phase === "ship") validateDeliveryEvidence(session, result, options, errors);
 }
 
@@ -1046,7 +1116,7 @@ function evidenceArtifact(result, kind, errors) {
   return record.artifact;
 }
 
-function validateQaEvidence(session, result, errors, basePath = "$.evidence") {
+function validateQaEvidence(session, result, errors, basePath = "$.evidence", options = {}) {
   const resultStatus = result.status || "passed";
   const records = Array.isArray(result.evidence) ? result.evidence : [];
   const checkedReports = records.filter(
@@ -1062,6 +1132,22 @@ function validateQaEvidence(session, result, errors, basePath = "$.evidence") {
   ) {
     errors.push(
       issue(basePath, "QA test evidence must record the executed qa-report-check command")
+    );
+  }
+  if (
+    options.requireQaCandidateCommand === true &&
+    !/--qa-candidate(?:\s|$)/.test(checkedReports[0].command || "")
+  ) {
+    errors.push(
+      issue(basePath, "QA recertification evidence must record --qa-candidate validation")
+    );
+  }
+  if (
+    options.requireQaHistoryAnchorCommand === true &&
+    !/--qa-history-anchor(?:\s|$)/.test(checkedReports[0].command || "")
+  ) {
+    errors.push(
+      issue(basePath, "QA history anchoring evidence must record --qa-history-anchor validation")
     );
   }
   if (
@@ -1086,6 +1172,8 @@ function validateQaEvidence(session, result, errors, basePath = "$.evidence") {
     reportPath,
     expectedCommit: result.commit,
     requirePassing: resultStatus === "passed",
+    qaCandidate: options.qaCandidate,
+    qaHistoryAnchor: options.qaHistoryAnchor,
   });
   for (const reportIssue of checked.issues) {
     errors.push(issue(basePath, `QA report ${reportIssue.path}: ${reportIssue.message}`));
@@ -1101,6 +1189,7 @@ function validateQaEvidence(session, result, errors, basePath = "$.evidence") {
       issue(basePath, `QA report verdict ${checked.verdict} contradicts ${resultStatus}`)
     );
   }
+  return checked;
 }
 
 function validateReadinessEvidence(session, result, errors) {
@@ -2090,22 +2179,194 @@ function recertifyEvidence(session, phases, commit, verificationByPhase, options
       );
     }
     if (phase === "qa") {
+      if (
+        !Number.isInteger(evidence.qa_run_count) ||
+        !Array.isArray(evidence.qa_run_anchors) ||
+        evidence.qa_run_anchors.length !== evidence.qa_run_count
+      ) {
+        throw new Error(
+          "cannot recertify QA history without immutable run anchors; run dev-session anchor-qa-history"
+        );
+      }
       const qaErrors = [];
-      validateQaEvidence(
-        session,
+      const checked = validateQaEvidence(
+        next,
         { commit, evidence: records },
         qaErrors,
-        `$.verification.${phase}`
+        `$.verification.${phase}`,
+        { qaCandidate: "required", requireQaCandidateCommand: true }
       );
       if (qaErrors.length > 0) {
         throw validationError("recertification evidence for qa is invalid", qaErrors);
       }
+      if (!Number.isInteger(checked?.run_count) || checked.run_count < 1) {
+        throw new Error("recertification evidence for qa did not produce a valid run count");
+      }
+      evidence.qa_run_count = checked.run_count;
+      evidence.qa_run_anchors = structuredClone(checked.run_anchors);
     }
     evidence.verified_commit = commit;
     evidence.verified_at = timestamp;
     evidence.verification_records = structuredClone(records);
   }
   next.updated_at = timestamp;
+  assertValidSession(next);
+  return next;
+}
+
+function anchorQaHistory(session, commit, records, options = {}) {
+  assertValidSession(session);
+  const qaEvidence = session.evidence.qa;
+  if (!qaEvidence?.commit) throw new Error("QA history anchoring requires recorded QA evidence");
+
+  const commitErrors = [];
+  validateCommit(session, commit, options, commitErrors);
+  if (commitErrors.length > 0) {
+    throw validationError("QA history anchor commit is invalid", commitErrors);
+  }
+  const anchorErrors = [];
+  const checked = validateQaEvidence(
+    session,
+    { commit, evidence: records },
+    anchorErrors,
+    "$.qa_history_anchor",
+    { qaHistoryAnchor: true, requireQaHistoryAnchorCommand: true }
+  );
+  if (anchorErrors.length > 0) {
+    throw validationError("QA history anchoring evidence is invalid", anchorErrors);
+  }
+  validateStoredQaGateBindings(
+    qaEvidence,
+    checked.run_anchors,
+    checked.expected_path,
+    anchorErrors
+  );
+  if (anchorErrors.length > 0) {
+    throw validationError(
+      "stored QA gate evidence is not bound to the audited history",
+      anchorErrors
+    );
+  }
+  if (
+    !Number.isInteger(checked?.run_count) ||
+    !Array.isArray(checked.run_anchors) ||
+    checked.run_anchors.length !== checked.run_count
+  ) {
+    throw new Error("QA history anchoring did not produce a complete immutable run ledger");
+  }
+  if (Array.isArray(qaEvidence.qa_run_anchors)) {
+    if (canonicalJson(qaEvidence.qa_run_anchors) !== canonicalJson(checked.run_anchors)) {
+      throw new Error("existing immutable QA run anchors do not match the audited report history");
+    }
+    return structuredClone(session);
+  }
+
+  const next = structuredClone(session);
+  next.evidence.qa.qa_run_count = checked.run_count;
+  next.evidence.qa.qa_run_anchors = structuredClone(checked.run_anchors);
+  next.updated_at = options.now || new Date().toISOString();
+  assertValidSession(next);
+  return next;
+}
+
+function validateStoredQaGateBindings(qaEvidence, anchors, reportPath, errors) {
+  const evidenceSets = [
+    {
+      at: "$.evidence.qa",
+      commit: qaEvidence.commit,
+      records: qaEvidence.records,
+    },
+  ];
+  if (typeof qaEvidence.verified_commit === "string") {
+    evidenceSets.push({
+      at: "$.evidence.qa.verification_records",
+      commit: qaEvidence.verified_commit,
+      records: qaEvidence.verification_records,
+    });
+  }
+  for (const evidenceSet of evidenceSets) {
+    const matchingRun = Array.isArray(anchors)
+      ? anchors.find(
+          (anchor) =>
+            anchor?.commit === evidenceSet.commit &&
+            new Set(["pass", "pass-with-concerns"]).has(anchor.verdict)
+        )
+      : null;
+    if (!matchingRun) {
+      errors.push(
+        issue(evidenceSet.at, "commit must identify a passing run in the audited QA history")
+      );
+    }
+    const successfulChecks = Array.isArray(evidenceSet.records)
+      ? evidenceSet.records.filter((record) => record?.kind === "test" && record.exit_code === 0)
+      : [];
+    if (successfulChecks.length !== 1) {
+      errors.push(issue(evidenceSet.at, "must contain exactly one successful QA report check"));
+      continue;
+    }
+    const record = successfulChecks[0];
+    if (
+      typeof record.command !== "string" ||
+      !/qa-report-check(?:\.js)?(?:\s|$)/i.test(record.command)
+    ) {
+      errors.push(issue(evidenceSet.at, "must record the executed qa-report-check command"));
+    }
+    if (record.artifact !== reportPath) {
+      errors.push(issue(evidenceSet.at, "must identify the canonical QA report artifact"));
+    }
+  }
+}
+
+function recordNonPassingQaCandidate(session, status, commit, records, options = {}) {
+  assertValidSession(session);
+  if (!new Set(["failed", "blocked"]).has(status)) {
+    throw new Error("QA candidate history recording requires failed or blocked status");
+  }
+  if (session.status !== "active" || PHASES.indexOf(session.phase) <= PHASES.indexOf("qa")) {
+    throw new Error(
+      "non-passing QA candidates can only be recorded during an active post-QA phase"
+    );
+  }
+  const qaEvidence = session.evidence.qa;
+  if (
+    !qaEvidence?.commit ||
+    !Number.isInteger(qaEvidence.qa_run_count) ||
+    !Array.isArray(qaEvidence.qa_run_anchors) ||
+    qaEvidence.qa_run_anchors.length !== qaEvidence.qa_run_count
+  ) {
+    throw new Error(
+      "non-passing QA candidate recording requires immutable run anchors; run dev-session anchor-qa-history"
+    );
+  }
+
+  const errors = [];
+  validateCommit(session, commit, options, errors);
+  let checked = null;
+  if (!Array.isArray(records) || records.length === 0) {
+    errors.push(issue("$.qa_candidate", "requires fresh QA candidate evidence"));
+  } else {
+    records.forEach((record, index) =>
+      validateEvidenceRecord(record, index, errors, "$.qa_candidate")
+    );
+    checked = validateQaEvidence(
+      session,
+      { status, commit, evidence: records },
+      errors,
+      "$.qa_candidate",
+      { qaCandidate: "required", requireQaCandidateCommand: true }
+    );
+  }
+  if (errors.length > 0) {
+    throw validationError("non-passing QA candidate is invalid", errors);
+  }
+  if (checked.run_count !== qaEvidence.qa_run_count + 1) {
+    throw new Error("non-passing QA candidate did not advance the run-count anchor by exactly one");
+  }
+
+  const next = structuredClone(session);
+  next.evidence.qa.qa_run_count = checked.run_count;
+  next.evidence.qa.qa_run_anchors = structuredClone(checked.run_anchors);
+  next.updated_at = options.now || new Date().toISOString();
   assertValidSession(next);
   return next;
 }
@@ -2593,6 +2854,17 @@ function recordResult(session, result, options = {}) {
       records: structuredClone(result.evidence),
       recorded_at: timestamp,
     };
+    if (priorPhase === "qa") {
+      const qaErrors = [];
+      const checked = validateQaEvidence(session, result, qaErrors, "$.evidence", {
+        qaCandidate: "required",
+      });
+      if (qaErrors.length > 0) {
+        throw validationError("QA evidence changed before it could be recorded", qaErrors);
+      }
+      next.evidence[priorPhase].qa_run_count = checked.run_count;
+      next.evidence[priorPhase].qa_run_anchors = structuredClone(checked.run_anchors);
+    }
   }
 
   if (result.status === "passed" && priorPhase === "ship" && next.execution.mode === "headless") {
@@ -2926,6 +3198,7 @@ module.exports = {
   RUNNER_VERSION,
   advanceDecisionVersion,
   applyRouting,
+  anchorQaHistory,
   candidateAuthorityForState,
   classifyDeliveryCandidate,
   createSession,
@@ -2940,6 +3213,7 @@ module.exports = {
   prunePreUpgradeSnapshot,
   refreshCandidateIdentities,
   recertifyEvidence,
+  recordNonPassingQaCandidate,
   recordResult,
   resumeBlocked,
   restorePreUpgradeSnapshot,

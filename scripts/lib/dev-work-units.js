@@ -11,6 +11,7 @@ const {
 } = require("../artifact-check");
 const { runGit: sharedRunGit } = require("../loop-git");
 const { isRfc3339DateTime } = require("./iso-time");
+const { inspectStableProjectInput, readProjectInput } = require("./safe-project-output");
 
 const VALID_STATUSES = new Set(["pending", "running", "completed", "blocked", "failed"]);
 const WORK_UNIT_FIELDS = new Set([
@@ -485,48 +486,25 @@ function resolvePrototypeRoot(repoRoot, label) {
 }
 
 function readPrototypeFile(root, relativePath, label) {
-  const candidate = path.resolve(root, relativePath);
-  if (!isWithin(root, candidate)) {
-    throw new Error(`${label} must stay inside the repository root`);
-  }
-  let current = root;
+  return readBoundPrototypeFile(root, relativePath, label).bytes;
+}
+
+function readBoundPrototypeFile(root, relativePath, label) {
   try {
-    for (const part of path.relative(root, candidate).split(path.sep).filter(Boolean)) {
-      current = path.join(current, part);
-      if (fs.lstatSync(current).isSymbolicLink()) {
-        throw new Error("contains a symbolic link");
-      }
-    }
+    return readProjectInput(root, relativePath, MAX_PROTOTYPE_BYTES, {
+      requireStablePath: true,
+    });
   } catch (error) {
     throw new Error(`${label} cannot be read as a repository file: ${error.message}`);
   }
-  let bytes;
-  const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0);
-  let fd;
+}
+
+function inspectBoundPrototypeFile(root, relativePath, label) {
   try {
-    fd = fs.openSync(candidate, flags);
-    const before = fs.fstatSync(fd);
-    if (!before.isFile()) throw new Error("must identify a regular file");
-    if (before.size > MAX_PROTOTYPE_BYTES) {
-      throw new Error("exceeds the 10 MiB read limit");
-    }
-    bytes = Buffer.alloc(before.size);
-    let offset = 0;
-    while (offset < bytes.length) {
-      const count = fs.readSync(fd, bytes, offset, bytes.length - offset, offset);
-      if (count === 0) throw new Error("changed during bounded read");
-      offset += count;
-    }
-    const after = fs.fstatSync(fd);
-    if (after.size !== before.size || after.mtimeMs !== before.mtimeMs) {
-      throw new Error("changed during bounded read");
-    }
+    return inspectStableProjectInput(root, relativePath, MAX_PROTOTYPE_BYTES);
   } catch (error) {
-    throw new Error(`${label} cannot be read as a repository file: ${error.message}`);
-  } finally {
-    if (fd !== undefined) fs.closeSync(fd);
+    throw new Error(`${label} cannot be inspected as a repository file: ${error.message}`);
   }
-  return bytes;
 }
 
 function buildPrototypeManifest(repoRoot, relativeDirectory) {
@@ -537,15 +515,22 @@ function buildPrototypeManifest(repoRoot, relativeDirectory) {
   const before = collectPrototypeTree(directory);
   const files = [];
   const sourceBytes = new Map();
+  const sourceIdentities = new Map();
   let totalBytes = 0;
   for (const relativePath of before) {
     const repoRelative = path.posix.join(relativeDirectory, relativePath);
-    const bytes = readPrototypeFile(repoRoot, repoRelative, `prototype manifest ${relativePath}`);
+    const loaded = readBoundPrototypeFile(
+      repoRoot,
+      repoRelative,
+      `prototype manifest ${relativePath}`
+    );
+    const { bytes } = loaded;
     totalBytes += bytes.length;
     if (totalBytes > MAX_PROTOTYPE_TREE_BYTES) {
       throw new Error("prototype manifest exceeds the 32 MiB tree read limit");
     }
     sourceBytes.set(relativePath, bytes);
+    sourceIdentities.set(relativePath, loaded.stablePathIdentity);
     files.push({ path: relativePath, sha256: hashBytes(bytes) });
   }
   const after = collectPrototypeTree(directory);
@@ -560,6 +545,54 @@ function buildPrototypeManifest(repoRoot, relativeDirectory) {
   validatePrototypeManifest(manifest, "prototype manifest");
   validateManifestMetadata(repoRoot, relativeDirectory, manifest);
   validateBundledPrototypeDependencies(sourceBytes, manifest);
+  let verifiedBytes = 0;
+  const verifiedIdentities = new Map();
+  for (const [index, relativePath] of before.entries()) {
+    const repoRelative = path.posix.join(relativeDirectory, relativePath);
+    const loaded = readBoundPrototypeFile(
+      repoRoot,
+      repoRelative,
+      `prototype manifest verification ${relativePath}`
+    );
+    verifiedBytes += loaded.bytes.length;
+    const expected = sourceBytes.get(relativePath);
+    if (
+      verifiedBytes > MAX_PROTOTYPE_TREE_BYTES ||
+      !expected?.equals(loaded.bytes) ||
+      files[index].sha256 !== hashBytes(loaded.bytes) ||
+      sourceIdentities.get(relativePath) !== loaded.stablePathIdentity
+    ) {
+      throw new Error(`prototype tree changed during bounded read at ${relativePath}`);
+    }
+    verifiedIdentities.set(relativePath, loaded.stablePathIdentity);
+  }
+  const verifiedTree = collectPrototypeTree(directory);
+  if (JSON.stringify(before) !== JSON.stringify(verifiedTree)) {
+    throw new Error("prototype tree changed during final verification");
+  }
+  // Re-sample every verified path after all content reads. Matching inode and
+  // change-time identities establish one overlapping interval in which the
+  // complete bounded tree matched the manifest, without a third content read.
+  let inspectedBytes = 0;
+  for (const relativePath of verifiedTree) {
+    const repoRelative = path.posix.join(relativeDirectory, relativePath);
+    const inspected = inspectBoundPrototypeFile(
+      repoRoot,
+      repoRelative,
+      `prototype manifest final verification ${relativePath}`
+    );
+    inspectedBytes += inspected.size;
+    if (
+      inspectedBytes > MAX_PROTOTYPE_TREE_BYTES ||
+      verifiedIdentities.get(relativePath) !== inspected.stablePathIdentity
+    ) {
+      throw new Error(`prototype tree changed during final verification at ${relativePath}`);
+    }
+  }
+  const finalTree = collectPrototypeTree(directory);
+  if (JSON.stringify(verifiedTree) !== JSON.stringify(finalTree)) {
+    throw new Error("prototype tree changed during final verification");
+  }
   return manifest;
 }
 

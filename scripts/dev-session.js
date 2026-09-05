@@ -5,6 +5,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { writeTextAtomic: writeAtomicText } = require("./lib/atomic-file");
+const { readBoundedJsonFile } = require("./lib/safe-json-file");
 const { parseCliArgs } = require("./loop-args");
 const { recordSessionTelemetry } = require("./lib/telemetry");
 const { validateRfcSidecar } = require("./rfc-sidecar-check");
@@ -14,6 +15,7 @@ const { resolveProfile } = require("./dev-runtime");
 
 const {
   advanceDecisionVersion,
+  anchorQaHistory,
   applyRouting,
   createSession,
   grantAuthority,
@@ -26,6 +28,7 @@ const {
   refreshCandidateIdentities,
   readSession,
   recertifyEvidence,
+  recordNonPassingQaCandidate,
   recordResult,
   resumeBlocked,
   transitionWorkUnit,
@@ -46,6 +49,7 @@ const EXIT = Object.freeze({
   BLOCKED: 5,
   RETRY_EXHAUSTED: 6,
 });
+const MAX_EVIDENCE_INPUT_BYTES = 4 * 1024 * 1024;
 
 function main(argv) {
   const { command, options } = parseArguments(argv);
@@ -64,6 +68,10 @@ function main(argv) {
       return recordCommand(options);
     case "recertify":
       return recertifyCommand(options);
+    case "anchor-qa-history":
+      return anchorQaHistoryCommand(options);
+    case "record-qa-nonpassing":
+      return recordQaNonPassingCommand(options);
     case "unblock":
       return unblockCommand(options);
     case "authorize":
@@ -672,7 +680,7 @@ function recertifyCommand(options) {
   const sessionPath = path.resolve(options.session);
   let verification;
   try {
-    verification = JSON.parse(fs.readFileSync(path.resolve(options.evidence), "utf8"));
+    verification = readBoundedJsonFile(path.resolve(options.evidence), MAX_EVIDENCE_INPUT_BYTES);
   } catch (error) {
     throw cliError(
       `cannot read recertification evidence ${options.evidence}: ${error.message}`,
@@ -694,6 +702,95 @@ function recertifyCommand(options) {
     options,
     { session_path: sessionPath, phases, commit: options.commit },
     `Recertified ${phases.join(", ")} at ${options.commit}\n`
+  );
+  return EXIT.OK;
+}
+
+function recordQaNonPassingCommand(options) {
+  requireOnlyOptions(options, ["session", "status", "commit", "evidence", "json"]);
+  requireOptions(options, ["session", "status", "commit", "evidence"]);
+  const sessionPath = path.resolve(options.session);
+  let verification;
+  try {
+    verification = readBoundedJsonFile(path.resolve(options.evidence), MAX_EVIDENCE_INPUT_BYTES);
+  } catch (error) {
+    throw cliError(
+      `cannot read non-passing QA candidate evidence ${options.evidence}: ${error.message}`,
+      EXIT.INVALID
+    );
+  }
+  if (
+    !verification ||
+    typeof verification !== "object" ||
+    Array.isArray(verification) ||
+    Object.keys(verification).length !== 1 ||
+    !Array.isArray(verification.qa)
+  ) {
+    throw cliError(
+      "non-passing QA candidate evidence must contain exactly one qa array",
+      EXIT.INVALID
+    );
+  }
+  let updated;
+  try {
+    updated = mutateSession(sessionPath, (session) =>
+      recordNonPassingQaCandidate(session, options.status, options.commit, verification.qa)
+    );
+  } catch (error) {
+    throw cliError(error.message, EXIT.PRECONDITION);
+  }
+  emit(
+    options,
+    {
+      session_path: sessionPath,
+      status: options.status,
+      commit: options.commit,
+      qa_run_count: updated.evidence.qa.qa_run_count,
+    },
+    `Recorded ${options.status} QA candidate run ${updated.evidence.qa.qa_run_count}\n`
+  );
+  return EXIT.OK;
+}
+
+function anchorQaHistoryCommand(options) {
+  requireOnlyOptions(options, ["session", "commit", "evidence", "json"]);
+  requireOptions(options, ["session", "commit", "evidence"]);
+  const sessionPath = path.resolve(options.session);
+  let verification;
+  try {
+    verification = readBoundedJsonFile(path.resolve(options.evidence), MAX_EVIDENCE_INPUT_BYTES);
+  } catch (error) {
+    throw cliError(
+      `cannot read QA history anchoring evidence ${options.evidence}: ${error.message}`,
+      EXIT.INVALID
+    );
+  }
+  if (
+    !verification ||
+    typeof verification !== "object" ||
+    Array.isArray(verification) ||
+    Object.keys(verification).length !== 1 ||
+    !Array.isArray(verification.qa)
+  ) {
+    throw cliError("QA history anchoring evidence must contain exactly one qa array", EXIT.INVALID);
+  }
+  let updated;
+  try {
+    updated = mutateSession(sessionPath, (session) =>
+      anchorQaHistory(session, options.commit, verification.qa)
+    );
+  } catch (error) {
+    throw cliError(error.message, EXIT.PRECONDITION);
+  }
+  emit(
+    options,
+    {
+      session_path: sessionPath,
+      commit: options.commit,
+      qa_run_count: updated.evidence.qa.qa_run_count,
+      anchored_runs: updated.evidence.qa.qa_run_anchors.length,
+    },
+    `Anchored ${updated.evidence.qa.qa_run_anchors.length} QA runs at ${options.commit}\n`
   );
   return EXIT.OK;
 }
@@ -959,6 +1056,14 @@ function requireOptions(options, names) {
   }
 }
 
+function requireOnlyOptions(options, names) {
+  const allowed = new Set(names);
+  const unexpected = Object.keys(options).find((name) => !allowed.has(name));
+  if (unexpected) {
+    throw cliError(`unexpected option for this command: --${toKebab(unexpected)}`, EXIT.INVALID);
+  }
+}
+
 function toKebab(value) {
   return value.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
 }
@@ -989,6 +1094,8 @@ function helpText() {
     "  route --session <path> --facts <json-path> [--rfc-sidecar <json-path>] [--json]",
     "  record --session <path> --result <path> [--json]",
     "  recertify --session <path> --phases <csv> --commit <sha> --evidence <json-path> [--json]",
+    "  anchor-qa-history --session <path> --commit <sha> --evidence <json-path> [--json]",
+    "  record-qa-nonpassing --session <path> --status <failed|blocked> --commit <sha> --evidence <json-path> [--json]",
     "  unblock --session <path> --reason <resolution> [--json]",
     "  authorize --session <path> --grant <csv> --reason <consent> [--json]",
     "  advance-decision --session <path> --expected-version <n> --reason <direction> [--json]",

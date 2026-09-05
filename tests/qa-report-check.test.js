@@ -16,8 +16,10 @@ const {
 } = require("../scripts/lib/qa-report-schema");
 const { MAX_SESSION_BYTES } = require("../scripts/qa-report-check");
 const {
+  anchorQaHistory,
   createSession,
   recertifyEvidence,
+  recordNonPassingQaCandidate,
   recordResult,
   validateResult,
   writeSession,
@@ -474,9 +476,33 @@ test("every QA verdict is runner-recorded before re-verification and prevents hi
   const resetErrors = validateResult(session, phaseResult(session, fixedCommit, reset.reportPath));
   assert.ok(
     resetErrors.some((entry) =>
-      /one per recorded QA attempt plus the current candidate/.test(entry.message)
+      /one per runner-recorded QA run plus the current candidate/.test(entry.message)
     )
   );
+});
+
+test("QA can complete as the final routed phase without inventing another candidate run", (t) => {
+  const repo = makeRepo();
+  t.after(repo.cleanup);
+  const session = createSession({ slug: "qa-final-phase", sourceDir: repo.root });
+  session.phase = "qa";
+  session.routing.required_phases = ["qa"];
+  session.routing.required_gates = ["qa"];
+  const { reportPath } = writePassingReport(session, repo.head());
+
+  const completed = recordResult(session, phaseResult(session, repo.head(), reportPath));
+  assert.equal(completed.status, "complete");
+  assert.equal(completed.evidence.qa.qa_run_count, 1);
+
+  const sessionPath = path.join(repo.root, ".pm", "dev-sessions", session.slug, "session.json");
+  writeSession(sessionPath, completed);
+  const script = path.join(__dirname, "..", "scripts", "qa-report-check.js");
+  const checked = spawnSync(
+    process.execPath,
+    [script, "--session", sessionPath, "--report", reportPath, "--commit", repo.head()],
+    { encoding: "utf8" }
+  );
+  assert.equal(checked.status, 0, checked.stderr || checked.stdout);
 });
 
 test("blocked QA reports can be structurally checked and recorded without becoming a pass", (t) => {
@@ -1141,7 +1167,13 @@ test("passing QA covers the exact session criteria and critical states with curr
   };
   const { reportPath } = writePassingReport(session, repo.head());
   assert.equal(
-    checkQaReport({ session, reportPath, expectedCommit: repo.head(), requirePassing: true }).ok,
+    checkQaReport({
+      session,
+      reportPath,
+      expectedCommit: repo.head(),
+      requirePassing: true,
+      qaCandidate: "required",
+    }).ok,
     true
   );
 
@@ -1154,6 +1186,7 @@ test("passing QA covers the exact session criteria and critical states with curr
     reportPath,
     expectedCommit: repo.head(),
     requirePassing: true,
+    qaCandidate: "required",
   });
   assert.equal(drifted.ok, false);
   assert.match(JSON.stringify(drifted.issues), /exact session target|session-bound rows/);
@@ -1166,6 +1199,7 @@ test("passing QA covers the exact session criteria and critical states with curr
     reportPath,
     expectedCommit: repo.head(),
     requirePassing: true,
+    qaCandidate: "required",
   });
   assert.equal(invented.ok, false);
   assert.match(JSON.stringify(invented.issues), /outside the current run/);
@@ -1178,7 +1212,13 @@ test("passing QA tier is derived from the routed Dev task size", (t) => {
   session.task.size = "M";
   const { reportPath } = writePassingReport(session, repo.head());
   assert.equal(
-    checkQaReport({ session, reportPath, expectedCommit: repo.head(), requirePassing: true }).ok,
+    checkQaReport({
+      session,
+      reportPath,
+      expectedCommit: repo.head(),
+      requirePassing: true,
+      qaCandidate: "required",
+    }).ok,
     true
   );
 
@@ -1190,6 +1230,7 @@ test("passing QA tier is derived from the routed Dev task size", (t) => {
     reportPath,
     expectedCommit: repo.head(),
     requirePassing: true,
+    qaCandidate: "required",
   });
   assert.equal(weakened.ok, false);
   assert.match(JSON.stringify(weakened.issues), /must equal full for session task size M/);
@@ -1198,7 +1239,13 @@ test("passing QA tier is derived from the routed Dev task size", (t) => {
   report.tier = "focused";
   fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
   assert.equal(
-    checkQaReport({ session, reportPath, expectedCommit: repo.head(), requirePassing: true }).ok,
+    checkQaReport({
+      session,
+      reportPath,
+      expectedCommit: repo.head(),
+      requirePassing: true,
+      qaCandidate: "required",
+    }).ok,
     true
   );
 });
@@ -1214,6 +1261,7 @@ test("UI-impact QA requires current browser evidence for design context or route
     reportPath: written.reportPath,
     expectedCommit: repo.head(),
     requirePassing: true,
+    qaCandidate: "required",
   });
   assert.equal(checked.ok, false);
   assert.match(JSON.stringify(checked.issues), /browser evidence receipt|browser receipt/);
@@ -1227,6 +1275,7 @@ test("UI-impact QA requires current browser evidence for design context or route
     reportPath: written.reportPath,
     expectedCommit: repo.head(),
     requirePassing: true,
+    qaCandidate: "required",
   });
   assert.equal(checked.ok, true, JSON.stringify(checked.issues));
 
@@ -1238,6 +1287,7 @@ test("UI-impact QA requires current browser evidence for design context or route
     reportPath: written.reportPath,
     expectedCommit: repo.head(),
     requirePassing: true,
+    qaCandidate: "required",
   });
   assert.equal(checked.ok, false);
   assert.match(JSON.stringify(checked.issues), /browser evidence receipt/);
@@ -1365,6 +1415,7 @@ test("Dev QA phase and later recertification require the bound report artifact",
     )
   );
   session = recordResult(session, result);
+  assert.equal(session.evidence.qa.qa_run_anchors.length, 1);
 
   fs.appendFileSync(path.join(repo.root, "README.md"), "final review fix\n");
   execFileSync("git", ["add", "README.md"], { cwd: repo.root });
@@ -1377,9 +1428,199 @@ test("Dev QA phase and later recertification require the bound report artifact",
   );
 
   writeReverifiedReport(session, finalCommit);
-  const recertified = recertifyEvidence(session, ["qa"], finalCommit, { qa: [stale] });
+  const missingCandidateFlag = recertificationRecord(reportPath);
+  missingCandidateFlag.command = "node scripts/qa-report-check.js";
+  assert.throws(
+    () => recertifyEvidence(session, ["qa"], finalCommit, { qa: [missingCandidateFlag] }),
+    /must record --qa-candidate validation/
+  );
+  let recertified = recertifyEvidence(session, ["qa"], finalCommit, { qa: [stale] });
   assert.equal(recertified.evidence.qa.verified_commit, finalCommit);
   assert.equal(recertified.evidence.qa.verification_records[0].artifact, reportPath);
+  assert.equal(recertified.evidence.qa.qa_run_count, 2);
+  assert.equal(recertified.evidence.qa.qa_run_anchors.length, 2);
+  assert.throws(
+    () => recertifyEvidence(recertified, ["qa"], finalCommit, { qa: [stale] }),
+    /exactly 3 runs: one per runner-recorded QA run plus the current candidate/
+  );
+  const unanchoredVerified = structuredClone(recertified);
+  delete unanchoredVerified.evidence.qa.qa_run_count;
+  delete unanchoredVerified.evidence.qa.qa_run_anchors;
+  assert.throws(
+    () => recertifyEvidence(unanchoredVerified, ["qa"], finalCommit, { qa: [stale] }),
+    /without immutable run anchors/
+  );
+  const recovered = anchorQaHistory(unanchoredVerified, finalCommit, [
+    historyAnchorRecord(reportPath),
+  ]);
+  assert.equal(recovered.evidence.qa.qa_run_count, 2);
+  assert.equal(recovered.evidence.qa.qa_run_anchors.length, 2);
+  recertified = recovered;
+
+  fs.appendFileSync(path.join(repo.root, "README.md"), "second review fix\n");
+  execFileSync("git", ["add", "README.md"], { cwd: repo.root });
+  execFileSync("git", ["commit", "-m", "second review fix"], { cwd: repo.root });
+  const secondCommit = repo.head();
+  writeReverifiedReport(recertified, secondCommit);
+  recertified = recertifyEvidence(recertified, ["qa"], secondCommit, { qa: [stale] });
+  assert.equal(recertified.evidence.qa.qa_run_count, 3);
+
+  for (const message of ["unrecorded review fix one\n", "unrecorded review fix two\n"]) {
+    fs.appendFileSync(path.join(repo.root, "README.md"), message);
+    execFileSync("git", ["add", "README.md"], { cwd: repo.root });
+    execFileSync("git", ["commit", "-m", message.trim()], { cwd: repo.root });
+    writeReverifiedReport(recertified, repo.head());
+  }
+  assert.throws(
+    () => recertifyEvidence(recertified, ["qa"], repo.head(), { qa: [stale] }),
+    /exactly 4 runs: one per runner-recorded QA run plus the current candidate/
+  );
+});
+
+test("post-QA non-passing candidates advance only the history anchor before a fixed candidate recertifies", (t) => {
+  const repo = makeRepo();
+  t.after(repo.cleanup);
+  let session = createSession({ slug: "qa-post-phase-recovery", sourceDir: repo.root });
+  session.phase = "qa";
+  session.routing.required_phases = ["qa", "review", "retro"];
+  session.routing.required_gates = ["qa"];
+  const initial = writePassingReport(session, repo.head());
+  session = recordResult(session, phaseResult(session, repo.head(), initial.reportPath));
+  assert.equal(session.evidence.qa.qa_run_count, 1);
+
+  fs.appendFileSync(path.join(repo.root, "README.md"), "post-QA regression\n");
+  execFileSync("git", ["add", "README.md"], { cwd: repo.root });
+  execFileSync("git", ["commit", "-m", "post-QA regression"], { cwd: repo.root });
+  const failingCommit = repo.head();
+  writeFailingReverifiedReport(session, failingCommit);
+  const failingRecord = nonPassingCandidateRecord(initial.reportPath);
+
+  const beforeRecovery = structuredClone(session);
+  assert.throws(
+    () => recordNonPassingQaCandidate(session, "passed", failingCommit, [failingRecord]),
+    /requires failed or blocked status/
+  );
+  const missingCandidateFlag = structuredClone(failingRecord);
+  missingCandidateFlag.command = "node scripts/qa-report-check.js --allow-nonpassing";
+  assert.throws(
+    () => recordNonPassingQaCandidate(session, "failed", failingCommit, [missingCandidateFlag]),
+    /must record --qa-candidate validation/
+  );
+  const missingNonPassingFlag = structuredClone(failingRecord);
+  missingNonPassingFlag.command = "node scripts/qa-report-check.js --qa-candidate";
+  assert.throws(
+    () => recordNonPassingQaCandidate(session, "failed", failingCommit, [missingNonPassingFlag]),
+    /must record --allow-nonpassing validation/
+  );
+  const stillInQa = structuredClone(session);
+  stillInQa.phase = "qa";
+  assert.throws(
+    () => recordNonPassingQaCandidate(stillInQa, "failed", failingCommit, [failingRecord]),
+    /active post-QA phase/
+  );
+
+  const sessionPath = path.join(repo.root, ".pm", "dev-sessions", session.slug, "session.json");
+  const evidencePath = path.join(path.dirname(sessionPath), "qa-nonpassing.json");
+  writeSession(sessionPath, session);
+  fs.writeFileSync(evidencePath, `${JSON.stringify({ qa: [failingRecord] }, null, 2)}\n`);
+  const devSessionScript = path.join(__dirname, "..", "scripts", "dev-session.js");
+  const cliArgs = [
+    devSessionScript,
+    "record-qa-nonpassing",
+    "--session",
+    sessionPath,
+    "--status",
+    "failed",
+    "--commit",
+    failingCommit,
+    "--evidence",
+    evidencePath,
+    "--json",
+  ];
+  const closed = spawnSync(process.execPath, [...cliArgs, "--phases", "qa"], {
+    encoding: "utf8",
+  });
+  assert.equal(closed.status, 2);
+  assert.match(closed.stderr, /unexpected option for this command: --phases/);
+  const recorded = spawnSync(process.execPath, cliArgs, { encoding: "utf8" });
+  assert.equal(recorded.status, 0, recorded.stderr || recorded.stdout);
+  session = JSON.parse(fs.readFileSync(sessionPath, "utf8"));
+  assert.equal(session.evidence.qa.qa_run_count, 2);
+  const expectedRecovery = structuredClone(beforeRecovery);
+  expectedRecovery.evidence.qa.qa_run_count = 2;
+  expectedRecovery.evidence.qa.qa_run_anchors = session.evidence.qa.qa_run_anchors;
+  expectedRecovery.updated_at = session.updated_at;
+  assert.deepEqual(session, expectedRecovery);
+  assert.throws(
+    () => recordNonPassingQaCandidate(session, "failed", failingCommit, [failingRecord]),
+    /exactly 3 runs/
+  );
+
+  const failedGateSession = structuredClone(session);
+  failedGateSession.phase = "retro";
+  failedGateSession.routing.required_phases = ["retro"];
+  const retroAtFailure = retroResult(failedGateSession, failingCommit);
+  assert.throws(() => recordResult(failedGateSession, retroAtFailure), /required gates: qa/);
+
+  fs.appendFileSync(path.join(repo.root, "README.md"), "fix post-QA regression\n");
+  execFileSync("git", ["add", "README.md"], { cwd: repo.root });
+  execFileSync("git", ["commit", "-m", "fix post-QA regression"], { cwd: repo.root });
+  const fixedCommit = repo.head();
+  writeFixedCandidateReport(session, fixedCommit);
+  const passingRecord = recertificationRecord(initial.reportPath);
+  assert.throws(
+    () => recertifyEvidence(beforeRecovery, ["qa"], fixedCommit, { qa: [passingRecord] }),
+    /exactly 2 runs/
+  );
+  session = recertifyEvidence(session, ["qa"], fixedCommit, { qa: [passingRecord] });
+  assert.equal(session.evidence.qa.qa_run_count, 3);
+  assert.equal(session.evidence.qa.qa_run_anchors.length, 3);
+  assert.equal(session.evidence.qa.verified_commit, fixedCommit);
+
+  session.phase = "retro";
+  session.routing.required_phases = ["retro"];
+  const completed = recordResult(session, retroResult(session, fixedCommit));
+  assert.equal(completed.status, "complete");
+});
+
+test("accepted post-QA run anchors reject same-index rewrites in current and later reports", (t) => {
+  const repo = makeRepo();
+  t.after(repo.cleanup);
+  let session = createSession({ slug: "qa-post-phase-rewrite", sourceDir: repo.root });
+  session.phase = "qa";
+  session.routing.required_phases = ["qa", "review", "retro"];
+  session.routing.required_gates = ["qa"];
+  const initial = writePassingReport(session, repo.head());
+  const initialBytes = fs.readFileSync(initial.reportPath);
+  session = recordResult(session, phaseResult(session, repo.head(), initial.reportPath));
+
+  writeFailingReverifiedReport(session, repo.head());
+  session = recordNonPassingQaCandidate(session, "failed", repo.head(), [
+    nonPassingCandidateRecord(initial.reportPath),
+  ]);
+  assert.equal(session.evidence.qa.qa_run_anchors[1].verdict, "fail");
+
+  fs.writeFileSync(initial.reportPath, initialBytes);
+  writeReverifiedReport(session, repo.head());
+  let checked = checkQaReport({
+    session,
+    reportPath: initial.reportPath,
+    expectedCommit: repo.head(),
+    requirePassing: true,
+  });
+  assert.equal(checked.ok, false);
+  assert.match(JSON.stringify(checked.issues), /accepted QA run identity|accepted QA report bytes/);
+
+  writeReverifiedReport(session, repo.head());
+  checked = checkQaReport({
+    session,
+    reportPath: initial.reportPath,
+    expectedCommit: repo.head(),
+    requirePassing: true,
+    qaCandidate: "required",
+  });
+  assert.equal(checked.ok, false);
+  assert.match(JSON.stringify(checked.issues), /accepted QA run identity|accepted QA report bytes/);
 });
 
 test("final Dev completion does not grandfather legacy null QA evidence", (t) => {
@@ -1410,6 +1651,7 @@ test("qa-report-check CLI validates the canonical session artifact", (t) => {
   const repo = makeRepo();
   t.after(repo.cleanup);
   const session = createSession({ slug: "qa-cli", sourceDir: repo.root });
+  session.phase = "qa";
   const sessionPath = path.join(repo.root, ".pm", "dev-sessions", session.slug, "session.json");
   const { reportPath } = writePassingReport(session, repo.head());
   writeSession(sessionPath, session);
@@ -1422,6 +1664,225 @@ test("qa-report-check CLI validates the canonical session artifact", (t) => {
   );
   assert.equal(checked.status, 0, checked.stderr || checked.stdout);
   assert.equal(JSON.parse(checked.stdout).ok, true);
+});
+
+test("qa-report-check CLI exposes a closed one-run recertification candidate mode", (t) => {
+  const repo = makeRepo();
+  t.after(repo.cleanup);
+  let session = createSession({ slug: "qa-cli-candidate", sourceDir: repo.root });
+  session.phase = "qa";
+  session.routing.required_phases = ["qa", "review", "retro"];
+  session.routing.required_gates = ["qa"];
+  const initial = writePassingReport(session, repo.head());
+  session = recordResult(session, phaseResult(session, repo.head(), initial.reportPath));
+
+  fs.appendFileSync(path.join(repo.root, "README.md"), "candidate change\n");
+  execFileSync("git", ["add", "README.md"], { cwd: repo.root });
+  execFileSync("git", ["commit", "-m", "candidate change"], { cwd: repo.root });
+  writeReverifiedReport(session, repo.head());
+
+  const sessionPath = path.join(repo.root, ".pm", "dev-sessions", session.slug, "session.json");
+  writeSession(sessionPath, session);
+  const script = path.join(__dirname, "..", "scripts", "qa-report-check.js");
+  const args = ["--session", sessionPath, "--report", initial.reportPath, "--commit", repo.head()];
+
+  const ordinary = spawnSync(process.execPath, [script, ...args], { encoding: "utf8" });
+  assert.equal(ordinary.status, 1);
+  assert.match(ordinary.stdout, /must contain exactly 1 runs/);
+
+  const candidate = spawnSync(process.execPath, [script, ...args, "--qa-candidate"], {
+    encoding: "utf8",
+  });
+  assert.equal(candidate.status, 0, candidate.stderr || candidate.stdout);
+  assert.equal(JSON.parse(candidate.stdout).run_count, 2);
+
+  const duplicate = spawnSync(
+    process.execPath,
+    [script, ...args, "--qa-candidate", "--qa-candidate"],
+    { encoding: "utf8" }
+  );
+  assert.equal(duplicate.status, 2);
+  assert.match(duplicate.stderr, /duplicate argument --qa-candidate/);
+
+  const unknown = spawnSync(process.execPath, [script, ...args, "--qa-candidates"], {
+    encoding: "utf8",
+  });
+  assert.equal(unknown.status, 2);
+  assert.match(unknown.stderr, /unknown argument --qa-candidates/);
+});
+
+test("runner-owned QA history anchoring recovers schema-v3 count-only sessions", (t) => {
+  const repo = makeRepo();
+  t.after(repo.cleanup);
+  let session = createSession({ slug: "qa-cli-history-anchor", sourceDir: repo.root });
+  session.phase = "qa";
+  session.routing.required_phases = ["qa", "review", "retro"];
+  session.routing.required_gates = ["qa"];
+  const initial = writePassingReport(session, repo.head());
+  session = recordResult(session, phaseResult(session, repo.head(), initial.reportPath));
+
+  fs.appendFileSync(path.join(repo.root, "README.md"), "legacy recertification\n");
+  execFileSync("git", ["add", "README.md"], { cwd: repo.root });
+  execFileSync("git", ["commit", "-m", "legacy recertification"], { cwd: repo.root });
+  writeReverifiedReport(session, repo.head());
+  session = recertifyEvidence(session, ["qa"], repo.head(), {
+    qa: [recertificationRecord(initial.reportPath)],
+  });
+  const staleRecordedCommit = session.evidence.qa.commit;
+  const staleVerifiedCommit = session.evidence.qa.verified_commit;
+
+  fs.appendFileSync(path.join(repo.root, "README.md"), "legacy unaudited report head\n");
+  execFileSync("git", ["add", "README.md"], { cwd: repo.root });
+  execFileSync("git", ["commit", "-m", "legacy unaudited report head"], { cwd: repo.root });
+  writeReverifiedReport(session, repo.head());
+  session.evidence.qa.qa_run_count = 3;
+  delete session.evidence.qa.qa_run_anchors;
+  assert.notEqual(session.evidence.qa.commit, repo.head());
+  assert.notEqual(session.evidence.qa.verified_commit, repo.head());
+
+  const sessionPath = path.join(repo.root, ".pm", "dev-sessions", session.slug, "session.json");
+  const evidencePath = path.join(path.dirname(sessionPath), "qa-history-anchor.json");
+  writeSession(sessionPath, session);
+  fs.writeFileSync(
+    evidencePath,
+    `${JSON.stringify({ qa: [historyAnchorRecord(initial.reportPath)] }, null, 2)}\n`
+  );
+  const qaScript = path.join(__dirname, "..", "scripts", "qa-report-check.js");
+  const qaArgs = [
+    qaScript,
+    "--session",
+    sessionPath,
+    "--report",
+    initial.reportPath,
+    "--commit",
+    repo.head(),
+  ];
+  const ordinary = spawnSync(process.execPath, qaArgs, { encoding: "utf8" });
+  assert.equal(ordinary.status, 1);
+  assert.match(ordinary.stdout, /must immutably bind every accepted QA run/);
+  const audit = spawnSync(process.execPath, [...qaArgs, "--qa-history-anchor"], {
+    encoding: "utf8",
+  });
+  assert.equal(audit.status, 0, audit.stderr || audit.stdout);
+  assert.equal(JSON.parse(audit.stdout).run_count, 3);
+  const unboundStoredGate = structuredClone(session);
+  unboundStoredGate.evidence.qa.verified_commit = SHA_A;
+  assert.throws(
+    () =>
+      anchorQaHistory(unboundStoredGate, repo.head(), [historyAnchorRecord(initial.reportPath)]),
+    /commit must identify a passing run in the audited QA history/
+  );
+
+  const devSessionScript = path.join(__dirname, "..", "scripts", "dev-session.js");
+  const beforeMigration = fs.readFileSync(sessionPath);
+  const unexpectedOption = spawnSync(
+    process.execPath,
+    [
+      devSessionScript,
+      "anchor-qa-history",
+      "--session",
+      sessionPath,
+      "--commit",
+      repo.head(),
+      "--evidence",
+      evidencePath,
+      "--phases",
+      "qa",
+    ],
+    { encoding: "utf8" }
+  );
+  assert.equal(unexpectedOption.status, 2);
+  assert.match(unexpectedOption.stderr, /unexpected option for this command: --phases/);
+  assert.deepEqual(fs.readFileSync(sessionPath), beforeMigration);
+
+  const wrongIdentity = spawnSync(
+    process.execPath,
+    [
+      devSessionScript,
+      "anchor-qa-history",
+      "--session",
+      sessionPath,
+      "--commit",
+      SHA_A,
+      "--evidence",
+      evidencePath,
+    ],
+    { encoding: "utf8" }
+  );
+  assert.equal(wrongIdentity.status, 3);
+  assert.match(wrongIdentity.stderr, /current at the anchor commit|anchor commit is invalid/);
+  assert.deepEqual(fs.readFileSync(sessionPath), beforeMigration);
+
+  const oversizedEvidencePath = path.join(path.dirname(sessionPath), "oversized-anchor.json");
+  fs.closeSync(fs.openSync(oversizedEvidencePath, "w"));
+  fs.truncateSync(oversizedEvidencePath, 4 * 1024 * 1024 + 1);
+  const oversizedEvidence = spawnSync(
+    process.execPath,
+    [
+      devSessionScript,
+      "anchor-qa-history",
+      "--session",
+      sessionPath,
+      "--commit",
+      repo.head(),
+      "--evidence",
+      oversizedEvidencePath,
+    ],
+    { encoding: "utf8" }
+  );
+  assert.equal(oversizedEvidence.status, 2);
+  assert.match(oversizedEvidence.stderr, /input must be a bounded regular file/);
+  assert.deepEqual(fs.readFileSync(sessionPath), beforeMigration);
+
+  const anchored = spawnSync(
+    process.execPath,
+    [
+      devSessionScript,
+      "anchor-qa-history",
+      "--session",
+      sessionPath,
+      "--commit",
+      repo.head(),
+      "--evidence",
+      evidencePath,
+      "--json",
+    ],
+    { encoding: "utf8" }
+  );
+  assert.equal(anchored.status, 0, anchored.stderr || anchored.stdout);
+  session = JSON.parse(fs.readFileSync(sessionPath, "utf8"));
+  assert.equal(session.evidence.qa.qa_run_count, 3);
+  assert.equal(session.evidence.qa.qa_run_anchors.length, 3);
+  assert.equal(session.evidence.qa.commit, staleRecordedCommit);
+  assert.equal(session.evidence.qa.verified_commit, staleVerifiedCommit);
+  assert.notEqual(session.evidence.qa.verified_commit, repo.head());
+  assert.equal(spawnSync(process.execPath, qaArgs, { encoding: "utf8" }).status, 0);
+  const anchoredBytes = fs.readFileSync(sessionPath);
+  const idempotent = spawnSync(
+    process.execPath,
+    [
+      devSessionScript,
+      "anchor-qa-history",
+      "--session",
+      sessionPath,
+      "--commit",
+      repo.head(),
+      "--evidence",
+      evidencePath,
+      "--json",
+    ],
+    { encoding: "utf8" }
+  );
+  assert.equal(idempotent.status, 0, idempotent.stderr || idempotent.stdout);
+  assert.deepEqual(fs.readFileSync(sessionPath), anchoredBytes);
+
+  const mixedModes = spawnSync(
+    process.execPath,
+    [...qaArgs, "--qa-history-anchor", "--qa-candidate"],
+    { encoding: "utf8" }
+  );
+  assert.equal(mixedModes.status, 2);
+  assert.match(mixedModes.stderr, /mutually exclusive/);
 });
 
 test("qa-report-check CLI rejects an oversized session before allocating its contents", (t) => {
@@ -1695,6 +2156,132 @@ function writeReverifiedReport(session, commit) {
   return { reportPath, outputPath, snapshotPath };
 }
 
+function writeFailingReverifiedReport(session, commit) {
+  const reportPath = expectedQaReportPath(session);
+  const previousBytes = fs.readFileSync(reportPath);
+  const previous = JSON.parse(previousBytes);
+  const run = previous.runs.length + 1;
+  const evidenceRoot = path.join(path.dirname(reportPath), "evidence");
+  const snapshotPath = path.join(evidenceRoot, `report-run-${run - 1}.json`);
+  fs.writeFileSync(snapshotPath, previousBytes);
+  const findingId = "qa-post-phase-regression";
+  const receiptId = `qa-run-${run}-tests`;
+  const outputPath = path.join(evidenceRoot, `run-${run}.json`);
+  const output = qaOutput(commit, receiptId, 12, 1, {
+    idPrefix: "regression",
+    findingIds: [findingId],
+  });
+  fs.writeFileSync(outputPath, output);
+  const next = structuredClone(previous);
+  next.commit = commit;
+  next.verdict = "fail";
+  next.health_score = 96;
+  next.assertions = { passed: 10, total: 12 };
+  next.findings.push(finding({ id: findingId, severity: "high" }));
+  next.finding_counts.high += 1;
+  next.category_breakdown = categoryRows({ functional: 85 });
+  next.coverage = coverageForSession(session);
+  next.receipts.push({
+    id: receiptId,
+    run,
+    kind: "deterministic",
+    commit,
+    command: QA_COMMAND,
+    exit_code: 1,
+    assertions: { passed: 10, total: 12 },
+    output: { path: outputPath, sha256: digest(output), bytes: output.length },
+    screenshot_ids: [],
+  });
+  next.runs.push({
+    run,
+    kind: "reverify",
+    commit,
+    checked_at: "2026-09-04T02:00:00.000Z",
+    verdict: "fail",
+    health_score: 96,
+    assertions: { passed: 10, total: 12 },
+    finding_ids: [findingId],
+    receipt_ids: [receiptId],
+    previous_verdict: previous.verdict,
+    previous_health_score: previous.health_score,
+    fixed_finding_ids: [],
+    still_open_finding_ids: [],
+    new_finding_ids: [findingId],
+    fixed_finding_evidence: [],
+    previous_report: {
+      path: snapshotPath,
+      sha256: digest(previousBytes),
+      bytes: previousBytes.length,
+    },
+  });
+  fs.writeFileSync(reportPath, `${JSON.stringify(next, null, 2)}\n`);
+  return { reportPath, outputPath, snapshotPath };
+}
+
+function writeFixedCandidateReport(session, commit) {
+  const reportPath = expectedQaReportPath(session);
+  const previousBytes = fs.readFileSync(reportPath);
+  const previous = JSON.parse(previousBytes);
+  const run = previous.runs.length + 1;
+  const evidenceRoot = path.join(path.dirname(reportPath), "evidence");
+  const snapshotPath = path.join(evidenceRoot, `report-run-${run - 1}.json`);
+  fs.writeFileSync(snapshotPath, previousBytes);
+  const findingId = "qa-post-phase-regression";
+  const receiptId = `qa-run-${run}-tests`;
+  const outputPath = path.join(evidenceRoot, `run-${run}.json`);
+  const output = qaOutput(commit, receiptId, 12, 0, {
+    idPrefix: "fixed",
+    findingIds: [findingId],
+  });
+  fs.writeFileSync(outputPath, output);
+  const next = structuredClone(previous);
+  next.commit = commit;
+  next.verdict = "pass";
+  next.health_score = 100;
+  next.assertions = { passed: 12, total: 12 };
+  next.findings = next.findings.map((entry) =>
+    entry.id === findingId ? { ...entry, disposition: "fixed" } : entry
+  );
+  next.finding_counts.high -= 1;
+  next.category_breakdown = categoryRows();
+  next.coverage = coverageForSession(session);
+  next.receipts.push({
+    id: receiptId,
+    run,
+    kind: "deterministic",
+    commit,
+    command: QA_COMMAND,
+    exit_code: 0,
+    assertions: { passed: 12, total: 12 },
+    output: { path: outputPath, sha256: digest(output), bytes: output.length },
+    screenshot_ids: [],
+  });
+  next.runs.push({
+    run,
+    kind: "reverify",
+    commit,
+    checked_at: "2026-09-04T03:00:00.000Z",
+    verdict: "pass",
+    health_score: 100,
+    assertions: { passed: 12, total: 12 },
+    finding_ids: [findingId],
+    receipt_ids: [receiptId],
+    previous_verdict: previous.verdict,
+    previous_health_score: previous.health_score,
+    fixed_finding_ids: [findingId],
+    still_open_finding_ids: [],
+    new_finding_ids: [],
+    fixed_finding_evidence: [{ finding_id: findingId, assertion_ids: ["fixed-1"] }],
+    previous_report: {
+      path: snapshotPath,
+      sha256: digest(previousBytes),
+      bytes: previousBytes.length,
+    },
+  });
+  fs.writeFileSync(reportPath, `${JSON.stringify(next, null, 2)}\n`);
+  return { reportPath, outputPath, snapshotPath };
+}
+
 function coverageForSession(session) {
   const assertionIds = ["acceptance-1"];
   const criticalStates = [];
@@ -1900,9 +2487,43 @@ function phaseResult(session, commit, artifact) {
 function recertificationRecord(reportPath) {
   return {
     kind: "test",
-    command: "node scripts/qa-report-check.js",
+    command: "node scripts/qa-report-check.js --qa-candidate",
     exit_code: 0,
     artifact: reportPath,
+  };
+}
+
+function nonPassingCandidateRecord(reportPath) {
+  return {
+    kind: "test",
+    command: "node scripts/qa-report-check.js --qa-candidate --allow-nonpassing",
+    exit_code: 0,
+    artifact: reportPath,
+  };
+}
+
+function historyAnchorRecord(reportPath) {
+  return {
+    kind: "test",
+    command: "node scripts/qa-report-check.js --qa-history-anchor",
+    exit_code: 0,
+    artifact: reportPath,
+  };
+}
+
+function retroResult(session, commit) {
+  return {
+    schema_version: 1,
+    run_id: session.run_id,
+    phase: "retro",
+    attempt: session.phase_attempt,
+    status: "passed",
+    summary: "Retrospective complete",
+    commit,
+    files_changed: [],
+    evidence: [{ kind: "retro", command: "retro", exit_code: 0, artifact: null }],
+    blocker: null,
+    runtime: { provider: "inline", model: "test", reasoning: "high", session_id: null },
   };
 }
 

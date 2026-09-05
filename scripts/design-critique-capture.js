@@ -10,6 +10,11 @@ const { normalizeRawAudit } = require("./design-critique-audit-normalize");
 const { PRODUCT_UI_VISUAL_THRESHOLDS, inspectPngVisualBytes } = require("./lib/media-inspect");
 const { readProjectInput } = require("./lib/project-file");
 const { writeProjectDirectoryAtomic } = require("./lib/project-atomic-write");
+const {
+  MAX_VIEWPORT_PIXELS,
+  VIEWPORT_BOUNDS,
+  validateWebViewport,
+} = require("./lib/product-ui-viewport");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 const CAPTURE_PROBE = path.join(__dirname, "design-critique-capture-probe.js");
@@ -42,12 +47,6 @@ const STATES = new Set([
   "responsive",
   "print",
 ]);
-const VIEWPORT_BOUNDS = Object.freeze({
-  desktop: { minWidth: 1024, maxWidth: null, minHeight: 600 },
-  tablet: { minWidth: 601, maxWidth: 1023, minHeight: 600 },
-  narrow: { minWidth: 320, maxWidth: 600, minHeight: 480 },
-});
-
 function digest(bytes) {
   return crypto.createHash("sha256").update(bytes).digest("hex");
 }
@@ -263,15 +262,7 @@ function canonicalOrigin(raw, label) {
 }
 
 function validateViewport(name, width, height) {
-  const bounds = VIEWPORT_BOUNDS[name];
-  if (!bounds) throw new Error("trusted web capture supports desktop, tablet, or narrow viewports");
-  if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height))
-    throw new Error("viewport width and height must be safe integers");
-  if (width < bounds.minWidth || (bounds.maxWidth !== null && width > bounds.maxWidth))
-    throw new Error(`${name} viewport width ${width} is outside its accepted range`);
-  if (height < bounds.minHeight)
-    throw new Error(`${name} viewport height ${height} must be at least ${bounds.minHeight}`);
-  return { width, height };
+  return validateWebViewport(name, width, height);
 }
 
 function captureVisualMetrics(inspected) {
@@ -1482,6 +1473,7 @@ module.exports = {
   ACQUISITION_METHOD,
   BROWSER_ARGS_PROFILE,
   CAPTURE_ASSURANCE,
+  MAX_VIEWPORT_PIXELS,
   VIEWPORT_BOUNDS,
   browserIdentity,
   canonicalOrigin,

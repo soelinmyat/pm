@@ -17,6 +17,7 @@ const { compareRfc3339DateTimes, isRfc3339DateTime } = require("./lib/iso-time")
 const {
   PRODUCT_UI_VISUAL_THRESHOLDS,
   inspectPdfBytes,
+  inspectPngHeaderBytes,
   inspectPngVisualBytes,
   visualDifference,
 } = require("./lib/media-inspect");
@@ -33,6 +34,7 @@ const {
   validateStateAssertion,
   validateSurfacePattern,
   validateUrlIdentity,
+  validateViewport,
   urlMatchesSurface,
 } = require("./design-critique-capture");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
@@ -63,11 +65,6 @@ const FRESH_PLACEHOLDER_PROSE = new RegExp(
 const RECONCILIATION_AGREEMENTS = new Set(["single-source", "aligned", "disputed"]);
 const RECONCILIATION_DISPOSITIONS = new Set(["accepted", "dismissed"]);
 const VIEWPORTS = new Set(["desktop", "tablet", "narrow", "device", "print"]);
-const PRODUCT_UI_WEB_VIEWPORT_WIDTHS = Object.freeze({
-  desktop: Object.freeze({ min: 1024, minHeight: 600 }),
-  tablet: Object.freeze({ min: 601, max: 1023, minHeight: 600 }),
-  narrow: Object.freeze({ min: 320, max: 600, minHeight: 480 }),
-});
 const PRODUCT_UI_DEVICE_BOUNDS = Object.freeze({ min: 240, minHeight: 400 });
 const {
   minVisiblePixelRatio: MIN_VISIBLE_PIXEL_RATIO,
@@ -701,7 +698,14 @@ function validateCaptures(root, captures, route, routeFile, runtime, issues) {
     if (!["screenshot", "pdf"].includes(item.kind))
       add(issues, `${at}.kind`, "must be screenshot or pdf");
     validateFileBinding(root, item, at, issues);
-    const decoded = validateCaptureBytes(root, item, at, issues);
+    const routeCoverage = coverage.get(item.coverage_id);
+    const webViewport =
+      route.schema_version === 2 &&
+      route.mode === "product-ui" &&
+      subjects.get(routeCoverage?.subject_id)?.platform === "web"
+        ? routeCoverage?.viewport
+        : null;
+    const decoded = validateCaptureBytes(root, item, at, issues, { webViewport });
     if (decoded) decodedByCapture.set(item.id, decoded);
     validateProductUiViewport(
       item,
@@ -3474,12 +3478,16 @@ function inspectMediaOnce(file, profile, inspect) {
   return cached.value;
 }
 
-function validateCaptureBytes(root, item, label, issues) {
+function validateCaptureBytes(root, item, label, issues, options = {}) {
   if (!object(item) || !text(item.path)) return;
   const file = readBoundFile(root, item.path, `${label}.path`, []);
   if (!file) return;
   try {
     if (item.kind === "screenshot") {
+      if (options.webViewport) {
+        const header = inspectPngHeaderBytes(file.bytes);
+        validateViewport(options.webViewport, header.width, header.height);
+      }
       const dimensions = inspectMediaOnce(file, "png", inspectPngVisualBytes);
       if (dimensions.width !== item.width || dimensions.height !== item.height)
         add(
@@ -3569,25 +3577,28 @@ function validateProductUiViewport(
       );
   }
   const platform = subjects.get(coverage.subject_id)?.platform;
+  if (platform === "web") {
+    try {
+      validateViewport(coverage.viewport, decoded.width, decoded.height);
+    } catch (error) {
+      add(issues, label, error.message);
+    }
+    return;
+  }
   const bounds =
-    platform === "web"
-      ? PRODUCT_UI_WEB_VIEWPORT_WIDTHS[coverage.viewport]
-      : platform === "mobile" && coverage.viewport === "device"
-        ? PRODUCT_UI_DEVICE_BOUNDS
-        : null;
+    platform === "mobile" && coverage.viewport === "device" ? PRODUCT_UI_DEVICE_BOUNDS : null;
   if (!bounds) return;
-  const surface = platform === "web" ? "web" : "product UI";
   if (bounds.min && decoded.width < bounds.min)
     add(
       issues,
       label,
-      `${coverage.viewport} ${surface} capture width must be at least ${bounds.min} pixels; decoded width is ${decoded.width}`
+      `${coverage.viewport} product UI capture width must be at least ${bounds.min} pixels; decoded width is ${decoded.width}`
     );
   if (bounds.max && decoded.width > bounds.max)
     add(
       issues,
       label,
-      `${coverage.viewport} ${surface} capture width must be at most ${bounds.max} pixels; decoded width is ${decoded.width}`
+      `${coverage.viewport} product UI capture width must be at most ${bounds.max} pixels; decoded width is ${decoded.width}`
     );
   if (bounds.minHeight && decoded.height < bounds.minHeight)
     add(

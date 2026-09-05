@@ -1213,6 +1213,16 @@ function validPng(
   return png;
 }
 
+function pngHeaderOnly(width, height) {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 6;
+  const prefix = Buffer.concat([Buffer.from("89504e470d0a1a0a", "hex"), pngChunk("IHDR", header)]);
+  return Buffer.concat([prefix, Buffer.alloc(1024 - prefix.length)]);
+}
+
 function onePixelBeaconPng(width, height) {
   const header = Buffer.alloc(13);
   header.writeUInt32BE(width, 0);
@@ -2359,7 +2369,33 @@ for (const [coverageId, width] of [
 
     const result = check(fixture);
     assert.equal(result.ok, false);
-    assert.match(JSON.stringify(result.issues), /capture height must be at least/);
+    assert.match(JSON.stringify(result.issues), /viewport height 1 must be at least/);
+  });
+}
+
+for (const [name, width, height, expected] of [
+  ["over-width", 8193, 600, /desktop viewport width 8193 is outside its accepted range/],
+  ["over-height", 1024, 8193, /desktop viewport height 8193 must be at most 8192/],
+  ["over-pixel-budget", 8192, 3000, /exceeds the 16777216-pixel budget/],
+]) {
+  test(`rejects ${name} web PNG metadata before pixel inflation`, () => {
+    const fixture = makeFixture();
+    const capture = fixture.captures.captures.find((item) => item.coverage_id === "ui-primary");
+    const rebound = write(fixture.root, capture.path, pngHeaderOnly(width, height));
+    capture.sha256 = rebound.sha256;
+    capture.width = width;
+    capture.height = height;
+    rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+    fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+    rewriteReportAndHtml(fixture);
+
+    const result = check(fixture);
+    assert.equal(result.ok, false);
+    assert.match(JSON.stringify(result.issues), expected);
+    assert.doesNotMatch(
+      JSON.stringify(result.issues),
+      /PNG must contain|pixel stream|decoded pixel budget/
+    );
   });
 }
 
@@ -2551,7 +2587,7 @@ test("rejects a wide product UI screenshot labeled narrow", () => {
   assert.equal(result.ok, false);
   assert.match(
     JSON.stringify(result.issues),
-    /narrow web capture width must be at most 600 pixels/
+    /narrow viewport width 1440 is outside its accepted range/
   );
 });
 

@@ -530,6 +530,15 @@ test("UI gate recertification rejects an unbound QA test record", () => {
       commit: repo.head(),
       records: [{ kind: "test", command: "qa", exit_code: 0, artifact: null }],
       recorded_at: "2026-07-14T00:00:00.000Z",
+      qa_run_count: 1,
+      qa_run_anchors: [
+        {
+          run: 1,
+          commit: repo.head(),
+          verdict: "pass",
+          report_sha256: "a".repeat(64),
+        },
+      ],
     };
     assert.throws(
       () =>
@@ -1084,6 +1093,56 @@ test("the published JSON Schema exposes session and phase-result contracts", () 
   assert.equal(schema.additionalProperties, false);
   assert.equal(schema.$defs.phase_result.properties.schema_version.const, 1);
   assert.equal(schema.$defs.phase_result.additionalProperties, false);
+  assert.equal(schema.$defs.qa_run_anchor.additionalProperties, false);
+  assert.deepEqual(schema.$defs.evidence_set.dependentRequired.qa_run_anchors, ["qa_run_count"]);
+  assert.equal(
+    schema.$defs.evidence_set.properties.qa_run_anchors.items.$ref,
+    "#/$defs/qa_run_anchor"
+  );
+});
+
+test("runtime and published schema preserve the legacy count-only QA anchor migration state", () => {
+  if (!Ajv2020 || !addFormats) return;
+  const repo = makeRepo();
+  try {
+    const schema = JSON.parse(
+      fs.readFileSync(
+        path.resolve(__dirname, "..", "skills", "dev", "references", "dev-session.schema.json"),
+        "utf8"
+      )
+    );
+    const ajv = new Ajv2020({ allErrors: true, strict: false });
+    addFormats(ajv);
+    const validateSchema = ajv.compile(schema);
+    const legacy = createSession({ slug: "legacy-qa-anchor-parity", sourceDir: repo.root });
+    legacy.evidence.qa = {
+      commit: repo.head(),
+      records: [],
+      recorded_at: "2026-07-14T00:00:00.000Z",
+      qa_run_count: 2,
+    };
+    assert.deepEqual(validateSession(legacy), []);
+    assert.equal(validateSchema(legacy), true, JSON.stringify(validateSchema.errors));
+
+    const invalid = structuredClone(legacy);
+    invalid.evidence.qa.qa_run_anchors = [
+      { run: 1, commit: repo.head(), verdict: "pass", report_sha256: "a".repeat(64) },
+    ];
+    assert.ok(validateSession(invalid).some((error) => /exactly qa_run_count/.test(error.message)));
+    assert.equal(
+      validateSchema(invalid),
+      true,
+      "array/count equality is an intentional runtime constraint beyond portable JSON Schema"
+    );
+
+    delete invalid.evidence.qa.qa_run_count;
+    assert.ok(
+      validateSession(invalid).some((error) => /required with QA run anchors/.test(error.message))
+    );
+    assert.equal(validateSchema(invalid), false);
+  } finally {
+    repo.cleanup();
+  }
 });
 
 test("validateSession rejects unknown top-level fields and invalid paths", () => {

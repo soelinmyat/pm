@@ -886,9 +886,28 @@ In persistent worker mode, re-verify is triggered by a **resume message from the
 
 The Dev orchestrator records every structurally validated `fail` or `blocked`
 QA result through the runner before applying a fix or sending a resume message.
-The ordered QA attempts in `session.json` are the durable external run-count
-anchor; the next candidate report must contain exactly those runs plus one new
-run.
+The ordered QA attempts, `evidence.qa.qa_run_count`, and
+`evidence.qa.qa_run_anchors` in `session.json` are the durable external history
+anchors. Every accepted anchor binds its run number, commit, verdict, and exact
+report-byte digest. During the QA phase, the report must contain exactly the
+recorded attempts plus one candidate run. After QA, validate each
+recertification candidate with `qa-report-check.js --qa-candidate`; it permits
+exactly the anchored count plus one run. A passing candidate advances the count
+and immutable ledger plus gate evidence through `dev-session recertify`. A failing or blocked candidate
+must be checked with `--qa-candidate --allow-nonpassing` and recorded with
+`dev-session record-qa-nonpassing`; that command advances only the history
+anchors, so a later fixed candidate is again exactly one run ahead and the failed
+candidate cannot grant or refresh the QA gate. Ordinary report checks and
+delivery gates require exact count, identity, and report-byte equality.
+
+For a schema-v3 session that predates immutable anchors, do not edit
+`session.json`. Audit the existing accepted report with
+`qa-report-check.js --qa-history-anchor`, record that successful check in a
+phase-keyed evidence file, and run `dev-session anchor-qa-history`. The runner
+requires the audited report to end at exact HEAD, binds every stored QA gate
+commit to a passing run in the complete retained chain, and preserves an
+existing run count exactly before writing the missing anchors. It does not
+refresh the stale gate commit or verification fields.
 
 ### What the orchestrator sends
 

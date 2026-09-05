@@ -807,6 +807,17 @@
         "artifact": { "type": ["string", "null"] }
       }
     },
+    "qa_run_anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run", "commit", "verdict", "report_sha256"],
+      "properties": {
+        "run": { "type": "integer", "minimum": 1 },
+        "commit": { "type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" },
+        "verdict": { "enum": ["pass", "pass-with-concerns", "fail", "blocked"] },
+        "report_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
     "evidence_set": {
       "type": "object",
       "additionalProperties": false,
@@ -821,12 +832,19 @@
           "type": "array",
           "minItems": 1,
           "items": { "$ref": "#/$defs/evidence_record" }
+        },
+        "qa_run_count": { "type": "integer", "minimum": 1 },
+        "qa_run_anchors": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/qa_run_anchor" }
         }
       },
       "dependentRequired": {
         "verified_commit": ["verified_at", "verification_records"],
         "verified_at": ["verified_commit", "verification_records"],
-        "verification_records": ["verified_commit", "verified_at"]
+        "verification_records": ["verified_commit", "verified_at"],
+        "qa_run_anchors": ["qa_run_count"]
       }
     },
     "runtime_result": {

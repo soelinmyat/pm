@@ -88,6 +88,36 @@ test("derives accessibility checks from raw roles, names, and focus measurements
   );
 });
 
+test("keeps composite controls in name checks but out of global focus order", () => {
+  const raw = accessibilityRaw();
+  raw.observations.controls.push({
+    role: "tab",
+    name: "",
+    locator: "button#inactive-tab",
+    disabled: false,
+    tab_index: -1,
+    focus_context: "composite",
+    document_index: 1,
+  });
+  const audit = normalize(raw);
+
+  assert.deepEqual(audit.checks, { landmarks: true, names: false, focus_order: true });
+  assert.deepEqual(
+    audit.findings.map((item) => [item.code, item.locator]),
+    [["missing-accessible-name", "button#inactive-tab"]]
+  );
+});
+
+test("defaults legacy controls to document focus and rejects unknown focus contexts", () => {
+  const legacy = accessibilityRaw();
+  legacy.observations.controls[0].tab_index = -1;
+  assert.equal(normalize(legacy).checks.focus_order, false);
+
+  const invalid = accessibilityRaw();
+  invalid.observations.controls[0].focus_context = "widget";
+  assert.throws(() => normalize(invalid), /focus_context must be document or composite/);
+});
+
 test("repeated landmark roles require distinct accessible names", () => {
   const raw = accessibilityRaw();
   raw.observations.landmarks.push(

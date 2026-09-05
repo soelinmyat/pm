@@ -893,6 +893,20 @@ test("all mutating commands fail closed while a live session lock is held", () =
       JSON.parse(fs.readFileSync(initialized.session_path, "utf8")).authority.create_pr,
       false
     );
+
+    const anchorEvidencePath = path.join(repo.root, "qa-history-anchor.json");
+    fs.writeFileSync(anchorEvidencePath, JSON.stringify({ qa: [] }));
+    const anchored = repo.run([
+      "anchor-qa-history",
+      "--session",
+      initialized.session_path,
+      "--commit",
+      execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo.root, encoding: "utf8" }).trim(),
+      "--evidence",
+      anchorEvidencePath,
+    ]);
+    assert.equal(anchored.status, 3);
+    assert.match(anchored.stderr, /locked by process/);
     fs.rmSync(lockPath, { recursive: true, force: true });
   } finally {
     repo.cleanup();
