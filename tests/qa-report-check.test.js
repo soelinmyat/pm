@@ -580,6 +580,326 @@ test("canonical QA rejects a vacuous all-100 report and revalidates retained out
   assert.match(JSON.stringify(unstructured.issues), /structured QA execution result/);
 });
 
+test("retained QA evidence cannot be rebound by a path swap after inspection", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-qa-retained-swap-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const session = { slug: "retained-swap", source: { repo_root: root } };
+  const { reportPath, outputPath } = writePassingReport(session, SHA_A);
+  const openedBytes = fs.readFileSync(outputPath);
+  const replacementBytes = Buffer.concat([openedBytes, Buffer.from("\n")]);
+  const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+  report.receipts[0].output.bytes = replacementBytes.length;
+  report.receipts[0].output.sha256 = digest(replacementBytes);
+  fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+
+  const originalStat = fs.statSync;
+  const originalFstat = fs.fstatSync;
+  let swapped = false;
+  const swapAfterInspection = () => {
+    if (swapped) return;
+    swapped = true;
+    fs.renameSync(outputPath, `${outputPath}.opened`);
+    fs.writeFileSync(outputPath, replacementBytes);
+  };
+  fs.statSync = function patchedStat(file, ...args) {
+    const stat = originalStat.call(fs, file, ...args);
+    if (path.resolve(file) === outputPath) swapAfterInspection();
+    return stat;
+  };
+  fs.fstatSync = function patchedFstat(descriptor, ...args) {
+    const stat = originalFstat.call(fs, descriptor, ...args);
+    swapAfterInspection();
+    return stat;
+  };
+  let checked;
+  try {
+    checked = checkQaReport({
+      session,
+      reportPath,
+      expectedCommit: SHA_A,
+      requirePassing: true,
+    });
+  } finally {
+    fs.statSync = originalStat;
+    fs.fstatSync = originalFstat;
+  }
+
+  assert.equal(swapped, true);
+  assert.equal(checked.ok, false);
+  assert.match(JSON.stringify(checked.issues), /changed during.*validation|does not match/);
+});
+
+test("retained QA evidence cannot be rebound while its descriptor is being read", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-qa-retained-read-swap-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const session = { slug: "retained-read-swap", source: { repo_root: root } };
+  const { reportPath, outputPath } = writePassingReport(session, SHA_A);
+  const openedBytes = fs.readFileSync(outputPath);
+
+  const originalOpen = fs.openSync;
+  const originalFstat = fs.fstatSync;
+  const originalRead = fs.readSync;
+  let evidenceDescriptor;
+  let openedStat;
+  let swapped = false;
+  fs.openSync = function patchedOpen(file, ...args) {
+    const descriptor = originalOpen.call(fs, file, ...args);
+    if (path.resolve(String(file)) === outputPath && evidenceDescriptor === undefined) {
+      evidenceDescriptor = descriptor;
+    }
+    return descriptor;
+  };
+  fs.fstatSync = function stableOpenedStat(descriptor, ...args) {
+    const stat = originalFstat.call(fs, descriptor, ...args);
+    if (descriptor !== evidenceDescriptor) return stat;
+    openedStat ||= stat;
+    return openedStat;
+  };
+  fs.readSync = function patchedRead(descriptor, buffer, offset, length, position) {
+    const count = originalRead.call(fs, descriptor, buffer, offset, length, position);
+    if (descriptor === evidenceDescriptor && count > 0 && !swapped) {
+      swapped = true;
+      fs.renameSync(outputPath, `${outputPath}.opened`);
+      fs.writeFileSync(outputPath, openedBytes);
+    }
+    return count;
+  };
+  let checked;
+  try {
+    checked = checkQaReport({
+      session,
+      reportPath,
+      expectedCommit: SHA_A,
+      requirePassing: true,
+    });
+  } finally {
+    fs.openSync = originalOpen;
+    fs.fstatSync = originalFstat;
+    fs.readSync = originalRead;
+  }
+
+  assert.equal(swapped, true);
+  assert.equal(checked.ok, false);
+  assert.match(JSON.stringify(checked.issues), /evidence path changed during validation/);
+});
+
+test("retained QA evidence detects same-inode mutation after the descriptor read", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-qa-retained-final-mutation-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const session = { slug: "retained-final-mutation", source: { repo_root: root } };
+  const { reportPath, outputPath } = writePassingReport(session, SHA_A);
+
+  const originalOpen = fs.openSync;
+  const originalFstat = fs.fstatSync;
+  let evidenceDescriptor;
+  let evidenceFstats = 0;
+  let mutated = false;
+  fs.openSync = function patchedOpen(file, ...args) {
+    const descriptor = originalOpen.call(fs, file, ...args);
+    if (path.resolve(String(file)) === outputPath && evidenceDescriptor === undefined) {
+      evidenceDescriptor = descriptor;
+    }
+    return descriptor;
+  };
+  fs.fstatSync = function mutateAfterFinalDescriptorStat(descriptor, ...args) {
+    const stat = originalFstat.call(fs, descriptor, ...args);
+    if (descriptor === evidenceDescriptor && ++evidenceFstats === 2) {
+      fs.appendFileSync(outputPath, " ");
+      mutated = true;
+    }
+    return stat;
+  };
+  let checked;
+  try {
+    checked = checkQaReport({
+      session,
+      reportPath,
+      expectedCommit: SHA_A,
+      requirePassing: true,
+    });
+  } finally {
+    fs.openSync = originalOpen;
+    fs.fstatSync = originalFstat;
+  }
+
+  assert.equal(mutated, true);
+  assert.equal(checked.ok, false);
+  assert.match(JSON.stringify(checked.issues), /evidence path changed during validation/);
+});
+
+test("retained QA evidence growth is stopped at the per-file read limit", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-qa-retained-growth-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const session = { slug: "retained-growth", source: { repo_root: root } };
+  const { reportPath, outputPath } = writePassingReport(session, SHA_A);
+  const maximumBytes = 16 * 1024 * 1024;
+  const output = fs.readFileSync(outputPath);
+  const padded = Buffer.concat([output, Buffer.alloc(maximumBytes - output.length, 0x20)]);
+  fs.writeFileSync(outputPath, padded);
+  const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+  report.receipts[0].output.bytes = padded.length;
+  report.receipts[0].output.sha256 = digest(padded);
+  fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+
+  const originalOpen = fs.openSync;
+  const originalRead = fs.readSync;
+  let evidenceDescriptor;
+  let grew = false;
+  fs.openSync = function patchedOpen(file, ...args) {
+    const descriptor = originalOpen.call(fs, file, ...args);
+    if (path.resolve(file) === outputPath) evidenceDescriptor = descriptor;
+    return descriptor;
+  };
+  fs.readSync = function patchedRead(descriptor, buffer, offset, length, position) {
+    let count = originalRead.call(fs, descriptor, buffer, offset, length, position);
+    if (descriptor === evidenceDescriptor && count === 0 && !grew) {
+      grew = true;
+      fs.appendFileSync(outputPath, " ");
+      count = originalRead.call(fs, descriptor, buffer, offset, length, position);
+    }
+    return count;
+  };
+  let checked;
+  try {
+    checked = checkQaReport({
+      session,
+      reportPath,
+      expectedCommit: SHA_A,
+      requirePassing: true,
+    });
+  } finally {
+    fs.openSync = originalOpen;
+    fs.readSync = originalRead;
+  }
+
+  assert.equal(grew, true);
+  assert.equal(checked.ok, false);
+  assert.match(JSON.stringify(checked.issues), /1 through 16777216 bytes/);
+});
+
+test("retained QA evidence stops before reading a file beyond the aggregate limit", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-qa-retained-total-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const session = { slug: "retained-total", source: { repo_root: root } };
+  const { reportPath, outputPath } = writePassingReport(session, SHA_A);
+  const maximumBytes = 16 * 1024 * 1024;
+  const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+  const template = report.receipts[0];
+  const evidencePaths = Array.from({ length: 5 }, (_, index) => {
+    const evidencePath =
+      index === 0 ? outputPath : path.join(path.dirname(outputPath), `run-${index + 1}.json`);
+    fs.writeFileSync(evidencePath, "{}\n");
+    fs.truncateSync(evidencePath, maximumBytes);
+    return evidencePath;
+  });
+  report.receipts = evidencePaths.map((evidencePath, index) => ({
+    ...template,
+    id: `qa-run-1-tests-${index + 1}`,
+    output: { path: evidencePath, sha256: "a".repeat(64), bytes: maximumBytes },
+  }));
+  report.assertions = { passed: 60, total: 60 };
+  report.runs[0].assertions = { passed: 60, total: 60 };
+  report.runs[0].receipt_ids = report.receipts.map((receipt) => receipt.id);
+  fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+
+  const originalOpen = fs.openSync;
+  const originalRead = fs.readSync;
+  const states = new Map();
+  const openedStates = [];
+  const evidenceSet = new Set(evidencePaths.map((item) => path.resolve(item)));
+  fs.openSync = function patchedOpen(file, ...args) {
+    const descriptor = originalOpen.call(fs, file, ...args);
+    if (evidenceSet.has(path.resolve(String(file)))) {
+      const state = { path: path.resolve(String(file)), read: 0 };
+      states.set(descriptor, state);
+      openedStates.push(state);
+    }
+    return descriptor;
+  };
+  fs.readSync = function patchedRead(descriptor, buffer, offset, length, position) {
+    const state = states.get(descriptor);
+    const count = originalRead.call(fs, descriptor, buffer, offset, length, position);
+    if (state) state.read += count;
+    return count;
+  };
+  let checked;
+  try {
+    checked = checkQaReport({
+      session,
+      reportPath,
+      expectedCommit: SHA_A,
+      requirePassing: true,
+    });
+  } finally {
+    fs.openSync = originalOpen;
+    fs.readSync = originalRead;
+  }
+
+  assert.equal(checked.ok, false);
+  assert.match(JSON.stringify(checked.issues), /retained evidence exceeds 67108864 total bytes/);
+  assert.equal(
+    openedStates.at(-1)?.read,
+    maximumBytes,
+    "the fourth in-budget file should be read completely"
+  );
+  assert.equal(openedStates.length, 4, "the fifth over-budget file must not be opened or read");
+});
+
+test("retained QA evidence rejects a FIFO without blocking on open", (t) => {
+  if (process.platform === "win32") {
+    t.skip("POSIX FIFO regression");
+    return;
+  }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-qa-retained-fifo-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const session = { slug: "retained-fifo", source: { repo_root: root } };
+  const { reportPath, outputPath } = writePassingReport(session, SHA_A);
+  fs.unlinkSync(outputPath);
+  try {
+    execFileSync("mkfifo", [outputPath]);
+  } catch {
+    t.skip("mkfifo is unavailable");
+    return;
+  }
+
+  const checkerPath = require.resolve("../scripts/lib/qa-report-schema");
+  const child = spawnSync(
+    process.execPath,
+    [
+      "-e",
+      `const fs = require("node:fs");
+const path = require("node:path");
+const { checkQaReport } = require(process.argv[1]);
+const originalOpen = fs.openSync;
+let evidenceOpens = 0;
+fs.openSync = function countedOpen(file, ...args) {
+  if (path.resolve(String(file)) === path.resolve(process.argv[5])) evidenceOpens += 1;
+  return originalOpen.call(fs, file, ...args);
+};
+const result = checkQaReport({
+  session: JSON.parse(process.argv[2]),
+  reportPath: process.argv[3],
+  expectedCommit: process.argv[4],
+  requirePassing: true,
+});
+process.stdout.write(JSON.stringify({ result, evidenceOpens }));`,
+      checkerPath,
+      JSON.stringify(session),
+      reportPath,
+      SHA_A,
+      outputPath,
+    ],
+    { encoding: "utf8", timeout: 1_500 }
+  );
+
+  assert.notEqual(child.error?.code, "ETIMEDOUT", "FIFO validation must not block");
+  assert.equal(child.status, 0, child.stderr);
+  const { result: checked, evidenceOpens } = JSON.parse(child.stdout);
+  assert.equal(checked.ok, false);
+  assert.match(JSON.stringify(checked.issues), /regular file/);
+  assert.equal(evidenceOpens, 0, "a known non-regular path must be rejected before open");
+});
+
 test("passing QA covers the exact session criteria and critical states with current assertions", (t) => {
   const repo = makeRepo();
   t.after(repo.cleanup);

@@ -4,12 +4,14 @@ const crypto = require("node:crypto");
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { readDescriptorBounded } = require("./bounded-descriptor-read");
 const { compareRfc3339DateTimes, isRfc3339DateTime } = require("./iso-time");
 const { inspectPngBytes } = require("./media-inspect");
 
 const MAX_QA_REPORT_BYTES = 4 * 1024 * 1024;
 const MAX_QA_EVIDENCE_BYTES = 16 * 1024 * 1024;
 const MAX_QA_EVIDENCE_TOTAL_BYTES = 64 * 1024 * 1024;
+const QA_EVIDENCE_TOTAL_LIMIT_CODE = "ERR_QA_EVIDENCE_TOTAL_BYTES";
 const MAX_ASSERTION_RESULTS = 2_000;
 const MAX_FINDINGS = 1_000;
 const MAX_RUNS = 50;
@@ -1484,24 +1486,9 @@ function validateRetainedEvidence(report, evidenceRoot, issues) {
     }
     observedPaths.add(candidate);
     if (!validateNoSymlinkPath(resolvedEvidenceRoot, candidate, row.at, issues)) continue;
-    let stat;
-    try {
-      stat = fs.statSync(candidate);
-    } catch (error) {
-      add(issues, `${row.at}.path`, `could not read retained evidence: ${error.message}`);
-      continue;
-    }
-    if (!stat.isFile()) {
-      add(issues, `${row.at}.path`, "must be a regular file");
-      continue;
-    }
     const maxBytes = row.kind === "previous-report" ? MAX_QA_REPORT_BYTES : MAX_QA_EVIDENCE_BYTES;
-    if (stat.size < 1 || stat.size > maxBytes) {
-      add(issues, `${row.at}.bytes`, `retained evidence must contain 1 through ${maxBytes} bytes`);
-      continue;
-    }
-    totalBytes += stat.size;
-    if (totalBytes > MAX_QA_EVIDENCE_TOTAL_BYTES) {
+    const remainingBytes = MAX_QA_EVIDENCE_TOTAL_BYTES - totalBytes;
+    if (remainingBytes < 1 || (Number.isInteger(binding.bytes) && binding.bytes > remainingBytes)) {
       add(
         issues,
         "report.receipts",
@@ -1511,10 +1498,35 @@ function validateRetainedEvidence(report, evidenceRoot, issues) {
     }
     let bytes;
     try {
-      bytes = fs.readFileSync(candidate);
+      bytes = readRetainedEvidenceFile(
+        resolvedEvidenceRoot,
+        candidate,
+        maxBytes,
+        remainingBytes,
+        row.at,
+        issues
+      );
     } catch (error) {
+      if (error.code === QA_EVIDENCE_TOTAL_LIMIT_CODE) {
+        add(
+          issues,
+          "report.receipts",
+          `retained evidence exceeds ${MAX_QA_EVIDENCE_TOTAL_BYTES} total bytes`
+        );
+        break;
+      }
       add(issues, `${row.at}.path`, `could not read retained evidence: ${error.message}`);
       continue;
+    }
+    if (bytes === null) continue;
+    totalBytes += bytes.length;
+    if (totalBytes > MAX_QA_EVIDENCE_TOTAL_BYTES) {
+      add(
+        issues,
+        "report.receipts",
+        `retained evidence exceeds ${MAX_QA_EVIDENCE_TOTAL_BYTES} total bytes`
+      );
+      break;
     }
     if (binding.bytes !== bytes.length)
       add(issues, `${row.at}.bytes`, "does not match retained file bytes");
@@ -1554,6 +1566,83 @@ function validateRetainedEvidence(report, evidenceRoot, issues) {
     add(issues, "report.receipts", `could not inspect QA evidence history: ${error.message}`);
   }
   return retained;
+}
+
+function readRetainedEvidenceFile(evidenceRoot, candidate, maxBytes, remainingBytes, at, issues) {
+  const flags =
+    fs.constants.O_RDONLY |
+    (fs.constants.O_NOFOLLOW || 0) |
+    (fs.constants.O_NONBLOCK || 0) |
+    (fs.constants.O_NOCTTY || 0);
+  let descriptor;
+  try {
+    const initial = fs.lstatSync(candidate, { bigint: true });
+    if (!initial.isFile()) throw new Error("must be a regular file");
+    descriptor = fs.openSync(candidate, flags);
+    const before = fs.fstatSync(descriptor, { bigint: true });
+    if (!before.isFile()) throw new Error("must be a regular file");
+    if (initial.dev !== before.dev || initial.ino !== before.ino) {
+      throw new Error("retained evidence changed before it could be opened safely");
+    }
+    if (before.size < 1n || before.size > BigInt(maxBytes)) {
+      throw new Error(`retained evidence must contain 1 through ${maxBytes} bytes`);
+    }
+    if (before.size > BigInt(remainingBytes)) throw retainedEvidenceTotalLimitError();
+    if (!validateNoSymlinkPath(evidenceRoot, candidate, at, issues)) return null;
+    const current = fs.lstatSync(candidate, { bigint: true });
+    if (!current.isFile() || before.dev !== current.dev || before.ino !== current.ino) {
+      throw new Error("retained evidence changed during containment validation");
+    }
+    const readLimit = Math.min(maxBytes, remainingBytes);
+    let bytes;
+    try {
+      bytes = readDescriptorBounded(descriptor, readLimit, {
+        overflowMessage:
+          readLimit < maxBytes
+            ? `retained evidence exceeds ${MAX_QA_EVIDENCE_TOTAL_BYTES} total bytes`
+            : `retained evidence must contain 1 through ${maxBytes} bytes`,
+      });
+    } catch (error) {
+      if (
+        readLimit < maxBytes &&
+        error.message === `retained evidence exceeds ${MAX_QA_EVIDENCE_TOTAL_BYTES} total bytes`
+      ) {
+        error.code = QA_EVIDENCE_TOTAL_LIMIT_CODE;
+      }
+      throw error;
+    }
+    const after = fs.fstatSync(descriptor, { bigint: true });
+    if (
+      before.dev !== after.dev ||
+      before.ino !== after.ino ||
+      before.size !== after.size ||
+      before.mtimeNs !== after.mtimeNs ||
+      before.ctimeNs !== after.ctimeNs
+    ) {
+      throw new Error("retained evidence changed during validation");
+    }
+    if (!validateNoSymlinkPath(evidenceRoot, candidate, at, issues)) return null;
+    const final = fs.lstatSync(candidate, { bigint: true });
+    if (
+      !final.isFile() ||
+      after.dev !== final.dev ||
+      after.ino !== final.ino ||
+      after.size !== final.size ||
+      after.mtimeNs !== final.mtimeNs ||
+      after.ctimeNs !== final.ctimeNs
+    ) {
+      throw new Error("retained evidence path changed during validation");
+    }
+    return bytes;
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+}
+
+function retainedEvidenceTotalLimitError() {
+  const error = new Error(`retained evidence exceeds ${MAX_QA_EVIDENCE_TOTAL_BYTES} total bytes`);
+  error.code = QA_EVIDENCE_TOTAL_LIMIT_CODE;
+  return error;
 }
 
 function emptyRetainedEvidence(enforced = false) {

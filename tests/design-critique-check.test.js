@@ -1623,6 +1623,309 @@ test("accepts a complete product UI evidence chain", () => {
   assert.deepEqual(check(fixture), { ok: true, issues: [] });
 });
 
+test("mirrors the trusted producer's route cardinality limits", async (t) => {
+  await t.test("allows 100 subjects but rejects 101", () => {
+    const fixture = makeFixture();
+    for (let index = 1; index < 100; index += 1)
+      fixture.route.subjects.push({
+        ...fixture.route.subjects[0],
+        id: `account-detail-${index}`,
+        surface: `/accounts/${index + 1}`,
+      });
+    rewrite(fixture.root, fixture.routePath, fixture.route);
+
+    const atLimit = check(fixture);
+    assert.equal(
+      atLimit.issues.some(
+        (issue) => issue.path === "route.subjects" && /1 through 100/.test(issue.message)
+      ),
+      false
+    );
+
+    fixture.route.subjects.push({
+      ...fixture.route.subjects[0],
+      id: "account-detail-over-limit",
+      surface: "/accounts/over-limit",
+    });
+    rewrite(fixture.root, fixture.routePath, fixture.route);
+
+    const aboveLimit = check(fixture);
+    assert.equal(aboveLimit.ok, false);
+    assert.equal(
+      aboveLimit.issues.filter(
+        (issue) => issue.path === "route.subjects" && /1 through 100/.test(issue.message)
+      ).length,
+      1
+    );
+    assert.doesNotMatch(JSON.stringify(aboveLimit.issues), /account-detail-over-limit/);
+  });
+
+  await t.test("allows 1,000 coverage rows but rejects 1,001", () => {
+    const fixture = makeFixture();
+    const repeated = fixture.route.coverage.find((item) => item.id === "ui-empty");
+    while (fixture.route.coverage.length < 1_000) {
+      const index = fixture.route.coverage.length;
+      fixture.route.coverage.push({ ...repeated, id: `repeated-empty-${index}` });
+    }
+    rewrite(fixture.root, fixture.routePath, fixture.route);
+
+    const atLimit = check(fixture);
+    assert.equal(
+      atLimit.issues.some(
+        (issue) => issue.path === "route.coverage" && /1 through 1000 rows/.test(issue.message)
+      ),
+      false
+    );
+    assert.ok(
+      atLimit.issues.filter((issue) => /duplicate subject\/state\/viewport/.test(issue.message))
+        .length <= 25
+    );
+
+    fixture.route.coverage.push({ ...repeated, id: "repeated-empty-over-limit" });
+    rewrite(fixture.root, fixture.routePath, fixture.route);
+
+    const aboveLimit = check(fixture);
+    assert.equal(aboveLimit.ok, false);
+    assert.equal(
+      aboveLimit.issues.filter(
+        (issue) => issue.path === "route.coverage" && /1 through 1000 rows/.test(issue.message)
+      ).length,
+      1
+    );
+    assert.equal(
+      aboveLimit.issues.filter((issue) => /duplicate subject\/state\/viewport/.test(issue.message))
+        .length,
+      0
+    );
+    assert.doesNotMatch(JSON.stringify(aboveLimit.issues), /repeated-empty-over-limit/);
+  });
+
+  await t.test("rejects more than two capture rows per maximum coverage set", () => {
+    const fixture = makeFixture();
+    const template = fixture.captures.captures[0];
+    while (fixture.captures.captures.length <= 2_000)
+      fixture.captures.captures.push({
+        ...template,
+        id: `capture-history-${fixture.captures.captures.length}`,
+        active: false,
+      });
+    rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+
+    const target = fs.realpathSync(path.join(fixture.root, template.path));
+    const original = fs.openSync;
+    let captureReads = 0;
+    fs.openSync = function counted(file, ...args) {
+      try {
+        if (fs.realpathSync(String(file)) === target) captureReads += 1;
+      } catch {
+        // Unrelated missing paths cannot be the retained capture under observation.
+      }
+      return original.call(this, file, ...args);
+    };
+    let result;
+    try {
+      result = check(fixture);
+    } finally {
+      fs.openSync = original;
+    }
+    assert.equal(result.ok, false);
+    assert.equal(
+      result.issues.filter(
+        (issue) => issue.path === "captures.captures" && /at most 2000 rows/.test(issue.message)
+      ).length,
+      1
+    );
+    assert.equal(captureReads, 0);
+    assert.doesNotMatch(JSON.stringify(result.issues), /capture-history-/);
+  });
+
+  await t.test(
+    "rejects duplicate coverage and round rows at the limit without decode amplification",
+    () => {
+      const fixture = makeFixture();
+      const template = fixture.captures.captures[0];
+      fixture.captures.captures = [template];
+      while (fixture.captures.captures.length < 2_000)
+        fixture.captures.captures.push({
+          ...template,
+          id: `capture-amplification-${fixture.captures.captures.length}`,
+          active: false,
+        });
+      rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+
+      const original = zlib.inflateSync;
+      let inflations = 0;
+      zlib.inflateSync = function counted(...args) {
+        inflations += 1;
+        return original.apply(this, args);
+      };
+      let result;
+      try {
+        result = check(fixture);
+      } finally {
+        zlib.inflateSync = original;
+      }
+
+      const details = result.issues.filter((issue) =>
+        /duplicates the coverage\/round capture/.test(issue.message)
+      );
+      const summaries = result.issues.filter((issue) =>
+        /additional duplicate coverage\/round captures omitted/.test(issue.message)
+      );
+      assert.equal(result.ok, false);
+      assert.equal(details.length, 24);
+      assert.equal(summaries.length, 1);
+      assert.match(summaries[0].message, /^1975 additional/);
+      assert.equal(inflations, 1);
+    }
+  );
+});
+
+test("malformed route and capture collections return issues instead of throwing", async (t) => {
+  for (const field of ["subjects", "coverage"])
+    await t.test(`route.${field} object`, () => {
+      const fixture = makeFixture();
+      fixture.route[field] = {};
+      rewrite(fixture.root, fixture.routePath, fixture.route);
+
+      let result;
+      assert.doesNotThrow(() => {
+        result = check(fixture);
+      });
+      assert.equal(result.ok, false);
+      assert.equal(
+        result.issues.some((issue) => issue.path === `route.${field}`),
+        true
+      );
+    });
+
+  for (const field of ["subjects", "coverage"])
+    await t.test(`route.${field} non-object row`, () => {
+      const fixture = makeFixture();
+      fixture.route[field] = [null];
+      rewrite(fixture.root, fixture.routePath, fixture.route);
+
+      let result;
+      assert.doesNotThrow(() => {
+        result = check(fixture);
+      });
+      assert.equal(result.ok, false);
+      assert.equal(
+        result.issues.some(
+          (issue) => issue.path === `route.${field}[0]` && issue.message === "must be an object"
+        ),
+        true
+      );
+    });
+
+  await t.test("captures.captures object", () => {
+    const fixture = makeFixture();
+    fixture.captures.captures = {};
+    rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+
+    let result;
+    assert.doesNotThrow(() => {
+      result = check(fixture);
+    });
+    assert.equal(result.ok, false);
+    assert.equal(
+      result.issues.some((issue) => issue.path === "captures.captures"),
+      true
+    );
+  });
+
+  await t.test("captures.captures non-object row", () => {
+    const fixture = makeFixture();
+    fixture.captures.captures = [null];
+    rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+
+    let result;
+    assert.doesNotThrow(() => {
+      result = check(fixture);
+    });
+    assert.equal(result.ok, false);
+    assert.equal(
+      result.issues.some(
+        (issue) => issue.path === "captures.captures[0]" && issue.message === "must be an object"
+      ),
+      true
+    );
+  });
+
+  await t.test("caps indexed non-object row diagnostics", () => {
+    const fixture = makeFixture();
+    fixture.route.coverage = Array.from({ length: 1_000 }, () => null);
+    rewrite(fixture.root, fixture.routePath, fixture.route);
+
+    let result;
+    assert.doesNotThrow(() => {
+      result = check(fixture);
+    });
+    const details = result.issues.filter(
+      (issue) =>
+        /^route\.coverage\[\d+\]$/.test(issue.path) && issue.message === "must be an object"
+    );
+    const summaries = result.issues.filter(
+      (issue) =>
+        issue.path === "route.coverage" &&
+        /additional non-object rows omitted after 24 indexed diagnostics/.test(issue.message)
+    );
+    assert.equal(result.ok, false);
+    assert.equal(details.length, 24);
+    assert.equal(summaries.length, 1);
+    assert.match(summaries[0].message, /^976 additional/);
+  });
+
+  for (const value of [null, "invalid", 7])
+    await t.test(`scalar route ${JSON.stringify(value)}`, () => {
+      const fixture = makeFixture();
+      rewrite(fixture.root, fixture.routePath, value);
+
+      let result;
+      assert.doesNotThrow(() => {
+        result = check(fixture);
+      });
+      assert.equal(result.ok, false);
+      assert.equal(
+        result.issues.some(
+          (issue) => issue.path === "route" && issue.message === "must be an object"
+        ),
+        true
+      );
+    });
+
+  for (const value of [null, "invalid", 7])
+    await t.test(`scalar captures ${JSON.stringify(value)}`, () => {
+      const fixture = makeFixture();
+      rewrite(fixture.root, fixture.capturesPath, value);
+
+      let result;
+      assert.doesNotThrow(() => {
+        result = check(fixture);
+      });
+      assert.equal(result.ok, false);
+      assert.equal(
+        result.issues.some(
+          (issue) => issue.path === "captures" && issue.message === "must be an object"
+        ),
+        true
+      );
+    });
+});
+
+test("rejects duplicate subject, state, and viewport coverage decisions", () => {
+  const fixture = makeFixture();
+  fixture.route.coverage.push({
+    ...fixture.route.coverage.find((item) => item.id === "ui-empty"),
+    id: "ui-empty-duplicate",
+  });
+  rewrite(fixture.root, fixture.routePath, fixture.route);
+
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /duplicates the subject\/state\/viewport decision/);
+});
+
 test("requires a trusted same-session observation for schema-v2 web captures", () => {
   const fixture = makeFixture();
   delete fixture.captures.captures[0].observation;
@@ -1931,6 +2234,40 @@ test("rejects different state captures whose only visual change is a one-pixel b
   assert.match(JSON.stringify(result.issues), /states primary and success.*materially different/);
 });
 
+test("bounds cross-state visual-distance diagnostics after grouping by subject and viewport", () => {
+  const fixture = makeFixture();
+  const desktop = fixture.captures.captures.find((item) => item.coverage_id === "ui-primary");
+  const states = [
+    "empty",
+    "error",
+    "boundary",
+    "loading",
+    "success",
+    "focus",
+    "disabled",
+    "keyboard",
+    "modal",
+  ];
+  for (const [index, state] of states.entries())
+    addRequiredStateCapture(
+      fixture,
+      state,
+      validPng(desktop.width, desktop.height, 0, 0, index + 1)
+    );
+
+  const result = check(fixture);
+  const detail = result.issues.filter((issue) =>
+    issue.message.includes("materially different decoded pixels")
+  );
+  const summaries = result.issues.filter((issue) =>
+    issue.message.includes("additional cross-state visual-distance failures omitted")
+  );
+  assert.equal(result.ok, false);
+  assert.equal(detail.length, 24);
+  assert.equal(summaries.length, 1);
+  assert.match(summaries[0].message, /^21 additional/);
+});
+
 test("rejects an opaque near-blank screenshot with a one-pixel beacon", () => {
   const fixture = makeFixture();
   const capture = fixture.captures.captures[0];
@@ -2123,6 +2460,36 @@ test("reads a large bound capture only once per validation run", () => {
     fs.openSync = original;
   }
   assert.equal(reads, 1);
+});
+
+test("decodes repeated capture bytes once across distinct coverage rows", () => {
+  const fixture = makeFixture();
+  const desktop = fixture.captures.captures.find((item) => item.coverage_id === "ui-primary");
+  const narrow = fixture.captures.captures.find((item) => item.coverage_id === "ui-primary-narrow");
+  Object.assign(narrow, {
+    path: desktop.path,
+    sha256: desktop.sha256,
+    pixel_sha256: desktop.pixel_sha256,
+    width: desktop.width,
+    height: desktop.height,
+  });
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+
+  const original = zlib.inflateSync;
+  let inflations = 0;
+  zlib.inflateSync = function counted(...args) {
+    inflations += 1;
+    return original.apply(this, args);
+  };
+  let result;
+  try {
+    result = check(fixture);
+  } finally {
+    zlib.inflateSync = original;
+  }
+
+  assert.equal(result.ok, false);
+  assert.equal(inflations, 1);
 });
 
 test("rejects missing required coverage", () => {
@@ -3292,6 +3659,165 @@ test("round 2 cannot execute before round 1 completes", () => {
     JSON.stringify(result.issues),
     /round 2 (?:capture manifest|execution).*after every round 1 review receipt/
   );
+});
+
+test("trusted capture chronology preserves sub-millisecond precision", () => {
+  const fixture = makeFixture();
+  const capture = fixture.captures.captures[0];
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(fixture.root, capture.observation.path), "utf8")
+  );
+  manifest.timestamps = {
+    started_at: "2026-07-12T00:01:00.0002Z",
+    page_ready_at: "2026-07-12T00:01:00.0001Z",
+    captured_at: "2026-07-12T00:01:00.0003Z",
+    completed_at: "2026-07-12T00:01:00.0004Z",
+  };
+  manifest.capture.captured_at = manifest.timestamps.captured_at;
+  capture.captured_at = manifest.timestamps.captured_at;
+  capture.observation = write(
+    fixture.root,
+    capture.observation.path,
+    `${JSON.stringify(manifest, null, 2)}\n`
+  );
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /ordered RFC 3339 timestamps/);
+});
+
+test("review evidence chronology preserves sub-millisecond precision", async (t) => {
+  await t.test("execution completion cannot precede its start", () => {
+    const fixture = makeFixture();
+    const review = fixture.reviews.rounds[0].reviews[0];
+    review.execution.started_at = "2026-07-12T01:20:10.0002Z";
+    review.execution.completed_at = "2026-07-12T01:20:10.0001Z";
+    attachReviewReceipt(fixture.root, review, 1);
+    rewriteReviewsAndReport(fixture);
+
+    const result = check(fixture);
+    assert.equal(result.ok, false);
+    assert.match(JSON.stringify(result.issues), /completed_at must not precede started_at/);
+  });
+
+  await t.test("receipt recording cannot precede completion", () => {
+    const fixture = makeFixture();
+    const review = fixture.reviews.rounds[0].reviews[0];
+    review.execution.completed_at = "2026-07-12T01:20:40.0002Z";
+    attachReviewReceipt(fixture.root, review, 1, "2026-07-12T01:20:40.0001Z");
+    rewriteReviewsAndReport(fixture);
+
+    const result = check(fixture);
+    assert.equal(result.ok, false);
+    assert.match(JSON.stringify(result.issues), /recorded_at.*must not precede completed_at/);
+  });
+
+  await t.test("report cannot predate completed reviews", () => {
+    const fixture = makeFixture();
+    fixture.reviews.checked_at = "2026-07-12T01:50:00.0002Z";
+    fixture.report.checked_at = "2026-07-12T01:50:00.0001Z";
+    rewriteReviewsAndReport(fixture);
+
+    const result = check(fixture);
+    assert.equal(result.ok, false);
+    assert.match(JSON.stringify(result.issues), /reviews\.checked_at.*report\.checked_at/);
+  });
+
+  await t.test("review execution cannot predate its bound context", () => {
+    const fixture = makeFixture();
+    const round = fixture.reviews.rounds[0];
+    const contextPath = round.reviews[0].input.context_source.path;
+    const context = JSON.parse(fs.readFileSync(path.join(fixture.root, contextPath), "utf8"));
+    context.created_at = "2026-07-12T01:20:10.0002Z";
+    const rebound = write(fixture.root, contextPath, `${JSON.stringify(context, null, 2)}\n`);
+    for (const review of round.reviews) {
+      review.input.context_source = rebound;
+      const payload = { ...review.input };
+      delete payload.payload_sha256;
+      review.input = withPayloadHash(payload);
+      review.execution.started_at = "2026-07-12T01:20:10.0001Z";
+      attachReviewReceipt(fixture.root, review, 1);
+    }
+    rewriteReviewsAndReport(fixture);
+
+    const result = check(fixture);
+    assert.equal(result.ok, false);
+    assert.match(JSON.stringify(result.issues), /must not precede the bound context source/);
+  });
+
+  await t.test("review execution cannot predate its round manifest", () => {
+    const fixture = makeFixture();
+    const round = fixture.reviews.rounds[0];
+    const manifestPath = round.reviews[0].input.capture_manifest.path;
+    const manifest = JSON.parse(fs.readFileSync(path.join(fixture.root, manifestPath), "utf8"));
+    manifest.created_at = "2026-07-12T01:20:10.0002Z";
+    const rebound = write(fixture.root, manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    for (const review of round.reviews) {
+      review.input.capture_manifest = rebound;
+      const payload = { ...review.input };
+      delete payload.payload_sha256;
+      review.input = withPayloadHash(payload);
+      review.execution.started_at = "2026-07-12T01:20:10.0001Z";
+      attachReviewReceipt(fixture.root, review, 1);
+    }
+    rewriteReviewsAndReport(fixture);
+
+    const result = check(fixture);
+    assert.equal(result.ok, false);
+    assert.match(JSON.stringify(result.issues), /must not precede the bound capture manifest/);
+  });
+
+  await t.test("round manifest cannot predate a supplied capture", () => {
+    const fixture = makeFixture({ mode: "pm-artifact" });
+    fixture.captures.captures[0].captured_at = "2026-07-12T01:20:00.0002Z";
+    fixture.captures.checked_at = "2026-07-12T01:20:01Z";
+    rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+    fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+    rewriteReportAndHtml(fixture);
+
+    const result = check(fixture);
+    assert.equal(result.ok, false);
+    assert.match(
+      JSON.stringify(result.issues),
+      /capture_manifest\.created_at.*must not precede capture/
+    );
+  });
+
+  await t.test("round boundary accepts a later instant inside the same millisecond", () => {
+    const fixture = makeFixture();
+    const { after } = configureResolvedPrimaryFinding(fixture);
+    after.captured_at = "2026-07-12T01:30:00.0002Z";
+    refreshTrustedCaptureObservations(fixture);
+    rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+    fixture.reviews.captures = binding(fixture.root, fixture.capturesPath);
+    fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+    const firstRound = fixture.reviews.rounds[0];
+    for (const review of firstRound.reviews) {
+      review.execution.started_at = "2026-07-12T01:29:59.9999Z";
+      review.execution.completed_at = "2026-07-12T01:30:00.0001Z";
+      attachReviewReceipt(fixture.root, review, 1, "2026-07-12T01:30:00.0001Z");
+    }
+    const secondRound = fixture.reviews.rounds[1];
+    const manifestPath = secondRound.reviews[0].input.capture_manifest.path;
+    const manifest = JSON.parse(fs.readFileSync(path.join(fixture.root, manifestPath), "utf8"));
+    manifest.created_at = "2026-07-12T01:30:00.0003Z";
+    const rebound = write(fixture.root, manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    for (const review of secondRound.reviews) {
+      review.input.capture_manifest = rebound;
+      const payload = { ...review.input };
+      delete payload.payload_sha256;
+      review.input = withPayloadHash(payload);
+      review.execution.started_at = "2026-07-12T01:30:00.0004Z";
+      review.execution.completed_at = "2026-07-12T01:30:00.0005Z";
+      attachReviewReceipt(fixture.root, review, 2, "2026-07-12T01:30:00.0006Z");
+    }
+    rewriteReviewsAndReport(fixture);
+
+    assert.deepEqual(check(fixture), { ok: true, issues: [] });
+  });
 });
 
 test("round 1 Primary cannot consume audit evidence from round 2", () => {

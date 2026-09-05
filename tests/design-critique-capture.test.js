@@ -21,6 +21,8 @@ const {
 const {
   accessibilityObservations,
   appendBoundedEvidence,
+  createVisibilityEvaluator,
+  domObservations,
   nodeVisibleInViewport,
   verifyAssertionHitTargets,
 } = require("../scripts/design-critique-capture-probe");
@@ -622,6 +624,52 @@ test("visible assertions account for ancestors, clipping, and viewport intersect
   const nearTransparentRoot = createNode(0, -1, [0, 0, 100, 100], { opacity: "0.009" });
   assert.equal(nodeVisibleInViewport(child, [nearTransparentRoot, child], style, metrics), false);
 
+  const visibilityHiddenRoot = createNode(0, -1, [0, 0, 100, 100], {
+    visibility: "hidden",
+  });
+  const inheritedHiddenChild = createNode(1, 0, [10, 10, 20, 20], {
+    visibility: "hidden",
+  });
+  assert.equal(
+    nodeVisibleInViewport(
+      inheritedHiddenChild,
+      [visibilityHiddenRoot, inheritedHiddenChild],
+      style,
+      metrics
+    ),
+    false
+  );
+  const visibilityOverrideChild = createNode(1, 0, [10, 10, 20, 20], {
+    visibility: "visible",
+  });
+  assert.equal(
+    nodeVisibleInViewport(
+      visibilityOverrideChild,
+      [visibilityHiddenRoot, visibilityOverrideChild],
+      style,
+      metrics
+    ),
+    true
+  );
+
+  const cssShownHiddenRoot = createNode(
+    0,
+    -1,
+    [0, 0, 100, 100],
+    { display: "block" },
+    { hidden: "" }
+  );
+  assert.equal(
+    nodeVisibleInViewport(child, [cssShownHiddenRoot, child], style, metrics),
+    true,
+    "computed display must remain authoritative when author CSS overrides [hidden]"
+  );
+
+  for (const blockingStyles of [{ display: "none" }, { "content-visibility": "hidden" }]) {
+    const blockingRoot = createNode(0, -1, [0, 0, 100, 100], blockingStyles);
+    assert.equal(nodeVisibleInViewport(child, [blockingRoot, child], style, metrics), false);
+  }
+
   const clippedRoot = createNode(0, -1, [0, 0, 50, 50], {
     "overflow-x": "hidden",
     "overflow-y": "hidden",
@@ -634,6 +682,259 @@ test("visible assertions account for ancestors, clipping, and viewport intersect
 
   const offscreen = createNode(1, 0, [101, 10, 20, 20]);
   assert.equal(nodeVisibleInViewport(offscreen, [root, offscreen], style, metrics), false);
+});
+
+test("visibility evaluation is iterative and linear at the maximum DOM depth", () => {
+  const count = 50_000;
+  const model = Array.from({ length: count }, (_, index) => ({
+    index,
+    parentIndex: index - 1,
+    attributes: {},
+    layout: { bounds: [0, 0, 10, 10] },
+    styles: {
+      display: "block",
+      visibility: "visible",
+      opacity: "1",
+      "overflow-x": "visible",
+      "overflow-y": "visible",
+      "content-visibility": "visible",
+    },
+  }));
+  const metrics = {
+    cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 100, clientHeight: 100 },
+  };
+  let styleReads = 0;
+  const style = (node, name) => {
+    styleReads += 1;
+    return node.styles[name] || "";
+  };
+
+  const evaluate = createVisibilityEvaluator(model, style, metrics);
+  for (const node of model) assert.notEqual(evaluate(node), null);
+
+  assert.ok(styleReads <= count * 8, `expected linear style reads, observed ${styleReads}`);
+});
+
+test("DOM observations exclude ancestor-hidden, clipped, and offscreen descendants", () => {
+  const computedStyles = [
+    "display",
+    "visibility",
+    "opacity",
+    "font-size",
+    "font-weight",
+    "overflow",
+    "overflow-x",
+    "overflow-y",
+    "content-visibility",
+    "position",
+  ];
+  const styleValues = (overrides = {}) =>
+    computedStyles.map(
+      (name) =>
+        overrides[name] ??
+        {
+          display: "block",
+          visibility: "visible",
+          opacity: "1",
+          "font-size": "16px",
+          "font-weight": "400",
+          overflow: "visible",
+          "overflow-x": "visible",
+          "overflow-y": "visible",
+          "content-visibility": "visible",
+          position: "static",
+        }[name]
+    );
+  const node = (index, parentIndex, nodeName, bounds, overrides = {}) => ({
+    index,
+    backendNodeId: index + 1,
+    parentIndex,
+    nodeName,
+    attributes: { id: `node-${index}` },
+    layout: { bounds, styles: styleValues(overrides) },
+  });
+  const metrics = {
+    cssLayoutViewport: { clientWidth: 400, clientHeight: 300 },
+    cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 400, clientHeight: 300 },
+    cssContentSize: { width: 500, height: 300 },
+  };
+  const visiblePair = [
+    node(1, 0, "h1", [10, 10, 180, 30], { "font-size": "24px" }),
+    node(2, 0, "h2", [10, 50, 180, 24], { "font-size": "16px" }),
+  ];
+  const scenarios = [
+    [
+      node(3, 0, "div", [10, 100, 180, 80], { opacity: "0" }),
+      node(4, 3, "h1", [10, 100, 180, 24], { "font-size": "12px" }),
+      node(5, 3, "h2", [10, 130, 180, 30], { "font-size": "30px" }),
+    ],
+    [
+      node(3, 0, "div", [10, 100, 40, 40], {
+        overflow: "hidden",
+        "overflow-x": "hidden",
+        "overflow-y": "hidden",
+      }),
+      node(4, 3, "h1", [100, 100, 180, 24], { "font-size": "12px" }),
+      node(5, 3, "h2", [100, 130, 180, 30], { "font-size": "30px" }),
+    ],
+    [
+      node(3, 0, "div", [450, 100, 180, 80]),
+      node(4, 3, "h1", [450, 100, 180, 24], { "font-size": "12px" }),
+      node(5, 3, "h2", [450, 130, 180, 30], { "font-size": "30px" }),
+    ],
+  ];
+
+  for (const hiddenSubtree of scenarios) {
+    const model = [node(0, -1, "main", [0, 0, 400, 300]), ...visiblePair, ...hiddenSubtree];
+    assert.deepEqual(domObservations(model, metrics, computedStyles).hierarchy, []);
+  }
+
+  const clippedAlignmentModel = [
+    node(0, -1, "main", [0, 0, 400, 300]),
+    node(1, 0, "section", [0, 100, 100, 100], {
+      overflow: "hidden",
+      "overflow-x": "hidden",
+      "overflow-y": "hidden",
+    }),
+    node(2, 1, "div", [0, 100, 100, 20]),
+    node(3, 1, "div", [0, 130, 100, 20]),
+    node(4, 1, "div", [0, 160, 150, 20]),
+  ];
+  assert.deepEqual(
+    domObservations(clippedAlignmentModel, metrics, computedStyles).edge_alignment,
+    [],
+    "alignment must use the rendered intersection rather than clipped-away bounds"
+  );
+});
+
+test("DOM consistency separates declared and native variants within component groups", () => {
+  const computedStyles = [
+    "display",
+    "visibility",
+    "opacity",
+    "background-color",
+    "overflow",
+    "overflow-x",
+    "overflow-y",
+    "content-visibility",
+  ];
+  const styleValues = (background) =>
+    computedStyles.map(
+      (name) =>
+        ({
+          display: "block",
+          visibility: "visible",
+          opacity: "1",
+          "background-color": background,
+          overflow: "visible",
+          "overflow-x": "visible",
+          "overflow-y": "visible",
+          "content-visibility": "visible",
+        })[name]
+    );
+  const button = (index, classes, background, attributes = {}) => ({
+    index,
+    backendNodeId: index + 1,
+    parentIndex: 0,
+    nodeName: "button",
+    attributes: { id: `button-${index}`, class: classes, ...attributes },
+    layout: { bounds: [10, 10 + index * 30, 120, 24], styles: styleValues(background) },
+  });
+  const root = {
+    index: 0,
+    backendNodeId: 1,
+    parentIndex: -1,
+    nodeName: "main",
+    attributes: {},
+    layout: { bounds: [0, 0, 400, 300], styles: styleValues("transparent") },
+  };
+  const metrics = {
+    cssLayoutViewport: { clientWidth: 400, clientHeight: 300 },
+    cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 400, clientHeight: 300 },
+    cssContentSize: { width: 400, height: 300 },
+  };
+  const primaryOne = button(1, "button primary", "rgb(0, 80, 200)", {
+    "aria-label": "Save account",
+  });
+  const primaryTwo = button(2, "primary button", "rgb(0, 80, 200)", {
+    "aria-label": "Invite member",
+  });
+  const secondary = button(3, "button secondary", "rgb(255, 255, 255)", {
+    "aria-label": "Cancel",
+  });
+
+  assert.deepEqual(
+    domObservations([root, primaryOne, primaryTwo, secondary], metrics, computedStyles).consistency,
+    []
+  );
+
+  const divergentPrimary = button(2, "primary button", "rgb(200, 0, 0)", {
+    "aria-label": "Arbitrary replacement label",
+  });
+  const findings = domObservations(
+    [root, primaryOne, divergentPrimary, secondary],
+    metrics,
+    computedStyles
+  ).consistency;
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].code, "visual-variance");
+  assert.match(findings[0].detail, /^button background-color:/);
+  assert.doesNotMatch(findings[0].detail, /Arbitrary replacement label/);
+
+  const explicitPrimaryOne = button(1, "button primary is-idle", "rgb(0, 80, 200)", {
+    "data-component": "action",
+    "data-variant": "primary",
+  });
+  const explicitPrimaryTwo = button(2, "button primary analytics-hook", "rgb(200, 0, 0)", {
+    "data-component": "action",
+    "data-variant": "primary",
+  });
+  const explicitSecondary = button(3, "button secondary", "rgb(255, 255, 255)", {
+    "data-component": "action",
+    "data-variant": "secondary",
+  });
+  const explicitFindings = domObservations(
+    [root, explicitPrimaryOne, explicitPrimaryTwo, explicitSecondary],
+    metrics,
+    computedStyles
+  ).consistency;
+  assert.equal(explicitFindings.length, 1);
+  assert.equal(explicitFindings[0].code, "visual-variance");
+  assert.match(explicitFindings[0].detail, /^button background-color:/);
+
+  const disabledPrimary = button(2, "primary button", "rgb(180, 180, 180)", {
+    disabled: "",
+  });
+  assert.deepEqual(
+    domObservations([root, primaryOne, disabledPrimary], metrics, computedStyles).consistency,
+    [],
+    "enabled and disabled controls are intentional native states"
+  );
+
+  const input = (index, type, background) => ({
+    index,
+    backendNodeId: index + 1,
+    parentIndex: 0,
+    nodeName: "input",
+    attributes: { id: `input-${index}`, type },
+    layout: { bounds: [10, 10 + index * 30, 120, 24], styles: styleValues(background) },
+  });
+  const textInput = input(1, "text", "rgb(255, 255, 255)");
+  const checkboxInput = input(2, "checkbox", "rgb(0, 80, 200)");
+  assert.deepEqual(
+    domObservations([root, textInput, checkboxInput], metrics, computedStyles).consistency,
+    [],
+    "different native input types must not be compared as one visual variant"
+  );
+
+  const divergentTextInput = input(2, "text", "rgb(200, 0, 0)");
+  const textInputFindings = domObservations(
+    [root, textInput, divergentTextInput],
+    metrics,
+    computedStyles
+  ).consistency;
+  assert.equal(textInputFindings.length, 1);
+  assert.equal(textInputFindings[0].code, "visual-variance");
 });
 
 test("native hit testing distinguishes legitimate nested content from occluding overlays", async () => {

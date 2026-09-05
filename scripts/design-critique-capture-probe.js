@@ -364,51 +364,116 @@ function accessibilityObservations(axTree, model) {
   return { landmarks, controls };
 }
 
-function visibleIntersection(node, model, style, metrics) {
-  const bounds = node?.layout?.bounds;
-  if (!Array.isArray(bounds) || bounds[2] <= 0 || bounds[3] <= 0) return null;
+function createVisibilityEvaluator(model, style, metrics) {
   const viewport = metrics.cssVisualViewport;
-  let left = Math.max(bounds[0], viewport.pageX);
-  let top = Math.max(bounds[1], viewport.pageY);
-  let right = Math.min(bounds[0] + bounds[2], viewport.pageX + viewport.clientWidth);
-  let bottom = Math.min(bounds[1] + bounds[3], viewport.pageY + viewport.clientHeight);
-  if (right <= left || bottom <= top) return null;
-  let effectiveOpacity = 1;
-  let current = node;
-  const seen = new Set();
-  while (current && !seen.has(current.index)) {
-    seen.add(current.index);
-    if (
-      Object.prototype.hasOwnProperty.call(current.attributes, "hidden") ||
-      style(current, "display") === "none" ||
-      new Set(["hidden", "collapse"]).has(style(current, "visibility")) ||
-      style(current, "content-visibility") === "hidden"
-    )
-      return null;
-    const opacity = Number.parseFloat(style(current, "opacity") || "1");
-    effectiveOpacity *= Number.isFinite(opacity) ? Math.max(0, Math.min(1, opacity)) : 1;
-    if (effectiveOpacity < MIN_EFFECTIVE_OPACITY) return null;
-    if (current !== node && current.layout?.bounds) {
-      const ancestor = current.layout.bounds;
+  const rootState = Object.freeze({
+    blocked: false,
+    effectiveOpacity: 1,
+    left: viewport.pageX,
+    top: viewport.pageY,
+    right: viewport.pageX + viewport.clientWidth,
+    bottom: viewport.pageY + viewport.clientHeight,
+  });
+  const states = new Array(model.length);
+  const positions = new Map(model.map((candidate, index) => [candidate, index]));
+  const visitGeneration = new Uint32Array(model.length);
+  let generation = 0;
+
+  const extend = (parentState, current) => {
+    const rawOpacity = Number.parseFloat(style(current, "opacity") || "1");
+    const opacity = Number.isFinite(rawOpacity) ? Math.max(0, Math.min(1, rawOpacity)) : 1;
+    let left = parentState.left;
+    let top = parentState.top;
+    let right = parentState.right;
+    let bottom = parentState.bottom;
+    const bounds = current?.layout?.bounds;
+    if (Array.isArray(bounds)) {
       const overflowX = style(current, "overflow-x") || style(current, "overflow");
       const overflowY = style(current, "overflow-y") || style(current, "overflow");
       if (overflowX && overflowX !== "visible") {
-        left = Math.max(left, ancestor[0]);
-        right = Math.min(right, ancestor[0] + ancestor[2]);
+        left = Math.max(left, bounds[0]);
+        right = Math.min(right, bounds[0] + bounds[2]);
       }
       if (overflowY && overflowY !== "visible") {
-        top = Math.max(top, ancestor[1]);
-        bottom = Math.min(bottom, ancestor[1] + ancestor[3]);
+        top = Math.max(top, bounds[1]);
+        bottom = Math.min(bottom, bounds[1] + bounds[3]);
       }
-      if (right <= left || bottom <= top) return null;
     }
-    current = current.parentIndex >= 0 ? model[current.parentIndex] : null;
-  }
-  return { left, top, right, bottom, effectiveOpacity };
+    return {
+      blocked:
+        parentState.blocked ||
+        style(current, "display") === "none" ||
+        style(current, "content-visibility") === "hidden",
+      effectiveOpacity: parentState.effectiveOpacity * opacity,
+      left,
+      top,
+      right,
+      bottom,
+    };
+  };
+
+  const ensureState = (startIndex) => {
+    if (states[startIndex]) return;
+    generation += 1;
+    const path = [];
+    let currentIndex = startIndex;
+    while (
+      currentIndex >= 0 &&
+      currentIndex < model.length &&
+      !states[currentIndex] &&
+      visitGeneration[currentIndex] !== generation
+    ) {
+      visitGeneration[currentIndex] = generation;
+      path.push(currentIndex);
+      const parentIndex = model[currentIndex]?.parentIndex;
+      currentIndex = Number.isInteger(parentIndex) ? parentIndex : -1;
+    }
+    let inherited =
+      currentIndex >= 0 && currentIndex < model.length && states[currentIndex]
+        ? states[currentIndex]
+        : rootState;
+    for (let index = path.length - 1; index >= 0; index -= 1) {
+      const position = path[index];
+      states[position] = extend(inherited, model[position]);
+      inherited = states[position];
+    }
+  };
+
+  for (let index = 0; index < model.length; index += 1) ensureState(index);
+
+  return (node) => {
+    const bounds = node?.layout?.bounds;
+    if (!Array.isArray(bounds) || bounds[2] <= 0 || bounds[3] <= 0) return null;
+    const index = positions.get(node);
+    if (index === undefined) return null;
+    const state = states[index];
+    if (
+      state.blocked ||
+      state.effectiveOpacity < MIN_EFFECTIVE_OPACITY ||
+      ["hidden", "collapse"].includes(style(node, "visibility"))
+    )
+      return null;
+    const left = Math.max(bounds[0], state.left);
+    const top = Math.max(bounds[1], state.top);
+    const right = Math.min(bounds[0] + bounds[2], state.right);
+    const bottom = Math.min(bounds[1] + bounds[3], state.bottom);
+    if (right <= left || bottom <= top) return null;
+    return { left, top, right, bottom, effectiveOpacity: state.effectiveOpacity };
+  };
 }
 
-function nodeVisibleInViewport(node, model, style, metrics) {
-  return visibleIntersection(node, model, style, metrics) !== null;
+function visibleIntersection(node, model, style, metrics, visibilityEvaluator = null) {
+  const evaluate = visibilityEvaluator || createVisibilityEvaluator(model, style, metrics);
+  return evaluate(node);
+}
+
+function nodeVisibleInViewport(node, model, style, metrics, visibilityEvaluator = null) {
+  return visibleIntersection(node, model, style, metrics, visibilityEvaluator) !== null;
+}
+
+function visibilityEvaluatorFor(model, style, metrics, candidate) {
+  if (typeof candidate === "function") return candidate;
+  return createVisibilityEvaluator(model, style, metrics);
 }
 
 function isNodeOrDescendant(hitBackendNodeId, assertedNode, model) {
@@ -438,9 +503,22 @@ function descendantChain(hitBackendNodeId, assertedNode, model) {
   return [];
 }
 
-function positionedDescendantCovers(node, assertedIntersection, model, style, metrics) {
+function positionedDescendantCovers(
+  node,
+  assertedIntersection,
+  model,
+  style,
+  metrics,
+  visibilityEvaluator
+) {
   if (!node || !new Set(["absolute", "fixed", "sticky"]).has(style(node, "position"))) return false;
-  const descendantIntersection = visibleIntersection(node, model, style, metrics);
+  const descendantIntersection = visibleIntersection(
+    node,
+    model,
+    style,
+    metrics,
+    visibilityEvaluator
+  );
   if (!descendantIntersection) return false;
   const left = Math.max(assertedIntersection.left, descendantIntersection.left);
   const top = Math.max(assertedIntersection.top, descendantIntersection.top);
@@ -453,10 +531,24 @@ function positionedDescendantCovers(node, assertedIntersection, model, style, me
   return assertedArea > 0 && overlapArea / assertedArea >= 0.9;
 }
 
-async function verifyAssertionHitTargets(client, requirements, model, style, metrics) {
+async function verifyAssertionHitTargets(
+  client,
+  requirements,
+  model,
+  style,
+  metrics,
+  visibilityEvaluator = null
+) {
+  const evaluateVisibility = visibilityEvaluatorFor(model, style, metrics, visibilityEvaluator);
   const checks = [];
   for (const requirement of requirements) {
-    const intersection = visibleIntersection(requirement.node, model, style, metrics);
+    const intersection = visibleIntersection(
+      requirement.node,
+      model,
+      style,
+      metrics,
+      evaluateVisibility
+    );
     if (!intersection) throw new Error(`${requirement.label} is not visibly rendered`);
     const width = intersection.right - intersection.left;
     const height = intersection.bottom - intersection.top;
@@ -491,7 +583,7 @@ async function verifyAssertionHitTargets(client, requirements, model, style, met
       const commonCoveringDescendant = (chains[0] || []).find(
         (node) =>
           chains.every((chain) => chain.some((candidate) => candidate.index === node.index)) &&
-          positionedDescendantCovers(node, intersection, model, style, metrics)
+          positionedDescendantCovers(node, intersection, model, style, metrics, evaluateVisibility)
       );
       if (commonCoveringDescendant)
         throw new Error(`${requirement.label} is covered by a positioned descendant`);
@@ -513,10 +605,18 @@ async function verifyAssertionHitTargets(client, requirements, model, style, met
   };
 }
 
-function evaluateStateAssertion(assertion, model, axTree, computedStyles, metrics) {
+function evaluateStateAssertion(
+  assertion,
+  model,
+  axTree,
+  computedStyles,
+  metrics,
+  visibilityEvaluator = null
+) {
   const styleIndex = new Map(computedStyles.map((name, index) => [name, index]));
   const style = (node, name) => node.layout?.styles?.[styleIndex.get(name)] || "";
-  const visible = (node) => nodeVisibleInViewport(node, model, style, metrics);
+  const evaluateVisibility = visibilityEvaluatorFor(model, style, metrics, visibilityEvaluator);
+  const visible = (node) => nodeVisibleInViewport(node, model, style, metrics, evaluateVisibility);
   const byBackendId = new Map(
     model
       .filter((node) => Number.isInteger(node.backendNodeId))
@@ -607,19 +707,43 @@ function parsePixels(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function domObservations(model, metrics, computedStyles) {
+function declaredComponentVariantIdentity(node, groupName) {
+  const component = String(node.attributes["data-component"] || "").trim() || null;
+  const variant = String(node.attributes["data-variant"] || "").trim() || null;
+  const inputType =
+    node.nodeName === "input"
+      ? String(node.attributes.type || "text")
+          .trim()
+          .toLowerCase() || "text"
+      : null;
+  const disabled =
+    Object.prototype.hasOwnProperty.call(node.attributes, "disabled") ||
+    String(node.attributes["aria-disabled"] || "")
+      .trim()
+      .toLowerCase() === "true";
+  const nativeState = { input_type: inputType, disabled };
+  const declaration =
+    component || variant
+      ? { group: groupName, element: node.nodeName, component, variant, ...nativeState }
+      : {
+          group: groupName,
+          element: node.nodeName,
+          ...nativeState,
+          classes: [
+            ...new Set(
+              String(node.attributes.class || "")
+                .split(/\s+/)
+                .filter(Boolean)
+            ),
+          ].sort(),
+        };
+  return digest(Buffer.from(JSON.stringify(declaration)));
+}
+
+function domObservations(model, metrics, computedStyles, visibilityEvaluator = null) {
   const styleIndex = new Map(computedStyles.map((name, index) => [name, index]));
   const style = (node, name) => node.layout?.styles?.[styleIndex.get(name)] || "";
-  const visible = (node) => {
-    const bounds = node.layout?.bounds;
-    return (
-      Array.isArray(bounds) &&
-      bounds[2] > 0 &&
-      bounds[3] > 0 &&
-      style(node, "display") !== "none" &&
-      style(node, "visibility") !== "hidden"
-    );
-  };
+  const evaluateVisibility = visibilityEvaluatorFor(model, style, metrics, visibilityEvaluator);
   const issue = (code, node, detail) => {
     const locator = typeof node === "string" ? node : nodeLocator(node);
     const description = String(detail);
@@ -634,7 +758,13 @@ function domObservations(model, metrics, computedStyles) {
   const addIssue = (collection, value, kind) => {
     appendBoundedEvidence(collection, value, MAX_DOM_ISSUES, `${kind} observations`);
   };
-  const visibleNodes = model.filter(visible);
+  const visibleIntersections = new Map();
+  const visibleNodes = model.filter((node) => {
+    const intersection = evaluateVisibility(node);
+    if (!intersection) return false;
+    visibleIntersections.set(node, intersection);
+    return true;
+  });
   const headings = new Map();
   for (const node of visibleNodes.filter((candidate) => /^h[1-6]$/.test(candidate.nodeName))) {
     if (!headings.has(node.nodeName)) headings.set(node.nodeName, []);
@@ -750,13 +880,16 @@ function domObservations(model, metrics, computedStyles) {
     },
   ];
   for (const group of signatures) {
-    const byTag = new Map();
+    const byIdentity = new Map();
     for (const node of visibleNodes.filter(group.match)) {
-      const key = group.name === "heading" ? node.nodeName : group.name;
-      if (!byTag.has(key)) byTag.set(key, []);
-      byTag.get(key).push(node);
+      const key =
+        group.name === "heading"
+          ? node.nodeName
+          : declaredComponentVariantIdentity(node, group.name);
+      if (!byIdentity.has(key)) byIdentity.set(key, []);
+      byIdentity.get(key).push(node);
     }
-    for (const [key, nodes] of byTag) {
+    for (const [key, nodes] of byIdentity) {
       if (nodes.length < 2) continue;
       for (const property of group.properties) {
         const counts = new Map();
@@ -774,7 +907,10 @@ function domObservations(model, metrics, computedStyles) {
             issue(
               "visual-variance",
               node,
-              `${key} ${property}: ${style(node, property)} differs from ${majority}.`
+              `${group.name === "heading" ? key : group.name} ${property}: ${style(
+                node,
+                property
+              )} differs from ${majority}.`
             ),
             "consistency"
           );
@@ -824,19 +960,22 @@ function domObservations(model, metrics, computedStyles) {
     );
   };
   for (const parent of visibleNodes.filter(alignmentParent)) {
-    const children = (byParent.get(parent.index) || []).filter(
-      (node) => node.layout.bounds[2] >= 8 && node.layout.bounds[3] >= 8
-    );
+    const children = (byParent.get(parent.index) || []).filter((node) => {
+      const intersection = visibleIntersections.get(node);
+      return (
+        intersection.right - intersection.left >= 8 && intersection.bottom - intersection.top >= 8
+      );
+    });
     if (children.length < 3) continue;
     for (const [edge, offset] of [
       ["left", 0],
       ["right", 0],
     ]) {
       const values = children.map((node) => {
-        const bounds = node.layout.bounds;
+        const intersection = visibleIntersections.get(node);
         return {
           node,
-          value: Math.round(edge === "left" ? bounds[0] : bounds[0] + bounds[2] + offset),
+          value: Math.round(edge === "left" ? intersection.left : intersection.right + offset),
         };
       });
       const buckets = new Map();
@@ -926,25 +1065,28 @@ async function nativeSample(client, targetId, computedStyles, stateAssertion) {
   identity.target_id = targetId;
   const styleIndex = new Map(computedStyles.map((name, index) => [name, index]));
   const style = (node, name) => node.layout?.styles?.[styleIndex.get(name)] || "";
+  const visibilityEvaluator = createVisibilityEvaluator(model, style, metrics);
   const hitRequirements = evaluateStateAssertion(
     stateAssertion,
     model,
     axTree,
     computedStyles,
-    metrics
+    metrics,
+    visibilityEvaluator
   );
   const assertionVisibility = await verifyAssertionHitTargets(
     client,
     hitRequirements,
     model,
     style,
-    metrics
+    metrics,
+    visibilityEvaluator
   );
   return {
     identity,
     assertionVisibility,
     accessibility: accessibilityObservations(axTree, model),
-    dom: domObservations(model, metrics, computedStyles),
+    dom: domObservations(model, metrics, computedStyles, visibilityEvaluator),
   };
 }
 
@@ -1321,6 +1463,7 @@ if (require.main === module)
 module.exports = {
   appendBoundedEvidence,
   accessibilityObservations,
+  createVisibilityEvaluator,
   domObservations,
   evaluateStateAssertion,
   nodeVisibleInViewport,

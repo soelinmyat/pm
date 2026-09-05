@@ -13,11 +13,10 @@ const {
   resolveBrowser,
   validateMetrics,
 } = require("./artifact-render-check");
-const { isRfc3339DateTime } = require("./lib/iso-time");
+const { compareRfc3339DateTimes, isRfc3339DateTime } = require("./lib/iso-time");
 const {
   PRODUCT_UI_VISUAL_THRESHOLDS,
   inspectPdfBytes,
-  inspectPngBytes,
   inspectPngVisualBytes,
   visualDifference,
 } = require("./lib/media-inspect");
@@ -93,6 +92,10 @@ const PRODUCT_UI_STATES = Object.freeze([
 ]);
 const LEGACY_PRODUCT_UI_STATES = Object.freeze(["primary", "empty", "error", "boundary"]);
 const STATES = new Set([...PRODUCT_UI_STATES, "responsive", "print"]);
+const MAX_ROUTE_SUBJECTS = 100;
+const MAX_ROUTE_COVERAGE_ROWS = 1_000;
+const MAX_CAPTURE_ROWS = MAX_ROUTE_COVERAGE_ROWS * 2;
+const MAX_RULE_DIAGNOSTICS = 25;
 const MAX_EVIDENCE_BYTES = 64 * 1024 * 1024;
 const MAX_JSON_BYTES = 4 * 1024 * 1024;
 const MAX_CACHE_BYTES = 256 * 1024 * 1024;
@@ -131,7 +134,13 @@ const REVIEW_PROMPTS = Object.freeze({
 
 function checkDesignCritique(options) {
   const previousCache = activeReadCache;
-  activeReadCache = { files: new Map(), bytes: 0, browsers: new Map() };
+  activeReadCache = {
+    files: new Map(),
+    bytes: 0,
+    browsers: new Map(),
+    media: new Map(),
+    rowIndexes: new WeakMap(),
+  };
   try {
     return checkDesignCritiqueUncached(options);
   } finally {
@@ -147,9 +156,11 @@ function checkDesignCritiqueUncached(options) {
   const reportFile = readJsonFile(root, options.reportPath, "report", issues);
   if (!routeFile || !capturesFile || !reportFile) return { ok: false, issues };
 
-  const route = routeFile.value;
-  const captures = capturesFile.value;
+  const rawRoute = routeFile.value;
+  const rawCaptures = capturesFile.value;
   const report = reportFile.value;
+  validateRawCollectionCardinality(rawRoute, rawCaptures, issues);
+  const { route, captures } = boundedInputViews(rawRoute, rawCaptures);
   const reviewsFile =
     report?.schema_version === 2 && object(report.reviews) && text(report.reviews.path)
       ? readJsonFile(root, report.reviews.path, "reviews", issues)
@@ -221,8 +232,81 @@ function checkDesignCritiqueUncached(options) {
   return { ok: issues.length === 0, issues };
 }
 
+function validateRawCollectionCardinality(route, captures, issues) {
+  if (!object(route)) add(issues, "route", "must be an object");
+  if (
+    !Array.isArray(route?.subjects) ||
+    route.subjects.length < 1 ||
+    route.subjects.length > MAX_ROUTE_SUBJECTS
+  )
+    add(issues, "route.subjects", `must contain 1 through ${MAX_ROUTE_SUBJECTS} subjects`);
+  else validateCollectionRowObjects(route.subjects, "route.subjects", issues);
+  if (
+    !Array.isArray(route?.coverage) ||
+    route.coverage.length < 1 ||
+    route.coverage.length > MAX_ROUTE_COVERAGE_ROWS
+  )
+    add(issues, "route.coverage", `must contain 1 through ${MAX_ROUTE_COVERAGE_ROWS} rows`);
+  else validateCollectionRowObjects(route.coverage, "route.coverage", issues);
+  if (!Array.isArray(captures?.captures)) add(issues, "captures.captures", "must be an array");
+  else if (captures.captures.length > MAX_CAPTURE_ROWS)
+    add(
+      issues,
+      "captures.captures",
+      `must contain at most ${MAX_CAPTURE_ROWS} rows for ${MAX_ROUTE_COVERAGE_ROWS} coverage decisions and two rounds`
+    );
+  else validateCollectionRowObjects(captures.captures, "captures.captures", issues);
+  if (!object(captures)) add(issues, "captures", "must be an object");
+}
+
+function validateCollectionRowObjects(rows, label, issues) {
+  let invalidCount = 0;
+  let emittedDiagnostics = 0;
+  for (const [index, row] of rows.entries()) {
+    if (object(row)) continue;
+    invalidCount += 1;
+    if (emittedDiagnostics < MAX_RULE_DIAGNOSTICS - 1) {
+      add(issues, `${label}[${index}]`, "must be an object");
+      emittedDiagnostics += 1;
+    }
+  }
+  if (invalidCount > emittedDiagnostics)
+    add(
+      issues,
+      label,
+      `${invalidCount - emittedDiagnostics} additional non-object rows omitted after ${emittedDiagnostics} indexed diagnostics`
+    );
+}
+
+function boundedInputViews(route, captures) {
+  return {
+    route: object(route)
+      ? {
+          ...route,
+          subjects: boundedArrayView(route.subjects, MAX_ROUTE_SUBJECTS),
+          coverage: boundedArrayView(route.coverage, MAX_ROUTE_COVERAGE_ROWS),
+        }
+      : { subjects: [], coverage: [] },
+    captures: object(captures)
+      ? { ...captures, captures: boundedArrayView(captures.captures, MAX_CAPTURE_ROWS) }
+      : { captures: [] },
+  };
+}
+
+function boundedArrayView(value, limit) {
+  if (!Array.isArray(value) || value.length > limit) return [];
+  return value.filter((row, index) => {
+    if (!object(row)) return false;
+    activeReadCache?.rowIndexes.set(row, index);
+    return true;
+  });
+}
+
+function collectionRowIndex(row, fallback) {
+  return activeReadCache?.rowIndexes.get(row) ?? fallback;
+}
+
 function validateRoute(route, commit, baseRef, baseCommit, issues) {
-  if (!object(route)) return add(issues, "route", "must be an object");
   closed(
     route,
     ["schema_version", "run_id", "created_at", "mode", "source", "subjects", "coverage"],
@@ -261,11 +345,10 @@ function validateRoute(route, commit, baseRef, baseCommit, issues) {
     )
       add(issues, "route.source.remote_push_url_sha256", "must be SHA-256 when present");
   }
-  if (!Array.isArray(route.subjects) || route.subjects.length === 0)
-    add(issues, "route.subjects", "must contain at least one subject");
+  const subjects = route.subjects;
   const subjectIds = new Set();
-  for (const [index, subject] of (route.subjects || []).entries()) {
-    const at = `route.subjects[${index}]`;
+  for (const [index, subject] of subjects.entries()) {
+    const at = `route.subjects[${collectionRowIndex(subject, index)}]`;
     if (!object(subject)) {
       add(issues, at, "must be an object");
       continue;
@@ -285,7 +368,7 @@ function validateRoute(route, commit, baseRef, baseCommit, issues) {
     if (route.mode === "product-ui" && subject.platform === "document")
       add(issues, `${at}.platform`, "product-ui subjects cannot use document");
   }
-  validateCoverage(route, subjectIds, issues);
+  validateCoverage(route, subjects, subjectIds, issues);
 }
 
 function resolveGitIdentity(root, options, issues) {
@@ -448,12 +531,15 @@ function validateDiffIdentity(root, route, baseCommit, issues) {
   }
 }
 
-function validateCoverage(route, subjectIds, issues) {
-  if (!Array.isArray(route.coverage) || route.coverage.length === 0)
-    return add(issues, "route.coverage", "must contain coverage decisions");
+function validateCoverage(route, subjects, subjectIds, issues) {
+  const coverageRows = route.coverage;
   const ids = new Set();
-  for (const [index, item] of route.coverage.entries()) {
-    const at = `route.coverage[${index}]`;
+  const decisions = new Map();
+  let duplicateDecisionCount = 0;
+  let duplicateDecisionDiagnostics = 0;
+  for (const [index, item] of coverageRows.entries()) {
+    const sourceIndex = collectionRowIndex(item, index);
+    const at = `route.coverage[${sourceIndex}]`;
     if (!object(item)) {
       add(issues, at, "must be an object");
       continue;
@@ -461,6 +547,19 @@ function validateCoverage(route, subjectIds, issues) {
     closed(item, ["id", "subject_id", "state", "viewport", "required", "reason"], at, issues);
     if (!slug(item.id) || ids.has(item.id)) add(issues, `${at}.id`, "must be unique kebab-case");
     ids.add(item.id);
+    const decisionKey = JSON.stringify([item.subject_id, item.state, item.viewport]);
+    const priorDecision = decisions.get(decisionKey);
+    if (priorDecision !== undefined) {
+      duplicateDecisionCount += 1;
+      if (duplicateDecisionDiagnostics < MAX_RULE_DIAGNOSTICS - 1) {
+        add(
+          issues,
+          at,
+          `duplicates the subject/state/viewport decision at route.coverage[${priorDecision}]`
+        );
+        duplicateDecisionDiagnostics += 1;
+      }
+    } else decisions.set(decisionKey, sourceIndex);
     if (!subjectIds.has(item.subject_id))
       add(issues, `${at}.subject_id`, "must reference a subject");
     if (!STATES.has(item.state)) add(issues, `${at}.state`, "is invalid");
@@ -469,8 +568,14 @@ function validateCoverage(route, subjectIds, issues) {
     if (item.required === false && !text(item.reason))
       add(issues, `${at}.reason`, "is required when not applicable");
   }
-  for (const subject of route.subjects || []) {
-    const rows = route.coverage.filter((item) => item.subject_id === subject.id);
+  if (duplicateDecisionCount > duplicateDecisionDiagnostics)
+    add(
+      issues,
+      "route.coverage",
+      `${duplicateDecisionCount - duplicateDecisionDiagnostics} additional duplicate subject/state/viewport decisions omitted after ${duplicateDecisionDiagnostics} diagnostics`
+    );
+  for (const subject of subjects.filter(object)) {
+    const rows = coverageRows.filter((item) => item?.subject_id === subject?.id);
     const required = (state, viewport) =>
       rows.some((item) => item.state === state && item.viewport === viewport && item.required);
     if (route.mode === "product-ui") {
@@ -502,7 +607,6 @@ function validateCoverage(route, subjectIds, issues) {
 }
 
 function validateCaptures(root, captures, route, routeFile, runtime, issues) {
-  if (!object(captures)) return add(issues, "captures", "must be an object");
   closed(
     captures,
     ["schema_version", "run_id", "mode", "commit", "route", "captures", "evidence", "checked_at"],
@@ -518,16 +622,26 @@ function validateCaptures(root, captures, route, routeFile, runtime, issues) {
   if (!isRfc3339DateTime(captures.checked_at))
     add(issues, "captures.checked_at", "must be RFC 3339");
   validateBinding(captures.route, routeFile, "captures.route", issues);
-  const coverage = new Map((route.coverage || []).map((item) => [item.id, item]));
-  const subjects = new Map((route.subjects || []).map((item) => [item.id, item]));
+  const coverageRows = route.coverage;
+  const subjectRows = route.subjects;
+  const validCoverageRows = coverageRows.filter(object);
+  const coverage = new Map(validCoverageRows.map((item) => [item.id, item]));
+  const subjects = new Map(subjectRows.filter(object).map((item) => [item.id, item]));
   const captureIds = new Set();
+  const captureDecisions = new Map();
+  let duplicateDecisionCount = 0;
+  let duplicateDecisionDiagnostics = 0;
   const activeCoverage = new Map();
   const allCoverage = new Map();
   const decodedByCapture = new Map();
   const observationByCapture = new Map();
-  if (!Array.isArray(captures.captures)) add(issues, "captures.captures", "must be an array");
-  for (const [index, item] of (captures.captures || []).entries()) {
-    const at = `captures.captures[${index}]`;
+  const captureRows = captures.captures;
+  const acceptedCaptureRows = [];
+  captures.captures = acceptedCaptureRows;
+  const capturesByCoverage = new Map();
+  for (const [index, item] of captureRows.entries()) {
+    const sourceIndex = collectionRowIndex(item, index);
+    const at = `captures.captures[${sourceIndex}]`;
     if (!object(item) || !slug(item.id) || captureIds.has(item.id)) {
       add(issues, `${at}.id`, "must be unique kebab-case");
       continue;
@@ -554,9 +668,31 @@ function validateCaptures(root, captures, route, routeFile, runtime, issues) {
       issues
     );
     captureIds.add(item.id);
+    const decisionKey =
+      typeof item.coverage_id === "string" && Number.isInteger(item.round)
+        ? JSON.stringify([item.coverage_id, item.round])
+        : null;
+    const priorDecision = decisionKey === null ? undefined : captureDecisions.get(decisionKey);
+    if (priorDecision !== undefined) {
+      duplicateDecisionCount += 1;
+      if (duplicateDecisionDiagnostics < MAX_RULE_DIAGNOSTICS - 1) {
+        add(
+          issues,
+          at,
+          `duplicates the coverage/round capture at captures.captures[${priorDecision}]`
+        );
+        duplicateDecisionDiagnostics += 1;
+      }
+      continue;
+    }
+    if (decisionKey !== null) captureDecisions.set(decisionKey, sourceIndex);
+    acceptedCaptureRows.push(item);
     if (!coverage.has(item.coverage_id))
       add(issues, `${at}.coverage_id`, "must reference route coverage");
     allCoverage.set(item.coverage_id, (allCoverage.get(item.coverage_id) || 0) + 1);
+    const matchingCaptures = capturesByCoverage.get(item.coverage_id) || [];
+    matchingCaptures.push(item);
+    capturesByCoverage.set(item.coverage_id, matchingCaptures);
     if (item.active === true)
       activeCoverage.set(item.coverage_id, (activeCoverage.get(item.coverage_id) || 0) + 1);
     if (typeof item.active !== "boolean") add(issues, `${at}.active`, "must be boolean");
@@ -601,7 +737,13 @@ function validateCaptures(root, captures, route, routeFile, runtime, issues) {
     if (coverage.get(item.coverage_id)?.state === "print" && item.kind !== "pdf")
       add(issues, `${at}.kind`, "print coverage requires a PDF");
   }
-  for (const item of route.coverage || []) {
+  if (duplicateDecisionCount > duplicateDecisionDiagnostics)
+    add(
+      issues,
+      "captures.captures",
+      `${duplicateDecisionCount - duplicateDecisionDiagnostics} additional duplicate coverage/round captures omitted after ${duplicateDecisionDiagnostics} diagnostics`
+    );
+  for (const item of validCoverageRows) {
     const activeCount = activeCoverage.get(item.id) || 0;
     const totalCount = allCoverage.get(item.id) || 0;
     if (item.required && activeCount !== 1)
@@ -611,7 +753,7 @@ function validateCaptures(root, captures, route, routeFile, runtime, issues) {
         `required coverage ${item.id} must have exactly one active capture`
       );
     if (item.required && activeCount === 1) {
-      const rows = (captures.captures || []).filter((capture) => capture.coverage_id === item.id);
+      const rows = capturesByCoverage.get(item.id) || [];
       const active = rows.find((capture) => capture.active === true);
       const latestRound = Math.max(...rows.map((capture) => capture.round));
       if (active.round !== latestRound)
@@ -620,13 +762,13 @@ function validateCaptures(root, captures, route, routeFile, runtime, issues) {
     if (!item.required && totalCount > 0)
       add(issues, `captures.captures`, `non-applicable coverage ${item.id} cannot have a capture`);
   }
-  validateDistinctActiveCaptures(root, captures.captures || [], coverage, decodedByCapture, issues);
-  validateCrossStateVisualDistance(captures.captures || [], coverage, decodedByCapture, issues);
+  validateDistinctActiveCaptures(root, acceptedCaptureRows, coverage, decodedByCapture, issues);
+  validateCrossStateVisualDistance(acceptedCaptureRows, coverage, decodedByCapture, issues);
   validateEvidence(
     root,
     captures.evidence,
     route,
-    captures.captures || [],
+    acceptedCaptureRows,
     observationByCapture,
     issues
   );
@@ -669,37 +811,55 @@ function validateDistinctActiveCaptures(root, captureRows, coverage, decodedByCa
 }
 
 function validateCrossStateVisualDistance(captureRows, coverage, decodedByCapture, issues) {
-  const active = captureRows.filter(
-    (capture) =>
-      capture?.active === true &&
-      coverage.get(capture.coverage_id)?.required === true &&
-      capture.kind === "screenshot" &&
-      decodedByCapture.has(capture.id)
-  );
-  for (let leftIndex = 0; leftIndex < active.length; leftIndex += 1) {
-    for (let rightIndex = leftIndex + 1; rightIndex < active.length; rightIndex += 1) {
-      const left = active[leftIndex];
-      const right = active[rightIndex];
-      const leftCoverage = coverage.get(left.coverage_id);
-      const rightCoverage = coverage.get(right.coverage_id);
-      if (
-        leftCoverage.subject_id !== rightCoverage.subject_id ||
-        leftCoverage.viewport !== rightCoverage.viewport ||
-        leftCoverage.state === rightCoverage.state
-      )
-        continue;
-      const difference = visualDifference(
-        decodedByCapture.get(left.id),
-        decodedByCapture.get(right.id)
-      );
-      if (!isMaterialVisualDifference(difference))
-        add(
-          issues,
-          `captures.captures.${right.id}`,
-          `states ${leftCoverage.state} and ${rightCoverage.state} for the same subject and viewport require materially different decoded pixels`
+  const groups = new Map();
+  for (const capture of captureRows) {
+    const routeCoverage = coverage.get(capture?.coverage_id);
+    if (
+      capture?.active !== true ||
+      routeCoverage?.required !== true ||
+      capture.kind !== "screenshot" ||
+      !decodedByCapture.has(capture.id)
+    )
+      continue;
+    const groupKey = JSON.stringify([routeCoverage.subject_id, routeCoverage.viewport]);
+    const states = groups.get(groupKey) || new Map();
+    if (!states.has(routeCoverage.state))
+      states.set(routeCoverage.state, { capture, coverage: routeCoverage });
+    groups.set(groupKey, states);
+  }
+
+  let violationCount = 0;
+  let emittedDiagnostics = 0;
+  for (const states of groups.values()) {
+    const active = [...states.values()];
+    for (let leftIndex = 0; leftIndex < active.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < active.length; rightIndex += 1) {
+        const left = active[leftIndex];
+        const right = active[rightIndex];
+        const difference = visualDifference(
+          decodedByCapture.get(left.capture.id),
+          decodedByCapture.get(right.capture.id)
         );
+        if (!isMaterialVisualDifference(difference)) {
+          violationCount += 1;
+          if (emittedDiagnostics < MAX_RULE_DIAGNOSTICS - 1) {
+            add(
+              issues,
+              `captures.captures.${right.capture.id}`,
+              `states ${left.coverage.state} and ${right.coverage.state} for the same subject and viewport require materially different decoded pixels`
+            );
+            emittedDiagnostics += 1;
+          }
+        }
+      }
     }
   }
+  if (violationCount > emittedDiagnostics)
+    add(
+      issues,
+      "captures.captures",
+      `${violationCount - emittedDiagnostics} additional cross-state visual-distance failures omitted after ${emittedDiagnostics} diagnostics`
+    );
 }
 
 function validateTrustedCaptureObservation(
@@ -1151,12 +1311,15 @@ function validateTrustedObservationIdentity(
 }
 
 function validateTrustedTimestamps(manifest, label, issues) {
-  let previous = 0;
+  let previous = null;
   for (const field of ["started_at", "page_ready_at", "captured_at", "completed_at"]) {
-    const parsed = Date.parse(manifest.timestamps[field]);
-    if (!isRfc3339DateTime(manifest.timestamps[field]) || parsed < previous)
+    const timestamp = manifest.timestamps[field];
+    if (
+      !isRfc3339DateTime(timestamp) ||
+      (previous !== null && compareRfc3339DateTimes(timestamp, previous) < 0)
+    )
       add(issues, `${label}.timestamps`, "must contain ordered RFC 3339 timestamps");
-    previous = Number.isFinite(parsed) ? parsed : previous;
+    if (isRfc3339DateTime(timestamp)) previous = timestamp;
   }
   if (manifest.timestamps.captured_at !== manifest.capture.captured_at)
     add(issues, `${label}.timestamps.captured_at`, "must equal the capture timestamp");
@@ -1550,7 +1713,7 @@ function validateRenderedPng(root, item, width, height, label, seen, issues) {
   if (item.sha256 !== `sha256:${file.sha256}` || item.bytes !== file.bytes.length)
     add(issues, label, "render hash and byte count must match the file");
   try {
-    const dimensions = inspectPngBytes(file.bytes);
+    const dimensions = inspectMediaOnce(file, "png", inspectPngVisualBytes);
     if (dimensions.width !== width || dimensions.height !== height)
       add(issues, label, `render dimensions must equal ${width}x${height}`);
   } catch (error) {
@@ -1779,7 +1942,7 @@ function validateReviews(root, reviews, route, captures, routeFile, capturesFile
   if (
     isRfc3339DateTime(reviews.checked_at) &&
     isRfc3339DateTime(report.checked_at) &&
-    Date.parse(reviews.checked_at) > Date.parse(report.checked_at)
+    compareRfc3339DateTimes(reviews.checked_at, report.checked_at) > 0
   )
     add(issues, "reviews.checked_at", "must not be later than report.checked_at");
   if (!Array.isArray(reviews.rounds)) {
@@ -2076,7 +2239,7 @@ function validateReviewContextSource(root, binding, route, routeFile, label, iss
     state.createdAt = source.created_at;
     if (
       isRfc3339DateTime(route.created_at) &&
-      Date.parse(source.created_at) < Date.parse(route.created_at)
+      compareRfc3339DateTimes(source.created_at, route.created_at) < 0
     )
       add(issues, `${label}.created_at`, "must not precede route.created_at");
   }
@@ -2134,7 +2297,7 @@ function validateReviewCaptureManifest(
     state.createdAt = manifest.created_at;
     if (
       isRfc3339DateTime(route.created_at) &&
-      Date.parse(manifest.created_at) < Date.parse(route.created_at)
+      compareRfc3339DateTimes(manifest.created_at, route.created_at) < 0
     )
       add(issues, `${label}.created_at`, "must not precede route.created_at");
   }
@@ -2146,7 +2309,7 @@ function validateReviewCaptureManifest(
     if (
       isRfc3339DateTime(capture.captured_at) &&
       state.createdAt &&
-      Date.parse(capture.captured_at) > Date.parse(state.createdAt)
+      compareRfc3339DateTimes(capture.captured_at, state.createdAt) > 0
     )
       add(issues, `${label}.created_at`, `must not precede capture ${id}`);
   }
@@ -2255,13 +2418,13 @@ function validateReviewExecution(
   if (
     isRfc3339DateTime(execution.started_at) &&
     isRfc3339DateTime(execution.completed_at) &&
-    Date.parse(execution.started_at) > Date.parse(execution.completed_at)
+    compareRfc3339DateTimes(execution.started_at, execution.completed_at) > 0
   )
     add(issues, label, "completed_at must not precede started_at");
   if (
     isRfc3339DateTime(execution.completed_at) &&
     isRfc3339DateTime(reviewsCheckedAt) &&
-    Date.parse(execution.completed_at) > Date.parse(reviewsCheckedAt)
+    compareRfc3339DateTimes(execution.completed_at, reviewsCheckedAt) > 0
   )
     add(issues, `${label}.completed_at`, "must not be later than reviews.checked_at");
   for (const [sourceLabel, sourceTime] of [
@@ -2271,7 +2434,7 @@ function validateReviewExecution(
     if (
       isRfc3339DateTime(sourceTime) &&
       isRfc3339DateTime(execution.started_at) &&
-      Date.parse(sourceTime) > Date.parse(execution.started_at)
+      compareRfc3339DateTimes(sourceTime, execution.started_at) > 0
     )
       add(issues, `${label}.started_at`, `must not precede the bound ${sourceLabel}`);
   state.receiptRecordedAt = validateReviewReceipt(
@@ -2340,12 +2503,12 @@ function validateReviewReceipt(root, binding, review, inputState, reviewsChecked
   else {
     if (
       isRfc3339DateTime(receipt.completed_at) &&
-      Date.parse(receipt.recorded_at) < Date.parse(receipt.completed_at)
+      compareRfc3339DateTimes(receipt.recorded_at, receipt.completed_at) < 0
     )
       add(issues, `${at}.recorded_at`, "must not precede completed_at");
     if (
       isRfc3339DateTime(reviewsCheckedAt) &&
-      Date.parse(receipt.recorded_at) > Date.parse(reviewsCheckedAt)
+      compareRfc3339DateTimes(receipt.recorded_at, reviewsCheckedAt) > 0
     )
       add(issues, `${at}.recorded_at`, "must not be later than reviews.checked_at");
   }
@@ -2750,14 +2913,17 @@ function validateReviewRoundChronology(state, captures, reportRounds, issues) {
     );
     if (
       previousBoundary !== null &&
-      (currentManifest === null || currentManifest <= previousBoundary)
+      (currentManifest === null || compareRfc3339DateTimes(currentManifest, previousBoundary) <= 0)
     )
       add(
         issues,
         `reviews.rounds[${round - 1}]`,
         `round ${round} capture manifest must be created after every round ${round - 1} review receipt`
       );
-    if (previousBoundary !== null && (currentStart === null || currentStart <= previousBoundary))
+    if (
+      previousBoundary !== null &&
+      (currentStart === null || compareRfc3339DateTimes(currentStart, previousBoundary) <= 0)
+    )
       add(
         issues,
         `reviews.rounds[${round - 1}]`,
@@ -2778,7 +2944,7 @@ function validateReviewRoundChronology(state, captures, reportRounds, issues) {
       if (
         previousBoundary !== null &&
         isRfc3339DateTime(capture.captured_at) &&
-        Date.parse(capture.captured_at) <= previousBoundary
+        compareRfc3339DateTimes(capture.captured_at, previousBoundary) <= 0
       )
         add(
           issues,
@@ -2789,17 +2955,21 @@ function validateReviewRoundChronology(state, captures, reportRounds, issues) {
 }
 
 function earliestTimestamp(values) {
-  const timestamps = values
-    .filter((value) => isRfc3339DateTime(value))
-    .map((value) => Date.parse(value));
-  return timestamps.length > 0 ? Math.min(...timestamps) : null;
+  const timestamps = values.filter((value) => isRfc3339DateTime(value));
+  return timestamps.reduce(
+    (earliest, value) =>
+      earliest === null || compareRfc3339DateTimes(value, earliest) < 0 ? value : earliest,
+    null
+  );
 }
 
 function latestTimestamp(values) {
-  const timestamps = values
-    .filter((value) => isRfc3339DateTime(value))
-    .map((value) => Date.parse(value));
-  return timestamps.length > 0 ? Math.max(...timestamps) : null;
+  const timestamps = values.filter((value) => isRfc3339DateTime(value));
+  return timestamps.reduce(
+    (latest, value) =>
+      latest === null || compareRfc3339DateTimes(value, latest) > 0 ? value : latest,
+    null
+  );
 }
 
 function validateReconciliation(report, route, captures, reviewState, issues) {
@@ -3235,7 +3405,7 @@ function validateFindings(root, findings, route, captures, outcome, issues) {
         before.round >= after.round ||
         !isRfc3339DateTime(before.captured_at) ||
         !isRfc3339DateTime(after.captured_at) ||
-        Date.parse(before.captured_at) >= Date.parse(after.captured_at) ||
+        compareRfc3339DateTimes(before.captured_at, after.captured_at) >= 0 ||
         !finding.evidence_ids.includes(before.id) ||
         !finding.evidence_ids.includes(after.id)
       )
@@ -3273,8 +3443,8 @@ function visualDifferenceForCaptures(root, before, after) {
     const afterFile = readBoundFile(root, after.path, "after capture", []);
     if (!beforeFile || !afterFile) return null;
     return visualDifference(
-      inspectPngVisualBytes(beforeFile.bytes),
-      inspectPngVisualBytes(afterFile.bytes)
+      inspectMediaOnce(beforeFile, "png", inspectPngVisualBytes),
+      inspectMediaOnce(afterFile, "png", inspectPngVisualBytes)
     );
   } catch {
     return null;
@@ -3289,13 +3459,28 @@ function isMaterialVisualDifference(difference) {
   );
 }
 
+function inspectMediaOnce(file, profile, inspect) {
+  const cacheKey = `${profile}:${file.sha256}`;
+  let cached = activeReadCache?.media.get(cacheKey);
+  if (!cached) {
+    try {
+      cached = { value: inspect(file.bytes) };
+    } catch (error) {
+      cached = { error: error instanceof Error ? error.message : String(error) };
+    }
+    activeReadCache?.media.set(cacheKey, cached);
+  }
+  if (cached.error !== undefined) throw new Error(cached.error);
+  return cached.value;
+}
+
 function validateCaptureBytes(root, item, label, issues) {
   if (!object(item) || !text(item.path)) return;
   const file = readBoundFile(root, item.path, `${label}.path`, []);
   if (!file) return;
   try {
     if (item.kind === "screenshot") {
-      const dimensions = inspectPngVisualBytes(file.bytes);
+      const dimensions = inspectMediaOnce(file, "png", inspectPngVisualBytes);
       if (dimensions.width !== item.width || dimensions.height !== item.height)
         add(
           issues,
@@ -3305,7 +3490,7 @@ function validateCaptureBytes(root, item, label, issues) {
       return dimensions;
     }
     if (item.kind === "pdf") {
-      const inspected = inspectPdfBytes(file.bytes);
+      const inspected = inspectMediaOnce(file, "pdf", inspectPdfBytes);
       if (!positiveInt(item.pages) || item.pages !== inspected.pages)
         add(issues, label, `declared pages must equal ${inspected.pages}`);
       return inspected;
