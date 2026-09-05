@@ -371,7 +371,7 @@ test("CLI gives legacy journals an explicit body rebind and re-observation path"
   }
 });
 
-test("CLI requires a fresh raw-body observation before beginning Merge", () => {
+test("CLI rejects stale PR-body observations and consumes a fresh observation once", () => {
   const item = fixture();
   try {
     const file = path.join(item.root, item.transactionPath);
@@ -406,18 +406,34 @@ test("CLI requires a fresh raw-body observation before beginning Merge", () => {
 
     const observationPath = ".pm/dev-sessions/example/ship/observations/pr-body.json";
     fs.mkdirSync(path.dirname(path.join(item.root, observationPath)), { recursive: true });
-    fs.writeFileSync(
-      path.join(item.root, observationPath),
-      `${JSON.stringify({
-        repository: "acme/widget",
-        pr_number: 7,
-        state: "OPEN",
-        head_oid: COMMIT,
-        base: "main",
-        draft: false,
-        body: PR_BODY,
-      })}\n`
+    const observation = {
+      repository: "acme/widget",
+      pr_number: 7,
+      state: "OPEN",
+      head_oid: COMMIT,
+      base: "main",
+      draft: false,
+      body: PR_BODY,
+      observed_at: "2000-01-01T00:00:00.000Z",
+    };
+    fs.writeFileSync(path.join(item.root, observationPath), `${JSON.stringify(observation)}\n`);
+    const transactionBeforeStaleAttestation = fs.readFileSync(file, "utf8");
+    const staleAttestation = run(
+      item.root,
+      "attest-pr-body",
+      "--transaction",
+      item.transactionPath,
+      "--observation-file",
+      observationPath,
+      "--json"
     );
+    assert.notEqual(staleAttestation.status, 0);
+    assert.match(staleAttestation.stderr, /last 5 minutes/);
+    assert.equal(fs.readFileSync(file, "utf8"), transactionBeforeStaleAttestation);
+    assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).pr_body_attestation, null);
+
+    observation.observed_at = new Date().toISOString();
+    fs.writeFileSync(path.join(item.root, observationPath), `${JSON.stringify(observation)}\n`);
     const attested = run(
       item.root,
       "attest-pr-body",
@@ -447,7 +463,44 @@ test("CLI requires a fresh raw-body observation before beginning Merge", () => {
     assert.equal(JSON.parse(begun.stdout).decision, "execute");
     const saved = JSON.parse(fs.readFileSync(file, "utf8"));
     assert.equal(saved.pr_body_attestation.body_sha256, PR_BODY_SHA256);
+    assert.equal(saved.pr_body_attestation.observed_at, observation.observed_at);
     assert.equal(saved.pr_body_attestation.consumed_by_attempt, 1);
+
+    const absentObservationPath = ".pm/dev-sessions/example/ship/observations/merge-absent.json";
+    fs.writeFileSync(
+      path.join(item.root, absentObservationPath),
+      `${JSON.stringify({ state: "OPEN" })}\n`
+    );
+    const retrySafe = run(
+      item.root,
+      "reconcile",
+      "--transaction",
+      item.transactionPath,
+      "--effect",
+      "merge",
+      "--outcome",
+      "absent",
+      "--observation-file",
+      absentObservationPath,
+      "--json"
+    );
+    assert.equal(retrySafe.status, 0, retrySafe.stderr);
+    assert.equal(JSON.parse(retrySafe.stdout).decision, "retry-safe");
+    const reused = run(
+      item.root,
+      "begin",
+      "--transaction",
+      item.transactionPath,
+      "--effect",
+      "merge",
+      "--session",
+      item.sessionPath,
+      "--actor",
+      "root",
+      "--json"
+    );
+    assert.notEqual(reused.status, 0);
+    assert.match(reused.stderr, /new one-use PR body attestation/);
   } finally {
     item.cleanup();
   }
@@ -485,6 +538,7 @@ test("completed legacy delivery stays byte-stable across status and validate", (
     };
     value = planEffect(value, { effect: "merge", target: mergeTarget });
     value = attestPrBody(value, {
+      timestamp: "2026-07-14T00:00:01.000Z",
       observation: {
         repository: "acme/widget",
         pr_number: 7,
@@ -493,12 +547,14 @@ test("completed legacy delivery stays byte-stable across status and validate", (
         base: "main",
         draft: false,
         body: PR_BODY,
+        observed_at: "2026-07-14T00:00:00.000Z",
       },
     });
     value = beginEffect(value, {
       effect: "merge",
       authority: { merge: true },
       actor: "root",
+      timestamp: "2026-07-14T00:00:02.000Z",
     }).transaction;
     const mergeReceipt = {
       pr_number: 7,

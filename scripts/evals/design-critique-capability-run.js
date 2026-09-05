@@ -5,6 +5,10 @@ const crypto = require("node:crypto");
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const {
+  writeProjectFileAtomic,
+  writeProjectJsonAtomic,
+} = require("../lib/project-atomic-write.js");
 const { readBoundedFile } = require("../lib/safe-json-file.js");
 const { readCapabilityJson } = require("./design-critique-capability-input.js");
 
@@ -45,6 +49,20 @@ function runCapabilityBatch(options) {
 
   const requestedProfile = loadQualityProfile(rootDir, options.profileId);
   const runtimeProfile = resolveRuntimeProfile(requestedProfile, options.adapterOverride);
+  const requestedOutPath = path.resolve(
+    options.outPath ||
+      defaultOutPath(rootDir, {
+        benchmark_id: oracle.benchmark_id,
+        requested_profile: requestedProfile,
+        repeat: options.repeat,
+      })
+  );
+  const outputTarget = prepareCapabilityOutputTarget({
+    rootDir,
+    requestedOutPath,
+    explicit: Boolean(options.outPath),
+  });
+  prepareCapabilityRepositoryLayout(rootDir, outputTarget);
   const cases = [];
   const failures = [];
 
@@ -69,6 +87,12 @@ function runCapabilityBatch(options) {
       const hadCodexBin = Object.prototype.hasOwnProperty.call(process.env, "PM_EVAL_CODEX_BIN");
       const previousCodexBin = process.env.PM_EVAL_CODEX_BIN;
       try {
+        assertRepositoryDirectory(rootDir, path.join(rootDir, "eval-results", "runs"));
+        assertRepositoryEntryAbsent(
+          rootDir,
+          path.join(rootDir, "eval-results", "runs", runId),
+          "exact capability run directory"
+        );
         if (isolation.launchBin) process.env.PM_EVAL_CODEX_BIN = isolation.launchBin;
         verdict = runEval({
           rootDir,
@@ -87,7 +111,9 @@ function runCapabilityBatch(options) {
             runIdentity,
             prepared: isolation,
           });
-          if (fs.existsSync(path.join(rootDir, "eval-results", "runs", runId))) {
+          const completedRunDir = path.join(rootDir, "eval-results", "runs", runId);
+          if (repositoryEntryExists(rootDir, completedRunDir)) {
+            assertRepositoryDirectory(rootDir, completedRunDir);
             writeOracleIsolation({ rootDir, runIdentity, evidence });
           }
         } finally {
@@ -131,8 +157,7 @@ function runCapabilityBatch(options) {
     failures,
     created_at: new Date().toISOString(),
   };
-  const outPath = path.resolve(options.outPath || defaultOutPath(rootDir, bundle));
-  writePrivateJson(outPath, bundle);
+  const outPath = writeCapabilityOutput(outputTarget, bundle);
   return { exitCode: failures.length === 0 ? 0 : 1, bundle, outPath, rootDir };
 }
 
@@ -256,18 +281,16 @@ function retireCapabilityScenario({ scenarioRoot, scenarioDir }) {
   if (existing.isSymbolicLink() || !existing.isDirectory()) {
     throw new Error("existing capability scenario must be a real repository-owned directory");
   }
+  const rootDir = path.dirname(path.dirname(scenarioRoot));
+  const existingIdentity = repositoryDirectoryIdentity(rootDir, scenarioDir);
 
   const retired = path.join(
     scenarioRoot,
     `.retired-${process.pid}-${crypto.randomBytes(12).toString("hex")}`
   );
+  assertRepositoryEntryAbsent(rootDir, retired, "retired capability scenario");
   fs.renameSync(scenarioDir, retired);
-  const retiredStat = fs.lstatSync(retired);
-  if (retiredStat.isSymbolicLink() || !retiredStat.isDirectory()) {
-    throw new Error("retired capability scenario changed before cleanup");
-  }
-  assertRealDirectoryChain(path.dirname(path.dirname(scenarioRoot)), retired);
-  fs.rmSync(retired, { recursive: true, force: false });
+  removeQuarantinedRepositoryDirectory(rootDir, retired, existingIdentity);
 }
 
 function story(scenarioId) {
@@ -538,33 +561,46 @@ function prepareCandidateIsolation({
   const sourceCanaryBytes = crypto.randomBytes(32);
   const runCanaryBytes = crypto.randomBytes(32);
   const launchNonce = crypto.randomBytes(32).toString("hex");
-  let createdIsolationDir = false;
-  let createdRunDir = false;
+  prepareRepositoryDirectories(rootDir, [
+    path.dirname(isolationDir),
+    sourceCanaryDir,
+    path.dirname(runDir),
+  ]);
+  assertRepositoryEntryAbsent(rootDir, isolationDir, "exact capability isolation directory");
+  assertRepositoryEntryAbsent(rootDir, runDir, "exact capability run directory");
+
+  let isolationIdentity = null;
+  let runIdentityOnDisk = null;
+  let sourceCanaryIdentity = null;
+  let runCanaryIdentity = null;
   const cleanup = () => {
     try {
-      fs.rmSync(sourceCanaryPath, { force: true });
-      fs.rmdirSync(sourceCanaryDir);
+      if (sourceCanaryIdentity) {
+        removeRepositoryFile(rootDir, sourceCanaryPath, sourceCanaryIdentity);
+        sourceCanaryIdentity = null;
+      }
     } catch {
-      // The shared canary directory can contain another concurrent run.
+      // Leave a changed canary path intact for diagnosis.
     }
   };
 
   try {
-    if (fs.existsSync(runDir)) {
-      throw new Error("exact run directory already exists before isolation preflight");
-    }
-    fs.mkdirSync(path.dirname(isolationDir), { recursive: true });
-    fs.mkdirSync(isolationDir, { recursive: false });
-    createdIsolationDir = true;
-    fs.mkdirSync(sourceCanaryDir, { recursive: true });
-    fs.writeFileSync(sourceCanaryPath, sourceCanaryBytes, { mode: 0o600, flag: "wx" });
-    fs.mkdirSync(path.dirname(runDir), { recursive: true });
-    fs.mkdirSync(runDir, { recursive: false });
-    createdRunDir = true;
-    fs.writeFileSync(runCanaryPath, runCanaryBytes, { mode: 0o600, flag: "wx" });
+    isolationIdentity = createRepositoryDirectoryExclusive(
+      rootDir,
+      isolationDir,
+      "exact capability isolation directory"
+    );
+    sourceCanaryIdentity = writeRepositoryFile(rootDir, sourceCanaryPath, sourceCanaryBytes, 0o600);
+    runIdentityOnDisk = createRepositoryDirectoryExclusive(
+      rootDir,
+      runDir,
+      "exact capability run directory"
+    );
+    runCanaryIdentity = writeRepositoryFile(rootDir, runCanaryPath, runCanaryBytes, 0o600);
+    runIdentityOnDisk = refreshRepositoryDirectoryIdentity(rootDir, runDir, runIdentityOnDisk);
 
     const policyBytes = Buffer.from(capabilitySandboxPolicy(boundary, runDir));
-    fs.writeFileSync(policyPath, policyBytes, { mode: 0o600, flag: "wx" });
+    writeRepositoryFile(rootDir, policyPath, policyBytes, 0o600);
     const policySha256 = digest(policyBytes);
     const receiptBytes = Buffer.from(
       `${JSON.stringify(
@@ -587,7 +623,12 @@ function prepareCandidateIsolation({
         receiptBytes,
       })
     );
-    fs.writeFileSync(launcherPath, launcherBytes, { mode: 0o700, flag: "wx" });
+    writeRepositoryFile(rootDir, launcherPath, launcherBytes, 0o700);
+    isolationIdentity = refreshRepositoryDirectoryIdentity(
+      rootDir,
+      isolationDir,
+      isolationIdentity
+    );
 
     const preflight = sandboxRunner(
       sandboxBin,
@@ -603,13 +644,15 @@ function prepareCandidateIsolation({
       ],
       { encoding: "utf8", timeout: 10_000 }
     );
-    fs.rmSync(runCanaryPath, { force: true });
-    fs.rmdirSync(runDir);
-    createdRunDir = false;
+    removeRepositoryFile(rootDir, runCanaryPath, runCanaryIdentity);
+    runCanaryIdentity = null;
+    runIdentityOnDisk = refreshRepositoryDirectoryIdentity(rootDir, runDir, runIdentityOnDisk);
+    removeRepositoryDirectory(rootDir, runDir, runIdentityOnDisk);
+    runIdentityOnDisk = null;
 
     if (preflight.error || preflight.signal || preflight.status !== 0) {
-      fs.rmSync(isolationDir, { recursive: true, force: true });
-      createdIsolationDir = false;
+      removeRepositoryDirectory(rootDir, isolationDir, isolationIdentity, { recursive: true });
+      isolationIdentity = null;
       cleanup();
       return {
         launchBin: null,
@@ -632,7 +675,7 @@ function prepareCandidateIsolation({
       sandbox_exec: sandboxBin,
       candidate_bin: candidateBin,
     };
-    writePrivateJson(preflightPath, preflightArtifact);
+    writeRepositoryPrivateJson(rootDir, preflightPath, preflightArtifact);
     const bindings = {
       policy: fileBinding(rootDir, relative(rootDir, policyPath)),
       launcher: fileBinding(rootDir, relative(rootDir, launcherPath)),
@@ -667,14 +710,25 @@ function prepareCandidateIsolation({
     };
   } catch (error) {
     try {
-      if (createdRunDir && fs.existsSync(runCanaryPath)) {
-        fs.rmSync(runCanaryPath, { force: true });
+      if (runCanaryIdentity) {
+        removeRepositoryFile(rootDir, runCanaryPath, runCanaryIdentity);
+        runCanaryIdentity = null;
+        runIdentityOnDisk = refreshRepositoryDirectoryIdentity(rootDir, runDir, runIdentityOnDisk);
       }
-      if (createdRunDir && fs.existsSync(runDir)) fs.rmdirSync(runDir);
+      if (runIdentityOnDisk) {
+        removeRepositoryDirectory(rootDir, runDir, runIdentityOnDisk);
+        runIdentityOnDisk = null;
+      }
     } catch {
       // Leave an unexpected non-empty run directory intact for diagnosis.
     }
-    if (createdIsolationDir) fs.rmSync(isolationDir, { recursive: true, force: true });
+    if (isolationIdentity) {
+      try {
+        removeRepositoryDirectory(rootDir, isolationDir, isolationIdentity, { recursive: true });
+      } catch {
+        // Leave a changed isolation directory intact for diagnosis.
+      }
+    }
     cleanup();
     return {
       launchBin: null,
@@ -849,7 +903,8 @@ function collectEvidence({ rootDir, item, verdict, runtimeProfile, runIdentity }
 }
 
 function writeStubHarnessLedger(rootDir, runId) {
-  writePrivateJson(
+  writeRepositoryPrivateJson(
+    rootDir,
     path.join(rootDir, "eval-results", "runs", runId, "artifacts", CANDIDATE_FINDINGS_NAME),
     {
       schema_version: 1,
@@ -861,7 +916,8 @@ function writeStubHarnessLedger(rootDir, runId) {
 }
 
 function writeOracleIsolation({ rootDir, runIdentity, evidence }) {
-  writePrivateJson(
+  writeRepositoryPrivateJson(
+    rootDir,
     path.join(
       rootDir,
       "eval-results",
@@ -915,12 +971,288 @@ function defaultOutPath(rootDir, bundle) {
   );
 }
 
-function writePrivateJson(filePath, value) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  const temporary = `${filePath}.tmp-${process.pid}-${crypto.randomBytes(6).toString("hex")}`;
-  fs.writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600, flag: "wx" });
-  fs.renameSync(temporary, filePath);
-  fs.chmodSync(filePath, 0o600);
+function prepareCapabilityRepositoryLayout(rootDir, outputTarget) {
+  const outputDirectories = [
+    path.join(rootDir, "eval-results", "capability-scenarios"),
+    path.join(rootDir, "eval-results", "capability-isolation"),
+    path.join(rootDir, "eval-results", "oracle-isolation-preflight"),
+    path.join(rootDir, "eval-results", "runs"),
+  ];
+  if (outputTarget.kind === "repository") {
+    outputDirectories.push(path.dirname(outputTarget.path));
+  }
+  prepareRepositoryDirectories(rootDir, outputDirectories);
+  if (outputTarget.kind === "repository") {
+    assertReplaceableFile(outputTarget.path, "capability output");
+  }
+}
+
+function prepareCapabilityOutputTarget({ rootDir, requestedOutPath, explicit }) {
+  const absolute = path.resolve(requestedOutPath);
+  if (inside(rootDir, absolute)) {
+    return {
+      kind: "repository",
+      path: absolute,
+      rootDir,
+      relativePath: relative(rootDir, absolute),
+    };
+  }
+  if (!explicit) throw new Error("default capability output must remain inside the repository");
+
+  let ancestor = path.dirname(absolute);
+  const missing = [];
+  while (true) {
+    try {
+      const canonicalAncestor = fs.realpathSync(ancestor);
+      assertRealDirectory(canonicalAncestor, "explicit capability output ancestor");
+      const relativePath = [...missing, path.basename(absolute)].join("/");
+      return {
+        kind: "external",
+        rootDir: canonicalAncestor,
+        relativePath,
+        path: path.join(canonicalAncestor, ...missing, path.basename(absolute)),
+      };
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      const parent = path.dirname(ancestor);
+      if (parent === ancestor) throw error;
+      missing.unshift(path.basename(ancestor));
+      ancestor = parent;
+    }
+  }
+}
+
+function writeCapabilityOutput(target, value) {
+  writeProjectJsonAtomic(target.rootDir, target.relativePath, value, {
+    fileMode: 0o600,
+    directoryMode: 0o700,
+    maxBytes: MAX_CAPABILITY_EVIDENCE_BYTES,
+  });
+  return target.path;
+}
+
+function writeRepositoryPrivateJson(rootDir, filePath, value) {
+  prepareRepositoryDirectories(rootDir, [path.dirname(filePath)]);
+  writeProjectJsonAtomic(rootDir, relative(rootDir, filePath), value, {
+    fileMode: 0o600,
+    directoryMode: 0o700,
+    maxBytes: MAX_CAPABILITY_EVIDENCE_BYTES,
+  });
+  return repositoryFileIdentity(rootDir, filePath);
+}
+
+function writeRepositoryFile(rootDir, filePath, value, fileMode) {
+  const bytes = Buffer.isBuffer(value) ? value : Buffer.from(String(value));
+  prepareRepositoryDirectories(rootDir, [path.dirname(filePath)]);
+  writeProjectFileAtomic(rootDir, relative(rootDir, filePath), bytes, {
+    replace: false,
+    fileMode,
+    directoryMode: 0o700,
+    maxBytes: Math.max(bytes.length, 1),
+  });
+  return repositoryFileIdentity(rootDir, filePath, bytes);
+}
+
+function prepareRepositoryDirectories(rootDir, directories) {
+  const root = fs.realpathSync(path.resolve(rootDir));
+  const ordered = [...new Set(directories.map((item) => path.resolve(item)))].sort(
+    (left, right) =>
+      path.relative(root, left).split(path.sep).length -
+      path.relative(root, right).split(path.sep).length
+  );
+  for (const directory of ordered) assertExistingRepositoryAncestry(root, directory);
+  for (const directory of ordered) createRepositoryDirectory(root, directory);
+  for (const directory of ordered) assertRepositoryDirectory(root, directory);
+}
+
+function assertExistingRepositoryAncestry(rootDir, directory) {
+  if (!inside(rootDir, directory)) {
+    throw new Error(`repository output ancestry escapes the repository root: ${directory}`);
+  }
+  assertRealDirectory(rootDir, "repository root");
+  let current = rootDir;
+  for (const part of path.relative(rootDir, directory).split(path.sep).filter(Boolean)) {
+    current = path.join(current, part);
+    try {
+      assertRealDirectory(current, "repository output ancestry");
+    } catch (error) {
+      if (error.code === "ENOENT") return;
+      throw error;
+    }
+  }
+}
+
+function createRepositoryDirectory(rootDir, directory) {
+  let current = rootDir;
+  for (const part of path.relative(rootDir, directory).split(path.sep).filter(Boolean)) {
+    const parent = current;
+    current = path.join(current, part);
+    assertRepositoryDirectory(rootDir, parent);
+    try {
+      fs.mkdirSync(current, { mode: 0o700 });
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+    }
+    assertRealDirectory(current, "repository output ancestry");
+  }
+}
+
+function assertRepositoryDirectory(rootDir, directory) {
+  if (!inside(rootDir, directory)) {
+    throw new Error(`repository output directory escapes the repository root: ${directory}`);
+  }
+  assertExistingRepositoryAncestry(rootDir, directory);
+  assertRealDirectory(directory, "repository output directory");
+}
+
+function assertRealDirectory(directory, label) {
+  const stat = fs.lstatSync(directory);
+  if (stat.isSymbolicLink() || !stat.isDirectory() || fs.realpathSync(directory) !== directory) {
+    throw new Error(`${label} must contain only canonical real directories: ${directory}`);
+  }
+  return stat;
+}
+
+function assertRepositoryEntryAbsent(rootDir, entryPath, label) {
+  assertRepositoryDirectory(rootDir, path.dirname(entryPath));
+  try {
+    fs.lstatSync(entryPath);
+  } catch (error) {
+    if (error.code === "ENOENT") return;
+    throw error;
+  }
+  throw new Error(`${label} already exists`);
+}
+
+function repositoryEntryExists(rootDir, entryPath) {
+  assertRepositoryDirectory(rootDir, path.dirname(entryPath));
+  try {
+    fs.lstatSync(entryPath);
+    return true;
+  } catch (error) {
+    if (error.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+function createRepositoryDirectoryExclusive(rootDir, directory, label) {
+  assertRepositoryEntryAbsent(rootDir, directory, label);
+  try {
+    fs.mkdirSync(directory, { mode: 0o700 });
+  } catch (error) {
+    throw new Error(`could not reserve ${label}: ${error.message}`);
+  }
+  return repositoryDirectoryIdentity(rootDir, directory);
+}
+
+function repositoryDirectoryIdentity(rootDir, directory) {
+  assertRepositoryDirectory(rootDir, directory);
+  return identity(fs.lstatSync(directory, { bigint: true }));
+}
+
+function refreshRepositoryDirectoryIdentity(rootDir, directory, previousIdentity) {
+  const current = repositoryDirectoryIdentity(rootDir, directory);
+  if (!sameInode(current, previousIdentity)) {
+    throw new Error(`repository output directory changed inode: ${directory}`);
+  }
+  return current;
+}
+
+function repositoryFileIdentity(rootDir, filePath, expectedBytes = null) {
+  assertRepositoryDirectory(rootDir, path.dirname(filePath));
+  const stat = fs.lstatSync(filePath);
+  if (
+    stat.isSymbolicLink() ||
+    !stat.isFile() ||
+    stat.nlink !== 1 ||
+    fs.realpathSync(filePath) !== filePath
+  ) {
+    throw new Error(`repository output must be a canonical regular file: ${filePath}`);
+  }
+  if (expectedBytes !== null) {
+    const observed = readBoundedFile(filePath, expectedBytes.length);
+    if (!observed.equals(expectedBytes))
+      throw new Error(`repository output bytes changed: ${filePath}`);
+  }
+  return identity(fs.lstatSync(filePath, { bigint: true }));
+}
+
+function removeRepositoryFile(rootDir, filePath, expectedIdentity) {
+  const observed = repositoryFileIdentity(rootDir, filePath);
+  if (!sameIdentity(observed, expectedIdentity)) {
+    throw new Error(`repository output changed before removal: ${filePath}`);
+  }
+  assertRepositoryDirectory(rootDir, path.dirname(filePath));
+  fs.unlinkSync(filePath);
+}
+
+function removeRepositoryDirectory(rootDir, directory, expectedIdentity, options = {}) {
+  const observed = repositoryDirectoryIdentity(rootDir, directory);
+  if (!sameIdentity(observed, expectedIdentity)) {
+    throw new Error(`repository output directory changed before removal: ${directory}`);
+  }
+  assertRepositoryDirectory(rootDir, path.dirname(directory));
+  if (!options.recursive) {
+    fs.rmdirSync(directory);
+    return;
+  }
+
+  const quarantine = path.join(
+    path.dirname(directory),
+    `.cleanup-${path.basename(directory)}-${process.pid}-${crypto.randomBytes(6).toString("hex")}`
+  );
+  assertRepositoryEntryAbsent(rootDir, quarantine, "repository cleanup quarantine");
+  fs.renameSync(directory, quarantine);
+  removeQuarantinedRepositoryDirectory(rootDir, quarantine, expectedIdentity);
+}
+
+function removeQuarantinedRepositoryDirectory(rootDir, quarantine, originalIdentity) {
+  const quarantined = repositoryDirectoryIdentity(rootDir, quarantine);
+  if (!sameInode(quarantined, originalIdentity)) {
+    throw new Error(`repository cleanup quarantine changed inode: ${quarantine}`);
+  }
+  const confirmed = repositoryDirectoryIdentity(rootDir, quarantine);
+  if (!sameIdentity(confirmed, quarantined)) {
+    throw new Error(`repository cleanup quarantine changed before removal: ${quarantine}`);
+  }
+  fs.rmSync(quarantine, { recursive: true, force: false });
+}
+
+function assertReplaceableFile(filePath, label) {
+  let stat;
+  try {
+    stat = fs.lstatSync(filePath);
+  } catch (error) {
+    if (error.code === "ENOENT") return;
+    throw error;
+  }
+  if (
+    stat.isSymbolicLink() ||
+    !stat.isFile() ||
+    stat.nlink !== 1 ||
+    fs.realpathSync(filePath) !== filePath
+  ) {
+    throw new Error(`${label} must be a canonical regular file when it already exists`);
+  }
+}
+
+function identity(stat) {
+  if (
+    typeof stat.dev !== "bigint" ||
+    typeof stat.ino !== "bigint" ||
+    typeof stat.ctimeNs !== "bigint"
+  ) {
+    throw new Error("filesystem identity requires bigint stat fields");
+  }
+  return { dev: stat.dev, ino: stat.ino, ctimeNs: stat.ctimeNs };
+}
+
+function sameIdentity(left, right) {
+  return sameInode(left, right) && left.ctimeNs === right.ctimeNs;
+}
+
+function sameInode(left, right) {
+  return left.dev === right.dev && left.ino === right.ino;
 }
 
 function publicProfile(profile) {
@@ -1024,9 +1356,11 @@ module.exports = {
   _private: {
     finalizeCandidateIsolation,
     prepareCandidateIsolation,
+    prepareCapabilityOutputTarget,
     resolveCapabilitySourceBoundary,
     sandboxLauncher: capabilitySandboxLauncher,
     sandboxPolicy: capabilitySandboxPolicy,
+    writeCapabilityOutput,
     writeCapabilityScenario,
   },
   assertNoOracleLeak,

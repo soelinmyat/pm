@@ -38,7 +38,24 @@ the exact PR again through the contracted repository API. Save a bounded private
 observation at
 `.pm/dev-sessions/{slug}/ship/observations/pr-body-pre-merge.json` with exactly
 the normalized repository, PR number, `OPEN` state, head OID, base, boolean draft
-state, and raw API `body` string. Then run:
+state, raw API `body` string, and `observed_at` captured as
+`new Date().toISOString()` immediately when that API response is read. The
+timestamp must use the runtime's exact `YYYY-MM-DDTHH:mm:ss.sssZ` form. Example:
+
+```json
+{
+  "repository": "acme/widget",
+  "pr_number": 42,
+  "state": "OPEN",
+  "head_oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "base": "main",
+  "draft": false,
+  "body": "## Summary\n\nCanonical reviewer handoff.\n",
+  "observed_at": "2026-09-05T06:12:34.567Z"
+}
+```
+
+Then run:
 
 ```bash
 node "$PM_PLUGIN_ROOT/scripts/release-transaction.js" attest-pr-body \
@@ -47,7 +64,9 @@ node "$PM_PLUGIN_ROOT/scripts/release-transaction.js" attest-pr-body \
   --json
 ```
 
-The runtime hashes the observed body itself and requires it to equal both the
+The runtime rejects an observation more than five minutes old or more than 30
+seconds in the future, preserves its API-read `observed_at` without re-stamping
+it, hashes the observed body itself, and requires it to equal both the
 canonical `pr-body.md` bytes and the verified Create PR receipt. It also binds
 repository, PR number, prepared head, base, open state, and `draft: false`.
 Include that same `body_sha256` in the Merge target. The attestation is valid for

@@ -364,7 +364,7 @@ function attestPrBody(transaction, input) {
   const observationIssues = [];
   exactKeys(
     observation,
-    ["repository", "pr_number", "state", "head_oid", "base", "draft", "body"],
+    ["repository", "pr_number", "state", "head_oid", "base", "draft", "body", "observed_at"],
     "live PR body observation",
     observationIssues
   );
@@ -384,6 +384,16 @@ function attestPrBody(transaction, input) {
   if (Buffer.byteLength(observation.body, "utf8") > PR_BODY_MAX_BYTES) {
     throw new Error("live PR body observation exceeds the 128 KiB limit");
   }
+  requireTimestamp(observation.observed_at, "live PR body observation observed_at");
+  const attestedAt = input.timestamp || new Date().toISOString();
+  requireTimestamp(attestedAt, "PR body attestation timestamp");
+  const observationAge = Date.parse(attestedAt) - Date.parse(observation.observed_at);
+  if (observationAge < -PR_BODY_ATTESTATION_CLOCK_SKEW_MS) {
+    throw new Error("live PR body observation is more than 30 seconds in the future");
+  }
+  if (observationAge > PR_BODY_ATTESTATION_MAX_AGE_MS) {
+    throw new Error("live PR body observation must be from the last 5 minutes");
+  }
   const prReceipt = createPr.verified_receipt?.receipt;
   requireTargetMatch(observation, "repository", next.source.repository, "repository");
   requireTargetMatch(observation, "pr_number", receiptPrNumber(prReceipt), "verified PR number");
@@ -398,8 +408,6 @@ function attestPrBody(transaction, input) {
     createPr.target.body_sha256,
     "canonical pr-body.md bytes"
   );
-  const observedAt = input.timestamp || new Date().toISOString();
-  requireTimestamp(observedAt, "PR body attestation observed_at");
   next.pr_body_attestation = {
     generation: next.generation,
     repository: next.source.repository,
@@ -410,11 +418,11 @@ function attestPrBody(transaction, input) {
     draft: observation.draft,
     body_sha256: bodySha256,
     create_pr_attempt: createPr.verified_receipt.attempt,
-    observed_at: observedAt,
+    observed_at: observation.observed_at,
     consumed_by_attempt: null,
     consumed_at: null,
   };
-  next.updated_at = observedAt;
+  next.updated_at = attestedAt;
   assertValid(next);
   return next;
 }

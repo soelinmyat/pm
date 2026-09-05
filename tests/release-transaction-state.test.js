@@ -185,7 +185,13 @@ function asLegacyPrBody(value) {
   return legacy;
 }
 
-function attestForMerge(value, timestamp = new Date().toISOString(), body = PR_BODY) {
+function attestForMerge(
+  value,
+  timestamp = new Date().toISOString(),
+  body = PR_BODY,
+  observedAt = timestamp,
+  observationExtras = {}
+) {
   return attestPrBody(value, {
     timestamp,
     observation: {
@@ -196,6 +202,8 @@ function attestForMerge(value, timestamp = new Date().toISOString(), body = PR_B
       base: "main",
       draft: false,
       body,
+      observed_at: observedAt,
+      ...observationExtras,
     },
   });
 }
@@ -512,8 +520,54 @@ test("Merge consumes one fresh live observation of the exact canonical PR body",
     /fresh matching PR body attestation/
   );
   assert.throws(() => attestForMerge(value, undefined, `${PR_BODY}edited\n`), /canonical pr-body/);
+  assert.throws(
+    () =>
+      attestPrBody(value, {
+        timestamp: "2026-07-14T00:10:00.000Z",
+        observation: {
+          repository: "acme/widget",
+          pr_number: 42,
+          state: "OPEN",
+          head_oid: COMMIT,
+          base: "main",
+          draft: false,
+          body: PR_BODY,
+        },
+      }),
+    /observed_at.*ISO timestamp/
+  );
+  assert.throws(
+    () =>
+      attestForMerge(value, "2026-07-14T00:10:00.000Z", PR_BODY, undefined, {
+        cached: true,
+      }),
+    /cached is not allowed/
+  );
+  assert.throws(
+    () => attestForMerge(value, "2026-07-14T00:10:00.000Z", PR_BODY, "2026-07-14T00:04:59.999Z"),
+    /last 5 minutes/
+  );
+  assert.throws(
+    () => attestForMerge(value, "2026-07-14T00:10:00.000Z", PR_BODY, "2026-07-14T00:10:30.001Z"),
+    /more than 30 seconds in the future/
+  );
+  const exactFiveMinutes = attestForMerge(
+    value,
+    "2026-07-14T00:10:00.000Z",
+    PR_BODY,
+    "2026-07-14T00:05:00.000Z"
+  );
+  assert.equal(exactFiveMinutes.pr_body_attestation.observed_at, "2026-07-14T00:05:00.000Z");
+  const exactFutureSkew = attestForMerge(
+    value,
+    "2026-07-14T00:10:00.000Z",
+    PR_BODY,
+    "2026-07-14T00:10:30.000Z"
+  );
+  assert.equal(exactFutureSkew.pr_body_attestation.observed_at, "2026-07-14T00:10:30.000Z");
 
-  value = attestForMerge(value, "2026-07-14T00:10:00.000Z");
+  value = attestForMerge(value, "2026-07-14T00:10:00.000Z", PR_BODY, "2026-07-14T00:09:59.000Z");
+  assert.equal(value.pr_body_attestation.observed_at, "2026-07-14T00:09:59.000Z");
   assert.throws(
     () =>
       beginEffect(value, {

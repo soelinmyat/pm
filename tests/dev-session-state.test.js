@@ -829,7 +829,9 @@ test("delivery receipt is cryptographically bound to the verified release transa
     for (const effect of effects) {
       transaction = planEffect(transaction, { effect: effect.name, target: effect.target });
       if (effect.name === "merge") {
+        const observedAt = new Date().toISOString();
         transaction = attestPrBody(transaction, {
+          timestamp: observedAt,
           observation: {
             repository: "example/repo",
             pr_number: 42,
@@ -838,6 +840,7 @@ test("delivery receipt is cryptographically bound to the verified release transa
             base: "main",
             draft: false,
             body: prBody,
+            observed_at: observedAt,
           },
         });
       }

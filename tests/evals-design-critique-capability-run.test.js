@@ -92,6 +92,8 @@ test("dedicated capability runner binds candidate findings and honest isolation 
   });
 
   assert.equal(result.exitCode, 0, JSON.stringify(result.bundle.failures, null, 2));
+  assert.deepEqual(JSON.parse(fs.readFileSync(result.outPath, "utf8")), result.bundle);
+  assert.equal(fs.statSync(result.outPath).mode & 0o777, 0o600);
   assert.equal(result.bundle.harness_only, true);
   assert.deepEqual(
     result.bundle.cases.map((item) => item.case_id).sort(),
@@ -154,6 +156,96 @@ test("dedicated capability runner binds candidate findings and honest isolation 
   fs.rmSync(outDir, { recursive: true, force: true });
 });
 
+test("explicit external output safely creates missing canonical parents", () => {
+  const externalRoot = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "pm-capability-external-output-"))
+  );
+  const requestedOutPath = path.join(externalRoot, "missing", "nested", "repeat-1.json");
+  const bundle = { schema_version: 2, result: "bounded" };
+  try {
+    const target = _private.prepareCapabilityOutputTarget({
+      rootDir: ROOT,
+      requestedOutPath,
+      explicit: true,
+    });
+    const published = _private.writeCapabilityOutput(target, bundle);
+    assert.equal(published, requestedOutPath);
+    assert.deepEqual(JSON.parse(fs.readFileSync(published, "utf8")), bundle);
+    assert.equal(fs.statSync(published).mode & 0o777, 0o600);
+    assert.equal(fs.lstatSync(path.dirname(published)).isSymbolicLink(), false);
+  } finally {
+    fs.rmSync(externalRoot, { recursive: true, force: true });
+  }
+});
+
+test("explicit external output rejects a destination substituted during publication", () => {
+  const externalRoot = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "pm-capability-output-swap-"))
+  );
+  const preload = path.join(externalRoot, "swap-preload.cjs");
+  const requestedOutPath = path.join(externalRoot, "repeat-1.json");
+  fs.writeFileSync(
+    preload,
+    `
+      const fs = require("node:fs");
+      const originalRename = fs.renameSync;
+      let swapped = false;
+      fs.renameSync = function(source, destination, ...args) {
+        const result = originalRename.call(fs, source, destination, ...args);
+        if (!swapped && process.argv.includes("--child") && destination === "repeat-1.json") {
+          swapped = true;
+          originalRename.call(fs, destination, "intended-output.json");
+          fs.writeFileSync(destination, "foreign-substitution\\n", { mode: 0o600 });
+        }
+        return result;
+      };
+    `
+  );
+  const script = `
+    const [runner, root, output] = process.argv.slice(1);
+    const api = require(runner)._private;
+    const target = api.prepareCapabilityOutputTarget({
+      rootDir: root,
+      requestedOutPath: output,
+      explicit: true
+    });
+    try {
+      api.writeCapabilityOutput(target, { schema_version: 2, result: "intended" });
+      process.stdout.write(JSON.stringify({ unexpected: "passed" }));
+    } catch (error) {
+      process.stdout.write(JSON.stringify({ committed: error.committed, message: error.message }));
+    }
+  `;
+  try {
+    const result = require("node:child_process").spawnSync(
+      process.execPath,
+      [
+        "-e",
+        script,
+        path.join(ROOT, "scripts", "evals", "design-critique-capability-run.js"),
+        ROOT,
+        requestedOutPath,
+      ],
+      {
+        encoding: "utf8",
+        env: { ...process.env, NODE_OPTIONS: `--require=${preload}` },
+      }
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const failure = JSON.parse(result.stdout);
+    assert.equal(failure.unexpected, undefined);
+    assert.equal(failure.committed, true);
+    assert.match(failure.message, /committed.*do not retry/i);
+    assert.equal(fs.readFileSync(requestedOutPath, "utf8"), "foreign-substitution\n");
+    assert.deepEqual(
+      JSON.parse(fs.readFileSync(path.join(externalRoot, "intended-output.json"), "utf8")),
+      { schema_version: 2, result: "intended" }
+    );
+  } finally {
+    fs.rmSync(externalRoot, { recursive: true, force: true });
+  }
+});
+
 test("scenario recreation rejects a symlinked scenario root without deleting external data", () => {
   const rootDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pm-capability-root-")));
   const externalDir = fs.realpathSync(
@@ -177,7 +269,7 @@ test("scenario recreation rejects a symlinked scenario root without deleting ext
           scenarioId,
           fixtureBytes: Buffer.from("fixture"),
         }),
-      /only real directories|must not traverse symlinks/
+      /only real directories|must not traverse symlinks|canonical real directories/
     );
     assert.equal(fs.readFileSync(sentinel, "utf8"), "must survive\n");
     assert.equal(fs.lstatSync(scenarioRoot).isSymbolicLink(), true);
@@ -185,6 +277,132 @@ test("scenario recreation rejects a symlinked scenario root without deleting ext
     fs.unlinkSync(scenarioRoot);
     fs.rmSync(rootDir, { recursive: true, force: true });
     fs.rmSync(externalDir, { recursive: true, force: true });
+  }
+});
+
+test("capability isolation refuses every symlinked repository output root", () => {
+  for (const outputRoot of ["capability-isolation", "oracle-isolation-preflight", "runs"]) {
+    const rootDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pm-cap-root-")));
+    const externalDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pm-cap-outside-")));
+    const evalResults = path.join(rootDir, "eval-results");
+    const redirected = path.join(evalResults, outputRoot);
+    const sentinel = path.join(externalDir, "sentinel.txt");
+    fs.mkdirSync(evalResults);
+    fs.writeFileSync(sentinel, "must survive\n");
+    fs.symlinkSync(externalDir, redirected, process.platform === "win32" ? "junction" : "dir");
+    const before = fs.readdirSync(externalDir).sort();
+    let sandboxCalled = false;
+
+    try {
+      assert.throws(
+        () =>
+          _private.prepareCandidateIsolation({
+            rootDir,
+            runIdentity: {
+              run_id: `20260905T000000Z--dc-cap-${outputRoot}-sol-high-r1--codex`,
+              scenario_id: `dc-cap-${outputRoot}-sol-high-r1`,
+              adapter: "codex",
+            },
+            runtimeProfile: { adapter: "codex", harness_only: false },
+            sourceBoundary: rootDir,
+            sandboxExecPath: process.execPath,
+            codexBin: process.execPath,
+            sandboxRunner() {
+              sandboxCalled = true;
+              return { status: 0, signal: null, error: null };
+            },
+          }),
+        /canonical real directories/
+      );
+      assert.equal(sandboxCalled, false, `${outputRoot} escaped before the sandbox preflight`);
+      assert.equal(fs.readFileSync(sentinel, "utf8"), "must survive\n");
+      assert.deepEqual(fs.readdirSync(externalDir).sort(), before);
+    } finally {
+      fs.unlinkSync(redirected);
+      fs.rmSync(rootDir, { recursive: true, force: true });
+      fs.rmSync(externalDir, { recursive: true, force: true });
+    }
+  }
+});
+
+test("default capability output refuses a symlinked repository parent", () => {
+  const rootDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pm-cap-root-")));
+  const externalDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pm-cap-outside-")));
+  const qualityDir = path.join(rootDir, "evals", "quality");
+  const evalResults = path.join(rootDir, "eval-results");
+  const redirected = path.join(evalResults, "capabilities");
+  const sentinel = path.join(externalDir, "sentinel.txt");
+  fs.mkdirSync(qualityDir, { recursive: true });
+  fs.copyFileSync(
+    path.join(ROOT, "evals", "quality", "suite.json"),
+    path.join(qualityDir, "suite.json")
+  );
+  fs.mkdirSync(evalResults);
+  fs.writeFileSync(sentinel, "must survive\n");
+  fs.symlinkSync(externalDir, redirected, process.platform === "win32" ? "junction" : "dir");
+  const before = fs.readdirSync(externalDir).sort();
+
+  try {
+    assert.throws(
+      () =>
+        runCapabilityBatch({
+          rootDir,
+          oraclePath: path.join(ROOT, "evals", "capabilities", "design-critique", "oracle.json"),
+          profileId: "sol-high",
+          repeat: 1,
+          adapterOverride: "stub",
+        }),
+      /canonical real directories/
+    );
+    assert.equal(fs.readFileSync(sentinel, "utf8"), "must survive\n");
+    assert.deepEqual(fs.readdirSync(externalDir).sort(), before);
+  } finally {
+    fs.unlinkSync(redirected);
+    fs.rmSync(rootDir, { recursive: true, force: true });
+    fs.rmSync(externalDir, { recursive: true, force: true });
+  }
+});
+
+test("stub batch rejects a symlinked runs root without external mutation", () => {
+  const rootDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pm-cap-root-")));
+  const externalDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pm-cap-outside-")));
+  const outDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pm-cap-output-")));
+  const qualityDir = path.join(rootDir, "evals", "quality");
+  const evalResults = path.join(rootDir, "eval-results");
+  const redirected = path.join(evalResults, "runs");
+  const sentinel = path.join(externalDir, "sentinel.txt");
+  const outPath = path.join(outDir, "repeat-1.json");
+  fs.mkdirSync(qualityDir, { recursive: true });
+  fs.copyFileSync(
+    path.join(ROOT, "evals", "quality", "suite.json"),
+    path.join(qualityDir, "suite.json")
+  );
+  fs.mkdirSync(evalResults);
+  fs.writeFileSync(sentinel, "must survive\n");
+  fs.symlinkSync(externalDir, redirected, process.platform === "win32" ? "junction" : "dir");
+  const before = fs.readdirSync(externalDir).sort();
+
+  try {
+    assert.throws(
+      () =>
+        runCapabilityBatch({
+          rootDir,
+          oraclePath: path.join(ROOT, "evals", "capabilities", "design-critique", "oracle.json"),
+          profileId: "sol-high",
+          repeat: 1,
+          outPath,
+          adapterOverride: "stub",
+        }),
+      /canonical real directories/
+    );
+    assert.equal(fs.existsSync(outPath), false);
+    assert.equal(fs.readFileSync(sentinel, "utf8"), "must survive\n");
+    assert.deepEqual(fs.readdirSync(externalDir).sort(), before);
+  } finally {
+    fs.unlinkSync(redirected);
+    fs.rmSync(rootDir, { recursive: true, force: true });
+    fs.rmSync(externalDir, { recursive: true, force: true });
+    fs.rmSync(outDir, { recursive: true, force: true });
   }
 });
 
