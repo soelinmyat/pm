@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 "use strict";
 
-const fs = require("node:fs");
 const path = require("node:path");
 const { checkQaReport } = require("./lib/qa-report-schema");
+const { readBoundedJsonFile } = require("./lib/safe-json-file");
+
+const MAX_SESSION_BYTES = 4 * 1024 * 1024;
 
 function parseArgs(argv) {
   const options = { requirePassing: true };
@@ -35,10 +37,12 @@ function main(argv = process.argv.slice(2)) {
     if (!path.isAbsolute(options.sessionPath)) {
       throw new Error("--session must be an absolute path");
     }
-    if (fs.lstatSync(options.sessionPath).isSymbolicLink()) {
-      throw new Error("--session cannot be a symbolic link");
+    let session;
+    try {
+      session = readBoundedJsonFile(options.sessionPath, MAX_SESSION_BYTES);
+    } catch (error) {
+      throw new Error(`cannot read --session ${options.sessionPath}: ${error.message}`);
     }
-    const session = JSON.parse(fs.readFileSync(options.sessionPath, "utf8"));
     const result = checkQaReport({
       session,
       reportPath: options.reportPath,
@@ -55,4 +59,4 @@ function main(argv = process.argv.slice(2)) {
 
 if (require.main === module) process.exitCode = main();
 
-module.exports = { main, parseArgs };
+module.exports = { MAX_SESSION_BYTES, main, parseArgs };

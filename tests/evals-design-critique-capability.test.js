@@ -34,7 +34,7 @@ function digest(bytes) {
 function write(root, relative, bytes) {
   const target = path.join(root, relative);
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(target, bytes);
+  fs.writeFileSync(target, bytes, { mode: 0o600 });
   return { path: relative, sha256: digest(fs.readFileSync(target)) };
 }
 
@@ -1336,6 +1336,37 @@ test("divergent same-repeat adjudication cannot overwrite a sealed artifact name
       ),
       []
     );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("idempotent adjudication rejects byte-identical public immutable artifacts", () => {
+  const fixture = evidenceFixture();
+  const capture = captureFromFixture(fixture);
+  const reportPath = path.join(fixture.root, "private-artifact-report.json");
+  const artifactPath = path.join(
+    fixture.root,
+    fixture.report.repeats[0].cases[0].fix_verification.path
+  );
+  const sentinel = fs.readFileSync(artifactPath);
+  fs.chmodSync(artifactPath, 0o644);
+  try {
+    assert.throws(
+      () =>
+        sealCapabilityAdjudication({
+          rootDir: fixture.root,
+          oracle: fixture.oracle,
+          capture,
+          judgments: judgmentsFromFixture(fixture),
+          reportPath,
+          fixVerifier: fakeFixVerifier,
+        }),
+      /sealed capability artifact must use private file permissions/
+    );
+    assert.equal(fs.existsSync(reportPath), false);
+    assert.deepEqual(fs.readFileSync(artifactPath), sentinel);
+    assert.notEqual(fs.statSync(artifactPath).mode & 0o077, 0);
   } finally {
     fixture.cleanup();
   }

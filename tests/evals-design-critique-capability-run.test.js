@@ -154,6 +154,40 @@ test("dedicated capability runner binds candidate findings and honest isolation 
   fs.rmSync(outDir, { recursive: true, force: true });
 });
 
+test("scenario recreation rejects a symlinked scenario root without deleting external data", () => {
+  const rootDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pm-capability-root-")));
+  const externalDir = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "pm-capability-external-"))
+  );
+  const scenarioId = "dc-cap-symlink-containment-sol-high-r1";
+  const externalScenario = path.join(externalDir, scenarioId);
+  const sentinel = path.join(externalScenario, "sentinel.txt");
+  const scenarioRoot = path.join(rootDir, "eval-results", "capability-scenarios");
+  fs.mkdirSync(path.dirname(scenarioRoot), { recursive: true });
+  fs.mkdirSync(externalScenario);
+  fs.writeFileSync(sentinel, "must survive\n");
+  fs.symlinkSync(externalDir, scenarioRoot, process.platform === "win32" ? "junction" : "dir");
+
+  try {
+    assert.throws(
+      () =>
+        _private.writeCapabilityScenario({
+          rootDir,
+          scenarioDir: path.join(scenarioRoot, scenarioId),
+          scenarioId,
+          fixtureBytes: Buffer.from("fixture"),
+        }),
+      /only real directories|must not traverse symlinks/
+    );
+    assert.equal(fs.readFileSync(sentinel, "utf8"), "must survive\n");
+    assert.equal(fs.lstatSync(scenarioRoot).isSymbolicLink(), true);
+  } finally {
+    fs.unlinkSync(scenarioRoot);
+    fs.rmSync(rootDir, { recursive: true, force: true });
+    fs.rmSync(externalDir, { recursive: true, force: true });
+  }
+});
+
 test("capability-only Codex wrapper attests exact source denial and run allowance", () => {
   const boundary = fs.mkdtempSync(path.join(os.tmpdir(), "pm-capability-boundary-"));
   const rootDir = path.join(boundary, ".worktrees", "branch");

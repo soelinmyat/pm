@@ -881,6 +881,9 @@ function assertImmutablePublication({ path: filePath, bytes }, rootDir) {
   if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) {
     throw new Error(`sealed capability artifact conflicts with unsafe path: ${filePath}`);
   }
+  if ((stat.mode & 0o077) !== 0) {
+    throw new Error(`sealed capability artifact must use private file permissions: ${filePath}`);
+  }
   let existing;
   try {
     existing = readBoundedFile(filePath, bytes.length);

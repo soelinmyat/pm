@@ -61,7 +61,7 @@ function runCapabilityBatch(options) {
     try {
       const fixturePath = path.resolve(rootDir, item.fixture_ref);
       const fixtureBytes = readOracleFixture(rootDir, fixturePath, item.fixture_sha256);
-      writeCapabilityScenario({ scenarioDir, scenarioId, fixtureBytes });
+      writeCapabilityScenario({ rootDir, scenarioDir, scenarioId, fixtureBytes });
       assertNoOracleLeak(scenarioDir, oracle);
 
       const isolation = prepareCandidateIsolation({ rootDir, runIdentity, runtimeProfile });
@@ -165,14 +165,109 @@ function readOracleFixture(rootDir, fixturePath, expectedHash) {
   return bytes;
 }
 
-function writeCapabilityScenario({ scenarioDir, scenarioId, fixtureBytes }) {
-  fs.rmSync(scenarioDir, { recursive: true, force: true });
-  fs.mkdirSync(scenarioDir, { recursive: true });
+function writeCapabilityScenario({ rootDir, scenarioDir, scenarioId, fixtureBytes }) {
+  const scenarioRoot = prepareCapabilityScenarioRoot({ rootDir, scenarioDir, scenarioId });
+  retireCapabilityScenario({ scenarioRoot, scenarioDir });
+  assertRealDirectoryChain(rootDir, scenarioRoot);
+  try {
+    fs.mkdirSync(scenarioDir, { mode: 0o700 });
+  } catch (error) {
+    throw new Error(`could not reserve the capability scenario directory: ${error.message}`);
+  }
+  assertRealDirectoryChain(rootDir, scenarioDir);
   writeText(path.join(scenarioDir, "story.md"), story(scenarioId));
   writeText(path.join(scenarioDir, "setup.sh"), setup(fixtureBytes));
   writeText(path.join(scenarioDir, "checks.sh"), checks());
   fs.chmodSync(path.join(scenarioDir, "setup.sh"), 0o755);
   fs.chmodSync(path.join(scenarioDir, "checks.sh"), 0o644);
+}
+
+function prepareCapabilityScenarioRoot({ rootDir, scenarioDir, scenarioId }) {
+  const projectRoot = fs.realpathSync(path.resolve(rootDir));
+  if (!/^[a-z0-9][a-z0-9-]+$/.test(scenarioId)) {
+    throw new Error("capability scenario id must be a portable lowercase slug");
+  }
+  const scenarioRoot = path.join(projectRoot, "eval-results", "capability-scenarios");
+  const expectedScenario = path.join(scenarioRoot, scenarioId);
+  if (path.resolve(scenarioDir) !== expectedScenario) {
+    throw new Error("capability scenario directory must be its repository-owned direct child");
+  }
+
+  ensureRealDirectory(projectRoot, path.join(projectRoot, "eval-results"));
+  ensureRealDirectory(projectRoot, scenarioRoot);
+  assertRealDirectoryChain(projectRoot, scenarioRoot);
+
+  let scenarioStat;
+  try {
+    scenarioStat = fs.lstatSync(expectedScenario);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+  if (scenarioStat) {
+    if (scenarioStat.isSymbolicLink() || !scenarioStat.isDirectory()) {
+      throw new Error("existing capability scenario must be a real repository-owned directory");
+    }
+    assertRealDirectoryChain(projectRoot, expectedScenario);
+  }
+  return scenarioRoot;
+}
+
+function ensureRealDirectory(projectRoot, directory) {
+  if (!inside(projectRoot, directory)) {
+    throw new Error("capability scenario ancestry escapes the repository root");
+  }
+  try {
+    fs.mkdirSync(directory, { mode: 0o700 });
+  } catch (error) {
+    if (error.code !== "EEXIST") throw error;
+  }
+  assertRealDirectoryChain(projectRoot, directory);
+}
+
+function assertRealDirectoryChain(projectRoot, directory) {
+  const root = fs.realpathSync(path.resolve(projectRoot));
+  const absolute = path.resolve(directory);
+  if (!inside(root, absolute)) {
+    throw new Error("capability scenario ancestry escapes the repository root");
+  }
+  let current = root;
+  for (const part of path.relative(root, absolute).split(path.sep).filter(Boolean)) {
+    current = path.join(current, part);
+    const stat = fs.lstatSync(current);
+    if (stat.isSymbolicLink() || !stat.isDirectory()) {
+      throw new Error(
+        `capability scenario ancestry must contain only real directories: ${current}`
+      );
+    }
+    if (fs.realpathSync(current) !== current) {
+      throw new Error(`capability scenario ancestry must not traverse symlinks: ${current}`);
+    }
+  }
+}
+
+function retireCapabilityScenario({ scenarioRoot, scenarioDir }) {
+  let existing;
+  try {
+    existing = fs.lstatSync(scenarioDir);
+  } catch (error) {
+    if (error.code === "ENOENT") return;
+    throw error;
+  }
+  if (existing.isSymbolicLink() || !existing.isDirectory()) {
+    throw new Error("existing capability scenario must be a real repository-owned directory");
+  }
+
+  const retired = path.join(
+    scenarioRoot,
+    `.retired-${process.pid}-${crypto.randomBytes(12).toString("hex")}`
+  );
+  fs.renameSync(scenarioDir, retired);
+  const retiredStat = fs.lstatSync(retired);
+  if (retiredStat.isSymbolicLink() || !retiredStat.isDirectory()) {
+    throw new Error("retired capability scenario changed before cleanup");
+  }
+  assertRealDirectoryChain(path.dirname(path.dirname(scenarioRoot)), retired);
+  fs.rmSync(retired, { recursive: true, force: false });
 }
 
 function story(scenarioId) {
@@ -932,6 +1027,7 @@ module.exports = {
     resolveCapabilitySourceBoundary,
     sandboxLauncher: capabilitySandboxLauncher,
     sandboxPolicy: capabilitySandboxPolicy,
+    writeCapabilityScenario,
   },
   assertNoOracleLeak,
   collectEvidence,

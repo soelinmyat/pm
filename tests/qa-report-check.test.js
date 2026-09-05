@@ -14,6 +14,7 @@ const {
   expectedQaReportPath,
   validateQaReport,
 } = require("../scripts/lib/qa-report-schema");
+const { MAX_SESSION_BYTES } = require("../scripts/qa-report-check");
 const {
   createSession,
   recertifyEvidence,
@@ -1421,6 +1422,68 @@ test("qa-report-check CLI validates the canonical session artifact", (t) => {
   );
   assert.equal(checked.status, 0, checked.stderr || checked.stdout);
   assert.equal(JSON.parse(checked.stdout).ok, true);
+});
+
+test("qa-report-check CLI rejects an oversized session before allocating its contents", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-qa-session-oversized-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const sessionPath = path.join(root, "session.json");
+  fs.closeSync(fs.openSync(sessionPath, "w"));
+  fs.truncateSync(sessionPath, MAX_SESSION_BYTES + 1);
+  const script = path.join(__dirname, "..", "scripts", "qa-report-check.js");
+
+  const checked = spawnSync(
+    process.execPath,
+    [
+      script,
+      "--session",
+      sessionPath,
+      "--report",
+      path.join(root, "report.json"),
+      "--commit",
+      SHA_A,
+    ],
+    { encoding: "utf8", timeout: 1_500 }
+  );
+
+  assert.notEqual(checked.error?.code, "ETIMEDOUT");
+  assert.equal(checked.status, 2);
+  assert.match(checked.stderr, /cannot read --session .*input must be a bounded regular file/);
+});
+
+test("qa-report-check CLI rejects a session FIFO without blocking", (t) => {
+  if (process.platform === "win32") {
+    t.skip("POSIX FIFO regression");
+    return;
+  }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-qa-session-fifo-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const sessionPath = path.join(root, "session.json");
+  try {
+    execFileSync("mkfifo", [sessionPath]);
+  } catch {
+    t.skip("mkfifo is unavailable");
+    return;
+  }
+  const script = path.join(__dirname, "..", "scripts", "qa-report-check.js");
+
+  const checked = spawnSync(
+    process.execPath,
+    [
+      script,
+      "--session",
+      sessionPath,
+      "--report",
+      path.join(root, "report.json"),
+      "--commit",
+      SHA_A,
+    ],
+    { encoding: "utf8", timeout: 1_500 }
+  );
+
+  assert.notEqual(checked.error?.code, "ETIMEDOUT", "session FIFO validation must not block");
+  assert.equal(checked.status, 2, checked.stderr || checked.stdout);
+  assert.match(checked.stderr, /cannot read --session .*input must be a bounded regular file/);
 });
 
 function passingReport(commit, outputPath = "/tmp/qa/evidence/run-1.tap", options = {}) {
