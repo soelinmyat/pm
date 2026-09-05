@@ -66,22 +66,22 @@ describe("dev runtime model profiles", () => {
         }),
       /cannot override model identity/
     );
+    assert.equal(
+      resolveProfile({
+        provider: "codex",
+        profileName: "codex-astra",
+        env: { PM_DEV_CODEX_REASONING_EFFORT: "ultra" },
+      }).effort,
+      "ultra"
+    );
     assert.throws(
       () =>
         resolveProfile({
           provider: "codex",
           profileName: "codex-astra",
-          env: { PM_DEV_CODEX_REASONING_EFFORT: "ultra" },
+          env: { PM_DEV_CODEX_REASONING_EFFORT: "extreme" },
         }),
-      /effort must be one of low, medium, high, xhigh, max/
-    );
-    assert.equal(
-      resolveProfile({
-        provider: "codex",
-        profileName: "codex-astra",
-        env: { PM_DEV_CODEX_REASONING_EFFORT: "xhigh" },
-      }).effort,
-      "xhigh"
+      /effort must be one of low, medium, high, xhigh, max, ultra/
     );
 
     assert.throws(

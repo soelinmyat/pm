@@ -9,6 +9,7 @@ const { inspectHtmlArtifact } = require("../scripts/artifact-check.js");
 const {
   renderArtifact: renderArtifactInBrowser,
   resolveBrowser,
+  runBrowserProbe,
 } = require("../scripts/artifact-render-check.js");
 const { renderProposal, main } = require("../scripts/proposal-render.js");
 const { check } = require("../scripts/proposal-check.js");
@@ -220,6 +221,57 @@ test(
         projectRoot: root,
       });
       assert.ok(result.captures.every((capture) => !capture.metrics.horizontalOverflow));
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
+  "execution-contract cells use the full row width at the narrow viewport",
+  { skip: !installedBrowser && "Chromium is not installed" },
+  () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "proposal-execution-contract-browser-"));
+    try {
+      const input = source();
+      const rendered = renderProposal(input.proposal, {
+        sourceBytes: input.bytes,
+        sourcePath: "pm/backlog/proposals/structured-groom.json",
+        version: "test",
+      });
+      const htmlPath = path.join(root, "structured-groom.html");
+      fs.writeFileSync(htmlPath, rendered.html);
+      const result = runBrowserProbe(
+        {
+          browserPath: installedBrowser,
+          htmlPath,
+          viewport: { width: 375, height: 812 },
+          expression: `(() => {
+            const rows = [...document.querySelectorAll("#execution-contract tbody tr")];
+            return rows.map((row) => ({
+              rowWidth: row.getBoundingClientRect().width,
+              cells: [...row.querySelectorAll("td")].map((cell) => ({
+                display: getComputedStyle(cell).display,
+                gridTemplateColumns: getComputedStyle(cell).gridTemplateColumns,
+                beforeDisplay: getComputedStyle(cell, "::before").display,
+                width: cell.getBoundingClientRect().width,
+              })),
+            }));
+          })()`,
+        },
+        "narrow execution-contract layout probe"
+      );
+      const rows = JSON.parse(result.stdout);
+      assert.ok(rows.length > 0);
+      for (const row of rows) {
+        assert.equal(row.cells.length, 2);
+        for (const cell of row.cells) {
+          assert.equal(cell.display, "block");
+          assert.equal(cell.gridTemplateColumns, "none");
+          assert.equal(cell.beforeDisplay, "none");
+          assert.ok(cell.width >= row.rowWidth - 1);
+        }
+      }
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

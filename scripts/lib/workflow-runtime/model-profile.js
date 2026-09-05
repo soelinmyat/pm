@@ -1,7 +1,7 @@
 "use strict";
 
 const ASTRA_MODEL = "gpt-6-astra";
-const ASTRA_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
+const ASTRA_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max", "ultra"]);
 
 function assertAstraProfileIntegrity(input) {
   const profileName = input?.profileName;

@@ -43,21 +43,21 @@ test("RFC runtime profiles enforce Astra identity and supported effort", () => {
       }),
     /cannot override model identity/
   );
+  assert.equal(
+    resolveRfcProfile({
+      runtime: "codex",
+      profile: "gpt-6-astra-high",
+      reasoning: "ultra",
+    }).reasoning,
+    "ultra"
+  );
   assert.throws(
     () =>
       resolveRfcProfile({
         runtime: "codex",
         profile: "gpt-6-astra-high",
-        reasoning: "ultra",
+        reasoning: "extreme",
       }),
-    /effort must be one of low, medium, high, xhigh, max/
-  );
-  assert.equal(
-    resolveRfcProfile({
-      runtime: "codex",
-      profile: "gpt-6-astra-high",
-      reasoning: "max",
-    }).reasoning,
-    "max"
+    /effort must be one of low, medium, high, xhigh, max, ultra/
   );
 });

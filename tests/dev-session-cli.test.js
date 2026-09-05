@@ -111,11 +111,6 @@ test("init enforces explicit Astra profile identity while preserving non-Astra m
         ],
         /explicitly selected named base profile/,
       ],
-      [
-        "astra-effort-bypass",
-        ["--runtime", "codex", "--profile", "codex-astra", "--reasoning", "ultra"],
-        /effort must be one of/,
-      ],
     ]) {
       const result = repo.run(["init", "--slug", slug, "--source-dir", repo.root, ...args]);
       assert.equal(result.status, 3, result.stderr);
@@ -133,7 +128,7 @@ test("init enforces explicit Astra profile identity while preserving non-Astra m
       "--profile",
       "codex-astra",
       "--reasoning",
-      "max",
+      "ultra",
       "--json",
     ]);
     assert.equal(astra.status, 0, astra.stderr);
@@ -141,7 +136,7 @@ test("init enforces explicit Astra profile identity while preserving non-Astra m
       profile: "codex-astra",
       runtime: "codex",
       model: "gpt-6-astra",
-      reasoning: "max",
+      reasoning: "ultra",
       mode: "inline",
       runtime_session_id: null,
     });

@@ -2,6 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { execFileSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -337,6 +338,51 @@ test("descriptor-bound input rejects final-file and ancestor symlink swaps", (t)
       );
     }
   );
+});
+
+test("descriptor-bound input rejects a pre-open FIFO replacement without blocking", (t) => {
+  if (process.platform === "win32") {
+    t.skip("POSIX FIFO regression");
+    return;
+  }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-safe-input-fifo-race-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const fifoProbe = path.join(root, "fifo-probe");
+  try {
+    execFileSync("mkfifo", [fifoProbe]);
+    fs.unlinkSync(fifoProbe);
+  } catch {
+    t.skip("mkfifo is unavailable");
+    return;
+  }
+  const file = path.join(root, "evidence.json");
+  fs.writeFileSync(file, '{"inside":true}\n');
+  const canonicalFile = fs.realpathSync(file);
+
+  const originalOpen = fs.openSync;
+  let swapped = false;
+  fs.openSync = function swapToFifoBeforeOpen(openPath, flags, ...args) {
+    if (!swapped && path.resolve(String(openPath)) === canonicalFile) {
+      swapped = true;
+      fs.unlinkSync(file);
+      execFileSync("mkfifo", [file]);
+      assert.notEqual(
+        flags & fs.constants.O_NONBLOCK,
+        0,
+        "descriptor open must be non-blocking before inspecting a raced file type"
+      );
+    }
+    return Reflect.apply(originalOpen, fs, [openPath, flags, ...args]);
+  };
+  try {
+    assert.throws(
+      () => readProjectInput(root, "evidence.json", 1024, { requireStablePath: true }),
+      /input must be an existing regular file/
+    );
+    assert.equal(swapped, true);
+  } finally {
+    fs.openSync = originalOpen;
+  }
 });
 
 test("descriptor-bound input reads the opened inode when the path is replaced before read", (t) => {

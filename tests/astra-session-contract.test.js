@@ -11,7 +11,7 @@ const dev = require("../scripts/lib/dev-session-schema.js");
 const groom = require("../scripts/lib/groom-session-schema.js");
 const rfc = require("../scripts/lib/rfc-session-schema.js");
 
-test("persisted sessions cannot smuggle Astra through another profile or unsupported effort", () => {
+test("persisted sessions cannot smuggle Astra through another profile", () => {
   const repo = makeRepo();
   try {
     for (const [workflow, api, profile] of [
@@ -40,6 +40,38 @@ test("persisted sessions cannot smuggle Astra through another profile or unsuppo
         () => api.nextDecision(session, path.join(repo, `${workflow}.json`)),
         /explicitly selected named base profile/,
         `${workflow} resume/read paths must fail closed`
+      );
+    }
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("explicit named Astra sessions accept ultra effort", () => {
+  const repo = makeRepo();
+  try {
+    for (const [workflow, api, profile] of [
+      ["Dev", dev, "codex-astra"],
+      ["Groom", groom, "gpt-6-astra-high"],
+      ["RFC", rfc, "gpt-6-astra-high"],
+    ]) {
+      const session = api.createSession({
+        slug: `${workflow.toLowerCase()}-astra-ultra`,
+        sourceDir: repo,
+        profile,
+        runtime: "codex",
+        model: "gpt-6-astra",
+        reasoning: "ultra",
+      });
+      assert.deepEqual(api.validateSession(session), []);
+
+      const providerLaundered = structuredClone(session);
+      providerLaundered.execution.runtime = "claude";
+      assert.ok(
+        api
+          .validateSession(providerLaundered)
+          .some((issue) => /explicitly selected named base profile/.test(issue.message)),
+        `${workflow} must reject a forged persisted Astra provider binding`
       );
     }
   } finally {

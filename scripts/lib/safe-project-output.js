@@ -578,7 +578,8 @@ function readProjectInputOnce({ absolute, projectRoot, relation }, maxBytes, opt
   if (initial.finalStat.size > BigInt(maxBytes))
     throw new Error(`input exceeds ${maxBytes}-byte budget`);
 
-  const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0);
+  const flags =
+    fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0);
   let descriptor;
   try {
     descriptor = fs.openSync(initial.physicalAbsolute, flags);

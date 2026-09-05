@@ -124,7 +124,7 @@ test("RFC session CLI recertifies an upgraded in-flight session back through int
   }
 });
 
-test("RFC CLI rejects Astra model laundering and unsupported effort", () => {
+test("RFC CLI rejects Astra model laundering and accepts ultra effort", () => {
   const repo = makeRepo();
   try {
     const cases = [
@@ -144,14 +144,6 @@ test("RFC CLI rejects Astra model laundering and unsupported effort", () => {
         "gpt-5.6-sol",
         /cannot override model identity/,
       ],
-      [
-        "astra-effort",
-        "--profile",
-        "gpt-6-astra-high",
-        "--reasoning",
-        "ultra",
-        /effort must be one of low, medium, high, xhigh, max/,
-      ],
     ];
     for (const [slug, ...rest] of cases) {
       const pattern = rest.pop();
@@ -168,6 +160,23 @@ test("RFC CLI rejects Astra model laundering and unsupported effort", () => {
       assert.equal(result.status, 3, result.stderr);
       assert.match(result.stderr, pattern);
     }
+
+    const astra = repo.run([
+      "init",
+      "--slug",
+      "astra-ultra",
+      "--source-dir",
+      repo.root,
+      "--runtime",
+      "codex",
+      "--profile",
+      "gpt-6-astra-high",
+      "--reasoning",
+      "ultra",
+      "--json",
+    ]);
+    assert.equal(astra.status, 0, astra.stderr);
+    assert.equal(JSON.parse(astra.stdout).session.execution.reasoning, "ultra");
   } finally {
     repo.cleanup();
   }

@@ -67,6 +67,51 @@ function run(root, ...args) {
   return spawnSync(process.execPath, [script, ...args], { cwd: root, encoding: "utf8" });
 }
 
+function runWithEnvironment(root, environment, ...args) {
+  return spawnSync(process.execPath, [script, ...args], {
+    cwd: root,
+    encoding: "utf8",
+    env: { ...process.env, ...environment },
+  });
+}
+
+function writePrBodyRacePreload(root) {
+  const preloadPath = path.join(root, "pr-body-race-preload.cjs");
+  fs.writeFileSync(
+    preloadPath,
+    `"use strict";
+const fs = require("node:fs");
+const path = require("node:path");
+const target = fs.realpathSync(path.resolve(process.env.PM_TEST_PR_BODY_PATH));
+const action = process.env.PM_TEST_PR_BODY_ACTION;
+const originalOpen = fs.openSync;
+const originalRead = fs.readSync;
+let targetDescriptor;
+let mutated = false;
+fs.openSync = function patchedOpen(file, ...args) {
+  const descriptor = Reflect.apply(originalOpen, fs, [file, ...args]);
+  if (targetDescriptor === undefined && path.resolve(String(file)) === target) {
+    targetDescriptor = descriptor;
+  }
+  return descriptor;
+};
+fs.readSync = function patchedRead(descriptor, ...args) {
+  if (!mutated && descriptor === targetDescriptor) {
+    mutated = true;
+    if (action === "replace") {
+      fs.renameSync(target, target + ".opened");
+      fs.writeFileSync(target, "replacement body\\n");
+    } else if (action === "grow") {
+      fs.appendFileSync(target, Buffer.alloc(256 * 1024, "x"));
+    }
+  }
+  return Reflect.apply(originalRead, fs, [descriptor, ...args]);
+};
+`
+  );
+  return preloadPath;
+}
+
 function legacyVerifiedCreatePr(transaction, legacy = true) {
   let value = planEffect(transaction, {
     effect: "push",
@@ -304,6 +349,123 @@ test("CLI plans create-pr only when body_sha256 matches canonical pr-body.md", (
     item.cleanup();
   }
 });
+
+test("CLI bounds the complete PR-body observation before parsing", () => {
+  const item = fixture();
+  try {
+    const transactionFile = path.join(item.root, item.transactionPath);
+    const original = JSON.parse(fs.readFileSync(transactionFile, "utf8"));
+    fs.writeFileSync(
+      transactionFile,
+      `${JSON.stringify(legacyVerifiedCreatePr(original, false), null, 2)}\n`
+    );
+    const observationPath = ".pm/dev-sessions/example/ship/observations/pr-body-large.json";
+    fs.mkdirSync(path.dirname(path.join(item.root, observationPath)), { recursive: true });
+    fs.writeFileSync(
+      path.join(item.root, observationPath),
+      `${JSON.stringify({
+        repository: "x".repeat(1024 * 1024),
+        pr_number: 7,
+        state: "OPEN",
+        head_oid: COMMIT,
+        base: "main",
+        draft: false,
+        body: PR_BODY,
+        observed_at: new Date().toISOString(),
+      })}\n`
+    );
+    const before = fs.readFileSync(transactionFile, "utf8");
+
+    const result = run(
+      item.root,
+      "attest-pr-body",
+      "--transaction",
+      item.transactionPath,
+      "--observation-file",
+      observationPath,
+      "--json"
+    );
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /input exceeds 1048576-byte budget/);
+    assert.equal(fs.readFileSync(transactionFile, "utf8"), before);
+  } finally {
+    item.cleanup();
+  }
+});
+
+for (const scenario of ["replace", "symlink", "grow"]) {
+  test(`CLI rejects a canonical PR-body ${scenario} without changing the transaction`, (t) => {
+    if (scenario === "symlink" && process.platform === "win32") {
+      return t.skip("file symlink setup requires privileges");
+    }
+    const item = fixture();
+    try {
+      const transactionFile = path.join(item.root, item.transactionPath);
+      const bodyPath = path.join(item.root, ".pm/dev-sessions/example/ship/pr-body.md");
+      const targetPath = ".pm/dev-sessions/example/ship/create-pr-target.json";
+      fs.writeFileSync(
+        path.join(item.root, targetPath),
+        `${JSON.stringify({
+          repository: "acme/widget",
+          head: "codex/example",
+          base: "main",
+          commit: COMMIT,
+          draft: false,
+          body_sha256: PR_BODY_SHA256,
+        })}\n`
+      );
+      const before = fs.readFileSync(transactionFile, "utf8");
+      let result;
+      if (scenario === "symlink") {
+        const target = `${bodyPath}.target`;
+        fs.renameSync(bodyPath, target);
+        fs.symlinkSync(target, bodyPath);
+        result = run(
+          item.root,
+          "plan",
+          "--transaction",
+          item.transactionPath,
+          "--effect",
+          "create-pr",
+          "--target-file",
+          targetPath,
+          "--json"
+        );
+      } else {
+        const preloadPath = writePrBodyRacePreload(item.root);
+        const nodeOptions = [process.env.NODE_OPTIONS, `--require=${preloadPath}`]
+          .filter(Boolean)
+          .join(" ");
+        result = runWithEnvironment(
+          item.root,
+          {
+            NODE_OPTIONS: nodeOptions,
+            PM_TEST_PR_BODY_ACTION: scenario,
+            PM_TEST_PR_BODY_PATH: bodyPath,
+          },
+          "plan",
+          "--transaction",
+          item.transactionPath,
+          "--effect",
+          "create-pr",
+          "--target-file",
+          targetPath,
+          "--json"
+        );
+      }
+
+      assert.notEqual(result.status, 0);
+      assert.match(
+        result.stderr,
+        /canonical pr-body\.md is unavailable:.*(?:symlink|changed during bounded read|input path changed|input exceeds 131072-byte budget)/s
+      );
+      assert.equal(fs.readFileSync(transactionFile, "utf8"), before);
+    } finally {
+      item.cleanup();
+    }
+  });
+}
 
 test("CLI gives legacy journals an explicit body rebind and re-observation path", () => {
   const item = fixture();

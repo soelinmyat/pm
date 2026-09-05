@@ -9,6 +9,7 @@ const { spawnSync } = require("node:child_process");
 const { writeJsonAtomic } = require("./lib/atomic-file");
 const { acquireOwnedLock } = require("./lib/owned-lock");
 const { isGitObjectId } = require("./lib/git-object-id");
+const { readProjectInput } = require("./lib/safe-project-output");
 const { beginSegment, finishSegment, recoverInterruptedSegments } = require("./delivery-telemetry");
 const {
   verifyDeliveryAttestation,
@@ -29,6 +30,9 @@ const {
   releaseReadiness,
   transactionIssues,
 } = require("./lib/release-transaction-schema");
+
+const MAX_CANONICAL_PR_BODY_BYTES = 128 * 1024;
+const MAX_PR_BODY_OBSERVATION_BYTES = 1024 * 1024;
 
 function parseArgs(argv) {
   const command = argv[0];
@@ -250,7 +254,7 @@ function runCommand(args, options = {}) {
     if (args.command === "plan") {
       const target = readJson(resolveInputFile(args.target_file, cwd, "target"), "effect target");
       if (["create-pr", "merge"].includes(args.effect)) {
-        requireCanonicalPrBodyBinding(transactionPath, target);
+        requireCanonicalPrBodyBinding(cwd, transactionPath, target);
       }
       return {
         transaction: planEffect(transaction, { effect: args.effect, target }),
@@ -258,21 +262,24 @@ function runCommand(args, options = {}) {
       };
     }
     if (args.command === "migrate-pr-body") {
-      const binding = readCanonicalPrBodyBinding(transactionPath);
+      const binding = readCanonicalPrBodyBinding(cwd, transactionPath);
       return {
         transaction: migrateLegacyPrBody(transaction, { bodySha256: binding.sha256 }),
         decision: "pr-body-migration-bound",
       };
     }
     if (args.command === "attest-pr-body") {
-      const binding = readCanonicalPrBodyBinding(transactionPath);
+      const binding = readCanonicalPrBodyBinding(cwd, transactionPath);
       const createPrTarget = transaction.effects?.["create-pr"]?.target;
       if (createPrTarget?.body_sha256 !== binding.sha256) {
         throw new Error("canonical pr-body.md no longer matches the create-pr target");
       }
-      const observation = readJson(
-        resolvePrivateFile(args.observation_file, cwd, "PR body observation"),
-        "live PR body observation"
+      const observationPath = resolvePrivateFile(args.observation_file, cwd, "PR body observation");
+      const observation = readBoundedProjectJson(
+        cwd,
+        observationPath,
+        "live PR body observation",
+        MAX_PR_BODY_OBSERVATION_BYTES
       );
       return {
         transaction: attestPrBody(transaction, { observation }),
@@ -304,7 +311,11 @@ function runCommand(args, options = {}) {
         ["create-pr", "merge"].includes(args.effect) &&
         transaction.effects?.[args.effect]?.target?.body_sha256 !== undefined
       ) {
-        requireCanonicalPrBodyBinding(transactionPath, transaction.effects[args.effect].target);
+        requireCanonicalPrBodyBinding(
+          cwd,
+          transactionPath,
+          transaction.effects[args.effect].target
+        );
       }
       return reconcileEffect(transaction, {
         effect: args.effect,
@@ -540,30 +551,39 @@ function digestText(value) {
   return `sha256:${crypto.createHash("sha256").update(value).digest("hex")}`;
 }
 
-function readCanonicalPrBodyBinding(transactionPath) {
+function readCanonicalPrBodyBinding(cwd, transactionPath) {
   const filePath = path.join(path.dirname(transactionPath), "pr-body.md");
-  let stat;
+  let input;
   try {
-    stat = fs.lstatSync(filePath);
+    input = readProjectInput(cwd, path.relative(cwd, filePath), MAX_CANONICAL_PR_BODY_BYTES, {
+      requireStablePath: true,
+    });
   } catch (error) {
     throw new Error(`canonical pr-body.md is unavailable: ${error.message}`);
   }
-  if (!stat.isFile() || stat.isSymbolicLink()) {
-    throw new Error("canonical pr-body.md must be a regular non-symlink file");
-  }
-  if (stat.size < 1 || stat.size > 128 * 1024) {
+  if (input.bytes.length < 1) {
     throw new Error("canonical pr-body.md must contain 1 byte to 128 KiB");
   }
-  const bytes = fs.readFileSync(filePath);
-  return { filePath, sha256: digestText(bytes) };
+  return { filePath, sha256: digestText(input.bytes) };
 }
 
-function requireCanonicalPrBodyBinding(transactionPath, target) {
-  const binding = readCanonicalPrBodyBinding(transactionPath);
+function requireCanonicalPrBodyBinding(cwd, transactionPath, target) {
+  const binding = readCanonicalPrBodyBinding(cwd, transactionPath);
   if (target?.body_sha256 !== binding.sha256) {
     throw new Error("effect target body_sha256 does not match canonical pr-body.md bytes");
   }
   return binding;
+}
+
+function readBoundedProjectJson(cwd, filePath, label, maxBytes) {
+  try {
+    const input = readProjectInput(cwd, path.relative(cwd, filePath), maxBytes, {
+      requireStablePath: true,
+    });
+    return JSON.parse(input.bytes.toString("utf8"));
+  } catch (error) {
+    throw new Error(`cannot read ${label} ${filePath}: ${error.message}`);
+  }
 }
 
 function git(cwd, args) {

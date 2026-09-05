@@ -793,6 +793,11 @@
       letter-spacing: 0.07em;
     }
     .execution-contract table[data-responsive="true"] td::before { display: none; }
+    .execution-contract table[data-responsive="true"] td {
+      display: block;
+      grid-template-columns: none;
+      gap: 0;
+    }
     .execution-contract table[data-responsive="true"] td:first-child {
       padding-bottom: 0;
       color: var(--ink-2);
