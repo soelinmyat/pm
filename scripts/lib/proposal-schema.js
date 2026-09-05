@@ -947,7 +947,7 @@ function resolveEvidenceLocator(source, locator) {
     }
   }
   if (source.extension === ".md" && normalizedLocator.startsWith("#")) {
-    const anchor = normalizedLocator.slice(1).toLowerCase();
+    const anchor = markdownAnchor(normalizedLocator.slice(1));
     const lines = text.split(/\r?\n/);
     const index = lines.findIndex((line) => {
       const heading = line.match(/^#{1,6}\s+(.+?)\s*#*$/);
@@ -1014,9 +1014,11 @@ function looksLikeTextSource(bytes, decoded) {
 
 function markdownAnchor(value) {
   return String(value)
+    .normalize("NFC")
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, "")
+    .normalize("NFC")
+    .replace(/[^\p{L}\p{M}\p{N}\s-]/gu, "")
     .replace(/\s+/g, "-")
     .replace(/-+/g, "-");
 }

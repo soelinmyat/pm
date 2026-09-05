@@ -134,6 +134,23 @@ test("repeated landmark roles require distinct accessible names", () => {
   );
 });
 
+test("canonically equivalent landmark names are duplicates", () => {
+  const raw = accessibilityRaw();
+  raw.observations.landmarks.push(
+    { role: "navigation", name: "Café", locator: "nav#primary" },
+    { role: "navigation", name: "Cafe\u0301", locator: "nav#secondary" }
+  );
+  const audit = normalize(raw);
+
+  assert.equal(audit.checks.landmarks, false);
+  assert.deepEqual(
+    audit.findings
+      .filter((finding) => finding.code === "duplicate-landmark-name")
+      .map((finding) => finding.locator),
+    ["nav#primary", "nav#secondary"]
+  );
+});
+
 test("derives DOM checks from measured overflow and probe issue rows", () => {
   const raw = domRaw();
   raw.observations.viewport.scroll_width = 1450;

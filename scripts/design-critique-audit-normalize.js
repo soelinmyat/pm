@@ -120,7 +120,12 @@ function normalizeAccessibility(observations) {
     if (items.length < 2) continue;
     const names = new Map();
     for (const item of items) {
-      const name = item.name.trim().replace(/\s+/g, " ").toLowerCase();
+      const name = item.name
+        .normalize("NFC")
+        .trim()
+        .replace(/\s+/g, " ")
+        .toLowerCase()
+        .normalize("NFC");
       if (!name) {
         findings.push({
           check: "landmarks",

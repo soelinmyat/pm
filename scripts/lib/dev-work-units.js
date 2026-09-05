@@ -57,6 +57,75 @@ const MAX_PROTOTYPE_BYTES = 10 * 1024 * 1024;
 const MAX_PROTOTYPE_TREE_BYTES = 32 * 1024 * 1024;
 const MAX_PROTOTYPE_FILES = 128;
 const MAX_PROTOTYPE_DEPTH = 8;
+const HTML_ATTRIBUTE_ASCII_REFERENCES = Object.freeze({
+  amp: "&",
+  apos: "'",
+  ast: "*",
+  bsol: "\\",
+  colon: ":",
+  comma: ",",
+  commat: "@",
+  dollar: "$",
+  equals: "=",
+  excl: "!",
+  grave: "`",
+  gt: ">",
+  hat: "^",
+  lbrace: "{",
+  lbrack: "[",
+  lcub: "{",
+  lowbar: "_",
+  lpar: "(",
+  lsqb: "[",
+  lt: "<",
+  midast: "*",
+  newline: "\n",
+  num: "#",
+  percnt: "%",
+  period: ".",
+  plus: "+",
+  quest: "?",
+  quot: '"',
+  rbrace: "}",
+  rbrack: "]",
+  rcub: "}",
+  rpar: ")",
+  rsqb: "]",
+  semi: ";",
+  sol: "/",
+  tab: "\t",
+  verbar: "|",
+  verticalline: "|",
+});
+const PROTOTYPE_RESOURCE_ATTRIBUTES = new Map([
+  ["a", ["href", "ping"]],
+  ["area", ["href", "ping"]],
+  ["audio", ["src"]],
+  ["body", ["background"]],
+  ["button", ["formaction"]],
+  ["embed", ["src"]],
+  ["feimage", ["href", "xlink:href"]],
+  ["form", ["action"]],
+  ["frame", ["src"]],
+  ["iframe", ["src"]],
+  ["image", ["href", "xlink:href"]],
+  ["img", ["src", "srcset", "lowsrc"]],
+  ["input", ["src", "formaction"]],
+  ["link", ["href"]],
+  ["object", ["data"]],
+  ["script", ["src"]],
+  ["source", ["src", "srcset"]],
+  ["table", ["background"]],
+  ["tbody", ["background"]],
+  ["td", ["background"]],
+  ["tfoot", ["background"]],
+  ["th", ["background"]],
+  ["thead", ["background"]],
+  ["tr", ["background"]],
+  ["track", ["src"]],
+  ["use", ["href", "xlink:href"]],
+  ["video", ["src", "poster"]],
+]);
 
 function validateWorkUnits(units, options = {}) {
   if (!Array.isArray(units)) throw new TypeError("work units must be an array");
@@ -671,24 +740,6 @@ function validateSelfContainedPrototype(bytes, label) {
     throw new Error(`${label} single-file HTML must be valid UTF-8`);
   }
   const tags = startTags(structuralMarkup(html));
-  const resourceAttributes = new Map([
-    ["a", ["href"]],
-    ["area", ["href"]],
-    ["audio", ["src"]],
-    ["button", ["formaction"]],
-    ["embed", ["src"]],
-    ["form", ["action"]],
-    ["frame", ["src"]],
-    ["iframe", ["src"]],
-    ["img", ["src", "srcset"]],
-    ["input", ["src", "formaction"]],
-    ["link", ["href"]],
-    ["object", ["data"]],
-    ["script", ["src"]],
-    ["source", ["src", "srcset"]],
-    ["track", ["src"]],
-    ["video", ["src", "poster"]],
-  ]);
   for (const tag of tags) {
     if (/(?:^|\s)on[a-z][a-z0-9:._-]*\s*=/i.test(tag.attrs)) {
       throw new Error(
@@ -722,20 +773,13 @@ function validateSelfContainedPrototype(bytes, label) {
         );
       }
     }
-    for (const attribute of resourceAttributes.get(tag.name) || []) {
+    for (const attribute of PROTOTYPE_RESOURCE_ATTRIBUTES.get(tag.name) || []) {
       const target = attributeValue(tag.attrs, [attribute]);
-      const inline = inlineResourceTarget(target, `${tag.name}[${attribute}]`);
+      const context = prototypeResourceContext(tag.name, attribute);
+      const inline = inlineResourceTarget(target, context);
       if (target !== undefined && (attribute === "srcset" || !inline)) {
         throw new Error(
           `${label} single-file HTML references ${tag.name}[${attribute}] resource ${JSON.stringify(target)}; inline it or use an index.html prototype tree`
-        );
-      }
-    }
-    if (["image", "feimage", "use"].includes(tag.name)) {
-      const target = attributeValue(tag.attrs, ["href", "xlink:href"]);
-      if (target !== undefined && !inlineResourceTarget(target, `${tag.name}[href]`)) {
-        throw new Error(
-          `${label} single-file HTML references svg ${tag.name} resource ${JSON.stringify(target)}; inline it or use an index.html prototype tree`
         );
       }
     }
@@ -745,7 +789,8 @@ function validateSelfContainedPrototype(bytes, label) {
       ...rawElementBodies(html, "style"),
       ...tags
         .map((tag) => attributeValue(tag.attrs, ["style"]))
-        .filter((value) => value !== undefined),
+        .filter((value) => value !== undefined)
+        .map(decodeHtmlAttributeReferences),
     ].join("\n")
   );
   for (const target of cssResourceTargets(cssText)) {
@@ -784,24 +829,6 @@ function validateBundledMarkupDependencies(bytes, relativePath, manifestPaths) {
     throw new Error(`prototype manifest ${relativePath} must be valid UTF-8`);
   }
   const tags = startTags(structuralMarkup(markup));
-  const resourceAttributes = new Map([
-    ["a", ["href"]],
-    ["area", ["href"]],
-    ["audio", ["src"]],
-    ["button", ["formaction"]],
-    ["embed", ["src"]],
-    ["form", ["action"]],
-    ["frame", ["src"]],
-    ["iframe", ["src"]],
-    ["img", ["src", "srcset"]],
-    ["input", ["src", "formaction"]],
-    ["link", ["href"]],
-    ["object", ["data"]],
-    ["script", ["src"]],
-    ["source", ["src", "srcset"]],
-    ["track", ["src"]],
-    ["video", ["src", "poster"]],
-  ]);
   for (const tag of tags) {
     if (/(?:^|\s)on[a-z][a-z0-9:._-]*\s*=/i.test(tag.attrs)) {
       throw new Error(
@@ -833,7 +860,7 @@ function validateBundledMarkupDependencies(bytes, relativePath, manifestPaths) {
         );
       }
     }
-    for (const attribute of resourceAttributes.get(tag.name) || []) {
+    for (const attribute of PROTOTYPE_RESOURCE_ATTRIBUTES.get(tag.name) || []) {
       const target = attributeValue(tag.attrs, [attribute]);
       if (target === undefined) continue;
       if (attribute === "srcset") {
@@ -845,21 +872,16 @@ function validateBundledMarkupDependencies(bytes, relativePath, manifestPaths) {
         target,
         relativePath,
         manifestPaths,
-        `${tag.name}[${attribute}]`
+        prototypeResourceContext(tag.name, attribute)
       );
-    }
-    if (["image", "feimage", "use"].includes(tag.name)) {
-      const target = attributeValue(tag.attrs, ["href", "xlink:href"]);
-      if (target !== undefined) {
-        validateBundledResourceTarget(target, relativePath, manifestPaths, `${tag.name}[href]`);
-      }
     }
   }
   const cssText = [
     ...rawElementBodies(markup, "style"),
     ...tags
       .map((tag) => attributeValue(tag.attrs, ["style"]))
-      .filter((value) => value !== undefined),
+      .filter((value) => value !== undefined)
+      .map(decodeHtmlAttributeReferences),
   ].join("\n");
   validateBundledCssDependencies(cssText, relativePath, manifestPaths);
 }
@@ -981,15 +1003,28 @@ function normalizeCssForDependencyInspection(value) {
     .replace(/\\([^\r\n0-9a-f])/gi, "$1");
 }
 
-function hasUnsafeRefreshDirective(value) {
-  const token = String(value ?? "")
-    .replace(/&#(?:x([0-9a-f]+)|([0-9]+));?/gi, (entity, hex, decimal) => {
+function decodeHtmlAttributeReferences(value) {
+  return String(value ?? "")
+    .replace(/&#(?:x([0-9a-f]+)|([0-9]+));?/gi, (_entity, hex, decimal) => {
       const codePoint = Number.parseInt(hex ?? decimal, hex === undefined ? 10 : 16);
-      return codePoint <= 0x7f ? String.fromCodePoint(codePoint) : entity;
+      if (codePoint === 0 || codePoint > 0x10ffff || (codePoint >= 0xd800 && codePoint <= 0xdfff)) {
+        return "\uFFFD";
+      }
+      return String.fromCodePoint(codePoint);
     })
-    .replace(/&(?:tab|newline);/gi, " ")
-    .trim();
+    .replace(
+      /&(amp|apos|ast|bsol|colon|comma|commat|dollar|equals|excl|grave|gt|hat|lbrace|lbrack|lcub|lowbar|lpar|lsqb|lt|midast|newline|num|percnt|period|plus|quest|quot|rbrace|rbrack|rcub|rpar|rsqb|semi|sol|tab|verbar|verticalline)(?:;|(?![a-z0-9=]))/gi,
+      (_entity, name) => HTML_ATTRIBUTE_ASCII_REFERENCES[name.toLowerCase()]
+    );
+}
+
+function hasUnsafeRefreshDirective(value) {
+  const token = decodeHtmlAttributeReferences(value).trim();
   return /^refresh$/i.test(token);
+}
+
+function prototypeResourceContext(tagName, attribute) {
+  return `${tagName}[${attribute === "xlink:href" ? "href" : attribute}]`;
 }
 
 function inlineResourceTarget(value, context) {
@@ -1004,7 +1039,9 @@ function inertDataResourceTarget(value, context) {
   const video = /^video\/(?:mp4|ogg|webm)$/.test(mime || "");
   const raster = /^image\/(?:avif|bmp|gif|jpeg|png|webp|x-icon)$/.test(mime || "");
   const imageContext =
-    /^(?:css\[url\]|(?:img|input)\[src\]|video\[poster\]|(?:image|feimage)\[href\])$/.test(context);
+    /^(?:css\[url\]|img\[(?:src|lowsrc)\]|input\[src\]|video\[poster\]|(?:image|feimage)\[href\]|(?:body|table|thead|tbody|tfoot|tr|td|th)\[background\])$/.test(
+      context
+    );
   if (imageContext && raster) return true;
   if (context === "css[url]") return /^font\/(?:otf|sfnt|ttf|woff2?)$/.test(mime || "");
   if (context === "source[src]") return audio || video;

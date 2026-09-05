@@ -449,6 +449,36 @@ test("current review evidence is bound to retained source bytes and mechanically
   }
 });
 
+test("Markdown heading locators preserve Unicode and canonical equivalence", () => {
+  const cases = [
+    { heading: "顧客調査", locator: "#顧客調査" },
+    { heading: "Résumé", locator: "#Re\u0301sume\u0301" },
+    { heading: "Re\u0301sume\u0301", locator: "#Résumé" },
+  ];
+
+  for (const { heading, locator } of cases) {
+    const project = tmpProject();
+    try {
+      const proposal = bindCurrentReviewContract(fixture());
+      for (const review of proposal.question_reviews) review.evidence[0].locator = locator;
+      const source = proposal.source.lineage[0];
+      const sourcePath = path.join(project.dir, source.path);
+      const reviewText = proposal.question_reviews
+        .map((review) => `${review.conclusion} ${review.rationale} ${review.evidence[0].relevance}`)
+        .join("\n");
+      const bytes = Buffer.from(`# ${heading}\n\n${reviewText}\n`);
+      fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
+      fs.writeFileSync(sourcePath, bytes);
+      source.sha256 = proposalBytesHash(bytes);
+
+      const result = validateCurrentProposalEvidence(proposal, project.dir);
+      assert.equal(result.ok, true, `${heading} -> ${locator}: ${messages(result)}`);
+    } finally {
+      project.cleanup();
+    }
+  }
+});
+
 test("current evidence records cannot cite a path outside hash-bound lineage", () => {
   const project = tmpProject();
   try {

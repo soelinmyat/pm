@@ -203,6 +203,17 @@ test("review report navigation wraps without narrow horizontal overflow", () => 
   assert.match(template, /\.finding p\{[^}]*overflow-wrap:anywhere/);
 });
 
+test("design critique report navigation keeps narrow touch targets usable", () => {
+  const template = read("references/templates/design-critique-report.html");
+  assert.match(template, /@media\(max-width:700px\).*nav ul\{[^}]*flex-wrap:wrap/);
+  assert.match(template, /@media\(max-width:700px\).*nav ul\{[^}]*overflow:visible/);
+  assert.match(template, /@media\(max-width:700px\).*nav li\{[^}]*max-width:100%/);
+  assert.match(
+    template,
+    /@media\(max-width:700px\).*nav a\{[^}]*display:inline-flex[^}]*max-width:100%[^}]*min-height:44px[^}]*align-items:center[^}]*white-space:normal[^}]*overflow-wrap:anywhere/
+  );
+});
+
 test("low-risk S work receives a code scan instead of silently skipping review", () => {
   const risk = read("skills/dev/references/risk-routing.md");
   const review = read("skills/dev/steps/08-review.md");

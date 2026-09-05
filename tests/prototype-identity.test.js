@@ -629,6 +629,138 @@ test("prototype identities reject unbound bundle dependencies and unsupported ac
   }
 });
 
+test("prototype identities decode HTML character references before CSS dependency inspection", () => {
+  const project = tempProject();
+  try {
+    const singlePath = "pm/backlog/wireframes/encoded-style.html";
+    const prototypePath = writeMultiFilePrototype(project.root);
+    const bundledIndex = "pm/backlog/wireframes/account-settings/index.html";
+    const cases = [
+      [
+        "numeric references",
+        '<main style="background-image:u&#114;l(&#104;ttps://example.test/live.png)">Demo</main>\n',
+      ],
+      [
+        "named punctuation references",
+        '<main style="background-image:url&lpar;https&colon;&sol;&sol;example.test/live.png&rpar;">Demo</main>\n',
+      ],
+      [
+        "semicolonless named punctuation reference",
+        '<main style="background-image:url&lpar;https&colon//example.test/live.png&rpar;">Demo</main>\n',
+      ],
+      [
+        "encoded import",
+        '<main style="&#64;im&#112;ort &quot;https://example.test/live.css&quot;">Demo</main>\n',
+      ],
+    ];
+    for (const [name, encodedRemoteStyle] of cases) {
+      write(project.root, singlePath, encodedRemoteStyle);
+      assert.throws(
+        () => buildPrototypeIdentity(singlePath, project.root),
+        /single-file HTML references CSS resource/i,
+        `single-file encoded style dependency using ${name}`
+      );
+
+      write(project.root, bundledIndex, encodedRemoteStyle);
+      assert.throws(
+        () => buildPrototypeIdentity(prototypePath, project.root),
+        /remote or absolute resource/i,
+        `bundled encoded style dependency using ${name}`
+      );
+    }
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("prototype identities inspect legacy and interaction-triggered fetch attributes", () => {
+  const project = tempProject();
+  try {
+    const singlePath = "pm/backlog/wireframes/fetch-attributes.html";
+    const prototypePath = writeMultiFilePrototype(project.root);
+    const bundledIndex = "pm/backlog/wireframes/account-settings/index.html";
+    for (const [name, markup] of [
+      ["anchor ping", '<a href="#detail" ping="https://example.test/audit">Open</a>'],
+      ["area ping", '<map><area href="#detail" ping="https://example.test/audit"></map>'],
+      ["image lowsrc", '<img alt="Preview" lowsrc="https://example.test/preview.png">'],
+    ]) {
+      write(project.root, singlePath, `${markup}<section id="detail">Detail</section>\n`);
+      assert.throws(
+        () => buildPrototypeIdentity(singlePath, project.root),
+        /single-file HTML references .* resource/i,
+        `single-file ${name}`
+      );
+
+      write(project.root, bundledIndex, `${markup}<section id="detail">Detail</section>\n`);
+      assert.throws(
+        () => buildPrototypeIdentity(prototypePath, project.root),
+        /remote or absolute resource/i,
+        `bundled ${name}`
+      );
+    }
+
+    const inertMarkup =
+      '<main data-background="https://example.test/inert" aria-label="R&amp;D">Demo</main>\n';
+    write(project.root, singlePath, inertMarkup);
+    assert.doesNotThrow(() => buildPrototypeIdentity(singlePath, project.root));
+    write(project.root, bundledIndex, inertMarkup);
+    assert.doesNotThrow(() => buildPrototypeIdentity(prototypePath, project.root));
+
+    const inlineLegacyImage = '<img alt="Preview" lowsrc="data:image/png;base64,iVBORw0KGgo=">\n';
+    write(project.root, singlePath, inlineLegacyImage);
+    assert.doesNotThrow(() => buildPrototypeIdentity(singlePath, project.root));
+    write(project.root, bundledIndex, inlineLegacyImage);
+    assert.doesNotThrow(() => buildPrototypeIdentity(prototypePath, project.root));
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("prototype identities inspect legacy background resource attributes", () => {
+  const project = tempProject();
+  try {
+    const remote = "https://example.test/live.png";
+    const markupFor = (tag, target) => {
+      const element = `<${tag} background="${target}">Demo</${tag}>`;
+      if (["thead", "tbody", "tfoot"].includes(tag)) return `<table>${element}</table>\n`;
+      if (tag === "tr") return `<table><tbody>${element}</tbody></table>\n`;
+      if (["td", "th"].includes(tag)) {
+        return `<table><tbody><tr>${element}</tr></tbody></table>\n`;
+      }
+      return `${element}\n`;
+    };
+    const tags = ["body", "table", "thead", "tbody", "tfoot", "tr", "td", "th"];
+    const singlePath = "pm/backlog/wireframes/background.html";
+    const prototypePath = writeMultiFilePrototype(project.root);
+    const bundledIndex = "pm/backlog/wireframes/account-settings/index.html";
+
+    for (const tag of tags) {
+      write(project.root, singlePath, markupFor(tag, remote));
+      assert.throws(
+        () => buildPrototypeIdentity(singlePath, project.root),
+        new RegExp(`single-file HTML references ${tag}\\[background\\] resource`, "i"),
+        `single-file ${tag}[background] dependency`
+      );
+
+      write(project.root, bundledIndex, markupFor(tag, remote));
+      assert.throws(
+        () => buildPrototypeIdentity(prototypePath, project.root),
+        /remote or absolute resource/i,
+        `bundled ${tag}[background] dependency`
+      );
+    }
+
+    const inlineImage = "data:image/png;base64,iVBORw0KGgo=";
+    const inlineBackgrounds = `<body background="${inlineImage}"><table background="${inlineImage}"><thead background="${inlineImage}"><tr background="${inlineImage}"><th background="${inlineImage}">Head</th></tr></thead><tbody background="${inlineImage}"><tr><td background="${inlineImage}">Body</td></tr></tbody><tfoot background="${inlineImage}"><tr><td>Foot</td></tr></tfoot></table></body>`;
+    write(project.root, singlePath, inlineBackgrounds);
+    assert.doesNotThrow(() => buildPrototypeIdentity(singlePath, project.root));
+    write(project.root, bundledIndex, inlineBackgrounds);
+    assert.doesNotThrow(() => buildPrototypeIdentity(prototypePath, project.root));
+  } finally {
+    project.cleanup();
+  }
+});
+
 test("prototype identities reject active data URIs but accept inert image media", () => {
   const project = tempProject();
   try {
