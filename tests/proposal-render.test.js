@@ -66,6 +66,12 @@ test("proposal renderer is byte-deterministic and binds both projections to cano
   assert.match(first.html, /Evidence provenance/);
   assert.match(first.html, /Observed\.<\/strong> 2026-07-14T01:00:00\.000Z/);
   assert.match(first.html, /Source lineage/);
+  assert.match(first.html, /<table class="source-lineage" data-responsive="true"/);
+  assert.match(first.html, /\.source-lineage td:last-child\s*\{[^}]*font-family:\s*var\(--mono\)/s);
+  assert.match(
+    first.html,
+    /\.source-lineage th:nth-child\(3\), \.source-lineage td:nth-child\(3\)\s*\{\s*width:\s*42%/s
+  );
   assert.match(
     first.html,
     /sha256:1111111111111111111111111111111111111111111111111111111111111111/

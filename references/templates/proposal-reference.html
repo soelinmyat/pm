@@ -528,6 +528,16 @@
   td:first-child { color: var(--ink); }
   td strong { color: var(--ink); font-weight: 500; }
   tr:last-child td { border-bottom: none; }
+  .source-lineage td:last-child {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    letter-spacing: -0.01em;
+  }
+  @media (min-width: 641px) {
+    .source-lineage th:nth-child(1), .source-lineage td:nth-child(1) { width: 24%; }
+    .source-lineage th:nth-child(2), .source-lineage td:nth-child(2) { width: 34%; }
+    .source-lineage th:nth-child(3), .source-lineage td:nth-child(3) { width: 42%; }
+  }
 
   /* ───────────── Diagram ───────────── */
   .diagram {
@@ -820,7 +830,7 @@
   @media print { .skip-link { display: none !important; } }
   :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }
-  @media print { body { background: #fff; color: #000; } .page { max-width: none; padding: 0; } .masthead { position: static; } .toc, .appendix-disclosure > summary { display: none; } .appendix-disclosure { border: 0; padding: 0; } .appendix-disclosure:not([open]) > :not(summary) { display: block !important; } .hero-prototype-preview { min-height: 0; padding: var(--space-3); } .hero-prototype-link[href]::after { content: ' (' attr(href) ')'; } table[data-responsive="true"] { display: table; } table[data-responsive="true"] thead { position: static; width: auto; height: auto; margin: 0; overflow: visible; clip: auto; white-space: normal; } table[data-responsive="true"] tbody { display: table-row-group; } table[data-responsive="true"] tr { display: table-row; } table[data-responsive="true"] td { display: table-cell; width: auto; } table[data-responsive="true"] td::before { display: none; } *, *::before, *::after { overflow: visible !important; box-shadow: none !important; } section, table, .execution-contract, .hero-prototype, .decision-action { break-inside: avoid; } }
+  @media print { body { background: #fff; color: #000; } .page { max-width: none; padding: 0; } .masthead { position: static; } .toc, .appendix-disclosure > summary { display: none; } .appendix-disclosure { border: 0; padding: 0; } .appendix-disclosure:not([open]) > :not(summary) { display: block !important; } .hero-prototype-preview { min-height: 0; padding: var(--space-3); } .hero-prototype-link[href]::after { content: ' (' attr(href) ')'; } table[data-responsive="true"] { display: table; } table[data-responsive="true"] thead { position: static; width: auto; height: auto; margin: 0; overflow: visible; clip: auto; white-space: normal; } table[data-responsive="true"] tbody { display: table-row-group; } table[data-responsive="true"] tr { display: table-row; } table[data-responsive="true"] td { display: table-cell; width: auto; } table[data-responsive="true"] td::before { display: none; } .source-lineage th:nth-child(1), .source-lineage td:nth-child(1) { width: 24%; } .source-lineage th:nth-child(2), .source-lineage td:nth-child(2) { width: 34%; } .source-lineage th:nth-child(3), .source-lineage td:nth-child(3) { width: 42%; } .source-lineage td:last-child { font-size: 0.7rem; } *, *::before, *::after { overflow: visible !important; box-shadow: none !important; } section, table, .execution-contract, .hero-prototype, .decision-action { break-inside: avoid; } }
 </style>
 </head>
 <body>

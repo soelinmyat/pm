@@ -498,8 +498,9 @@ function listHtml(items) {
 function section(id, numeral, title, body) {
   return `<section id="${id}"><h2><span class="sec-num" aria-hidden="true">${numeral}</span>${h(title)}</h2>${body}</section>`;
 }
-function tableHtml(headers, rows) {
-  return `<table data-responsive="true" aria-label="${h(headers.join(" and "))}"><thead><tr>${headers.map((item) => `<th>${h(item)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((item, index) => `<td data-label="${h(headers[index] || "Value")}">${h(item)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+function tableHtml(headers, rows, options = {}) {
+  const className = options.className ? ` class="${h(options.className)}"` : "";
+  return `<table${className} data-responsive="true" aria-label="${h(headers.join(" and "))}"><thead><tr>${headers.map((item) => `<th>${h(item)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((item, index) => `<td data-label="${h(headers[index] || "Value")}">${h(item)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
 }
 function prototypeHeroHtml(proposal, identity) {
   const prototype = proposal.design_context?.prototype;
@@ -529,7 +530,8 @@ function evidenceHtml(proposal) {
     .join("");
   const lineage = tableHtml(
     ["Lineage ID", "Retained source", "SHA-256"],
-    proposal.source.lineage.map((item) => [item.id, item.path, item.sha256])
+    proposal.source.lineage.map((item) => [item.id, item.path, item.sha256]),
+    { className: "source-lineage" }
   );
   return `<h3>Evidence provenance</h3>${evidence}<h3>Source lineage</h3>${lineage}`;
 }
