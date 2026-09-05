@@ -724,7 +724,8 @@ function validateSelfContainedPrototype(bytes, label) {
     }
     for (const attribute of resourceAttributes.get(tag.name) || []) {
       const target = attributeValue(tag.attrs, [attribute]);
-      if (target !== undefined && (attribute === "srcset" || !inlineResourceTarget(target))) {
+      const inline = inlineResourceTarget(target, `${tag.name}[${attribute}]`);
+      if (target !== undefined && (attribute === "srcset" || !inline)) {
         throw new Error(
           `${label} single-file HTML references ${tag.name}[${attribute}] resource ${JSON.stringify(target)}; inline it or use an index.html prototype tree`
         );
@@ -732,7 +733,7 @@ function validateSelfContainedPrototype(bytes, label) {
     }
     if (["image", "feimage", "use"].includes(tag.name)) {
       const target = attributeValue(tag.attrs, ["href", "xlink:href"]);
-      if (target !== undefined && !inlineResourceTarget(target)) {
+      if (target !== undefined && !inlineResourceTarget(target, `${tag.name}[href]`)) {
         throw new Error(
           `${label} single-file HTML references svg ${tag.name} resource ${JSON.stringify(target)}; inline it or use an index.html prototype tree`
         );
@@ -748,7 +749,7 @@ function validateSelfContainedPrototype(bytes, label) {
     ].join("\n")
   );
   for (const target of cssResourceTargets(cssText)) {
-    if (!inlineResourceTarget(target)) {
+    if (!inlineResourceTarget(target, "css[url]")) {
       throw new Error(
         `${label} single-file HTML references CSS resource ${JSON.stringify(target)}; inline it or use an index.html prototype tree`
       );
@@ -840,12 +841,17 @@ function validateBundledMarkupDependencies(bytes, relativePath, manifestPaths) {
           `prototype manifest ${relativePath} contains unsupported active srcset syntax`
         );
       }
-      validateBundledResourceTarget(target, relativePath, manifestPaths);
+      validateBundledResourceTarget(
+        target,
+        relativePath,
+        manifestPaths,
+        `${tag.name}[${attribute}]`
+      );
     }
     if (["image", "feimage", "use"].includes(tag.name)) {
       const target = attributeValue(tag.attrs, ["href", "xlink:href"]);
       if (target !== undefined) {
-        validateBundledResourceTarget(target, relativePath, manifestPaths);
+        validateBundledResourceTarget(target, relativePath, manifestPaths, `${tag.name}[href]`);
       }
     }
   }
@@ -860,15 +866,21 @@ function validateBundledMarkupDependencies(bytes, relativePath, manifestPaths) {
 
 function validateBundledCssDependencies(css, relativePath, manifestPaths) {
   const normalized = normalizeCssForDependencyInspection(css);
+  if (/@import\s+(?:url\(\s*)?["']?\s*data:/i.test(normalized)) {
+    throw new Error(`prototype manifest ${relativePath} contains unsupported data resource`);
+  }
   for (const target of cssResourceTargets(normalized)) {
-    validateBundledResourceTarget(target, relativePath, manifestPaths);
+    validateBundledResourceTarget(target, relativePath, manifestPaths, "css[url]");
   }
 }
 
-function validateBundledResourceTarget(value, sourcePath, manifestPaths) {
+function validateBundledResourceTarget(value, sourcePath, manifestPaths, context) {
   const target = String(value).trim();
   if (target === "" || target.startsWith("#") || target.startsWith("?")) return;
-  if (/^data:/i.test(target)) return;
+  if (/^data:/i.test(target)) {
+    if (inertDataResourceTarget(target, context)) return;
+    throw new Error(`prototype manifest ${sourcePath} contains unsupported data resource`);
+  }
   let pathname = target.split(/[?#]/, 1)[0];
   try {
     pathname = decodeURIComponent(pathname);
@@ -966,9 +978,25 @@ function normalizeCssForDependencyInspection(value) {
     .replace(/\\([^\r\n0-9a-f])/gi, "$1");
 }
 
-function inlineResourceTarget(value) {
+function inlineResourceTarget(value, context) {
   const target = String(value).trim();
-  return target === "" || /^(?:data:|#)/i.test(target);
+  if (target === "" || target.startsWith("#")) return true;
+  return /^data:/i.test(target) && inertDataResourceTarget(target, context);
+}
+
+function inertDataResourceTarget(value, context) {
+  const mime = /^data:([^;,]+)(?:;[^,]*)?,/i.exec(String(value).trim())?.[1].toLowerCase();
+  const audio = /^audio\/(?:aac|flac|mp4|mpeg|ogg|wav|webm|x-wav)$/.test(mime || "");
+  const video = /^video\/(?:mp4|ogg|webm)$/.test(mime || "");
+  const raster = /^image\/(?:avif|bmp|gif|jpeg|png|webp|x-icon)$/.test(mime || "");
+  const imageContext =
+    /^(?:css\[url\]|(?:img|input)\[src\]|video\[poster\]|(?:image|feimage)\[href\])$/.test(context);
+  if (imageContext && raster) return true;
+  if (context === "css[url]") return /^font\/(?:otf|sfnt|ttf|woff2?)$/.test(mime || "");
+  if (context === "source[src]") return audio || video;
+  if (context === "audio[src]") return audio;
+  if (context === "video[src]") return video;
+  return context === "track[src]" && mime === "text/vtt";
 }
 
 function prototypeTreeHash(files) {

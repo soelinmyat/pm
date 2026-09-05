@@ -445,7 +445,7 @@ test("single-file HTML cannot hide mutable local dependencies behind its entry h
     write(
       project.root,
       inlinePath,
-      '<!doctype html><style>main{background:url("data:image/svg+xml;base64,PHN2Zy8+")}</style><script type="application/json" id="wireframe-meta">{"screens":[]}</script><main><a href="#detail">Jump</a><svg><use href="#icon"></use></svg><section id="detail">Detail</section></main>\n'
+      '<!doctype html><style>main{background:url("data:image/png;base64,iVBORw0KGgo=")}</style><script type="application/json" id="wireframe-meta">{"screens":[]}</script><main><a href="#detail">Jump</a><svg><use href="#icon"></use></svg><section id="detail">Detail</section></main>\n'
     );
     const identity = buildPrototypeIdentity(inlinePath, project.root);
     assert.doesNotThrow(() =>
@@ -454,6 +454,18 @@ test("single-file HTML cannot hide mutable local dependencies behind its entry h
         requireCurrentPrototypeIdentity: true,
         requireExperienceClassification: true,
       })
+    );
+
+    const dataStylesheetPath = "pm/backlog/wireframes/data-stylesheet.html";
+    const activeCss = Buffer.from('@import "https://example.test/live.css";').toString("base64");
+    write(
+      project.root,
+      dataStylesheetPath,
+      `<link rel="stylesheet" href="data:text/css;base64,${activeCss}"><main>Data CSS</main>\n`
+    );
+    assert.throws(
+      () => buildPrototypeIdentity(dataStylesheetPath, project.root),
+      /single-file HTML references link\[href\]/i
     );
 
     write(
@@ -580,6 +592,60 @@ test("prototype identities reject unbound bundle dependencies and unsupported ac
       () => buildPrototypeIdentity(imageSet, project.root),
       /single-file HTML references CSS resource/i
     );
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("prototype identities reject active data URIs but accept inert image media", () => {
+  const project = tempProject();
+  try {
+    const prototypePath = writeMultiFilePrototype(project.root);
+    const prefix = "pm/backlog/wireframes/account-settings";
+    const cssData = `data:text/css;base64,${Buffer.from(
+      '@import "https://example.test/live.css";'
+    ).toString("base64")}`;
+    const htmlData = `data:text/html;base64,${Buffer.from(
+      '<script src="https://example.test/live.js"></script>'
+    ).toString("base64")}`;
+
+    for (const [name, markup] of [
+      ["stylesheet", `<link rel="stylesheet" href="${cssData}"><main>Settings</main>`],
+      ["iframe", `<iframe src="${htmlData}"></iframe>`],
+      ["frame", `<frameset><frame src="${htmlData}"></frameset>`],
+      ["object", `<object data="${htmlData}"></object>`],
+      ["embed", `<embed src="${htmlData}">`],
+      ["form action", `<form action="${htmlData}"><button>Submit</button></form>`],
+      ["navigation", `<a href="${htmlData}">Open</a>`],
+      ["SVG image", '<img src="data:image/svg+xml;base64,PHN2Zy8+" alt="Vector">'],
+    ]) {
+      write(project.root, `${prefix}/index.html`, `${markup}\n`);
+      assert.throws(
+        () => buildPrototypeIdentity(prototypePath, project.root),
+        /unsupported data resource/i,
+        name
+      );
+    }
+
+    write(project.root, `${prefix}/index.html`, "<main>Settings</main>\n");
+    write(project.root, `${prefix}/base.css`, `@import "${cssData}";\n`);
+    assert.throws(
+      () => buildPrototypeIdentity(prototypePath, project.root),
+      /unsupported data resource/i,
+      "CSS import"
+    );
+
+    write(
+      project.root,
+      `${prefix}/base.css`,
+      '@font-face { font-family: Inline; src: url("data:font/woff2;base64,d09GMg=="); }\n'
+    );
+    write(
+      project.root,
+      `${prefix}/index.html`,
+      '<img src="data:image/png;base64,iVBORw0KGgo=" alt="Inline preview"><audio src="data:audio/mpeg;base64,SUQz"></audio><video src="data:video/mp4;base64,AAAA" poster="data:image/webp;base64,UklGRg=="><source src="data:video/webm;base64,GkXf"><track src="data:text/vtt;base64,V0VCVlRU"></video>\n'
+    );
+    assert.doesNotThrow(() => buildPrototypeIdentity(prototypePath, project.root));
   } finally {
     project.cleanup();
   }
