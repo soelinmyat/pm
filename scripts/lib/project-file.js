@@ -2,6 +2,7 @@
 
 const {
   createProjectInputVerificationContext,
+  createProjectRootAnchor,
   readProjectInput,
 } = require("./safe-project-output");
 const {
@@ -14,6 +15,7 @@ const {
 module.exports = {
   acquireProjectWriteLock,
   createProjectInputVerificationContext,
+  createProjectRootAnchor,
   readProjectInput,
   writeProjectFileAtomic,
   writeProjectJsonAtomic,

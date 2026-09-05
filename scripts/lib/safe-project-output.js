@@ -17,11 +17,26 @@ const ANCESTOR_CHURN_RETRY_DELAY_MS = 5;
 const ANCESTOR_CHURN_WAIT_WORD = new Int32Array(new SharedArrayBuffer(4));
 const RETRYABLE_ANCESTOR_CHURN = Symbol("retryable ancestor churn");
 const PROJECT_INPUT_VERIFICATION_CONTEXTS = new WeakMap();
+const PROJECT_ROOT_ANCHORS = new WeakMap();
 
 function createProjectInputVerificationContext() {
   const context = Object.freeze({});
   PROJECT_INPUT_VERIFICATION_CONTEXTS.set(context, { managedDirectories: new Map() });
   return context;
+}
+
+function createProjectRootAnchor(resolvedRoot) {
+  if (typeof resolvedRoot !== "string" || !path.isAbsolute(resolvedRoot)) {
+    throw new Error("resolved project root must be an absolute path");
+  }
+  const projectRoot = path.normalize(resolvedRoot);
+  const stat = fs.lstatSync(projectRoot, { bigint: true });
+  if (stat.isSymbolicLink() || !stat.isDirectory()) {
+    throw new Error(`resolved project root is not a real directory: ${projectRoot}`);
+  }
+  const anchor = Object.freeze({});
+  PROJECT_ROOT_ANCHORS.set(anchor, { projectRoot, stat });
+  return anchor;
 }
 
 function projectInputVerificationState(options) {
@@ -32,7 +47,7 @@ function projectInputVerificationState(options) {
   return state;
 }
 
-function projectPath(root, relativePath) {
+function projectPath(root, relativePath, options = {}) {
   if (
     typeof relativePath !== "string" ||
     relativePath.length === 0 ||
@@ -41,13 +56,26 @@ function projectPath(root, relativePath) {
   )
     throw new Error("project path must be project-relative without traversal");
 
-  const projectRoot = fs.realpathSync(path.resolve(root));
+  const requestedRoot = path.resolve(root);
+  let projectRoot;
+  let anchoredRootStat = null;
+  if (options.projectRootAnchor !== undefined) {
+    const anchor = PROJECT_ROOT_ANCHORS.get(options.projectRootAnchor);
+    if (!anchor) throw new Error("project root anchor is invalid");
+    if (path.relative(anchor.projectRoot, requestedRoot) !== "") {
+      throw new Error("project root does not match its anchor");
+    }
+    projectRoot = anchor.projectRoot;
+    anchoredRootStat = anchor.stat;
+  } else {
+    projectRoot = fs.realpathSync(requestedRoot);
+  }
   const absolute = path.resolve(projectRoot, relativePath);
   const relation = path.relative(projectRoot, absolute);
   if (relation === "" || relation.startsWith(`..${path.sep}`) || path.isAbsolute(relation))
     throw new Error("project path escapes project root");
 
-  return { absolute, projectRoot, relation };
+  return { absolute, projectRoot, relation, anchoredRootStat };
 }
 
 function sameComponentMetadata(left, right) {
@@ -84,6 +112,14 @@ function sameStableDirectoryIdentity(left, right) {
     left.uid === right.uid &&
     left.gid === right.gid
   );
+}
+
+function inputBudgetError(maxBytes, actualBytes) {
+  const error = new Error(`input exceeds ${maxBytes}-byte budget`);
+  if (typeof actualBytes === "bigint") {
+    Object.defineProperty(error, "actualBytes", { value: actualBytes });
+  }
+  return error;
 }
 
 function sameComponents(expected, observed) {
@@ -510,7 +546,21 @@ function snapshotProjectPath(projectRoot, relation, absolute, options = {}) {
   const parts = relation.split(path.sep);
   const logicalComponents = [];
   const physicalComponents = [];
-  const rootStat = fs.lstatSync(projectRoot, { bigint: true });
+  let rootStat;
+  try {
+    rootStat = fs.lstatSync(projectRoot, { bigint: true });
+  } catch (error) {
+    if (options.anchoredRootStat && (error?.code === "ENOENT" || error?.code === "ENOTDIR")) {
+      throw new Error("input path changed during containment validation");
+    }
+    throw error;
+  }
+  if (
+    options.anchoredRootStat &&
+    !sameStableDirectoryIdentity(options.anchoredRootStat, rootStat)
+  ) {
+    throw new Error("input path changed during containment validation");
+  }
   if (rootStat.isSymbolicLink() || !rootStat.isDirectory())
     throw new Error(`project root is not a real directory: ${projectRoot}`);
   logicalComponents.push({ path: projectRoot, kind: "root", stat: rootStat });
@@ -658,7 +708,7 @@ function inspectStableProjectInput(
 ) {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 0)
     throw new Error("input byte budget must be a non-negative safe integer");
-  const location = projectPath(root, relativePath);
+  const location = projectPath(root, relativePath, options);
   const verificationState = projectInputVerificationState(options);
   return retryAncestorEntryChurn((baseline) =>
     inspectStableProjectInputOnce(location, maxBytes, options, baseline, verificationState)
@@ -666,7 +716,7 @@ function inspectStableProjectInput(
 }
 
 function inspectStableProjectInputOnce(
-  { absolute, projectRoot, relation },
+  { absolute, projectRoot, relation, anchoredRootStat },
   maxBytes,
   options,
   baseline,
@@ -675,14 +725,16 @@ function inspectStableProjectInputOnce(
   const initial = snapshotProjectPath(projectRoot, relation, absolute, {
     allowManagedDirectoryPointers: options.allowManagedDirectoryPointers === true,
     managedDirectoryVerificationState: verificationState,
+    anchoredRootStat,
   });
   assertRetryBaseline(baseline, initial, "input path changed during containment validation");
   if (!initial.finalStat?.isFile()) throw new Error("input must be an existing regular file");
   if (initial.finalStat.size > BigInt(maxBytes))
-    throw new Error(`input exceeds ${maxBytes}-byte budget`);
+    throw inputBudgetError(maxBytes, initial.finalStat.size);
   const observed = snapshotProjectPath(projectRoot, relation, absolute, {
     allowManagedDirectoryPointers: options.allowManagedDirectoryPointers === true,
     verifyManagedPayloadHashes: false,
+    anchoredRootStat,
   });
   assertStableSnapshot(initial, observed, "input path changed during containment validation");
   commitManagedDirectoryVerification(initial, verificationState);
@@ -697,7 +749,7 @@ function inspectStableProjectInputOnce(
 function readProjectInput(root, relativePath, maxBytes = Number.MAX_SAFE_INTEGER, options = {}) {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 0)
     throw new Error("input byte budget must be a non-negative safe integer");
-  const location = projectPath(root, relativePath);
+  const location = projectPath(root, relativePath, options);
   const verificationState = projectInputVerificationState(options);
   return retryAncestorEntryChurn((baseline) =>
     readProjectInputOnce(location, maxBytes, options, baseline, verificationState)
@@ -705,7 +757,7 @@ function readProjectInput(root, relativePath, maxBytes = Number.MAX_SAFE_INTEGER
 }
 
 function readProjectInputOnce(
-  { absolute, projectRoot, relation },
+  { absolute, projectRoot, relation, anchoredRootStat },
   maxBytes,
   options,
   baseline,
@@ -715,11 +767,12 @@ function readProjectInputOnce(
   const initial = snapshotProjectPath(projectRoot, relation, absolute, {
     allowManagedDirectoryPointers: options.allowManagedDirectoryPointers === true,
     managedDirectoryVerificationState: verificationState,
+    anchoredRootStat,
   });
   assertRetryBaseline(baseline, initial, "input changed during containment validation");
   if (!initial.finalStat?.isFile()) throw new Error("input must be an existing regular file");
   if (initial.finalStat.size > BigInt(maxBytes))
-    throw new Error(`input exceeds ${maxBytes}-byte budget`);
+    throw inputBudgetError(maxBytes, initial.finalStat.size);
 
   const flags =
     fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0);
@@ -728,19 +781,32 @@ function readProjectInputOnce(
     descriptor = fs.openSync(initial.physicalAbsolute, flags);
     const opened = fs.fstatSync(descriptor, { bigint: true });
     if (!opened.isFile()) throw new Error("input must be an existing regular file");
-    if (opened.size > BigInt(maxBytes)) throw new Error(`input exceeds ${maxBytes}-byte budget`);
+    if (opened.size > BigInt(maxBytes)) throw inputBudgetError(maxBytes, opened.size);
     if (!sameFileMetadata(initial.finalStat, opened))
       throw new Error("input changed during containment validation");
 
     const observed = snapshotProjectPath(projectRoot, relation, absolute, {
       allowManagedDirectoryPointers: options.allowManagedDirectoryPointers === true,
       verifyManagedPayloadHashes: false,
+      anchoredRootStat,
     });
     if (!sameFileMetadata(opened, observed.finalStat))
       throw new Error("input changed during containment validation");
     assertStableSnapshot(initial, observed, "input changed during containment validation");
 
-    const bytes = readDescriptorBounded(descriptor, maxBytes);
+    let bytes;
+    try {
+      bytes = readDescriptorBounded(descriptor, maxBytes);
+    } catch (error) {
+      if (error?.message !== `input exceeds ${maxBytes}-byte budget`) throw error;
+      let actualBytes;
+      try {
+        actualBytes = fs.fstatSync(descriptor, { bigint: true }).size;
+      } catch {
+        // Preserve the bounded-read error if the raced descriptor can no longer be inspected.
+      }
+      throw inputBudgetError(maxBytes, actualBytes);
+    }
     if (initial.managed) {
       const observedHash = `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`;
       if (
@@ -756,6 +822,7 @@ function readProjectInputOnce(
       const final = snapshotProjectPath(projectRoot, relation, absolute, {
         allowManagedDirectoryPointers: options.allowManagedDirectoryPointers === true,
         verifyManagedPayloadHashes: false,
+        anchoredRootStat,
       });
       if (!sameFileMetadata(after, final.finalStat))
         throw new Error("input path changed during bounded read");
@@ -784,6 +851,7 @@ function readProjectInputOnce(
 
 module.exports = {
   createProjectInputVerificationContext,
+  createProjectRootAnchor,
   inspectStableProjectInput,
   managedDirectoryPointerPublication,
   readProjectInput,

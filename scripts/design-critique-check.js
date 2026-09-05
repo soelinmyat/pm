@@ -22,6 +22,13 @@ const {
   visualDifference,
 } = require("./lib/media-inspect");
 const { isManagedCaptureMemberPath } = require("./lib/design-critique-capture-path");
+const {
+  REVIEW_ASSURANCE,
+  SCORE_KEYS,
+  canonicalJson,
+  normalizePrimaryReviewResult,
+  reviewFindingId,
+} = require("./lib/design-critique-review-result");
 const { createProjectInputVerificationContext, readProjectInput } = require("./lib/project-file");
 const { MAX_RAW_AUDIT_BYTES, normalizeAuditBytes } = require("./design-critique-audit-normalize");
 const {
@@ -48,7 +55,6 @@ const PRIORITY_RANK = Object.freeze({ P0: 0, P1: 1, P2: 2, P3: 3 });
 const FINDING_STATUSES = new Set(["open", "resolved", "deferred", "dismissed"]);
 const REVIEW_PERSPECTIVES = new Set(["primary", "fresh-eyes"]);
 const REVIEW_EXECUTION_MODES = new Set(["delegated", "same-runtime-isolated"]);
-const REVIEW_ASSURANCE = "workflow-attested-non-cryptographic";
 const REVIEW_BASES = new Set(["objective", "craft", "uncertain"]);
 const REVIEW_CONFIDENCE = new Set(["high", "medium", "low"]);
 const FRESH_INTERFACE_TERM = new RegExp(
@@ -104,24 +110,6 @@ const EMPTY_SHA256 = crypto.createHash("sha256").update(Buffer.alloc(0)).digest(
 const TRUSTED_CAPTURE_PRODUCER = "pm:design-critique-capture";
 const ARTIFACT_VIEWPORT_NAMES = Object.freeze(ARTIFACT_VIEWPORTS.map((item) => item.name));
 let activeReadCache = null;
-const SCORE_KEYS = Object.freeze({
-  "product-ui": [
-    "hierarchy",
-    "density",
-    "consistency",
-    "accessibility",
-    "responsive",
-    "state-clarity",
-  ],
-  "pm-artifact": [
-    "hierarchy",
-    "density",
-    "consistency",
-    "accessibility",
-    "responsive",
-    "print-navigation",
-  ],
-});
 const REVIEW_PROMPTS = Object.freeze({
   primary: Object.freeze({
     profile: "primary-v1",
@@ -2124,6 +2112,9 @@ function validateReviewInput(
     contextCreatedAt: null,
     captureManifestBinding: null,
     captureManifestCreatedAt: null,
+    priorFindingsBinding: null,
+    priorFindingsCreatedAt: null,
+    priorFindings: new Map(),
   };
   if (!object(input)) {
     add(issues, label, "must be an object");
@@ -2140,7 +2131,13 @@ function validateReviewInput(
   closed(
     input,
     perspective === "primary"
-      ? [...common, "acceptance_criteria", "evidence_ids", "prior_finding_refs"]
+      ? [
+          ...common,
+          "acceptance_criteria",
+          "evidence_ids",
+          "prior_finding_refs",
+          "prior_findings_source",
+        ]
       : common,
     label,
     issues
@@ -2214,6 +2211,18 @@ function validateReviewInput(
     }
     if (round === 1 && state.priorFindingRefs.length > 0)
       add(issues, `${label}.prior_finding_refs`, "round 1 cannot contain prior findings");
+    const priorFindingsState = validatePriorFindingsSource(
+      root,
+      input.prior_findings_source,
+      state.priorFindingRefs,
+      round,
+      route,
+      `${label}.prior_findings_source`,
+      issues
+    );
+    state.priorFindingsBinding = priorFindingsState.binding;
+    state.priorFindingsCreatedAt = priorFindingsState.createdAt;
+    state.priorFindings = priorFindingsState.findings;
     const requiredEvidence = requiredReviewEvidenceIds(root, route, captures, state.captureIds);
     if (!sameStringSet(state.evidenceIds, requiredEvidence))
       add(
@@ -2228,6 +2237,76 @@ function validateReviewInput(
   state.payloadSha256 = expectedPayload;
   if (input.payload_sha256 !== expectedPayload)
     add(issues, `${label}.payload_sha256`, "must match the canonical reviewer input payload");
+  return state;
+}
+
+function validatePriorFindingsSource(root, binding, refs, round, route, label, issues) {
+  const state = { binding: null, createdAt: null, findings: new Map() };
+  if (refs.length === 0) {
+    if (binding !== undefined)
+      add(issues, label, "must be omitted when prior_finding_refs is empty");
+    return state;
+  }
+  if (!object(binding)) {
+    add(issues, label, "requires a path and SHA-256 binding when prior findings are referenced");
+    return state;
+  }
+  closed(binding, ["path", "sha256"], label, issues);
+  const file = text(binding.path) ? readJsonFile(root, binding.path, label, issues) : null;
+  if (!file) return state;
+  validateBinding(binding, file, label, issues);
+  state.binding = { path: file.relative, sha256: file.sha256 };
+  const source = file.value;
+  if (!object(source)) {
+    add(issues, label, "must bind a JSON object");
+    return state;
+  }
+  closed(
+    source,
+    ["schema_version", "run_id", "commit", "for_round", "findings", "created_at"],
+    label,
+    issues
+  );
+  if (source.schema_version !== 1) add(issues, `${label}.schema_version`, "must equal 1");
+  if (
+    source.run_id !== route.run_id ||
+    source.commit !== route.source?.commit ||
+    source.for_round !== round
+  )
+    add(issues, label, "run_id, commit, and for_round must match the review round");
+  if (
+    !Array.isArray(source.findings) ||
+    source.findings.length === 0 ||
+    source.findings.length > 100
+  )
+    add(issues, `${label}.findings`, "must be a non-empty bounded array");
+  else
+    for (const [index, row] of source.findings.entries()) {
+      const at = `${label}.findings[${index}]`;
+      if (!object(row)) {
+        add(issues, at, "must be an object");
+        continue;
+      }
+      closed(row, ["review_id", "finding"], at, issues);
+      const findingIdValue = row.finding?.id;
+      const key = `${row.review_id}:${findingIdValue}`;
+      if (!reviewId(row.review_id) || !object(row.finding) || !text(findingIdValue))
+        add(issues, at, "requires review_id and a complete finding object");
+      else if (state.findings.has(key)) add(issues, at, "duplicates a prior finding");
+      else state.findings.set(key, row.finding);
+    }
+  const expectedRefs = refs.map((ref) => `${ref?.review_id}:${ref?.finding_id}`);
+  if (!sameStringSet([...state.findings.keys()], expectedRefs))
+    add(issues, `${label}.findings`, "must exactly materialize prior_finding_refs");
+  if (!isRfc3339DateTime(source.created_at)) add(issues, `${label}.created_at`, "must be RFC 3339");
+  else {
+    state.createdAt = source.created_at;
+    if (
+      isRfc3339DateTime(route.created_at) &&
+      compareRfc3339DateTimes(source.created_at, route.created_at) < 0
+    )
+      add(issues, `${label}.created_at`, "must not precede route.created_at");
+  }
   return state;
 }
 
@@ -2472,6 +2551,7 @@ function validateReviewExecution(
   for (const [sourceLabel, sourceTime] of [
     ["context source", inputState.contextCreatedAt],
     ["capture manifest", inputState.captureManifestCreatedAt],
+    ["prior findings source", inputState.priorFindingsCreatedAt],
   ])
     if (
       isRfc3339DateTime(sourceTime) &&
@@ -2599,6 +2679,40 @@ function validateReviewResult(review, inputState, route, captureById, evidenceBy
         issues
       );
       if (object(finding)) state.findings.push(finding);
+    }
+  }
+  if (review.perspective === "primary" && Array.isArray(result.findings)) {
+    const rawResult = {
+      ...result,
+      findings: result.findings.map((finding) => {
+        if (!object(finding)) return finding;
+        const rawFinding = { ...finding };
+        delete rawFinding.id;
+        return rawFinding;
+      }),
+    };
+    try {
+      const normalized = normalizePrimaryReviewResult(rawResult, {
+        reviewId: review.review_id,
+        mode: route.mode,
+        route,
+        captures: {
+          captures: [...captureById.values()],
+          evidence: [...evidenceById.values()],
+        },
+        input: {
+          capture_ids: inputState.captureIds,
+          evidence_ids: inputState.evidenceIds,
+        },
+      });
+      if (!isDeepStrictEqual(result, normalized))
+        add(
+          issues,
+          label,
+          "must equal the validated Primary raw result after deterministic ID normalization"
+        );
+    } catch (error) {
+      add(issues, `${label}.normalization`, error.message);
     }
   }
   return state;
@@ -2921,12 +3035,20 @@ function validateReviewPair(pair, round, reportRounds, captures, coverageById, i
 function validatePriorFindingRefs(state, issues) {
   for (const row of state.rows) {
     for (const [index, ref] of row.inputState.priorFindingRefs.entries()) {
-      const source = state.findings.get(`${ref.review_id}:${ref.finding_id}`);
+      const key = `${ref.review_id}:${ref.finding_id}`;
+      const source = state.findings.get(key);
       if (!source || source.round >= row.round)
         add(
           issues,
           `reviews.${row.review.review_id}.input.prior_finding_refs[${index}]`,
           "must reference a finding from an earlier review round"
+        );
+      const materialized = row.inputState.priorFindings.get(key);
+      if (!source || !materialized || !isDeepStrictEqual(materialized, source.finding))
+        add(
+          issues,
+          `reviews.${row.review.review_id}.input.prior_findings_source`,
+          `must materialize the exact earlier reviewer finding ${key}`
         );
     }
   }
@@ -4133,18 +4255,6 @@ function findingId(finding) {
   return `dc-${crypto.createHash("sha256").update(material).digest("hex").slice(0, 16)}`;
 }
 
-function reviewFindingId(reviewIdValue, finding) {
-  const material = canonicalJson([
-    reviewIdValue || "",
-    finding.subject_id || "",
-    finding.region || "",
-    finding.rule || "",
-    uniqueSorted(finding.coverage_ids || []),
-    uniqueSorted(finding.evidence_ids || []),
-  ]);
-  return `drf-${crypto.createHash("sha256").update(material).digest("hex").slice(0, 16)}`;
-}
-
 function reconciliationId(row) {
   const refs = (Array.isArray(row.source_finding_refs) ? row.source_finding_refs : [])
     .map((ref) => [ref?.review_id || "", ref?.finding_id || ""])
@@ -4188,16 +4298,6 @@ function uniqueSorted(value) {
 
 function sameStringSet(left, right) {
   return isDeepStrictEqual(uniqueSorted(left), uniqueSorted(right));
-}
-
-function canonicalJson(value) {
-  if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
-  if (object(value))
-    return `{${Object.keys(value)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
-      .join(",")}}`;
-  return JSON.stringify(value === undefined ? null : value);
 }
 
 function readJsonFile(root, rel, label, issues) {

@@ -251,9 +251,43 @@ The context source and capture manifest must exist before `execution.started_at`
 }
 ```
 
-The Primary input additionally allows only `acceptance_criteria`, normalized `evidence_ids`, and `prior_finding_refs`. Its evidence IDs exactly equal the normalized evidence bound to the captures in that round manifest; evidence from later or unreviewed captures is forbidden. A product-UI audit is eligible only when every capture it cites is in the round manifest. For a PM artifact, structural evidence remains document-wide, while accessibility and render evidence is eligible only when its complete cited capture or full-page/print file set is contained in or exactly matches the round manifest. Fresh Eyes uses the closed common allowlist shown above: it cannot receive acceptance criteria, audits, findings, round history, implementation rationale, or any other field. Its result must include one observation for every supplied capture, with the exact routed coverage ID, state, and viewport. Each observation contains at least 40 UTF-8 bytes, names a concrete interface element and a direct visual property or relationship, explicitly names its state and viewport, and remains substantively distinct after capture metadata is removed. The first impression and three answers must likewise contain concrete visual substance. Both reviewers receive the same context and round-capture bindings, while prompt, payload, context ID, invocation ID, and result identity remain distinct. A same-runtime review is valid only as a fresh isolated invocation; continuing the current conversation is not isolation.
+The Primary input additionally allows only `acceptance_criteria`, normalized `evidence_ids`, `prior_finding_refs`, and, when those refs are non-empty, `prior_findings_source`. Its evidence IDs exactly equal the normalized evidence bound to the captures in that round manifest; evidence from later or unreviewed captures is forbidden. A product-UI audit is eligible only when every capture it cites is in the round manifest. For a PM artifact, structural evidence remains document-wide, while accessibility and render evidence is eligible only when its complete cited capture or full-page/print file set is contained in or exactly matches the round manifest. Fresh Eyes uses the closed common allowlist shown above: it cannot receive acceptance criteria, audits, findings, round history, implementation rationale, or any other field. Its result must include one observation for every supplied capture, with the exact routed coverage ID, state, and viewport. Each observation contains at least 40 UTF-8 bytes, names a concrete interface element and a direct visual property or relationship, explicitly names its state and viewport, and remains substantively distinct after capture metadata is removed. The first impression and three answers must likewise contain concrete visual substance. Both reviewers receive the same context and round-capture bindings, while prompt, payload, context ID, invocation ID, and result identity remain distinct. A same-runtime review is valid only as a fresh isolated invocation; continuing the current conversation is not isolation.
 
-Each receipt contains exactly `schema_version`, `assurance`, `review_id`, `perspective`, `context_id`, `invocation_id`, `input_payload_sha256`, `prompt_sha256`, `result_sha256`, `started_at`, `completed_at`, and `recorded_at`. The checker re-hashes its bytes and verifies every field against the review. This is durable workflow evidence, not a signed provider receipt. Caller-authored IDs and hashes do not cryptographically prove separate model execution, so the only valid assurance label is `workflow-attested-non-cryptographic`.
+For a verification round with prior refs, write a separate source before the Primary execution and bind it as `prior_findings_source: {path, sha256}`. Omit that input field when `prior_finding_refs` is empty. The source is closed and materializes the exact earlier normalized reviewer findings so the reviewer can compare content without adding unbound finding bodies to its input:
+
+```json
+{
+  "schema_version": 1,
+  "run_id": "dc_01...",
+  "commit": "<current-commit>",
+  "for_round": 2,
+  "findings": [
+    {
+      "review_id": "dc_01-r1-primary",
+      "finding": {
+        "id": "drf-0123456789abcdef",
+        "subject_id": "account-detail",
+        "region": "header",
+        "rule": "primary-action-hierarchy",
+        "coverage_ids": ["account-primary-desktop"],
+        "evidence_ids": ["capture-account-primary-desktop-r1"],
+        "priority": "P1",
+        "owner": "design-critique",
+        "basis": "objective",
+        "confidence": "high",
+        "summary": "The primary action is visually subordinate.",
+        "impact": "Users may miss the next required action.",
+        "remediation": "Increase the action's hierarchy without obscuring status."
+      }
+    }
+  ],
+  "created_at": "2026-07-12T00:04:00Z"
+}
+```
+
+Every source row's `[review_id, finding.id]` pair exactly equals one `prior_finding_refs` row, with no omissions or extras, and the complete `finding` object exactly equals the referenced earlier result. The source's run, commit, and `for_round` match the current review and its `created_at` does not follow Primary execution start. Because the binding participates in `payload_sha256`, the receipt's `input_payload_sha256` authenticates the source path and bytes.
+
+Each receipt contains exactly `schema_version`, `assurance`, `review_id`, `perspective`, `context_id`, `invocation_id`, `input_payload_sha256`, `prompt_sha256`, `result_sha256`, `started_at`, `completed_at`, and `recorded_at`. `prompt_profile` remains in the input and is authenticated through `input_payload_sha256`; it is not a receipt field. The checker re-hashes the receipt bytes and verifies every field against the review. This is durable workflow evidence, not a signed provider receipt. Caller-authored IDs and hashes do not cryptographically prove separate model execution, so the only valid assurance label is `workflow-attested-non-cryptographic`.
 
 Reviewer finding IDs use `drf-` plus the first 16 lowercase hex characters of SHA-256 over canonical JSON containing `[review_id, subject_id, region, rule, sorted(coverage_ids), sorted(evidence_ids)]`. Each reviewer finding has exactly `id`, `subject_id`, `region`, `rule`, `coverage_ids`, `evidence_ids`, `priority`, `owner`, `basis`, `confidence`, `summary`, `impact`, and `remediation`.
 

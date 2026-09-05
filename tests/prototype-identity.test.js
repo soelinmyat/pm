@@ -515,6 +515,167 @@ test("single-file HTML cannot hide mutable local dependencies behind its entry h
   }
 });
 
+test("prototype identities fail closed on browser-recovered attribute boundaries", () => {
+  const project = tempProject();
+  try {
+    const singlePath = "pm/backlog/wireframes/malformed-attributes.html";
+    const prototypePath = writeMultiFilePrototype(project.root);
+    const bundledIndex = "pm/backlog/wireframes/account-settings/index.html";
+    const cases = [
+      ["leading solidus resource", '<img/src="https://example.test/live.png">'],
+      ["leading solidus navigation", '<a/href="https://example.test/live">Open</a>'],
+      [
+        "leading solidus handler",
+        "<div/onclick=\"location.href='https://example.test/'\">Open</div>",
+      ],
+      ["repeated solidus resource", '<img//src="https://example.test/live.png">'],
+      ["solidus after boolean attribute", '<img alt/src="https://example.test/live.png">'],
+      [
+        "resource adjacent to quoted value",
+        '<img alt="Preview"src="https://example.test/live.png">',
+      ],
+      [
+        "navigation adjacent to quoted value",
+        '<a title="Open"href="https://example.test/live">Open</a>',
+      ],
+      [
+        "handler adjacent to quoted value",
+        '<div class="action"onclick="location.href=\'https://example.test/\'">Open</div>',
+      ],
+      [
+        "resource after a quote recovered inside an unquoted value",
+        '<img alt=Preview" src="https://example.test/live.png">',
+      ],
+      [
+        "handler after a quote recovered inside an unquoted value",
+        '<div class=action" onclick="location.href=\'https://example.test/\'">Open</div>',
+      ],
+      ["spaced pseudo self-close", '<img src="https://example.test/live.png" / >'],
+    ];
+
+    for (const [name, markup] of cases) {
+      write(project.root, singlePath, `${markup}\n`);
+      assert.throws(
+        () => buildPrototypeIdentity(singlePath, project.root),
+        /malformed.*attribute/i,
+        `single-file ${name}`
+      );
+
+      write(project.root, bundledIndex, `${markup}\n`);
+      assert.throws(
+        () => buildPrototypeIdentity(prototypePath, project.root),
+        /malformed.*attribute/i,
+        `bundled ${name}`
+      );
+    }
+
+    const validSingle =
+      '<main data-route=account/settings>Settings</main><svg role="presentation"><path d="M0 0"/></svg>\n';
+    write(project.root, singlePath, validSingle);
+    assert.doesNotThrow(() => buildPrototypeIdentity(singlePath, project.root));
+
+    const validBundled =
+      '<main data-route=account/settings>Settings</main><img src=assets/preview.png alt="Preview"/>\n';
+    write(project.root, bundledIndex, validBundled);
+    write(
+      project.root,
+      "pm/backlog/wireframes/account-settings/assets/preview.png",
+      Buffer.from([0x89, 0x50, 0x4e, 0x47])
+    );
+    assert.doesNotThrow(() => buildPrototypeIdentity(prototypePath, project.root));
+
+    write(project.root, bundledIndex, "<img src=assets/preview.png/>\n");
+    assert.throws(
+      () => buildPrototypeIdentity(prototypePath, project.root),
+      /preview\.png\/.*not covered by the prototype manifest/i,
+      "a terminal solidus stays in an unquoted URL value"
+    );
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("prototype identities reject markup hidden by browser recovery", () => {
+  const project = tempProject();
+  try {
+    const singlePath = "pm/backlog/wireframes/recovered-markup.html";
+    const prototypePath = writeMultiFilePrototype(project.root);
+    const bundledIndex = "pm/backlog/wireframes/account-settings/index.html";
+    const cases = [
+      [
+        "abruptly closed comment",
+        "<!--><div onclick=\"location.href='https://example.test/'\">Open</div>",
+        /malformed.*markup/i,
+      ],
+      [
+        "recovered raw-text end tag",
+        '<style></style/><img src="https://example.test/live.png">',
+        /malformed.*style/i,
+      ],
+      [
+        "EOF-closed stylesheet",
+        '<style>@import "https://example.test/live.css";',
+        /CSS resource|CSS import|remote or absolute resource/i,
+      ],
+      [
+        "self-closing flag ignored on an HTML style element",
+        '<style/>@import "https://example.test/live.css";',
+        /CSS resource|CSS import|remote or absolute resource/i,
+      ],
+    ];
+
+    for (const [name, markup, expected] of cases) {
+      write(project.root, singlePath, `${markup}\n`);
+      assert.throws(
+        () => buildPrototypeIdentity(singlePath, project.root),
+        expected,
+        `single-file ${name}`
+      );
+
+      write(project.root, bundledIndex, `${markup}\n`);
+      assert.throws(
+        () => buildPrototypeIdentity(prototypePath, project.root),
+        expected,
+        `bundled ${name}`
+      );
+    }
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("prototype identities reject declarative shadow DOM before suppressing template content", () => {
+  const project = tempProject();
+  try {
+    const singlePath = "pm/backlog/wireframes/declarative-shadow-root.html";
+    const prototypePath = writeMultiFilePrototype(project.root);
+    const bundledIndex = "pm/backlog/wireframes/account-settings/index.html";
+    const cases = [
+      '<template shadowrootmode="open"><img src="https://example.test/live.png"></template>',
+      '<template><template shadowrootmode="closed"><img src="https://example.test/nested.png"></template></template>',
+      '<template shadowrootmode="unsupported"><img src="https://example.test/invalid.png"></template>',
+    ];
+
+    for (const [index, markup] of cases.entries()) {
+      write(project.root, singlePath, `${markup}\n`);
+      assert.throws(
+        () => buildPrototypeIdentity(singlePath, project.root),
+        /declarative shadow root|shadowrootmode/i,
+        `single-file declarative shadow root ${index}`
+      );
+
+      write(project.root, bundledIndex, `${markup}\n`);
+      assert.throws(
+        () => buildPrototypeIdentity(prototypePath, project.root),
+        /declarative shadow root|shadowrootmode/i,
+        `bundled declarative shadow root ${index}`
+      );
+    }
+  } finally {
+    project.cleanup();
+  }
+});
+
 test("prototype identities reject HTML-encoded refresh directives", () => {
   const project = tempProject();
   try {
@@ -910,6 +1071,10 @@ test("prototype identities reject declarative SVG attribute mutation", () => {
         "set URL value",
         `<svg><image href="${image}"><set attributeName="href" to="https://example.test/a.svg" begin="0s"></set></image></svg>`,
       ],
+      [
+        "legacy animateColor URL value",
+        '<svg><rect><animateColor attributeName="fill" to="url(https://example.test/a.svg)" dur="1s"></animateColor></rect></svg>',
+      ],
     ];
 
     for (const [name, markup] of cases) {
@@ -957,6 +1122,198 @@ test("prototype identities inspect legacy SVG anchor xlink references", () => {
     write(project.root, singlePath, fragmentMarkup);
     assert.doesNotThrow(() => buildPrototypeIdentity(singlePath, project.root));
     write(project.root, bundledIndex, fragmentMarkup);
+    assert.doesNotThrow(() => buildPrototypeIdentity(prototypePath, project.root));
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("prototype identities close SVG href resource dependencies", () => {
+  const project = tempProject();
+  try {
+    const singlePath = "pm/backlog/wireframes/svg-href-resources.html";
+    const prototypePath = writeMultiFilePrototype(project.root);
+    const bundledIndex = "pm/backlog/wireframes/account-settings/index.html";
+    const resourceElements = [
+      ["linearGradient", "paint"],
+      ["radialGradient", "paint"],
+      ["pattern", "tile"],
+      ["textPath", "text-path"],
+      ["mpath", "motion-path"],
+    ];
+
+    for (const [element, fragment] of resourceElements) {
+      for (const attribute of ["href", "xlink:href"]) {
+        const remoteMarkup = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><${element} ${attribute}="https://example.test/resources.svg#${fragment}"/></svg>\n`;
+        write(project.root, singlePath, remoteMarkup);
+        assert.throws(
+          () => buildPrototypeIdentity(singlePath, project.root),
+          /single-file HTML references .+\[(?:xlink:)?href\] resource/i,
+          `single-file remote ${element}[${attribute}]`
+        );
+
+        write(project.root, bundledIndex, remoteMarkup);
+        assert.throws(
+          () => buildPrototypeIdentity(prototypePath, project.root),
+          /remote or absolute resource/i,
+          `bundled remote ${element}[${attribute}]`
+        );
+
+        const missingMarkup = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><${element} ${attribute}="missing.svg#${fragment}"/></svg>\n`;
+        write(project.root, bundledIndex, missingMarkup);
+        assert.throws(
+          () => buildPrototypeIdentity(prototypePath, project.root),
+          /not covered by the prototype manifest/i,
+          `bundled missing ${element}[${attribute}]`
+        );
+
+        const fragmentMarkup = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><defs><path id="${fragment}"/></defs><${element} ${attribute}="#${fragment}"/></svg>\n`;
+        write(project.root, singlePath, fragmentMarkup);
+        assert.doesNotThrow(
+          () => buildPrototypeIdentity(singlePath, project.root),
+          `single-file fragment ${element}[${attribute}]`
+        );
+      }
+    }
+
+    write(
+      project.root,
+      "pm/backlog/wireframes/account-settings/resources.svg",
+      '<svg xmlns="http://www.w3.org/2000/svg"><defs><path id="bound"/></defs></svg>\n'
+    );
+    const boundMarkup = resourceElements
+      .flatMap(([element]) => [
+        `<${element} href="resources.svg#bound"/>`,
+        `<${element} xlink:href="resources.svg#bound"/>`,
+      ])
+      .join("");
+    write(
+      project.root,
+      bundledIndex,
+      `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">${boundMarkup}</svg>\n`
+    );
+    assert.doesNotThrow(() => buildPrototypeIdentity(prototypePath, project.root));
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("prototype identities inspect generic SVG href-bearing resources", () => {
+  const project = tempProject();
+  try {
+    const singlePath = "pm/backlog/wireframes/svg-external-elements.html";
+    const prototypePath = writeMultiFilePrototype(project.root);
+    const bundledSvg = "pm/backlog/wireframes/account-settings/external.svg";
+    const elements = ["audio", "video", "iframe", "foreignObject", "g"];
+
+    for (const element of elements) {
+      const remoteMarkup = `<svg xmlns="http://www.w3.org/2000/svg"><${element} href="https://example.test/external-resource"/></svg>\n`;
+      write(project.root, singlePath, remoteMarkup);
+      assert.throws(
+        () => buildPrototypeIdentity(singlePath, project.root),
+        /references .+\[href\] resource|nested or plugin content/i,
+        `single-file ${element}[href]`
+      );
+
+      write(project.root, bundledSvg, remoteMarkup);
+      assert.throws(
+        () => buildPrototypeIdentity(prototypePath, project.root),
+        /remote or absolute resource/i,
+        `bundled ${element}[href]`
+      );
+
+      write(
+        project.root,
+        bundledSvg,
+        `<svg xmlns="http://www.w3.org/2000/svg"><${element} href="missing.bin"/></svg>\n`
+      );
+      assert.throws(
+        () => buildPrototypeIdentity(prototypePath, project.root),
+        /not covered by the prototype manifest/i,
+        `bundled missing ${element}[href]`
+      );
+    }
+
+    write(project.root, "pm/backlog/wireframes/account-settings/bound.bin", "bound\n");
+    write(
+      project.root,
+      bundledSvg,
+      `<svg xmlns="http://www.w3.org/2000/svg">${elements
+        .map((element) => `<${element} href="bound.bin"/>`)
+        .join("")}</svg>\n`
+    );
+    assert.doesNotThrow(() => buildPrototypeIdentity(prototypePath, project.root));
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("prototype identities reject SVG XML URL rebasing and namespace aliases", () => {
+  const project = tempProject();
+  try {
+    const singlePath = "pm/backlog/wireframes/svg-xml-base.html";
+    const prototypePath = writeMultiFilePrototype(project.root);
+    const bundledSvg = "pm/backlog/wireframes/account-settings/external.svg";
+
+    write(
+      project.root,
+      singlePath,
+      '<svg xmlns="http://www.w3.org/2000/svg" xml:base="https://example.test/"><image href="#local"/></svg>\n'
+    );
+    assert.throws(() => buildPrototypeIdentity(singlePath, project.root), /xml:base/i);
+
+    write(project.root, "pm/backlog/wireframes/account-settings/pixel.png", "pixel\n");
+    write(
+      project.root,
+      bundledSvg,
+      '<svg xmlns="http://www.w3.org/2000/svg" xml:base="https://example.test/"><image href="pixel.png"/></svg>\n'
+    );
+    assert.throws(() => buildPrototypeIdentity(prototypePath, project.root), /xml:base/i);
+
+    write(
+      project.root,
+      bundledSvg,
+      '<svg xmlns="http://www.w3.org/2000/svg" xmlns:q="http://www.w3.org/1999/xlink"><image q:href="https://example.test/live.png"/></svg>\n'
+    );
+    assert.throws(
+      () => buildPrototypeIdentity(prototypePath, project.root),
+      /remote or absolute resource/i
+    );
+
+    write(
+      project.root,
+      bundledSvg,
+      '<svg xmlns="http://www.w3.org/2000/svg" xmlns:q="http://www.w3.org/1999/xlink"><image q:href="missing.png"/></svg>\n'
+    );
+    assert.throws(
+      () => buildPrototypeIdentity(prototypePath, project.root),
+      /not covered by the prototype manifest/i
+    );
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("prototype identities reject XML document types and entity declarations", () => {
+  const project = tempProject();
+  try {
+    const prototypePath = writeMultiFilePrototype(project.root);
+    const bundledSvg = "pm/backlog/wireframes/account-settings/external.svg";
+    write(
+      project.root,
+      bundledSvg,
+      '<?xml version="1.0"?><!DOCTYPE svg SYSTEM "https://example.test/external.dtd"><svg xmlns="http://www.w3.org/2000/svg"/>\n'
+    );
+    assert.throws(
+      () => buildPrototypeIdentity(prototypePath, project.root),
+      /unsupported XML document type or entity declaration/i
+    );
+
+    write(
+      project.root,
+      bundledSvg,
+      '<?xml version="1.0"?><!-- <!DOCTYPE svg SYSTEM "https://example.test/inert.dtd"> --><svg xmlns="http://www.w3.org/2000/svg"/>\n'
+    );
     assert.doesNotThrow(() => buildPrototypeIdentity(prototypePath, project.root));
   } finally {
     project.cleanup();

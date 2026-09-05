@@ -4,6 +4,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { validateDesignContext } = require("./dev-work-units.js");
+const { createProjectRootAnchor, readProjectInput } = require("./project-file.js");
 const {
   normalizeReviewText,
   reviewAnswerQuality,
@@ -760,8 +761,10 @@ function validateCurrentEvidenceSources(proposal, projectRoot, at, issues, optio
     return;
   }
   let root;
+  let rootAnchor;
   try {
     root = fs.realpathSync(path.resolve(projectRoot));
+    rootAnchor = createProjectRootAnchor(root);
   } catch (error) {
     issues.push(issue(at, `cannot resolve project root for evidence validation: ${error.message}`));
     return;
@@ -778,6 +781,7 @@ function validateCurrentEvidenceSources(proposal, projectRoot, at, issues, optio
     let source;
     try {
       source = readBoundEvidenceFile(root, entry.path, {
+        projectRootAnchor: rootAnchor,
         remainingBytes: MAX_EVIDENCE_TOTAL_BYTES - totalSourceBytes,
       });
       totalSourceBytes += source.bytes.length;
@@ -858,51 +862,55 @@ function isAllowedHistoricalLineage(entry, allowed, evidencePaths) {
 }
 
 function readBoundEvidenceFile(root, relativePath, options = {}) {
-  const candidate = path.resolve(root, relativePath);
-  if (!isWithin(root, candidate)) throw new Error("evidence source escapes the project root");
-  let current = root;
-  for (const part of relativePath.split("/")) {
-    current = path.join(current, part);
-    let stat;
-    try {
-      stat = fs.lstatSync(current);
-    } catch (error) {
-      if (error.code === "ENOENT") throw new Error("retained evidence source does not exist");
-      throw error;
-    }
-    if (stat.isSymbolicLink()) throw new Error("retained evidence source must not use symlinks");
-  }
-  const real = fs.realpathSync(candidate);
-  if (!isWithin(root, real)) throw new Error("evidence source escapes the project root");
-  const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0);
-  const fd = fs.openSync(real, flags);
+  const remainingBytes = options.remainingBytes;
+  const readLimit = Math.min(MAX_EVIDENCE_SOURCE_BYTES, remainingBytes);
+  let input;
   try {
-    const before = fs.fstatSync(fd);
-    if (!before.isFile()) throw new Error("retained evidence source must be a regular file");
-    if (before.size > MAX_EVIDENCE_SOURCE_BYTES)
-      throw new Error("retained evidence source exceeds the 8 MiB validation limit");
-    if (before.size > options.remainingBytes) {
-      throw new Error("retained evidence sources exceed the aggregate 32 MiB validation limit");
-    }
-    const bytes = Buffer.alloc(before.size);
-    let offset = 0;
-    while (offset < bytes.length) {
-      const count = fs.readSync(fd, bytes, offset, bytes.length - offset, offset);
-      if (count === 0) throw new Error("retained evidence source changed during validation");
-      offset += count;
-    }
-    const after = fs.fstatSync(fd);
-    if (after.size !== before.size || after.mtimeMs !== before.mtimeMs)
-      throw new Error("retained evidence source changed during validation");
-    return {
-      path: real,
-      extension: path.extname(relativePath).toLowerCase(),
-      bytes,
-      sha256: proposalBytesHash(bytes),
-    };
-  } finally {
-    fs.closeSync(fd);
+    input = readProjectInput(root, relativePath, readLimit, {
+      projectRootAnchor: options.projectRootAnchor,
+      requireStablePath: true,
+    });
+  } catch (error) {
+    throw proposalEvidenceReadError(error, remainingBytes);
   }
+  return {
+    path: input.path,
+    extension: path.extname(relativePath).toLowerCase(),
+    bytes: input.bytes,
+    sha256: proposalBytesHash(input.bytes),
+  };
+}
+
+function proposalEvidenceReadError(error, remainingBytes) {
+  const message = String(error?.message || error);
+  if (error?.code === "ENOENT" || error?.code === "ENOTDIR") {
+    return new Error("retained evidence source does not exist");
+  }
+  if (/project path contains symlink|ELOOP/i.test(message)) {
+    return new Error("retained evidence source must not use symlinks");
+  }
+  if (/project path (?:must be project-relative|escapes project root)/i.test(message)) {
+    return new Error("evidence source escapes the project root");
+  }
+  if (
+    /input must be an existing regular file|project path ancestor is not a directory/i.test(message)
+  ) {
+    return new Error("retained evidence source must be a regular file");
+  }
+  if (/input exceeds \d+-byte budget/i.test(message)) {
+    const exceedsPerFileLimit =
+      typeof error?.actualBytes === "bigint" &&
+      error.actualBytes > BigInt(MAX_EVIDENCE_SOURCE_BYTES);
+    return new Error(
+      exceedsPerFileLimit || remainingBytes >= MAX_EVIDENCE_SOURCE_BYTES
+        ? "retained evidence source exceeds the 8 MiB validation limit"
+        : "retained evidence sources exceed the aggregate 32 MiB validation limit"
+    );
+  }
+  if (/input (?:path )?changed during (?:containment validation|bounded read)/i.test(message)) {
+    return new Error("retained evidence source changed during validation");
+  }
+  return error;
 }
 
 function resolveEvidenceLocator(source, locator) {

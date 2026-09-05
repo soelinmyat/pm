@@ -38,6 +38,7 @@ test("the project-file facade is the combined safe read/write boundary", () => {
   assert.deepEqual(Object.keys(projectFile).sort(), [
     "acquireProjectWriteLock",
     "createProjectInputVerificationContext",
+    "createProjectRootAnchor",
     "readProjectInput",
     "writeProjectFileAtomic",
     "writeProjectJsonAtomic",
@@ -46,6 +47,10 @@ test("the project-file facade is the combined safe read/write boundary", () => {
   assert.equal(
     projectFile.createProjectInputVerificationContext,
     require("../scripts/lib/safe-project-output").createProjectInputVerificationContext
+  );
+  assert.equal(
+    projectFile.createProjectRootAnchor,
+    require("../scripts/lib/safe-project-output").createProjectRootAnchor
   );
   assert.equal(
     projectFile.readProjectInput,

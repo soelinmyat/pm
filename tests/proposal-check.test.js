@@ -449,6 +449,152 @@ test("current review evidence is bound to retained source bytes and mechanically
   }
 });
 
+test("current evidence rejects an ancestor swap without reading outside replacement bytes", () => {
+  const project = tmpProject();
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pm-proposal-evidence-swap-"));
+  const proposal = bindCurrentReviewContract(fixture());
+  const source = proposal.source.lineage[0];
+  materializeProposalSources(project.dir, proposal);
+  const targetPath = path.join(project.dir, source.path);
+  const ancestorPath = path.dirname(targetPath);
+  const parkedAncestor = `${ancestorPath}.inside`;
+  const outsideTarget = path.join(outside, path.basename(targetPath));
+  const acceptedBytes = fs.readFileSync(targetPath);
+  const rejectedBytes = Buffer.alloc(acceptedBytes.length, 0x78);
+  fs.writeFileSync(outsideTarget, acceptedBytes);
+  fs.writeFileSync(targetPath, rejectedBytes);
+
+  const baseline = validateCurrentProposalEvidence(proposal, project.dir);
+  assert.equal(baseline.ok, false);
+  assert.match(messages(baseline), /does not match the retained source bytes/);
+
+  const canonicalTarget = fs.realpathSync(targetPath);
+  const originalOpenSync = fs.openSync;
+  const originalReadSync = fs.readSync;
+  let outsideDescriptor;
+  let swapped = false;
+  let outsideBytesRead = false;
+  fs.openSync = function swapEvidenceAncestorBeforeOpen(file, ...args) {
+    if (!swapped && path.resolve(String(file)) === canonicalTarget) {
+      fs.renameSync(ancestorPath, parkedAncestor);
+      fs.symlinkSync(outside, ancestorPath, process.platform === "win32" ? "junction" : "dir");
+      swapped = true;
+      outsideDescriptor = Reflect.apply(originalOpenSync, fs, [file, ...args]);
+      return outsideDescriptor;
+    }
+    return Reflect.apply(originalOpenSync, fs, [file, ...args]);
+  };
+  fs.readSync = function trackOutsideRead(descriptor, ...args) {
+    if (descriptor === outsideDescriptor) outsideBytesRead = true;
+    return Reflect.apply(originalReadSync, fs, [descriptor, ...args]);
+  };
+
+  try {
+    const result = validateCurrentProposalEvidence(proposal, project.dir);
+    assert.equal(result.ok, false);
+    assert.match(messages(result), /retained evidence source changed during validation/);
+    assert.equal(swapped, true, "the regression must exercise the ancestor-swap window");
+    assert.equal(outsideBytesRead, false, "outside replacement bytes must never be read");
+  } finally {
+    fs.openSync = originalOpenSync;
+    fs.readSync = originalReadSync;
+    if (swapped) {
+      fs.rmSync(ancestorPath, { force: true });
+      fs.renameSync(parkedAncestor, ancestorPath);
+    }
+    fs.rmSync(outside, { recursive: true, force: true });
+    project.cleanup();
+  }
+});
+
+test("current evidence keeps its resolved project root pinned across validation", () => {
+  const project = tmpProject();
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pm-proposal-root-swap-"));
+  const proposal = bindCurrentReviewContract(fixture());
+  const source = proposal.source.lineage[0];
+  materializeProposalSources(project.dir, proposal);
+  const requestedRoot = path.resolve(project.dir);
+  const canonicalRoot = fs.realpathSync(requestedRoot);
+  const parkedRoot = `${project.dir}.inside`;
+  const insideTarget = path.join(project.dir, source.path);
+  const outsideTarget = path.join(outside, source.path);
+  const acceptedBytes = fs.readFileSync(insideTarget);
+  fs.mkdirSync(path.dirname(outsideTarget), { recursive: true });
+  fs.writeFileSync(outsideTarget, acceptedBytes);
+  fs.writeFileSync(insideTarget, Buffer.alloc(acceptedBytes.length, 0x78));
+
+  const baseline = validateCurrentProposalEvidence(proposal, project.dir);
+  assert.equal(baseline.ok, false);
+  assert.match(messages(baseline), /does not match the retained source bytes/);
+
+  const originalRealpathSync = fs.realpathSync;
+  const originalLstatSync = fs.lstatSync;
+  const originalOpenSync = fs.openSync;
+  const originalReadSync = fs.readSync;
+  const outsideDescriptors = new Set();
+  let rootResolved = false;
+  let swapped = false;
+  let outsideBytesRead = false;
+  const isProjectRoot = (value) => {
+    const candidate = path.resolve(String(value));
+    return candidate === requestedRoot || candidate === canonicalRoot;
+  };
+  const swapRoot = () => {
+    fs.renameSync(project.dir, parkedRoot);
+    fs.symlinkSync(outside, project.dir, process.platform === "win32" ? "junction" : "dir");
+    swapped = true;
+  };
+  fs.realpathSync = function swapBeforeASecondRootResolution(value, ...args) {
+    if (isProjectRoot(value)) {
+      if (rootResolved && !swapped) swapRoot();
+      const result = Reflect.apply(originalRealpathSync, fs, [value, ...args]);
+      rootResolved = true;
+      return result;
+    }
+    return Reflect.apply(originalRealpathSync, fs, [value, ...args]);
+  };
+  fs.lstatSync = function swapBeforeAnchoringResolvedRoot(value, ...args) {
+    if (rootResolved && !swapped && isProjectRoot(value)) swapRoot();
+    return Reflect.apply(originalLstatSync, fs, [value, ...args]);
+  };
+  fs.openSync = function trackOutsideOpen(file, ...args) {
+    const descriptor = Reflect.apply(originalOpenSync, fs, [file, ...args]);
+    let real;
+    try {
+      real = Reflect.apply(originalRealpathSync, fs, [String(file)]);
+    } catch {
+      real = null;
+    }
+    if (real && (real === outside || real.startsWith(`${outside}${path.sep}`))) {
+      outsideDescriptors.add(descriptor);
+    }
+    return descriptor;
+  };
+  fs.readSync = function trackOutsideRead(descriptor, ...args) {
+    if (outsideDescriptors.has(descriptor)) outsideBytesRead = true;
+    return Reflect.apply(originalReadSync, fs, [descriptor, ...args]);
+  };
+
+  try {
+    const result = validateCurrentProposalEvidence(proposal, project.dir);
+    assert.equal(result.ok, false);
+    assert.match(messages(result), /cannot resolve project root|changed during validation/);
+    assert.equal(swapped, true, "the regression must exercise the project-root swap window");
+    assert.equal(outsideBytesRead, false, "outside replacement bytes must never be read");
+  } finally {
+    fs.realpathSync = originalRealpathSync;
+    fs.lstatSync = originalLstatSync;
+    fs.openSync = originalOpenSync;
+    fs.readSync = originalReadSync;
+    if (swapped) {
+      fs.rmSync(project.dir, { force: true });
+      fs.renameSync(parkedRoot, project.dir);
+    }
+    fs.rmSync(outside, { recursive: true, force: true });
+    project.cleanup();
+  }
+});
+
 test("Markdown heading locators preserve Unicode and canonical equivalence", () => {
   const cases = [
     { heading: "顧客調査", locator: "#顧客調査" },
@@ -1121,6 +1267,51 @@ test("aggregate evidence budget counts hard-linked source paths independently", 
     );
     assert.equal(result.ok, false);
     assert.match(messages(result), /aggregate 32 MiB validation limit/i);
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("per-file evidence budget wins when one source also exceeds the aggregate remainder", () => {
+  const project = tmpProject();
+  try {
+    const eightMiB = Buffer.alloc(8 * 1024 * 1024, 0x61);
+    const oneMiB = Buffer.alloc(1024 * 1024, 0x62);
+    const nineMiB = Buffer.alloc(9 * 1024 * 1024, 0x63);
+    const evidenceDir = path.join(project.dir, "pm/evidence");
+    fs.mkdirSync(evidenceDir, { recursive: true });
+    const first = path.join(evidenceDir, "budget-0.bin");
+    fs.writeFileSync(first, eightMiB);
+    const lineage = [];
+    for (let index = 0; index < 3; index += 1) {
+      const relative = `pm/evidence/budget-${index}.bin`;
+      if (index > 0) fs.linkSync(first, path.join(project.dir, relative));
+      lineage.push({
+        id: `source:budget-${index}`,
+        path: relative,
+        sha256: proposalBytesHash(eightMiB),
+      });
+    }
+    fs.writeFileSync(path.join(evidenceDir, "budget-3.bin"), oneMiB);
+    lineage.push({
+      id: "source:budget-3",
+      path: "pm/evidence/budget-3.bin",
+      sha256: proposalBytesHash(oneMiB),
+    });
+    fs.writeFileSync(path.join(evidenceDir, "budget-4.bin"), nineMiB);
+    lineage.push({
+      id: "source:budget-4",
+      path: "pm/evidence/budget-4.bin",
+      sha256: proposalBytesHash(nineMiB),
+    });
+
+    const result = validateCurrentProposalEvidence(
+      { review_contract: {}, source: { lineage }, evidence: [], question_reviews: [] },
+      project.dir
+    );
+    assert.equal(result.ok, false);
+    assert.match(messages(result), /retained evidence source exceeds the 8 MiB validation limit/);
+    assert.doesNotMatch(messages(result), /aggregate 32 MiB validation limit/);
   } finally {
     project.cleanup();
   }

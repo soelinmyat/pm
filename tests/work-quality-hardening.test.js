@@ -5,6 +5,11 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { scoreProposal } = require("../scripts/proposal-quality-check");
+const {
+  normalizePrimaryReviewResult,
+  resultSha256,
+  reviewFindingId,
+} = require("../scripts/lib/design-critique-review-result");
 const { PROFILES: GROOM_PROFILES } = require("../scripts/lib/groom-runtime-profile");
 
 const ROOT = path.resolve(__dirname, "..");
@@ -88,7 +93,124 @@ test("designer persona honors the caller contract without manufacturing a findin
   assert.doesNotMatch(persona, /Check across 3 viewports:/i);
   assert.doesNotMatch(persona, /8-10 findings/i);
   assert.match(persona, /zero findings/i);
-  assert.match(primary, /Return only the Primary `result` object/i);
+  assert.match(primary, /Return only the ID-free Primary raw result payload/i);
+
+  const scoreKeys = primary.match(/The score keys are closed by mode:\n\n```json\n([\s\S]*?)\n```/);
+  assert.ok(scoreKeys, "Primary dispatch must publish a machine-readable score-key contract");
+  assert.deepEqual(JSON.parse(scoreKeys[1]), {
+    "product-ui": [
+      "hierarchy",
+      "density",
+      "consistency",
+      "accessibility",
+      "responsive",
+      "state-clarity",
+    ],
+    "pm-artifact": [
+      "hierarchy",
+      "density",
+      "consistency",
+      "accessibility",
+      "responsive",
+      "print-navigation",
+    ],
+  });
+
+  const jsonBlocks = [...primary.matchAll(/```json\n([\s\S]*?)\n```/g)].map((match) =>
+    JSON.parse(match[1])
+  );
+  assert.deepEqual(Object.keys(jsonBlocks[1]), ["value", "rationale", "evidence_ids"]);
+  assert.match(primary, /Every score is a closed object with exactly these fields/i);
+  assert.match(primary, /`value` is an integer from 1 through 5/i);
+  assert.match(primary, /`evidence_ids` is a non-empty unique array/i);
+  const rawFindingFields = primary.match(
+    /Each raw finding omits `id` and contains exactly ([^.]+)\./i
+  );
+  assert.ok(rawFindingFields, "Primary dispatch must define its ID-free finding shape");
+  assert.deepEqual(
+    [...rawFindingFields[1].matchAll(/`([^`]+)`/g)].map((match) => match[1]),
+    [
+      "subject_id",
+      "region",
+      "rule",
+      "coverage_ids",
+      "evidence_ids",
+      "priority",
+      "owner",
+      "basis",
+      "confidence",
+      "summary",
+      "impact",
+      "remediation",
+    ]
+  );
+  assert.match(
+    primary,
+    /production helper.*copies the payload without rewriting.*and inserts one deterministic `id`/is
+  );
+  assert.deepEqual(jsonBlocks[2], [
+    "<review_id>",
+    "<subject_id>",
+    "<region>",
+    "<rule>",
+    ["<sorted coverage_id>"],
+    ["<sorted evidence_id>"],
+  ]);
+  assert.match(
+    primary,
+    /That normalized payload.*is the Primary `result` stored in `reviews\.json`/is
+  );
+  assert.match(primary, /computes `result_sha256`.*normalized stored result/is);
+
+  const captureId = "capture-account-primary-desktop-r1";
+  const evidenceId = "evidence-account-a11y-r1";
+  const raw = {
+    summary: "The account detail hierarchy is clear in the supplied rendered evidence.",
+    scores: Object.fromEntries(
+      JSON.parse(scoreKeys[1])["product-ui"].map((key) => [
+        key,
+        {
+          value: 4,
+          rationale: `${key} is supported by the supplied capture and audit evidence.`,
+          evidence_ids: [captureId, evidenceId],
+        },
+      ])
+    ),
+    findings: [
+      {
+        subject_id: "account-detail",
+        region: "header-actions",
+        rule: "primary-action-hierarchy",
+        coverage_ids: ["account-primary-desktop"],
+        evidence_ids: [captureId],
+        priority: "P2",
+        owner: "design-critique",
+        basis: "craft",
+        confidence: "medium",
+        summary: "The action is less prominent than the adjacent status card.",
+        impact: "Users may scan the status before noticing the next action.",
+        remediation: "Increase the action's weight within the existing visual system.",
+      },
+    ],
+  };
+  const context = {
+    reviewId: "dc-test-r1-primary",
+    mode: "product-ui",
+    route: {
+      subjects: [{ id: "account-detail" }],
+      coverage: [{ id: "account-primary-desktop", subject_id: "account-detail" }],
+    },
+    captures: {
+      captures: [{ id: captureId, coverage_id: "account-primary-desktop" }],
+      evidence: [{ id: evidenceId, subject_id: "account-detail" }],
+    },
+    input: { capture_ids: [captureId], evidence_ids: [evidenceId] },
+  };
+  const normalized = normalizePrimaryReviewResult(raw, context);
+  assert.equal(normalized.findings[0].id, reviewFindingId(context.reviewId, raw.findings[0]));
+  assert.match(resultSha256(normalized), /^[a-f0-9]{64}$/);
+  assert.deepEqual(normalized.findings[0].coverage_ids, raw.findings[0].coverage_ids);
+  assert.deepEqual(normalized.findings[0].evidence_ids, raw.findings[0].evidence_ids);
 });
 
 test("prototype fidelity reuses any usable visual system without inventing one", () => {

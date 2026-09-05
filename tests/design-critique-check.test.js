@@ -25,6 +25,10 @@ const {
   reviewFindingId,
 } = require("../scripts/design-critique-check");
 const { inspectPngVisualBytes } = require("../scripts/lib/media-inspect");
+const {
+  createReviewReceipt,
+  normalizePrimaryReviewResult,
+} = require("../scripts/lib/design-critique-review-result");
 const { writeProjectDirectoryAtomic } = require("../scripts/lib/project-atomic-write");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
@@ -560,20 +564,18 @@ function attachReviewReceipt(
   round,
   recordedAt = `2026-07-12T01:${String(10 + round * 10).padStart(2, "0")}:50Z`
 ) {
-  const receipt = {
-    schema_version: 1,
-    assurance: "workflow-attested-non-cryptographic",
-    review_id: review.review_id,
+  const receipt = createReviewReceipt({
+    reviewId: review.review_id,
     perspective: review.perspective,
-    context_id: review.execution.context_id,
-    invocation_id: review.execution.invocation_id,
-    input_payload_sha256: review.input.payload_sha256,
-    prompt_sha256: review.input.prompt_sha256,
-    result_sha256: digest(Buffer.from(canonicalJson(review.result))),
-    started_at: review.execution.started_at,
-    completed_at: review.execution.completed_at,
-    recorded_at: recordedAt,
-  };
+    contextId: review.execution.context_id,
+    invocationId: review.execution.invocation_id,
+    inputPayloadSha256: review.input.payload_sha256,
+    promptSha256: review.input.prompt_sha256,
+    result: review.result,
+    startedAt: review.execution.started_at,
+    completedAt: review.execution.completed_at,
+    recordedAt,
+  });
   review.execution.receipt = write(
     root,
     `evidence/review-receipts/${review.review_id}.json`,
@@ -1644,6 +1646,23 @@ function refreshReviews(fixture) {
         .at(-1)
         .reviews.find((item) => item.perspective === "primary");
       finalPrimary.input.prior_finding_refs.push(ref);
+      const priorSourcePath = `evidence/review-round-${fixture.report.rounds}-prior-findings.json`;
+      const priorSource = finalPrimary.input.prior_findings_source
+        ? JSON.parse(fs.readFileSync(path.join(fixture.root, priorSourcePath), "utf8"))
+        : {
+            schema_version: 1,
+            run_id: fixture.route.run_id,
+            commit: fixture.route.source.commit,
+            for_round: fixture.report.rounds,
+            findings: [],
+            created_at: "2026-07-12T01:29:55Z",
+          };
+      priorSource.findings.push({ review_id: primary.review_id, finding: reviewFinding });
+      finalPrimary.input.prior_findings_source = write(
+        fixture.root,
+        priorSourcePath,
+        `${JSON.stringify(priorSource, null, 2)}\n`
+      );
       const payload = { ...finalPrimary.input };
       delete payload.payload_sha256;
       finalPrimary.input.payload_sha256 = digest(Buffer.from(canonicalJson(payload)));
@@ -4093,6 +4112,51 @@ test("round 1 Primary cannot consume audit evidence from round 2", () => {
   assert.match(JSON.stringify(result.issues), /evidence bound to this round's captures/);
 });
 
+test("verification Primary refs require an exact hash-bound prior findings source", () => {
+  const fixture = makeFixture();
+  configureResolvedPrimaryFinding(fixture);
+  assert.deepEqual(check(fixture), { ok: true, issues: [] });
+
+  const primary = fixture.reviews.rounds[1].reviews.find(
+    (review) => review.perspective === "primary"
+  );
+  delete primary.input.prior_findings_source;
+  const payload = { ...primary.input };
+  delete payload.payload_sha256;
+  primary.input.payload_sha256 = digest(Buffer.from(canonicalJson(payload)));
+  attachReviewReceipt(fixture.root, primary, 2);
+  rewriteReviewsAndReport(fixture);
+
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /prior_findings_source.*requires a path and SHA-256/);
+});
+
+test("verification Primary rejects rebound prior finding content that differs from its ref", () => {
+  const fixture = makeFixture();
+  configureResolvedPrimaryFinding(fixture);
+  const primary = fixture.reviews.rounds[1].reviews.find(
+    (review) => review.perspective === "primary"
+  );
+  const sourcePath = primary.input.prior_findings_source.path;
+  const source = JSON.parse(fs.readFileSync(path.join(fixture.root, sourcePath), "utf8"));
+  source.findings[0].finding.summary = "A caller-rewritten prior finding.";
+  primary.input.prior_findings_source = write(
+    fixture.root,
+    sourcePath,
+    `${JSON.stringify(source, null, 2)}\n`
+  );
+  const payload = { ...primary.input };
+  delete payload.payload_sha256;
+  primary.input.payload_sha256 = digest(Buffer.from(canonicalJson(payload)));
+  attachReviewReceipt(fixture.root, primary, 2);
+  rewriteReviewsAndReport(fixture);
+
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /materialize the exact earlier reviewer finding/);
+});
+
 test("round 1 PM artifact Primary cannot consume evidence bound to round 2", () => {
   const fixture = makeFixture({ mode: "pm-artifact" });
   const after = fixture.captures.captures.find((item) => item.coverage_id === "artifact-desktop");
@@ -4210,6 +4274,57 @@ test("review receipts bind the exact result and expose non-cryptographic assuran
   assert.equal(result.ok, false);
   assert.match(JSON.stringify(result.issues), /result_sha256.*must match the exact review record/);
   assert.equal(fixture.report.review_assurance, "workflow-attested-non-cryptographic");
+});
+
+test("ID-free Primary output normalizes with a checker-valid receipt", () => {
+  const fixture = makeFixture();
+  const finalFinding = {
+    subject_id: "account-detail",
+    region: "save-flow",
+    rule: "functional-navigation",
+    evidence_ids: [fixture.captures.captures[0].id],
+    priority: "P1",
+    status: "open",
+    owner: "qa",
+    summary: "The post-save destination needs functional verification.",
+    remediation: "Exercise the save flow in QA.",
+  };
+  finalFinding.id = findingId(finalFinding);
+  fixture.report.findings = [finalFinding];
+  rewriteReportAndHtml(fixture);
+
+  const primary = fixture.reviews.rounds[0].reviews.find(
+    (review) => review.perspective === "primary"
+  );
+  const rawResult = {
+    ...primary.result,
+    findings: primary.result.findings.map((finding) => {
+      const rawFinding = { ...finding };
+      delete rawFinding.id;
+      return rawFinding;
+    }),
+  };
+  const normalized = normalizePrimaryReviewResult(rawResult, {
+    reviewId: primary.review_id,
+    mode: fixture.route.mode,
+    route: fixture.route,
+    captures: fixture.captures,
+    input: primary.input,
+  });
+  assert.equal(
+    normalized.findings[0].id,
+    reviewFindingId(primary.review_id, normalized.findings[0])
+  );
+  primary.result = normalized;
+  attachReviewReceipt(fixture.root, primary, 1);
+  rewriteReviewsAndReport(fixture);
+
+  const receipt = JSON.parse(
+    fs.readFileSync(path.join(fixture.root, primary.execution.receipt.path), "utf8")
+  );
+  assert.equal(Object.hasOwn(receipt, "prompt_profile"), false);
+  assert.equal(receipt.result_sha256, digest(Buffer.from(canonicalJson(normalized))));
+  assert.deepEqual(check(fixture), { ok: true, issues: [] });
 });
 
 test("report scores must exactly equal the final Primary scores", () => {

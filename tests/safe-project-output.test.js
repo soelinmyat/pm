@@ -9,6 +9,7 @@ const os = require("node:os");
 const path = require("node:path");
 const {
   createProjectInputVerificationContext,
+  createProjectRootAnchor,
   readProjectInput,
   resolveManagedDirectoryPointerTarget,
 } = require("../scripts/lib/safe-project-output");
@@ -130,6 +131,57 @@ test("ancestor-churn retry stays bound to the first project topology", (t) => {
   } finally {
     fs.openSync = originalOpen;
     fs.closeSync = originalClose;
+  }
+});
+
+test("an anchored project root rejects a replacement before opening its bytes", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-safe-anchored-root-"));
+  const replacement = fs.mkdtempSync(path.join(os.tmpdir(), "pm-safe-anchored-replacement-"));
+  const parkedRoot = `${root}.original`;
+  t.after(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(replacement, { recursive: true, force: true });
+    fs.rmSync(parkedRoot, { recursive: true, force: true });
+  });
+  for (const directory of [root, replacement]) {
+    fs.mkdirSync(path.join(directory, "evidence"));
+  }
+  fs.writeFileSync(path.join(root, "evidence", "item.json"), '{"source":"original"}\n');
+  fs.writeFileSync(path.join(replacement, "evidence", "item.json"), '{"source":"replacement"}\n');
+  const resolvedRoot = fs.realpathSync(root);
+  const rootAnchor = createProjectRootAnchor(resolvedRoot);
+  fs.renameSync(root, parkedRoot);
+  fs.renameSync(replacement, root);
+
+  const replacementTarget = path.join(resolvedRoot, "evidence", "item.json");
+  const originalOpenSync = fs.openSync;
+  const originalReadSync = fs.readSync;
+  let replacementDescriptor;
+  let replacementBytesRead = false;
+  fs.openSync = function trackReplacementOpen(file, ...args) {
+    const descriptor = Reflect.apply(originalOpenSync, fs, [file, ...args]);
+    if (path.resolve(String(file)) === replacementTarget) replacementDescriptor = descriptor;
+    return descriptor;
+  };
+  fs.readSync = function trackReplacementRead(descriptor, ...args) {
+    if (descriptor === replacementDescriptor) replacementBytesRead = true;
+    return Reflect.apply(originalReadSync, fs, [descriptor, ...args]);
+  };
+  try {
+    assert.throws(
+      () =>
+        readProjectInput(resolvedRoot, "evidence/item.json", 1024, {
+          projectRootAnchor: rootAnchor,
+          requireStablePath: true,
+        }),
+      /input path changed during containment validation/
+    );
+    assert.equal(replacementBytesRead, false);
+  } finally {
+    fs.openSync = originalOpenSync;
+    fs.readSync = originalReadSync;
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.renameSync(parkedRoot, root);
   }
 });
 
