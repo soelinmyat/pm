@@ -16,6 +16,84 @@ function readManagedProjectInput(root, relativePath, maxBytes, options = {}) {
   });
 }
 
+test("safe project input tolerates repeated sibling churn in stable ancestor directories", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-safe-sibling-churn-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const evidenceDir = path.join(root, "evidence");
+  const target = path.join(evidenceDir, "item.json");
+  const sibling = path.join(evidenceDir, "unrelated.lock");
+  fs.mkdirSync(evidenceDir);
+  fs.writeFileSync(target, '{"stable":true}\n');
+  const canonicalTarget = fs.realpathSync(target);
+
+  const originalOpen = fs.openSync;
+  let churnCount = 0;
+  fs.openSync = function churnBeforeOpen(file, ...args) {
+    if (churnCount < 6 && path.resolve(String(file)) === canonicalTarget) {
+      churnCount += 1;
+      fs.writeFileSync(sibling, "coordination\n");
+      fs.rmSync(sibling);
+    }
+    return Reflect.apply(originalOpen, fs, [file, ...args]);
+  };
+  try {
+    const input = readProjectInput(root, "evidence/item.json", 1024);
+    assert.equal(input.bytes.toString("utf8"), '{"stable":true}\n');
+    assert.equal(churnCount, 6);
+  } finally {
+    fs.openSync = originalOpen;
+  }
+});
+
+test("ancestor-churn retry stays bound to the first project topology", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-safe-retry-root-"));
+  const parkedRoot = `${root}.original`;
+  t.after(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(parkedRoot, { recursive: true, force: true });
+  });
+  const evidenceDir = path.join(root, "evidence");
+  const target = path.join(evidenceDir, "item.json");
+  const sibling = path.join(evidenceDir, "unrelated.lock");
+  fs.mkdirSync(evidenceDir);
+  fs.writeFileSync(target, '{"source":"original"}\n');
+  const canonicalTarget = fs.realpathSync(target);
+
+  const originalOpen = fs.openSync;
+  const originalClose = fs.closeSync;
+  let targetDescriptor;
+  let rootReplaced = false;
+  fs.openSync = function churnBeforeOpen(file, ...args) {
+    const descriptor = Reflect.apply(originalOpen, fs, [file, ...args]);
+    if (targetDescriptor === undefined && path.resolve(String(file)) === canonicalTarget) {
+      targetDescriptor = descriptor;
+      fs.writeFileSync(sibling, "coordination\n");
+      fs.rmSync(sibling);
+    }
+    return descriptor;
+  };
+  fs.closeSync = function replaceRootAfterFailedAttempt(descriptor, ...args) {
+    const result = Reflect.apply(originalClose, fs, [descriptor, ...args]);
+    if (!rootReplaced && descriptor === targetDescriptor) {
+      rootReplaced = true;
+      fs.renameSync(root, parkedRoot);
+      fs.mkdirSync(path.join(root, "evidence"), { recursive: true });
+      fs.writeFileSync(path.join(root, "evidence", "item.json"), '{"source":"replacement"}\n');
+    }
+    return result;
+  };
+  try {
+    assert.throws(
+      () => readProjectInput(root, "evidence/item.json", 1024, { requireStablePath: true }),
+      /input changed during containment validation/
+    );
+    assert.equal(rootReplaced, true);
+  } finally {
+    fs.openSync = originalOpen;
+    fs.closeSync = originalClose;
+  }
+});
+
 test("safe project input rejects an oversized managed inventory before reading payloads", (t) => {
   if (process.platform === "win32") return t.skip("directory symlink setup requires privileges");
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-safe-managed-budget-"));

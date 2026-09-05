@@ -11,6 +11,11 @@ const MANAGED_DIRECTORY_BUNDLE_PREFIX = ".pm-dir-bundle-";
 const MAX_MANAGED_DIRECTORY_POINTER_BYTES = 64 * 1024;
 const MAX_MANAGED_DIRECTORY_FILES = 64;
 const MAX_MANAGED_DIRECTORY_PAYLOAD_BYTES = 128 * 1024 * 1024;
+const MAX_ANCESTOR_CHURN_ATTEMPTS = 128;
+const ANCESTOR_CHURN_RETRY_WINDOW_NS = 500_000_000n;
+const ANCESTOR_CHURN_RETRY_DELAY_MS = 5;
+const ANCESTOR_CHURN_WAIT_WORD = new Int32Array(new SharedArrayBuffer(4));
+const RETRYABLE_ANCESTOR_CHURN = Symbol("retryable ancestor churn");
 
 function projectPath(root, relativePath) {
   if (
@@ -54,6 +59,18 @@ function sameFileMetadata(left, right) {
   );
 }
 
+function sameStableDirectoryIdentity(left, right) {
+  return (
+    left.isDirectory() &&
+    right.isDirectory() &&
+    left.dev === right.dev &&
+    left.ino === right.ino &&
+    left.mode === right.mode &&
+    left.uid === right.uid &&
+    left.gid === right.gid
+  );
+}
+
 function sameComponents(expected, observed) {
   return (
     expected.length === observed.length &&
@@ -62,6 +79,20 @@ function sameComponents(expected, observed) {
         component.path === observed[index].path &&
         component.kind === observed[index].kind &&
         sameComponentMetadata(component.stat, observed[index].stat)
+    )
+  );
+}
+
+function sameLogicalComponentsIgnoringAncestorEntryChurn(expected, observed) {
+  return (
+    expected.length === observed.length &&
+    expected.every(
+      (component, index) =>
+        component.path === observed[index].path &&
+        component.kind === observed[index].kind &&
+        (["root", "ancestor"].includes(component.kind)
+          ? sameStableDirectoryIdentity(component.stat, observed[index].stat)
+          : sameComponentMetadata(component.stat, observed[index].stat))
     )
   );
 }
@@ -104,6 +135,58 @@ function sameSnapshots(expected, observed) {
         expected.managed.requestedFile.sha256 === observed.managed.requestedFile.sha256 &&
         expected.managed.requestedFile.size === observed.managed.requestedFile.size))
   );
+}
+
+function sameSnapshotsIgnoringAncestorEntryChurn(expected, observed) {
+  return (
+    expected.absolute === observed.absolute &&
+    expected.physicalAbsolute === observed.physicalAbsolute &&
+    sameLogicalComponentsIgnoringAncestorEntryChurn(
+      expected.logicalComponents,
+      observed.logicalComponents
+    ) &&
+    sameComponents(expected.physicalComponents, observed.physicalComponents) &&
+    Boolean(expected.managed) === Boolean(observed.managed) &&
+    (!expected.managed ||
+      (expected.managed.targetText === observed.managed.targetText &&
+        expected.managed.manifestSha256 === observed.managed.manifestSha256 &&
+        expected.managed.requestedFile.sha256 === observed.managed.requestedFile.sha256 &&
+        expected.managed.requestedFile.size === observed.managed.requestedFile.size))
+  );
+}
+
+function assertStableSnapshot(expected, observed, message) {
+  if (sameSnapshots(expected, observed)) return;
+  const error = new Error(message);
+  if (sameSnapshotsIgnoringAncestorEntryChurn(expected, observed)) {
+    error[RETRYABLE_ANCESTOR_CHURN] = expected;
+  }
+  throw error;
+}
+
+function retryAncestorEntryChurn(operation) {
+  const deadline = process.hrtime.bigint() + ANCESTOR_CHURN_RETRY_WINDOW_NS;
+  let baseline;
+  let lastError;
+  for (let attempt = 0; attempt < MAX_ANCESTOR_CHURN_ATTEMPTS; attempt += 1) {
+    try {
+      return operation(baseline);
+    } catch (error) {
+      const retryBaseline = error?.[RETRYABLE_ANCESTOR_CHURN];
+      if (!retryBaseline) throw error;
+      baseline ??= retryBaseline;
+      lastError = error;
+      if (attempt === MAX_ANCESTOR_CHURN_ATTEMPTS - 1 || process.hrtime.bigint() >= deadline) break;
+      Atomics.wait(ANCESTOR_CHURN_WAIT_WORD, 0, 0, ANCESTOR_CHURN_RETRY_DELAY_MS);
+    }
+  }
+  throw lastError;
+}
+
+function assertRetryBaseline(baseline, observed, message) {
+  if (baseline && !sameSnapshotsIgnoringAncestorEntryChurn(baseline, observed)) {
+    throw new Error(message);
+  }
 }
 
 function managedDirectoryBundleName(canonicalBasename, nonce) {
@@ -444,10 +527,22 @@ function inspectStableProjectInput(
 ) {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 0)
     throw new Error("input byte budget must be a non-negative safe integer");
-  const { absolute, projectRoot, relation } = projectPath(root, relativePath);
+  const location = projectPath(root, relativePath);
+  return retryAncestorEntryChurn((baseline) =>
+    inspectStableProjectInputOnce(location, maxBytes, options, baseline)
+  );
+}
+
+function inspectStableProjectInputOnce(
+  { absolute, projectRoot, relation },
+  maxBytes,
+  options,
+  baseline
+) {
   const initial = snapshotProjectPath(projectRoot, relation, absolute, {
     allowManagedDirectoryPointers: options.allowManagedDirectoryPointers === true,
   });
+  assertRetryBaseline(baseline, initial, "input path changed during containment validation");
   if (!initial.finalStat?.isFile()) throw new Error("input must be an existing regular file");
   if (initial.finalStat.size > BigInt(maxBytes))
     throw new Error(`input exceeds ${maxBytes}-byte budget`);
@@ -455,8 +550,7 @@ function inspectStableProjectInput(
     allowManagedDirectoryPointers: options.allowManagedDirectoryPointers === true,
     verifyManagedPayloadHashes: false,
   });
-  if (!sameSnapshots(initial, observed))
-    throw new Error("input path changed during containment validation");
+  assertStableSnapshot(initial, observed, "input path changed during containment validation");
   return {
     path: absolute,
     relative: relation.split(path.sep).join("/"),
@@ -468,11 +562,18 @@ function inspectStableProjectInput(
 function readProjectInput(root, relativePath, maxBytes = Number.MAX_SAFE_INTEGER, options = {}) {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 0)
     throw new Error("input byte budget must be a non-negative safe integer");
-  const { absolute, projectRoot, relation } = projectPath(root, relativePath);
+  const location = projectPath(root, relativePath);
+  return retryAncestorEntryChurn((baseline) =>
+    readProjectInputOnce(location, maxBytes, options, baseline)
+  );
+}
+
+function readProjectInputOnce({ absolute, projectRoot, relation }, maxBytes, options, baseline) {
   const requireStablePath = options.requireStablePath === true;
   const initial = snapshotProjectPath(projectRoot, relation, absolute, {
     allowManagedDirectoryPointers: options.allowManagedDirectoryPointers === true,
   });
+  assertRetryBaseline(baseline, initial, "input changed during containment validation");
   if (!initial.finalStat?.isFile()) throw new Error("input must be an existing regular file");
   if (initial.finalStat.size > BigInt(maxBytes))
     throw new Error(`input exceeds ${maxBytes}-byte budget`);
@@ -491,8 +592,9 @@ function readProjectInput(root, relativePath, maxBytes = Number.MAX_SAFE_INTEGER
       allowManagedDirectoryPointers: options.allowManagedDirectoryPointers === true,
       verifyManagedPayloadHashes: false,
     });
-    if (!sameSnapshots(initial, observed) || !sameFileMetadata(opened, observed.finalStat))
+    if (!sameFileMetadata(opened, observed.finalStat))
       throw new Error("input changed during containment validation");
+    assertStableSnapshot(initial, observed, "input changed during containment validation");
 
     const bytes = readDescriptorBounded(descriptor, maxBytes);
     if (initial.managed) {
@@ -511,8 +613,9 @@ function readProjectInput(root, relativePath, maxBytes = Number.MAX_SAFE_INTEGER
         allowManagedDirectoryPointers: options.allowManagedDirectoryPointers === true,
         verifyManagedPayloadHashes: false,
       });
-      if (!sameSnapshots(initial, final) || !sameFileMetadata(after, final.finalStat))
+      if (!sameFileMetadata(after, final.finalStat))
         throw new Error("input path changed during bounded read");
+      assertStableSnapshot(initial, final, "input path changed during bounded read");
     }
     return {
       path: absolute,
