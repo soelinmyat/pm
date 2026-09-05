@@ -685,7 +685,7 @@ function decisionActionHtml(proposal, identity) {
       ? "Pending"
       : "Blocked";
   const integrity = `Approval applies only to revision <strong>${proposal.revision}</strong> and content <code title="Full content identity: ${h(identity.contentSha256)}">${h(abbreviatedSha(identity.contentSha256))}</code>. Any substantive edit makes that approval stale.`;
-  return `<aside class="decision-action" id="decision-action" aria-label="Decision status"><div class="decision-action-label">Decision status</div><p class="decision-state-summary"><span>Proposal <strong>${h(proposalState)}</strong></span><span>Review <strong>${h(reviewState)}</strong></span><span>Approval <strong>${h(approvalState)}</strong></span></p><div class="decision-action-title">${title}</div><p>${guidance}</p><p class="decision-integrity">${integrity}</p></aside>`;
+  return `<aside class="decision-action" id="decision-action" aria-label="Decision status"><div class="decision-action-label">Decision status</div><p class="decision-state-summary"><span>Proposal <strong>${h(proposalState)}</strong></span><span>Review <strong>${h(reviewState)}</strong></span><span>Approval <strong>${h(approvalState)}</strong></span></p><h2 class="decision-action-title">${title}</h2><p>${guidance}</p><p class="decision-integrity">${integrity}</p></aside>`;
 }
 function abbreviatedSha(value) {
   const text = String(value || "");

@@ -7,7 +7,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { execFileSync, spawnSync } = require("node:child_process");
 const { normalizeRawAudit } = require("./design-critique-audit-normalize");
-const { isRfc3339DateTime } = require("./lib/iso-time");
+const { compareRfc3339DateTimes, isRfc3339DateTime } = require("./lib/iso-time");
 const { PRODUCT_UI_VISUAL_THRESHOLDS, inspectPngVisualBytes } = require("./lib/media-inspect");
 const { readProjectInput } = require("./lib/project-file");
 const { writeProjectDirectoryAtomic } = require("./lib/project-atomic-write");
@@ -928,10 +928,13 @@ function validateProbeResult(result, plan) {
     ["started_at", "page_ready_at", "captured_at", "completed_at"],
     "capture probe.timestamps"
   );
-  let previous = 0;
+  let previous = null;
   for (const field of ["started_at", "page_ready_at", "captured_at", "completed_at"]) {
-    const value = Date.parse(result.timestamps[field]);
-    if (!Number.isFinite(value) || value < previous)
+    const value = result.timestamps[field];
+    if (
+      !isRfc3339DateTime(value) ||
+      (previous !== null && compareRfc3339DateTimes(value, previous) < 0)
+    )
       throw new Error("capture probe timestamps must be ordered RFC 3339 values");
     previous = value;
   }

@@ -467,7 +467,7 @@ test("capture plan refuses noncanonical assertion and output locations", () => {
   );
 });
 
-test("probe validation fails closed on URL, viewport, or network drift", () => {
+test("probe validation fails closed on URL, viewport, network, or timestamp drift", () => {
   const plan = prepareCapturePlan(
     route(),
     ".pm/dev-sessions/test/design-critique/route.json",
@@ -549,6 +549,49 @@ test("probe validation fails closed on URL, viewport, or network drift", () => {
     },
   };
   assert.doesNotThrow(() => validateProbeResult(result, plan));
+  assert.doesNotThrow(() =>
+    validateProbeResult(
+      {
+        ...result,
+        timestamps: {
+          started_at: "2026-09-04T00:00:00.000000001Z",
+          page_ready_at: "2026-09-04T08:00:00.000000002+08:00",
+          captured_at: "2026-09-04T00:00:00.000000003Z",
+          completed_at: "2026-09-04T00:00:01Z",
+        },
+      },
+      plan
+    )
+  );
+  for (const invalidTimestamp of ["2026-09-04", "Thu, 04 Sep 2026 00:00:00 GMT"]) {
+    assert.ok(Number.isFinite(Date.parse(invalidTimestamp)));
+    assert.throws(
+      () =>
+        validateProbeResult(
+          {
+            ...result,
+            timestamps: { ...result.timestamps, page_ready_at: invalidTimestamp },
+          },
+          plan
+        ),
+      /timestamps must be ordered RFC 3339/
+    );
+  }
+  assert.throws(
+    () =>
+      validateProbeResult(
+        {
+          ...result,
+          timestamps: {
+            ...result.timestamps,
+            page_ready_at: "2026-09-04T00:00:01.000000002Z",
+            captured_at: "2026-09-04T00:00:01.000000001Z",
+          },
+        },
+        plan
+      ),
+    /timestamps must be ordered RFC 3339/
+  );
   assert.throws(
     () =>
       validateProbeResult(

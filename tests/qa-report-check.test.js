@@ -10,6 +10,8 @@ const zlib = require("node:zlib");
 const { execFileSync, spawnSync } = require("node:child_process");
 
 const {
+  MAX_QA_SCREENSHOT_DECODED_BYTES_TOTAL,
+  MAX_QA_VALIDATION_ISSUES,
   checkQaReport,
   expectedQaReportPath,
   validateQaReport,
@@ -88,6 +90,46 @@ test("strict QA report rejects unknown fields and inconsistent totals, counts, s
   assert.ok(messages.some((message) => /category_breakdown\[0\]\.score/.test(message)));
   assert.ok(messages.some((message) => /must equal top-level health_score/.test(message)));
   assert.ok(messages.some((message) => /unknown finding unknown-finding/.test(message)));
+});
+
+test("strict QA report bounds collection traversal and caps validation diagnostics", () => {
+  const report = passingReport(SHA_A);
+  report.receipts[0].screenshot_ids = Array.from(
+    { length: 16 },
+    (_, index) => `unbound-screenshot-${index}`
+  );
+  Object.defineProperty(report.receipts[0].screenshot_ids, 15, {
+    configurable: true,
+    get() {
+      throw new Error("validator traversed beyond the receipt screenshot limit");
+    },
+  });
+  report.findings = Array.from({ length: 1_100 }, () => null);
+  Object.defineProperty(report.findings, 1_000, {
+    configurable: true,
+    get() {
+      throw new Error("validator traversed beyond the finding limit");
+    },
+  });
+  report.runs[0].finding_ids = Array.from(
+    { length: 1_001 },
+    (_, index) => `unbound-finding-${index}`
+  );
+  Object.defineProperty(report.runs[0].finding_ids, 1_000, {
+    configurable: true,
+    get() {
+      throw new Error("validator traversed beyond the run finding limit");
+    },
+  });
+
+  const issues = validateQaReport(report, { expectedCommit: SHA_A, requirePassing: true });
+
+  assert.equal(issues.length, MAX_QA_VALIDATION_ISSUES);
+  assert.match(issues.at(-1).message, /validation diagnostics were capped/);
+  assert.ok(
+    issues.every((entry) => !/^report\.findings\[(?:10\d\d|[2-9]\d{3,})\]/.test(entry.path)),
+    "validation must not visit findings beyond the declared maximum"
+  );
 });
 
 test("passing QA verdict rejects unresolved Critical or High findings", () => {
@@ -828,6 +870,74 @@ test("canonical QA rejects a vacuous all-100 report and revalidates retained out
   assert.match(JSON.stringify(unstructured.issues), /structured QA execution result/);
 });
 
+test("retained execution evidence validates bounded assertion and finding-ID prefixes", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-qa-output-bounds-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const session = { slug: "output-bounds", source: { repo_root: root } };
+  const { reportPath, outputPath } = writePassingReport(session, SHA_A);
+
+  let report = passingReport(SHA_A, outputPath);
+  let output = JSON.parse(qaOutput(SHA_A, "qa-run-1-tests", 2_000).toString("utf8"));
+  output.assertions.push({
+    id: "beyond-assertion-limit",
+    status: "invalid",
+    probe: "must not be inspected",
+    observed: "must not be inspected",
+    expected: "must not be inspected",
+    finding_ids: ["beyond-finding-limit"],
+  });
+  let outputBytes = Buffer.from(`${JSON.stringify(output)}\n`);
+  fs.writeFileSync(outputPath, outputBytes);
+  report.assertions = { passed: 2_000, total: 2_000 };
+  report.receipts[0].assertions = { passed: 2_000, total: 2_000 };
+  report.receipts[0].output = {
+    path: outputPath,
+    sha256: digest(outputBytes),
+    bytes: outputBytes.length,
+  };
+  report.runs[0].assertions = { passed: 2_000, total: 2_000 };
+  fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+
+  let checked = checkQaReport({
+    session,
+    reportPath,
+    expectedCommit: SHA_A,
+    requirePassing: true,
+  });
+  assert.equal(checked.ok, false);
+  assert.match(JSON.stringify(checked.issues), /no more than 2000 assertion results/);
+  assert.doesNotMatch(JSON.stringify(checked.issues), /assertions\[2000\]|beyond-assertion-limit/);
+
+  report = passingReport(SHA_A, outputPath);
+  output = JSON.parse(qaOutput(SHA_A, "qa-run-1-tests", 1).toString("utf8"));
+  output.assertions[0].finding_ids = [
+    ...Array.from({ length: 1_000 }, (_, index) => `missing-finding-${index}`),
+    "beyond-finding-limit",
+  ];
+  outputBytes = Buffer.from(`${JSON.stringify(output)}\n`);
+  fs.writeFileSync(outputPath, outputBytes);
+  report.assertions = { passed: 1, total: 1 };
+  report.receipts[0].assertions = { passed: 1, total: 1 };
+  report.receipts[0].output = {
+    path: outputPath,
+    sha256: digest(outputBytes),
+    bytes: outputBytes.length,
+  };
+  report.runs[0].assertions = { passed: 1, total: 1 };
+  fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+
+  checked = checkQaReport({
+    session,
+    reportPath,
+    expectedCommit: SHA_A,
+    requirePassing: true,
+  });
+  assert.equal(checked.ok, false);
+  assert.equal(checked.issues.length, MAX_QA_VALIDATION_ISSUES);
+  assert.match(checked.issues.at(-1).message, /validation diagnostics were capped/);
+  assert.doesNotMatch(JSON.stringify(checked.issues), /beyond-finding-limit/);
+});
+
 test("retained QA evidence cannot be rebound by a path swap after inspection", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-qa-retained-swap-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -1349,6 +1459,54 @@ test("optional browser screenshots are dimension- and hash-bound to their receip
   });
   assert.equal(mismatched.ok, false);
   assert.match(JSON.stringify(mismatched.issues), /dimensions do not match/);
+});
+
+test("retained screenshots reject an aggregate decoded PNG budget before further inflation", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-qa-report-png-budget-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const session = { slug: "screenshot-budget", source: { repo_root: root } };
+  const { reportPath, outputPath } = writePassingReport(session, SHA_A);
+  const width = 8_000;
+  const height = 4_000;
+  const decodedBytesPerScreenshot = BigInt((width * 4 + 1) * height);
+  assert.ok(decodedBytesPerScreenshot < 128n * 1024n * 1024n);
+  assert.ok(decodedBytesPerScreenshot * 4n < BigInt(MAX_QA_SCREENSHOT_DECODED_BYTES_TOTAL));
+  assert.ok(decodedBytesPerScreenshot * 5n > BigInt(MAX_QA_SCREENSHOT_DECODED_BYTES_TOTAL));
+
+  const screenshot = testPngWithDeclaredDimensions(width, height);
+  const report = passingReport(SHA_A, outputPath);
+  for (let index = 1; index <= 5; index += 1) {
+    const id = `large-capture-${index}`;
+    const screenshotPath = path.join(path.dirname(reportPath), "evidence", `${id}.png`);
+    fs.writeFileSync(screenshotPath, screenshot);
+    report.receipts[0].screenshot_ids.push(id);
+    report.screenshots.push({
+      id,
+      run: 1,
+      commit: SHA_A,
+      path: screenshotPath,
+      sha256: digest(screenshot),
+      bytes: screenshot.length,
+      width,
+      height,
+    });
+  }
+  fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+
+  const checked = checkQaReport({
+    session,
+    reportPath,
+    expectedCommit: SHA_A,
+    requirePassing: true,
+  });
+
+  assert.equal(checked.ok, false);
+  assert.match(JSON.stringify(checked.issues), /cumulative decoded bytes/);
+  assert.equal(
+    checked.issues.filter((entry) => /must be a strict PNG screenshot/.test(entry.message)).length,
+    4,
+    "strict decode must run for four in-budget images and skip the rejected fifth image"
+  );
 });
 
 test("screenshots have one run-and-commit owner and a per-run rather than global cap", () => {
@@ -2411,6 +2569,21 @@ function testPng() {
     pngChunk("IHDR", header),
     pngChunk("tEXt", Buffer.alloc(1024, 0x61)),
     pngChunk("IDAT", zlib.deflateSync(rows)),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+function testPngWithDeclaredDimensions(width, height) {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 6;
+  return Buffer.concat([
+    Buffer.from("89504e470d0a1a0a", "hex"),
+    pngChunk("IHDR", header),
+    pngChunk("tEXt", Buffer.alloc(1024, 0x61)),
+    pngChunk("IDAT", zlib.deflateSync(Buffer.from([0]))),
     pngChunk("IEND", Buffer.alloc(0)),
   ]);
 }

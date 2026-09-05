@@ -6,7 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { readDescriptorBounded } = require("./bounded-descriptor-read");
 const { compareRfc3339DateTimes, isRfc3339DateTime } = require("./iso-time");
-const { inspectPngBytes } = require("./media-inspect");
+const { inspectPngBytes, inspectPngHeaderBytes } = require("./media-inspect");
 
 const MAX_QA_REPORT_BYTES = 4 * 1024 * 1024;
 const MAX_QA_EVIDENCE_BYTES = 16 * 1024 * 1024;
@@ -18,6 +18,11 @@ const MAX_RUNS = 50;
 const MAX_RECEIPTS = 100;
 const MAX_SCREENSHOTS = 15;
 const MAX_SCREENSHOTS_TOTAL = MAX_RUNS * MAX_SCREENSHOTS;
+const MAX_QA_VALIDATION_ISSUES = 256;
+// Accommodates one run of fifteen 4K RGBA captures while bounding all retained history.
+const MAX_QA_SCREENSHOT_DECODED_BYTES_TOTAL = 512 * 1024 * 1024;
+const MAX_QA_OBJECT_FIELDS = 256;
+const QA_VALIDATION_ISSUE_LIMIT_MESSAGE = `validation diagnostics were capped at ${MAX_QA_VALIDATION_ISSUES} issues`;
 const VERDICTS = new Set(["pass", "pass-with-concerns", "fail", "blocked"]);
 const TIERS = new Set(["quick", "focused", "full"]);
 const PLATFORMS = new Set(["web", "mobile"]);
@@ -181,7 +186,7 @@ function checkQaReport(options) {
     };
   }
   if (reportPath !== expectedPath) {
-    issues.push(issue("report", `must equal ${expectedPath}`));
+    add(issues, "report", `must equal ${expectedPath}`);
   }
   validateReportLocation(options.session.source.repo_root, expectedPath, issues);
   if (issues.length > 0) return { ok: false, issues, expected_path: expectedPath };
@@ -190,7 +195,7 @@ function checkQaReport(options) {
   try {
     bytes = readCanonicalQaReport(expectedPath);
   } catch (error) {
-    issues.push(issue("report", `could not read QA report: ${error.message}`));
+    add(issues, "report", `could not read QA report: ${error.message}`);
     return { ok: false, issues, expected_path: expectedPath };
   }
   validateReportLocation(options.session.source.repo_root, expectedPath, issues);
@@ -200,11 +205,12 @@ function checkQaReport(options) {
   try {
     report = JSON.parse(bytes.toString("utf8"));
   } catch (error) {
-    issues.push(issue("report", `must be valid JSON: ${error.message}`));
+    add(issues, "report", `must be valid JSON: ${error.message}`);
     return { ok: false, issues, expected_path: expectedPath };
   }
-  issues.push(
-    ...validateQaReport(report, {
+  addIssues(
+    issues,
+    validateQaReport(report, {
       expectedCommit: options.expectedCommit,
       requirePassing: options.requirePassing !== false,
       evidenceRoot: path.join(path.dirname(expectedPath), "evidence"),
@@ -282,7 +288,7 @@ function validateReportLocation(repoRoot, expectedPath, issues) {
   const sessionDir = path.dirname(path.dirname(expectedPath));
   const relative = path.relative(resolvedRoot, expectedPath);
   if (relative === "" || relative === ".." || relative.startsWith(`..${path.sep}`)) {
-    issues.push(issue("report", "must remain inside the Dev session repository"));
+    add(issues, "report", "must remain inside the Dev session repository");
     return;
   }
   let cursor = resolvedRoot;
@@ -292,11 +298,11 @@ function validateReportLocation(repoRoot, expectedPath, issues) {
     try {
       stat = fs.lstatSync(cursor);
     } catch (error) {
-      issues.push(issue("report", `required path component is unavailable: ${error.message}`));
+      add(issues, "report", `required path component is unavailable: ${error.message}`);
       return;
     }
     if (stat.isSymbolicLink()) {
-      issues.push(issue("report", `symbolic links are not allowed: ${cursor}`));
+      add(issues, "report", `symbolic links are not allowed: ${cursor}`);
       return;
     }
   }
@@ -305,13 +311,13 @@ function validateReportLocation(repoRoot, expectedPath, issues) {
     const realSession = fs.realpathSync(sessionDir);
     const realReport = fs.realpathSync(expectedPath);
     if (!contained(realRoot, realSession)) {
-      issues.push(issue("report", "session directory escapes the repository"));
+      add(issues, "report", "session directory escapes the repository");
     }
     if (!contained(realSession, realReport)) {
-      issues.push(issue("report", "QA report escapes the session directory"));
+      add(issues, "report", "QA report escapes the session directory");
     }
   } catch (error) {
-    issues.push(issue("report", `could not resolve QA report location: ${error.message}`));
+    add(issues, "report", `could not resolve QA report location: ${error.message}`);
   }
 }
 
@@ -343,17 +349,22 @@ function validateQaReport(report, options = {}) {
   }
   validateRuns(report.runs, report, findingIds, receipts, issues);
   validateVerdict(report, issues, options.requirePassing === true);
+  if (diagnosticsCapped(issues)) return issues;
   let retained = emptyRetainedEvidence();
   if (typeof options.evidenceRoot === "string") {
     retained = validateRetainedEvidence(report, options.evidenceRoot, issues);
   }
+  if (diagnosticsCapped(issues)) return issues;
   validateSessionCoverage(report, options.session, receipts, retained, issues);
+  if (diagnosticsCapped(issues)) return issues;
   validateReverifyEvidence(report, retained, issues);
+  if (diagnosticsCapped(issues)) return issues;
   validateSessionQaHistory(report, options.session, issues, {
     qaCandidate: options.qaCandidate,
     qaHistoryAnchor: options.qaHistoryAnchor,
     reportSha256: options.reportSha256,
   });
+  if (diagnosticsCapped(issues)) return issues;
   validateGitCommitLineage(report, options.session?.source?.repo_root, issues);
   return issues;
 }
@@ -373,7 +384,7 @@ function validateScreenshots(screenshots, issues) {
       `must contain no more than ${MAX_SCREENSHOTS_TOTAL} historical entries`
     );
   }
-  for (const [index, screenshot] of screenshots.entries()) {
+  for (const [index, screenshot] of boundedEntries(screenshots, MAX_SCREENSHOTS_TOTAL)) {
     const at = `report.screenshots[${index}]`;
     if (!object(screenshot)) {
       add(issues, at, "must be an object");
@@ -417,7 +428,7 @@ function validateReceipts(receipts, report, screenshots, issues) {
   if (receipts.length > MAX_RECEIPTS) {
     add(issues, "report.receipts", `must contain no more than ${MAX_RECEIPTS} entries`);
   }
-  for (const [index, receipt] of receipts.entries()) {
+  for (const [index, receipt] of boundedEntries(receipts, MAX_RECEIPTS)) {
     const at = `report.receipts[${index}]`;
     if (!object(receipt)) {
       add(issues, at, "must be an object");
@@ -452,8 +463,15 @@ function validateReceipts(receipts, report, screenshots, issues) {
       maxItems: MAX_SCREENSHOTS,
       localIds: true,
     });
+    if (Array.isArray(receipt.screenshot_ids) && receipt.screenshot_ids.length > MAX_SCREENSHOTS) {
+      add(
+        issues,
+        "report.screenshots",
+        `run ${receipt.run} must contain no more than ${MAX_SCREENSHOTS} screenshots`
+      );
+    }
     if (Array.isArray(receipt.screenshot_ids)) {
-      for (const screenshotId of receipt.screenshot_ids) {
+      for (const screenshotId of boundedArray(receipt.screenshot_ids, MAX_SCREENSHOTS)) {
         if (!localId(screenshotId)) continue;
         if (!screenshots.ids.has(screenshotId)) {
           add(issues, `${at}.screenshot_ids`, `references unknown screenshot ${screenshotId}`);
@@ -550,7 +568,7 @@ function validateFindings(findings, screenshots, issues) {
   }
   const ids = new Set();
   const screenshotSet = new Set(Array.isArray(screenshots) ? screenshots : []);
-  for (const [index, finding] of findings.entries()) {
+  for (const [index, finding] of boundedEntries(findings, MAX_FINDINGS)) {
     const at = `report.findings[${index}]`;
     if (!object(finding)) {
       add(issues, at, "must be an object");
@@ -602,9 +620,9 @@ function validateFindingCounts(counts, findings, issues) {
   }
   closed(counts, SEVERITIES, at, issues);
   required(counts, SEVERITIES, at, issues);
-  const openFindings = Array.isArray(findings)
-    ? findings.filter((finding) => object(finding) && finding.disposition === "open")
-    : [];
+  const openFindings = boundedArray(findings, MAX_FINDINGS).filter(
+    (finding) => object(finding) && finding.disposition === "open"
+  );
   for (const severity of SEVERITIES) {
     integerInRange(counts[severity], 0, MAX_FINDINGS, `${at}.${severity}`, issues);
     const expected = openFindings.filter((finding) => finding.severity === severity).length;
@@ -625,7 +643,7 @@ function validateCategoryBreakdown(breakdown, findings, issues) {
   }
   const observed = new Set();
   const expectedScores = categoryScoresFor(findings);
-  for (const [index, row] of breakdown.entries()) {
+  for (const [index, row] of boundedEntries(breakdown, CATEGORIES.length)) {
     const rowAt = `${at}[${index}]`;
     if (!object(row)) {
       add(issues, rowAt, "must be an object");
@@ -661,9 +679,10 @@ function validateRuns(runs, report, findingIds, receipts, issues) {
     return;
   }
   if (runs.length > MAX_RUNS) add(issues, at, `must contain no more than ${MAX_RUNS} runs`);
+  const retainedRuns = boundedArray(runs, MAX_RUNS);
   let previous = null;
   const usedReceiptIds = new Set();
-  for (const [index, run] of runs.entries()) {
+  for (const [index, run] of retainedRuns.entries()) {
     const runAt = `${at}[${index}]`;
     if (!object(run)) {
       add(issues, runAt, "must be an object");
@@ -695,10 +714,11 @@ function validateRuns(runs, report, findingIds, receipts, issues) {
     if (!VERDICTS.has(run.verdict)) add(issues, `${runAt}.verdict`, "is invalid");
     integerInRange(run.health_score, 0, 100, `${runAt}.health_score`, issues);
     validateAssertions(run.assertions, `${runAt}.assertions`, issues);
-    validateIdArray(run.finding_ids, `${runAt}.finding_ids`, findingIds, issues);
-    validateIdArray(run.receipt_ids, `${runAt}.receipt_ids`, receipts.ids, issues);
+    validateIdArray(run.finding_ids, `${runAt}.finding_ids`, findingIds, issues, MAX_FINDINGS);
+    validateIdArray(run.receipt_ids, `${runAt}.receipt_ids`, receipts.ids, issues, MAX_RECEIPTS);
+    const retainedReceiptIds = boundedArray(run.receipt_ids, MAX_RECEIPTS);
     const runReceipts = Array.isArray(run.receipt_ids)
-      ? run.receipt_ids.map((id) => receipts.byId.get(id)).filter(Boolean)
+      ? retainedReceiptIds.map((id) => receipts.byId.get(id)).filter(Boolean)
       : [];
     if (
       Array.isArray(run.receipt_ids) &&
@@ -707,7 +727,7 @@ function validateRuns(runs, report, findingIds, receipts, issues) {
     ) {
       add(issues, `${runAt}.receipt_ids`, "must bind at least one executed evidence receipt");
     }
-    for (const receiptId of Array.isArray(run.receipt_ids) ? run.receipt_ids : []) {
+    for (const receiptId of retainedReceiptIds) {
       if (usedReceiptIds.has(receiptId))
         add(issues, `${runAt}.receipt_ids`, `receipt ${receiptId} cannot be reused across runs`);
       usedReceiptIds.add(receiptId);
@@ -770,22 +790,34 @@ function validateRuns(runs, report, findingIds, receipts, issues) {
     }
     previous = run;
   }
-  const latest = runs.at(-1);
+  const latest = retainedRuns.at(-1);
   if (!object(latest)) return;
   if (latest.verdict !== report.verdict) {
-    add(issues, `${at}[${runs.length - 1}].verdict`, "must equal the top-level verdict");
+    add(issues, `${at}[${retainedRuns.length - 1}].verdict`, "must equal the top-level verdict");
   }
   if (latest.commit !== report.commit) {
-    add(issues, `${at}[${runs.length - 1}].commit`, "must equal the top-level report commit");
+    add(
+      issues,
+      `${at}[${retainedRuns.length - 1}].commit`,
+      "must equal the top-level report commit"
+    );
   }
   if (latest.health_score !== report.health_score) {
-    add(issues, `${at}[${runs.length - 1}].health_score`, "must equal top-level health_score");
+    add(
+      issues,
+      `${at}[${retainedRuns.length - 1}].health_score`,
+      "must equal top-level health_score"
+    );
   }
   if (!sameAssertions(latest.assertions, report.assertions)) {
-    add(issues, `${at}[${runs.length - 1}].assertions`, "must equal top-level assertions");
+    add(issues, `${at}[${retainedRuns.length - 1}].assertions`, "must equal top-level assertions");
   }
   if (!sameStringSet(latest.finding_ids, [...findingIds])) {
-    add(issues, `${at}[${runs.length - 1}].finding_ids`, "must list every current finding ID");
+    add(
+      issues,
+      `${at}[${retainedRuns.length - 1}].finding_ids`,
+      "must list every current finding ID"
+    );
   }
   for (const receiptId of receipts.ids) {
     if (!usedReceiptIds.has(receiptId))
@@ -806,27 +838,29 @@ function validateReverifyRun(run, previous, at, findingIds, report, issues) {
     ["still_open_finding_ids", run.still_open_finding_ids],
     ["new_finding_ids", run.new_finding_ids],
   ];
-  for (const [name, values] of groups) validateIdArray(values, `${at}.${name}`, findingIds, issues);
-  const grouped = groups.flatMap(([, values]) => (Array.isArray(values) ? values : []));
+  for (const [name, values] of groups) {
+    validateIdArray(values, `${at}.${name}`, findingIds, issues, MAX_FINDINGS);
+  }
+  const grouped = groups.flatMap(([, values]) => boundedArray(values, MAX_FINDINGS));
   if (new Set(grouped).size !== grouped.length) {
     add(issues, at, "fixed, still-open, and new finding IDs must be disjoint");
   }
-  const previousIds = new Set(Array.isArray(previous.finding_ids) ? previous.finding_ids : []);
-  for (const id of Array.isArray(run.new_finding_ids) ? run.new_finding_ids : []) {
+  const previousIds = new Set(boundedArray(previous.finding_ids, MAX_FINDINGS));
+  for (const id of boundedArray(run.new_finding_ids, MAX_FINDINGS)) {
     if (previousIds.has(id)) add(issues, `${at}.new_finding_ids`, `${id} existed in the prior run`);
   }
-  if (run === report.runs.at(-1)) {
+  if (run === boundedArray(report.runs, MAX_RUNS).at(-1)) {
     const byId = new Map(
-      (Array.isArray(report.findings) ? report.findings : [])
+      boundedArray(report.findings, MAX_FINDINGS)
         .filter((finding) => object(finding))
         .map((finding) => [finding.id, finding])
     );
-    for (const id of Array.isArray(run.fixed_finding_ids) ? run.fixed_finding_ids : []) {
+    for (const id of boundedArray(run.fixed_finding_ids, MAX_FINDINGS)) {
       if (byId.get(id)?.disposition !== "fixed") {
         add(issues, `${at}.fixed_finding_ids`, `${id} must have fixed disposition`);
       }
     }
-    for (const id of Array.isArray(run.still_open_finding_ids) ? run.still_open_finding_ids : []) {
+    for (const id of boundedArray(run.still_open_finding_ids, MAX_FINDINGS)) {
       if (byId.get(id)?.disposition !== "open") {
         add(issues, `${at}.still_open_finding_ids`, `${id} must have open disposition`);
       }
@@ -840,8 +874,11 @@ function validateFixedFindingEvidenceShape(run, at, issues) {
     add(issues, `${at}.fixed_finding_evidence`, "must be an array");
     return;
   }
+  if (rows.length > MAX_FINDINGS) {
+    add(issues, `${at}.fixed_finding_evidence`, `must contain no more than ${MAX_FINDINGS} rows`);
+  }
   const findingIds = [];
-  for (const [index, row] of rows.entries()) {
+  for (const [index, row] of boundedEntries(rows, MAX_FINDINGS)) {
     const rowAt = `${at}.fixed_finding_evidence[${index}]`;
     if (!object(row)) {
       add(issues, rowAt, "must be an object");
@@ -859,9 +896,7 @@ function validateFixedFindingEvidenceShape(run, at, issues) {
       add(issues, `${rowAt}.assertion_ids`, "must bind at least one re-verification assertion");
     }
   }
-  if (
-    !sameStringSet(findingIds, Array.isArray(run.fixed_finding_ids) ? run.fixed_finding_ids : [])
-  ) {
+  if (!sameStringSet(findingIds, boundedArray(run.fixed_finding_ids, MAX_FINDINGS))) {
     add(
       issues,
       `${at}.fixed_finding_evidence`,
@@ -889,7 +924,7 @@ function validateCoverageRows(rows, at, issues) {
   if (rows.length > MAX_ASSERTION_RESULTS) {
     add(issues, at, `must contain no more than ${MAX_ASSERTION_RESULTS} coverage rows`);
   }
-  for (const [index, row] of rows.entries()) {
+  for (const [index, row] of boundedEntries(rows, MAX_ASSERTION_RESULTS)) {
     const rowAt = `${at}[${index}]`;
     if (!object(row)) {
       add(issues, rowAt, "must be an object");
@@ -908,7 +943,7 @@ function validateCoverageRows(rows, at, issues) {
 
 function validateSessionCoverage(report, session, receipts, retained, issues) {
   if (!new Set(["pass", "pass-with-concerns"]).has(report.verdict) || !object(session)) return;
-  const latest = Array.isArray(report.runs) ? report.runs.at(-1) : null;
+  const latest = boundedArray(report.runs, MAX_RUNS).at(-1) || null;
   if (!object(latest)) return;
   const expectedTier = qaTierForSize(session.task?.size);
   if (expectedTier && report.tier !== expectedTier) {
@@ -947,7 +982,9 @@ function validateSessionCoverage(report, session, receipts, retained, issues) {
 
   if (uiImpact) {
     const currentReceipts = Array.isArray(latest.receipt_ids)
-      ? latest.receipt_ids.map((id) => receipts.byId.get(id)).filter(Boolean)
+      ? boundedArray(latest.receipt_ids, MAX_RECEIPTS)
+          .map((id) => receipts.byId.get(id))
+          .filter(Boolean)
       : [];
     const browserReceipt = currentReceipts.find(
       (receipt) =>
@@ -1012,7 +1049,7 @@ function validateExactCoverage(
   if (rows.length !== expectedTargets.length) {
     add(issues, at, `must contain exactly ${expectedTargets.length} session-bound rows`);
   }
-  for (const [index, target] of expectedTargets.entries()) {
+  for (const [index, target] of boundedEntries(expectedTargets, MAX_ASSERTION_RESULTS)) {
     const row = rows[index];
     if (!object(row)) continue;
     if (row.index !== index || row.target !== target) {
@@ -1023,7 +1060,7 @@ function validateExactCoverage(
       continue;
     }
     if (!enforceAssertions) continue;
-    for (const assertionId of row.assertion_ids) {
+    for (const assertionId of boundedArray(row.assertion_ids, MAX_ASSERTION_RESULTS)) {
       const assertion = assertions.get(assertionId);
       if (!assertion) {
         add(
@@ -1051,12 +1088,11 @@ function validateExactCoverage(
 function assertionResultsForRun(report, run, retained, issues) {
   const assertions = new Map();
   if (!object(run) || !Array.isArray(run.receipt_ids)) return assertions;
-  for (const receiptId of run.receipt_ids) {
+  const retainedReceipts = boundedArray(report.receipts, MAX_RECEIPTS);
+  for (const receiptId of boundedArray(run.receipt_ids, MAX_RECEIPTS)) {
     const receiptAssertions = retained.assertionsByReceipt.get(receiptId);
     if (!receiptAssertions) continue;
-    const receipt = Array.isArray(report.receipts)
-      ? report.receipts.find((candidate) => candidate?.id === receiptId)
-      : null;
+    const receipt = retainedReceipts.find((candidate) => candidate?.id === receiptId);
     for (const [assertionId, assertion] of receiptAssertions) {
       if (assertions.has(assertionId)) {
         add(
@@ -1078,7 +1114,9 @@ function assertionResultsForRun(report, run, retained, issues) {
 
 function validateReverifyEvidence(report, retained, issues) {
   if (!retained.enforced || !Array.isArray(report.runs)) return;
-  for (const [index, run] of report.runs.entries()) {
+  const retainedRuns = boundedArray(report.runs, MAX_RUNS);
+  for (const [index, run] of retainedRuns.entries()) {
+    if (diagnosticsCapped(issues)) break;
     if (index === 0 || run?.kind !== "reverify") continue;
     const at = `report.runs[${index}]`;
     const before = retained.priorReportsByRun.get(run.run);
@@ -1088,9 +1126,9 @@ function validateReverifyEvidence(report, retained, issues) {
     }
     validatePriorReportPrefix(before, report, run, index, at, issues);
     const after =
-      index === report.runs.length - 1
+      index === retainedRuns.length - 1
         ? report
-        : retained.priorReportsByRun.get(report.runs[index + 1]?.run);
+        : retained.priorReportsByRun.get(retainedRuns[index + 1]?.run);
     if (!object(after)) {
       add(issues, at, "cannot resolve the post-run report state from the retained hash chain");
       continue;
@@ -1111,28 +1149,29 @@ function validatePriorReportPrefix(prior, report, run, index, at, issues) {
       `${at}.previous_report`,
       `retained predecessor ${priorIssue.path}: ${priorIssue.message}`
     );
+    if (diagnosticsCapped(issues)) return;
   }
   if (prior.commit !== report.runs[index - 1]?.commit) {
     add(issues, `${at}.previous_report`, "commit must equal the immediately preceding run commit");
   }
-  const expectedRuns = report.runs.slice(0, index);
-  const expectedReceipts = Array.isArray(report.receipts)
-    ? report.receipts.filter((receipt) => receipt?.run < run.run)
-    : [];
-  const expectedScreenshots = Array.isArray(report.screenshots)
-    ? report.screenshots.filter((screenshot) => screenshot?.run < run.run)
-    : [];
-  if (!sameValue(prior.runs, expectedRuns)) {
+  const expectedRuns = boundedArray(report.runs, MAX_RUNS).slice(0, index);
+  const expectedReceipts = boundedArray(report.receipts, MAX_RECEIPTS).filter(
+    (receipt) => receipt?.run < run.run
+  );
+  const expectedScreenshots = boundedArray(report.screenshots, MAX_SCREENSHOTS_TOTAL).filter(
+    (screenshot) => screenshot?.run < run.run
+  );
+  if (!sameValue(boundedArray(prior.runs, MAX_RUNS), expectedRuns)) {
     add(issues, `${at}.previous_report`, "runs must equal the immutable current-history prefix");
   }
-  if (!sameValue(prior.receipts, expectedReceipts)) {
+  if (!sameValue(boundedArray(prior.receipts, MAX_RECEIPTS), expectedReceipts)) {
     add(
       issues,
       `${at}.previous_report`,
       "receipts must equal the immutable current-history prefix"
     );
   }
-  if (!sameValue(prior.screenshots, expectedScreenshots)) {
+  if (!sameValue(boundedArray(prior.screenshots, MAX_SCREENSHOTS_TOTAL), expectedScreenshots)) {
     add(
       issues,
       `${at}.previous_report`,
@@ -1186,14 +1225,14 @@ function validateFindingTransition(run, before, after, assertions, at, issues) {
   }
 
   const evidenceByFinding = new Map(
-    (Array.isArray(run.fixed_finding_evidence) ? run.fixed_finding_evidence : [])
+    boundedArray(run.fixed_finding_evidence, MAX_FINDINGS)
       .filter((row) => object(row) && localId(row.finding_id))
       .map((row) => [row.finding_id, row])
   );
   for (const findingId of expectedFixed) {
     const evidence = evidenceByFinding.get(findingId);
     if (!evidence || !Array.isArray(evidence.assertion_ids)) continue;
-    for (const assertionId of evidence.assertion_ids) {
+    for (const assertionId of boundedArray(evidence.assertion_ids, MAX_ASSERTION_RESULTS)) {
       const assertion = assertions.get(assertionId);
       if (!assertion) {
         add(
@@ -1209,7 +1248,7 @@ function validateFindingTransition(run, before, after, assertions, at, issues) {
         );
       } else if (
         !Array.isArray(assertion.finding_ids) ||
-        !assertion.finding_ids.includes(findingId)
+        !boundedArray(assertion.finding_ids, MAX_FINDINGS).includes(findingId)
       ) {
         add(
           issues,
@@ -1223,7 +1262,11 @@ function validateFindingTransition(run, before, after, assertions, at, issues) {
 
 function validateSessionQaHistory(report, session, issues, options = {}) {
   if (!object(session) || !Array.isArray(session.attempts) || !Array.isArray(report.runs)) return;
-  const attempts = session.attempts.filter((attempt) => attempt?.phase === "qa");
+  const attempts = [];
+  for (const attempt of session.attempts) {
+    if (attempt?.phase === "qa") attempts.push(attempt);
+    if (attempts.length === MAX_RUNS) break;
+  }
   const qaEvidence = session.evidence?.qa;
   const anchoredRuns = Number.isInteger(session.evidence?.qa?.qa_run_count)
     ? session.evidence.qa.qa_run_count
@@ -1297,7 +1340,7 @@ function validateSessionQaRunAnchors(report, qaEvidence, issues, options) {
     );
     return;
   }
-  for (const [index, anchor] of anchors.entries()) {
+  for (const [index, anchor] of boundedEntries(anchors, MAX_RUNS)) {
     const at = `session.evidence.qa.qa_run_anchors[${index}]`;
     const run = report.runs[index];
     if (
@@ -1321,7 +1364,7 @@ function validateSessionQaRunAnchors(report, qaEvidence, issues, options) {
 
 function buildQaRunAnchors(report, currentReportSha256) {
   if (!object(report) || !Array.isArray(report.runs) || !sha256(currentReportSha256)) return null;
-  return report.runs.map((run, index) => ({
+  return boundedArray(report.runs, MAX_RUNS).map((run, index) => ({
     run: index + 1,
     commit: run?.commit,
     verdict: run?.verdict,
@@ -1340,7 +1383,7 @@ function validateGitCommitLineage(report, repoRoot, issues) {
     add(issues, "report.runs", "could not resolve the session Git repository");
     return;
   }
-  const runs = Array.isArray(report.runs) ? report.runs : [];
+  const runs = boundedArray(report.runs, MAX_RUNS);
   const resolved = new Set();
   for (const [index, run] of runs.entries()) {
     if (!sha(run?.commit)) continue;
@@ -1379,7 +1422,7 @@ function git(repoRoot, args) {
 
 function findingMap(findings) {
   return new Map(
-    (Array.isArray(findings) ? findings : [])
+    boundedArray(findings, MAX_FINDINGS)
       .filter((finding) => object(finding) && localId(finding.id))
       .map((finding) => [finding.id, finding])
   );
@@ -1396,10 +1439,13 @@ function sameValue(left, right) {
 }
 
 function canonicalValue(value) {
-  if (Array.isArray(value)) return value.map(canonicalValue);
+  if (Array.isArray(value)) {
+    return boundedArray(value, MAX_ASSERTION_RESULTS).map(canonicalValue);
+  }
   if (object(value)) {
     return Object.fromEntries(
       Object.keys(value)
+        .slice(0, MAX_QA_OBJECT_FIELDS)
         .sort()
         .map((key) => [key, canonicalValue(value[key])])
     );
@@ -1449,7 +1495,7 @@ function validateScoreVerdict(verdict, score, at, issues) {
 
 function categoryScoresFor(findings) {
   const scores = Object.fromEntries(CATEGORIES.map((category) => [category, 100]));
-  for (const finding of Array.isArray(findings) ? findings : []) {
+  for (const finding of boundedArray(findings, MAX_FINDINGS)) {
     if (
       !object(finding) ||
       finding.disposition !== "open" ||
@@ -1494,10 +1540,10 @@ function validateAssertions(value, at, issues) {
   }
 }
 
-function validateIdArray(value, at, allowed, issues) {
-  validateStringArray(value, at, issues, { maxItems: MAX_FINDINGS, localIds: true });
+function validateIdArray(value, at, allowed, issues, maxItems = MAX_FINDINGS) {
+  validateStringArray(value, at, issues, { maxItems, localIds: true });
   if (!Array.isArray(value)) return;
-  for (const id of value) {
+  for (const id of boundedArray(value, maxItems)) {
     if (localId(id) && !allowed.has(id)) add(issues, at, `references unknown finding ${id}`);
   }
 }
@@ -1511,7 +1557,8 @@ function validateStringArray(value, at, issues, options = {}) {
     add(issues, at, `must contain no more than ${options.maxItems} entries`);
   }
   const seen = new Set();
-  for (const [index, item] of value.entries()) {
+  const maxItems = options.maxItems ?? MAX_ASSERTION_RESULTS;
+  for (const [index, item] of boundedEntries(value, maxItems)) {
     const itemAt = `${at}[${index}]`;
     if (typeof item !== "string" || !item.trim() || item.length > 4_096) {
       add(issues, itemAt, "must be a bounded non-empty string");
@@ -1530,20 +1577,17 @@ function validateRetainedEvidence(report, evidenceRoot, issues) {
   const retained = emptyRetainedEvidence(true);
   const resolvedEvidenceRoot = path.resolve(evidenceRoot);
   const reportFindingIds = new Set(
-    (Array.isArray(report.findings) ? report.findings : [])
+    boundedArray(report.findings, MAX_FINDINGS)
       .filter((finding) => object(finding) && localId(finding.id))
       .map((finding) => finding.id)
   );
   const expectedPriorPaths = new Set(
-    (Array.isArray(report.runs) ? report.runs : [])
+    boundedArray(report.runs, MAX_RUNS)
       .filter((run) => run?.kind === "reverify" && Number.isInteger(run.run))
       .map((run) => path.join(resolvedEvidenceRoot, `report-run-${run.run - 1}.json`))
   );
   const bindings = [];
-  for (const [index, receipt] of (Array.isArray(report.receipts)
-    ? report.receipts
-    : []
-  ).entries()) {
+  for (const [index, receipt] of boundedEntries(report.receipts, MAX_RECEIPTS)) {
     if (object(receipt?.output)) {
       bindings.push({
         binding: receipt.output,
@@ -1553,10 +1597,7 @@ function validateRetainedEvidence(report, evidenceRoot, issues) {
       });
     }
   }
-  for (const [index, screenshot] of (Array.isArray(report.screenshots)
-    ? report.screenshots
-    : []
-  ).entries()) {
+  for (const [index, screenshot] of boundedEntries(report.screenshots, MAX_SCREENSHOTS_TOTAL)) {
     if (object(screenshot)) {
       bindings.push({
         binding: screenshot,
@@ -1565,7 +1606,7 @@ function validateRetainedEvidence(report, evidenceRoot, issues) {
       });
     }
   }
-  for (const [index, run] of (Array.isArray(report.runs) ? report.runs : []).entries()) {
+  for (const [index, run] of boundedEntries(report.runs, MAX_RUNS)) {
     if (run?.kind === "reverify" && object(run.previous_report)) {
       bindings.push({
         binding: run.previous_report,
@@ -1577,7 +1618,10 @@ function validateRetainedEvidence(report, evidenceRoot, issues) {
   }
   const observedPaths = new Set();
   let totalBytes = 0;
+  let totalScreenshotDecodedBytes = 0n;
+  let screenshotDecodedBudgetExceeded = false;
   for (const row of bindings) {
+    if (diagnosticsCapped(issues)) break;
     const binding = row.binding;
     if (typeof binding.path !== "string" || !path.isAbsolute(binding.path)) continue;
     const candidate = path.resolve(binding.path);
@@ -1659,11 +1703,25 @@ function validateRetainedEvidence(report, evidenceRoot, issues) {
     if (binding.sha256 !== digest(bytes))
       add(issues, `${row.at}.sha256`, "does not match retained file bytes");
     if (row.kind === "screenshot") {
+      if (screenshotDecodedBudgetExceeded) continue;
       try {
-        const inspected = inspectPngBytes(bytes);
-        if (binding.width !== inspected.width || binding.height !== inspected.height) {
+        const header = inspectPngHeaderBytes(bytes);
+        if (binding.width !== header.width || binding.height !== header.height) {
           add(issues, row.at, "screenshot dimensions do not match retained PNG bytes");
         }
+        const decodedBytes = pngDecodedByteBudget(header);
+        const decodedLimit = BigInt(MAX_QA_SCREENSHOT_DECODED_BYTES_TOTAL);
+        if (decodedBytes > decodedLimit - totalScreenshotDecodedBytes) {
+          add(
+            issues,
+            "report.screenshots",
+            `retained screenshots exceed ${MAX_QA_SCREENSHOT_DECODED_BYTES_TOTAL} cumulative decoded bytes`
+          );
+          screenshotDecodedBudgetExceeded = true;
+          continue;
+        }
+        totalScreenshotDecodedBytes += decodedBytes;
+        inspectPngBytes(bytes);
       } catch (error) {
         add(issues, `${row.at}.path`, `must be a strict PNG screenshot: ${error.message}`);
       }
@@ -1676,20 +1734,22 @@ function validateRetainedEvidence(report, evidenceRoot, issues) {
       retained.priorReportsByRun.set(row.run, parsePriorReport(bytes, row.at, issues));
     }
   }
-  try {
-    for (const entry of fs.readdirSync(resolvedEvidenceRoot, { withFileTypes: true })) {
-      if (!/^report-run-\d+\.json$/.test(entry.name)) continue;
-      const candidate = path.join(resolvedEvidenceRoot, entry.name);
-      if (!expectedPriorPaths.has(candidate)) {
-        add(
-          issues,
-          "report.runs",
-          `orphan prior-report snapshot ${entry.name} is not represented in the hash chain`
-        );
+  if (!diagnosticsCapped(issues)) {
+    try {
+      for (const entry of fs.readdirSync(resolvedEvidenceRoot, { withFileTypes: true })) {
+        if (!/^report-run-\d+\.json$/.test(entry.name)) continue;
+        const candidate = path.join(resolvedEvidenceRoot, entry.name);
+        if (!expectedPriorPaths.has(candidate)) {
+          add(
+            issues,
+            "report.runs",
+            `orphan prior-report snapshot ${entry.name} is not represented in the hash chain`
+          );
+        }
       }
+    } catch (error) {
+      add(issues, "report.receipts", `could not inspect QA evidence history: ${error.message}`);
     }
-  } catch (error) {
-    add(issues, "report.receipts", `could not inspect QA evidence history: ${error.message}`);
   }
   return retained;
 }
@@ -1771,6 +1831,13 @@ function retainedEvidenceTotalLimitError() {
   return error;
 }
 
+function pngDecodedByteBudget(header) {
+  const channels = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }[header.colorType];
+  const bitsPerRow = BigInt(header.width) * BigInt(channels) * BigInt(header.bitDepth);
+  const rowBytes = (bitsPerRow + 7n) / 8n;
+  return (rowBytes + 1n) * BigInt(header.height);
+}
+
 function emptyRetainedEvidence(enforced = false) {
   return {
     enforced,
@@ -1835,7 +1902,9 @@ function validateExecutionOutput(bytes, receipt, findingIds, at, issues) {
   }
   const ids = new Set();
   let passed = 0;
-  for (const [index, assertion] of output.assertions.entries()) {
+  const retainedAssertions = boundedArray(output.assertions, MAX_ASSERTION_RESULTS);
+  for (const [index, assertion] of retainedAssertions.entries()) {
+    if (diagnosticsCapped(issues)) break;
     const assertionAt = `${at}.result.assertions[${index}]`;
     if (!object(assertion)) {
       add(issues, assertionAt, "must be an object");
@@ -1859,7 +1928,8 @@ function validateExecutionOutput(bytes, receipt, findingIds, at, issues) {
       maxItems: MAX_FINDINGS,
       localIds: true,
     });
-    for (const findingId of Array.isArray(assertion.finding_ids) ? assertion.finding_ids : []) {
+    for (const findingId of boundedArray(assertion.finding_ids, MAX_FINDINGS)) {
+      if (diagnosticsCapped(issues)) break;
       if (localId(findingId) && !findingIds.has(findingId)) {
         add(issues, `${assertionAt}.finding_ids`, `references unknown finding ${findingId}`);
       }
@@ -1867,7 +1937,7 @@ function validateExecutionOutput(bytes, receipt, findingIds, at, issues) {
   }
   if (
     object(receipt?.assertions) &&
-    (receipt.assertions.passed !== passed || receipt.assertions.total !== output.assertions.length)
+    (receipt.assertions.passed !== passed || receipt.assertions.total !== retainedAssertions.length)
   ) {
     add(issues, `${at}.result.assertions`, "pass and total counts must match the bound receipt");
   }
@@ -1912,12 +1982,9 @@ function integerInRange(value, min, max, at, issues) {
 }
 
 function openCount(findings, severity) {
-  return Array.isArray(findings)
-    ? findings.filter(
-        (finding) =>
-          object(finding) && finding.disposition === "open" && finding.severity === severity
-      ).length
-    : 0;
+  return boundedArray(findings, MAX_FINDINGS).filter(
+    (finding) => object(finding) && finding.disposition === "open" && finding.severity === severity
+  ).length;
 }
 
 function sameAssertions(left, right) {
@@ -1928,8 +1995,11 @@ function sameAssertions(left, right) {
 
 function sameStringSet(left, right) {
   if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
-  const leftSet = new Set(left);
-  return leftSet.size === left.length && right.every((item) => leftSet.has(item));
+  if (left.length > MAX_FINDINGS) return false;
+  const retainedLeft = boundedArray(left, MAX_FINDINGS);
+  const retainedRight = boundedArray(right, MAX_FINDINGS);
+  const leftSet = new Set(retainedLeft);
+  return leftSet.size === retainedLeft.length && retainedRight.every((item) => leftSet.has(item));
 }
 
 function contained(parent, candidate) {
@@ -1939,7 +2009,14 @@ function contained(parent, candidate) {
 
 function closed(value, allowed, at, issues) {
   const fields = new Set(allowed);
-  for (const field of Object.keys(value)) {
+  let inspected = 0;
+  for (const field in value) {
+    if (!Object.hasOwn(value, field)) continue;
+    if (inspected === MAX_QA_OBJECT_FIELDS) {
+      add(issues, at, `must contain no more than ${MAX_QA_OBJECT_FIELDS} fields`);
+      break;
+    }
+    inspected += 1;
     if (!fields.has(field)) add(issues, `${at}.${field}`, "unknown field");
   }
 }
@@ -1971,7 +2048,30 @@ function localId(value) {
 }
 
 function add(issues, at, message) {
-  issues.push(issue(at, message));
+  if (issues.length < MAX_QA_VALIDATION_ISSUES) {
+    issues.push(issue(at, message));
+    return;
+  }
+  if (issues[MAX_QA_VALIDATION_ISSUES - 1]?.message !== QA_VALIDATION_ISSUE_LIMIT_MESSAGE) {
+    issues[MAX_QA_VALIDATION_ISSUES - 1] = issue("report", QA_VALIDATION_ISSUE_LIMIT_MESSAGE);
+  }
+}
+
+function addIssues(issues, additions) {
+  for (const addition of additions) add(issues, addition.path, addition.message);
+}
+
+function diagnosticsCapped(issues) {
+  return issues[MAX_QA_VALIDATION_ISSUES - 1]?.message === QA_VALIDATION_ISSUE_LIMIT_MESSAGE;
+}
+
+function boundedArray(value, maxItems) {
+  if (!Array.isArray(value)) return [];
+  return value.length > maxItems ? value.slice(0, maxItems) : value;
+}
+
+function boundedEntries(value, maxItems) {
+  return boundedArray(value, maxItems).entries();
 }
 
 function issue(pathValue, message) {
@@ -1982,6 +2082,8 @@ module.exports = {
   CATEGORIES,
   CATEGORY_WEIGHTS,
   MAX_QA_REPORT_BYTES,
+  MAX_QA_SCREENSHOT_DECODED_BYTES_TOTAL,
+  MAX_QA_VALIDATION_ISSUES,
   SEVERITY_DEDUCTIONS,
   checkQaReport,
   expectedQaReportPath,

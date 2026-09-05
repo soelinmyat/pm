@@ -687,6 +687,10 @@
     font-size: 1.2rem;
     font-weight: 600;
     line-height: 1.35;
+    letter-spacing: normal;
+    color: inherit;
+    display: block;
+    max-width: none;
   }
   .decision-state-summary {
     display: flex;
@@ -865,7 +869,7 @@
   <aside class="decision-action" id="decision-action" aria-label="Decision status">
     <div class="decision-action-label">Decision status</div>
     <p class="decision-state-summary"><span>Proposal <strong>Reviewed</strong></span><span>Review <strong>Passed</strong></span><span>Approval <strong>Pending</strong></span></p>
-    <div class="decision-action-title">Your approval is the next step</div>
+    <h2 class="decision-action-title">Your approval is the next step</h2>
     <p>Return to the active PM conversation and reply <strong>“Approve this proposal for technical design”</strong>, or describe the changes you want. If you are reopening it later, resume <code>/pm:groom multi-language-support</code>.</p>
     <p class="decision-integrity">Approval applies only to revision <strong>1</strong> and its exact semantic content. Any substantive edit makes that approval stale.</p>
   </aside>

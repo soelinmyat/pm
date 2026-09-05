@@ -464,6 +464,26 @@ test("reviewed proposals give the approver one concrete, revision-bound next ste
   assert.match(rendered.html, /Any substantive edit makes that approval stale/);
 });
 
+test("decision action titles are semantic headings across proposal lifecycle states", () => {
+  const cases = [
+    ["draft", "Review must finish before approval"],
+    ["reviewed", "Your approval is the next step"],
+    ["approved", "Lifecycle is approved; approval verification is not shown"],
+  ];
+
+  for (const [lifecycle, title] of cases) {
+    const input = source();
+    input.proposal.lifecycle = lifecycle;
+    const rendered = renderProposal(input.proposal, {
+      sourceBytes: Buffer.from(`${JSON.stringify(input.proposal, null, 2)}\n`),
+      version: "test",
+    });
+
+    assert.ok(rendered.html.includes(`<h2 class="decision-action-title">${title}</h2>`));
+    assert.doesNotMatch(rendered.html, /<div class="decision-action-title">/);
+  }
+});
+
 test("CLI atomically writes canonical HTML and Markdown locations", () => {
   const project = fs.mkdtempSync(path.join(os.tmpdir(), "proposal-render-"));
   try {
