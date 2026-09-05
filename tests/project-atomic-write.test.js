@@ -8,7 +8,10 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const projectWriter = require("../scripts/lib/project-atomic-write");
-const { readProjectInput } = require("../scripts/lib/safe-project-output");
+const {
+  managedDirectoryPointerPublication,
+  readProjectInput,
+} = require("../scripts/lib/safe-project-output");
 const { writeProjectDirectoryAtomic, writeProjectJsonAtomic, writeProjectTextAtomic } =
   projectWriter;
 
@@ -30,6 +33,18 @@ async function waitForFile(file, message) {
   assert.equal(fs.existsSync(file), true, message);
 }
 
+test("Windows managed pointer publication selects junctions locally and symlinks on UNC", () => {
+  const bundleName = ".pm-dir-bundle-deadbeef-0123456789abcdef";
+  assert.deepEqual(managedDirectoryPointerPublication(bundleName, "C:\\repo\\evidence", "win32"), {
+    target: `C:\\repo\\evidence\\${bundleName}`,
+    type: "junction",
+  });
+  assert.deepEqual(
+    managedDirectoryPointerPublication(bundleName, "\\\\server\\share\\repo\\evidence", "win32"),
+    { target: bundleName, type: "dir" }
+  );
+});
+
 test("project directory writer publishes one immutable managed bundle and reconciles exact retries", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-managed-bundle-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -49,9 +64,10 @@ test("project directory writer publishes one immutable managed bundle and reconc
   const canonical = path.join(root, "evidence", "capture-1");
   assert.equal(state.committed, true);
   assert.equal(fs.lstatSync(canonical).isSymbolicLink(), true);
-  const target = fs.readlinkSync(canonical);
+  const pointerTarget = fs.readlinkSync(canonical);
+  const target = path.basename(pointerTarget);
   assert.match(target, /^\.pm-dir-bundle-[a-f0-9]{32}-[a-f0-9]{48}$/);
-  assert.equal(path.basename(target), target);
+  assert.equal(path.isAbsolute(pointerTarget), process.platform === "win32");
   const bundle = path.join(root, "evidence", target);
   assert.equal(fs.lstatSync(bundle).isDirectory(), true);
   assert.equal(fs.lstatSync(bundle).isSymbolicLink(), false);

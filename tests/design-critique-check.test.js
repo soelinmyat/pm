@@ -2052,6 +2052,74 @@ test("requires a trusted same-session observation for schema-v2 web captures", (
   assert.match(JSON.stringify(result.issues), /require a trusted capture manifest/);
 });
 
+test("reports object-valued network requests as structured validation issues", () => {
+  const fixture = makeFixture();
+  const capture = fixture.captures.captures[0];
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(fixture.root, capture.observation.path), "utf8")
+  );
+  const ledgerPath = manifest.raw_evidence.network_ledger.path;
+  const ledger = JSON.parse(fs.readFileSync(path.join(fixture.root, ledgerPath), "utf8"));
+  ledger.requests = { sequence: 1 };
+  ledger.observed_origins = [];
+  const networkBinding = write(fixture.root, ledgerPath, `${JSON.stringify(ledger, null, 2)}\n`);
+  manifest.raw_evidence.network_ledger = networkBinding;
+  manifest.observation.network.observed_origins = [];
+  manifest.observation.network.request_count = 0;
+  manifest.observation.network.ledger_sha256 = networkBinding.sha256;
+  capture.observation = write(
+    fixture.root,
+    capture.observation.path,
+    `${JSON.stringify(manifest, null, 2)}\n`
+  );
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+
+  let result;
+  assert.doesNotThrow(() => {
+    result = check(fixture);
+  });
+  assert.equal(result.ok, false);
+  assert.match(
+    JSON.stringify(result.issues),
+    /network_ledger\.requests.*must contain at most 2000 requests/
+  );
+});
+
+test("reports truthy non-array network origin fields without throwing", () => {
+  const fixture = makeFixture();
+  const capture = fixture.captures.captures[0];
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(fixture.root, capture.observation.path), "utf8")
+  );
+  const ledgerPath = manifest.raw_evidence.network_ledger.path;
+  const ledger = JSON.parse(fs.readFileSync(path.join(fixture.root, ledgerPath), "utf8"));
+  ledger.allowed_origins = { local: "http://127.0.0.1:4173" };
+  ledger.observed_origins = { local: "http://127.0.0.1:4173" };
+  const networkBinding = write(fixture.root, ledgerPath, `${JSON.stringify(ledger, null, 2)}\n`);
+  manifest.raw_evidence.network_ledger = networkBinding;
+  manifest.observation.network.ledger_sha256 = networkBinding.sha256;
+  capture.observation = write(
+    fixture.root,
+    capture.observation.path,
+    `${JSON.stringify(manifest, null, 2)}\n`
+  );
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+
+  let result;
+  assert.doesNotThrow(() => {
+    result = check(fixture);
+  });
+  assert.equal(result.ok, false);
+  assert.match(
+    JSON.stringify(result.issues),
+    /allowed_origins.*bounded unique origin array.*observed_origins.*bounded unique origin array/
+  );
+});
+
 test("rejects navigation drift inside a rebound trusted capture manifest", () => {
   const fixture = makeFixture();
   const capture = fixture.captures.captures[0];

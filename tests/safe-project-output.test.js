@@ -10,6 +10,7 @@ const path = require("node:path");
 const {
   createProjectInputVerificationContext,
   readProjectInput,
+  resolveManagedDirectoryPointerTarget,
 } = require("../scripts/lib/safe-project-output");
 const { writeProjectDirectoryAtomic } = require("../scripts/lib/project-atomic-write");
 
@@ -19,6 +20,40 @@ function readManagedProjectInput(root, relativePath, maxBytes, options = {}) {
     allowManagedDirectoryPointers: true,
   });
 }
+
+test("Windows managed pointer resolution accepts legacy and junction sibling targets", () => {
+  const canonical = "capture-1";
+  const canonicalHash = crypto.createHash("sha256").update(canonical).digest("hex");
+  const target = `.pm-dir-bundle-${canonicalHash.slice(0, 32)}-${"0".repeat(48)}`;
+  const pointer = `C:\\repo\\evidence\\${canonical}`;
+  const expected = `C:\\repo\\evidence\\${target}`;
+
+  assert.deepEqual(resolveManagedDirectoryPointerTarget(pointer, canonical, target, "win32"), {
+    bundlePath: expected,
+    targetBasename: target,
+  });
+  assert.deepEqual(resolveManagedDirectoryPointerTarget(pointer, canonical, expected, "win32"), {
+    bundlePath: expected,
+    targetBasename: target,
+  });
+  assert.deepEqual(
+    resolveManagedDirectoryPointerTarget(
+      `\\\\server\\share\\repo\\evidence\\${canonical}`,
+      canonical,
+      target,
+      "win32"
+    ),
+    {
+      bundlePath: `\\\\server\\share\\repo\\evidence\\${target}`,
+      targetBasename: target,
+    }
+  );
+  assert.throws(
+    () =>
+      resolveManagedDirectoryPointerTarget(pointer, canonical, `C:\\outside\\${target}`, "win32"),
+    /unrecognized or escaping pointer/
+  );
+});
 
 test("safe project input tolerates repeated sibling churn in stable ancestor directories", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-safe-sibling-churn-"));
@@ -337,6 +372,32 @@ test("safe project input rejects unbranded and escaping directory symlinks", (t)
   assert.throws(
     () => readManagedProjectInput(root, "evidence/escaping/capture.json", 1024),
     /project path contains symlink/
+  );
+});
+
+test("safe project input rejects a managed pointer whose absolute target escapes its parent", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-safe-managed-sibling-root-"));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pm-safe-managed-sibling-outside-"));
+  t.after(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  });
+  const parent = path.join(root, "evidence");
+  fs.mkdirSync(parent);
+  const canonicalBasename = "capture-1";
+  const canonicalHash = crypto.createHash("sha256").update(canonicalBasename).digest("hex");
+  const target = `.pm-dir-bundle-${canonicalHash.slice(0, 32)}-${"0".repeat(48)}`;
+  const outsideBundle = path.join(outside, target);
+  fs.mkdirSync(outsideBundle);
+  fs.symlinkSync(
+    outsideBundle,
+    path.join(parent, canonicalBasename),
+    process.platform === "win32" ? "junction" : "dir"
+  );
+
+  assert.throws(
+    () => readManagedProjectInput(root, "evidence/capture-1/capture.json", 1024),
+    /unrecognized or escaping pointer/
   );
 });
 

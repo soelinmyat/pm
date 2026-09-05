@@ -34,11 +34,17 @@ test(
     const canonical = path.join(root, relative);
     assert.equal(published.committed, true);
     assert.equal(fs.lstatSync(canonical).isSymbolicLink(), true);
-    const target = fs.readlinkSync(canonical);
-    assert.equal(path.isAbsolute(target), false);
-    assert.equal(path.basename(target), target);
+    const junctionTarget = fs.readlinkSync(canonical);
+    const target = path.basename(junctionTarget);
+    assert.equal(path.isAbsolute(junctionTarget), true);
     assert.match(target, /^\.pm-dir-bundle-[a-f0-9]{32}-[a-f0-9]{48}$/);
-    assert.equal(fs.lstatSync(path.join(path.dirname(canonical), target)).isDirectory(), true);
+    const bundle = path.join(path.dirname(canonical), target);
+    assert.equal(fs.lstatSync(bundle).isDirectory(), true);
+    assert.equal(fs.realpathSync(canonical), fs.realpathSync(bundle));
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(bundle, ".pm-directory-pointer.json"), "utf8")
+    );
+    assert.equal(manifest.target_basename, target);
 
     const loaded = readProjectInput(root, `${relative}/capture.json`, 1024, {
       allowManagedDirectoryPointers: true,

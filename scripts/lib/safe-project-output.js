@@ -212,6 +212,80 @@ function managedDirectoryBundleName(canonicalBasename, nonce) {
     .slice(0, 32)}-${nonce}`;
 }
 
+function normalizeWindowsPointerPath(value) {
+  let normalized = path.win32.normalize(value);
+  if (normalized.toLowerCase().startsWith("\\\\?\\unc\\")) {
+    normalized = `\\\\${normalized.slice(8)}`;
+  } else if (normalized.startsWith("\\\\?\\")) {
+    normalized = normalized.slice(4);
+  }
+  return normalized.replace(/[\\\\/]+$/, "").toLowerCase();
+}
+
+function isWindowsUncPath(value) {
+  const normalized = path.win32.normalize(value).toLowerCase();
+  return (
+    normalized.startsWith("\\\\?\\unc\\") ||
+    (normalized.startsWith("\\\\") &&
+      !normalized.startsWith("\\\\?\\") &&
+      !normalized.startsWith("\\\\.\\"))
+  );
+}
+
+function managedDirectoryPointerPublication(bundleName, parentPath, platform = process.platform) {
+  if (platform !== "win32") return { target: bundleName, type: null };
+  const absoluteTarget = path.win32.resolve(parentPath, bundleName);
+  if (isWindowsUncPath(absoluteTarget)) return { target: bundleName, type: "dir" };
+  return { target: absoluteTarget, type: "junction" };
+}
+
+function resolveManagedDirectoryPointerTarget(
+  current,
+  canonicalBasename,
+  targetText,
+  platform = process.platform
+) {
+  let targetBasename;
+  let bundlePath;
+  const windows = platform === "win32";
+  const pathApi = windows ? path.win32 : path;
+  if (pathApi.isAbsolute(targetText)) {
+    if (!windows) {
+      throw new Error(
+        `project path contains symlink: unrecognized or escaping pointer at ${current}`
+      );
+    }
+    targetBasename = path.win32.basename(targetText);
+    bundlePath = path.win32.resolve(targetText);
+    const expectedSibling = path.win32.resolve(path.win32.dirname(current), targetBasename);
+    if (normalizeWindowsPointerPath(bundlePath) !== normalizeWindowsPointerPath(expectedSibling)) {
+      throw new Error(
+        `project path contains symlink: unrecognized or escaping pointer at ${current}`
+      );
+    }
+  } else {
+    if (
+      targetText.includes("/") ||
+      targetText.includes("\\") ||
+      targetText === "." ||
+      targetText === ".."
+    ) {
+      throw new Error(
+        `project path contains symlink: unrecognized or escaping pointer at ${current}`
+      );
+    }
+    targetBasename = targetText;
+    bundlePath = pathApi.join(pathApi.dirname(current), targetBasename);
+  }
+
+  const match = targetBasename.match(/^\.pm-dir-bundle-([a-f0-9]{32})-([a-f0-9]{48})$/);
+  const expectedHash = crypto.createHash("sha256").update(canonicalBasename).digest("hex");
+  if (!match || match[1] !== expectedHash.slice(0, 32)) {
+    throw new Error(`project path contains symlink: unrecognized managed pointer at ${current}`);
+  }
+  return { bundlePath, targetBasename };
+}
+
 function isPortableManagedFileName(value) {
   return (
     typeof value === "string" &&
@@ -465,23 +539,13 @@ function snapshotProjectPath(projectRoot, relation, absolute, options = {}) {
       !sameComponentMetadata(pointerBefore, pointerAfter)
     )
       throw new Error("managed project directory pointer changed during inspection");
-    if (
-      path.isAbsolute(targetText) ||
-      targetText.includes("/") ||
-      targetText.includes("\\") ||
-      targetText === "." ||
-      targetText === ".."
-    )
-      throw new Error(
-        `project path contains symlink: unrecognized or escaping pointer at ${current}`
-      );
-    const match = targetText.match(/^\.pm-dir-bundle-([a-f0-9]{32})-([a-f0-9]{48})$/);
-    const expectedHash = crypto.createHash("sha256").update(part).digest("hex");
-    if (!match || match[1] !== expectedHash.slice(0, 32))
-      throw new Error(`project path contains symlink: unrecognized managed pointer at ${current}`);
+    const { bundlePath, targetBasename } = resolveManagedDirectoryPointerTarget(
+      current,
+      part,
+      targetText
+    );
 
     logicalComponents.push({ path: current, kind: "managed-pointer", stat: pointerAfter });
-    const bundlePath = path.join(path.dirname(current), targetText);
     const bundleStat = fs.lstatSync(bundlePath, { bigint: true });
     if (bundleStat.isSymbolicLink() || !bundleStat.isDirectory())
       throw new Error("managed project directory target is not a real directory");
@@ -503,7 +567,7 @@ function snapshotProjectPath(projectRoot, relation, absolute, options = {}) {
       bundlePath,
       bundleStat,
       part,
-      targetText,
+      targetBasename,
       verifyPayloadHashes,
       cachedVerification
     );
@@ -545,6 +609,7 @@ function snapshotProjectPath(projectRoot, relation, absolute, options = {}) {
       finalStat: leafStat,
       managed: {
         targetText,
+        targetBasename,
         manifestSha256: manifest.manifestSha256,
         requestedFile,
         commitFile: manifest.commitFile,
@@ -704,7 +769,7 @@ function readProjectInputOnce(
       ...(initial.managed
         ? {
             managedDirectory: {
-              target: initial.managed.targetText,
+              target: initial.managed.targetBasename,
               commitFile: initial.managed.commitFile,
               files: initial.managed.files,
             },
@@ -720,5 +785,7 @@ function readProjectInputOnce(
 module.exports = {
   createProjectInputVerificationContext,
   inspectStableProjectInput,
+  managedDirectoryPointerPublication,
   readProjectInput,
+  resolveManagedDirectoryPointerTarget,
 };

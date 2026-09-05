@@ -7,7 +7,11 @@ const os = require("node:os");
 const path = require("node:path");
 const v8 = require("node:v8");
 const { acquireOwnedLock } = require("./owned-lock");
-const { readProjectInput } = require("./safe-project-output");
+const {
+  managedDirectoryPointerPublication,
+  readProjectInput,
+  resolveManagedDirectoryPointerTarget,
+} = require("./safe-project-output");
 
 const UNSUPPORTED_DIRECTORY_SYNC_ERRORS = new Set([
   "EBADF",
@@ -468,8 +472,10 @@ function writeDirectoryFromAnchoredRoot(relativePath, payload, options = {}) {
 // A real directory cannot be published exclusively with Node's rename API:
 // POSIX rename replaces an existing empty directory.  Publish a fully durable,
 // nonce-named real bundle through an atomically-created relative directory
-// symlink instead.  The canonical entry is therefore either absent, foreign,
-// or a complete managed bundle; there is no public mkdir/lease crash window.
+// symlink on POSIX, a sibling-bound junction on local Windows volumes, or a
+// relative directory symlink for Windows UNC paths where junctions are invalid.
+// The canonical entry is therefore either absent, foreign, or a complete
+// managed bundle; there is no public mkdir/lease crash window.
 function writeManagedDirectoryFromAnchoredRoot(relativePath, payload, options = {}) {
   validateRelative(relativePath);
   const projectRoot = fs.realpathSync(".");
@@ -658,12 +664,35 @@ function writeLockedManagedDirectoryFromAnchoredRoot(relativePath, payload, opti
       "project root or destination parent changed before pointer publication"
     );
 
-    if (process.platform === "win32") fs.symlinkSync(bundleName, basename, "dir");
-    else fs.symlinkSync(bundleName, basename);
+    const publication = managedDirectoryPointerPublication(bundleName, fs.realpathSync("."));
+    try {
+      if (publication.type) fs.symlinkSync(publication.target, basename, publication.type);
+      else fs.symlinkSync(publication.target, basename);
+    } catch (error) {
+      if (process.platform === "win32" && publication.type === "dir") {
+        const failure = new Error(
+          `Windows UNC managed directory publication requires directory symlink support: ${error.message}`
+        );
+        failure.code = error.code;
+        throw failure;
+      }
+      throw error;
+    }
     committed = true;
 
     const pointer = fs.lstatSync(basename, { bigint: true });
-    if (!pointer.isSymbolicLink() || fs.readlinkSync(basename) !== bundleName)
+    const pointerTarget = fs.readlinkSync(basename);
+    let resolvedPointer;
+    try {
+      resolvedPointer = resolveManagedDirectoryPointerTarget(
+        path.resolve(basename),
+        basename,
+        pointerTarget
+      );
+    } catch {
+      throw staleDirectoryError("project directory managed pointer changed during publication");
+    }
+    if (!pointer.isSymbolicLink() || resolvedPointer.targetBasename !== bundleName)
       throw staleDirectoryError("project directory managed pointer changed during publication");
     const finalBundle = fs.lstatSync(bundleName, { bigint: true });
     if (

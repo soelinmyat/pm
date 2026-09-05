@@ -95,6 +95,8 @@ const MAX_ROUTE_SUBJECTS = 100;
 const MAX_ROUTE_COVERAGE_ROWS = 1_000;
 const MAX_CAPTURE_ROWS = MAX_ROUTE_COVERAGE_ROWS * 2;
 const MAX_RULE_DIAGNOSTICS = 25;
+const MAX_NETWORK_ORIGINS = 100;
+const MAX_NETWORK_REQUESTS = 2_000;
 const MAX_EVIDENCE_BYTES = 64 * 1024 * 1024;
 const MAX_JSON_BYTES = 4 * 1024 * 1024;
 const MAX_CACHE_BYTES = 256 * 1024 * 1024;
@@ -1089,14 +1091,23 @@ function validateTrustedNetworkLedger(root, manifest, label, issues) {
   );
   if (ledger.schema_version !== 1 || ledger.policy !== "explicit-origin-allowlist")
     add(issues, at, "requires schema 1 and the explicit-origin-allowlist policy");
-  if (!boundedUniqueTextArray(ledger.allowed_origins, 100, false))
+  const allowedOrigins = Array.isArray(ledger.allowed_origins)
+    ? ledger.allowed_origins.slice(0, MAX_NETWORK_ORIGINS)
+    : [];
+  const observedOrigins = Array.isArray(ledger.observed_origins)
+    ? ledger.observed_origins.slice(0, MAX_NETWORK_ORIGINS)
+    : [];
+  if (!boundedUniqueTextArray(ledger.allowed_origins, MAX_NETWORK_ORIGINS, false))
     add(issues, `${at}.allowed_origins`, "must be a bounded unique origin array");
-  if (!boundedUniqueTextArray(ledger.observed_origins, 100, true))
+  if (!boundedUniqueTextArray(ledger.observed_origins, MAX_NETWORK_ORIGINS, true))
     add(issues, `${at}.observed_origins`, "must be a bounded unique origin array");
-  if (!Array.isArray(ledger.requests) || ledger.requests.length > 2000)
-    add(issues, `${at}.requests`, "must contain at most 2000 requests");
+  const requests = Array.isArray(ledger.requests)
+    ? ledger.requests.slice(0, MAX_NETWORK_REQUESTS)
+    : [];
+  if (!Array.isArray(ledger.requests) || ledger.requests.length > MAX_NETWORK_REQUESTS)
+    add(issues, `${at}.requests`, `must contain at most ${MAX_NETWORK_REQUESTS} requests`);
   let priorSequence = 0;
-  for (const [index, request] of (ledger.requests || []).entries()) {
+  for (const [index, request] of requests.entries()) {
     const requestAt = `${at}.requests[${index}]`;
     if (!object(request)) {
       add(issues, requestAt, "must be an object");
@@ -1118,13 +1129,21 @@ function validateTrustedNetworkLedger(root, manifest, label, issues) {
   }
   if (!Array.isArray(ledger.violations) || ledger.violations.length !== 0)
     add(issues, `${at}.violations`, "must be empty");
-  const observed = uniqueSorted((ledger.requests || []).map((request) => request?.origin));
-  if (!isDeepStrictEqual(ledger.observed_origins, observed))
+  const observed = uniqueSorted(requests.map((request) => request?.origin));
+  if (!isDeepStrictEqual(observedOrigins, observed))
     add(issues, `${at}.observed_origins`, "must exactly equal the sorted request origins");
-  const allowed = new Set(ledger.allowed_origins || []);
+  const allowed = new Set(allowedOrigins);
   if (observed.some((origin) => !allowed.has(origin) && !new Set(["about:", "data:"]).has(origin)))
     add(issues, `${at}.observed_origins`, "contains an origin outside the explicit allowlist");
-  return { file, ledger };
+  return {
+    file,
+    ledger: {
+      ...ledger,
+      allowed_origins: allowedOrigins,
+      observed_origins: observedOrigins,
+      requests,
+    },
+  };
 }
 
 function validateTrustedPage(manifest, capture, route, coverage, label, issues) {
