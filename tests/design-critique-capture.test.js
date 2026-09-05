@@ -1,6 +1,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const { spawn } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -23,8 +24,12 @@ const {
   appendBoundedEvidence,
   createVisibilityEvaluator,
   domObservations,
+  installWebSocketPolicy,
   nodeVisibleInViewport,
+  normalizeAllowedOrigins,
   verifyAssertionHitTargets,
+  webSocketBlockPatterns,
+  webSocketPolicyOrigins,
 } = require("../scripts/design-critique-capture-probe");
 
 const EMPTY_DIFF_SHA256 = crypto.createHash("sha256").update(Buffer.alloc(0)).digest("hex");
@@ -1228,11 +1233,230 @@ test("observation limits fail loudly instead of truncating evidence", () => {
   assert.deepEqual(values, ["first"]);
 });
 
+test("WebSocket policy requires explicit socket origins and orders allow rules before denies", () => {
+  assert.deepEqual(
+    [...webSocketPolicyOrigins(new Set(["http://example.test:8080", "ws://example.test:8080"]))],
+    ["http://example.test:8080", "ws://example.test:8080"]
+  );
+  assert.deepEqual(
+    webSocketBlockPatterns(new Set(["http://example.test:8080", "ws://example.test:8080"])),
+    [
+      { urlPattern: "ws://example.test:8080/*", block: false },
+      { urlPattern: "ws://*:*/*", block: true },
+      { urlPattern: "wss://*:*/*", block: true },
+    ]
+  );
+  assert.deepEqual(
+    [...normalizeAllowedOrigins(["https://example.test", "wss://socket.example.test"])],
+    ["https://example.test", "wss://socket.example.test"]
+  );
+  assert.throws(() => normalizeAllowedOrigins(["wss://*.example.test"]), /wildcard-free/);
+  assert.throws(
+    () =>
+      prepareCapturePlan(
+        route(),
+        ".pm/dev-sessions/test/design-critique/route.json",
+        planOptions({ allowedOrigins: ["wss://*.example.test"] })
+      ),
+    /cannot contain wildcards/
+  );
+});
+
+test("WebSocket policy falls back to block-all and fails closed if neither mode installs", async () => {
+  const fallbackCalls = [];
+  const fallbackClient = {
+    async send(method, params) {
+      fallbackCalls.push([method, params]);
+      if (params.urlPatterns) throw new Error("modern patterns unavailable");
+      return {};
+    },
+  };
+  assert.equal(
+    await installWebSocketPolicy(fallbackClient, new Set(["wss://socket.example.test"])),
+    "block-all-fallback"
+  );
+  assert.deepEqual(fallbackCalls, [
+    [
+      "Network.setBlockedURLs",
+      {
+        urlPatterns: [
+          { urlPattern: "wss://socket.example.test/*", block: false },
+          { urlPattern: "ws://*:*/*", block: true },
+          { urlPattern: "wss://*:*/*", block: true },
+        ],
+      },
+    ],
+    ["Network.setBlockedURLs", { urls: ["ws://*", "wss://*"] }],
+  ]);
+
+  const unavailableClient = {
+    async send(_method, params) {
+      throw new Error(params.urlPatterns ? "modern unavailable" : "legacy unavailable");
+    },
+  };
+  await assert.rejects(
+    installWebSocketPolicy(unavailableClient, new Set()),
+    /cannot install the pre-connect WebSocket policy: legacy unavailable/
+  );
+});
+
+function waitForChildLine(child, timeoutMs = 5_000) {
+  return new Promise((resolve, reject) => {
+    let stdout = "";
+    let stderr = "";
+    const timeout = setTimeout(
+      () => reject(new Error("child did not report readiness")),
+      timeoutMs
+    );
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+      const newline = stdout.indexOf("\n");
+      if (newline === -1) return;
+      clearTimeout(timeout);
+      resolve(stdout.slice(0, newline));
+    });
+    child.stderr?.setEncoding("utf8");
+    child.stderr?.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.once("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.once("exit", (code) => {
+      if (stdout.includes("\n")) return;
+      clearTimeout(timeout);
+      reject(new Error(`child exited ${code} before readiness: ${stderr.trim()}`));
+    });
+  });
+}
+
+function stopChild(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+    }, 1_000);
+    child.once("exit", () => {
+      clearTimeout(timeout);
+      resolve();
+    });
+    child.kill("SIGTERM");
+  });
+}
+
+async function startLoopbackWebSocketServer(root) {
+  const statsPath = path.join(root, "stats.json");
+  const serverSource = String.raw`
+    const crypto = require("node:crypto");
+    const fs = require("node:fs");
+    const http = require("node:http");
+    const statsPath = process.argv[1];
+    const stats = { handshakes: 0, frames: 0 };
+    const save = () => fs.writeFileSync(statsPath, JSON.stringify(stats));
+    const countApplicationFrame = (chunk) => {
+      if (chunk.length > 0 && (chunk[0] & 0x0f) <= 2) stats.frames += 1;
+    };
+    save();
+    const server = http.createServer((request, response) => {
+      const requested = new URL(request.url, "http://" + request.headers.host);
+      if (requested.pathname === "/service-worker.js") {
+        const socketUrl = "ws://" + request.headers.host + "/socket";
+        response.writeHead(200, {
+          "content-type": "text/javascript; charset=utf-8",
+          "service-worker-allowed": "/"
+        });
+        response.end("new WebSocket(" + JSON.stringify(socketUrl) + ");");
+        return;
+      }
+      if (requested.pathname !== "/capture") {
+        response.writeHead(404);
+        response.end();
+        return;
+      }
+      const frameDelay = Number(requested.searchParams.get("frameDelay") || 0);
+      const directSocket = requested.searchParams.get("directSocket") !== "0";
+      const workerSocket = requested.searchParams.get("workerSocket") === "1";
+      const nestedWorkerSocket = requested.searchParams.get("nestedWorkerSocket") === "1";
+      const sharedWorker = requested.searchParams.get("sharedWorker") === "1";
+      const serviceWorker = requested.searchParams.get("serviceWorker") === "1";
+      const socketUrl = "ws://" + request.headers.host + "/socket";
+      const directSocketScript = directSocket
+        ? '<script>const socket=new WebSocket(' + JSON.stringify(socketUrl) + ');' +
+          'socket.addEventListener("open",()=>setTimeout(()=>socket.send("capture-frame"),' +
+          JSON.stringify(frameDelay) + '));</script>'
+        : '';
+      const workerSocketScript = workerSocket
+        ? '<script>globalThis.__pmWorker=new Worker("data:text/javascript;charset=utf-8,"+' +
+          'encodeURIComponent(' + JSON.stringify('new WebSocket(' + JSON.stringify(socketUrl) + ');') + '));</script>'
+        : '';
+      const nestedWorkerSocketScript = nestedWorkerSocket
+        ? '<script>globalThis.__pmOuterWorker=new Worker("data:text/javascript;charset=utf-8,"+' +
+          'encodeURIComponent(' + JSON.stringify(
+            'globalThis.__pmNestedWorker=new Worker("data:text/javascript;charset=utf-8,"+' +
+            'encodeURIComponent(' + JSON.stringify('new WebSocket(' + JSON.stringify(socketUrl) + ');') + '));'
+          ) + '));</script>'
+        : '';
+      const sharedWorkerScript = sharedWorker
+        ? '<script>{const source=' + JSON.stringify('new WebSocket(' + JSON.stringify(socketUrl) + ');') +
+          ';const workerUrl=URL.createObjectURL(new Blob([source],{type:"text/javascript"}));' +
+          'new SharedWorker(workerUrl);}</script>'
+        : '';
+      const serviceWorkerScript = serviceWorker
+        ? '<script>navigator.serviceWorker.register("/service-worker.js");</script>'
+        : '';
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end(
+        '<!doctype html><html><head><meta charset="utf-8"><style>' +
+        'body{margin:0;background:#eef2ff;color:#172033;font:16px system-ui}' +
+        'main{max-width:800px;margin:40px auto;padding:32px;background:white;border-radius:16px}' +
+        'button{padding:12px 20px;background:#3157d5;color:white;border:0;border-radius:8px}' +
+        '</style></head><body><main data-testid="account-state" data-pm-state="primary">' +
+        '<h1>Account overview</h1><p>Stable product evidence.</p><button>Save changes</button>' +
+        directSocketScript + workerSocketScript + nestedWorkerSocketScript +
+        sharedWorkerScript + serviceWorkerScript + '</main></body></html>'
+      );
+    });
+    server.on("upgrade", (request, socket, head) => {
+      stats.handshakes += 1;
+      countApplicationFrame(head);
+      save();
+      const accept = crypto
+        .createHash("sha1")
+        .update(request.headers["sec-websocket-key"] + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
+        .digest("base64");
+      socket.write(
+        "HTTP/1.1 101 Switching Protocols\r\n" +
+        "Upgrade: websocket\r\n" +
+        "Connection: Upgrade\r\n" +
+        "Sec-WebSocket-Accept: " + accept + "\r\n\r\n"
+      );
+      socket.on("data", (chunk) => {
+        countApplicationFrame(chunk);
+        save();
+      });
+    });
+    server.listen(0, "127.0.0.1", () => {
+      process.stdout.write(JSON.stringify({ port: server.address().port }) + "\n");
+    });
+    process.on("SIGTERM", () => server.close(() => process.exit(0)));
+  `;
+  const server = spawn(process.execPath, ["-e", serverSource, statsPath], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const { port } = JSON.parse(await waitForChildLine(server));
+  return { server, statsPath, port };
+}
+
 function createBrowserFixture({
   externalRequest = false,
   occluded = false,
   descendantOccluded = false,
   lateRequest = false,
+  webSocketUrl = null,
+  webSocketFrameDelayMs = 0,
+  persistentWorker = false,
 } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-trusted-capture-"));
   const external = externalRequest ? '<img src="https://example.invalid/tracker.png" alt="">' : "";
@@ -1245,9 +1469,19 @@ function createBrowserFixture({
   const late = lateRequest
     ? '<script>setTimeout(()=>fetch("https://example.invalid/late"),300)</script>'
     : "";
+  const webSocket = webSocketUrl
+    ? `<script>{const socket=new WebSocket(${JSON.stringify(
+        webSocketUrl
+      )});socket.addEventListener("open",()=>setTimeout(()=>socket.send("capture-frame"),${JSON.stringify(
+        webSocketFrameDelayMs
+      )}));}</script>`
+    : "";
+  const persistentWorkerScript = persistentWorker
+    ? '<script>new Worker("data:text/javascript;charset=utf-8,"+encodeURIComponent("setInterval(()=>{},10000)"));</script>'
+    : "";
   const html = `<!doctype html><html><head><meta charset="utf-8"><style>
 *{box-sizing:border-box}body{margin:0;background:#eef2ff;color:#172033;font:16px system-ui}header{background:#18264a;color:white;padding:18px 28px}nav a{color:white;margin-right:16px}main{max-width:900px;margin:30px auto;padding:24px;background:white;border-radius:16px}h1{font-size:32px}h2{font-size:22px}.cards{display:grid;grid-template-columns:1fr 1fr;gap:16px}.card{padding:18px;border:1px solid #ccd3e1;border-radius:12px}button{padding:10px 18px;background:#3157d5;color:white;border:0;border-radius:8px}
-</style></head><body><header><nav aria-label="Primary"><a href="#account">Accounts</a></nav></header><main id="account" data-testid="account-state" data-pm-state="primary"><header><h1>Account overview</h1></header><section aria-labelledby="summary"><h2 id="summary">Summary</h2><div class="cards"><article class="card"><h2>Usage</h2><p>Stable product evidence.</p></article><article class="card"><h2>Plan</h2><p>Professional tier.</p></article></div><button>Save changes</button></section>${descendantOverlay}</main>${external}${overlay}${late}</body></html>`;
+</style></head><body><header><nav aria-label="Primary"><a href="#account">Accounts</a></nav></header><main id="account" data-testid="account-state" data-pm-state="primary"><header><h1>Account overview</h1></header><section aria-labelledby="summary"><h2 id="summary">Summary</h2><div class="cards"><article class="card"><h2>Usage</h2><p>Stable product evidence.</p></article><article class="card"><h2>Plan</h2><p>Professional tier.</p></article></div><button>Save changes</button></section>${descendantOverlay}</main>${external}${overlay}${late}${webSocket}${persistentWorkerScript}</body></html>`;
   return {
     root,
     url: `data:text/html;charset=utf-8,${encodeURIComponent(html)}`,
@@ -1257,14 +1491,14 @@ function createBrowserFixture({
   };
 }
 
-function runBrowserCapture(fixture) {
+function runBrowserCapture(fixture, allowedOrigins = []) {
   return runCaptureProbe({
     browserPath: installedBrowser,
     url: fixture.url,
     expectedUrl: fixture.url,
     viewport: { width: 1024, height: 600 },
     stateAssertion: fixture.stateAssertion,
-    allowedOrigins: [],
+    allowedOrigins,
     readinessTimeoutMs: 15_000,
     settleMs: 200,
     outputPath: fixture.outputPath,
@@ -1341,6 +1575,275 @@ test(
     } finally {
       fs.rmSync(fixture.root, { recursive: true, force: true });
     }
+  }
+);
+
+test(
+  "browser helper blocks a disallowed WebSocket before its loopback handshake",
+  { skip: browserSkip },
+  async (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-websocket-policy-"));
+    const { server, statsPath, port } = await startLoopbackWebSocketServer(root);
+    t.after(async () => {
+      await stopChild(server);
+      fs.rmSync(root, { recursive: true, force: true });
+    });
+    const pageOrigin = `http://127.0.0.1:${port}`;
+    const fixture = createBrowserFixture();
+    fixture.url = `${pageOrigin}/capture`;
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+
+    assert.throws(() => runBrowserCapture(fixture, [pageOrigin]), /network policy violation/);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    assert.deepEqual(JSON.parse(fs.readFileSync(statsPath, "utf8")), {
+      handshakes: 0,
+      frames: 0,
+    });
+    assert.equal(fs.existsSync(fixture.outputPath), false);
+  }
+);
+
+test(
+  "browser helper blocks a Worker-created WebSocket before its loopback handshake",
+  { skip: browserSkip },
+  async (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-worker-websocket-policy-"));
+    const { server, statsPath, port } = await startLoopbackWebSocketServer(root);
+    t.after(async () => {
+      await stopChild(server);
+      fs.rmSync(root, { recursive: true, force: true });
+    });
+    const fixture = createBrowserFixture();
+    const pageOrigin = `http://127.0.0.1:${port}`;
+    fixture.url = `${pageOrigin}/capture?directSocket=0&workerSocket=1`;
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+
+    assert.throws(() => runBrowserCapture(fixture, [pageOrigin]), /network policy violation/);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    assert.deepEqual(JSON.parse(fs.readFileSync(statsPath, "utf8")), {
+      handshakes: 0,
+      frames: 0,
+    });
+    assert.equal(fs.existsSync(fixture.outputPath), false);
+  }
+);
+
+test(
+  "browser helper permits an explicitly allowed Worker-created WebSocket",
+  { skip: browserSkip },
+  async (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-worker-websocket-allowed-"));
+    const { server, statsPath, port } = await startLoopbackWebSocketServer(root);
+    t.after(async () => {
+      await stopChild(server);
+      fs.rmSync(root, { recursive: true, force: true });
+    });
+    const pageOrigin = `http://127.0.0.1:${port}`;
+    const socketOrigin = `ws://127.0.0.1:${port}`;
+    const fixture = createBrowserFixture();
+    fixture.url = `${pageOrigin}/capture?directSocket=0&workerSocket=1`;
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+
+    const result = runBrowserCapture(fixture, [pageOrigin, socketOrigin]);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.deepEqual(JSON.parse(fs.readFileSync(statsPath, "utf8")), {
+      handshakes: 1,
+      frames: 0,
+    });
+    assert.ok(result.network.observed_origins.includes(socketOrigin));
+  }
+);
+
+test(
+  "browser helper recursively blocks a nested Worker WebSocket before its loopback handshake",
+  { skip: browserSkip },
+  async (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-nested-worker-websocket-policy-"));
+    const { server, statsPath, port } = await startLoopbackWebSocketServer(root);
+    t.after(async () => {
+      await stopChild(server);
+      fs.rmSync(root, { recursive: true, force: true });
+    });
+    const fixture = createBrowserFixture();
+    const pageOrigin = `http://127.0.0.1:${port}`;
+    fixture.url = `${pageOrigin}/capture?directSocket=0&nestedWorkerSocket=1`;
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+
+    assert.throws(() => runBrowserCapture(fixture, [pageOrigin]), /network policy violation/);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    assert.deepEqual(JSON.parse(fs.readFileSync(statsPath, "utf8")), {
+      handshakes: 0,
+      frames: 0,
+    });
+    assert.equal(fs.existsSync(fixture.outputPath), false);
+  }
+);
+
+test(
+  "browser helper permits an explicitly allowed nested Worker WebSocket",
+  { skip: browserSkip },
+  async (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-nested-worker-websocket-allowed-"));
+    const { server, statsPath, port } = await startLoopbackWebSocketServer(root);
+    t.after(async () => {
+      await stopChild(server);
+      fs.rmSync(root, { recursive: true, force: true });
+    });
+    const pageOrigin = `http://127.0.0.1:${port}`;
+    const socketOrigin = `ws://127.0.0.1:${port}`;
+    const fixture = createBrowserFixture();
+    fixture.url = `${pageOrigin}/capture?directSocket=0&nestedWorkerSocket=1`;
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+
+    const result = runBrowserCapture(fixture, [pageOrigin, socketOrigin]);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.deepEqual(JSON.parse(fs.readFileSync(statsPath, "utf8")), {
+      handshakes: 1,
+      frames: 0,
+    });
+    assert.ok(result.network.observed_origins.includes(socketOrigin));
+  }
+);
+
+test(
+  "browser helper reaches readiness with a benign persistent Worker",
+  { skip: browserSkip },
+  () => {
+    const fixture = createBrowserFixture({ persistentWorker: true });
+    try {
+      const result = runBrowserCapture(fixture);
+      assert.equal(result.assertion_passed, true);
+      assert.equal(fs.existsSync(fixture.outputPath), true);
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
+  "browser helper blocks a SharedWorker-created WebSocket before its loopback handshake",
+  { skip: browserSkip },
+  async (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-shared-worker-websocket-policy-"));
+    const { server, statsPath, port } = await startLoopbackWebSocketServer(root);
+    t.after(async () => {
+      await stopChild(server);
+      fs.rmSync(root, { recursive: true, force: true });
+    });
+    const pageOrigin = `http://127.0.0.1:${port}`;
+    const fixture = createBrowserFixture();
+    fixture.url = `${pageOrigin}/capture?directSocket=0&sharedWorker=1`;
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+
+    assert.throws(() => runBrowserCapture(fixture, [pageOrigin]), /network policy violation/);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    assert.deepEqual(JSON.parse(fs.readFileSync(statsPath, "utf8")), {
+      handshakes: 0,
+      frames: 0,
+    });
+    assert.equal(fs.existsSync(fixture.outputPath), false);
+  }
+);
+
+test(
+  "browser helper permits an explicitly allowed SharedWorker WebSocket",
+  { skip: browserSkip },
+  async (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-shared-worker-websocket-allowed-"));
+    const { server, statsPath, port } = await startLoopbackWebSocketServer(root);
+    t.after(async () => {
+      await stopChild(server);
+      fs.rmSync(root, { recursive: true, force: true });
+    });
+    const pageOrigin = `http://127.0.0.1:${port}`;
+    const socketOrigin = `ws://127.0.0.1:${port}`;
+    const fixture = createBrowserFixture();
+    fixture.url = `${pageOrigin}/capture?directSocket=0&sharedWorker=1`;
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+
+    const result = runBrowserCapture(fixture, [pageOrigin, socketOrigin]);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.deepEqual(JSON.parse(fs.readFileSync(statsPath, "utf8")), {
+      handshakes: 1,
+      frames: 0,
+    });
+    assert.ok(result.network.observed_origins.includes(socketOrigin));
+  }
+);
+
+test(
+  "browser helper terminates a ServiceWorker before its loopback WebSocket handshake",
+  { skip: browserSkip },
+  async (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-service-worker-websocket-policy-"));
+    const { server, statsPath, port } = await startLoopbackWebSocketServer(root);
+    t.after(async () => {
+      await stopChild(server);
+      fs.rmSync(root, { recursive: true, force: true });
+    });
+    const pageOrigin = `http://127.0.0.1:${port}`;
+    const fixture = createBrowserFixture();
+    fixture.url = `${pageOrigin}/capture?directSocket=0&serviceWorker=1`;
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+
+    const result = runBrowserCapture(fixture, [pageOrigin]);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    assert.deepEqual(JSON.parse(fs.readFileSync(statsPath, "utf8")), {
+      handshakes: 0,
+      frames: 0,
+    });
+    assert.equal(result.assertion_passed, true);
+    assert.equal(fs.existsSync(fixture.outputPath), true);
+  }
+);
+
+test(
+  "browser helper permits an explicitly allowed WebSocket and records its schemeful origin",
+  { skip: browserSkip },
+  async (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-websocket-allowed-"));
+    const { server, statsPath, port } = await startLoopbackWebSocketServer(root);
+    t.after(async () => {
+      await stopChild(server);
+      fs.rmSync(root, { recursive: true, force: true });
+    });
+    const pageOrigin = `http://127.0.0.1:${port}`;
+    const socketOrigin = `ws://127.0.0.1:${port}`;
+    const fixture = createBrowserFixture();
+    fixture.url = `${pageOrigin}/capture?frameDelay=0`;
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+
+    const result = runBrowserCapture(fixture, [pageOrigin, socketOrigin]);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const stats = JSON.parse(fs.readFileSync(statsPath, "utf8"));
+    assert.equal(stats.handshakes, 1);
+    assert.ok(stats.frames >= 1);
+    assert.deepEqual(result.network.allowed_origins, [pageOrigin, socketOrigin]);
+    assert.ok(result.network.observed_origins.includes(socketOrigin));
+  }
+);
+
+test(
+  "browser helper treats a late allowed WebSocket frame as atomic-capture drift",
+  { skip: browserSkip },
+  async (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-websocket-late-frame-"));
+    const { server, statsPath, port } = await startLoopbackWebSocketServer(root);
+    t.after(async () => {
+      await stopChild(server);
+      fs.rmSync(root, { recursive: true, force: true });
+    });
+    const pageOrigin = `http://127.0.0.1:${port}`;
+    const socketOrigin = `ws://127.0.0.1:${port}`;
+    const fixture = createBrowserFixture();
+    fixture.url = `${pageOrigin}/capture?frameDelay=350`;
+    t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+
+    assert.throws(() => runBrowserCapture(fixture, [pageOrigin, socketOrigin]), /atomic capture/);
+    const stats = JSON.parse(fs.readFileSync(statsPath, "utf8"));
+    assert.equal(stats.handshakes, 1);
+    assert.ok(stats.frames >= 1);
+    assert.equal(fs.existsSync(fixture.outputPath), false);
   }
 );
 

@@ -16,7 +16,28 @@ const MAX_CONTROLS = 1000;
 const MAX_DOM_ISSUES = 200;
 const MAX_NETWORK_REQUESTS = 2000;
 const MIN_EFFECTIVE_OPACITY = 0.01;
+const NETWORK_POLICY_OBSERVATION_MS = 500;
 const INTERNAL_SCHEMES = new Set(["about:", "data:"]);
+const NETWORK_CHILD_TARGET_TYPES = new Set([
+  "iframe",
+  "page",
+  "service_worker",
+  "shared_worker",
+  "worker",
+]);
+const WORKER_TARGET_TYPES = new Set(["service_worker", "shared_worker", "worker"]);
+const NETWORK_TARGET_FILTER = [
+  ...[...NETWORK_CHILD_TARGET_TYPES].sort().map((type) => ({ type, exclude: false })),
+  { exclude: true },
+];
+const ALLOWED_NETWORK_PROTOCOLS = new Set(["http:", "https:", "ws:", "wss:"]);
+const BROWSER_INTERNAL_TARGET_PROTOCOLS = new Set([
+  "chrome-extension:",
+  "chrome-search:",
+  "chrome-untrusted:",
+  "chrome:",
+  "devtools:",
+]);
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 function digest(value) {
@@ -146,14 +167,15 @@ async function connect(url) {
       else waiter.resolve(message.result || {});
       return;
     }
-    for (const listener of listeners.get(message.method) || []) listener(message.params || {});
+    for (const listener of listeners.get(message.method) || [])
+      listener(message.params || {}, message.sessionId || null);
   });
   return {
-    send(method, params = {}) {
+    send(method, params = {}, sessionId = null) {
       const id = nextId++;
       return new Promise((resolve, reject) => {
         pending.set(id, { resolve, reject });
-        socket.send(JSON.stringify({ id, method, params }));
+        socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
       });
     },
     on(method, listener) {
@@ -204,6 +226,152 @@ function sanitizeRequest(request, sequence) {
 function requestAllowed(rawUrl, allowedOrigins) {
   const origin = originForPolicy(rawUrl);
   return INTERNAL_SCHEMES.has(origin) || allowedOrigins.has(origin);
+}
+
+function browserInternalTarget(rawUrl) {
+  try {
+    return BROWSER_INTERNAL_TARGET_PROTOCOLS.has(new URL(rawUrl).protocol);
+  } catch {
+    return false;
+  }
+}
+
+function normalizeAllowedOrigins(rawOrigins) {
+  if (!Array.isArray(rawOrigins) || rawOrigins.length > 100)
+    throw new Error("network allowed origins must be an array of at most 100 origins");
+  const normalized = new Set();
+  for (const raw of rawOrigins) {
+    if (typeof raw !== "string" || raw.length < 1 || raw.length > 4096)
+      throw new Error("network allowed origin is invalid");
+    let parsed;
+    try {
+      parsed = new URL(raw);
+    } catch {
+      throw new Error("network allowed origin must be an absolute origin");
+    }
+    if (!ALLOWED_NETWORK_PROTOCOLS.has(parsed.protocol))
+      throw new Error("network allowed origin has an unsupported scheme");
+    if (
+      parsed.username ||
+      parsed.password ||
+      parsed.hostname.includes("*") ||
+      parsed.pathname !== "/" ||
+      parsed.search ||
+      parsed.hash ||
+      parsed.origin !== raw
+    )
+      throw new Error("network allowed origin must be canonical and wildcard-free");
+    if (normalized.has(raw)) throw new Error("network allowed origins must be unique");
+    normalized.add(raw);
+  }
+  return normalized;
+}
+
+function webSocketPolicyOrigins(allowedOrigins) {
+  return new Set(allowedOrigins);
+}
+
+function webSocketBlockPatterns(allowedOrigins) {
+  const allowPatterns = [...webSocketPolicyOrigins(allowedOrigins)]
+    .filter((origin) => origin.startsWith("ws://") || origin.startsWith("wss://"))
+    .sort()
+    .map((origin) => ({ urlPattern: `${origin}/*`, block: false }));
+  return [
+    ...allowPatterns,
+    { urlPattern: "ws://*:*/*", block: true },
+    { urlPattern: "wss://*:*/*", block: true },
+  ];
+}
+
+function childTargetBlockPatterns(allowedOrigins) {
+  const allowPatterns = [...allowedOrigins]
+    .filter((origin) => /^(?:http|https|ws|wss):\/\//.test(origin))
+    .sort()
+    .map((origin) => ({ urlPattern: `${origin}/*`, block: false }));
+  return [
+    ...allowPatterns,
+    { urlPattern: "http://*:*/*", block: true },
+    { urlPattern: "https://*:*/*", block: true },
+    { urlPattern: "ws://*:*/*", block: true },
+    { urlPattern: "wss://*:*/*", block: true },
+  ];
+}
+
+function targetNetworkConditions(allowedOrigins) {
+  const conditions = (urlPattern, offline) => ({
+    urlPattern,
+    latency: 0,
+    downloadThroughput: -1,
+    uploadThroughput: -1,
+    offline,
+  });
+  const allowConditions = [...allowedOrigins]
+    .filter((origin) => /^(?:http|https|ws|wss):\/\//.test(origin))
+    .sort()
+    .map((origin) => conditions(`${origin}/*`, false));
+  return [
+    ...allowConditions,
+    conditions("http://*:*/*", true),
+    conditions("https://*:*/*", true),
+    conditions("ws://*:*/*", true),
+    conditions("wss://*:*/*", true),
+  ];
+}
+
+async function installTargetNetworkIsolation(client, allowedOrigins, sessionId) {
+  const blockMode = await installWebSocketPolicy(client, allowedOrigins, sessionId, true);
+  try {
+    await client.send(
+      "Network.emulateNetworkConditionsByRule",
+      { matchedNetworkConditions: targetNetworkConditions(allowedOrigins) },
+      sessionId
+    );
+  } catch (error) {
+    throw new Error(`browser cannot install target pre-connect isolation: ${error.message}`);
+  }
+  return blockMode;
+}
+
+async function installWebSocketPolicy(
+  client,
+  allowedOrigins,
+  sessionId = null,
+  includeHttp = false
+) {
+  try {
+    await client.send(
+      "Network.setBlockedURLs",
+      {
+        urlPatterns: includeHttp
+          ? childTargetBlockPatterns(allowedOrigins)
+          : webSocketBlockPatterns(allowedOrigins),
+      },
+      sessionId
+    );
+    return "ordered-patterns";
+  } catch (patternError) {
+    // Older Chromium releases only expose the deprecated wildcard form. It
+    // cannot express allow-before-deny, so block every socket and fail a
+    // capture if the page attempts even an otherwise-allowed WebSocket.
+    try {
+      await client.send(
+        "Network.setBlockedURLs",
+        {
+          urls: includeHttp
+            ? ["http://*", "https://*", "ws://*", "wss://*"]
+            : ["ws://*", "wss://*"],
+        },
+        sessionId
+      );
+      return "block-all-fallback";
+    } catch (fallbackError) {
+      throw new Error(
+        `browser cannot install the pre-connect WebSocket policy: ${
+          fallbackError.message || patternError.message
+        }`
+      );
+    }
+  }
 }
 
 function valueOf(property) {
@@ -1249,7 +1417,8 @@ function canonicalSample(sample) {
 
 async function main() {
   const config = JSON.parse(fs.readFileSync(0, "utf8"));
-  const allowedOrigins = new Set(config.allowedOrigins || []);
+  const allowedOrigins = normalizeAllowedOrigins(config.allowedOrigins || []);
+  const allowedNetworkOrigins = webSocketPolicyOrigins(allowedOrigins);
   const readinessTimeoutMs = config.readinessTimeoutMs;
   const settleMs = config.settleMs;
   const startedAt = new Date().toISOString();
@@ -1273,11 +1442,11 @@ async function main() {
     { stdio: "ignore", detached: process.platform !== "win32" }
   );
   let client = null;
+  let browserClient = null;
   let cleaned = false;
   const cleanup = () => {
     if (cleaned) return;
     cleaned = true;
-    if (client) client.close();
     try {
       if (browser.exitCode === null) {
         if (process.platform === "win32") browser.kill("SIGKILL");
@@ -1286,6 +1455,11 @@ async function main() {
     } catch {
       // Browser may have exited between observation and cleanup.
     }
+    // Keep both protocol policies installed until after the browser has been
+    // synchronously signalled for teardown. Closing either socket first would
+    // leave a short fail-open execution window.
+    if (client) client.close();
+    if (browserClient) browserClient.close();
     try {
       fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 50 });
     } catch {
@@ -1317,12 +1491,18 @@ async function main() {
       await sleep(25);
     }
     const port = Number(fs.readFileSync(portFile, "utf8").split(/\r?\n/)[0]);
-    let target = await requestJson(
-      `http://127.0.0.1:${port}/json/new?${encodeURIComponent("about:blank")}`,
-      "PUT",
-      1_000
-    ).catch(() => null);
-    if (!target?.webSocketDebuggerUrl) target = null;
+    let browserEndpoint = null;
+    while (!browserEndpoint?.webSocketDebuggerUrl && Date.now() < endpointDeadline) {
+      browserEndpoint = await requestJson(
+        `http://127.0.0.1:${port}/json/version`,
+        "GET",
+        1_000
+      ).catch(() => null);
+      if (!browserEndpoint?.webSocketDebuggerUrl) await sleep(25);
+    }
+    if (!browserEndpoint?.webSocketDebuggerUrl)
+      throw new Error("Chromium did not expose a debugging endpoint");
+    let target = null;
     const targetDeadline = Date.now() + 10_000;
     while (!target && Date.now() < targetDeadline) {
       const targets = await requestJson(`http://127.0.0.1:${port}/json/list`).catch(() => []);
@@ -1330,20 +1510,35 @@ async function main() {
       if (!target) await sleep(25);
     }
     if (!target) throw new Error("Chromium did not expose a page target");
+    browserClient = await connect(browserEndpoint.webSocketDebuggerUrl);
     client = await connect(target.webSocketDebuggerUrl);
 
     const requests = [];
     const pendingRequests = new Set();
+    const pendingWebSockets = new Set();
+    const webSocketOrigins = new Map();
     const violations = [];
     const activeFetchHandlers = new Set();
+    const activeTargetHandlers = new Set();
+    const activeTargetStages = new Map();
+    const attachedTargetSessions = new Set();
+    const childWebSocketPolicyModes = new Map();
+    const childTargetInfo = new Map();
+    const childParentSession = new Map();
+    const childBootstrapRequestObserved = new Set();
     let sequence = 0;
     let networkEpoch = 0;
     let networkOverflow = null;
     let handlerError = null;
+    let firstViolationAt = null;
     let lastNetworkActivity = Date.now();
     let loadFired = false;
     let criticalWindow = false;
     let criticalDrift = null;
+    let webSocketPolicyMode = "unconfigured";
+    let mainTargetPolicyReady = false;
+    const scopedRequestId = (connectionScope, sessionId, requestId) =>
+      `${connectionScope}\0${sessionId || "root"}\0${requestId}`;
     const noteNetworkActivity = () => {
       networkEpoch += 1;
       lastNetworkActivity = Date.now();
@@ -1356,14 +1551,20 @@ async function main() {
         networkOverflow ||= error.message;
       }
     };
+    const retainViolation = (request) => {
+      if (violations.length > 0) return;
+      violations.push(request);
+      firstViolationAt = Date.now();
+    };
     const assertNetworkHealthy = () => {
       if (handlerError) throw new Error(`network policy handler failed: ${handlerError}`);
       if (networkOverflow) throw new Error(networkOverflow);
-      if (violations.length) throw new Error(`network policy violation: ${violations[0].origin}`);
+      if (violations.length && Date.now() - firstViolationAt >= NETWORK_POLICY_OBSERVATION_MS)
+        throw new Error(`network policy violation: ${violations[0].origin}`);
       if (criticalDrift) throw new Error(`page changed during atomic capture: ${criticalDrift}`);
     };
-    client.on("Page.loadEventFired", () => {
-      loadFired = true;
+    client.on("Page.loadEventFired", (_event, sessionId) => {
+      if (!sessionId) loadFired = true;
     });
     for (const eventName of ["Page.frameNavigated", "Page.navigatedWithinDocument"])
       client.on(eventName, () => {
@@ -1383,58 +1584,282 @@ async function main() {
       client.on(eventName, () => {
         if (criticalWindow) criticalDrift ||= "document";
       });
-    client.on("Fetch.requestPaused", (event) => {
-      noteNetworkActivity();
-      const handler = Promise.resolve()
-        .then(async () => {
-          if (!requestAllowed(event.request?.url, allowedOrigins)) {
-            if (violations.length === 0)
-              violations.push(
+    const registerNetworkListeners = (eventClient, connectionScope) => {
+      eventClient.on("Fetch.requestPaused", (event, sessionId) => {
+        noteNetworkActivity();
+        const handler = Promise.resolve()
+          .then(async () => {
+            if (!requestAllowed(event.request?.url, allowedNetworkOrigins)) {
+              retainViolation(
                 sanitizeRequest({ ...event.request, resourceType: event.resourceType }, ++sequence)
               );
-            await client.send("Fetch.failRequest", {
-              requestId: event.requestId,
-              errorReason: "BlockedByClient",
+              await eventClient.send(
+                "Fetch.failRequest",
+                {
+                  requestId: event.requestId,
+                  errorReason: "BlockedByClient",
+                },
+                sessionId
+              );
+              return;
+            }
+            await eventClient.send(
+              "Fetch.continueRequest",
+              { requestId: event.requestId },
+              sessionId
+            );
+          })
+          .catch((error) => {
+            handlerError ||= error.message;
+          })
+          .finally(() => activeFetchHandlers.delete(handler));
+        activeFetchHandlers.add(handler);
+      });
+      eventClient.on("Network.requestWillBeSent", (event, sessionId) => {
+        noteNetworkActivity();
+        try {
+          const record = sanitizeRequest(
+            { ...event.request, resourceType: event.type },
+            ++sequence
+          );
+          retainRequest(record);
+          const policyMode =
+            connectionScope === "browser"
+              ? childWebSocketPolicyModes.get(sessionId)
+              : webSocketPolicyMode;
+          if (
+            (policyMode === "block-all-fallback" &&
+              /^(?:http|https|ws|wss):\/\//.test(record.origin)) ||
+            !requestAllowed(event.request?.url, allowedNetworkOrigins)
+          )
+            retainViolation(record);
+        } catch (error) {
+          handlerError ||= error.message;
+        }
+
+        // Chromium can replay the already-completed bootstrap request when
+        // Network is enabled on a paused worker. That replay has no matching
+        // loadingFinished event and must not masquerade as live network work.
+        // Ignore only the first exact target-URL request for worker targets;
+        // all fetches started by worker code remain tracked normally.
+        const targetInfo = sessionId ? childTargetInfo.get(sessionId) : null;
+        const isWorkerBootstrap =
+          connectionScope === "browser" &&
+          sessionId &&
+          targetInfo &&
+          WORKER_TARGET_TYPES.has(targetInfo.type) &&
+          !childBootstrapRequestObserved.has(sessionId) &&
+          event.request?.url === targetInfo.url;
+        if (isWorkerBootstrap) {
+          childBootstrapRequestObserved.add(sessionId);
+          pendingRequests.delete(scopedRequestId("page", null, event.requestId));
+          const parentSessionId = childParentSession.get(sessionId);
+          if (parentSessionId)
+            pendingRequests.delete(scopedRequestId("browser", parentSessionId, event.requestId));
+        } else pendingRequests.add(scopedRequestId(connectionScope, sessionId, event.requestId));
+      });
+      const completeRequest = (event, sessionId) => {
+        noteNetworkActivity();
+        pendingRequests.delete(scopedRequestId(connectionScope, sessionId, event.requestId));
+        if (
+          connectionScope === "browser" &&
+          sessionId &&
+          WORKER_TARGET_TYPES.has(childTargetInfo.get(sessionId)?.type)
+        ) {
+          pendingRequests.delete(scopedRequestId("page", null, event.requestId));
+          const parentSessionId = childParentSession.get(sessionId);
+          if (parentSessionId)
+            pendingRequests.delete(scopedRequestId("browser", parentSessionId, event.requestId));
+        }
+      };
+      eventClient.on("Network.loadingFinished", completeRequest);
+      eventClient.on("Network.loadingFailed", completeRequest);
+      eventClient.on("Network.webSocketCreated", (event, sessionId) => {
+        noteNetworkActivity();
+        try {
+          const requestId = scopedRequestId(connectionScope, sessionId, event.requestId);
+          const record = sanitizeRequest(
+            { url: event.url, method: "GET", resourceType: "WebSocket" },
+            ++sequence
+          );
+          retainRequest(record);
+          const policyMode =
+            connectionScope === "browser"
+              ? childWebSocketPolicyModes.get(sessionId)
+              : webSocketPolicyMode;
+          const allowed =
+            policyMode !== "block-all-fallback" && requestAllowed(event.url, allowedNetworkOrigins);
+          webSocketOrigins.set(requestId, record.origin);
+          if (!allowed) retainViolation(record);
+          else pendingWebSockets.add(requestId);
+        } catch (error) {
+          handlerError ||= error.message;
+        }
+      });
+      eventClient.on("Network.webSocketWillSendHandshakeRequest", (event, sessionId) => {
+        noteNetworkActivity();
+        const requestId = scopedRequestId(connectionScope, sessionId, event.requestId);
+        if (webSocketOrigins.has(requestId)) pendingWebSockets.add(requestId);
+      });
+      eventClient.on("Network.webSocketHandshakeResponseReceived", (event, sessionId) => {
+        noteNetworkActivity();
+        pendingWebSockets.delete(scopedRequestId(connectionScope, sessionId, event.requestId));
+      });
+      for (const eventName of ["Network.webSocketFrameSent", "Network.webSocketFrameReceived"])
+        eventClient.on(eventName, () => noteNetworkActivity());
+      eventClient.on("Network.webSocketFrameError", (event, sessionId) => {
+        noteNetworkActivity();
+        pendingWebSockets.delete(scopedRequestId(connectionScope, sessionId, event.requestId));
+      });
+      eventClient.on("Network.webSocketClosed", (event, sessionId) => {
+        noteNetworkActivity();
+        const requestId = scopedRequestId(connectionScope, sessionId, event.requestId);
+        pendingWebSockets.delete(requestId);
+        webSocketOrigins.delete(requestId);
+      });
+    };
+    registerNetworkListeners(client, "page");
+    registerNetworkListeners(browserClient, "browser");
+
+    browserClient.on("Target.attachedToTarget", (event, parentSessionId) => {
+      const sessionId = event.sessionId;
+      const targetType = event.targetInfo?.type;
+      if (
+        typeof sessionId !== "string" ||
+        !sessionId ||
+        !NETWORK_CHILD_TARGET_TYPES.has(targetType)
+      ) {
+        handlerError ||= `unsupported paused browser target: ${targetType || "unknown"}`;
+        return;
+      }
+      if (
+        event.targetInfo.targetId !== target.id &&
+        browserInternalTarget(event.targetInfo.url || "")
+      ) {
+        activeTargetStages.set(sessionId, `${targetType}:resume-internal`);
+        const handler = browserClient
+          .send("Runtime.runIfWaitingForDebugger", {}, sessionId)
+          .catch((error) => {
+            handlerError ||= `browser-internal target resume failed: ${error.message}`;
+          })
+          .finally(() => {
+            activeTargetStages.delete(sessionId);
+            activeTargetHandlers.delete(handler);
+          });
+        activeTargetHandlers.add(handler);
+        return;
+      }
+      noteNetworkActivity();
+      childTargetInfo.set(sessionId, event.targetInfo);
+      childParentSession.set(sessionId, parentSessionId);
+      activeTargetStages.set(sessionId, `${targetType}:auto-attach`);
+      const handler = Promise.resolve()
+        .then(async () => {
+          // The Network domain does not become usable while a ServiceWorker is
+          // paused at startup. The main page already bypasses service workers,
+          // so terminate this background target before any of its code runs.
+          if (targetType === "service_worker") {
+            activeTargetStages.set(sessionId, `${targetType}:terminate`);
+            await browserClient.send("Target.closeTarget", {
+              targetId: event.targetInfo.targetId,
             });
             return;
           }
-          await client.send("Fetch.continueRequest", { requestId: event.requestId });
+          await browserClient.send(
+            "Target.setAutoAttach",
+            {
+              autoAttach: true,
+              waitForDebuggerOnStart: true,
+              flatten: true,
+              filter: NETWORK_TARGET_FILTER,
+            },
+            sessionId
+          );
+          // The main page is controlled through its dedicated endpoint. Its
+          // browser-level session exists only to install recursive auto-attach
+          // before any page script can create a child target.
+          if (event.targetInfo.targetId === target.id) {
+            activeTargetStages.set(sessionId, `${targetType}:resume-main`);
+            await browserClient.send("Runtime.runIfWaitingForDebugger", {}, sessionId);
+            mainTargetPolicyReady = true;
+            return;
+          }
+          attachedTargetSessions.add(sessionId);
+          activeTargetStages.set(sessionId, `${targetType}:network-enable`);
+          await browserClient.send(
+            "Network.enable",
+            { maxTotalBufferSize: 1024 * 1024 },
+            sessionId
+          );
+          activeTargetStages.set(sessionId, `${targetType}:network-policy`);
+          const mode = await installTargetNetworkIsolation(
+            browserClient,
+            allowedOrigins,
+            sessionId
+          );
+          childWebSocketPolicyModes.set(sessionId, mode);
+          if (targetType === "page" || targetType === "iframe") {
+            activeTargetStages.set(sessionId, `${targetType}:fetch-enable`);
+            await browserClient.send(
+              "Fetch.enable",
+              { patterns: [{ urlPattern: "*", requestStage: "Request" }] },
+              sessionId
+            );
+          }
+          activeTargetStages.set(sessionId, `${targetType}:resume`);
+          await browserClient.send("Runtime.runIfWaitingForDebugger", {}, sessionId);
         })
         .catch((error) => {
-          handlerError ||= error.message;
+          handlerError ||= `child target policy failed: ${error.message}`;
         })
-        .finally(() => activeFetchHandlers.delete(handler));
-      activeFetchHandlers.add(handler);
+        .finally(() => {
+          activeTargetStages.delete(sessionId);
+          activeTargetHandlers.delete(handler);
+        });
+      activeTargetHandlers.add(handler);
     });
-    client.on("Network.requestWillBeSent", (event) => {
+    browserClient.on("Target.detachedFromTarget", (event) => {
       noteNetworkActivity();
-      try {
-        retainRequest(sanitizeRequest({ ...event.request, resourceType: event.type }, ++sequence));
-      } catch (error) {
-        handlerError ||= error.message;
+      const detachedTarget = childTargetInfo.get(event.sessionId);
+      const prefix = `browser\0${event.sessionId}\0`;
+      for (const requestId of pendingRequests)
+        if (requestId.startsWith(prefix)) pendingRequests.delete(requestId);
+      for (const requestId of pendingWebSockets)
+        if (requestId.startsWith(prefix)) pendingWebSockets.delete(requestId);
+      for (const requestId of webSocketOrigins.keys())
+        if (requestId.startsWith(prefix)) webSocketOrigins.delete(requestId);
+      if (WORKER_TARGET_TYPES.has(detachedTarget?.type)) {
+        pendingRequests.delete(scopedRequestId("page", null, detachedTarget.targetId));
+        const parentSessionId = childParentSession.get(event.sessionId);
+        if (parentSessionId)
+          pendingRequests.delete(
+            scopedRequestId("browser", parentSessionId, detachedTarget.targetId)
+          );
       }
-      pendingRequests.add(event.requestId);
+      attachedTargetSessions.delete(event.sessionId);
+      childWebSocketPolicyModes.delete(event.sessionId);
+      childTargetInfo.delete(event.sessionId);
+      childParentSession.delete(event.sessionId);
+      childBootstrapRequestObserved.delete(event.sessionId);
     });
-    const completeRequest = (event) => {
-      noteNetworkActivity();
-      pendingRequests.delete(event.requestId);
-    };
-    client.on("Network.loadingFinished", completeRequest);
-    client.on("Network.loadingFailed", completeRequest);
-    client.on("Network.webSocketCreated", (event) => {
-      noteNetworkActivity();
-      try {
-        const record = sanitizeRequest(
-          { url: event.url, method: "GET", resourceType: "WebSocket" },
-          ++sequence
-        );
-        retainRequest(record);
-        if (!requestAllowed(event.url, allowedOrigins) && violations.length === 0)
-          violations.push(record);
-      } catch (error) {
-        handlerError ||= error.message;
-      }
+
+    await browserClient.send("Target.setAutoAttach", {
+      autoAttach: true,
+      waitForDebuggerOnStart: true,
+      flatten: true,
+      filter: NETWORK_TARGET_FILTER,
     });
+    const initialPolicyDeadline = Date.now() + 5_000;
+    while (
+      (!mainTargetPolicyReady || activeTargetHandlers.size > 0) &&
+      Date.now() < initialPolicyDeadline
+    ) {
+      assertNetworkHealthy();
+      await sleep(10);
+    }
+    assertNetworkHealthy();
+    if (!mainTargetPolicyReady || activeTargetHandlers.size > 0)
+      throw new Error("browser target auto-attach policy did not become ready");
 
     await client.send("Page.enable");
     await client.send("DOM.enable");
@@ -1443,7 +1868,17 @@ async function main() {
     await client.send("Network.enable", { maxTotalBufferSize: 1024 * 1024 });
     await client.send("Network.setCacheDisabled", { cacheDisabled: true });
     await client.send("Network.setBypassServiceWorker", { bypass: true });
+    webSocketPolicyMode = await installTargetNetworkIsolation(client, allowedOrigins);
     await client.send("Fetch.enable", { patterns: [{ urlPattern: "*", requestStage: "Request" }] });
+    const crossTargetBarrier = async () => {
+      await client.send("Page.getFrameTree");
+      for (const sessionId of [...attachedTargetSessions])
+        await browserClient.send(
+          "Runtime.evaluate",
+          { expression: "void 0", returnByValue: true },
+          sessionId
+        );
+    };
     await client.send("Emulation.setDeviceMetricsOverride", {
       width: config.viewport.width,
       height: config.viewport.height,
@@ -1464,8 +1899,11 @@ async function main() {
       assertNetworkHealthy();
       if (
         loadFired &&
+        violations.length === 0 &&
         pendingRequests.size === 0 &&
+        pendingWebSockets.size === 0 &&
         activeFetchHandlers.size === 0 &&
+        activeTargetHandlers.size === 0 &&
         Date.now() - lastNetworkActivity >= settleMs
       ) {
         readyAt = new Date().toISOString();
@@ -1473,7 +1911,18 @@ async function main() {
       }
       await sleep(25);
     }
-    if (!readyAt) throw new Error("page did not reach complete, network-idle readiness");
+    if (!readyAt) {
+      throw new Error(
+        "page did not reach complete, network-idle readiness " +
+          `(requests=${pendingRequests.size}, sockets=${pendingWebSockets.size}, ` +
+          `fetch=${activeFetchHandlers.size}, targets=${activeTargetHandlers.size}, ` +
+          `target_stages=${[...activeTargetStages.values()].join(",") || "none"}, ` +
+          `request_scopes=${
+            [...pendingRequests].map((requestId) => requestId.split("\0", 2).join(":")).join(",") ||
+            "none"
+          })`
+      );
+    }
 
     const computedStyles = [
       "display",
@@ -1543,33 +1992,31 @@ async function main() {
     while (Date.now() < finalSettleDeadline) {
       assertNetworkHealthy();
       if (
+        violations.length === 0 &&
         pendingRequests.size === 0 &&
+        pendingWebSockets.size === 0 &&
         activeFetchHandlers.size === 0 &&
-        Date.now() - finalSettleStartedAt >= settleMs
+        activeTargetHandlers.size === 0 &&
+        Date.now() - finalSettleStartedAt >= settleMs &&
+        Date.now() - lastNetworkActivity >= settleMs
       )
         break;
       await sleep(25);
     }
     assertNetworkHealthy();
-    if (pendingRequests.size > 0 || activeFetchHandlers.size > 0)
+    if (
+      pendingRequests.size > 0 ||
+      pendingWebSockets.size > 0 ||
+      activeFetchHandlers.size > 0 ||
+      activeTargetHandlers.size > 0
+    )
       throw new Error("network did not settle after atomic capture");
 
     const barrierEpoch = networkEpoch;
-    await client.send("Page.getFrameTree");
+    await crossTargetBarrier();
     assertNetworkHealthy();
     if (networkEpoch !== barrierEpoch)
       throw new Error("network activity crossed the final protocol barrier");
-
-    await client.send("Fetch.disable");
-    while (activeFetchHandlers.size > 0) await Promise.all([...activeFetchHandlers]);
-    assertNetworkHealthy();
-    if (pendingRequests.size > 0)
-      throw new Error("network requests remained pending after interception shutdown");
-    await client.send("Network.disable");
-    await client.send("Page.getFrameTree");
-    assertNetworkHealthy();
-    if (pendingRequests.size > 0 || activeFetchHandlers.size > 0)
-      throw new Error("network tracking did not close cleanly");
 
     const observedFinalUrl = redactedUrlIdentity(middle.identity.final_url);
     const expectedFinalUrl = redactedUrlIdentity(config.expectedUrl || config.url);
@@ -1631,4 +2078,8 @@ module.exports = {
   snapshotNodeModel,
   verifyAssertionHitTargets,
   visibleIntersection,
+  installWebSocketPolicy,
+  normalizeAllowedOrigins,
+  webSocketBlockPatterns,
+  webSocketPolicyOrigins,
 };

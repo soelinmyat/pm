@@ -39,6 +39,22 @@ const AUTHORITY_ACTIONS = [
   "open_browser",
   "start_implementation",
 ];
+
+function emptyContext() {
+  return {
+    configured: false,
+    source_kind: null,
+    proposal_path: null,
+    proposal_identity: null,
+    design_context: null,
+    linear_id: null,
+    size: null,
+    acceptance_criteria: [],
+    artifact_repo_root: null,
+    artifact_ownership: null,
+  };
+}
+
 function createSession(options) {
   if (!options?.slug || !options?.sourceDir) {
     throw new Error("createSession requires slug and sourceDir");
@@ -66,18 +82,7 @@ function createSession(options) {
       branch: gitValue(repoRoot, ["branch", "--show-current"], "detached"),
       base_commit: gitValue(repoRoot, ["rev-parse", "HEAD"], "unknown"),
     },
-    context: {
-      configured: false,
-      source_kind: null,
-      proposal_path: null,
-      proposal_identity: null,
-      design_context: null,
-      linear_id: null,
-      size: null,
-      acceptance_criteria: [],
-      artifact_repo_root: null,
-      artifact_ownership: null,
-    },
+    context: emptyContext(),
     artifact: null,
     review: {
       status: "not_started",
@@ -125,6 +130,7 @@ function applyContext(session, facts, options = {}) {
     "linear_id",
     "size",
     "acceptance_criteria",
+    "design_context",
     "artifact_repo_root",
   ]);
   for (const field of Object.keys(facts)) {
@@ -148,6 +154,11 @@ function applyContext(session, facts, options = {}) {
     facts.source_kind === "proposal" &&
     path.extname(facts.proposal_path).toLowerCase() === ".json"
   ) {
+    if (facts.design_context !== undefined) {
+      throw new Error(
+        "canonical proposal design_context is derived from its approved execution contract; omit the duplicate intake field"
+      );
+    }
     const absoluteProposal = fs.realpathSync(path.resolve(facts.proposal_path));
     let proposalRoot;
     try {
@@ -196,6 +207,11 @@ function applyContext(session, facts, options = {}) {
       decision_sha256: canonical.approval.decision_sha256,
       exact_approved_bytes_current: canonical.exactBytesCurrent,
     };
+  } else {
+    effectiveDesignContext =
+      facts.design_context === undefined || facts.design_context === null
+        ? null
+        : structuredClone(facts.design_context);
   }
   if (!["M", "L", "XL"].includes(effectiveSize)) {
     throw new Error("RFC size must be M, L, or XL; route XS/S directly to pm:dev");
@@ -228,6 +244,16 @@ function applyContext(session, facts, options = {}) {
     if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
       throw new Error("proposal_path must be inside artifact_repo_root");
   }
+  if (effectiveDesignContext === null) {
+    throw new Error(
+      "legacy Markdown and Linear RFC intake require caller-confirmed design_context; recertify the source before generation"
+    );
+  }
+  validateDesignContext(effectiveDesignContext, "RFC context design_context", {
+    repoRoot: artifactRepoRoot,
+    requireCurrentPrototypeIdentity: true,
+    requireExperienceClassification: true,
+  });
   const next = structuredClone(session);
   next.context = {
     configured: true,
@@ -254,6 +280,7 @@ function nextDecision(session, sessionPath) {
   assertValidSession(session);
   verifySourceIdentity(session);
   verifyProposalIdentity(session);
+  if (session.phase !== "intake") assertCurrentSessionDesignContext(session);
   const pluginRoot = path.resolve(__dirname, "..", "..");
   const step = loadPhaseStep("rfc", session.phase, session.source.repo_root, pluginRoot);
   const instructionPath =
@@ -273,6 +300,93 @@ function nextDecision(session, sessionPath) {
     artifact_hash: session.artifact ? artifactFingerprint(session.artifact) : null,
     approval_required: session.phase === "approval",
   };
+}
+
+function assertCurrentSessionDesignContext(session) {
+  if (session.context.design_context === null) {
+    throw new Error(
+      "RFC session has legacy unbound design_context; run rfc-session recertify with current intake facts before generation or approval"
+    );
+  }
+  validateDesignContext(session.context.design_context, "RFC context design_context", {
+    repoRoot: session.context.artifact_repo_root,
+    requireCurrentPrototypeIdentity: true,
+    requireExperienceClassification: true,
+  });
+}
+
+function recertifyContext(session, facts, options = {}) {
+  assertValidSession(session);
+  verifySourceIdentity(session);
+  if (session.status === "complete") {
+    throw new Error(
+      "completed RFC sessions are immutable; initialize a new RFC run to recertify design context"
+    );
+  }
+  if (!session.context.configured) {
+    throw new Error("unconfigured RFC intake must use the context command");
+  }
+  let contextIsCurrent = true;
+  try {
+    assertCurrentSessionDesignContext(session);
+  } catch {
+    contextIsCurrent = false;
+  }
+  if (contextIsCurrent) {
+    throw new Error(
+      "RFC design_context is already current; use revise for reviewed content changes"
+    );
+  }
+
+  const now = options.now || new Date().toISOString();
+  const next = structuredClone(session);
+  const priorPhase = next.phase;
+  const priorArtifactHash = next.artifact ? artifactFingerprint(next.artifact) : null;
+  next.status = "active";
+  next.phase = "intake";
+  next.phase_attempt = 1;
+  next.context = emptyContext();
+  next.artifact = null;
+  next.review = {
+    status: "not_started",
+    artifact_hash: null,
+    rounds: 0,
+    verdicts: [],
+    reviewed_at: null,
+  };
+  next.approval = {
+    status: "pending",
+    approved_by: null,
+    approved_at: null,
+    artifact_hash: null,
+  };
+  for (const blocker of next.blockers) {
+    if (blocker.resolved_at) continue;
+    blocker.resolved_at = now;
+    blocker.resolution = "Superseded by explicit design-context recertification";
+  }
+  for (const action of AUTHORITY_ACTIONS) {
+    if (next.authority[action] !== true) continue;
+    next.authority[action] = false;
+    next.authority_log.push({
+      action,
+      granted: false,
+      reason: "Design-context recertification invalidated prior external authority",
+      recorded_at: now,
+    });
+  }
+  next.execution.runtime_session_id = null;
+  next.updated_at = now;
+  next.history.push(
+    createTransition({
+      priorPhase,
+      nextPhase: "intake",
+      reason: `legacy design-context recertification invalidated prior artifact ${priorArtifactHash || "(none)"}, review, approval, and external authority`,
+      timestamp: now,
+    })
+  );
+  assertValidSession(next);
+  return applyContext(next, facts, { ...options, now });
 }
 
 function recordResult(session, result, options = {}) {
@@ -358,6 +472,11 @@ function recordResult(session, result, options = {}) {
 function validatePassedResult(session, result, options) {
   if (session.phase === "intake") {
     if (!session.context.configured) throw new Error("intake requires configured RFC context");
+    try {
+      assertCurrentSessionDesignContext(session);
+    } catch (error) {
+      throw new Error(`intake requires current design_context before generation: ${error.message}`);
+    }
     return;
   }
   if (session.phase === "generation") {
@@ -832,6 +951,14 @@ function verifyArtifact(artifact, options = {}) {
   } catch (error) {
     throw new Error(`RFC sidecar is malformed: ${error.message}`);
   }
+  if (
+    Object.prototype.hasOwnProperty.call(options, "expectedDesignContext") &&
+    options.expectedDesignContext === null
+  ) {
+    throw new Error(
+      "RFC session has legacy unbound design_context; run rfc-session recertify with current intake facts before generation or approval"
+    );
+  }
   const validation = validateRfcSidecar(sidecar, artifact.json_path, {
     expectedSlug: options.expectedSlug,
     htmlPath: artifact.html_path,
@@ -839,6 +966,7 @@ function verifyArtifact(artifact, options = {}) {
     sidecarHash: observed,
     repoRoot,
     expectedDesignContext: options.expectedDesignContext,
+    requireCurrentDesignContext: true,
   });
   if (!validation.ok) {
     throw new Error(
@@ -1717,6 +1845,7 @@ module.exports = {
   hashResult,
   migrateLegacyMarkdown,
   nextDecision,
+  recertifyContext,
   recordResult,
   resumeBlocked,
   reviseSession,

@@ -5,6 +5,15 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { isDeepStrictEqual } = require("node:util");
+const { acquireOwnedLock } = require("../lib/owned-lock.js");
+const { readBoundedFile } = require("../lib/safe-json-file.js");
+const {
+  CAPABILITY_JSON_LIMITS,
+  encodeCapabilityJson,
+  readCapabilityJson,
+} = require("./design-critique-capability-input.js");
+
+const PROFILE_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,100}$/;
 
 const {
   capabilityAdjudicationPath,
@@ -21,31 +30,98 @@ function sealCapabilityAdjudication(options) {
   const oracle = options.oracle;
   const capture = options.capture;
   const judgments = options.judgments;
-  const reportPath = path.resolve(options.reportPath);
+  const reportPath = canonicalOutputPath(path.resolve(options.reportPath));
   validateInputs({ rootDir, oracle, capture, judgments });
+  validateReportPath(rootDir, reportPath);
+  const plannedPublicationPaths = planImmutablePublicationPaths(rootDir, oracle, capture);
+  const protectedInputs = planProtectedInputs(rootDir, capture, options.protectedInputPaths);
+  validateReportPublicationNamespace(rootDir, reportPath, plannedPublicationPaths, protectedInputs);
+  const publicationDirectories = preparePublicationDirectories(
+    rootDir,
+    reportPath,
+    plannedPublicationPaths
+  );
+  validateReportPath(rootDir, reportPath);
 
-  const report = loadOrCreateReport(reportPath, oracle, capture.profile);
-  if (report.repeats.some((item) => item.repeat === capture.repeat)) {
-    throw new Error(`report already contains repeat ${capture.repeat}`);
+  options.testingHooks?.beforePublicationLock?.();
+  const releasePublication = acquireOwnedLock(capabilityPublicationLockPath(rootDir), {
+    attempts: 1_200,
+    waitMs: 50,
+    timeoutMessage: "timed out waiting to publish capability adjudication artifacts",
+  });
+  try {
+    const report = loadOrCreateReport(reportPath, oracle, capture.profile);
+    const retainedInputs = planProtectedInputs(rootDir, {
+      cases: report.repeats.flatMap((repeat) => (Array.isArray(repeat?.cases) ? repeat.cases : [])),
+    });
+    validateReportPublicationNamespace(
+      rootDir,
+      reportPath,
+      plannedPublicationPaths,
+      mergeProtectedInputs(protectedInputs, retainedInputs)
+    );
+    options.testingHooks?.afterReportLoad?.();
+    if (report.repeats.some((item) => item.repeat === capture.repeat)) {
+      throw new Error(`report already contains repeat ${capture.repeat}`);
+    }
+    const { rows, publications } = buildAdjudicationRows({
+      rootDir,
+      oracle,
+      capture,
+      judgments,
+      fixVerifier: options.fixVerifier,
+      browserPath: options.browserPath,
+    });
+    report.repeats.push({ repeat: capture.repeat, cases: rows });
+    report.repeats.sort((left, right) => left.repeat - right.repeat);
+    const reportBytes = encodeCapabilityJson(report, "report");
+
+    for (const directory of publicationDirectories) assertAnchoredDirectory(rootDir, directory);
+    assertPublicationsMatchPlan(publications, plannedPublicationPaths);
+    for (const publication of publications) assertImmutablePublication(publication, rootDir);
+    const prospectivePublications = new Map(
+      publications.map((publication) => [publication.path, publication.bytes])
+    );
+
+    const issues = validateCapabilityReport(report, oracle, {
+      rootDir,
+      fixVerifier: options.fixVerifier,
+      browserPath: options.browserPath,
+      prospectivePublications,
+    });
+    if (issues.length > 0) {
+      throw new Error(`sealed capability report is invalid:\n${issues.join("\n")}`);
+    }
+    for (const publication of publications) publishPrivateBytesImmutable(publication, rootDir);
+    validateReportPath(rootDir, reportPath);
+    writePrivateBytes(reportPath, reportBytes, rootDir);
+    return { report, reportPath };
+  } finally {
+    releasePublication();
   }
+}
 
+function buildAdjudicationRows({ rootDir, oracle, capture, judgments, fixVerifier, browserPath }) {
+  const publications = [];
   const judgmentByCase = new Map(judgments.cases.map((item) => [item.case_id, item]));
   const captureByCase = new Map(capture.cases.map((item) => [item.case_id, item]));
   const rows = oracle.cases.map((oracleCase) => {
     const evidence = captureByCase.get(oracleCase.id);
     const judgment = judgmentByCase.get(oracleCase.id);
     const candidateLedger = loadCandidateLedger(rootDir, evidence);
+    validateCandidateOutput(rootDir, evidence, candidateLedger);
     loadOracleIsolation(rootDir, evidence);
-    const fixVerification = sealFixVerification({
+    const fixVerification = buildFixVerification({
       rootDir,
       oracle,
       oracleCase,
       profile: capture.profile,
       repeat: capture.repeat,
       evidence,
-      fixVerifier: options.fixVerifier,
-      browserPath: options.browserPath,
+      fixVerifier,
+      browserPath,
     });
+    publications.push(fixVerification.publication);
     const findings = deriveAdjudicatedFindings({
       candidateLedger,
       mappings: judgment.mappings,
@@ -84,32 +160,23 @@ function sealCapabilityAdjudication(options) {
       repeat: capture.repeat,
       caseId: oracleCase.id,
     });
-    const absoluteArtifactPath = path.join(rootDir, relativeArtifactPath);
-    writePrivateJson(absoluteArtifactPath, artifact);
+    const adjudicationBytes = privateJsonBytes(artifact);
+    publications.push({
+      path: path.join(rootDir, relativeArtifactPath),
+      bytes: adjudicationBytes,
+    });
     return {
       ...structuredClone(evidence),
       fix_verification: fixVerification.binding,
       adjudication: {
         path: relativeArtifactPath,
-        sha256: digest(fs.readFileSync(absoluteArtifactPath)),
+        sha256: digest(adjudicationBytes),
       },
       blocked: candidateLedger.blocked,
       findings: structuredClone(findings),
     };
   });
-
-  report.repeats.push({ repeat: capture.repeat, cases: rows });
-  report.repeats.sort((left, right) => left.repeat - right.repeat);
-  const issues = validateCapabilityReport(report, oracle, {
-    rootDir,
-    fixVerifier: options.fixVerifier,
-    browserPath: options.browserPath,
-  });
-  if (issues.length > 0) {
-    throw new Error(`sealed capability report is invalid:\n${issues.join("\n")}`);
-  }
-  writePrivateJson(reportPath, report);
-  return { report, reportPath };
+  return { rows, publications };
 }
 
 function validateInputs({ rootDir, oracle, capture, judgments }) {
@@ -143,6 +210,8 @@ function validateInputs({ rootDir, oracle, capture, judgments }) {
   if (capture.harness_only !== false) {
     throw new Error("harness-only captures cannot be adjudicated for capability claims");
   }
+  validateCapabilityProfile(capture.profile, "capture.profile");
+  validateCapabilityProfile(capture.requested_profile, "capture.requested_profile");
   if (!isDeepStrictEqual(capture.profile, capture.requested_profile)) {
     throw new Error("capture runtime profile does not match the requested live profile");
   }
@@ -178,7 +247,22 @@ function validateInputs({ rootDir, oracle, capture, judgments }) {
   }
 }
 
-function sealFixVerification({
+function validateCapabilityProfile(profile, where) {
+  requireClosedObject(profile, ["id", "adapter", "model", "effort"], where);
+  if (!PROFILE_ID_PATTERN.test(String(profile.id || ""))) {
+    throw new Error(`${where}.id must be a lowercase slug`);
+  }
+  if (!new Set(["codex", "claude"]).has(profile.adapter)) {
+    throw new Error(`${where}.adapter must be codex or claude`);
+  }
+  for (const field of ["model", "effort"]) {
+    if (typeof profile[field] !== "string" || profile[field].trim() === "") {
+      throw new Error(`${where}.${field} must be a non-empty string`);
+    }
+  }
+}
+
+function buildFixVerification({
   rootDir,
   oracle,
   oracleCase,
@@ -193,7 +277,7 @@ function sealFixVerification({
     throw new Error(`capture post_subject path must equal ${expectedPostPath}`);
   }
   const postPath = path.join(rootDir, expectedPostPath);
-  const postBytes = fs.readFileSync(postPath);
+  const postBytes = readBoundedFile(postPath, 4 * 1024 * 1024);
   if (digest(postBytes) !== evidence.post_subject.sha256) {
     throw new Error(`capture post_subject sha256 does not match bytes for ${oracleCase.id}`);
   }
@@ -218,9 +302,10 @@ function sealFixVerification({
     caseId: oracleCase.id,
   });
   const absolutePath = path.join(rootDir, relativePath);
-  writePrivateJson(absolutePath, artifact);
+  const bytes = privateJsonBytes(artifact);
   return {
-    binding: { path: relativePath, sha256: digest(fs.readFileSync(absolutePath)) },
+    binding: { path: relativePath, sha256: digest(bytes) },
+    publication: { path: absolutePath, bytes },
     results: structuredClone(artifact.results),
   };
 }
@@ -232,7 +317,8 @@ function loadCandidateLedger(rootDir, evidence) {
     rootDir,
     evidence?.candidate_findings,
     expectedPath,
-    "capture candidate_findings"
+    "capture candidate_findings",
+    "candidate-findings"
   );
   const issues = validateCandidateFindingsLedger(ledger);
   if (issues.length > 0) {
@@ -248,7 +334,8 @@ function loadOracleIsolation(rootDir, evidence) {
     rootDir,
     evidence?.oracle_isolation,
     expectedPath,
-    "capture oracle_isolation"
+    "capture oracle_isolation",
+    "oracle-isolation"
   );
   const issues = validateOracleIsolationEvidence({ isolation, rootDir, runId });
   if (issues.length > 0) {
@@ -257,7 +344,27 @@ function loadOracleIsolation(rootDir, evidence) {
   return isolation;
 }
 
-function readBoundCaptureJson(rootDir, binding, expectedPath, where) {
+function readBoundCaptureJson(rootDir, binding, expectedPath, where, kind) {
+  const bytes = readBoundCaptureFile(
+    rootDir,
+    binding,
+    expectedPath,
+    where,
+    CAPABILITY_JSON_LIMITS[kind]
+  );
+  let value;
+  try {
+    value = JSON.parse(bytes.toString("utf8"));
+  } catch (error) {
+    throw new Error(`${where} must contain valid JSON: ${error.message}`);
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${where} must contain a JSON object`);
+  }
+  return value;
+}
+
+function readBoundCaptureFile(rootDir, binding, expectedPath, where, maxBytes) {
   requireClosedObject(binding, ["path", "sha256"], where);
   if (binding.path !== expectedPath) throw new Error(`${where}.path must equal ${expectedPath}`);
   const absolute = path.resolve(rootDir, binding.path);
@@ -270,19 +377,32 @@ function readBoundCaptureJson(rootDir, binding, expectedPath, where) {
   if (!inside(rootDir, real) || real !== absolute) {
     throw new Error(`${where} path must not traverse symlinks`);
   }
-  const bytes = fs.readFileSync(real);
+  const bytes = readBoundedFile(real, maxBytes);
   if (digest(bytes) !== binding.sha256)
     throw new Error(`${where}.sha256 must match evidence bytes`);
-  let value;
-  try {
-    value = JSON.parse(bytes.toString("utf8"));
-  } catch (error) {
-    throw new Error(`${where} must contain valid JSON: ${error.message}`);
+  return bytes;
+}
+
+function validateCandidateOutput(rootDir, evidence, candidateLedger) {
+  const runId = evidence?.run?.run_id;
+  const expectedPath = `eval-results/runs/${runId}/artifacts/quality-output.md`;
+  const output = readBoundCaptureFile(
+    rootDir,
+    evidence?.candidate_output,
+    expectedPath,
+    "capture candidate_output",
+    4 * 1024 * 1024
+  ).toString("utf8");
+  for (const finding of candidateLedger.findings) {
+    if (!candidateOutputReferencesFinding(output, finding.id)) {
+      throw new Error(`candidate_output must reference candidate finding ${finding.id}`);
+    }
   }
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`${where} must contain a JSON object`);
-  }
-  return value;
+}
+
+function candidateOutputReferencesFinding(output, findingId) {
+  const escaped = String(findingId).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^a-z0-9-])${escaped}([^a-z0-9-]|$)`, "m").test(String(output));
 }
 
 function deriveAdjudicatedFindings({
@@ -419,7 +539,7 @@ function loadOrCreateReport(reportPath, oracle, profile) {
       repeats: [],
     };
   }
-  const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+  const report = readCapabilityJson(reportPath, "report");
   if (report.schema_version !== 3 || report.benchmark_id !== oracle.benchmark_id) {
     throw new Error("existing report does not match this capability benchmark");
   }
@@ -430,12 +550,388 @@ function loadOrCreateReport(reportPath, oracle, profile) {
   return report;
 }
 
-function writePrivateJson(filePath, value) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+function capabilityPublicationLockPath(rootDir) {
+  return path.join(
+    rootDir,
+    "eval-results",
+    "capabilities",
+    "design-critique",
+    ".adjudication-publication.lock"
+  );
+}
+
+function immutablePublicationRoots(rootDir) {
+  const base = path.join(rootDir, "eval-results", "capabilities", "design-critique");
+  return [path.join(base, "fix-verification"), path.join(base, "adjudications")];
+}
+
+function planImmutablePublicationPaths(rootDir, oracle, capture) {
+  const publications = [];
+  const found = new Set();
+  for (const oracleCase of oracle.cases) {
+    for (const relativePath of [
+      capabilityFixVerificationPath({
+        benchmarkId: oracle.benchmark_id,
+        profileId: capture.profile.id,
+        repeat: capture.repeat,
+        caseId: oracleCase.id,
+      }),
+      capabilityAdjudicationPath({
+        benchmarkId: oracle.benchmark_id,
+        profileId: capture.profile.id,
+        repeat: capture.repeat,
+        caseId: oracleCase.id,
+      }),
+    ]) {
+      const absolutePath = path.resolve(rootDir, relativePath);
+      if (!inside(rootDir, absolutePath)) {
+        throw new Error(`capability publication path escapes the root: ${relativePath}`);
+      }
+      if (found.has(absolutePath)) {
+        throw new Error(`capability publication path is duplicated: ${relativePath}`);
+      }
+      found.add(absolutePath);
+      publications.push(absolutePath);
+    }
+  }
+  return publications;
+}
+
+function planProtectedInputs(rootDir, capture, additionalPaths = []) {
+  if (!Array.isArray(additionalPaths)) {
+    throw new Error("protected capability input paths must be an array");
+  }
+  const paths = new Set();
+  const trees = new Set();
+  const addPath = (candidate) => {
+    if (typeof candidate !== "string" || candidate.trim() === "") return;
+    const absolute = path.resolve(rootDir, candidate);
+    paths.add(absolute);
+    try {
+      paths.add(fs.realpathSync(absolute));
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+  };
+
+  for (const item of capture.cases) {
+    for (const binding of [
+      item.fixture,
+      item.source_identity,
+      item.run?.runtime_profile,
+      item.run?.verdict,
+      item.normalized_transcript,
+      item.candidate_output,
+      item.candidate_findings,
+      item.oracle_isolation,
+      item.post_subject,
+    ]) {
+      addPath(binding?.path);
+    }
+    const runId = item.run?.run_id;
+    if (typeof runId === "string" && runId !== "") {
+      trees.add(path.resolve(rootDir, `eval-results/runs/${runId}/runtime/pm`));
+    }
+    const isolation = loadOracleIsolation(rootDir, item);
+    if (isolation?.bindings && typeof isolation.bindings === "object") {
+      for (const binding of Object.values(isolation.bindings)) addPath(binding?.path);
+    }
+  }
+  for (const inputPath of additionalPaths) addPath(inputPath);
+  return { paths: [...paths], trees: [...trees] };
+}
+
+function mergeProtectedInputs(...groups) {
+  return {
+    paths: [...new Set(groups.flatMap((group) => group.paths))],
+    trees: [...new Set(groups.flatMap((group) => group.trees))],
+  };
+}
+
+function validateReportPublicationNamespace(
+  rootDir,
+  reportPath,
+  publicationPaths,
+  protectedInputs
+) {
+  const publicationLock = capabilityPublicationLockPath(rootDir);
+  // The adjacent report lock was removed because an arbitrary report path must
+  // never grant reclamation authority over its sibling. Keep its former alias
+  // reserved so older invocations cannot overlap the dedicated global lock.
+  const reportLockAlias = `${reportPath}.lock`;
+  const conflictsWithImmutableTree = immutablePublicationRoots(rootDir).some((directory) =>
+    inside(directory, reportPath)
+  );
+  const conflictsWithPlannedPath = publicationPaths.some(
+    (publicationPath) =>
+      generatedPathnamesOverlap(reportPath, publicationPath) ||
+      generatedPathnamesOverlap(reportLockAlias, publicationPath)
+  );
+  const conflictsWithProtectedInput =
+    protectedInputs.paths.some((inputPath) => generatedPathnamesOverlap(reportPath, inputPath)) ||
+    protectedInputs.trees.some((directory) => inside(directory, reportPath));
+  const protectedInputConflictsWithPublication =
+    protectedInputs.paths.some(
+      (inputPath) =>
+        publicationPaths.some((publicationPath) =>
+          generatedPathnamesOverlap(inputPath, publicationPath)
+        ) ||
+        isOwnedLockNamespacePath(publicationLock, inputPath) ||
+        isAtomicTemporaryPath(inputPath, publicationLock)
+    ) ||
+    protectedInputs.trees.some(
+      (directory) =>
+        publicationPaths.some((publicationPath) => inside(directory, publicationPath)) ||
+        inside(directory, publicationLock)
+    );
+  const conflictsWithPublicationLock =
+    isOwnedLockNamespacePath(publicationLock, reportPath) ||
+    isOwnedLockNamespacePath(publicationLock, reportLockAlias) ||
+    isAtomicTemporaryPath(reportPath, publicationLock) ||
+    isAtomicTemporaryPath(reportLockAlias, publicationLock);
+  if (protectedInputConflictsWithPublication) {
+    throw new Error("protected capability input conflicts with a publication namespace");
+  }
+  if (
+    conflictsWithImmutableTree ||
+    conflictsWithPlannedPath ||
+    conflictsWithProtectedInput ||
+    conflictsWithPublicationLock
+  ) {
+    throw new Error(
+      "capability report path conflicts with a protected input or publication namespace"
+    );
+  }
+}
+
+function generatedPathnamesOverlap(left, right) {
+  return left === right || isAtomicTemporaryPath(left, right) || isAtomicTemporaryPath(right, left);
+}
+
+function isAtomicTemporaryPath(basePath, candidatePath) {
+  if (path.dirname(basePath) !== path.dirname(candidatePath)) return false;
+  const basename = path.basename(basePath);
+  const candidate = path.basename(candidatePath);
+  return candidate.startsWith(`${basename}.tmp-`) || candidate.startsWith(`.${basename}.tmp-`);
+}
+
+function isOwnedLockNamespacePath(lockPath, candidatePath) {
+  if (path.dirname(lockPath) !== path.dirname(candidatePath)) return false;
+  const lockName = path.basename(lockPath);
+  const candidate = path.basename(candidatePath);
+  return (
+    candidate === lockName ||
+    candidate.startsWith(`${lockName}.candidate-`) ||
+    candidate === `${lockName}.reclaim` ||
+    candidate.startsWith(`${lockName}.reclaim.`) ||
+    candidate.startsWith(`${lockName}.tmp-`) ||
+    (candidate.startsWith(`.${lockName}.`) && candidate.includes(".tmp-"))
+  );
+}
+
+function assertPublicationsMatchPlan(publications, plannedPublicationPaths) {
+  const planned = new Set(plannedPublicationPaths);
+  const actual = new Set();
+  for (const publication of publications) {
+    if (!planned.has(publication.path)) {
+      throw new Error(`unexpected capability publication path: ${publication.path}`);
+    }
+    if (actual.has(publication.path)) {
+      throw new Error(`duplicate capability publication path: ${publication.path}`);
+    }
+    actual.add(publication.path);
+  }
+  if (actual.size !== planned.size) {
+    throw new Error("capability publication plan is incomplete");
+  }
+}
+
+function preparePublicationDirectories(rootDir, reportPath, publicationPaths) {
+  const directories = new Set([
+    path.dirname(capabilityPublicationLockPath(rootDir)),
+    path.dirname(reportPath),
+  ]);
+  for (const publicationPath of publicationPaths) directories.add(path.dirname(publicationPath));
+
+  const ordered = [...directories].sort(
+    (left, right) =>
+      path.relative(rootDir, left).split(path.sep).length -
+      path.relative(rootDir, right).split(path.sep).length
+  );
+  // Inspect every existing ancestry before creating any missing directory. A
+  // pre-existing symlink must not turn even directory preparation into an
+  // out-of-root write.
+  for (const directory of ordered) assertExistingDirectoryAncestry(rootDir, directory);
+  for (const directory of ordered) createAnchoredDirectory(rootDir, directory);
+  for (const directory of ordered) assertAnchoredDirectory(rootDir, directory);
+  return ordered;
+}
+
+function assertExistingDirectoryAncestry(rootDir, directory) {
+  const relative = path.relative(rootDir, directory);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error(`capability publication parent must be inside root: ${directory}`);
+  }
+  if (relative === "") {
+    assertRealDirectory(rootDir);
+    return;
+  }
+  let current = rootDir;
+  for (const part of relative.split(path.sep)) {
+    current = path.join(current, part);
+    try {
+      assertRealDirectory(current);
+    } catch (error) {
+      if (error.code === "ENOENT") return;
+      throw error;
+    }
+  }
+}
+
+function createAnchoredDirectory(rootDir, directory) {
+  const relative = path.relative(rootDir, directory);
+  if (relative === "") return;
+  let current = rootDir;
+  for (const part of relative.split(path.sep)) {
+    current = path.join(current, part);
+    try {
+      fs.mkdirSync(current, { mode: 0o700 });
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+    }
+    assertRealDirectory(current);
+  }
+}
+
+function assertAnchoredDirectory(rootDir, directory) {
+  if (!inside(rootDir, directory)) {
+    throw new Error(`capability publication parent must be inside root: ${directory}`);
+  }
+  assertExistingDirectoryAncestry(rootDir, directory);
+  assertRealDirectory(directory);
+}
+
+function assertRealDirectory(directory) {
+  const stat = fs.lstatSync(directory);
+  if (stat.isSymbolicLink() || !stat.isDirectory() || fs.realpathSync(directory) !== directory) {
+    throw new Error(
+      `capability publication parent must be a real directory inside the root: ${directory}`
+    );
+  }
+}
+
+function validateReportPath(rootDir, reportPath) {
+  if (!inside(rootDir, reportPath) || reportPath === rootDir) {
+    throw new Error("capability report path must be a file inside the root directory");
+  }
+  const parent = path.dirname(reportPath);
+  assertExistingDirectoryAncestry(rootDir, parent);
+  let stat;
+  try {
+    stat = fs.lstatSync(reportPath);
+  } catch (error) {
+    if (error.code === "ENOENT") return;
+    throw error;
+  }
+  if (
+    stat.isSymbolicLink() ||
+    !stat.isFile() ||
+    stat.nlink !== 1 ||
+    fs.realpathSync(reportPath) !== reportPath
+  ) {
+    throw new Error("capability report path must be a canonical regular file inside the root");
+  }
+  if ((stat.mode & 0o077) !== 0) {
+    throw new Error("existing capability report must use private file permissions");
+  }
+}
+
+function canonicalOutputPath(filePath) {
+  const basename = path.basename(filePath);
+  let cursor = path.dirname(filePath);
+  const missing = [];
+  while (true) {
+    try {
+      cursor = fs.realpathSync(cursor);
+      break;
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      const parent = path.dirname(cursor);
+      if (parent === cursor) throw error;
+      missing.push(path.basename(cursor));
+      cursor = parent;
+    }
+  }
+  return path.join(cursor, ...missing.reverse(), basename);
+}
+
+function privateJsonBytes(value) {
+  return Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
+}
+
+function assertImmutablePublication({ path: filePath, bytes }, rootDir) {
+  assertAnchoredDirectory(rootDir, path.dirname(filePath));
+  let stat;
+  try {
+    stat = fs.lstatSync(filePath);
+  } catch (error) {
+    if (error.code === "ENOENT") return;
+    throw error;
+  }
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) {
+    throw new Error(`sealed capability artifact conflicts with unsafe path: ${filePath}`);
+  }
+  let existing;
+  try {
+    existing = readBoundedFile(filePath, bytes.length);
+  } catch {
+    throw new Error(`sealed capability artifact conflicts with existing bytes: ${filePath}`);
+  }
+  if (!existing.equals(bytes)) {
+    throw new Error(`sealed capability artifact conflicts with existing bytes: ${filePath}`);
+  }
+}
+
+function publishPrivateBytesImmutable({ path: filePath, bytes }, rootDir) {
+  assertAnchoredDirectory(rootDir, path.dirname(filePath));
   const temporary = `${filePath}.tmp-${process.pid}-${crypto.randomBytes(6).toString("hex")}`;
-  fs.writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600, flag: "wx" });
-  fs.renameSync(temporary, filePath);
-  fs.chmodSync(filePath, 0o600);
+  let descriptor;
+  try {
+    descriptor = fs.openSync(temporary, "wx", 0o600);
+    fs.writeFileSync(descriptor, bytes);
+    fs.fsyncSync(descriptor);
+    fs.closeSync(descriptor);
+    descriptor = undefined;
+    try {
+      fs.linkSync(temporary, filePath);
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      assertImmutablePublication({ path: filePath, bytes }, rootDir);
+      return;
+    }
+    fs.chmodSync(filePath, 0o600);
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+    fs.rmSync(temporary, { force: true });
+  }
+}
+
+function writePrivateBytes(filePath, bytes, rootDir) {
+  assertAnchoredDirectory(rootDir, path.dirname(filePath));
+  const temporary = `${filePath}.tmp-${process.pid}-${crypto.randomBytes(6).toString("hex")}`;
+  let descriptor;
+  try {
+    descriptor = fs.openSync(temporary, "wx", 0o600);
+    fs.writeFileSync(descriptor, bytes);
+    fs.fsyncSync(descriptor);
+    fs.closeSync(descriptor);
+    descriptor = undefined;
+    fs.renameSync(temporary, filePath);
+    fs.chmodSync(filePath, 0o600);
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+    fs.rmSync(temporary, { force: true });
+  }
 }
 
 function digest(bytes) {
@@ -488,13 +984,19 @@ function parseArgs(argv) {
 function main(argv) {
   try {
     const options = parseArgs(argv);
+    const protectedInputPaths = [
+      fs.realpathSync(options.oraclePath),
+      fs.realpathSync(options.capturePath),
+      fs.realpathSync(options.judgmentsPath),
+    ];
     const result = sealCapabilityAdjudication({
       rootDir: options.rootDir,
-      oracle: JSON.parse(fs.readFileSync(options.oraclePath, "utf8")),
-      capture: JSON.parse(fs.readFileSync(options.capturePath, "utf8")),
-      judgments: JSON.parse(fs.readFileSync(options.judgmentsPath, "utf8")),
+      oracle: readCapabilityJson(options.oraclePath, "oracle"),
+      capture: readCapabilityJson(options.capturePath, "capture"),
+      judgments: readCapabilityJson(options.judgmentsPath, "judgments"),
       reportPath: options.reportPath,
       browserPath: options.browserPath,
+      protectedInputPaths,
     });
     process.stdout.write(
       `${JSON.stringify(

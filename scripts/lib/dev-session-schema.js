@@ -1122,6 +1122,7 @@ function validateReadinessEvidence(session, result, errors) {
       storedHash: extractSidecarHash(html),
       sidecarHash: `sha256:${sha256Hex(sidecarBytes)}`,
       repoRoot: findGitRoot(path.dirname(sidecarPath)),
+      requireCurrentDesignContext: true,
     });
     if (!validation.ok) {
       errors.push(
@@ -1187,6 +1188,15 @@ function validateReadinessEvidence(session, result, errors) {
       return;
     }
     const archived = JSON.parse(fs.readFileSync(archivePath, "utf8"));
+    validateRfcReadinessDesignContext(
+      {
+        archived,
+        artifactRepoRoot,
+        devContext: session.task.design_context,
+        sidecarContext: sidecar.design_context,
+      },
+      errors
+    );
     if (
       archived.status !== "complete" ||
       archived.slug !== session.slug ||
@@ -1206,6 +1216,42 @@ function validateReadinessEvidence(session, result, errors) {
     }
   } catch (error) {
     errors.push(issue("$.evidence", `could not verify RFC readiness artifact: ${error.message}`));
+  }
+}
+
+function validateRfcReadinessDesignContext(
+  { archived, artifactRepoRoot, devContext, sidecarContext },
+  errors
+) {
+  const contexts = [
+    ["completed RFC run", archived.context?.design_context],
+    ["Dev intake", devContext],
+  ];
+  for (const [label, context] of contexts) {
+    if (context === null || context === undefined) {
+      errors.push(
+        issue(
+          "$.evidence",
+          `${label} has legacy unbound design_context; recertify RFC intake and reroute the current sidecar`
+        )
+      );
+      continue;
+    }
+    try {
+      validateDesignContext(context, `${label} design_context`, {
+        repoRoot: artifactRepoRoot,
+        requireCurrentPrototypeIdentity: true,
+        requireExperienceClassification: true,
+      });
+    } catch (error) {
+      errors.push(issue("$.evidence", error.message));
+      continue;
+    }
+    if (canonicalJson(context) !== canonicalJson(sidecarContext)) {
+      errors.push(
+        issue("$.evidence", `${label} design_context must exactly match the approved RFC sidecar`)
+      );
+    }
   }
 }
 
@@ -1775,8 +1821,17 @@ function applyRouting(session, facts, options = {}) {
       decision_sha256: canonical.approval.decision_sha256,
     };
   }
+  const effectiveDesignContext = proposalDesignContext || effectiveFacts.design_context || null;
+  if (effectiveDesignContext) {
+    const contractPath = options.rfcSidecar?.path || proposalIdentity?.path;
+    validateDesignContext(effectiveDesignContext, "Dev design_context", {
+      repoRoot: contractPath ? findGitRoot(path.dirname(contractPath)) : undefined,
+      requireCurrentPrototypeIdentity: true,
+      requireExperienceClassification: true,
+    });
+  }
   const designContexts = [
-    proposalDesignContext,
+    effectiveDesignContext,
     ...(Array.isArray(effectiveFacts.work_units)
       ? effectiveFacts.work_units.map((unit) => unit?.contract?.design_context)
       : []),
@@ -1794,7 +1849,9 @@ function applyRouting(session, facts, options = {}) {
   const next = structuredClone(session);
   next.task.reference = effectiveFacts.reference ?? next.task.reference;
   next.task.proposal = proposalIdentity;
-  next.task.design_context = proposalDesignContext;
+  next.task.design_context = effectiveDesignContext
+    ? structuredClone(effectiveDesignContext)
+    : null;
   next.task.kind = route.kind;
   next.task.size = route.size;
   next.task.risk = {
@@ -1812,18 +1869,18 @@ function applyRouting(session, facts, options = {}) {
     if (!Array.isArray(facts.work_units)) throw new TypeError("work_units must be an array");
     const contractPath = options.rfcSidecar?.path || proposalIdentity?.path;
     const workUnits = structuredClone(facts.work_units);
-    if (proposalDesignContext) {
+    if (effectiveDesignContext) {
       for (const unit of workUnits) {
         if (!isObject(unit?.contract)) continue;
         if (
           unit.contract.design_context !== undefined &&
-          canonicalJson(unit.contract.design_context) !== canonicalJson(proposalDesignContext)
+          canonicalJson(unit.contract.design_context) !== canonicalJson(effectiveDesignContext)
         ) {
           throw new Error(
-            `work unit ${unit.id || "(unknown)"} design_context contradicts the canonical proposal execution contract`
+            `work unit ${unit.id || "(unknown)"} design_context contradicts the intake execution contract`
           );
         }
-        unit.contract.design_context = structuredClone(proposalDesignContext);
+        unit.contract.design_context = structuredClone(effectiveDesignContext);
       }
     }
     validateWorkUnits(workUnits, {
@@ -2338,7 +2395,11 @@ function writeJsonAtomic(filePath, value) {
 
 function nextDecision(session, sessionPath = null, options = {}) {
   assertValidSession(session);
-  verifyRfcSidecarIdentity(session.task.rfc_sidecar);
+  verifyRfcSidecarIdentity(
+    session.task.rfc_sidecar,
+    session.task.design_context,
+    session.task.work_units
+  );
   verifyProposalIdentity(
     session.task.proposal,
     session.task.design_context,
@@ -2433,7 +2494,7 @@ function verifyProposalIdentity(identity, expectedDesignContext, workUnits = [])
     );
 }
 
-function verifyRfcSidecarIdentity(identity) {
+function verifyRfcSidecarIdentity(identity, expectedDesignContext, workUnits = []) {
   if (!identity) return;
   let bytes;
   try {
@@ -2446,6 +2507,40 @@ function verifyRfcSidecarIdentity(identity) {
     throw new Error(
       "RFC sidecar identity hash drifted; reinitialize Dev or rerun route --rfc-sidecar while intake is active"
     );
+  }
+  let sidecar;
+  try {
+    sidecar = JSON.parse(bytes.toString("utf8"));
+  } catch (error) {
+    throw new Error(`RFC sidecar identity is malformed: ${error.message}`);
+  }
+  if (expectedDesignContext === null || expectedDesignContext === undefined) {
+    throw new Error(
+      "RFC-routed Dev session has legacy unbound design_context; rerun RFC intake and route the current schema-v3 sidecar"
+    );
+  }
+  const validation = validateRfcSidecar(sidecar, identity.path, {
+    expectedSlug: identity.slug,
+    expectedDesignContext,
+    repoRoot: findGitRoot(path.dirname(identity.path)),
+    requireCurrentDesignContext: true,
+  });
+  if (!validation.ok) {
+    throw new Error(
+      `RFC sidecar identity is no longer executable: ${validation.issues
+        .map((entry) => entry.message)
+        .join("; ")}`
+    );
+  }
+  for (const unit of workUnits) {
+    if (
+      isObject(unit?.contract) &&
+      canonicalJson(unit.contract.design_context) !== canonicalJson(expectedDesignContext)
+    ) {
+      throw new Error(
+        `work unit ${unit.id || "(unknown)"} design_context drifted from the RFC sidecar`
+      );
+    }
   }
 }
 

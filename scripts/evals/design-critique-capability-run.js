@@ -5,6 +5,8 @@ const crypto = require("node:crypto");
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { readBoundedFile } = require("../lib/safe-json-file.js");
+const { readCapabilityJson } = require("./design-critique-capability-input.js");
 
 const {
   candidateOutputReferencesFinding,
@@ -24,6 +26,7 @@ const FIXTURE_NAME = "design-critique-fixture.html";
 const WORKDIR_FIXTURE = "ui/design-critique/capability-case.html";
 const CANDIDATE_FINDINGS_NAME = "capability-findings.json";
 const ORACLE_ISOLATION_NAME = "oracle_isolation.json";
+const MAX_CAPABILITY_EVIDENCE_BYTES = 4 * 1024 * 1024;
 
 function runCapabilityBatch(options) {
   const rootDir = fs.realpathSync(path.resolve(options.rootDir || process.cwd()));
@@ -31,7 +34,7 @@ function runCapabilityBatch(options) {
     options.oraclePath ||
       path.join(rootDir, "evals", "capabilities", "design-critique", "oracle.json")
   );
-  const oracle = JSON.parse(fs.readFileSync(oraclePath, "utf8"));
+  const oracle = readCapabilityJson(oraclePath, "oracle");
   const oracleIssues = validateCapabilityOracle(oracle);
   if (oracleIssues.length > 0) {
     throw new Error(`invalid design-critique oracle:\n${oracleIssues.join("\n")}`);
@@ -157,7 +160,7 @@ function readOracleFixture(rootDir, fixturePath, expectedHash) {
   if (!stat.isFile() || stat.isSymbolicLink()) {
     throw new Error("oracle fixture must be a regular non-symlink file");
   }
-  const bytes = fs.readFileSync(real);
+  const bytes = readBoundedFile(real, MAX_CAPABILITY_EVIDENCE_BYTES);
   if (digest(bytes) !== expectedHash) throw new Error("oracle fixture sha256 does not match");
   return bytes;
 }
@@ -594,7 +597,7 @@ function finalizeCandidateIsolation({ rootDir, runIdentity, prepared }) {
   rootDir = fs.realpathSync(path.resolve(rootDir));
   if (prepared.evidence.mode !== "sandbox-exec") return prepared.evidence;
   try {
-    const receiptBytes = fs.readFileSync(prepared.receiptPath);
+    const receiptBytes = readBoundedFile(prepared.receiptPath, 64 * 1024);
     if (!receiptBytes.equals(prepared.receiptBytes)) {
       throw new Error("launch receipt does not match the host-generated nonce and policy");
     }
@@ -606,7 +609,7 @@ function finalizeCandidateIsolation({ rootDir, runIdentity, prepared }) {
       "metadata",
       "codex_command.json"
     );
-    const command = JSON.parse(fs.readFileSync(commandPath, "utf8"));
+    const command = readCapabilityJson(commandPath, "command");
     if (path.resolve(String(command.command || "")) !== path.resolve(prepared.launchBin)) {
       throw new Error("Codex adapter command does not bind the sandbox launcher");
     }
@@ -683,8 +686,9 @@ function collectEvidence({ rootDir, item, verdict, runtimeProfile, runIdentity }
     rootDir,
     `${runRoot}/metadata/runtime_profile_identity.json`
   );
-  const observedProfile = JSON.parse(
-    fs.readFileSync(path.join(rootDir, runtimeProfileBinding.path), "utf8")
+  const observedProfile = readCapabilityJson(
+    path.join(rootDir, runtimeProfileBinding.path),
+    "runtime-profile"
   );
   for (const field of ["id", "adapter", "model", "effort"]) {
     if (observedProfile[field] !== runtimeProfile[field]) {
@@ -701,11 +705,17 @@ function collectEvidence({ rootDir, item, verdict, runtimeProfile, runIdentity }
   const candidateFindings = fileBinding(rootDir, `${runRoot}/artifacts/${CANDIDATE_FINDINGS_NAME}`);
   const oracleIsolation = fileBinding(rootDir, `${runRoot}/metadata/${ORACLE_ISOLATION_NAME}`);
   const postSubject = fileBinding(rootDir, `${runRoot}/workdir/${WORKDIR_FIXTURE}`);
-  const candidateOutputText = fs.readFileSync(path.join(rootDir, candidateOutput.path), "utf8");
+  const candidateOutputText = readBoundedFile(
+    path.join(rootDir, candidateOutput.path),
+    MAX_CAPABILITY_EVIDENCE_BYTES
+  ).toString("utf8");
   if (!candidateOutputText.trim()) {
     throw new Error("candidate output is empty");
   }
-  const ledger = JSON.parse(fs.readFileSync(path.join(rootDir, candidateFindings.path), "utf8"));
+  const ledger = readCapabilityJson(
+    path.join(rootDir, candidateFindings.path),
+    "candidate-findings"
+  );
   const ledgerIssues = validateCandidateFindingsLedger(ledger);
   if (ledgerIssues.length > 0) {
     throw new Error(`invalid candidate findings ledger:\n${ledgerIssues.join("\n")}`);
@@ -715,7 +725,10 @@ function collectEvidence({ rootDir, item, verdict, runtimeProfile, runIdentity }
       throw new Error(`candidate output must reference candidate finding ${finding.id}`);
     }
   }
-  const isolation = JSON.parse(fs.readFileSync(path.join(rootDir, oracleIsolation.path), "utf8"));
+  const isolation = readCapabilityJson(
+    path.join(rootDir, oracleIsolation.path),
+    "oracle-isolation"
+  );
   const isolationIssues = validateOracleIsolationArtifact(isolation, runIdentity.run_id);
   if (isolationIssues.length > 0) {
     throw new Error(`invalid oracle isolation evidence:\n${isolationIssues.join("\n")}`);
@@ -777,7 +790,7 @@ function fileBinding(rootDir, relativePath, expectedHash = null) {
   if (!inside(rootDir, real) || real !== absolute) {
     throw new Error(`evidence path must not traverse symlinks: ${relativePath}`);
   }
-  const bytes = fs.readFileSync(real);
+  const bytes = readBoundedFile(real, MAX_CAPABILITY_EVIDENCE_BYTES);
   const sha256 = digest(bytes);
   if (expectedHash && sha256 !== expectedHash) {
     throw new Error(`evidence sha256 mismatch: ${relativePath}`);
@@ -873,8 +886,9 @@ function main(argv) {
       result.bundle.failures.length === 0 &&
       result.bundle.cases.length > 0 &&
       result.bundle.cases.every((item) => {
-        const evidence = JSON.parse(
-          fs.readFileSync(path.join(result.rootDir, item.oracle_isolation.path))
+        const evidence = readCapabilityJson(
+          path.join(result.rootDir, item.oracle_isolation.path),
+          "oracle-isolation"
         );
         return (
           evidence.mode === "sandbox-exec" &&

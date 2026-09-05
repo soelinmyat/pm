@@ -6,6 +6,12 @@ const os = require("node:os");
 const path = require("node:path");
 const { resolveBrowser, runBrowserProbe } = require("../../../scripts/artifact-render-check.js");
 
+const SETTLEMENT_PATTERN_DECLARATIONS = [
+  "const pendingPattern = /\\b(?:saving|loading|updating)\\b/i;",
+  "const failurePattern = /\\b(?:fail(?:ed|ure)?|error|wrong|unable|unsuccessful(?:ly)?)\\b|could not|did not|\\b(?:no|not|never|nothing|none|without|wasn['’]t|weren['’]t|isn['’]t|aren['’]t|hasn['’]t|haven['’]t|couldn['’]t|didn['’]t|won['’]t)\\b[^,;:.!?\\n]{0,80}\\b(?:sav(?:e|ed|ing)|updat(?:e|ed|ing)|success(?:ful(?:ly)?)?|complet(?:e|ed|ing)|done)\\b/i;",
+  "const successPattern = /\\b(?:saved|updated|success(?:ful(?:ly)?)?|complete(?:d)?|done)\\b/i;",
+].join("\n      ");
+
 const CHECKS = Object.freeze({
   "responsive-shell-overflow": {
     viewport: { width: 375, height: 812 },
@@ -144,12 +150,26 @@ const CHECKS = Object.freeze({
     expression: `(async () => {
       const email = document.querySelector("#team-email");
       const submit = document.querySelector("button[type=submit]");
-      if (!email || !submit) return false;
+      const notice = document.querySelector("#notice");
+      if (!email || !submit || !notice) return false;
+      ${SETTLEMENT_PATTERN_DECLARATIONS}
       email.value = "delivery@example.com";
       submit.click();
-      const disabledAtStart = submit.disabled || submit.getAttribute("aria-disabled") === "true";
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      return disabledAtStart && (submit.disabled || submit.getAttribute("aria-disabled") === "true");
+      if (submit.disabled !== true) return false;
+      const deadline = Date.now() + 5000;
+      let observedSaving = false;
+      while (Date.now() < deadline) {
+        const message = (notice.textContent || "").trim();
+        if (failurePattern.test(message)) return false;
+        if (pendingPattern.test(message)) {
+          observedSaving = true;
+          if (submit.disabled !== true) return false;
+        } else if (successPattern.test(message)) {
+          if (observedSaving && submit.disabled === false) return true;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      return false;
     })()`,
   },
   "loading-status-unannounced": {
@@ -184,16 +204,32 @@ const CHECKS = Object.freeze({
       const submit = document.querySelector("button[type=submit]");
       const notice = document.querySelector("#notice");
       if (!email || !submit || !notice) return false;
+      ${SETTLEMENT_PATTERN_DECLARATIONS}
       email.value = "delivery@example.com";
       submit.click();
       const deadline = Date.now() + 5000;
-      while (Date.now() < deadline && !/saved|success|updated/i.test(notice.textContent || "")) {
+      let observedSaving = false;
+      let observedSuccess = false;
+      while (Date.now() < deadline) {
+        const message = (notice.textContent || "").trim();
+        if (failurePattern.test(message)) return false;
+        if (pendingPattern.test(message)) observedSaving = true;
+        if (observedSaving && successPattern.test(message)) {
+          observedSuccess = true;
+          break;
+        }
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
-      const success = (notice.textContent || "").trim();
-      if (!success) return false;
-      await new Promise((resolve) => setTimeout(resolve, 4100));
-      return (notice.textContent || "").trim() === success;
+      if (!observedSuccess) return false;
+      const persistenceDeadline = Date.now() + 4100;
+      while (Date.now() < persistenceDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const message = (notice.textContent || "").trim();
+        if (failurePattern.test(message) || pendingPattern.test(message) || !successPattern.test(message)) {
+          return false;
+        }
+      }
+      return true;
     })()`,
   },
   "secondary-action-competes": {

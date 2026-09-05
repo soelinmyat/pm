@@ -156,7 +156,7 @@ test("RFC validation binds design context to intake and prototype repository byt
       validateRfcSidecar(substituted, "rfc.json", { repoRoot, expectedDesignContext })
         .issues.map((item) => item.message)
         .join("\n"),
-      /design_context.*approved proposal/i
+      /design_context.*intake-bound RFC execution contract/i
     );
 
     fs.writeFileSync(absolutePrototype, "<main>drifted prototype</main>\n");

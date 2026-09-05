@@ -6,6 +6,8 @@ const crypto = require("node:crypto");
 const { execFileSync } = require("node:child_process");
 const path = require("node:path");
 const { isDeepStrictEqual } = require("node:util");
+const { readBoundedFile } = require("../lib/safe-json-file.js");
+const { readCapabilityJson } = require("./design-critique-capability-input.js");
 const { hashTree } = require("./stage.js");
 const { parseJsonl } = require("./transcript.js");
 
@@ -594,6 +596,7 @@ function validateCapabilityReport(report, oracle, options = {}) {
           rootDir,
           fixVerifier: options.fixVerifier,
           browserPath: options.browserPath,
+          prospectivePublications: options.prospectivePublications,
           where: caseWhere,
           issues,
         });
@@ -690,6 +693,7 @@ function validateEvidenceRow({
   rootDir,
   fixVerifier,
   browserPath,
+  prospectivePublications,
   where,
   issues,
 }) {
@@ -895,7 +899,8 @@ function validateEvidenceRow({
       caseId: expected.id,
     }),
     `${where}.fix_verification`,
-    issues
+    issues,
+    prospectivePublications
   );
   let verifiedFixes = null;
   if (fixVerificationBytes && postSubjectBytes) {
@@ -957,7 +962,8 @@ function validateEvidenceRow({
       caseId: expected.id,
     }),
     `${where}.adjudication`,
-    issues
+    issues,
+    prospectivePublications
   );
   if (adjudicationBytes) {
     const adjudication = parseJsonEvidence(adjudicationBytes, `${where}.adjudication`, issues);
@@ -1428,7 +1434,14 @@ function validateOracleIsolationBindings({ isolation, rootDir, runId, where, iss
   }
 }
 
-function validateBoundFile(rootDir, binding, expectedPath, where, issues) {
+function validateBoundFile(
+  rootDir,
+  binding,
+  expectedPath,
+  where,
+  issues,
+  prospectivePublications = null
+) {
   if (!closedObject(binding, ["path", "sha256"], ["path", "sha256"], where, issues)) {
     return null;
   }
@@ -1443,6 +1456,22 @@ function validateBoundFile(rootDir, binding, expectedPath, where, issues) {
   if (!inside(rootDir, absolute)) {
     issues.push(`${where}.path escapes the evidence root`);
     return null;
+  }
+  if (prospectivePublications instanceof Map && prospectivePublications.has(absolute)) {
+    const bytes = prospectivePublications.get(absolute);
+    if (!Buffer.isBuffer(bytes)) {
+      issues.push(`${where} prospective evidence must be bytes`);
+      return null;
+    }
+    if (bytes.length > MAX_EVIDENCE_BYTES) {
+      issues.push(`${where} evidence exceeds ${MAX_EVIDENCE_BYTES} bytes`);
+      return null;
+    }
+    if (sha256(bytes) !== binding.sha256) {
+      issues.push(`${where}.sha256 must match prospective evidence bytes`);
+      return null;
+    }
+    return bytes;
   }
   let stat;
   try {
@@ -1474,7 +1503,13 @@ function validateBoundFile(rootDir, binding, expectedPath, where, issues) {
     issues.push(`${where} evidence path must not traverse symlinks`);
     return null;
   }
-  const bytes = fs.readFileSync(real);
+  let bytes;
+  try {
+    bytes = readBoundedFile(real, MAX_EVIDENCE_BYTES);
+  } catch (error) {
+    issues.push(`${where} evidence could not be read safely: ${error.message}`);
+    return null;
+  }
   if (sha256(bytes) !== binding.sha256) {
     issues.push(`${where}.sha256 must match evidence bytes`);
     return null;
@@ -1525,8 +1560,9 @@ function scoreCapabilityReport(oracle, report, options = {}) {
       const expected = cases.get(result.case_id);
       const defects = new Map(expected.defects.map((item) => [item.id, item]));
       totals.defectsExpected += expected.defects.length;
-      const isolation = JSON.parse(
-        fs.readFileSync(path.join(evidenceRootDir, result.oracle_isolation.path), "utf8")
+      const isolation = readCapabilityJson(
+        path.join(evidenceRootDir, result.oracle_isolation.path),
+        "oracle-isolation"
       );
       if (!oracleIsolationAttested(isolation)) {
         sourceBoundaryUnattestedCases.push({
@@ -1748,8 +1784,8 @@ function parseArgs(argv) {
 function main(argv) {
   try {
     const options = parseArgs(argv);
-    const oracle = JSON.parse(fs.readFileSync(options.oracle, "utf8"));
-    const report = JSON.parse(fs.readFileSync(options.report, "utf8"));
+    const oracle = readCapabilityJson(options.oracle, "oracle");
+    const report = readCapabilityJson(options.report, "report");
     const result = scoreCapabilityReport(oracle, report, {
       rootDir: options.rootDir,
       browserPath: options.browserPath,

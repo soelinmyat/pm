@@ -53,16 +53,33 @@ function testStrategy(overrides = {}) {
   };
 }
 
-function sidecar(overrides = {}) {
+function designContext(overrides = {}) {
   return {
+    design_requirements: ["Keep the execution state and next action explicit."],
+    ui_impact: false,
+    prototype: null,
+    critical_states: ["ready", "running", "failed", "complete"],
+    experience_invariants: ["Every state exposes an actionable explanation."],
+    visual_invariants: [],
+    ...overrides,
+  };
+}
+
+function sidecar(overrides = {}) {
+  const value = {
     schema_version: 3,
     slug: "rfc-structured-artifacts",
     title: "RFC structured artifacts",
     size: "M",
+    design_context: designContext(),
     issues: [issueRow()],
     test_strategy: testStrategy(),
     ...overrides,
   };
+  if (value.schema_version === 2 && !Object.hasOwn(overrides, "design_context")) {
+    delete value.design_context;
+  }
+  return value;
 }
 
 function messages(result) {
@@ -116,6 +133,41 @@ test("rfc sidecar checker retains the published schema-v2 compatibility path", (
     issues: [{ num: 1, title: "Legacy issue", size: "M", test_hooks: [] }],
   });
   assert.equal(validateRfcSidecar(legacy).ok, true);
+  const current = validateRfcSidecar(legacy, "legacy.json", {
+    requireCurrentDesignContext: true,
+  });
+  assert.equal(current.ok, false);
+  assert.match(messages(current), /legacy-readable only.*schema_version 3 with design_context/i);
+});
+
+test("schema-v3 sidecars require a complete design context", () => {
+  const missing = sidecar();
+  delete missing.design_context;
+  assert.equal(validateRfcSidecar(missing).ok, true, "historical schema-v3 remains inspectable");
+  const missingCurrent = validateRfcSidecar(missing, "current.json", {
+    requireCurrentDesignContext: true,
+  });
+  assert.equal(missingCurrent.ok, false);
+  assert.match(messages(missingCurrent), /design_context is required for a current schema-v3 RFC/i);
+
+  const incomplete = sidecar({
+    design_context: {
+      design_requirements: ["Keep state explicit."],
+      prototype: null,
+      critical_states: ["ready"],
+      visual_invariants: ["State remains legible at narrow widths."],
+    },
+  });
+  assert.equal(
+    validateRfcSidecar(incomplete).ok,
+    true,
+    "legacy-readable context remains inspectable"
+  );
+  const current = validateRfcSidecar(incomplete, "current.json", {
+    requireCurrentDesignContext: true,
+  });
+  assert.equal(current.ok, false);
+  assert.match(messages(current), /explicit ui_impact and experience_invariants/i);
 });
 
 test("rfc sidecar checker rejects an unsupported schema_version", () => {
@@ -389,12 +441,14 @@ test("rfc sidecar checker CLI parses artifact identity and repository context", 
     "a",
     "--repo-root",
     "/repo",
+    "--current-handoff",
     "--json",
   ]);
   assert.equal(parsed.sidecarPath, "a.json");
   assert.equal(parsed.htmlPath, "a.html");
   assert.equal(parsed.expectedSlug, "a");
   assert.equal(parsed.repoRoot, "/repo");
+  assert.equal(parsed.requireCurrentDesignContext, true);
   assert.equal(parsed.json, true);
 });
 
@@ -413,6 +467,37 @@ test("rfc sidecar checker CLI exits zero on a valid sidecar", () => {
     });
     assert.equal(result.status, 0, result.stdout + result.stderr);
     assert.equal(JSON.parse(result.stdout).ok, true);
+  } finally {
+    tmp.cleanup();
+  }
+});
+
+test("rfc sidecar checker CLI keeps legacy readable but rejects it for current handoff", () => {
+  const tmp = makeTmpSidecar(
+    sidecar({
+      schema_version: 2,
+      issues: [{ num: 1, title: "Legacy issue", size: "M", test_hooks: [] }],
+    })
+  );
+  try {
+    const readable = spawnSync(process.execPath, [checkScript, "--sidecar", tmp.file, "--json"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    });
+    assert.equal(readable.status, 0, readable.stdout + readable.stderr);
+
+    const current = spawnSync(
+      process.execPath,
+      [checkScript, "--sidecar", tmp.file, "--current-handoff", "--json"],
+      { cwd: repoRoot, encoding: "utf8" }
+    );
+    assert.notEqual(current.status, 0);
+    assert.match(
+      JSON.parse(current.stdout)
+        .issues.map((entry) => entry.message)
+        .join("\n"),
+      /legacy-readable only.*schema_version 3 with design_context/i
+    );
   } finally {
     tmp.cleanup();
   }

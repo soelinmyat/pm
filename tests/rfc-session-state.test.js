@@ -26,6 +26,7 @@ const {
   grantAuthority,
   migrateLegacyMarkdown,
   nextDecision,
+  recertifyContext,
   recordResult,
   resumeBlocked,
   reviseSession,
@@ -68,6 +69,18 @@ function buildCurrentProposalApproval(proposal, bytes, { approvedBy, approvedAt 
     decisionId: decision.id,
     decisionSha256: decision.sha256,
   });
+}
+
+function currentDesignContext(overrides = {}) {
+  return {
+    design_requirements: ["Keep every lifecycle state and next action explicit."],
+    ui_impact: false,
+    prototype: null,
+    critical_states: ["draft", "reviewed", "approved", "error"],
+    experience_invariants: ["Every state explains what happened and what happens next."],
+    visual_invariants: [],
+    ...overrides,
+  };
 }
 
 test("RFC session separates technical review from explicit human approval", () => {
@@ -153,6 +166,7 @@ test("RFC session separates technical review from explicit human approval", () =
     const devSession = createDevSession({ slug: session.slug, sourceDir: repo.root });
     devSession.phase = "readiness";
     devSession.routing.required_phases = ["readiness", "implementation", "retro"];
+    devSession.task.design_context = structuredClone(session.context.design_context);
     const devReadiness = {
       schema_version: 1,
       run_id: devSession.run_id,
@@ -174,6 +188,36 @@ test("RFC session separates technical review from explicit human approval", () =
       runtime: { provider: "inline", model: "test", reasoning: "high", session_id: null },
     };
     assert.deepEqual(validateDevResult(devSession, devReadiness), []);
+    const unboundArchive = structuredClone(session);
+    unboundArchive.context.design_context = null;
+    fs.writeFileSync(archivePath, `${JSON.stringify(unboundArchive, null, 2)}\n`);
+    assert.ok(
+      validateDevResult(devSession, devReadiness).some((entry) =>
+        /completed RFC run has legacy unbound design_context/.test(entry.message)
+      )
+    );
+    const driftedArchive = structuredClone(session);
+    driftedArchive.context.design_context.experience_invariants = [
+      "A reconstructed invariant that was not approved in the RFC sidecar.",
+    ];
+    fs.writeFileSync(archivePath, `${JSON.stringify(driftedArchive, null, 2)}\n`);
+    assert.ok(
+      validateDevResult(devSession, devReadiness).some((entry) =>
+        /completed RFC run design_context must exactly match the approved RFC sidecar/.test(
+          entry.message
+        )
+      )
+    );
+    fs.writeFileSync(archivePath, `${JSON.stringify(session, null, 2)}\n`);
+    const driftedDevSession = structuredClone(devSession);
+    driftedDevSession.task.design_context.experience_invariants = [
+      "A reconstructed invariant that was not approved in RFC intake.",
+    ];
+    assert.ok(
+      validateDevResult(driftedDevSession, devReadiness).some((entry) =>
+        /Dev intake design_context must exactly match the approved RFC sidecar/.test(entry.message)
+      )
+    );
     fs.writeFileSync(
       approvalPath,
       `${JSON.stringify({ ...approvalAudit, approved_by: "forged-owner" }, null, 2)}\n`
@@ -227,6 +271,7 @@ test("Dev readiness resolves RFC state and artifacts across separate repositorie
       proposal_path: path.join(artifactRepo.root, "proposal.md"),
       size: "M",
       acceptance_criteria: ["Separate repository approval remains verifiable"],
+      design_context: currentDesignContext(),
       artifact_repo_root: artifactRepo.root,
     });
     session = recordResult(session, passed(session));
@@ -283,6 +328,7 @@ test("Dev readiness resolves RFC state and artifacts across separate repositorie
     const devSession = createDevSession({ slug: session.slug, sourceDir: source.root });
     devSession.phase = "readiness";
     devSession.routing.required_phases = ["readiness", "implementation", "retro"];
+    devSession.task.design_context = structuredClone(session.context.design_context);
     assert.deepEqual(
       validateDevResult(devSession, {
         schema_version: 1,
@@ -365,6 +411,7 @@ test("RFC resume rejects drifted helper-owned artifact identity", () => {
       proposal_path: path.join(repo.root, "proposal.md"),
       size: "M",
       acceptance_criteria: ["Resume only in the recorded artifact worktree"],
+      design_context: currentDesignContext(),
       artifact_repo_root: repo.root,
     });
     execFileSync("git", ["remote", "set-url", "--push", "origin", replacement.root], {
@@ -439,19 +486,114 @@ test("generation rejects a sidecar that reconstructs intake-bound design context
   const repo = makeRepo();
   try {
     let session = routedSession(repo);
-    session.context.design_context = {
+    session.context.design_context = currentDesignContext({
       design_requirements: ["Keep approval state visible beside the proposal revision."],
-      prototype: null,
+      ui_impact: true,
       critical_states: ["draft", "approved", "stale approval"],
+      experience_invariants: ["Approval transitions keep their next action explicit."],
       visual_invariants: ["Approval state remains visible at narrow widths."],
-    };
+    });
     session = recordResult(session, passed(session));
     const substituted = structuredClone(session.context.design_context);
     substituted.visual_invariants = ["A weaker reconstructed invariant."];
     const artifact = makeArtifact(repo, { designContext: substituted });
     assert.throws(
       () => recordResult(session, passed(session, { artifact, evidence: [evidence("artifact")] })),
-      /design_context must match the approved proposal execution contract/i
+      /design_context must match the intake-bound RFC execution contract/i
+    );
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("generation and approval reject legacy-unbound RFC design context", () => {
+  const repo = makeRepo();
+  try {
+    const legacyIntake = routedSession(repo);
+    legacyIntake.context.design_context = null;
+    assert.throws(
+      () => recordResult(legacyIntake, passed(legacyIntake)),
+      /intake requires current design_context.*before generation/i
+    );
+    const legacyGeneration = structuredClone(legacyIntake);
+    legacyGeneration.phase = "generation";
+    assert.throws(
+      () => nextDecision(legacyGeneration, "/tmp/session.json"),
+      /legacy unbound design_context.*before generation or approval/i
+    );
+
+    let generation = routedSession(repo);
+    generation = recordResult(generation, passed(generation));
+    const missingContextArtifact = makeArtifact(repo, { omitDesignContext: true });
+    assert.throws(
+      () =>
+        recordResult(
+          generation,
+          passed(generation, {
+            artifact: missingContextArtifact,
+            evidence: [evidence("artifact")],
+          })
+        ),
+      /design_context is required for a current schema-v3 RFC/i
+    );
+
+    let approval = routedSession(repo);
+    approval = recordResult(approval, passed(approval));
+    const artifact = makeArtifact(repo);
+    approval = recordResult(
+      approval,
+      passed(approval, { artifact, evidence: [evidence("artifact")] })
+    );
+    approval = recordResult(
+      approval,
+      passed(approval, {
+        artifact,
+        evidence: [evidence("review")],
+        reviewer_verdicts: requiredVerdicts(artifactFingerprint(artifact)),
+      })
+    );
+    approval.context.design_context = null;
+    assert.throws(
+      () => approveSession(approval, { approvedBy: "product-owner" }),
+      /legacy unbound design_context.*rfc-session recertify/i
+    );
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("Dev readiness rejects a schema-v3 RFC whose design context is missing", () => {
+  const repo = makeRepo();
+  try {
+    const artifact = makeArtifact(repo, { omitDesignContext: true });
+    const devSession = createDevSession({ slug: "safe-approval", sourceDir: repo.root });
+    devSession.phase = "readiness";
+    devSession.routing.required_phases = ["readiness", "implementation", "retro"];
+    const issues = validateDevResult(devSession, {
+      schema_version: 1,
+      run_id: devSession.run_id,
+      phase: "readiness",
+      attempt: 1,
+      status: "passed",
+      summary: "RFC appears ready",
+      commit: repo.head(),
+      files_changed: [],
+      evidence: [
+        {
+          kind: "rfc-readiness",
+          command: "rfc-sidecar-check --current-handoff",
+          exit_code: 0,
+          artifact: artifact.json_path,
+        },
+      ],
+      blocker: null,
+      runtime: { provider: "inline", model: "test", reasoning: "high", session_id: null },
+    });
+    assert.ok(
+      issues.some((entry) =>
+        /design_context is required for a current schema-v3 RFC/i.test(entry.message)
+      ),
+      JSON.stringify(issues, null, 2)
     );
   } finally {
     repo.cleanup();
@@ -815,6 +957,97 @@ test("intake rejects untraceable sources and non-string acceptance criteria", ()
   }
 });
 
+test("fresh legacy Markdown and Linear intake require and persist current design context", () => {
+  const repo = makeRepo();
+  try {
+    const markdownSession = createSession({ slug: "safe-approval", sourceDir: repo.root });
+    const base = {
+      source_kind: "proposal",
+      proposal_path: path.join(repo.root, "proposal.md"),
+      size: "M",
+      acceptance_criteria: ["AC-1 remains traceable"],
+      artifact_repo_root: repo.root,
+    };
+    assert.throws(
+      () => applyContext(markdownSession, base),
+      /legacy Markdown and Linear RFC intake require caller-confirmed design_context/i
+    );
+    assert.throws(
+      () => applyContext(markdownSession, { ...base, design_context: { ui_impact: false } }),
+      /design_context requires design_requirements/i
+    );
+
+    const expected = currentDesignContext();
+    const configured = applyContext(markdownSession, { ...base, design_context: expected });
+    assert.deepEqual(configured.context.design_context, expected);
+
+    const linear = applyContext(createSession({ slug: "safe-approval", sourceDir: repo.root }), {
+      source_kind: "linear-issue",
+      linear_id: "PM-123",
+      size: "M",
+      acceptance_criteria: ["AC-1 remains traceable"],
+      design_context: expected,
+      artifact_repo_root: repo.root,
+    });
+    assert.deepEqual(linear.context.design_context, expected);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("legacy-unbound in-flight RFC sessions recertify through an audited intake reset", () => {
+  const repo = makeRepo();
+  try {
+    let session = routedSession(repo);
+    session = recordResult(session, passed(session));
+    session.context.design_context = null;
+    session.authority.open_browser = true;
+    assert.deepEqual(validateSession(session), []);
+    assert.throws(
+      () => nextDecision(session, "/tmp/session.json"),
+      /legacy unbound design_context/
+    );
+
+    const recertified = recertifyContext(
+      session,
+      {
+        source_kind: "proposal",
+        proposal_path: path.join(repo.root, "proposal.md"),
+        size: "M",
+        acceptance_criteria: ["AC-1 remains traceable"],
+        design_context: currentDesignContext(),
+        artifact_repo_root: repo.root,
+      },
+      { now: "2026-09-05T09:00:00.000Z" }
+    );
+    assert.equal(recertified.phase, "intake");
+    assert.equal(recertified.status, "active");
+    assert.equal(recertified.context.configured, true);
+    assert.deepEqual(recertified.context.design_context, currentDesignContext());
+    assert.equal(recertified.artifact, null);
+    assert.equal(recertified.review.status, "not_started");
+    assert.equal(recertified.approval.status, "pending");
+    assert.equal(recertified.authority.open_browser, false);
+    assert.equal(recertified.execution.runtime_session_id, null);
+    assert.match(recertified.history.at(-1).reason, /recertification invalidated/i);
+    assert.equal(nextDecision(recertified, "/tmp/session.json").phase, "intake");
+    assert.throws(
+      () =>
+        recertifyContext(recertified, {
+          source_kind: "proposal",
+          proposal_path: path.join(repo.root, "proposal.md"),
+          size: "M",
+          acceptance_criteria: ["AC-1 remains traceable"],
+          design_context: currentDesignContext(),
+          artifact_repo_root: repo.root,
+        }),
+      /already current/
+    );
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test("intake derives RFC scope from trusted canonical proposal and rejects stale or contradictory input", () => {
   const repo = makeRepo();
   try {
@@ -912,6 +1145,17 @@ test("intake derives RFC scope from trusted canonical proposal and rejects stale
     assert.equal(configured.context.proposal_identity.trusted_approval, true);
     assert.equal(configured.context.proposal_identity.decision_id, approval.decision_id);
     assert.deepEqual(configured.context.design_context, proposal.design_context);
+
+    assert.throws(
+      () =>
+        applyContext(createSession({ slug: proposal.slug, sourceDir: repo.root }), {
+          source_kind: "proposal",
+          proposal_path: proposalPath,
+          design_context: proposal.design_context,
+          artifact_repo_root: repo.root,
+        }),
+      /canonical proposal design_context is derived.*omit the duplicate/i
+    );
 
     assert.throws(
       () =>
@@ -1184,6 +1428,7 @@ function routedSession(repo, options = {}) {
     proposal_path: path.join(repo.root, "proposal.md"),
     size: "M",
     acceptance_criteria: ["AC-1 remains traceable"],
+    design_context: currentDesignContext(),
     artifact_repo_root: repo.root,
   });
 }
@@ -1229,7 +1474,9 @@ function makeArtifact(repo, options = {}) {
       slug: "safe-approval",
       title: "Safe approval",
       size: "M",
-      ...(options.designContext ? { design_context: options.designContext } : {}),
+      ...(options.omitDesignContext
+        ? {}
+        : { design_context: options.designContext || currentDesignContext() }),
       issues: [
         {
           num: 1,

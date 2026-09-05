@@ -256,6 +256,7 @@ function canonicalOrigin(raw, label) {
   if (!["http:", "https:", "ws:", "wss:"].includes(parsed.protocol))
     throw new Error(`${label} must use http, https, ws, or wss`);
   if (parsed.username || parsed.password) throw new Error(`${label} cannot contain credentials`);
+  if (parsed.hostname.includes("*")) throw new Error(`${label} cannot contain wildcards`);
   if (parsed.pathname !== "/" || parsed.search || parsed.hash)
     throw new Error(`${label} must be an origin without path, query, or fragment`);
   return parsed.origin;

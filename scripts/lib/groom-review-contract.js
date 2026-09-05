@@ -120,6 +120,15 @@ const EVIDENCE_BOILERPLATE = new Set([
   "support",
 ]);
 
+const REVIEW_WORD_CHARACTER = /[\p{L}\p{M}\p{N}]/u;
+const REVIEW_NON_WORD_CHARACTERS = /[^\p{L}\p{M}\p{N}]+/gu;
+const REVIEW_NON_LATIN_LETTER = /[^\p{Script=Latin}\p{M}\p{N}]/u;
+const REVIEW_NO_SPACE_SCRIPT =
+  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Myanmar}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}]/u;
+const REVIEW_ASCII_TOKEN = /^[a-z0-9]+$/;
+const REVIEW_WORD_SEGMENTER = createReviewSegmenter("word");
+const REVIEW_GRAPHEME_SEGMENTER = createReviewSegmenter("grapheme");
+
 function questionTier(tier) {
   return tier === "agent" ? "full" : tier;
 }
@@ -139,22 +148,17 @@ function reviewQuestionForTier(tier, questionId) {
 
 function normalizeReviewText(value) {
   return typeof value === "string"
-    ? value
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, " ")
-        .trim()
+    ? value.normalize("NFKC").toLowerCase().replace(REVIEW_NON_WORD_CHARACTERS, " ").trim()
     : "";
 }
 
 function reviewTextTokens(value, extraStopWords = null) {
   return new Set(
-    normalizeReviewText(value)
-      .split(" ")
-      .filter(Boolean)
+    segmentReviewWords(normalizeReviewText(value))
       .map(stemReviewToken)
       .filter(
         (token) =>
-          token.length > 2 &&
+          reviewTokenIsMeaningful(token) &&
           !REVIEW_STOP_WORDS.has(token) &&
           !(extraStopWords && extraStopWords.has(token))
       )
@@ -162,11 +166,52 @@ function reviewTextTokens(value, extraStopWords = null) {
 }
 
 function stemReviewToken(token) {
+  if (!REVIEW_ASCII_TOKEN.test(token)) return token;
   if (token.length > 6 && token.endsWith("ing")) return token.slice(0, -3);
   if (token.length > 5 && token.endsWith("ed")) return token.slice(0, -2);
   if (token.length > 5 && token.endsWith("es")) return token.slice(0, -2);
   if (token.length > 4 && token.endsWith("s")) return token.slice(0, -1);
   return token;
+}
+
+function createReviewSegmenter(granularity) {
+  if (typeof Intl === "undefined" || typeof Intl.Segmenter !== "function") return null;
+  try {
+    return new Intl.Segmenter(undefined, { granularity });
+  } catch {
+    return null;
+  }
+}
+
+function segmentReviewWords(normalized) {
+  if (!normalized) return [];
+  if (REVIEW_WORD_SEGMENTER) {
+    const words = [...REVIEW_WORD_SEGMENTER.segment(normalized)]
+      .filter((entry) => entry.isWordLike && REVIEW_WORD_CHARACTER.test(entry.segment))
+      .map((entry) => entry.segment);
+    if (words.length > 1 || !REVIEW_NO_SPACE_SCRIPT.test(normalized)) return words;
+  }
+  return segmentReviewWordsFallback(normalized);
+}
+
+function segmentReviewWordsFallback(normalized) {
+  return normalized.split(/\s+/u).flatMap((run) => {
+    if (!REVIEW_NO_SPACE_SCRIPT.test(run)) return [run];
+    return segmentReviewGraphemes(run).filter((segment) => REVIEW_WORD_CHARACTER.test(segment));
+  });
+}
+
+function segmentReviewGraphemes(value) {
+  if (REVIEW_GRAPHEME_SEGMENTER) {
+    return [...REVIEW_GRAPHEME_SEGMENTER.segment(value)].map((entry) => entry.segment);
+  }
+  return Array.from(value);
+}
+
+function reviewTokenIsMeaningful(token) {
+  if (!REVIEW_WORD_CHARACTER.test(token)) return false;
+  if (REVIEW_NON_LATIN_LETTER.test(token)) return true;
+  return segmentReviewGraphemes(token).length > 2;
 }
 
 function reviewTextIsSubstantive(value, minimumLength = 32, minimumWords = 5) {

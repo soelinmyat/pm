@@ -3,9 +3,11 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
+const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { Worker } = require("node:worker_threads");
 const {
   capabilityOracleHash,
   capabilityScenarioId,
@@ -18,6 +20,11 @@ const {
 const {
   sealCapabilityAdjudication,
 } = require("../scripts/evals/design-critique-capability-adjudicate");
+const {
+  CAPABILITY_JSON_LIMITS,
+  encodeCapabilityJson,
+  readCapabilityJson,
+} = require("../scripts/evals/design-critique-capability-input");
 const { hashTree } = require("../scripts/evals/stage");
 
 function digest(bytes) {
@@ -96,7 +103,7 @@ function evidenceFixture(options = {}) {
     schema_version: 3,
     benchmark_id: "design-critique-hidden-v1",
     profile: { id: "sol-high", adapter: "codex", model: "gpt-5.6-sol", effort: "high" },
-    repeats: [1, 2, 3].map((repeat) => ({
+    repeats: (options.repeats || [1, 2, 3]).map((repeat) => ({
       repeat,
       cases: expected.cases.map((item, caseIndex) => {
         const scenarioId = capabilityScenarioId(item.id, "sol-high", repeat);
@@ -426,6 +433,133 @@ function judgmentsFromFixture(fixture, repeatIndex = 0) {
   };
 }
 
+function exactSizeJson(size) {
+  const prefix = '{"payload":"';
+  const suffix = '"}';
+  return `${prefix}${"x".repeat(size - Buffer.byteLength(prefix) - Buffer.byteLength(suffix))}${suffix}`;
+}
+
+function inflateFixtureFinding(fixture, repeatIndex, summaryLength) {
+  const row = fixture.report.repeats[repeatIndex].cases.find(
+    (item) => item.case_id === "defect-case"
+  );
+  const summary = `Finding ${"x".repeat(summaryLength - "Finding ".length)}`;
+  const ledgerPath = path.join(fixture.root, row.candidate_findings.path);
+  const ledger = JSON.parse(fs.readFileSync(ledgerPath, "utf8"));
+  ledger.findings[0].summary = summary;
+  fs.writeFileSync(ledgerPath, `${JSON.stringify(ledger, null, 2)}\n`);
+  row.candidate_findings.sha256 = digest(fs.readFileSync(ledgerPath));
+  row.findings[0].summary = summary;
+
+  const adjudicationPath = path.join(fixture.root, row.adjudication.path);
+  const adjudication = JSON.parse(fs.readFileSync(adjudicationPath, "utf8"));
+  adjudication.evidence.candidate_findings_sha256 = row.candidate_findings.sha256;
+  adjudication.findings = structuredClone(row.findings);
+  fs.writeFileSync(adjudicationPath, `${JSON.stringify(adjudication, null, 2)}\n`);
+  row.adjudication.sha256 = digest(fs.readFileSync(adjudicationPath));
+}
+
+function stableArtifactSnapshot(rootDir, report) {
+  return new Map(
+    report.repeats.flatMap((repeat) =>
+      repeat.cases.flatMap((row) =>
+        [row.fix_verification.path, row.adjudication.path].map((relativePath) => [
+          relativePath,
+          fs.readFileSync(path.join(rootDir, relativePath)),
+        ])
+      )
+    )
+  );
+}
+
+function startAdjudicationWorker(workerData) {
+  const worker = new Worker(
+    `
+      "use strict";
+      const crypto = require("node:crypto");
+      const { parentPort, workerData } = require("node:worker_threads");
+      const { sealCapabilityAdjudication } = require(workerData.modulePath);
+      const digest = (value) =>
+        "sha256:" + crypto.createHash("sha256").update(value).digest("hex");
+      const fakeFixVerifier = ({ oracleCase }) =>
+        oracleCase.defects.map((defect) => ({
+          oracle_id: defect.id,
+          fix_oracle_sha256: digest(defect.fix_oracle),
+          verification_sha256: digest("verification:" + defect.id),
+          status: "pass",
+        }));
+      try {
+        const sealed = sealCapabilityAdjudication({
+          rootDir: workerData.rootDir,
+          oracle: workerData.oracle,
+          capture: workerData.capture,
+          judgments: workerData.judgments,
+          reportPath: workerData.reportPath,
+          fixVerifier: fakeFixVerifier,
+          testingHooks: {
+            beforePublicationLock() {
+              parentPort.postMessage({ type: "before-lock" });
+            },
+            afterReportLoad() {
+              if (!workerData.holdAfterLoad) return;
+              parentPort.postMessage({ type: "after-load" });
+              while (Atomics.load(workerData.release, 0) === 0) {
+                Atomics.wait(workerData.release, 0, 0, 1000);
+              }
+            },
+          },
+        });
+        parentPort.postMessage({
+          type: "done",
+          repeats: sealed.report.repeats.map((item) => item.repeat),
+        });
+      } catch (error) {
+        parentPort.postMessage({ type: "failure", message: error.stack || error.message });
+      }
+    `,
+    { eval: true, workerData }
+  );
+  const received = [];
+  const waiters = [];
+  let failure = null;
+  worker.on("message", (message) => {
+    if (message.type === "failure") failure = new Error(message.message);
+    const waiterIndex = waiters.findIndex((waiter) => waiter.type === message.type);
+    if (waiterIndex >= 0) {
+      const [waiter] = waiters.splice(waiterIndex, 1);
+      clearTimeout(waiter.timer);
+      if (failure) waiter.reject(failure);
+      else waiter.resolve(message);
+    } else {
+      received.push(message);
+    }
+  });
+  worker.on("error", (error) => {
+    failure = error;
+    for (const waiter of waiters.splice(0)) {
+      clearTimeout(waiter.timer);
+      waiter.reject(error);
+    }
+  });
+  return {
+    waitFor(type) {
+      if (failure) return Promise.reject(failure);
+      const index = received.findIndex((message) => message.type === type);
+      if (index >= 0) return Promise.resolve(received.splice(index, 1)[0]);
+      return new Promise((resolve, reject) => {
+        const waiter = { type, resolve, reject, timer: null };
+        waiter.timer = setTimeout(() => {
+          const index = waiters.indexOf(waiter);
+          if (index >= 0) waiters.splice(index, 1);
+          reject(new Error(`timed out waiting for adjudication worker event ${type}`));
+        }, 10_000);
+        waiters.push(waiter);
+      });
+    },
+    worker,
+  };
+}
+
 test("oracle-withheld capability schemas are closed and validated", () => {
   assert.deepEqual(validateCapabilityOracle(oracle()), []);
   const fixture = evidenceFixture();
@@ -447,6 +581,42 @@ test("oracle-withheld capability schemas are closed and validated", () => {
     /schema_version 1 cannot support candidate-ledger and oracle-isolation claims.*rerun/i
   );
   fixture.cleanup();
+});
+
+test("capability JSON inputs accept exact ceilings and reject the next byte", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pm-capability-json-limit-"));
+  try {
+    for (const [kind, limit] of Object.entries(CAPABILITY_JSON_LIMITS)) {
+      const target = path.join(directory, `${kind}.json`);
+      fs.writeFileSync(target, exactSizeJson(limit));
+      assert.equal(readCapabilityJson(target, kind).payload.length > 0, true, kind);
+      fs.appendFileSync(target, " ");
+      assert.throws(
+        () => readCapabilityJson(target, kind),
+        /safe boundary|bounded regular JSON file/,
+        `${kind} must reject ${limit + 1} bytes`
+      );
+    }
+
+    const target = path.join(directory, "target.json");
+    const link = path.join(directory, "oracle-link.json");
+    fs.writeFileSync(target, "{}\n");
+    fs.symlinkSync(target, link);
+    assert.throws(() => readCapabilityJson(link, "oracle"), /safe boundary/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("capability JSON output encoding enforces the report read ceiling exactly", () => {
+  const limit = CAPABILITY_JSON_LIMITS.report;
+  const framingBytes = Buffer.byteLength(`${JSON.stringify({ payload: "" }, null, 2)}\n`);
+  const exact = encodeCapabilityJson({ payload: "x".repeat(limit - framingBytes) }, "report");
+  assert.equal(exact.length, limit);
+  assert.throws(
+    () => encodeCapabilityJson({ payload: "x".repeat(limit - framingBytes + 1) }, "report"),
+    /report JSON output exceeds.*safe boundary/i
+  );
 });
 
 test("capability scoring measures quality but keeps unverified isolation nonclaimable", () => {
@@ -536,6 +706,747 @@ test("adjudication sealing derives report rows from an exact capture and oracle"
     /claimed_fixed requires a conclusive fix-verification/
   );
   fixture.cleanup();
+});
+
+test("adjudication rejects a traversal profile before creating publication files", () => {
+  const fixture = evidenceFixture();
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pm-capability-profile-escape-"));
+  try {
+    const capture = captureFromFixture(fixture);
+    const profileBase = path.join(
+      fixture.root,
+      "eval-results",
+      "capabilities",
+      "design-critique",
+      "fix-verification",
+      fixture.oracle.benchmark_id
+    );
+    const traversal = path.relative(profileBase, outside).replaceAll(path.sep, "/");
+    capture.profile.id = traversal;
+    capture.requested_profile.id = traversal;
+    const reportPath = path.join(fixture.root, "traversal-report.json");
+
+    assert.throws(
+      () =>
+        sealCapabilityAdjudication({
+          rootDir: fixture.root,
+          oracle: fixture.oracle,
+          capture,
+          judgments: judgmentsFromFixture(fixture),
+          reportPath,
+          fixVerifier: fakeFixVerifier,
+        }),
+      /capture\.profile\.id must be a lowercase slug/
+    );
+    assert.equal(fs.existsSync(reportPath), false);
+    assert.deepEqual(fs.readdirSync(outside), []);
+  } finally {
+    fs.rmSync(outside, { recursive: true, force: true });
+    fixture.cleanup();
+  }
+});
+
+test("adjudication rejects a symlinked publication parent without writing through it", () => {
+  const fixture = evidenceFixture();
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pm-capability-parent-link-"));
+  const capabilities = path.join(fixture.root, "eval-results", "capabilities");
+  try {
+    fs.rmSync(capabilities, { recursive: true, force: true });
+    fs.symlinkSync(outside, capabilities, "dir");
+    const reportPath = path.join(fixture.root, "symlink-report.json");
+
+    assert.throws(
+      () =>
+        sealCapabilityAdjudication({
+          rootDir: fixture.root,
+          oracle: fixture.oracle,
+          capture: captureFromFixture(fixture),
+          judgments: judgmentsFromFixture(fixture),
+          reportPath,
+          fixVerifier: fakeFixVerifier,
+        }),
+      /capability publication parent must be a real directory inside the root/
+    );
+    assert.equal(fs.existsSync(reportPath), false);
+    assert.deepEqual(fs.readdirSync(outside), []);
+  } finally {
+    fs.rmSync(outside, { recursive: true, force: true });
+    fixture.cleanup();
+  }
+});
+
+test("adjudication rejects an out-of-root report before creating its lock or report", () => {
+  const fixture = evidenceFixture();
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pm-capability-report-escape-"));
+  try {
+    const reportPath = path.join(outside, "report.json");
+    assert.throws(
+      () =>
+        sealCapabilityAdjudication({
+          rootDir: fixture.root,
+          oracle: fixture.oracle,
+          capture: captureFromFixture(fixture),
+          judgments: judgmentsFromFixture(fixture),
+          reportPath,
+          fixVerifier: fakeFixVerifier,
+        }),
+      /capability report path must be a file inside the root directory/
+    );
+    assert.deepEqual(fs.readdirSync(outside), []);
+  } finally {
+    fs.rmSync(outside, { recursive: true, force: true });
+    fixture.cleanup();
+  }
+});
+
+test("adjudication rejects a symlinked report parent before creating a lock", () => {
+  const fixture = evidenceFixture();
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pm-capability-report-link-"));
+  try {
+    const linkedParent = path.join(fixture.root, "linked-reports");
+    fs.symlinkSync(outside, linkedParent, "dir");
+    assert.throws(
+      () =>
+        sealCapabilityAdjudication({
+          rootDir: fixture.root,
+          oracle: fixture.oracle,
+          capture: captureFromFixture(fixture),
+          judgments: judgmentsFromFixture(fixture),
+          reportPath: path.join(linkedParent, "report.json"),
+          fixVerifier: fakeFixVerifier,
+        }),
+      /capability report path must be a file inside the root directory/
+    );
+    assert.deepEqual(fs.readdirSync(outside), []);
+  } finally {
+    fs.rmSync(outside, { recursive: true, force: true });
+    fixture.cleanup();
+  }
+});
+
+test("adjudication rejects unsafe existing report files before lock acquisition", () => {
+  const fixture = evidenceFixture();
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pm-capability-report-target-"));
+  try {
+    const target = path.join(outside, "target.json");
+    const targetBytes = Buffer.from("external report must remain unchanged\n");
+    fs.writeFileSync(target, targetBytes, { mode: 0o600 });
+    const linkedReport = path.join(fixture.root, "linked-report.json");
+    fs.symlinkSync(target, linkedReport);
+    assert.throws(
+      () =>
+        sealCapabilityAdjudication({
+          rootDir: fixture.root,
+          oracle: fixture.oracle,
+          capture: captureFromFixture(fixture),
+          judgments: judgmentsFromFixture(fixture),
+          reportPath: linkedReport,
+          fixVerifier: fakeFixVerifier,
+        }),
+      /capability report path must be a canonical regular file inside the root/
+    );
+    assert.deepEqual(fs.readFileSync(target), targetBytes);
+    assert.equal(fs.existsSync(`${linkedReport}.lock`), false);
+
+    const publicReport = path.join(fixture.root, "public-report.json");
+    fs.writeFileSync(publicReport, "{}\n", { mode: 0o600 });
+    fs.chmodSync(publicReport, 0o644);
+    assert.throws(
+      () =>
+        sealCapabilityAdjudication({
+          rootDir: fixture.root,
+          oracle: fixture.oracle,
+          capture: captureFromFixture(fixture),
+          judgments: judgmentsFromFixture(fixture),
+          reportPath: publicReport,
+          fixVerifier: fakeFixVerifier,
+        }),
+      /existing capability report must use private file permissions/
+    );
+    assert.equal(fs.existsSync(`${publicReport}.lock`), false);
+  } finally {
+    fs.rmSync(outside, { recursive: true, force: true });
+    fixture.cleanup();
+  }
+});
+
+test("adjudication leaves an unrelated adjacent report lock file untouched", () => {
+  const fixture = evidenceFixture();
+  const reportPath = path.join(fixture.root, "report-with-unrelated-lock.json");
+  const adjacentPath = `${reportPath}.lock`;
+  const sentinel = Buffer.from("unrelated application state\n");
+  fs.writeFileSync(adjacentPath, sentinel, { mode: 0o600 });
+  const old = new Date(Date.now() - 10_000);
+  fs.utimesSync(adjacentPath, old, old);
+  try {
+    const sealed = sealCapabilityAdjudication({
+      rootDir: fixture.root,
+      oracle: fixture.oracle,
+      capture: captureFromFixture(fixture),
+      judgments: judgmentsFromFixture(fixture),
+      reportPath,
+      fixVerifier: fakeFixVerifier,
+    });
+
+    assert.equal(sealed.reportPath, fs.realpathSync(reportPath));
+    assert.deepEqual(fs.readFileSync(adjacentPath), sentinel);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("adjudication rejects every bound capture input as a report target before side effects", () => {
+  const cases = [
+    ["fixture", (row) => row.fixture.path],
+    ["source identity", (row) => row.source_identity.path],
+    ["runtime profile", (row) => row.run.runtime_profile.path],
+    ["run verdict", (row) => row.run.verdict.path],
+    ["normalized transcript", (row) => row.normalized_transcript.path],
+    ["candidate output", (row) => row.candidate_output.path],
+    ["candidate findings", (row) => row.candidate_findings.path],
+    ["oracle isolation", (row) => row.oracle_isolation.path],
+    [
+      "oracle isolation policy",
+      (row, fixture) => {
+        const isolation = JSON.parse(
+          fs.readFileSync(path.join(fixture.root, row.oracle_isolation.path), "utf8")
+        );
+        return isolation.bindings.policy.path;
+      },
+    ],
+    ["post subject", (row) => row.post_subject.path],
+    [
+      "retained runtime tree",
+      (row) => `eval-results/runs/${row.run.run_id}/runtime/pm/runtime-marker.txt`,
+    ],
+  ];
+
+  for (const [name, selectPath] of cases) {
+    const fixture = evidenceFixture();
+    const capture = captureFromFixture(fixture);
+    const target = path.join(fixture.root, selectPath(capture.cases[0], fixture));
+    const sentinel = fs.readFileSync(target);
+    fs.chmodSync(target, 0o600);
+    let reachedLockHook = false;
+    try {
+      assert.throws(
+        () =>
+          sealCapabilityAdjudication({
+            rootDir: fixture.root,
+            oracle: fixture.oracle,
+            capture,
+            judgments: judgmentsFromFixture(fixture),
+            reportPath: target,
+            fixVerifier: fakeFixVerifier,
+            testingHooks: {
+              beforePublicationLock() {
+                reachedLockHook = true;
+              },
+            },
+          }),
+        /capability report path conflicts with a protected input or publication namespace/,
+        name
+      );
+      assert.equal(reachedLockHook, false, name);
+      assert.deepEqual(fs.readFileSync(target), sentinel, name);
+    } finally {
+      fixture.cleanup();
+    }
+  }
+});
+
+test("adjudication CLI preserves oracle capture and judgments inputs used as report targets", () => {
+  const script = path.join(
+    __dirname,
+    "..",
+    "scripts",
+    "evals",
+    "design-critique-capability-adjudicate.js"
+  );
+  for (const input of ["oracle", "capture", "judgments"]) {
+    const fixture = evidenceFixture();
+    const paths = {
+      oracle: path.join(fixture.root, "oracle-input.json"),
+      capture: path.join(fixture.root, "capture-input.json"),
+      judgments: path.join(fixture.root, "judgments-input.json"),
+    };
+    fs.writeFileSync(paths.oracle, `${JSON.stringify(fixture.oracle, null, 2)}\n`, { mode: 0o600 });
+    fs.writeFileSync(paths.capture, `${JSON.stringify(captureFromFixture(fixture), null, 2)}\n`, {
+      mode: 0o600,
+    });
+    fs.writeFileSync(
+      paths.judgments,
+      `${JSON.stringify(judgmentsFromFixture(fixture), null, 2)}\n`,
+      { mode: 0o600 }
+    );
+    const sentinel = fs.readFileSync(paths[input]);
+    try {
+      const result = spawnSync(
+        process.execPath,
+        [
+          script,
+          "--root",
+          fixture.root,
+          "--oracle",
+          paths.oracle,
+          "--capture",
+          paths.capture,
+          "--judgments",
+          paths.judgments,
+          "--report",
+          paths[input],
+        ],
+        { encoding: "utf8" }
+      );
+
+      assert.equal(result.status, 1, input);
+      assert.match(
+        result.stderr,
+        /capability report path conflicts with a protected input or publication namespace/,
+        input
+      );
+      assert.deepEqual(fs.readFileSync(paths[input]), sentinel, input);
+    } finally {
+      fixture.cleanup();
+    }
+  }
+});
+
+test("adjudication CLI preserves an oracle input placed in the global lock namespace", () => {
+  const fixture = evidenceFixture();
+  const oraclePath = path.join(
+    fixture.root,
+    "eval-results/capabilities/design-critique/.adjudication-publication.lock"
+  );
+  const capturePath = path.join(fixture.root, "capture-input.json");
+  const judgmentsPath = path.join(fixture.root, "judgments-input.json");
+  const reportPath = path.join(fixture.root, "separate-report.json");
+  fs.writeFileSync(oraclePath, `${JSON.stringify(fixture.oracle, null, 2)}\n`, { mode: 0o600 });
+  fs.writeFileSync(capturePath, `${JSON.stringify(captureFromFixture(fixture), null, 2)}\n`, {
+    mode: 0o600,
+  });
+  fs.writeFileSync(judgmentsPath, `${JSON.stringify(judgmentsFromFixture(fixture), null, 2)}\n`, {
+    mode: 0o600,
+  });
+  const sentinel = fs.readFileSync(oraclePath);
+  const old = new Date(Date.now() - 10_000);
+  fs.utimesSync(oraclePath, old, old);
+  try {
+    const result = spawnSync(
+      process.execPath,
+      [
+        path.join(__dirname, "..", "scripts", "evals", "design-critique-capability-adjudicate.js"),
+        "--root",
+        fixture.root,
+        "--oracle",
+        oraclePath,
+        "--capture",
+        capturePath,
+        "--judgments",
+        judgmentsPath,
+        "--report",
+        reportPath,
+      ],
+      { encoding: "utf8" }
+    );
+
+    assert.equal(result.status, 1);
+    assert.match(
+      result.stderr,
+      /protected capability input conflicts with a publication namespace/
+    );
+    assert.deepEqual(fs.readFileSync(oraclePath), sentinel);
+    assert.equal(fs.existsSync(reportPath), false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("adjudication rejects immutable publication and coordination report namespaces before side effects", () => {
+  const cases = [
+    {
+      name: "planned fix verification",
+      reportPath(fixture) {
+        return path.join(fixture.root, fixture.report.repeats[0].cases[0].fix_verification.path);
+      },
+    },
+    {
+      name: "planned adjudication",
+      reportPath(fixture) {
+        return path.join(fixture.root, fixture.report.repeats[0].cases[0].adjudication.path);
+      },
+    },
+    {
+      name: "unplanned path in immutable tree",
+      reportPath(fixture) {
+        return path.join(
+          fixture.root,
+          "eval-results/capabilities/design-critique/fix-verification/private-report.json"
+        );
+      },
+    },
+    {
+      name: "global publication lock",
+      reportPath(fixture) {
+        return path.join(
+          fixture.root,
+          "eval-results/capabilities/design-critique/.adjudication-publication.lock"
+        );
+      },
+    },
+    {
+      name: "global publication lock candidate",
+      reportPath(fixture) {
+        return path.join(
+          fixture.root,
+          "eval-results/capabilities/design-critique/.adjudication-publication.lock.candidate-planted"
+        );
+      },
+    },
+    {
+      name: "global publication lock recovery successor",
+      reportPath(fixture) {
+        return path.join(
+          fixture.root,
+          "eval-results/capabilities/design-critique/.adjudication-publication.lock.reclaim.next-planted"
+        );
+      },
+    },
+    {
+      name: "global publication lock atomic temporary",
+      reportPath(fixture) {
+        return path.join(
+          fixture.root,
+          "eval-results/capabilities/design-critique/..adjudication-publication.lock.candidate-planted.tmp-planted"
+        );
+      },
+    },
+    {
+      name: "report lock aliases global publication lock",
+      reportPath(fixture) {
+        return path.join(
+          fixture.root,
+          "eval-results/capabilities/design-critique/.adjudication-publication"
+        );
+      },
+    },
+  ];
+
+  for (const item of cases) {
+    const fixture = evidenceFixture();
+    const capture = captureFromFixture(fixture);
+    const judgments = judgmentsFromFixture(fixture);
+    const capabilityRoot = path.join(fixture.root, "eval-results", "capabilities");
+    fs.rmSync(capabilityRoot, { recursive: true, force: true });
+    let reachedLockHook = false;
+    try {
+      assert.throws(
+        () =>
+          sealCapabilityAdjudication({
+            rootDir: fixture.root,
+            oracle: fixture.oracle,
+            capture,
+            judgments,
+            reportPath: item.reportPath(fixture),
+            fixVerifier: fakeFixVerifier,
+            testingHooks: {
+              beforePublicationLock() {
+                reachedLockHook = true;
+              },
+            },
+          }),
+        /capability report path conflicts with a protected input or publication namespace/,
+        item.name
+      );
+      assert.equal(reachedLockHook, false, item.name);
+      assert.equal(fs.existsSync(capabilityRoot), false, item.name);
+    } finally {
+      fixture.cleanup();
+    }
+  }
+});
+
+test("adjudication validates source and transcript bindings before immutable publication", () => {
+  const cases = [
+    {
+      name: "dirty source identity",
+      mutate(fixture, capture) {
+        const row = capture.cases[0];
+        const target = path.join(fixture.root, row.source_identity.path);
+        const identity = JSON.parse(fs.readFileSync(target, "utf8"));
+        identity.dirty = true;
+        fs.writeFileSync(target, `${JSON.stringify(identity, null, 2)}\n`);
+        row.source_identity.sha256 = digest(fs.readFileSync(target));
+      },
+      expected: /source_identity\.dirty must be false/i,
+    },
+    {
+      name: "malformed normalized transcript",
+      mutate(fixture, capture) {
+        const row = capture.cases[0];
+        const target = path.join(fixture.root, row.normalized_transcript.path);
+        fs.writeFileSync(target, "{not-json}\n");
+        row.normalized_transcript.sha256 = digest(fs.readFileSync(target));
+      },
+      expected: /normalized_transcript must be valid non-empty JSONL/i,
+    },
+  ];
+
+  for (const item of cases) {
+    const fixture = evidenceFixture();
+    const capture = captureFromFixture(fixture);
+    const judgments = judgmentsFromFixture(fixture);
+    const reportPath = path.join(fixture.root, `${item.name.replaceAll(" ", "-")}-report.json`);
+    const prospectiveArtifacts = fixture.report.repeats[0].cases.flatMap((row) => [
+      path.join(fixture.root, row.fix_verification.path),
+      path.join(fixture.root, row.adjudication.path),
+    ]);
+    for (const artifactPath of prospectiveArtifacts) fs.rmSync(artifactPath);
+    item.mutate(fixture, capture);
+    try {
+      assert.throws(
+        () =>
+          sealCapabilityAdjudication({
+            rootDir: fixture.root,
+            oracle: fixture.oracle,
+            capture,
+            judgments,
+            reportPath,
+            fixVerifier: fakeFixVerifier,
+          }),
+        item.expected,
+        item.name
+      );
+      assert.equal(fs.existsSync(reportPath), false, item.name);
+      assert.equal(fs.existsSync(`${reportPath}.lock`), false, item.name);
+      for (const artifactPath of prospectiveArtifacts) {
+        assert.equal(fs.existsSync(artifactPath), false, `${item.name}: ${artifactPath}`);
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  }
+});
+
+test("adjudication append protects retained report inputs before publishing the new repeat", () => {
+  const fixture = evidenceFixture();
+  const retainedRow = fixture.report.repeats[0].cases[0];
+  const reportPath = path.join(
+    fixture.root,
+    "eval-results",
+    "runs",
+    retainedRow.run.run_id,
+    "runtime",
+    "pm",
+    "retained-report.json"
+  );
+  const initialReport = {
+    ...structuredClone(fixture.report),
+    repeats: [structuredClone(fixture.report.repeats[0])],
+  };
+  const initialBytes = encodeCapabilityJson(initialReport, "report");
+  fs.writeFileSync(reportPath, initialBytes, { mode: 0o600 });
+  const prospectiveArtifacts = fixture.report.repeats[1].cases.flatMap((row) => [
+    path.join(fixture.root, row.fix_verification.path),
+    path.join(fixture.root, row.adjudication.path),
+  ]);
+  for (const artifactPath of prospectiveArtifacts) fs.rmSync(artifactPath);
+  try {
+    assert.throws(
+      () =>
+        sealCapabilityAdjudication({
+          rootDir: fixture.root,
+          oracle: fixture.oracle,
+          capture: captureFromFixture(fixture, 1),
+          judgments: judgmentsFromFixture(fixture, 1),
+          reportPath,
+          fixVerifier: fakeFixVerifier,
+        }),
+      /capability report path conflicts with a protected input or publication namespace/
+    );
+    assert.deepEqual(fs.readFileSync(reportPath), initialBytes);
+    for (const artifactPath of prospectiveArtifacts) {
+      assert.equal(fs.existsSync(artifactPath), false, artifactPath);
+    }
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("divergent same-repeat adjudication cannot overwrite a sealed artifact namespace", () => {
+  const fixture = evidenceFixture();
+  const capture = captureFromFixture(fixture);
+  const judgments = judgmentsFromFixture(fixture);
+  const winnerPath = path.join(fixture.root, "winner-report.json");
+  const loserPath = path.join(fixture.root, "loser-report.json");
+  try {
+    for (const row of fixture.report.repeats[0].cases) {
+      fs.rmSync(path.join(fixture.root, row.fix_verification.path));
+      fs.rmSync(path.join(fixture.root, row.adjudication.path));
+    }
+    const winner = sealCapabilityAdjudication({
+      rootDir: fixture.root,
+      oracle: fixture.oracle,
+      capture,
+      judgments,
+      reportPath: winnerPath,
+      fixVerifier: fakeFixVerifier,
+    });
+    const winnerReportBytes = fs.readFileSync(winnerPath);
+    const winnerArtifacts = stableArtifactSnapshot(fixture.root, winner.report);
+
+    const divergent = structuredClone(judgments);
+    divergent.cases.find((item) => item.case_id === "defect-case").mappings[0].location_correct =
+      false;
+    assert.throws(
+      () =>
+        sealCapabilityAdjudication({
+          rootDir: fixture.root,
+          oracle: fixture.oracle,
+          capture,
+          judgments: divergent,
+          reportPath: winnerPath,
+          fixVerifier: fakeFixVerifier,
+        }),
+      /already contains repeat 1/
+    );
+    assert.throws(
+      () =>
+        sealCapabilityAdjudication({
+          rootDir: fixture.root,
+          oracle: fixture.oracle,
+          capture,
+          judgments: divergent,
+          reportPath: loserPath,
+          fixVerifier: fakeFixVerifier,
+        }),
+      /sealed capability artifact conflicts with existing bytes/
+    );
+
+    assert.equal(fs.existsSync(loserPath), false);
+    assert.deepEqual(fs.readFileSync(winnerPath), winnerReportBytes);
+    for (const [relativePath, bytes] of winnerArtifacts) {
+      assert.deepEqual(fs.readFileSync(path.join(fixture.root, relativePath)), bytes);
+    }
+    assert.deepEqual(
+      validateCapabilityReport(
+        readCapabilityJson(winnerPath, "report"),
+        fixture.oracle,
+        evidenceOptions(fixture.root)
+      ),
+      []
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("concurrent adjudications serialize report updates without losing repeats", async () => {
+  const fixture = evidenceFixture();
+  const reportPath = path.join(fixture.root, "contended-report.json");
+  const publicationLock = path.join(
+    fixture.root,
+    "eval-results/capabilities/design-critique/.adjudication-publication.lock"
+  );
+  const release = new Int32Array(new SharedArrayBuffer(4));
+  const modulePath = require.resolve("../scripts/evals/design-critique-capability-adjudicate");
+  const first = startAdjudicationWorker({
+    modulePath,
+    rootDir: fixture.root,
+    oracle: fixture.oracle,
+    capture: captureFromFixture(fixture, 0),
+    judgments: judgmentsFromFixture(fixture, 0),
+    reportPath,
+    holdAfterLoad: true,
+    release,
+  });
+  let second;
+  try {
+    await first.waitFor("after-load");
+    second = startAdjudicationWorker({
+      modulePath,
+      rootDir: fixture.root,
+      oracle: fixture.oracle,
+      capture: captureFromFixture(fixture, 1),
+      judgments: judgmentsFromFixture(fixture, 1),
+      reportPath,
+      holdAfterLoad: false,
+      release,
+    });
+    await second.waitFor("before-lock");
+    assert.equal(fs.existsSync(publicationLock), true);
+    assert.equal(fs.existsSync(`${reportPath}.lock`), false);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    Atomics.store(release, 0, 1);
+    Atomics.notify(release, 0);
+    await Promise.all([first.waitFor("done"), second.waitFor("done")]);
+
+    const report = readCapabilityJson(reportPath, "report");
+    assert.deepEqual(
+      report.repeats.map((item) => item.repeat),
+      [1, 2]
+    );
+    assert.deepEqual(
+      validateCapabilityReport(report, fixture.oracle, evidenceOptions(fixture.root)),
+      []
+    );
+  } finally {
+    Atomics.store(release, 0, 1);
+    Atomics.notify(release, 0);
+    await Promise.allSettled([first.worker.terminate(), second?.worker.terminate()]);
+    fixture.cleanup();
+  }
+});
+
+test("adjudication rejects a boundary-crossing report append before artifact publication", () => {
+  const fixture = evidenceFixture({ repeats: [1, 2, 3, 4] });
+  const reportPath = path.join(fixture.root, "near-limit-report.json");
+  try {
+    for (let index = 0; index < fixture.report.repeats.length; index += 1) {
+      inflateFixtureFinding(fixture, index, 2_090_000);
+    }
+    const initialReport = {
+      ...structuredClone(fixture.report),
+      repeats: structuredClone(fixture.report.repeats.slice(0, 3)),
+    };
+    const initialBytes = encodeCapabilityJson(initialReport, "report");
+    assert.ok(initialBytes.length < CAPABILITY_JSON_LIMITS.report);
+    assert.throws(
+      () => encodeCapabilityJson(fixture.report, "report"),
+      /report JSON output exceeds.*safe boundary/i
+    );
+    fs.writeFileSync(reportPath, initialBytes, { mode: 0o600 });
+    assert.deepEqual(
+      validateCapabilityReport(initialReport, fixture.oracle, evidenceOptions(fixture.root)),
+      []
+    );
+
+    const nextRepeat = fixture.report.repeats[3];
+    const prospectiveArtifacts = nextRepeat.cases.flatMap((row) => [
+      path.join(fixture.root, row.fix_verification.path),
+      path.join(fixture.root, row.adjudication.path),
+    ]);
+    for (const artifactPath of prospectiveArtifacts) fs.rmSync(artifactPath);
+
+    assert.throws(
+      () =>
+        sealCapabilityAdjudication({
+          rootDir: fixture.root,
+          oracle: fixture.oracle,
+          capture: captureFromFixture(fixture, 3),
+          judgments: judgmentsFromFixture(fixture, 3),
+          reportPath,
+          fixVerifier: fakeFixVerifier,
+        }),
+      /report JSON output exceeds.*safe boundary/i
+    );
+    assert.deepEqual(fs.readFileSync(reportPath), initialBytes);
+    for (const artifactPath of prospectiveArtifacts) {
+      assert.equal(fs.existsSync(artifactPath), false, artifactPath);
+    }
+  } finally {
+    fixture.cleanup();
+  }
 });
 
 test("adjudication rejects invented incomplete duplicate and semantically false mappings", () => {

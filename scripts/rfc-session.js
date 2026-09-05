@@ -13,6 +13,7 @@ const {
   hashResult,
   migrateLegacyMarkdown,
   nextDecision,
+  recertifyContext,
   recordResult,
   resumeBlocked,
   reviseSession,
@@ -39,6 +40,7 @@ function main(argv = process.argv.slice(2)) {
     if (command === "approval-audit") return approvalAuditCommand(options);
     if (command === "authorize") return authorizeCommand(options);
     if (command === "migrate") return migrateCommand(options);
+    if (command === "recertify") return recertifyCommand(options);
     if (command === "revise") return reviseCommand(options);
     if (command === "unblock") return unblockCommand(options);
     throw cliError(`unknown command: ${command}`, EXIT.INVALID);
@@ -204,6 +206,11 @@ function authorizeCommand(options) {
 function reviseCommand(options) {
   requireOptions(options, ["session", "reason"]);
   return mutateSession(options, (session) => reviseSession(session, { reason: options.reason }));
+}
+
+function recertifyCommand(options) {
+  requireOptions(options, ["session", "facts"]);
+  return mutateSession(options, (session) => recertifyContext(session, readJson(options.facts)));
 }
 
 function unblockCommand(options) {

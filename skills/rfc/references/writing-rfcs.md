@@ -166,9 +166,9 @@ The sidecar is a projection of the render, not a second source of truth: it carr
 | `slug`, `title`, `size` | RFC identity — `slug` equals the RFC slug; `size` is canonical uppercase XS/S/M/L/XL |
 | `issues[]` | Executable work units: `{ num, title, size, depends_on[], owns[], acceptance_criteria[], approach, verification_commands[], test_hooks[] }` — mirrors the `.issue-detail` cards and is sufficient to build the Dev work-unit DAG without reparsing HTML |
 | `test_strategy` | `{ test_levels, new_infrastructure, regression_surface, verification_commands, open_questions }` — mirrors the `.test-strategy-block` bodies |
-| `design_context` | Closed approved experience contract with design requirements, explicit `ui_impact`, prototype identity, critical states, `experience_invariants`, and conditional `visual_invariants`. Nonvisual work uses `prototype: null` and an empty visual array. Multi-file prototypes add a complete tree manifest. RFC and Dev preserve and recompute it verbatim. |
+| `design_context` | Closed intake-bound experience contract with design requirements, explicit `ui_impact`, prototype identity, critical states, `experience_invariants`, and conditional `visual_invariants`. Nonvisual work uses `prototype: null` and an empty visual array. Multi-file prototypes add a complete tree manifest. RFC and Dev preserve and recompute it verbatim. |
 
-**Sidecar↔HTML binding.** The HTML root carries `data-sidecar-hash="sha256:{hash-of-json-bytes}"`. This ties the render to its sidecar so drift is detectable. `scripts/rfc-sidecar-check.js --html` verifies the attribute matches the sidecar bytes; `--slug` verifies `slug`.
+**Sidecar↔HTML binding.** The HTML root carries `data-sidecar-hash="sha256:{hash-of-json-bytes}"`. This ties the render to its sidecar so drift is detectable. `scripts/rfc-sidecar-check.js --html` verifies the attribute matches the sidecar bytes; `--slug` verifies `slug`; `--current-handoff` rejects legacy schemas and requires the complete current context before execution.
 
 **Canonical consumer rule (the one halt policy):**
 

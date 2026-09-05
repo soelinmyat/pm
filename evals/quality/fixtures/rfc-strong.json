@@ -3,6 +3,22 @@
   "slug": "export-job-recovery",
   "title": "Durable recovery for asynchronous export jobs",
   "size": "M",
+  "design_context": {
+    "design_requirements": [
+      "Make queued, running, retryable, terminal, and operator-blocked export states distinguishable.",
+      "Expose the last durable checkpoint and a server-derived recovery action without leaking internal errors."
+    ],
+    "ui_impact": true,
+    "prototype": null,
+    "critical_states": ["queued", "running", "retryable failure", "terminal failure", "complete"],
+    "experience_invariants": [
+      "Every state explains whether the user should wait, retry, or contact an operator.",
+      "A stale client can never present a successful retry after a newer terminal transition."
+    ],
+    "visual_invariants": [
+      "Current status and the one valid recovery action remain visible together at narrow widths."
+    ]
+  },
   "issues": [
     {
       "num": 1,

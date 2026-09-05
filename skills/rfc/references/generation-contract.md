@@ -30,7 +30,7 @@ Follow `writing-rfcs.md` as the canonical document and sidecar contract. Preserv
 - `.issue-detail`, `.issue-detail-num`, `.issue-detail-title`, `.issue-detail-size`;
 - `.test-strategy`, `.test-strategy-block`, and `.hooks-badge`.
 
-The paired JSON sidecar uses schema version 3 for identity, executable issue work units (`depends_on`, `owns`, acceptance criteria, approach, verification commands, and test hooks), and the five test-strategy fields. Schema v2 remains readable as a legacy, non-executable compatibility shape. `scripts/rfc-sidecar-check.js` is the executable schema/hash/slug gate.
+The paired JSON sidecar uses schema version 3 for identity, the intake-bound closed `design_context`, executable issue work units (`depends_on`, `owns`, acceptance criteria, approach, verification commands, and test hooks), and the five test-strategy fields. Schema v2 remains readable as a legacy, non-executable compatibility shape; it must be recertified through intake before generation, approval, or Dev handoff. `scripts/rfc-sidecar-check.js --current-handoff` is the executable schema/context/hash/slug gate.
 
 ## Worker result
 

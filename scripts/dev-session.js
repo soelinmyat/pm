@@ -296,6 +296,7 @@ function routeCommand(options) {
       facts = {
         ...facts,
         reference: facts.reference ?? rfcSidecarPath,
+        design_context: structuredClone(rfcSidecar.design_context),
         work_units: rfcIssuesToDevWorkUnits(rfcSidecar, { repoRoot: rfcRepoRoot }),
       };
     } catch (error) {
@@ -372,7 +373,11 @@ function recordCommand(options) {
       }
     }
     const session = readSession(sessionPath);
-    verifyRfcSidecarIdentity(session.task.rfc_sidecar);
+    verifyRfcSidecarIdentity(
+      session.task.rfc_sidecar,
+      session.task.design_context,
+      session.task.work_units
+    );
     const resultHash = hashResult(result);
     if (session.history.at(-1)?.result_hash === resultHash) {
       let idempotentSession = session;
@@ -647,7 +652,13 @@ function mutateSession(sessionPath, mutation, options = {}) {
   const releaseLock = acquireSessionLock(sessionPath);
   try {
     const session = readSession(sessionPath);
-    if (!options.allowSidecarRebind) verifyRfcSidecarIdentity(session.task.rfc_sidecar);
+    if (!options.allowSidecarRebind) {
+      verifyRfcSidecarIdentity(
+        session.task.rfc_sidecar,
+        session.task.design_context,
+        session.task.work_units
+      );
+    }
     const updated = mutation(session);
     writeSession(sessionPath, updated);
     return updated;

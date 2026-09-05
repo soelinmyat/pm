@@ -72,15 +72,29 @@ function validateRfcSidecar(sidecar, sidecarPath = DEFAULT_SIDECAR_PATH, opts = 
   }
   validateIssues(sidecar.issues, sidecarPath, issues, sidecar.schema_version);
   validateTestStrategy(sidecar.test_strategy, sidecarPath, issues);
-  if (sidecar.schema_version === SCHEMA_VERSION && sidecar.design_context !== undefined) {
-    try {
-      validateDesignContext(sidecar.design_context, "design_context", {
-        repoRoot: opts.repoRoot,
-        requireCurrentPrototypeIdentity: opts.requireCurrentDesignContext,
-        requireExperienceClassification: opts.requireCurrentDesignContext,
-      });
-    } catch (error) {
-      issues.push(issue(sidecarPath, error.message));
+  if (opts.requireCurrentDesignContext && sidecar.schema_version !== SCHEMA_VERSION) {
+    issues.push(
+      issue(
+        sidecarPath,
+        `schema_version ${sidecar.schema_version} is legacy-readable only; a current RFC lifecycle requires schema_version ${SCHEMA_VERSION} with design_context`
+      )
+    );
+  }
+  if (sidecar.schema_version === SCHEMA_VERSION) {
+    if (opts.requireCurrentDesignContext && sidecar.design_context === undefined) {
+      issues.push(
+        issue(sidecarPath, "design_context is required for a current schema-v3 RFC lifecycle")
+      );
+    } else if (sidecar.design_context !== undefined) {
+      try {
+        validateDesignContext(sidecar.design_context, "design_context", {
+          repoRoot: opts.repoRoot,
+          requireCurrentPrototypeIdentity: opts.requireCurrentDesignContext,
+          requireExperienceClassification: opts.requireCurrentDesignContext,
+        });
+      } catch (error) {
+        issues.push(issue(sidecarPath, error.message));
+      }
     }
   }
   if (
@@ -89,7 +103,7 @@ function validateRfcSidecar(sidecar, sidecarPath = DEFAULT_SIDECAR_PATH, opts = 
     !isDeepStrictEqual(sidecar.design_context, opts.expectedDesignContext)
   ) {
     issues.push(
-      issue(sidecarPath, "design_context must match the approved proposal execution contract")
+      issue(sidecarPath, "design_context must match the intake-bound RFC execution contract")
     );
   }
 
@@ -320,6 +334,8 @@ function parseArgs(argv) {
       opts.expectedSlug = requireValue(argv, ++index, arg);
     } else if (arg === "--repo-root") {
       opts.repoRoot = requireValue(argv, ++index, arg);
+    } else if (arg === "--current-handoff") {
+      opts.requireCurrentDesignContext = true;
     } else if (arg === "--json") {
       opts.json = true;
     } else if (arg === "--help" || arg === "-h") {
@@ -333,12 +349,13 @@ function parseArgs(argv) {
 
 function usage() {
   return [
-    "Usage: node scripts/rfc-sidecar-check.js --sidecar PATH [--html PATH] [--slug NAME] [--repo-root PATH] [--json]",
+    "Usage: node scripts/rfc-sidecar-check.js --sidecar PATH [--html PATH] [--slug NAME] [--repo-root PATH] [--current-handoff] [--json]",
     "",
     "Validates the RFC JSON sidecar at {pm_dir}/backlog/rfcs/{slug}.json.",
     "--html verifies the HTML's data-sidecar-hash matches the sidecar bytes.",
     "--slug asserts the sidecar's slug field equals NAME.",
     "--repo-root recomputes any prototype binding from repository bytes.",
+    "--current-handoff rejects legacy sidecars and enforces the complete current design context.",
     `Required schema_version: ${SCHEMA_VERSION}`,
   ].join("\n");
 }
@@ -391,6 +408,7 @@ function main(argv = process.argv.slice(2)) {
     ? path.resolve(opts.repoRoot)
     : findGitRoot(path.dirname(sidecarPath));
   if (repoRoot) validateOpts.repoRoot = repoRoot;
+  if (opts.requireCurrentDesignContext) validateOpts.requireCurrentDesignContext = true;
   if (opts.expectedSlug !== undefined && opts.expectedSlug !== null) {
     validateOpts.expectedSlug = opts.expectedSlug;
   }

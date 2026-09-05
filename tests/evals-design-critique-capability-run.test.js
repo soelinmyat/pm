@@ -7,16 +7,71 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const vm = require("node:vm");
 
 const { _private, runCapabilityBatch } = require("../scripts/evals/design-critique-capability-run");
 const { validateOracleIsolationEvidence } = require("../scripts/evals/design-critique-capability");
 const {
+  CHECKS,
   assertSafePostSubject,
   validateVerifierCoverage,
   verifyPostSubject,
 } = require("../evals/capabilities/design-critique/verify");
 
 const ROOT = path.resolve(__dirname, "..");
+
+async function evaluateStateVerifier(checkId, transitions) {
+  let elapsed = 0;
+  let clicked = false;
+  let nextTransition = 0;
+  const notice = { textContent: "" };
+  const email = { value: "" };
+  const submit = {
+    disabled: false,
+    ariaDisabled: null,
+    getAttribute(name) {
+      return name === "aria-disabled" ? this.ariaDisabled : null;
+    },
+    click() {
+      clicked = true;
+      applyTransitions();
+    },
+  };
+
+  function applyTransitions() {
+    if (!clicked) return;
+    while (nextTransition < transitions.length && transitions[nextTransition].at <= elapsed) {
+      const transition = transitions[nextTransition];
+      if (Object.prototype.hasOwnProperty.call(transition, "notice")) {
+        notice.textContent = transition.notice;
+      }
+      if (Object.prototype.hasOwnProperty.call(transition, "disabled")) {
+        submit.disabled = transition.disabled;
+      }
+      if (Object.prototype.hasOwnProperty.call(transition, "ariaDisabled")) {
+        submit.ariaDisabled = transition.ariaDisabled;
+      }
+      nextTransition += 1;
+    }
+  }
+
+  return vm.runInNewContext(CHECKS[checkId].expression, {
+    Date: { now: () => elapsed },
+    document: {
+      querySelector(selector) {
+        if (selector === "#team-email") return email;
+        if (selector === "button[type=submit]") return submit;
+        if (selector === "#notice") return notice;
+        return null;
+      },
+    },
+    setTimeout(resolve, delay) {
+      elapsed += delay;
+      applyTransitions();
+      resolve();
+    },
+  });
+}
 
 test("dedicated capability runner binds candidate findings and honest isolation evidence", () => {
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-capability-batch-"));
@@ -298,6 +353,154 @@ test("host fix verifier covers every withheld oracle and accepts the inert fixtu
   for (const item of oracle.cases) {
     assert.doesNotThrow(() => assertSafePostSubject(path.join(ROOT, item.fixture_ref)), item.id);
   }
+});
+
+test("repeat-submit verification requires bounded settlement and re-enables the control", async () => {
+  assert.equal(
+    await evaluateStateVerifier("loading-allows-repeat-submit", [
+      { at: 0, notice: "Saving settings", disabled: true },
+      { at: 150, notice: "Settings saved", disabled: false },
+    ]),
+    true
+  );
+  assert.equal(
+    await evaluateStateVerifier("loading-allows-repeat-submit", [
+      { at: 0, notice: "Saving settings", disabled: true },
+      { at: 150, notice: "Settings saved", disabled: true },
+    ]),
+    false,
+    "a permanently disabled submit control is not a completed fix"
+  );
+  assert.equal(
+    await evaluateStateVerifier("loading-allows-repeat-submit", [
+      { at: 0, notice: "Saving settings", ariaDisabled: "true" },
+      { at: 150, notice: "Settings saved", ariaDisabled: null },
+    ]),
+    false,
+    "aria-disabled alone does not prevent a native repeat activation"
+  );
+  assert.equal(
+    await evaluateStateVerifier("loading-allows-repeat-submit", [
+      { at: 0, notice: "Saving settings" },
+      { at: 50, disabled: true },
+      { at: 150, notice: "Settings saved", disabled: false },
+    ]),
+    false,
+    "a delayed native disable leaves a synchronous repeat-activation window"
+  );
+  assert.equal(
+    await evaluateStateVerifier("loading-allows-repeat-submit", [
+      { at: 0, notice: "Saving settings", disabled: true },
+      { at: 150, notice: "Unable to save settings", disabled: false },
+    ]),
+    false,
+    "an enabled error state is not a successful settlement"
+  );
+  assert.equal(
+    await evaluateStateVerifier("loading-allows-repeat-submit", [
+      { at: 0, notice: "Saving settings", disabled: true },
+      { at: 150, notice: "Changes not saved", disabled: false },
+    ]),
+    false,
+    "negated saved text is not a successful settlement"
+  );
+  for (const message of [
+    "Nothing was saved",
+    "No settings were saved",
+    "Settings were not successfully saved",
+    "The setting wasn't saved",
+    "Settings weren't saved",
+    "The setting isn't saved",
+    "Settings aren't saved",
+    "The setting wasn’t saved",
+    "Settings weren’t saved",
+    "The setting isn’t saved",
+    "Settings aren’t saved",
+  ]) {
+    assert.equal(
+      await evaluateStateVerifier("loading-allows-repeat-submit", [
+        { at: 0, notice: "Saving settings", disabled: true },
+        { at: 150, notice: message, disabled: false },
+      ]),
+      false,
+      `${message} is not a successful settlement`
+    );
+  }
+});
+
+test("success-feedback verification rejects pending and error states", async () => {
+  assert.equal(
+    await evaluateStateVerifier("success-feedback-ephemeral", [
+      { at: 0, notice: "Saving settings", disabled: true },
+      { at: 150, notice: "Settings saved", disabled: false },
+    ]),
+    true
+  );
+  assert.equal(
+    await evaluateStateVerifier("success-feedback-ephemeral", [
+      { at: 0, notice: "Saving settings", disabled: true },
+    ]),
+    false,
+    "a persistent pending label is not success feedback"
+  );
+  assert.equal(
+    await evaluateStateVerifier("success-feedback-ephemeral", [
+      { at: 0, notice: "Saving settings", disabled: true },
+      { at: 150, notice: "Unable to save settings", disabled: false },
+    ]),
+    false,
+    "an error label is not success feedback"
+  );
+  assert.equal(
+    await evaluateStateVerifier("success-feedback-ephemeral", [
+      { at: 0, notice: "Saving settings", disabled: true },
+      { at: 150, notice: "Update unsuccessful", disabled: false },
+    ]),
+    false,
+    "unsuccessful text is not success feedback"
+  );
+  for (const message of [
+    "Nothing was saved",
+    "No settings were saved",
+    "Settings were not successfully saved",
+    "The setting wasn't saved",
+    "Settings weren't saved",
+    "The setting isn't saved",
+    "Settings aren't saved",
+    "The setting wasn’t saved",
+    "Settings weren’t saved",
+    "The setting isn’t saved",
+    "Settings aren’t saved",
+  ]) {
+    assert.equal(
+      await evaluateStateVerifier("success-feedback-ephemeral", [
+        { at: 0, notice: "Saving settings", disabled: true },
+        { at: 150, notice: message, disabled: false },
+      ]),
+      false,
+      `${message} is not success feedback`
+    );
+  }
+  assert.equal(
+    await evaluateStateVerifier("success-feedback-ephemeral", [
+      { at: 0, notice: "Saving settings", disabled: true },
+      { at: 150, notice: "Settings saved", disabled: false },
+      { at: 900, notice: "" },
+      { at: 1_100, notice: "Settings saved" },
+    ]),
+    false,
+    "success feedback must remain continuously visible rather than disappear and reappear"
+  );
+  assert.equal(
+    await evaluateStateVerifier("success-feedback-ephemeral", [
+      { at: 0, notice: "Saving settings", disabled: true },
+      { at: 150, notice: "Settings saved", disabled: false },
+      { at: 900, notice: "Update completed successfully" },
+      { at: 2_100, notice: "Changes updated" },
+    ]),
+    true,
+    "clearly successful copy may change during the persistence interval"
+  );
 });
 
 test("fix verification probes a private inert snapshot with outbound networking disabled", () => {
