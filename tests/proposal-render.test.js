@@ -77,6 +77,7 @@ test("proposal renderer is byte-deterministic and binds both projections to cano
   assert.match(first.html, /12 sections · expand for evidence/);
   assert.match(first.html, /Review must finish before approval/);
   assert.ok(first.html.indexOf('id="decision-action"') < first.html.indexOf('class="tldr"'));
+  assert.doesNotMatch(first.html, /\.closing\b|class="closing"/);
   assert.match(
     first.html,
     /Proposal <strong>Draft<\/strong>[\s\S]*Review <strong>Pending<\/strong>[\s\S]*Approval <strong>Blocked<\/strong>/

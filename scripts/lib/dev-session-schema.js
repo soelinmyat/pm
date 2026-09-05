@@ -462,12 +462,21 @@ function validateTask(task, errors) {
   }
   validateProposalIdentity(task.proposal, errors);
   if (task.design_context !== undefined && task.design_context !== null) {
-    try {
-      const contractPath = task.proposal?.path || task.rfc_sidecar?.path;
-      const repoRoot = contractPath ? findGitRoot(path.dirname(contractPath)) : null;
-      validateDesignContext(task.design_context, "task design_context", { repoRoot });
-    } catch (error) {
-      errors.push(issue("$.task.design_context", error.message));
+    const contractPath = task.proposal?.path || task.rfc_sidecar?.path;
+    if (!contractPath) {
+      errors.push(
+        issue(
+          "$.task.design_context",
+          "must be null without approved proposal or RFC sidecar provenance"
+        )
+      );
+    } else {
+      try {
+        const repoRoot = findGitRoot(path.dirname(contractPath));
+        validateDesignContext(task.design_context, "task design_context", { repoRoot });
+      } catch (error) {
+        errors.push(issue("$.task.design_context", error.message));
+      }
     }
   }
   if (typeof task.kind !== "string" || !task.kind) errors.push(issue("$.task.kind", "required"));
@@ -488,6 +497,17 @@ function validateTask(task, errors) {
   } else {
     try {
       const contractPath = task.rfc_sidecar?.path || task.proposal?.path;
+      if (
+        !contractPath &&
+        task.work_units.some(
+          (unit) =>
+            unit?.contract?.design_context !== undefined && unit?.contract?.design_context !== null
+        )
+      ) {
+        throw new Error(
+          "work-unit design_context requires approved proposal or RFC sidecar provenance"
+        );
+      }
       const repoRoot = contractPath ? findGitRoot(path.dirname(contractPath)) : null;
       validateWorkUnits(task.work_units, { persisted: true, repoRoot });
     } catch (error) {
@@ -1909,6 +1929,20 @@ function applyRouting(session, facts, options = {}) {
       decision_id: canonical.approval.decision_id,
       decision_sha256: canonical.approval.decision_sha256,
     };
+  }
+  const hasDesignContract = Boolean(proposalIdentity || options.rfcSidecar);
+  if (
+    !hasDesignContract &&
+    ((effectiveFacts.design_context !== undefined && effectiveFacts.design_context !== null) ||
+      (Array.isArray(effectiveFacts.work_units) &&
+        effectiveFacts.work_units.some(
+          (unit) =>
+            unit?.contract?.design_context !== undefined && unit?.contract?.design_context !== null
+        )))
+  ) {
+    throw new Error(
+      "non-proposal Dev design_context requires approved proposal or RFC sidecar provenance"
+    );
   }
   const effectiveDesignContext = proposalDesignContext || effectiveFacts.design_context || null;
   if (effectiveDesignContext) {

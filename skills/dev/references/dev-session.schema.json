@@ -257,6 +257,21 @@
         "cross_module": { "type": "integer", "minimum": 0, "maximum": 3 }
       }
     },
+    "design_context_provenance": {
+      "type": "object",
+      "anyOf": [
+        {
+          "type": "object",
+          "required": ["proposal"],
+          "properties": { "proposal": { "type": "object" } }
+        },
+        {
+          "type": "object",
+          "required": ["rfc_sidecar"],
+          "properties": { "rfc_sidecar": { "type": "object" } }
+        }
+      ]
+    },
     "task": {
       "type": "object",
       "additionalProperties": false,
@@ -334,7 +349,37 @@
         "risk_tier": { "type": "string", "minLength": 1 },
         "acceptance_criteria": { "type": "array", "items": { "type": "string" } },
         "work_units": { "type": "array", "items": { "$ref": "#/$defs/work_unit" } }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": ["design_context"],
+            "properties": { "design_context": { "type": "object" } }
+          },
+          "then": { "$ref": "#/$defs/design_context_provenance" }
+        },
+        {
+          "if": {
+            "required": ["work_units"],
+            "properties": {
+              "work_units": {
+                "type": "array",
+                "contains": {
+                  "type": "object",
+                  "required": ["contract"],
+                  "properties": {
+                    "contract": {
+                      "type": "object",
+                      "required": ["design_context"]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "then": { "$ref": "#/$defs/design_context_provenance" }
+        }
+      ]
     },
     "work_unit_transition": {
       "type": "object",

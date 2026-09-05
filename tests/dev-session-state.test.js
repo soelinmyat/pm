@@ -106,6 +106,65 @@ test("applyRouting persists observed risk and prevents kind from erasing safegua
   }
 });
 
+test("non-proposal Dev routes reject design context without bound provenance", () => {
+  const repo = makeRepo();
+  try {
+    const forgedDesignContext = {
+      design_requirements: ["Keep the primary action visible."],
+      ui_impact: true,
+      prototype: {
+        path: "wireframes/nonexistent.html",
+        sha256: `sha256:${"a".repeat(64)}`,
+      },
+      critical_states: ["loading", "empty", "error", "success"],
+      experience_invariants: ["Every state keeps the next action understandable."],
+      visual_invariants: ["The primary action remains visually dominant."],
+    };
+    const session = createSession({ slug: "unbound-design-context", sourceDir: repo.root });
+    assert.throws(
+      () =>
+        applyRouting(session, {
+          kind: "task",
+          size: "S",
+          risk: {},
+          design_context: forgedDesignContext,
+          work_units: [],
+        }),
+      /design_context requires approved proposal or RFC sidecar provenance/
+    );
+
+    const routed = applyRouting(session, {
+      kind: "task",
+      size: "S",
+      risk: {},
+      work_units: [],
+    });
+    assert.equal(routed.task.design_context, null);
+    const forgedPersistedSession = structuredClone(routed);
+    forgedPersistedSession.task.design_context = forgedDesignContext;
+    assert.ok(
+      validateSession(forgedPersistedSession).some(
+        (entry) =>
+          entry.path === "$.task.design_context" &&
+          /must be null without approved proposal or RFC sidecar provenance/.test(entry.message)
+      )
+    );
+    if (Ajv2020 && addFormats) {
+      const schema = JSON.parse(
+        fs.readFileSync(
+          path.resolve(__dirname, "..", "skills", "dev", "references", "dev-session.schema.json"),
+          "utf8"
+        )
+      );
+      const ajv = new Ajv2020({ allErrors: true, strict: false });
+      addFormats(ajv);
+      assert.equal(ajv.compile(schema)(forgedPersistedSession), false);
+    }
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test("applyRouting rejects invalid work-unit dependencies before persisting intake", () => {
   const repo = makeRepo();
   try {
