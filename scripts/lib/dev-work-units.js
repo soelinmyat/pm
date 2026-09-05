@@ -707,7 +707,7 @@ function validateSelfContainedPrototype(bytes, label) {
     }
     if (
       tag.name === "meta" &&
-      attributeValue(tag.attrs, ["http-equiv"])?.trim().toLowerCase() === "refresh"
+      hasUnsafeRefreshDirective(attributeValue(tag.attrs, ["http-equiv"]))
     ) {
       throw new Error(
         `${label} single-file HTML contains a refresh/navigation directive; remove it or use an index.html prototype tree`
@@ -818,7 +818,7 @@ function validateBundledMarkupDependencies(bytes, relativePath, manifestPaths) {
     }
     if (
       tag.name === "meta" &&
-      attributeValue(tag.attrs, ["http-equiv"])?.trim().toLowerCase() === "refresh"
+      hasUnsafeRefreshDirective(attributeValue(tag.attrs, ["http-equiv"]))
     ) {
       throw new Error(
         `prototype manifest ${relativePath} contains an unsupported refresh/navigation directive`
@@ -875,7 +875,10 @@ function validateBundledCssDependencies(css, relativePath, manifestPaths) {
 
 function validateBundledResourceTarget(value, sourcePath, manifestPaths, context) {
   const target = String(value).trim();
-  if (/(?:&(?:#|[a-z])|[\t\r\n])/i.test(target)) throw new Error("unsupported resource encoding");
+  if (/(?:&(?:#|[a-z])|[\t\r\n])/i.test(target))
+    throw new Error(
+      `prototype manifest ${sourcePath} contains unsupported resource encoding ${JSON.stringify(target)}`
+    );
   if (target === "" || target.startsWith("#") || target.startsWith("?")) return;
   if (/^data:/i.test(target)) {
     if (inertDataResourceTarget(target, context)) return;
@@ -945,7 +948,7 @@ function cssResourceTargets(css) {
 }
 
 function normalizeCssForDependencyInspection(value) {
-  const source = String(value);
+  const source = String(value).replace(/\\(?:\r\n|[\n\r\f])/g, "");
   let output = "";
   let quote = null;
   for (let index = 0; index < source.length; index += 1) {
@@ -976,6 +979,17 @@ function normalizeCssForDependencyInspection(value) {
       String.fromCodePoint(Number.parseInt(hex, 16))
     )
     .replace(/\\([^\r\n0-9a-f])/gi, "$1");
+}
+
+function hasUnsafeRefreshDirective(value) {
+  const token = String(value ?? "")
+    .replace(/&#(?:x([0-9a-f]+)|([0-9]+));?/gi, (entity, hex, decimal) => {
+      const codePoint = Number.parseInt(hex ?? decimal, hex === undefined ? 10 : 16);
+      return codePoint <= 0x7f ? String.fromCodePoint(codePoint) : entity;
+    })
+    .replace(/&(?:tab|newline);/gi, " ")
+    .trim();
+  return /^refresh$/i.test(token);
 }
 
 function inlineResourceTarget(value, context) {

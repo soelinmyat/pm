@@ -515,6 +515,38 @@ test("single-file HTML cannot hide mutable local dependencies behind its entry h
   }
 });
 
+test("prototype identities reject HTML-encoded refresh directives", () => {
+  const project = tempProject();
+  try {
+    const encodedRefresh =
+      '<meta http-equiv="&#114;efresh" content="0;url=state.html"><main>Refresh</main>\n';
+    const singlePath = "pm/backlog/wireframes/encoded-refresh.html";
+    write(project.root, singlePath, encodedRefresh);
+    assert.throws(
+      () => buildPrototypeIdentity(singlePath, project.root),
+      /refresh\/navigation directive/i,
+      "single-file encoded refresh directive"
+    );
+
+    const prototypePath = writeMultiFilePrototype(project.root);
+    write(project.root, "pm/backlog/wireframes/account-settings/index.html", encodedRefresh);
+    assert.throws(
+      () => buildPrototypeIdentity(prototypePath, project.root),
+      /index\.html.*refresh\/navigation directive/i,
+      "bundled encoded refresh directive"
+    );
+
+    const encodedContentType =
+      '<meta http-equiv="content&#45;type" content="text/html;charset=utf-8"><main>Safe</main>\n';
+    write(project.root, singlePath, encodedContentType);
+    assert.doesNotThrow(() => buildPrototypeIdentity(singlePath, project.root));
+    write(project.root, "pm/backlog/wireframes/account-settings/index.html", encodedContentType);
+    assert.doesNotThrow(() => buildPrototypeIdentity(prototypePath, project.root));
+  } finally {
+    project.cleanup();
+  }
+});
+
 test("prototype identities reject unbound bundle dependencies and unsupported active entries", () => {
   const project = tempProject();
   try {
@@ -635,7 +667,7 @@ test("prototype identities reject active data URIs but accept inert image media"
     );
     assert.throws(
       () => buildPrototypeIdentity(prototypePath, project.root),
-      /unsupported (?:encoded )?resource/i,
+      /index\.html.*&#100;&#97;&#116;&#97;&#58;/i,
       "HTML-encoded data scheme"
     );
 
@@ -655,6 +687,21 @@ test("prototype identities reject active data URIs but accept inert image media"
       /unsupported data resource/i,
       "comment-separated CSS import"
     );
+
+    for (const [name, newline] of [
+      ["LF", "\n"],
+      ["CRLF", "\r\n"],
+      ["CR", "\r"],
+      ["form-feed", "\f"],
+    ]) {
+      const continuedCssData = cssData.replace("data:", ["da\\", `${newline}ta:`].join(""));
+      write(project.root, `${prefix}/base.css`, `@import "${continuedCssData}";\n`);
+      assert.throws(
+        () => buildPrototypeIdentity(prototypePath, project.root),
+        /unsupported data resource/i,
+        `${name} CSS string continuation`
+      );
+    }
 
     write(project.root, `${prefix}/base.css`, `@import "${cssData}";\n`);
     assert.throws(
