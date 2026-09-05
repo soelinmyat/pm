@@ -938,6 +938,105 @@ test("project write lock uses a project-identity namespace outside the project t
   }
 });
 
+test("project writer preserves exact root and file identities above Number.MAX_SAFE_INTEGER", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-write-bigint-identity-"));
+  const preload = path.join(root, "bigint-identity-preload.cjs");
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.writeFileSync(
+    preload,
+    `
+      const fs = require("node:fs");
+      const path = require("node:path");
+      const originalStat = fs.statSync;
+      const originalFstat = fs.fstatSync;
+      const originalLstat = fs.lstatSync;
+      fs.statSync = function(target, options) {
+        const stat = originalStat.call(fs, target, options);
+        if (
+          options?.bigint === true &&
+          path.resolve(String(target)) === process.env.PM_TEST_IDENTITY_ROOT
+        ) {
+          stat.dev = BigInt(process.env.PM_TEST_IDENTITY_DEV);
+          stat.ino =
+            BigInt(process.env.PM_TEST_IDENTITY_INO) +
+            (process.argv.includes("--child") && process.env.PM_TEST_IDENTITY_MISMATCH === "1"
+              ? 1n
+              : 0n);
+        }
+        return stat;
+      };
+      fs.fstatSync = function(descriptor, options) {
+        const stat = originalFstat.call(fs, descriptor, options);
+        if (process.argv.includes("--child") && process.env.PM_TEST_FILE_IDENTITY_TARGET) {
+          const bigint = options?.bigint === true;
+          stat.dev = bigint ? 9007199254740992n : Number(9007199254740992n);
+          stat.ino = bigint ? 9007199254740992n : Number(9007199254740992n);
+        }
+        return stat;
+      };
+      fs.lstatSync = function(target, options) {
+        const stat = originalLstat.call(fs, target, options);
+        if (
+          process.argv.includes("--child") &&
+          String(target) === process.env.PM_TEST_FILE_IDENTITY_TARGET
+        ) {
+          const bigint = options?.bigint === true;
+          const inode =
+            9007199254740992n +
+            (process.env.PM_TEST_FILE_IDENTITY_MISMATCH === "1" ? 1n : 0n);
+          stat.dev = bigint ? 9007199254740992n : Number(9007199254740992n);
+          stat.ino = bigint ? inode : Number(inode);
+        }
+        return stat;
+      };
+    `
+  );
+  const script = `
+    const [root, writer, relative] = process.argv.slice(1);
+    try {
+      const state = require(writer).writeProjectTextAtomic(root, relative, "lossless");
+      process.stdout.write(JSON.stringify({ state }));
+    } catch (error) {
+      process.stdout.write(JSON.stringify({ error: error.message }));
+    }
+  `;
+  const run = (relative, rootMismatch = false, fileIdentity = false, fileMismatch = false) => {
+    const result = spawnSync(process.execPath, ["-e", script, root, writerModule, relative], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        NODE_OPTIONS: `--require=${preload}`,
+        PM_TEST_IDENTITY_ROOT: fs.realpathSync(root),
+        PM_TEST_IDENTITY_DEV: "9007199254740993",
+        PM_TEST_IDENTITY_INO: "9007199254740995",
+        PM_TEST_IDENTITY_MISMATCH: rootMismatch ? "1" : "0",
+        PM_TEST_FILE_IDENTITY_TARGET: fileIdentity ? relative : "",
+        PM_TEST_FILE_IDENTITY_MISMATCH: fileMismatch ? "1" : "0",
+      },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    return JSON.parse(result.stdout);
+  };
+
+  const exact = run("exact.json", false);
+  assert.equal(exact.error, undefined);
+  assert.equal(exact.state.committed, true);
+  assert.equal(fs.readFileSync(path.join(root, "exact.json"), "utf8"), "lossless");
+
+  const rootMismatch = run("root-mismatch.json", true);
+  assert.match(rootMismatch.error, /project root changed before anchored output write/);
+  assert.equal(fs.existsSync(path.join(root, "root-mismatch.json")), false);
+
+  const exactFile = run("exact-file.json", false, true);
+  assert.equal(exactFile.error, undefined);
+  assert.equal(exactFile.state.committed, true);
+  assert.equal(fs.readFileSync(path.join(root, "exact-file.json"), "utf8"), "lossless");
+
+  const fileMismatch = run("file-mismatch.json", false, true, true);
+  assert.match(fileMismatch.error, /committed but verification failed/);
+  assert.equal(fs.readFileSync(path.join(root, "file-mismatch.json"), "utf8"), "lossless");
+});
+
 test("project writer normalizes portable separators before child publication and attestation", (t) => {
   if (path.sep === "\\") return t.skip("POSIX separator regression");
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-write-separators-"));

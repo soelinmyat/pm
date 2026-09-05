@@ -969,7 +969,7 @@ function assertAnchoredDirectoryParent(
 function writeFromAnchoredRoot(relativePath, content, options = {}) {
   validateRelative(relativePath);
   const projectRoot = fs.realpathSync(".");
-  const rootStat = fs.statSync(".");
+  const rootStat = fs.statSync(".", { bigint: true });
   if (
     options.expectedRootDev !== undefined &&
     (String(rootStat.dev) !== String(options.expectedRootDev) ||
@@ -1000,20 +1000,20 @@ function writeFromAnchoredRoot(relativePath, content, options = {}) {
         (fs.constants.O_NOFOLLOW || 0),
       options.fileMode ?? 0o666
     );
-    opened = fs.fstatSync(descriptor);
+    opened = fs.fstatSync(descriptor, { bigint: true });
     fs.writeFileSync(descriptor, content);
     fs.fsyncSync(descriptor);
-    const anchoredRoot = fs.statSync(projectRoot);
+    const anchoredRoot = fs.statSync(projectRoot, { bigint: true });
     if (anchoredRoot.dev !== rootStat.dev || anchoredRoot.ino !== rootStat.ino)
       throw new Error("project root changed before input attestation");
     attestProjectInputs(projectRoot, options.attestations || []);
-    const recheckedRoot = fs.statSync(projectRoot);
+    const recheckedRoot = fs.statSync(projectRoot, { bigint: true });
     if (recheckedRoot.dev !== rootStat.dev || recheckedRoot.ino !== rootStat.ino)
       throw new Error("project root changed during input attestation");
     if (typeof options.beforeCommit === "function") options.beforeCommit();
     if (options.finalAttestation)
       attestProjectInputs(".", [{ ...options.finalAttestation, path: basename }]);
-    const commitRoot = fs.statSync(projectRoot);
+    const commitRoot = fs.statSync(projectRoot, { bigint: true });
     if (commitRoot.dev !== rootStat.dev || commitRoot.ino !== rootStat.ino)
       throw new Error("project root changed before atomic commit");
     let reused = false;
@@ -1055,7 +1055,7 @@ function writeFromAnchoredRoot(relativePath, content, options = {}) {
       };
     }
     committed = true;
-    const finalStat = fs.lstatSync(basename);
+    const finalStat = fs.lstatSync(basename, { bigint: true });
     if (
       finalStat.isSymbolicLink() ||
       !finalStat.isFile() ||
@@ -1084,7 +1084,7 @@ function writeFromAnchoredRoot(relativePath, content, options = {}) {
       }
     if (!committed && opened)
       try {
-        const cleanup = fs.lstatSync(temporary);
+        const cleanup = fs.lstatSync(temporary, { bigint: true });
         if (
           cleanup.isSymbolicLink() ||
           !cleanup.isFile() ||
