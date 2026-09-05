@@ -716,6 +716,279 @@ test("prototype identities inspect legacy and interaction-triggered fetch attrib
   }
 });
 
+test("prototype identities fail closed for URL-list fetch attributes", () => {
+  const project = tempProject();
+  try {
+    const singlePath = "pm/backlog/wireframes/url-list-attributes.html";
+    const prototypePath = writeMultiFilePrototype(project.root);
+    const bundledIndex = "pm/backlog/wireframes/account-settings/index.html";
+    const remote = "https://example.test/audit";
+    const activeCases = [
+      ["space-separated anchor ping", `<a href="#detail" ping="#local ${remote}">Open</a>`],
+      ["encoded-space area ping", `<map><area href="#detail" ping="#local&#32;${remote}"></map>`],
+      [
+        "link image candidate list",
+        `<link rel="preload" as="image" imagesrcset="${remote}/small.png 1x, ${remote}/large.png 2x">`,
+      ],
+      [
+        "source image candidate list",
+        `<picture><source srcset="${remote}/small.png 1x, ${remote}/large.png 2x"></picture>`,
+      ],
+    ];
+
+    for (const [name, markup] of activeCases) {
+      write(project.root, singlePath, `${markup}<section id="detail">Detail</section>\n`);
+      assert.throws(
+        () => buildPrototypeIdentity(singlePath, project.root),
+        /single-file HTML references .* resource|unsupported active .*srcset syntax/i,
+        `single-file ${name}`
+      );
+
+      write(project.root, bundledIndex, `${markup}<section id="detail">Detail</section>\n`);
+      assert.throws(
+        () => buildPrototypeIdentity(prototypePath, project.root),
+        /remote or absolute resource|unsupported active .*srcset syntax/i,
+        `bundled ${name}`
+      );
+    }
+
+    const fragmentOnlyPing =
+      '<a href="#detail" ping="#audit-start&#32;#audit-finish">Open</a><section id="detail">Detail</section>\n';
+    write(project.root, singlePath, fragmentOnlyPing);
+    assert.doesNotThrow(() => buildPrototypeIdentity(singlePath, project.root));
+    write(project.root, bundledIndex, fragmentOnlyPing);
+    assert.doesNotThrow(() => buildPrototypeIdentity(prototypePath, project.root));
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("prototype identities validate every attributionsrc URL for supported fetch elements", () => {
+  const project = tempProject();
+  try {
+    const singlePath = "pm/backlog/wireframes/attribution-sources.html";
+    const prototypePath = writeMultiFilePrototype(project.root);
+    const bundledIndex = "pm/backlog/wireframes/account-settings/index.html";
+    const remote = "https://example.test/register-source";
+    const cases = [
+      {
+        name: "anchor",
+        single: `<a href="#detail" attributionsrc="#local ${remote}">Open</a>`,
+        bundled: `<a href="profile.html" attributionsrc="profile.html ${remote}">Open</a>`,
+      },
+      {
+        name: "area",
+        single: `<map><area href="#detail" attributionsrc="#local&#32;${remote}"></map>`,
+        bundled: `<map><area href="profile.html" attributionsrc="profile.html&#32;${remote}"></map>`,
+      },
+      {
+        name: "image",
+        single: `<img alt="Preview" src="data:image/png;base64,iVBORw0KGgo=" attributionsrc="#local ${remote}">`,
+        bundled: `<img alt="Preview" src="data:image/png;base64,iVBORw0KGgo=" attributionsrc="profile.html ${remote}">`,
+      },
+      {
+        name: "script",
+        single: `<script type="application/json" attributionsrc="#local ${remote}">{}</script>`,
+        bundled: `<script type="application/json" attributionsrc="profile.html ${remote}">{}</script>`,
+      },
+    ];
+
+    for (const { name, single, bundled } of cases) {
+      write(project.root, singlePath, `${single}<section id="detail">Detail</section>\n`);
+      assert.throws(
+        () => buildPrototypeIdentity(singlePath, project.root),
+        /single-file HTML references .*\[attributionsrc\] resource/i,
+        `single-file ${name}[attributionsrc] mixed URL list`
+      );
+
+      write(project.root, bundledIndex, `${bundled}<section id="detail">Detail</section>\n`);
+      assert.throws(
+        () => buildPrototypeIdentity(prototypePath, project.root),
+        /remote or absolute resource/i,
+        `bundled ${name}[attributionsrc] mixed URL list`
+      );
+    }
+
+    const safeSingle = [
+      '<a href="#detail" attributionsrc="#source-a #source-b">Open</a>',
+      '<map><area href="#detail" attributionsrc=""></map>',
+      '<img alt="Preview" src="data:image/png;base64,iVBORw0KGgo=" attributionsrc="#image-source">',
+      '<script type="application/json" attributionsrc>{}</script>',
+      '<section id="detail">Detail</section>',
+    ].join("");
+    write(project.root, singlePath, `${safeSingle}\n`);
+    assert.doesNotThrow(() => buildPrototypeIdentity(singlePath, project.root));
+
+    const safeBundled = [
+      '<a href="profile.html" attributionsrc="profile.html security.html">Open</a>',
+      '<map><area href="profile.html" attributionsrc=""></map>',
+      '<img alt="Preview" src="data:image/png;base64,iVBORw0KGgo=" attributionsrc="profile.html security.html">',
+      '<script type="application/json" attributionsrc>{}</script>',
+    ].join("");
+    write(project.root, bundledIndex, `${safeBundled}\n`);
+    assert.doesNotThrow(() => buildPrototypeIdentity(prototypePath, project.root));
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("prototype identities inspect SVG presentation attributes with URL values", () => {
+  const project = tempProject();
+  try {
+    const singlePath = "pm/backlog/wireframes/svg-presentation.html";
+    const prototypePath = writeMultiFilePrototype(project.root);
+    const bundledIndex = "pm/backlog/wireframes/account-settings/index.html";
+    const remote = "https://example.test/svg-resource";
+    const cases = [
+      ["fill", `<rect width="10" height="10" fill="url(${remote}/fill.svg#paint)">`],
+      ["stroke", `<rect width="10" height="10" stroke="url(${remote}/stroke.svg#paint)">`],
+      ["filter", `<rect width="10" height="10" filter="url(${remote}/filter.svg#filter)">`],
+      ["clip-path", `<rect width="10" height="10" clip-path="url(${remote}/clip.svg#clip)">`],
+      ["mask", `<rect width="10" height="10" mask="url(${remote}/mask.svg#mask)">`],
+      ["marker-start", `<path d="M0 0L10 10" marker-start="url(${remote}/start.svg#marker)">`],
+      ["marker-mid", `<path d="M0 0L5 5L10 10" marker-mid="url(${remote}/mid.svg#marker)">`],
+      ["marker-end", `<path d="M0 0L10 10" marker-end="url(${remote}/end.svg#marker)">`],
+      [
+        "cursor URL list",
+        `<rect width="10" height="10" cursor="url(#local), url(${remote}/cursor.svg), pointer">`,
+      ],
+      [
+        "CSS-escaped URL function",
+        `<rect width="10" height="10" fill="u\\72 l(${remote}/escaped.svg#paint)">`,
+      ],
+      [
+        "comment-obfuscated URL function",
+        `<rect width="10" height="10" fill="u/**/rl(${remote}/comment.svg#paint)">`,
+      ],
+      [
+        "HTML-encoded URL whitespace",
+        `<rect width="10" height="10" fill="url&#40;&#9;${remote}/whitespace.svg#paint&#9;&#41;">`,
+      ],
+    ];
+
+    for (const [name, element] of cases) {
+      const markup = `<svg xmlns="http://www.w3.org/2000/svg">${element}</svg>\n`;
+      write(project.root, singlePath, markup);
+      assert.throws(
+        () => buildPrototypeIdentity(singlePath, project.root),
+        /single-file HTML references SVG presentation .* resource/i,
+        `single-file SVG ${name}`
+      );
+
+      write(project.root, bundledIndex, markup);
+      assert.throws(
+        () => buildPrototypeIdentity(prototypePath, project.root),
+        /remote or absolute resource/i,
+        `bundled SVG ${name}`
+      );
+    }
+
+    const localMarkup =
+      '<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10" fill="url(#paint)" cursor="url(#cursor), pointer"></svg>\n';
+    write(project.root, singlePath, localMarkup);
+    assert.doesNotThrow(() => buildPrototypeIdentity(singlePath, project.root));
+    write(project.root, bundledIndex, localMarkup);
+    assert.doesNotThrow(() => buildPrototypeIdentity(prototypePath, project.root));
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("prototype identities reject declarative SVG attribute mutation", () => {
+  const project = tempProject();
+  try {
+    const singlePath = "pm/backlog/wireframes/svg-animation.html";
+    const prototypePath = writeMultiFilePrototype(project.root);
+    const bundledIndex = "pm/backlog/wireframes/account-settings/index.html";
+    const image = "data:image/png;base64,iVBORw0KGgo=";
+    const cases = [
+      [
+        "animate URL values",
+        `<svg><image href="${image}"><animate attributeName="href" values="https://example.test/a.svg;https://example.test/b.svg" dur="1s"></animate></image></svg>`,
+      ],
+      [
+        "set URL value",
+        `<svg><image href="${image}"><set attributeName="href" to="https://example.test/a.svg" begin="0s"></set></image></svg>`,
+      ],
+    ];
+
+    for (const [name, markup] of cases) {
+      write(project.root, singlePath, `${markup}\n`);
+      assert.throws(
+        () => buildPrototypeIdentity(singlePath, project.root),
+        /unsupported declarative SVG attribute mutation/i,
+        `single-file ${name}`
+      );
+
+      write(project.root, bundledIndex, `${markup}\n`);
+      assert.throws(
+        () => buildPrototypeIdentity(prototypePath, project.root),
+        /unsupported declarative SVG attribute mutation/i,
+        `bundled ${name}`
+      );
+    }
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("prototype identities inspect legacy SVG anchor xlink references", () => {
+  const project = tempProject();
+  try {
+    const singlePath = "pm/backlog/wireframes/svg-xlink.html";
+    const prototypePath = writeMultiFilePrototype(project.root);
+    const bundledIndex = "pm/backlog/wireframes/account-settings/index.html";
+    const markup =
+      '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><a xlink:href="https://example.test/navigation"><text>Open</text></a></svg>\n';
+
+    write(project.root, singlePath, markup);
+    assert.throws(
+      () => buildPrototypeIdentity(singlePath, project.root),
+      /single-file HTML references a\[xlink:href\] resource/i
+    );
+    write(project.root, bundledIndex, markup);
+    assert.throws(
+      () => buildPrototypeIdentity(prototypePath, project.root),
+      /remote or absolute resource/i
+    );
+
+    const fragmentMarkup =
+      '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><a xlink:href="#detail"><text>Open</text></a><text id="detail">Detail</text></svg>\n';
+    write(project.root, singlePath, fragmentMarkup);
+    assert.doesNotThrow(() => buildPrototypeIdentity(singlePath, project.root));
+    write(project.root, bundledIndex, fragmentMarkup);
+    assert.doesNotThrow(() => buildPrototypeIdentity(prototypePath, project.root));
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("prototype identities reject XML stylesheet processing instructions in bundled SVG", () => {
+  const project = tempProject();
+  try {
+    const prototypePath = writeMultiFilePrototype(project.root);
+    const svgPath = "pm/backlog/wireframes/account-settings/icon.svg";
+    write(
+      project.root,
+      svgPath,
+      '<?xml version="1.0"?>\n<?xml-stylesheet type="text/css" href="https://example.test/live.css"?>\n<svg xmlns="http://www.w3.org/2000/svg"></svg>\n'
+    );
+    assert.throws(
+      () => buildPrototypeIdentity(prototypePath, project.root),
+      /unsupported XML stylesheet processing instruction/i
+    );
+
+    write(
+      project.root,
+      svgPath,
+      '<?xml version="1.0"?>\n<!-- <?xml-stylesheet href="https://example.test/inert.css"?> -->\n<svg xmlns="http://www.w3.org/2000/svg"></svg>\n'
+    );
+    assert.doesNotThrow(() => buildPrototypeIdentity(prototypePath, project.root));
+  } finally {
+    project.cleanup();
+  }
+});
+
 test("prototype identities inspect legacy background resource attributes", () => {
   const project = tempProject();
   try {

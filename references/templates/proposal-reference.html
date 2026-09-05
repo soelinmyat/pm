@@ -79,12 +79,24 @@
     text-transform: uppercase;
     letter-spacing: 0.08em;
   }
-  .masthead-id { font-family: var(--mono); letter-spacing: 0.04em; }
-  .masthead-meta { display: flex; gap: var(--space-4); flex-wrap: wrap; }
+  .masthead-id {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    font-family: var(--mono);
+    letter-spacing: 0.04em;
+  }
+  .masthead-meta { display: flex; min-width: 0; gap: var(--space-4); flex-wrap: wrap; }
   .masthead-meta > :not(:last-child)::after {
     content: '·'; margin-left: var(--space-4); color: var(--ink-4);
   }
   .status-mark {
+    display: inline-flex;
+    align-items: center;
+    min-width: 44px;
+    min-height: 44px;
+    max-width: 100%;
+    overflow-wrap: anywhere;
     font-family: var(--sans);
     font-size: 0.875rem;
     color: var(--accent);
@@ -755,7 +767,7 @@
     }
     .masthead-meta {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, max-content));
+      grid-template-columns: minmax(0, 1fr) minmax(0, max-content);
       justify-content: space-between;
       gap: var(--space-1) var(--space-4);
       width: 100%;

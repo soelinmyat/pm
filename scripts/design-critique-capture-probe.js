@@ -38,6 +38,7 @@ const BROWSER_INTERNAL_TARGET_PROTOCOLS = new Set([
   "chrome:",
   "devtools:",
 ]);
+const COVERING_MASK_REPEATS = new Set(["repeat", "repeat repeat"]);
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 function digest(value) {
@@ -772,25 +773,210 @@ function filterOpacity(value) {
   return Math.max(0, Math.min(1, opacity));
 }
 
-function fullyTransparentMask(value) {
+function topLevelParts(value, delimiter) {
+  const parts = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    if (value[index] === "(") depth += 1;
+    else if (value[index] === ")") depth = Math.max(0, depth - 1);
+    else if (value[index] === delimiter && depth === 0) {
+      parts.push(value.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  parts.push(value.slice(start).trim());
+  return parts;
+}
+
+function numericAlpha(value) {
+  const match = String(value || "").match(/^(-?(?:\d+(?:\.\d+)?|\.\d+))(%)?$/);
+  if (!match) return null;
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount)) return null;
+  return Math.max(0, Math.min(1, match[2] ? amount / 100 : amount));
+}
+
+function colorFunctionAlpha(name, body) {
+  if (
+    !new Set(["rgb", "rgba", "hsl", "hsla", "hwb", "lab", "lch", "oklab", "oklch", "color"]).has(
+      name
+    )
+  )
+    return null;
+  const slashParts = topLevelParts(body, "/");
+  if (slashParts.length === 2) return numericAlpha(slashParts[1]);
+  if (slashParts.length > 2) return null;
+  const commaParts = topLevelParts(body, ",");
+  if (["rgba", "hsla"].includes(name))
+    return commaParts.length === 4 ? numericAlpha(commaParts[3]) : null;
+  return 1;
+}
+
+function maskColorStop(value) {
+  const normalized = value.trim().toLowerCase();
+  const transparent = normalized.match(/^transparent(?=\s|$)/);
+  if (transparent)
+    return { alpha: 0, positioned: normalized.slice(transparent[0].length).trim().length > 0 };
+
+  const hex = normalized.match(/^#([0-9a-f]{3,8})(?=\s|$)/);
+  if (hex) {
+    let alpha;
+    if ([3, 6].includes(hex[1].length)) alpha = 1;
+    else if (hex[1].length === 4) alpha = Number.parseInt(hex[1][3], 16) / 15;
+    else if (hex[1].length === 8) alpha = Number.parseInt(hex[1].slice(6), 16) / 255;
+    else return null;
+    return { alpha, positioned: normalized.slice(hex[0].length).trim().length > 0 };
+  }
+
+  const functionStart = normalized.match(/^([a-z][a-z0-9-]*)\(/);
+  if (functionStart) {
+    let depth = 0;
+    let end = -1;
+    for (let index = functionStart[1].length; index < normalized.length; index += 1) {
+      if (normalized[index] === "(") depth += 1;
+      else if (normalized[index] === ")") {
+        depth -= 1;
+        if (depth === 0) {
+          end = index;
+          break;
+        }
+      }
+    }
+    if (end === -1) return null;
+    const alpha = colorFunctionAlpha(
+      functionStart[1],
+      normalized.slice(functionStart[1].length + 1, end)
+    );
+    return alpha === null
+      ? null
+      : { alpha, positioned: normalized.slice(end + 1).trim().length > 0 };
+  }
+
+  const identifier = normalized.match(/^([a-z][a-z0-9-]*)(?=\s|$)/);
+  if (!identifier) return null;
+  if (new Set(["at", "circle", "ellipse", "from", "in", "to"]).has(identifier[1])) return null;
+  return { alpha: 1, positioned: normalized.slice(identifier[0].length).trim().length > 0 };
+}
+
+function colorHint(value) {
+  return /^-?(?:\d+(?:\.\d+)?|\.\d+)(?:%|px|deg|grad|rad|turn)$/.test(value.trim());
+}
+
+function gradientPreludeSupported(kind, value) {
+  const normalized = value.trim();
+  const number = "-?(?:\\d+(?:\\.\\d+)?|\\.\\d+)";
+  const angle = `${number}(?:deg|grad|rad|turn)`;
+  const direction = "(?:top|bottom|left|right)";
+  return (
+    kind === "linear" &&
+    new RegExp(`^(?:to\\s+${direction}(?:\\s+${direction})?|${angle})$`).test(normalized)
+  );
+}
+
+function gradientMaskPaintState(value) {
+  const gradient = value.match(/^(?:repeating-)?(linear)-gradient\((.*)\)$/);
+  if (!gradient) return "unknown";
+  const parts = topLevelParts(gradient[2], ",");
+  const stops = [];
+  let positioned = false;
+  for (const [index, part] of parts.entries()) {
+    const stop = maskColorStop(part);
+    if (stop !== null) {
+      stops.push(stop);
+      continue;
+    }
+    if (colorHint(part)) {
+      positioned = true;
+      continue;
+    }
+    if (index === 0 && parts.length > 2 && gradientPreludeSupported(gradient[1], part)) continue;
+    return "unknown";
+  }
+  if (stops.length < 2) return "unknown";
+  if (stops.every((stop) => stop.alpha === 0)) return "transparent";
+  if (positioned || stops.some((stop) => stop.positioned)) return "unknown";
+  return stops.some((stop) => stop.alpha === 1) ? "visible" : "unknown";
+}
+
+function maskSourceModeIsProvablyAlpha(image, mode) {
+  if (mode === "alpha") return true;
+  if (!["match-source", "auto"].includes(mode)) return false;
+  return /^(?:repeating-)?linear-gradient\(/.test(image);
+}
+
+function coordinatedMaskValue(value, index) {
   const normalized = String(value || "")
     .trim()
-    .toLowerCase()
-    .replace(/rgba\(\s*[^,]+,\s*[^,]+,\s*[^,]+,\s*0(?:\.0+)?\s*\)/g, "transparent")
-    .replace(/rgb\(\s*[^/]+\/\s*0(?:\.0+)?%?\s*\)/g, "transparent");
-  const gradient = normalized.match(/^(?:repeating-)?(linear|radial)-gradient\((.*)\)$/);
-  if (!gradient) return false;
-  const [, kind, body] = gradient;
-  const optionalLinearPrelude =
-    "(?:(?:to\\s+[a-z\\s]+|-?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:deg|grad|rad|turn))\\s*,\\s*)?";
-  const radialPreludeToken =
-    "(?:circle|ellipse|closest-side|closest-corner|farthest-side|farthest-corner|at|center|top|bottom|left|right|-?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:%|px))";
-  const optionalRadialPrelude = `(?:${radialPreludeToken}(?:\\s+${radialPreludeToken})*\\s*,\\s*)?`;
-  const stopPosition = "-?(?:0(?:\\.0+)?|(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:%|px))";
-  const transparentStop = `transparent(?:\\s+${stopPosition}){0,2}`;
-  return new RegExp(
-    `^${kind === "radial" ? optionalRadialPrelude : optionalLinearPrelude}${transparentStop}(?:\\s*,\\s*${transparentStop})+$`
-  ).test(body.trim());
+    .toLowerCase();
+  if (!normalized) return null;
+  const values = topLevelParts(normalized, ",");
+  if (values.length === 0 || values.some((item) => !item)) return null;
+  return values[index % values.length];
+}
+
+function maskGeometryIsProvablyCovering(geometry) {
+  const size = coordinatedMaskValue(geometry.size, 0);
+  const position = coordinatedMaskValue(geometry.position, 0);
+  const repeat = coordinatedMaskValue(geometry.repeat, 0);
+  const origin = coordinatedMaskValue(geometry.origin, 0);
+  const clip = coordinatedMaskValue(geometry.clip, 0);
+  const composite = coordinatedMaskValue(geometry.composite, 0);
+  return (
+    size === "auto" &&
+    position === "0% 0%" &&
+    COVERING_MASK_REPEATS.has(repeat) &&
+    origin === "border-box" &&
+    clip === "border-box" &&
+    composite === "add"
+  );
+}
+
+function maskBlocksVisibility(imageValue, modeValue, geometry) {
+  const normalizedImages = String(imageValue || "")
+    .trim()
+    .toLowerCase();
+  if (!normalizedImages || normalizedImages === "none") return false;
+  const images = topLevelParts(normalizedImages, ",");
+  if (images.length !== 1 || !images[0]) return true;
+
+  const [image] = images;
+  const mode = coordinatedMaskValue(modeValue, 0);
+  if (!maskSourceModeIsProvablyAlpha(image, mode)) return true;
+  if (!maskGeometryIsProvablyCovering(geometry)) return true;
+  return gradientMaskPaintState(image) !== "visible";
+}
+
+function maskConfigurationBlocksVisibility(style, node) {
+  const webkitMaskBoxImageSource = String(style(node, "-webkit-mask-box-image-source") || "")
+    .trim()
+    .toLowerCase();
+  if (webkitMaskBoxImageSource && webkitMaskBoxImageSource !== "none") return true;
+
+  const standardImage = style(node, "mask-image");
+  const webkitImage = style(node, "-webkit-mask-image");
+  const normalizedStandardImage = String(standardImage || "")
+    .trim()
+    .toLowerCase();
+  const normalizedWebkitImage = String(webkitImage || "")
+    .trim()
+    .toLowerCase();
+  const standardActive = normalizedStandardImage && normalizedStandardImage !== "none";
+  const webkitActive = normalizedWebkitImage && normalizedWebkitImage !== "none";
+  if (!standardActive && !webkitActive) return false;
+  if (standardActive && webkitActive && normalizedStandardImage !== normalizedWebkitImage)
+    return true;
+
+  if (standardActive)
+    return maskBlocksVisibility(standardImage, style(node, "mask-mode"), {
+      size: style(node, "mask-size"),
+      position: style(node, "mask-position"),
+      repeat: style(node, "mask-repeat"),
+      origin: style(node, "mask-origin"),
+      clip: style(node, "mask-clip"),
+      composite: style(node, "mask-composite"),
+    });
+  return true;
 }
 
 function createVisibilityEvaluator(model, style, metrics) {
@@ -837,16 +1023,14 @@ function createVisibilityEvaluator(model, style, metrics) {
         bottom = Math.min(bottom, insetClip.bottom);
       } else if (zeroRadiusClip(clipPath, bounds)) paintClipped = true;
     }
-    const transparentMask =
-      fullyTransparentMask(style(current, "mask-image")) ||
-      fullyTransparentMask(style(current, "-webkit-mask-image"));
+    const blockedMask = maskConfigurationBlocksVisibility(style, current);
     return {
       blocked:
         parentState.blocked ||
         style(current, "display") === "none" ||
         style(current, "content-visibility") === "hidden" ||
         paintClipped ||
-        transparentMask ||
+        blockedMask ||
         right <= left ||
         bottom <= top,
       effectiveOpacity:
@@ -2299,9 +2483,17 @@ async function main() {
       "clip-path",
       "filter",
       "mask-image",
+      "mask-mode",
+      "mask-size",
+      "mask-position",
+      "mask-repeat",
+      "mask-origin",
+      "mask-clip",
+      "mask-composite",
       "-webkit-mask-image",
       "position",
       "margin-bottom",
+      "-webkit-mask-box-image-source",
     ];
     criticalWindow = true;
     const before = await nativeSample(client, target.id, computedStyles, config.stateAssertion);

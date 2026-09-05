@@ -97,7 +97,18 @@ test("proposal renderer is byte-deterministic and binds both projections to cano
     /title="Full content identity: sha256:[a-f0-9]{64}">sha256:[a-f0-9]{8}…[a-f0-9]{8}<\/code>/
   );
   assert.match(first.html, /\.masthead \{[\s\S]*position: sticky/);
-  assert.match(first.html, /\.masthead-meta \{[\s\S]*grid-template-columns: repeat\(2/);
+  assert.match(
+    first.html,
+    /\.masthead-meta \{[^}]*grid-template-columns: minmax\(0, 1fr\) minmax\(0, max-content\)/
+  );
+  assert.match(
+    first.html,
+    /\.masthead-id \{[^}]*min-width: 0;[^}]*max-width: 100%;[^}]*overflow-wrap: anywhere;/
+  );
+  assert.match(
+    first.html,
+    /\.status-mark \{[^}]*display: inline-flex;[^}]*align-items: center;[^}]*min-width: 44px;[^}]*min-height: 44px;[^}]*max-width: 100%;[^}]*overflow-wrap: anywhere;/
+  );
   assert.match(first.html, /aria-label="Field and Contract"/);
   assert.match(first.html, /<span class="toc-num" aria-hidden="true">I<\/span>Problem/);
   assert.match(first.html, /<span class="sec-num" aria-hidden="true">00<\/span>Decision Brief/);
@@ -227,6 +238,122 @@ test(
         projectRoot: root,
       });
       assert.ok(result.captures.every((capture) => !capture.metrics.horizontalOverflow));
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
+  "proposal masthead stays usable at responsive widths and boundary content",
+  { skip: !installedBrowser && "Chromium is not installed" },
+  () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "proposal-status-link-browser-"));
+    try {
+      const input = source();
+      input.proposal.lifecycle = "in-progress";
+      input.proposal.slug = "a".repeat(60);
+      input.proposal.id = `proposal:${input.proposal.slug}`;
+      const sourceBytes = Buffer.from(`${JSON.stringify(input.proposal, null, 2)}\n`);
+      const rendered = renderProposal(input.proposal, {
+        sourceBytes,
+        sourcePath: `pm/backlog/proposals/${input.proposal.slug}.json`,
+        version: "test",
+      });
+      const htmlPath = path.join(root, `${input.proposal.slug}.html`);
+      fs.writeFileSync(htmlPath, rendered.html);
+      for (const width of [320, 375, 768]) {
+        const result = runBrowserProbe(
+          {
+            browserPath: installedBrowser,
+            htmlPath,
+            viewport: { width, height: 812 },
+            expression: `(() => {
+              const root = document.documentElement;
+              const mastheadElement = document.querySelector(".masthead");
+              const metadataElement = document.querySelector(".masthead-meta");
+              const idElement = document.querySelector(".masthead-id");
+              const statusElement = document.querySelector(".status-mark");
+              const masthead = mastheadElement.getBoundingClientRect();
+              const metadata = metadataElement.getBoundingClientRect();
+              const id = idElement.getBoundingClientRect();
+              const status = statusElement.getBoundingClientRect();
+              const statusStyle = getComputedStyle(statusElement);
+              const metadataChildren = [...metadataElement.children].map((element) =>
+                element.getBoundingClientRect()
+              );
+              const overlaps = (left, right) =>
+                left.left < right.right &&
+                left.right > right.left &&
+                left.top < right.bottom &&
+                left.bottom > right.top;
+              return {
+                statusText: statusElement.textContent.trim(),
+                display: statusStyle.display,
+                alignItems: statusStyle.alignItems,
+                statusWidth: status.width,
+                statusHeight: status.height,
+                statusScrollWidth: statusElement.scrollWidth,
+                statusClientWidth: statusElement.clientWidth,
+                idScrollWidth: idElement.scrollWidth,
+                idClientWidth: idElement.clientWidth,
+                mastheadScrollWidth: mastheadElement.scrollWidth,
+                mastheadClientWidth: mastheadElement.clientWidth,
+                mastheadHeight: masthead.height,
+                metadataWidth: metadata.width,
+                metadataHeight: metadata.height,
+                metadataRows: new Set(metadataChildren.map((rect) => Math.round(rect.top))).size,
+                metadataLineHeight: Number.parseFloat(getComputedStyle(metadataElement).lineHeight),
+                statusLeft: status.left,
+                statusRight: status.right,
+                idLeft: id.left,
+                idRight: id.right,
+                metadataLeft: metadata.left,
+                metadataRight: metadata.right,
+                mastheadLeft: masthead.left,
+                mastheadRight: masthead.right,
+                idMetadataOverlap: overlaps(id, metadata),
+                clientWidth: root.clientWidth,
+                scrollWidth: root.scrollWidth,
+              };
+            })()`,
+          },
+          `${width}px proposal masthead probe`
+        );
+        const observation = JSON.parse(result.stdout);
+        const atWidth = `at ${width}px`;
+        // Grid and flex items blockify the authored inline-flex status link.
+        assert.equal(observation.display, "flex", atWidth);
+        assert.equal(observation.alignItems, "center", atWidth);
+        assert.equal(observation.statusText, "Lifecycle approved · in progress", atWidth);
+        assert.ok(observation.statusWidth >= 44, atWidth);
+        assert.ok(observation.statusHeight >= 44, atWidth);
+        assert.ok(observation.statusScrollWidth <= observation.statusClientWidth + 1, atWidth);
+        assert.ok(observation.idScrollWidth <= observation.idClientWidth + 1, atWidth);
+        assert.ok(observation.mastheadScrollWidth <= observation.mastheadClientWidth + 1, atWidth);
+        assert.ok(observation.statusLeft >= -1, atWidth);
+        assert.ok(observation.statusRight <= observation.clientWidth + 1, atWidth);
+        assert.ok(observation.idLeft >= -1, atWidth);
+        assert.ok(observation.idRight <= observation.clientWidth + 1, atWidth);
+        assert.ok(observation.metadataLeft >= -1, atWidth);
+        assert.ok(observation.metadataRight <= observation.clientWidth + 1, atWidth);
+        assert.ok(observation.mastheadLeft >= -1, atWidth);
+        assert.ok(observation.mastheadRight <= observation.clientWidth + 1, atWidth);
+        assert.equal(observation.idMetadataOverlap, false, atWidth);
+        assert.ok(observation.scrollWidth <= observation.clientWidth + 1, atWidth);
+        if (width === 768) {
+          assert.ok(observation.metadataWidth >= 300, `metadata column is too narrow ${atWidth}`);
+          assert.ok(observation.metadataRows <= 2, `metadata uses too many rows ${atWidth}`);
+          assert.ok(
+            observation.metadataHeight <= observation.metadataLineHeight * 4,
+            `metadata is too tall ${atWidth}`
+          );
+          assert.ok(
+            observation.mastheadHeight <= observation.metadataLineHeight * 5,
+            `masthead is too tall ${atWidth}`
+          );
+        }
+      }
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

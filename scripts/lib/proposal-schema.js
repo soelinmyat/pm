@@ -21,6 +21,19 @@ const MAX_EVIDENCE_SOURCES = 64;
 const MAX_EVIDENCE_TOTAL_BYTES = 32 * 1024 * 1024;
 const MAX_LOCATED_EVIDENCE_BYTES = 64 * 1024;
 const MAX_LINE_LOCATOR_SPAN = 80;
+const MARKDOWN_COMMENT_SENTINEL = "\uFFFC";
+const TEXT_EVIDENCE_EXTENSIONS = new Set([
+  ".csv",
+  ".html",
+  ".json",
+  ".jsonl",
+  ".md",
+  ".text",
+  ".txt",
+  ".yaml",
+  ".yml",
+]);
+const EVIDENCE_SOURCE_CACHE = new WeakMap();
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const STABLE_ID = /^[a-z][a-z0-9-]*:[a-z0-9][a-z0-9._-]*$/;
 const QUESTION_ID = /^[a-z][a-z0-9-]*$/;
@@ -797,6 +810,7 @@ function validateCurrentEvidenceSources(proposal, projectRoot, at, issues, optio
   }
 
   if (!Array.isArray(proposal.question_reviews)) return;
+  primeMarkdownEvidenceLocators(proposal.question_reviews, evidenceById, sources);
   for (const [reviewIndex, review] of proposal.question_reviews.entries()) {
     if (!Array.isArray(review?.evidence)) continue;
     for (const [citationIndex, citation] of review.evidence.entries()) {
@@ -892,22 +906,12 @@ function readBoundEvidenceFile(root, relativePath, options = {}) {
 }
 
 function resolveEvidenceLocator(source, locator) {
-  const textExtensions = new Set([
-    ".csv",
-    ".html",
-    ".json",
-    ".jsonl",
-    ".md",
-    ".text",
-    ".txt",
-    ".yaml",
-    ".yml",
-  ]);
-  const text = source.bytes.toString("utf8");
-  if (!textExtensions.has(source.extension) && !looksLikeTextSource(source.bytes, text)) {
+  const cached = cachedEvidenceSource(source);
+  const { text } = cached;
+  if (!TEXT_EVIDENCE_EXTENSIONS.has(source.extension) && !cached.looksLikeText) {
     return { status: "unsupported" };
   }
-  if (text.includes("\uFFFD")) {
+  if (!cached.validUtf8) {
     return { status: "missing", reason: "text evidence source is not valid UTF-8" };
   }
   const normalizedLocator = locator.trim();
@@ -948,21 +952,17 @@ function resolveEvidenceLocator(source, locator) {
   }
   if (source.extension === ".md" && normalizedLocator.startsWith("#")) {
     const anchor = markdownAnchor(normalizedLocator.slice(1));
-    const lines = text.split(/\r?\n/);
-    const index = lines.findIndex((line) => {
-      const heading = line.match(/^#{1,6}\s+(.+?)\s*#*$/);
-      return heading && markdownAnchor(heading[1]) === anchor;
-    });
-    if (index === -1)
-      return { status: "missing", reason: "Markdown heading locator does not resolve" };
-    const level = lines[index].match(/^#+/)[0].length;
-    let end = index + 1;
-    while (end < lines.length) {
-      const next = lines[end].match(/^(#+)\s+/);
-      if (next && next[1].length <= level) break;
-      end += 1;
-    }
-    return boundedLocatorResult(lines.slice(index, end).join("\n"));
+    if (!anchor)
+      return {
+        status: "missing",
+        reason: "Markdown heading locator is empty after normalization",
+      };
+    indexMarkdownHeadingLocators(source, new Set([anchor]));
+    const resolution = cached.markdownLocators.get(anchor);
+    if (resolution.status !== "resolved") return resolution;
+    return boundedLocatorResult(
+      text.slice(resolution.start, resolution.end).replace(/\r\n/g, "\n")
+    );
   }
   if (!specificLiteralLocator(normalizedLocator)) {
     return {
@@ -983,6 +983,209 @@ function resolveEvidenceLocator(source, locator) {
     };
   }
   return boundedLocatorResult(matchedLines[0]);
+}
+
+function cachedEvidenceSource(source) {
+  const existing = EVIDENCE_SOURCE_CACHE.get(source);
+  if (existing && existing.bytes === source.bytes && existing.extension === source.extension) {
+    return existing;
+  }
+  const text = source.bytes.toString("utf8");
+  const cached = {
+    bytes: source.bytes,
+    extension: source.extension,
+    text,
+    validUtf8: !text.includes("\uFFFD"),
+    looksLikeText:
+      TEXT_EVIDENCE_EXTENSIONS.has(source.extension) || looksLikeTextSource(source.bytes, text),
+    markdownLocators: new Map(),
+  };
+  EVIDENCE_SOURCE_CACHE.set(source, cached);
+  return cached;
+}
+
+function primeMarkdownEvidenceLocators(questionReviews, evidenceById, sources) {
+  const anchorsBySource = new Map();
+  for (const review of questionReviews) {
+    if (!Array.isArray(review?.evidence)) continue;
+    for (const citation of review.evidence) {
+      const evidenceRecord = evidenceById.get(citation?.evidence_id);
+      const source = evidenceRecord ? sources.get(evidenceRecord.path) : null;
+      if (!source || source.extension !== ".md" || !isString(citation?.locator)) continue;
+      const locator = citation.locator.trim();
+      if (!locator.startsWith("#")) continue;
+      const anchor = markdownAnchor(locator.slice(1));
+      if (!anchor) continue;
+      if (!anchorsBySource.has(source)) anchorsBySource.set(source, new Set());
+      anchorsBySource.get(source).add(anchor);
+    }
+  }
+  for (const [source, anchors] of anchorsBySource) indexMarkdownHeadingLocators(source, anchors);
+}
+
+function indexMarkdownHeadingLocators(source, requestedAnchors) {
+  const cached = cachedEvidenceSource(source);
+  const targets = new Map();
+  for (const anchor of requestedAnchors) {
+    if (!cached.markdownLocators.has(anchor)) {
+      targets.set(anchor, { matches: 0, start: 0, end: null, level: 0 });
+    }
+  }
+  if (targets.size === 0 || !cached.validUtf8) return;
+
+  const active = Array(7).fill(null);
+  let ambiguous = 0;
+  scanMarkdownHeadings(cached.text, (heading) => {
+    for (let level = heading.level; level <= 6; level += 1) {
+      const open = active[level];
+      if (open && open.end === null) open.end = heading.boundary;
+      active[level] = null;
+    }
+
+    const anchor = markdownAnchor(heading.text.replaceAll(MARKDOWN_COMMENT_SENTINEL, ""));
+    const target = targets.get(anchor);
+    if (!target || target.matches > 1) return true;
+    if (target.matches === 0) {
+      target.matches = 1;
+      target.start = heading.start;
+      target.level = heading.level;
+      active[heading.level] = target;
+      return true;
+    }
+
+    target.matches = 2;
+    ambiguous += 1;
+    for (let level = 1; level <= 6; level += 1) {
+      if (active[level] === target) active[level] = null;
+    }
+    return ambiguous < targets.size;
+  });
+
+  for (const [anchor, target] of targets) {
+    if (target.matches === 0) {
+      cached.markdownLocators.set(anchor, {
+        status: "missing",
+        reason: "Markdown heading locator does not resolve",
+      });
+    } else if (target.matches > 1) {
+      cached.markdownLocators.set(anchor, {
+        status: "missing",
+        reason: "Markdown heading locator is ambiguous",
+      });
+    } else {
+      cached.markdownLocators.set(anchor, {
+        status: "resolved",
+        start: target.start,
+        end: target.end === null ? cached.text.length : target.end,
+      });
+    }
+  }
+}
+
+function scanMarkdownHeadings(text, visit) {
+  let cursor = 0;
+  let fence = null;
+  let inHtmlComment = false;
+  while (cursor <= text.length) {
+    const newline = text.indexOf("\n", cursor);
+    const rawEnd = newline === -1 ? text.length : newline;
+    const contentEnd = rawEnd > cursor && text.charCodeAt(rawEnd - 1) === 13 ? rawEnd - 1 : rawEnd;
+    const rawLine = text.slice(cursor, contentEnd);
+
+    if (fence) {
+      if (closesMarkdownFence(rawLine, fence)) fence = null;
+    } else if (inHtmlComment) {
+      inHtmlComment = markdownOutsideHtmlComments(rawLine, true).inComment;
+    } else {
+      const openingFence = opensMarkdownFence(rawLine);
+      if (openingFence) fence = openingFence;
+      else {
+        const visible = markdownOutsideHtmlComments(rawLine, false);
+        inHtmlComment = visible.inComment;
+        const heading = markdownAtxHeading(visible.text);
+        if (heading) {
+          let boundary = cursor;
+          if (boundary > 0 && text.charCodeAt(boundary - 1) === 10) {
+            boundary -= 1;
+            if (boundary > 0 && text.charCodeAt(boundary - 1) === 13) boundary -= 1;
+          }
+          if (visit({ ...heading, start: cursor, boundary }) === false) return;
+        }
+      }
+    }
+
+    if (newline === -1) return;
+    cursor = newline + 1;
+  }
+}
+
+function markdownOutsideHtmlComments(line, initialState) {
+  let cursor = 0;
+  let inComment = initialState;
+  let visible = initialState ? MARKDOWN_COMMENT_SENTINEL : "";
+  while (cursor < line.length) {
+    if (inComment) {
+      const close = line.indexOf("-->", cursor);
+      if (close === -1) return { text: visible, inComment: true };
+      inComment = false;
+      cursor = close + 3;
+      continue;
+    }
+
+    const open = line.indexOf("<!--", cursor);
+    const tick = line.indexOf("`", cursor);
+    if (tick !== -1 && (open === -1 || tick < open)) {
+      let tickEnd = tick + 1;
+      while (line[tickEnd] === "`") tickEnd += 1;
+      const marker = line.slice(tick, tickEnd);
+      let close = line.indexOf(marker, tickEnd);
+      while (close !== -1 && (line[close - 1] === "`" || line[close + marker.length] === "`")) {
+        close = line.indexOf(marker, close + marker.length);
+      }
+      if (close === -1) {
+        visible += line.slice(cursor, tickEnd);
+        cursor = tickEnd;
+      } else {
+        const closeEnd = close + marker.length;
+        visible += line.slice(cursor, closeEnd);
+        cursor = closeEnd;
+      }
+      continue;
+    }
+    if (open === -1) return { text: visible + line.slice(cursor), inComment: false };
+
+    let backslashes = 0;
+    for (let index = open - 1; index >= 0 && line[index] === "\\"; index -= 1) backslashes += 1;
+    if (backslashes % 2 === 1) {
+      visible += line.slice(cursor, open + 1);
+      cursor = open + 1;
+      continue;
+    }
+    visible += `${line.slice(cursor, open)}${MARKDOWN_COMMENT_SENTINEL}`;
+    inComment = true;
+    cursor = open + 4;
+  }
+  return { text: visible, inComment };
+}
+
+function opensMarkdownFence(line) {
+  const match = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+  if (!match || (match[1][0] === "`" && match[2].includes("`"))) return null;
+  return { marker: match[1][0], length: match[1].length };
+}
+
+function closesMarkdownFence(line, fence) {
+  const match = line.match(/^ {0,3}(`+|~+)[ \t]*$/);
+  return Boolean(match && match[1][0] === fence.marker && match[1].length >= fence.length);
+}
+
+function markdownAtxHeading(line) {
+  const match = line.match(/^ {0,3}(#{1,6})(?:[ \t]+(.*)|[ \t]*)$/);
+  if (!match) return null;
+  return {
+    level: match[1].length,
+    text: (match[2] || "").replace(/[ \t]+#+[ \t]*$/, ""),
+  };
 }
 
 function specificLiteralLocator(locator) {

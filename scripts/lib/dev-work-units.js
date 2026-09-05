@@ -97,34 +97,78 @@ const HTML_ATTRIBUTE_ASCII_REFERENCES = Object.freeze({
   verbar: "|",
   verticalline: "|",
 });
+const RESOURCE_URL = "url";
+const RESOURCE_SPACE_SEPARATED_URL_LIST = "space-separated-url-list";
+const RESOURCE_IMAGE_CANDIDATE_LIST = "image-candidate-list";
+const PROTOTYPE_SVG_DECLARATIVE_MUTATION_ELEMENTS = new Set(["animate", "set"]);
+const PROTOTYPE_SVG_PRESENTATION_RESOURCE_ATTRIBUTES = Object.freeze([
+  "clip-path",
+  "cursor",
+  "fill",
+  "filter",
+  "marker-end",
+  "marker-mid",
+  "marker-start",
+  "mask",
+  "stroke",
+]);
 const PROTOTYPE_RESOURCE_ATTRIBUTES = new Map([
-  ["a", ["href", "ping"]],
-  ["area", ["href", "ping"]],
-  ["audio", ["src"]],
-  ["body", ["background"]],
-  ["button", ["formaction"]],
-  ["embed", ["src"]],
-  ["feimage", ["href", "xlink:href"]],
-  ["form", ["action"]],
-  ["frame", ["src"]],
-  ["iframe", ["src"]],
-  ["image", ["href", "xlink:href"]],
-  ["img", ["src", "srcset", "lowsrc"]],
-  ["input", ["src", "formaction"]],
-  ["link", ["href"]],
-  ["object", ["data"]],
-  ["script", ["src"]],
-  ["source", ["src", "srcset"]],
-  ["table", ["background"]],
-  ["tbody", ["background"]],
-  ["td", ["background"]],
-  ["tfoot", ["background"]],
-  ["th", ["background"]],
-  ["thead", ["background"]],
-  ["tr", ["background"]],
-  ["track", ["src"]],
-  ["use", ["href", "xlink:href"]],
-  ["video", ["src", "poster"]],
+  [
+    "a",
+    Object.freeze({
+      href: RESOURCE_URL,
+      "xlink:href": RESOURCE_URL,
+      ping: RESOURCE_SPACE_SEPARATED_URL_LIST,
+      attributionsrc: RESOURCE_SPACE_SEPARATED_URL_LIST,
+    }),
+  ],
+  [
+    "area",
+    Object.freeze({
+      href: RESOURCE_URL,
+      ping: RESOURCE_SPACE_SEPARATED_URL_LIST,
+      attributionsrc: RESOURCE_SPACE_SEPARATED_URL_LIST,
+    }),
+  ],
+  ["audio", Object.freeze({ src: RESOURCE_URL })],
+  ["body", Object.freeze({ background: RESOURCE_URL })],
+  ["button", Object.freeze({ formaction: RESOURCE_URL })],
+  ["embed", Object.freeze({ src: RESOURCE_URL })],
+  ["feimage", Object.freeze({ href: RESOURCE_URL, "xlink:href": RESOURCE_URL })],
+  ["form", Object.freeze({ action: RESOURCE_URL })],
+  ["frame", Object.freeze({ src: RESOURCE_URL })],
+  ["iframe", Object.freeze({ src: RESOURCE_URL })],
+  ["image", Object.freeze({ href: RESOURCE_URL, "xlink:href": RESOURCE_URL })],
+  [
+    "img",
+    Object.freeze({
+      src: RESOURCE_URL,
+      srcset: RESOURCE_IMAGE_CANDIDATE_LIST,
+      lowsrc: RESOURCE_URL,
+      attributionsrc: RESOURCE_SPACE_SEPARATED_URL_LIST,
+    }),
+  ],
+  ["input", Object.freeze({ src: RESOURCE_URL, formaction: RESOURCE_URL })],
+  ["link", Object.freeze({ href: RESOURCE_URL, imagesrcset: RESOURCE_IMAGE_CANDIDATE_LIST })],
+  ["object", Object.freeze({ data: RESOURCE_URL })],
+  [
+    "script",
+    Object.freeze({
+      src: RESOURCE_URL,
+      attributionsrc: RESOURCE_SPACE_SEPARATED_URL_LIST,
+    }),
+  ],
+  ["source", Object.freeze({ src: RESOURCE_URL, srcset: RESOURCE_IMAGE_CANDIDATE_LIST })],
+  ["table", Object.freeze({ background: RESOURCE_URL })],
+  ["tbody", Object.freeze({ background: RESOURCE_URL })],
+  ["td", Object.freeze({ background: RESOURCE_URL })],
+  ["tfoot", Object.freeze({ background: RESOURCE_URL })],
+  ["th", Object.freeze({ background: RESOURCE_URL })],
+  ["thead", Object.freeze({ background: RESOURCE_URL })],
+  ["tr", Object.freeze({ background: RESOURCE_URL })],
+  ["track", Object.freeze({ src: RESOURCE_URL })],
+  ["use", Object.freeze({ href: RESOURCE_URL, "xlink:href": RESOURCE_URL })],
+  ["video", Object.freeze({ src: RESOURCE_URL, poster: RESOURCE_URL })],
 ]);
 
 function validateWorkUnits(units, options = {}) {
@@ -773,13 +817,32 @@ function validateSelfContainedPrototype(bytes, label) {
         );
       }
     }
-    for (const attribute of PROTOTYPE_RESOURCE_ATTRIBUTES.get(tag.name) || []) {
+    if (PROTOTYPE_SVG_DECLARATIVE_MUTATION_ELEMENTS.has(tag.name)) {
+      throw new Error(
+        `${label} single-file HTML contains unsupported declarative SVG attribute mutation <${tag.name}>`
+      );
+    }
+    for (const [attribute, syntax] of Object.entries(
+      PROTOTYPE_RESOURCE_ATTRIBUTES.get(tag.name) || {}
+    )) {
       const target = attributeValue(tag.attrs, [attribute]);
       const context = prototypeResourceContext(tag.name, attribute);
-      const inline = inlineResourceTarget(target, context);
-      if (target !== undefined && (attribute === "srcset" || !inline)) {
+      if (target === undefined) continue;
+      if (syntax === RESOURCE_IMAGE_CANDIDATE_LIST)
         throw new Error(
           `${label} single-file HTML references ${tag.name}[${attribute}] resource ${JSON.stringify(target)}; inline it or use an index.html prototype tree`
+        );
+      for (const resourceTarget of prototypeResourceAttributeTargets(target, syntax))
+        if (!inlineResourceTarget(resourceTarget, context)) {
+          throw new Error(
+            `${label} single-file HTML references ${tag.name}[${attribute}] resource ${JSON.stringify(resourceTarget)}; inline it or use an index.html prototype tree`
+          );
+        }
+    }
+    for (const { attribute, target } of prototypeSvgPresentationResourceTargets(tag)) {
+      if (!inlineResourceTarget(target, "css[url]")) {
+        throw new Error(
+          `${label} single-file HTML references SVG presentation ${tag.name}[${attribute}] resource ${JSON.stringify(target)}; inline it or use an index.html prototype tree`
         );
       }
     }
@@ -828,7 +891,16 @@ function validateBundledMarkupDependencies(bytes, relativePath, manifestPaths) {
   if (markup.includes("\uFFFD")) {
     throw new Error(`prototype manifest ${relativePath} must be valid UTF-8`);
   }
-  const tags = startTags(structuralMarkup(markup));
+  const structural = structuralMarkup(markup);
+  if (
+    path.posix.extname(relativePath).toLowerCase() === ".svg" &&
+    /<\?xml-stylesheet(?=[\t\n\f\r ?>])/i.test(structural)
+  ) {
+    throw new Error(
+      `prototype manifest ${relativePath} contains an unsupported XML stylesheet processing instruction`
+    );
+  }
+  const tags = startTags(structural);
   for (const tag of tags) {
     if (/(?:^|\s)on[a-z][a-z0-9:._-]*\s*=/i.test(tag.attrs)) {
       throw new Error(
@@ -860,20 +932,31 @@ function validateBundledMarkupDependencies(bytes, relativePath, manifestPaths) {
         );
       }
     }
-    for (const attribute of PROTOTYPE_RESOURCE_ATTRIBUTES.get(tag.name) || []) {
+    if (PROTOTYPE_SVG_DECLARATIVE_MUTATION_ELEMENTS.has(tag.name)) {
+      throw new Error(
+        `prototype manifest ${relativePath} contains unsupported declarative SVG attribute mutation <${tag.name}>`
+      );
+    }
+    for (const [attribute, syntax] of Object.entries(
+      PROTOTYPE_RESOURCE_ATTRIBUTES.get(tag.name) || {}
+    )) {
       const target = attributeValue(tag.attrs, [attribute]);
       if (target === undefined) continue;
-      if (attribute === "srcset") {
+      if (syntax === RESOURCE_IMAGE_CANDIDATE_LIST) {
         throw new Error(
-          `prototype manifest ${relativePath} contains unsupported active srcset syntax`
+          `prototype manifest ${relativePath} contains unsupported active ${attribute} syntax`
         );
       }
-      validateBundledResourceTarget(
-        target,
-        relativePath,
-        manifestPaths,
-        prototypeResourceContext(tag.name, attribute)
-      );
+      for (const resourceTarget of prototypeResourceAttributeTargets(target, syntax))
+        validateBundledResourceTarget(
+          resourceTarget,
+          relativePath,
+          manifestPaths,
+          prototypeResourceContext(tag.name, attribute)
+        );
+    }
+    for (const { target } of prototypeSvgPresentationResourceTargets(tag)) {
+      validateBundledResourceTarget(target, relativePath, manifestPaths, "css[url]");
     }
   }
   const cssText = [
@@ -1016,6 +1099,27 @@ function decodeHtmlAttributeReferences(value) {
       /&(amp|apos|ast|bsol|colon|comma|commat|dollar|equals|excl|grave|gt|hat|lbrace|lbrack|lcub|lowbar|lpar|lsqb|lt|midast|newline|num|percnt|period|plus|quest|quot|rbrace|rbrack|rcub|rpar|rsqb|semi|sol|tab|verbar|verticalline)(?:;|(?![a-z0-9=]))/gi,
       (_entity, name) => HTML_ATTRIBUTE_ASCII_REFERENCES[name.toLowerCase()]
     );
+}
+
+function prototypeResourceAttributeTargets(value, syntax) {
+  if (syntax === RESOURCE_URL) return [value];
+  if (syntax === RESOURCE_SPACE_SEPARATED_URL_LIST) {
+    const decoded = decodeHtmlAttributeReferences(value).trim();
+    return decoded === "" ? [] : decoded.split(/[\t\n\f\r ]+/);
+  }
+  throw new Error(`unsupported prototype resource attribute syntax: ${syntax}`);
+}
+
+function prototypeSvgPresentationResourceTargets(tag) {
+  const targets = [];
+  for (const attribute of PROTOTYPE_SVG_PRESENTATION_RESOURCE_ATTRIBUTES) {
+    const value = attributeValue(tag.attrs, [attribute]);
+    if (value === undefined) continue;
+    for (const target of cssResourceTargets(decodeHtmlAttributeReferences(value))) {
+      targets.push({ attribute, target });
+    }
+  }
+  return targets;
 }
 
 function hasUnsafeRefreshDirective(value) {

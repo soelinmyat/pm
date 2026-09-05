@@ -479,6 +479,200 @@ test("Markdown heading locators preserve Unicode and canonical equivalence", () 
   }
 });
 
+test("Markdown heading locators reject empty and ambiguous canonical anchors", () => {
+  const cases = [
+    {
+      name: "symbol-only anchors",
+      locator: "#💡",
+      headings: ["★"],
+      expected: /Markdown heading locator is empty after normalization/,
+    },
+    {
+      name: "duplicate canonical anchors",
+      locator: "#Résumé",
+      headings: ["Résumé", "Re\u0301sume\u0301"],
+      expected: /Markdown heading locator is ambiguous/,
+    },
+  ];
+
+  for (const { name, locator, headings, expected } of cases) {
+    const project = tmpProject();
+    try {
+      const proposal = bindCurrentReviewContract(fixture());
+      for (const review of proposal.question_reviews) review.evidence[0].locator = locator;
+      const source = proposal.source.lineage[0];
+      const sourcePath = path.join(project.dir, source.path);
+      const reviewText = proposal.question_reviews
+        .map((review) => `${review.conclusion} ${review.rationale} ${review.evidence[0].relevance}`)
+        .join("\n");
+      const bytes = Buffer.from(
+        headings.map((heading) => `# ${heading}\n\n${reviewText}\n`).join("\n")
+      );
+      fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
+      fs.writeFileSync(sourcePath, bytes);
+      source.sha256 = proposalBytesHash(bytes);
+
+      const result = validateCurrentProposalEvidence(proposal, project.dir);
+      assert.equal(result.ok, false, name);
+      assert.match(messages(result), expected);
+    } finally {
+      project.cleanup();
+    }
+  }
+});
+
+test("Markdown heading locators ignore fenced examples and HTML comments", () => {
+  const project = tmpProject();
+  try {
+    const proposal = bindCurrentReviewContract(fixture());
+    for (const review of proposal.question_reviews) review.evidence[0].locator = "#Evidence";
+    const source = proposal.source.lineage[0];
+    const sourcePath = path.join(project.dir, source.path);
+    const reviewText = proposal.question_reviews
+      .map((review) => `${review.conclusion} ${review.rationale} ${review.evidence[0].relevance}`)
+      .join("\n");
+    const bytes = Buffer.from(
+      [
+        "# Evidence",
+        "",
+        "```markdown",
+        "# Evidence",
+        "# Fenced boundary",
+        "```",
+        "",
+        "~~~markdown <!-- this is fence info, not an HTML comment",
+        "# Evidence",
+        "~~~",
+        "",
+        "<!--",
+        "# Evidence",
+        "# Comment boundary",
+        "-->",
+        "<!-- # Evidence -->",
+        "<!-- hidden --># Evidence",
+        "#<!-- hidden --> Evidence",
+        "",
+        reviewText,
+        "",
+        "# Next real section",
+        "Unrelated trailing content.",
+        "",
+      ].join("\n")
+    );
+    fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
+    fs.writeFileSync(sourcePath, bytes);
+    source.sha256 = proposalBytesHash(bytes);
+
+    const result = validateCurrentProposalEvidence(proposal, project.dir);
+    assert.equal(result.ok, true, messages(result));
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("Markdown heading locators preserve operative text around inline comments and code", () => {
+  const cases = [
+    { heading: "# <!-- leading --> Evidence", locator: "#Evidence" },
+    { heading: "# Evidence <!-- trailing -->", locator: "#Evidence" },
+    { heading: "# Evidence`<!--distinct-->`", locator: "#evidence-distinct-" },
+    { heading: "# Evidence\\<!--distinct-->", locator: "#evidence-distinct-" },
+  ];
+
+  for (const { heading, locator } of cases) {
+    const project = tmpProject();
+    try {
+      const proposal = bindCurrentReviewContract(fixture());
+      for (const review of proposal.question_reviews) review.evidence[0].locator = locator;
+      const source = proposal.source.lineage[0];
+      const sourcePath = path.join(project.dir, source.path);
+      const reviewText = proposal.question_reviews
+        .map((review) => `${review.conclusion} ${review.rationale} ${review.evidence[0].relevance}`)
+        .join("\n");
+      const bytes = Buffer.from(`${heading}\n\n${reviewText}\n`);
+      fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
+      fs.writeFileSync(sourcePath, bytes);
+      source.sha256 = proposalBytesHash(bytes);
+
+      const result = validateCurrentProposalEvidence(proposal, project.dir);
+      assert.equal(result.ok, true, `${heading} -> ${locator}: ${messages(result)}`);
+    } finally {
+      project.cleanup();
+    }
+  }
+});
+
+test("Markdown heading sections preserve normalized CRLF boundaries before the size limit", () => {
+  const project = tmpProject();
+  try {
+    const proposal = bindCurrentReviewContract(fixture());
+    for (const review of proposal.question_reviews) review.evidence[0].locator = "#Evidence";
+    const source = proposal.source.lineage[0];
+    const sourcePath = path.join(project.dir, source.path);
+    const reviewText = proposal.question_reviews
+      .map((review) => `${review.conclusion} ${review.rationale} ${review.evidence[0].relevance}`)
+      .join("\n");
+    const sectionLines = ["# Evidence", "", reviewText, ...Array(22_000).fill("x")];
+    const normalizedSection = sectionLines.join("\n");
+    const rawSection = sectionLines.join("\r\n");
+    assert.ok(Buffer.byteLength(normalizedSection) < 64 * 1024);
+    assert.ok(Buffer.byteLength(rawSection) > 64 * 1024);
+    const bytes = Buffer.from(`${rawSection}\r\n# Next\r\nunrelated trailing content\r\n`);
+    fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
+    fs.writeFileSync(sourcePath, bytes);
+    source.sha256 = proposalBytesHash(bytes);
+
+    const result = validateCurrentProposalEvidence(proposal, project.dir);
+    assert.equal(result.ok, true, messages(result));
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("Markdown heading lookup is cached and stops after the second canonical match", () => {
+  const project = tmpProject();
+  const originalBufferToString = Buffer.prototype.toString;
+  const originalStringIndexOf = String.prototype.indexOf;
+  let sourceDecodes = 0;
+  let scannedLines = 0;
+  try {
+    const proposal = bindCurrentReviewContract(fixture());
+    for (const review of proposal.question_reviews) review.evidence[0].locator = "#Duplicate";
+    const source = proposal.source.lineage[0];
+    const sourcePath = path.join(project.dir, source.path);
+    const text = `# Duplicate\n# Duplicate\n${"ordinary tail text\n".repeat(20_000)}`;
+    const bytes = Buffer.from(text);
+    const sourceHash = proposalBytesHash(bytes);
+    fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
+    fs.writeFileSync(sourcePath, bytes);
+    source.sha256 = sourceHash;
+
+    Buffer.prototype.toString = function countedSourceDecode(...args) {
+      if (
+        args[0] === "utf8" &&
+        this.length === bytes.length &&
+        proposalBytesHash(this) === sourceHash
+      ) {
+        sourceDecodes += 1;
+      }
+      return originalBufferToString.apply(this, args);
+    };
+    String.prototype.indexOf = function countedLineScan(search, ...args) {
+      if (search === "\n" && this.length === text.length) scannedLines += 1;
+      return originalStringIndexOf.call(this, search, ...args);
+    };
+
+    const result = validateCurrentProposalEvidence(proposal, project.dir);
+    assert.equal(result.ok, false);
+    assert.match(messages(result), /Markdown heading locator is ambiguous/);
+    assert.equal(sourceDecodes, 1, "the retained Markdown source should be decoded once");
+    assert.equal(scannedLines, 2, "ambiguity should stop the heading scan at its second match");
+  } finally {
+    Buffer.prototype.toString = originalBufferToString;
+    String.prototype.indexOf = originalStringIndexOf;
+    project.cleanup();
+  }
+});
+
 test("current evidence records cannot cite a path outside hash-bound lineage", () => {
   const project = tmpProject();
   try {

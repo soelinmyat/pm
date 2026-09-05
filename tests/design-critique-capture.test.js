@@ -775,6 +775,17 @@ test("visible assertions account for ancestors, clipping, and viewport intersect
     styles,
   });
   const style = (node, name) => node.styles[name] || "";
+  const standardMask = (image, overrides = {}) => ({
+    "mask-image": image,
+    "mask-mode": "alpha",
+    "mask-size": "auto",
+    "mask-position": "0% 0%",
+    "mask-repeat": "repeat",
+    "mask-origin": "border-box",
+    "mask-clip": "border-box",
+    "mask-composite": "add",
+    ...overrides,
+  });
 
   const root = createNode(0, -1, [0, 0, 100, 100]);
   const partial = createNode(1, 0, [95, 95, 20, 20]);
@@ -852,7 +863,46 @@ test("visible assertions account for ancestors, clipping, and viewport intersect
       "mask-image":
         "repeating-radial-gradient(circle at center, transparent 0 10px, transparent 10px 20px)",
     },
+    { "mask-image": "conic-gradient(transparent, transparent)" },
+    { "mask-image": "linear-gradient(black 0 0, transparent 0 100%)" },
+    { "mask-image": "linear-gradient(black, 0%, transparent)" },
+    { "mask-image": "radial-gradient(circle 0px, black, transparent)" },
+    { "mask-image": "url(data:image/svg+xml;base64,PHN2Zy8+)" },
+    { "mask-image": "linear-gradient(black, black)" },
+    standardMask("linear-gradient(black, black)", { "mask-mode": "luminance" }),
+    {
+      "mask-image": "linear-gradient(black, black), linear-gradient(black, black)",
+      "mask-mode": "alpha, luminance",
+    },
+    standardMask("none, linear-gradient(black, black)", {
+      "mask-mode": "alpha, luminance",
+    }),
+    standardMask("none, linear-gradient(black, black)", {
+      "mask-mode": "luminance, alpha",
+    }),
+    standardMask("none, none, linear-gradient(black, black)"),
+    standardMask("linear-gradient(black, black), linear-gradient(black, black)", {
+      "mask-composite": "subtract",
+    }),
+    standardMask("none, linear-gradient(black, black)", {
+      "mask-composite": "subtract, add",
+    }),
+    standardMask("linear-gradient(black, black)", {
+      "mask-size": "0px 0px",
+      "mask-repeat": "no-repeat",
+    }),
+    standardMask("linear-gradient(rgba(0, 0, 0, 0.005), rgba(0, 0, 0, 0.005))"),
+    standardMask("radial-gradient(circle at center, transparent, black)", {
+      "mask-mode": "match-source",
+    }),
+    standardMask("radial-gradient(circle closest-side at 200% 200%, black, transparent)"),
+    standardMask("conic-gradient(transparent, black)", { "mask-mode": "match-source" }),
+    standardMask(
+      "conic-gradient(from 180deg at 1000% 1000%, black, transparent, transparent, black)"
+    ),
     { "-webkit-mask-image": "linear-gradient(rgba(0, 0, 0, 0), transparent)" },
+    { "-webkit-mask-image": "linear-gradient(black, black)" },
+    { "-webkit-mask-box-image-source": "linear-gradient(transparent, transparent)" },
   ]) {
     const paintClippedRoot = createNode(0, -1, [0, 0, 100, 100], paintStyles);
     assert.equal(nodeVisibleInViewport(child, [paintClippedRoot, child], style, metrics), false);
@@ -862,8 +912,9 @@ test("visible assertions account for ancestors, clipping, and viewport intersect
     { "clip-path": "inset(10%)" },
     { "clip-path": "circle(40% at 50% 50%)" },
     { filter: "opacity(50%)" },
-    { "mask-image": "linear-gradient(transparent, black)" },
-    { "mask-image": "radial-gradient(circle at center, transparent, black)" },
+    standardMask("linear-gradient(transparent, black)"),
+    standardMask("linear-gradient(black, black)"),
+    standardMask("linear-gradient(black, black)", { "mask-mode": "alpha, luminance" }),
   ]) {
     const partiallyPaintedRoot = createNode(0, -1, [0, 0, 100, 100], partialPaintStyles);
     assert.equal(nodeVisibleInViewport(child, [partiallyPaintedRoot, child], style, metrics), true);
@@ -922,6 +973,13 @@ test("DOM observations exclude ancestor-hidden, clipped, and offscreen descendan
     "clip-path",
     "filter",
     "mask-image",
+    "mask-mode",
+    "mask-size",
+    "mask-position",
+    "mask-repeat",
+    "mask-origin",
+    "mask-clip",
+    "mask-composite",
     "-webkit-mask-image",
     "position",
   ];
@@ -942,6 +1000,13 @@ test("DOM observations exclude ancestor-hidden, clipped, and offscreen descendan
           "clip-path": "none",
           filter: "none",
           "mask-image": "none",
+          "mask-mode": "match-source",
+          "mask-size": "auto",
+          "mask-position": "0% 0%",
+          "mask-repeat": "repeat",
+          "mask-origin": "border-box",
+          "mask-clip": "border-box",
+          "mask-composite": "add",
           "-webkit-mask-image": "none",
           position: "static",
         }[name]
@@ -1188,6 +1253,13 @@ test("DOM asymmetry requires a repeated component baseline and reports only outl
     "clip-path",
     "filter",
     "mask-image",
+    "mask-mode",
+    "mask-size",
+    "mask-position",
+    "mask-repeat",
+    "mask-origin",
+    "mask-clip",
+    "mask-composite",
     "-webkit-mask-image",
   ];
   const styleValues = (padding) => {
@@ -1209,6 +1281,13 @@ test("DOM asymmetry requires a repeated component baseline and reports only outl
           "clip-path": "none",
           filter: "none",
           "mask-image": "none",
+          "mask-mode": "match-source",
+          "mask-size": "auto",
+          "mask-position": "0% 0%",
+          "mask-repeat": "repeat",
+          "mask-origin": "border-box",
+          "mask-clip": "border-box",
+          "mask-composite": "add",
           "-webkit-mask-image": "none",
         })[name]
     );
@@ -1642,6 +1721,7 @@ function createBrowserFixture({
   webSocketFrameDelayMs = 0,
   persistentWorker = false,
   focusabilityControls = false,
+  stateMarkerStyle = "",
 } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-trusted-capture-"));
   const external = externalRequest ? '<img src="https://example.invalid/tracker.png" alt="">' : "";
@@ -1675,6 +1755,7 @@ function createBrowserFixture({
         : "";
   const html = `<!doctype html><html><head><meta charset="utf-8"><style>
 *{box-sizing:border-box}body{margin:0;background:#eef2ff;color:#172033;font:16px system-ui}header{background:#18264a;color:white;padding:18px 28px}nav a{color:white;margin-right:16px}main{max-width:900px;margin:30px auto;padding:24px;background:white;border-radius:16px}h1{font-size:32px}h2{font-size:22px}.cards{display:grid;grid-template-columns:1fr 1fr;gap:16px}.card{padding:18px;border:1px solid #ccd3e1;border-radius:12px}button{padding:10px 18px;background:#3157d5;color:white;border:0;border-radius:8px}
+${stateMarkerStyle ? `#account{${stateMarkerStyle}}` : ""}
 </style></head><body><header><nav aria-label="Primary"><a href="#account">Accounts</a></nav></header><main id="account" data-testid="account-state" data-pm-state="primary"><header><h1>Account overview</h1></header><section aria-labelledby="summary"><h2 id="summary">Summary</h2><div class="cards"><article class="card"><h2>Usage</h2><p>Stable product evidence.</p></article><article class="card"><h2>Plan</h2><p>Professional tier.</p></article></div><button>Save changes</button>${focusabilityMarkup}</section>${descendantOverlay}</main>${external}${overlay}${late}${webSocket}${persistentWorkerScript}</body></html>`;
   return {
     root,
@@ -1957,6 +2038,40 @@ test(
       assert.equal(fs.existsSync(fixture.outputPath), false);
     } finally {
       fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
+  "browser helper rejects state markers hidden by unproved mask geometry or mask-box images",
+  { skip: browserSkip },
+  () => {
+    const maskCases = [
+      [
+        "off-box radial gradient",
+        "mask-image:radial-gradient(circle closest-side at 200% 200%,black,transparent)",
+      ],
+      [
+        "off-box conic gradient",
+        "mask-image:conic-gradient(from 180deg at 1000% 1000%,black,transparent,transparent,black)",
+      ],
+      [
+        "transparent mask-box image",
+        "-webkit-mask-box-image-source:linear-gradient(transparent,transparent);-webkit-mask-box-image-slice:0 fill",
+      ],
+    ];
+    for (const [description, stateMarkerStyle] of maskCases) {
+      const fixture = createBrowserFixture({ stateMarkerStyle });
+      try {
+        assert.throws(
+          () => runBrowserCapture(fixture),
+          /state marker must be visibly rendered in the viewport/,
+          description
+        );
+        assert.equal(fs.existsSync(fixture.outputPath), false, description);
+      } finally {
+        fs.rmSync(fixture.root, { recursive: true, force: true });
+      }
     }
   }
 );
