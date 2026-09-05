@@ -143,7 +143,7 @@ node "$PM_PLUGIN_ROOT/scripts/design-critique-audit-normalize.js" \
 | Tablet | 768×1024 | 601–1023 wide and at least 600 high | When layout has a distinct breakpoint |
 | Narrow | 375×812 | 320–600 wide and at least 480 high | Primary state, always |
 
-Route schema v2 binds each web viewport label to the PNG's decoded dimensions and canonical decoded-RGBA pixel SHA-256. It requires at least 1% visible pixels plus meaningful decoded-pixel coverage, spatial coverage, color variety, and luminance range. Distinct active states at the same subject and viewport—and resolved product P0/P1 before/after pairs—must also have a material decoded-pixel-grid distance; changing one beacon pixel or re-encoding the same image does not count. A narrow capture of another state does not replace the primary narrow capture. Schema v1 is resume-only for routes that were already frozen—never author or downgrade a route to v1 to bypass these checks.
+Route schema v2 binds each web viewport label to the PNG's decoded dimensions and canonical decoded-RGBA pixel SHA-256. It requires at least 1% opacity-weighted effective visible coverage plus meaningful premultiplied-pixel coverage, spatial coverage, color variety, and luminance range. Distinct active states at the same subject and viewport—and resolved product P0/P1 before/after pairs—must also have a material decoded-pixel-grid distance; changing one beacon pixel or re-encoding the same image does not count. A narrow capture of another state does not replace the primary narrow capture. Schema v1 is resume-only for routes that were already frozen—never author or downgrade a route to v1 to bypass these checks.
 
 ### Limits
 

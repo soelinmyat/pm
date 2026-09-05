@@ -3345,7 +3345,7 @@ function validateProductUiViewport(
       add(
         issues,
         label,
-        `product UI screenshot visible pixels must cover at least ${Math.round(MIN_VISIBLE_PIXEL_RATIO * 100)}% of the image`
+        `product UI screenshot effective visible coverage must be at least ${Math.round(MIN_VISIBLE_PIXEL_RATIO * 100)}% of the image`
       );
     if (!decoded.hasVisualVariation)
       add(issues, label, "product UI screenshot must contain non-uniform visible content");

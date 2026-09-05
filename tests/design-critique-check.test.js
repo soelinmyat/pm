@@ -1294,6 +1294,31 @@ function transparentPng(width, height) {
   ]);
 }
 
+function nearTransparentVariedPng(width, height) {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 6;
+  const rows = Buffer.alloc((width * 4 + 1) * height);
+  for (let row = 0; row < height; row += 1) {
+    const rowOffset = row * (width * 4 + 1);
+    for (let column = 0; column < width; column += 1) {
+      const pixel = rowOffset + 1 + column * 4;
+      rows[pixel] = (column * 17 + row * 31) % 256;
+      rows[pixel + 1] = (column * 47 + row * 13) % 256;
+      rows[pixel + 2] = (column * 7 + row * 61) % 256;
+      rows[pixel + 3] = 1;
+    }
+  }
+  return Buffer.concat([
+    Buffer.from("89504e470d0a1a0a", "hex"),
+    pngChunk("IHDR", header),
+    pngChunk("IDAT", zlib.deflateSync(rows)),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
 function validPdf() {
   const objects = [
     "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
@@ -1951,13 +1976,31 @@ test("rejects a transparent product UI screenshot", () => {
   const rebound = write(fixture.root, capture.path, bytes);
   capture.sha256 = rebound.sha256;
   capture.pixel_sha256 = inspectPngVisualBytes(bytes).pixelSha256;
+  refreshTrustedCaptureObservations(fixture);
   rewrite(fixture.root, fixture.capturesPath, fixture.captures);
   fixture.report.captures = binding(fixture.root, fixture.capturesPath);
   rewriteReportAndHtml(fixture);
 
   const result = check(fixture);
   assert.equal(result.ok, false);
-  assert.match(JSON.stringify(result.issues), /visible pixels must cover at least/);
+  assert.match(JSON.stringify(result.issues), /effective visible coverage must be at least/);
+});
+
+test("rejects a near-transparent varied product UI screenshot", () => {
+  const fixture = makeFixture();
+  const capture = fixture.captures.captures[0];
+  const bytes = nearTransparentVariedPng(capture.width, capture.height);
+  const rebound = write(fixture.root, capture.path, bytes);
+  capture.sha256 = rebound.sha256;
+  capture.pixel_sha256 = inspectPngVisualBytes(bytes).pixelSha256;
+  refreshTrustedCaptureObservations(fixture);
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /effective visible coverage must be at least/);
 });
 
 for (const [coverageId, width] of [

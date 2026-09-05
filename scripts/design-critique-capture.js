@@ -1279,7 +1279,7 @@ function captureProductUi(options, runtime = {}) {
       screenshot.visiblePixels === null ||
       screenshot.visiblePixels / screenshot.totalPixels < MIN_VISIBLE_PIXEL_RATIO
     )
-      throw new Error("product UI screenshot has fewer than 1% visible pixels");
+      throw new Error("product UI screenshot has less than 1% effective visible coverage");
     if (screenshot.hasVisualVariation !== true)
       throw new Error("product UI screenshot has no visible pixel variation");
     const visualMetrics = validateMeaningfulVisual(screenshot);

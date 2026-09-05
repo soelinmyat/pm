@@ -73,6 +73,37 @@ test("visual PNG metrics reject a 99.75 percent uniform two-tile beacon", () => 
   assert.ok(inspected.meaningfulPixelRatio < PRODUCT_UI_VISUAL_THRESHOLDS.minMeaningfulPixelRatio);
 });
 
+test("visual PNG metrics treat near-transparent varied pixels as effectively invisible", () => {
+  const width = 100;
+  const height = 100;
+  const inspected = inspectPngVisualBytes(
+    rgbaPng(width, height, (x, y) => [
+      (x * 17 + y * 31) % 256,
+      (x * 47 + y * 13) % 256,
+      (x * 7 + y * 61) % 256,
+      1,
+    ])
+  );
+
+  const visibleRatio = inspected.visiblePixels / inspected.totalPixels;
+  assert.ok(Math.abs(visibleRatio - 1 / 255) < Number.EPSILON);
+  assert.ok(visibleRatio < PRODUCT_UI_VISUAL_THRESHOLDS.minVisiblePixelRatio);
+  assert.equal(inspected.meaningfulPixelRatio, 0);
+  assert.equal(inspected.meaningfulTileRatio, 0);
+  assert.equal(inspected.colorBucketCount, 1);
+  assert.ok(inspected.luminanceRange < PRODUCT_UI_VISUAL_THRESHOLDS.minLuminanceRange);
+});
+
+test("visual PNG metrics opacity-weight grayscale-alpha pixels too", () => {
+  const inspected = inspectPngVisualBytes(
+    grayscaleAlphaPng(10, 10, (x, y) => [(x * 29 + y * 53) % 256, 1])
+  );
+
+  assert.ok(Math.abs(inspected.visiblePixels / inspected.totalPixels - 1 / 255) < Number.EPSILON);
+  assert.equal(inspected.meaningfulPixelRatio, 0);
+  assert.equal(inspected.colorBucketCount, 1);
+});
+
 test("perceptual distance is deterministic and detects materially different UI pixels", () => {
   const first = inspectPngVisualBytes(
     rgbaPng(64, 64, (x) => (x < 32 ? [20, 40, 180, 255] : [240, 240, 250, 255]))
@@ -312,6 +343,31 @@ function rgbaPng(width, height, pixelAt) {
       rows[offset + 1] = green;
       rows[offset + 2] = blue;
       rows[offset + 3] = alpha;
+    }
+  }
+  return Buffer.concat([
+    Buffer.from("89504e470d0a1a0a", "hex"),
+    chunk("IHDR", header),
+    chunk("tEXt", Buffer.alloc(1024, 0x61)),
+    chunk("IDAT", zlib.deflateSync(rows)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+function grayscaleAlphaPng(width, height, pixelAt) {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 4;
+  const rows = Buffer.alloc((width * 2 + 1) * height);
+  for (let y = 0; y < height; y += 1) {
+    const row = y * (width * 2 + 1);
+    for (let x = 0; x < width; x += 1) {
+      const [gray, alpha] = pixelAt(x, y);
+      const offset = row + 1 + x * 2;
+      rows[offset] = gray;
+      rows[offset + 1] = alpha;
     }
   }
   return Buffer.concat([

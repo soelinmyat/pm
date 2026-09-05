@@ -4,7 +4,7 @@ const crypto = require("node:crypto");
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
-const { isRfc3339DateTime } = require("./iso-time");
+const { compareRfc3339DateTimes, isRfc3339DateTime } = require("./iso-time");
 const { inspectPngBytes } = require("./media-inspect");
 
 const MAX_QA_REPORT_BYTES = 4 * 1024 * 1024;
@@ -624,10 +624,16 @@ function validateRuns(runs, report, findingIds, receipts, issues) {
       add(issues, `${runAt}.kind`, "later runs must be reverify");
     }
     if (!sha(run.commit)) add(issues, `${runAt}.commit`, "must be a Git object ID");
-    if (!isRfc3339DateTime(run.checked_at)) {
+    const checkedAtValid = isRfc3339DateTime(run.checked_at);
+    if (!checkedAtValid) {
       add(issues, `${runAt}.checked_at`, "must be RFC 3339");
     }
-    if (previous && isRfc3339DateTime(run.checked_at) && run.checked_at < previous.checked_at) {
+    if (
+      previous &&
+      checkedAtValid &&
+      isRfc3339DateTime(previous.checked_at) &&
+      compareRfc3339DateTimes(run.checked_at, previous.checked_at) < 0
+    ) {
       add(issues, `${runAt}.checked_at`, "must not precede the previous run");
     }
     if (!VERDICTS.has(run.verdict)) add(issues, `${runAt}.verdict`, "is invalid");

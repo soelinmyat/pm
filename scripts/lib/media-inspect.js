@@ -200,8 +200,12 @@ function visualPixelEvidence(header, pixels) {
   const channels = { 0: 1, 2: 3, 4: 2, 6: 4 }[header.colorType];
   const hash = crypto.createHash("sha256");
   hash.update(`rgba8:${header.width}x${header.height}\0`);
-  let visiblePixels = 0;
-  let firstVisible = null;
+  let visibleAlphaUnits = 0;
+  let sawVisiblePixel = false;
+  let firstVisibleRed = 0;
+  let firstVisibleGreen = 0;
+  let firstVisibleBlue = 0;
+  let firstVisibleAlpha = 0;
   let hasVisualVariation = false;
   const metrics = createVisualMetrics(header.width, header.height);
   if (header.colorType === 6) {
@@ -220,29 +224,33 @@ function visualPixelEvidence(header, pixels) {
         metrics.observe(x, y, 0, 0, 0, 0);
         continue;
       }
-      visiblePixels += 1;
-      if (firstVisible === null)
-        firstVisible = [pixels[offset], pixels[offset + 1], pixels[offset + 2], pixels[offset + 3]];
-      else if (
-        pixels[offset] !== firstVisible[0] ||
-        pixels[offset + 1] !== firstVisible[1] ||
-        pixels[offset + 2] !== firstVisible[2] ||
-        pixels[offset + 3] !== firstVisible[3]
+      const alpha = pixels[offset + 3];
+      const opacity = alpha / 255;
+      const effectiveRed = alpha === 255 ? pixels[offset] : Math.round(pixels[offset] * opacity);
+      const effectiveGreen =
+        alpha === 255 ? pixels[offset + 1] : Math.round(pixels[offset + 1] * opacity);
+      const effectiveBlue =
+        alpha === 255 ? pixels[offset + 2] : Math.round(pixels[offset + 2] * opacity);
+      visibleAlphaUnits += alpha;
+      if (!sawVisiblePixel) {
+        sawVisiblePixel = true;
+        firstVisibleRed = effectiveRed;
+        firstVisibleGreen = effectiveGreen;
+        firstVisibleBlue = effectiveBlue;
+        firstVisibleAlpha = alpha;
+      } else if (
+        effectiveRed !== firstVisibleRed ||
+        effectiveGreen !== firstVisibleGreen ||
+        effectiveBlue !== firstVisibleBlue ||
+        alpha !== firstVisibleAlpha
       )
         hasVisualVariation = true;
-      metrics.observe(
-        x,
-        y,
-        pixels[offset],
-        pixels[offset + 1],
-        pixels[offset + 2],
-        pixels[offset + 3]
-      );
+      metrics.observe(x, y, effectiveRed, effectiveGreen, effectiveBlue, alpha);
     }
     hash.update(canonicalPixels || pixels);
     return {
       pixelSha256: hash.digest("hex"),
-      visiblePixels,
+      visiblePixels: visibleAlphaUnits / 255,
       totalPixels,
       hasVisualVariation,
       ...metrics.finish(),
@@ -274,31 +282,33 @@ function visualPixelEvidence(header, pixels) {
       normalized[target + 1] = alpha === 0 ? 0 : green;
       normalized[target + 2] = alpha === 0 ? 0 : blue;
       normalized[target + 3] = alpha;
+      const opacity = alpha / 255;
+      const effectiveRed = alpha === 255 ? red : Math.round(red * opacity);
+      const effectiveGreen = alpha === 255 ? green : Math.round(green * opacity);
+      const effectiveBlue = alpha === 255 ? blue : Math.round(blue * opacity);
       if (alpha > 0) {
-        visiblePixels += 1;
-        if (firstVisible === null) firstVisible = [red, green, blue, alpha];
-        else if (
-          red !== firstVisible[0] ||
-          green !== firstVisible[1] ||
-          blue !== firstVisible[2] ||
-          alpha !== firstVisible[3]
+        visibleAlphaUnits += alpha;
+        if (!sawVisiblePixel) {
+          sawVisiblePixel = true;
+          firstVisibleRed = effectiveRed;
+          firstVisibleGreen = effectiveGreen;
+          firstVisibleBlue = effectiveBlue;
+          firstVisibleAlpha = alpha;
+        } else if (
+          effectiveRed !== firstVisibleRed ||
+          effectiveGreen !== firstVisibleGreen ||
+          effectiveBlue !== firstVisibleBlue ||
+          alpha !== firstVisibleAlpha
         )
           hasVisualVariation = true;
       }
-      metrics.observe(
-        column,
-        row,
-        normalized[target],
-        normalized[target + 1],
-        normalized[target + 2],
-        alpha
-      );
+      metrics.observe(column, row, effectiveRed, effectiveGreen, effectiveBlue, alpha);
     }
     hash.update(normalized);
   }
   return {
     pixelSha256: hash.digest("hex"),
-    visiblePixels,
+    visiblePixels: visibleAlphaUnits / 255,
     totalPixels,
     hasVisualVariation,
     ...metrics.finish(),
@@ -308,31 +318,32 @@ function visualPixelEvidence(header, pixels) {
 function createVisualMetrics(width, height) {
   const gridSize = 8;
   const bucketCount = 16 * 16 * 16;
-  const buckets = new Uint32Array(bucketCount);
-  const tileBuckets = new Uint32Array(gridSize * gridSize * bucketCount);
+  const buckets = new Float64Array(bucketCount);
+  const tileBuckets = new Float64Array(gridSize * gridSize * bucketCount);
   const redSums = new Float64Array(gridSize * gridSize);
   const greenSums = new Float64Array(gridSize * gridSize);
   const blueSums = new Float64Array(gridSize * gridSize);
   const cellCounts = new Uint32Array(gridSize * gridSize);
-  const visibleCellCounts = new Uint32Array(gridSize * gridSize);
+  const visibleCellCounts = new Float64Array(gridSize * gridSize);
   let minimumLuminance = 255;
   let maximumLuminance = 0;
 
-  function observe(x, y, red, green, blue, alpha) {
+  function observe(x, y, effectiveRed, effectiveGreen, effectiveBlue, alpha) {
     const cellX = Math.min(gridSize - 1, Math.floor((x * gridSize) / width));
     const cellY = Math.min(gridSize - 1, Math.floor((y * gridSize) / height));
     const cell = cellY * gridSize + cellX;
-    const normalizedAlpha = alpha / 255;
-    redSums[cell] += red * normalizedAlpha;
-    greenSums[cell] += green * normalizedAlpha;
-    blueSums[cell] += blue * normalizedAlpha;
+    redSums[cell] += effectiveRed;
+    greenSums[cell] += effectiveGreen;
+    blueSums[cell] += effectiveBlue;
     cellCounts[cell] += 1;
     if (alpha === 0) return;
-    visibleCellCounts[cell] += 1;
-    const bucket = (red >> 4) * 256 + (green >> 4) * 16 + (blue >> 4);
-    buckets[bucket] += 1;
-    tileBuckets[cell * bucketCount + bucket] += 1;
-    const luminance = Math.round((54 * red + 183 * green + 19 * blue) / 256);
+    visibleCellCounts[cell] += alpha;
+    const bucket = (effectiveRed >> 4) * 256 + (effectiveGreen >> 4) * 16 + (effectiveBlue >> 4);
+    buckets[bucket] += alpha;
+    tileBuckets[cell * bucketCount + bucket] += alpha;
+    const luminance = Math.round(
+      (54 * effectiveRed + 183 * effectiveGreen + 19 * effectiveBlue) / 256
+    );
     minimumLuminance = Math.min(minimumLuminance, luminance);
     maximumLuminance = Math.max(maximumLuminance, luminance);
   }

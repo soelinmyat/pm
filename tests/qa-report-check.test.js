@@ -150,6 +150,42 @@ test("re-verification history is ordered and bound to the latest report state", 
   });
 
   assert.deepEqual(validateQaReport(report, { expectedCommit: SHA_A, requirePassing: true }), []);
+  report.runs[0].checked_at = "2026-09-04T01:00:00.000+02:00";
+  report.runs[1].checked_at = "2026-09-04T00:30:00.000Z";
+  assert.deepEqual(
+    validateQaReport(report, { expectedCommit: SHA_A, requirePassing: true }),
+    [],
+    "chronology must compare represented instants, not timestamp text"
+  );
+  report.runs[0].checked_at = "2026-09-04T01:00:00.000-02:00";
+  report.runs[1].checked_at = "2026-09-04T02:00:00.000Z";
+  assert.ok(
+    validateQaReport(report, { expectedCommit: SHA_A, requirePassing: true }).some(
+      (entry) =>
+        entry.path === "report.runs[1].checked_at" &&
+        /must not precede the previous run/.test(entry.message)
+    ),
+    "an earlier represented instant must be rejected even when its timestamp text sorts later"
+  );
+  report.runs[0].checked_at = "2026-09-04T01:00:00.0002Z";
+  report.runs[1].checked_at = "2026-09-04T01:00:00.0001Z";
+  assert.ok(
+    validateQaReport(report, { expectedCommit: SHA_A, requirePassing: true }).some(
+      (entry) =>
+        entry.path === "report.runs[1].checked_at" &&
+        /must not precede the previous run/.test(entry.message)
+    ),
+    "chronology must preserve accepted sub-millisecond precision"
+  );
+  report.runs[0].checked_at = "2026-09-04T01:00:00.0001Z";
+  report.runs[1].checked_at = "2026-09-04T01:00:00.0002Z";
+  assert.deepEqual(
+    validateQaReport(report, { expectedCommit: SHA_A, requirePassing: true }),
+    [],
+    "sub-millisecond instants must remain ordered"
+  );
+  report.runs[0].checked_at = "2026-09-04T01:00:00.000Z";
+  report.runs[1].checked_at = "2026-09-04T01:10:00.000Z";
   report.runs[1].previous_health_score = 97;
   assert.ok(
     validateQaReport(report, { expectedCommit: SHA_A, requirePassing: true }).some((entry) =>
