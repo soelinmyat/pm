@@ -639,6 +639,15 @@ test("prototype identities reject active data URIs but accept inert image media"
       "HTML-encoded data scheme"
     );
 
+    const whitespaceData = htmlData.replace("data:", "da\nta:");
+    write(project.root, `${prefix}/${whitespaceData}`, "decoy\n");
+    write(project.root, `${prefix}/index.html`, `<iframe src="${whitespaceData}"></iframe>\n`);
+    assert.throws(
+      () => buildPrototypeIdentity(prototypePath, project.root),
+      /unsupported (?:encoded )?resource/i,
+      "newline-obfuscated data scheme"
+    );
+
     write(project.root, `${prefix}/index.html`, "<main>Settings</main>\n");
     write(project.root, `${prefix}/base.css`, `@import "${cssData}";\n`);
     assert.throws(
