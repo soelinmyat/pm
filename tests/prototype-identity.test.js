@@ -649,6 +649,13 @@ test("prototype identities reject active data URIs but accept inert image media"
     );
 
     write(project.root, `${prefix}/index.html`, "<main>Settings</main>\n");
+    write(project.root, `${prefix}/base.css`, `@import/**/"${cssData}";\n`);
+    assert.throws(
+      () => buildPrototypeIdentity(prototypePath, project.root),
+      /unsupported data resource/i,
+      "comment-separated CSS import"
+    );
+
     write(project.root, `${prefix}/base.css`, `@import "${cssData}";\n`);
     assert.throws(
       () => buildPrototypeIdentity(prototypePath, project.root),

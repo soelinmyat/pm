@@ -866,9 +866,8 @@ function validateBundledMarkupDependencies(bytes, relativePath, manifestPaths) {
 
 function validateBundledCssDependencies(css, relativePath, manifestPaths) {
   const normalized = normalizeCssForDependencyInspection(css);
-  if (/@import\s+(?:url\(\s*)?["']?\s*data:/i.test(normalized)) {
-    throw new Error(`prototype manifest ${relativePath} contains unsupported data resource`);
-  }
+  if (/@import\b\s*(?:url\(\s*)?["']?\s*data:/i.test(normalized))
+    throw new Error(`unsupported data resource in ${relativePath}`);
   for (const target of cssResourceTargets(normalized)) {
     validateBundledResourceTarget(target, relativePath, manifestPaths, "css[url]");
   }
@@ -876,8 +875,7 @@ function validateBundledCssDependencies(css, relativePath, manifestPaths) {
 
 function validateBundledResourceTarget(value, sourcePath, manifestPaths, context) {
   const target = String(value).trim();
-  if (/(?:&(?:#|[a-z])|[\t\r\n])/i.test(target))
-    throw new Error(`prototype manifest ${sourcePath} contains unsupported resource encoding`);
+  if (/(?:&(?:#|[a-z])|[\t\r\n])/i.test(target)) throw new Error("unsupported resource encoding");
   if (target === "" || target.startsWith("#") || target.startsWith("?")) return;
   if (/^data:/i.test(target)) {
     if (inertDataResourceTarget(target, context)) return;
@@ -933,7 +931,7 @@ function cssResourceTargets(css) {
         .trim()
     );
   }
-  for (const match of normalized.matchAll(/@import\s+(["'])(.*?)\1/gi)) {
+  for (const match of normalized.matchAll(/@import\b\s*(["'])(.*?)\1/gi)) {
     targets.push(match[2].trim());
   }
   for (const match of normalized.matchAll(
