@@ -364,6 +364,98 @@ function accessibilityObservations(axTree, model) {
   return { landmarks, controls };
 }
 
+function cssLengthPixels(value, reference) {
+  const match = String(value || "")
+    .trim()
+    .match(/^(-?(?:\d+(?:\.\d+)?|\.\d+))(px|%)?$/i);
+  if (!match) return null;
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount)) return null;
+  if (match[2] === "%") return (amount / 100) * reference;
+  if (!match[2] && amount !== 0) return null;
+  return amount;
+}
+
+function expandedBoxValues(values) {
+  if (values.length === 1) return [values[0], values[0], values[0], values[0]];
+  if (values.length === 2) return [values[0], values[1], values[0], values[1]];
+  if (values.length === 3) return [values[0], values[1], values[2], values[1]];
+  return values.length === 4 ? values : null;
+}
+
+function insetClipRectangle(value, bounds) {
+  const match = String(value || "")
+    .trim()
+    .match(/^inset\((.*)\)$/i);
+  if (!match || !Array.isArray(bounds)) return null;
+  const insetValues = match[1]
+    .split(/\s+round\s+/i, 1)[0]
+    .trim()
+    .split(/\s+/);
+  const expanded = expandedBoxValues(insetValues);
+  if (!expanded) return null;
+  const [top, right, bottom, left] = expanded.map((item, index) =>
+    cssLengthPixels(item, index % 2 === 0 ? bounds[3] : bounds[2])
+  );
+  if ([top, right, bottom, left].some((item) => item === null)) return null;
+  return {
+    left: bounds[0] + left,
+    top: bounds[1] + top,
+    right: bounds[0] + bounds[2] - right,
+    bottom: bounds[1] + bounds[3] - bottom,
+  };
+}
+
+function zeroRadiusClip(value, bounds) {
+  const match = String(value || "")
+    .trim()
+    .match(/^(circle|ellipse)\((.*?)\)$/i);
+  if (!match || !Array.isArray(bounds)) return false;
+  const radii = match[2]
+    .split(/\s+at\s+/i, 1)[0]
+    .trim()
+    .split(/\s+/);
+  const expected = match[1].toLowerCase() === "circle" ? 1 : 2;
+  if (radii.length < expected) return false;
+  const resolved = radii
+    .slice(0, expected)
+    .map((item, index) => cssLengthPixels(item, index === 0 ? bounds[2] : bounds[3]));
+  return resolved.every((item) => item !== null) && resolved.some((item) => item <= 0);
+}
+
+function filterOpacity(value) {
+  let opacity = 1;
+  for (const match of String(value || "").matchAll(
+    /opacity\(\s*(-?(?:\d+(?:\.\d+)?|\.\d+))(%)?\s*\)/gi
+  )) {
+    const amount = Number(match[1]);
+    if (!Number.isFinite(amount)) continue;
+    opacity *= match[2] ? amount / 100 : amount;
+  }
+  return Math.max(0, Math.min(1, opacity));
+}
+
+function fullyTransparentMask(value) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/rgba\(\s*[^,]+,\s*[^,]+,\s*[^,]+,\s*0(?:\.0+)?\s*\)/g, "transparent")
+    .replace(/rgb\(\s*[^/]+\/\s*0(?:\.0+)?%?\s*\)/g, "transparent");
+  const gradient = normalized.match(/^(?:repeating-)?(linear|radial)-gradient\((.*)\)$/);
+  if (!gradient) return false;
+  const [, kind, body] = gradient;
+  const optionalLinearPrelude =
+    "(?:(?:to\\s+[a-z\\s]+|-?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:deg|grad|rad|turn))\\s*,\\s*)?";
+  const radialPreludeToken =
+    "(?:circle|ellipse|closest-side|closest-corner|farthest-side|farthest-corner|at|center|top|bottom|left|right|-?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:%|px))";
+  const optionalRadialPrelude = `(?:${radialPreludeToken}(?:\\s+${radialPreludeToken})*\\s*,\\s*)?`;
+  const stopPosition = "-?(?:0(?:\\.0+)?|(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:%|px))";
+  const transparentStop = `transparent(?:\\s+${stopPosition}){0,2}`;
+  return new RegExp(
+    `^${kind === "radial" ? optionalRadialPrelude : optionalLinearPrelude}${transparentStop}(?:\\s*,\\s*${transparentStop})+$`
+  ).test(body.trim());
+}
+
 function createVisibilityEvaluator(model, style, metrics) {
   const viewport = metrics.cssVisualViewport;
   const rootState = Object.freeze({
@@ -387,6 +479,7 @@ function createVisibilityEvaluator(model, style, metrics) {
     let right = parentState.right;
     let bottom = parentState.bottom;
     const bounds = current?.layout?.bounds;
+    let paintClipped = false;
     if (Array.isArray(bounds)) {
       const overflowX = style(current, "overflow-x") || style(current, "overflow");
       const overflowY = style(current, "overflow-y") || style(current, "overflow");
@@ -398,13 +491,29 @@ function createVisibilityEvaluator(model, style, metrics) {
         top = Math.max(top, bounds[1]);
         bottom = Math.min(bottom, bounds[1] + bounds[3]);
       }
+      const clipPath = style(current, "clip-path");
+      const insetClip = insetClipRectangle(clipPath, bounds);
+      if (insetClip) {
+        left = Math.max(left, insetClip.left);
+        top = Math.max(top, insetClip.top);
+        right = Math.min(right, insetClip.right);
+        bottom = Math.min(bottom, insetClip.bottom);
+      } else if (zeroRadiusClip(clipPath, bounds)) paintClipped = true;
     }
+    const transparentMask =
+      fullyTransparentMask(style(current, "mask-image")) ||
+      fullyTransparentMask(style(current, "-webkit-mask-image"));
     return {
       blocked:
         parentState.blocked ||
         style(current, "display") === "none" ||
-        style(current, "content-visibility") === "hidden",
-      effectiveOpacity: parentState.effectiveOpacity * opacity,
+        style(current, "content-visibility") === "hidden" ||
+        paintClipped ||
+        transparentMask ||
+        right <= left ||
+        bottom <= top,
+      effectiveOpacity:
+        parentState.effectiveOpacity * opacity * filterOpacity(style(current, "filter")),
       left,
       top,
       right,
@@ -707,6 +816,16 @@ function parsePixels(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function normalizedClassTokens(node) {
+  return [
+    ...new Set(
+      String(node.attributes.class || "")
+        .split(/\s+/)
+        .filter(Boolean)
+    ),
+  ].sort();
+}
+
 function declaredComponentVariantIdentity(node, groupName) {
   const component = String(node.attributes["data-component"] || "").trim() || null;
   const variant = String(node.attributes["data-variant"] || "").trim() || null;
@@ -722,22 +841,24 @@ function declaredComponentVariantIdentity(node, groupName) {
       .trim()
       .toLowerCase() === "true";
   const nativeState = { input_type: inputType, disabled };
-  const declaration =
-    component || variant
-      ? { group: groupName, element: node.nodeName, component, variant, ...nativeState }
-      : {
-          group: groupName,
-          element: node.nodeName,
-          ...nativeState,
-          classes: [
-            ...new Set(
-              String(node.attributes.class || "")
-                .split(/\s+/)
-                .filter(Boolean)
-            ),
-          ].sort(),
-        };
+  const declaration = variant
+    ? { group: groupName, element: node.nodeName, component, variant, ...nativeState }
+    : {
+        group: groupName,
+        element: node.nodeName,
+        component,
+        ...nativeState,
+        classes: normalizedClassTokens(node),
+      };
   return digest(Buffer.from(JSON.stringify(declaration)));
+}
+
+function repeatedContainerIdentity(node) {
+  const component = String(node.attributes["data-component"] || "").trim();
+  const variant = String(node.attributes["data-variant"] || "").trim();
+  const classes = normalizedClassTokens(node);
+  if (!component && !variant && classes.length === 0) return null;
+  return declaredComponentVariantIdentity(node, "container");
 }
 
 function domObservations(model, metrics, computedStyles, visibilityEvaluator = null) {
@@ -928,23 +1049,55 @@ function domObservations(model, metrics, computedStyles, visibilityEvaluator = n
     "header",
     "footer",
   ]);
+  const repeatedContainers = new Map();
   for (const node of visibleNodes.filter((candidate) => containerNames.has(candidate.nodeName))) {
-    const top = parsePixels(style(node, "padding-top"));
-    const right = parsePixels(style(node, "padding-right"));
-    const bottom = parsePixels(style(node, "padding-bottom"));
-    const left = parsePixels(style(node, "padding-left"));
-    if (top > 4 && bottom > 4 && Math.abs(top - bottom) > 4)
-      addIssue(
-        asymmetry,
-        issue("asymmetric-padding", node, `vertical: top=${top}px bottom=${bottom}px`),
-        "asymmetry"
-      );
-    if (left > 4 && right > 4 && Math.abs(left - right) > 4)
-      addIssue(
-        asymmetry,
-        issue("asymmetric-padding", node, `horizontal: left=${left}px right=${right}px`),
-        "asymmetry"
-      );
+    const identity = repeatedContainerIdentity(node);
+    if (!identity) continue;
+    if (!repeatedContainers.has(identity)) repeatedContainers.set(identity, []);
+    repeatedContainers.get(identity).push({
+      node,
+      top: parsePixels(style(node, "padding-top")),
+      right: parsePixels(style(node, "padding-right")),
+      bottom: parsePixels(style(node, "padding-bottom")),
+      left: parsePixels(style(node, "padding-left")),
+    });
+  }
+  for (const rows of repeatedContainers.values()) {
+    for (const [axis, start, end] of [
+      ["vertical", "top", "bottom"],
+      ["horizontal", "left", "right"],
+    ]) {
+      const counts = new Map();
+      for (const row of rows) {
+        const key = JSON.stringify([row[start], row[end]]);
+        counts.set(key, (counts.get(key) || 0) + 1);
+      }
+      const majority = [...counts.entries()].sort(
+        (leftEntry, rightEntry) =>
+          rightEntry[1] - leftEntry[1] || leftEntry[0].localeCompare(rightEntry[0])
+      )[0];
+      if (!majority || majority[1] < 2 || majority[1] <= rows.length / 2) continue;
+      const [baselineStart, baselineEnd] = JSON.parse(majority[0]);
+      if (Math.abs(baselineStart - baselineEnd) > 4) continue;
+      for (const row of rows) {
+        if (
+          JSON.stringify([row[start], row[end]]) === majority[0] ||
+          row[start] <= 4 ||
+          row[end] <= 4 ||
+          Math.abs(row[start] - row[end]) <= 4
+        )
+          continue;
+        addIssue(
+          asymmetry,
+          issue(
+            "asymmetric-padding",
+            row.node,
+            `${axis}: ${start}=${row[start]}px ${end}=${row[end]}px differs from repeated component baseline ${baselineStart}px/${baselineEnd}px`
+          ),
+          "asymmetry"
+        );
+      }
+    }
   }
 
   const byParent = new Map();
@@ -1348,6 +1501,10 @@ async function main() {
       "overflow-x",
       "overflow-y",
       "content-visibility",
+      "clip-path",
+      "filter",
+      "mask-image",
+      "-webkit-mask-image",
       "position",
       "margin-bottom",
     ];

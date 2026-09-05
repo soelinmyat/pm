@@ -9,6 +9,7 @@ const { execFileSync, spawnSync } = require("node:child_process");
 const { normalizeRawAudit } = require("./design-critique-audit-normalize");
 const { PRODUCT_UI_VISUAL_THRESHOLDS, inspectPngVisualBytes } = require("./lib/media-inspect");
 const { readProjectInput } = require("./lib/project-file");
+const { writeProjectDirectoryAtomic } = require("./lib/project-atomic-write");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 const CAPTURE_PROBE = path.join(__dirname, "design-critique-capture-probe.js");
@@ -16,6 +17,7 @@ const MAX_ROUTE_BYTES = 1024 * 1024;
 const MAX_RAW_AUDIT_BYTES = 1024 * 1024;
 const MAX_NETWORK_BYTES = 1024 * 1024;
 const MAX_CAPTURE_BYTES = 64 * 1024 * 1024;
+const MAX_CAPTURE_BUNDLE_BYTES = MAX_CAPTURE_BYTES + 4 * MAX_RAW_AUDIT_BYTES;
 const MAX_ASSERTION_BYTES = 64 * 1024;
 const {
   minVisiblePixelRatio: MIN_VISIBLE_PIXEL_RATIO,
@@ -973,72 +975,6 @@ function invocationDigest(plan, routeSha256) {
   );
 }
 
-function writeExclusive(filePath, bytes) {
-  let descriptor;
-  try {
-    descriptor = fs.openSync(
-      filePath,
-      fs.constants.O_WRONLY |
-        fs.constants.O_CREAT |
-        fs.constants.O_EXCL |
-        (fs.constants.O_NOFOLLOW || 0),
-      0o600
-    );
-    fs.writeFileSync(descriptor, bytes);
-    fs.fsyncSync(descriptor);
-  } finally {
-    if (descriptor !== undefined) fs.closeSync(descriptor);
-  }
-}
-
-function ensureProjectDirectory(root, relative) {
-  const projectRoot = fs.realpathSync(root);
-  let current = projectRoot;
-  for (const part of relative.split("/")) {
-    current = path.join(current, part);
-    try {
-      const stat = fs.lstatSync(current);
-      if (stat.isSymbolicLink() || !stat.isDirectory())
-        throw new Error(`output ancestor is not a real directory: ${current}`);
-    } catch (error) {
-      if (error.code !== "ENOENT") throw error;
-      fs.mkdirSync(current, { mode: 0o700 });
-    }
-    const real = fs.realpathSync(current);
-    if (real !== projectRoot && !real.startsWith(`${projectRoot}${path.sep}`))
-      throw new Error("output ancestor resolves outside the project root");
-  }
-  return current;
-}
-
-function publishBundle(root, outputDir, files) {
-  const projectRoot = fs.realpathSync(root);
-  const parentRelative = path.posix.dirname(outputDir);
-  const parent = ensureProjectDirectory(projectRoot, parentRelative);
-  const finalPath = path.join(projectRoot, ...outputDir.split("/"));
-  if (fs.existsSync(finalPath))
-    throw new Error("capture bundle already exists; never overwrite evidence");
-  const staging = fs.mkdtempSync(path.join(parent, ".pm-capture-bundle-"));
-  try {
-    for (const [name, bytes] of files) writeExclusive(path.join(staging, name), bytes);
-    let descriptor;
-    try {
-      descriptor = fs.openSync(staging, fs.constants.O_RDONLY);
-      fs.fsyncSync(descriptor);
-    } catch (error) {
-      if (!new Set(["EINVAL", "ENOTSUP", "EPERM", "EISDIR"]).has(error.code)) throw error;
-    } finally {
-      if (descriptor !== undefined) fs.closeSync(descriptor);
-    }
-    if (fs.existsSync(finalPath))
-      throw new Error("capture bundle destination changed before commit");
-    fs.renameSync(staging, finalPath);
-    return finalPath;
-  } finally {
-    fs.rmSync(staging, { recursive: true, force: true });
-  }
-}
-
 function manifestShape(manifest) {
   exactObject(
     manifest,
@@ -1438,13 +1374,23 @@ function captureProductUi(options, runtime = {}) {
       timestamps: probe.timestamps,
     });
     const manifestBytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`);
-    publishBundle(root, plan.outputDir, [
-      ["capture.png", screenshotBytes],
-      ["accessibility-tree-raw.json", a11yBytes],
-      ["dom-audit-raw.json", domBytes],
-      ["network-ledger.json", networkBytes],
-      ["capture.json", manifestBytes],
-    ]);
+    writeProjectDirectoryAtomic(
+      root,
+      plan.outputDir,
+      [
+        ["capture.png", screenshotBytes],
+        ["accessibility-tree-raw.json", a11yBytes],
+        ["dom-audit-raw.json", domBytes],
+        ["network-ledger.json", networkBytes],
+        ["capture.json", manifestBytes],
+      ],
+      {
+        commitFile: "capture.json",
+        fileMode: 0o600,
+        directoryMode: 0o700,
+        maxBytes: MAX_CAPTURE_BUNDLE_BYTES,
+      }
+    );
     const committed = readProjectInput(root, manifestRelative, MAX_RAW_AUDIT_BYTES);
     if (!committed.bytes.equals(manifestBytes))
       throw new Error("published capture manifest differs from committed bytes");

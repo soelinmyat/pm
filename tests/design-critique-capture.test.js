@@ -680,6 +680,33 @@ test("visible assertions account for ancestors, clipping, and viewport intersect
     false
   );
 
+  for (const paintStyles of [
+    { "clip-path": "inset(50%)" },
+    { "clip-path": "circle(0% at 50% 50%)" },
+    { filter: "blur(2px) opacity(0%)" },
+    { "mask-image": "linear-gradient(transparent, transparent)" },
+    { "mask-image": "radial-gradient(circle at center, transparent, transparent)" },
+    {
+      "mask-image":
+        "repeating-radial-gradient(circle at center, transparent 0 10px, transparent 10px 20px)",
+    },
+    { "-webkit-mask-image": "linear-gradient(rgba(0, 0, 0, 0), transparent)" },
+  ]) {
+    const paintClippedRoot = createNode(0, -1, [0, 0, 100, 100], paintStyles);
+    assert.equal(nodeVisibleInViewport(child, [paintClippedRoot, child], style, metrics), false);
+  }
+
+  for (const partialPaintStyles of [
+    { "clip-path": "inset(10%)" },
+    { "clip-path": "circle(40% at 50% 50%)" },
+    { filter: "opacity(50%)" },
+    { "mask-image": "linear-gradient(transparent, black)" },
+    { "mask-image": "radial-gradient(circle at center, transparent, black)" },
+  ]) {
+    const partiallyPaintedRoot = createNode(0, -1, [0, 0, 100, 100], partialPaintStyles);
+    assert.equal(nodeVisibleInViewport(child, [partiallyPaintedRoot, child], style, metrics), true);
+  }
+
   const offscreen = createNode(1, 0, [101, 10, 20, 20]);
   assert.equal(nodeVisibleInViewport(offscreen, [root, offscreen], style, metrics), false);
 });
@@ -698,6 +725,10 @@ test("visibility evaluation is iterative and linear at the maximum DOM depth", (
       "overflow-x": "visible",
       "overflow-y": "visible",
       "content-visibility": "visible",
+      "clip-path": "none",
+      filter: "none",
+      "mask-image": "none",
+      "-webkit-mask-image": "none",
     },
   }));
   const metrics = {
@@ -712,7 +743,7 @@ test("visibility evaluation is iterative and linear at the maximum DOM depth", (
   const evaluate = createVisibilityEvaluator(model, style, metrics);
   for (const node of model) assert.notEqual(evaluate(node), null);
 
-  assert.ok(styleReads <= count * 8, `expected linear style reads, observed ${styleReads}`);
+  assert.ok(styleReads <= count * 12, `expected linear style reads, observed ${styleReads}`);
 });
 
 test("DOM observations exclude ancestor-hidden, clipped, and offscreen descendants", () => {
@@ -726,6 +757,10 @@ test("DOM observations exclude ancestor-hidden, clipped, and offscreen descendan
     "overflow-x",
     "overflow-y",
     "content-visibility",
+    "clip-path",
+    "filter",
+    "mask-image",
+    "-webkit-mask-image",
     "position",
   ];
   const styleValues = (overrides = {}) =>
@@ -742,6 +777,10 @@ test("DOM observations exclude ancestor-hidden, clipped, and offscreen descendan
           "overflow-x": "visible",
           "overflow-y": "visible",
           "content-visibility": "visible",
+          "clip-path": "none",
+          filter: "none",
+          "mask-image": "none",
+          "-webkit-mask-image": "none",
           position: "static",
         }[name]
     );
@@ -781,6 +820,23 @@ test("DOM observations exclude ancestor-hidden, clipped, and offscreen descendan
       node(3, 0, "div", [450, 100, 180, 80]),
       node(4, 3, "h1", [450, 100, 180, 24], { "font-size": "12px" }),
       node(5, 3, "h2", [450, 130, 180, 30], { "font-size": "30px" }),
+    ],
+    [
+      node(3, 0, "div", [10, 100, 180, 80], { "clip-path": "inset(50%)" }),
+      node(4, 3, "h1", [10, 100, 180, 24], { "font-size": "12px" }),
+      node(5, 3, "h2", [10, 130, 180, 30], { "font-size": "30px" }),
+    ],
+    [
+      node(3, 0, "div", [10, 100, 180, 80], { filter: "opacity(0)" }),
+      node(4, 3, "h1", [10, 100, 180, 24], { "font-size": "12px" }),
+      node(5, 3, "h2", [10, 130, 180, 30], { "font-size": "30px" }),
+    ],
+    [
+      node(3, 0, "div", [10, 100, 180, 80], {
+        "mask-image": "linear-gradient(transparent, transparent)",
+      }),
+      node(4, 3, "h1", [10, 100, 180, 24], { "font-size": "12px" }),
+      node(5, 3, "h2", [10, 130, 180, 30], { "font-size": "30px" }),
     ],
   ];
 
@@ -902,6 +958,23 @@ test("DOM consistency separates declared and native variants within component gr
   assert.equal(explicitFindings[0].code, "visual-variance");
   assert.match(explicitFindings[0].detail, /^button background-color:/);
 
+  const componentOnlyPrimaryOne = button(1, "action primary", "rgb(0, 80, 200)", {
+    "data-component": "action",
+  });
+  const componentOnlyPrimaryTwo = button(2, "primary action", "rgb(200, 0, 0)", {
+    "data-component": "action",
+  });
+  const componentOnlySecondary = button(3, "action secondary", "rgb(255, 255, 255)", {
+    "data-component": "action",
+  });
+  const componentOnlyFindings = domObservations(
+    [root, componentOnlyPrimaryOne, componentOnlyPrimaryTwo, componentOnlySecondary],
+    metrics,
+    computedStyles
+  ).consistency;
+  assert.equal(componentOnlyFindings.length, 1);
+  assert.equal(componentOnlyFindings[0].code, "visual-variance");
+
   const disabledPrimary = button(2, "primary button", "rgb(180, 180, 180)", {
     disabled: "",
   });
@@ -935,6 +1008,113 @@ test("DOM consistency separates declared and native variants within component gr
   ).consistency;
   assert.equal(textInputFindings.length, 1);
   assert.equal(textInputFindings[0].code, "visual-variance");
+});
+
+test("DOM asymmetry requires a repeated component baseline and reports only outliers", () => {
+  const computedStyles = [
+    "display",
+    "visibility",
+    "opacity",
+    "padding-top",
+    "padding-right",
+    "padding-bottom",
+    "padding-left",
+    "overflow",
+    "overflow-x",
+    "overflow-y",
+    "content-visibility",
+    "clip-path",
+    "filter",
+    "mask-image",
+    "-webkit-mask-image",
+  ];
+  const styleValues = (padding) => {
+    const [top, right, bottom, left] = padding;
+    return computedStyles.map(
+      (name) =>
+        ({
+          display: "block",
+          visibility: "visible",
+          opacity: "1",
+          "padding-top": `${top}px`,
+          "padding-right": `${right}px`,
+          "padding-bottom": `${bottom}px`,
+          "padding-left": `${left}px`,
+          overflow: "visible",
+          "overflow-x": "visible",
+          "overflow-y": "visible",
+          "content-visibility": "visible",
+          "clip-path": "none",
+          filter: "none",
+          "mask-image": "none",
+          "-webkit-mask-image": "none",
+        })[name]
+    );
+  };
+  const container = (index, classes, padding, attributes = {}) => ({
+    index,
+    backendNodeId: index + 1,
+    parentIndex: 0,
+    nodeName: "section",
+    attributes: { id: `container-${index}`, class: classes, ...attributes },
+    layout: { bounds: [10, 10 + index * 50, 200, 40], styles: styleValues(padding) },
+  });
+  const root = {
+    index: 0,
+    backendNodeId: 1,
+    parentIndex: -1,
+    nodeName: "main",
+    attributes: {},
+    layout: { bounds: [0, 0, 400, 300], styles: styleValues([0, 0, 0, 0]) },
+  };
+  const metrics = {
+    cssLayoutViewport: { clientWidth: 400, clientHeight: 300 },
+    cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 400, clientHeight: 300 },
+    cssContentSize: { width: 400, height: 300 },
+  };
+
+  const intentionalHero = container(1, "hero", [24, 16, 8, 16]);
+  assert.deepEqual(
+    domObservations([root, intentionalHero], metrics, computedStyles).asymmetry,
+    [],
+    "one-off asymmetric composition has no repeated-component baseline"
+  );
+
+  const cardOne = container(1, "card", [16, 16, 16, 16]);
+  const cardTwo = container(2, "card", [16, 16, 16, 16]);
+  const cardOutlier = container(3, "card", [28, 16, 8, 16]);
+  const outliers = domObservations(
+    [root, cardOne, cardTwo, cardOutlier],
+    metrics,
+    computedStyles
+  ).asymmetry;
+  assert.equal(outliers.length, 1);
+  assert.equal(outliers[0].code, "asymmetric-padding");
+  assert.match(outliers[0].detail, /repeated component baseline 16px\/16px/);
+
+  const intentionalOne = container(1, "timeline-row", [24, 16, 8, 16]);
+  const intentionalTwo = container(2, "timeline-row", [24, 16, 8, 16]);
+  const intentionalThree = container(3, "timeline-row", [24, 16, 8, 16]);
+  assert.deepEqual(
+    domObservations(
+      [root, intentionalOne, intentionalTwo, intentionalThree],
+      metrics,
+      computedStyles
+    ).asymmetry,
+    [],
+    "repeated intentional asymmetry is a component pattern rather than an outlier"
+  );
+
+  const splitOne = container(1, "split-card", [16, 16, 16, 16]);
+  const splitTwo = container(2, "split-card", [16, 16, 16, 16]);
+  const splitThree = container(3, "split-card", [28, 16, 8, 16]);
+  const splitFour = container(4, "split-card", [28, 16, 8, 16]);
+  assert.deepEqual(
+    domObservations([root, splitOne, splitTwo, splitThree, splitFour], metrics, computedStyles)
+      .asymmetry,
+    [],
+    "an even style split does not establish a repeated-component baseline"
+  );
 });
 
 test("native hit testing distinguishes legitimate nested content from occluding overlays", async () => {

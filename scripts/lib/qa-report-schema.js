@@ -188,20 +188,13 @@ function checkQaReport(options) {
 
   let bytes;
   try {
-    const stat = fs.statSync(expectedPath);
-    if (!stat.isFile()) {
-      issues.push(issue("report", "must be a regular file"));
-      return { ok: false, issues, expected_path: expectedPath };
-    }
-    if (stat.size > MAX_QA_REPORT_BYTES) {
-      issues.push(issue("report", `exceeds ${MAX_QA_REPORT_BYTES} bytes`));
-      return { ok: false, issues, expected_path: expectedPath };
-    }
-    bytes = fs.readFileSync(expectedPath);
+    bytes = readCanonicalQaReport(expectedPath);
   } catch (error) {
     issues.push(issue("report", `could not read QA report: ${error.message}`));
     return { ok: false, issues, expected_path: expectedPath };
   }
+  validateReportLocation(options.session.source.repo_root, expectedPath, issues);
+  if (issues.length > 0) return { ok: false, issues, expected_path: expectedPath };
 
   let report;
   try {
@@ -225,6 +218,58 @@ function checkQaReport(options) {
     verdict: report?.verdict,
     health_score: report?.health_score,
   };
+}
+
+function readCanonicalQaReport(reportPath) {
+  const flags =
+    fs.constants.O_RDONLY |
+    (fs.constants.O_NOFOLLOW || 0) |
+    (fs.constants.O_NONBLOCK || 0) |
+    (fs.constants.O_NOCTTY || 0);
+  let descriptor;
+  try {
+    const initial = fs.lstatSync(reportPath, { bigint: true });
+    if (!initial.isFile()) throw new Error("must be a regular file");
+    if (initial.size > BigInt(MAX_QA_REPORT_BYTES)) {
+      throw new Error(`exceeds ${MAX_QA_REPORT_BYTES} bytes`);
+    }
+
+    descriptor = fs.openSync(reportPath, flags);
+    const before = fs.fstatSync(descriptor, { bigint: true });
+    if (!before.isFile()) throw new Error("must be a regular file");
+    if (!sameFileMetadata(initial, before)) {
+      throw new Error("report changed before it could be opened safely");
+    }
+    if (before.size > BigInt(MAX_QA_REPORT_BYTES)) {
+      throw new Error(`exceeds ${MAX_QA_REPORT_BYTES} bytes`);
+    }
+
+    const bytes = readDescriptorBounded(descriptor, MAX_QA_REPORT_BYTES, {
+      overflowMessage: `exceeds ${MAX_QA_REPORT_BYTES} bytes`,
+    });
+    const after = fs.fstatSync(descriptor, { bigint: true });
+    if (!sameFileMetadata(before, after)) {
+      throw new Error("report changed during validation");
+    }
+
+    const final = fs.lstatSync(reportPath, { bigint: true });
+    if (!final.isFile() || !sameFileMetadata(after, final)) {
+      throw new Error("report path changed during validation");
+    }
+    return bytes;
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+}
+
+function sameFileMetadata(left, right) {
+  return (
+    left.dev === right.dev &&
+    left.ino === right.ino &&
+    left.size === right.size &&
+    left.mtimeNs === right.mtimeNs &&
+    left.ctimeNs === right.ctimeNs
+  );
 }
 
 function validateReportLocation(repoRoot, expectedPath, issues) {
