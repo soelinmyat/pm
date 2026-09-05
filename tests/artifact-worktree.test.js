@@ -468,6 +468,14 @@ test("helper output keeps Groom and RFC source identity separate from KB artifac
     proposal_path: proposalPath,
     size: "M",
     acceptance_criteria: ["Source and artifact repositories remain distinct"],
+    design_context: {
+      design_requirements: ["Keep source and artifact repository identity explicit."],
+      ui_impact: false,
+      prototype: null,
+      critical_states: ["source selected", "artifact worktree prepared", "handoff ready"],
+      experience_invariants: ["Every handoff names both the source and artifact repository."],
+      visual_invariants: [],
+    },
     artifact_repo_root: rfcArtifact.worktree,
   });
 
