@@ -627,6 +627,18 @@ test("prototype identities reject active data URIs but accept inert image media"
       );
     }
 
+    write(project.root, `${prefix}/&`, "decoy\n");
+    write(
+      project.root,
+      `${prefix}/index.html`,
+      `<iframe src="${htmlData.replace("data:", "&#100;&#97;&#116;&#97;&#58;")}"></iframe>\n`
+    );
+    assert.throws(
+      () => buildPrototypeIdentity(prototypePath, project.root),
+      /unsupported (?:encoded )?resource/i,
+      "HTML-encoded data scheme"
+    );
+
     write(project.root, `${prefix}/index.html`, "<main>Settings</main>\n");
     write(project.root, `${prefix}/base.css`, `@import "${cssData}";\n`);
     assert.throws(

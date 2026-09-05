@@ -876,6 +876,8 @@ function validateBundledCssDependencies(css, relativePath, manifestPaths) {
 
 function validateBundledResourceTarget(value, sourcePath, manifestPaths, context) {
   const target = String(value).trim();
+  if (/&(?:#|[a-z])/i.test(target))
+    throw new Error(`prototype manifest ${sourcePath} contains unsupported resource encoding`);
   if (target === "" || target.startsWith("#") || target.startsWith("?")) return;
   if (/^data:/i.test(target)) {
     if (inertDataResourceTarget(target, context)) return;
