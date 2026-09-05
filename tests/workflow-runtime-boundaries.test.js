@@ -36,6 +36,7 @@ test("shared runtime modules do not import skill-owned policy", () => {
 test("the project-file facade is the combined safe read/write boundary", () => {
   const projectFile = require("../scripts/lib/project-file");
   assert.deepEqual(Object.keys(projectFile).sort(), [
+    "acquireProjectWriteLock",
     "createProjectInputVerificationContext",
     "readProjectInput",
     "writeProjectFileAtomic",

@@ -796,6 +796,78 @@ test("adjudication rejects a symlinked publication parent without writing throug
   }
 });
 
+test("adjudication rejects an immutable publication parent swap without writing outside", () => {
+  if (process.platform === "win32") return;
+  const fixture = evidenceFixture();
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pm-capability-parent-swap-"));
+  const capture = captureFromFixture(fixture);
+  const sentinel = Buffer.from("external immutable artifact\n");
+  let outsideTarget;
+  let swapped = false;
+  try {
+    assert.throws(
+      () =>
+        sealCapabilityAdjudication({
+          rootDir: fixture.root,
+          oracle: fixture.oracle,
+          capture,
+          judgments: judgmentsFromFixture(fixture),
+          reportPath: path.join(fixture.root, "immutable-parent-swap-report.json"),
+          fixVerifier: fakeFixVerifier,
+          testingHooks: {
+            beforeImmutablePublication(publication) {
+              if (swapped) return;
+              const publicationParent = path.dirname(publication.path);
+              const originalParent = `${publicationParent}-original`;
+              outsideTarget = path.join(outside, path.basename(publication.path));
+              fs.writeFileSync(outsideTarget, sentinel, { mode: 0o600 });
+              fs.renameSync(publicationParent, originalParent);
+              fs.symlinkSync(outside, publicationParent, "dir");
+              swapped = true;
+            },
+          },
+        }),
+      /project output ancestor is not a real directory|destination parent changed/i
+    );
+    assert.equal(swapped, true);
+    assert.deepEqual(fs.readFileSync(outsideTarget), sentinel);
+  } finally {
+    fs.rmSync(outside, { recursive: true, force: true });
+    fixture.cleanup();
+  }
+});
+
+test("adjudication recreates an immutable artifact removed after preflight", () => {
+  const fixture = evidenceFixture();
+  const capture = captureFromFixture(fixture);
+  let selectedPath;
+  let expected;
+  let removed = false;
+  try {
+    sealCapabilityAdjudication({
+      rootDir: fixture.root,
+      oracle: fixture.oracle,
+      capture,
+      judgments: judgmentsFromFixture(fixture),
+      reportPath: path.join(fixture.root, "removed-after-preflight-report.json"),
+      fixVerifier: fakeFixVerifier,
+      testingHooks: {
+        beforeImmutablePublication(publication) {
+          if (removed) return;
+          selectedPath = publication.path;
+          expected = Buffer.from(publication.bytes);
+          fs.rmSync(selectedPath);
+          removed = true;
+        },
+      },
+    });
+    assert.equal(removed, true);
+    assert.deepEqual(fs.readFileSync(selectedPath), expected);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("adjudication rejects an out-of-root report before creating its lock or report", () => {
   const fixture = evidenceFixture();
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pm-capability-report-escape-"));
@@ -839,6 +911,43 @@ test("adjudication rejects a symlinked report parent before creating a lock", ()
       /capability report path must be a file inside the root directory/
     );
     assert.deepEqual(fs.readdirSync(outside), []);
+  } finally {
+    fs.rmSync(outside, { recursive: true, force: true });
+    fixture.cleanup();
+  }
+});
+
+test("adjudication rejects a report parent swap without replacing an external file", () => {
+  if (process.platform === "win32") return;
+  const fixture = evidenceFixture();
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pm-capability-report-swap-"));
+  const reportParent = path.join(fixture.root, "reports");
+  const originalParent = path.join(fixture.root, "reports-original");
+  const reportPath = path.join(reportParent, "report.json");
+  const outsideTarget = path.join(outside, "report.json");
+  const sentinel = Buffer.from("external report must remain unchanged\n");
+  fs.mkdirSync(reportParent);
+  fs.writeFileSync(outsideTarget, sentinel, { mode: 0o600 });
+  try {
+    assert.throws(
+      () =>
+        sealCapabilityAdjudication({
+          rootDir: fixture.root,
+          oracle: fixture.oracle,
+          capture: captureFromFixture(fixture),
+          judgments: judgmentsFromFixture(fixture),
+          reportPath,
+          fixVerifier: fakeFixVerifier,
+          testingHooks: {
+            beforeReportPublication() {
+              fs.renameSync(reportParent, originalParent);
+              fs.symlinkSync(outside, reportParent, "dir");
+            },
+          },
+        }),
+      /project output ancestor is not a real directory|destination parent changed/i
+    );
+    assert.deepEqual(fs.readFileSync(outsideTarget), sentinel);
   } finally {
     fs.rmSync(outside, { recursive: true, force: true });
     fixture.cleanup();
@@ -1428,7 +1537,7 @@ test("concurrent adjudications serialize report updates without losing repeats",
       release,
     });
     await second.waitFor("before-lock");
-    assert.equal(fs.existsSync(publicationLock), true);
+    assert.equal(fs.existsSync(publicationLock), false);
     assert.equal(fs.existsSync(`${reportPath}.lock`), false);
     await new Promise((resolve) => setTimeout(resolve, 100));
     Atomics.store(release, 0, 1);

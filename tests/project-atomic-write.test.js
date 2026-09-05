@@ -12,8 +12,13 @@ const {
   managedDirectoryPointerPublication,
   readProjectInput,
 } = require("../scripts/lib/safe-project-output");
-const { writeProjectDirectoryAtomic, writeProjectJsonAtomic, writeProjectTextAtomic } =
-  projectWriter;
+const {
+  acquireProjectWriteLock,
+  writeProjectDirectoryAtomic,
+  writeProjectFileAtomic,
+  writeProjectJsonAtomic,
+  writeProjectTextAtomic,
+} = projectWriter;
 
 const writerModule = path.join(__dirname, "..", "scripts", "lib", "project-atomic-write.js");
 
@@ -825,6 +830,7 @@ test("managed-pointer publication rejects a non-root ancestor replacement", (t) 
 
 test("project writer atomically replaces or exclusively creates inside anchored directories", (t) => {
   assert.deepEqual(Object.keys(projectWriter).sort(), [
+    "acquireProjectWriteLock",
     "writeProjectDirectoryAtomic",
     "writeProjectFileAtomic",
     "writeProjectJsonAtomic",
@@ -852,6 +858,84 @@ test("project writer atomically replaces or exclusively creates inside anchored 
       }),
     /EEXIST|file exists/i
   );
+});
+
+test("project writer reconciles only byte-identical private exclusive outputs", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-write-identical-"));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-write-identical-outside-"));
+  t.after(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  });
+  const options = {
+    replace: false,
+    acceptIdentical: true,
+    fileMode: 0o600,
+    directoryMode: 0o700,
+    maxBytes: 64,
+  };
+  const first = writeProjectFileAtomic(root, "sealed/result.json", "sealed\n", options);
+  const second = writeProjectFileAtomic(root, "sealed/result.json", "sealed\n", options);
+
+  assert.equal(first.committed, true);
+  assert.equal(first.reused, undefined);
+  assert.equal(second.committed, true);
+  assert.equal(second.reused, true);
+  assert.throws(
+    () => writeProjectFileAtomic(root, "sealed/result.json", "different\n", options),
+    /existing project output changed|identical private file/i
+  );
+  assert.equal(fs.readFileSync(path.join(root, "sealed/result.json"), "utf8"), "sealed\n");
+
+  if (process.platform !== "win32") {
+    fs.chmodSync(path.join(root, "sealed/result.json"), 0o644);
+    assert.throws(
+      () => writeProjectFileAtomic(root, "sealed/result.json", "sealed\n", options),
+      /identical private file/i
+    );
+    fs.chmodSync(path.join(root, "sealed/result.json"), 0o600);
+
+    fs.writeFileSync(path.join(outside, "linked.json"), "sealed\n", { mode: 0o600 });
+    fs.symlinkSync(path.join(outside, "linked.json"), path.join(root, "sealed", "linked.json"));
+    assert.throws(
+      () => writeProjectFileAtomic(root, "sealed/linked.json", "sealed\n", options),
+      /ELOOP|identical private file|changed during reconciliation/i
+    );
+    assert.equal(fs.readFileSync(path.join(outside, "linked.json"), "utf8"), "sealed\n");
+  }
+
+  fs.writeFileSync(path.join(root, "sealed", "hardlink-source.json"), "sealed\n", { mode: 0o600 });
+  fs.linkSync(
+    path.join(root, "sealed", "hardlink-source.json"),
+    path.join(root, "sealed", "hardlink.json")
+  );
+  assert.throws(
+    () => writeProjectFileAtomic(root, "sealed/hardlink.json", "sealed\n", options),
+    /identical private file/i
+  );
+  assert.throws(
+    () =>
+      writeProjectFileAtomic(root, "sealed/invalid.json", "sealed\n", {
+        ...options,
+        replace: true,
+      }),
+    /acceptIdentical requires replace: false/
+  );
+});
+
+test("project write lock uses a project-identity namespace outside the project tree", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-lock-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const identity = fs.statSync(root, { bigint: true });
+  const release = acquireProjectWriteLock(root, "coordination/capability-adjudication", {
+    expectedRootDev: identity.dev,
+    expectedRootIno: identity.ino,
+  });
+  try {
+    assert.deepEqual(fs.readdirSync(root), []);
+  } finally {
+    release();
+  }
 });
 
 test("project writer normalizes portable separators before child publication and attestation", (t) => {

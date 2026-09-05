@@ -5,7 +5,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { isDeepStrictEqual } = require("node:util");
-const { acquireOwnedLock } = require("../lib/owned-lock.js");
+const { acquireProjectWriteLock, writeProjectFileAtomic } = require("../lib/project-file.js");
 const { readBoundedFile } = require("../lib/safe-json-file.js");
 const {
   CAPABILITY_JSON_LIMITS,
@@ -31,6 +31,7 @@ const {
 
 function sealCapabilityAdjudication(options) {
   const rootDir = fs.realpathSync(path.resolve(options.rootDir || process.cwd()));
+  const rootIdentity = fs.statSync(rootDir, { bigint: true });
   const oracle = options.oracle;
   const capture = options.capture;
   const judgments = options.judgments;
@@ -40,19 +41,18 @@ function sealCapabilityAdjudication(options) {
   const plannedPublicationPaths = planImmutablePublicationPaths(rootDir, oracle, capture);
   const protectedInputs = planProtectedInputs(rootDir, capture, options.protectedInputPaths);
   validateReportPublicationNamespace(rootDir, reportPath, plannedPublicationPaths, protectedInputs);
-  const publicationDirectories = preparePublicationDirectories(
-    rootDir,
-    reportPath,
-    plannedPublicationPaths
-  );
-  validateReportPath(rootDir, reportPath);
-
   options.testingHooks?.beforePublicationLock?.();
-  const releasePublication = acquireOwnedLock(capabilityPublicationLockPath(rootDir), {
-    attempts: 1_200,
-    waitMs: 50,
-    timeoutMessage: "timed out waiting to publish capability adjudication artifacts",
-  });
+  const releasePublication = acquireProjectWriteLock(
+    rootDir,
+    "eval-results/capabilities/design-critique/.adjudication-publication.lock",
+    {
+      expectedRootDev: rootIdentity.dev,
+      expectedRootIno: rootIdentity.ino,
+      attempts: 1_200,
+      waitMs: 50,
+      timeoutMessage: "timed out waiting to publish capability adjudication artifacts",
+    }
+  );
   try {
     const report = loadOrCreateReport(reportPath, oracle, capture.profile);
     const retainedInputs = planProtectedInputs(rootDir, {
@@ -80,7 +80,6 @@ function sealCapabilityAdjudication(options) {
     report.repeats.sort((left, right) => left.repeat - right.repeat);
     const reportBytes = encodeCapabilityJson(report, "report");
 
-    for (const directory of publicationDirectories) assertAnchoredDirectory(rootDir, directory);
     assertPublicationsMatchPlan(publications, plannedPublicationPaths);
     for (const publication of publications) assertImmutablePublication(publication, rootDir);
     const prospectivePublications = new Map(
@@ -96,9 +95,15 @@ function sealCapabilityAdjudication(options) {
     if (issues.length > 0) {
       throw new Error(`sealed capability report is invalid:\n${issues.join("\n")}`);
     }
-    for (const publication of publications) publishPrivateBytesImmutable(publication, rootDir);
+    for (const publication of publications) {
+      publishPrivateBytesImmutable(publication, rootDir, rootIdentity, {
+        beforeSpawn: () => options.testingHooks?.beforeImmutablePublication?.(publication),
+      });
+    }
     validateReportPath(rootDir, reportPath);
-    writePrivateBytes(reportPath, reportBytes, rootDir);
+    writePrivateBytes(reportPath, reportBytes, rootDir, rootIdentity, {
+      beforeSpawn: () => options.testingHooks?.beforeReportPublication?.(),
+    });
     return { report, reportPath };
   } finally {
     releasePublication();
@@ -797,27 +802,6 @@ function assertPublicationsMatchPlan(publications, plannedPublicationPaths) {
   }
 }
 
-function preparePublicationDirectories(rootDir, reportPath, publicationPaths) {
-  const directories = new Set([
-    path.dirname(capabilityPublicationLockPath(rootDir)),
-    path.dirname(reportPath),
-  ]);
-  for (const publicationPath of publicationPaths) directories.add(path.dirname(publicationPath));
-
-  const ordered = [...directories].sort(
-    (left, right) =>
-      path.relative(rootDir, left).split(path.sep).length -
-      path.relative(rootDir, right).split(path.sep).length
-  );
-  // Inspect every existing ancestry before creating any missing directory. A
-  // pre-existing symlink must not turn even directory preparation into an
-  // out-of-root write.
-  for (const directory of ordered) assertExistingDirectoryAncestry(rootDir, directory);
-  for (const directory of ordered) createAnchoredDirectory(rootDir, directory);
-  for (const directory of ordered) assertAnchoredDirectory(rootDir, directory);
-  return ordered;
-}
-
 function assertExistingDirectoryAncestry(rootDir, directory) {
   const relative = path.relative(rootDir, directory);
   if (relative.startsWith("..") || path.isAbsolute(relative)) {
@@ -837,29 +821,6 @@ function assertExistingDirectoryAncestry(rootDir, directory) {
       throw error;
     }
   }
-}
-
-function createAnchoredDirectory(rootDir, directory) {
-  const relative = path.relative(rootDir, directory);
-  if (relative === "") return;
-  let current = rootDir;
-  for (const part of relative.split(path.sep)) {
-    current = path.join(current, part);
-    try {
-      fs.mkdirSync(current, { mode: 0o700 });
-    } catch (error) {
-      if (error.code !== "EEXIST") throw error;
-    }
-    assertRealDirectory(current);
-  }
-}
-
-function assertAnchoredDirectory(rootDir, directory) {
-  if (!inside(rootDir, directory)) {
-    throw new Error(`capability publication parent must be inside root: ${directory}`);
-  }
-  assertExistingDirectoryAncestry(rootDir, directory);
-  assertRealDirectory(directory);
 }
 
 function assertRealDirectory(directory) {
@@ -921,7 +882,10 @@ function privateJsonBytes(value) {
 }
 
 function assertImmutablePublication({ path: filePath, bytes }, rootDir) {
-  assertAnchoredDirectory(rootDir, path.dirname(filePath));
+  if (!inside(rootDir, filePath)) {
+    throw new Error(`capability publication path must be inside root: ${filePath}`);
+  }
+  assertExistingDirectoryAncestry(rootDir, path.dirname(filePath));
   let stat;
   try {
     stat = fs.lstatSync(filePath);
@@ -946,46 +910,34 @@ function assertImmutablePublication({ path: filePath, bytes }, rootDir) {
   }
 }
 
-function publishPrivateBytesImmutable({ path: filePath, bytes }, rootDir) {
-  assertAnchoredDirectory(rootDir, path.dirname(filePath));
-  const temporary = `${filePath}.tmp-${process.pid}-${crypto.randomBytes(6).toString("hex")}`;
-  let descriptor;
-  try {
-    descriptor = fs.openSync(temporary, "wx", 0o600);
-    fs.writeFileSync(descriptor, bytes);
-    fs.fsyncSync(descriptor);
-    fs.closeSync(descriptor);
-    descriptor = undefined;
-    try {
-      fs.linkSync(temporary, filePath);
-    } catch (error) {
-      if (error.code !== "EEXIST") throw error;
-      assertImmutablePublication({ path: filePath, bytes }, rootDir);
-      return;
-    }
-    fs.chmodSync(filePath, 0o600);
-  } finally {
-    if (descriptor !== undefined) fs.closeSync(descriptor);
-    fs.rmSync(temporary, { force: true });
-  }
+function publishPrivateBytesImmutable(
+  { path: filePath, bytes },
+  rootDir,
+  rootIdentity,
+  options = {}
+) {
+  writeProjectFileAtomic(rootDir, path.relative(rootDir, filePath), bytes, {
+    replace: false,
+    acceptIdentical: true,
+    fileMode: 0o600,
+    directoryMode: 0o700,
+    maxBytes: bytes.length,
+    expectedRootDev: rootIdentity.dev,
+    expectedRootIno: rootIdentity.ino,
+    beforeSpawn: options.beforeSpawn,
+  });
 }
 
-function writePrivateBytes(filePath, bytes, rootDir) {
-  assertAnchoredDirectory(rootDir, path.dirname(filePath));
-  const temporary = `${filePath}.tmp-${process.pid}-${crypto.randomBytes(6).toString("hex")}`;
-  let descriptor;
-  try {
-    descriptor = fs.openSync(temporary, "wx", 0o600);
-    fs.writeFileSync(descriptor, bytes);
-    fs.fsyncSync(descriptor);
-    fs.closeSync(descriptor);
-    descriptor = undefined;
-    fs.renameSync(temporary, filePath);
-    fs.chmodSync(filePath, 0o600);
-  } finally {
-    if (descriptor !== undefined) fs.closeSync(descriptor);
-    fs.rmSync(temporary, { force: true });
-  }
+function writePrivateBytes(filePath, bytes, rootDir, rootIdentity, options = {}) {
+  writeProjectFileAtomic(rootDir, path.relative(rootDir, filePath), bytes, {
+    replace: true,
+    fileMode: 0o600,
+    directoryMode: 0o700,
+    maxBytes: bytes.length,
+    expectedRootDev: rootIdentity.dev,
+    expectedRootIno: rootIdentity.ino,
+    beforeSpawn: options.beforeSpawn,
+  });
 }
 
 function digest(bytes) {

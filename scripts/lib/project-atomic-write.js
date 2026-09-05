@@ -58,12 +58,43 @@ function acquireProjectFileLock(projectRoot, rootStat, relativePath) {
   });
 }
 
+function acquireProjectWriteLock(root, relativeNamespace, options = {}) {
+  const projectRoot = fs.realpathSync(path.resolve(root));
+  validateRelative(relativeNamespace);
+  const normalizedNamespace = relativeNamespace.replaceAll("\\", "/");
+  const rootStat = fs.statSync(projectRoot, { bigint: true });
+  const hasExpectedRootDev = options.expectedRootDev !== undefined;
+  const hasExpectedRootIno = options.expectedRootIno !== undefined;
+  if (hasExpectedRootDev !== hasExpectedRootIno)
+    throw new Error("expected project root identity requires both dev and ino");
+  if (
+    hasExpectedRootDev &&
+    (String(rootStat.dev) !== String(options.expectedRootDev) ||
+      String(rootStat.ino) !== String(options.expectedRootIno))
+  ) {
+    throw new Error("project root identity changed before lock acquisition");
+  }
+  return acquireOwnedLock(projectFileLockPath(projectRoot, rootStat, normalizedNamespace), {
+    attempts: options.attempts ?? FILE_WRITE_LOCK_ATTEMPTS,
+    waitMs: options.waitMs ?? FILE_WRITE_LOCK_WAIT_MS,
+    invalidGraceMs: options.invalidGraceMs ?? 1_000,
+    directoryMode: options.directoryMode ?? 0o700,
+    fileMode: options.fileMode ?? 0o600,
+    timeoutMessage:
+      options.timeoutMessage || `timed out waiting for project write lock: ${normalizedNamespace}`,
+  });
+}
+
 function writeProjectFileAtomic(root, relativePath, content, options = {}) {
   const projectRoot = fs.realpathSync(path.resolve(root));
   validateRelative(relativePath);
   const normalizedRelativePath = relativePath.replaceAll("\\", "/");
   const bytes = Buffer.isBuffer(content) ? content : Buffer.from(String(content));
   const maxBytes = options.maxBytes ?? 64 * 1024 * 1024;
+  if (options.acceptIdentical !== undefined && typeof options.acceptIdentical !== "boolean")
+    throw new Error("acceptIdentical must be a boolean");
+  if (options.acceptIdentical === true && options.replace !== false)
+    throw new Error("acceptIdentical requires replace: false");
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 0 || bytes.length > maxBytes)
     throw new Error(`output exceeds ${maxBytes}-byte budget`);
   const rootStat = fs.statSync(projectRoot, { bigint: true });
@@ -96,6 +127,7 @@ function writeProjectFileAtomic(root, relativePath, content, options = {}) {
         String(options.fileMode ?? 0o666),
         String(options.directoryMode ?? 0o777),
         options.replace === false ? "exclusive" : "replace",
+        options.acceptIdentical === true ? "accept-identical" : "strict",
         String(rootStat.dev),
         String(rootStat.ino),
         Buffer.from(JSON.stringify(attestations)).toString("base64"),
@@ -953,6 +985,7 @@ function writeFromAnchoredRoot(relativePath, content, options = {}) {
     ancestorsSynced &&= durability.synced;
     ancestorSyncError ||= durability.errorCode || null;
   }
+  const parentStat = fs.statSync(".", { bigint: true });
 
   const temporary = `.${basename}.tmp-${process.pid}-${crypto.randomBytes(6).toString("hex")}`;
   let descriptor;
@@ -983,9 +1016,44 @@ function writeFromAnchoredRoot(relativePath, content, options = {}) {
     const commitRoot = fs.statSync(projectRoot);
     if (commitRoot.dev !== rootStat.dev || commitRoot.ino !== rootStat.ino)
       throw new Error("project root changed before atomic commit");
+    let reused = false;
     if (options.replace === false) {
-      fs.linkSync(temporary, basename);
+      try {
+        fs.linkSync(temporary, basename);
+      } catch (error) {
+        if (error.code !== "EEXIST" || options.acceptIdentical !== true) throw error;
+        assertAnchoredDirectoryParent(
+          projectRoot,
+          relativePath,
+          rootStat,
+          parentStat,
+          "project root or destination parent changed during identical output reconciliation"
+        );
+        readExactAtomicFile(basename, content, options.fileMode ?? 0o666);
+        assertAnchoredDirectoryParent(
+          projectRoot,
+          relativePath,
+          rootStat,
+          parentStat,
+          "project root or destination parent changed during identical output reconciliation"
+        );
+        reused = true;
+      }
     } else fs.renameSync(temporary, basename);
+    if (reused) {
+      fs.unlinkSync(temporary);
+      fs.closeSync(descriptor);
+      descriptor = undefined;
+      const durability = fsyncDirectory();
+      return {
+        committed: true,
+        reused: true,
+        directory_synced: ancestorsSynced && durability.synced,
+        ...(ancestorSyncError || durability.errorCode
+          ? { directory_sync_error: ancestorSyncError || durability.errorCode }
+          : {}),
+      };
+    }
     committed = true;
     const finalStat = fs.lstatSync(basename);
     if (
@@ -1038,6 +1106,52 @@ function writeFromAnchoredRoot(relativePath, content, options = {}) {
     }
     if (cleanupError) throw cleanupError;
     throw error;
+  }
+}
+
+function readExactAtomicFile(file, expected, allowedMode) {
+  let descriptor;
+  try {
+    descriptor = fs.openSync(
+      file,
+      fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0)
+    );
+    const before = fs.fstatSync(descriptor, { bigint: true });
+    if (
+      !before.isFile() ||
+      before.nlink !== 1n ||
+      before.size !== BigInt(expected.length) ||
+      (Number(before.mode) & 0o777 & ~(allowedMode & 0o777)) !== 0
+    ) {
+      throw staleDirectoryError("existing project output is not an identical private file");
+    }
+    const bytes = Buffer.alloc(expected.length);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const read = fs.readSync(descriptor, bytes, offset, bytes.length - offset, null);
+      if (read === 0) throw staleDirectoryError("existing project output was truncated");
+      offset += read;
+    }
+    if (fs.readSync(descriptor, Buffer.alloc(1), 0, 1, null) !== 0)
+      throw staleDirectoryError("existing project output grew during reconciliation");
+    const after = fs.fstatSync(descriptor, { bigint: true });
+    const linked = fs.lstatSync(file, { bigint: true });
+    if (
+      !after.isFile() ||
+      after.nlink !== 1n ||
+      linked.isSymbolicLink() ||
+      !linked.isFile() ||
+      linked.nlink !== 1n ||
+      (Number(after.mode) & 0o777 & ~(allowedMode & 0o777)) !== 0 ||
+      (Number(linked.mode) & 0o777 & ~(allowedMode & 0o777)) !== 0 ||
+      !sameOwnerFile(before, after) ||
+      !sameOwnerFile(after, linked) ||
+      !bytes.equals(expected)
+    ) {
+      throw staleDirectoryError("existing project output changed during reconciliation");
+    }
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
   }
 }
 
@@ -1289,17 +1403,23 @@ function childMain(argv) {
       fileMode,
       directoryMode,
       policy,
+      identicalPolicy,
       expectedRootDev,
       expectedRootIno,
       attestationsBase64,
       finalAttestationBase64,
     ] = argv;
     if (!new Set(["replace", "exclusive"]).has(policy)) throw new Error("invalid write policy");
+    if (!new Set(["strict", "accept-identical"]).has(identicalPolicy))
+      throw new Error("invalid identical-output policy");
+    if (identicalPolicy === "accept-identical" && policy !== "exclusive")
+      throw new Error("identical-output reconciliation requires exclusive publication");
     const content = fs.readFileSync(0);
     const state = writeFromAnchoredRoot(relativePath, content, {
       fileMode: Number(fileMode),
       directoryMode: Number(directoryMode),
       replace: policy === "replace",
+      acceptIdentical: identicalPolicy === "accept-identical",
       expectedRootDev,
       expectedRootIno,
       attestations: JSON.parse(
@@ -1369,6 +1489,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  acquireProjectWriteLock,
   writeProjectDirectoryAtomic,
   writeProjectFileAtomic,
   writeProjectJsonAtomic,
