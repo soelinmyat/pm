@@ -16,6 +16,21 @@ const ANCESTOR_CHURN_RETRY_WINDOW_NS = 500_000_000n;
 const ANCESTOR_CHURN_RETRY_DELAY_MS = 5;
 const ANCESTOR_CHURN_WAIT_WORD = new Int32Array(new SharedArrayBuffer(4));
 const RETRYABLE_ANCESTOR_CHURN = Symbol("retryable ancestor churn");
+const PROJECT_INPUT_VERIFICATION_CONTEXTS = new WeakMap();
+
+function createProjectInputVerificationContext() {
+  const context = Object.freeze({});
+  PROJECT_INPUT_VERIFICATION_CONTEXTS.set(context, { managedDirectories: new Map() });
+  return context;
+}
+
+function projectInputVerificationState(options) {
+  const context = options.managedDirectoryVerificationContext;
+  if (context === undefined) return null;
+  const state = PROJECT_INPUT_VERIFICATION_CONTEXTS.get(context);
+  if (!state) throw new Error("managed directory verification context is invalid");
+  return state;
+}
 
 function projectPath(root, relativePath) {
   if (
@@ -213,7 +228,8 @@ function readManagedDirectoryManifest(
   bundleStat,
   canonicalBasename,
   targetBasename,
-  verifyPayloadHashes
+  verifyPayloadHashes,
+  cachedVerification = null
 ) {
   const manifestPath = path.join(bundlePath, MANAGED_DIRECTORY_POINTER_FILE);
   let descriptor;
@@ -338,20 +354,34 @@ function readManagedDirectoryManifest(
       const expected = files.get(entry);
       if (stat.size !== BigInt(expected.size))
         throw new Error(`managed project directory file size changed: ${entry}`);
-      if (verifyPayloadHashes) {
-        const verified = readManagedBundleEntry(entryPath, stat, expected);
-        entryComponents.push({ path: entryPath, kind: "bundle-entry", stat: verified });
-      } else entryComponents.push({ path: entryPath, kind: "bundle-entry", stat });
+      entryComponents.push({ path: entryPath, kind: "bundle-entry", stat });
     } else {
       if (!sameFileMetadata(stat, manifestStat))
         throw new Error("managed project directory manifest changed after validation");
       entryComponents.push({ path: entryPath, kind: "bundle-entry", stat });
     }
   }
+  const manifestSha256 = crypto.createHash("sha256").update(bytes).digest("hex");
+  if (cachedVerification) {
+    if (
+      cachedVerification.manifestSha256 !== manifestSha256 ||
+      !sameComponentMetadata(cachedVerification.manifestStat, manifestStat) ||
+      !sameComponents(cachedVerification.entryComponents, entryComponents)
+    )
+      throw new Error("managed project directory changed after verified bundle inspection");
+  } else if (verifyPayloadHashes) {
+    for (let index = 0; index < entryComponents.length; index += 1) {
+      const component = entryComponents[index];
+      const entry = path.basename(component.path);
+      if (entry === MANAGED_DIRECTORY_POINTER_FILE) continue;
+      const verified = readManagedBundleEntry(component.path, component.stat, files.get(entry));
+      entryComponents[index] = { ...component, stat: verified };
+    }
+  }
   return {
     files,
     commitFile: value.commit_file,
-    manifestSha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+    manifestSha256,
     manifestStat,
     entryComponents,
   };
@@ -456,12 +486,26 @@ function snapshotProjectPath(projectRoot, relation, absolute, options = {}) {
     if (bundleStat.isSymbolicLink() || !bundleStat.isDirectory())
       throw new Error("managed project directory target is not a real directory");
     physicalComponents.push({ path: bundlePath, kind: "managed-bundle", stat: bundleStat });
+    const verifyPayloadHashes = options.verifyManagedPayloadHashes !== false;
+    const verificationState = options.managedDirectoryVerificationState;
+    const cachedVerification = verifyPayloadHashes
+      ? verificationState?.managedDirectories.get(current) || null
+      : null;
+    if (
+      cachedVerification &&
+      (cachedVerification.targetText !== targetText ||
+        cachedVerification.bundlePath !== bundlePath ||
+        !sameComponentMetadata(cachedVerification.pointerStat, pointerAfter) ||
+        !sameComponentMetadata(cachedVerification.bundleStat, bundleStat))
+    )
+      throw new Error("managed project directory changed after verified bundle inspection");
     const manifest = readManagedDirectoryManifest(
       bundlePath,
       bundleStat,
       part,
       targetText,
-      options.verifyManagedPayloadHashes !== false
+      verifyPayloadHashes,
+      cachedVerification
     );
     physicalComponents.push(...manifest.entryComponents);
 
@@ -505,6 +549,22 @@ function snapshotProjectPath(projectRoot, relation, absolute, options = {}) {
         requestedFile,
         commitFile: manifest.commitFile,
         files: [...manifest.files.values()],
+        verification:
+          verifyPayloadHashes && verificationState
+            ? {
+                cacheKey: current,
+                cacheHit: Boolean(cachedVerification),
+                record: cachedVerification || {
+                  targetText,
+                  pointerStat: pointerAfter,
+                  bundlePath,
+                  bundleStat,
+                  manifestSha256: manifest.manifestSha256,
+                  manifestStat: manifest.manifestStat,
+                  entryComponents: manifest.entryComponents,
+                },
+              }
+            : null,
       },
     };
   }
@@ -519,6 +579,12 @@ function snapshotProjectPath(projectRoot, relation, absolute, options = {}) {
   };
 }
 
+function commitManagedDirectoryVerification(snapshot, verificationState) {
+  const verification = snapshot.managed?.verification;
+  if (!verificationState || !verification || verification.cacheHit) return;
+  verificationState.managedDirectories.set(verification.cacheKey, verification.record);
+}
+
 function inspectStableProjectInput(
   root,
   relativePath,
@@ -528,8 +594,9 @@ function inspectStableProjectInput(
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 0)
     throw new Error("input byte budget must be a non-negative safe integer");
   const location = projectPath(root, relativePath);
+  const verificationState = projectInputVerificationState(options);
   return retryAncestorEntryChurn((baseline) =>
-    inspectStableProjectInputOnce(location, maxBytes, options, baseline)
+    inspectStableProjectInputOnce(location, maxBytes, options, baseline, verificationState)
   );
 }
 
@@ -537,10 +604,12 @@ function inspectStableProjectInputOnce(
   { absolute, projectRoot, relation },
   maxBytes,
   options,
-  baseline
+  baseline,
+  verificationState
 ) {
   const initial = snapshotProjectPath(projectRoot, relation, absolute, {
     allowManagedDirectoryPointers: options.allowManagedDirectoryPointers === true,
+    managedDirectoryVerificationState: verificationState,
   });
   assertRetryBaseline(baseline, initial, "input path changed during containment validation");
   if (!initial.finalStat?.isFile()) throw new Error("input must be an existing regular file");
@@ -551,6 +620,7 @@ function inspectStableProjectInputOnce(
     verifyManagedPayloadHashes: false,
   });
   assertStableSnapshot(initial, observed, "input path changed during containment validation");
+  commitManagedDirectoryVerification(initial, verificationState);
   return {
     path: absolute,
     relative: relation.split(path.sep).join("/"),
@@ -563,15 +633,23 @@ function readProjectInput(root, relativePath, maxBytes = Number.MAX_SAFE_INTEGER
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 0)
     throw new Error("input byte budget must be a non-negative safe integer");
   const location = projectPath(root, relativePath);
+  const verificationState = projectInputVerificationState(options);
   return retryAncestorEntryChurn((baseline) =>
-    readProjectInputOnce(location, maxBytes, options, baseline)
+    readProjectInputOnce(location, maxBytes, options, baseline, verificationState)
   );
 }
 
-function readProjectInputOnce({ absolute, projectRoot, relation }, maxBytes, options, baseline) {
+function readProjectInputOnce(
+  { absolute, projectRoot, relation },
+  maxBytes,
+  options,
+  baseline,
+  verificationState
+) {
   const requireStablePath = options.requireStablePath === true;
   const initial = snapshotProjectPath(projectRoot, relation, absolute, {
     allowManagedDirectoryPointers: options.allowManagedDirectoryPointers === true,
+    managedDirectoryVerificationState: verificationState,
   });
   assertRetryBaseline(baseline, initial, "input changed during containment validation");
   if (!initial.finalStat?.isFile()) throw new Error("input must be an existing regular file");
@@ -618,6 +696,7 @@ function readProjectInputOnce({ absolute, projectRoot, relation }, maxBytes, opt
         throw new Error("input path changed during bounded read");
       assertStableSnapshot(initial, final, "input path changed during bounded read");
     }
+    commitManagedDirectoryVerification(initial, verificationState);
     return {
       path: absolute,
       relative: relation.split(path.sep).join("/"),
@@ -638,4 +717,8 @@ function readProjectInputOnce({ absolute, projectRoot, relation }, maxBytes, opt
   }
 }
 
-module.exports = { inspectStableProjectInput, readProjectInput };
+module.exports = {
+  createProjectInputVerificationContext,
+  inspectStableProjectInput,
+  readProjectInput,
+};

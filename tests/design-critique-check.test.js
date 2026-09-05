@@ -25,6 +25,7 @@ const {
   reviewFindingId,
 } = require("../scripts/design-critique-check");
 const { inspectPngVisualBytes } = require("../scripts/lib/media-inspect");
+const { writeProjectDirectoryAtomic } = require("../scripts/lib/project-atomic-write");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 const COMMIT = "a".repeat(40);
@@ -1130,6 +1131,60 @@ function attachTrustedCaptureObservation(root, route, routeBinding, capture, evi
   );
 }
 
+function publishManagedCaptureBundle(fixture, capture) {
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(fixture.root, capture.observation.path), "utf8")
+  );
+  const base = `.pm/dev-sessions/dc-test/design-critique/round-1/${capture.id}`;
+  const payloads = new Map([
+    ["capture.png", fs.readFileSync(path.join(fixture.root, capture.path))],
+    [
+      "accessibility-tree-raw.json",
+      fs.readFileSync(path.join(fixture.root, manifest.raw_evidence.accessibility_tree.path)),
+    ],
+    [
+      "dom-audit-raw.json",
+      fs.readFileSync(path.join(fixture.root, manifest.raw_evidence.dom_audit.path)),
+    ],
+    [
+      "network-ledger.json",
+      fs.readFileSync(path.join(fixture.root, manifest.raw_evidence.network_ledger.path)),
+    ],
+  ]);
+  capture.path = `${base}/capture.png`;
+  manifest.capture.path = capture.path;
+  manifest.raw_evidence.accessibility_tree.path = `${base}/accessibility-tree-raw.json`;
+  manifest.raw_evidence.dom_audit.path = `${base}/dom-audit-raw.json`;
+  manifest.raw_evidence.network_ledger.path = `${base}/network-ledger.json`;
+  for (const [kind, binding] of [
+    ["accessibility-tree", manifest.raw_evidence.accessibility_tree],
+    ["dom-audit", manifest.raw_evidence.dom_audit],
+  ]) {
+    const evidence = fixture.captures.evidence.find((item) => {
+      if (item.kind !== kind) return false;
+      const audit = JSON.parse(fs.readFileSync(path.join(fixture.root, item.path), "utf8"));
+      return audit.capture_ids.includes(capture.id);
+    });
+    const audit = JSON.parse(fs.readFileSync(path.join(fixture.root, evidence.path), "utf8"));
+    audit.raw = binding;
+    evidence.sha256 = write(
+      fixture.root,
+      evidence.path,
+      `${JSON.stringify(audit, null, 2)}\n`
+    ).sha256;
+  }
+  payloads.set("capture.json", Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`));
+  writeProjectDirectoryAtomic(fixture.root, base, [...payloads], { commitFile: "capture.json" });
+  capture.observation = {
+    path: `${base}/capture.json`,
+    sha256: digest(payloads.get("capture.json")),
+  };
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  return { bundle: fs.realpathSync(path.join(fixture.root, base)), payloads };
+}
+
 function rewriteNormalizedAudit(fixture, evidence, mutate) {
   const audit = JSON.parse(fs.readFileSync(path.join(fixture.root, evidence.path), "utf8"));
   if (audit.schema_version === 1) {
@@ -1631,6 +1686,56 @@ function uniqueCoverageIds(fixture, finalFinding, evidenceIds) {
 test("accepts a complete product UI evidence chain", () => {
   const fixture = makeFixture();
   assert.deepEqual(check(fixture), { ok: true, issues: [] });
+});
+
+test("hashes each managed capture bundle once per design-critique validation", (t) => {
+  const fixture = makeFixture();
+  t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+  const capture = fixture.captures.captures.find((item) => item.coverage_id === "ui-primary");
+  const { bundle, payloads } = publishManagedCaptureBundle(fixture, capture);
+  const payloadPaths = new Set([...payloads.keys()].map((name) => path.join(bundle, name)));
+  const bytesRead = new Map([...payloadPaths].map((file) => [file, 0]));
+  const descriptorPaths = new Map();
+  const originalOpen = fs.openSync;
+  const originalRead = fs.readSync;
+  const originalClose = fs.closeSync;
+  fs.openSync = function trackManagedPayloadOpen(file, ...args) {
+    const descriptor = Reflect.apply(originalOpen, fs, [file, ...args]);
+    const resolved = path.resolve(String(file));
+    if (payloadPaths.has(resolved)) descriptorPaths.set(descriptor, resolved);
+    return descriptor;
+  };
+  fs.readSync = function trackManagedPayloadRead(descriptor, ...args) {
+    const count = Reflect.apply(originalRead, fs, [descriptor, ...args]);
+    const file = descriptorPaths.get(descriptor);
+    if (file && count > 0) bytesRead.set(file, bytesRead.get(file) + count);
+    return count;
+  };
+  fs.closeSync = function trackManagedPayloadClose(descriptor, ...args) {
+    descriptorPaths.delete(descriptor);
+    return Reflect.apply(originalClose, fs, [descriptor, ...args]);
+  };
+
+  try {
+    assert.deepEqual(check(fixture), { ok: true, issues: [] });
+    const bundleBytes = [...payloads.values()].reduce((total, bytes) => total + bytes.length, 0);
+    assert.equal(
+      [...bytesRead.values()].reduce((total, bytes) => total + bytes, 0),
+      bundleBytes * 2
+    );
+    for (const [name, bytes] of payloads)
+      assert.equal(bytesRead.get(path.join(bundle, name)), bytes.length * 2, name);
+
+    assert.deepEqual(check(fixture), { ok: true, issues: [] });
+    assert.equal(
+      [...bytesRead.values()].reduce((total, bytes) => total + bytes, 0),
+      bundleBytes * 4
+    );
+  } finally {
+    fs.openSync = originalOpen;
+    fs.readSync = originalRead;
+    fs.closeSync = originalClose;
+  }
 });
 
 test("mirrors the trusted producer's route cardinality limits", async (t) => {
@@ -2544,6 +2649,46 @@ test("requires a primary device capture for mobile UI", () => {
   const result = check(fixture);
   assert.equal(result.ok, false);
   assert.match(JSON.stringify(result.issues), /mobile primary device capture is required/);
+});
+
+test("rejects device and print viewport decisions for web product UI", () => {
+  const fixture = makeFixture();
+  fixture.route.coverage.find((item) => item.id === "ui-empty").viewport = "device";
+  fixture.route.coverage.find((item) => item.id === "ui-error").viewport = "print";
+  rewrite(fixture.root, fixture.routePath, fixture.route);
+
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  const compatibilityIssues = result.issues.filter(
+    (issue) =>
+      issue.path.endsWith(".viewport") &&
+      issue.message === "web product-ui coverage must use desktop, tablet, or narrow"
+  );
+  assert.equal(compatibilityIssues.length, 2);
+});
+
+test("rejects non-device viewport decisions for mobile product UI", () => {
+  const fixture = makeFixture();
+  fixture.route.subjects[0].platform = "mobile";
+  fixture.route.coverage = fixture.route.coverage.filter((item) => item.id !== "ui-primary-narrow");
+  for (const item of fixture.route.coverage) item.viewport = "device";
+  for (const [id, viewport] of [
+    ["ui-empty", "desktop"],
+    ["ui-error", "tablet"],
+    ["ui-boundary", "narrow"],
+    ["ui-loading", "print"],
+  ])
+    fixture.route.coverage.find((item) => item.id === id).viewport = viewport;
+  rewrite(fixture.root, fixture.routePath, fixture.route);
+
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  const compatibilityIssues = result.issues.filter(
+    (issue) =>
+      issue.path.endsWith(".viewport") &&
+      issue.message === "mobile product-ui coverage must use device"
+  );
+  assert.equal(compatibilityIssues.length, 4);
 });
 
 test("requires primary narrow viewport evidence for web UI", () => {

@@ -511,7 +511,7 @@ function prototypeHeroHtml(proposal, identity) {
   const criticalStates = proposal.design_context.critical_states.join(" · ");
   return `<figure class="hero-prototype">
     <div class="hero-prototype-header"><span class="hero-prototype-label">Bound interaction prototype</span><span class="hero-prototype-fig">Design evidence</span></div>
-    <div class="hero-prototype-frame-wrap"><div class="hero-prototype-preview" role="group" aria-label="Prototype summary for ${h(proposal.title)}"><strong class="hero-prototype-title">${h(prototypeName)}</strong><span class="hero-prototype-summary">Open the approved flow and inspect every critical state.</span></div></div>
+    <div class="hero-prototype-frame-wrap"><div class="hero-prototype-preview" role="group" aria-label="Prototype summary for ${h(proposal.title)}"><strong class="hero-prototype-title">${h(prototypeName)}</strong><span class="hero-prototype-summary">Open the bound flow and inspect every critical state.</span></div></div>
     <figcaption class="hero-prototype-footer"><span><span class="hero-prototype-screens-label">Critical states</span>${h(criticalStates)}</span><a class="hero-prototype-link" href="${h(encodeRepoHref(href))}" target="_blank" rel="noopener">Open prototype →</a></figcaption>
     <p class="hero-prototype-note">Source-bound to <code>${h(prototype.sha256)}</code>.</p>
   </figure>`;

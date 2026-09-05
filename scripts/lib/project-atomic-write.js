@@ -139,6 +139,9 @@ function writeProjectFileAtomic(root, relativePath, content, options = {}) {
           "project output committed before its writer reported state; do not retry this write"
         );
         failure.committed = true;
+        failure.directorySynced = reconciliation.directory_synced;
+        if (reconciliation.directory_sync_error)
+          failure.directorySyncError = reconciliation.directory_sync_error;
         throw failure;
       }
       if (reconciliation.state === "unknown") {
@@ -376,13 +379,16 @@ function reconcileProjectFile(projectRoot, relativePath, expectedBytes, maxBytes
   };
   const initial = inspect();
   if (initial.state !== "committed") return initial;
+  let directorySyncError = null;
   try {
     fsyncContainedDirectory(projectRoot, path.dirname(relativePath));
   } catch (error) {
-    return {
-      state: "unknown",
-      message: `the published output directory could not be synced: ${error.message}`,
-    };
+    if (!UNSUPPORTED_DIRECTORY_SYNC_ERRORS.has(error.code))
+      return {
+        state: "unknown",
+        message: `the published output directory could not be synced: ${error.message}`,
+      };
+    directorySyncError = error.code;
   }
   const durable = inspect();
   if (durable.state !== "committed") {
@@ -391,7 +397,11 @@ function reconcileProjectFile(projectRoot, relativePath, expectedBytes, maxBytes
       message: `the public output changed during durability reconciliation: ${durable.message || durable.state}`,
     };
   }
-  return durable;
+  return {
+    ...durable,
+    directory_synced: directorySyncError === null,
+    ...(directorySyncError ? { directory_sync_error: directorySyncError } : {}),
+  };
 }
 
 function fsyncContainedDirectory(projectRoot, relativeDirectory) {

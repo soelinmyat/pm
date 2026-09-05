@@ -1364,6 +1364,92 @@ test("project writer reconciles file publication after its child dies before rep
   }
 });
 
+test("project writer preserves directory sync semantics while reconciling a committed rename", (t) => {
+  if (process.platform === "win32") return t.skip("signal semantics differ on Windows");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-write-reconcile-fsync-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, "review"));
+  const preload = path.join(root, "die-after-rename-and-fail-parent-fsync.cjs");
+  fs.writeFileSync(
+    preload,
+    `
+      const fs = require("node:fs");
+      const path = require("node:path");
+      const originalOpen = fs.openSync;
+      const originalRename = fs.renameSync;
+      const reconciliationDirectory = path.join(fs.realpathSync(process.env.PM_TEST_ROOT), "review");
+      fs.openSync = function(file, ...args) {
+        if (
+          !process.argv.includes("--child") &&
+          path.resolve(file) === reconciliationDirectory
+        ) {
+          const error = new Error("injected reconciliation directory sync failure");
+          error.code = process.env.PM_TEST_FSYNC_CODE;
+          throw error;
+        }
+        return originalOpen.call(fs, file, ...args);
+      };
+      fs.renameSync = function(source, destination, ...args) {
+        const result = originalRename.call(fs, source, destination, ...args);
+        if (process.argv.includes("--child") && /^report-(?:eperm|enotsup|eio)\\.json$/.test(destination)) {
+          process.kill(process.pid, "SIGKILL");
+        }
+        return result;
+      };
+    `
+  );
+  const script = `
+    const [root, writer, relative] = process.argv.slice(1);
+    try {
+      require(writer).writeProjectTextAtomic(root, relative, "durable-output");
+      process.stdout.write(JSON.stringify({ unexpected: "passed" }));
+    } catch (error) {
+      process.stdout.write(JSON.stringify({
+        committed: error.committed,
+        commitState: error.commitState,
+        retryable: error.retryable,
+        directorySynced: error.directorySynced,
+        directorySyncError: error.directorySyncError,
+        message: error.message
+      }));
+    }
+  `;
+  for (const code of ["EPERM", "ENOTSUP", "EIO"]) {
+    const relative = `review/report-${code.toLowerCase()}.json`;
+    const result = spawnSync(process.execPath, ["-e", script, root, writerModule, relative], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        NODE_OPTIONS: `--require=${preload}`,
+        PM_TEST_ROOT: root,
+        PM_TEST_FSYNC_CODE: code,
+      },
+    });
+    assert.equal(result.status, 0, `${code}: ${result.stderr}`);
+    const failure = JSON.parse(result.stdout);
+    assert.equal(failure.unexpected, undefined);
+    assert.equal(fs.readFileSync(path.join(root, relative), "utf8"), "durable-output");
+    if (code === "EIO") {
+      assert.equal(failure.committed, null);
+      assert.equal(failure.commitState, "unknown");
+      assert.equal(failure.retryable, false);
+      assert.equal(failure.directorySynced, undefined);
+      assert.equal(failure.directorySyncError, undefined);
+      assert.match(
+        failure.message,
+        /could not be synced.*injected reconciliation directory sync failure/
+      );
+    } else {
+      assert.equal(failure.committed, true);
+      assert.equal(failure.commitState, undefined);
+      assert.equal(failure.retryable, undefined);
+      assert.equal(failure.directorySynced, false);
+      assert.equal(failure.directorySyncError, code);
+      assert.match(failure.message, /committed.*do not retry/i);
+    }
+  }
+});
+
 test("directory sync errors report committed state without creating retry ambiguity", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-write-fsync-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

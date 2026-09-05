@@ -1,6 +1,9 @@
 "use strict";
 
-const { readProjectInput } = require("./safe-project-output");
+const {
+  createProjectInputVerificationContext,
+  readProjectInput,
+} = require("./safe-project-output");
 const {
   writeProjectFileAtomic,
   writeProjectJsonAtomic,
@@ -8,6 +11,7 @@ const {
 } = require("./project-atomic-write");
 
 module.exports = {
+  createProjectInputVerificationContext,
   readProjectInput,
   writeProjectFileAtomic,
   writeProjectJsonAtomic,

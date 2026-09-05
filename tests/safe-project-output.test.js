@@ -7,7 +7,10 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { readProjectInput } = require("../scripts/lib/safe-project-output");
+const {
+  createProjectInputVerificationContext,
+  readProjectInput,
+} = require("../scripts/lib/safe-project-output");
 const { writeProjectDirectoryAtomic } = require("../scripts/lib/project-atomic-write");
 
 function readManagedProjectInput(root, relativePath, maxBytes, options = {}) {
@@ -163,6 +166,115 @@ test("safe project input transparently reads a tightly branded managed directory
       requireStablePath: true,
     }).stablePathIdentity,
     "string"
+  );
+});
+
+test("managed directory verification context hashes the full bundle once across member reads", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-safe-managed-cache-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const payloads = new Map([
+    ["capture.png", Buffer.alloc(128 * 1024 + 17, 1)],
+    ["accessibility-tree-raw.json", Buffer.from('{"kind":"a11y"}\n')],
+    ["dom-audit-raw.json", Buffer.from('{"kind":"dom"}\n')],
+    ["network-ledger.json", Buffer.from('{"kind":"network"}\n')],
+    ["capture.json", Buffer.from('{"kind":"manifest"}\n')],
+  ]);
+  writeProjectDirectoryAtomic(root, "evidence/capture-1", [...payloads], {
+    commitFile: "capture.json",
+  });
+
+  const canonical = path.join(root, "evidence", "capture-1");
+  const bundle = fs.realpathSync(canonical);
+  const payloadPaths = new Set([...payloads.keys()].map((name) => path.join(bundle, name)));
+  const bytesRead = new Map([...payloadPaths].map((file) => [file, 0]));
+  const descriptorPaths = new Map();
+  const originalOpen = fs.openSync;
+  const originalRead = fs.readSync;
+  const originalClose = fs.closeSync;
+  fs.openSync = function trackManagedPayloadOpen(file, ...args) {
+    const descriptor = Reflect.apply(originalOpen, fs, [file, ...args]);
+    const resolved = path.resolve(String(file));
+    if (payloadPaths.has(resolved)) descriptorPaths.set(descriptor, resolved);
+    return descriptor;
+  };
+  fs.readSync = function trackManagedPayloadRead(descriptor, ...args) {
+    const count = Reflect.apply(originalRead, fs, [descriptor, ...args]);
+    const file = descriptorPaths.get(descriptor);
+    if (file && count > 0) bytesRead.set(file, bytesRead.get(file) + count);
+    return count;
+  };
+  fs.closeSync = function trackManagedPayloadClose(descriptor, ...args) {
+    descriptorPaths.delete(descriptor);
+    return Reflect.apply(originalClose, fs, [descriptor, ...args]);
+  };
+
+  try {
+    const verificationContext = createProjectInputVerificationContext();
+    for (const name of ["capture.json", "accessibility-tree-raw.json", "dom-audit-raw.json"]) {
+      assert.deepEqual(
+        readManagedProjectInput(root, `evidence/capture-1/${name}`, 1024 * 1024, {
+          managedDirectoryVerificationContext: verificationContext,
+        }).bytes,
+        payloads.get(name)
+      );
+    }
+
+    for (const [name, bytes] of payloads) {
+      const expectedReads = [
+        "capture.json",
+        "accessibility-tree-raw.json",
+        "dom-audit-raw.json",
+      ].includes(name)
+        ? 2
+        : 1;
+      assert.equal(bytesRead.get(path.join(bundle, name)), bytes.length * expectedReads, name);
+    }
+
+    readManagedProjectInput(root, "evidence/capture-1/network-ledger.json", 1024 * 1024, {
+      managedDirectoryVerificationContext: verificationContext,
+    });
+    assert.equal(
+      bytesRead.get(path.join(bundle, "network-ledger.json")),
+      payloads.get("network-ledger.json").length * 2
+    );
+    assert.equal(
+      bytesRead.get(path.join(bundle, "capture.png")),
+      payloads.get("capture.png").length
+    );
+  } finally {
+    fs.openSync = originalOpen;
+    fs.readSync = originalRead;
+    fs.closeSync = originalClose;
+  }
+});
+
+test("managed directory verification context rejects sibling mutation between member reads", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-safe-managed-cache-mutation-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  writeProjectDirectoryAtomic(
+    root,
+    "evidence/capture-1",
+    [
+      ["capture.png", Buffer.from([1, 2, 3])],
+      ["capture.json", "manifest"],
+      ["network-ledger.json", "network"],
+    ],
+    { commitFile: "capture.json" }
+  );
+  const verificationContext = createProjectInputVerificationContext();
+  readManagedProjectInput(root, "evidence/capture-1/capture.json", 1024, {
+    managedDirectoryVerificationContext: verificationContext,
+  });
+
+  const canonical = path.join(root, "evidence", "capture-1");
+  const bundle = path.join(path.dirname(canonical), fs.readlinkSync(canonical));
+  fs.writeFileSync(path.join(bundle, "capture.png"), Buffer.from([9, 8, 7]));
+  assert.throws(
+    () =>
+      readManagedProjectInput(root, "evidence/capture-1/network-ledger.json", 1024, {
+        managedDirectoryVerificationContext: verificationContext,
+      }),
+    /changed after verified bundle inspection/
   );
 });
 

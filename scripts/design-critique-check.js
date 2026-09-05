@@ -22,7 +22,7 @@ const {
   visualDifference,
 } = require("./lib/media-inspect");
 const { isManagedCaptureMemberPath } = require("./lib/design-critique-capture-path");
-const { readProjectInput } = require("./lib/project-file");
+const { createProjectInputVerificationContext, readProjectInput } = require("./lib/project-file");
 const { MAX_RAW_AUDIT_BYTES, normalizeAuditBytes } = require("./design-critique-audit-normalize");
 const {
   ACQUISITION_METHOD: TRUSTED_CAPTURE_ACQUISITION,
@@ -66,6 +66,7 @@ const FRESH_PLACEHOLDER_PROSE = new RegExp(
 const RECONCILIATION_AGREEMENTS = new Set(["single-source", "aligned", "disputed"]);
 const RECONCILIATION_DISPOSITIONS = new Set(["accepted", "dismissed"]);
 const VIEWPORTS = new Set(["desktop", "tablet", "narrow", "device", "print"]);
+const PRODUCT_UI_WEB_VIEWPORTS = new Set(["desktop", "tablet", "narrow"]);
 const PRODUCT_UI_DEVICE_BOUNDS = Object.freeze({ min: 240, minHeight: 400 });
 const {
   minVisiblePixelRatio: MIN_VISIBLE_PIXEL_RATIO,
@@ -138,6 +139,7 @@ function checkDesignCritique(options) {
     browsers: new Map(),
     media: new Map(),
     rowIndexes: new WeakMap(),
+    projectInputVerificationContext: createProjectInputVerificationContext(),
   };
   try {
     return checkDesignCritiqueUncached(options);
@@ -531,6 +533,7 @@ function validateDiffIdentity(root, route, baseCommit, issues) {
 
 function validateCoverage(route, subjects, subjectIds, issues) {
   const coverageRows = route.coverage;
+  const subjectsById = new Map(subjects.filter(object).map((subject) => [subject.id, subject]));
   const ids = new Set();
   const decisions = new Map();
   let duplicateDecisionCount = 0;
@@ -562,6 +565,21 @@ function validateCoverage(route, subjects, subjectIds, issues) {
       add(issues, `${at}.subject_id`, "must reference a subject");
     if (!STATES.has(item.state)) add(issues, `${at}.state`, "is invalid");
     if (!VIEWPORTS.has(item.viewport)) add(issues, `${at}.viewport`, "is invalid");
+    const platform = subjectsById.get(item.subject_id)?.platform;
+    if (
+      route.mode === "product-ui" &&
+      platform === "web" &&
+      VIEWPORTS.has(item.viewport) &&
+      !PRODUCT_UI_WEB_VIEWPORTS.has(item.viewport)
+    )
+      add(issues, `${at}.viewport`, "web product-ui coverage must use desktop, tablet, or narrow");
+    if (
+      route.mode === "product-ui" &&
+      platform === "mobile" &&
+      VIEWPORTS.has(item.viewport) &&
+      item.viewport !== "device"
+    )
+      add(issues, `${at}.viewport`, "mobile product-ui coverage must use device");
     if (typeof item.required !== "boolean") add(issues, `${at}.required`, "must be boolean");
     if (item.required === false && !text(item.reason))
       add(issues, `${at}.reason`, "is required when not applicable");
@@ -4197,6 +4215,7 @@ function readBoundFile(root, rel, label, issues, maxBytes = MAX_EVIDENCE_BYTES) 
       cached ||
       readProjectInput(root, cacheKey, maxBytes, {
         allowManagedDirectoryPointers: isManagedCaptureMemberPath(cacheKey),
+        managedDirectoryVerificationContext: activeReadCache?.projectInputVerificationContext,
       });
     const file = cached || { path: loaded.path, bytes: loaded.bytes };
     if (!cached) {

@@ -278,7 +278,7 @@ test(
   }
 );
 
-test("UI proposals surface their approved prototype without embedding executable content", () => {
+test("UI proposals surface their bound prototype without embedding executable content", () => {
   const input = source();
   input.proposal.design_context.prototype = {
     path: "pm/backlog/wireframes/structured-groom.html",
@@ -294,11 +294,53 @@ test("UI proposals surface their approved prototype without embedding executable
   assert.match(rendered.html, /<figure class="hero-prototype"/);
   assert.match(rendered.html, /href="\.\.\/wireframes\/structured-groom\.html"/);
   assert.match(rendered.html, /Bound interaction prototype/);
+  assert.match(rendered.html, /Open the bound flow and inspect every critical state/);
+  assert.doesNotMatch(rendered.html, /Open the approved flow/);
   assert.match(rendered.html, /draft · reviewed · approved · stale approval/);
   assert.doesNotMatch(rendered.html, /<iframe\b/i);
   assert.doesNotMatch(rendered.html, /<script[^>]+src=/i);
   const inspected = inspectHtmlArtifact(Buffer.from(rendered.html), { expectedKind: "proposal" });
   assert.equal(inspected.ok, true, JSON.stringify(inspected.issues));
+});
+
+test("prototype hero copy stays accurate across draft, reviewed, and verified approved states", () => {
+  for (const lifecycle of ["draft", "reviewed"]) {
+    const input = source();
+    input.proposal.lifecycle = lifecycle;
+    input.proposal.design_context.prototype = {
+      path: "pm/backlog/wireframes/structured-groom.html",
+      sha256: `sha256:${"b".repeat(64)}`,
+    };
+    const rendered = renderProposal(input.proposal, {
+      sourceBytes: Buffer.from(`${JSON.stringify(input.proposal, null, 2)}\n`),
+      version: "test",
+    });
+    assert.match(rendered.html, /Open the bound flow and inspect every critical state/);
+    assert.doesNotMatch(rendered.html, /Open the approved flow/);
+  }
+
+  const approved = source();
+  approved.proposal.lifecycle = "approved";
+  approved.proposal.design_context.prototype = {
+    path: "pm/backlog/wireframes/structured-groom.html",
+    sha256: `sha256:${"b".repeat(64)}`,
+  };
+  const sourceBytes = Buffer.from(`${JSON.stringify(approved.proposal, null, 2)}\n`);
+  const unverified = renderProposal(approved.proposal, { sourceBytes, version: "test" });
+  const verified = renderProposal(approved.proposal, {
+    sourceBytes,
+    version: "test",
+    actuallyVerifiedApproval: {
+      trustedApproval: true,
+      approval: {
+        revision: approved.proposal.revision,
+        content_sha256: unverified.content_sha256,
+      },
+    },
+  });
+  assert.match(verified.html, /Open the bound flow and inspect every critical state/);
+  assert.doesNotMatch(verified.html, /Open the approved flow/);
+  assert.match(verified.html, /Approval verified; current lifecycle approved/);
 });
 
 test("multi-file prototype projections expose the complete bound tree identity", () => {
