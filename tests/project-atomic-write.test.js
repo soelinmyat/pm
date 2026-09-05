@@ -31,11 +31,19 @@ function bundleNames(root, parent = "evidence") {
     .sort();
 }
 
-async function waitForFile(file, message) {
+async function waitForJsonFile(file, message) {
   const deadline = Date.now() + 5_000;
-  while (!fs.existsSync(file) && Date.now() < deadline)
+  let lastError = null;
+  while (Date.now() < deadline) {
+    try {
+      return JSON.parse(fs.readFileSync(file, "utf8"));
+    } catch (error) {
+      if (error?.code !== "ENOENT" && !(error instanceof SyntaxError)) throw error;
+      lastError = error;
+    }
     await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.equal(fs.existsSync(file), true, message);
+  }
+  assert.fail(`${message}: ${lastError?.message || "timed out"}`);
 }
 
 test("Windows managed pointer publication selects junctions locally and symlinks on UNC", () => {
@@ -359,8 +367,9 @@ test("project directory writer retries after death before pointer publication", 
       }
     if (active.exitCode === null && active.signalCode === null) active.kill("SIGKILL");
   });
-  await waitForFile(ready, "directory child did not reach final pointer publication");
-  childPid = JSON.parse(fs.readFileSync(ready, "utf8")).pid;
+  childPid = (
+    await waitForJsonFile(ready, "directory child did not reach final pointer publication")
+  ).pid;
   assert.equal(fs.existsSync(path.join(root, "evidence", "capture-1")), false);
   assert.equal(bundleNames(root).length, 1);
   const exited = new Promise((resolve) => active.once("exit", resolve));
@@ -440,8 +449,10 @@ test("project directory writer retries after death during private manifest creat
       }
     if (active.exitCode === null && active.signalCode === null) active.kill("SIGKILL");
   });
-  await waitForFile(ready, "directory child did not partially write its private manifest");
-  const observed = JSON.parse(fs.readFileSync(ready, "utf8"));
+  const observed = await waitForJsonFile(
+    ready,
+    "directory child did not partially write its private manifest"
+  );
   childPid = observed.pid;
   assert.equal(observed.written > 0 && observed.written <= 16, true);
   assert.equal(fs.existsSync(path.join(root, "evidence", "capture-1")), false);
