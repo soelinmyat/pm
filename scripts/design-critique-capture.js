@@ -7,6 +7,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { execFileSync, spawnSync } = require("node:child_process");
 const { normalizeRawAudit } = require("./design-critique-audit-normalize");
+const { isRfc3339DateTime } = require("./lib/iso-time");
 const { PRODUCT_UI_VISUAL_THRESHOLDS, inspectPngVisualBytes } = require("./lib/media-inspect");
 const { readProjectInput } = require("./lib/project-file");
 const { writeProjectDirectoryAtomic } = require("./lib/project-atomic-write");
@@ -101,8 +102,7 @@ function validateRoute(route) {
   if (route.schema_version !== 2)
     throw new Error("trusted capture requires route schema_version 2");
   boundedText(route.run_id, 200, "route.run_id");
-  if (Number.isNaN(Date.parse(route.created_at)))
-    throw new Error("route.created_at must be RFC 3339");
+  if (!isRfc3339DateTime(route.created_at)) throw new Error("route.created_at must be RFC 3339");
   if (route.mode !== "product-ui") throw new Error("trusted capture requires product-ui mode");
   exactObject(
     route.source,

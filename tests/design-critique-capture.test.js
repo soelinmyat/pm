@@ -143,6 +143,17 @@ test("capture plan derives state and viewport from the frozen coverage row", () 
   );
 });
 
+test("capture planning rejects date-only route timestamps", () => {
+  const frozen = route();
+  frozen.created_at = "2026-09-04";
+
+  assert.throws(
+    () =>
+      prepareCapturePlan(frozen, ".pm/dev-sessions/test/design-critique/route.json", planOptions()),
+    /route\.created_at must be RFC 3339/
+  );
+});
+
 test("certifying state assertions are closed declarative data, not JavaScript", () => {
   assert.throws(
     () => validateStateAssertion({ schema_version: 1, expression: "window.ready === true" }),
