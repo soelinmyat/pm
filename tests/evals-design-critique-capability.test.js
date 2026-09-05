@@ -954,6 +954,126 @@ test("adjudication rejects a report parent swap without replacing an external fi
   }
 });
 
+test("adjudication rejects a report parent swap before loading an existing report", () => {
+  if (process.platform === "win32") return;
+  const fixture = evidenceFixture();
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pm-capability-report-read-swap-"));
+  const reportParent = path.join(fixture.root, "reports");
+  const originalParent = path.join(fixture.root, "reports-original");
+  const reportPath = path.join(reportParent, "report.json");
+  const outsideTarget = path.join(outside, "report.json");
+  let restored = false;
+  try {
+    sealCapabilityAdjudication({
+      rootDir: fixture.root,
+      oracle: fixture.oracle,
+      capture: captureFromFixture(fixture, 0),
+      judgments: judgmentsFromFixture(fixture, 0),
+      reportPath,
+      fixVerifier: fakeFixVerifier,
+    });
+    const originalReport = fs.readFileSync(reportPath);
+    fs.writeFileSync(outsideTarget, originalReport, { mode: 0o600 });
+
+    assert.throws(
+      () =>
+        sealCapabilityAdjudication({
+          rootDir: fixture.root,
+          oracle: fixture.oracle,
+          capture: captureFromFixture(fixture, 1),
+          judgments: judgmentsFromFixture(fixture, 1),
+          reportPath,
+          fixVerifier: fakeFixVerifier,
+          testingHooks: {
+            beforeReportLoad() {
+              fs.renameSync(reportParent, originalParent);
+              fs.symlinkSync(outside, reportParent, "dir");
+            },
+            afterReportLoad() {
+              fs.unlinkSync(reportParent);
+              fs.renameSync(originalParent, reportParent);
+              restored = true;
+            },
+          },
+        }),
+      /report JSON input.*project path contains symlink/i
+    );
+    assert.equal(restored, false);
+    assert.deepEqual(fs.readFileSync(outsideTarget), originalReport);
+    assert.deepEqual(fs.readFileSync(path.join(originalParent, "report.json")), originalReport);
+  } finally {
+    fs.rmSync(outside, { recursive: true, force: true });
+    fixture.cleanup();
+  }
+});
+
+test("adjudication never replaces an existing report changed after its anchored read", () => {
+  const fixture = evidenceFixture();
+  const reportPath = path.join(fixture.root, "reports", "report.json");
+  const concurrent = Buffer.from('{"concurrent":true}\n');
+  try {
+    sealCapabilityAdjudication({
+      rootDir: fixture.root,
+      oracle: fixture.oracle,
+      capture: captureFromFixture(fixture, 0),
+      judgments: judgmentsFromFixture(fixture, 0),
+      reportPath,
+      fixVerifier: fakeFixVerifier,
+    });
+
+    assert.throws(
+      () =>
+        sealCapabilityAdjudication({
+          rootDir: fixture.root,
+          oracle: fixture.oracle,
+          capture: captureFromFixture(fixture, 1),
+          judgments: judgmentsFromFixture(fixture, 1),
+          reportPath,
+          fixVerifier: fakeFixVerifier,
+          testingHooks: {
+            beforeReportPublication() {
+              fs.mkdirSync(path.dirname(reportPath), { recursive: true });
+              fs.writeFileSync(reportPath, concurrent, { mode: 0o600 });
+            },
+          },
+        }),
+      /atomic write attestation changed/
+    );
+    assert.deepEqual(fs.readFileSync(reportPath), concurrent);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("adjudication never replaces a report created after an absent anchored read", () => {
+  const fixture = evidenceFixture();
+  const reportPath = path.join(fixture.root, "reports", "report.json");
+  const concurrent = Buffer.from('{"concurrent":true}\n');
+  try {
+    assert.throws(
+      () =>
+        sealCapabilityAdjudication({
+          rootDir: fixture.root,
+          oracle: fixture.oracle,
+          capture: captureFromFixture(fixture, 0),
+          judgments: judgmentsFromFixture(fixture, 0),
+          reportPath,
+          fixVerifier: fakeFixVerifier,
+          testingHooks: {
+            beforeReportPublication() {
+              fs.mkdirSync(path.dirname(reportPath), { recursive: true });
+              fs.writeFileSync(reportPath, concurrent, { mode: 0o600 });
+            },
+          },
+        }),
+      /EEXIST|file exists/i
+    );
+    assert.deepEqual(fs.readFileSync(reportPath), concurrent);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("adjudication rejects unsafe existing report files before lock acquisition", () => {
   const fixture = evidenceFixture();
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pm-capability-report-target-"));

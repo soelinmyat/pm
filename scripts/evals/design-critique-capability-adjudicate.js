@@ -5,7 +5,11 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { isDeepStrictEqual } = require("node:util");
-const { acquireProjectWriteLock, writeProjectFileAtomic } = require("../lib/project-file.js");
+const {
+  acquireProjectWriteLock,
+  readProjectInput,
+  writeProjectFileAtomic,
+} = require("../lib/project-file.js");
 const { readBoundedFile } = require("../lib/safe-json-file.js");
 const {
   CAPABILITY_JSON_LIMITS,
@@ -54,7 +58,8 @@ function sealCapabilityAdjudication(options) {
     }
   );
   try {
-    const report = loadOrCreateReport(reportPath, oracle, capture.profile);
+    options.testingHooks?.beforeReportLoad?.();
+    const { report, preimage } = loadOrCreateReport(rootDir, reportPath, oracle, capture.profile);
     const retainedInputs = planProtectedInputs(rootDir, {
       cases: report.repeats.flatMap((repeat) => (Array.isArray(repeat?.cases) ? repeat.cases : [])),
     });
@@ -103,6 +108,7 @@ function sealCapabilityAdjudication(options) {
     validateReportPath(rootDir, reportPath);
     writePrivateBytes(reportPath, reportBytes, rootDir, rootIdentity, {
       beforeSpawn: () => options.testingHooks?.beforeReportPublication?.(),
+      preimage,
     });
     return { report, reportPath };
   } finally {
@@ -584,16 +590,33 @@ function requireClosedObject(value, keys, where) {
   }
 }
 
-function loadOrCreateReport(reportPath, oracle, profile) {
-  if (!fs.existsSync(reportPath)) {
-    return {
-      schema_version: 4,
-      benchmark_id: oracle.benchmark_id,
-      profile: structuredClone(profile),
-      repeats: [],
-    };
+function loadOrCreateReport(rootDir, reportPath, oracle, profile) {
+  const relativePath = path.relative(rootDir, reportPath).split(path.sep).join("/");
+  let input;
+  try {
+    input = readProjectInput(rootDir, relativePath, CAPABILITY_JSON_LIMITS.report, {
+      requireStablePath: true,
+    });
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return {
+        report: {
+          schema_version: 4,
+          benchmark_id: oracle.benchmark_id,
+          profile: structuredClone(profile),
+          repeats: [],
+        },
+        preimage: null,
+      };
+    }
+    throw new Error(`report JSON input exceeds its safe boundary or is invalid: ${error.message}`);
   }
-  const report = readCapabilityJson(reportPath, "report");
+  let report;
+  try {
+    report = JSON.parse(input.bytes.toString("utf8"));
+  } catch (error) {
+    throw new Error(`report JSON input exceeds its safe boundary or is invalid: ${error.message}`);
+  }
   if (report.schema_version !== 4 || report.benchmark_id !== oracle.benchmark_id) {
     throw new Error("existing report does not match this capability benchmark");
   }
@@ -601,7 +624,14 @@ function loadOrCreateReport(reportPath, oracle, profile) {
     throw new Error("existing report uses a different model profile");
   }
   if (!Array.isArray(report.repeats)) throw new Error("existing report repeats must be an array");
-  return report;
+  return {
+    report,
+    preimage: {
+      path: relativePath,
+      sha256: digest(input.bytes),
+      maxBytes: CAPABILITY_JSON_LIMITS.report,
+    },
+  };
 }
 
 function capabilityPublicationLockPath(rootDir) {
@@ -930,13 +960,14 @@ function publishPrivateBytesImmutable(
 
 function writePrivateBytes(filePath, bytes, rootDir, rootIdentity, options = {}) {
   writeProjectFileAtomic(rootDir, path.relative(rootDir, filePath), bytes, {
-    replace: true,
+    replace: Boolean(options.preimage),
     fileMode: 0o600,
     directoryMode: 0o700,
     maxBytes: bytes.length,
     expectedRootDev: rootIdentity.dev,
     expectedRootIno: rootIdentity.ino,
     beforeSpawn: options.beforeSpawn,
+    finalAttestation: options.preimage || undefined,
   });
 }
 
