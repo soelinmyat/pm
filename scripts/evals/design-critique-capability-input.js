@@ -8,6 +8,7 @@ const CAPABILITY_JSON_LIMITS = Object.freeze({
   judgments: 4 * 1024 * 1024,
   report: 8 * 1024 * 1024,
   "runtime-profile": 256 * 1024,
+  "scenario-identity": 256 * 1024,
   "candidate-findings": 2 * 1024 * 1024,
   "oracle-isolation": 1024 * 1024,
   command: 256 * 1024,

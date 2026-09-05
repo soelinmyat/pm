@@ -323,7 +323,7 @@ Notes:
 
 ## Windows Notes
 
-If you are installing on Windows, enable Developer Mode or use PowerShell as Administrator so the skill symlinks can be created successfully.
+If you are installing on Windows, enable Developer Mode or use PowerShell as Administrator so the skill symlinks and immutable design-capture bundle pointers can be created successfully.
 `;
 }
 

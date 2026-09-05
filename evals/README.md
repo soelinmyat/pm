@@ -378,11 +378,14 @@ done
 ```
 
 Each command writes a private, gitignored capture under
-`eval-results/capabilities/design-critique/<benchmark>/<profile>/repeat-N.json`.
-It exits nonzero if any fixture run is not a behavioral pass, its candidate
+`eval-results/capabilities/design-critique/<benchmark>/<profile>/repeat-N--<batch-id>.json`
+and prints that exact path in its `output` field. The invocation-specific suffix
+keeps concurrent batches from replacing one another. Pass an explicit `--out`
+when a later command or script needs a stable filename; do not run two writers
+against the same explicit path. It exits nonzero if any fixture run is not a behavioral pass, its candidate
 ledger is missing or invalid, or captured bytes do not match the fixture
 oracle. Each successful case binds the immutable pre-candidate fixture bytes,
-source/runtime identity, runtime profile identity, verdict, normalized
+source/runtime identity, exact staged scenario identity, runtime profile identity, verdict, normalized
 transcript, user-facing candidate output, candidate-authored
 `capability-findings.json`, oracle-isolation evidence, and post-candidate HTML
 subject by canonical run path and SHA-256 digest. Adjudication rejects dirty
@@ -403,7 +406,7 @@ each ledger finding exactly once by `candidate_finding_id` to an `oracle_id`, or
 location correctness; candidate-authored severity, objectivity, blocking,
 locator, fix claim, summary, and case blocked outcome are derived from the bound
 ledger and cannot be replaced by judgments. The adjudicated report is a closed
-JSON object with `schema_version: 3`,
+JSON object with `schema_version: 4`,
 `benchmark_id`, `profile`, and `repeats`. Write only the human decisions for one
 capture as a closed judgments JSON object; the sealing command copies and binds
 the run evidence:
@@ -433,7 +436,8 @@ candidate finding. Invented, missing, duplicate, unknown, or omitted candidate
 IDs are rejected. Use `oracle_id: null` for an unmatched finding. Do not author
 candidate fields or `fix_verified`: the host verifier derives fix verification
 from the post-run subject. Seal each repeat into the same report (the command
-appends a new repeat):
+appends a new repeat). Use the exact `output` path printed by the runner. The
+example below assumes the run used `--out eval-results/capabilities/design-critique/design-critique-hidden-v1/sol-high/repeat-1.json`:
 
 ```bash
 npm run eval:design-critique:adjudicate -- \
@@ -456,7 +460,7 @@ result.
 The command also creates a closed adjudication artifact for each row under
 `eval-results/capabilities/design-critique/adjudications/`. It binds the semantic
 oracle SHA, exact profile/repeat/case, fixture/run/scenario/adapter identities,
-and hashes of the runtime profile, verdict, normalized transcript, candidate
+and hashes of the staged scenario identity, runtime profile, verdict, normalized transcript, candidate
 output, candidate findings ledger, oracle-isolation record, post-run subject,
 and fix-verification result. Its `blocked` and `findings` values must exactly
 match the report row and the candidate-authored fields must exactly match the
@@ -466,8 +470,9 @@ local and generic external evidence does not establish that every alternate
 filesystem or network route to it was unavailable to the process.
 
 The scorer resolves every evidence path under the repository, rereads the
-bytes, checks every digest, and cross-checks the scenario/profile/run identity
-against the verdict. It independently reruns the host fix verifier against the
+bytes, checks every digest, reconstructs the expected scenario from the exact
+oracle fixture, and cross-checks its staged tree identity plus the profile/run
+identity against the verdict. It independently reruns the host fix verifier against the
 bound post-run bytes and requires the result to match the sealed artifact.
 Missing, moved, substituted, harness-only, indeterminate claimed-fix, or
 tampered evidence makes the entire report invalid rather than silently lowering
@@ -492,10 +497,11 @@ Accordingly, the scorer currently returns `claimable: false`,
 `release_passed: false`, and a nonzero exit code even when every quality metric
 meets its threshold.
 
-Legacy `schema_version: 1` reports contain no run or byte bindings, and version
-2 reports contain no candidate-ledger or oracle-isolation bindings. Neither can
-be migrated into a capability claim. Re-run and adjudicate the benchmark to
-produce schema 3 evidence.
+Legacy `schema_version: 1` reports contain no run or byte bindings, version 2
+reports contain no candidate-ledger or oracle-isolation bindings, and version 3
+reports do not bind the deterministic staged scenario. None can be migrated
+into a capability claim. Re-run and adjudicate the benchmark to produce schema
+4 evidence.
 
 ## Scenario Shape
 

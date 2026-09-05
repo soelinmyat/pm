@@ -3,6 +3,7 @@
 
 const crypto = require("node:crypto");
 const path = require("node:path");
+const { isManagedCaptureRawPath } = require("./lib/design-critique-capture-path");
 const { readProjectInput, writeProjectJsonAtomic } = require("./lib/project-file");
 
 const MAX_RAW_AUDIT_BYTES = 1024 * 1024;
@@ -336,7 +337,9 @@ function parseArgs(argv) {
 function main() {
   try {
     const options = parseArgs(process.argv.slice(2));
-    const rawFile = readProjectInput(options.root, options.rawPath, MAX_RAW_AUDIT_BYTES);
+    const rawFile = readProjectInput(options.root, options.rawPath, MAX_RAW_AUDIT_BYTES, {
+      allowManagedDirectoryPointers: isManagedCaptureRawPath(options.rawPath),
+    });
     const rawBinding = { path: rawFile.relative, sha256: digest(rawFile.bytes) };
     const audit = normalizeAuditBytes(rawFile.bytes, rawBinding);
     const outputBytes = Buffer.from(`${JSON.stringify(audit, null, 2)}\n`);
@@ -348,6 +351,7 @@ function main() {
           path: rawBinding.path,
           sha256: `sha256:${rawBinding.sha256}`,
           maxBytes: MAX_RAW_AUDIT_BYTES,
+          allowManagedDirectoryPointers: isManagedCaptureRawPath(rawBinding.path),
         },
       ],
     });

@@ -21,6 +21,7 @@ const {
   inspectPngVisualBytes,
   visualDifference,
 } = require("./lib/media-inspect");
+const { isManagedCaptureMemberPath } = require("./lib/design-critique-capture-path");
 const { readProjectInput } = require("./lib/project-file");
 const { MAX_RAW_AUDIT_BYTES, normalizeAuditBytes } = require("./design-critique-audit-normalize");
 const {
@@ -4192,7 +4193,11 @@ function readBoundFile(root, rel, label, issues, maxBytes = MAX_EVIDENCE_BYTES) 
     const cached = activeReadCache?.files.get(cacheKey);
     if (cached && cached.bytes.length > maxBytes)
       throw new Error(`input exceeds ${maxBytes}-byte budget`);
-    const loaded = cached || readProjectInput(root, cacheKey, maxBytes);
+    const loaded =
+      cached ||
+      readProjectInput(root, cacheKey, maxBytes, {
+        allowManagedDirectoryPointers: isManagedCaptureMemberPath(cacheKey),
+      });
     const file = cached || { path: loaded.path, bytes: loaded.bytes };
     if (!cached) {
       file.sha256 = digest(file.bytes);

@@ -131,10 +131,38 @@ function runEval(opts) {
   paths.qualityProfile = runtimeProfile;
 
   stageRuntime(rootDir, paths.runtimeDir);
-  safeCopyTree(scenarioDir, paths.scenarioStageDir);
+  if (opts.scenarioFiles !== undefined) {
+    if (qualityCase) {
+      throw new Error("scenarioFiles cannot be combined with a generated quality case");
+    }
+    stageTrustedScenarioFiles(paths.scenarioStageDir, opts.scenarioFiles);
+  } else {
+    safeCopyTree(scenarioDir, paths.scenarioStageDir);
+  }
   if (qualityCase) {
     stageQualityCase(paths, qualityCase);
   }
+  const stagedScenarioValidation = validateScenario(paths.scenarioStageDir);
+  if (!stagedScenarioValidation.ok) {
+    throw new Error(
+      `staged scenario validation failed: ${JSON.stringify(stagedScenarioValidation.issues, null, 2)}`
+    );
+  }
+  const scenarioIdentity = createScenarioIdentity({
+    id: scenarioId,
+    scenarioDir: paths.scenarioStageDir,
+  });
+  if (opts.expectedScenarioHash !== undefined) {
+    if (!/^sha256:[a-f0-9]{64}$/.test(String(opts.expectedScenarioHash || ""))) {
+      throw new Error("expectedScenarioHash must be a sha256 digest");
+    }
+    if (scenarioIdentity.scenario_hash !== opts.expectedScenarioHash) {
+      throw new Error(
+        `staged scenario identity does not match expected scenario bytes: expected ${opts.expectedScenarioHash}, observed ${scenarioIdentity.scenario_hash}`
+      );
+    }
+  }
+  if (opts.scenarioFiles !== undefined) sealStagedScenario(paths.scenarioStageDir);
   if (qualityProfile) {
     writeJson(path.join(paths.metadataDir, "quality_profile_identity.json"), {
       schema_version: 1,
@@ -158,10 +186,7 @@ function runEval(opts) {
     path.join(paths.metadataDir, "source_identity.json"),
     sourceIdentity(rootDir, paths.runtimeDir)
   );
-  writeJson(
-    path.join(paths.metadataDir, "scenario_identity.json"),
-    createScenarioIdentity({ id: scenarioId, scenarioDir: paths.scenarioStageDir })
-  );
+  writeJson(path.join(paths.metadataDir, "scenario_identity.json"), scenarioIdentity);
   writeSandboxIdentity(paths, agent);
 
   writeJson(path.join(paths.metadataDir, "adapter_boot.json"), {
@@ -195,7 +220,12 @@ function runEval(opts) {
     return verdict;
   }
 
-  const setup = runSetup(paths);
+  let setup;
+  try {
+    setup = runSetup(paths);
+  } finally {
+    assertExpectedStagedScenario(paths, opts.expectedScenarioHash);
+  }
   if (setup.status !== 0) {
     const verdict = makeVerdict({
       scenarioId,
@@ -210,9 +240,19 @@ function runEval(opts) {
   }
   if (opts.captureInputs) captureRunInputs(paths, opts.captureInputs);
 
-  const pre = runCheckPhase(paths, "pre");
+  let pre;
+  try {
+    pre = runCheckPhase(paths, "pre");
+  } finally {
+    assertExpectedStagedScenario(paths, opts.expectedScenarioHash);
+  }
   const hostRepoBefore = hostRepoSnapshot(rootDir);
-  const adapterResult = adapter.run({ scenarioId, paths });
+  let adapterResult;
+  try {
+    adapterResult = adapter.run({ scenarioId, paths });
+  } finally {
+    assertExpectedStagedScenario(paths, opts.expectedScenarioHash);
+  }
   // Backstop: if the run mutated the harness repo outside the (gitignored) run
   // dir — a walked-up commit, or new dirt/untracked in the source tree — that is
   // a containment escape regardless of what the adapter reported.
@@ -267,7 +307,12 @@ function runEval(opts) {
     writeJson(path.join(runDir, "verdict.json"), verdict);
     return verdict;
   }
-  const post = runCheckPhase(paths, "post");
+  let post;
+  try {
+    post = runCheckPhase(paths, "post");
+  } finally {
+    assertExpectedStagedScenario(paths, opts.expectedScenarioHash);
+  }
 
   const hazards = [...pre.hazards, ...post.hazards];
   const verdict = composeVerdict({
@@ -284,6 +329,67 @@ function runEval(opts) {
   });
   writeJson(path.join(runDir, "verdict.json"), verdict);
   return verdict;
+}
+
+function stageTrustedScenarioFiles(destination, files) {
+  if (!Array.isArray(files) || files.length === 0) {
+    throw new Error("scenarioFiles must be a non-empty array");
+  }
+  const names = new Set();
+  for (const [index, file] of files.entries()) {
+    if (!file || typeof file !== "object" || Array.isArray(file)) {
+      throw new Error(`scenarioFiles[${index}] must be an object`);
+    }
+    const keys = Object.keys(file).sort();
+    if (JSON.stringify(keys) !== JSON.stringify(["bytes", "mode", "name"])) {
+      throw new Error(`scenarioFiles[${index}] must contain only bytes, mode, and name`);
+    }
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$/.test(String(file.name || ""))) {
+      throw new Error(`scenarioFiles[${index}].name must be a safe filename`);
+    }
+    if (names.has(file.name)) throw new Error(`scenarioFiles duplicates ${file.name}`);
+    names.add(file.name);
+    if (!Buffer.isBuffer(file.bytes)) {
+      throw new Error(`scenarioFiles[${index}].bytes must be a Buffer`);
+    }
+    if (!Number.isInteger(file.mode) || file.mode < 0 || file.mode > 0o777) {
+      throw new Error(`scenarioFiles[${index}].mode must be a portable file mode`);
+    }
+    const target = path.join(destination, file.name);
+    fs.writeFileSync(target, file.bytes, { flag: "wx", mode: file.mode });
+    fs.chmodSync(target, file.mode);
+  }
+}
+
+function sealStagedScenario(scenarioDir) {
+  for (const entry of fs.readdirSync(scenarioDir)) {
+    const target = path.join(scenarioDir, entry);
+    const stat = fs.lstatSync(target);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) {
+      throw new Error(`staged scenario entry cannot be sealed: ${entry}`);
+    }
+    fs.chmodSync(target, stat.mode & 0o555);
+  }
+  fs.chmodSync(scenarioDir, 0o555);
+}
+
+function assertExpectedStagedScenario(paths, expectedScenarioHash) {
+  if (expectedScenarioHash === undefined) return;
+  const validation = validateScenario(paths.scenarioStageDir);
+  if (!validation.ok) {
+    throw new Error(
+      `staged scenario changed during execution: ${JSON.stringify(validation.issues)}`
+    );
+  }
+  const observed = createScenarioIdentity({
+    id: paths.scenarioId,
+    scenarioDir: paths.scenarioStageDir,
+  }).scenario_hash;
+  if (observed !== expectedScenarioHash) {
+    throw new Error(
+      `staged scenario changed during execution: expected ${expectedScenarioHash}, observed ${observed}`
+    );
+  }
 }
 
 function validateRuntimeProfile(profile, agent) {

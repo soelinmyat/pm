@@ -1,6 +1,6 @@
 # Design Critique Evidence Contract
 
-This contract defines the durable chain checked by `scripts/design-critique-check.js`. Store all files below `.pm/dev-sessions/{slug}/design-critique/`. Paths are project-relative regular files; absolute paths, symlinks, path escapes, and `/tmp`-only evidence cannot pass.
+This contract defines the durable chain checked by `scripts/design-critique-check.js`. Store all files below `.pm/dev-sessions/{slug}/design-critique/`. Evidence paths are project-relative and must resolve to regular files. Absolute paths, path escapes, arbitrary symlinks, and `/tmp`-only evidence cannot pass. The capture helper is the sole exception at a directory boundary: it may publish one canonical capture directory as a tightly branded, same-parent relative pointer to an immutable managed bundle. The checker authenticates that pointer, its complete inventory, and every member before accepting a file through it.
 
 ## Route
 

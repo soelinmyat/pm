@@ -26,6 +26,7 @@ const {
   readCapabilityJson,
 } = require("../scripts/evals/design-critique-capability-input");
 const { hashTree } = require("../scripts/evals/stage");
+const { capabilityScenarioFiles } = require("../scripts/evals/design-critique-capability-scenario");
 
 function digest(bytes) {
   return `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`;
@@ -100,7 +101,7 @@ function evidenceFixture(options = {}) {
     item.fixture_sha256 = digest(`fixture:${item.id}:${index}`);
   }
   const value = {
-    schema_version: 3,
+    schema_version: 4,
     benchmark_id: "design-critique-hidden-v1",
     profile: { id: "sol-high", adapter: "codex", model: "gpt-5.6-sol", effort: "high" },
     repeats: (options.repeats || [1, 2, 3]).map((repeat) => ({
@@ -110,10 +111,27 @@ function evidenceFixture(options = {}) {
         const stamp = `2026090${repeat}T00000${caseIndex}Z`;
         const runId = `${stamp}--${scenarioId}--codex`;
         const runRoot = `eval-results/runs/${runId}`;
+        const fixtureContent = `fixture:${item.id}:${caseIndex}`;
+        for (const file of capabilityScenarioFiles(scenarioId, Buffer.from(fixtureContent))) {
+          write(root, `${runRoot}/scenario/${file.name}`, file.bytes);
+        }
+        const scenarioIdentity = write(
+          root,
+          `${runRoot}/metadata/scenario_identity.json`,
+          `${JSON.stringify(
+            {
+              id: scenarioId,
+              scenario_hash: hashTree(path.join(root, runRoot, "scenario")).hash,
+              scenario_ref: "scenario",
+            },
+            null,
+            2
+          )}\n`
+        );
         const fixture = write(
           root,
           `${runRoot}/metadata/inputs/design-critique-fixture.html`,
-          `fixture:${item.id}:${caseIndex}`
+          fixtureContent
         );
         const runtimeProfile = write(
           root,
@@ -323,7 +341,7 @@ function evidenceFixture(options = {}) {
           `eval-results/capabilities/design-critique/adjudications/${expected.benchmark_id}/sol-high/repeat-${repeat}/${item.id}.json`,
           `${JSON.stringify(
             {
-              schema_version: 2,
+              schema_version: 3,
               benchmark_id: expected.benchmark_id,
               oracle_sha256: capabilityOracleHash(expected),
               profile: {
@@ -340,6 +358,7 @@ function evidenceFixture(options = {}) {
                 scenario_id: scenarioId,
                 adapter: "codex",
                 source_identity_sha256: sourceIdentity.sha256,
+                scenario_identity_sha256: scenarioIdentity.sha256,
                 runtime_profile_sha256: runtimeProfile.sha256,
                 verdict_sha256: verdictBinding.sha256,
                 normalized_transcript_sha256: normalizedTranscript.sha256,
@@ -360,6 +379,7 @@ function evidenceFixture(options = {}) {
           case_id: item.id,
           fixture,
           source_identity: sourceIdentity,
+          scenario_identity: scenarioIdentity,
           run: {
             run_id: runId,
             scenario_id: scenarioId,
@@ -393,7 +413,7 @@ function evidenceFixture(options = {}) {
 function captureFromFixture(fixture, repeatIndex = 0) {
   const sourceRepeat = fixture.report.repeats[repeatIndex];
   return {
-    schema_version: 2,
+    schema_version: 3,
     benchmark_id: fixture.oracle.benchmark_id,
     oracle_sha256: capabilityOracleHash(fixture.oracle),
     profile: structuredClone(fixture.report.profile),
@@ -404,6 +424,7 @@ function captureFromFixture(fixture, repeatIndex = 0) {
       case_id: item.case_id,
       fixture: structuredClone(item.fixture),
       source_identity: structuredClone(item.source_identity),
+      scenario_identity: structuredClone(item.scenario_identity),
       run: structuredClone(item.run),
       normalized_transcript: structuredClone(item.normalized_transcript),
       candidate_output: structuredClone(item.candidate_output),
@@ -578,7 +599,7 @@ test("oracle-withheld capability schemas are closed and validated", () => {
   legacy.schema_version = 1;
   assert.match(
     validateCapabilityReport(legacy, fixture.oracle, evidenceOptions(fixture.root)).join("\n"),
-    /schema_version 1 cannot support candidate-ledger and oracle-isolation claims.*rerun/i
+    /schema_version 1 cannot support staged-scenario, candidate-ledger, and oracle-isolation claims.*rerun/i
   );
   fixture.cleanup();
 });
@@ -899,6 +920,7 @@ test("adjudication rejects every bound capture input as a report target before s
   const cases = [
     ["fixture", (row) => row.fixture.path],
     ["source identity", (row) => row.source_identity.path],
+    ["scenario identity", (row) => row.scenario_identity.path],
     ["runtime profile", (row) => row.run.runtime_profile.path],
     ["run verdict", (row) => row.run.verdict.path],
     ["normalized transcript", (row) => row.normalized_transcript.path],
@@ -919,6 +941,7 @@ test("adjudication rejects every bound capture input as a report target before s
       "retained runtime tree",
       (row) => `eval-results/runs/${row.run.run_id}/runtime/pm/runtime-marker.txt`,
     ],
+    ["retained scenario tree", (row) => `eval-results/runs/${row.run.run_id}/scenario/story.md`],
   ];
 
   for (const [name, selectPath] of cases) {
@@ -1670,6 +1693,41 @@ test("capability reports reject missing and tampered run evidence", () => {
         fs.appendFileSync(path.join(fixture.root, row.normalized_transcript.path), "{}\n");
       },
       expected: /normalized_transcript.*sha256.*match/i,
+    },
+    {
+      name: "staged scenario identity binding",
+      apply(fixture) {
+        const row = fixture.report.repeats[0].cases[0];
+        fs.appendFileSync(path.join(fixture.root, row.scenario_identity.path), "tampered");
+      },
+      expected: /scenario_identity.*sha256.*match/i,
+    },
+    {
+      name: "rewritten staged scenario and matching self-declared identity",
+      apply(fixture) {
+        const row = fixture.report.repeats[0].cases[0];
+        const scenarioPath = path.join(
+          fixture.root,
+          "eval-results",
+          "runs",
+          row.run.run_id,
+          "scenario",
+          "checks.sh"
+        );
+        fs.appendFileSync(scenarioPath, "\n# rewritten scenario\n");
+        const identityPath = path.join(fixture.root, row.scenario_identity.path);
+        const identity = JSON.parse(fs.readFileSync(identityPath, "utf8"));
+        identity.scenario_hash = hashTree(path.dirname(scenarioPath)).hash;
+        fs.writeFileSync(identityPath, `${JSON.stringify(identity)}\n`);
+        row.scenario_identity.sha256 = digest(fs.readFileSync(identityPath));
+
+        const adjudicationPath = path.join(fixture.root, row.adjudication.path);
+        const adjudication = JSON.parse(fs.readFileSync(adjudicationPath, "utf8"));
+        adjudication.evidence.scenario_identity_sha256 = row.scenario_identity.sha256;
+        fs.writeFileSync(adjudicationPath, `${JSON.stringify(adjudication)}\n`);
+        row.adjudication.sha256 = digest(fs.readFileSync(adjudicationPath));
+      },
+      expected: /scenario_hash must match the deterministic capability scenario/i,
     },
     {
       name: "candidate output",

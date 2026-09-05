@@ -12,6 +12,9 @@ const {
   encodeCapabilityJson,
   readCapabilityJson,
 } = require("./design-critique-capability-input.js");
+const {
+  expectedCapabilityStagedScenarioHash,
+} = require("./design-critique-capability-scenario.js");
 
 const PROFILE_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,100}$/;
 
@@ -23,6 +26,7 @@ const {
   validateCapabilityOracle,
   validateCapabilityReport,
   validateOracleIsolationEvidence,
+  validateScenarioIdentityEvidence,
 } = require("./design-critique-capability.js");
 
 function sealCapabilityAdjudication(options) {
@@ -111,6 +115,7 @@ function buildAdjudicationRows({ rootDir, oracle, capture, judgments, fixVerifie
     const candidateLedger = loadCandidateLedger(rootDir, evidence);
     validateCandidateOutput(rootDir, evidence, candidateLedger);
     loadOracleIsolation(rootDir, evidence);
+    loadScenarioIdentity(rootDir, evidence, oracleCase);
     const fixVerification = buildFixVerification({
       rootDir,
       oracle,
@@ -130,7 +135,7 @@ function buildAdjudicationRows({ rootDir, oracle, capture, judgments, fixVerifie
       where: `judgments case ${oracleCase.id}`,
     });
     const artifact = {
-      schema_version: 2,
+      schema_version: 3,
       benchmark_id: oracle.benchmark_id,
       oracle_sha256: capabilityOracleHash(oracle),
       profile: structuredClone(capture.profile),
@@ -142,6 +147,7 @@ function buildAdjudicationRows({ rootDir, oracle, capture, judgments, fixVerifie
         scenario_id: evidence.run.scenario_id,
         adapter: evidence.run.adapter,
         source_identity_sha256: evidence.source_identity.sha256,
+        scenario_identity_sha256: evidence.scenario_identity.sha256,
         runtime_profile_sha256: evidence.run.runtime_profile.sha256,
         verdict_sha256: evidence.run.verdict.sha256,
         normalized_transcript_sha256: evidence.normalized_transcript.sha256,
@@ -200,7 +206,11 @@ function validateInputs({ rootDir, oracle, capture, judgments }) {
     ],
     "capture"
   );
-  if (capture.schema_version !== 2) throw new Error("capture.schema_version must equal 2");
+  if (capture.schema_version !== 3) {
+    throw new Error(
+      `capture.schema_version ${capture.schema_version} cannot bind the staged scenario; rerun the capability benchmark to create schema 3 evidence`
+    );
+  }
   if (capture.benchmark_id !== oracle.benchmark_id) {
     throw new Error("capture benchmark does not match the oracle");
   }
@@ -226,6 +236,7 @@ function validateInputs({ rootDir, oracle, capture, judgments }) {
     "fixture",
     "run",
     "source_identity",
+    "scenario_identity",
     "normalized_transcript",
     "candidate_output",
     "candidate_findings",
@@ -241,9 +252,11 @@ function validateInputs({ rootDir, oracle, capture, judgments }) {
     throw new Error("judgments.repeat must match capture.repeat");
   }
   requireExactCases(judgments.cases, oracle.cases, "judgments.cases", ["case_id", "mappings"]);
+  const oracleByCase = new Map(oracle.cases.map((item) => [item.id, item]));
   for (const item of capture.cases) {
     loadCandidateLedger(rootDir, item);
     loadOracleIsolation(rootDir, item);
+    loadScenarioIdentity(rootDir, item, oracleByCase.get(item.case_id));
   }
 }
 
@@ -342,6 +355,42 @@ function loadOracleIsolation(rootDir, evidence) {
     throw new Error(`invalid oracle isolation evidence:\n${issues.join("\n")}`);
   }
   return isolation;
+}
+
+function loadScenarioIdentity(rootDir, evidence, oracleCase) {
+  const runId = evidence?.run?.run_id;
+  const scenarioId = evidence?.run?.scenario_id;
+  if (!oracleCase) throw new Error("capture scenario identity has no matching oracle case");
+  const fixtureBytes = readBoundCaptureFile(
+    rootDir,
+    evidence?.fixture,
+    `eval-results/runs/${runId}/metadata/inputs/design-critique-fixture.html`,
+    "capture fixture",
+    4 * 1024 * 1024
+  );
+  if (digest(fixtureBytes) !== oracleCase.fixture_sha256) {
+    throw new Error("capture fixture bytes do not match the exact oracle fixture");
+  }
+  const expectedPath = `eval-results/runs/${runId}/metadata/scenario_identity.json`;
+  const identity = readBoundCaptureJson(
+    rootDir,
+    evidence?.scenario_identity,
+    expectedPath,
+    "capture scenario_identity",
+    "scenario-identity"
+  );
+  const issues = validateScenarioIdentityEvidence({
+    identity,
+    rootDir,
+    runId,
+    scenarioId,
+    expectedScenarioHash: expectedCapabilityStagedScenarioHash(scenarioId, fixtureBytes),
+    where: "capture scenario_identity",
+  });
+  if (issues.length > 0) {
+    throw new Error(`invalid staged scenario identity:\n${issues.join("\n")}`);
+  }
+  return identity;
 }
 
 function readBoundCaptureJson(rootDir, binding, expectedPath, where, kind) {
@@ -533,14 +582,14 @@ function requireClosedObject(value, keys, where) {
 function loadOrCreateReport(reportPath, oracle, profile) {
   if (!fs.existsSync(reportPath)) {
     return {
-      schema_version: 3,
+      schema_version: 4,
       benchmark_id: oracle.benchmark_id,
       profile: structuredClone(profile),
       repeats: [],
     };
   }
   const report = readCapabilityJson(reportPath, "report");
-  if (report.schema_version !== 3 || report.benchmark_id !== oracle.benchmark_id) {
+  if (report.schema_version !== 4 || report.benchmark_id !== oracle.benchmark_id) {
     throw new Error("existing report does not match this capability benchmark");
   }
   if (!isDeepStrictEqual(report.profile, profile)) {
@@ -618,6 +667,7 @@ function planProtectedInputs(rootDir, capture, additionalPaths = []) {
     for (const binding of [
       item.fixture,
       item.source_identity,
+      item.scenario_identity,
       item.run?.runtime_profile,
       item.run?.verdict,
       item.normalized_transcript,
@@ -631,6 +681,7 @@ function planProtectedInputs(rootDir, capture, additionalPaths = []) {
     const runId = item.run?.run_id;
     if (typeof runId === "string" && runId !== "") {
       trees.add(path.resolve(rootDir, `eval-results/runs/${runId}/runtime/pm`));
+      trees.add(path.resolve(rootDir, `eval-results/runs/${runId}/scenario`));
     }
     const isolation = loadOracleIsolation(rootDir, item);
     if (isolation?.bindings && typeof isolation.bindings === "object") {

@@ -5,12 +5,19 @@ const crypto = require("node:crypto");
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { acquireOwnedLock } = require("../lib/owned-lock.js");
 const {
   writeProjectFileAtomic,
   writeProjectJsonAtomic,
 } = require("../lib/project-atomic-write.js");
 const { readBoundedFile } = require("../lib/safe-json-file.js");
 const { readCapabilityJson } = require("./design-critique-capability-input.js");
+const {
+  WORKDIR_FIXTURE,
+  capabilityScenarioFiles,
+  capabilityScenarioHash,
+  capabilityStagedScenarioHash,
+} = require("./design-critique-capability-scenario.js");
 
 const {
   candidateOutputReferencesFinding,
@@ -25,12 +32,14 @@ const {
 } = require("./design-critique-capability.js");
 const { loadQualityProfile } = require("./quality.js");
 const { runEval, timestamp } = require("./run.js");
+const { hashTree } = require("./stage.js");
 
 const FIXTURE_NAME = "design-critique-fixture.html";
-const WORKDIR_FIXTURE = "ui/design-critique/capability-case.html";
 const CANDIDATE_FINDINGS_NAME = "capability-findings.json";
 const ORACLE_ISOLATION_NAME = "oracle_isolation.json";
 const MAX_CAPABILITY_EVIDENCE_BYTES = 4 * 1024 * 1024;
+const MAX_RUN_RESERVATION_BYTES = 4096;
+const MAX_SCENARIO_POINTER_BYTES = 4096;
 
 function runCapabilityBatch(options) {
   const rootDir = fs.realpathSync(path.resolve(options.rootDir || process.cwd()));
@@ -49,18 +58,23 @@ function runCapabilityBatch(options) {
 
   const requestedProfile = loadQualityProfile(rootDir, options.profileId);
   const runtimeProfile = resolveRuntimeProfile(requestedProfile, options.adapterOverride);
+  const protectedInputPaths = capabilityProtectedInputPaths(rootDir, oraclePath, oracle);
+  const batchId = capabilityBatchId();
   const requestedOutPath = path.resolve(
     options.outPath ||
       defaultOutPath(rootDir, {
         benchmark_id: oracle.benchmark_id,
         requested_profile: requestedProfile,
         repeat: options.repeat,
+        batch_id: batchId,
       })
   );
   const outputTarget = prepareCapabilityOutputTarget({
     rootDir,
     requestedOutPath,
     explicit: Boolean(options.outPath),
+    protectedInputPaths,
+    exclusive: !options.outPath,
   });
   prepareCapabilityRepositoryLayout(rootDir, outputTarget);
   const cases = [];
@@ -68,8 +82,7 @@ function runCapabilityBatch(options) {
 
   for (const item of oracle.cases) {
     const scenarioId = capabilityScenarioId(item.id, requestedProfile.id, options.repeat);
-    const scenarioDir = path.join(rootDir, "eval-results", "capability-scenarios", scenarioId);
-    const runId = nextRunId(rootDir, scenarioId, runtimeProfile.adapter);
+    const runId = reserveNextRunId(rootDir, scenarioId, runtimeProfile.adapter);
     const runIdentity = {
       run_id: runId,
       scenario_id: scenarioId,
@@ -79,8 +92,13 @@ function runCapabilityBatch(options) {
     try {
       const fixturePath = path.resolve(rootDir, item.fixture_ref);
       const fixtureBytes = readOracleFixture(rootDir, fixturePath, item.fixture_sha256);
-      writeCapabilityScenario({ rootDir, scenarioDir, scenarioId, fixtureBytes });
-      assertNoOracleLeak(scenarioDir, oracle);
+      const preparedScenario = prepareImmutableCapabilityScenario({
+        rootDir,
+        scenarioId,
+        fixtureBytes,
+        oracle,
+      });
+      const scenarioDir = preparedScenario.scenarioDir;
 
       const isolation = prepareCandidateIsolation({ rootDir, runIdentity, runtimeProfile });
       let verdict;
@@ -100,6 +118,8 @@ function runCapabilityBatch(options) {
           agent: runtimeProfile.adapter,
           runId,
           runtimeProfile,
+          expectedScenarioHash: preparedScenario.stagedScenarioSha256,
+          scenarioFiles: preparedScenario.files,
           captureInputs: [{ source: WORKDIR_FIXTURE, name: FIXTURE_NAME }],
         });
       } finally {
@@ -138,6 +158,7 @@ function runCapabilityBatch(options) {
           verdict,
           runtimeProfile,
           runIdentity,
+          expectedScenarioHash: preparedScenario.stagedScenarioSha256,
         })
       );
     } catch (error) {
@@ -146,7 +167,7 @@ function runCapabilityBatch(options) {
   }
 
   const bundle = {
-    schema_version: 2,
+    schema_version: 3,
     benchmark_id: oracle.benchmark_id,
     oracle_sha256: capabilityOracleHash(oracle),
     profile: publicProfile(runtimeProfile),
@@ -190,63 +211,276 @@ function readOracleFixture(rootDir, fixturePath, expectedHash) {
   return bytes;
 }
 
-function writeCapabilityScenario({ rootDir, scenarioDir, scenarioId, fixtureBytes }) {
-  const scenarioRoot = prepareCapabilityScenarioRoot({ rootDir, scenarioDir, scenarioId });
-  retireCapabilityScenario({ scenarioRoot, scenarioDir });
-  assertRealDirectoryChain(rootDir, scenarioRoot);
-  try {
-    fs.mkdirSync(scenarioDir, { mode: 0o700 });
-  } catch (error) {
-    throw new Error(`could not reserve the capability scenario directory: ${error.message}`);
-  }
-  assertRealDirectoryChain(rootDir, scenarioDir);
-  writeText(path.join(scenarioDir, "story.md"), story(scenarioId));
-  writeText(path.join(scenarioDir, "setup.sh"), setup(fixtureBytes));
-  writeText(path.join(scenarioDir, "checks.sh"), checks());
-  fs.chmodSync(path.join(scenarioDir, "setup.sh"), 0o755);
-  fs.chmodSync(path.join(scenarioDir, "checks.sh"), 0o644);
-}
-
-function prepareCapabilityScenarioRoot({ rootDir, scenarioDir, scenarioId }) {
+function capabilityScenarioDescriptor(rootDir, scenarioId, fixtureBytes) {
   const projectRoot = fs.realpathSync(path.resolve(rootDir));
   if (!/^[a-z0-9][a-z0-9-]+$/.test(scenarioId)) {
     throw new Error("capability scenario id must be a portable lowercase slug");
   }
+  const files = capabilityScenarioFiles(scenarioId, fixtureBytes);
+  const contentSha256 = capabilityScenarioHash(files);
+  const stagedScenarioSha256 = capabilityStagedScenarioHash(files);
+  const contentId = `content-${contentSha256.replace(/^sha256:/, "")}`;
   const scenarioRoot = path.join(projectRoot, "eval-results", "capability-scenarios");
-  const expectedScenario = path.join(scenarioRoot, scenarioId);
-  if (path.resolve(scenarioDir) !== expectedScenario) {
-    throw new Error("capability scenario directory must be its repository-owned direct child");
-  }
-
-  ensureRealDirectory(projectRoot, path.join(projectRoot, "eval-results"));
-  ensureRealDirectory(projectRoot, scenarioRoot);
-  assertRealDirectoryChain(projectRoot, scenarioRoot);
-
-  let scenarioStat;
-  try {
-    scenarioStat = fs.lstatSync(expectedScenario);
-  } catch (error) {
-    if (error.code !== "ENOENT") throw error;
-  }
-  if (scenarioStat) {
-    if (scenarioStat.isSymbolicLink() || !scenarioStat.isDirectory()) {
-      throw new Error("existing capability scenario must be a real repository-owned directory");
-    }
-    assertRealDirectoryChain(projectRoot, expectedScenario);
-  }
-  return scenarioRoot;
+  return {
+    rootDir: projectRoot,
+    scenarioId,
+    files,
+    contentSha256,
+    stagedScenarioSha256,
+    contentId,
+    scenarioRoot,
+    pointerPath: path.join(scenarioRoot, `${contentId}.json`),
+  };
 }
 
-function ensureRealDirectory(projectRoot, directory) {
-  if (!inside(projectRoot, directory)) {
-    throw new Error("capability scenario ancestry escapes the repository root");
-  }
+function prepareImmutableCapabilityScenario({ rootDir, scenarioId, fixtureBytes, oracle = null }) {
+  const descriptor = capabilityScenarioDescriptor(rootDir, scenarioId, fixtureBytes);
+  prepareCapabilityScenarioRoot(descriptor);
+  prepareRepositoryDirectories(descriptor.rootDir, [
+    path.join(descriptor.rootDir, "eval-results", "capability-scenario-locks"),
+  ]);
+  const release = acquireCapabilityScenarioLock(descriptor.rootDir, descriptor.contentId);
   try {
-    fs.mkdirSync(directory, { mode: 0o700 });
-  } catch (error) {
-    if (error.code !== "EEXIST") throw error;
+    const published = writeCapabilityScenario({
+      rootDir: descriptor.rootDir,
+      scenarioId,
+      fixtureBytes,
+    });
+    if (oracle) assertNoOracleLeak(published.scenarioDir, oracle);
+    return published;
+  } finally {
+    release();
   }
-  assertRealDirectoryChain(projectRoot, directory);
+}
+
+function writeCapabilityScenario({ rootDir, scenarioDir = null, scenarioId, fixtureBytes }) {
+  const descriptor = capabilityScenarioDescriptor(rootDir, scenarioId, fixtureBytes);
+  prepareCapabilityScenarioRoot(descriptor);
+  const existing = readPublishedCapabilityScenario(descriptor, { allowMissing: true });
+  if (existing) {
+    if (scenarioDir && path.resolve(scenarioDir) !== existing.scenarioDir) {
+      throw new Error("capability scenario directory does not match its content address");
+    }
+    return existing;
+  }
+
+  const contentToken = descriptor.contentSha256.replace(/^sha256:/, "");
+  const bundleName = `.capability-scenario-${contentToken}-${crypto
+    .randomBytes(12)
+    .toString("hex")}`;
+  const bundleDir = path.join(descriptor.scenarioRoot, bundleName);
+  const publishedScenarioDir = path.join(bundleDir, scenarioId);
+  assertRepositoryEntryAbsent(descriptor.rootDir, bundleDir, "private capability scenario bundle");
+  fs.mkdirSync(bundleDir, { mode: 0o700 });
+  fs.chmodSync(bundleDir, 0o700);
+  fs.mkdirSync(publishedScenarioDir, { mode: 0o700 });
+  fs.chmodSync(publishedScenarioDir, 0o700);
+  for (const file of descriptor.files) {
+    writeImmutableScenarioFile(path.join(publishedScenarioDir, file.name), file.bytes, file.mode);
+  }
+  if (!reusableCapabilityScenario(descriptor.rootDir, publishedScenarioDir, descriptor.files)) {
+    throw new Error("private capability scenario bundle failed exact validation");
+  }
+  fsyncCapabilityScenarioDirectory(descriptor.rootDir, publishedScenarioDir);
+  fsyncCapabilityScenarioDirectory(descriptor.rootDir, bundleDir);
+  fsyncCapabilityScenarioDirectory(descriptor.rootDir, descriptor.scenarioRoot);
+  if (!reusableCapabilityScenario(descriptor.rootDir, publishedScenarioDir, descriptor.files)) {
+    throw new Error("private capability scenario bundle changed after durability barriers");
+  }
+
+  const pointer = {
+    schema_version: 1,
+    scenario_id: scenarioId,
+    content_sha256: descriptor.contentSha256,
+    bundle: bundleName,
+  };
+  writeProjectJsonAtomic(
+    descriptor.rootDir,
+    relative(descriptor.rootDir, descriptor.pointerPath),
+    pointer,
+    {
+      replace: false,
+      fileMode: 0o600,
+      directoryMode: 0o700,
+      maxBytes: MAX_SCENARIO_POINTER_BYTES,
+    }
+  );
+  const published = readPublishedCapabilityScenario(descriptor);
+  if (scenarioDir && path.resolve(scenarioDir) !== published.scenarioDir) {
+    throw new Error("capability scenario directory does not match its content address");
+  }
+  return published;
+}
+
+function writeImmutableScenarioFile(filePath, bytes, mode) {
+  let descriptor;
+  try {
+    descriptor = fs.openSync(
+      filePath,
+      fs.constants.O_WRONLY |
+        fs.constants.O_CREAT |
+        fs.constants.O_EXCL |
+        (fs.constants.O_NOFOLLOW || 0),
+      mode
+    );
+    fs.writeFileSync(descriptor, bytes);
+    fs.fchmodSync(descriptor, mode);
+    fs.fsyncSync(descriptor);
+    const opened = fs.fstatSync(descriptor, { bigint: true });
+    const published = fs.lstatSync(filePath, { bigint: true });
+    if (
+      published.isSymbolicLink() ||
+      !published.isFile() ||
+      published.nlink !== 1n ||
+      !sameInode(opened, published)
+    ) {
+      throw new Error(`capability scenario file changed during publication: ${filePath}`);
+    }
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+}
+
+function fsyncCapabilityScenarioDirectory(rootDir, directory) {
+  assertRealDirectoryChain(rootDir, directory);
+  let descriptor;
+  try {
+    descriptor = fs.openSync(directory, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+    const opened = fs.fstatSync(descriptor, { bigint: true });
+    const linked = fs.lstatSync(directory, { bigint: true });
+    if (
+      !opened.isDirectory() ||
+      linked.isSymbolicLink() ||
+      !linked.isDirectory() ||
+      !sameInode(opened, linked)
+    ) {
+      throw new Error(`capability scenario directory changed before sync: ${directory}`);
+    }
+    fs.fsyncSync(descriptor);
+    const after = fs.fstatSync(descriptor, { bigint: true });
+    const finalPath = fs.lstatSync(directory, { bigint: true });
+    if (
+      !after.isDirectory() ||
+      finalPath.isSymbolicLink() ||
+      !finalPath.isDirectory() ||
+      !sameInode(opened, after) ||
+      !sameInode(after, finalPath) ||
+      fs.realpathSync(directory) !== directory
+    ) {
+      throw new Error(`capability scenario directory changed during sync: ${directory}`);
+    }
+  } catch (error) {
+    throw new Error(`capability scenario directory durability failed: ${error.message}`, {
+      cause: error,
+    });
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+}
+
+function readPublishedCapabilityScenario(descriptor, options = {}) {
+  let pointerStat;
+  try {
+    pointerStat = fs.lstatSync(descriptor.pointerPath, { bigint: true });
+  } catch (error) {
+    if (error.code === "ENOENT" && options.allowMissing) return null;
+    throw error;
+  }
+  if (
+    pointerStat.isSymbolicLink() ||
+    !pointerStat.isFile() ||
+    pointerStat.nlink !== 1n ||
+    fs.realpathSync(descriptor.pointerPath) !== descriptor.pointerPath
+  ) {
+    throw new Error("capability scenario pointer must be a canonical single-linked file");
+  }
+  let pointer;
+  try {
+    pointer = JSON.parse(
+      readBoundedFile(descriptor.pointerPath, MAX_SCENARIO_POINTER_BYTES).toString("utf8")
+    );
+  } catch (error) {
+    throw new Error(`capability scenario pointer is invalid: ${error.message}`);
+  }
+  const expectedFields = ["bundle", "content_sha256", "scenario_id", "schema_version"];
+  if (
+    !pointer ||
+    typeof pointer !== "object" ||
+    Array.isArray(pointer) ||
+    JSON.stringify(Object.keys(pointer).sort()) !== JSON.stringify(expectedFields) ||
+    pointer.schema_version !== 1 ||
+    pointer.scenario_id !== descriptor.scenarioId ||
+    pointer.content_sha256 !== descriptor.contentSha256
+  ) {
+    throw new Error("capability scenario pointer does not match its content address");
+  }
+  const contentToken = descriptor.contentSha256.replace(/^sha256:/, "");
+  if (!new RegExp(`^\\.capability-scenario-${contentToken}-[a-f0-9]{24}$`).test(pointer.bundle)) {
+    throw new Error("capability scenario pointer bundle is invalid");
+  }
+  const bundleDir = path.join(descriptor.scenarioRoot, pointer.bundle);
+  const scenarioDir = path.join(bundleDir, descriptor.scenarioId);
+  assertRealDirectoryChain(descriptor.rootDir, scenarioDir);
+  if (JSON.stringify(fs.readdirSync(bundleDir)) !== JSON.stringify([descriptor.scenarioId])) {
+    throw new Error("capability scenario bundle contains unexpected entries");
+  }
+  if (!reusableCapabilityScenario(descriptor.rootDir, scenarioDir, descriptor.files)) {
+    throw new Error("published capability scenario bytes or modes changed");
+  }
+  const pointerAfter = fs.lstatSync(descriptor.pointerPath, { bigint: true });
+  if (!sameIdentity(pointerStat, pointerAfter)) {
+    throw new Error("capability scenario pointer changed during validation");
+  }
+  return {
+    ...descriptor,
+    pointer,
+    bundleDir,
+    scenarioDir,
+  };
+}
+
+function reusableCapabilityScenario(rootDir, scenarioDir, files) {
+  let stat;
+  try {
+    stat = fs.lstatSync(scenarioDir);
+  } catch (error) {
+    if (error.code === "ENOENT") return false;
+    throw error;
+  }
+  if (
+    stat.isSymbolicLink() ||
+    !stat.isDirectory() ||
+    fs.realpathSync(scenarioDir) !== scenarioDir
+  ) {
+    throw new Error("existing capability scenario must be a real repository-owned directory");
+  }
+  if ((stat.mode & 0o777) !== 0o700) return false;
+  const expectedNames = files.map((file) => file.name).sort();
+  if (JSON.stringify(fs.readdirSync(scenarioDir).sort()) !== JSON.stringify(expectedNames))
+    return false;
+  for (const file of files) {
+    const filePath = path.join(scenarioDir, file.name);
+    const fileStat = fs.lstatSync(filePath);
+    if (
+      fileStat.isSymbolicLink() ||
+      !fileStat.isFile() ||
+      fileStat.nlink !== 1 ||
+      fs.realpathSync(filePath) !== filePath ||
+      fileStat.size !== file.bytes.length ||
+      (fileStat.mode & 0o777) !== file.mode
+    ) {
+      return false;
+    }
+    const observed = readBoundedFile(filePath, Math.max(file.bytes.length, 1));
+    if (!observed.equals(file.bytes)) return false;
+  }
+  assertRealDirectoryChain(rootDir, scenarioDir);
+  return true;
+}
+
+function prepareCapabilityScenarioRoot(descriptor) {
+  prepareRepositoryDirectories(descriptor.rootDir, [descriptor.scenarioRoot]);
+  assertRealDirectoryChain(descriptor.rootDir, descriptor.scenarioRoot);
 }
 
 function assertRealDirectoryChain(projectRoot, directory) {
@@ -268,159 +502,6 @@ function assertRealDirectoryChain(projectRoot, directory) {
       throw new Error(`capability scenario ancestry must not traverse symlinks: ${current}`);
     }
   }
-}
-
-function retireCapabilityScenario({ scenarioRoot, scenarioDir }) {
-  let existing;
-  try {
-    existing = fs.lstatSync(scenarioDir);
-  } catch (error) {
-    if (error.code === "ENOENT") return;
-    throw error;
-  }
-  if (existing.isSymbolicLink() || !existing.isDirectory()) {
-    throw new Error("existing capability scenario must be a real repository-owned directory");
-  }
-  const rootDir = path.dirname(path.dirname(scenarioRoot));
-  const existingIdentity = repositoryDirectoryIdentity(rootDir, scenarioDir);
-
-  const retired = path.join(
-    scenarioRoot,
-    `.retired-${process.pid}-${crypto.randomBytes(12).toString("hex")}`
-  );
-  assertRepositoryEntryAbsent(rootDir, retired, "retired capability scenario");
-  fs.renameSync(scenarioDir, retired);
-  removeQuarantinedRepositoryDirectory(rootDir, retired, existingIdentity);
-}
-
-function story(scenarioId) {
-  return `---
-id: ${scenarioId}
-title: Design Critique oracle-withheld capability run
-status: ready
-tier: full
-tags:
-  - design-critique
-  - capability-evaluation
----
-
-Role: PM agent evaluating an implemented interface with pm:design-critique.
-
-User message: Run pm:design-critique on the implemented interface at ui/design-critique/capability-case.html. Inspect the implementation and rendered interaction states, fix any blocking defects the workflow requires you to resolve, and produce the requested evaluation artifacts. Do not look for benchmark answers or oracle data.
-
-Stop condition: The design critique reaches its normal completion or evidence-bound blocker boundary and the requested artifacts have been written.
-
-## Acceptance Criteria
-
-- The transcript shows pm:design-critique was used.
-- The critique is grounded in the staged interface rather than assumed benchmark truth.
-- quality-output.md contains the candidate's user-facing critique.
-- capability-findings.json is the candidate-authored, closed findings ledger described below.
-- quality-outcome.json records a complete design-critique lifecycle outcome.
-
-## Candidate findings ledger
-
-Write capability-findings.json as one closed JSON object with exactly these fields:
-
-    {
-      "schema_version": 1,
-      "blocked": false,
-      "summary": "Concise outcome summary",
-      "findings": [
-        {
-          "id": "finding-stable-slug",
-          "severity": "low|medium|high|critical",
-          "objective": true,
-          "blocking": true,
-          "locator": "route, state, viewport, and selector or visible target",
-          "claimed_fixed": false,
-          "summary": "Concise defect statement"
-        }
-      ]
-    }
-
-Use a unique stable lowercase finding-* slug for every finding. Put every critique finding in this
-ledger exactly once, and include its exact ID in quality-output.md. Use an empty
-findings array for a clean result. Do not add benchmark or oracle identifiers.
-`;
-}
-
-function setup(fixtureBytes) {
-  const fixtureBase64 = fixtureBytes.toString("base64");
-  const caseState = JSON.stringify(
-    {
-      workflow: "design-critique",
-      case_id: "design-critique-capability",
-      case_type: "happy-path",
-      state: "An implemented interface is ready for an evidence-bound design critique.",
-    },
-    null,
-    2
-  );
-  const caseMarkdown = [
-    "# Capability case state",
-    "",
-    "Workflow: pm:design-critique",
-    "Fixture case: oracle-withheld capability input",
-    "State: An implemented interface is ready for an evidence-bound design critique.",
-    "",
-  ].join("\n");
-  const baseline =
-    '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Baseline</title></head><body><main><h1>Interface baseline</h1></main></body></html>\n';
-
-  return `#!/usr/bin/env bash
-set -euo pipefail
-
-node - <<'NODE'
-const fs = require("node:fs");
-const path = require("node:path");
-const files = {
-  ${JSON.stringify(WORKDIR_FIXTURE)}: ${JSON.stringify(baseline)},
-  ".pm/quality/case-state.json": ${JSON.stringify(`${caseState}\n`)},
-  "case-state.md": ${JSON.stringify(caseMarkdown)}
-};
-for (const [name, content] of Object.entries(files)) {
-  fs.mkdirSync(path.dirname(name), { recursive: true });
-  fs.writeFileSync(name, content);
-}
-NODE
-git init -q -b main
-git config user.email eval@example.com
-git config user.name "PM Eval"
-git add .
-git commit -qm "fixture base"
-git init -q --bare .pm/quality/origin.git
-git remote add origin "$(pwd)/.pm/quality/origin.git"
-git push -q origin main
-git --git-dir=.pm/quality/origin.git rev-parse refs/heads/main > .pm/quality/base-main-ref
-git switch -qc feature
-node - <<'NODE'
-const fs = require("node:fs");
-const fixture = Buffer.from(${JSON.stringify(fixtureBase64)}, "base64");
-fs.writeFileSync(${JSON.stringify(WORKDIR_FIXTURE)}, fixture);
-NODE
-git add ${WORKDIR_FIXTURE}
-git commit -qm "implemented interface"
-`;
-}
-
-function checks() {
-  return `pre() {
-  file-exists .pm/quality/case-state.json
-  file-exists case-state.md
-  file-matches case-state.md "Workflow: pm:design-critique"
-  file-exists ${WORKDIR_FIXTURE}
-  file-exists .pm/quality/base-main-ref
-}
-
-post() {
-  check-transcript skill-called pm:design-critique
-  artifact-exists quality-output.md
-  artifact-exists quality-outcome.json
-  quality-outcome-valid happy-path design-critique
-  artifact-contains quality-outcome.json '"lifecycle": "complete"'
-}
-`;
 }
 
 function assertNoOracleLeak(scenarioDir, oracle) {
@@ -824,7 +905,14 @@ function unattestedIsolation(runId, mode, reason) {
   };
 }
 
-function collectEvidence({ rootDir, item, verdict, runtimeProfile, runIdentity }) {
+function collectEvidence({
+  rootDir,
+  item,
+  verdict,
+  runtimeProfile,
+  runIdentity,
+  expectedScenarioHash,
+}) {
   const runRoot = `eval-results/runs/${runIdentity.run_id}`;
   const fixture = fileBinding(
     rootDir,
@@ -849,6 +937,28 @@ function collectEvidence({ rootDir, item, verdict, runtimeProfile, runIdentity }
   }
   const verdictBinding = fileBinding(rootDir, `${runRoot}/verdict.json`);
   const sourceIdentity = fileBinding(rootDir, `${runRoot}/metadata/source_identity.json`);
+  const scenarioIdentity = fileBinding(rootDir, `${runRoot}/metadata/scenario_identity.json`);
+  const observedScenarioIdentity = readCapabilityJson(
+    path.join(rootDir, scenarioIdentity.path),
+    "scenario-identity"
+  );
+  const scenarioIdentityFields = ["id", "scenario_hash", "scenario_ref"];
+  if (
+    !observedScenarioIdentity ||
+    typeof observedScenarioIdentity !== "object" ||
+    Array.isArray(observedScenarioIdentity) ||
+    JSON.stringify(Object.keys(observedScenarioIdentity).sort()) !==
+      JSON.stringify([...scenarioIdentityFields].sort()) ||
+    observedScenarioIdentity.id !== runIdentity.scenario_id ||
+    observedScenarioIdentity.scenario_ref !== "scenario" ||
+    observedScenarioIdentity.scenario_hash !== expectedScenarioHash
+  ) {
+    throw new Error("staged scenario identity does not match the prepared capability scenario");
+  }
+  const retainedScenarioHash = hashTree(path.join(rootDir, runRoot, "scenario")).hash;
+  if (retainedScenarioHash !== expectedScenarioHash) {
+    throw new Error("retained staged scenario bytes do not match the prepared capability scenario");
+  }
   const transcript = fileBinding(rootDir, `${runRoot}/metadata/transcript.normalized.jsonl`);
   const candidateOutput = fileBinding(rootDir, `${runRoot}/artifacts/quality-output.md`);
   const candidateFindings = fileBinding(rootDir, `${runRoot}/artifacts/${CANDIDATE_FINDINGS_NAME}`);
@@ -887,6 +997,7 @@ function collectEvidence({ rootDir, item, verdict, runtimeProfile, runIdentity }
     case_id: item.id,
     fixture,
     source_identity: sourceIdentity,
+    scenario_identity: scenarioIdentity,
     run: {
       ...runIdentity,
       status: verdict.status,
@@ -949,14 +1060,94 @@ function fileBinding(rootDir, relativePath, expectedHash = null) {
   return { path: relativePath, sha256 };
 }
 
-function nextRunId(rootDir, scenarioId, adapter) {
+function capabilityRunReservationPath(rootDir, runId) {
+  return path.join(rootDir, "eval-results", "capability-run-reservations", `${runId}.json`);
+}
+
+function reserveNextRunId(rootDir, scenarioId, adapter, baseTimeMs = Date.now()) {
   for (let offset = 0; offset < 10_000; offset += 1) {
-    const runId = `${timestamp(new Date(Date.now() + offset * 1000))}--${scenarioId}--${adapter}`;
+    const runId = `${timestamp(new Date(baseTimeMs + offset * 1000))}--${scenarioId}--${adapter}`;
     const runDir = path.join(rootDir, "eval-results", "runs", runId);
     const isolationDir = path.join(rootDir, "eval-results", "capability-isolation", runId);
-    if (!fs.existsSync(runDir) && !fs.existsSync(isolationDir)) return runId;
+    const reservationPath = capabilityRunReservationPath(rootDir, runId);
+    if (
+      repositoryEntryExists(rootDir, runDir) ||
+      repositoryEntryExists(rootDir, isolationDir) ||
+      repositoryEntryExists(rootDir, reservationPath)
+    ) {
+      continue;
+    }
+    try {
+      writeProjectJsonAtomic(
+        rootDir,
+        relative(rootDir, reservationPath),
+        {
+          schema_version: 1,
+          run_id: runId,
+          scenario_id: scenarioId,
+          adapter,
+          created_at: new Date().toISOString(),
+        },
+        {
+          replace: false,
+          fileMode: 0o600,
+          directoryMode: 0o700,
+          maxBytes: MAX_RUN_RESERVATION_BYTES,
+        }
+      );
+      return runId;
+    } catch (error) {
+      if (
+        error.code === "EEXIST" &&
+        error.committed === false &&
+        repositoryEntryExists(rootDir, reservationPath)
+      ) {
+        continue;
+      }
+      throw error;
+    }
   }
   throw new Error(`could not allocate a run id for ${scenarioId}`);
+}
+
+function capabilityScenarioLockPath(rootDir, scenarioId) {
+  return path.join(rootDir, "eval-results", "capability-scenario-locks", `${scenarioId}.lock`);
+}
+
+function acquireCapabilityScenarioLock(rootDir, scenarioId, options = {}) {
+  const lockPath = capabilityScenarioLockPath(rootDir, scenarioId);
+  assertRepositoryDirectory(rootDir, path.dirname(lockPath));
+  return acquireOwnedLock(lockPath, {
+    attempts: options.attempts ?? 1_200,
+    waitMs: options.waitMs ?? 50,
+    invalidGraceMs: options.invalidGraceMs ?? 1_000,
+    timeoutMessage: `timed out waiting for capability scenario ownership: ${scenarioId}`,
+  });
+}
+
+function capabilityProtectedInputPaths(rootDir, oraclePath, oracle) {
+  const protectedPaths = [
+    oraclePath,
+    path.join(rootDir, "evals", "quality", "suite.json"),
+    ...oracle.cases.map((item) => path.resolve(rootDir, item.fixture_ref)),
+  ];
+  return [
+    ...new Set(
+      protectedPaths.flatMap((item) => {
+        const absolute = path.resolve(item);
+        try {
+          return [absolute, fs.realpathSync(absolute)];
+        } catch (error) {
+          if (error.code === "ENOENT") return [absolute];
+          throw error;
+        }
+      })
+    ),
+  ];
+}
+
+function capabilityBatchId(date = new Date()) {
+  return `${timestamp(date)}-${process.pid}-${crypto.randomBytes(12).toString("hex")}`;
 }
 
 function defaultOutPath(rootDir, bundle) {
@@ -967,13 +1158,15 @@ function defaultOutPath(rootDir, bundle) {
     "design-critique",
     bundle.benchmark_id,
     bundle.requested_profile.id,
-    `repeat-${bundle.repeat}.json`
+    `repeat-${bundle.repeat}--${bundle.batch_id}.json`
   );
 }
 
 function prepareCapabilityRepositoryLayout(rootDir, outputTarget) {
   const outputDirectories = [
     path.join(rootDir, "eval-results", "capability-scenarios"),
+    path.join(rootDir, "eval-results", "capability-scenario-locks"),
+    path.join(rootDir, "eval-results", "capability-run-reservations"),
     path.join(rootDir, "eval-results", "capability-isolation"),
     path.join(rootDir, "eval-results", "oracle-isolation-preflight"),
     path.join(rootDir, "eval-results", "runs"),
@@ -983,40 +1176,116 @@ function prepareCapabilityRepositoryLayout(rootDir, outputTarget) {
   }
   prepareRepositoryDirectories(rootDir, outputDirectories);
   if (outputTarget.kind === "repository") {
-    assertReplaceableFile(outputTarget.path, "capability output");
+    if (outputTarget.exclusive) {
+      assertRepositoryEntryAbsent(rootDir, outputTarget.path, "exclusive capability output");
+    } else {
+      assertReplaceableFile(outputTarget.path, "capability output");
+    }
   }
 }
 
-function prepareCapabilityOutputTarget({ rootDir, requestedOutPath, explicit }) {
-  const absolute = path.resolve(requestedOutPath);
-  if (inside(rootDir, absolute)) {
+function prepareCapabilityOutputTarget({
+  rootDir,
+  requestedOutPath,
+  explicit,
+  protectedInputPaths = [],
+  exclusive = false,
+}) {
+  const resolved = resolveCanonicalOutputTarget(requestedOutPath);
+  const { absolute, canonicalExisting, canonicalPath } = resolved;
+  if (
+    protectedInputPaths.some(
+      (input) =>
+        path.resolve(input) === absolute ||
+        path.resolve(input) === canonicalPath ||
+        (canonicalExisting && input === canonicalExisting)
+    )
+  ) {
+    throw new Error("capability output must not replace an oracle, suite, or fixture input");
+  }
+  if (resolved.finalStat?.isSymbolicLink()) {
+    throw new Error("capability output must not be a symbolic link");
+  }
+  if (inside(rootDir, canonicalPath)) {
+    const repositoryOutputRoot = path.join(
+      rootDir,
+      "eval-results",
+      "capabilities",
+      "design-critique"
+    );
+    if (canonicalPath === repositoryOutputRoot || !inside(repositoryOutputRoot, canonicalPath)) {
+      throw new Error(
+        "repository capability output must stay below eval-results/capabilities/design-critique"
+      );
+    }
     return {
       kind: "repository",
-      path: absolute,
+      path: canonicalPath,
       rootDir,
-      relativePath: relative(rootDir, absolute),
+      relativePath: relative(rootDir, canonicalPath),
+      exclusive,
+      expectedRoot: directoryRootBinding(rootDir, "repository capability output root"),
     };
   }
   if (!explicit) throw new Error("default capability output must remain inside the repository");
+  return {
+    kind: "external",
+    rootDir: resolved.canonicalAncestor,
+    relativePath: [...resolved.missingParents, path.basename(absolute)].join("/"),
+    path: canonicalPath,
+    exclusive,
+    expectedRoot: directoryRootBinding(
+      resolved.canonicalAncestor,
+      "external capability output root"
+    ),
+  };
+}
+
+function directoryRootBinding(directory, label) {
+  assertRealDirectory(directory, label);
+  const stat = fs.lstatSync(directory, { bigint: true });
+  return { dev: String(stat.dev), ino: String(stat.ino) };
+}
+
+function resolveCanonicalOutputTarget(requestedOutPath) {
+  const absolute = path.resolve(requestedOutPath);
+  let finalStat = null;
+  let canonicalExisting = null;
+  try {
+    finalStat = fs.lstatSync(absolute);
+    try {
+      canonicalExisting = fs.realpathSync(absolute);
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
 
   let ancestor = path.dirname(absolute);
-  const missing = [];
+  const missingParents = [];
   while (true) {
     try {
       const canonicalAncestor = fs.realpathSync(ancestor);
-      assertRealDirectory(canonicalAncestor, "explicit capability output ancestor");
-      const relativePath = [...missing, path.basename(absolute)].join("/");
+      assertRealDirectory(canonicalAncestor, "capability output ancestor");
+      const canonicalPath = path.join(
+        canonicalAncestor,
+        ...missingParents,
+        path.basename(absolute)
+      );
       return {
-        kind: "external",
-        rootDir: canonicalAncestor,
-        relativePath,
-        path: path.join(canonicalAncestor, ...missing, path.basename(absolute)),
+        absolute,
+        canonicalAncestor,
+        canonicalExisting,
+        canonicalPath,
+        finalStat,
+        missingParents,
       };
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
       const parent = path.dirname(ancestor);
       if (parent === ancestor) throw error;
-      missing.unshift(path.basename(ancestor));
+      missingParents.unshift(path.basename(ancestor));
       ancestor = parent;
     }
   }
@@ -1024,9 +1293,12 @@ function prepareCapabilityOutputTarget({ rootDir, requestedOutPath, explicit }) 
 
 function writeCapabilityOutput(target, value) {
   writeProjectJsonAtomic(target.rootDir, target.relativePath, value, {
+    replace: !target.exclusive,
     fileMode: 0o600,
     directoryMode: 0o700,
     maxBytes: MAX_CAPABILITY_EVIDENCE_BYTES,
+    expectedRootDev: target.expectedRoot.dev,
+    expectedRootIno: target.expectedRoot.ino,
   });
   return target.path;
 }
@@ -1278,10 +1550,6 @@ function relative(rootDir, candidate) {
   return path.relative(rootDir, candidate).split(path.sep).join("/");
 }
 
-function writeText(filePath, text) {
-  fs.writeFileSync(filePath, text);
-}
-
 function parseArgs(argv) {
   const options = { rootDir: process.cwd(), profileId: null, repeat: null, outPath: null };
   for (let index = 0; index < argv.length; index += 1) {
@@ -1354,9 +1622,20 @@ if (require.main === module) process.exitCode = main(process.argv.slice(2));
 
 module.exports = {
   _private: {
+    acquireCapabilityScenarioLock,
+    capabilityBatchId,
+    capabilityRunReservationPath,
+    capabilityScenarioDescriptor,
+    capabilityStagedScenarioHash,
+    capabilityScenarioLockPath,
+    capabilityProtectedInputPaths,
     finalizeCandidateIsolation,
+    prepareImmutableCapabilityScenario,
     prepareCandidateIsolation,
     prepareCapabilityOutputTarget,
+    readPublishedCapabilityScenario,
+    reserveNextRunId,
+    resolveCanonicalOutputTarget,
     resolveCapabilitySourceBoundary,
     sandboxLauncher: capabilitySandboxLauncher,
     sandboxPolicy: capabilitySandboxPolicy,

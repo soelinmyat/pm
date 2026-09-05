@@ -113,6 +113,8 @@ Repeat `--allow-origin "https://api.example.test"` only for origins the real pag
 
 Retained URL identities contain only `origin`, `pathname`, booleans indicating whether a query or fragment existed, and a SHA-256 of the full URL. Query and fragment values are never persisted in the manifest, raw page observation, network ledger, CLI output, or error details. Use privacy-safe seed URLs anyway: a digest is an identifier, not a license to put credentials in a URL.
 
+The helper first writes, syncs, and verifies the complete immutable bundle under a private sibling name. It then publishes the canonical capture directory in one exclusive filesystem operation as a managed relative pointer to that bundle. A crash before publication leaves the canonical path absent; an exact retry succeeds. A pre-existing or racing foreign path is never replaced. On Windows, this publication requires Developer Mode or an account with symlink privilege.
+
 The atomic bundle contains:
 
 - `capture.png` — the only screenshot registered in `captures.json`

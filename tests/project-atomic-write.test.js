@@ -8,10 +8,804 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const projectWriter = require("../scripts/lib/project-atomic-write");
+const { readProjectInput } = require("../scripts/lib/safe-project-output");
 const { writeProjectDirectoryAtomic, writeProjectJsonAtomic, writeProjectTextAtomic } =
   projectWriter;
 
 const writerModule = path.join(__dirname, "..", "scripts", "lib", "project-atomic-write.js");
+
+function bundleNames(root, parent = "evidence") {
+  const directory = path.join(root, parent);
+  if (!fs.existsSync(directory)) return [];
+  return fs
+    .readdirSync(directory)
+    .filter((name) => name.startsWith(".pm-dir-bundle-"))
+    .sort();
+}
+
+async function waitForFile(file, message) {
+  const deadline = Date.now() + 5_000;
+  while (!fs.existsSync(file) && Date.now() < deadline)
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(fs.existsSync(file), true, message);
+}
+
+test("project directory writer publishes one immutable managed bundle and reconciles exact retries", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-managed-bundle-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const files = [
+    ["a.json", "lower"],
+    ["Z.json", "upper"],
+    ["capture.png", Buffer.from([0, 1, 2, 255])],
+    ["capture.json", '{"version":1}\n'],
+  ];
+  const state = writeProjectDirectoryAtomic(root, "evidence/capture-1", files, {
+    commitFile: "capture.json",
+    fileMode: 0o600,
+    directoryMode: 0o700,
+    maxBytes: 1024,
+  });
+
+  const canonical = path.join(root, "evidence", "capture-1");
+  assert.equal(state.committed, true);
+  assert.equal(fs.lstatSync(canonical).isSymbolicLink(), true);
+  const target = fs.readlinkSync(canonical);
+  assert.match(target, /^\.pm-dir-bundle-[a-f0-9]{32}-[a-f0-9]{48}$/);
+  assert.equal(path.basename(target), target);
+  const bundle = path.join(root, "evidence", target);
+  assert.equal(fs.lstatSync(bundle).isDirectory(), true);
+  assert.equal(fs.lstatSync(bundle).isSymbolicLink(), false);
+  assert.equal(fs.readFileSync(path.join(canonical, "capture.json"), "utf8"), '{"version":1}\n');
+  assert.deepEqual(
+    readProjectInput(root, "evidence/capture-1/capture.png", 1024, {
+      allowManagedDirectoryPointers: true,
+    }).bytes,
+    Buffer.from([0, 1, 2, 255])
+  );
+  const captureHash = `sha256:${crypto
+    .createHash("sha256")
+    .update('{"version":1}\n')
+    .digest("hex")}`;
+  assert.throws(
+    () =>
+      writeProjectTextAtomic(root, "evidence/untrusted-attestation.txt", "blocked", {
+        attestations: [
+          {
+            path: "evidence/capture-1/capture.json",
+            sha256: captureHash,
+            maxBytes: 1024,
+          },
+        ],
+      }),
+    /project path contains symlink/
+  );
+  const attested = writeProjectTextAtomic(root, "evidence/managed-attestation.txt", "accepted", {
+    attestations: [
+      {
+        path: "evidence/capture-1/capture.json",
+        sha256: captureHash,
+        maxBytes: 1024,
+        allowManagedDirectoryPointers: true,
+      },
+    ],
+  });
+  assert.equal(attested.committed, true);
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(bundle, ".pm-directory-pointer.json"), "utf8")
+  );
+  assert.equal(manifest.kind, "pm-managed-directory-bundle");
+  assert.equal(manifest.target_basename, target);
+  assert.deepEqual(
+    manifest.files.map((file) => file.name),
+    ["Z.json", "a.json", "capture.json", "capture.png"]
+  );
+  assert.equal(bundleNames(root).length, 1);
+
+  const retried = writeProjectDirectoryAtomic(root, "evidence/capture-1", files, {
+    commitFile: "capture.json",
+    maxBytes: 1024,
+  });
+  assert.equal(retried.committed, true);
+  assert.equal(bundleNames(root).length, 1, "an exact retry must reuse the published bundle");
+  assert.throws(
+    () =>
+      writeProjectDirectoryAtomic(
+        root,
+        "evidence/capture-1",
+        [["capture.json", '{"version":1}\n']],
+        { commitFile: "capture.json" }
+      ),
+    /already exists/
+  );
+  assert.equal(
+    bundleNames(root).length,
+    1,
+    "a subset retry must not accept a managed bundle with extra files"
+  );
+  assert.throws(
+    () =>
+      writeProjectDirectoryAtomic(root, "evidence/capture-1", [["capture.json", "different"]], {
+        commitFile: "capture.json",
+      }),
+    /already exists/
+  );
+  assert.equal(bundleNames(root).length, 1, "a mismatched duplicate must fail before staging");
+
+  for (const reserved of [
+    ".pm-directory-pointer.json",
+    ".pm-directory-pointer.json.candidate",
+    ".pm-directory-owner.json",
+    ".pm-directory-owner.json.candidate",
+  ]) {
+    assert.throws(
+      () =>
+        writeProjectDirectoryAtomic(root, `evidence/${reserved.slice(1)}`, [[reserved, "unsafe"]], {
+          commitFile: reserved,
+        }),
+      /reserved for writer ownership/
+    );
+  }
+});
+
+test("project directory writer enforces the managed bundle safety ceiling", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-managed-budget-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  assert.throws(
+    () =>
+      writeProjectDirectoryAtomic(root, "evidence/capture-1", [["capture.json", "small"]], {
+        commitFile: "capture.json",
+        maxBytes: 128 * 1024 * 1024 + 1,
+      }),
+    /byte budget is invalid/
+  );
+  assert.deepEqual(bundleNames(root), []);
+});
+
+test("project directory writer reports unsupported parent reconciliation sync", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-managed-parent-sync-"));
+  const preload = path.join(root, "unsupported-parent-sync.cjs");
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.writeFileSync(
+    preload,
+    `
+      const fs = require("node:fs");
+      const path = require("node:path");
+      const originalOpen = fs.openSync;
+      fs.openSync = function(target, ...args) {
+        if (
+          !process.argv.includes("--child-directory") &&
+          path.basename(String(target)) === "evidence" &&
+          fs.lstatSync(target).isDirectory()
+        ) {
+          const error = new Error("simulated unsupported directory sync");
+          error.code = "EPERM";
+          throw error;
+        }
+        return originalOpen.call(fs, target, ...args);
+      };
+    `
+  );
+  const script = `
+    const [root, writer] = process.argv.slice(1);
+    const state = require(writer).writeProjectDirectoryAtomic(
+      root,
+      "evidence/capture-1",
+      [["capture.json", "durable-as-supported"]],
+      { commitFile: "capture.json" }
+    );
+    process.stdout.write(JSON.stringify(state));
+  `;
+  const result = spawnSync(process.execPath, ["-e", script, root, writerModule], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      NODE_OPTIONS: `--require=${preload}`,
+    },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const state = JSON.parse(result.stdout);
+  assert.equal(state.committed, true);
+  assert.equal(state.directory_synced, false);
+  assert.equal(state.directory_sync_error, "EPERM");
+  assert.equal(
+    fs.readFileSync(path.join(root, "evidence", "capture-1", "capture.json"), "utf8"),
+    "durable-as-supported"
+  );
+});
+
+test("project directory writer never replaces pre-existing real or arbitrary-symlink entries", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-managed-foreign-"));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-managed-outside-"));
+  t.after(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  });
+  fs.mkdirSync(path.join(root, "evidence", "capture-1"), { recursive: true });
+  const foreignDirectory = fs.lstatSync(path.join(root, "evidence", "capture-1"));
+  assert.throws(
+    () =>
+      writeProjectDirectoryAtomic(root, "evidence/capture-1", [["capture.json", "unsafe"]], {
+        commitFile: "capture.json",
+      }),
+    /already exists/
+  );
+  const preservedDirectory = fs.lstatSync(path.join(root, "evidence", "capture-1"));
+  assert.equal(preservedDirectory.dev, foreignDirectory.dev);
+  assert.equal(preservedDirectory.ino, foreignDirectory.ino);
+  assert.deepEqual(fs.readdirSync(path.join(root, "evidence", "capture-1")), []);
+  assert.deepEqual(bundleNames(root), []);
+
+  if (process.platform !== "win32") {
+    fs.mkdirSync(path.join(outside, "foreign"));
+    fs.symlinkSync(outside, path.join(root, "evidence", "capture-2"), "dir");
+    const linkText = fs.readlinkSync(path.join(root, "evidence", "capture-2"));
+    assert.throws(
+      () =>
+        writeProjectDirectoryAtomic(root, "evidence/capture-2", [["capture.json", "unsafe"]], {
+          commitFile: "capture.json",
+        }),
+      /already exists/
+    );
+    assert.equal(fs.readlinkSync(path.join(root, "evidence", "capture-2")), linkText);
+    assert.deepEqual(fs.readdirSync(outside), ["foreign"]);
+    assert.deepEqual(bundleNames(root), []);
+  }
+});
+
+test("project directory writer preserves a foreign entry won at final pointer publication", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-managed-final-race-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, "evidence"));
+  const preload = path.join(root, "foreign-pointer-winner.cjs");
+  fs.writeFileSync(
+    preload,
+    `
+      const fs = require("node:fs");
+      const originalSymlink = fs.symlinkSync;
+      const originalMkdir = fs.mkdirSync;
+      let raced = false;
+      fs.symlinkSync = function(target, destination, ...args) {
+        if (!raced && process.argv.includes("--child-directory") && destination === "capture-1") {
+          raced = true;
+          originalMkdir.call(fs, destination);
+        }
+        return originalSymlink.call(fs, target, destination, ...args);
+      };
+    `
+  );
+  const script = `
+    const [root, writer] = process.argv.slice(1);
+    require(writer).writeProjectDirectoryAtomic(
+      root,
+      "evidence/capture-1",
+      [["capture.json", "must-not-publish"]],
+      { commitFile: "capture.json" }
+    );
+  `;
+  const result = spawnSync(process.execPath, ["-e", script, root, writerModule], {
+    encoding: "utf8",
+    env: { ...process.env, NODE_OPTIONS: `--require=${preload}` },
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /EEXIST|file exists/i);
+  const destination = path.join(root, "evidence", "capture-1");
+  assert.equal(fs.lstatSync(destination).isDirectory(), true);
+  assert.equal(fs.lstatSync(destination).isSymbolicLink(), false);
+  assert.deepEqual(fs.readdirSync(destination), []);
+  assert.equal(bundleNames(root).length, 1, "unpublished race loser remains quarantined");
+});
+
+test("project directory writer retries after death before pointer publication", async (t) => {
+  if (process.platform === "win32") return t.skip("signal semantics differ on Windows");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-managed-prepublish-death-"));
+  const ready = path.join(root, "pointer-ready.json");
+  const preload = path.join(root, "pause-before-pointer.cjs");
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.writeFileSync(
+    preload,
+    `
+      const fs = require("node:fs");
+      const originalSymlink = fs.symlinkSync;
+      let paused = false;
+      fs.symlinkSync = function(target, destination, ...args) {
+        if (!paused && process.argv.includes("--child-directory") && destination === "capture-1") {
+          paused = true;
+          fs.writeFileSync(process.env.PM_TEST_READY, JSON.stringify({ pid: process.pid, target }));
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
+        }
+        return originalSymlink.call(fs, target, destination, ...args);
+      };
+    `
+  );
+  const script = `
+    const [root, writer] = process.argv.slice(1);
+    require(writer).writeProjectDirectoryAtomic(root, "evidence/capture-1", [
+      ["capture.png", Buffer.from([1, 2, 3])],
+      ["capture.json", "recovered"]
+    ], { commitFile: "capture.json" });
+  `;
+  const active = spawn(process.execPath, ["-e", script, root, writerModule], {
+    env: { ...process.env, NODE_OPTIONS: `--require=${preload}`, PM_TEST_READY: ready },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let childPid = null;
+  t.after(() => {
+    if (childPid)
+      try {
+        process.kill(childPid, "SIGKILL");
+      } catch {
+        // Already reaped.
+      }
+    if (active.exitCode === null && active.signalCode === null) active.kill("SIGKILL");
+  });
+  await waitForFile(ready, "directory child did not reach final pointer publication");
+  childPid = JSON.parse(fs.readFileSync(ready, "utf8")).pid;
+  assert.equal(fs.existsSync(path.join(root, "evidence", "capture-1")), false);
+  assert.equal(bundleNames(root).length, 1);
+  const exited = new Promise((resolve) => active.once("exit", resolve));
+  process.kill(childPid, "SIGKILL");
+  await exited;
+  childPid = null;
+
+  const recovered = writeProjectDirectoryAtomic(
+    root,
+    "evidence/capture-1",
+    [
+      ["capture.png", Buffer.from([1, 2, 3])],
+      ["capture.json", "recovered"],
+    ],
+    { commitFile: "capture.json" }
+  );
+  assert.equal(recovered.committed, true);
+  assert.equal(
+    fs.readFileSync(path.join(root, "evidence", "capture-1", "capture.json"), "utf8"),
+    "recovered"
+  );
+  assert.equal(bundleNames(root).length, 2, "the crash orphan must not block retry");
+});
+
+test("project directory writer retries after death during private manifest creation", async (t) => {
+  if (process.platform === "win32") return t.skip("signal semantics differ on Windows");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-managed-manifest-death-"));
+  const ready = path.join(root, "manifest-ready.json");
+  const preload = path.join(root, "pause-during-manifest.cjs");
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.writeFileSync(
+    preload,
+    `
+      const fs = require("node:fs");
+      const originalOpen = fs.openSync;
+      const originalWrite = fs.writeSync;
+      let manifestDescriptor;
+      let paused = false;
+      fs.openSync = function(file, ...args) {
+        const descriptor = originalOpen.call(fs, file, ...args);
+        if (process.argv.includes("--child-directory") && file === ".pm-directory-pointer.json")
+          manifestDescriptor = descriptor;
+        return descriptor;
+      };
+      fs.writeSync = function(descriptor, buffer, offset, length, position) {
+        if (!paused && descriptor === manifestDescriptor) {
+          paused = true;
+          const written = originalWrite.call(fs, descriptor, buffer, offset, Math.min(16, length), position);
+          fs.writeFileSync(process.env.PM_TEST_READY, JSON.stringify({ pid: process.pid, written }));
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
+          return written;
+        }
+        return originalWrite.call(fs, descriptor, buffer, offset, length, position);
+      };
+    `
+  );
+  const script = `
+    const [root, writer] = process.argv.slice(1);
+    require(writer).writeProjectDirectoryAtomic(
+      root,
+      "evidence/capture-1",
+      [["capture.json", "recovered"]],
+      { commitFile: "capture.json" }
+    );
+  `;
+  const active = spawn(process.execPath, ["-e", script, root, writerModule], {
+    env: { ...process.env, NODE_OPTIONS: `--require=${preload}`, PM_TEST_READY: ready },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let childPid = null;
+  t.after(() => {
+    if (childPid)
+      try {
+        process.kill(childPid, "SIGKILL");
+      } catch {
+        // Already reaped.
+      }
+    if (active.exitCode === null && active.signalCode === null) active.kill("SIGKILL");
+  });
+  await waitForFile(ready, "directory child did not partially write its private manifest");
+  const observed = JSON.parse(fs.readFileSync(ready, "utf8"));
+  childPid = observed.pid;
+  assert.equal(observed.written > 0 && observed.written <= 16, true);
+  assert.equal(fs.existsSync(path.join(root, "evidence", "capture-1")), false);
+  const exited = new Promise((resolve) => active.once("exit", resolve));
+  process.kill(childPid, "SIGKILL");
+  await exited;
+  childPid = null;
+
+  const recovered = writeProjectDirectoryAtomic(
+    root,
+    "evidence/capture-1",
+    [["capture.json", "recovered"]],
+    { commitFile: "capture.json" }
+  );
+  assert.equal(recovered.committed, true);
+  assert.equal(
+    fs.readFileSync(path.join(root, "evidence", "capture-1", "capture.json"), "utf8"),
+    "recovered"
+  );
+});
+
+test("project directory writer reconciles death immediately after pointer publication", (t) => {
+  if (process.platform === "win32") return t.skip("signal semantics differ on Windows");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-managed-postpublish-death-"));
+  const preload = path.join(root, "die-after-pointer.cjs");
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.writeFileSync(
+    preload,
+    `
+      const fs = require("node:fs");
+      const originalSymlink = fs.symlinkSync;
+      fs.symlinkSync = function(target, destination, ...args) {
+        const result = originalSymlink.call(fs, target, destination, ...args);
+        if (process.argv.includes("--child-directory") && destination === "capture-1")
+          process.kill(process.pid, "SIGKILL");
+        return result;
+      };
+    `
+  );
+  const script = `
+    const [root, writer] = process.argv.slice(1);
+    try {
+      require(writer).writeProjectDirectoryAtomic(
+        root,
+        "evidence/capture-1",
+        [["capture.json", "published"]],
+        { commitFile: "capture.json" }
+      );
+      process.stdout.write(JSON.stringify({ unexpected: true }));
+    } catch (error) {
+      process.stdout.write(JSON.stringify({ committed: error.committed, message: error.message }));
+    }
+  `;
+  const result = spawnSync(process.execPath, ["-e", script, root, writerModule], {
+    encoding: "utf8",
+    env: { ...process.env, NODE_OPTIONS: `--require=${preload}` },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const failure = JSON.parse(result.stdout);
+  assert.equal(failure.unexpected, undefined);
+  assert.equal(failure.committed, true);
+  assert.match(failure.message, /committed.*do not retry/i);
+  assert.equal(
+    fs.readFileSync(path.join(root, "evidence", "capture-1", "capture.json"), "utf8"),
+    "published"
+  );
+  assert.equal(
+    writeProjectDirectoryAtomic(root, "evidence/capture-1", [["capture.json", "published"]], {
+      commitFile: "capture.json",
+    }).committed,
+    true
+  );
+  assert.equal(bundleNames(root).length, 1);
+});
+
+test("project directory writer cold-retries after its whole invocation dies post-publication", (t) => {
+  if (process.platform === "win32") return t.skip("signal semantics differ on Windows");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-managed-cold-retry-"));
+  const preload = path.join(root, "die-with-parent-after-pointer.cjs");
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.writeFileSync(
+    preload,
+    `
+      const fs = require("node:fs");
+      const originalSymlink = fs.symlinkSync;
+      fs.symlinkSync = function(target, destination, ...args) {
+        const result = originalSymlink.call(fs, target, destination, ...args);
+        if (process.argv.includes("--child-directory") && destination === "capture-1") {
+          const wrapperPid = process.ppid;
+          try { process.kill(wrapperPid, "SIGKILL"); } finally { process.kill(process.pid, "SIGKILL"); }
+        }
+        return result;
+      };
+    `
+  );
+  const script = `
+    const [root, writer] = process.argv.slice(1);
+    require(writer).writeProjectDirectoryAtomic(
+      root,
+      "evidence/capture-1",
+      [["capture.json", "cold-recovered"]],
+      { commitFile: "capture.json" }
+    );
+  `;
+  const killed = spawnSync(process.execPath, ["-e", script, root, writerModule], {
+    encoding: "utf8",
+    env: { ...process.env, NODE_OPTIONS: `--require=${preload}` },
+  });
+  assert.equal(killed.signal, "SIGKILL");
+  assert.equal(
+    fs.readFileSync(path.join(root, "evidence", "capture-1", "capture.json"), "utf8"),
+    "cold-recovered"
+  );
+  assert.equal(bundleNames(root).length, 1);
+
+  const recovered = writeProjectDirectoryAtomic(
+    root,
+    "evidence/capture-1",
+    [["capture.json", "cold-recovered"]],
+    { commitFile: "capture.json" }
+  );
+  assert.equal(recovered.committed, true);
+  assert.equal(bundleNames(root).length, 1);
+});
+
+test("project directory writer serializes concurrent exact publishers", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-managed-concurrent-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const script = `
+    const [root, writer] = process.argv.slice(1);
+    const state = require(writer).writeProjectDirectoryAtomic(
+      root,
+      "evidence/capture-1",
+      [["capture.json", "same"]],
+      { commitFile: "capture.json" }
+    );
+    process.stdout.write(JSON.stringify(state));
+  `;
+  const children = [0, 1].map(() =>
+    spawn(process.execPath, ["-e", script, root, writerModule], {
+      stdio: ["ignore", "pipe", "pipe"],
+    })
+  );
+  const results = await Promise.all(
+    children.map(
+      (child) =>
+        new Promise((resolve) => {
+          let stdout = "";
+          let stderr = "";
+          child.stdout.on("data", (chunk) => (stdout += chunk));
+          child.stderr.on("data", (chunk) => (stderr += chunk));
+          child.once("exit", (code) => resolve({ code, stdout, stderr }));
+        })
+    )
+  );
+  for (const result of results) {
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).committed, true);
+  }
+  assert.equal(bundleNames(root).length, 1);
+  assert.equal(
+    fs.readFileSync(path.join(root, "evidence", "capture-1", "capture.json"), "utf8"),
+    "same"
+  );
+});
+
+test("project directory writer serializes differing publishers without leaking a loser", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-managed-conflict-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const script = `
+    const [root, writer, content] = process.argv.slice(1);
+    const state = require(writer).writeProjectDirectoryAtomic(
+      root,
+      "evidence/capture-1",
+      [["capture.json", content]],
+      { commitFile: "capture.json" }
+    );
+    process.stdout.write(JSON.stringify(state));
+  `;
+  const children = ["alpha", "beta"].map((content) =>
+    spawn(process.execPath, ["-e", script, root, writerModule, content], {
+      stdio: ["ignore", "pipe", "pipe"],
+    })
+  );
+  const results = await Promise.all(
+    children.map(
+      (child) =>
+        new Promise((resolve) => {
+          let stdout = "";
+          let stderr = "";
+          child.stdout.on("data", (chunk) => (stdout += chunk));
+          child.stderr.on("data", (chunk) => (stderr += chunk));
+          child.once("exit", (code) => resolve({ code, stdout, stderr }));
+        })
+    )
+  );
+  assert.deepEqual(results.map((result) => result.code).sort(), [0, 1]);
+  assert.match(results.find((result) => result.code === 1).stderr, /already exists/);
+  assert.equal(JSON.parse(results.find((result) => result.code === 0).stdout).committed, true);
+  assert.equal(bundleNames(root).length, 1);
+  assert.match(
+    fs.readFileSync(path.join(root, "evidence", "capture-1", "capture.json"), "utf8"),
+    /^(?:alpha|beta)$/
+  );
+});
+
+test("project directory writer rejects same-size mutation and hardlinks before publication", (t) => {
+  for (const scenario of ["same-size", "hardlink", "manifest-hardlink"]) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), `pm-project-managed-${scenario}-`));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const preload = path.join(root, `${scenario}.cjs`);
+    const outsideLink = path.join(root, "outside-link.bin");
+    fs.writeFileSync(
+      preload,
+      `
+        const fs = require("node:fs");
+        const originalOpen = fs.openSync;
+        const originalReaddir = fs.readdirSync;
+        let attacked = false;
+        fs.openSync = function(file, ...args) {
+          if (
+            !attacked &&
+            process.argv.includes("--child-directory") &&
+            file === ".pm-directory-pointer.json" &&
+            process.env.PM_TEST_SCENARIO !== "manifest-hardlink"
+          ) {
+            attacked = true;
+            if (process.env.PM_TEST_SCENARIO === "same-size")
+              fs.writeFileSync("capture.png", Buffer.from([9, 8, 7]));
+            else if (process.env.PM_TEST_SCENARIO === "hardlink")
+              fs.linkSync("capture.png", process.env.PM_TEST_OUTSIDE_LINK);
+          }
+          return originalOpen.call(fs, file, ...args);
+        };
+        fs.readdirSync = function(directory, ...args) {
+          if (
+            !attacked &&
+            process.env.PM_TEST_SCENARIO === "manifest-hardlink" &&
+            process.argv.includes("--child-directory") &&
+            directory === "." &&
+            fs.existsSync(".pm-directory-pointer.json")
+          ) {
+            attacked = true;
+            fs.linkSync(".pm-directory-pointer.json", process.env.PM_TEST_OUTSIDE_LINK);
+          }
+          return originalReaddir.call(fs, directory, ...args);
+        };
+      `
+    );
+    const script = `
+      const [root, writer] = process.argv.slice(1);
+      require(writer).writeProjectDirectoryAtomic(root, "evidence/capture-1", [
+        ["capture.png", Buffer.from([1, 2, 3])],
+        ["capture.json", "manifest"]
+      ], { commitFile: "capture.json" });
+    `;
+    const result = spawnSync(process.execPath, ["-e", script, root, writerModule], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        NODE_OPTIONS: `--require=${preload}`,
+        PM_TEST_SCENARIO: scenario,
+        PM_TEST_OUTSIDE_LINK: outsideLink,
+      },
+    });
+    assert.notEqual(result.status, 0, scenario);
+    assert.match(result.stderr, /bundle file (?:metadata )?changed/i);
+    assert.equal(fs.existsSync(path.join(root, "evidence", "capture-1")), false);
+    assert.equal(bundleNames(root).length, 1);
+  }
+});
+
+test("managed-pointer reconciliation rejects a project-root replacement", (t) => {
+  if (process.platform === "win32") return t.skip("directory rename semantics differ on Windows");
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "pm-managed-root-swap-"));
+  const root = path.join(parent, "project");
+  const original = path.join(parent, "project-original");
+  const replacement = path.join(parent, "project-replacement");
+  t.after(() => fs.rmSync(parent, { recursive: true, force: true }));
+  fs.mkdirSync(root);
+  writeProjectDirectoryAtomic(root, "evidence/capture-1", [["capture.json", "same"]], {
+    commitFile: "capture.json",
+  });
+  fs.cpSync(root, replacement, { recursive: true, dereference: false, verbatimSymlinks: true });
+  const preload = path.join(parent, "swap-root.cjs");
+  fs.writeFileSync(
+    preload,
+    `
+      const fs = require("node:fs");
+      const originalLstat = fs.lstatSync;
+      let swapped = false;
+      fs.lstatSync = function(target, ...args) {
+        if (!swapped && process.argv.includes("--child-directory") && target === "capture-1") {
+          swapped = true;
+          fs.renameSync(process.env.PM_TEST_ROOT, process.env.PM_TEST_ORIGINAL);
+          fs.renameSync(process.env.PM_TEST_REPLACEMENT, process.env.PM_TEST_ROOT);
+        }
+        return originalLstat.call(fs, target, ...args);
+      };
+    `
+  );
+  const script = `
+    const [root, writer] = process.argv.slice(1);
+    require(writer).writeProjectDirectoryAtomic(
+      root,
+      "evidence/capture-1",
+      [["capture.json", "same"]],
+      { commitFile: "capture.json" }
+    );
+  `;
+  const result = spawnSync(process.execPath, ["-e", script, root, writerModule], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      NODE_OPTIONS: `--require=${preload}`,
+      PM_TEST_ROOT: root,
+      PM_TEST_ORIGINAL: original,
+      PM_TEST_REPLACEMENT: replacement,
+    },
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(
+    result.stderr,
+    /project root or destination parent changed before pointer reconciliation/
+  );
+  assert.equal(
+    fs.readFileSync(path.join(original, "evidence", "capture-1", "capture.json"), "utf8"),
+    "same"
+  );
+  assert.equal(
+    fs.readFileSync(path.join(root, "evidence", "capture-1", "capture.json"), "utf8"),
+    "same"
+  );
+});
+
+test("managed-pointer publication rejects a non-root ancestor replacement", (t) => {
+  if (process.platform === "win32") return t.skip("directory rename semantics differ on Windows");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-managed-parent-swap-"));
+  const destinationParent = path.join(root, "evidence", "round");
+  const originalParent = path.join(root, "evidence", "round-original");
+  const preload = path.join(root, "swap-parent.cjs");
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(destinationParent, { recursive: true });
+  fs.writeFileSync(
+    preload,
+    `
+      const fs = require("node:fs");
+      const originalSymlink = fs.symlinkSync;
+      let swapped = false;
+      fs.symlinkSync = function(target, destination, ...args) {
+        if (!swapped && process.argv.includes("--child-directory") && destination === "capture-1") {
+          swapped = true;
+          fs.renameSync(process.env.PM_TEST_PARENT, process.env.PM_TEST_ORIGINAL_PARENT);
+          fs.mkdirSync(process.env.PM_TEST_PARENT);
+        }
+        return originalSymlink.call(fs, target, destination, ...args);
+      };
+    `
+  );
+  const script = `
+    const [root, writer] = process.argv.slice(1);
+    require(writer).writeProjectDirectoryAtomic(
+      root,
+      "evidence/round/capture-1",
+      [["capture.json", "anchored"]],
+      { commitFile: "capture.json" }
+    );
+  `;
+  const result = spawnSync(process.execPath, ["-e", script, root, writerModule], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      NODE_OPTIONS: `--require=${preload}`,
+      PM_TEST_PARENT: destinationParent,
+      PM_TEST_ORIGINAL_PARENT: originalParent,
+    },
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /committed.*do not retry/i);
+  assert.deepEqual(fs.readdirSync(destinationParent), []);
+  assert.equal(
+    fs.readFileSync(path.join(originalParent, "capture-1", "capture.json"), "utf8"),
+    "anchored"
+  );
+});
 
 test("project writer atomically replaces or exclusively creates inside anchored directories", (t) => {
   assert.deepEqual(Object.keys(projectWriter).sort(), [
@@ -141,1609 +935,6 @@ test("project writer syncs a concurrently-created ancestor after observing it mi
   assert.equal(fs.readFileSync(path.join(root, "shared", "result.json"), "utf8"), "durable");
 });
 
-test("project directory writer publishes an exclusive attested bundle", (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-directory-write-"));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const state = writeProjectDirectoryAtomic(
-    root,
-    ".pm/captures/capture-1",
-    [
-      ["capture.json", '{"version":1}\n'],
-      ["capture.png", Buffer.from([0, 1, 2, 255])],
-    ],
-    { commitFile: "capture.json", fileMode: 0o600, directoryMode: 0o700, maxBytes: 1024 }
-  );
-  assert.equal(state.committed, true);
-  assert.equal(typeof state.directory_synced, "boolean");
-  assert.equal(
-    fs.readFileSync(path.join(root, ".pm/captures/capture-1/capture.json"), "utf8"),
-    '{"version":1}\n'
-  );
-  assert.deepEqual(
-    fs.readFileSync(path.join(root, ".pm/captures/capture-1/capture.png")),
-    Buffer.from([0, 1, 2, 255])
-  );
-  assert.throws(
-    () =>
-      writeProjectDirectoryAtomic(
-        root,
-        ".pm/captures/capture-1",
-        [["capture.json", "replacement"]],
-        { commitFile: "capture.json" }
-      ),
-    /already exists/
-  );
-  assert.throws(
-    () =>
-      writeProjectDirectoryAtomic(root, ".pm/captures/capture-2", [["capture.json", "safe"]], {
-        commitFile: ".pm-directory-owner.json",
-      }),
-    /reserved for writer ownership/
-  );
-  assert.throws(
-    () =>
-      writeProjectDirectoryAtomic(
-        root,
-        ".pm/captures/capture-2",
-        [
-          [".pm-directory-owner.json", "forged"],
-          ["capture.json", "unsafe"],
-        ],
-        { commitFile: "capture.json" }
-      ),
-    /reserved for writer ownership/
-  );
-});
-
-test("project directory writer rejects an ancestor swap before its child anchors the root", (t) => {
-  if (process.platform === "win32")
-    return t.skip("directory symlink setup requires privileges on Windows");
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-directory-race-"));
-  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-directory-outside-"));
-  t.after(() => {
-    fs.rmSync(root, { recursive: true, force: true });
-    fs.rmSync(outside, { recursive: true, force: true });
-  });
-  fs.mkdirSync(path.join(root, "evidence"));
-  assert.throws(
-    () =>
-      writeProjectDirectoryAtomic(root, "evidence/capture-1", [["capture.json", "unsafe"]], {
-        commitFile: "capture.json",
-        beforeSpawn() {
-          fs.renameSync(path.join(root, "evidence"), path.join(root, "evidence-original"));
-          fs.symlinkSync(outside, path.join(root, "evidence"), "dir");
-        },
-      }),
-    /not a real directory/
-  );
-  assert.equal(fs.existsSync(path.join(outside, "capture-1")), false);
-  assert.equal(fs.existsSync(path.join(root, "evidence-original", "capture-1")), false);
-});
-
-test("project directory writer never replaces a concurrently-created empty destination", (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-directory-exclusive-"));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  fs.mkdirSync(path.join(root, "evidence", "round"), { recursive: true });
-  const preload = path.join(root, "reserve-destination-preload.cjs");
-  fs.writeFileSync(
-    preload,
-    `
-      const fs = require("node:fs");
-      const originalMkdir = fs.mkdirSync;
-      let reserved = false;
-      fs.mkdirSync = function(target, options) {
-        if (
-          !reserved &&
-          process.argv.includes("--child-directory") &&
-          target === "capture-1"
-        ) {
-          reserved = true;
-          originalMkdir.call(fs, target, options);
-        }
-        return originalMkdir.call(fs, target, options);
-      };
-    `
-  );
-  const script = `
-    const [root, writer] = process.argv.slice(1);
-    const { writeProjectDirectoryAtomic } = require(writer);
-    writeProjectDirectoryAtomic(
-      root,
-      "evidence/round/capture-1",
-      [["capture.json", "must-not-publish"]],
-      { commitFile: "capture.json" }
-    );
-  `;
-  const result = spawnSync(process.execPath, ["-e", script, root, writerModule], {
-    encoding: "utf8",
-    env: { ...process.env, NODE_OPTIONS: `--require=${preload}` },
-  });
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /EEXIST|file exists/i);
-  const destination = path.join(root, "evidence", "round", "capture-1");
-  assert.equal(fs.lstatSync(destination).isDirectory(), true);
-  assert.deepEqual(fs.readdirSync(destination), []);
-});
-
-test("project directory writer protects a live lease and recovers interrupted or PID-reused ownership", async (t) => {
-  if (process.platform === "win32") return t.skip("signal and process-liveness semantics differ");
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-directory-lease-"));
-  const readyPath = path.join(root, "writer-ready.json");
-  const preload = path.join(root, "pause-directory-writer.cjs");
-  fs.writeFileSync(
-    preload,
-    `
-      const fs = require("node:fs");
-      const childProcess = require("node:child_process");
-      const originalOpen = fs.openSync;
-      const originalRead = fs.readFileSync;
-      const originalSpawn = childProcess.spawnSync;
-      let paused = false;
-      fs.readFileSync = function(target, ...args) {
-        if (String(target) === "/proc/sys/kernel/random/boot_id") return "live-writer-test-boot\\n";
-        return originalRead.call(fs, target, ...args);
-      };
-      childProcess.spawnSync = function(command, args, options) {
-        const invocation = Array.isArray(args) ? args.join(" ") : "";
-        if (command === "/usr/sbin/sysctl" && invocation.includes("kern.boottime"))
-          return { status: 0, stdout: "{ sec = 1900000000, usec = 0 }\\n", stderr: "" };
-        if (command === "powershell.exe" && invocation.includes("Win32_OperatingSystem"))
-          return { status: 0, stdout: "1900000000\\n", stderr: "" };
-        return originalSpawn.call(childProcess, command, args, options);
-      };
-      fs.openSync = function(file, ...args) {
-        if (
-          !paused &&
-          process.argv.includes("--child-directory") &&
-          file === "capture.png"
-        ) {
-          paused = true;
-          process.title = "pm-live-writer-title-changed";
-          fs.writeFileSync(process.env.PM_TEST_WRITER_READY, JSON.stringify({ pid: process.pid }));
-          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
-        }
-        return originalOpen.call(fs, file, ...args);
-      };
-    `
-  );
-  const script = `
-    const [root, writer] = process.argv.slice(1);
-    const { writeProjectDirectoryAtomic } = require(writer);
-    writeProjectDirectoryAtomic(root, "evidence/capture-1", [
-      ["capture.png", Buffer.from([1, 2, 3])],
-      ["capture.json", "interrupted-manifest"]
-    ], { commitFile: "capture.json" });
-  `;
-  const active = spawn(process.execPath, ["-e", script, root, writerModule], {
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      NODE_OPTIONS: `--require=${preload}`,
-      PM_TEST_WRITER_READY: readyPath,
-    },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  let writerPid = null;
-  t.after(() => {
-    if (writerPid)
-      try {
-        process.kill(writerPid, "SIGKILL");
-      } catch {
-        // The interrupted writer was already reaped.
-      }
-    if (active.exitCode === null && active.signalCode === null) active.kill("SIGKILL");
-    fs.rmSync(root, { recursive: true, force: true });
-  });
-
-  const deadline = Date.now() + 5_000;
-  while (!fs.existsSync(readyPath) && Date.now() < deadline)
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.equal(fs.existsSync(readyPath), true, "writer did not establish its owner lease");
-  writerPid = JSON.parse(fs.readFileSync(readyPath, "utf8")).pid;
-  const destination = path.join(root, "evidence", "capture-1");
-  const liveLeasePath = path.join(destination, ".pm-directory-owner.json");
-  assert.equal(fs.existsSync(liveLeasePath), true);
-  assert.equal(JSON.parse(fs.readFileSync(liveLeasePath, "utf8")).commit_file, "capture.json");
-  assert.match(
-    JSON.parse(fs.readFileSync(liveLeasePath, "utf8")).boot_token,
-    /^(?:linux-boot|bsd-boot-numeric|windows-boot):/
-  );
-  const sameBootPreload = path.join(root, "same-strong-identity.cjs");
-  fs.writeFileSync(
-    sameBootPreload,
-    `
-      const fs = require("node:fs");
-      const childProcess = require("node:child_process");
-      const originalRead = fs.readFileSync;
-      const originalSpawn = childProcess.spawnSync;
-      fs.readFileSync = function(target, ...args) {
-        if (String(target) === "/proc/sys/kernel/random/boot_id") return "live-writer-test-boot\\n";
-        return originalRead.call(fs, target, ...args);
-      };
-      childProcess.spawnSync = function(command, args, options) {
-        const invocation = Array.isArray(args) ? args.join(" ") : "";
-        if (command === "/usr/sbin/sysctl" && invocation.includes("kern.boottime"))
-          return { status: 0, stdout: "{ sec = 1900000000, usec = 0 }\\n", stderr: "" };
-        if (command === "powershell.exe" && invocation.includes("Win32_OperatingSystem"))
-          return { status: 0, stdout: "1900000000\\n", stderr: "" };
-        return originalSpawn.call(childProcess, command, args, options);
-      };
-    `
-  );
-  const weakProbePreload = path.join(root, "unavailable-strong-identity.cjs");
-  fs.writeFileSync(
-    weakProbePreload,
-    `
-      const fs = require("node:fs");
-      const os = require("node:os");
-      const childProcess = require("node:child_process");
-      const originalRead = fs.readFileSync;
-      const originalSpawn = childProcess.spawnSync;
-      fs.readFileSync = function(target, ...args) {
-        if (String(target) === "/proc/sys/kernel/random/boot_id") {
-          const error = new Error("boot identity unavailable");
-          error.code = "EACCES";
-          throw error;
-        }
-        return originalRead.call(fs, target, ...args);
-      };
-      childProcess.spawnSync = function(command, args, options) {
-        const invocation = Array.isArray(args) ? args.join(" ") : "";
-        if (
-          (command === "/usr/sbin/sysctl" && invocation.includes("kern.boottime")) ||
-          (command === "powershell.exe" && invocation.includes("Win32_OperatingSystem"))
-        ) return { status: null, stdout: "", stderr: "", error: new Error("identity unavailable") };
-        return originalSpawn.call(childProcess, command, args, options);
-      };
-      os.uptime = () => 1_000;
-    `
-  );
-  const liveRetryScript = `
-    const [root, writer] = process.argv.slice(1);
-    try {
-      require(writer).writeProjectDirectoryAtomic(
-        root,
-        "evidence/capture-1",
-        [["capture.json", "racing"]],
-        { commitFile: "capture.json" }
-      );
-      process.stdout.write(JSON.stringify({ unexpected: "passed" }));
-    } catch (error) {
-      process.stdout.write(JSON.stringify({ message: error.message }));
-    }
-  `;
-  const sameBootRetry = spawnSync(process.execPath, ["-e", liveRetryScript, root, writerModule], {
-    encoding: "utf8",
-    env: { ...process.env, NODE_OPTIONS: `--require=${sameBootPreload}` },
-  });
-  assert.equal(sameBootRetry.status, 0, sameBootRetry.stderr);
-  assert.match(JSON.parse(sameBootRetry.stdout).message, /reserved by live writer/);
-  const liveRetry = spawnSync(process.execPath, ["-e", liveRetryScript, root, writerModule], {
-    encoding: "utf8",
-    env: { ...process.env, NODE_OPTIONS: `--require=${weakProbePreload}` },
-  });
-  assert.equal(liveRetry.status, 0, liveRetry.stderr);
-  assert.match(JSON.parse(liveRetry.stdout).message, /reserved by live writer/);
-  assert.equal(fs.existsSync(destination), true);
-
-  const unknownIdentityLease = JSON.parse(fs.readFileSync(liveLeasePath, "utf8"));
-  unknownIdentityLease.process_start_token = `unknown-process:${crypto
-    .createHash("sha256")
-    .update("not-a-proven-process-identity")
-    .digest("hex")}`;
-  fs.writeFileSync(liveLeasePath, `${JSON.stringify(unknownIdentityLease)}\n`);
-  const unknownIdentityRetry = spawnSync(
-    process.execPath,
-    ["-e", liveRetryScript, root, writerModule],
-    {
-      encoding: "utf8",
-      env: { ...process.env, NODE_OPTIONS: `--require=${sameBootPreload}` },
-    }
-  );
-  assert.equal(unknownIdentityRetry.status, 0, unknownIdentityRetry.stderr);
-  assert.match(JSON.parse(unknownIdentityRetry.stdout).message, /reserved by live writer/);
-  assert.equal(fs.existsSync(destination), true);
-
-  const activeExit = new Promise((resolve) => active.once("exit", resolve));
-  process.kill(writerPid, "SIGKILL");
-  await activeExit;
-  writerPid = null;
-
-  const leasePath = liveLeasePath;
-  const reusedPidLease = JSON.parse(fs.readFileSync(leasePath, "utf8"));
-  reusedPidLease.pid = process.pid;
-  const bootKind =
-    process.platform === "linux"
-      ? "linux-boot"
-      : process.platform === "win32"
-        ? "windows-boot"
-        : "bsd-boot-numeric";
-  reusedPidLease.boot_token = `${bootKind}:${crypto
-    .createHash("sha256")
-    .update("previous-test-boot")
-    .digest("hex")}`;
-  reusedPidLease.process_start_token = null;
-  reusedPidLease.created_at_ms = Date.now() - 10 * 60 * 1000;
-  fs.writeFileSync(leasePath, `${JSON.stringify(reusedPidLease)}\n`);
-
-  const rebootPreload = path.join(root, "simulate-reboot.cjs");
-  fs.writeFileSync(
-    rebootPreload,
-    `
-      const fs = require("node:fs");
-      const childProcess = require("node:child_process");
-      const originalRead = fs.readFileSync;
-      const originalSpawn = childProcess.spawnSync;
-      fs.readFileSync = function(target, ...args) {
-        if (String(target) === "/proc/sys/kernel/random/boot_id") return "current-test-boot\\n";
-        return originalRead.call(fs, target, ...args);
-      };
-      childProcess.spawnSync = function(command, args, options) {
-        const invocation = Array.isArray(args) ? args.join(" ") : "";
-        if (command === "/usr/sbin/sysctl" && invocation.includes("kern.boottime"))
-          return { status: 0, stdout: "{ sec = 2000000000, usec = 0 }\\n", stderr: "" };
-        if (command === "powershell.exe" && invocation.includes("Win32_OperatingSystem"))
-          return { status: 0, stdout: "2000000000\\n", stderr: "" };
-        return originalSpawn.call(childProcess, command, args, options);
-      };
-    `
-  );
-  const retryScript = `
-    const [root, writer] = process.argv.slice(1);
-    const state = require(writer).writeProjectDirectoryAtomic(root, "evidence/capture-1", [
-      ["capture.png", Buffer.from([4, 5, 6])],
-      ["capture.json", "recovered-manifest"]
-    ], { commitFile: "capture.json" });
-    process.stdout.write(JSON.stringify(state));
-  `;
-  const retry = spawnSync(process.execPath, ["-e", retryScript, root, writerModule], {
-    encoding: "utf8",
-    env: { ...process.env, NODE_OPTIONS: `--require=${rebootPreload}` },
-  });
-  assert.equal(retry.status, 0, retry.stderr);
-  assert.equal(JSON.parse(retry.stdout).committed, true);
-  assert.equal(fs.existsSync(path.join(destination, ".pm-directory-owner.json")), false);
-  assert.equal(
-    fs.readFileSync(path.join(destination, "capture.json"), "utf8"),
-    "recovered-manifest"
-  );
-  assert.deepEqual(fs.readFileSync(path.join(destination, "capture.png")), Buffer.from([4, 5, 6]));
-});
-
-test("project directory writer derives stable BSD identities across timezone changes", (t) => {
-  const roots = [];
-  t.after(() => {
-    for (const root of roots) fs.rmSync(root, { recursive: true, force: true });
-  });
-  const observed = [];
-  for (const timezone of ["UTC", "Asia/Singapore"]) {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-directory-bsd-identity-"));
-    roots.push(root);
-    const identityEnvironmentPath = path.join(root, "identity-environment.json");
-    const preload = path.join(root, "bsd-identity-preload.cjs");
-    fs.writeFileSync(
-      preload,
-      `
-        Object.defineProperty(process, "platform", { value: "darwin" });
-        const fs = require("node:fs");
-        const childProcess = require("node:child_process");
-        const originalSpawn = childProcess.spawnSync;
-        const originalUnlink = fs.unlinkSync;
-        childProcess.spawnSync = function(command, args, options = {}) {
-          const invocation = Array.isArray(args) ? args.join(" ") : "";
-          if (command === "/usr/sbin/sysctl" && invocation.includes("kern.boottime")) {
-            const suffix = process.env.TZ === "UTC"
-              ? "Sun Nov 15 22:13:20 UTC 2023"
-              : "Mon Nov 16 06:13:20 +08 2023";
-            return {
-              status: 0,
-              stdout: "{ sec = 1700000000, usec = 123456 } " + suffix + "\\n",
-              stderr: ""
-            };
-          }
-          if (command === "/bin/ps" && invocation.includes("lstart=")) {
-            fs.writeFileSync(
-              process.env.PM_TEST_IDENTITY_ENVIRONMENT,
-              JSON.stringify({
-                LC_ALL: options.env && options.env.LC_ALL,
-                LANG: options.env && options.env.LANG,
-                TZ: options.env && options.env.TZ
-              })
-            );
-            const stable = options.env && options.env.LC_ALL === "C" &&
-              options.env.LANG === "C" && options.env.TZ === "UTC";
-            return {
-              status: 0,
-              stdout: stable ? "Mon Jan  1 00:00:00 2024\\n" : "localized process time\\n",
-              stderr: ""
-            };
-          }
-          return originalSpawn.call(childProcess, command, args, options);
-        };
-        fs.unlinkSync = function(target, ...args) {
-          if (
-            process.argv.includes("--child-directory") &&
-            target === ".pm-directory-owner.json"
-          ) {
-            const error = new Error("retain lease for identity inspection");
-            error.code = "EIO";
-            throw error;
-          }
-          return originalUnlink.call(fs, target, ...args);
-        };
-      `
-    );
-    const script = `
-      const fs = require("node:fs");
-      const path = require("node:path");
-      const [root, writer, identityEnvironmentPath] = process.argv.slice(1);
-      try {
-        require(writer).writeProjectDirectoryAtomic(
-          root,
-          "evidence/capture-1",
-          [["capture.json", "committed-marker"]],
-          { commitFile: "capture.json" }
-        );
-      } catch (error) {
-        const lease = JSON.parse(
-          fs.readFileSync(path.join(root, "evidence/capture-1/.pm-directory-owner.json"), "utf8")
-        );
-        process.stdout.write(JSON.stringify({
-          committed: error.committed === true,
-          bootToken: lease.boot_token,
-          processToken: lease.process_start_token,
-          identityEnvironment: JSON.parse(fs.readFileSync(identityEnvironmentPath, "utf8"))
-        }));
-      }
-    `;
-    const result = spawnSync(
-      process.execPath,
-      ["-e", script, root, writerModule, identityEnvironmentPath],
-      {
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          TZ: timezone,
-          NODE_OPTIONS: `--require=${preload}`,
-          PM_TEST_IDENTITY_ENVIRONMENT: identityEnvironmentPath,
-        },
-      }
-    );
-    assert.equal(result.status, 0, result.stderr);
-    observed.push(JSON.parse(result.stdout));
-  }
-
-  const expectedBootToken = `bsd-boot-numeric:${crypto
-    .createHash("sha256")
-    .update("1700000000:123456")
-    .digest("hex")}`;
-  const expectedProcessToken = `bsd-process-utc:${crypto
-    .createHash("sha256")
-    .update("Mon Jan  1 00:00:00 2024")
-    .digest("hex")}`;
-  for (const result of observed) {
-    assert.equal(result.committed, true);
-    assert.equal(result.bootToken, expectedBootToken);
-    assert.equal(result.processToken, expectedProcessToken);
-    assert.deepEqual(result.identityEnvironment, { LC_ALL: "C", LANG: "C", TZ: "UTC" });
-  }
-});
-
-test("project directory writer does not reclaim a foreign directory after a pre-mkdir crash", async (t) => {
-  if (process.platform === "win32") return t.skip("signal and process-liveness semantics differ");
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-directory-prelease-"));
-  const readyPath = path.join(root, "prelease-ready.json");
-  const preload = path.join(root, "pause-before-destination-mkdir.cjs");
-  fs.writeFileSync(
-    preload,
-    `
-      const fs = require("node:fs");
-      const originalMkdir = fs.mkdirSync;
-      let paused = false;
-      fs.mkdirSync = function(directory, ...args) {
-        if (
-          !paused &&
-          process.argv.includes("--child-directory") &&
-          directory === "capture-1"
-        ) {
-          paused = true;
-          fs.writeFileSync(process.env.PM_TEST_PRELEASE_READY, JSON.stringify({ pid: process.pid }));
-          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
-        }
-        return originalMkdir.call(fs, directory, ...args);
-      };
-    `
-  );
-  const script = `
-    const [root, writer] = process.argv.slice(1);
-    require(writer).writeProjectDirectoryAtomic(root, "evidence/capture-1", [
-      ["capture.png", Buffer.from([1, 2, 3])],
-      ["capture.json", "interrupted-before-lease"]
-    ], { commitFile: "capture.json" });
-  `;
-  const active = spawn(process.execPath, ["-e", script, root, writerModule], {
-    env: {
-      ...process.env,
-      NODE_OPTIONS: `--require=${preload}`,
-      PM_TEST_PRELEASE_READY: readyPath,
-    },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  let writerPid = null;
-  t.after(() => {
-    if (writerPid)
-      try {
-        process.kill(writerPid, "SIGKILL");
-      } catch {
-        // The interrupted writer was already reaped.
-      }
-    if (active.exitCode === null && active.signalCode === null) active.kill("SIGKILL");
-    fs.rmSync(root, { recursive: true, force: true });
-  });
-  const deadline = Date.now() + 5_000;
-  while (!fs.existsSync(readyPath) && Date.now() < deadline)
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.equal(fs.existsSync(readyPath), true, "writer did not reach the pre-lease window");
-  writerPid = JSON.parse(fs.readFileSync(readyPath, "utf8")).pid;
-  const destination = path.join(root, "evidence", "capture-1");
-  assert.equal(fs.existsSync(destination), false);
-  const reservationName = fs
-    .readdirSync(path.join(root, "evidence"))
-    .find((name) => name.startsWith(".pm-dir-reservation-") && name.endsWith(".json"));
-  assert.ok(reservationName);
-  assert.equal(
-    JSON.parse(fs.readFileSync(path.join(root, "evidence", reservationName), "utf8")).commit_file,
-    "capture.json"
-  );
-  assert.throws(
-    () =>
-      writeProjectDirectoryAtomic(root, "evidence/capture-1", [["capture.json", "racing"]], {
-        commitFile: "capture.json",
-      }),
-    /reserved by live writer/
-  );
-
-  const activeExit = new Promise((resolve) => active.once("exit", resolve));
-  process.kill(writerPid, "SIGKILL");
-  await activeExit;
-  writerPid = null;
-  assert.throws(
-    () =>
-      writeProjectDirectoryAtomic(
-        root,
-        "evidence/capture-1",
-        [["other.json", "must-not-rebind-stale-reservation"]],
-        { commitFile: "other.json" }
-      ),
-    /reservation targets another commit marker/
-  );
-  assert.equal(fs.existsSync(destination), false);
-  assert.equal(fs.existsSync(path.join(root, "evidence", reservationName)), true);
-  fs.mkdirSync(destination);
-  const foreignIdentity = fs.statSync(destination);
-  assert.throws(
-    () =>
-      writeProjectDirectoryAtomic(
-        root,
-        "evidence/capture-1",
-        [["capture.json", "must-not-replace-foreign-directory"]],
-        { commitFile: "capture.json" }
-      ),
-    /already exists without a recoverable owner lease/
-  );
-  const preservedIdentity = fs.statSync(destination);
-  assert.equal(preservedIdentity.dev, foreignIdentity.dev);
-  assert.equal(preservedIdentity.ino, foreignIdentity.ino);
-  assert.deepEqual(fs.readdirSync(destination), []);
-});
-
-test("project directory writer fails closed after a kill during owner-lease creation", async (t) => {
-  if (process.platform === "win32") return t.skip("signal and process-liveness semantics differ");
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-directory-partial-lease-"));
-  const readyPath = path.join(root, "partial-lease-ready.json");
-  const preload = path.join(root, "pause-during-owner-lease.cjs");
-  fs.writeFileSync(
-    preload,
-    `
-      const fs = require("node:fs");
-      const originalOpen = fs.openSync;
-      const originalWrite = fs.writeSync;
-      let ownerDescriptor;
-      let paused = false;
-      fs.openSync = function(file, ...args) {
-        const descriptor = originalOpen.call(fs, file, ...args);
-        if (
-          process.argv.includes("--child-directory") &&
-          file === ".pm-directory-owner.json"
-        ) ownerDescriptor = descriptor;
-        return descriptor;
-      };
-      fs.writeSync = function(descriptor, buffer, offset, length, position) {
-        if (!paused && descriptor === ownerDescriptor) {
-          paused = true;
-          const written = originalWrite.call(
-            fs,
-            descriptor,
-            buffer,
-            offset,
-            Math.min(16, length),
-            position
-          );
-          fs.writeFileSync(
-            process.env.PM_TEST_PARTIAL_LEASE_READY,
-            JSON.stringify({ pid: process.pid, written })
-          );
-          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
-          return written;
-        }
-        return originalWrite.call(fs, descriptor, buffer, offset, length, position);
-      };
-    `
-  );
-  const script = `
-    const [root, writer] = process.argv.slice(1);
-    require(writer).writeProjectDirectoryAtomic(root, "evidence/capture-1", [
-      ["capture.png", Buffer.from([1, 2, 3])],
-      ["capture.json", "interrupted-during-lease"]
-    ], { commitFile: "capture.json" });
-  `;
-  const active = spawn(process.execPath, ["-e", script, root, writerModule], {
-    env: {
-      ...process.env,
-      NODE_OPTIONS: `--require=${preload}`,
-      PM_TEST_PARTIAL_LEASE_READY: readyPath,
-    },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  let writerPid = null;
-  t.after(() => {
-    if (writerPid)
-      try {
-        process.kill(writerPid, "SIGKILL");
-      } catch {
-        // The interrupted writer was already reaped.
-      }
-    if (active.exitCode === null && active.signalCode === null) active.kill("SIGKILL");
-    fs.rmSync(root, { recursive: true, force: true });
-  });
-  const deadline = Date.now() + 5_000;
-  while (!fs.existsSync(readyPath) && Date.now() < deadline)
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.equal(fs.existsSync(readyPath), true, "writer did not partially write its owner lease");
-  const ready = JSON.parse(fs.readFileSync(readyPath, "utf8"));
-  writerPid = ready.pid;
-  assert.equal(ready.written > 0 && ready.written <= 16, true);
-  const destination = path.join(root, "evidence", "capture-1");
-  const partialLease = fs.readFileSync(path.join(destination, ".pm-directory-owner.json"));
-  assert.equal(partialLease.length, ready.written);
-  assert.throws(
-    () =>
-      writeProjectDirectoryAtomic(root, "evidence/capture-1", [["capture.json", "racing"]], {
-        commitFile: "capture.json",
-      }),
-    /reserved by live writer/
-  );
-
-  const activeExit = new Promise((resolve) => active.once("exit", resolve));
-  process.kill(writerPid, "SIGKILL");
-  await activeExit;
-  writerPid = null;
-  assert.throws(
-    () =>
-      writeProjectDirectoryAtomic(
-        root,
-        "evidence/capture-1",
-        [["capture.json", "must-not-reclaim-partial-lease"]],
-        { commitFile: "capture.json" }
-      ),
-    /already exists without a recoverable owner lease/
-  );
-  assert.deepEqual(
-    fs.readFileSync(path.join(destination, ".pm-directory-owner.json")),
-    partialLease
-  );
-  assert.equal(fs.existsSync(path.join(destination, "capture.json")), false);
-});
-
-test("project directory writer recovers after a contending reservation and original owner both die", async (t) => {
-  if (process.platform === "win32") return t.skip("signal and process-liveness semantics differ");
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-directory-double-crash-"));
-  const ownerReadyPath = path.join(root, "owner-ready.json");
-  const contenderReadyPath = path.join(root, "contender-ready.json");
-  const ownerPreload = path.join(root, "pause-original-owner.cjs");
-  const contenderPreload = path.join(root, "pause-contender-inspection.cjs");
-  fs.writeFileSync(
-    ownerPreload,
-    `
-      const fs = require("node:fs");
-      const originalOpen = fs.openSync;
-      let paused = false;
-      fs.openSync = function(file, ...args) {
-        if (!paused && process.argv.includes("--child-directory") && file === "capture.png") {
-          paused = true;
-          fs.writeFileSync(process.env.PM_TEST_OWNER_READY, JSON.stringify({ pid: process.pid }));
-          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
-        }
-        return originalOpen.call(fs, file, ...args);
-      };
-    `
-  );
-  fs.writeFileSync(
-    contenderPreload,
-    `
-      const fs = require("node:fs");
-      const originalOpen = fs.openSync;
-      let paused = false;
-      fs.openSync = function(file, ...args) {
-        if (
-          !paused &&
-          process.argv.includes("--child-directory") &&
-          typeof file === "string" &&
-          file.endsWith("capture-1/.pm-directory-owner.json")
-        ) {
-          paused = true;
-          fs.writeFileSync(process.env.PM_TEST_CONTENDER_READY, JSON.stringify({ pid: process.pid }));
-          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
-        }
-        return originalOpen.call(fs, file, ...args);
-      };
-    `
-  );
-  const ownerScript = `
-    const [root, writer] = process.argv.slice(1);
-    require(writer).writeProjectDirectoryAtomic(root, "evidence/capture-1", [
-      ["capture.png", Buffer.from([1, 2, 3])],
-      ["capture.json", "original-owner"]
-    ], { commitFile: "capture.json" });
-  `;
-  const contenderScript = `
-    const [root, writer] = process.argv.slice(1);
-    require(writer).writeProjectDirectoryAtomic(
-      root,
-      "evidence/capture-1",
-      [["capture.json", "contender"]],
-      { commitFile: "capture.json" }
-    );
-  `;
-  const owner = spawn(process.execPath, ["-e", ownerScript, root, writerModule], {
-    env: {
-      ...process.env,
-      NODE_OPTIONS: `--require=${ownerPreload}`,
-      PM_TEST_OWNER_READY: ownerReadyPath,
-    },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  let ownerPid = null;
-  let contender = null;
-  let contenderPid = null;
-  t.after(() => {
-    for (const pid of [ownerPid, contenderPid])
-      if (pid)
-        try {
-          process.kill(pid, "SIGKILL");
-        } catch {
-          // The interrupted child was already reaped.
-        }
-    for (const child of [owner, contender])
-      if (child && child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
-    fs.rmSync(root, { recursive: true, force: true });
-  });
-  let deadline = Date.now() + 5_000;
-  while (!fs.existsSync(ownerReadyPath) && Date.now() < deadline)
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.equal(fs.existsSync(ownerReadyPath), true, "original owner did not establish its lease");
-  ownerPid = JSON.parse(fs.readFileSync(ownerReadyPath, "utf8")).pid;
-
-  contender = spawn(process.execPath, ["-e", contenderScript, root, writerModule], {
-    env: {
-      ...process.env,
-      NODE_OPTIONS: `--require=${contenderPreload}`,
-      PM_TEST_CONTENDER_READY: contenderReadyPath,
-    },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  deadline = Date.now() + 5_000;
-  while (!fs.existsSync(contenderReadyPath) && Date.now() < deadline)
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.equal(
-    fs.existsSync(contenderReadyPath),
-    true,
-    "contender did not retain its sibling reservation"
-  );
-  contenderPid = JSON.parse(fs.readFileSync(contenderReadyPath, "utf8")).pid;
-  assert.equal(
-    fs
-      .readdirSync(path.join(root, "evidence"))
-      .some((name) => name.startsWith(".pm-dir-reservation-")),
-    true
-  );
-
-  const contenderExit = new Promise((resolve) => contender.once("exit", resolve));
-  process.kill(contenderPid, "SIGKILL");
-  await contenderExit;
-  contenderPid = null;
-  const ownerExit = new Promise((resolve) => owner.once("exit", resolve));
-  process.kill(ownerPid, "SIGKILL");
-  await ownerExit;
-  ownerPid = null;
-
-  const recovered = writeProjectDirectoryAtomic(
-    root,
-    "evidence/capture-1",
-    [["capture.json", "recovered-after-double-crash"]],
-    { commitFile: "capture.json" }
-  );
-  assert.equal(recovered.committed, true);
-  assert.equal(
-    fs.readFileSync(path.join(root, "evidence", "capture-1", "capture.json"), "utf8"),
-    "recovered-after-double-crash"
-  );
-});
-
-test("project directory writer preserves committed state when killed after marker publication", async (t) => {
-  if (process.platform === "win32") return t.skip("signal and process-liveness semantics differ");
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-directory-marker-kill-"));
-  const readyPath = path.join(root, "marker-linked.json");
-  const preload = path.join(root, "pause-after-marker-link.cjs");
-  fs.writeFileSync(
-    preload,
-    `
-      const fs = require("node:fs");
-      const originalLink = fs.linkSync;
-      let paused = false;
-      fs.linkSync = function(source, destination, ...args) {
-        const result = originalLink.call(fs, source, destination, ...args);
-        if (
-          !paused &&
-          process.argv.includes("--child-directory") &&
-          destination === "capture.json"
-        ) {
-          paused = true;
-          fs.writeFileSync(process.env.PM_TEST_MARKER_LINKED, JSON.stringify({ pid: process.pid }));
-          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
-        }
-        return result;
-      };
-    `
-  );
-  const script = `
-    const [root, writer] = process.argv.slice(1);
-    try {
-      require(writer).writeProjectDirectoryAtomic(root, "evidence/capture-1", [
-        ["capture.png", Buffer.from([1, 2, 3])],
-        ["capture.json", "committed-before-kill"]
-      ], { commitFile: "capture.json" });
-    } catch (error) {
-      process.stdout.write(JSON.stringify({ committed: error.committed === true, message: error.message }));
-    }
-  `;
-  let stdout = "";
-  const active = spawn(process.execPath, ["-e", script, root, writerModule], {
-    env: {
-      ...process.env,
-      NODE_OPTIONS: `--require=${preload}`,
-      PM_TEST_MARKER_LINKED: readyPath,
-    },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  active.stdout.setEncoding("utf8");
-  active.stdout.on("data", (chunk) => {
-    stdout += chunk;
-  });
-  let writerPid = null;
-  t.after(() => {
-    if (writerPid)
-      try {
-        process.kill(writerPid, "SIGKILL");
-      } catch {
-        // The interrupted writer was already reaped.
-      }
-    if (active.exitCode === null && active.signalCode === null) active.kill("SIGKILL");
-    fs.rmSync(root, { recursive: true, force: true });
-  });
-  const deadline = Date.now() + 5_000;
-  while (!fs.existsSync(readyPath) && Date.now() < deadline)
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.equal(fs.existsSync(readyPath), true, "writer did not publish the marker");
-  writerPid = JSON.parse(fs.readFileSync(readyPath, "utf8")).pid;
-  const activeExit = new Promise((resolve) => active.once("exit", resolve));
-  process.kill(writerPid, "SIGKILL");
-  await activeExit;
-  writerPid = null;
-
-  const failure = JSON.parse(stdout);
-  assert.equal(failure.committed, true);
-  assert.match(failure.message, /committed.*do not retry/i);
-  assert.equal(
-    fs.readFileSync(path.join(root, "evidence", "capture-1", "capture.json"), "utf8"),
-    "committed-before-kill"
-  );
-  assert.throws(
-    () =>
-      writeProjectDirectoryAtomic(root, "evidence/capture-1", [["capture.json", "replacement"]], {
-        commitFile: "capture.json",
-      }),
-    /already exists/
-  );
-});
-
-test("project directory writer reconciles a complete bundle after child reporting fails", (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-directory-reporting-"));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const preload = path.join(root, "fail-child-reporting.cjs");
-  fs.writeFileSync(
-    preload,
-    `
-      if (process.argv.includes("--child-directory")) {
-        process.stdout.write = function() {
-          const error = new Error("injected child reporting failure");
-          error.code = "EPIPE";
-          throw error;
-        };
-      }
-    `
-  );
-  const script = `
-    const [root, writer] = process.argv.slice(1);
-    try {
-      require(writer).writeProjectDirectoryAtomic(
-        root,
-        "evidence/capture-1",
-        [
-          ["capture.png", Buffer.from([1, 2, 3])],
-          ["capture.json", "committed-before-reporting-failed"]
-        ],
-        { commitFile: "capture.json" }
-      );
-      process.stdout.write(JSON.stringify({ unexpected: "passed" }));
-    } catch (error) {
-      process.stdout.write(JSON.stringify({
-        committed: error.committed === true,
-        message: error.message
-      }));
-    }
-  `;
-  const result = spawnSync(process.execPath, ["-e", script, root, writerModule], {
-    encoding: "utf8",
-    env: { ...process.env, NODE_OPTIONS: `--require=${preload}` },
-  });
-  assert.equal(result.status, 0, result.stderr);
-  const failure = JSON.parse(result.stdout);
-  assert.equal(failure.committed, true);
-  assert.match(failure.message, /committed.*do not retry/i);
-  assert.equal(
-    fs.readFileSync(path.join(root, "evidence/capture-1/capture.json"), "utf8"),
-    "committed-before-reporting-failed"
-  );
-  assert.deepEqual(
-    fs.readFileSync(path.join(root, "evidence/capture-1/capture.png")),
-    Buffer.from([1, 2, 3])
-  );
-});
-
-test("project directory writer reports unknown non-retryable state for a tampered bundle", async (t) => {
-  if (process.platform === "win32") return t.skip("signal and process-liveness semantics differ");
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-directory-marker-unknown-"));
-  const readyPath = path.join(root, "tampered-bundle-ready.json");
-  const preload = path.join(root, "tamper-payload-after-marker-link.cjs");
-  fs.writeFileSync(
-    preload,
-    `
-      const fs = require("node:fs");
-      const originalLink = fs.linkSync;
-      let paused = false;
-      fs.linkSync = function(source, destination, ...args) {
-        const result = originalLink.call(fs, source, destination, ...args);
-        if (
-          !paused &&
-          process.argv.includes("--child-directory") &&
-          destination === "capture.json"
-        ) {
-          paused = true;
-          fs.writeFileSync("capture.png", "EVIL");
-          fs.writeFileSync(process.env.PM_TEST_MARKER_UNKNOWN, JSON.stringify({ pid: process.pid }));
-          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
-        }
-        return result;
-      };
-    `
-  );
-  const script = `
-    const [root, writer] = process.argv.slice(1);
-    try {
-      require(writer).writeProjectDirectoryAtomic(
-        root,
-        "evidence/capture-1",
-        [
-          ["capture.png", "GOOD"],
-          ["capture.json", "expected-marker"]
-        ],
-        { commitFile: "capture.json" }
-      );
-    } catch (error) {
-      process.stdout.write(JSON.stringify({
-        committed: error.committed ?? null,
-        commitState: error.commitState ?? null,
-        retryable: error.retryable ?? null,
-        message: error.message
-      }));
-    }
-  `;
-  let stdout = "";
-  const active = spawn(process.execPath, ["-e", script, root, writerModule], {
-    env: {
-      ...process.env,
-      NODE_OPTIONS: `--require=${preload}`,
-      PM_TEST_MARKER_UNKNOWN: readyPath,
-    },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  active.stdout.setEncoding("utf8");
-  active.stdout.on("data", (chunk) => {
-    stdout += chunk;
-  });
-  let writerPid = null;
-  t.after(() => {
-    if (writerPid)
-      try {
-        process.kill(writerPid, "SIGKILL");
-      } catch {
-        // The interrupted writer was already reaped.
-      }
-    if (active.exitCode === null && active.signalCode === null) active.kill("SIGKILL");
-    fs.rmSync(root, { recursive: true, force: true });
-  });
-  const deadline = Date.now() + 5_000;
-  while (!fs.existsSync(readyPath) && Date.now() < deadline)
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.equal(fs.existsSync(readyPath), true, "writer did not reach the bundle-tamper window");
-  writerPid = JSON.parse(fs.readFileSync(readyPath, "utf8")).pid;
-  const activeExit = new Promise((resolve) => active.once("exit", resolve));
-  process.kill(writerPid, "SIGKILL");
-  await activeExit;
-  writerPid = null;
-
-  const failure = JSON.parse(stdout);
-  assert.equal(failure.committed, null);
-  assert.equal(failure.commitState, "unknown");
-  assert.equal(failure.retryable, false);
-  assert.match(failure.message, /commit state is unknown.*do not retry/i);
-  assert.equal(
-    fs.readFileSync(path.join(root, "evidence", "capture-1", "capture.png"), "utf8"),
-    "EVIL"
-  );
-  assert.equal(
-    fs.readFileSync(path.join(root, "evidence", "capture-1", "capture.json"), "utf8"),
-    "expected-marker"
-  );
-});
-
-test("project directory writer durably orders marker publication before lease removal", async (t) => {
-  if (process.platform === "win32") return t.skip("signal and process-liveness semantics differ");
-  const roots = [];
-  const liveChildren = [];
-  t.after(() => {
-    for (const child of liveChildren)
-      if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
-    for (const root of roots) fs.rmSync(root, { recursive: true, force: true });
-  });
-
-  for (const boundary of ["before", "after"]) {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), `pm-project-directory-lease-${boundary}-`));
-    roots.push(root);
-    const readyPath = path.join(root, "lease-boundary-ready.json");
-    const preload = path.join(root, "pause-at-lease-removal.cjs");
-    fs.writeFileSync(
-      preload,
-      `
-        const fs = require("node:fs");
-        const originalOpen = fs.openSync;
-        const originalFsync = fs.fsyncSync;
-        const originalLink = fs.linkSync;
-        const originalUnlink = fs.unlinkSync;
-        let markerPublished = false;
-        let markerDirectoryDescriptor;
-        let markerSynced = false;
-        let paused = false;
-        fs.linkSync = function(source, destination, ...args) {
-          const result = originalLink.call(fs, source, destination, ...args);
-          if (process.argv.includes("--child-directory") && destination === "capture.json")
-            markerPublished = true;
-          return result;
-        };
-        fs.openSync = function(file, ...args) {
-          const descriptor = originalOpen.call(fs, file, ...args);
-          if (process.argv.includes("--child-directory") && markerPublished && file === ".")
-            markerDirectoryDescriptor = descriptor;
-          return descriptor;
-        };
-        fs.fsyncSync = function(descriptor, ...args) {
-          const result = originalFsync.call(fs, descriptor, ...args);
-          if (descriptor === markerDirectoryDescriptor) markerSynced = true;
-          return result;
-        };
-        fs.unlinkSync = function(target, ...args) {
-          if (
-            !paused &&
-            process.argv.includes("--child-directory") &&
-            target === ".pm-directory-owner.json"
-          ) {
-            paused = true;
-            let result;
-            if (process.env.PM_TEST_LEASE_BOUNDARY === "after")
-              result = originalUnlink.call(fs, target, ...args);
-            fs.writeFileSync(
-              process.env.PM_TEST_LEASE_BOUNDARY_READY,
-              JSON.stringify({ pid: process.pid, markerSynced })
-            );
-            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
-            if (process.env.PM_TEST_LEASE_BOUNDARY === "before")
-              return originalUnlink.call(fs, target, ...args);
-            return result;
-          }
-          return originalUnlink.call(fs, target, ...args);
-        };
-      `
-    );
-    const script = `
-      const [root, writer] = process.argv.slice(1);
-      try {
-        require(writer).writeProjectDirectoryAtomic(root, "evidence/capture-1", [
-          ["capture.png", Buffer.from([1, 2, 3])],
-          ["capture.json", "durable-before-lease-removal"]
-        ], { commitFile: "capture.json" });
-      } catch (error) {
-        process.stdout.write(JSON.stringify({ committed: error.committed === true, message: error.message }));
-      }
-    `;
-    let stdout = "";
-    const active = spawn(process.execPath, ["-e", script, root, writerModule], {
-      env: {
-        ...process.env,
-        NODE_OPTIONS: `--require=${preload}`,
-        PM_TEST_LEASE_BOUNDARY: boundary,
-        PM_TEST_LEASE_BOUNDARY_READY: readyPath,
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    liveChildren.push(active);
-    active.stdout.setEncoding("utf8");
-    active.stdout.on("data", (chunk) => {
-      stdout += chunk;
-    });
-    const deadline = Date.now() + 5_000;
-    while (!fs.existsSync(readyPath) && Date.now() < deadline)
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    assert.equal(
-      fs.existsSync(readyPath),
-      true,
-      `${boundary}: writer did not reach the lease-removal boundary`
-    );
-    const ready = JSON.parse(fs.readFileSync(readyPath, "utf8"));
-    assert.equal(ready.markerSynced, true, `${boundary}: marker was not durable first`);
-    const destination = path.join(root, "evidence", "capture-1");
-    assert.equal(
-      fs.existsSync(path.join(destination, ".pm-directory-owner.json")),
-      boundary === "before"
-    );
-    assert.equal(
-      fs.readFileSync(path.join(destination, "capture.json"), "utf8"),
-      "durable-before-lease-removal"
-    );
-
-    const activeExit = new Promise((resolve) => active.once("exit", resolve));
-    process.kill(ready.pid, "SIGKILL");
-    await activeExit;
-    const failure = JSON.parse(stdout);
-    assert.equal(failure.committed, true, `${boundary}: ${failure.message}`);
-    assert.match(failure.message, /committed.*do not retry/i);
-    assert.throws(
-      () =>
-        writeProjectDirectoryAtomic(root, "evidence/capture-1", [["capture.json", "replacement"]], {
-          commitFile: "capture.json",
-        }),
-      /already exists/
-    );
-    if (boundary === "before") {
-      assert.throws(
-        () =>
-          writeProjectDirectoryAtomic(
-            root,
-            "evidence/capture-1",
-            [["other.json", "must-not-replace-committed-bundle"]],
-            { commitFile: "other.json" }
-          ),
-        /owner lease targets another commit marker/
-      );
-      assert.equal(
-        fs.readFileSync(path.join(destination, "capture.json"), "utf8"),
-        "durable-before-lease-removal"
-      );
-      assert.equal(fs.existsSync(path.join(destination, "other.json")), false);
-    }
-  }
-});
-
-test("project directory writer preserves committed state after the commit marker", (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-directory-marker-"));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  fs.mkdirSync(path.join(root, "evidence"));
-  const preload = path.join(root, "marker-fsync-preload.cjs");
-  fs.writeFileSync(
-    preload,
-    `
-      const fs = require("node:fs");
-      const originalOpen = fs.openSync;
-      const originalLink = fs.linkSync;
-      let markerPublished = false;
-      fs.linkSync = function(source, destination, ...args) {
-        const result = originalLink.call(fs, source, destination, ...args);
-        if (process.argv.includes("--child-directory") && destination === "capture.json")
-          markerPublished = true;
-        return result;
-      };
-      fs.openSync = function(file, ...args) {
-        if (process.argv.includes("--child-directory") && markerPublished && file === ".") {
-          const error = new Error("injected post-marker sync failure");
-          error.code = "EIO";
-          throw error;
-        }
-        return originalOpen.call(fs, file, ...args);
-      };
-    `
-  );
-  const script = `
-    const [root, writer] = process.argv.slice(1);
-    const { writeProjectDirectoryAtomic } = require(writer);
-    try {
-      writeProjectDirectoryAtomic(root, "evidence/capture-1", [
-        ["capture.png", Buffer.from([1, 2, 3])],
-        ["capture.json", "committed-manifest"]
-      ], { commitFile: "capture.json" });
-    } catch (error) {
-      process.stdout.write(JSON.stringify({ message: error.message, committed: error.committed }));
-    }
-  `;
-  const result = spawnSync(process.execPath, ["-e", script, root, writerModule], {
-    encoding: "utf8",
-    env: { ...process.env, NODE_OPTIONS: `--require=${preload}` },
-  });
-  assert.equal(result.status, 0, result.stderr);
-  const failure = JSON.parse(result.stdout);
-  assert.equal(failure.committed, true);
-  assert.match(failure.message, /committed.*do not retry/i);
-  assert.equal(
-    fs.readFileSync(path.join(root, "evidence", "capture-1", "capture.json"), "utf8"),
-    "committed-manifest"
-  );
-  assert.equal(
-    fs.existsSync(path.join(root, "evidence", "capture-1", ".pm-directory-owner.json")),
-    true,
-    "the owner lease must remain when marker durability is not confirmed"
-  );
-});
-
-test("project directory writer retains and reuses a precommit directory after marker failure", (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-directory-marker-write-"));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  fs.mkdirSync(path.join(root, "evidence"));
-  const preload = path.join(root, "marker-write-preload.cjs");
-  fs.writeFileSync(
-    preload,
-    `
-      const fs = require("node:fs");
-      const originalOpen = fs.openSync;
-      const originalWrite = fs.writeSync;
-      const originalFsync = fs.fsyncSync;
-      let markerDescriptor;
-      fs.openSync = function(file, ...args) {
-        const descriptor = originalOpen.call(fs, file, ...args);
-        if (
-          process.argv.includes("--child-directory") &&
-          typeof file === "string" &&
-          file.startsWith(".capture.json.tmp-")
-        ) markerDescriptor = descriptor;
-        return descriptor;
-      };
-      fs.writeSync = function(target, ...args) {
-        if (process.env.PM_TEST_MARKER_FAILURE === "write" && target === markerDescriptor) {
-          const error = new Error("injected marker write failure");
-          error.code = "EIO";
-          throw error;
-        }
-        return originalWrite.call(fs, target, ...args);
-      };
-      fs.fsyncSync = function(descriptor, ...args) {
-        if (process.env.PM_TEST_MARKER_FAILURE === "fsync" && descriptor === markerDescriptor) {
-          const error = new Error("injected marker fsync failure");
-          error.code = "EIO";
-          throw error;
-        }
-        return originalFsync.call(fs, descriptor, ...args);
-      };
-    `
-  );
-  const script = `
-    const [root, writer] = process.argv.slice(1);
-    const { writeProjectDirectoryAtomic } = require(writer);
-    try {
-      writeProjectDirectoryAtomic(root, "evidence/capture-1", [
-        ["capture.png", Buffer.from([1, 2, 3])],
-        ["capture.json", "must-not-commit"]
-      ], { commitFile: "capture.json" });
-      process.stdout.write(JSON.stringify({ unexpected: "passed" }));
-    } catch (error) {
-      process.stdout.write(JSON.stringify({ message: error.message, committed: error.committed === true }));
-    }
-  `;
-  let destinationIdentity = null;
-  for (const failureMode of ["write", "fsync"]) {
-    const result = spawnSync(process.execPath, ["-e", script, root, writerModule], {
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        NODE_OPTIONS: `--require=${preload}`,
-        PM_TEST_MARKER_FAILURE: failureMode,
-      },
-    });
-    assert.equal(result.status, 0, `${failureMode}: ${result.stderr}`);
-    const failure = JSON.parse(result.stdout);
-    assert.equal(failure.committed, false, `${failureMode}: ${failure.message}`);
-    assert.equal(failure.unexpected, undefined);
-    const destination = path.join(root, "evidence", "capture-1");
-    assert.equal(fs.existsSync(destination), true);
-    assert.equal(fs.existsSync(path.join(destination, ".pm-directory-owner.json")), true);
-    assert.equal(fs.existsSync(path.join(destination, "capture.json")), false);
-    const observed = fs.statSync(destination);
-    if (destinationIdentity) {
-      assert.equal(observed.dev, destinationIdentity.dev);
-      assert.equal(observed.ino, destinationIdentity.ino);
-    } else destinationIdentity = observed;
-  }
-
-  const recovered = writeProjectDirectoryAtomic(
-    root,
-    "evidence/capture-1",
-    [["capture.json", "retry-succeeded"]],
-    { commitFile: "capture.json" }
-  );
-  assert.equal(recovered.committed, true);
-  const recoveredIdentity = fs.statSync(path.join(root, "evidence", "capture-1"));
-  assert.equal(recoveredIdentity.dev, destinationIdentity.dev);
-  assert.equal(recoveredIdentity.ino, destinationIdentity.ino);
-  assert.equal(
-    fs.readFileSync(path.join(root, "evidence", "capture-1", "capture.json"), "utf8"),
-    "retry-succeeded"
-  );
-  assert.equal(
-    fs.existsSync(path.join(root, "evidence", "capture-1", ".pm-directory-owner.json")),
-    false
-  );
-});
-
-test("project directory recovery preserves a swapped pathname and a late commit marker", (t) => {
-  const roots = [];
-  t.after(() => {
-    for (const root of roots) fs.rmSync(root, { recursive: true, force: true });
-  });
-
-  for (const scenario of ["path-swap", "marker-insert"]) {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), `pm-project-directory-${scenario}-`));
-    roots.push(root);
-    fs.mkdirSync(path.join(root, "evidence"));
-    const destination = path.join(root, "evidence", "capture-1");
-    const seedPreload = path.join(root, "retain-precommit-directory.cjs");
-    fs.writeFileSync(
-      seedPreload,
-      `
-        const fs = require("node:fs");
-        const originalOpen = fs.openSync;
-        const originalWrite = fs.writeSync;
-        let markerDescriptor;
-        fs.openSync = function(file, ...args) {
-          const descriptor = originalOpen.call(fs, file, ...args);
-          if (
-            process.argv.includes("--child-directory") &&
-            typeof file === "string" &&
-            file.startsWith(".capture.json.tmp-")
-          ) markerDescriptor = descriptor;
-          return descriptor;
-        };
-        fs.writeSync = function(descriptor, ...args) {
-          if (descriptor === markerDescriptor) {
-            const error = new Error("injected pre-publication marker failure");
-            error.code = "EIO";
-            throw error;
-          }
-          return originalWrite.call(fs, descriptor, ...args);
-        };
-      `
-    );
-    const script = `
-      const [root, writer] = process.argv.slice(1);
-      try {
-        require(writer).writeProjectDirectoryAtomic(root, "evidence/capture-1", [
-          ["capture.png", "partial-payload"],
-          ["capture.json", "requested-marker"]
-        ], { commitFile: "capture.json" });
-        process.stdout.write(JSON.stringify({ unexpected: "passed" }));
-      } catch (error) {
-        process.stdout.write(JSON.stringify({
-          committed: error.committed === true,
-          message: error.message
-        }));
-      }
-    `;
-    const seed = spawnSync(process.execPath, ["-e", script, root, writerModule], {
-      encoding: "utf8",
-      env: { ...process.env, NODE_OPTIONS: `--require=${seedPreload}` },
-    });
-    assert.equal(seed.status, 0, `${scenario}: ${seed.stderr}`);
-    assert.equal(JSON.parse(seed.stdout).committed, false);
-    const staleIdentity = fs.statSync(destination);
-    assert.equal(fs.existsSync(path.join(destination, ".pm-directory-owner.json")), true);
-
-    const recoveryPreload = path.join(root, `${scenario}-during-recovery.cjs`);
-    if (scenario === "path-swap") {
-      fs.writeFileSync(
-        recoveryPreload,
-        `
-          const fs = require("node:fs");
-          const path = require("node:path");
-          const originalOpendir = fs.opendirSync;
-          const originalRename = fs.renameSync;
-          let swapped = false;
-          fs.opendirSync = function(directory, ...args) {
-            if (
-              !swapped &&
-              process.argv.includes("--child-directory") &&
-              directory === "." &&
-              path.basename(process.cwd()) === "capture-1"
-            ) {
-              swapped = true;
-              const destination = path.join(process.env.PM_TEST_ROOT, "evidence", "capture-1");
-              const original = path.join(process.env.PM_TEST_ROOT, "evidence", "owned-original");
-              originalRename.call(fs, destination, original);
-              fs.mkdirSync(destination);
-              fs.writeFileSync(path.join(destination, "foreign.txt"), "foreign-data");
-            }
-            return originalOpendir.call(fs, directory, ...args);
-          };
-        `
-      );
-    } else {
-      fs.writeFileSync(
-        recoveryPreload,
-        `
-          const fs = require("node:fs");
-          const path = require("node:path");
-          const originalUnlink = fs.unlinkSync;
-          let inserted = false;
-          fs.unlinkSync = function(target, ...args) {
-            if (
-              !inserted &&
-              process.argv.includes("--child-directory") &&
-              target === "capture.png" &&
-              path.basename(process.cwd()) === "capture-1"
-            ) {
-              inserted = true;
-              fs.writeFileSync("capture.json", "foreign-commit-marker");
-            }
-            return originalUnlink.call(fs, target, ...args);
-          };
-        `
-      );
-    }
-
-    const recovery = spawnSync(process.execPath, ["-e", script, root, writerModule], {
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        NODE_OPTIONS: `--require=${recoveryPreload}`,
-        PM_TEST_ROOT: root,
-      },
-    });
-    assert.equal(recovery.status, 0, `${scenario}: ${recovery.stderr}`);
-    const failure = JSON.parse(recovery.stdout);
-    assert.equal(failure.committed, false, `${scenario}: ${failure.message}`);
-    assert.equal(failure.unexpected, undefined);
-    assert.equal(
-      fs.readdirSync(path.join(root, "evidence")).some((name) => name.startsWith(".pm-dir-stale-")),
-      false
-    );
-
-    if (scenario === "path-swap") {
-      assert.equal(fs.readFileSync(path.join(destination, "foreign.txt"), "utf8"), "foreign-data");
-      const preservedForeign = fs.statSync(destination);
-      assert.notEqual(preservedForeign.ino, staleIdentity.ino);
-      const ownedOriginal = fs.statSync(path.join(root, "evidence", "owned-original"));
-      assert.equal(ownedOriginal.dev, staleIdentity.dev);
-      assert.equal(ownedOriginal.ino, staleIdentity.ino);
-      assert.match(failure.message, /destination changed at its published path/);
-    } else {
-      const retainedIdentity = fs.statSync(destination);
-      assert.equal(retainedIdentity.dev, staleIdentity.dev);
-      assert.equal(retainedIdentity.ino, staleIdentity.ino);
-      assert.equal(
-        fs.readFileSync(path.join(destination, "capture.json"), "utf8"),
-        "foreign-commit-marker"
-      );
-      assert.match(failure.message, /already exists/);
-    }
-  }
-});
-
-test("anchored directory commit remains confined when its published ancestor is swapped", (t) => {
-  if (process.platform === "win32")
-    return t.skip("directory symlink setup requires privileges on Windows");
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-directory-commit-"));
-  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-directory-commit-outside-"));
-  t.after(() => {
-    fs.rmSync(root, { recursive: true, force: true });
-    fs.rmSync(outside, { recursive: true, force: true });
-  });
-  fs.mkdirSync(path.join(root, "evidence", "round"), { recursive: true });
-  fs.writeFileSync(path.join(outside, "sentinel.txt"), "outside-sentinel");
-  const preload = path.join(root, "swap-directory-preload.cjs");
-  fs.writeFileSync(
-    preload,
-    `
-      const fs = require("node:fs");
-      const path = require("node:path");
-      const originalOpen = fs.openSync;
-      let swapped = false;
-      fs.openSync = function(file, ...args) {
-        if (
-          !swapped &&
-          process.argv.includes("--child-directory") &&
-          typeof file === "string" &&
-          file.startsWith(".capture.json.tmp-")
-        ) {
-          swapped = true;
-          fs.renameSync(
-            path.join(process.env.PM_TEST_ROOT, "evidence", "round"),
-            path.join(process.env.PM_TEST_ROOT, "evidence", "round-original")
-          );
-          fs.symlinkSync(
-            process.env.PM_TEST_OUTSIDE,
-            path.join(process.env.PM_TEST_ROOT, "evidence", "round"),
-            "dir"
-          );
-        }
-        return originalOpen.call(fs, file, ...args);
-      };
-    `
-  );
-  const script = `
-    const [root, writer] = process.argv.slice(1);
-    const { writeProjectDirectoryAtomic } = require(writer);
-    writeProjectDirectoryAtomic(root, "evidence/round/capture-1", [
-      ["capture.json", "inside-manifest"],
-      ["capture.png", Buffer.from([1, 2, 3])]
-    ], { commitFile: "capture.json" });
-  `;
-  const result = spawnSync(process.execPath, ["-e", script, root, writerModule], {
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      NODE_OPTIONS: `--require=${preload}`,
-      PM_TEST_ROOT: root,
-      PM_TEST_OUTSIDE: outside,
-    },
-  });
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /committed but path attestation failed/);
-  assert.equal(fs.readFileSync(path.join(outside, "sentinel.txt"), "utf8"), "outside-sentinel");
-  assert.equal(fs.existsSync(path.join(outside, "capture-1")), false);
-  assert.equal(
-    fs.readFileSync(
-      path.join(root, "evidence", "round-original", "capture-1", "capture.json"),
-      "utf8"
-    ),
-    "inside-manifest"
-  );
-});
-
 test("project writer rejects an ancestor swap before its child anchors the root", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-write-race-"));
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-write-outside-"));
@@ -1843,7 +1034,10 @@ test("project writer rejects a project-root path swap during input attestation",
     },
   });
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /project root changed during input attestation/);
+  assert.match(
+    result.stderr,
+    /project root changed during input attestation|input changed during containment validation/
+  );
   assert.equal(fs.existsSync(path.join(originalRoot, "output", "result.json")), false);
   assert.equal(fs.existsSync(path.join(root, "output", "result.json")), false);
 });
@@ -2168,78 +1362,6 @@ test("project writer reconciles file publication after its child dies before rep
     assert.match(failure.message, /committed.*do not retry/i);
     assert.equal(fs.readFileSync(path.join(root, relative), "utf8"), "durable-output");
   }
-});
-
-test("directory reconciliation syncs a marker published before child death", (t) => {
-  if (process.platform === "win32") return t.skip("signal semantics differ on Windows");
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-project-directory-reconcile-sync-"));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const syncReceipt = path.join(root, "reconciliation-synced");
-  const preload = path.join(root, "die-after-marker-publication.cjs");
-  fs.writeFileSync(
-    preload,
-    `
-      const fs = require("node:fs");
-      const path = require("node:path");
-      const originalLink = fs.linkSync;
-      const originalOpen = fs.openSync;
-      const originalFsync = fs.fsyncSync;
-      let reconciliationDescriptor = null;
-      fs.linkSync = function(source, destination, ...args) {
-        const result = originalLink.call(fs, source, destination, ...args);
-        if (process.argv.includes("--child-directory") && destination === "capture.json") {
-          process.kill(process.pid, "SIGKILL");
-        }
-        return result;
-      };
-      fs.openSync = function(target, ...args) {
-        const descriptor = originalOpen.call(fs, target, ...args);
-        if (
-          !process.argv.includes("--child-directory") &&
-          path.isAbsolute(String(target)) &&
-          String(target).endsWith(path.join("evidence", "capture-1"))
-        ) reconciliationDescriptor = descriptor;
-        return descriptor;
-      };
-      fs.fsyncSync = function(descriptor, ...args) {
-        const result = originalFsync.call(fs, descriptor, ...args);
-        if (descriptor === reconciliationDescriptor) {
-          fs.writeFileSync(process.env.PM_TEST_SYNC_RECEIPT, "synced");
-        }
-        return result;
-      };
-    `
-  );
-  const script = `
-    const [root, writer] = process.argv.slice(1);
-    try {
-      require(writer).writeProjectDirectoryAtomic(root, "evidence/capture-1", [
-        ["capture.png", Buffer.from([1, 2, 3])],
-        ["capture.json", "published-marker"]
-      ], { commitFile: "capture.json" });
-      process.stdout.write(JSON.stringify({ unexpected: "passed" }));
-    } catch (error) {
-      process.stdout.write(JSON.stringify({ committed: error.committed, message: error.message }));
-    }
-  `;
-  const result = spawnSync(process.execPath, ["-e", script, root, writerModule], {
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      NODE_OPTIONS: `--require=${preload}`,
-      PM_TEST_SYNC_RECEIPT: syncReceipt,
-    },
-  });
-  assert.equal(result.status, 0, result.stderr);
-  const failure = JSON.parse(result.stdout);
-  assert.equal(failure.unexpected, undefined);
-  assert.equal(failure.committed, true);
-  assert.match(failure.message, /committed.*do not retry/i);
-  assert.equal(fs.readFileSync(syncReceipt, "utf8"), "synced");
-  assert.equal(
-    fs.readFileSync(path.join(root, "evidence", "capture-1", "capture.json"), "utf8"),
-    "published-marker"
-  );
 });
 
 test("directory sync errors report committed state without creating retry ambiguity", (t) => {

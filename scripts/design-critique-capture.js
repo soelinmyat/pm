@@ -1383,7 +1383,9 @@ function captureProductUi(options, runtime = {}) {
         maxBytes: MAX_CAPTURE_BUNDLE_BYTES,
       }
     );
-    const committed = readProjectInput(root, manifestRelative, MAX_RAW_AUDIT_BYTES);
+    const committed = readProjectInput(root, manifestRelative, MAX_RAW_AUDIT_BYTES, {
+      allowManagedDirectoryPointers: true,
+    });
     if (!committed.bytes.equals(manifestBytes))
       throw new Error("published capture manifest differs from committed bytes");
     return {

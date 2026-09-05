@@ -11,6 +11,7 @@ const {
   MAX_RAW_AUDIT_BYTES,
   normalizeAuditBytes,
 } = require("../scripts/design-critique-audit-normalize");
+const { writeProjectDirectoryAtomic } = require("../scripts/lib/project-atomic-write");
 
 const COMMIT = "a".repeat(40);
 
@@ -226,4 +227,64 @@ test("CLI atomically writes an audit bound to the raw probe", () => {
     asymmetry: true,
   });
   assert.deepEqual(audit.raw, { path: rawPath, sha256: sha256(rawBytes) });
+});
+
+test("CLI opts into managed pointers only for canonical capture raw paths", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-design-audit-managed-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const rawBytes = Buffer.from(`${JSON.stringify(domRaw(), null, 2)}\n`);
+  const canonicalDirectory =
+    ".pm/dev-sessions/example.ui_v2/design-critique/round-1/capture-primary-desktop";
+  writeProjectDirectoryAtomic(
+    root,
+    canonicalDirectory,
+    [
+      ["dom-audit-raw.json", rawBytes],
+      ["capture.json", "{}\n"],
+    ],
+    { commitFile: "capture.json" }
+  );
+
+  const script = path.resolve(__dirname, "../scripts/design-critique-audit-normalize.js");
+  const rawPath = `${canonicalDirectory}/dom-audit-raw.json`;
+  const outputPath = ".pm/dev-sessions/example.ui_v2/design-critique/round-1/dom-audit.json";
+  const output = JSON.parse(
+    execFileSync(
+      process.execPath,
+      [script, "--root", root, "--raw", rawPath, "--output", outputPath],
+      { encoding: "utf8" }
+    )
+  );
+  assert.equal(output.ok, true);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, outputPath), "utf8")).raw, {
+    path: rawPath,
+    sha256: sha256(rawBytes),
+  });
+
+  writeProjectDirectoryAtomic(
+    root,
+    "evidence/capture-primary-desktop",
+    [
+      ["dom-audit-raw.json", rawBytes],
+      ["capture.json", "{}\n"],
+    ],
+    { commitFile: "capture.json" }
+  );
+  assert.throws(
+    () =>
+      execFileSync(
+        process.execPath,
+        [
+          script,
+          "--root",
+          root,
+          "--raw",
+          "evidence/capture-primary-desktop/dom-audit-raw.json",
+          "--output",
+          "evidence/dom-audit.json",
+        ],
+        { encoding: "utf8", stdio: "pipe" }
+      ),
+    /project path contains symlink/
+  );
 });

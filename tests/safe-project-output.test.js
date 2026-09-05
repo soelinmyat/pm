@@ -2,10 +2,216 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { readProjectInput } = require("../scripts/lib/safe-project-output");
+const { writeProjectDirectoryAtomic } = require("../scripts/lib/project-atomic-write");
+
+function readManagedProjectInput(root, relativePath, maxBytes, options = {}) {
+  return readProjectInput(root, relativePath, maxBytes, {
+    ...options,
+    allowManagedDirectoryPointers: true,
+  });
+}
+
+test("safe project input rejects an oversized managed inventory before reading payloads", (t) => {
+  if (process.platform === "win32") return t.skip("directory symlink setup requires privileges");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-safe-managed-budget-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const parent = path.join(root, "evidence");
+  fs.mkdirSync(parent);
+  const canonical = "capture-1";
+  const nonce = "0".repeat(48);
+  const canonicalHash = crypto.createHash("sha256").update(canonical).digest("hex");
+  const target = `.pm-dir-bundle-${canonicalHash.slice(0, 32)}-${nonce}`;
+  const bundle = path.join(parent, target);
+  fs.mkdirSync(bundle);
+  const bundleStat = fs.lstatSync(bundle, { bigint: true });
+  fs.writeFileSync(
+    path.join(bundle, ".pm-directory-pointer.json"),
+    `${JSON.stringify({
+      schema_version: 1,
+      kind: "pm-managed-directory-bundle",
+      canonical_basename_sha256: canonicalHash,
+      target_basename: target,
+      nonce,
+      bundle_dev: bundleStat.dev.toString(),
+      bundle_ino: bundleStat.ino.toString(),
+      commit_file: "capture.json",
+      files: [
+        {
+          name: "capture.json",
+          size: 128 * 1024 * 1024 + 1,
+          sha256: `sha256:${"0".repeat(64)}`,
+        },
+      ],
+    })}\n`
+  );
+  fs.symlinkSync(target, path.join(parent, canonical), "dir");
+  assert.throws(
+    () => readManagedProjectInput(root, "evidence/capture-1/capture.json", 1),
+    /payload inventory exceeds its safety budget/
+  );
+});
+
+test("safe project input transparently reads a tightly branded managed directory pointer", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-safe-managed-pointer-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  writeProjectDirectoryAtomic(
+    root,
+    "evidence/capture-1",
+    [
+      ["capture.png", Buffer.from([1, 2, 3])],
+      ["capture.json", "manifest"],
+    ],
+    { commitFile: "capture.json" }
+  );
+
+  const canonical = path.join(root, "evidence", "capture-1");
+  assert.equal(fs.lstatSync(canonical).isSymbolicLink(), true);
+  assert.throws(
+    () => readProjectInput(root, "evidence/capture-1/capture.json", 1024),
+    /project path contains symlink/
+  );
+  assert.equal(
+    readManagedProjectInput(root, "evidence/capture-1/capture.json", 1024).bytes.toString("utf8"),
+    "manifest"
+  );
+  assert.equal(
+    typeof readManagedProjectInput(root, "evidence/capture-1/capture.json", 1024, {
+      requireStablePath: true,
+    }).stablePathIdentity,
+    "string"
+  );
+});
+
+test("safe project input rejects managed bundle mutation and outside hardlinks", (t) => {
+  for (const scenario of ["same-size", "hardlink", "manifest-hardlink"]) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), `pm-safe-managed-${scenario}-`));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    writeProjectDirectoryAtomic(
+      root,
+      "evidence/capture-1",
+      [
+        ["capture.png", Buffer.from([1, 2, 3])],
+        ["capture.json", "manifest"],
+      ],
+      { commitFile: "capture.json" }
+    );
+    const canonical = path.join(root, "evidence", "capture-1");
+    const bundle = path.join(root, "evidence", fs.readlinkSync(canonical));
+    if (scenario === "same-size") {
+      fs.writeFileSync(path.join(bundle, "capture.png"), Buffer.from([9, 8, 7]));
+      assert.throws(
+        () => readManagedProjectInput(root, "evidence/capture-1/capture.json", 1024),
+        /differs from its inventory/
+      );
+    } else if (scenario === "hardlink") {
+      fs.linkSync(path.join(bundle, "capture.png"), path.join(root, "outside-link.png"));
+      assert.throws(
+        () => readManagedProjectInput(root, "evidence/capture-1/capture.json", 1024),
+        /non-regular entry/
+      );
+    } else {
+      fs.linkSync(
+        path.join(bundle, ".pm-directory-pointer.json"),
+        path.join(root, "outside-manifest-link.json")
+      );
+      assert.throws(
+        () => readManagedProjectInput(root, "evidence/capture-1/capture.json", 1024),
+        /manifest is not a bounded regular file/
+      );
+    }
+  }
+});
+
+test("safe project input rejects unbranded and escaping directory symlinks", (t) => {
+  if (process.platform === "win32") return t.skip("directory symlink setup requires privileges");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-safe-managed-brand-"));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pm-safe-managed-brand-outside-"));
+  t.after(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  });
+  fs.mkdirSync(path.join(root, "evidence"));
+  fs.writeFileSync(path.join(outside, "capture.json"), "outside");
+  fs.symlinkSync(outside, path.join(root, "evidence", "ordinary"), "dir");
+  fs.symlinkSync("../outside", path.join(root, "evidence", "escaping"), "dir");
+  assert.throws(
+    () => readManagedProjectInput(root, "evidence/ordinary/capture.json", 1024),
+    /project path contains symlink/
+  );
+  assert.throws(
+    () => readManagedProjectInput(root, "evidence/escaping/capture.json", 1024),
+    /project path contains symlink/
+  );
+});
+
+test("safe project input detects a managed pointer swap during physical open", (t) => {
+  if (process.platform === "win32") return t.skip("directory symlink setup requires privileges");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-safe-managed-pointer-swap-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  for (const id of ["capture-1", "capture-2"])
+    writeProjectDirectoryAtomic(root, `evidence/${id}`, [["capture.json", "same"]], {
+      commitFile: "capture.json",
+    });
+  const canonical = path.join(root, "evidence", "capture-1");
+  const replacementTarget = fs.readlinkSync(path.join(root, "evidence", "capture-2"));
+  const physical = fs.realpathSync(
+    path.join(root, "evidence", fs.readlinkSync(canonical), "capture.json")
+  );
+  const originalOpen = fs.openSync;
+  let physicalOpens = 0;
+  fs.openSync = function swapPointer(file, ...args) {
+    if (path.resolve(String(file)) === path.resolve(physical) && ++physicalOpens === 2) {
+      fs.unlinkSync(canonical);
+      fs.symlinkSync(replacementTarget, canonical, "dir");
+    }
+    return Reflect.apply(originalOpen, fs, [file, ...args]);
+  };
+  try {
+    assert.throws(
+      () => readManagedProjectInput(root, "evidence/capture-1/capture.json", 1024),
+      /managed pointer|unrecognized managed pointer|containment validation/
+    );
+    assert.equal(physicalOpens >= 2, true);
+  } finally {
+    fs.openSync = originalOpen;
+  }
+});
+
+test("safe project input detects a managed backing-directory swap during physical open", (t) => {
+  if (process.platform === "win32") return t.skip("directory rename semantics differ on Windows");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-safe-managed-target-swap-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  writeProjectDirectoryAtomic(root, "evidence/capture-1", [["capture.json", "same"]], {
+    commitFile: "capture.json",
+  });
+  const canonical = path.join(root, "evidence", "capture-1");
+  const bundle = path.join(root, "evidence", fs.readlinkSync(canonical));
+  const parked = `${bundle}.parked`;
+  const physical = fs.realpathSync(path.join(bundle, "capture.json"));
+  const originalOpen = fs.openSync;
+  let physicalOpens = 0;
+  fs.openSync = function swapTarget(file, ...args) {
+    if (path.resolve(String(file)) === path.resolve(physical) && ++physicalOpens === 2) {
+      fs.renameSync(bundle, parked);
+      fs.cpSync(parked, bundle, { recursive: true });
+    }
+    return Reflect.apply(originalOpen, fs, [file, ...args]);
+  };
+  try {
+    assert.throws(
+      () => readManagedProjectInput(root, "evidence/capture-1/capture.json", 1024),
+      /target changed|manifest shape or binding|containment validation/
+    );
+    assert.equal(physicalOpens >= 2, true);
+  } finally {
+    fs.openSync = originalOpen;
+  }
+});
 
 test("descriptor-bound input rejects final-file and ancestor symlink swaps", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-safe-input-race-"));

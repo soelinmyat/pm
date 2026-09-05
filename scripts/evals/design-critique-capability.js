@@ -8,6 +8,9 @@ const path = require("node:path");
 const { isDeepStrictEqual } = require("node:util");
 const { readBoundedFile } = require("../lib/safe-json-file.js");
 const { readCapabilityJson } = require("./design-critique-capability-input.js");
+const {
+  expectedCapabilityStagedScenarioHash,
+} = require("./design-critique-capability-scenario.js");
 const { hashTree } = require("./stage.js");
 const { parseJsonl } = require("./transcript.js");
 
@@ -483,13 +486,13 @@ function validateCapabilityReport(report, oracle, options = {}) {
   ) {
     return issues;
   }
-  if (report.schema_version === 1 || report.schema_version === 2) {
+  if ([1, 2, 3].includes(report.schema_version)) {
     issues.push(
-      `report.schema_version ${report.schema_version} cannot support candidate-ledger and oracle-isolation claims; rerun the capability benchmark and adjudication to create schema 3 evidence`
+      `report.schema_version ${report.schema_version} cannot support staged-scenario, candidate-ledger, and oracle-isolation claims; rerun the capability benchmark and adjudication to create schema 4 evidence`
     );
     return issues;
   }
-  if (report.schema_version !== 3) issues.push("report.schema_version must equal 3");
+  if (report.schema_version !== 4) issues.push("report.schema_version must equal 4");
   if (report.benchmark_id !== oracle.benchmark_id) {
     issues.push("report.benchmark_id must match the oracle");
   }
@@ -548,6 +551,7 @@ function validateCapabilityReport(report, oracle, options = {}) {
             "fixture",
             "run",
             "source_identity",
+            "scenario_identity",
             "normalized_transcript",
             "candidate_output",
             "candidate_findings",
@@ -563,6 +567,7 @@ function validateCapabilityReport(report, oracle, options = {}) {
             "fixture",
             "run",
             "source_identity",
+            "scenario_identity",
             "normalized_transcript",
             "candidate_output",
             "candidate_findings",
@@ -753,6 +758,33 @@ function validateEvidenceRow({
   if (plainObject(result.fixture) && result.fixture.sha256 !== expected.fixture_sha256) {
     issues.push(`${where}.fixture.sha256 must match oracle fixture_sha256`);
   }
+  if (fixtureBytes && sha256(fixtureBytes) !== expected.fixture_sha256) {
+    issues.push(`${where}.fixture bytes must match the oracle fixture`);
+  }
+  const scenarioIdentityBytes = validateBoundFile(
+    rootDir,
+    result.scenario_identity,
+    `${runRoot}/metadata/scenario_identity.json`,
+    `${where}.scenario_identity`,
+    issues
+  );
+  if (scenarioIdentityBytes) {
+    const identity = parseJsonEvidence(scenarioIdentityBytes, `${where}.scenario_identity`, issues);
+    if (identity) {
+      issues.push(
+        ...validateScenarioIdentityEvidence({
+          identity,
+          rootDir,
+          runId: run.run_id,
+          scenarioId: run.scenario_id,
+          expectedScenarioHash: fixtureBytes
+            ? expectedCapabilityStagedScenarioHash(run.scenario_id, fixtureBytes)
+            : null,
+          where: `${where}.scenario_identity`,
+        })
+      );
+    }
+  }
 
   const profileBytes = validateBoundFile(
     rootDir,
@@ -791,6 +823,8 @@ function validateEvidenceRow({
         agent: run.adapter,
         status: run.status,
         artifact_ref: run.artifact_ref,
+        source_identity: "metadata/source_identity.json",
+        scenario_identity: "metadata/scenario_identity.json",
       };
       for (const [field, value] of Object.entries(expectedVerdict)) {
         if (verdict[field] !== value) {
@@ -983,6 +1017,7 @@ function validateEvidenceRow({
             scenario_id: run.scenario_id,
             adapter: run.adapter,
             source_identity_sha256: result.source_identity?.sha256,
+            scenario_identity_sha256: result.scenario_identity?.sha256,
             runtime_profile_sha256: run.runtime_profile?.sha256,
             verdict_sha256: run.verdict?.sha256,
             normalized_transcript_sha256: result.normalized_transcript?.sha256,
@@ -999,10 +1034,46 @@ function validateEvidenceRow({
     }
   }
 
-  if (fixtureBytes && sha256(fixtureBytes) !== expected.fixture_sha256) {
-    issues.push(`${where}.fixture bytes must match the oracle fixture`);
-  }
   return sourceIdentity;
+}
+
+function validateScenarioIdentityEvidence({
+  identity,
+  rootDir,
+  runId,
+  scenarioId,
+  expectedScenarioHash,
+  where,
+}) {
+  const issues = [];
+  const fields = ["id", "scenario_hash", "scenario_ref"];
+  if (!closedObject(identity, fields, fields, where, issues)) return issues;
+  if (identity.id !== scenarioId) {
+    issues.push(`${where}.id must match the bound run scenario_id`);
+  }
+  if (!HASH_PATTERN.test(String(identity.scenario_hash || ""))) {
+    issues.push(`${where}.scenario_hash must be a sha256 digest`);
+  }
+  if (identity.scenario_ref !== "scenario") {
+    issues.push(`${where}.scenario_ref must equal scenario`);
+  }
+  if (
+    expectedScenarioHash !== null &&
+    expectedScenarioHash !== undefined &&
+    identity.scenario_hash !== expectedScenarioHash
+  ) {
+    issues.push(`${where}.scenario_hash must match the deterministic capability scenario`);
+  }
+  try {
+    const stagedScenario = path.join(rootDir, "eval-results", "runs", runId, "scenario");
+    const observedScenarioHash = hashTree(stagedScenario).hash;
+    if (identity.scenario_hash !== observedScenarioHash) {
+      issues.push(`${where}.scenario_hash must match the retained staged scenario`);
+    }
+  } catch (error) {
+    issues.push(`${where} could not verify the retained staged scenario: ${error.message}`);
+  }
+  return issues;
 }
 
 function validateSourceIdentity({ bytes, rootDir, runRoot, where, issues }) {
@@ -1232,7 +1303,7 @@ function validateAdjudicationArtifact(adjudication, expected, where, issues) {
   ) {
     return;
   }
-  if (adjudication.schema_version !== 2) issues.push(`${where}.schema_version must equal 2`);
+  if (adjudication.schema_version !== 3) issues.push(`${where}.schema_version must equal 3`);
   if (adjudication.benchmark_id !== expected.benchmarkId) {
     issues.push(`${where}.benchmark_id must match the report benchmark`);
   }
@@ -1263,6 +1334,7 @@ function validateAdjudicationArtifact(adjudication, expected, where, issues) {
     "scenario_id",
     "adapter",
     "source_identity_sha256",
+    "scenario_identity_sha256",
     "runtime_profile_sha256",
     "verdict_sha256",
     "normalized_transcript_sha256",
@@ -1816,4 +1888,5 @@ module.exports = {
   validateCapabilityReport,
   validateOracleIsolationArtifact,
   validateOracleIsolationEvidence,
+  validateScenarioIdentityEvidence,
 };

@@ -20,13 +20,11 @@ const UNSUPPORTED_DIRECTORY_SYNC_ERRORS = new Set([
 const MAX_DIRECTORY_FILES = 64;
 const DEFAULT_DIRECTORY_MAX_BYTES = 128 * 1024 * 1024;
 const DIRECTORY_OWNER_FILE = ".pm-directory-owner.json";
-const DIRECTORY_RESERVATION_PREFIX = ".pm-dir-reservation-";
-const MAX_DIRECTORY_OWNER_BYTES = 4096;
+const DIRECTORY_POINTER_FILE = ".pm-directory-pointer.json";
+const DIRECTORY_BUNDLE_PREFIX = ".pm-dir-bundle-";
 const DIRECTORY_WRITE_CHUNK_BYTES = 4 * 1024 * 1024;
 const FILE_WRITE_LOCK_ATTEMPTS = 601;
 const FILE_WRITE_LOCK_WAIT_MS = 50;
-const STRONG_BOOT_TOKEN_KINDS = new Set(["linux-boot", "bsd-boot-numeric", "windows-boot"]);
-const STRONG_PROCESS_TOKEN_KINDS = new Set(["linux-process", "bsd-process-utc", "windows-process"]);
 
 function projectFileLockPath(projectRoot, rootStat, relativePath) {
   let ownerNamespace = "unknown";
@@ -64,7 +62,18 @@ function writeProjectFileAtomic(root, relativePath, content, options = {}) {
   const maxBytes = options.maxBytes ?? 64 * 1024 * 1024;
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 0 || bytes.length > maxBytes)
     throw new Error(`output exceeds ${maxBytes}-byte budget`);
-  const rootStat = fs.statSync(projectRoot);
+  const rootStat = fs.statSync(projectRoot, { bigint: true });
+  const hasExpectedRootDev = options.expectedRootDev !== undefined;
+  const hasExpectedRootIno = options.expectedRootIno !== undefined;
+  if (hasExpectedRootDev !== hasExpectedRootIno)
+    throw new Error("expected project root identity requires both dev and ino");
+  if (
+    hasExpectedRootDev &&
+    (String(rootStat.dev) !== String(options.expectedRootDev) ||
+      String(rootStat.ino) !== String(options.expectedRootIno))
+  ) {
+    throw new Error("project root identity changed before atomic write");
+  }
   const attestations = normalizeAttestations(options.attestations || []);
   const finalAttestation = options.finalAttestation
     ? normalizeAttestations([options.finalAttestation])[0]
@@ -173,21 +182,22 @@ function writeProjectFileAtomic(root, relativePath, content, options = {}) {
   }
 }
 
-// The directory name is reserved atomically. The required commitFile is written
-// last, so readers must ignore a reserved directory until that marker exists.
+// The publishing child serializes writers for the canonical path, builds and
+// verifies a fully durable nonce-named real directory, then exposes the whole
+// bundle at once through an atomically-created managed relative symlink.
 function writeProjectDirectoryAtomic(root, relativePath, files, options = {}) {
   const projectRoot = fs.realpathSync(path.resolve(root));
   validateRelative(relativePath);
   const normalizedRelativePath = relativePath.replaceAll("\\", "/");
   const maxBytes = options.maxBytes ?? DEFAULT_DIRECTORY_MAX_BYTES;
-  if (!Number.isSafeInteger(maxBytes) || maxBytes < 0)
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 0 || maxBytes > DEFAULT_DIRECTORY_MAX_BYTES)
     throw new Error("directory output byte budget is invalid");
   const normalizedFiles = normalizeDirectoryFiles(files, maxBytes);
   const commitFile = normalizeDirectoryFileName(options.commitFile);
   if (!normalizedFiles.some((file) => file.name === commitFile))
     throw new Error("directory output commit file must be present in the bundle");
   const payload = v8.serialize(normalizedFiles.map((file) => [file.name, file.content]));
-  const rootStat = fs.statSync(projectRoot);
+  const rootStat = fs.statSync(projectRoot, { bigint: true });
   if (typeof options.beforeSpawn === "function") options.beforeSpawn();
   const result = spawnSync(
     process.execPath,
@@ -239,13 +249,16 @@ function writeProjectDirectoryAtomic(root, relativePath, files, options = {}) {
     }
     throw error;
   }
+  let attested;
   try {
-    for (const file of normalizedFiles) {
-      const outputPath = `${normalizedRelativePath}/${file.name}`;
-      const attested = readProjectInput(projectRoot, outputPath, file.content.length);
-      if (!attested.bytes.equals(file.content))
-        throw new Error(`committed bytes do not match requested output: ${file.name}`);
-    }
+    attested = reconcileDirectoryBundle(
+      projectRoot,
+      normalizedRelativePath,
+      normalizedFiles,
+      commitFile
+    );
+    if (attested.state !== "committed")
+      throw new Error(attested.message || "committed bundle could not be verified");
   } catch (error) {
     const failure = new Error(
       `project directory output committed but path attestation failed: ${error.message}`
@@ -254,19 +267,31 @@ function writeProjectDirectoryAtomic(root, relativePath, files, options = {}) {
     throw failure;
   }
   assertSupportedDirectorySync(state, "project directory output");
-  return { path: path.resolve(projectRoot, normalizedRelativePath), ...state };
+  assertSupportedDirectorySync(attested, "project directory output reconciliation");
+  const directorySyncError = state.directory_sync_error || attested.directory_sync_error || null;
+  return {
+    path: path.resolve(projectRoot, normalizedRelativePath),
+    ...state,
+    directory_synced: state.directory_synced === true && attested.directory_synced === true,
+    ...(directorySyncError ? { directory_sync_error: directorySyncError } : {}),
+  };
 }
 
 function reconcileDirectoryBundle(projectRoot, relativePath, files, commitFile) {
   const initial = inspectDirectoryBundle(projectRoot, relativePath, files, commitFile);
   if (initial.state !== "committed") return initial;
+  let directorySyncError = null;
   try {
-    fsyncContainedDirectory(projectRoot, relativePath);
+    // inspectDirectoryBundle accepts only an authenticated managed pointer, so
+    // the publication durability barrier belongs to its canonical parent.
+    fsyncContainedDirectory(projectRoot, path.dirname(relativePath));
   } catch (error) {
-    return {
-      state: "unknown",
-      message: `the published bundle directory could not be synced: ${error.message}`,
-    };
+    if (!UNSUPPORTED_DIRECTORY_SYNC_ERRORS.has(error.code))
+      return {
+        state: "unknown",
+        message: `the published bundle directory could not be synced: ${error.message}`,
+      };
+    directorySyncError = error.code;
   }
   const durable = inspectDirectoryBundle(projectRoot, relativePath, files, commitFile);
   if (durable.state !== "committed") {
@@ -275,46 +300,64 @@ function reconcileDirectoryBundle(projectRoot, relativePath, files, commitFile) 
       message: `the published bundle changed during durability reconciliation: ${durable.message || durable.state}`,
     };
   }
-  return durable;
+  return {
+    ...durable,
+    directory_synced: directorySyncError === null,
+    ...(directorySyncError ? { directory_sync_error: directorySyncError } : {}),
+  };
 }
 
 function inspectDirectoryBundle(projectRoot, relativePath, files, commitFile) {
   const marker = files.find((file) => file.name === commitFile);
+  const expectedInventory = [...files]
+    .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))
+    .map((file) => ({
+      name: file.name,
+      size: file.content.length,
+      sha256: `sha256:${crypto.createHash("sha256").update(file.content).digest("hex")}`,
+    }));
   try {
     const observedMarker = readProjectInput(
       projectRoot,
       `${relativePath}/${commitFile}`,
-      marker.content.length
+      marker.content.length,
+      { allowManagedDirectoryPointers: true }
     );
     if (!observedMarker.bytes.equals(marker.content))
       return {
         state: "unknown",
         message: "the published marker bytes differ from the requested commit marker",
       };
+    const managed = observedMarker.managedDirectory;
+    if (!managed)
+      return {
+        state: "unknown",
+        message: "the published directory is not an authenticated managed bundle",
+      };
+    if (
+      managed.commitFile !== commitFile ||
+      managed.files.length !== expectedInventory.length ||
+      managed.files.some((file, index) => {
+        const expected = expectedInventory[index];
+        return (
+          file.name !== expected.name ||
+          file.size !== expected.size ||
+          file.sha256 !== expected.sha256
+        );
+      })
+    )
+      return {
+        state: "unknown",
+        message: "the published managed bundle inventory differs from the requested output",
+      };
   } catch (error) {
     if (error.code === "ENOENT") return { state: "not-committed" };
     return { state: "unknown", message: error.message };
   }
 
-  for (const file of files) {
-    try {
-      const observed = readProjectInput(
-        projectRoot,
-        `${relativePath}/${file.name}`,
-        file.content.length
-      );
-      if (!observed.bytes.equals(file.content))
-        return {
-          state: "unknown",
-          message: `the published bundle differs from the requested output: ${file.name}`,
-        };
-    } catch (error) {
-      return {
-        state: "unknown",
-        message: `the published bundle cannot be verified: ${file.name}: ${error.message}`,
-      };
-    }
-  }
+  // readProjectInput authenticates every inventoried payload against the
+  // manifest before returning the marker.  Matching that complete inventory
+  // to the requested hashes therefore attests the whole bundle in one pass.
   return { state: "committed" };
 }
 
@@ -380,8 +423,8 @@ function fsyncExactDirectory(absolute) {
   let descriptor;
   try {
     descriptor = fs.openSync(absolute, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
-    const opened = fs.fstatSync(descriptor);
-    const published = fs.lstatSync(absolute);
+    const opened = fs.fstatSync(descriptor, { bigint: true });
+    const published = fs.lstatSync(absolute, { bigint: true });
     if (
       !opened.isDirectory() ||
       published.isSymbolicLink() ||
@@ -390,8 +433,8 @@ function fsyncExactDirectory(absolute) {
     )
       throw staleDirectoryError("directory sync path changed during inspection");
     fs.fsyncSync(descriptor);
-    const after = fs.fstatSync(descriptor);
-    const finalPath = fs.lstatSync(absolute);
+    const after = fs.fstatSync(descriptor, { bigint: true });
+    const finalPath = fs.lstatSync(absolute, { bigint: true });
     if (!sameInode(opened, after) || !sameInode(opened, finalPath)) {
       throw staleDirectoryError("directory sync path changed during durability barrier");
     }
@@ -409,19 +452,55 @@ function writeProjectTextAtomic(root, relativePath, value, options = {}) {
 }
 
 function writeDirectoryFromAnchoredRoot(relativePath, payload, options = {}) {
+  return writeManagedDirectoryFromAnchoredRoot(relativePath, payload, options);
+}
+
+// A real directory cannot be published exclusively with Node's rename API:
+// POSIX rename replaces an existing empty directory.  Publish a fully durable,
+// nonce-named real bundle through an atomically-created relative directory
+// symlink instead.  The canonical entry is therefore either absent, foreign,
+// or a complete managed bundle; there is no public mkdir/lease crash window.
+function writeManagedDirectoryFromAnchoredRoot(relativePath, payload, options = {}) {
+  validateRelative(relativePath);
+  const projectRoot = fs.realpathSync(".");
+  const rootStat = fs.statSync(".", { bigint: true });
+  const releaseLock = acquireProjectFileLock(
+    projectRoot,
+    rootStat,
+    relativePath.replaceAll("\\", "/")
+  );
+  let state = null;
+  let failure = null;
+  try {
+    state = writeLockedManagedDirectoryFromAnchoredRoot(relativePath, payload, options);
+  } catch (error) {
+    failure = error;
+  }
+  try {
+    releaseLock();
+  } catch (error) {
+    if (state?.committed === true || failure?.committed === true) error.committed = true;
+    throw error;
+  }
+  if (failure) throw failure;
+  return state;
+}
+
+function writeLockedManagedDirectoryFromAnchoredRoot(relativePath, payload, options = {}) {
   validateRelative(relativePath);
   const files = decodeDirectoryPayload(payload, options.maxBytes);
   const commitFile = normalizeDirectoryFileName(options.commitFile);
   if (!files.some((file) => file.name === commitFile))
     throw new Error("directory output commit file must be present in the bundle");
   const projectRoot = fs.realpathSync(".");
-  const rootStat = fs.statSync(".");
+  const rootStat = fs.statSync(".", { bigint: true });
   if (
     options.expectedRootDev !== undefined &&
     (String(rootStat.dev) !== String(options.expectedRootDev) ||
       String(rootStat.ino) !== String(options.expectedRootIno))
   )
     throw new Error("project root changed before anchored directory output write");
+
   const parts = relativePath.split(/[\\/]+/);
   const basename = parts.pop();
   let ancestorsSynced = true;
@@ -432,131 +511,321 @@ function writeDirectoryFromAnchoredRoot(relativePath, payload, options = {}) {
     ancestorSyncError ||= durability.errorCode || null;
   }
 
-  const parentStat = fs.statSync(".");
-  const reservation = acquireDirectoryReservation(basename, commitFile);
-  let reservationActive = true;
+  const parentStat = fs.statSync(".", { bigint: true });
+  assertAnchoredDirectoryParent(projectRoot, relativePath, rootStat, parentStat);
+  let bundleName = null;
+  let bundleStat = null;
+  let enteredBundle = false;
   let committed = false;
-  let destinationStat = null;
-  let ownerLease = null;
-  let enteredDestination = false;
+  let bundleDurability = { synced: false, errorCode: "UNKNOWN" };
+  let prepublishDurability = { synced: false, errorCode: "UNKNOWN" };
+  let publicationDurability = { synced: false, errorCode: "UNKNOWN" };
   try {
-    // The sibling reservation must reach the parent directory before the
-    // destination can.  Otherwise a crash could replay mkdir without the only
-    // ownership record capable of recovering the pre-lease window.
-    const reservationDurability = fsyncDirectory();
-    if (
-      !reservationDurability.synced &&
-      !UNSUPPORTED_DIRECTORY_SYNC_ERRORS.has(reservationDurability.errorCode)
-    )
-      throw new Error(
-        `project directory ownership reservation sync failed (${reservationDurability.errorCode || "UNKNOWN"})`
-      );
-    const recovered = recoverStaleDirectoryReservation(
-      basename,
-      commitFile,
-      reservation,
-      parentStat
-    );
-    if (recovered) {
-      destinationStat = recovered.destinationStat;
-      ownerLease = recovered.ownerLease;
-    } else {
-      fs.mkdirSync(basename, { mode: options.directoryMode ?? 0o777 });
-      destinationStat = fs.lstatSync(basename);
-      if (destinationStat.isSymbolicLink() || !destinationStat.isDirectory())
-        throw new Error("project directory destination is not a real directory");
+    let existing = null;
+    try {
+      existing = fs.lstatSync(basename, { bigint: true });
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
     }
-    const parentDurability = fsyncDirectory();
-    if (
-      !parentDurability.synced &&
-      !UNSUPPORTED_DIRECTORY_SYNC_ERRORS.has(parentDurability.errorCode)
-    )
-      throw new Error(
-        `project directory reservation sync failed (${parentDurability.errorCode || "UNKNOWN"})`
-      );
-
-    process.chdir(basename);
-    enteredDestination = true;
-    const entered = fs.statSync(".");
-    if (entered.dev !== destinationStat.dev || entered.ino !== destinationStat.ino)
-      throw new Error("project directory destination changed during entry");
-    assertPublishedDirectoryFromInside(basename, parentStat, destinationStat);
-    if (ownerLease) assertDirectoryOwnerLease(".", destinationStat, ownerLease);
-    else {
-      ownerLease = createDirectoryOwnerLease(destinationStat, reservation, commitFile);
-      const leaseDurability = fsyncDirectory();
-      if (
-        !leaseDurability.synced &&
-        !UNSUPPORTED_DIRECTORY_SYNC_ERRORS.has(leaseDurability.errorCode)
-      )
-        throw new Error(
-          `project directory owner lease sync failed (${leaseDurability.errorCode || "UNKNOWN"})`
+    if (existing) {
+      if (existing.isSymbolicLink()) {
+        assertAnchoredDirectoryParent(
+          projectRoot,
+          relativePath,
+          rootStat,
+          parentStat,
+          "project root or destination parent changed before pointer reconciliation"
         );
+        const reconciliation = inspectDirectoryBundle(projectRoot, relativePath, files, commitFile);
+        if (reconciliation.state === "committed") {
+          const reconciledPointer = fs.lstatSync(basename, { bigint: true });
+          assertAnchoredDirectoryParent(
+            projectRoot,
+            relativePath,
+            rootStat,
+            parentStat,
+            "project root or destination parent changed during pointer reconciliation"
+          );
+          if (!reconciledPointer.isSymbolicLink() || !sameOwnerFile(existing, reconciledPointer))
+            throw staleDirectoryError("project root or pointer changed during reconciliation");
+          publicationDurability = fsyncDirectory();
+          if (
+            !publicationDurability.synced &&
+            !UNSUPPORTED_DIRECTORY_SYNC_ERRORS.has(publicationDurability.errorCode)
+          )
+            throw new Error(
+              `project directory pointer reconciliation sync failed (${publicationDurability.errorCode || "UNKNOWN"})`
+            );
+          assertAnchoredDirectoryParent(
+            projectRoot,
+            relativePath,
+            rootStat,
+            parentStat,
+            "project root or destination parent changed during pointer reconciliation sync"
+          );
+          return {
+            committed: true,
+            directory_synced: ancestorsSynced && publicationDurability.synced,
+            ...(ancestorSyncError || publicationDurability.errorCode
+              ? {
+                  directory_sync_error: ancestorSyncError || publicationDurability.errorCode,
+                }
+              : {}),
+          };
+        }
+      }
+      throw new Error("project directory output already exists");
     }
-    assertPublishedDirectoryFromInside(basename, parentStat, destinationStat);
-    releaseDirectoryReservation("..", reservation);
-    reservationActive = false;
 
-    const writerState = writeDirectoryFiles(payload, {
-      expectedRootDev: destinationStat.dev,
-      expectedRootIno: destinationStat.ino,
-      fileMode: options.fileMode,
-      maxBytes: options.maxBytes,
+    const nonce = crypto.randomBytes(24).toString("hex");
+    bundleName = managedDirectoryBundleName(basename, nonce);
+    fs.mkdirSync(bundleName, { mode: options.directoryMode ?? 0o777 });
+    bundleStat = fs.lstatSync(bundleName, { bigint: true });
+    if (bundleStat.isSymbolicLink() || !bundleStat.isDirectory())
+      throw new Error("project directory bundle is not a real directory");
+
+    process.chdir(bundleName);
+    enteredBundle = true;
+    const entered = fs.statSync(".", { bigint: true });
+    if (!sameInode(entered, bundleStat))
+      throw staleDirectoryError("project directory bundle changed during entry");
+    assertPublishedDirectoryFromInside(bundleName, parentStat, bundleStat);
+
+    for (const file of files)
+      writeExclusiveDirectoryFile(file.name, file.content, options.fileMode);
+    const manifest = managedDirectoryManifest(
+      basename,
+      bundleName,
+      nonce,
+      bundleStat,
       commitFile,
-      ownerLease,
-    });
+      files
+    );
+    writeExclusiveDirectoryFile(
+      DIRECTORY_POINTER_FILE,
+      Buffer.from(`${JSON.stringify(manifest)}\n`),
+      0o600
+    );
+    bundleDurability = fsyncDirectory();
+    if (
+      !bundleDurability.synced &&
+      !UNSUPPORTED_DIRECTORY_SYNC_ERRORS.has(bundleDurability.errorCode)
+    )
+      throw new Error(
+        `project directory bundle sync failed (${bundleDurability.errorCode || "UNKNOWN"})`
+      );
+    assertManagedDirectoryBundle(".", basename, bundleName, bundleStat, manifest, files);
+    assertPublishedDirectoryFromInside(bundleName, parentStat, bundleStat);
+
+    process.chdir("..");
+    enteredBundle = false;
+    const observedParent = fs.statSync(".", { bigint: true });
+    if (!sameInode(observedParent, parentStat))
+      throw staleDirectoryError("project directory bundle parent changed");
+    assertAnchoredDirectoryParent(projectRoot, relativePath, rootStat, parentStat);
+    const publishedBundle = fs.lstatSync(bundleName, { bigint: true });
+    if (
+      publishedBundle.isSymbolicLink() ||
+      !publishedBundle.isDirectory() ||
+      !sameInode(publishedBundle, bundleStat)
+    )
+      throw staleDirectoryError("project directory bundle changed before publication");
+
+    // Make the backing directory entry durable before exposing its pointer.
+    prepublishDurability = fsyncDirectory();
+    if (
+      !prepublishDurability.synced &&
+      !UNSUPPORTED_DIRECTORY_SYNC_ERRORS.has(prepublishDurability.errorCode)
+    )
+      throw new Error(
+        `project directory bundle publication sync failed (${prepublishDurability.errorCode || "UNKNOWN"})`
+      );
+    assertAnchoredDirectoryParent(
+      projectRoot,
+      relativePath,
+      rootStat,
+      parentStat,
+      "project root or destination parent changed before pointer publication"
+    );
+
+    if (process.platform === "win32") fs.symlinkSync(bundleName, basename, "dir");
+    else fs.symlinkSync(bundleName, basename);
     committed = true;
 
-    const observedDestination = fs.statSync(".");
+    const pointer = fs.lstatSync(basename, { bigint: true });
+    if (!pointer.isSymbolicLink() || fs.readlinkSync(basename) !== bundleName)
+      throw staleDirectoryError("project directory managed pointer changed during publication");
+    const finalBundle = fs.lstatSync(bundleName, { bigint: true });
     if (
-      observedDestination.dev !== destinationStat.dev ||
-      observedDestination.ino !== destinationStat.ino
+      finalBundle.isSymbolicLink() ||
+      !finalBundle.isDirectory() ||
+      !sameInode(finalBundle, bundleStat)
     )
-      throw new Error("project directory destination changed after commit");
-    const anchoredRoot = fs.statSync(projectRoot);
-    if (anchoredRoot.dev !== rootStat.dev || anchoredRoot.ino !== rootStat.ino)
-      throw new Error("project root changed after directory commit");
+      throw staleDirectoryError("project directory bundle changed during publication");
+
+    publicationDurability = fsyncDirectory();
+    if (
+      !publicationDurability.synced &&
+      !UNSUPPORTED_DIRECTORY_SYNC_ERRORS.has(publicationDurability.errorCode)
+    ) {
+      const failure = new Error(
+        `project directory committed but pointer sync failed (${publicationDurability.errorCode || "UNKNOWN"}); do not retry this write`
+      );
+      failure.committed = true;
+      failure.code = publicationDurability.errorCode || "UNKNOWN";
+      throw failure;
+    }
+    assertAnchoredDirectoryParent(
+      projectRoot,
+      relativePath,
+      rootStat,
+      parentStat,
+      "project root or destination parent changed after pointer publication sync"
+    );
     const directorySynced =
-      ancestorsSynced && writerState.directory_synced === true && parentDurability.synced === true;
+      ancestorsSynced &&
+      bundleDurability.synced === true &&
+      prepublishDurability.synced === true &&
+      publicationDurability.synced === true;
     const directorySyncError =
-      ancestorSyncError || writerState.directory_sync_error || parentDurability.errorCode || null;
+      ancestorSyncError ||
+      bundleDurability.errorCode ||
+      prepublishDurability.errorCode ||
+      publicationDurability.errorCode ||
+      null;
     return {
       committed: true,
       directory_synced: directorySynced,
       ...(directorySyncError ? { directory_sync_error: directorySyncError } : {}),
     };
   } catch (error) {
-    if (error.committed === true) committed = true;
-    let cleanupError = null;
-    if (enteredDestination) {
+    let failureCause = error;
+    if (enteredBundle)
       try {
-        const current = fs.statSync(".");
-        if (!destinationStat || !sameInode(current, destinationStat)) throw staleDirectoryError();
         process.chdir("..");
-        enteredDestination = false;
-        const observedParent = fs.statSync(".");
-        if (!sameInode(observedParent, parentStat)) throw staleDirectoryError();
+        enteredBundle = false;
       } catch (exitError) {
-        cleanupError = exitError;
+        if (committed) failureCause = exitError;
       }
-    }
-    if (reservationActive)
-      try {
-        releaseDirectoryReservation(enteredDestination ? ".." : ".", reservation);
-        reservationActive = false;
-      } catch (releaseError) {
-        cleanupError ||= releaseError;
-      }
-    if (committed) {
+    if (committed || failureCause.committed === true) {
       const failure = new Error(
-        `project directory output committed but verification failed (${error.code || "UNKNOWN"}); do not retry this write`
+        `project directory output committed but verification failed (${failureCause.code || "UNKNOWN"}); do not retry this write`
       );
       failure.committed = true;
-      failure.code = error.code || "UNKNOWN";
+      failure.code = failureCause.code || "UNKNOWN";
       throw failure;
     }
-    if (cleanupError) throw cleanupError;
-    throw error;
+    throw failureCause;
+  }
+}
+
+function managedDirectoryBundleName(basename, nonce) {
+  return `${DIRECTORY_BUNDLE_PREFIX}${crypto
+    .createHash("sha256")
+    .update(basename)
+    .digest("hex")
+    .slice(0, 32)}-${nonce}`;
+}
+
+function managedDirectoryManifest(basename, bundleName, nonce, bundleStat, commitFile, files) {
+  return {
+    schema_version: 1,
+    kind: "pm-managed-directory-bundle",
+    canonical_basename_sha256: crypto.createHash("sha256").update(basename).digest("hex"),
+    target_basename: bundleName,
+    nonce,
+    bundle_dev: String(bundleStat.dev),
+    bundle_ino: String(bundleStat.ino),
+    commit_file: commitFile,
+    files: [...files]
+      .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))
+      .map((file) => ({
+        name: file.name,
+        size: file.content.length,
+        sha256: `sha256:${crypto.createHash("sha256").update(file.content).digest("hex")}`,
+      })),
+  };
+}
+
+function assertManagedDirectoryBundle(
+  directory,
+  basename,
+  bundleName,
+  bundleStat,
+  expectedManifest,
+  files
+) {
+  const observedDirectory = fs.statSync(directory, { bigint: true });
+  if (!sameInode(observedDirectory, bundleStat))
+    throw staleDirectoryError("project directory bundle changed during verification");
+  const entries = fs.readdirSync(directory).sort();
+  const expectedEntries = [DIRECTORY_POINTER_FILE, ...files.map((file) => file.name)].sort();
+  if (
+    entries.length !== expectedEntries.length ||
+    entries.some((entry, index) => entry !== expectedEntries[index])
+  )
+    throw staleDirectoryError("project directory bundle contents changed during verification");
+  for (const file of files)
+    readExactManagedDirectoryFile(path.join(directory, file.name), file.content);
+  const expectedManifestBytes = Buffer.from(`${JSON.stringify(expectedManifest)}\n`);
+  const manifestBytes = readExactManagedDirectoryFile(
+    path.join(directory, DIRECTORY_POINTER_FILE),
+    expectedManifestBytes
+  );
+  let manifest;
+  try {
+    manifest = JSON.parse(manifestBytes.toString("utf8"));
+  } catch {
+    throw staleDirectoryError("project directory bundle manifest is invalid JSON");
+  }
+  if (JSON.stringify(manifest) !== JSON.stringify(expectedManifest))
+    throw staleDirectoryError("project directory bundle manifest changed before publication");
+  if (
+    expectedManifest.target_basename !== bundleName ||
+    expectedManifest.canonical_basename_sha256 !==
+      crypto.createHash("sha256").update(basename).digest("hex")
+  )
+    throw staleDirectoryError("project directory bundle manifest is not bound to its pointer");
+}
+
+function readExactManagedDirectoryFile(file, expected) {
+  let descriptor;
+  try {
+    descriptor = fs.openSync(
+      file,
+      fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0)
+    );
+    const before = fs.fstatSync(descriptor, { bigint: true });
+    if (!before.isFile() || before.nlink !== 1n || before.size !== BigInt(expected.length))
+      throw staleDirectoryError(
+        "project directory bundle file metadata changed before publication"
+      );
+    const bytes = Buffer.alloc(expected.length);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const read = fs.readSync(descriptor, bytes, offset, bytes.length - offset, null);
+      if (read === 0)
+        throw staleDirectoryError("project directory bundle file was truncated before publication");
+      offset += read;
+    }
+    if (fs.readSync(descriptor, Buffer.alloc(1), 0, 1, null) !== 0)
+      throw staleDirectoryError("project directory bundle file grew before publication");
+    const after = fs.fstatSync(descriptor, { bigint: true });
+    const linked = fs.lstatSync(file, { bigint: true });
+    if (
+      !after.isFile() ||
+      after.nlink !== 1n ||
+      linked.isSymbolicLink() ||
+      !linked.isFile() ||
+      linked.nlink !== 1n ||
+      !sameOwnerFile(before, after) ||
+      !sameOwnerFile(after, linked) ||
+      !bytes.equals(expected)
+    )
+      throw staleDirectoryError("project directory bundle file changed before publication");
+    return bytes;
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
   }
 }
 
@@ -580,10 +849,10 @@ function sameOwnerFile(left, right) {
 }
 
 function assertPublishedDirectoryFromInside(basename, expectedParent, expectedDestination) {
-  const observedParent = fs.statSync("..");
+  const observedParent = fs.statSync("..", { bigint: true });
   if (!sameInode(observedParent, expectedParent))
     throw staleDirectoryError("project directory destination parent changed");
-  const published = fs.lstatSync(path.join("..", basename));
+  const published = fs.lstatSync(path.join("..", basename), { bigint: true });
   if (
     published.isSymbolicLink() ||
     !published.isDirectory() ||
@@ -592,706 +861,37 @@ function assertPublishedDirectoryFromInside(basename, expectedParent, expectedDe
     throw staleDirectoryError("project directory destination changed at its published path");
 }
 
-function identityDigest(kind, value) {
-  return `${kind}:${crypto.createHash("sha256").update(String(value).trim()).digest("hex")}`;
-}
-
-function strongIdentityTokensDiffer(left, right, knownKinds) {
-  const leftKind = typeof left === "string" ? left.slice(0, left.indexOf(":")) : "";
-  const rightKind = typeof right === "string" ? right.slice(0, right.indexOf(":")) : "";
-  return leftKind === rightKind && knownKinds.has(leftKind) && left !== right;
-}
-
-function strongBootTokensDiffer(left, right) {
-  return strongIdentityTokensDiffer(left, right, STRONG_BOOT_TOKEN_KINDS);
-}
-
-function strongProcessTokensDiffer(left, right) {
-  return strongIdentityTokensDiffer(left, right, STRONG_PROCESS_TOKEN_KINDS);
-}
-
-function stableProcessIdentityEnvironment() {
-  return { ...process.env, LC_ALL: "C", LANG: "C", TZ: "UTC" };
-}
-
-function machineBootToken() {
-  try {
-    if (process.platform === "linux")
-      return identityDigest(
-        "linux-boot",
-        fs.readFileSync("/proc/sys/kernel/random/boot_id", "utf8")
-      );
-    if (process.platform === "darwin" || process.platform === "freebsd") {
-      const result = spawnSync("/usr/sbin/sysctl", ["-n", "kern.boottime"], {
-        encoding: "utf8",
-        timeout: 1_000,
-        maxBuffer: 4096,
-      });
-      if (!result.error && result.status === 0) {
-        const bootTime = result.stdout.match(/\bsec\s*=\s*(\d+)\s*,\s*usec\s*=\s*(\d+)/);
-        if (bootTime)
-          return identityDigest(
-            "bsd-boot-numeric",
-            `${BigInt(bootTime[1])}:${BigInt(bootTime[2])}`
-          );
-      }
-    }
-    if (process.platform === "win32") {
-      const result = spawnSync(
-        "powershell.exe",
-        [
-          "-NoProfile",
-          "-NonInteractive",
-          "-Command",
-          "(Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToUniversalTime().Ticks",
-        ],
-        { encoding: "utf8", timeout: 2_000, maxBuffer: 4096 }
-      );
-      if (!result.error && result.status === 0 && result.stdout.trim())
-        return identityDigest("windows-boot", result.stdout);
-    }
-  } catch {
-    // Missing platform identity support degrades to the process probe below.
+function assertAnchoredDirectoryParent(
+  projectRoot,
+  relativePath,
+  expectedRoot,
+  expectedParent,
+  message = "project root or destination parent changed during directory publication"
+) {
+  const rootPath = path.resolve(projectRoot);
+  const parentParts = relativePath.split(/[\\/]+/).slice(0, -1);
+  const observed = [];
+  let current = rootPath;
+  for (const [index, part] of ["", ...parentParts].entries()) {
+    if (index > 0) current = path.join(current, part);
+    const stat = fs.lstatSync(current, { bigint: true });
+    if (stat.isSymbolicLink() || !stat.isDirectory()) throw staleDirectoryError(message);
+    observed.push({ path: current, stat });
   }
-  try {
-    const approximateBootMinute = Math.round((Date.now() - os.uptime() * 1000) / 60_000);
-    return identityDigest("uptime-boot", approximateBootMinute);
-  } catch {
-    return null;
-  }
-}
-
-function processStartToken(pid) {
-  try {
-    if (process.platform === "linux") {
-      const raw = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
-      const commandEnd = raw.lastIndexOf(") ");
-      const fields =
-        commandEnd === -1
-          ? []
-          : raw
-              .slice(commandEnd + 2)
-              .trim()
-              .split(/\s+/);
-      if (!/^\d+$/.test(fields[19] || "")) return null;
-      return identityDigest("linux-process", fields[19]);
-    }
-    if (process.platform === "darwin" || process.platform === "freebsd") {
-      const result = spawnSync("/bin/ps", ["-o", "lstart=", "-p", String(pid)], {
-        encoding: "utf8",
-        timeout: 1_000,
-        maxBuffer: 4096,
-        env: stableProcessIdentityEnvironment(),
-      });
-      if (!result.error && result.status === 0 && result.stdout.trim())
-        return identityDigest("bsd-process-utc", result.stdout);
-      return null;
-    }
-    if (process.platform === "win32") {
-      const result = spawnSync(
-        "powershell.exe",
-        [
-          "-NoProfile",
-          "-NonInteractive",
-          "-Command",
-          `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().Ticks`,
-        ],
-        { encoding: "utf8", timeout: 2_000, maxBuffer: 4096 }
-      );
-      if (!result.error && result.status === 0 && result.stdout.trim())
-        return identityDigest("windows-process", result.stdout);
-    }
-  } catch {
-    // A disappearing or uninspectable process is handled conservatively below.
-  }
-  return null;
-}
-
-function ownerProcessMayBeAlive(ownerLease) {
-  const currentBootToken = machineBootToken();
-  if (strongBootTokensDiffer(ownerLease.boot_token, currentBootToken)) return false;
-  try {
-    process.kill(ownerLease.pid, 0);
-  } catch (error) {
-    return error.code !== "ESRCH";
-  }
-  const currentProcessToken = processStartToken(ownerLease.pid);
-  if (strongProcessTokensDiffer(ownerLease.process_start_token, currentProcessToken)) return false;
   if (
-    ownerLease.process_start_token &&
-    currentProcessToken &&
-    ownerLease.process_start_token === currentProcessToken
+    !sameInode(observed[0].stat, expectedRoot) ||
+    !sameInode(observed.at(-1).stat, expectedParent) ||
+    !sameInode(fs.statSync(".", { bigint: true }), expectedParent)
   )
-    return true;
-  // A stale wall-clock lease is not proof that a live writer is safe to remove:
-  // the writer may be blocked in fsync or the host clock may have jumped.  When
-  // the PID exists but this platform cannot prove its process identity, fail
-  // closed.  Supported platforms reclaim PID reuse through the boot/start
-  // tokens above, and an exited process through ESRCH.
-  return true;
-}
-
-function readDirectoryOwnerLease(directory, expectedDestination, expectedCommitFile) {
-  const leasePath = path.join(directory, DIRECTORY_OWNER_FILE);
-  let descriptor;
-  try {
-    descriptor = fs.openSync(
-      leasePath,
-      fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0)
-    );
-    const before = fs.fstatSync(descriptor, { bigint: true });
-    if (!before.isFile() || before.size < 1n || before.size > BigInt(MAX_DIRECTORY_OWNER_BYTES))
-      throw new Error("project directory owner lease is not a bounded regular file");
-    const bytes = Buffer.alloc(Number(before.size));
-    let offset = 0;
-    while (offset < bytes.length) {
-      const read = fs.readSync(descriptor, bytes, offset, bytes.length - offset, null);
-      if (read === 0) throw staleDirectoryError("project directory owner lease was truncated");
-      offset += read;
-    }
-    const overflow = Buffer.alloc(1);
-    if (fs.readSync(descriptor, overflow, 0, 1, null) !== 0)
-      throw new Error("project directory owner lease exceeds its bounded size");
-    const after = fs.fstatSync(descriptor, { bigint: true });
-    const linked = fs.lstatSync(leasePath, { bigint: true });
-    if (!sameOwnerFile(before, after) || !sameOwnerFile(after, linked))
-      throw staleDirectoryError("project directory owner lease changed during inspection");
-    let value;
-    try {
-      value = JSON.parse(bytes.toString("utf8"));
-    } catch {
-      throw new Error("project directory owner lease is invalid JSON");
-    }
-    let commitFile = null;
-    try {
-      commitFile = normalizeDirectoryFileName(value?.commit_file);
-    } catch {
-      // Report all malformed fields through the shape error below.
-    }
+    throw staleDirectoryError(message);
+  for (const component of observed) {
+    const rechecked = fs.lstatSync(component.path, { bigint: true });
     if (
-      !value ||
-      typeof value !== "object" ||
-      Array.isArray(value) ||
-      Object.keys(value).sort().join(",") !==
-        "boot_token,commit_file,created_at_ms,destination_dev,destination_ino,nonce,pid,process_start_token,schema_version" ||
-      value.schema_version !== 2 ||
-      commitFile !== value.commit_file ||
-      !/^[a-f0-9]{48}$/.test(value.nonce || "") ||
-      !Number.isSafeInteger(value.pid) ||
-      value.pid < 2 ||
-      !Number.isSafeInteger(value.created_at_ms) ||
-      value.created_at_ms < 0 ||
-      typeof value.destination_dev !== "string" ||
-      typeof value.destination_ino !== "string" ||
-      (value.boot_token !== null && !/^[a-z-]+:[a-f0-9]{64}$/.test(value.boot_token || "")) ||
-      (value.process_start_token !== null &&
-        !/^[a-z-]+:[a-f0-9]{64}$/.test(value.process_start_token || ""))
+      rechecked.isSymbolicLink() ||
+      !rechecked.isDirectory() ||
+      !sameInode(component.stat, rechecked)
     )
-      throw new Error("project directory owner lease shape is invalid");
-    if (
-      value.destination_dev !== String(expectedDestination.dev) ||
-      value.destination_ino !== String(expectedDestination.ino)
-    )
-      throw staleDirectoryError("project directory owner lease targets another directory");
-    if (expectedCommitFile !== undefined && value.commit_file !== expectedCommitFile)
-      throw staleDirectoryError("project directory owner lease targets another commit marker");
-    return { ...value, owner_file: after };
-  } finally {
-    if (descriptor !== undefined) fs.closeSync(descriptor);
-  }
-}
-
-function directoryOwnerLeaseValue(destinationStat, reservation, commitFile) {
-  const normalizedCommitFile = normalizeDirectoryFileName(commitFile);
-  if (reservation.commit_file !== normalizedCommitFile)
-    throw staleDirectoryError("project directory reservation commit marker changed");
-  return {
-    schema_version: 2,
-    nonce: reservation.nonce,
-    pid: reservation.pid,
-    created_at_ms: reservation.created_at_ms || Date.now(),
-    destination_dev: String(destinationStat.dev),
-    destination_ino: String(destinationStat.ino),
-    commit_file: normalizedCommitFile,
-    boot_token: reservation.boot_token,
-    process_start_token: reservation.process_start_token,
-  };
-}
-
-function createDirectoryOwnerLease(destinationStat, reservation, commitFile) {
-  const value = directoryOwnerLeaseValue(destinationStat, reservation, commitFile);
-  writeExclusiveDirectoryFile(
-    DIRECTORY_OWNER_FILE,
-    Buffer.from(`${JSON.stringify(value)}\n`),
-    0o600
-  );
-  return readDirectoryOwnerLease(".", destinationStat, value.commit_file);
-}
-
-function replaceDirectoryOwnerLease(destinationStat, reservation, commitFile, expectedLease) {
-  const value = directoryOwnerLeaseValue(destinationStat, reservation, commitFile);
-  const candidate = `${DIRECTORY_OWNER_FILE}.candidate-${process.pid}-${reservation.nonce.slice(
-    0,
-    16
-  )}`;
-  let candidateStat = null;
-  let replaced = false;
-  let ownerLease = null;
-  let failure = null;
-  try {
-    candidateStat = writeExclusiveDirectoryFile(
-      candidate,
-      Buffer.from(`${JSON.stringify(value)}\n`),
-      0o600
-    );
-    assertCommitMarkerAbsent(".", value.commit_file);
-    assertDirectoryOwnerLease(".", destinationStat, expectedLease);
-    if (ownerProcessMayBeAlive(expectedLease))
-      throw new Error(`project directory output is reserved by live writer ${expectedLease.pid}`);
-    assertDirectoryReservation("..", reservation.basename, reservation);
-    fs.renameSync(candidate, DIRECTORY_OWNER_FILE);
-    replaced = true;
-    ownerLease = readDirectoryOwnerLease(".", destinationStat, value.commit_file);
-  } catch (error) {
-    failure = error;
-  }
-  if (!replaced && candidateStat)
-    try {
-      const cleanup = fs.lstatSync(candidate);
-      if (cleanup.isSymbolicLink() || !cleanup.isFile() || !sameInode(cleanup, candidateStat))
-        throw staleDirectoryError("project directory owner lease candidate changed");
-      fs.unlinkSync(candidate);
-    } catch (error) {
-      if (error.code !== "ENOENT") failure ||= error;
-    }
-  if (failure) throw failure;
-  return ownerLease;
-}
-
-function assertDirectoryOwnerLease(directory, destinationStat, expectedLease) {
-  const observed = readDirectoryOwnerLease(directory, destinationStat, expectedLease.commit_file);
-  if (
-    observed.nonce !== expectedLease.nonce ||
-    observed.pid !== expectedLease.pid ||
-    observed.created_at_ms !== expectedLease.created_at_ms ||
-    observed.commit_file !== expectedLease.commit_file ||
-    observed.boot_token !== expectedLease.boot_token ||
-    observed.process_start_token !== expectedLease.process_start_token ||
-    !sameOwnerFile(observed.owner_file, expectedLease.owner_file)
-  )
-    throw staleDirectoryError("project directory owner lease changed; cleanup skipped");
-  return observed;
-}
-
-function directoryReservationName(basename) {
-  return `${DIRECTORY_RESERVATION_PREFIX}${crypto
-    .createHash("sha256")
-    .update(basename)
-    .digest("hex")
-    .slice(0, 32)}.json`;
-}
-
-function readDirectoryReservation(directory, basename, expectedCommitFile) {
-  const reservationPath = path.join(directory, directoryReservationName(basename));
-  let descriptor;
-  try {
-    descriptor = fs.openSync(
-      reservationPath,
-      fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0)
-    );
-    const before = fs.fstatSync(descriptor, { bigint: true });
-    if (!before.isFile() || before.size < 1n || before.size > BigInt(MAX_DIRECTORY_OWNER_BYTES))
-      throw new Error("project directory reservation is not a bounded regular file");
-    const bytes = Buffer.alloc(Number(before.size));
-    let offset = 0;
-    while (offset < bytes.length) {
-      const read = fs.readSync(descriptor, bytes, offset, bytes.length - offset, null);
-      if (read === 0) throw staleDirectoryError("project directory reservation was truncated");
-      offset += read;
-    }
-    if (fs.readSync(descriptor, Buffer.alloc(1), 0, 1, null) !== 0)
-      throw new Error("project directory reservation exceeds its bounded size");
-    const after = fs.fstatSync(descriptor, { bigint: true });
-    const linked = fs.lstatSync(reservationPath, { bigint: true });
-    if (!sameOwnerFile(before, after) || !sameOwnerFile(after, linked))
-      throw staleDirectoryError("project directory reservation changed during inspection");
-    let value;
-    try {
-      value = JSON.parse(bytes.toString("utf8"));
-    } catch {
-      throw new Error("project directory reservation is invalid JSON");
-    }
-    let commitFile = null;
-    try {
-      commitFile = normalizeDirectoryFileName(value?.commit_file);
-    } catch {
-      // Report all malformed fields through the shape error below.
-    }
-    if (
-      !value ||
-      typeof value !== "object" ||
-      Array.isArray(value) ||
-      Object.keys(value).sort().join(",") !==
-        "basename_sha256,boot_token,commit_file,created_at_ms,nonce,pid,process_start_token,schema_version" ||
-      value.schema_version !== 2 ||
-      commitFile !== value.commit_file ||
-      value.basename_sha256 !== crypto.createHash("sha256").update(basename).digest("hex") ||
-      !/^[a-f0-9]{48}$/.test(value.nonce || "") ||
-      !Number.isSafeInteger(value.pid) ||
-      value.pid < 2 ||
-      !Number.isSafeInteger(value.created_at_ms) ||
-      (value.boot_token !== null && !/^[a-z-]+:[a-f0-9]{64}$/.test(value.boot_token || "")) ||
-      (value.process_start_token !== null &&
-        !/^[a-z-]+:[a-f0-9]{64}$/.test(value.process_start_token || ""))
-    )
-      throw new Error("project directory reservation shape is invalid");
-    if (expectedCommitFile !== undefined && value.commit_file !== expectedCommitFile)
-      throw staleDirectoryError("project directory reservation targets another commit marker");
-    return {
-      ...value,
-      owner_file: after,
-      file_name: directoryReservationName(basename),
-      basename,
-    };
-  } finally {
-    if (descriptor !== undefined) fs.closeSync(descriptor);
-  }
-}
-
-function assertDirectoryReservation(directory, basename, expected) {
-  const observed = readDirectoryReservation(directory, basename, expected.commit_file);
-  if (
-    observed.nonce !== expected.nonce ||
-    observed.pid !== expected.pid ||
-    observed.created_at_ms !== expected.created_at_ms ||
-    observed.commit_file !== expected.commit_file ||
-    observed.boot_token !== expected.boot_token ||
-    observed.process_start_token !== expected.process_start_token ||
-    !sameOwnerFile(observed.owner_file, expected.owner_file)
-  )
-    throw staleDirectoryError("project directory reservation owner changed");
-  return observed;
-}
-
-function createDirectoryReservation(basename, commitFile) {
-  const createdAt = Date.now();
-  const value = {
-    schema_version: 2,
-    basename_sha256: crypto.createHash("sha256").update(basename).digest("hex"),
-    commit_file: normalizeDirectoryFileName(commitFile),
-    nonce: crypto.randomBytes(24).toString("hex"),
-    pid: process.pid,
-    created_at_ms: createdAt,
-    boot_token: machineBootToken(),
-    process_start_token: processStartToken(process.pid),
-  };
-  const reservationName = directoryReservationName(basename);
-  const candidate = `${DIRECTORY_RESERVATION_PREFIX}candidate-${process.pid}-${value.nonce.slice(
-    0,
-    16
-  )}`;
-  let published = false;
-  let candidateRemoved = false;
-  let reservation = null;
-  let failure = null;
-  try {
-    writeExclusiveDirectoryFile(candidate, Buffer.from(`${JSON.stringify(value)}\n`), 0o600);
-    fs.linkSync(candidate, reservationName);
-    published = true;
-    fs.unlinkSync(candidate);
-    candidateRemoved = true;
-    reservation = readDirectoryReservation(".", basename, value.commit_file);
-    if (
-      reservation.nonce !== value.nonce ||
-      reservation.pid !== value.pid ||
-      reservation.created_at_ms !== value.created_at_ms ||
-      reservation.commit_file !== value.commit_file
-    )
-      throw staleDirectoryError("project directory reservation changed during publication");
-  } catch (error) {
-    failure = error;
-  }
-  if (!candidateRemoved)
-    try {
-      fs.unlinkSync(candidate);
-    } catch (error) {
-      if (error.code !== "ENOENT" && !published && !failure) failure = error;
-    }
-  if (failure) throw failure;
-  return reservation;
-}
-
-function releaseDirectoryReservation(directory, reservation) {
-  assertDirectoryReservation(directory, reservation.basename, reservation);
-  fs.unlinkSync(path.join(directory, reservation.file_name));
-}
-
-function reclaimDirectoryReservation(reservation) {
-  const commitFile = reservation.commit_file;
-  if (ownerProcessMayBeAlive(reservation))
-    throw new Error(`project directory output is reserved by live writer ${reservation.pid}`);
-  assertDirectoryReservation(".", reservation.basename, reservation);
-
-  let destinationStat;
-  try {
-    destinationStat = fs.lstatSync(reservation.basename);
-  } catch (error) {
-    if (error.code !== "ENOENT") throw error;
-  }
-  if (destinationStat) {
-    if (destinationStat.isSymbolicLink() || !destinationStat.isDirectory())
-      throw new Error("project directory output already exists and is not a real directory");
-    try {
-      fs.lstatSync(path.join(reservation.basename, commitFile));
-      releaseDirectoryReservation(".", reservation);
-      return;
-    } catch (error) {
-      if (error.code !== "ENOENT") throw error;
-    }
-
-    let ownerLease;
-    try {
-      ownerLease = readDirectoryOwnerLease(reservation.basename, destinationStat);
-    } catch (error) {
-      throw new Error(
-        `project directory output already exists without a recoverable owner lease: ${error.message}`
-      );
-    }
-    const foreignOwner =
-      ownerLease.nonce !== reservation.nonce ||
-      ownerLease.pid !== reservation.pid ||
-      ownerLease.created_at_ms !== reservation.created_at_ms ||
-      ownerLease.commit_file !== reservation.commit_file ||
-      ownerLease.boot_token !== reservation.boot_token ||
-      ownerLease.process_start_token !== reservation.process_start_token;
-    if (foreignOwner) {
-      assertDirectoryOwnerLease(reservation.basename, destinationStat, ownerLease);
-      if (ownerProcessMayBeAlive(ownerLease))
-        throw new Error(`project directory output is reserved by live writer ${ownerLease.pid}`);
-    }
-  }
-
-  assertDirectoryReservation(".", reservation.basename, reservation);
-  if (ownerProcessMayBeAlive(reservation))
-    throw new Error(`project directory output is reserved by live writer ${reservation.pid}`);
-  releaseDirectoryReservation(".", reservation);
-}
-
-function acquireDirectoryReservation(basename, commitFile) {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    try {
-      return createDirectoryReservation(basename, commitFile);
-    } catch (error) {
-      if (error.code !== "EEXIST") throw error;
-      let reservation;
-      try {
-        reservation = readDirectoryReservation(".", basename, commitFile);
-      } catch (readError) {
-        throw new Error(
-          `project directory output has an invalid reservation: ${readError.message}`
-        );
-      }
-      reclaimDirectoryReservation(reservation);
-    }
-  }
-  throw new Error("project directory output reservation could not be acquired");
-}
-
-function assertCommitMarkerAbsent(directory, commitFile) {
-  try {
-    fs.lstatSync(path.join(directory, commitFile));
-  } catch (error) {
-    if (error.code === "ENOENT") return;
-    throw error;
-  }
-  throw new Error("project directory output already exists");
-}
-
-function recoverStaleDirectoryReservation(basename, commitFile, reservation, parentStat) {
-  let destinationStat;
-  try {
-    destinationStat = fs.lstatSync(basename);
-  } catch (error) {
-    if (error.code === "ENOENT") return null;
-    throw error;
-  }
-  if (destinationStat.isSymbolicLink() || !destinationStat.isDirectory())
-    throw new Error("project directory output already exists and is not a real directory");
-  assertCommitMarkerAbsent(basename, commitFile);
-  let ownerLease;
-  try {
-    ownerLease = readDirectoryOwnerLease(basename, destinationStat, commitFile);
-  } catch (error) {
-    throw new Error(
-      `project directory output already exists without a recoverable owner lease: ${error.message}`
-    );
-  }
-  if (ownerProcessMayBeAlive(ownerLease))
-    throw new Error(`project directory output is reserved by live writer ${ownerLease.pid}`);
-  assertCommitMarkerAbsent(basename, commitFile);
-  assertDirectoryOwnerLease(basename, destinationStat, ownerLease);
-
-  let entered = false;
-  let recovered = null;
-  let failure = null;
-  try {
-    process.chdir(basename);
-    entered = true;
-    const anchored = fs.statSync(".");
-    if (!sameInode(anchored, destinationStat))
-      throw staleDirectoryError("project directory destination changed during recovery entry");
-    assertPublishedDirectoryFromInside(basename, parentStat, destinationStat);
-    assertCommitMarkerAbsent(".", commitFile);
-    assertDirectoryOwnerLease(".", destinationStat, ownerLease);
-    assertDirectoryReservation("..", reservation.basename, reservation);
-    if (ownerProcessMayBeAlive(ownerLease))
-      throw new Error(`project directory output is reserved by live writer ${ownerLease.pid}`);
-
-    const entries = readBoundedDirectoryEntries(
-      ".",
-      MAX_DIRECTORY_FILES + 2,
-      "project directory reservation"
-    );
-    if (!entries.includes(DIRECTORY_OWNER_FILE))
-      throw staleDirectoryError("project directory owner lease disappeared before recovery");
-    if (entries.includes(commitFile)) throw new Error("project directory output already exists");
-    for (const entry of entries) {
-      const stat = fs.lstatSync(entry);
-      if (stat.isSymbolicLink() || !stat.isFile())
-        throw staleDirectoryError(
-          `project directory reservation contains unsafe recovery entry: ${entry}`
-        );
-    }
-    assertDirectoryOwnerLease(".", destinationStat, ownerLease);
-    assertDirectoryReservation("..", reservation.basename, reservation);
-    if (ownerProcessMayBeAlive(ownerLease))
-      throw new Error(`project directory output is reserved by live writer ${ownerLease.pid}`);
-    assertPublishedDirectoryFromInside(basename, parentStat, destinationStat);
-
-    for (const entry of entries) {
-      if (entry === DIRECTORY_OWNER_FILE) continue;
-      assertCommitMarkerAbsent(".", commitFile);
-      fs.unlinkSync(entry);
-      assertCommitMarkerAbsent(".", commitFile);
-    }
-    assertDirectoryOwnerLease(".", destinationStat, ownerLease);
-    assertDirectoryReservation("..", reservation.basename, reservation);
-    if (ownerProcessMayBeAlive(ownerLease))
-      throw new Error(`project directory output is reserved by live writer ${ownerLease.pid}`);
-    assertPublishedDirectoryFromInside(basename, parentStat, destinationStat);
-    const replacementLease = replaceDirectoryOwnerLease(
-      destinationStat,
-      reservation,
-      commitFile,
-      ownerLease
-    );
-    const durability = fsyncDirectory();
-    if (!durability.synced && !UNSUPPORTED_DIRECTORY_SYNC_ERRORS.has(durability.errorCode))
-      throw new Error(
-        `project directory recovery sync failed (${durability.errorCode || "UNKNOWN"})`
-      );
-    assertCommitMarkerAbsent(".", commitFile);
-    assertDirectoryOwnerLease(".", destinationStat, replacementLease);
-    assertDirectoryReservation("..", reservation.basename, reservation);
-    assertPublishedDirectoryFromInside(basename, parentStat, destinationStat);
-    recovered = { destinationStat, ownerLease: replacementLease };
-  } catch (error) {
-    failure = error;
-  }
-  if (entered)
-    try {
-      process.chdir("..");
-      entered = false;
-    } catch (error) {
-      failure ||= error;
-    }
-  if (!failure) {
-    const observedParent = fs.statSync(".");
-    if (!sameInode(observedParent, parentStat))
-      failure = staleDirectoryError("project directory recovery parent changed");
-    else {
-      const published = fs.lstatSync(basename);
-      if (
-        published.isSymbolicLink() ||
-        !published.isDirectory() ||
-        !sameInode(published, destinationStat)
-      )
-        failure = staleDirectoryError("project directory destination changed after recovery");
-    }
-  }
-  if (failure) throw failure;
-  return recovered;
-}
-
-function removeDirectoryOwnerLease(ownerLease) {
-  assertDirectoryOwnerLease(".", fs.statSync("."), ownerLease);
-  fs.unlinkSync(DIRECTORY_OWNER_FILE);
-}
-
-function writeDirectoryFiles(payload, options = {}) {
-  const rootStat = fs.statSync(".");
-  if (
-    String(rootStat.dev) !== String(options.expectedRootDev) ||
-    String(rootStat.ino) !== String(options.expectedRootIno)
-  )
-    throw new Error("project directory destination changed before anchored write");
-  const files = decodeDirectoryPayload(payload, options.maxBytes);
-  const commitFile = normalizeDirectoryFileName(options.commitFile);
-  const marker = files.find((file) => file.name === commitFile);
-  if (!marker) throw new Error("directory output commit file must be present in the bundle");
-  if (options.ownerLease?.commit_file !== commitFile)
-    throw staleDirectoryError("project directory owner lease targets another commit marker");
-  let markerPublished = false;
-  try {
-    // Make every payload durable before exposing the commit marker.
-    for (const file of files) {
-      if (file !== marker) writeExclusiveDirectoryFile(file.name, file.content, options.fileMode);
-    }
-    const beforeCommit = fsyncDirectory();
-    if (!beforeCommit.synced && !UNSUPPORTED_DIRECTORY_SYNC_ERRORS.has(beforeCommit.errorCode))
-      throw new Error(
-        `project directory pre-commit sync failed (${beforeCommit.errorCode || "UNKNOWN"})`
-      );
-    publishCommitMarker(marker.name, marker.content, options.fileMode);
-    markerPublished = true;
-    // Persist the marker link before removing the owner lease.  After this
-    // barrier, every crash boundary is unambiguously committed even if the
-    // lease unlink is replayed independently.
-    const markerDurability = fsyncDirectory();
-    if (
-      !markerDurability.synced &&
-      !UNSUPPORTED_DIRECTORY_SYNC_ERRORS.has(markerDurability.errorCode)
-    ) {
-      const failure = new Error(
-        `project directory committed but marker sync failed (${markerDurability.errorCode || "UNKNOWN"}); do not retry this write`
-      );
-      failure.committed = true;
-      failure.code = markerDurability.errorCode || "UNKNOWN";
-      throw failure;
-    }
-    if (options.ownerLease) removeDirectoryOwnerLease(options.ownerLease);
-    const leaseRemovalDurability = fsyncDirectory();
-    if (
-      !leaseRemovalDurability.synced &&
-      !UNSUPPORTED_DIRECTORY_SYNC_ERRORS.has(leaseRemovalDurability.errorCode)
-    ) {
-      const failure = new Error(
-        `project directory committed but owner lease removal sync failed (${leaseRemovalDurability.errorCode || "UNKNOWN"}); do not retry this write`
-      );
-      failure.committed = true;
-      failure.code = leaseRemovalDurability.errorCode || "UNKNOWN";
-      throw failure;
-    }
-    const directorySyncError =
-      markerDurability.errorCode || leaseRemovalDurability.errorCode || null;
-    return {
-      committed: true,
-      directory_synced: markerDurability.synced && leaseRemovalDurability.synced,
-      ...(directorySyncError ? { directory_sync_error: directorySyncError } : {}),
-    };
-  } catch (error) {
-    if (markerPublished) error.committed = true;
-    throw error;
+      throw staleDirectoryError(message);
   }
 }
 
@@ -1406,7 +1006,7 @@ function enterDirectory(component, mode) {
   let expected;
   let observedMissing = false;
   try {
-    expected = fs.lstatSync(component);
+    expected = fs.lstatSync(component, { bigint: true });
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
     observedMissing = true;
@@ -1415,7 +1015,7 @@ function enterDirectory(component, mode) {
     } catch (mkdirError) {
       if (mkdirError.code !== "EEXIST") throw mkdirError;
     }
-    expected = fs.lstatSync(component);
+    expected = fs.lstatSync(component, { bigint: true });
   }
   if (expected.isSymbolicLink() || !expected.isDirectory())
     throw new Error(`project output ancestor is not a real directory: ${component}`);
@@ -1424,7 +1024,7 @@ function enterDirectory(component, mode) {
     throw new Error(`project output ancestor sync failed (${durability.errorCode || "UNKNOWN"})`);
   }
   process.chdir(component);
-  const entered = fs.statSync(".");
+  const entered = fs.statSync(".", { bigint: true });
   if (entered.dev !== expected.dev || entered.ino !== expected.ino)
     throw new Error(`project output ancestor changed during descent: ${component}`);
   return durability;
@@ -1464,7 +1064,7 @@ function writeExclusiveDirectoryFile(name, content, mode = 0o666) {
         (fs.constants.O_NOFOLLOW || 0),
       mode
     );
-    const opened = fs.fstatSync(descriptor);
+    const opened = fs.fstatSync(descriptor, { bigint: true });
     let offset = 0;
     while (offset < content.length) {
       const length = Math.min(DIRECTORY_WRITE_CHUNK_BYTES, content.length - offset);
@@ -1473,8 +1073,8 @@ function writeExclusiveDirectoryFile(name, content, mode = 0o666) {
       offset += written;
     }
     fs.fsyncSync(descriptor);
-    const afterWrite = fs.fstatSync(descriptor);
-    const finalStat = fs.lstatSync(name);
+    const afterWrite = fs.fstatSync(descriptor, { bigint: true });
+    const finalStat = fs.lstatSync(name, { bigint: true });
     if (
       finalStat.isSymbolicLink() ||
       !finalStat.isFile() ||
@@ -1490,71 +1090,14 @@ function writeExclusiveDirectoryFile(name, content, mode = 0o666) {
   }
 }
 
-function publishCommitMarker(name, content, mode = 0o666) {
-  const temporary = `.${name}.tmp-${process.pid}-${crypto.randomBytes(6).toString("hex")}`;
-  let opened = null;
-  let published = false;
-  try {
-    opened = writeExclusiveDirectoryFile(temporary, content, mode);
-    const durableTemporary = fs.lstatSync(temporary);
-    if (
-      durableTemporary.isSymbolicLink() ||
-      !durableTemporary.isFile() ||
-      durableTemporary.dev !== opened.dev ||
-      durableTemporary.ino !== opened.ino
-    )
-      throw new Error("project directory commit marker temporary changed before publication");
-    fs.linkSync(temporary, name);
-    published = true;
-    const marker = fs.lstatSync(name);
-    if (
-      marker.isSymbolicLink() ||
-      !marker.isFile() ||
-      marker.dev !== opened.dev ||
-      marker.ino !== opened.ino
-    )
-      throw new Error("project directory commit marker changed during publication");
-    fs.unlinkSync(temporary);
-  } catch (error) {
-    if (published) error.committed = true;
-    if (opened) {
-      try {
-        const cleanup = fs.lstatSync(temporary);
-        if (
-          cleanup.isSymbolicLink() ||
-          !cleanup.isFile() ||
-          cleanup.dev !== opened.dev ||
-          cleanup.ino !== opened.ino
-        )
-          throw new Error("project directory commit marker temporary changed; cleanup skipped");
-        fs.unlinkSync(temporary);
-      } catch (cleanupError) {
-        if (cleanupError.code !== "ENOENT" && !published) throw cleanupError;
-      }
-    }
-    throw error;
-  }
-}
-
-function readBoundedDirectoryEntries(directory, limit, label) {
-  const entries = [];
-  const handle = fs.opendirSync(directory);
-  try {
-    while (true) {
-      const entry = handle.readSync();
-      if (!entry) return entries;
-      if (entries.length >= limit)
-        throw staleDirectoryError(`${label} has too many files to reclaim`);
-      entries.push(entry.name);
-    }
-  } finally {
-    handle.closeSync();
-  }
-}
-
 function normalizeDirectoryFileName(name) {
   if (typeof name !== "string") throw new Error("directory output file name is invalid");
-  if (name === DIRECTORY_OWNER_FILE || name.startsWith(`${DIRECTORY_OWNER_FILE}.`))
+  if (
+    name === DIRECTORY_OWNER_FILE ||
+    name.startsWith(`${DIRECTORY_OWNER_FILE}.`) ||
+    name === DIRECTORY_POINTER_FILE ||
+    name.startsWith(`${DIRECTORY_POINTER_FILE}.`)
+  )
     throw new Error("directory output file name is reserved for writer ownership");
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/.test(name))
     throw new Error("directory output file name is invalid");
@@ -1664,7 +1207,11 @@ function normalizeAttestations(attestations) {
       !attestation ||
       typeof attestation !== "object" ||
       Array.isArray(attestation) ||
-      Object.keys(attestation).some((field) => !["path", "sha256", "maxBytes"].includes(field))
+      Object.keys(attestation).some(
+        (field) => !["path", "sha256", "maxBytes", "allowManagedDirectoryPointers"].includes(field)
+      ) ||
+      (attestation.allowManagedDirectoryPointers !== undefined &&
+        typeof attestation.allowManagedDirectoryPointers !== "boolean")
     )
       throw new Error("atomic write attestation is invalid");
     validateRelative(attestation.path);
@@ -1679,13 +1226,16 @@ function normalizeAttestations(attestations) {
       path: normalizedPath,
       sha256: attestation.sha256,
       maxBytes: attestation.maxBytes,
+      allowManagedDirectoryPointers: attestation.allowManagedDirectoryPointers === true,
     };
   });
 }
 
 function attestProjectInputs(root, attestations) {
   for (const attestation of normalizeAttestations(attestations)) {
-    const input = readProjectInput(root, attestation.path, attestation.maxBytes);
+    const input = readProjectInput(root, attestation.path, attestation.maxBytes, {
+      allowManagedDirectoryPointers: attestation.allowManagedDirectoryPointers,
+    });
     const observed = `sha256:${crypto.createHash("sha256").update(input.bytes).digest("hex")}`;
     if (observed !== attestation.sha256)
       throw new Error(`atomic write attestation changed: ${attestation.path}`);
