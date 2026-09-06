@@ -3,6 +3,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { parseJsonl } = require("./transcript.js");
+const { stableStringify } = require("../lib/workflow-runtime/records.js");
 const TOKEN_FIELDS = {
   input_tokens: "input_tokens",
   output_tokens: "output_tokens",
@@ -91,6 +92,7 @@ function collectEfficiency({ rawTranscript, adapter, durationMs, captureComplete
       : unavailable("transcript-missing-malformed-or-incomplete");
   const counts = new Map();
   let repeated = 0;
+  let exactArgumentsObserved = true;
   let requests = 0;
   for (const event of toolEvents) {
     if (/request_user_input|askuserquestion/i.test(event.name)) requests += 1;
@@ -100,7 +102,23 @@ function collectEfficiency({ rawTranscript, adapter, durationMs, captureComplete
       (event.tool_class === "run-command" &&
         /(?:\b(?:cat|rg|test|pytest)\b|npm (?:run )?(?:test|check|validate))/i.test(event.command))
     ) {
-      const signature = JSON.stringify([event.name, event.command]);
+      const rawEvent = event.raw || {};
+      const input = rawEvent.input;
+      // Claude's command projection loses Read offset/limit and other arguments.
+      // Retain complete observed tool input, or the actual Codex shell command.
+      const argumentsValue =
+        input && typeof input === "object" && !Array.isArray(input)
+          ? input
+          : event.tool_class === "run-command" &&
+              rawEvent.item?.type === "command_execution" &&
+              typeof rawEvent.item.command === "string"
+            ? rawEvent.item.command
+            : null;
+      if (argumentsValue === null) {
+        exactArgumentsObserved = false;
+        continue;
+      }
+      const signature = stableStringify([event.name, argumentsValue]);
       if (counts.has(signature)) repeated += 1;
       counts.set(signature, true);
     }
@@ -115,7 +133,9 @@ function collectEfficiency({ rawTranscript, adapter, durationMs, captureComplete
     tokens,
     observed_tool_calls: counter(toolEvents.length),
     observed_input_requests: counter(requests),
-    exact_repeated_reads_or_checks: counter(repeated),
+    exact_repeated_reads_or_checks: exactArgumentsObserved
+      ? counter(repeated)
+      : unavailable("exact-tool-arguments-not-retained"),
     unnecessary_questions: unavailable("requires-independent-semantic-annotation"),
     human_acceptance: unavailable("not-observed-by-harness"),
     billed_cost_usd: billed,

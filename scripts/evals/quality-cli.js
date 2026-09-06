@@ -217,11 +217,14 @@ function captureCandidate(options) {
       status: progress.status,
       efficiency: captureEfficiency(options.runDir, profile.adapter, progress),
     },
-    environment_hash: fs.existsSync(
-      path.join(options.runDir, "metadata", "environment_identity.json")
-    )
-      ? `sha256:${digest(JSON.stringify({ host: readJson(path.join(options.runDir, "metadata", "environment_identity.json")), command: path.basename(commandIdentity.command || "unknown"), timeout_ms: commandIdentity.timeout_ms ?? null }))}`
-      : null,
+    environment_hash:
+      fs.existsSync(path.join(options.runDir, "metadata", "environment_identity.json")) &&
+      typeof commandIdentity.command === "string" &&
+      commandIdentity.command.trim() &&
+      Number.isSafeInteger(commandIdentity.timeout_ms) &&
+      commandIdentity.timeout_ms > 0
+        ? `sha256:${digest(JSON.stringify({ host: readJson(path.join(options.runDir, "metadata", "environment_identity.json")), command: path.basename(commandIdentity.command), timeout_ms: commandIdentity.timeout_ms }))}`
+        : null,
     repeat: options.repeat,
     artifacts,
   };

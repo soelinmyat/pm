@@ -53,6 +53,11 @@ profile, model, and effort are recorded in existing sessions and review worker
 allocations. New policy values apply to new sessions; resume does not silently
 reselect a running task's model.
 
+Direct worker dispatch resumes require a matching `runtime.json` for the
+provider, worktree, and recorded session ID. A changed profile or missing receipt
+blocks the resume and preserves the previous result instead of applying new
+defaults to an existing worker.
+
 To return new sessions to workhorse defaults, save an empty policy with
 `"defaults": {}` and `"workflows": {}` at the relevant scope, or remove the
 explicitly selected policy. An empty project policy still permits user defaults.

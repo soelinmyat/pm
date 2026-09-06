@@ -108,7 +108,11 @@ test("claude live adapter stages plugin, enables analytics, and captures evidenc
         "--run-id",
         runId,
       ],
-      { cwd: repoRoot, encoding: "utf8", env: liveClaudeEnv({ binDir }) }
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: { ...liveClaudeEnv({ binDir }), PM_EVAL_CLAUDE_TIMEOUT_MS: "1200000" },
+      }
     );
 
     const adapterStderr = fs.existsSync(path.join(runDir, "metadata", "claude.stderr.log"))
@@ -121,6 +125,7 @@ test("claude live adapter stages plugin, enables analytics, and captures evidenc
     const command = JSON.parse(
       fs.readFileSync(path.join(runDir, "metadata", "claude_command.json"), "utf8")
     );
+    assert.equal(command.timeout_ms, 1200000);
     assert.ok(command.argv.includes("--plugin-dir"));
     assert.ok(command.argv.includes("stream-json"));
     assert.ok(command.argv.includes("--no-session-persistence"));

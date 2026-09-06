@@ -234,3 +234,54 @@ test("Claude tools are counted from its actual stream format", () => {
   assert.equal(result.observed_input_requests.value, 1);
   assert.equal(result.exact_repeated_reads_or_checks.value, 0);
 });
+
+test("exact Claude read repetitions distinguish complete argument sets", () => {
+  const calls = [
+    {
+      type: "tool_use",
+      id: "one",
+      name: "Read",
+      input: { file_path: "long.md", offset: 1, limit: 100 },
+    },
+    {
+      type: "tool_use",
+      id: "two",
+      name: "Read",
+      input: { file_path: "long.md", offset: 101, limit: 100 },
+    },
+  ];
+  const measure = () =>
+    collectEfficiency({
+      adapter: "claude",
+      rawTranscript: jsonl([
+        { type: "assistant", message: { content: calls } },
+        { type: "result", usage: {} },
+      ]),
+    });
+  assert.equal(measure().exact_repeated_reads_or_checks.value, 0);
+  calls.push({ ...calls[0], id: "three", input: { limit: 100, offset: 1, file_path: "long.md" } });
+  assert.equal(measure().exact_repeated_reads_or_checks.value, 1);
+  assert.equal(measure().observed_tool_calls.value, 3);
+});
+
+test("exact repetitions remain unavailable when read arguments were not retained", () => {
+  for (const adapter of ["claude", "codex"]) {
+    const events =
+      adapter === "claude"
+        ? [
+            {
+              type: "assistant",
+              message: { content: [{ type: "tool_use", id: "read", name: "Read" }] },
+            },
+            { type: "result", usage: {} },
+          ]
+        : [
+            { type: "tool", name: "Read", command: "long.md" },
+            { type: "turn.completed", usage: {} },
+          ];
+    const result = collectEfficiency({ adapter, rawTranscript: jsonl(events) });
+    assert.equal(result.observed_tool_calls.value, 1);
+    assert.equal(result.exact_repeated_reads_or_checks.value, null);
+    assert.match(result.exact_repeated_reads_or_checks.reason, /arguments/);
+  }
+});
