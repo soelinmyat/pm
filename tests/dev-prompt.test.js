@@ -129,3 +129,68 @@ test("CLI writes the bounded prompt atomically with private permissions", () => 
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("Dev budget rejects oversized authority without truncating or publishing a partial packet", () => {
+  const input = validInput({ authority: { ["dangerous-action-".repeat(20)]: false } });
+  assert.throws(
+    () => buildWorkerPrompt(input, { maxSectionBytes: 200 }),
+    /Authorized actions.*limit/
+  );
+  const result = buildWorkerPrompt(input, { maxSectionBytes: 4096 });
+  assert.ok(result.prompt.includes(Object.keys(input.authority)[0] + ": denied"));
+  assert.throws(() => buildWorkerPrompt(input, { maxPromptBytes: 200 }), /Dev prompt.*limit/);
+});
+
+test("Dev configurable byte budgets and component counts preserve every contract", () => {
+  const input = validInput({ context: "é".repeat(9000) });
+  assert.throws(() => buildWorkerPrompt(input), /Inputs and context.*limit/);
+  const result = buildWorkerPrompt({ ...input, prompt_budget: { maxSectionBytes: 20000 } });
+  assert.match(result.prompt, /Acceptance criteria/);
+  assert.match(result.prompt, /merge: denied/);
+  assert.match(result.prompt, /Result schema/);
+  assert.equal(
+    result.metrics.sections.reduce((n, section) => n + section.bytes, 0) + 16,
+    result.metrics.bytes
+  );
+  assert.equal(
+    result.metrics.sections.reduce((n, section) => n + section.words, 0),
+    result.metrics.words
+  );
+  for (const budget of [
+    { maxPromptBytes: 0 },
+    { maxSectionBytes: Infinity },
+    { maxPromptBytes: "100" },
+    { typo: 10 },
+  ]) {
+    assert.throws(() => buildWorkerPrompt(validInput({ prompt_budget: budget })), /prompt budget/);
+  }
+});
+
+test("Dev CLI preserves an existing output when the packet exceeds its budget", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pm-dev-budget-"));
+  try {
+    const inputPath = path.join(directory, "input.json");
+    const outputPath = path.join(directory, "prompt.md");
+    fs.writeFileSync(
+      inputPath,
+      JSON.stringify(validInput({ prompt_budget: { maxPromptBytes: 1 } }))
+    );
+    fs.writeFileSync(outputPath, "previous valid packet");
+    const result = spawnSync(
+      process.execPath,
+      [
+        path.resolve(__dirname, "../scripts/dev-prompt.js"),
+        "--input",
+        inputPath,
+        "--output",
+        outputPath,
+      ],
+      { encoding: "utf8" }
+    );
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, /limit/);
+    assert.equal(fs.readFileSync(outputPath, "utf8"), "previous valid packet");
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});

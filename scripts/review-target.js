@@ -58,7 +58,6 @@ function buildReviewTarget(options) {
   );
   if (designEvidence && designEvidence.commit !== commit)
     throw new Error(`design critique report must attest current HEAD ${commit}`);
-  const profile = loadProfile(options.profile || "codex-workhorse");
   const maxWorkers = positiveInt(options.maxWorkers || 3, "max workers");
   const round = positiveInt(options.round || 1, "round");
   if (round > 3) throw new Error("review round cannot exceed 3");
@@ -85,17 +84,21 @@ function buildReviewTarget(options) {
   );
   const acceptance = acceptanceLoaded?.binding || null;
   const targetSlug = options.outPath?.match(/^\.pm\/dev-sessions\/([^/]+)\/review\//)?.[1];
-  const devContext = options.devSessionPath
+  const loadedDev = options.devSessionPath
     ? loadDevContext(root, options.devSessionPath, {
         expectedSlug: targetSlug,
         expectedMode: mode,
       })
     : null;
+  const devContext = loadedDev?.context || null;
+  const retainedReview = priorLoaded ? retainedReviewProfile(root, priorLoaded.value) : null;
+  const selectedProfile = resolveReviewProfile(options, root, loadedDev?.execution, retainedReview);
+  const profile = selectedProfile.runtime;
   const lenses = deriveLensApplicability(mode, changedFiles, devContext);
   const allocation = allocateLenses(
     lenses.filter((item) => item.applicable).map((item) => item.name),
     maxWorkers,
-    options.profile || "codex-workhorse"
+    selectedProfile.name
   ).map((worker) => ({ ...worker, runtime: profile }));
   if (
     acceptanceLoaded &&
@@ -286,7 +289,7 @@ function loadDevContext(root, relative, expected) {
     throw new Error("Dev session path must be the canonical sibling session.json");
   if (loaded.value.routing.review_mode !== expected.expectedMode)
     throw new Error("Dev session review mode must equal the requested target mode");
-  return devReviewContext(loaded.value);
+  return { context: devReviewContext(loaded.value), execution: loaded.value.execution };
 }
 
 // Which remote a frozen `base_ref` names, or null when none does. Longest name
@@ -518,19 +521,84 @@ function assertCleanWorktree(root) {
 }
 
 function loadProfile(name) {
-  const profiles = JSON.parse(
+  return resolveReviewProfile({ profile: name }, process.cwd()).runtime;
+}
+
+function retainedReviewProfile(root, report) {
+  const loaded = optionalJsonFileBinding(root, report.target?.path, "prior Review target");
+  if (!loaded || loaded.binding.sha256 !== report.target?.sha256)
+    throw new Error("prior Review report must bind its exact target bytes");
+  const workers = loaded.value.allocation;
+  if (!Array.isArray(workers) || workers.length === 0)
+    throw new Error("prior Review target must contain a frozen allocation");
+  const first = workers[0];
+  if (
+    workers.some(
+      (worker) =>
+        worker.profile !== first.profile ||
+        JSON.stringify(worker.runtime) !== JSON.stringify(first.runtime)
+    )
+  )
+    throw new Error("cannot collapse heterogeneous prior Review profiles into one target profile");
+  return { name: first.profile, runtime: first.runtime };
+}
+
+function resolveReviewProfile(options, root, execution = null, retained = null) {
+  const data = JSON.parse(
     fs.readFileSync(path.join(__dirname, "..", "skills/dev/references/model-profiles.json"), "utf8")
-  ).profiles;
-  const profile = profiles?.[name];
+  );
+  const persisted = execution && execution.runtime !== "inline" ? execution : null;
+  const provider = persisted?.runtime || "codex";
+  const selected =
+    options.profile || retained
+      ? null
+      : require("./lib/execution-policy").selectExecutionProfile({
+          data,
+          provider,
+          workflow: "review",
+          sourceDir: root,
+          ...(options.env ? { env: options.env } : {}),
+        });
+  const phasePolicy = selected?.scope === "workflow" ? selected : null;
+  const name =
+    options.profile ||
+    retained?.name ||
+    phasePolicy?.profileName ||
+    persisted?.profile ||
+    selected?.profileName ||
+    "codex-workhorse";
+  const profile = data.profiles?.[name];
   if (!profile || !new Set(["codex", "claude", "inline"]).has(profile.provider))
     throw new Error(`unknown or invalid review profile ${name}`);
   if (!profile.model || !profile.effort || profile.externalEffects !== false)
     throw new Error(`review profile ${name} lacks safe model metadata`);
+  if (!options.profile && retained) {
+    if (
+      retained.runtime?.model !== profile.model ||
+      retained.runtime?.provider !== profile.provider ||
+      retained.runtime?.external_effects !== false
+    )
+      throw new Error("retained Review runtime does not match its named profile");
+    return structuredClone(retained);
+  }
+  if (
+    !options.profile &&
+    !phasePolicy &&
+    persisted &&
+    (persisted.model !== profile.model || persisted.runtime !== profile.provider)
+  )
+    throw new Error("persisted Dev execution does not match its named Review profile");
+  const effort = options.profile
+    ? profile.effort
+    : phasePolicy?.effort || persisted?.reasoning || selected?.effort || profile.effort;
   return {
-    provider: profile.provider,
-    model: profile.model,
-    effort: profile.effort,
-    external_effects: false,
+    name,
+    runtime: {
+      provider: profile.provider,
+      model: profile.model,
+      effort,
+      external_effects: false,
+    },
   };
 }
 
@@ -648,6 +716,7 @@ module.exports = {
   assertCleanWorktree,
   assertDevReviewLineage,
   buildReviewTarget,
+  resolveReviewProfile,
   changedFileInventory,
   loadProfile,
   parseArgs,

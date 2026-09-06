@@ -203,6 +203,45 @@ repository or GitHub setup requires separate explicit authority.
 
 Until your Codex install loads this repository as a plugin directly, the generated skill-symlink flow below remains the compatible fallback. It uses the same canonical plugin metadata and current skill inventory as the other platform manifests.
 
+## Keep one active installation
+
+After a fresh Codex session confirms native PM skills are available, diagnose
+the exact loaded root before retiring fallback aliases:
+
+\`\`\`bash
+node "$PM_PLUGIN_ROOT/scripts/pm-installations.js" diagnose --native-root "$PM_PLUGIN_ROOT"
+node "$PM_PLUGIN_ROOT/scripts/pm-installations.js" migrate --native-root "$PM_PLUGIN_ROOT" --native-discovered --backup-dir "$HOME/.agents/disabled-pm/native-migration"
+\`\`\`
+
+Use the native plugin path observed by Codex as \`PM_PLUGIN_ROOT\`. The diagnostic
+reports native/fallback versions, duplicate workflows, and entry hashes. File
+presence alone does not prove that the host enabled the native plugin; the
+\`--native-discovered\` flag records your fresh-session observation.
+
+Migration moves only verified \`pm-*\` symlinks targeting the fallback PM clone.
+It preserves unrelated skills and ordinary directories, refuses a missing native
+replacement, and writes a private restoration receipt. Use a new backup directory
+for each migration. Restart Codex or start a fresh task and verify the native
+workflow names. Restore if native discovery does not work:
+
+\`\`\`bash
+node "$PM_PLUGIN_ROOT/scripts/pm-installations.js" restore --receipt "$HOME/.agents/disabled-pm/native-migration/receipt.json"
+\`\`\`
+
+Restore refuses to replace an occupied alias. Generated host command wrappers
+can also appear in the skill picker; they are compatibility entry points into
+the native skill. Do not hand-edit their generated cache files. The plugin
+manifest publishes the canonical \`skills/\` directory.
+
+## Consistent model selection
+
+An interactive Astra task does not automatically change a CLI worker's model.
+Use the explicit JSON policy and commands in
+[Execution model policy](../references/execution-policy.md) to select Astra or
+another supported model across new Dev, Groom, RFC, and Review sessions.
+Project settings override user settings; explicit named profiles and persisted
+sessions retain their choices. Inline work inherits the current host model.
+
 When Codex loads PM as a native plugin, product skills appear under the plugin namespace, including \`pm:think\`, \`pm:ideate\`, \`pm:strategy\`, \`pm:features\`, \`pm:groom\`, \`pm:research\`, \`pm:ingest\`, and \`pm:refresh\`. Product-reasoning skills keep Markdown as the primary reader while writing small validated JSON companions for stable decisions, ranking, promotion, and feature identity.
 
 The fallback symlink flow below creates explicit \`pm-*\` aliases on disk for every PM workflow, including build and ship flows. Codex discovers user-installed skills from \`~/.agents/skills\` and project-local skills from \`<project>/.agents/skills\`.

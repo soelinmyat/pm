@@ -11,6 +11,10 @@ const suite = JSON.parse(
 );
 
 const workflowMarker = {
+  research: "product-evidence.json",
+  think: "product-evidence.json",
+  strategy: "product-evidence.json",
+  ideate: "product-evidence.json",
   groom: "pm/backlog/csv-export.md",
   rfc: "docs/architecture.md",
   dev: "change-request.md",
@@ -53,15 +57,15 @@ test("every quality case has concrete workflow/type state and a semantic output 
         assert.match(checks, /recovery_test/);
       }
       if (item.type === "resume") {
-        assert.match(setup, /quality-resume\.js|phase: research/);
+        assert.match(setup, /quality-resume\.js|phase: research|product-resume\.json/);
         assert.match(checks, /resume_validated/);
       }
       if (item.type === "repeated-run-variance") {
-        assert.match(setup, /\\"expectation\\": \\"defect-present\\"/);
+        assert.match(setup, /\\"expectation\\":\s*\\"(?:defect-present|concise-correct)\\"/);
       }
     }
   }
-  assert.equal(refs.size, 41);
+  assert.equal(refs.size, 69);
 });
 
 function escapeRegExp(value) {

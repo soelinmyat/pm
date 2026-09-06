@@ -188,6 +188,14 @@ function runEval(opts) {
   );
   writeJson(path.join(paths.metadataDir, "scenario_identity.json"), scenarioIdentity);
   writeSandboxIdentity(paths, agent);
+  writeJson(path.join(paths.metadataDir, "environment_identity.json"), {
+    schema_version: 1,
+    platform: process.platform,
+    architecture: process.arch,
+    node_version: process.version,
+    adapter: agent,
+    scope: "harness-host; adapter binary version and remote service state unobserved",
+  });
 
   writeJson(path.join(paths.metadataDir, "adapter_boot.json"), {
     adapter: adapter.name || agent,

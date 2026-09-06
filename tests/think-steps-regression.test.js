@@ -71,7 +71,8 @@ const CRITICAL_KEYWORDS = [
   // Synthesize
   "Synthesize",
   "thinking artifact",
-  "Did I capture it correctly",
+  "In interview mode, ask for summary confirmation if it is still needed",
+  "recommendation only, complete the recommendation",
   "status: promoted",
   "promoted_to",
   "pm:groom",

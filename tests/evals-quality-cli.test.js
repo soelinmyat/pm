@@ -293,6 +293,79 @@ test("quality CLI captures a content-hashed candidate from a determinate run bun
     assert.equal(ledger.candidates[0].source_hash, sha("runtime"));
     assert.equal(ledger.candidates[0].runtime.duration_ms, 1234);
 
+    for (const profile of [
+      { id: "sol-high", adapter: "codex", model: "gpt-5.6-sol", effort: "high" },
+      { id: "opus-xhigh", adapter: "claude", model: "claude-opus-4-8", effort: "xhigh" },
+    ]) {
+      writeJson(path.join(runDir, "verdict.json"), {
+        scenario: "quality-dev-happy-path",
+        agent: profile.adapter,
+        status: "pass",
+        artifact_ref: "runs/capture-timeout",
+      });
+      writeJson(path.join(runDir, "metadata", "quality_profile_identity.json"), {
+        schema_version: 1,
+        ...profile,
+      });
+      writeJson(path.join(runDir, "metadata", `${profile.adapter}_progress.json`), {
+        status: "complete",
+        duration_ms: 1234,
+      });
+      writeJson(path.join(runDir, "metadata", "environment_identity.json"), {
+        schema_version: 1,
+        adapter: profile.adapter,
+        platform: process.platform,
+      });
+      const identities = [];
+      for (const [index, timeout] of [undefined, 1000, 2000].entries()) {
+        writeJson(path.join(runDir, "metadata", `${profile.adapter}_command.json`), {
+          command: `/test/bin/${profile.adapter}`,
+          argv:
+            profile.adapter === "codex"
+              ? ["exec", "-m", profile.model, "-c", 'model_reasoning_effort="high"']
+              : ["-p", "--model", profile.model, "--effort", profile.effort],
+          ...(timeout === undefined ? {} : { timeout_ms: timeout }),
+        });
+        const captured = spawnSync(
+          process.execPath,
+          [
+            cli,
+            "capture",
+            "--run",
+            runDir,
+            "--profile",
+            profile.id,
+            "--case",
+            "dev-happy-path",
+            "--repeat",
+            String(index + 10),
+            "--artifact",
+            "artifacts/report.md",
+            "--out",
+            out,
+          ],
+          { cwd: repoRoot, encoding: "utf8" }
+        );
+        assert.equal(captured.status, 0, captured.stdout + captured.stderr);
+        identities.push(
+          JSON.parse(fs.readFileSync(out, "utf8")).candidates.at(-1).environment_hash
+        );
+      }
+      assert.equal(identities[0], null, `${profile.adapter}: unobserved timeout is unknown`);
+      assert.match(identities[1], /^sha256:[a-f0-9]{64}$/);
+      assert.notEqual(
+        identities[1],
+        identities[2],
+        `${profile.adapter}: timeout changes the environment identity`
+      );
+    }
+    writeJson(path.join(runDir, "verdict.json"), {
+      scenario: "quality-dev-happy-path",
+      agent: "codex",
+      status: "pass",
+      artifact_ref: "runs/capture-timeout",
+    });
+
     writeJson(path.join(runDir, "metadata", "quality_profile_identity.json"), {
       schema_version: 1,
       id: "sol-high",

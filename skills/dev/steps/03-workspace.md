@@ -101,31 +101,41 @@ Repos without a loop config are a silent no-op (no `worker.bootstrap_*` keys →
 | Shared package build | Monorepo with shared packages | Build shared packages before consuming apps |
 | Database setup | AGENTS.md lists DB commands | Run migrations if needed |
 
-If AGENTS.md doesn't specify workspace setup, fall back to: install dependencies + run the project's test command once to verify the worktree is functional.
+### Workspace verification plan (mandatory)
 
-### Workspace verification (mandatory)
+Create one scoped plan from the repository instructions and observed task risk before implementation. Repository-required checks always belong in the plan. Add focused behavior/regression checks for executable changes and a baseline check that can detect a broken dependency or runtime setup. For a low-risk prose-only change with no mandated tests, source/structure validation can establish the baseline; do not invent behavioral tests for prose. A full project suite is required when repository rules demand it or the risk/unknown baseline justifies it.
 
-After prep, run the project's test command (from AGENTS.md) to confirm the worktree is functional:
+Save `verification-input.json` under the existing session's `workspace/` evidence directory with:
 
-```bash
-# Example: detect and run the right test command
-if [ -f "package.json" ]; then
-  # Check for test script in package.json
-  npm test  # or pnpm test, yarn test
-elif [ -f "Gemfile" ]; then
-  bundle exec rails test
-elif [ -f "pyproject.toml" ]; then
-  pytest
-fi
+```json
+{
+  "stage": "baseline",
+  "risk": "low",
+  "executable_change": true,
+  "repository_commands": ["npm run validate:plugin"],
+  "focused_commands": ["node --test tests/parser.test.js"],
+  "environment": null,
+  "dependencies": null
+}
 ```
 
-If tests fail at this point, the worktree setup is broken — not your changes. Try to fix the environment issue (missing deps, stale codegen, etc.). If the baseline cannot be fixed, escalate per SKILL.md: "Worktree tests fail before I've changed anything. Here's what I see: {errors}. Fix the baseline first, or proceed with known failures?"
+Use actual commands from the repository and affected contracts; these names are examples. Map the observed Dev risk to low/medium/high, conservatively choosing high for unresolved risk. `environment` and `dependencies` may be nonempty objects of independently observed runtime/configuration and installed-dependency digests when complete identities are available. Hash sensitive values rather than storing them. Unknown or incomplete identities remain `null` and prohibit reuse; a lockfile alone is not proof of the installed dependency tree. Include ignored/generated inputs in those identities when the checks depend on them.
 
-Record the baseline test outcome in the session file (pass, or which tests failed).
+Generate the plan through the helper; it binds tracked and untracked nonignored source bytes as well as the command and supplied identities:
 
-Once the repo root, branch, cwd, worktree, backlog status, and baseline test
-result are recorded and implementation can begin from a verified clean
-baseline, proceed to Step 04 (Groom Readiness).
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/verification-plan.js" \
+  --root "{worktree}" \
+  --evidence-root "{originating_project_root}" \
+  --input ".pm/dev-sessions/{slug}/workspace/verification-input.json" \
+  --out ".pm/dev-sessions/{slug}/workspace/verification-plan.json"
+```
+
+`--root` identifies the source worktree; `--evidence-root` identifies the originating project containing the existing canonical session. Resolve input/output/receipt paths against that evidence root; do not copy or create a second session in the worktree. Run each planned command once and retain its output. Store receipts alongside existing workspace evidence as `{key, status, artifact: {path, sha256}}`; copy the plan's key only after the actual command passes and a regenerated plan confirms the same input identities before and after the run. Paths are project-relative, and hashes are SHA-256 of the retained output. A rerun can supply `--prior` with that receipt array: matching complete inputs plus unchanged passing output permit reuse. Changed code, command, runtime, dependency identities, or output invalidate reuse. Planning is not gate certification: existing TDD, QA, Review, final verification and prepared-release freshness contracts still apply. Regenerate with `stage: final` for final checks; repository-mandated final commands always run even with a matching receipt.
+
+If a check fails before implementation, preserve the baseline failure, diagnose missing dependencies or stale generated inputs, and repair authorized environment setup. Distinguish an existing product failure from environment failure using evidence. Continue independent work when possible; request a scope decision only when an unresolved failure prevents meaningful verification. Do not silently claim a passing baseline.
+
+Record the plan, retained command outcomes, source/environment/dependency identity limits, and any known failures in the existing workspace evidence. Once the required checks pass, broaden or repeat them only for changed inputs, a mandatory later gate, or a concrete unresolved concern. Continue after repo root, branch, cwd, worktree, backlog state, and the scoped baseline are verified.
 
 ## Done-when
 

@@ -5,6 +5,12 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { hashTree } = require("./stage.js");
+const { summarizeEfficiency } = require("./efficiency.js");
+const {
+  checkRevisionComparison,
+  comparisonDesignHash,
+  checkTreatmentCandidates,
+} = require("./revision-comparison.js");
 const { parseFrontmatter } = require("../kb-frontmatter.js");
 
 const REQUIRED_CASE_TYPES = [
@@ -19,7 +25,18 @@ const REQUIRED_CASE_TYPES = [
 const HASH_PATTERN = /^sha256:[a-f0-9]{64}$/;
 const SAFE_REF_PATTERN = /^evals\/quality\/[a-zA-Z0-9._/-]+$/;
 const BEHAVIORAL_STATUSES = new Set(["pass", "fail", "skip", "indeterminate"]);
-const SUBSTANTIAL_WORKFLOWS = ["groom", "rfc", "dev", "review", "design-critique", "ship"];
+const SUBSTANTIAL_WORKFLOWS = [
+  "groom",
+  "rfc",
+  "dev",
+  "review",
+  "design-critique",
+  "ship",
+  "research",
+  "think",
+  "strategy",
+  "ideate",
+];
 const MAX_ARTIFACTS_PER_CANDIDATE = 4;
 const MAX_CANDIDATE_JUDGE_BYTES = 20 * 1024;
 const MAX_PACKET_ESTIMATED_TOKENS = 48_000;
@@ -449,7 +466,7 @@ function extractCasePrompt(markdown, type) {
   return output.join("\n").trim();
 }
 
-function buildBlindPacket({ candidates, rubric, scenario, salt }) {
+function buildBlindPacket({ candidates, rubric, scenario, salt, comparisonDesign = null }) {
   assertValid(validateRubric(rubric), "rubric");
   if (!nonempty(salt)) throw new Error("blind packet salt is required");
   if (!plainObject(scenario) || !nonempty(scenario.workflow) || !nonempty(scenario.case_id)) {
@@ -478,7 +495,11 @@ function buildBlindPacket({ candidates, rubric, scenario, salt }) {
       [item.release, item.source_hash, item.behavioral.scenario_hash].join("::")
     )
   );
-  if (comparisonIdentities.size !== 1) {
+  if (comparisonDesign) {
+    const reason = checkTreatmentCandidates(candidates, rubric, comparisonDesign);
+    if (reason) throw new Error(reason);
+  }
+  if (comparisonIdentities.size !== 1 && !comparisonDesign) {
     throw new Error("eligible candidates must share release, source_hash, and scenario_hash");
   }
 
@@ -487,6 +508,9 @@ function buildBlindPacket({ candidates, rubric, scenario, salt }) {
       workflow: scenario.workflow,
       case_id: scenario.case_id,
       hashes: eligible.map(({ item }) => item.artifacts.map((artifact) => artifact.sha256)),
+      ...(comparisonDesign
+        ? { comparison_design_hash: comparisonDesignHash(comparisonDesign) }
+        : {}),
       salt,
     })
   ).slice(0, 20)}`;
@@ -552,9 +576,11 @@ function buildBlindPacket({ candidates, rubric, scenario, salt }) {
     $schema: "https://pm-plugin.local/evals/quality-packet.schema.json",
     schema_version: 1,
     packet_id: packetId,
+    ...(comparisonDesign ? { comparison_design_hash: comparisonDesignHash(comparisonDesign) } : {}),
     instructions: [
       "Judge only the supplied scenario and artifacts; do not infer or identify the generating model.",
       "Score every rubric dimension from 1 to 5, or use not_applicable with artifact-grounded evidence.",
+      "Check whether cited evidence supports consequential claims, including contradictions and stale assumptions; reward concise correct work and penalize false blockers, not brevity.",
       "Complete every pair in pairwise_plan and return strict JSON only, using exactly the response_contract keys and nesting.",
     ],
     response_contract: {
@@ -640,6 +666,7 @@ function buildBlindPacket({ candidates, rubric, scenario, salt }) {
         sha256: view.view_sha256,
       })),
       excluded,
+      ...(comparisonDesign ? { comparison_design: comparisonDesign } : {}),
     },
     excluded,
   };
@@ -906,6 +933,12 @@ function validatePrivateKey(key, packet, candidates) {
     return invalid("private key schema_version must equal 1");
   if (key.packet_id !== packet.packet_id)
     issues.push("private key packet_id does not match packet");
+  if (packet.comparison_design_hash || key.comparison_design) {
+    if (packet.comparison_design_hash !== comparisonDesignHash(key.comparison_design))
+      issues.push("comparison design binding mismatch");
+    const reason = checkTreatmentCandidates(candidates, packet.rubric, key.comparison_design);
+    if (reason) issues.push(reason);
+  }
   const viewMapping = (key.views || []).find((item) => item.view_id === packet.view_id);
   if (!viewMapping || viewMapping.sha256 !== packet.view_sha256) {
     issues.push("private key does not authenticate the supplied packet view");
@@ -1091,7 +1124,10 @@ function aggregateQualityResults({
       minimum: round(Math.min(...group.scores)),
       maximum: round(Math.max(...group.scores)),
       repeats: group.repeats.size,
-      behavioral_pass_rate: group.total === 0 ? null : group.passed / group.total,
+      behavioral_pass_rate:
+        candidates.filter((item) => item.profile.id === id && item.behavioral.status === "pass")
+          .length / candidates.filter((item) => item.profile.id === id).length,
+      efficiency: summarizeEfficiency(candidates.filter((item) => item.profile.id === id)),
       latency: {
         mean_ms: round(mean(group.durations)),
         median_ms: round(median(group.durations)),
@@ -1180,6 +1216,7 @@ function buildScorecard({ candidates, aggregate }) {
           : eligible.length > 0
             ? "quality-scored"
             : "not-scorable",
+    efficiency: summarizeEfficiency(candidates),
     total_candidates: candidates.length,
     eligible_candidates: eligible.length,
     behavioral_failures: failures.length,
@@ -1193,7 +1230,11 @@ function buildScorecard({ candidates, aggregate }) {
   };
 }
 
-function compareQualityScorecards(baseline, current) {
+function compareQualityScorecards(baseline, current, comparisonDesign = null) {
+  if (comparisonDesign) {
+    const reason = checkRevisionComparison(baseline, current, comparisonDesign);
+    if (reason) return { comparable: false, reason };
+  }
   if (baseline.workflow !== current.workflow || baseline.case_id !== current.case_id) {
     return { comparable: false, reason: "workflow-or-case-mismatch" };
   }
@@ -1204,6 +1245,7 @@ function compareQualityScorecards(baseline, current) {
     "rubric_hash",
     "evaluation_design_hash",
   ]) {
+    if (field === "source_hash" && comparisonDesign) continue;
     if (
       !baseline.evaluation_identity ||
       !current.evaluation_identity ||
@@ -1236,6 +1278,12 @@ function compareQualityScorecards(baseline, current) {
   }
   return {
     comparable: true,
+    ...(comparisonDesign
+      ? {
+          comparison_design_hash: comparisonDesignHash(comparisonDesign),
+          treatments: comparisonDesign.variants,
+        }
+      : {}),
     profiles,
     eligible_candidates_delta:
       (current.eligible_candidates || 0) - (baseline.eligible_candidates || 0),

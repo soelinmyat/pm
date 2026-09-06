@@ -142,6 +142,34 @@ PM ships a native Codex plugin manifest at `.codex-plugin/plugin.json`. Skills a
 
 If your Codex install isn't loading the plugin directly yet, see the fallback steps in [`.codex/INSTALL.md`](.codex/INSTALL.md).
 
+Use one current PM installation. The read-only `scripts/pm-installations.js`
+diagnostic reports fallback/native versions, duplicate workflows, and skill
+hashes. Its explicit migration command moves verified fallback symlinks into a
+private backup with a restore receipt; it preserves unrelated skills. See the
+installation guide for migration and rollback commands.
+
+For a consistent model choice across Dev, Groom, RFC, and Review, save an
+explicit [execution policy](references/execution-policy.md). Named profile
+overrides and existing sessions keep their choices; inline work inherits the
+host agent. No policy grants additional authority.
+
+PM loads current workflow instructions as needed and continues authorized
+drafting without routine confirmation pauses. Genuine product decisions and
+approval records remain explicit. Dev and Groom prompt packets reject excess
+content against configurable budgets rather than silently truncating contracts.
+
+Simple generated Review reports use current browser checks at three widths and
+a desktop capture. Rich reports, presentation changes, and unsupported evidence
+use the full responsive/print route. Workspace verification plans reuse only
+matching source/environment/dependency evidence and preserve required final
+checks. Structural proposal scores are explicitly labeled; semantic judgment
+still requires evidence-based review.
+
+The [quality evaluation suite](evals/README.md) covers daily Research, Think,
+Strategy, and Ideate work as well as delivery workflows. It reports observed
+efficiency data and leaves unavailable measurements unknown. No general Astra
+quality or speed advantage is claimed without comparable live runs.
+
 ### Other platforms
 
 PM officially supports Claude Code and Codex. Community contributions for other platforms are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).

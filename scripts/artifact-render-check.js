@@ -46,6 +46,21 @@ function renderArtifact(options) {
   const outputDir = path.resolve(options.outputDir);
   const relativeHtml = projectRelative(projectRoot, htmlPath, "HTML");
   projectRelative(projectRoot, outputDir, "render output directory");
+  const presentationMode = options.presentation || "full";
+  if (!["full", "auto", "compact"].includes(presentationMode))
+    throw new Error("presentation must be full, auto, or compact");
+  let presentation = null;
+  if (presentationMode !== "full") {
+    if (options.markerPrefix !== "data-review-" || options.legacyProbe === true)
+      throw new Error("compact presentation requires canonical Review browser probes");
+    presentation = require("./lib/review-presentation").readReviewPresentation(
+      projectRoot,
+      htmlPath
+    );
+    if (presentationMode === "compact" && presentation.mode !== "compact")
+      throw new Error(`compact presentation is ineligible: ${presentation.reason}`);
+  }
+  const compact = presentation?.mode === "compact";
   const requestedBrowserPath = resolveBrowser(options.browserPath);
   const browserPath = fs.realpathSync(requestedBrowserPath);
   const executableSha256Before = digestFile(browserPath);
@@ -70,6 +85,10 @@ function renderArtifact(options) {
       });
       assertRenderSourceIdentity(htmlPath, sourceBefore, sourceWatcher);
       validateMetrics(metrics, viewport);
+      if (compact && viewport.name !== "desktop") {
+        captures.push({ ...viewport, metrics });
+        continue;
+      }
       fs.rmSync(output, { force: true });
       runBrowser(
         browserPath,
@@ -87,6 +106,16 @@ function renderArtifact(options) {
         throw new Error(
           `${viewport.name} capture has ${dimensions.width}x${dimensions.height}; expected ${viewport.width}x${viewport.height}`
         );
+      }
+      if (compact) {
+        captures.push({
+          ...viewport,
+          path: projectRelative(projectRoot, output, "render capture"),
+          sha256: digestFile(output),
+          bytes: fs.statSync(output).size,
+          metrics,
+        });
+        continue;
       }
       const fullOutput = path.join(
         outputDir,
@@ -155,14 +184,23 @@ function renderArtifact(options) {
     }
 
     const pdfPath = path.join(outputDir, `${path.basename(htmlPath, ".html")}-print.pdf`);
-    fs.rmSync(pdfPath, { force: true });
-    runBrowser(
-      browserPath,
-      [...baseArgs(), `--print-to-pdf=${pdfPath}`, "--no-pdf-header-footer", url],
-      { canonical: options.legacyProbe !== true, projectRoot }
-    );
-    assertRenderSourceIdentity(htmlPath, sourceBefore, sourceWatcher);
-    const printInspection = inspectPdf(pdfPath);
+    let print = null;
+    if (!compact) {
+      fs.rmSync(pdfPath, { force: true });
+      runBrowser(
+        browserPath,
+        [...baseArgs(), `--print-to-pdf=${pdfPath}`, "--no-pdf-header-footer", url],
+        { canonical: options.legacyProbe !== true, projectRoot }
+      );
+      assertRenderSourceIdentity(htmlPath, sourceBefore, sourceWatcher);
+      const printInspection = inspectPdf(pdfPath);
+      print = {
+        path: projectRelative(projectRoot, pdfPath, "print render"),
+        sha256: digestFile(pdfPath),
+        bytes: fs.statSync(pdfPath).size,
+        pages: printInspection.pages,
+      };
+    }
     const markers = options.markerPrefix
       ? probeDataMarkerVisibility(browserPath, htmlPath, outputDir, options.markerPrefix, {
           legacyProbe: options.legacyProbe === true,
@@ -178,8 +216,15 @@ function renderArtifact(options) {
       throw new Error("browser executable changed during artifact capture");
     assertRenderSourceIdentity(htmlPath, sourceBefore, sourceWatcher);
 
+    if (compact)
+      require("./lib/review-presentation").validateCompactReviewPresentation(
+        projectRoot,
+        htmlPath,
+        presentation
+      );
     return {
-      schema_version: 1,
+      schema_version: compact ? 2 : 1,
+      ...(compact ? { presentation } : {}),
       source: { path: relativeHtml, sha256: sourceBefore.sha256 },
       observation: {
         assurance_level: OBSERVATION_ASSURANCE_LEVEL,
@@ -191,15 +236,13 @@ function renderArtifact(options) {
           engine: "chromium",
           version: browserVersion,
         },
-        invocation_configuration_sha256: invocationConfigurationDigest(options.markerPrefix),
+        invocation_configuration_sha256: invocationConfigurationDigest(
+          options.markerPrefix,
+          compact ? "compact" : "full"
+        ),
       },
       captures,
-      print: {
-        path: projectRelative(projectRoot, pdfPath, "print render"),
-        sha256: digestFile(pdfPath),
-        bytes: fs.statSync(pdfPath).size,
-        pages: printInspection.pages,
-      },
+      print,
       ...(markers ? { markers } : {}),
       checked_at: new Date().toISOString(),
     };
@@ -313,13 +356,17 @@ function probeBrowserVersion(browserPath) {
   return version;
 }
 
-function invocationConfigurationDigest(markerPrefix) {
+function invocationConfigurationDigest(markerPrefix, presentation = "full") {
+  if (!["full", "compact"].includes(presentation)) throw new Error("unknown presentation mode");
   const configuration = {
     viewports: VIEWPORTS,
     max_render_height: MAX_RENDER_HEIGHT,
     browser_args: baseArgs(),
     marker_prefix: markerPrefix || null,
-    capture_modes: ["viewport-png", "full-page-png", "print-pdf", "dom-metrics"],
+    capture_modes:
+      presentation === "compact"
+        ? ["desktop-viewport-png", "dom-metrics"]
+        : ["viewport-png", "full-page-png", "print-pdf", "dom-metrics"],
     probe_mode: "canonical-url-browser-evaluation",
     source_guard: "immutable-page-content-or-event-watch",
   };
@@ -903,6 +950,7 @@ function main(argv = process.argv.slice(2)) {
       "--manifest": { type: "string" },
       "--root": { type: "string" },
       "--marker-prefix": { type: "string" },
+      "--presentation": { type: "string" },
       "--json": { type: "boolean" },
     }).args;
     if (!parsed.html || !parsed.outDir) throw new Error("--html and --out-dir are required");
@@ -912,6 +960,7 @@ function main(argv = process.argv.slice(2)) {
       browserPath: parsed.browser,
       projectRoot: parsed.root || process.cwd(),
       markerPrefix: parsed.markerPrefix,
+      presentation: parsed.presentation,
     });
     if (parsed.manifest)
       writeJsonAtomic(path.resolve(parsed.manifest), result, { fileMode: 0o600 });

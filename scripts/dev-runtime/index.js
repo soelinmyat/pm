@@ -6,19 +6,31 @@ const { buildInlinePackage } = require("./inline");
 const { requireCapabilities } = require("../lib/workflow-runtime/capabilities");
 const { validateWorkerResult } = require("./result");
 const { resolveModelProfile } = require("../lib/workflow-runtime/model-profile");
+const { selectExecutionProfile } = require("../lib/execution-policy");
 
 const BROAD = {
   codex: new Set(["danger-full-access"]),
   claude: new Set(["bypassPermissions"]),
 };
 
-function resolveProfile({ provider, profileName, overrides = {}, env = process.env }) {
+function resolveProfile({
+  provider,
+  profileName,
+  overrides = {},
+  env = process.env,
+  sourceDir,
+  workflow = "dev",
+}) {
   const environment = environmentOverrides(provider, env);
+  const policy =
+    !profileName && (sourceDir || env.PM_EXECUTION_POLICY_FILE)
+      ? selectExecutionProfile({ data: profiles, provider, workflow, sourceDir, env })
+      : null;
   const resolved = resolveModelProfile({
     data: profiles,
     provider,
-    profileName,
-    overrides: { ...environment, ...overrides },
+    profileName: profileName || policy?.profileName,
+    overrides: { ...(policy ? { effort: policy.effort } : {}), ...environment, ...overrides },
   });
   delete resolved.allowBroadPermissions;
   const permission = provider === "codex" ? resolved.sandbox : resolved.permissionMode;
@@ -40,6 +52,7 @@ function buildLaunch(request) {
     profileName: request.profileName,
     overrides: request.profileOverrides,
     env: request.env,
+    sourceDir: request.worktree,
   });
   if (request.provider === "codex") return buildCodexLaunch({ ...request, profile });
   if (request.provider === "claude") return buildClaudeLaunch({ ...request, profile });

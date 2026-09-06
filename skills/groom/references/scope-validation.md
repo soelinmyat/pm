@@ -122,3 +122,13 @@ Before leaving Step 4, confirm with the user:
 > Proceed to scope review?"
 
 Do not advance to Step 5 without an explicit yes. Scope changes after proposal drafting are expensive.
+
+## Semantic calibration
+
+Use examples to assess meaning, not as text to copy into every proposal.
+
+- **Testable acceptance:** “Submitting an empty title keeps the form open and identifies the title field.” This is concise and observable. “Deliver a seamless, robust form experience that delights users” gives no observable pass condition.
+- **Real alternative:** “Keep CSV export and add a scheduled reminder: cheaper to maintain, but users still import manually.” This is a selectable mechanism with a sacrifice. “Build the same integration with a more delightful interface” is a variation, not an alternative.
+- **Falsifiable risk:** “If the provider cannot revoke tokens immediately, do not launch shared workspaces; verify revocation in the sandbox before approval.” “Integration may be challenging due to complex market dynamics” has no trigger or consequence.
+
+Do not reward length. Ask whether the criterion can fail, the alternative could be chosen, and the risk would change the decision.

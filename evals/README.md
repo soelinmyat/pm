@@ -134,7 +134,9 @@ Commit scenarios and sanitized ledgers only. Do not commit `eval-results/`.
 
 ## Blind Output-Quality Evaluation
 
-The committed quality contract lives under `evals/quality/`:
+The committed quality contract lives under `evals/quality/`. The [product quality and efficiency guide](quality/README.md) describes the 69-case coverage, measured usage, and explicitly bound source-treatment experiments.
+
+Its files include:
 
 - `suite.json` inventories substantial workflows, case classes, and named model
   profiles.

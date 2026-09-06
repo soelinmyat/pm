@@ -22,4 +22,4 @@ Ask for confirmation only when competing scope choices would materially change t
 
 In-scope items form one outcome, non-goals bound adjacent work, dependencies and assumptions are explicit, and the user has resolved material scope ambiguity.
 
-**Advance:** if tier is `quick`, proceed to Step 6 (Draft); otherwise proceed to Step 4 (Synthesis).
+**Advance:** if tier is `quick`, proceed to Step 5 (Design); otherwise proceed to Step 4 (Synthesis).

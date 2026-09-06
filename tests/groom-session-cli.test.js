@@ -230,7 +230,12 @@ function run(cwd, args, env = {}) {
   return spawnSync(process.execPath, [CLI, ...args], {
     cwd,
     encoding: "utf8",
-    env: { ...process.env, ...env },
+    env: {
+      ...process.env,
+      XDG_CONFIG_HOME: path.join(cwd, ".test-config"),
+      PM_EXECUTION_POLICY_FILE: "",
+      ...env,
+    },
   });
 }
 function makeRepo() {

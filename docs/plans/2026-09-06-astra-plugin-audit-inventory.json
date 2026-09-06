@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "created": "2026-09-06",
+  "source_commit": "a9d85b609bc36abc12c3d7b2a8bf260a1ec836d8",
+  "version": "1.13.52",
+  "measurement": "Whitespace word counts and UTF-8 bytes of source files, not tokenizer counts or measured model consumption.",
+  "workflows": {
+    "dev": {
+      "entry_words": 1237,
+      "step_count": 10,
+      "step_words": 8773,
+      "step_bytes": 63501
+    },
+    "groom": {
+      "entry_words": 939,
+      "step_count": 11,
+      "step_words": 2961,
+      "step_bytes": 22695
+    },
+    "research": {
+      "entry_words": 1301,
+      "step_count": 5,
+      "step_words": 3807,
+      "step_bytes": 28879
+    },
+    "ship": {
+      "entry_words": 1380,
+      "step_count": 7,
+      "step_words": 8494,
+      "step_bytes": 63457
+    },
+    "rfc": {
+      "entry_words": 1132,
+      "step_count": 5,
+      "step_words": 2358,
+      "step_bytes": 18235
+    },
+    "think": {
+      "entry_words": 1837,
+      "step_count": 0,
+      "step_words": 0,
+      "step_bytes": 0
+    },
+    "strategy": {
+      "entry_words": 1137,
+      "step_count": 0,
+      "step_words": 0,
+      "step_bytes": 0
+    },
+    "review": {
+      "entry_words": 1058,
+      "step_count": 5,
+      "step_words": 2129,
+      "step_bytes": 16015
+    }
+  },
+  "installations": [
+    {
+      "kind": "fallback",
+      "version": "1.13.49",
+      "research_entry_sha256": "5bd0fe5e2773b8f372f8292ade361580249bebe92900dd65b8faa5f399b03297",
+      "research_matches_audited_source": false
+    },
+    {
+      "kind": "native",
+      "version": "1.13.52",
+      "research_entry_sha256": "3694f2b4d67d5b4331c679e953b8d6ec81f1eac249d04ad1361ea9ff3d682968",
+      "research_matches_audited_source": true
+    }
+  ],
+  "quality_suite": {
+    "workflows": {
+      "groom": 7,
+      "rfc": 7,
+      "dev": 7,
+      "review": 7,
+      "design-critique": 6,
+      "ship": 7
+    },
+    "case_count": 41,
+    "profiles": [
+      {
+        "id": "sol-high",
+        "adapter": "codex",
+        "model": "gpt-5.6-sol",
+        "effort": "high"
+      },
+      {
+        "id": "astra-high",
+        "adapter": "codex",
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      {
+        "id": "opus-xhigh",
+        "adapter": "claude",
+        "model": "claude-opus-4-8",
+        "effort": "xhigh"
+      }
+    ]
+  },
+  "checks": {
+    "plugin_validation": {
+      "passed": true,
+      "rules": 27,
+      "files_scanned": 142
+    },
+    "eval_definition_check": {
+      "passed": true
+    },
+    "skill_authoring_audit": {
+      "passed": true,
+      "skills": 24,
+      "issues": 0
+    },
+    "focused_tests": {
+      "passed": 14,
+      "failed": 0,
+      "files": [
+        "tests/astra-session-contract.test.js",
+        "tests/dev-prompt.test.js",
+        "tests/groom-prompt.test.js"
+      ]
+    }
+  },
+  "live_evaluations_run": false,
+  "claimed_performance_improvement": null
+}

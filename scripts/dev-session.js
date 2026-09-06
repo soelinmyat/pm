@@ -168,6 +168,7 @@ function initCommand(options) {
     const runtime = options.runtime || "inline";
     const profile = resolveProfile({
       provider: runtime,
+      sourceDir,
       profileName: options.profile,
       overrides: {
         ...(options.model ? { model: options.model } : {}),

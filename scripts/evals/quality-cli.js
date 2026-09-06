@@ -4,6 +4,7 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const { captureEfficiency } = require("./efficiency.js");
 
 const {
   aggregateQualityResults,
@@ -46,6 +47,7 @@ function parseArgs(argv) {
     ["--json", "jsonPath"],
     ["--markdown", "markdownPath"],
     ["--baseline", "baselinePath"],
+    ["--comparison-design", "comparisonDesignPath"],
     ["--run", "runDir"],
     ["--profile", "profileId"],
     ["--repeat", "repeat"],
@@ -95,7 +97,13 @@ function parseArgs(argv) {
     throw new Error("packet creation accepts exactly one --packet output path");
   }
   if (command === "packet" && !options.caseId) throw new Error("packet requires --case");
+  if (options.comparisonDesignPath && !["packet", "score"].includes(command))
+    throw new Error("--comparison-design is only supported by packet and score");
   if (command === "score") {
+    if (options.comparisonDesignPath && !options.baselinePath)
+      throw new Error(
+        "score --comparison-design requires --baseline; packet treatments are authenticated from their private key"
+      );
     if (options.judgments.length === 0) throw new Error("score requires --judgment");
     if (options.packetPaths.length !== options.judgments.length) {
       throw new Error("score requires one ordered --packet for every --judgment");
@@ -204,7 +212,19 @@ function captureCandidate(options) {
       scenario_hash: scenarioIdentity.scenario_hash,
     },
     profile: { ...profile },
-    runtime: { duration_ms: progress.duration_ms, status: progress.status },
+    runtime: {
+      duration_ms: progress.duration_ms,
+      status: progress.status,
+      efficiency: captureEfficiency(options.runDir, profile.adapter, progress),
+    },
+    environment_hash:
+      fs.existsSync(path.join(options.runDir, "metadata", "environment_identity.json")) &&
+      typeof commandIdentity.command === "string" &&
+      commandIdentity.command.trim() &&
+      Number.isSafeInteger(commandIdentity.timeout_ms) &&
+      commandIdentity.timeout_ms > 0
+        ? `sha256:${digest(JSON.stringify({ host: readJson(path.join(options.runDir, "metadata", "environment_identity.json")), command: path.basename(commandIdentity.command), timeout_ms: commandIdentity.timeout_ms }))}`
+        : null,
     repeat: options.repeat,
     artifacts,
   };
@@ -268,6 +288,9 @@ function createPacket(options) {
     rubric,
     scenario: { workflow: found.workflow.id, case_id: found.item.id, prompt },
     salt,
+    comparisonDesign: options.comparisonDesignPath
+      ? readJson(path.resolve(options.rootDir, options.comparisonDesignPath))
+      : null,
   });
   const packetFiles = result.judgePackets.map((packet, index) => {
     const packetPath =
@@ -317,6 +340,11 @@ function createScorecard(options) {
   });
   const scorecard = buildScorecard({ candidates, aggregate });
   scorecard.packet_id = packet.packet_id;
+  if (key.comparison_design)
+    scorecard.source_treatment = {
+      design_hash: packet.comparison_design_hash,
+      design: key.comparison_design,
+    };
   scorecard.workflow = packet.scenario.workflow;
   scorecard.case_id = packet.scenario.case_id;
   scorecard.releases = [...new Set(candidates.map((item) => item.release))].sort();
@@ -335,7 +363,13 @@ function createScorecard(options) {
   const identityCandidate = candidates.find((item) => item.behavioral.status === "pass");
   const found = findCase(suite, packet.scenario.case_id);
   scorecard.evaluation_identity = {
-    source_hash: identityCandidate ? identityCandidate.source_hash : null,
+    environment_hash: identityCandidate ? identityCandidate.environment_hash || null : null,
+    profile_hash: `sha256:${digest(JSON.stringify(suite.profiles))}`,
+    source_hash: key.comparison_design
+      ? packet.comparison_design_hash
+      : identityCandidate
+        ? identityCandidate.source_hash
+        : null,
     scenario_hash: identityCandidate ? identityCandidate.behavioral.scenario_hash : null,
     quality_case_hash: identityCandidate ? identityCandidate.quality_case_hash : null,
     rubric_hash: `sha256:${digest(JSON.stringify(rubric))}`,
@@ -349,7 +383,13 @@ function createScorecard(options) {
     )}`,
   };
   if (options.baselinePath) {
-    scorecard.comparison = compareQualityScorecards(readJson(options.baselinePath), scorecard);
+    scorecard.comparison = compareQualityScorecards(
+      readJson(options.baselinePath),
+      scorecard,
+      options.comparisonDesignPath
+        ? readJson(path.resolve(options.rootDir, options.comparisonDesignPath))
+        : null
+    );
   }
   assertValid(validateQualityScorecard(scorecard, suite, rubric), "scorecard");
   if (options.jsonPath) writeJson(options.jsonPath, scorecard);
@@ -415,6 +455,19 @@ function formatScorecard(scorecard) {
     );
     lines.push(`- Repeats: ${profile.repeats}`);
     lines.push(`- Mean runtime: ${formatDuration(profile.latency && profile.latency.mean_ms)}`);
+    if (profile.efficiency) {
+      const efficiency = profile.efficiency;
+      lines.push(
+        `- Behavioral successes: ${efficiency.behavioral_successes}/${efficiency.attempts}`
+      );
+      lines.push(
+        `- Elapsed per behavioral success (includes failed attempts): ${formatDuration(efficiency.elapsed_ms_per_behavioral_success.value)}`
+      );
+      lines.push(
+        `- Billed USD per behavioral success: ${efficiency.billed_usd_per_behavioral_success.value ?? "unavailable"}`
+      );
+      lines.push(`- Human acceptance: unobserved`);
+    }
     lines.push(
       `- Variance claimable: ${profile.variance && profile.variance.claimable ? "yes" : "no"}`
     );
@@ -498,8 +551,8 @@ function usage() {
   return [
     "Usage:",
     "  quality-cli.js capture --run DIR --profile ID --case ID --repeat N --artifact FILE --out FILE",
-    "  quality-cli.js packet --candidates FILE --case ID --packet FILE --key FILE",
-    "  quality-cli.js score --candidates FILE --packet VIEW --judgment RESULT [--packet VIEW --judgment RESULT ...] --key FILE --json FILE [--markdown FILE]",
+    "  quality-cli.js packet --candidates FILE --case ID --packet FILE --key FILE [--comparison-design FILE]",
+    "  quality-cli.js score --candidates FILE --packet VIEW --judgment RESULT [--packet VIEW --judgment RESULT ...] --key FILE --json FILE [--markdown FILE] [--baseline FILE --comparison-design FILE]",
   ].join("\n");
 }
 

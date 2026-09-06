@@ -25,6 +25,12 @@ function makeRepo() {
         cwd: root,
         encoding: "utf8",
         ...options,
+        env: {
+          ...process.env,
+          XDG_CONFIG_HOME: path.join(root, ".test-config"),
+          PM_EXECUTION_POLICY_FILE: "",
+          ...options.env,
+        },
       });
     },
     cleanup() {

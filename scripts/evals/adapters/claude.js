@@ -80,9 +80,11 @@ function run({ scenarioId, paths }) {
     argv.push("--effort", effort);
   }
 
+  const timeoutMs = adapterTimeoutMs();
   writeJson(path.join(paths.metadataDir, "claude_command.json"), {
     command: claudeBin,
     argv,
+    timeout_ms: timeoutMs,
     env: {
       HOME: paths.homeDir,
       PM_PLUGIN_ROOT: prepared.pluginRoot,
@@ -100,7 +102,7 @@ function run({ scenarioId, paths }) {
       input: prompt,
       env: claudeEnv({ paths, prepared }),
       encoding: "utf8",
-      timeout: adapterTimeoutMs(),
+      timeout: timeoutMs,
     },
     {
       stdoutPath: paths.transcriptRaw,
@@ -189,7 +191,7 @@ function normalizeClaudeStream(stdout) {
                 .filter(Boolean)
                 .join(" ")
             : String(input.command || input.file_path || input.path || "");
-        const event = { type: "tool", name, command, tool_class: classifyTool(name) };
+        const event = { type: "tool", name, command, tool_class: classifyTool(name), raw: block };
         events.push(event);
         if (block.id) byToolUseId.set(block.id, event);
       }

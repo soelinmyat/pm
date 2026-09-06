@@ -59,9 +59,9 @@ When `PM_LOOP_WORKER=1` with `PM_LOOP_STAGE=ship` (or `review`), this run is ONE
 - Atomically write the version-1 result to `PM_LOOP_RESULT_FILE`. Exact statuses: merged, ready-for-human, waiting, blocked, failed, noop. PR-bearing statuses include the repository-pinned pull-request payload; `merged` adds merge SHA/time; `waiting` adds a bounded `retry_after`; `blocked` includes bounded remediation.
 - Non-interactive: never wait for user input; return `ready-for-human` or `blocked` when a decision requires a human.
 
-**Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/ship/steps/` in numeric filename order. If `.pm/workflows/ship/` exists, same-named files there override defaults. Execute each step in order — each step contains its own instructions.
+**Steps:** Keep this entry contract available throughout Ship. Start by loading only `01-preflight.md` from `${CLAUDE_PLUGIN_ROOT}/skills/ship/steps/`, then load the next step only after the current step’s done-when and evidence are satisfied. If `.pm/workflows/ship/` exists, same-named files there override defaults. Load detailed references only at the step that requires them. On resume, inspect canonical session and release-transaction status first, then load the step for the earliest unverified boundary; do not replay verified effects or preload future steps. An ambiguous attempting effect always loads its observer/recovery procedure before any mutation.
 
-**Also handles existing PRs.** If a PR already exists for the current branch, ship skips creation and jumps straight to gate monitoring — resolving review comments, fixing CI failures, and iterating until the PR is mergeable. Use this when you need to babysit a PR to completion.
+**Also handles existing PRs.** If a PR already exists for the current branch, reconcile its identity and current transaction evidence before loading the earliest unfinished gate — resolving review comments, fixing CI failures, and iterating until the PR is mergeable. Do not replay creation or assume earlier gates passed merely because the PR exists. Use this when you need to babysit a PR to completion.
 
 ## State Files
 

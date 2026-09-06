@@ -1,6 +1,7 @@
 "use strict";
 
 const { resolveModelProfile } = require("./workflow-runtime/model-profile");
+const { selectExecutionProfile } = require("./execution-policy");
 
 const PROFILES = Object.freeze({
   schema_version: 1,
@@ -32,11 +33,22 @@ function resolveGroomProfile(options = {}) {
   const provider = options.runtime || "inline";
   let profile;
   try {
+    const policy =
+      !options.profile && (options.sourceDir || options.env?.PM_EXECUTION_POLICY_FILE)
+        ? selectExecutionProfile({
+            data: PROFILES,
+            provider,
+            workflow: "groom",
+            sourceDir: options.sourceDir,
+            env: options.env,
+          })
+        : null;
     profile = resolveModelProfile({
       data: PROFILES,
       provider,
-      profileName: options.profile,
+      profileName: options.profile || policy?.profileName,
       overrides: {
+        ...(policy ? { effort: policy.effort } : {}),
         ...(options.model ? { model: options.model } : {}),
         ...(options.reasoning ? { effort: options.reasoning } : {}),
       },

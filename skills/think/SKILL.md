@@ -34,7 +34,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and
 - **"More options will help."** Keep the set genuinely distinct and recommend the strongest direction.
 - **"We need more evidence before discussing this."** Use the bounded grounding check, then route to research only if the decision truly depends on missing data.
 - **"The user seems convinced, so I should agree."** Ask the sharpest pressure-test question and disagree openly when the risk is material.
-- **"This summary is close enough."** Ask the user to confirm the artifact before saving or promoting it.
+- **"Saving means the user agreed."** Instead save a draft as exploring; only record an adopted direction or promotion after explicit user confirmation.
 
 ## Setup detection
 
@@ -48,9 +48,11 @@ Before starting, use `pm_dir` already in context or run the structured path reso
 
 ## Workflow
 
-Run these as conversational beats — natural rhythm, no announcing or state-tracking.
+Choose pacing from user intent. An explicit interview or “think this through with me” uses conversational beats and useful decision questions. A delegated recommendation or draft runs through the same reasoning beats autonomously, states material assumptions, and saves a draft. Ask only when an unanswered choice changes scope, an adopted decision, or authority; continue independent analysis while waiting. Do not infer adoption from a request for a recommendation.
 
-1. **Capture.** If the user already described the idea, don't ask "what's the idea?" — summarize in 2-3 bullets naming *who* benefits, *what* changes, and *why now*, then confirm. If any of those three is missing or the idea is vague, ask ONE clarifying question (prefer yes/no over open-ended). Once confirmed, derive a canonical kebab-case slug (max 4 words) — reuse the existing slug if resuming. This slug is the single identifier for the thinking file, index row, and any groom handoff.
+Run the beats naturally, without announcing procedural checkpoints.
+
+1. **Capture.** If the user already described the idea, don't ask "what's the idea?" — summarize in 2-3 bullets naming *who* benefits, *what* changes, and *why now*, without asking the user to repeat supplied context. Ask one clarifying question only when missing context materially changes the analysis; otherwise state the assumption. Derive a canonical kebab-case slug (max 4 words) — reuse the existing slug if resuming. This slug is the single identifier for the thinking file, index row, and any groom handoff.
 
 2. **Ground.** Load just enough context to reframe with grounding instead of guessing — a 30-second check, not research. Search existing thinking (index: `{pm_dir}/thinking/index.md`; rebuild it via `${CLAUDE_PLUGIN_ROOT}/references/kb-search.md` if missing) and offer resume on a match. Always read `{pm_dir}/strategy.md` and its decision companion when present for ICP / priorities / non-goals (note absence, not a blocker). Scan insights via the search protocol in `${CLAUDE_PLUGIN_ROOT}/references/kb-search.md` (index: `{pm_dir}/insights/.hot.md`), noting confidence and Evidence IDs; deep-read at most 2 insight files. Never read raw private evidence. Retain the portable paths and Evidence IDs that materially affect the decision. Use 1-2 web searches only if the KB has gaps, and surface significant gaps rather than filling them here.
 
@@ -60,13 +62,13 @@ Run these as conversational beats — natural rhythm, no announcing or state-tra
    - **Must-have test:** would the user be genuinely disappointed if this didn't exist, or would they just find a workaround?
    - **Simpler framing:** is there a version with 80% of the value at 20% of the complexity?
 
-   Share it as a short, opinionated take ("The way I'd reframe this: … The real unlock is …"), then ask if it resonates. If the framing is already sharp, say so and move on — evaluation is mandatory, the conclusion is open.
+   Share it as a short, opinionated take ("The way I'd reframe this: … The real unlock is …"), ask whether it resonates when interviewing or adopting a changed product direction. In a delegated analysis, label it as the recommended framing and proceed. If the framing is already sharp, say so and move on — evaluation is mandatory, the conclusion is open.
 
-4. **Explore approaches.** Propose 2-3 *genuinely different* directions (not variations of one idea) — vary scope (minimal vs full), mechanism (build/buy/integrate), audience, or timeline. Size the opportunity directionally when relevant (reach / impact / confidence / effort — no numbers needed, "most users hit this weekly" is enough). For each: one-line summary, why it works, the catch, best-if. Compact table or short sections, recommendation first — don't hide your opinion behind false neutrality. Ask which resonates.
+4. **Explore approaches.** Propose 2-3 *genuinely different* directions (not variations of one idea) — vary scope (minimal vs full), mechanism (build/buy/integrate), audience, or timeline. Size the opportunity directionally when relevant (reach / impact / confidence / effort — no numbers needed, "most users hit this weekly" is enough). For each: one-line summary, why it works, the catch, best-if. Compact table or short sections, recommendation first — don't hide your opinion behind false neutrality. In interview mode, ask which direction fits the user's priorities. In delegated mode, recommend one and explain the tradeoff without claiming the user selected it.
 
-5. **Pressure-test.** Find the weakest points before commitment. Surface the 2-3 risks that would *kill* the idea if wrong, not merely complicate it — demand, usability, feasibility, viability, dependencies. Lead with your sharpest concern as a direct question. Push back when the user hand-waves a real risk; accept "we'll figure it out" for manageable unknowns. Done when you can state "we're going with X, despite Y, because Z."
+5. **Pressure-test.** Find the weakest points before commitment. Surface the 2-3 risks that would *kill* the idea if wrong, not merely complicate it — demand, usability, feasibility, viability, dependencies. Lead with the sharpest concern; ask a question when its answer could reverse an adopted decision. In delegated mode, state an observable reversal trigger and how unresolved uncertainty affects the recommendation. Push back on material risks while accepting manageable unknowns. Done when you can state "I recommend X, despite Y, because Z," distinguishing that recommendation from an explicitly adopted choice.
 
-6. **Synthesize.** Draft the summary in the artifact format below and confirm: *"Here's the summary. Did I capture it correctly?"* Revise until confirmed — this is the only question in this beat. Read and follow `${CLAUDE_PLUGIN_ROOT}/references/product-reasoning.md`. Write `{pm_dir}/thinking/{slug}.md`, hash its final bytes, then write and validate `{pm_dir}/thinking/{slug}.decision.json` with the problem, evidence, alternatives, confirmed/parked decision, confidence basis, non-goals, and next trigger. Add/update the index row following `${CLAUDE_PLUGIN_ROOT}/references/kb-search.md`. Finally offer promotion:
+6. **Synthesize.** Read and follow `${CLAUDE_PLUGIN_ROOT}/references/product-reasoning.md`. Save the summary in the artifact format below, hash its final bytes, then write and validate `{pm_dir}/thinking/{slug}.decision.json` with the problem, evidence, alternatives, decision state, confidence basis, non-goals, and next trigger. An unadopted recommendation uses Markdown `status: active`, companion `decision.status: exploring`, `decision.choice: null`, and a rationale naming the recommendation and pending adoption; do not invent confirmation. Use `confirmed` with the selected alternative only after the user explicitly adopts it, or `parked` only after they explicitly park it. Add/update the index row following `${CLAUDE_PLUGIN_ROOT}/references/kb-search.md`. Run the quality check, repair substantive weaknesses within scope, and report remaining limitations without fabricating evidence or confirmation to improve the score. Draft saving and schema validation do not certify adopted product decisions. In interview mode, ask for summary confirmation if it is still needed. When the user requested a recommendation only, complete the recommendation and name adoption as the next action. Otherwise offer promotion:
    > "Want to groom this into a proposal? (lightweight scoping, ~5-10 min)"
 
    On yes, invoke `pm:groom` with `groom_tier: quick`, the summary and decision companion as context, and the slug. Groom owns the verified origin transition during its approved handoff. After approval, first set the Markdown `status: promoted` / `promoted_to` and update the index row, then run the atomic `promote` command in `references/product-reasoning.md` once so it hashes those final bytes and validates both artifacts. Never mutate bound Markdown after promotion. If Groom is abandoned or unapproved, leave both artifacts active and unpromoted.
@@ -121,7 +123,7 @@ decision_brief: "thinking/{slug}.decision.json"
 {1-2 sentences: the real problem or opportunity}
 
 ## Direction
-{The approach that emerged from the conversation}
+{Recommended approach and rationale; explicitly state whether the user adopted it}
 
 ## Key tradeoffs
 - {Tradeoff}
@@ -144,6 +146,6 @@ decision_brief: "thinking/{slug}.decision.json"
 
 ## Before Marking Done
 
-- [ ] The confirmed Markdown and hash-bound decision companion are saved, validated, indexed, and share one canonical slug.
-- [ ] The user confirmed the reframe, direction, summary, and any promotion decision.
-- [ ] Grounding bounds, reframe, pressure-test, convergence, artifact validation, and promotion gates passed.
+- [ ] The Markdown and hash-bound decision companion are saved, validated, indexed, and share one canonical slug; draft limitations remain visible.
+- [ ] The user confirmed every decision labeled adopted or promoted; unconfirmed recommendations remain `exploring`, with no fabricated choice or approval.
+- [ ] Grounding bounds, reframe, pressure-test, and artifact validation passed; quality limitations are reported, and any executed promotion passed its gates.

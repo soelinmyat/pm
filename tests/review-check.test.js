@@ -57,6 +57,82 @@ try {
   installedBrowser = null;
 }
 
+test(
+  "compact presentation retains current fit, markers and gate bindings with fewer captures",
+  {
+    skip:
+      (process.env.PM_SKIP_BROWSER_TESTS && "browser tests explicitly disabled") ||
+      (!installedBrowser && "Chromium is not installed"),
+  },
+  () => {
+    const fixture = makeFixture({ maxWorkers: 3 });
+    const generated = generate(fixture);
+    assert.equal(generated.ok, true, JSON.stringify(generated.issues));
+    renderReviewReport({
+      root: fixture.root,
+      reportPath: fixture.reportPath,
+      outputPath: fixture.htmlPath,
+    });
+    const htmlPath = path.join(fixture.root, fixture.htmlPath);
+    const { readReviewPresentation } = require("../scripts/lib/review-presentation");
+    assert.equal(readReviewPresentation(fixture.root, htmlPath).mode, "compact");
+    const rendered = renderArtifact({
+      htmlPath,
+      outputDir: path.join(path.dirname(htmlPath), "renders"),
+      browserPath: installedBrowser,
+      projectRoot: fixture.root,
+      markerPrefix: "data-review-",
+      presentation: "auto",
+    });
+    assert.equal(rendered.schema_version, 2);
+    assert.equal(rendered.captures.length, 3);
+    assert.equal(rendered.captures.filter((item) => item.path).length, 1);
+    assert.equal(
+      rendered.captures.some((item) => item.full_page),
+      false
+    );
+    assert.equal(rendered.print, null);
+    const relativeManifest = `${path.dirname(fixture.htmlPath)}/renders/manifest.json`;
+    const manifestFile = path.join(fixture.root, relativeManifest);
+    const validate = (value) => {
+      const bytes = Buffer.from(JSON.stringify(value));
+      fs.writeFileSync(manifestFile, bytes);
+      const issues = [];
+      require("../scripts/dev-gate-check").validateReviewRenderManifest(
+        {
+          render_manifest: relativeManifest,
+          render_manifest_sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+        },
+        htmlPath,
+        fixture.root,
+        "gates.json",
+        generated.report,
+        null,
+        issues
+      );
+      return issues;
+    };
+    assert.deepEqual(validate(rendered), []);
+    const overflow = structuredClone(rendered);
+    overflow.captures[2].metrics.horizontalOverflow = true;
+    assert.match(JSON.stringify(validate(overflow)), /overflow/);
+    const stale = structuredClone(rendered);
+    stale.presentation.renderer_sha256 = "0".repeat(64);
+    assert.match(JSON.stringify(validate(stale)), /compact presentation failed/);
+    const unknown = structuredClone(rendered);
+    unknown.schema_version = 3;
+    assert.match(JSON.stringify(validate(unknown)), /exact report.html bytes/);
+    const missing = structuredClone(rendered);
+    missing.captures[0].path = "missing.png";
+    assert.ok(validate(missing).length > 0);
+    fs.appendFileSync(htmlPath, "<!-- custom template -->");
+    assert.equal(readReviewPresentation(fixture.root, htmlPath).mode, "full");
+    const changed = structuredClone(rendered);
+    changed.source.sha256 = `sha256:${crypto.createHash("sha256").update(fs.readFileSync(htmlPath)).digest("hex")}`;
+    assert.match(JSON.stringify(validate(changed)), /compact presentation failed/);
+  }
+);
+
 test("line range validation counts newline-dense buffers without materializing lines", () => {
   const issues = [];
   const bytes = Buffer.alloc(8 * 1024 * 1024, 0x0a);

@@ -57,23 +57,30 @@ async function main(argv = process.argv.slice(2)) {
   const runtimePath = path.join(resultDir, "runtime.json");
   fs.mkdirSync(resultDir, { recursive: true });
   fs.mkdirSync(path.dirname(options.logFile), { recursive: true });
-  fs.rmSync(options.resultFile, { force: true });
 
   const sessionId = options.resumeId || (options.runtime === "claude" ? randomUUID() : null);
   const allowBroadPermissions = process.env.PM_DEV_ALLOW_BROAD_PERMISSIONS === "1";
   let profile;
   let launch;
   try {
+    const retained = options.resumeId
+      ? retainedResumeProfile(runtimePath, options, allowBroadPermissions)
+      : null;
     const capabilities = probeCapabilitiesCached(options.runtime);
-    profile = resolveProfile({
-      provider: options.runtime,
-      profileName: options.profileName,
-      overrides: { allowBroadPermissions },
-    });
+    profile =
+      retained ||
+      resolveProfile({
+        provider: options.runtime,
+        profileName: options.profileName,
+        sourceDir: options.worktree,
+        overrides: { allowBroadPermissions },
+      });
     launch = buildLaunch({
       provider: options.runtime,
-      profileName: options.profileName,
-      profileOverrides: { allowBroadPermissions },
+      // Freeze the same resolved selection for launch and runtime.json. Do not
+      // reread policy between selecting the receipt identity and dispatching.
+      profileName: profile.name,
+      profileOverrides: { ...profile, allowBroadPermissions },
       worktree: options.worktree,
       resumeId: options.resumeId,
       sessionId,
@@ -86,6 +93,7 @@ async function main(argv = process.argv.slice(2)) {
     return error.code === "ENOENT" || error.cause?.code === "ENOENT" ? 3 : 1;
   }
 
+  fs.rmSync(options.resultFile, { force: true });
   const startedAt = new Date().toISOString();
   writeJsonAtomic(runtimePath, {
     schema_version: 1,
@@ -97,6 +105,7 @@ async function main(argv = process.argv.slice(2)) {
     permission_mode: profile.permissionMode,
     external_effects: false,
     resume_id: sessionId,
+    work_unit_id: options.workUnitId,
     worktree: options.worktree,
     started_at: startedAt,
     status: "running",
@@ -125,7 +134,7 @@ async function main(argv = process.argv.slice(2)) {
   const stderr = execution.stderrTail || "";
 
   let result;
-  let resumeId = sessionId;
+  let resumeId = execution.resumeId ?? sessionId;
   try {
     if (fs.existsSync(options.resultFile)) {
       result = validateWorkerResult(fs.readFileSync(options.resultFile, "utf8"), {
@@ -171,6 +180,7 @@ async function main(argv = process.argv.slice(2)) {
         status: "blocked",
         exit_status: execution.status,
         signal: execution.signal,
+        resume_id: resumeId,
         error: error.message,
       });
       process.stderr.write(`Agent exited without a valid structured result: ${error.message}\n`);
@@ -197,6 +207,52 @@ async function main(argv = process.argv.slice(2)) {
     result_file: options.resultFile,
   });
   return 0;
+}
+
+function retainedResumeProfile(runtimePath, options, allowBroadPermissions) {
+  let fd;
+  try {
+    fd = fs.openSync(runtimePath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    const stat = fs.fstatSync(fd);
+    const limit = 64 * 1024;
+    if (!stat.isFile() || stat.size > limit) throw new Error("invalid receipt file");
+    const buffer = Buffer.alloc(limit + 1);
+    const length = fs.readSync(fd, buffer, 0, buffer.length, 0);
+    if (length > limit) throw new Error("receipt exceeds limit");
+    const recorded = JSON.parse(buffer.subarray(0, length));
+    if (
+      recorded.schema_version !== 1 ||
+      recorded.provider !== options.runtime ||
+      recorded.resume_id !== options.resumeId ||
+      recorded.external_effects !== false ||
+      typeof recorded.worktree !== "string" ||
+      fs.realpathSync(recorded.worktree) !== fs.realpathSync(options.worktree) ||
+      (recorded.work_unit_id !== undefined && recorded.work_unit_id !== options.workUnitId) ||
+      ![recorded.profile, recorded.model, recorded.effort].every(
+        (v) => typeof v === "string" && v.length > 0
+      ) ||
+      (options.profileName && options.profileName !== recorded.profile)
+    )
+      throw new Error("resume identity does not match receipt");
+    const permissionKey = options.runtime === "codex" ? "sandbox" : "permissionMode";
+    const permission = options.runtime === "codex" ? recorded.sandbox : recorded.permission_mode;
+    if (typeof permission !== "string" || !permission) throw new Error("missing permissions");
+    return resolveProfile({
+      provider: options.runtime,
+      profileName: recorded.profile,
+      env: {},
+      overrides: {
+        model: recorded.model,
+        effort: recorded.effort,
+        [permissionKey]: permission,
+        allowBroadPermissions,
+      },
+    });
+  } catch (error) {
+    throw new Error(`resume requires matching recorded runtime: ${error.message}`);
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
 }
 
 function parseArgs(argv) {
@@ -312,6 +368,8 @@ function runStreaming(command, args, options) {
     child.on("close", (status, signal) => {
       fs.closeSync(eventsFd);
       fs.closeSync(stderrFd);
+      const identity = identityEvent ? JSON.parse(identityEvent) : null;
+      const resumeId = identity?.thread_id ?? identity?.threadId ?? identity?.session_id ?? null;
       const stdoutText = stdoutTail.toString();
       const stderrText = stderrTail.toString();
       const extractionEvents = [identityEvent, systemEvents.toString(), resultEvent, stdoutText]
@@ -332,6 +390,7 @@ function runStreaming(command, args, options) {
         signal,
         error: spawnError,
         extractionEvents,
+        resumeId,
         stderrTail: stderrText,
       });
     });

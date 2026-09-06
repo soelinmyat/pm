@@ -43,6 +43,35 @@ function renderReviewReport(options) {
     !/^\d+\.\d+\.\d+$/.test(report.generator?.version || "")
   )
     throw new Error("report.generator must bind pm:review to an exact semantic version");
+  const html = renderReviewHtml(report, bytes, relativeReport, options.templatePath);
+  let publication;
+  try {
+    publication = projectFiles.writeProjectTextAtomic(root, options.outputPath, html, {
+      fileMode: 0o600,
+      directoryMode: 0o700,
+      replace: !(reportStage === "final" && report.outcome !== "passed"),
+      maxBytes: MAX_HTML_BYTES,
+    });
+  } catch (error) {
+    if (/EEXIST|file exists/i.test(error.message))
+      throw new Error("refusing to overwrite immutable non-passing human report");
+    throw error;
+  }
+  return {
+    path: relativeOutput,
+    sha256: digest(Buffer.from(html)),
+    bytes: Buffer.byteLength(html),
+    ...(!publication.directory_synced
+      ? {
+          directory_synced: false,
+          directory_sync_error: publication.directory_sync_error,
+        }
+      : {}),
+  };
+}
+
+// Shared by publication and compact-evidence validation: no second template implementation.
+function renderReviewHtml(report, bytes, relativeReport, templatePathOverride) {
   const evidence = [report.target, ...(report.results || []), report.decisions]
     .filter(Boolean)
     .map((item) => ({ path: item.path, sha256: `sha256:${item.sha256}` }));
@@ -59,7 +88,7 @@ function renderReviewReport(options) {
     evidence,
   };
   const templatePath =
-    options.templatePath ||
+    templatePathOverride ||
     path.join(__dirname, "..", "references", "templates", "review-report.html");
   let html = fs.readFileSync(templatePath, "utf8");
   html = html.replace(
@@ -135,30 +164,7 @@ function renderReviewReport(options) {
   html = html.replace(/{{([A-Z0-9_]+)}}/g, (_, name) =>
     rawHtml.has(name) ? String(replacements[name]) : escapeHtml(replacements[name])
   );
-  let publication;
-  try {
-    publication = projectFiles.writeProjectTextAtomic(root, options.outputPath, html, {
-      fileMode: 0o600,
-      directoryMode: 0o700,
-      replace: !(reportStage === "final" && report.outcome !== "passed"),
-      maxBytes: MAX_HTML_BYTES,
-    });
-  } catch (error) {
-    if (/EEXIST|file exists/i.test(error.message))
-      throw new Error("refusing to overwrite immutable non-passing human report");
-    throw error;
-  }
-  return {
-    path: relativeOutput,
-    sha256: digest(Buffer.from(html)),
-    bytes: Buffer.byteLength(html),
-    ...(!publication.directory_synced
-      ? {
-          directory_synced: false,
-          directory_sync_error: publication.directory_sync_error,
-        }
-      : {}),
-  };
+  return html;
 }
 
 function findingCard(finding) {
@@ -301,4 +307,4 @@ function main(argv = process.argv.slice(2)) {
 
 if (require.main === module) process.exitCode = main();
 
-module.exports = { artifactSlug, escapeHtml, renderReviewReport };
+module.exports = { artifactSlug, escapeHtml, renderReviewHtml, renderReviewReport };
