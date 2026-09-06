@@ -2,6 +2,7 @@
 
 const profiles = require("../../skills/rfc/references/model-profiles.json");
 const { resolveModelProfile } = require("./workflow-runtime/model-profile");
+const { selectExecutionProfile } = require("./execution-policy");
 
 function resolveRfcProfile(options = {}) {
   const provider = options.runtime || "inline";
@@ -10,11 +11,22 @@ function resolveRfcProfile(options = {}) {
   }
   let profile;
   try {
+    const policy =
+      !options.profile && (options.sourceDir || options.env?.PM_EXECUTION_POLICY_FILE)
+        ? selectExecutionProfile({
+            data: profiles,
+            provider,
+            workflow: "rfc",
+            sourceDir: options.sourceDir,
+            env: options.env,
+          })
+        : null;
     profile = resolveModelProfile({
       data: profiles,
       provider,
-      profileName: options.profile,
+      profileName: options.profile || policy?.profileName,
       overrides: {
+        ...(policy ? { effort: policy.effort } : {}),
         ...(options.model ? { model: options.model } : {}),
         ...(options.reasoning ? { effort: options.reasoning } : {}),
       },

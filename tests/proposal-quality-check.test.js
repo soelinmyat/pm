@@ -8,10 +8,22 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { validateProposal } = require("../scripts/lib/proposal-schema");
-const { scoreProposal } = require("../scripts/proposal-quality-check");
+const { scoreProposal, specific } = require("../scripts/proposal-quality-check");
 const { reviewRowForTier } = require("./helpers/groom-review-fixture.js");
 
 const fixtureRoot = path.join(__dirname, "fixtures", "proposals");
+
+test("concise observable criteria need no padding and structural scores make no semantic claim", () => {
+  assert.equal(specific("p95 latency ≤ 250ms."), true);
+  assert.equal(specific("Return HTTP 409."), true);
+  assert.equal(specific("Improve the experience"), false);
+  assert.equal(specific("Better 250ms"), false);
+  assert.equal(specific("≤ 250ms"), false);
+  const result = scoreProposal(fixture("strong-v1.json"));
+  assert.equal(result.assessment_kind, "structural-readiness");
+  assert.equal(result.semantic_quality_verified, false);
+  assert.equal(result.structural_passed, result.quality_passed);
+});
 
 function fixture(name) {
   return JSON.parse(fs.readFileSync(path.join(fixtureRoot, name), "utf8"));

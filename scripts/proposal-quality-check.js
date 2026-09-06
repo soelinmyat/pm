@@ -16,12 +16,18 @@ const GENERIC =
   /^(improve|better|good|nice|user[- ]friendly|tbd|todo|make it work|improve the experience)[ .!]*$/i;
 
 function specific(value, minimum = 24, minimumWords = 5) {
-  if (typeof value !== "string" || value.trim().length < minimum || GENERIC.test(value.trim()))
-    return false;
+  if (typeof value !== "string" || GENERIC.test(value.trim())) return false;
   const words = new Set(
     (value.toLowerCase().match(/[a-z0-9]+/g) || []).filter((word) => word.length > 2)
   );
-  return words.size >= minimumWords;
+  // This is a structural floor, not a semantic judge. A terse observable target
+  // should not need filler words to pass; evidence entailment remains Review's job.
+  const observableTarget =
+    words.size >= 2 &&
+    /(?:\b(?:latency|duration|size|count|rate|time|memory|errors?)\b[^.!?]*?(?:<=|>=|[<>≤≥=])\s*\d+(?:\.\d+)?\s*(?:ms|s|seconds?|minutes?|bytes?|kb|mb|gb|%|items?|requests?)\b|\b(?:return|respond(?:s)?(?:\s+with)?)\s+HTTP\s+[1-5]\d{2}\b)/i.test(
+      value
+    );
+  return (value.trim().length >= minimum && words.size >= minimumWords) || observableTarget;
 }
 
 function meaningful(value) {
@@ -316,6 +322,10 @@ function scoreProposal(proposal) {
     score: total,
     maximum: 100,
     threshold: 70,
+    assessment_kind: "structural-readiness",
+    semantic_quality_verified: false,
+    structural_passed: total >= 70 && minimumsPassed,
+    // Compatibility field consumed by existing lifecycle gates.
     quality_passed: total >= 70 && minimumsPassed,
     dimensions,
     minimums,
