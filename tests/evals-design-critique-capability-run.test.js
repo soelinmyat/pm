@@ -1063,7 +1063,8 @@ test("capability-only Codex wrapper attests exact source denial and run allowanc
     runIdentity,
     runtimeProfile: { adapter: "codex", harness_only: false },
     sourceBoundary: boundary,
-    sandboxExecPath: "/usr/bin/sandbox-exec",
+    // The runner is stubbed; use a real executable identity available on every host.
+    sandboxExecPath: process.execPath,
     codexBin: process.execPath,
     sandboxRunner(command, argv) {
       observed = { command, argv };
@@ -1071,7 +1072,7 @@ test("capability-only Codex wrapper attests exact source denial and run allowanc
     },
   });
   try {
-    assert.equal(observed.command, "/usr/bin/sandbox-exec");
+    assert.equal(observed.command, fs.realpathSync(process.execPath));
     assert.match(fs.readFileSync(prepared.profilePath, "utf8"), /deny file-read\*/);
     assert.match(fs.readFileSync(prepared.profilePath, "utf8"), /allow file-read\*/);
     assert.equal(prepared.evidence.mode, "sandbox-exec");
@@ -1123,7 +1124,7 @@ test("capability-only Codex wrapper falls back to unattested when sandbox prefli
     },
     runtimeProfile: { adapter: "codex", harness_only: false },
     sourceBoundary: boundary,
-    sandboxExecPath: "/usr/bin/sandbox-exec",
+    sandboxExecPath: process.execPath,
     codexBin: process.execPath,
     sandboxRunner() {
       return { status: 71, signal: null, error: null };
@@ -1175,7 +1176,7 @@ test(
   }
 );
 
-test("sandbox attestation revalidates policy semantics instead of trusting file hashes", () => {
+test("sandbox attestation rejects substitute executables and revalidates policy semantics", () => {
   const rootDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pm-capability-binding-")));
   execFileSync("git", ["init", "-q"], { cwd: rootDir });
   const token = crypto.randomBytes(5).toString("hex");
@@ -1188,7 +1189,7 @@ test("sandbox attestation revalidates policy semantics instead of trusting file 
     rootDir,
     runIdentity,
     runtimeProfile: { adapter: "codex", harness_only: false },
-    sandboxExecPath: "/usr/bin/sandbox-exec",
+    sandboxExecPath: process.execPath,
     codexBin: process.execPath,
     sandboxRunner() {
       return { status: 0, signal: null, error: null };
@@ -1213,7 +1214,7 @@ test("sandbox attestation revalidates policy semantics instead of trusting file 
         rootDir,
         runId: runIdentity.run_id,
       }),
-      []
+      ["oracle_isolation.bindings.preflight.sandbox_exec must be /usr/bin/sandbox-exec"]
     );
 
     const policyPath = path.join(rootDir, finalized.bindings.policy.path);
