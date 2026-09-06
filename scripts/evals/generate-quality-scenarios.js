@@ -5,6 +5,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { hashTree } = require("./stage.js");
+const { productFixture, PRODUCT_WORKFLOWS } = require("./product-quality.js");
 
 const root = path.resolve(__dirname, "../..");
 const suitePath = path.join(root, "evals", "quality", "suite.json");
@@ -128,6 +129,7 @@ function outcomeChecks(type) {
 }
 
 function fixtureFor(workflow, type, caseId, state) {
+  if (PRODUCT_WORKFLOWS.includes(workflow)) return productFixture(workflow, type, caseId, state);
   const files = {
     "case-state.md": `# Quality case state\n\nWorkflow: pm:${workflow}\nCase: ${type}\nState: ${state}\n${
       type === "resume"

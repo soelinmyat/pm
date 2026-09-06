@@ -346,6 +346,226 @@
           "scenario_contract_hash": "sha256:ab5a85310ac9e0f344a8a3a81540cb5e35d201b088b329e8a6a9ea55bbb01030"
         }
       ]
+    },
+    {
+      "id": "research",
+      "authority_boundary": true,
+      "cases": [
+        {
+          "id": "research-happy-path",
+          "type": "happy-path",
+          "prompt_ref": "evals/quality/cases/research.md",
+          "scenario_ref": "quality-research-happy-path",
+          "scenario_contract_hash": "sha256:676fdd08fe34b538b2e5dac2b9a416bb76e2ae02c7b21fb482d6acfd3f55140f"
+        },
+        {
+          "id": "research-ambiguous-input",
+          "type": "ambiguous-input",
+          "prompt_ref": "evals/quality/cases/research.md",
+          "scenario_ref": "quality-research-ambiguous-input",
+          "scenario_contract_hash": "sha256:1ad5212e42b221900c9e1deae132dc186d5035afe97b14d1e22328d1a2897555"
+        },
+        {
+          "id": "research-resume",
+          "type": "resume",
+          "prompt_ref": "evals/quality/cases/research.md",
+          "scenario_ref": "quality-research-resume",
+          "scenario_contract_hash": "sha256:2ab63d0894c20560465ea41a3df1b085aa7fbb606ccb4d16357c9197e4003212"
+        },
+        {
+          "id": "research-blocked-and-recovery",
+          "type": "blocked-and-recovery",
+          "prompt_ref": "evals/quality/cases/research.md",
+          "scenario_ref": "quality-research-blocked-and-recovery",
+          "scenario_contract_hash": "sha256:0ed61407c5976cb5f17bb8f612516256f5f1c2f4846674774e7c3e76a55b00bf"
+        },
+        {
+          "id": "research-authority-boundary",
+          "type": "authority-boundary",
+          "prompt_ref": "evals/quality/cases/research.md",
+          "scenario_ref": "quality-research-authority-boundary",
+          "scenario_contract_hash": "sha256:a94677473528fca6004b153577e78afd3d8bffeeee5010b95c0c9783ee0bfe32"
+        },
+        {
+          "id": "research-low-quality-schema-valid",
+          "type": "low-quality-schema-valid",
+          "prompt_ref": "evals/quality/cases/research.md",
+          "scenario_ref": "quality-research-low-quality-schema-valid",
+          "scenario_contract_hash": "sha256:beb5fd5efe466901377e8a9b9b704fde885e21da6f3779f93a1f649f62b4df86"
+        },
+        {
+          "id": "research-repeated-run-variance",
+          "type": "repeated-run-variance",
+          "prompt_ref": "evals/quality/cases/research.md",
+          "scenario_ref": "quality-research-repeated-run-variance",
+          "scenario_contract_hash": "sha256:3b74eee3800640474a3498d3e500da86e55fb586eaf64dc7f2e860e166a26567"
+        }
+      ]
+    },
+    {
+      "id": "think",
+      "authority_boundary": true,
+      "cases": [
+        {
+          "id": "think-happy-path",
+          "type": "happy-path",
+          "prompt_ref": "evals/quality/cases/think.md",
+          "scenario_ref": "quality-think-happy-path",
+          "scenario_contract_hash": "sha256:91d7eb1e5917957c2d873d64c7c5b15e564bf3c309a822ba28e66125c626ecb3"
+        },
+        {
+          "id": "think-ambiguous-input",
+          "type": "ambiguous-input",
+          "prompt_ref": "evals/quality/cases/think.md",
+          "scenario_ref": "quality-think-ambiguous-input",
+          "scenario_contract_hash": "sha256:8e68d5a5b54f3f55230c86a75664b28af86a940d3f949a00800f0e67457821d4"
+        },
+        {
+          "id": "think-resume",
+          "type": "resume",
+          "prompt_ref": "evals/quality/cases/think.md",
+          "scenario_ref": "quality-think-resume",
+          "scenario_contract_hash": "sha256:4fee583575ce30c8cf1d6b9835aad8572c68c14b0bac13ad7c39dc01f7a1422f"
+        },
+        {
+          "id": "think-blocked-and-recovery",
+          "type": "blocked-and-recovery",
+          "prompt_ref": "evals/quality/cases/think.md",
+          "scenario_ref": "quality-think-blocked-and-recovery",
+          "scenario_contract_hash": "sha256:5ec6ee131211e0ee6aeb23acbd0485d349d2537c70f2ca49fa69d6a709a376a0"
+        },
+        {
+          "id": "think-authority-boundary",
+          "type": "authority-boundary",
+          "prompt_ref": "evals/quality/cases/think.md",
+          "scenario_ref": "quality-think-authority-boundary",
+          "scenario_contract_hash": "sha256:6de5ae013b38d2b29d13af73563437a453613e05fe7d575379c51c4fa6b1637f"
+        },
+        {
+          "id": "think-low-quality-schema-valid",
+          "type": "low-quality-schema-valid",
+          "prompt_ref": "evals/quality/cases/think.md",
+          "scenario_ref": "quality-think-low-quality-schema-valid",
+          "scenario_contract_hash": "sha256:916e72800dbe092fe39182af25bd00d5d73084e105c0de349cc4696747ac4927"
+        },
+        {
+          "id": "think-repeated-run-variance",
+          "type": "repeated-run-variance",
+          "prompt_ref": "evals/quality/cases/think.md",
+          "scenario_ref": "quality-think-repeated-run-variance",
+          "scenario_contract_hash": "sha256:320c1177db7d04391e993955d5d221cbed123e02a58bf47fc27d3426a7f9af60"
+        }
+      ]
+    },
+    {
+      "id": "strategy",
+      "authority_boundary": true,
+      "cases": [
+        {
+          "id": "strategy-happy-path",
+          "type": "happy-path",
+          "prompt_ref": "evals/quality/cases/strategy.md",
+          "scenario_ref": "quality-strategy-happy-path",
+          "scenario_contract_hash": "sha256:b6d47da0d203539801c5029c7e0bab69fd7c8c95f4fa8237a20b57f59fc5f60f"
+        },
+        {
+          "id": "strategy-ambiguous-input",
+          "type": "ambiguous-input",
+          "prompt_ref": "evals/quality/cases/strategy.md",
+          "scenario_ref": "quality-strategy-ambiguous-input",
+          "scenario_contract_hash": "sha256:29b19a1e2fd7dcf385600d73a6dc59368185ce92333a42d966984b646c56e4ce"
+        },
+        {
+          "id": "strategy-resume",
+          "type": "resume",
+          "prompt_ref": "evals/quality/cases/strategy.md",
+          "scenario_ref": "quality-strategy-resume",
+          "scenario_contract_hash": "sha256:108d002f6c4fb2210c7b8e1e232e1bdf8d7e07a65713d96adc3729d99bf2c2cb"
+        },
+        {
+          "id": "strategy-blocked-and-recovery",
+          "type": "blocked-and-recovery",
+          "prompt_ref": "evals/quality/cases/strategy.md",
+          "scenario_ref": "quality-strategy-blocked-and-recovery",
+          "scenario_contract_hash": "sha256:4ce67c5694e871082269d6e29b9b3fb1948e731111039e77b240b5ae6ba5d791"
+        },
+        {
+          "id": "strategy-authority-boundary",
+          "type": "authority-boundary",
+          "prompt_ref": "evals/quality/cases/strategy.md",
+          "scenario_ref": "quality-strategy-authority-boundary",
+          "scenario_contract_hash": "sha256:50bb191dcc81c70523e52db8d702fc876066d3039bcbf805ab927fbcadce2c7f"
+        },
+        {
+          "id": "strategy-low-quality-schema-valid",
+          "type": "low-quality-schema-valid",
+          "prompt_ref": "evals/quality/cases/strategy.md",
+          "scenario_ref": "quality-strategy-low-quality-schema-valid",
+          "scenario_contract_hash": "sha256:065b3213ae4abe201cdbcdc9fc94f60f4d53ebfedfef1d84dfb0c855f36ea221"
+        },
+        {
+          "id": "strategy-repeated-run-variance",
+          "type": "repeated-run-variance",
+          "prompt_ref": "evals/quality/cases/strategy.md",
+          "scenario_ref": "quality-strategy-repeated-run-variance",
+          "scenario_contract_hash": "sha256:a3ff721ec2aff4b76bab61805dda19f2bf0483d8092a794a4fe0a96262fb0310"
+        }
+      ]
+    },
+    {
+      "id": "ideate",
+      "authority_boundary": true,
+      "cases": [
+        {
+          "id": "ideate-happy-path",
+          "type": "happy-path",
+          "prompt_ref": "evals/quality/cases/ideate.md",
+          "scenario_ref": "quality-ideate-happy-path",
+          "scenario_contract_hash": "sha256:8959777b1aa72969882bc10a47e30373e096274541b829a300ed53b3cd23e266"
+        },
+        {
+          "id": "ideate-ambiguous-input",
+          "type": "ambiguous-input",
+          "prompt_ref": "evals/quality/cases/ideate.md",
+          "scenario_ref": "quality-ideate-ambiguous-input",
+          "scenario_contract_hash": "sha256:38eede90087489d9a359ab465bcb04cb43890c7b84f9d3f3f726fd293aa65ff7"
+        },
+        {
+          "id": "ideate-resume",
+          "type": "resume",
+          "prompt_ref": "evals/quality/cases/ideate.md",
+          "scenario_ref": "quality-ideate-resume",
+          "scenario_contract_hash": "sha256:dc2e46ee294bcbea071ef88632eec47c2941c07606588590546726590082be05"
+        },
+        {
+          "id": "ideate-blocked-and-recovery",
+          "type": "blocked-and-recovery",
+          "prompt_ref": "evals/quality/cases/ideate.md",
+          "scenario_ref": "quality-ideate-blocked-and-recovery",
+          "scenario_contract_hash": "sha256:1e432648d3b99402a6353d4ab7c8693848455bb6fcbb1cce58928a73d1df8da9"
+        },
+        {
+          "id": "ideate-authority-boundary",
+          "type": "authority-boundary",
+          "prompt_ref": "evals/quality/cases/ideate.md",
+          "scenario_ref": "quality-ideate-authority-boundary",
+          "scenario_contract_hash": "sha256:058eb95416f104e8c4756f9044572fa4790ac094dadf6d1f06e3dcaf45c33042"
+        },
+        {
+          "id": "ideate-low-quality-schema-valid",
+          "type": "low-quality-schema-valid",
+          "prompt_ref": "evals/quality/cases/ideate.md",
+          "scenario_ref": "quality-ideate-low-quality-schema-valid",
+          "scenario_contract_hash": "sha256:b2f6652ba937237c6803010e5882d7bddb16eaa648d29ef3afbb313bf30d017f"
+        },
+        {
+          "id": "ideate-repeated-run-variance",
+          "type": "repeated-run-variance",
+          "prompt_ref": "evals/quality/cases/ideate.md",
+          "scenario_ref": "quality-ideate-repeated-run-variance",
+          "scenario_contract_hash": "sha256:a9c6253aefbb67a4ce2ae77b72af765433263dbb9aa4ca880ddeb46459119113"
+        }
+      ]
     }
   ]
 }

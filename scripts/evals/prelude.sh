@@ -116,6 +116,20 @@ quality-outcome-valid() {
   return 0
 }
 
+product-evidence-valid() {
+  local case_type="$1"
+  local artifacts_dir="${PM_EVAL_ARTIFACTS_DIR:-../artifacts}"
+  local plugin_root="${PM_PLUGIN_ROOT:-../runtime/pm}"
+  local output
+  if output="$(node "$plugin_root/scripts/evals/product-quality.js" "$PWD" "$artifacts_dir" "$case_type" 2>&1)"; then
+    __pm_eval_emit "product-evidence-valid" "pass"
+  else
+    printf '%s\n' "$output" | __pm_eval_escape_output
+    __pm_eval_emit "product-evidence-valid" "fail" "invalid product evidence or preserved state"
+  fi
+  return 0
+}
+
 command-succeeds() {
   local command="$1"
   local output
