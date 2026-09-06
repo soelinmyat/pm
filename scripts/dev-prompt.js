@@ -22,7 +22,10 @@ function countWords(text) {
   return normalized ? normalized.split(/\s+/u).length : 0;
 }
 
-function buildWorkerPrompt(input) {
+const MAX_SECTION_BYTES = 16 * 1024;
+const MAX_PROMPT_BYTES = 64 * 1024;
+
+function buildWorkerPrompt(input, options = {}) {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     throw new TypeError("worker prompt input must be an object");
   }
@@ -74,21 +77,57 @@ function buildWorkerPrompt(input) {
     ),
   ];
 
-  const prompt = sections.join("\n\n");
+  const budget = resolvePromptBudget(input.prompt_budget, options);
+  const renderOptions = {
+    ...budget,
+    label: "Dev prompt",
+    demoteHeadings: true,
+    renderValue: (value) => String(value),
+  };
+  const prompt = renderSections(sections, renderOptions);
   return {
     prompt,
     sections: [...SECTION_NAMES],
     metrics: {
       words: countWords(prompt),
       bytes: Buffer.byteLength(prompt, "utf8"),
+      sections: sectionMetrics(sections, renderOptions),
+      budget,
     },
   };
 }
 
 function section(name, body) {
-  return renderSections([{ title: name, value: body }], {
-    demoteHeadings: true,
-    renderValue: (value) => String(value),
+  return { title: name, value: body };
+}
+
+function resolvePromptBudget(packetBudget, options = {}) {
+  for (const value of [packetBudget, options]) {
+    if (value !== undefined && (!value || typeof value !== "object" || Array.isArray(value))) {
+      throw new TypeError("prompt budget must be an object");
+    }
+  }
+  const budget = { maxSectionBytes: MAX_SECTION_BYTES, maxPromptBytes: MAX_PROMPT_BYTES };
+  for (const source of [packetBudget, options]) {
+    for (const [key, value] of Object.entries(source || {})) {
+      if (!Object.hasOwn(budget, key)) throw new TypeError(`unknown prompt budget field: ${key}`);
+      if (!Number.isSafeInteger(value) || value <= 0) {
+        throw new TypeError(`prompt budget ${key} must be a positive safe integer`);
+      }
+      budget[key] = value;
+    }
+  }
+  return budget;
+}
+
+function sectionMetrics(sections, options = {}) {
+  return sections.map((entry) => {
+    const rendered = renderSections([entry], { ...options, finalNewline: false });
+    return {
+      section: entry.key || entry.title,
+      bytes: Buffer.byteLength(rendered, "utf8"),
+      words: countWords(rendered),
+    };
   });
 }
 
@@ -165,6 +204,10 @@ if (require.main === module) {
 
 module.exports = {
   SECTION_NAMES,
+  MAX_SECTION_BYTES,
+  MAX_PROMPT_BYTES,
+  resolvePromptBudget,
+  sectionMetrics,
   buildWorkerPrompt,
   countWords,
   main,

@@ -6,6 +6,8 @@ Domain skills decide *what* to say; this reference decides *how* to say it.
 Prose principle: verdict first, then support — tight, plain, scannable. Prefer
 numbers over adjectives and tables over nested bullets.
 
+Keep chat updates short and verdict-first. Put reviewable detail in the owning artifact and link it; do not repeat the full evidence envelope in chat. Concision does not excuse omitting a material limitation, an approval boundary, or the evidence needed to assess a claim. A clean review may say that no actionable findings were found, with scope and verification limits; never invent findings or pad a correct answer to sound thorough.
+
 ## Jargon ban list
 
 | Banned | Use instead |

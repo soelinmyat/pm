@@ -53,7 +53,9 @@ Run `node ${CLAUDE_PLUGIN_ROOT}/scripts/groom-session.js status --session {sourc
 
 ## Steps
 
-Read every `.md` file in `${CLAUDE_PLUGIN_ROOT}/skills/groom/steps/` in numeric filename order. If `.pm/workflows/groom/` contains a same-named file, use that project override. For each routed phase, build its bounded prompt with `scripts/groom-prompt.js`, execute only that phase, return a strict result envelope, and record it through `scripts/groom-session.js` before advancing.
+Read only `${CLAUDE_PLUGIN_ROOT}/skills/groom/steps/01-intake.md` to initialize a new session. For an existing session, run `node ${CLAUDE_PLUGIN_ROOT}/scripts/groom-session.js next --session {source_dir}/.pm/groom-sessions/{slug}/session.json --json` and load only the returned active phase, its declared prerequisites, and named task artifacts. If `.pm/workflows/groom/` contains a same-named file, use that project override. Build the bounded phase prompt with `scripts/groom-prompt.js`, execute only that phase, return a strict result envelope, and record it through `scripts/groom-session.js` before asking for the next phase. Do not preload future steps or references for unused tiers.
+
+For a draft-only request, complete the authorized draft and required validation, save its actual lifecycle state, and report the remaining approval boundary without asking to start the declined lifecycle. Never fabricate an approval audit or advance an unapproved draft into handoff.
 
 ## References
 

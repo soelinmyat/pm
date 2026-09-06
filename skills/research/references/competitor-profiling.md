@@ -349,3 +349,9 @@ Before marking a competitor complete, verify all five files exist and contain:
 - [ ] `sentiment.md` — at least 2 praise themes and 2 complaint themes present
 - [ ] Every file calibrates decision-relevant claim confidence by authority, independence, recency, and claim fit
 - [ ] Every materially touched file passes Evidence v2 citation binding and standard PM validation
+
+## Claim calibration
+
+A current vendor API page supports “The vendor documents bulk import.” It does not support “Customers save 40% of their time with bulk import,” even if several blogs repeat the vendor’s claim. Name the missing independent outcome evidence and leave the impact estimate unknown.
+
+A useful recommendation can be brief: “Test bulk import with the two teams that reported weekly manual uploads; demand beyond those teams is unverified.” Tie the proposed test to the evidence and state what would reverse it. More citations or polished prose cannot repair an unsupported causal claim.

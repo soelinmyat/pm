@@ -20,6 +20,8 @@ Discover close competitors, produce 5-file profiles for each, and synthesize fin
 
 The goal is to find **genuinely close competitors** — not just well-known players in the broad category. Landscape key players are a starting point, not the final list.
 
+For an explicit list of competitors, treat that list as the selected scope: check the landscape for context, then proceed to profiling without rediscovery or another selection question. Discover additional candidates only when discovery is requested or scope is missing.
+
 1. **Start with landscape.** If `{pm_dir}/insights/business/landscape.md` exists, pull the Key Players table as a seed list.
 2. **Go deeper.** Do NOT stop at the landscape list. Run additional searches to find competitors the landscape may have missed:
    - Search for tools on the **same platform** (e.g., other Claude Code plugins, Cursor plugins, IDE extensions that do similar work).
@@ -32,7 +34,7 @@ The goal is to find **genuinely close competitors** — not just well-known play
    - **Adjacent competitors**: Different platform or delivery model, but overlapping use case.
    - **Aspirational competitors**: Different segment entirely (e.g., enterprise SaaS), but set user expectations for what the product category should do.
    Present all three tiers. Recommend profiling direct and adjacent competitors. Aspirational competitors are optional context.
-4. **Confirm with user.** Ask: "Which of these should I profile? (Select all, a subset, or add unlisted competitors.)"
+4. **Resolve selection when needed.** If the user has not already named competitors or delegated selection, ask: "Which of these should I profile? (Select all, a subset, or add unlisted competitors.)" For delegated selection, choose the closest candidates within the requested bounds, state the rationale, and proceed.
 5. Write or update `{pm_dir}/evidence/competitors/index.md` with confirmed candidates (name, slug, one-line description, competitor tier), then append touched files to `{pm_dir}/evidence/competitors/log.md`.
 
 ### Phase 2: Profile
@@ -52,7 +54,7 @@ Determine dispatch strategy based on candidate count and runtime capability. Rea
 Competitor profiling mutates files, but each agent writes only its own `{slug}/` directory — the outputs are **disjoint**, so parallel dispatch is safe wherever the runtime supports delegated execution. This is an explicit delegated-execution choice, not the read-only-review-wave default. Follow `agent-runtime.md`:
 
 - **Claude, or Codex with delegation enabled:** dispatch all per-competitor agents together, then collect results.
-- **Codex without delegation, or any runtime without subagents:** profile sequentially inline, one at a time. After each: "Finished {name}. Profile {next name} now?" Wait for confirmation before continuing.
+- **Codex without delegation, or any runtime without subagents:** profile sequentially inline, one at a time. Continue through all selected competitors without another approval; report meaningful progress as needed. Pause only for a material scope change or missing effect authority.
 
 Never emit dispatch syntax the current runtime can't execute — resolve the mechanism through `agent-runtime.md` and fall back to sequential inline automatically when subagents are unavailable. Once all competitors are profiled, run the 5-file completeness check for each before Phase 3.
 
@@ -66,7 +68,7 @@ Index updates, synthesized comparison content, market gaps, and landscape update
 Without synthesis, profiling is raw data — not knowledge.
 </HARD-GATE>
 
-**Pre-synthesis validation.** Re-run the 5-file completeness check across every competitor. If any file is missing, stop and ask: "Profile {slug} is incomplete. Missing: {files}. Re-run profiling for these files?" Only proceed to synthesis once all files are present.
+**Pre-synthesis validation.** Re-run the 5-file completeness check across every competitor. If any file is missing or invalid, repair only that section within the authorized scope and validate it. Do not ask permission to finish required profile sections. If evidence cannot be found, document the searched gap; if access or paid-call authority prevents repair, preserve completed work and report that specific blocker. Only proceed to synthesis once all files are present and valid.
 
 1. Update `{pm_dir}/evidence/competitors/index.md` — add links to each profile, keep the directory summary current, and refresh any synthesized comparison content that lives there.
 2. Add or update a **Market Gaps** section in `{pm_dir}/evidence/competitors/index.md` — capabilities absent or weak across all competitors.

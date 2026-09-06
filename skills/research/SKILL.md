@@ -26,7 +26,7 @@ When `PM_LOOP_WORKER=1` with `PM_LOOP_STAGE=research`, preserve sourcing, synthe
 
 Atomically write the version-1 envelope to `PM_LOOP_RESULT_FILE`. Exact statuses: artifact-ready, blocked, failed, noop. `artifact-ready` includes one `document` payload (`kind: research`, run-relative path, SHA-256, media type); create that document with restrictive mode `0600`. `blocked` includes bounded code, reason, and remediation. The worker verifies and copies the document into the allowlisted PM destination before parking it for human review.
 
-**Steps:** Read all `.md` files from `${CLAUDE_PLUGIN_ROOT}/skills/research/steps/` in numeric filename order. If `.pm/workflows/research/` exists, same-named files there override defaults.
+**Steps:** Load `01-note-digest.md`, then `02-mode-routing.md` from `${CLAUDE_PLUGIN_ROOT}/skills/research/steps/`. Follow the router to load only the selected mode: `03-landscape.md`, `04-competitor.md`, or `05-topic.md`, plus references required by that mode. Do not preload unused mode branches. If `.pm/workflows/research/` exists, same-named files there override defaults. Complete the selected scope and necessary repairs without per-item confirmations; preserve cost and external-effect authority gates.
 
 ## Hard rules
 

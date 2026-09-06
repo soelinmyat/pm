@@ -68,7 +68,9 @@ Stateful skills may opt into runner-selected, phase-local loading. For those ski
 
 Do not load future steps into the active prompt. The full ordered step list remains the workflow definition, and user overrides still replace same-named defaults. Phase-local loading changes when instructions enter context, not override precedence.
 
-`pm:dev` uses this mode through `scripts/dev-session.js`. Other skills keep their existing loading behavior until their own contracts opt in.
+`pm:dev`, `pm:rfc`, and `pm:groom` use this mode through `scripts/dev-session.js`, `scripts/rfc-session.js`, and `scripts/groom-session.js`. Research loads its intake/router and only the selected mode. Ship loads the current step at each transaction boundary; its entry contract keeps authority and recovery invariants available throughout. Follow each owning contract for initialization and resume.
+
+Dev and Groom prompt builders accept a `prompt_budget` object with positive integer `maxSectionBytes` and `maxPromptBytes` (defaults: 16 KiB per section, 64 KiB total), or an explicit API options override. These are UTF-8 byte limits, not token estimates. Builders reject oversize packets before publishing and expose exact per-section and total byte/word counts. Section budgets measure body bytes; component metrics include headings, and total bytes also include separators. Dev returns metrics in its existing result/CLI JSON; Groom preserves its string API and adds `buildGroomPromptPacket` plus CLI `--metrics` JSON on stderr. Reduce histories to references and focused excerpts when a packet exceeds its budget; keep the complete active authority, acceptance, stop, and result contracts. Never silently truncate a gate to fit.
 
 ---
 
@@ -92,4 +94,10 @@ Before starting work, check for user instructions:
 2. If `{pm_dir}/instructions.local.md` exists, read it — these are personal overrides that take precedence over shared instructions on conflict.
 3. If neither file exists, proceed normally.
 
-**Override hierarchy:** `{pm_dir}/strategy.md` wins for strategic decisions (ICP, priorities, non-goals). Instructions win for format preferences (terminology, writing style, output structure). Instructions never override skill hard gates.
+**Override hierarchy:** `{pm_dir}/strategy.md` wins for strategic decisions (ICP, priorities, non-goals). Instructions win for format preferences (terminology, writing style, output structure). Host instruction precedence remains authoritative. Workflow preferences do not certify artifacts or authorize external effects. An explicit user request can narrow the workflow to a draft or decline a later lifecycle; do not label that draft approved, verified, or delivered without the owning contract’s required evidence.
+
+## Decision-based pauses
+
+Complete requested analysis and other authorized reversible work using available context. State assumptions that materially affect the result. Ask for missing input when different answers would change scope, an adopted product decision, or an action’s authority. While an answer is pending, continue independent work. Preserve an explicit request for an interview as a conversational preference; do not turn a delegated recommendation into a sequence of procedural confirmations.
+
+Save useful drafts without claiming user confirmation. Reuse valid decisions and evidence rather than asking again; changes to bound content still invalidate the relevant certification. Product approval, promotion, release authority, and exact-hash approval audits remain separate gates. A recommendation can be complete while adoption remains pending.
