@@ -66,7 +66,7 @@ const STEP_TRANSITIONS = Object.freeze({
   groom: Object.freeze({
     1: Object.freeze([2]),
     2: Object.freeze([3]),
-    3: Object.freeze([4, 6]),
+    3: Object.freeze([4, 5]),
     4: Object.freeze([5]),
     5: Object.freeze([6]),
     6: Object.freeze([7]),

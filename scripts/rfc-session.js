@@ -75,6 +75,7 @@ function initCommand(options) {
   let session;
   try {
     const execution = resolveRfcProfile({
+      sourceDir: path.resolve(options.sourceDir),
       runtime: options.runtime,
       profile: options.profile,
       model: options.model,

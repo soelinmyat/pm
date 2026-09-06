@@ -535,7 +535,7 @@ function validateReviewRenderManifest(
     return;
   }
   if (
-    value.schema_version !== 1 ||
+    ![1, 2].includes(value.schema_version) ||
     !isProjectRelative(value.source?.path) ||
     resolveArtifactPath(value.source?.path, artifactRoot) !== path.resolve(htmlPath) ||
     value.source?.sha256 !== `sha256:${digest(html.bytes)}` ||
@@ -544,7 +544,21 @@ function validateReviewRenderManifest(
     issues.push(
       issue(manifestPath, "review render manifest must bind the exact report.html bytes")
     );
-  validateRenderObservation(value.observation, manifestPath, issues);
+  const compact = value.schema_version === 2;
+  if (compact) {
+    try {
+      require("./lib/review-presentation").validateCompactReviewPresentation(
+        artifactRoot,
+        htmlPath,
+        value.presentation
+      );
+    } catch (error) {
+      issues.push(issue(manifestPath, `compact presentation failed: ${error.message}`));
+    }
+  } else if (value.presentation !== undefined) {
+    issues.push(issue(manifestPath, "legacy full manifest cannot declare a presentation policy"));
+  }
+  validateRenderObservation(value.observation, manifestPath, issues, compact ? "compact" : "full");
 
   const captures = Array.isArray(value.captures) ? value.captures : [];
   const names = captures.map((item) => item?.name);
@@ -564,6 +578,13 @@ function validateReviewRenderManifest(
     } catch (error) {
       issues.push(issue(manifestPath, `${label} metrics failed: ${error.message}`));
     }
+    if (compact && viewport.name !== "desktop") {
+      if (Object.keys(capture).some((key) => !["name", "width", "height", "metrics"].includes(key)))
+        issues.push(
+          issue(manifestPath, `${label} compact metrics record has unexpected capture fields`)
+        );
+      continue;
+    }
     validateRenderedFile(
       capture,
       "png",
@@ -574,6 +595,13 @@ function validateReviewRenderManifest(
       label,
       issues
     );
+    if (compact) {
+      if (capture.full_page !== undefined)
+        issues.push(
+          issue(manifestPath, `${label} compact capture cannot declare full-page evidence`)
+        );
+      continue;
+    }
     if (
       !capture.full_page ||
       capture.full_page.width !== viewport.width ||
@@ -601,9 +629,12 @@ function validateReviewRenderManifest(
         issues
       );
   }
-  if (!value.print || !Number.isInteger(value.print.pages) || value.print.pages < 1)
+  if (compact) {
+    if (value.print !== null)
+      issues.push(issue(manifestPath, "compact presentation must declare print null"));
+  } else if (!value.print || !Number.isInteger(value.print.pages) || value.print.pages < 1)
     issues.push(issue(manifestPath, "review render manifest requires a non-empty print PDF"));
-  else
+  else if (!compact)
     validateRenderedFile(
       value.print,
       "pdf",
@@ -630,9 +661,9 @@ function validateReviewRenderManifest(
   }
 }
 
-function validateRenderObservation(observation, manifestPath, issues) {
+function validateRenderObservation(observation, manifestPath, issues, presentation = "full") {
   const browser = observation?.browser;
-  const expectedInvocation = invocationConfigurationDigest("data-review-");
+  const expectedInvocation = invocationConfigurationDigest("data-review-", presentation);
   if (
     observation?.assurance_level !== OBSERVATION_ASSURANCE_LEVEL ||
     observation?.producer?.name !== OBSERVATION_PRODUCER ||
@@ -1203,6 +1234,7 @@ module.exports = {
   DEFAULT_ALLOW_SKIPPED_GATES,
   DEFAULT_REQUIRED_GATES,
   checkGateManifest,
+  validateReviewRenderManifest,
   deriveSessionSlug,
   loadChangedFilesFromGit,
   loadGateManifest,

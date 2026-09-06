@@ -68,12 +68,15 @@ async function main(argv = process.argv.slice(2)) {
     profile = resolveProfile({
       provider: options.runtime,
       profileName: options.profileName,
+      sourceDir: options.worktree,
       overrides: { allowBroadPermissions },
     });
     launch = buildLaunch({
       provider: options.runtime,
-      profileName: options.profileName,
-      profileOverrides: { allowBroadPermissions },
+      // Freeze the same resolved selection for launch and runtime.json. Do not
+      // reread policy between selecting the receipt identity and dispatching.
+      profileName: profile.name,
+      profileOverrides: { ...profile, allowBroadPermissions },
       worktree: options.worktree,
       resumeId: options.resumeId,
       sessionId,
