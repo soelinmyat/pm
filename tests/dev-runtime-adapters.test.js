@@ -1,9 +1,23 @@
-const { describe, it } = require("node:test");
+const { describe, it, after } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 
-const { buildLaunch, extractResult, validateWorkerResult } = require("../scripts/dev-runtime");
+const {
+  buildLaunch: buildRuntimeLaunch,
+  extractResult,
+  validateWorkerResult,
+} = require("../scripts/dev-runtime");
+
+const policyConfig = fs.mkdtempSync(path.join(os.tmpdir(), "pm-adapter-policy-"));
+after(() => fs.rmSync(policyConfig, { recursive: true, force: true }));
+function buildLaunch(request) {
+  return buildRuntimeLaunch({
+    env: { XDG_CONFIG_HOME: policyConfig, PM_EXECUTION_POLICY_FILE: "" },
+    ...request,
+  });
+}
 
 const schemaPath = path.join(
   __dirname,

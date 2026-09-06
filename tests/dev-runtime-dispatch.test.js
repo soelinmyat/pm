@@ -298,6 +298,8 @@ function runDispatch(fixture, environment = {}) {
     {
       env: {
         ...process.env,
+        XDG_CONFIG_HOME: path.join(fixture.tmp, "config"),
+        PM_EXECUTION_POLICY_FILE: "",
         ...environment,
         PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH}`,
       },

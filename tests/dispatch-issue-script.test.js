@@ -95,6 +95,8 @@ describe("dispatch-issue.sh", () => {
           cwd: tmp,
           env: {
             ...process.env,
+            XDG_CONFIG_HOME: path.join(tmp, "config"),
+            PM_EXECUTION_POLICY_FILE: "",
             PATH: `${binDir}${path.delimiter}${process.env.PATH}`,
           },
           encoding: "utf8",
@@ -190,6 +192,8 @@ describe("dispatch-issue.sh", () => {
           {
             env: {
               ...process.env,
+              XDG_CONFIG_HOME: path.join(tmp, "config"),
+              PM_EXECUTION_POLICY_FILE: "",
               PATH: `${binDir}${path.delimiter}${process.env.PATH}`,
             },
             encoding: "utf8",
@@ -258,6 +262,8 @@ describe("dispatch-issue.sh", () => {
         {
           env: {
             ...process.env,
+            XDG_CONFIG_HOME: path.join(tmp, "config"),
+            PM_EXECUTION_POLICY_FILE: "",
             PATH: `${binDir}${path.delimiter}${process.env.PATH}`,
           },
           encoding: "utf8",
@@ -317,7 +323,12 @@ describe("dispatch-issue.sh", () => {
           logFile,
         ],
         {
-          env: { ...process.env, PATH: `${binDir}${path.delimiter}${process.env.PATH}` },
+          env: {
+            ...process.env,
+            XDG_CONFIG_HOME: path.join(tmp, "config"),
+            PM_EXECUTION_POLICY_FILE: "",
+            PATH: `${binDir}${path.delimiter}${process.env.PATH}`,
+          },
           encoding: "utf8",
         }
       );
@@ -361,7 +372,12 @@ describe("dispatch-issue.sh", () => {
       fs.writeFileSync(promptFile, "noop\n");
 
       // Env deliberately WITHOUT PM_ALLOW_SUBPROCESS.
-      const env = { ...process.env, PATH: `${binDir}${path.delimiter}${process.env.PATH}` };
+      const env = {
+        ...process.env,
+        XDG_CONFIG_HOME: path.join(tmp, "config"),
+        PM_EXECUTION_POLICY_FILE: "",
+        PATH: `${binDir}${path.delimiter}${process.env.PATH}`,
+      };
       delete env.PM_ALLOW_SUBPROCESS;
 
       const out = execFileSync(
@@ -441,6 +457,8 @@ describe("dispatch-issue.sh", () => {
         {
           env: {
             ...process.env,
+            XDG_CONFIG_HOME: path.join(tmp, "config"),
+            PM_EXECUTION_POLICY_FILE: "",
             PATH: `${binDir}${path.delimiter}${process.env.PATH}`,
           },
           encoding: "utf8",
@@ -516,7 +534,14 @@ describe("dispatch-issue.sh", () => {
           "--result-file",
           resultFile,
         ],
-        { env: { ...process.env, PATH: `${binDir}${path.delimiter}${process.env.PATH}` } }
+        {
+          env: {
+            ...process.env,
+            XDG_CONFIG_HOME: path.join(tmp, "config"),
+            PM_EXECUTION_POLICY_FILE: "",
+            PATH: `${binDir}${path.delimiter}${process.env.PATH}`,
+          },
+        }
       );
 
       const argv = JSON.parse(fs.readFileSync(argvDump, "utf8"));
