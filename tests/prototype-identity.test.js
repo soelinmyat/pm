@@ -676,6 +676,63 @@ test("prototype identities reject declarative shadow DOM before suppressing temp
   }
 });
 
+test("prototype identity rejects prefixed XML elements and foreign-content templates", () => {
+  const project = tempProject();
+  try {
+    const prototypePath = writeMultiFilePrototype(project.root);
+    const bundle = "pm/backlog/wireframes/account-settings/";
+    for (const element of ["script", "set", "animate"]) {
+      write(
+        project.root,
+        `${bundle}active.svg`,
+        `<svg xmlns="http://www.w3.org/2000/svg" xmlns:s="http://www.w3.org/2000/svg"><s:${element} href="https://example.test/resource" /></svg>`
+      );
+      assert.throws(
+        () => buildPrototypeIdentity(prototypePath, project.root),
+        /namespace-prefixed XML/
+      );
+    }
+    fs.unlinkSync(path.join(project.root, bundle, "active.svg"));
+    const single = "pm/backlog/wireframes/foreign-template.html";
+    for (const namespace of ["svg", "math"]) {
+      for (const element of ["image", "script"]) {
+        const markup = `<${namespace}><template><${element} href="https://example.test/resource" /></template></${namespace}>`;
+        for (const target of [single, prototypePath]) {
+          write(project.root, target, markup);
+          assert.throws(
+            () => buildPrototypeIdentity(target, project.root),
+            /template after SVG or MathML/
+          );
+        }
+      }
+    }
+    write(
+      project.root,
+      single,
+      '<template><img src="https://example.test/inert.png"></template><main>Static</main>'
+    );
+    assert.doesNotThrow(() => buildPrototypeIdentity(single, project.root));
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("prototype identity bounds empty directory entries", () => {
+  const project = tempProject();
+  try {
+    const prototypePath = writeMultiFilePrototype(project.root);
+    const directory = path.dirname(path.join(project.root, prototypePath));
+    for (let index = 0; index < 513; index += 1)
+      fs.mkdirSync(path.join(directory, `empty-${index}`));
+    assert.throws(
+      () => buildPrototypeIdentity(prototypePath, project.root),
+      /exceeds 512 directory entries/
+    );
+  } finally {
+    project.cleanup();
+  }
+});
+
 test("prototype identities reject HTML-encoded refresh directives", () => {
   const project = tempProject();
   try {

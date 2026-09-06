@@ -3075,6 +3075,19 @@ function validateReviewRoundChronology(state, captures, reportRounds, issues) {
     const currentManifest = earliestTimestamp(
       currentRows.map((row) => row.inputState?.captureManifestCreatedAt)
     );
+    for (const row of currentRows) {
+      const priorCreatedAt = row.inputState?.priorFindingsCreatedAt;
+      if (
+        previousBoundary !== null &&
+        typeof priorCreatedAt === "string" &&
+        compareRfc3339DateTimes(priorCreatedAt, previousBoundary) <= 0
+      )
+        add(
+          issues,
+          `reviews.${row.review.review_id}.input.prior_findings_source.created_at`,
+          `must be created after every round ${round - 1} review receipt`
+        );
+    }
     if (
       previousBoundary !== null &&
       (currentManifest === null || compareRfc3339DateTimes(currentManifest, previousBoundary) <= 0)

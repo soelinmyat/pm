@@ -4075,6 +4075,16 @@ test("review evidence chronology preserves sub-millisecond precision", async (t)
     const rebound = write(fixture.root, manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
     for (const review of secondRound.reviews) {
       review.input.capture_manifest = rebound;
+      if (review.input.prior_findings_source) {
+        const priorPath = review.input.prior_findings_source.path;
+        const prior = JSON.parse(fs.readFileSync(path.join(fixture.root, priorPath), "utf8"));
+        prior.created_at = "2026-07-12T01:30:00.0002Z";
+        review.input.prior_findings_source = write(
+          fixture.root,
+          priorPath,
+          `${JSON.stringify(prior, null, 2)}\n`
+        );
+      }
       const payload = { ...review.input };
       delete payload.payload_sha256;
       review.input = withPayloadHash(payload);
@@ -4130,6 +4140,42 @@ test("verification Primary refs require an exact hash-bound prior findings sourc
   const result = check(fixture);
   assert.equal(result.ok, false);
   assert.match(JSON.stringify(result.issues), /prior_findings_source.*requires a path and SHA-256/);
+});
+
+test("prior findings materialization must follow the preceding receipt with full precision", () => {
+  for (const createdAt of [
+    "2026-07-12T01:20:00Z",
+    "2026-07-12T01:24:00.0002Z",
+    "2026-07-12T01:24:00.0001Z",
+  ]) {
+    const fixture = makeFixture();
+    configureResolvedPrimaryFinding(fixture);
+    for (const review of fixture.reviews.rounds[0].reviews) {
+      attachReviewReceipt(fixture.root, review, 1, "2026-07-12T01:24:00.0002Z");
+    }
+    const primary = fixture.reviews.rounds[1].reviews.find(
+      (review) => review.perspective === "primary"
+    );
+    const sourcePath = primary.input.prior_findings_source.path;
+    const source = JSON.parse(fs.readFileSync(path.join(fixture.root, sourcePath), "utf8"));
+    source.created_at = createdAt;
+    primary.input.prior_findings_source = write(
+      fixture.root,
+      sourcePath,
+      `${JSON.stringify(source, null, 2)}\n`
+    );
+    const payload = { ...primary.input };
+    delete payload.payload_sha256;
+    primary.input.payload_sha256 = digest(Buffer.from(canonicalJson(payload)));
+    attachReviewReceipt(fixture.root, primary, 2);
+    rewriteReviewsAndReport(fixture);
+    const result = check(fixture);
+    assert.equal(result.ok, false);
+    assert.match(
+      JSON.stringify(result.issues),
+      /prior_findings_source.created_at.*after every round 1 review receipt/
+    );
+  }
 });
 
 test("verification Primary rejects rebound prior finding content that differs from its ref", () => {

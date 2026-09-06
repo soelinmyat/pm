@@ -176,6 +176,8 @@ The `<ol class="callout-notes">` sits outside the canvas, below it. CSS auto-num
 
 ## 8. Referencing from the proposal
 
+Prototype certification supports at most 128 files and 512 total directory entries. Empty directories count toward the entry limit. The conservative markup scanner rejects namespace-prefixed XML elements and any HTML `template` encountered after SVG or MathML content; put static HTML templates before foreign content or remove them. These restrictions avoid relying on browser namespace recovery to establish a complete dependency inventory.
+
 The proposal HTML is an inert, self-contained artifact. It never frames or executes a prototype. Instead, show a metadata-derived preview card between the title block and TL;DR and link to the standalone prototype:
 
 The canonical proposal JSON also records the prototype in `design_context.prototype`, or explicit `null` when no prototype was approved. Generate the value after final refinement with `node ${CLAUDE_PLUGIN_ROOT}/scripts/prototype-identity.js --repo-root {artifact_repo_root} --path {project-relative-entry-path} --json`.

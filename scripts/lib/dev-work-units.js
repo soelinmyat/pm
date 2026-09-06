@@ -50,6 +50,7 @@ const PROTOTYPE_MANIFEST_FILE_FIELDS = new Set(["path", "sha256"]);
 const MAX_PROTOTYPE_BYTES = 10 * 1024 * 1024;
 const MAX_PROTOTYPE_TREE_BYTES = 32 * 1024 * 1024;
 const MAX_PROTOTYPE_FILES = 128;
+const MAX_PROTOTYPE_ENTRIES = MAX_PROTOTYPE_FILES * 4;
 const MAX_PROTOTYPE_DEPTH = 8;
 const HTML_ATTRIBUTE_ASCII_REFERENCES = Object.freeze({
   amp: "&",
@@ -725,15 +726,30 @@ function buildPrototypeManifest(repoRoot, relativeDirectory) {
 
 function collectPrototypeTree(directory) {
   const files = [];
+  let visitedEntries = 0;
   function visit(current, prefix, depth) {
     if (depth > MAX_PROTOTYPE_DEPTH) {
       throw new Error(`prototype manifest exceeds directory depth ${MAX_PROTOTYPE_DEPTH}`);
     }
     let entries;
     try {
-      entries = fs
-        .readdirSync(current, { withFileTypes: true })
-        .sort((left, right) => comparePaths(left.name, right.name));
+      entries = [];
+      const handle = fs.opendirSync(current);
+      try {
+        let entry;
+        while ((entry = handle.readSync()) !== null) {
+          visitedEntries += 1;
+          if (visitedEntries > MAX_PROTOTYPE_ENTRIES) {
+            throw new Error(
+              `prototype manifest exceeds ${MAX_PROTOTYPE_ENTRIES} directory entries`
+            );
+          }
+          entries.push(entry);
+        }
+      } finally {
+        handle.closeSync();
+      }
+      entries.sort((left, right) => comparePaths(left.name, right.name));
     } catch (error) {
       throw new Error(`prototype manifest directory cannot be read: ${error.message}`);
     }
@@ -1116,6 +1132,7 @@ function inspectPrototypeMarkup(markup, options = {}) {
   const styleBodies = [];
   const xmlMode = options.xmlMode === true;
   let templateDepth = 0;
+  let foreignContentSeen = false;
   let index = 0;
 
   function malformed(name = "") {
@@ -1192,6 +1209,18 @@ function inspectPrototypeMarkup(markup, options = {}) {
 
     const tag = readInspectablePrototypeStartTag(source, index, xmlMode);
     if (tag === null) malformed();
+    if (xmlMode && tag.name.includes(":")) {
+      throw new Error("prototype contains unsupported namespace-prefixed XML elements");
+    }
+    if (!xmlMode && ["svg", "math"].includes(tag.name)) foreignContentSeen = true;
+    // This intentionally conservative tokenizer does not emulate HTML namespace
+    // integration points or error recovery. Once foreign content is encountered,
+    // do not assume a template-named element or its descendants are inert.
+    if (!xmlMode && tag.name === "template" && foreignContentSeen) {
+      throw new Error(
+        "prototype contains unsupported template after SVG or MathML foreign content"
+      );
+    }
     if (tag.attributes.has("shadowrootmode")) {
       throw new Error(
         options.declarativeShadowRootMessage ||
