@@ -11,7 +11,7 @@ Reference for the 7 issue categories and 4 severity levels used by pm:qa.
 | 1 | Console         | 15%    | JS errors, unhandled rejections, failed network requests, deprecation warnings |
 | 2 | Links           | 10%    | Broken links, incorrect hrefs, missing navigation, dead ends                   |
 | 3 | Visual          | 10%    | Layout breaks, overflow, z-index issues, responsive breakage, alignment        |
-| 4 | Functional      | 20%    | Non-working features, forms, buttons, incorrect behavior                       |
+| 4 | Functional      | 25%    | Non-working features, forms, buttons, incorrect behavior                       |
 | 5 | UX              | 15%    | Confusing flows, missing feedback, poor errors, cognitive overload             |
 | 6 | Performance     | 10%    | Slow loads, jank, unnecessary re-renders, large payloads                       |
 | 7 | Accessibility   | 15%    | Missing alt text, keyboard nav, color contrast, screen reader, focus mgmt      |
@@ -62,7 +62,7 @@ Each finding deducts from its category's score. Category scores floor at 0.
 | Medium   | Minor alignment issue, content overflow on one viewport              |
 | Low      | 1-2px misalignment, subtle spacing inconsistency                     |
 
-### 4. Functional (20%)
+### 4. Functional (25%)
 
 | Severity | Example                                                         |
 |----------|-----------------------------------------------------------------|
@@ -115,7 +115,7 @@ Final health score is the weighted average of all 7 category scores.
 
 | Verdict              | Conditions                                    |
 |----------------------|-----------------------------------------------|
-| **Pass**             | health >= 80, no critical, no high            |
-| **Pass with concerns** | health >= 60, no critical, <= 2 high       |
-| **Fail**             | health < 60, or any critical, or > 2 high     |
+| **Pass**             | health >= 80, no unresolved critical or high  |
+| **Pass with concerns** | health >= 60 and < 80, no unresolved critical or high |
+| **Fail**             | health < 60, or any unresolved critical or high |
 | **Blocked**          | Unable to test (environment issue)            |

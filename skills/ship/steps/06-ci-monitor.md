@@ -49,8 +49,15 @@ Before advancing, re-check the canonical final-candidate attestation when this d
    ```bash
    gh run view "$RUN_ID" --repo "$GH_REPO" --log-failed
    ```
-2. Categorize failures: test failures, lint errors, build errors, security issues
-3. Fix each issue using project-appropriate tools (check AGENTS.md for lint/fix commands)
+2. Categorize failures: test failures, lint errors, build errors, security issues,
+   infrastructure failures, or a pre-existing default-branch failure. A
+   pre-existing classification requires the same command/toolchain to fail on
+   the current authoritative default branch with evidence that the delivery diff
+   is unrelated.
+3. Fix branch-caused issues using project-appropriate tools (check AGENTS.md for
+   lint/fix commands). For a pre-existing unrelated failure, do not claim CI
+   success and do not expand delivery scope automatically; preserve the blocker
+   and ask for explicit separate remediation authority.
 4. Commit fixes with descriptive message
 5. Run the full post-mutation recertification protocol: advance the release transaction to current HEAD with the concrete CI-fix reason, rerun `pm:review`, regenerate and bind Review/QA/verification artifacts, replan effects for the new generation, revalidate repository identity, and pass `dev-gate-check`.
 6. Only after recertification exits cleanly, push explicitly to the contracted remote with `git push -- "$DELIVERY_REMOTE" HEAD` (use `timeout: 600000`). Never use an ambient `git push` here.

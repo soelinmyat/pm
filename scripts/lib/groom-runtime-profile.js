@@ -12,6 +12,12 @@ const PROFILES = Object.freeze({
       effort: "high",
       mode: "workspace-write",
     },
+    "gpt-6-astra-high": {
+      provider: "codex",
+      model: "gpt-6-astra",
+      effort: "high",
+      mode: "workspace-write",
+    },
     "claude-opus-4-8-xhigh": {
       provider: "claude",
       model: "claude-opus-4-8",
@@ -38,7 +44,9 @@ function resolveGroomProfile(options = {}) {
   } catch (error) {
     if (/model profile/.test(error.message))
       throw new Error(`unknown ${provider} Groom profile: ${options.profile}`);
-    throw new Error(`unknown Groom runtime: ${provider}`);
+    if (/unknown runtime/.test(error.message))
+      throw new Error(`unknown Groom runtime: ${provider}`);
+    throw error;
   }
   return {
     profile: profile.name,

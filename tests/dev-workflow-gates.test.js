@@ -64,14 +64,14 @@ test("review absorbed the simplify lenses (v1.9)", () => {
   const skill = read("skills/review/SKILL.md");
   const briefs = read("skills/review/references/reviewer-briefs.md");
   const contract = read("scripts/lib/review-contract.js");
-  assert.match(skill, /six logical lenses/);
+  assert.match(skill, /six logical lenses as the baseline/i);
   assert.match(briefs, /`bug`/);
   assert.match(briefs, /`design`/);
   assert.match(briefs, /`edge`/);
   assert.match(briefs, /`reuse`/);
   assert.match(briefs, /`quality`/);
   assert.match(briefs, /`efficiency`/);
-  assert.match(contract, /"bug", "design", "edge", "reuse", "quality", "efficiency"/);
+  assert.match(contract, /"security"/);
   // the dev step is gone; the skill file survives only as a deprecation stub
   // (the pre-push hook requires a SKILL.md for every configured command)
   const stub = read("skills/simplify/SKILL.md");
@@ -103,7 +103,10 @@ test("design critique uses the bound two-mode evidence contract", () => {
   assert.match(skill, /`pm-artifact`/);
   assert.match(skill, /NEVER PASS WITHOUT COMPLETE, CURRENT, HASH-BOUND RENDERED EVIDENCE/);
   assert.match(scope, /diff --binary/);
-  assert.match(scope, /primary, empty, error, and boundary/);
+  assert.match(
+    scope,
+    /primary, empty, error, boundary\/long-content, loading, success, focus, disabled, keyboard, and modal/
+  );
   assert.match(capture, /artifact-render-check\.js/);
   assert.match(capture, /passing evidence cannot live only in `\/tmp`/);
   assert.match(evaluate, /Fresh Eyes/);
@@ -115,7 +118,12 @@ test("design critique uses the bound two-mode evidence contract", () => {
   assert.match(publish, /\.pm\/dev-sessions\/\{slug\}\/gates\.json/);
   assert.match(publish, /\.pm\/dev-sessions\/\{slug\}\/design-critique\/report\.html/);
   assert.doesNotMatch(publish, /\.pm\/dev-sessions\/\{slug\}\.gates\.json/);
-  assert.match(contract, /deterministic identity/);
+  assert.match(contract, /canonical decoded RGBA pixels/);
+  assert.match(contract, /clean tracked source identity before\/after/);
+  assert.match(
+    contract,
+    /recomputes the invocation, native-observation, decoded-pixel, and visual-metric identities/
+  );
   const devDesign = read("skills/dev/steps/06-design-critique.md");
   assert.match(devDesign, /design-critique-capture-guide\.md/);
   assert.match(devDesign, /viewport/);
@@ -188,10 +196,22 @@ test("review treats PM plugin Markdown runtime files as reviewable source", () =
 test("review report navigation wraps without narrow horizontal overflow", () => {
   const template = read("references/templates/review-report.html");
   assert.match(template, /@media\(max-width:720px\).*nav ul\{flex-wrap:wrap/);
+  assert.match(template, /@media print\{\.skip-link\{display:none!important\}/);
   assert.match(template, /\.lede\{[^}]*overflow-wrap:anywhere/);
   assert.match(template, /\.summary p\{[^}]*min-width:0[^}]*overflow-wrap:anywhere/);
   assert.match(template, /\.finding h3\{[^}]*overflow-wrap:anywhere/);
   assert.match(template, /\.finding p\{[^}]*overflow-wrap:anywhere/);
+});
+
+test("design critique report navigation keeps narrow touch targets usable", () => {
+  const template = read("references/templates/design-critique-report.html");
+  assert.match(template, /@media\(max-width:700px\).*nav ul\{[^}]*flex-wrap:wrap/);
+  assert.match(template, /@media\(max-width:700px\).*nav ul\{[^}]*overflow:visible/);
+  assert.match(template, /@media\(max-width:700px\).*nav li\{[^}]*max-width:100%/);
+  assert.match(
+    template,
+    /@media\(max-width:700px\).*nav a\{[^}]*display:inline-flex[^}]*max-width:100%[^}]*min-height:44px[^}]*align-items:center[^}]*white-space:normal[^}]*overflow-wrap:anywhere/
+  );
 });
 
 test("low-risk S work receives a code scan instead of silently skipping review", () => {
@@ -200,6 +220,7 @@ test("low-risk S work receives a code scan instead of silently skipping review",
   assert.match(risk, /low-risk XS\/S work uses the code-scan review mode/);
   assert.match(review, /session\.routing\.review_mode/);
   assert.match(review, /`code-scan` targets bug, edge, reuse, quality, and efficiency/);
+  assert.match(review, /security_review_required.*security lens/is);
   assert.doesNotMatch(review, /S tasks skip both code scan and full review/);
 });
 
@@ -370,7 +391,13 @@ test("source repo pre-push hook uses the shared gate checker for PM runtime chan
   assert.match(text, /git show "\$commit:plugin\.config\.json"/);
   assert.match(text, /commands\/\$\{name\}\.md/);
   assert.match(text, /skills\/\$\{name\}\/SKILL\.md/);
-  assert.match(text, /git archive --format=tar --output="\$checker_archive" "\$local_oid" scripts/);
+  const archiveStart = text.indexOf("git archive --format=tar");
+  const archiveEnd = text.indexOf("; then", archiveStart);
+  const archiveCommand = text.slice(archiveStart, archiveEnd);
+  assert.match(archiveCommand, /\bscripts\b/);
+  assert.match(archiveCommand, /\bplugin\.config\.json\b/);
+  assert.match(archiveCommand, /skills\/dev\/references\/model-profiles\.json/);
+  assert.match(archiveCommand, /skills\/rfc\/references\/model-profiles\.json/);
   assert.match(text, /tar -xf "\$checker_archive" -C "\$checker_tmp"/);
   assert.match(text, /if ! node "\$checker_tmp\/scripts\/dev-gate-check\.js"/);
   assert.doesNotMatch(text, /if ! node scripts\/dev-gate-check\.js/);
@@ -492,6 +519,8 @@ test("pre-push runs the dev gate checker from the pushed commit, not the dirty w
     assert.equal(git("config", "user.name", "Test User").status, 0);
     fs.mkdirSync(path.join(dir, "commands"), { recursive: true });
     fs.mkdirSync(path.join(dir, "skills", "dev"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "skills", "dev", "references"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "skills", "rfc", "references"), { recursive: true });
     fs.mkdirSync(path.join(dir, "scripts", "lib"), { recursive: true });
     fs.writeFileSync(
       path.join(dir, "plugin.config.json"),
@@ -502,6 +531,8 @@ test("pre-push runs the dev gate checker from the pushed commit, not the dirty w
       path.join(dir, "skills", "dev", "SKILL.md"),
       "---\nname: dev\ndescription: dev skill\n---\n"
     );
+    fs.writeFileSync(path.join(dir, "skills", "dev", "references", "model-profiles.json"), "{}\n");
+    fs.writeFileSync(path.join(dir, "skills", "rfc", "references", "model-profiles.json"), "{}\n");
     fs.writeFileSync(
       path.join(dir, "scripts", "dev-gate-check.js"),
       'require("./lib/checker-helper");\n'
@@ -535,6 +566,42 @@ test("pre-push runs the dev gate checker from the pushed commit, not the dirty w
     assert.notEqual(result.status, 0, result.stdout + result.stderr);
     assert.doesNotMatch(result.stdout + result.stderr, /missing 'description'/);
     assert.match(result.stdout + result.stderr, /Checking PM dev gates for CODEX\/Harden\+\+Gate/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("pre-push checker clean-room bundle loads its complete dependency closure", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-pre-push-checker-bundle-"));
+  try {
+    const archive = path.join(dir, "checker.tar");
+    const archived = spawnSync(
+      "git",
+      [
+        "archive",
+        "--format=tar",
+        `--output=${archive}`,
+        "HEAD",
+        "scripts",
+        "plugin.config.json",
+        "skills/dev/references/model-profiles.json",
+        "skills/rfc/references/model-profiles.json",
+      ],
+      { cwd: repoRoot, encoding: "utf8" }
+    );
+    assert.equal(archived.status, 0, archived.stderr);
+    const extracted = spawnSync("tar", ["-xf", archive, "-C", dir], { encoding: "utf8" });
+    assert.equal(extracted.status, 0, extracted.stderr);
+    const loaded = spawnSync(
+      process.execPath,
+      [path.join(dir, "scripts", "dev-gate-check.js"), "--help"],
+      {
+        cwd: dir,
+        encoding: "utf8",
+      }
+    );
+    assert.equal(loaded.status, 0, loaded.stderr);
+    assert.match(loaded.stdout, /Usage: node scripts\/dev-gate-check\.js/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

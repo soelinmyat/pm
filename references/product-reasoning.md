@@ -33,7 +33,7 @@ The companion uses this shape:
   "title": "Reader title",
   "problem": "The confirmed problem or opportunity",
   "evidence_refs": [
-    { "ref": "evidence/research/topic.md#finding-1", "evidence_id": "ev-...", "note": "What it supports" }
+    { "ref": "evidence/research/topic.md#finding-1", "evidence_id": "ev-...", "chain_id": "original-customer-study", "note": "What it supports" }
   ],
   "alternatives": [
     { "id": "focused", "title": "Focused path", "tradeoff": "What this gains and gives up" },
@@ -52,7 +52,7 @@ The companion uses this shape:
 }
 ```
 
-`idea` adds `alignment`: `strength`, strategy `priority_ids`, `non_goal_conflicts`, `evidence_strength`, `competitor_gap`, `dependencies`, and `scope_signal`. `strategy` adds `strategy_context` with stable priority and non-goal tokens (`id`, `title`). Use semantic kebab-case tokens and preserve them across wording-only edits.
+`idea` adds `alignment`: `strength`, strategy `priority_ids`, `non_goal_conflicts`, `evidence_strength`, `competitor_gap`, `dependencies`, and `scope_signal`. Every newly saved idea evidence reference also records a semantic kebab-case `chain_id` for its original evidence chain. Reposts, summaries, syndicated copies, and multiple files derived from one upstream observation use the same chain ID; independently observed sources use different IDs. Legacy v1 readers without chain IDs remain readable, but the new-save gate requires them. `strategy` adds `strategy_context` with stable priority and non-goal tokens (`id`, `title`). Use semantic kebab-case tokens and preserve them across wording-only edits.
 
 Rules:
 
@@ -98,7 +98,7 @@ Write a private request containing only the candidate `ideas`. When Strategy exi
 node "${CLAUDE_PLUGIN_ROOT}/scripts/product-reasoning.js" rank-ideas --root "${pm_dir}" --strategy "${pm_dir}/strategy.decision.json" --request <private-request.json>
 ```
 
-The runtime verifies Strategy's schema and current Markdown binding before it orders categorical inputs by strategic alignment, evidence strength, competitor gap, dependency efficiency, scope efficiency, then stable ID. Omit both `--root` and `--strategy` only when no Strategy companion exists. `strong` evidence requires at least three distinct cited signals; `moderate` requires one or two; `hypothesis` remains explicitly provisional. It also returns unknown priorities, confirmed non-goal conflicts, and stale/unknown non-goal tokens. Unknown tokens require correction. A confirmed non-goal conflict is shown to the user and blocks saving until they explicitly revise Strategy or drop/reshape the idea. Rerun this authenticated check over the final edited candidates immediately before saving.
+The runtime verifies Strategy's schema and current Markdown binding before it orders categorical inputs by strategic alignment, evidence strength, competitor gap, dependency efficiency, scope efficiency, then stable ID. Omit both `--root` and `--strategy` only when no Strategy companion exists. `strong` evidence requires at least three independent, claim-fit evidence chains; `moderate` requires at least one credible chain and may conservatively retain that label even when several correlated references exist; `hypothesis` remains explicitly provisional. Newly saved ideas must identify every chain explicitly, so derivative filenames cannot inflate confidence. It also returns unknown priorities, confirmed non-goal conflicts, and stale/unknown non-goal tokens. Unknown tokens require correction. A confirmed non-goal conflict is shown to the user and blocks saving until they explicitly revise Strategy or drop/reshape the idea. Rerun this authenticated check over the final edited candidates immediately before saving.
 
 ## Feature inventory v2
 

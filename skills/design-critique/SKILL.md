@@ -7,7 +7,7 @@ description: "Use after implemented UI, UX, frontend, mobile, CSS, layout, visua
 
 ## Purpose
 
-Run a post-implementation evidence gate for either product UI or a rendered PM artifact. It produces a commit-bound route, hash-bound capture manifest, structured findings report, accessible HTML report, and a Dev gate row without duplicating QA or code-review ownership.
+Run a post-implementation evidence gate for either product UI or a rendered PM artifact. It produces a commit-bound route, hash-bound captures and reviewer evidence, a structured findings report, an accessible HTML report, and a Dev gate row without duplicating QA or code-review ownership.
 
 ## Iron Law
 
@@ -45,7 +45,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/evidence-contract.
 
 ## Resume
 
-If `.pm/dev-sessions/{slug}/design-critique/` exists, validate the source commit and every upstream hash before resuming. Resume at the first missing or invalid artifact. A new commit invalidates the route; changed route bytes invalidate captures and report; changed capture bytes invalidate the report. Preserve earlier rounds as evidence rather than overwriting them.
+If `.pm/dev-sessions/{slug}/design-critique/` exists, validate the source commit and every upstream hash before resuming. Resume at the first missing or invalid artifact. A new commit invalidates the route; changed route bytes invalidate captures, reviews, and report; changed capture bytes invalidate reviews and report; changed reviewer instructions, context, round manifests, results, or receipts invalidate `reviews.json` and the report; changed `reviews.json` bytes invalidate the report. Preserve earlier rounds as evidence rather than overwriting them.
 
 ## Red Flags — Self-Check
 
@@ -76,7 +76,7 @@ If `.pm/dev-sessions/{slug}/design-critique/` exists, validate the source commit
 
 ## Before Marking Done
 
-- [ ] Route, captures, structured report, and accessible HTML report are saved under `.pm/dev-sessions/{slug}/design-critique/`.
+- [ ] Route, captures, reviews.json, structured report, and accessible HTML report are saved under `.pm/dev-sessions/{slug}/design-critique/`.
 - [ ] `scripts/design-critique-check.js` passes against current HEAD.
 - [ ] Applicable coverage is 100%, all P0/P1 findings are resolved with before/after evidence, and the bounded review loop is complete.
 - [ ] The Dev gate row preserves other gates and points to the checked HTML report at the current commit.

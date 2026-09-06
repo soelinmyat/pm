@@ -3,10 +3,146 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const zlib = require("node:zlib");
-const { inspectPdfBytes, inspectPngBytes } = require("../scripts/lib/media-inspect");
+const {
+  PRODUCT_UI_VISUAL_THRESHOLDS,
+  inspectPdfBytes,
+  inspectPngBytes,
+  inspectPngVisualBytes,
+  visualDifference,
+  visualDistance,
+} = require("../scripts/lib/media-inspect");
 
 test("strict PNG inspection accepts a complete decodable image", () => {
   assert.deepEqual(inspectPngBytes(png({ colorType: 6 })), { width: 10, height: 10 });
+});
+
+test("visual PNG inspection ignores ancillary encoding bytes in its pixel identity", () => {
+  const first = inspectPngVisualBytes(png({ colorType: 6, textByte: 0x61 }));
+  const second = inspectPngVisualBytes(png({ colorType: 6, textByte: 0x62 }));
+
+  assert.equal(first.pixelSha256, second.pixelSha256);
+  assert.equal(first.visiblePixels, 0);
+  assert.equal(first.hasVisualVariation, false);
+});
+
+test("visual PNG inspection has one pixel identity across PNG row-filter encodings", () => {
+  const encodings = [0, 1, 2, 3, 4].map((filter) => filteredRgbaPng(filter));
+  const inspected = encodings.map((bytes) => inspectPngVisualBytes(bytes));
+
+  assert.equal(new Set(encodings.map((bytes) => bytes.toString("base64"))).size, 5);
+  assert.equal(new Set(inspected.map((item) => item.pixelSha256)).size, 1);
+  assert.ok(inspected.every((item) => item.visiblePixels === 100));
+  assert.ok(inspected.every((item) => item.hasVisualVariation === true));
+  assert.equal(new Set(inspected.map((item) => item.perceptualGrid)).size, 1);
+  assert.ok(inspected.every((item) => item.meaningfulPixelRatio > 0.9));
+  assert.ok(inspected.every((item) => item.meaningfulTileRatio > 0.9));
+  assert.ok(inspected.every((item) => item.colorBucketCount > 10));
+  assert.ok(inspected.every((item) => item.luminanceRange > 100));
+});
+
+test("visual PNG metrics expose a one-pixel beacon as spatially near blank", () => {
+  const inspected = inspectPngVisualBytes(
+    rgbaPng(100, 100, (x, y) => (x === 50 && y === 50 ? [0, 0, 0, 255] : [255, 255, 255, 255]))
+  );
+  assert.equal(inspected.visiblePixels, 10_000);
+  assert.equal(inspected.hasVisualVariation, true);
+  assert.equal(inspected.meaningfulPixelRatio, 0.0001);
+  assert.equal(inspected.meaningfulTileRatio, 0);
+  assert.equal(inspected.colorBucketCount, 2);
+});
+
+test("visual PNG metrics reject a 99.75 percent uniform two-tile beacon", () => {
+  const width = 1024;
+  const height = 600;
+  const changedPixels = Math.ceil(width * height * 0.0025);
+  const changedPerTile = Math.ceil(changedPixels / 2);
+  const tileWidth = width / 8;
+  const inspected = inspectPngVisualBytes(
+    rgbaPng(width, height, (x, y) => {
+      const firstTileIndex = y * tileWidth + x;
+      const secondTileIndex = y * tileWidth + x - tileWidth;
+      const changed =
+        (x < tileWidth && firstTileIndex < changedPerTile) ||
+        (x >= tileWidth && x < tileWidth * 2 && secondTileIndex < changedPixels - changedPerTile);
+      return changed ? [0, 0, 0, 255] : [250, 250, 250, 255];
+    })
+  );
+  assert.ok(inspected.meaningfulPixelRatio >= 0.002);
+  assert.ok(inspected.meaningfulPixelRatio < 0.003);
+  assert.equal(inspected.meaningfulTileRatio, 2 / 64);
+  assert.ok(inspected.meaningfulPixelRatio < PRODUCT_UI_VISUAL_THRESHOLDS.minMeaningfulPixelRatio);
+});
+
+test("visual PNG metrics treat near-transparent varied pixels as effectively invisible", () => {
+  const width = 100;
+  const height = 100;
+  const inspected = inspectPngVisualBytes(
+    rgbaPng(width, height, (x, y) => [
+      (x * 17 + y * 31) % 256,
+      (x * 47 + y * 13) % 256,
+      (x * 7 + y * 61) % 256,
+      1,
+    ])
+  );
+
+  const visibleRatio = inspected.visiblePixels / inspected.totalPixels;
+  assert.ok(Math.abs(visibleRatio - 1 / 255) < Number.EPSILON);
+  assert.ok(visibleRatio < PRODUCT_UI_VISUAL_THRESHOLDS.minVisiblePixelRatio);
+  assert.equal(inspected.meaningfulPixelRatio, 0);
+  assert.equal(inspected.meaningfulTileRatio, 0);
+  assert.equal(inspected.colorBucketCount, 1);
+  assert.ok(inspected.luminanceRange < PRODUCT_UI_VISUAL_THRESHOLDS.minLuminanceRange);
+});
+
+test("visual PNG metrics opacity-weight grayscale-alpha pixels too", () => {
+  const inspected = inspectPngVisualBytes(
+    grayscaleAlphaPng(10, 10, (x, y) => [(x * 29 + y * 53) % 256, 1])
+  );
+
+  assert.ok(Math.abs(inspected.visiblePixels / inspected.totalPixels - 1 / 255) < Number.EPSILON);
+  assert.equal(inspected.meaningfulPixelRatio, 0);
+  assert.equal(inspected.colorBucketCount, 1);
+});
+
+test("perceptual distance is deterministic and detects materially different UI pixels", () => {
+  const first = inspectPngVisualBytes(
+    rgbaPng(64, 64, (x) => (x < 32 ? [20, 40, 180, 255] : [240, 240, 250, 255]))
+  );
+  const same = inspectPngVisualBytes(
+    rgbaPng(64, 64, (x) => (x < 32 ? [20, 40, 180, 255] : [240, 240, 250, 255]))
+  );
+  const changed = inspectPngVisualBytes(
+    rgbaPng(64, 64, (y) => (y < 32 ? [190, 30, 40, 255] : [15, 25, 35, 255]))
+  );
+  assert.equal(visualDistance(first, same), 0);
+  assert.ok(visualDistance(first, changed) > 0.2);
+});
+
+test("visual difference does not treat a 200-pixel patch as material full-page change", () => {
+  const width = 1024;
+  const height = 600;
+  const base = inspectPngVisualBytes(
+    rgbaPng(width, height, (x) => (x < width / 2 ? [20, 40, 180, 255] : [240, 240, 250, 255]))
+  );
+  const changed = inspectPngVisualBytes(
+    rgbaPng(width, height, (x, y) => {
+      const index = y * width + x;
+      if (index >= width * height - 200) return [0, 0, 0, 255];
+      return x < width / 2 ? [20, 40, 180, 255] : [240, 240, 250, 255];
+    })
+  );
+  const difference = visualDifference(base, changed);
+  assert.ok(difference.distance < PRODUCT_UI_VISUAL_THRESHOLDS.minVisualDistance);
+  assert.ok(difference.changedTileRatio < PRODUCT_UI_VISUAL_THRESHOLDS.minChangedTileRatio);
+});
+
+test("visual PNG inspection rejects transparency it cannot canonicalize", () => {
+  const bytes = png({ colorType: 0, transparency: true });
+  assert.deepEqual(inspectPngBytes(bytes), { width: 10, height: 10 });
+  assert.throws(
+    () => inspectPngVisualBytes(bytes),
+    /transparency chunks are unsupported for visual identity/
+  );
 });
 
 test("strict PNG inspection rejects indexed images without a palette", () => {
@@ -114,7 +250,7 @@ test("strict PDF inspection accepts opaque literal and hex values before semanti
   assert.deepEqual(inspectPdfBytes(Buffer.from(body, "latin1")), { pages: 1 });
 });
 
-function png({ colorType }) {
+function png({ colorType, textByte = 0x61, transparency = false }) {
   const width = 10;
   const height = 10;
   const header = Buffer.alloc(13);
@@ -127,13 +263,129 @@ function png({ colorType }) {
   const chunks = [
     Buffer.from("89504e470d0a1a0a", "hex"),
     chunk("IHDR", header),
-    chunk("tEXt", Buffer.alloc(1024, 0x61)),
+    chunk("tEXt", Buffer.alloc(1024, textByte)),
   ];
   if (colorType === 3) {
     // Deliberately omit PLTE for the rejection case.
   }
+  if (transparency) chunks.push(chunk("tRNS", Buffer.alloc(2)));
   chunks.push(chunk("IDAT", zlib.deflateSync(rows)), chunk("IEND", Buffer.alloc(0)));
   return Buffer.concat(chunks);
+}
+
+function filteredRgbaPng(filter) {
+  const width = 10;
+  const height = 10;
+  const bytesPerPixel = 4;
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 6;
+  const pixels = Buffer.alloc(width * height * bytesPerPixel);
+  for (let offset = 0; offset < pixels.length; offset += bytesPerPixel) {
+    const pixel = offset / bytesPerPixel;
+    pixels[offset] = (pixel * 17) & 0xff;
+    pixels[offset + 1] = (pixel * 31) & 0xff;
+    pixels[offset + 2] = (pixel * 47) & 0xff;
+    pixels[offset + 3] = 255;
+  }
+  const rowBytes = width * bytesPerPixel;
+  const rows = Buffer.alloc((rowBytes + 1) * height);
+  for (let row = 0; row < height; row += 1) {
+    const sourceOffset = row * rowBytes;
+    const targetOffset = row * (rowBytes + 1);
+    rows[targetOffset] = filter;
+    for (let column = 0; column < rowBytes; column += 1) {
+      const raw = pixels[sourceOffset + column];
+      const left = column >= bytesPerPixel ? pixels[sourceOffset + column - bytesPerPixel] : 0;
+      const up = row > 0 ? pixels[sourceOffset + column - rowBytes] : 0;
+      const upperLeft =
+        row > 0 && column >= bytesPerPixel
+          ? pixels[sourceOffset + column - rowBytes - bytesPerPixel]
+          : 0;
+      const predictor =
+        filter === 0
+          ? 0
+          : filter === 1
+            ? left
+            : filter === 2
+              ? up
+              : filter === 3
+                ? Math.floor((left + up) / 2)
+                : paeth(left, up, upperLeft);
+      rows[targetOffset + column + 1] = (raw - predictor) & 0xff;
+    }
+  }
+  return Buffer.concat([
+    Buffer.from("89504e470d0a1a0a", "hex"),
+    chunk("IHDR", header),
+    chunk("tEXt", Buffer.alloc(1024, 0x61)),
+    chunk("IDAT", zlib.deflateSync(rows)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+function rgbaPng(width, height, pixelAt) {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 6;
+  const rows = Buffer.alloc((width * 4 + 1) * height);
+  for (let y = 0; y < height; y += 1) {
+    const row = y * (width * 4 + 1);
+    rows[row] = 0;
+    for (let x = 0; x < width; x += 1) {
+      const [red, green, blue, alpha] = pixelAt(x, y);
+      const offset = row + 1 + x * 4;
+      rows[offset] = red;
+      rows[offset + 1] = green;
+      rows[offset + 2] = blue;
+      rows[offset + 3] = alpha;
+    }
+  }
+  return Buffer.concat([
+    Buffer.from("89504e470d0a1a0a", "hex"),
+    chunk("IHDR", header),
+    chunk("tEXt", Buffer.alloc(1024, 0x61)),
+    chunk("IDAT", zlib.deflateSync(rows)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+function grayscaleAlphaPng(width, height, pixelAt) {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 4;
+  const rows = Buffer.alloc((width * 2 + 1) * height);
+  for (let y = 0; y < height; y += 1) {
+    const row = y * (width * 2 + 1);
+    for (let x = 0; x < width; x += 1) {
+      const [gray, alpha] = pixelAt(x, y);
+      const offset = row + 1 + x * 2;
+      rows[offset] = gray;
+      rows[offset + 1] = alpha;
+    }
+  }
+  return Buffer.concat([
+    Buffer.from("89504e470d0a1a0a", "hex"),
+    chunk("IHDR", header),
+    chunk("tEXt", Buffer.alloc(1024, 0x61)),
+    chunk("IDAT", zlib.deflateSync(rows)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+function paeth(left, up, upperLeft) {
+  const estimate = left + up - upperLeft;
+  const leftDistance = Math.abs(estimate - left);
+  const upDistance = Math.abs(estimate - up);
+  const upperLeftDistance = Math.abs(estimate - upperLeft);
+  if (leftDistance <= upDistance && leftDistance <= upperLeftDistance) return left;
+  return upDistance <= upperLeftDistance ? up : upperLeft;
 }
 
 function chunk(type, data) {

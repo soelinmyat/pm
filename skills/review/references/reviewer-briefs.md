@@ -23,6 +23,41 @@ Use only the lenses assigned in `target.json`. The shared result schema and evid
 | `reuse` | A specific existing helper/component/pattern that replaces new duplicated code | Both changed source and named reusable source locators |
 | `quality` | Dead/redundant state, misleading boundaries, copy-paste, parameter sprawl, avoidable complexity | Source/contract locator and concrete maintenance consequence |
 | `efficiency` | Repeated I/O, N+1, hot-path work, avoidable recomputation/waits, missed safe concurrency | Source plus benchmark/trace when measurable |
+| `security` | Authorization boundaries, privacy/data exposure, secret handling, injection, dependency/supply-chain risk, and abuse cases | Concrete attack or exposure path plus a supported source, contract, test, or trace locator; cite dependency changes through their lockfile/manifest source lines |
+
+### `security` — risk-triggered inspection brief
+
+Use this lens only when it is assigned by the target. Do not fold it into `bug`
+or `edge`, and do not emit generic checklist findings without a path from
+untrusted actor/input to consequence.
+
+Inspect each applicable boundary:
+
+- **Authorization:** Are identity, tenant, ownership, role, and object-level
+  permissions enforced at the trusted boundary for reads and writes? Check
+  alternate entry points, bulk operations, background jobs, and default-deny
+  behavior—not just the happy path.
+- **Privacy and data exposure:** Can responses, logs, errors, caches, analytics,
+  exports, or client bundles reveal data beyond the intended subject or tenant?
+  Check minimization, redaction, retention, and failure paths.
+- **Secret handling:** Can credentials, tokens, signing material, or sensitive
+  configuration enter source, generated artifacts, command output, telemetry, or
+  an untrusted client? Identify the exact exposure and rotation impact.
+- **Injection:** Follow untrusted data across database queries, shell/process
+  arguments, templates/HTML, URLs, file paths, deserialization, and model/tool
+  prompts. Require parameterization, contextual encoding, validation, or an
+  equivalent boundary control at the actual sink.
+- **Dependency and supply chain:** For added or updated dependencies, inspect
+  provenance, lock/integrity changes, install scripts, runtime permissions,
+  maintained alternatives, and relevant advisories. Do not flag a version solely
+  because it is unfamiliar.
+- **Abuse cases:** Test whether replay, enumeration, rate amplification, resource
+  exhaustion, idempotency gaps, unsafe defaults, or partial failure lets an
+  untrusted actor exceed the intended capability.
+
+Calibrate severity from exploitability, exposed capability/data, blast radius,
+and recovery—not from the security label itself. State assumptions and lower
+confidence when the trust boundary or deployment configuration is not evidenced.
 
 ## JSON shape
 

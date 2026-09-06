@@ -94,6 +94,18 @@
       "requirement": "Show lifecycle, revision, approval state, and open decisions visibly."
     }
   ],
+  "design_context": {
+    "design_requirements": [
+      "Show lifecycle, revision, approval state, and open decisions visibly."
+    ],
+    "ui_impact": true,
+    "prototype": null,
+    "critical_states": ["draft", "reviewed", "approved", "stale approval"],
+    "experience_invariants": [
+      "Reviewers can identify the current decision state before inspecting implementation detail."
+    ],
+    "visual_invariants": ["Lifecycle and approval state remain visible at narrow widths."]
+  },
   "success_metrics": [
     {
       "id": "metric:drift",

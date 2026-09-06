@@ -1,6 +1,6 @@
 # Groom Tier Gating
 
-Tiers change decision depth, not source integrity, artifact validation, or explicit approval.
+Tiers change decision depth, not source integrity, experience design, adversarial review, artifact validation, or explicit approval. Thin product knowledge lowers confidence and increases assumption scrutiny; it never disables the design and review phases.
 
 ## Eligibility
 
@@ -25,7 +25,7 @@ If an agent gate fails, offer `standard` or the relevant `pm:strategy` / `pm:res
 
 | Tier | Phases |
 |---|---|
-| `quick` | intake → research → scope → draft → approval → handoff → retro |
+| `quick` | intake → research → scope → design → draft → review → approval → handoff → retro |
 | `standard` | intake → research → scope → synthesis → design → draft → review → approval → handoff → retro |
 | `full` | intake → research → scope → synthesis → design → draft → review → presentation → approval → handoff → retro |
 | `agent` | full phases plus strict freshness and citation review |
@@ -38,9 +38,9 @@ If an agent gate fails, offer `standard` or the relevant `pm:strategy` / `pm:res
 
 ## Review depth
 
-- `quick`: schema, handoff, and approval integrity only.
+- `quick`: bounded assumption-risk and experience-completeness questions; use explicit assumptions where evidence is thin.
 - `standard`: core independent questions in `review-questions.md`.
-- `full`: core plus alternatives, strategy/competition, measurement, and adversarial assumption questions.
-- `agent`: full plus sampled citation integrity.
+- `full`: the `standard` questions plus the required reversal question; deeper strategy, measurement, and adversarial analysis may be captured as advisory enrichment.
+- `agent`: the same required question IDs as `full`, with stricter freshness and citation integrity inside the required answers.
 
-Question coverage is authoritative. Worker count and persona names are execution details.
+Question coverage is authoritative: use the canonical ordered IDs in `review-questions.md`. Worker count and persona names are execution details. Adding another required ID needs a coordinated session-schema/runtime migration.

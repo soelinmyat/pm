@@ -18,6 +18,17 @@ const { writeSession } = require("../scripts/rfc-session");
 
 const CLI = path.resolve(__dirname, "..", "scripts", "rfc-session.js");
 
+function currentDesignContext() {
+  return {
+    design_requirements: ["Keep approval and archive states explicit."],
+    ui_impact: false,
+    prototype: null,
+    critical_states: ["draft", "approved", "archived", "error"],
+    experience_invariants: ["Every state exposes its next action."],
+    visual_invariants: [],
+  };
+}
+
 test("RFC session CLI initializes, configures context, and selects one phase", () => {
   const repo = makeRepo();
   try {
@@ -36,6 +47,7 @@ test("RFC session CLI initializes, configures context, and selects one phase", (
         proposal_path: path.join(repo.root, "proposal.md"),
         size: "M",
         acceptance_criteria: ["Explicit approval"],
+        design_context: currentDesignContext(),
         artifact_repo_root: repo.root,
       })
     );
@@ -54,6 +66,117 @@ test("RFC session CLI initializes, configures context, and selects one phase", (
     assert.equal(next.status, 0, next.stderr);
     assert.equal(JSON.parse(next.stdout).instruction_path, "skills/rfc/steps/01-intake.md");
     assert.equal(repo.run(["validate", "--session", payload.session_path]).status, 0);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("RFC session CLI recertifies an upgraded in-flight session back through intake", () => {
+  const repo = makeRepo();
+  try {
+    repo.own("legacy-recertify");
+    const initialized = JSON.parse(
+      repo.run(["init", "--slug", "legacy-recertify", "--source-dir", repo.root, "--json"]).stdout
+    );
+    const factsPath = path.join(repo.root, "recertify-facts.json");
+    fs.writeFileSync(
+      factsPath,
+      JSON.stringify({
+        source_kind: "proposal",
+        proposal_path: path.join(repo.root, "proposal.md"),
+        size: "M",
+        acceptance_criteria: ["Legacy work keeps its approved design intent"],
+        design_context: currentDesignContext(),
+        artifact_repo_root: repo.root,
+      })
+    );
+    assert.equal(
+      repo.run(["context", "--session", initialized.session_path, "--facts", factsPath]).status,
+      0
+    );
+    const legacy = JSON.parse(fs.readFileSync(initialized.session_path, "utf8"));
+    legacy.phase = "generation";
+    delete legacy.context.design_context;
+    fs.writeFileSync(initialized.session_path, `${JSON.stringify(legacy, null, 2)}\n`, {
+      mode: 0o600,
+    });
+
+    const blocked = repo.run(["next", "--session", initialized.session_path]);
+    assert.notEqual(blocked.status, 0);
+    assert.match(blocked.stderr, /legacy unbound design_context/);
+
+    const recertified = repo.run([
+      "recertify",
+      "--session",
+      initialized.session_path,
+      "--facts",
+      factsPath,
+      "--json",
+    ]);
+    assert.equal(recertified.status, 0, recertified.stderr);
+    const payload = JSON.parse(recertified.stdout);
+    assert.equal(payload.session.phase, "intake");
+    assert.deepEqual(payload.session.context.design_context, currentDesignContext());
+    assert.equal(payload.next.phase, "intake");
+    assert.match(payload.session.history.at(-1).reason, /recertification invalidated/i);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("RFC CLI rejects Astra model laundering and accepts ultra effort", () => {
+  const repo = makeRepo();
+  try {
+    const cases = [
+      [
+        "non-astra-base",
+        "--profile",
+        "gpt-5.6-sol-high",
+        "--model",
+        "gpt-6-astra",
+        /requires an explicitly selected named base profile/,
+      ],
+      [
+        "astra-model-swap",
+        "--profile",
+        "gpt-6-astra-high",
+        "--model",
+        "gpt-5.6-sol",
+        /cannot override model identity/,
+      ],
+    ];
+    for (const [slug, ...rest] of cases) {
+      const pattern = rest.pop();
+      const result = repo.run([
+        "init",
+        "--slug",
+        slug,
+        "--source-dir",
+        repo.root,
+        "--runtime",
+        "codex",
+        ...rest,
+      ]);
+      assert.equal(result.status, 3, result.stderr);
+      assert.match(result.stderr, pattern);
+    }
+
+    const astra = repo.run([
+      "init",
+      "--slug",
+      "astra-ultra",
+      "--source-dir",
+      repo.root,
+      "--runtime",
+      "codex",
+      "--profile",
+      "gpt-6-astra-high",
+      "--reasoning",
+      "ultra",
+      "--json",
+    ]);
+    assert.equal(astra.status, 0, astra.stderr);
+    assert.equal(JSON.parse(astra.stdout).session.execution.reasoning, "ultra");
   } finally {
     repo.cleanup();
   }
@@ -89,6 +212,7 @@ test("record retries are idempotent after an atomic phase advance", () => {
         proposal_path: path.join(repo.root, "proposal.md"),
         size: "M",
         acceptance_criteria: ["Retry safely"],
+        design_context: currentDesignContext(),
         artifact_repo_root: repo.root,
       })
     );
@@ -137,6 +261,7 @@ test("exact retries of persisted blocked results remain idempotent", () => {
         proposal_path: path.join(repo.root, "proposal.md"),
         size: "M",
         acceptance_criteria: ["Retry blocked writes safely"],
+        design_context: currentDesignContext(),
         artifact_repo_root: repo.root,
       })
     );
@@ -182,6 +307,7 @@ test("exact retry of retry-budget exhaustion remains idempotent", () => {
         proposal_path: path.join(repo.root, "proposal.md"),
         size: "M",
         acceptance_criteria: ["Bound retries"],
+        design_context: currentDesignContext(),
         artifact_repo_root: repo.root,
       })
     );
@@ -305,6 +431,7 @@ test("a historical matching hash does not suppress a current phase attempt", () 
         proposal_path: path.join(repo.root, "proposal.md"),
         size: "M",
         acceptance_criteria: ["Replay current phase"],
+        design_context: currentDesignContext(),
         artifact_repo_root: repo.root,
       })
     );
@@ -417,6 +544,7 @@ function prepareApprovedHandoff(repo, slug) {
     proposal_path: path.join(repo.root, "proposal.md"),
     size: "M",
     acceptance_criteria: ["Archive exact approval"],
+    design_context: currentDesignContext(),
     artifact_repo_root: repo.root,
   });
   session = recordResult(session, phaseResult(session));
@@ -502,6 +630,7 @@ function writeArtifact(repo, slug, status, prior = null) {
       slug,
       title: "Immutable RFC",
       size: "M",
+      design_context: currentDesignContext(),
       issues: [
         {
           num: 1,

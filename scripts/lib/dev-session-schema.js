@@ -14,7 +14,12 @@ const { markdownTableValue } = require("./session-scan");
 const { routeDevWork } = require("./dev-risk");
 const { deriveSessionSlug } = require("./session-slug");
 const { extractSidecarHash, sha256Hex, validateRfcSidecar } = require("../rfc-sidecar-check");
-const { analyzeWorkUnits, validateWorkUnitResult, validateWorkUnits } = require("./dev-work-units");
+const {
+  analyzeWorkUnits,
+  validateDesignContext,
+  validateWorkUnitResult,
+  validateWorkUnits,
+} = require("./dev-work-units");
 const { isRfc3339DateTime } = require("./iso-time");
 const { grantActions } = require("./workflow-runtime/authority");
 const {
@@ -24,13 +29,19 @@ const {
   isObject: isRecordObject,
 } = require("./workflow-runtime/records");
 const { evidenceRecordIssues, runtimeRecordIssues } = require("./workflow-runtime/result-envelope");
+const {
+  assertAstraProfileIntegrity,
+  assertRuntimeMatchesAstraProfile,
+} = require("./workflow-runtime/model-profile");
 const { bindEffectReceipt } = require("./workflow-runtime/effect-receipt");
 const { transactionIssues } = require("./release-transaction-schema");
+const { checkQaReport } = require("./qa-report-schema");
 const { readApprovedProposal } = require("./proposal-schema");
 const {
   approvalTransitionDigest,
   validateSession: validateRfcSession,
 } = require("./rfc-session-schema");
+const devModelProfiles = require("../../skills/dev/references/model-profiles.json");
 
 const RUNNER_VERSION = "3.0.0";
 const MAX_PHASE_ATTEMPTS = 3;
@@ -202,6 +213,28 @@ function validateSession(session) {
   validateCandidate(session.candidate, errors);
   validateStateEvidence(session.evidence, errors);
   validateAttempts(session.attempts, errors);
+  const recordedQaAttempts = Array.isArray(session.attempts)
+    ? session.attempts.filter((attempt) => attempt?.phase === "qa").length
+    : 0;
+  const qaRunCount = session.evidence?.qa?.qa_run_count;
+  if (Number.isInteger(qaRunCount) && qaRunCount < recordedQaAttempts) {
+    errors.push(
+      issue(
+        "$.evidence.qa.qa_run_count",
+        "cannot be less than the number of runner-recorded QA attempts"
+      )
+    );
+  }
+  if (isObject(session.execution) && Array.isArray(session.attempts)) {
+    session.attempts.forEach((attempt, index) => {
+      validateAstraRuntimeBinding(
+        session.execution,
+        attempt?.runtime,
+        errors,
+        `$.attempts[${index}].runtime`
+      );
+    });
+  }
   validateBlockers(session.blockers, errors);
   if (Array.isArray(session.history)) validateHistory(session.history, errors);
   if (session.migration !== null && session.migration !== undefined) {
@@ -388,6 +421,7 @@ function validateTask(task, errors) {
     "reference",
     "rfc_sidecar",
     "proposal",
+    "design_context",
     "kind",
     "size",
     "risk",
@@ -397,7 +431,7 @@ function validateTask(task, errors) {
   ]);
   validateExactFields(task, fields, "$.task", errors);
   for (const field of fields) {
-    if (!new Set(["rfc_sidecar", "proposal"]).has(field))
+    if (!new Set(["rfc_sidecar", "proposal", "design_context"]).has(field))
       requireField(task, field, "$.task", errors);
   }
   if (task.reference !== null && typeof task.reference !== "string") {
@@ -427,6 +461,24 @@ function validateTask(task, errors) {
     }
   }
   validateProposalIdentity(task.proposal, errors);
+  if (task.design_context !== undefined && task.design_context !== null) {
+    const contractPath = task.proposal?.path || task.rfc_sidecar?.path;
+    if (!contractPath) {
+      errors.push(
+        issue(
+          "$.task.design_context",
+          "must be null without approved proposal or RFC sidecar provenance"
+        )
+      );
+    } else {
+      try {
+        const repoRoot = findGitRoot(path.dirname(contractPath));
+        validateDesignContext(task.design_context, "task design_context", { repoRoot });
+      } catch (error) {
+        errors.push(issue("$.task.design_context", error.message));
+      }
+    }
+  }
   if (typeof task.kind !== "string" || !task.kind) errors.push(issue("$.task.kind", "required"));
   if (!new Set(["XS", "S", "M", "L", "XL", "unknown"]).has(task.size)) {
     errors.push(issue("$.task.size", "invalid size"));
@@ -444,7 +496,20 @@ function validateTask(task, errors) {
     errors.push(issue("$.task.work_units", "must be an array"));
   } else {
     try {
-      validateWorkUnits(task.work_units, { persisted: true });
+      const contractPath = task.rfc_sidecar?.path || task.proposal?.path;
+      if (
+        !contractPath &&
+        task.work_units.some(
+          (unit) =>
+            unit?.contract?.design_context !== undefined && unit?.contract?.design_context !== null
+        )
+      ) {
+        throw new Error(
+          "work-unit design_context requires approved proposal or RFC sidecar provenance"
+        );
+      }
+      const repoRoot = contractPath ? findGitRoot(path.dirname(contractPath)) : null;
+      validateWorkUnits(task.work_units, { persisted: true, repoRoot });
     } catch (error) {
       errors.push(issue("$.task.work_units", error.message));
     }
@@ -556,6 +621,18 @@ function validateExecution(execution, errors) {
   }
   if (execution.runtime_session_id !== null && typeof execution.runtime_session_id !== "string") {
     errors.push(issue("$.execution.runtime_session_id", "must be null or a string"));
+  }
+  try {
+    assertAstraProfileIntegrity({
+      data: devModelProfiles,
+      provider: execution.runtime,
+      profileName: execution.profile,
+      model: execution.model,
+      effort: execution.reasoning,
+      profileWasExplicit: true,
+    });
+  } catch (error) {
+    errors.push(issue("$.execution", error.message));
   }
 }
 
@@ -738,6 +815,8 @@ function validateStateEvidence(evidence, errors) {
       "verified_commit",
       "verified_at",
       "verification_records",
+      "qa_run_count",
+      "qa_run_anchors",
     ]);
     validateExactFields(evidenceSet, fields, evidencePath, errors);
     for (const field of ["commit", "records", "recorded_at"]) {
@@ -758,6 +837,20 @@ function validateStateEvidence(evidence, errors) {
     }
     if (!isIsoDate(evidenceSet.recorded_at)) {
       errors.push(issue(`${evidencePath}.recorded_at`, "must be an ISO date"));
+    }
+    if (Object.prototype.hasOwnProperty.call(evidenceSet, "qa_run_count")) {
+      if (phase !== "qa") {
+        errors.push(issue(`${evidencePath}.qa_run_count`, "is only valid for QA evidence"));
+      } else if (!Number.isInteger(evidenceSet.qa_run_count) || evidenceSet.qa_run_count < 1) {
+        errors.push(issue(`${evidencePath}.qa_run_count`, "must be a positive integer"));
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(evidenceSet, "qa_run_anchors")) {
+      if (phase !== "qa") {
+        errors.push(issue(`${evidencePath}.qa_run_anchors`, "is only valid for QA evidence"));
+      } else {
+        validateQaRunAnchors(evidenceSet, evidencePath, errors);
+      }
     }
     const hasVerifiedCommit = Object.prototype.hasOwnProperty.call(evidenceSet, "verified_commit");
     const hasVerifiedAt = Object.prototype.hasOwnProperty.call(evidenceSet, "verified_at");
@@ -784,6 +877,46 @@ function validateStateEvidence(evidence, errors) {
       }
     }
   }
+}
+
+function validateQaRunAnchors(evidenceSet, evidencePath, errors) {
+  const anchors = evidenceSet.qa_run_anchors;
+  if (!Array.isArray(anchors) || anchors.length === 0) {
+    errors.push(issue(`${evidencePath}.qa_run_anchors`, "must be a non-empty array"));
+    return;
+  }
+  if (!Number.isInteger(evidenceSet.qa_run_count)) {
+    errors.push(issue(`${evidencePath}.qa_run_count`, "is required with QA run anchors"));
+  } else if (anchors.length !== evidenceSet.qa_run_count) {
+    errors.push(
+      issue(`${evidencePath}.qa_run_anchors`, "must contain exactly qa_run_count entries")
+    );
+  }
+  anchors.forEach((anchor, index) => {
+    const anchorPath = `${evidencePath}.qa_run_anchors[${index}]`;
+    if (!isObject(anchor)) {
+      errors.push(issue(anchorPath, "must be an object"));
+      return;
+    }
+    const fields = new Set(["run", "commit", "verdict", "report_sha256"]);
+    validateExactFields(anchor, fields, anchorPath, errors);
+    for (const field of fields) requireField(anchor, field, anchorPath, errors);
+    if (anchor.run !== index + 1) {
+      errors.push(issue(`${anchorPath}.run`, `must equal ${index + 1}`));
+    }
+    if (
+      typeof anchor.commit !== "string" ||
+      !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(anchor.commit)
+    ) {
+      errors.push(issue(`${anchorPath}.commit`, "must be a Git object ID"));
+    }
+    if (!new Set(["pass", "pass-with-concerns", "fail", "blocked"]).has(anchor.verdict)) {
+      errors.push(issue(`${anchorPath}.verdict`, "is invalid"));
+    }
+    if (typeof anchor.report_sha256 !== "string" || !/^[a-f0-9]{64}$/.test(anchor.report_sha256)) {
+      errors.push(issue(`${anchorPath}.report_sha256`, "must be a SHA-256 digest"));
+    }
+  });
 }
 
 function validateAttempts(attempts, errors) {
@@ -911,6 +1044,7 @@ function validateResultRuntime(runtime, errors, runtimePath = "$.runtime") {
 function validateResult(session, result, options = {}) {
   const errors = [...validateResultEnvelope(result)];
   if (!isObject(session) || !isObject(result)) return errors;
+  validateAstraRuntimeBinding(session.execution, result.runtime, errors, "$.runtime");
   if (result.run_id !== session.run_id)
     errors.push(issue("$.run_id", "does not match session run_id"));
   if (result.phase !== session.phase) errors.push(issue("$.phase", "does not match session phase"));
@@ -949,10 +1083,25 @@ function validateResult(session, result, options = {}) {
       }
     }
     validatePhaseEvidence(session, result, options, errors);
+  } else if (session.phase === "qa" && new Set(["failed", "blocked"]).has(result.status)) {
+    validateQaEvidence(session, result, errors, "$.evidence", { qaCandidate: "required" });
   }
 
   if (result.commit) validateCommit(session, result.commit, options, errors);
   return errors;
+}
+
+function validateAstraRuntimeBinding(execution, runtime, errors, runtimePath) {
+  if (!isObject(execution) || !isObject(runtime)) return;
+  try {
+    assertRuntimeMatchesAstraProfile({
+      data: devModelProfiles,
+      execution,
+      runtime,
+    });
+  } catch (error) {
+    errors.push(issue(runtimePath, error.message));
+  }
 }
 
 function validatePhaseEvidence(session, result, options, errors) {
@@ -970,6 +1119,9 @@ function validatePhaseEvidence(session, result, options, errors) {
       );
     }
   }
+  if (session.phase === "qa") {
+    validateQaEvidence(session, result, errors, "$.evidence", { qaCandidate: "required" });
+  }
   if (session.phase === "ship") validateDeliveryEvidence(session, result, options, errors);
 }
 
@@ -982,6 +1134,82 @@ function evidenceArtifact(result, kind, errors) {
     return null;
   }
   return record.artifact;
+}
+
+function validateQaEvidence(session, result, errors, basePath = "$.evidence", options = {}) {
+  const resultStatus = result.status || "passed";
+  const records = Array.isArray(result.evidence) ? result.evidence : [];
+  const checkedReports = records.filter(
+    (record) => record?.kind === "test" && record.exit_code === 0
+  );
+  if (checkedReports.length !== 1) {
+    errors.push(issue(basePath, "QA requires exactly one successful report-check evidence record"));
+    return;
+  }
+  if (
+    typeof checkedReports[0].command !== "string" ||
+    !/qa-report-check(?:\.js)?(?:\s|$)/i.test(checkedReports[0].command)
+  ) {
+    errors.push(
+      issue(basePath, "QA test evidence must record the executed qa-report-check command")
+    );
+  }
+  if (
+    options.requireQaCandidateCommand === true &&
+    !/--qa-candidate(?:\s|$)/.test(checkedReports[0].command || "")
+  ) {
+    errors.push(
+      issue(basePath, "QA recertification evidence must record --qa-candidate validation")
+    );
+  }
+  if (
+    options.requireQaHistoryAnchorCommand === true &&
+    !/--qa-history-anchor(?:\s|$)/.test(checkedReports[0].command || "")
+  ) {
+    errors.push(
+      issue(basePath, "QA history anchoring evidence must record --qa-history-anchor validation")
+    );
+  }
+  if (
+    new Set(["failed", "blocked"]).has(resultStatus) &&
+    !/--allow-nonpassing(?:\s|$)/.test(checkedReports[0].command)
+  ) {
+    errors.push(
+      issue(basePath, "failed or blocked QA evidence must record --allow-nonpassing validation")
+    );
+  }
+  if (typeof result.commit !== "string" || !result.commit) {
+    errors.push(issue(basePath, "every QA verdict requires a commit-bound report"));
+    return;
+  }
+  const reportPath = checkedReports[0].artifact;
+  if (typeof reportPath !== "string" || !path.isAbsolute(reportPath)) {
+    errors.push(issue(basePath, "QA test evidence requires an absolute report artifact path"));
+    return;
+  }
+  const checked = checkQaReport({
+    session,
+    reportPath,
+    expectedCommit: result.commit,
+    requirePassing: resultStatus === "passed",
+    qaCandidate: options.qaCandidate,
+    qaHistoryAnchor: options.qaHistoryAnchor,
+  });
+  for (const reportIssue of checked.issues) {
+    errors.push(issue(basePath, `QA report ${reportIssue.path}: ${reportIssue.message}`));
+  }
+  const expectedVerdicts =
+    resultStatus === "passed"
+      ? new Set(["pass", "pass-with-concerns"])
+      : resultStatus === "blocked"
+        ? new Set(["blocked"])
+        : new Set(["fail"]);
+  if (!expectedVerdicts.has(checked.verdict)) {
+    errors.push(
+      issue(basePath, `QA report verdict ${checked.verdict} contradicts ${resultStatus}`)
+    );
+  }
+  return checked;
 }
 
 function validateReadinessEvidence(session, result, errors) {
@@ -1002,6 +1230,8 @@ function validateReadinessEvidence(session, result, errors) {
       htmlPath,
       storedHash: extractSidecarHash(html),
       sidecarHash: `sha256:${sha256Hex(sidecarBytes)}`,
+      repoRoot: findGitRoot(path.dirname(sidecarPath)),
+      requireCurrentDesignContext: true,
     });
     if (!validation.ok) {
       errors.push(
@@ -1067,6 +1297,15 @@ function validateReadinessEvidence(session, result, errors) {
       return;
     }
     const archived = JSON.parse(fs.readFileSync(archivePath, "utf8"));
+    validateRfcReadinessDesignContext(
+      {
+        archived,
+        artifactRepoRoot,
+        devContext: session.task.design_context,
+        sidecarContext: sidecar.design_context,
+      },
+      errors
+    );
     if (
       archived.status !== "complete" ||
       archived.slug !== session.slug ||
@@ -1086,6 +1325,42 @@ function validateReadinessEvidence(session, result, errors) {
     }
   } catch (error) {
     errors.push(issue("$.evidence", `could not verify RFC readiness artifact: ${error.message}`));
+  }
+}
+
+function validateRfcReadinessDesignContext(
+  { archived, artifactRepoRoot, devContext, sidecarContext },
+  errors
+) {
+  const contexts = [
+    ["completed RFC run", archived.context?.design_context],
+    ["Dev intake", devContext],
+  ];
+  for (const [label, context] of contexts) {
+    if (context === null || context === undefined) {
+      errors.push(
+        issue(
+          "$.evidence",
+          `${label} has legacy unbound design_context; recertify RFC intake and reroute the current sidecar`
+        )
+      );
+      continue;
+    }
+    try {
+      validateDesignContext(context, `${label} design_context`, {
+        repoRoot: artifactRepoRoot,
+        requireCurrentPrototypeIdentity: true,
+        requireExperienceClassification: true,
+      });
+    } catch (error) {
+      errors.push(issue("$.evidence", error.message));
+      continue;
+    }
+    if (canonicalJson(context) !== canonicalJson(sidecarContext)) {
+      errors.push(
+        issue("$.evidence", `${label} design_context must exactly match the approved RFC sidecar`)
+      );
+    }
   }
 }
 
@@ -1550,6 +1825,7 @@ function createSession(options) {
       reference: options.task || null,
       rfc_sidecar: null,
       proposal: null,
+      design_context: null,
       kind: options.kind || "unknown",
       size: options.size || "unknown",
       risk: defaultRisk(),
@@ -1600,10 +1876,27 @@ function applyRouting(session, facts, options = {}) {
   }
   let effectiveFacts = facts;
   let proposalIdentity = null;
+  let proposalDesignContext = null;
   if (typeof facts.proposal_path === "string" && facts.proposal_path.trim()) {
     const proposalPath = fs.realpathSync(path.resolve(facts.proposal_path));
     const projectRoot = fs.realpathSync(findGitRoot(path.dirname(proposalPath)));
-    const canonical = readApprovedProposal(proposalPath, { projectRoot });
+    const canonical = readApprovedProposal(proposalPath, {
+      projectRoot,
+      requireCurrentPrototypeIdentity: true,
+      requireExperienceClassification: true,
+    });
+    if (!canonical.contract.design_context) {
+      throw new Error(
+        "approved canonical proposal lacks durable design_context; return to pm:groom to recertify design intent"
+      );
+    }
+    proposalDesignContext = structuredClone(canonical.contract.design_context);
+    if (
+      facts.design_context !== undefined &&
+      canonicalJson(facts.design_context) !== canonicalJson(proposalDesignContext)
+    ) {
+      throw new Error("Dev design_context contradicts the canonical proposal execution contract");
+    }
     const contractCriteria = canonical.contract.acceptance_criteria.map(formatProposalCriterion);
     if (facts.size !== undefined && facts.size !== canonical.contract.size)
       throw new Error(
@@ -1621,6 +1914,7 @@ function applyRouting(session, facts, options = {}) {
       reference: proposalPath,
       size: canonical.contract.size,
       acceptance_criteria: contractCriteria,
+      design_context: proposalDesignContext,
     };
     proposalIdentity = {
       path: proposalPath,
@@ -1636,10 +1930,51 @@ function applyRouting(session, facts, options = {}) {
       decision_sha256: canonical.approval.decision_sha256,
     };
   }
+  const hasDesignContract = Boolean(proposalIdentity || options.rfcSidecar);
+  if (
+    !hasDesignContract &&
+    ((effectiveFacts.design_context !== undefined && effectiveFacts.design_context !== null) ||
+      (Array.isArray(effectiveFacts.work_units) &&
+        effectiveFacts.work_units.some(
+          (unit) =>
+            unit?.contract?.design_context !== undefined && unit?.contract?.design_context !== null
+        )))
+  ) {
+    throw new Error(
+      "non-proposal Dev design_context requires approved proposal or RFC sidecar provenance"
+    );
+  }
+  const effectiveDesignContext = proposalDesignContext || effectiveFacts.design_context || null;
+  if (effectiveDesignContext) {
+    const contractPath = options.rfcSidecar?.path || proposalIdentity?.path;
+    validateDesignContext(effectiveDesignContext, "Dev design_context", {
+      repoRoot: contractPath ? findGitRoot(path.dirname(contractPath)) : undefined,
+      requireCurrentPrototypeIdentity: true,
+      requireExperienceClassification: true,
+    });
+  }
+  const designContexts = [
+    effectiveDesignContext,
+    ...(Array.isArray(effectiveFacts.work_units)
+      ? effectiveFacts.work_units.map((unit) => unit?.contract?.design_context)
+      : []),
+  ].filter(Boolean);
+  if (designContexts.some((context) => context.ui_impact === true)) {
+    effectiveFacts = {
+      ...effectiveFacts,
+      risk: {
+        ...(isObject(effectiveFacts.risk) ? effectiveFacts.risk : {}),
+        ui: Math.max(effectiveFacts.risk?.ui || 0, 1),
+      },
+    };
+  }
   const route = routeDevWork(effectiveFacts);
   const next = structuredClone(session);
   next.task.reference = effectiveFacts.reference ?? next.task.reference;
   next.task.proposal = proposalIdentity;
+  next.task.design_context = effectiveDesignContext
+    ? structuredClone(effectiveDesignContext)
+    : null;
   next.task.kind = route.kind;
   next.task.size = route.size;
   next.task.risk = {
@@ -1655,8 +1990,28 @@ function applyRouting(session, facts, options = {}) {
   }
   if (facts.work_units !== undefined) {
     if (!Array.isArray(facts.work_units)) throw new TypeError("work_units must be an array");
-    validateWorkUnits(facts.work_units);
-    next.task.work_units = structuredClone(facts.work_units);
+    const contractPath = options.rfcSidecar?.path || proposalIdentity?.path;
+    const workUnits = structuredClone(facts.work_units);
+    if (effectiveDesignContext) {
+      for (const unit of workUnits) {
+        if (!isObject(unit?.contract)) continue;
+        if (
+          unit.contract.design_context !== undefined &&
+          canonicalJson(unit.contract.design_context) !== canonicalJson(effectiveDesignContext)
+        ) {
+          throw new Error(
+            `work unit ${unit.id || "(unknown)"} design_context contradicts the intake execution contract`
+          );
+        }
+        unit.contract.design_context = structuredClone(effectiveDesignContext);
+      }
+    }
+    validateWorkUnits(workUnits, {
+      repoRoot: contractPath ? findGitRoot(path.dirname(contractPath)) : null,
+      requireCurrentPrototypeIdentity: true,
+      requireExperienceClassification: true,
+    });
+    next.task.work_units = workUnits;
   }
   if (options.rfcSidecar !== undefined) {
     next.task.rfc_sidecar = structuredClone(options.rfcSidecar);
@@ -1697,6 +2052,17 @@ function applyRouting(session, facts, options = {}) {
 
 function formatProposalCriterion(criterion) {
   return `${criterion.id}: Given ${criterion.given}, when ${criterion.when}, then ${criterion.then}`;
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (isObject(value)) {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function transitionWorkUnit(session, input, options = {}) {
@@ -1846,11 +2212,195 @@ function recertifyEvidence(session, phases, commit, verificationByPhase, options
         `recertification evidence for ${phase} is missing required kinds: ${missingKinds.join(", ")}`
       );
     }
+    if (phase === "qa") {
+      if (
+        !Number.isInteger(evidence.qa_run_count) ||
+        !Array.isArray(evidence.qa_run_anchors) ||
+        evidence.qa_run_anchors.length !== evidence.qa_run_count
+      ) {
+        throw new Error(
+          "cannot recertify QA history without immutable run anchors; run dev-session anchor-qa-history"
+        );
+      }
+      const qaErrors = [];
+      const checked = validateQaEvidence(
+        next,
+        { commit, evidence: records },
+        qaErrors,
+        `$.verification.${phase}`,
+        { qaCandidate: "required", requireQaCandidateCommand: true }
+      );
+      if (qaErrors.length > 0) {
+        throw validationError("recertification evidence for qa is invalid", qaErrors);
+      }
+      if (!Number.isInteger(checked?.run_count) || checked.run_count < 1) {
+        throw new Error("recertification evidence for qa did not produce a valid run count");
+      }
+      evidence.qa_run_count = checked.run_count;
+      evidence.qa_run_anchors = structuredClone(checked.run_anchors);
+    }
     evidence.verified_commit = commit;
     evidence.verified_at = timestamp;
     evidence.verification_records = structuredClone(records);
   }
   next.updated_at = timestamp;
+  assertValidSession(next);
+  return next;
+}
+
+function anchorQaHistory(session, commit, records, options = {}) {
+  assertValidSession(session);
+  const qaEvidence = session.evidence.qa;
+  if (!qaEvidence?.commit) throw new Error("QA history anchoring requires recorded QA evidence");
+
+  const commitErrors = [];
+  validateCommit(session, commit, options, commitErrors);
+  if (commitErrors.length > 0) {
+    throw validationError("QA history anchor commit is invalid", commitErrors);
+  }
+  const anchorErrors = [];
+  const checked = validateQaEvidence(
+    session,
+    { commit, evidence: records },
+    anchorErrors,
+    "$.qa_history_anchor",
+    { qaHistoryAnchor: true, requireQaHistoryAnchorCommand: true }
+  );
+  if (anchorErrors.length > 0) {
+    throw validationError("QA history anchoring evidence is invalid", anchorErrors);
+  }
+  validateStoredQaGateBindings(
+    qaEvidence,
+    checked.run_anchors,
+    checked.expected_path,
+    anchorErrors
+  );
+  if (anchorErrors.length > 0) {
+    throw validationError(
+      "stored QA gate evidence is not bound to the audited history",
+      anchorErrors
+    );
+  }
+  if (
+    !Number.isInteger(checked?.run_count) ||
+    !Array.isArray(checked.run_anchors) ||
+    checked.run_anchors.length !== checked.run_count
+  ) {
+    throw new Error("QA history anchoring did not produce a complete immutable run ledger");
+  }
+  if (Array.isArray(qaEvidence.qa_run_anchors)) {
+    if (canonicalJson(qaEvidence.qa_run_anchors) !== canonicalJson(checked.run_anchors)) {
+      throw new Error("existing immutable QA run anchors do not match the audited report history");
+    }
+    return structuredClone(session);
+  }
+
+  const next = structuredClone(session);
+  next.evidence.qa.qa_run_count = checked.run_count;
+  next.evidence.qa.qa_run_anchors = structuredClone(checked.run_anchors);
+  next.updated_at = options.now || new Date().toISOString();
+  assertValidSession(next);
+  return next;
+}
+
+function validateStoredQaGateBindings(qaEvidence, anchors, reportPath, errors) {
+  const evidenceSets = [
+    {
+      at: "$.evidence.qa",
+      commit: qaEvidence.commit,
+      records: qaEvidence.records,
+    },
+  ];
+  if (typeof qaEvidence.verified_commit === "string") {
+    evidenceSets.push({
+      at: "$.evidence.qa.verification_records",
+      commit: qaEvidence.verified_commit,
+      records: qaEvidence.verification_records,
+    });
+  }
+  for (const evidenceSet of evidenceSets) {
+    const matchingRun = Array.isArray(anchors)
+      ? anchors.find(
+          (anchor) =>
+            anchor?.commit === evidenceSet.commit &&
+            new Set(["pass", "pass-with-concerns"]).has(anchor.verdict)
+        )
+      : null;
+    if (!matchingRun) {
+      errors.push(
+        issue(evidenceSet.at, "commit must identify a passing run in the audited QA history")
+      );
+    }
+    const successfulChecks = Array.isArray(evidenceSet.records)
+      ? evidenceSet.records.filter((record) => record?.kind === "test" && record.exit_code === 0)
+      : [];
+    if (successfulChecks.length !== 1) {
+      errors.push(issue(evidenceSet.at, "must contain exactly one successful QA report check"));
+      continue;
+    }
+    const record = successfulChecks[0];
+    if (
+      typeof record.command !== "string" ||
+      !/qa-report-check(?:\.js)?(?:\s|$)/i.test(record.command)
+    ) {
+      errors.push(issue(evidenceSet.at, "must record the executed qa-report-check command"));
+    }
+    if (record.artifact !== reportPath) {
+      errors.push(issue(evidenceSet.at, "must identify the canonical QA report artifact"));
+    }
+  }
+}
+
+function recordNonPassingQaCandidate(session, status, commit, records, options = {}) {
+  assertValidSession(session);
+  if (!new Set(["failed", "blocked"]).has(status)) {
+    throw new Error("QA candidate history recording requires failed or blocked status");
+  }
+  if (session.status !== "active" || PHASES.indexOf(session.phase) <= PHASES.indexOf("qa")) {
+    throw new Error(
+      "non-passing QA candidates can only be recorded during an active post-QA phase"
+    );
+  }
+  const qaEvidence = session.evidence.qa;
+  if (
+    !qaEvidence?.commit ||
+    !Number.isInteger(qaEvidence.qa_run_count) ||
+    !Array.isArray(qaEvidence.qa_run_anchors) ||
+    qaEvidence.qa_run_anchors.length !== qaEvidence.qa_run_count
+  ) {
+    throw new Error(
+      "non-passing QA candidate recording requires immutable run anchors; run dev-session anchor-qa-history"
+    );
+  }
+
+  const errors = [];
+  validateCommit(session, commit, options, errors);
+  let checked = null;
+  if (!Array.isArray(records) || records.length === 0) {
+    errors.push(issue("$.qa_candidate", "requires fresh QA candidate evidence"));
+  } else {
+    records.forEach((record, index) =>
+      validateEvidenceRecord(record, index, errors, "$.qa_candidate")
+    );
+    checked = validateQaEvidence(
+      session,
+      { status, commit, evidence: records },
+      errors,
+      "$.qa_candidate",
+      { qaCandidate: "required", requireQaCandidateCommand: true }
+    );
+  }
+  if (errors.length > 0) {
+    throw validationError("non-passing QA candidate is invalid", errors);
+  }
+  if (checked.run_count !== qaEvidence.qa_run_count + 1) {
+    throw new Error("non-passing QA candidate did not advance the run-count anchor by exactly one");
+  }
+
+  const next = structuredClone(session);
+  next.evidence.qa.qa_run_count = checked.run_count;
+  next.evidence.qa.qa_run_anchors = structuredClone(checked.run_anchors);
+  next.updated_at = options.now || new Date().toISOString();
   assertValidSession(next);
   return next;
 }
@@ -2140,8 +2690,16 @@ function writeJsonAtomic(filePath, value) {
 
 function nextDecision(session, sessionPath = null, options = {}) {
   assertValidSession(session);
-  verifyRfcSidecarIdentity(session.task.rfc_sidecar);
-  verifyProposalIdentity(session.task.proposal);
+  verifyRfcSidecarIdentity(
+    session.task.rfc_sidecar,
+    session.task.design_context,
+    session.task.work_units
+  );
+  verifyProposalIdentity(
+    session.task.proposal,
+    session.task.design_context,
+    session.task.work_units
+  );
   const metadata = resolvePhaseContract(session, options);
   return {
     schema_version: 1,
@@ -2169,7 +2727,7 @@ function nextDecision(session, sessionPath = null, options = {}) {
   };
 }
 
-function verifyProposalIdentity(identity) {
+function verifyProposalIdentity(identity, expectedDesignContext, workUnits = []) {
   if (!identity) return;
   let projectRoot;
   try {
@@ -2181,6 +2739,8 @@ function verifyProposalIdentity(identity) {
   try {
     trusted = readApprovedProposal(identity.path, {
       projectRoot,
+      requireCurrentPrototypeIdentity: true,
+      requireExperienceClassification: true,
       expectedDecision:
         identity.decision_id === null
           ? undefined
@@ -2188,6 +2748,26 @@ function verifyProposalIdentity(identity) {
     });
   } catch (error) {
     throw new Error(`proposal identity is no longer trusted: ${error.message}`);
+  }
+  if (!trusted.contract.design_context) {
+    throw new Error(
+      "proposal identity is no longer trusted: approved proposal lacks durable design_context"
+    );
+  }
+  if (canonicalJson(expectedDesignContext) !== canonicalJson(trusted.contract.design_context)) {
+    throw new Error(
+      "proposal design_context drifted; re-run Dev intake against the approved proposal"
+    );
+  }
+  for (const unit of workUnits) {
+    if (!isObject(unit?.contract)) continue;
+    if (
+      canonicalJson(unit.contract.design_context) !== canonicalJson(trusted.contract.design_context)
+    ) {
+      throw new Error(
+        `work unit ${unit.id || "(unknown)"} design_context drifted from the approved proposal`
+      );
+    }
   }
   const observed = {
     proposal_id: trusted.contract.proposal_id,
@@ -2209,7 +2789,7 @@ function verifyProposalIdentity(identity) {
     );
 }
 
-function verifyRfcSidecarIdentity(identity) {
+function verifyRfcSidecarIdentity(identity, expectedDesignContext, workUnits = []) {
   if (!identity) return;
   let bytes;
   try {
@@ -2222,6 +2802,40 @@ function verifyRfcSidecarIdentity(identity) {
     throw new Error(
       "RFC sidecar identity hash drifted; reinitialize Dev or rerun route --rfc-sidecar while intake is active"
     );
+  }
+  let sidecar;
+  try {
+    sidecar = JSON.parse(bytes.toString("utf8"));
+  } catch (error) {
+    throw new Error(`RFC sidecar identity is malformed: ${error.message}`);
+  }
+  if (expectedDesignContext === null || expectedDesignContext === undefined) {
+    throw new Error(
+      "RFC-routed Dev session has legacy unbound design_context; rerun RFC intake and route the current schema-v3 sidecar"
+    );
+  }
+  const validation = validateRfcSidecar(sidecar, identity.path, {
+    expectedSlug: identity.slug,
+    expectedDesignContext,
+    repoRoot: findGitRoot(path.dirname(identity.path)),
+    requireCurrentDesignContext: true,
+  });
+  if (!validation.ok) {
+    throw new Error(
+      `RFC sidecar identity is no longer executable: ${validation.issues
+        .map((entry) => entry.message)
+        .join("; ")}`
+    );
+  }
+  for (const unit of workUnits) {
+    if (
+      isObject(unit?.contract) &&
+      canonicalJson(unit.contract.design_context) !== canonicalJson(expectedDesignContext)
+    ) {
+      throw new Error(
+        `work unit ${unit.id || "(unknown)"} design_context drifted from the RFC sidecar`
+      );
+    }
   }
 }
 
@@ -2274,6 +2888,19 @@ function recordResult(session, result, options = {}) {
       records: structuredClone(result.evidence),
       recorded_at: timestamp,
     };
+  }
+  if (priorPhase === "qa" && ["passed", "failed", "blocked"].includes(result.status)) {
+    const qaErrors = [];
+    const checked = validateQaEvidence(session, result, qaErrors, "$.evidence", {
+      qaCandidate: "required",
+    });
+    if (qaErrors.length > 0) {
+      throw validationError("QA evidence changed before it could be recorded", qaErrors);
+    }
+    // Non-passing attempts retain immutable history without granting gate evidence.
+    next.evidence.qa ||= { commit: null, records: [], recorded_at: timestamp };
+    next.evidence.qa.qa_run_count = checked.run_count;
+    next.evidence.qa.qa_run_anchors = structuredClone(checked.run_anchors);
   }
 
   if (result.status === "passed" && priorPhase === "ship" && next.execution.mode === "headless") {
@@ -2344,15 +2971,26 @@ function assertFinalGates(session, resultCommit, options) {
     const phase = contract.phase;
     const record = session.evidence[phase];
     const currentRecords = currentEvidenceRecords(record, head);
-    if (
+    const missingOrStale =
       !record ||
       !record.commit ||
       (record.commit !== head && record.verified_commit !== head) ||
       !currentRecords?.some(
         (evidence) => evidence.kind === contract.kind && evidence.exit_code === 0
-      )
-    ) {
+      );
+    if (missingOrStale) {
       missing.push(gate);
+      continue;
+    }
+    if (gate === "qa") {
+      const qaErrors = [];
+      validateQaEvidence(
+        session,
+        { commit: head, evidence: currentRecords },
+        qaErrors,
+        "$.evidence.qa"
+      );
+      if (qaErrors.length > 0) missing.push(gate);
     }
   }
   if (missing.length > 0) {
@@ -2596,6 +3234,7 @@ module.exports = {
   RUNNER_VERSION,
   advanceDecisionVersion,
   applyRouting,
+  anchorQaHistory,
   candidateAuthorityForState,
   classifyDeliveryCandidate,
   createSession,
@@ -2610,6 +3249,7 @@ module.exports = {
   prunePreUpgradeSnapshot,
   refreshCandidateIdentities,
   recertifyEvidence,
+  recordNonPassingQaCandidate,
   recordResult,
   resumeBlocked,
   restorePreUpgradeSnapshot,

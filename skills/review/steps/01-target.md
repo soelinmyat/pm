@@ -14,7 +14,7 @@ Create immutable `target.json` for the current committed diff and a reviewer pla
 
 1. Resolve the session slug with the shared `deriveSessionSlug` helper from `scripts/lib/session-slug.js`. For example, `codex/pm-dev-workflow-proposal` resolves to `pm-dev-workflow-proposal`. Choose a stable kebab-case run ID only when no unfinished lineage exists for the bound Dev run and decision version. Store evidence under `.pm/dev-sessions/{slug}/review/runs/{RUN_ID}/round-{N}/`; never reuse a prior run or round directory, and never change `RUN_ID` to reset the remediation cap.
 2. Refuse uncommitted implementation changes. Resolve the authoritative remote default; do not trust a stale local base ref. Use three-dot diff semantics and retain the merge base for deleted-file evidence; do not reject an otherwise valid feature branch merely because the remote default advanced after it branched.
-3. Choose `full` from Dev's recorded route or for standalone review. Use `code-scan` only when the canonical Dev route says so.
+3. Choose `full` from Dev's recorded route or for standalone review. Use `code-scan` only when the canonical Dev route says so. Preserve the bound Dev `security_review_required` decision; when true, the generated target must make the distinct `security` lens applicable regardless of physical reviewer count. Without a Dev session, let the target generator conservatively activate that lens when changed paths indicate authentication, authorization, credentials, cryptography, permissions, security, or dependency/supply-chain exposure; do not treat missing Dev context as evidence of low risk.
 4. Choose the configured profile from `skills/dev/references/model-profiles.json`. Use the observed safe reviewer capacity, capped at six. Do not encode model names in prompts.
 5. Generate the target:
 
@@ -38,7 +38,7 @@ For Dev-routed work and Review invoked by Ship, `--dev-session` is mandatory and
 ## Done-when
 
 - `target.json` binds current HEAD, remote base commit, binary diff, changed-file bytes, route, ownership, logical lenses, and allocation.
-- Every applicable lens is assigned exactly once; every non-applicable lens has a concrete route reason.
+- Every applicable lens is assigned exactly once; every non-applicable lens has a concrete route reason. A routed `security_review_required` decision has exactly one `security` assignment.
 - Round and prior-report bindings follow the three-round contract.
 - The Dev decision version has no other unfinished review lineage.
 

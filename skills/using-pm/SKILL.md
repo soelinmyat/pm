@@ -60,7 +60,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 | “File a bug” / “Track this regression” | `pm:bug` | Capture an observed defect; fixing it routes to Dev |
 | “Write an RFC” / “Create the technical design” | `pm:rfc` | Architecture and executable work units for M+ work |
 | “Build this” / “Fix this bug” / “Debug this” | `pm:dev` | Implementation from supplied task context or an approved RFC when required |
-| “Review this diff or branch” | `pm:review` | Source review across logical bug, design, edge, reuse, quality, and efficiency lenses; worker count adapts to the runtime |
+| “Review this diff or branch” | `pm:review` | Source review across six baseline logical lenses plus a distinct security lens when Dev risk requires it; worker count adapts to the runtime |
 | “Review the rendered proposal HTML” / “Run visual QA” | `pm:design-critique` | Rendered UI or PM-artifact evidence, not product-content approval |
 | “Ship this reviewed branch” / “Open the PR and take it through CI” | `pm:ship` | Full delivery lifecycle with separately authorized effects |
 | “Initialize PM” / “Open PM” / “Show the project pulse” | `pm:start` | Workspace bootstrap, resume, and project pulse |

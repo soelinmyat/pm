@@ -9,6 +9,7 @@ const { spawnSync } = require("node:child_process");
 const { writeJsonAtomic } = require("./lib/atomic-file");
 const { acquireOwnedLock } = require("./lib/owned-lock");
 const { isGitObjectId } = require("./lib/git-object-id");
+const { readProjectInput } = require("./lib/safe-project-output");
 const { beginSegment, finishSegment, recoverInterruptedSegments } = require("./delivery-telemetry");
 const {
   verifyDeliveryAttestation,
@@ -20,6 +21,8 @@ const {
   bindReleaseEvidence,
   beginEffect,
   createReleaseTransaction,
+  attestPrBody,
+  migrateLegacyPrBody,
   normalizeReleaseTransaction,
   advancePreparedCommit,
   planEffect,
@@ -27,6 +30,9 @@ const {
   releaseReadiness,
   transactionIssues,
 } = require("./lib/release-transaction-schema");
+
+const MAX_CANONICAL_PR_BODY_BYTES = 128 * 1024;
+const MAX_PR_BODY_OBSERVATION_BYTES = 1024 * 1024;
 
 function parseArgs(argv) {
   const command = argv[0];
@@ -247,9 +253,37 @@ function runCommand(args, options = {}) {
   return mutateTransaction(transactionPath, (transaction) => {
     if (args.command === "plan") {
       const target = readJson(resolveInputFile(args.target_file, cwd, "target"), "effect target");
+      if (["create-pr", "merge"].includes(args.effect)) {
+        requireCanonicalPrBodyBinding(cwd, transactionPath, target);
+      }
       return {
         transaction: planEffect(transaction, { effect: args.effect, target }),
         decision: "planned",
+      };
+    }
+    if (args.command === "migrate-pr-body") {
+      const binding = readCanonicalPrBodyBinding(cwd, transactionPath);
+      return {
+        transaction: migrateLegacyPrBody(transaction, { bodySha256: binding.sha256 }),
+        decision: "pr-body-migration-bound",
+      };
+    }
+    if (args.command === "attest-pr-body") {
+      const binding = readCanonicalPrBodyBinding(cwd, transactionPath);
+      const createPrTarget = transaction.effects?.["create-pr"]?.target;
+      if (createPrTarget?.body_sha256 !== binding.sha256) {
+        throw new Error("canonical pr-body.md no longer matches the create-pr target");
+      }
+      const observationPath = resolvePrivateFile(args.observation_file, cwd, "PR body observation");
+      const observation = readBoundedProjectJson(
+        cwd,
+        observationPath,
+        "live PR body observation",
+        MAX_PR_BODY_OBSERVATION_BYTES
+      );
+      return {
+        transaction: attestPrBody(transaction, { observation }),
+        decision: "pr-body-attested",
       };
     }
     if (args.command === "begin") {
@@ -272,6 +306,17 @@ function runCommand(args, options = {}) {
       const receipt = args.receipt_file
         ? readJson(resolveInputFile(args.receipt_file, cwd, "receipt"), "effect receipt")
         : undefined;
+      if (
+        args.outcome === "matched" &&
+        ["create-pr", "merge"].includes(args.effect) &&
+        transaction.effects?.[args.effect]?.target?.body_sha256 !== undefined
+      ) {
+        requireCanonicalPrBodyBinding(
+          cwd,
+          transactionPath,
+          transaction.effects[args.effect].target
+        );
+      }
       return reconcileEffect(transaction, {
         effect: args.effect,
         outcome: args.outcome,
@@ -411,7 +456,8 @@ function readCanonicalTransaction(transactionPath) {
 
 function statusView(transaction, transactionPath) {
   const readiness = releaseReadiness(transaction);
-  const migrationPending = hasPendingLegacyMigration(transaction);
+  const migrationIssues = legacyMigrationIssues(transaction);
+  const migrationPending = migrationIssues.length > 0;
   return {
     schema_version: 1,
     transaction_path: transactionPath,
@@ -425,10 +471,15 @@ function statusView(transaction, transactionPath) {
       tag_created: transaction.release.tag_created,
     },
     ready: readiness.ok && !migrationPending,
-    readiness_issues: migrationPending
-      ? [...readiness.issues, "legacy create-pr migration requires Merge reconciliation"]
-      : readiness.issues,
+    readiness_issues: [...readiness.issues, ...migrationIssues],
     migration_pending: migrationPending,
+    pr_body_attestation: transaction.pr_body_attestation
+      ? {
+          body_sha256: transaction.pr_body_attestation.body_sha256,
+          observed_at: transaction.pr_body_attestation.observed_at,
+          consumed_by_attempt: transaction.pr_body_attestation.consumed_by_attempt,
+        }
+      : null,
     effects: Object.fromEntries(
       Object.entries(transaction.effects).map(([name, effect]) => [
         name,
@@ -449,24 +500,39 @@ function validatedTransactionRunId(transactionPath) {
 }
 
 function requireNoPendingMigration(transaction) {
-  if (hasPendingLegacyMigration(transaction)) {
-    throw new Error("legacy create-pr migration requires Merge reconciliation");
+  const issues = legacyMigrationIssues(transaction);
+  if (issues.length > 0) {
+    throw new Error(issues.join("; "));
   }
 }
 
-function hasPendingLegacyMigration(transaction) {
+function legacyMigrationIssues(transaction) {
   const createPr = transaction.effects?.["create-pr"];
   const merge = transaction.effects?.merge;
   const terminalDelivery =
     merge?.status === "verified" &&
     (transaction.release?.mode === "delivery-only" ||
       transaction.effects?.["place-main-tag"]?.status === "verified");
-  return (
-    !terminalDelivery &&
-    !transaction.evidence?.candidate &&
-    createPr !== undefined &&
-    createPr.target?.draft === undefined
-  );
+  if (terminalDelivery || createPr === undefined || merge?.status === "verified") return [];
+  const issues = [];
+  if (!transaction.evidence?.candidate && createPr.target?.draft === undefined) {
+    issues.push("legacy create-pr draft migration requires Merge reconciliation");
+  }
+  if (createPr.target?.body_sha256 === undefined) {
+    issues.push(
+      merge?.status === "attempting"
+        ? "legacy create-pr body migration requires Merge reconciliation first"
+        : "legacy create-pr body migration requires migrate-pr-body and fresh PR observation"
+    );
+  }
+  if (
+    merge &&
+    !new Set(["attempting", "verified"]).has(merge.status) &&
+    merge.target?.body_sha256 === undefined
+  ) {
+    issues.push("legacy Merge plan must be replaced with a body-bound plan");
+  }
+  return issues;
 }
 
 function githubRepository(url) {
@@ -483,6 +549,41 @@ function githubRepository(url) {
 
 function digestText(value) {
   return `sha256:${crypto.createHash("sha256").update(value).digest("hex")}`;
+}
+
+function readCanonicalPrBodyBinding(cwd, transactionPath) {
+  const filePath = path.join(path.dirname(transactionPath), "pr-body.md");
+  let input;
+  try {
+    input = readProjectInput(cwd, path.relative(cwd, filePath), MAX_CANONICAL_PR_BODY_BYTES, {
+      requireStablePath: true,
+    });
+  } catch (error) {
+    throw new Error(`canonical pr-body.md is unavailable: ${error.message}`);
+  }
+  if (input.bytes.length < 1) {
+    throw new Error("canonical pr-body.md must contain 1 byte to 128 KiB");
+  }
+  return { filePath, sha256: digestText(input.bytes) };
+}
+
+function requireCanonicalPrBodyBinding(cwd, transactionPath, target) {
+  const binding = readCanonicalPrBodyBinding(cwd, transactionPath);
+  if (target?.body_sha256 !== binding.sha256) {
+    throw new Error("effect target body_sha256 does not match canonical pr-body.md bytes");
+  }
+  return binding;
+}
+
+function readBoundedProjectJson(cwd, filePath, label, maxBytes) {
+  try {
+    const input = readProjectInput(cwd, path.relative(cwd, filePath), maxBytes, {
+      requireStablePath: true,
+    });
+    return JSON.parse(input.bytes.toString("utf8"));
+  } catch (error) {
+    throw new Error(`cannot read ${label} ${filePath}: ${error.message}`);
+  }
 }
 
 function git(cwd, args) {
@@ -612,8 +713,10 @@ function main(argv = process.argv.slice(2)) {
 if (require.main === module) process.exitCode = main();
 
 module.exports = {
+  legacyMigrationIssues,
   main,
   parseArgs,
+  readCanonicalPrBodyBinding,
   resolveAdvanceCommit,
   resolveProtectedPolicyCommit,
   runCommand,

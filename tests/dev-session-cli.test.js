@@ -2,6 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -84,6 +85,85 @@ test("init rejects a source directory outside a Git worktree as a precondition",
     assert.match(result.stderr, /not a Git worktree/);
   } finally {
     fs.rmSync(sourceDir, { recursive: true, force: true });
+  }
+});
+
+test("init enforces explicit Astra profile identity while preserving non-Astra model overrides", () => {
+  const repo = makeRepo();
+  try {
+    for (const [slug, args, pattern] of [
+      [
+        "astra-default-bypass",
+        ["--runtime", "codex", "--model", "gpt-6-astra", "--reasoning", "high"],
+        /explicitly selected named base profile/,
+      ],
+      [
+        "astra-profile-bypass",
+        [
+          "--runtime",
+          "codex",
+          "--profile",
+          "codex-workhorse",
+          "--model",
+          "gpt-6-astra",
+          "--reasoning",
+          "high",
+        ],
+        /explicitly selected named base profile/,
+      ],
+    ]) {
+      const result = repo.run(["init", "--slug", slug, "--source-dir", repo.root, ...args]);
+      assert.equal(result.status, 3, result.stderr);
+      assert.match(result.stderr, pattern);
+    }
+
+    const astra = repo.run([
+      "init",
+      "--slug",
+      "astra-valid",
+      "--source-dir",
+      repo.root,
+      "--runtime",
+      "codex",
+      "--profile",
+      "codex-astra",
+      "--reasoning",
+      "ultra",
+      "--json",
+    ]);
+    assert.equal(astra.status, 0, astra.stderr);
+    assert.deepEqual(JSON.parse(astra.stdout).session.execution, {
+      profile: "codex-astra",
+      runtime: "codex",
+      model: "gpt-6-astra",
+      reasoning: "ultra",
+      mode: "inline",
+      runtime_session_id: null,
+    });
+
+    const legacyOverride = repo.run([
+      "init",
+      "--slug",
+      "non-astra-override",
+      "--source-dir",
+      repo.root,
+      "--runtime",
+      "codex",
+      "--profile",
+      "codex-workhorse",
+      "--model",
+      "private-compatible-model",
+      "--reasoning",
+      "max",
+      "--json",
+    ]);
+    assert.equal(legacyOverride.status, 0, legacyOverride.stderr);
+    assert.equal(
+      JSON.parse(legacyOverride.stdout).session.execution.model,
+      "private-compatible-model"
+    );
+  } finally {
+    repo.cleanup();
   }
 });
 
@@ -389,6 +469,22 @@ test("route converts an RFC schema-v3 sidecar into the persisted Dev DAG", () =>
       })
     );
     const sidecarPath = path.join(repo.root, "approved-rfc.json");
+    const prototypeRelativePath = "wireframes/rfc-route-cli.html";
+    const prototypePath = path.join(repo.root, prototypeRelativePath);
+    fs.mkdirSync(path.dirname(prototypePath), { recursive: true });
+    fs.writeFileSync(prototypePath, "<main>approved RFC prototype</main>\n");
+    const prototypeHash = `sha256:${crypto
+      .createHash("sha256")
+      .update(fs.readFileSync(prototypePath))
+      .digest("hex")}`;
+    const designContext = {
+      design_requirements: ["Keep the primary action visually dominant."],
+      ui_impact: true,
+      prototype: { path: prototypeRelativePath, sha256: prototypeHash },
+      critical_states: ["loading", "empty", "error", "success"],
+      experience_invariants: ["Every transition keeps its current status understandable."],
+      visual_invariants: ["Navigation remains visible at narrow widths."],
+    };
     const issue = (num, depends_on, owns) => ({
       num,
       title: `Issue ${num}`,
@@ -407,6 +503,7 @@ test("route converts an RFC schema-v3 sidecar into the persisted Dev DAG", () =>
         slug: "rfc-route-cli",
         title: "Approved RFC",
         size: "L",
+        design_context: designContext,
         issues: [issue(1, [], ["scripts/shared.js"]), issue(2, [1], ["scripts/consumer.js"])],
         test_strategy: {
           test_levels: "Unit and integration",
@@ -439,6 +536,7 @@ test("route converts an RFC schema-v3 sidecar into the persisted Dev DAG", () =>
           approach: "Implement issue 1",
           verification_commands: ["node --test"],
           test_hooks: ["AC-1"],
+          design_context: designContext,
         },
         status: "pending",
       },
@@ -452,6 +550,7 @@ test("route converts an RFC schema-v3 sidecar into the persisted Dev DAG", () =>
           approach: "Implement issue 2",
           verification_commands: ["node --test"],
           test_hooks: ["AC-2"],
+          design_context: designContext,
         },
         status: "pending",
       },
@@ -459,9 +558,49 @@ test("route converts an RFC schema-v3 sidecar into the persisted Dev DAG", () =>
     assert.equal(repo.run(["status", "--session", initialized.session_path, "--json"]).status, 0);
     const cold = JSON.parse(fs.readFileSync(initialized.session_path, "utf8"));
     assert.equal(cold.task.reference, "PM-123");
+    assert.deepEqual(cold.task.design_context, designContext);
     assert.equal(cold.task.rfc_sidecar.path, sidecarPath);
     assert.match(cold.task.rfc_sidecar.sha256, /^sha256:[0-9a-f]{64}$/);
     assert.deepEqual(cold.task.work_units[1].contract.acceptance_criteria, ["AC-2"]);
+    fs.writeFileSync(prototypePath, "<main>drifted RFC prototype</main>\n");
+    const driftedPrototype = repo.run(["next", "--session", initialized.session_path]);
+    assert.notEqual(driftedPrototype.status, 0);
+    assert.match(driftedPrototype.stderr, /prototype.*sha256.*does not match repository bytes/i);
+    fs.writeFileSync(prototypePath, "<main>approved RFC prototype</main>\n");
+    assert.equal(repo.run(["next", "--session", initialized.session_path]).status, 0);
+    const validResultPath = path.join(repo.root, "rfc-intake-result.json");
+    fs.writeFileSync(
+      validResultPath,
+      JSON.stringify({
+        schema_version: 1,
+        run_id: cold.run_id,
+        phase: "intake",
+        attempt: 1,
+        status: "passed",
+        summary: "RFC-bound intake remains executable",
+        commit: null,
+        files_changed: [],
+        evidence: [{ kind: "intake", command: "fixture", exit_code: 0, artifact: null }],
+        blocker: null,
+        runtime: { provider: "inline", model: "test", reasoning: "high", session_id: null },
+      })
+    );
+    const validMutation = repo.run([
+      "record",
+      "--session",
+      initialized.session_path,
+      "--result",
+      validResultPath,
+    ]);
+    assert.equal(validMutation.status, 0, validMutation.stderr);
+    fs.writeFileSync(initialized.session_path, `${JSON.stringify(cold, null, 2)}\n`);
+    const driftedContext = structuredClone(cold);
+    driftedContext.task.design_context.critical_states = ["invented state"];
+    fs.writeFileSync(initialized.session_path, `${JSON.stringify(driftedContext, null, 2)}\n`);
+    const contextDrift = repo.run(["next", "--session", initialized.session_path]);
+    assert.notEqual(contextDrift.status, 0);
+    assert.match(contextDrift.stderr, /design_context must match.*RFC execution contract/i);
+    fs.writeFileSync(initialized.session_path, `${JSON.stringify(cold, null, 2)}\n`);
     fs.appendFileSync(sidecarPath, "\n");
     const drifted = repo.run(["next", "--session", initialized.session_path]);
     assert.notEqual(drifted.status, 0);
@@ -525,6 +664,64 @@ test("route converts an RFC schema-v3 sidecar into the persisted Dev DAG", () =>
   }
 });
 
+test("route rejects a current RFC schema-v3 sidecar without its design context", () => {
+  const repo = makeRepo();
+  try {
+    const initialized = JSON.parse(
+      repo.run(["init", "--slug", "rfc-missing-design", "--source-dir", repo.root, "--json"]).stdout
+    );
+    const factsPath = path.join(repo.root, "facts-missing-design.json");
+    fs.writeFileSync(
+      factsPath,
+      JSON.stringify({ kind: "proposal", size: "M", risk: {}, acceptance_criteria: ["AC-1"] })
+    );
+    const sidecarPath = path.join(repo.root, "missing-design-rfc.json");
+    fs.writeFileSync(
+      sidecarPath,
+      JSON.stringify({
+        schema_version: 3,
+        slug: "rfc-missing-design",
+        title: "RFC without design context",
+        size: "M",
+        issues: [
+          {
+            num: 1,
+            title: "Implement the approved experience",
+            size: "M",
+            depends_on: [],
+            owns: ["README.md"],
+            acceptance_criteria: ["AC-1"],
+            approach: "Implement the approved experience.",
+            verification_commands: ["node --test"],
+            test_hooks: ["AC-1"],
+          },
+        ],
+        test_strategy: {
+          test_levels: "Unit",
+          new_infrastructure: "None",
+          regression_surface: "RFC-to-Dev routing",
+          verification_commands: "node --test",
+          open_questions: "None",
+        },
+      })
+    );
+
+    const routed = repo.run([
+      "route",
+      "--session",
+      initialized.session_path,
+      "--facts",
+      factsPath,
+      "--rfc-sidecar",
+      sidecarPath,
+    ]);
+    assert.equal(routed.status, 3);
+    assert.match(routed.stderr, /design_context is required for a current schema-v3 RFC/i);
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test("route rejects an RFC sidecar belonging to another slug", () => {
   const repo = makeRepo();
   try {
@@ -541,6 +738,14 @@ test("route rejects an RFC sidecar belonging to another slug", () => {
         slug: "other-rfc",
         title: "Other RFC",
         size: "M",
+        design_context: {
+          design_requirements: ["Keep failure output actionable."],
+          ui_impact: false,
+          prototype: null,
+          critical_states: ["success", "failure"],
+          experience_invariants: ["Every failure names the caller's next action."],
+          visual_invariants: [],
+        },
         issues: [
           {
             num: 1,
@@ -683,6 +888,20 @@ test("all mutating commands fail closed while a live session lock is held", () =
       JSON.parse(fs.readFileSync(initialized.session_path, "utf8")).authority.create_pr,
       false
     );
+
+    const anchorEvidencePath = path.join(repo.root, "qa-history-anchor.json");
+    fs.writeFileSync(anchorEvidencePath, JSON.stringify({ qa: [] }));
+    const anchored = repo.run([
+      "anchor-qa-history",
+      "--session",
+      initialized.session_path,
+      "--commit",
+      execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo.root, encoding: "utf8" }).trim(),
+      "--evidence",
+      anchorEvidencePath,
+    ]);
+    assert.equal(anchored.status, 3);
+    assert.match(anchored.stderr, /locked by process/);
     fs.rmSync(lockPath, { recursive: true, force: true });
   } finally {
     repo.cleanup();

@@ -18,6 +18,8 @@ const {
   beginEffect,
   createReleaseTransaction,
   advancePreparedCommit,
+  attestPrBody,
+  migrateLegacyPrBody,
   planEffect,
   reconcileEffect,
   releaseReadiness,
@@ -26,6 +28,8 @@ const {
 
 const COMMIT = "a".repeat(40);
 const MERGE = "b".repeat(40);
+const PR_BODY = "## Summary\n\nReviewer handoff.\n";
+const PR_BODY_SHA256 = `sha256:${crypto.createHash("sha256").update(PR_BODY).digest("hex")}`;
 
 test("attestation reuse resolves the live protected branch commit", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-protected-policy-"));
@@ -125,6 +129,85 @@ function asLegacyCreatePr(value) {
   return legacy;
 }
 
+function asLegacyPrBody(value) {
+  const legacy = structuredClone(value);
+  const effect = legacy.effects["create-pr"];
+  delete effect.target.body_sha256;
+  for (const attempt of effect.attempts) {
+    if (attempt.receipt) delete attempt.receipt.body_sha256;
+    if (attempt.observation?.target) delete attempt.observation.target.body_sha256;
+    if (attempt.observation?.receipt) delete attempt.observation.receipt.body_sha256;
+  }
+  if (effect.verified_receipt) {
+    delete effect.verified_receipt.target.body_sha256;
+    delete effect.verified_receipt.receipt.body_sha256;
+    delete effect.verified_receipt.verification.target.body_sha256;
+    delete effect.verified_receipt.verification.receipt.body_sha256;
+  }
+  delete legacy.pr_body_attestation;
+  effect.idempotency_key = `sha256:${crypto
+    .createHash("sha256")
+    .update(
+      stableStringify({
+        run_id: legacy.run_id,
+        prepared_commit: legacy.release.prepared_commit,
+        effect: "create-pr",
+        target: effect.target,
+      })
+    )
+    .digest("hex")}`;
+  const merge = legacy.effects.merge;
+  if (merge) {
+    delete merge.target.body_sha256;
+    for (const attempt of merge.attempts) {
+      if (attempt.receipt) delete attempt.receipt.body_sha256;
+      if (attempt.observation?.target) delete attempt.observation.target.body_sha256;
+      if (attempt.observation?.receipt) delete attempt.observation.receipt.body_sha256;
+    }
+    if (merge.verified_receipt) {
+      delete merge.verified_receipt.target.body_sha256;
+      delete merge.verified_receipt.receipt.body_sha256;
+      delete merge.verified_receipt.verification.target.body_sha256;
+      delete merge.verified_receipt.verification.receipt.body_sha256;
+    }
+    merge.idempotency_key = `sha256:${crypto
+      .createHash("sha256")
+      .update(
+        stableStringify({
+          run_id: legacy.run_id,
+          prepared_commit: legacy.release.prepared_commit,
+          effect: "merge",
+          target: merge.target,
+        })
+      )
+      .digest("hex")}`;
+  }
+  return legacy;
+}
+
+function attestForMerge(
+  value,
+  timestamp = new Date().toISOString(),
+  body = PR_BODY,
+  observedAt = timestamp,
+  observationExtras = {}
+) {
+  return attestPrBody(value, {
+    timestamp,
+    observation: {
+      repository: "acme/widget",
+      pr_number: 42,
+      state: "OPEN",
+      head_oid: COMMIT,
+      base: "main",
+      draft: false,
+      body,
+      observed_at: observedAt,
+      ...observationExtras,
+    },
+  });
+}
+
 function verifiedComprehensivePr() {
   let value = planEffect(transaction(), {
     effect: "push",
@@ -154,6 +237,7 @@ function verifiedComprehensivePr() {
       base: "main",
       commit: COMMIT,
       draft: false,
+      body_sha256: PR_BODY_SHA256,
     },
   });
   value = beginEffect(value, {
@@ -161,7 +245,13 @@ function verifiedComprehensivePr() {
     authority: { create_pr: true },
     actor: "root",
   }).transaction;
-  const receipt = { pr_number: 42, state: "OPEN", head_oid: COMMIT, draft: false };
+  const receipt = {
+    pr_number: 42,
+    state: "OPEN",
+    head_oid: COMMIT,
+    draft: false,
+    body_sha256: PR_BODY_SHA256,
+  };
   return reconcileEffect(value, {
     effect: "create-pr",
     outcome: "matched",
@@ -265,6 +355,7 @@ test("effects are dependency ordered and root-owned", () => {
       base: "main",
       commit: COMMIT,
       draft: false,
+      body_sha256: PR_BODY_SHA256,
     },
     timestamp: "2026-07-14T00:01:00.000Z",
   });
@@ -313,6 +404,235 @@ test("missing authority is a durable denial, not an environment failure", () => 
   assert.equal(value.effects.push.attempts[0].error, "missing authority push_feature_branch");
 });
 
+test("new create-pr plans and observed receipts bind canonical body bytes", () => {
+  assert.throws(
+    () =>
+      planEffect(transaction(), {
+        effect: "create-pr",
+        target: {
+          repository: "acme/widget",
+          head: "codex/release-example",
+          base: "main",
+          commit: COMMIT,
+          draft: false,
+        },
+      }),
+    /body_sha256.*pr-body\.md/
+  );
+
+  let value = verifiedComprehensivePr();
+  const corrupt = structuredClone(value);
+  corrupt.effects["create-pr"].verified_receipt.receipt.body_sha256 = `sha256:${"0".repeat(64)}`;
+  corrupt.effects["create-pr"].verified_receipt.verification.receipt.body_sha256 =
+    `sha256:${"0".repeat(64)}`;
+  assert.ok(
+    transactionIssues(corrupt).some((issue) =>
+      /verified receipt identity is invalid.*body_sha256/.test(issue)
+    )
+  );
+
+  value = beginEffect(value, {
+    effect: "create-pr",
+    authority: { create_pr: true },
+    actor: "root",
+  }).transaction;
+  assert.equal(value.effects["create-pr"].status, "verified");
+});
+
+test("legacy create-pr body migration reopens only the observation boundary", () => {
+  const legacy = asLegacyPrBody(verifiedComprehensivePr());
+  assert.deepEqual(transactionIssues(legacy), []);
+  const migrated = migrateLegacyPrBody(legacy, {
+    bodySha256: PR_BODY_SHA256,
+    timestamp: "2026-07-14T00:06:00.000Z",
+  });
+  assert.equal(migrated.effects["create-pr"].target.body_sha256, PR_BODY_SHA256);
+  assert.equal(migrated.effects["create-pr"].status, "attempting");
+  assert.equal(migrated.effects["create-pr"].verified_receipt, null);
+  assert.equal(migrated.effects["create-pr"].attempts.at(-1).classification, "observation");
+  assert.throws(
+    () =>
+      reconcileEffect(migrated, {
+        effect: "create-pr",
+        outcome: "matched",
+        receipt: { pr_number: 42, state: "OPEN", head_oid: COMMIT, draft: false },
+        observation: {
+          target: migrated.effects["create-pr"].target,
+          receipt: { pr_number: 42, state: "OPEN", head_oid: COMMIT, draft: false },
+        },
+      }),
+    /body_sha256/
+  );
+  const receipt = {
+    pr_number: 42,
+    state: "OPEN",
+    head_oid: COMMIT,
+    draft: false,
+    body_sha256: PR_BODY_SHA256,
+  };
+  const rebound = reconcileEffect(migrated, {
+    effect: "create-pr",
+    outcome: "matched",
+    receipt,
+    observation: { target: migrated.effects["create-pr"].target, receipt },
+  });
+  assert.equal(rebound.decision, "verified");
+  assert.deepEqual(transactionIssues(rebound.transaction), []);
+
+  const legacyMerge = asLegacyPrBody(
+    planEffect(verifiedComprehensivePr(), {
+      effect: "merge",
+      target: {
+        repository: "acme/widget",
+        pr_number: 42,
+        head_commit: COMMIT,
+        base: "main",
+        method: "squash",
+        body_sha256: PR_BODY_SHA256,
+      },
+    })
+  );
+  const migratedMerge = migrateLegacyPrBody(legacyMerge, {
+    bodySha256: PR_BODY_SHA256,
+  });
+  assert.equal(migratedMerge.effects.merge, undefined);
+  assert.equal(migratedMerge.effects["create-pr"].status, "attempting");
+  assert.deepEqual(transactionIssues(migratedMerge), []);
+});
+
+test("Merge consumes one fresh live observation of the exact canonical PR body", () => {
+  const target = {
+    repository: "acme/widget",
+    pr_number: 42,
+    head_commit: COMMIT,
+    base: "main",
+    method: "squash",
+    body_sha256: PR_BODY_SHA256,
+  };
+  let value = planEffect(verifiedComprehensivePr(), { effect: "merge", target });
+  assert.throws(
+    () =>
+      beginEffect(value, {
+        effect: "merge",
+        authority: { merge: true },
+        actor: "root",
+      }),
+    /fresh matching PR body attestation/
+  );
+  assert.throws(() => attestForMerge(value, undefined, `${PR_BODY}edited\n`), /canonical pr-body/);
+  assert.throws(
+    () =>
+      attestPrBody(value, {
+        timestamp: "2026-07-14T00:10:00.000Z",
+        observation: {
+          repository: "acme/widget",
+          pr_number: 42,
+          state: "OPEN",
+          head_oid: COMMIT,
+          base: "main",
+          draft: false,
+          body: PR_BODY,
+        },
+      }),
+    /observed_at.*ISO timestamp/
+  );
+  assert.throws(
+    () =>
+      attestForMerge(value, "2026-07-14T00:10:00.000Z", PR_BODY, undefined, {
+        cached: true,
+      }),
+    /cached is not allowed/
+  );
+  assert.throws(
+    () => attestForMerge(value, "2026-07-14T00:10:00.000Z", PR_BODY, "2026-07-14T00:04:59.999Z"),
+    /last 5 minutes/
+  );
+  assert.throws(
+    () => attestForMerge(value, "2026-07-14T00:10:00.000Z", PR_BODY, "2026-07-14T00:10:30.001Z"),
+    /more than 30 seconds in the future/
+  );
+  const exactFiveMinutes = attestForMerge(
+    value,
+    "2026-07-14T00:10:00.000Z",
+    PR_BODY,
+    "2026-07-14T00:05:00.000Z"
+  );
+  assert.equal(exactFiveMinutes.pr_body_attestation.observed_at, "2026-07-14T00:05:00.000Z");
+  const exactFutureSkew = attestForMerge(
+    value,
+    "2026-07-14T00:10:00.000Z",
+    PR_BODY,
+    "2026-07-14T00:10:30.000Z"
+  );
+  assert.equal(exactFutureSkew.pr_body_attestation.observed_at, "2026-07-14T00:10:30.000Z");
+
+  value = attestForMerge(value, "2026-07-14T00:10:00.000Z", PR_BODY, "2026-07-14T00:09:59.000Z");
+  assert.equal(value.pr_body_attestation.observed_at, "2026-07-14T00:09:59.000Z");
+  assert.throws(
+    () =>
+      beginEffect(value, {
+        effect: "merge",
+        authority: { merge: true },
+        actor: "root",
+        timestamp: "2026-07-14T00:16:00.000Z",
+      }),
+    /within the last 5 minutes/
+  );
+  let begun = beginEffect(value, {
+    effect: "merge",
+    authority: { merge: true },
+    actor: "root",
+    timestamp: "2026-07-14T00:14:59.000Z",
+  });
+  assert.equal(begun.decision, "execute");
+  assert.equal(begun.transaction.pr_body_attestation.consumed_by_attempt, 1);
+
+  value = reconcileEffect(begun.transaction, {
+    effect: "merge",
+    outcome: "absent",
+    observation: { state: "OPEN" },
+    timestamp: "2026-07-14T00:15:00.000Z",
+  }).transaction;
+  assert.throws(
+    () =>
+      beginEffect(value, {
+        effect: "merge",
+        authority: { merge: true },
+        actor: "root",
+        timestamp: "2026-07-14T00:15:01.000Z",
+      }),
+    /new one-use PR body attestation/
+  );
+  value = attestForMerge(value, "2026-07-14T00:15:01.000Z");
+  begun = beginEffect(value, {
+    effect: "merge",
+    authority: { merge: true },
+    actor: "root",
+    timestamp: "2026-07-14T00:15:02.000Z",
+  });
+  assert.equal(begun.transaction.pr_body_attestation.consumed_by_attempt, 2);
+  const changedBodyReceipt = {
+    pr_number: 42,
+    state: "MERGED",
+    head_oid: COMMIT,
+    merge_sha: MERGE,
+    body_sha256: `sha256:${"0".repeat(64)}`,
+  };
+  assert.throws(
+    () =>
+      reconcileEffect(begun.transaction, {
+        effect: "merge",
+        outcome: "matched",
+        receipt: changedBodyReceipt,
+        observation: {
+          target: begun.transaction.effects.merge.target,
+          receipt: changedBodyReceipt,
+        },
+      }),
+    /body_sha256.*freshly attested PR body/
+  );
+});
+
 test("legacy comprehensive create-pr journals resume without replay after plugin update", () => {
   let value = transaction();
   value = planEffect(value, {
@@ -343,6 +663,7 @@ test("legacy comprehensive create-pr journals resume without replay after plugin
       base: "main",
       commit: COMMIT,
       draft: false,
+      body_sha256: PR_BODY_SHA256,
     },
   });
   const planned = asLegacyCreatePr(value);
@@ -375,7 +696,13 @@ test("legacy comprehensive create-pr journals resume without replay after plugin
     }).decision,
     "observe-first"
   );
-  const receipt = { pr_number: 42, state: "OPEN", head_oid: COMMIT, draft: false };
+  const receipt = {
+    pr_number: 42,
+    state: "OPEN",
+    head_oid: COMMIT,
+    draft: false,
+    body_sha256: PR_BODY_SHA256,
+  };
   const verified = reconcileEffect(attempting, {
     effect: "create-pr",
     outcome: "matched",
@@ -423,12 +750,14 @@ test("legacy PR migration preserves resumable downstream Merge state", () => {
     head_commit: COMMIT,
     base: "main",
     method: "squash",
+    body_sha256: PR_BODY_SHA256,
   };
   const mergeReceipt = {
     pr_number: 42,
     state: "MERGED",
     head_oid: COMMIT,
     merge_sha: MERGE,
+    body_sha256: PR_BODY_SHA256,
   };
 
   const planned = asLegacyCreatePr(
@@ -443,7 +772,7 @@ test("legacy PR migration preserves resumable downstream Merge state", () => {
   assert.equal(reopened.transaction.effects.merge, undefined);
 
   let attempting = beginEffect(
-    planEffect(verifiedComprehensivePr(), { effect: "merge", target: mergeTarget }),
+    planEffect(attestForMerge(verifiedComprehensivePr()), { effect: "merge", target: mergeTarget }),
     { effect: "merge", authority: { merge: true }, actor: "root" }
   ).transaction;
   attempting = asLegacyCreatePr(attempting);
@@ -569,6 +898,7 @@ test("optimized delivery journals the draft-to-ready PR mutation before merge", 
       base: "main",
       commit: COMMIT,
       draft: true,
+      body_sha256: PR_BODY_SHA256,
     },
   });
   value = beginEffect(value, {
@@ -576,7 +906,13 @@ test("optimized delivery journals the draft-to-ready PR mutation before merge", 
     authority: { create_pr: true },
     actor: "root",
   }).transaction;
-  const readyTooEarly = { pr_number: 42, state: "OPEN", head_oid: COMMIT, draft: false };
+  const readyTooEarly = {
+    pr_number: 42,
+    state: "OPEN",
+    head_oid: COMMIT,
+    draft: false,
+    body_sha256: PR_BODY_SHA256,
+  };
   assert.throws(
     () =>
       reconcileEffect(value, {
@@ -587,7 +923,13 @@ test("optimized delivery journals the draft-to-ready PR mutation before merge", 
       }),
     /draft.*receipt/i
   );
-  const prReceipt = { pr_number: 42, state: "OPEN", head_oid: COMMIT, draft: true };
+  const prReceipt = {
+    pr_number: 42,
+    state: "OPEN",
+    head_oid: COMMIT,
+    draft: true,
+    body_sha256: PR_BODY_SHA256,
+  };
   value = reconcileEffect(value, {
     effect: "create-pr",
     outcome: "matched",
@@ -602,6 +944,7 @@ test("optimized delivery journals the draft-to-ready PR mutation before merge", 
       head_commit: COMMIT,
       base: "main",
       method: "squash",
+      body_sha256: PR_BODY_SHA256,
     },
   });
   assert.throws(
@@ -653,6 +996,7 @@ test("optimized delivery journals the draft-to-ready PR mutation before merge", 
       }),
     /requires candidate state merge-ready/
   );
+  value = attestForMerge(value);
   const merge = beginEffect(value, {
     effect: "merge",
     authority: { merge: true },
@@ -675,6 +1019,7 @@ test("optimized delivery journals the draft-to-ready PR mutation before merge", 
     state: "MERGED",
     head_oid: COMMIT,
     merge_sha: MERGE,
+    body_sha256: PR_BODY_SHA256,
   };
   const observedAfterInvalidation = reconcileEffect(merge.transaction, {
     effect: "merge",
@@ -818,6 +1163,7 @@ test("effect targets are bound to the release transaction identity", () => {
           base: "main",
           commit: COMMIT,
           draft: false,
+          body_sha256: PR_BODY_SHA256,
         },
       }),
     /repository target must equal repository/

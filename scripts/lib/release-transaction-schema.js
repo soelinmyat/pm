@@ -7,6 +7,9 @@ const { isObject, stableStringify } = require("./workflow-runtime/records");
 const SHA = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 const SHA256 = /^sha256:[a-f0-9]{64}$/;
 const VERSION = /^\d+\.\d+\.\d+$/;
+const PR_BODY_MAX_BYTES = 128 * 1024;
+const PR_BODY_ATTESTATION_MAX_AGE_MS = 5 * 60 * 1000;
+const PR_BODY_ATTESTATION_CLOCK_SKEW_MS = 30 * 1000;
 const EFFECT_DEFINITIONS = Object.freeze({
   push: { authority: "push_feature_branch", dependsOn: [] },
   "create-pr": { authority: "create_pr", dependsOn: ["push"] },
@@ -99,6 +102,7 @@ function createReleaseTransaction(input) {
       prepared_at: timestamp,
     },
     evidence: { candidate: null, review: null, qa: null, verification: null },
+    pr_body_attestation: null,
     effects: {},
     generation: 1,
     history: [],
@@ -123,6 +127,7 @@ function advancePreparedCommit(transaction, input) {
     generation: next.generation,
     prepared_commit: next.release.prepared_commit,
     evidence: structuredClone(next.evidence),
+    pr_body_attestation: structuredClone(next.pr_body_attestation ?? null),
     effects: structuredClone(next.effects),
     superseded_at: timestamp,
     reason: input.reason.trim(),
@@ -140,6 +145,7 @@ function advancePreparedCommit(transaction, input) {
   }
   next.release.prepared_at = timestamp;
   next.evidence = { candidate: null, review: null, qa: null, verification: null };
+  next.pr_body_attestation = null;
   next.effects = {};
   next.updated_at = timestamp;
   assertValid(next);
@@ -186,6 +192,12 @@ function planEffect(transaction, input) {
   requireObject(input.target, `${input.effect} target`);
   if (input.effect === "create-pr" && typeof input.target.draft !== "boolean") {
     throw new Error("create-pr target draft must be an explicit boolean");
+  }
+  if (input.effect === "create-pr" && !SHA256.test(input.target.body_sha256 || "")) {
+    throw new Error("create-pr target body_sha256 must bind canonical pr-body.md bytes");
+  }
+  if (input.effect === "merge" && !SHA256.test(input.target.body_sha256 || "")) {
+    throw new Error("merge target body_sha256 must bind canonical pr-body.md bytes");
   }
   if (next.effects[input.effect]) {
     const current = next.effects[input.effect];
@@ -255,6 +267,9 @@ function beginEffect(transaction, input) {
     assertValid(next);
     return { transaction: next, decision: "denied" };
   }
+  if (input.effect === "merge") {
+    consumePrBodyAttestation(next, effect.target, attempt.number, timestamp);
+  }
   attempt.status = "attempting";
   attempt.classification = "external-effect";
   effect.attempts.push(attempt);
@@ -263,6 +278,153 @@ function beginEffect(transaction, input) {
   next.updated_at = timestamp;
   assertValid(next);
   return { transaction: next, decision: "execute" };
+}
+
+function migrateLegacyPrBody(transaction, input) {
+  const next = cloneAndValidate(transaction);
+  requireObject(input, "legacy PR body migration");
+  if (!SHA256.test(input.bodySha256 || "")) {
+    throw new Error("legacy PR body migration requires a canonical body SHA-256");
+  }
+  const effect = requirePlannedEffect(next, "create-pr");
+  if (effect.target.body_sha256 !== undefined && effect.target.body_sha256 !== input.bodySha256) {
+    throw new Error("create-pr target is already bound to different PR body bytes");
+  }
+  const merge = next.effects.merge;
+  if (merge?.target?.body_sha256 !== undefined && merge.target.body_sha256 !== input.bodySha256) {
+    throw new Error("legacy Merge target is bound to different PR body bytes");
+  }
+  const createPrNeedsBinding = effect.target.body_sha256 === undefined;
+  const mergeNeedsBinding = Boolean(merge && merge.target.body_sha256 === undefined);
+  if (!createPrNeedsBinding && !mergeNeedsBinding) return next;
+  if (mergeNeedsBinding && merge.status === "attempting") {
+    throw new Error("reconcile the ambiguous legacy Merge before binding the PR body");
+  }
+  if (mergeNeedsBinding && merge.status === "verified") {
+    throw new Error("cannot bind a legacy PR body after merge verification");
+  }
+
+  // Reopening a verified Create PR invalidates every downstream Merge plan until
+  // the live PR has been observed with the newly bound body. A never-started plan
+  // is safe to discard; attempted Merge state is audit evidence and must instead
+  // be reconciled or moved to a fresh transaction generation by the caller.
+  if (createPrNeedsBinding && merge) {
+    if (merge.status === "planned") {
+      delete next.effects.merge;
+    } else if (merge.status !== "attempting" && merge.status !== "verified") {
+      throw new Error(
+        `legacy Merge is ${merge.status}; preserve its attempt history and advance to a fresh transaction generation before binding the PR body`
+      );
+    }
+  }
+
+  if (createPrNeedsBinding) {
+    effect.target.body_sha256 = input.bodySha256;
+    effect.idempotency_key = effectKey(next, "create-pr", effect.target);
+  }
+  const retainedMerge = next.effects.merge;
+  if (retainedMerge && retainedMerge.target.body_sha256 === undefined) {
+    retainedMerge.target.body_sha256 = input.bodySha256;
+    retainedMerge.idempotency_key = effectKey(next, "merge", retainedMerge.target);
+  }
+  if (createPrNeedsBinding && effect.status === "verified") {
+    effect.verified_receipt = null;
+    const timestamp = input.timestamp || new Date().toISOString();
+    const attempt = emptyAttempt(effect.attempts.length + 1, timestamp);
+    attempt.status = "attempting";
+    attempt.classification = "observation";
+    effect.attempts.push(attempt);
+    effect.status = "attempting";
+    effect.updated_at = timestamp;
+    next.updated_at = timestamp;
+  }
+  next.pr_body_attestation = null;
+  assertValid(next);
+  return next;
+}
+
+function attestPrBody(transaction, input) {
+  const next = cloneAndValidate(transaction);
+  requireObject(input, "PR body attestation");
+  const createPr = requirePlannedEffect(next, "create-pr");
+  if (createPr.status !== "verified") {
+    throw new Error("PR body attestation requires a verified create-pr effect");
+  }
+  if (!SHA256.test(createPr.target.body_sha256 || "")) {
+    throw new Error("legacy create-pr target must bind pr-body.md before attestation");
+  }
+  if (next.effects.merge?.status === "attempting") {
+    throw new Error("cannot replace PR body attestation during an ambiguous Merge");
+  }
+  if (next.effects.merge?.status === "verified") {
+    throw new Error("cannot replace PR body attestation after merge verification");
+  }
+  const observation = input.observation;
+  requireObject(observation, "live PR body observation");
+  const observationIssues = [];
+  exactKeys(
+    observation,
+    ["repository", "pr_number", "state", "head_oid", "base", "draft", "body", "observed_at"],
+    "live PR body observation",
+    observationIssues
+  );
+  if (observationIssues.length > 0) throw new Error(observationIssues.join("; "));
+  for (const field of ["repository", "state", "head_oid", "base"]) {
+    requireString(observation[field], `live PR body observation ${field}`);
+  }
+  if (!Number.isInteger(observation.pr_number) || observation.pr_number < 1) {
+    throw new Error("live PR body observation requires a positive PR number");
+  }
+  if (typeof observation.draft !== "boolean") {
+    throw new Error("live PR body observation draft must be a boolean");
+  }
+  if (typeof observation.body !== "string") {
+    throw new Error("live PR body observation must include the exact body string");
+  }
+  if (Buffer.byteLength(observation.body, "utf8") > PR_BODY_MAX_BYTES) {
+    throw new Error("live PR body observation exceeds the 128 KiB limit");
+  }
+  requireTimestamp(observation.observed_at, "live PR body observation observed_at");
+  const attestedAt = input.timestamp || new Date().toISOString();
+  requireTimestamp(attestedAt, "PR body attestation timestamp");
+  const observationAge = Date.parse(attestedAt) - Date.parse(observation.observed_at);
+  if (observationAge < -PR_BODY_ATTESTATION_CLOCK_SKEW_MS) {
+    throw new Error("live PR body observation is more than 30 seconds in the future");
+  }
+  if (observationAge > PR_BODY_ATTESTATION_MAX_AGE_MS) {
+    throw new Error("live PR body observation must be from the last 5 minutes");
+  }
+  const prReceipt = createPr.verified_receipt?.receipt;
+  requireTargetMatch(observation, "repository", next.source.repository, "repository");
+  requireTargetMatch(observation, "pr_number", receiptPrNumber(prReceipt), "verified PR number");
+  requireTargetMatch(observation, "state", "OPEN", "OPEN PR state");
+  requireTargetMatch(observation, "head_oid", next.release.prepared_commit, "prepared commit");
+  requireTargetMatch(observation, "base", next.source.base_branch, "base branch");
+  requireTargetMatch(observation, "draft", false, "mergeable non-draft state");
+  const bodySha256 = digestBody(observation.body);
+  requireTargetMatch(
+    { body_sha256: bodySha256 },
+    "body_sha256",
+    createPr.target.body_sha256,
+    "canonical pr-body.md bytes"
+  );
+  next.pr_body_attestation = {
+    generation: next.generation,
+    repository: next.source.repository,
+    pr_number: observation.pr_number,
+    head_oid: observation.head_oid,
+    base: observation.base,
+    state: observation.state,
+    draft: observation.draft,
+    body_sha256: bodySha256,
+    create_pr_attempt: createPr.verified_receipt.attempt,
+    observed_at: observation.observed_at,
+    consumed_by_attempt: null,
+    consumed_at: null,
+  };
+  next.updated_at = attestedAt;
+  assertValid(next);
+  return next;
 }
 
 function reconcileEffect(transaction, input) {
@@ -345,6 +507,7 @@ function transactionIssues(value) {
       "source",
       "release",
       "evidence",
+      "pr_body_attestation",
       "effects",
       "generation",
       "history",
@@ -369,6 +532,7 @@ function transactionIssues(value) {
     exactKeys(value.evidence, [...EVIDENCE_KINDS], "$.evidence", issues);
     for (const kind of EVIDENCE_KINDS) validateEvidence(value.evidence[kind], kind, issues);
   }
+  validatePrBodyAttestation(value.pr_body_attestation, value, issues);
   if (!isObject(value.effects)) issues.push("effects must be an object");
   else {
     for (const [name, effect] of Object.entries(value.effects)) {
@@ -391,7 +555,15 @@ function validateHistory(entry, index, issues) {
   if (!isObject(entry)) return issues.push(`history ${index} must be an object`);
   exactKeys(
     entry,
-    ["generation", "prepared_commit", "evidence", "effects", "superseded_at", "reason"],
+    [
+      "generation",
+      "prepared_commit",
+      "evidence",
+      "pr_body_attestation",
+      "effects",
+      "superseded_at",
+      "reason",
+    ],
     `$.history[${index}]`,
     issues
   );
@@ -399,6 +571,13 @@ function validateHistory(entry, index, issues) {
   if (!SHA.test(entry.prepared_commit || "")) issues.push(`history ${index} commit is invalid`);
   if (!isObject(entry.evidence) || !isObject(entry.effects)) {
     issues.push(`history ${index} evidence/effects are invalid`);
+  }
+  if (
+    entry.pr_body_attestation !== undefined &&
+    entry.pr_body_attestation !== null &&
+    !isObject(entry.pr_body_attestation)
+  ) {
+    issues.push(`history ${index} PR body attestation is invalid`);
   }
   if (!nonEmpty(entry.superseded_at) || !nonEmpty(entry.reason)) {
     issues.push(`history ${index} transition metadata is required`);
@@ -474,6 +653,89 @@ function validateEvidence(evidence, kind, issues) {
   if (!nonEmpty(evidence.artifact)) issues.push(`${kind} evidence artifact is required`);
   if (!SHA256.test(evidence.sha256 || "")) issues.push(`${kind} evidence hash is invalid`);
   if (!nonEmpty(evidence.checked_at)) issues.push(`${kind} evidence timestamp is required`);
+}
+
+function validatePrBodyAttestation(attestation, transaction, issues) {
+  if (attestation === undefined || attestation === null) return;
+  if (!isObject(attestation)) return issues.push("pr_body_attestation must be null or object");
+  exactKeys(
+    attestation,
+    [
+      "generation",
+      "repository",
+      "pr_number",
+      "head_oid",
+      "base",
+      "state",
+      "draft",
+      "body_sha256",
+      "create_pr_attempt",
+      "observed_at",
+      "consumed_by_attempt",
+      "consumed_at",
+    ],
+    "$.pr_body_attestation",
+    issues
+  );
+  if (attestation.generation !== transaction.generation) {
+    issues.push("PR body attestation generation mismatch");
+  }
+  if (attestation.repository !== transaction.source?.repository) {
+    issues.push("PR body attestation repository mismatch");
+  }
+  if (!Number.isInteger(attestation.pr_number) || attestation.pr_number < 1) {
+    issues.push("PR body attestation PR number is invalid");
+  }
+  if (attestation.head_oid !== transaction.release?.prepared_commit) {
+    issues.push("PR body attestation head mismatch");
+  }
+  if (attestation.base !== transaction.source?.base_branch) {
+    issues.push("PR body attestation base mismatch");
+  }
+  if (attestation.state !== "OPEN" || attestation.draft !== false) {
+    issues.push("PR body attestation must describe an open non-draft PR");
+  }
+  if (!SHA256.test(attestation.body_sha256 || "")) {
+    issues.push("PR body attestation body hash is invalid");
+  }
+  const createPr = transaction.effects?.["create-pr"];
+  if (createPr?.target?.body_sha256 !== attestation.body_sha256) {
+    issues.push("PR body attestation does not match the create-pr target");
+  }
+  if (receiptPrNumber(createPr?.verified_receipt?.receipt || {}) !== attestation.pr_number) {
+    issues.push("PR body attestation does not match the verified PR");
+  }
+  if (createPr?.verified_receipt?.attempt !== attestation.create_pr_attempt) {
+    issues.push("PR body attestation create-pr attempt mismatch");
+  }
+  if (!validTimestamp(attestation.observed_at)) {
+    issues.push("PR body attestation observed_at is invalid");
+  }
+  if (attestation.consumed_by_attempt === null) {
+    if (attestation.consumed_at !== null) {
+      issues.push("unconsumed PR body attestation cannot have consumed_at");
+    }
+  } else {
+    if (!Number.isInteger(attestation.consumed_by_attempt) || attestation.consumed_by_attempt < 1) {
+      issues.push("PR body attestation consumed attempt is invalid");
+    }
+    if (!validTimestamp(attestation.consumed_at)) {
+      issues.push("consumed PR body attestation timestamp is invalid");
+    }
+    const mergeAttempt = transaction.effects?.merge?.attempts?.find(
+      (attempt) => attempt.number === attestation.consumed_by_attempt
+    );
+    if (!mergeAttempt) {
+      issues.push("PR body attestation consumption has no Merge attempt");
+    } else if (mergeAttempt.started_at !== attestation.consumed_at) {
+      issues.push("PR body attestation consumption does not match the Merge attempt");
+    } else {
+      const age = Date.parse(attestation.consumed_at) - Date.parse(attestation.observed_at);
+      if (age < -PR_BODY_ATTESTATION_CLOCK_SKEW_MS || age > PR_BODY_ATTESTATION_MAX_AGE_MS) {
+        issues.push("PR body attestation was stale when Merge began");
+      }
+    }
+  }
 }
 
 function validateEffect(effect, name, issues) {
@@ -614,6 +876,10 @@ function validateEffectTarget(name, target, transaction) {
     if (target.draft !== undefined || candidateDraft) {
       requireTargetMatch(target, "draft", candidateDraft, "delivery route");
     }
+    // Persisted schema-v1 journals created before reviewer-handoff binding omit this field.
+    if (target.body_sha256 !== undefined && !SHA256.test(target.body_sha256 || "")) {
+      throw new Error("create-pr target body_sha256 is invalid");
+    }
   }
   if (name === "ready-pr") {
     if (!transaction.evidence.candidate)
@@ -637,6 +903,14 @@ function validateEffectTarget(name, target, transaction) {
     );
     requireTargetMatch(target, "base", transaction.source.base_branch, "base branch");
     requireString(target.method, "merge target method");
+    if (target.body_sha256 !== undefined) {
+      requireTargetMatch(
+        target,
+        "body_sha256",
+        transaction.effects["create-pr"].target.body_sha256,
+        "verified create-pr body"
+      );
+    }
   }
   if (name === "place-main-tag") {
     if (transaction.release.mode !== "versioned") {
@@ -678,6 +952,9 @@ function validateMatchedReceipt(name, target, receipt) {
     if (target.draft !== undefined || receipt.draft !== undefined) {
       requireReceiptMatch(receipt, "draft", target.draft ?? false, "planned draft state");
     }
+    if (target.body_sha256 !== undefined || receipt.body_sha256 !== undefined) {
+      requireReceiptMatch(receipt, "body_sha256", target.body_sha256, "canonical pr-body.md bytes");
+    }
     return;
   }
   if (name === "ready-pr") {
@@ -693,6 +970,9 @@ function validateMatchedReceipt(name, target, receipt) {
     requireReceiptMatch(receipt, "pr_number", target.pr_number, "planned PR number");
     if (!SHA.test(receipt.merge_sha || "")) {
       throw new Error("merge receipt requires a valid merge SHA");
+    }
+    if (target.body_sha256 !== undefined || receipt.body_sha256 !== undefined) {
+      requireReceiptMatch(receipt, "body_sha256", target.body_sha256, "freshly attested PR body");
     }
     return;
   }
@@ -724,6 +1004,57 @@ function requireReceiptMatch(receipt, field, expected, label) {
 
 function receiptPrNumber(receipt) {
   return receipt.pr_number ?? receipt.number;
+}
+
+function consumePrBodyAttestation(transaction, target, attemptNumber, timestamp) {
+  if (!SHA256.test(target.body_sha256 || "")) {
+    throw new Error("legacy Merge target must be replaced with a body-bound plan");
+  }
+  const attestation = transaction.pr_body_attestation;
+  if (!isObject(attestation)) {
+    throw new Error("Merge requires a fresh matching PR body attestation");
+  }
+  if (attestation.consumed_by_attempt !== null) {
+    throw new Error("Merge requires a new one-use PR body attestation");
+  }
+  requireTimestamp(timestamp, "Merge attempt timestamp");
+  const observedAt = Date.parse(attestation.observed_at);
+  const attemptedAt = Date.parse(timestamp);
+  if (!Number.isFinite(attemptedAt)) throw new Error("Merge attempt timestamp is invalid");
+  const age = attemptedAt - observedAt;
+  if (age < -PR_BODY_ATTESTATION_CLOCK_SKEW_MS || age > PR_BODY_ATTESTATION_MAX_AGE_MS) {
+    throw new Error("Merge requires a PR body attestation observed within the last 5 minutes");
+  }
+  for (const [field, expected, label] of [
+    ["generation", transaction.generation, "release generation"],
+    ["repository", target.repository, "merge repository"],
+    ["pr_number", target.pr_number, "merge PR number"],
+    ["head_oid", target.head_commit, "merge head"],
+    ["base", target.base, "merge base"],
+    ["state", "OPEN", "OPEN PR state"],
+    ["draft", false, "mergeable non-draft state"],
+    ["body_sha256", target.body_sha256, "planned PR body"],
+  ]) {
+    requireTargetMatch(attestation, field, expected, label);
+  }
+  attestation.consumed_by_attempt = attemptNumber;
+  attestation.consumed_at = timestamp;
+}
+
+function digestBody(body) {
+  return `sha256:${crypto.createHash("sha256").update(Buffer.from(body, "utf8")).digest("hex")}`;
+}
+
+function validTimestamp(value) {
+  if (!nonEmpty(value) || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) {
+    return false;
+  }
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString() === value;
+}
+
+function requireTimestamp(value, label) {
+  if (!validTimestamp(value)) throw new Error(`${label} must be an ISO timestamp`);
 }
 
 function emptyAttempt(number, timestamp) {
@@ -874,10 +1205,13 @@ function nonEmpty(value) {
 
 module.exports = {
   EFFECT_DEFINITIONS,
+  PR_BODY_ATTESTATION_MAX_AGE_MS,
   advancePreparedCommit,
+  attestPrBody,
   bindReleaseEvidence,
   beginEffect,
   createReleaseTransaction,
+  migrateLegacyPrBody,
   normalizeReleaseTransaction,
   planEffect,
   reconcileEffect,

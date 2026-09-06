@@ -56,6 +56,7 @@
         "source_kind",
         "proposal_path",
         "proposal_identity",
+        "design_context",
         "linear_id",
         "size",
         "acceptance_criteria",
@@ -102,6 +103,9 @@
               }
             }
           ]
+        },
+        "design_context": {
+          "oneOf": [{ "$ref": "#/$defs/design_context" }, { "type": "null" }]
         },
         "linear_id": { "type": ["string", "null"] },
         "size": { "type": ["string", "null"], "enum": ["M", "L", "XL", null] },
@@ -218,6 +222,135 @@
     }
   ],
   "$defs": {
+    "design_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "design_requirements",
+        "prototype",
+        "critical_states",
+        "visual_invariants"
+      ],
+      "dependentRequired": {
+        "ui_impact": ["experience_invariants"],
+        "experience_invariants": ["ui_impact"]
+      },
+      "properties": {
+        "design_requirements": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "ui_impact": { "type": "boolean" },
+        "prototype": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "sha256"],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^(?!/)(?![A-Za-z]:/)(?!.*(?:^|/)\\.\\.(?:/|$))[^*?{}\\[\\]]+$"
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                },
+                "manifest": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["schema_version", "files", "tree_sha256"],
+                  "properties": {
+                    "schema_version": { "const": 1 },
+                    "files": {
+                      "type": "array",
+                      "minItems": 3,
+                      "maxItems": 128,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["path", "sha256"],
+                        "properties": {
+                          "path": { "type": "string", "minLength": 1 },
+                          "sha256": {
+                            "type": "string",
+                            "pattern": "^sha256:[a-f0-9]{64}$"
+                          }
+                        }
+                      }
+                    },
+                    "tree_sha256": {
+                      "type": "string",
+                      "pattern": "^sha256:[a-f0-9]{64}$"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "critical_states": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "experience_invariants": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "visual_invariants": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "not": {
+              "type": "object",
+              "properties": { "ui_impact": {} },
+              "required": ["ui_impact"]
+            }
+          },
+          "then": {
+            "properties": { "visual_invariants": { "type": "array", "minItems": 1 } }
+          }
+        },
+        {
+          "if": {
+            "required": ["ui_impact"],
+            "properties": { "ui_impact": { "const": true } }
+          },
+          "then": {
+            "properties": {
+              "experience_invariants": { "type": "array", "minItems": 1 },
+              "visual_invariants": { "type": "array", "minItems": 1 }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["ui_impact"],
+            "properties": { "ui_impact": { "const": false } }
+          },
+          "then": {
+            "properties": {
+              "prototype": { "type": "null" },
+              "experience_invariants": { "type": "array", "minItems": 1 },
+              "visual_invariants": { "type": "array", "maxItems": 0 }
+            }
+          }
+        }
+      ]
+    },
     "authority": {
       "type": "object",
       "additionalProperties": false,

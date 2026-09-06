@@ -2,6 +2,7 @@ const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 
 const { resolveProfile } = require("../scripts/dev-runtime");
+const { resolveModelProfile } = require("../scripts/lib/workflow-runtime/model-profile");
 
 describe("dev runtime model profiles", () => {
   it("selects the two workhorse models without skill-text changes", () => {
@@ -45,6 +46,61 @@ describe("dev runtime model profiles", () => {
     });
     assert.equal(environmentProfile.model, "claude-fable-5");
     assert.equal(environmentProfile.effort, "high");
+  });
+
+  it("requires Astra identity and effort to come from a compatible named profile", () => {
+    assert.throws(
+      () =>
+        resolveProfile({
+          provider: "codex",
+          env: { PM_DEV_CODEX_MODEL: "gpt-6-astra" },
+        }),
+      /requires an explicitly selected named base profile/
+    );
+    assert.throws(
+      () =>
+        resolveProfile({
+          provider: "codex",
+          profileName: "codex-astra",
+          overrides: { model: "gpt-5.6-sol" },
+        }),
+      /cannot override model identity/
+    );
+    assert.equal(
+      resolveProfile({
+        provider: "codex",
+        profileName: "codex-astra",
+        env: { PM_DEV_CODEX_REASONING_EFFORT: "ultra" },
+      }).effort,
+      "ultra"
+    );
+    assert.throws(
+      () =>
+        resolveProfile({
+          provider: "codex",
+          profileName: "codex-astra",
+          env: { PM_DEV_CODEX_REASONING_EFFORT: "extreme" },
+        }),
+      /effort must be one of low, medium, high, xhigh, max, ultra/
+    );
+
+    assert.throws(
+      () =>
+        resolveModelProfile({
+          data: {
+            defaults: { codex: "future-astra-default" },
+            profiles: {
+              "future-astra-default": {
+                provider: "codex",
+                model: "gpt-6-astra",
+                effort: "high",
+              },
+            },
+          },
+          provider: "codex",
+        }),
+      /explicitly selected named base profile/
+    );
   });
 
   it("rejects broad permissions unless explicitly authorized", () => {

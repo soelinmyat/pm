@@ -58,6 +58,64 @@ test("Groom CLI initializes canonical private state and configures context", () 
   }
 });
 
+test("Groom CLI rejects Astra model laundering and accepts ultra effort", () => {
+  const repo = makeRepo();
+  try {
+    const cases = [
+      [
+        "non-astra-base",
+        "--profile",
+        "gpt-5.6-sol-high",
+        "--model",
+        "gpt-6-astra",
+        /requires an explicitly selected named base profile/,
+      ],
+      [
+        "astra-model-swap",
+        "--profile",
+        "gpt-6-astra-high",
+        "--model",
+        "gpt-5.6-sol",
+        /cannot override model identity/,
+      ],
+    ];
+    for (const [slug, ...rest] of cases) {
+      const pattern = rest.pop();
+      const result = run(repo, [
+        "init",
+        "--slug",
+        slug,
+        "--source-dir",
+        repo,
+        "--runtime",
+        "codex",
+        ...rest,
+      ]);
+      assert.equal(result.status, 3, result.stderr);
+      assert.match(result.stderr, pattern);
+    }
+
+    const astra = run(repo, [
+      "init",
+      "--slug",
+      "astra-ultra",
+      "--source-dir",
+      repo,
+      "--runtime",
+      "codex",
+      "--profile",
+      "gpt-6-astra-high",
+      "--reasoning",
+      "ultra",
+      "--json",
+    ]);
+    assert.equal(astra.status, 0, astra.stderr);
+    assert.equal(JSON.parse(astra.stdout).session.execution.reasoning, "ultra");
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test("Groom CLI records exact retries idempotently and rejects copied state", () => {
   const repo = makeRepo();
   try {
@@ -124,6 +182,7 @@ test("Groom CLI upgrades pre-artifact-root sessions on read and resumes", () => 
       run(repo, ["init", "--slug", "legacy-resume", "--source-dir", repo, "--json"]).stdout
     );
     const legacy = JSON.parse(fs.readFileSync(init.session_path, "utf8"));
+    legacy.schema_version = 1;
     legacy.context = {
       configured: true,
       tier: "standard",

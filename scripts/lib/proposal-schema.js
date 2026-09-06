@@ -3,11 +3,41 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const { validateDesignContext } = require("./dev-work-units.js");
+const { createProjectRootAnchor, readProjectInput } = require("./project-file.js");
+const {
+  normalizeReviewText,
+  reviewAnswerQuality,
+  reviewEvidenceRelevanceQuality,
+  reviewFindingQuality,
+  reviewQuestionForTier,
+  reviewQuestionIdsForTier,
+  reviewTextTokens,
+} = require("./groom-review-contract.js");
 
 const SCHEMA_VERSION = 1;
 const MAX_PROPOSAL_BYTES = 2 * 1024 * 1024;
+const MAX_EVIDENCE_SOURCE_BYTES = 8 * 1024 * 1024;
+const MAX_EVIDENCE_SOURCES = 64;
+const MAX_EVIDENCE_TOTAL_BYTES = 32 * 1024 * 1024;
+const MAX_LOCATED_EVIDENCE_BYTES = 64 * 1024;
+const MAX_LINE_LOCATOR_SPAN = 80;
+const MARKDOWN_COMMENT_SENTINEL = "\uFFFC";
+const TEXT_EVIDENCE_EXTENSIONS = new Set([
+  ".csv",
+  ".html",
+  ".json",
+  ".jsonl",
+  ".md",
+  ".text",
+  ".txt",
+  ".yaml",
+  ".yml",
+]);
+const EVIDENCE_SOURCE_CACHE = new WeakMap();
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const STABLE_ID = /^[a-z][a-z0-9-]*:[a-z0-9][a-z0-9._-]*$/;
+const QUESTION_ID = /^[a-z][a-z0-9-]*$/;
 const SHA256 = /^sha256:[0-9a-f]{64}$/;
 const ISO_8601 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
 const LIFECYCLES = ["draft", "reviewed", "approved", "planned", "in-progress", "done"];
@@ -49,6 +79,7 @@ const TOP_FIELDS = [
   "presentation",
   "handoff",
 ];
+const OPTIONAL_TOP_FIELDS = ["design_context", "review_contract"];
 const APPROVAL_FIELDS = [
   "schema_version",
   "kind",
@@ -147,26 +178,32 @@ function rows(value, at, issues, fields, required, validate, { nonEmpty = false 
 }
 
 function validatePath(value, at, issues) {
-  if (
-    !isString(value) ||
-    path.isAbsolute(value) ||
-    /^[A-Za-z]:[\\/]/.test(value) ||
-    /^[a-z][a-z0-9+.-]*:/i.test(value) ||
-    value.includes("\\") ||
-    value.split("/").includes("..") ||
-    value.split("/").includes(".") ||
-    value.startsWith("/") ||
-    value.endsWith("/") ||
-    value.includes("//")
-  ) {
+  if (!isNormalizedProjectPath(value)) {
     issues.push(issue(at, "must be a normalized project-relative path"));
   }
+}
+
+function isNormalizedProjectPath(value) {
+  return (
+    isString(value) &&
+    !path.isAbsolute(value) &&
+    !/^[A-Za-z]:[\\/]/.test(value) &&
+    !/^[a-z][a-z0-9+.-]*:/i.test(value) &&
+    !value.includes("\\") &&
+    !value.split("/").includes("..") &&
+    !value.split("/").includes(".") &&
+    !value.startsWith("/") &&
+    !value.endsWith("/") &&
+    !value.includes("//")
+  );
 }
 
 function validateProposal(proposal, options = {}) {
   const issues = [];
   const at = options.path || "$";
-  if (!closed(proposal, TOP_FIELDS, at, issues)) return { ok: false, issues };
+  if (!closed(proposal, [...TOP_FIELDS, ...OPTIONAL_TOP_FIELDS], at, issues)) {
+    return { ok: false, issues };
+  }
   for (const field of TOP_FIELDS)
     if (!(field in proposal)) issues.push(issue(`${at}.${field}`, "is required"));
 
@@ -232,6 +269,7 @@ function validateProposal(proposal, options = {}) {
       { nonEmpty: true }
     );
   }
+  validateReviewContract(proposal, at, issues);
   if (
     closed(
       proposal.decision_brief,
@@ -390,6 +428,31 @@ function validateProposal(proposal, options = {}) {
     ["id", "requirement"],
     (entry, rowPath) => requiredString(entry.requirement, `${rowPath}.requirement`, issues)
   );
+  if (proposal.design_context !== undefined) {
+    try {
+      validateDesignContext(proposal.design_context, `${at}.design_context`, {
+        repoRoot: options.projectRoot,
+        requireCurrentPrototypeIdentity: options.requireCurrentPrototypeIdentity,
+        requireExperienceClassification: options.requireExperienceClassification,
+      });
+      const requirements = Array.isArray(proposal.design_requirements)
+        ? proposal.design_requirements.map((entry) => entry?.requirement)
+        : [];
+      if (
+        canonicalStringify(proposal.design_context.design_requirements) !==
+        canonicalStringify(requirements)
+      ) {
+        issues.push(
+          issue(
+            `${at}.design_context.design_requirements`,
+            "must match design_requirements in the same order"
+          )
+        );
+      }
+    } catch (error) {
+      issues.push(issue(`${at}.design_context`, error.message));
+    }
+  }
   rows(
     proposal.success_metrics,
     `${at}.success_metrics`,
@@ -485,13 +548,41 @@ function validateProposal(proposal, options = {}) {
     }
   );
   const reviewRefs = [];
+  const hasReviewContract = Object.hasOwn(proposal, "review_contract");
+  const questionReviewFields = hasReviewContract
+    ? [
+        "id",
+        "question_id",
+        "question",
+        "conclusion",
+        "rationale",
+        "outcome",
+        "evidence",
+        "confidence",
+        "finding",
+        "advisory_debt_ids",
+      ]
+    : ["id", "question", "outcome", "evidence_refs", "advisory_debt_ids"];
   rows(
     proposal.question_reviews,
     `${at}.question_reviews`,
     issues,
-    ["id", "question", "outcome", "evidence_refs", "advisory_debt_ids"],
-    ["id", "question", "outcome", "evidence_refs", "advisory_debt_ids"],
+    questionReviewFields,
+    questionReviewFields,
     (entry, rowPath) => {
+      const canonicalQuestion = hasReviewContract
+        ? reviewQuestionForTier(proposal.review_contract?.tier, entry.question_id)
+        : null;
+      if (hasReviewContract) {
+        if (!QUESTION_ID.test(entry.question_id || ""))
+          issues.push(issue(`${rowPath}.question_id`, "must be a canonical question id"));
+        if (entry.id !== `review:${entry.question_id}`)
+          issues.push(issue(`${rowPath}.id`, "must equal review:{question_id}"));
+        if (canonicalQuestion && entry.question !== canonicalQuestion.text)
+          issues.push(
+            issue(`${rowPath}.question`, "must match the canonical question for question_id")
+          );
+      }
       requiredString(entry.question, `${rowPath}.question`, issues);
       enumValue(
         entry.outcome,
@@ -500,10 +591,66 @@ function validateProposal(proposal, options = {}) {
         issues,
         "outcome"
       );
-      stringArray(entry.evidence_refs, `${rowPath}.evidence_refs`, issues, { nonEmpty: true });
       stringArray(entry.advisory_debt_ids, `${rowPath}.advisory_debt_ids`, issues);
-      for (const id of Array.isArray(entry.evidence_refs) ? entry.evidence_refs : [])
-        reviewRefs.push(["evidence", id, `${rowPath}.evidence_refs`]);
+      if (hasReviewContract) {
+        requiredString(entry.conclusion, `${rowPath}.conclusion`, issues);
+        requiredString(entry.rationale, `${rowPath}.rationale`, issues);
+        if (canonicalQuestion) {
+          const answerQuality = reviewAnswerQuality(
+            entry.conclusion,
+            entry.rationale,
+            canonicalQuestion.text
+          );
+          if (!answerQuality.ok) issues.push(issue(`${rowPath}.conclusion`, answerQuality.reason));
+        }
+        enumValue(
+          entry.confidence,
+          ["high", "medium", "low"],
+          `${rowPath}.confidence`,
+          issues,
+          "confidence"
+        );
+        validateReviewEvidence(entry.evidence, `${rowPath}.evidence`, issues, reviewRefs, {
+          conclusion: entry.conclusion,
+          rationale: entry.rationale,
+          question: canonicalQuestion?.text || entry.question,
+        });
+        if (entry.finding !== null) requiredString(entry.finding, `${rowPath}.finding`, issues);
+        if (entry.outcome === "pass" && entry.finding !== null)
+          issues.push(issue(`${rowPath}.finding`, "must be null when outcome is pass"));
+        if (entry.outcome === "pass" && entry.confidence === "low")
+          issues.push(
+            issue(`${rowPath}.confidence`, "low confidence requires an advisory finding")
+          );
+        if (["advisory", "fail"].includes(entry.outcome) && !isString(entry.finding))
+          issues.push(issue(`${rowPath}.finding`, "is required for advisory or fail outcomes"));
+        if (["advisory", "fail"].includes(entry.outcome) && isString(entry.finding)) {
+          const findingQuality = reviewFindingQuality(
+            entry.finding,
+            entry.conclusion,
+            entry.rationale,
+            canonicalQuestion?.text || entry.question
+          );
+          if (!findingQuality.ok) issues.push(issue(`${rowPath}.finding`, findingQuality.reason));
+        }
+        if (
+          entry.outcome === "advisory" &&
+          (!Array.isArray(entry.advisory_debt_ids) || entry.advisory_debt_ids.length === 0)
+        )
+          issues.push(
+            issue(`${rowPath}.advisory_debt_ids`, "advisory outcomes require tracked debt")
+          );
+        if (
+          entry.outcome === "pass" &&
+          Array.isArray(entry.advisory_debt_ids) &&
+          entry.advisory_debt_ids.length > 0
+        )
+          issues.push(issue(`${rowPath}.advisory_debt_ids`, "pass outcomes cannot carry debt"));
+      } else {
+        stringArray(entry.evidence_refs, `${rowPath}.evidence_refs`, issues, { nonEmpty: true });
+        for (const id of Array.isArray(entry.evidence_refs) ? entry.evidence_refs : [])
+          reviewRefs.push(["evidence", id, `${rowPath}.evidence_refs`]);
+      }
       for (const id of Array.isArray(entry.advisory_debt_ids) ? entry.advisory_debt_ids : [])
         reviewRefs.push(["debt", id, `${rowPath}.advisory_debt_ids`]);
     }
@@ -514,6 +661,19 @@ function validateProposal(proposal, options = {}) {
       issues.push(
         issue(refPath, `unknown ${kind === "evidence" ? "evidence" : "advisory debt"} id ${id}`)
       );
+  }
+
+  if (hasReviewContract) {
+    validateBoundReviewIndependence(proposal.question_reviews, `${at}.question_reviews`, issues);
+    const coverage = proposalReviewCoverage(proposal);
+    for (const questionId of coverage.duplicate_question_ids)
+      issues.push(issue(`${at}.question_reviews`, `duplicate question_id ${questionId}`));
+    for (const questionId of coverage.unexpected_question_ids)
+      issues.push(issue(`${at}.question_reviews`, `unexpected review question: ${questionId}`));
+    if (proposal.review?.status === "passed") {
+      for (const questionId of coverage.missing_question_ids)
+        issues.push(issue(`${at}.question_reviews`, `missing review question: ${questionId}`));
+    }
   }
 
   validateReview(proposal, at, issues);
@@ -546,12 +706,728 @@ function validateProposal(proposal, options = {}) {
 
   validateGlobalIds(proposal, at, issues);
   validateIdNamespaces(proposal, at, issues);
+  if (
+    options.projectRoot &&
+    proposal.schema_version === SCHEMA_VERSION &&
+    isObject(proposal.review_contract)
+  ) {
+    const evidenceResult = validateCurrentProposalEvidence(proposal, options.projectRoot, {
+      path: at,
+      allowedHistoricalLineage: options.allowedHistoricalLineage,
+    });
+    issues.push(...evidenceResult.issues);
+  }
 
   return {
     ok: issues.length === 0,
     issues,
     content_sha256: issues.length === 0 ? proposalContentHash(proposal) : null,
   };
+}
+
+function validateCurrentProposalEvidence(proposal, projectRoot, options = {}) {
+  const issues = [];
+  const at = options.path || "$";
+  if (!isObject(proposal)) {
+    issues.push(issue(at, "current proposal evidence requires a proposal object"));
+    return { ok: false, issues };
+  }
+  if (!isObject(proposal.review_contract)) {
+    issues.push(
+      issue(`${at}.review_contract`, "current proposal evidence requires a review contract")
+    );
+    return { ok: false, issues };
+  }
+  if (!isString(projectRoot)) {
+    issues.push(issue(at, "current proposal evidence requires a project root"));
+    return { ok: false, issues };
+  }
+  validateCurrentEvidenceSources(proposal, projectRoot, at, issues, options);
+  return { ok: issues.length === 0, issues };
+}
+
+function validateCurrentEvidenceSources(proposal, projectRoot, at, issues, options = {}) {
+  const lineage = Array.isArray(proposal.source?.lineage) ? proposal.source.lineage : [];
+  const evidence = Array.isArray(proposal.evidence) ? proposal.evidence : [];
+  const evidencePaths = new Set(evidence.map((entry) => entry?.path).filter(isString));
+  const sources = new Map();
+  if (lineage.length > MAX_EVIDENCE_SOURCES) {
+    issues.push(
+      issue(
+        `${at}.source.lineage`,
+        `must contain at most ${MAX_EVIDENCE_SOURCES} retained evidence sources`
+      )
+    );
+    return;
+  }
+  let root;
+  let rootAnchor;
+  try {
+    root = fs.realpathSync(path.resolve(projectRoot));
+    rootAnchor = createProjectRootAnchor(root);
+  } catch (error) {
+    issues.push(issue(at, `cannot resolve project root for evidence validation: ${error.message}`));
+    return;
+  }
+
+  let totalSourceBytes = 0;
+  for (const [index, entry] of lineage.entries()) {
+    const sourcePath = `${at}.source.lineage[${index}]`;
+    if (!isNormalizedProjectPath(entry?.path)) continue;
+    if (sources.has(entry.path)) {
+      issues.push(issue(`${sourcePath}.path`, "duplicates a source lineage path"));
+      continue;
+    }
+    let source;
+    try {
+      source = readBoundEvidenceFile(root, entry.path, {
+        projectRootAnchor: rootAnchor,
+        remainingBytes: MAX_EVIDENCE_TOTAL_BYTES - totalSourceBytes,
+      });
+      totalSourceBytes += source.bytes.length;
+      sources.set(entry.path, source);
+    } catch (error) {
+      issues.push(issue(`${sourcePath}.path`, error.message));
+      continue;
+    }
+    if (
+      SHA256.test(entry.sha256 || "") &&
+      entry.sha256 !== source.sha256 &&
+      !isAllowedHistoricalLineage(entry, options.allowedHistoricalLineage, evidencePaths)
+    ) {
+      issues.push(issue(`${sourcePath}.sha256`, "does not match the retained source bytes"));
+    }
+  }
+
+  const evidenceById = new Map();
+  for (const [index, entry] of evidence.entries()) {
+    evidenceById.set(entry?.id, entry);
+    if (!isNormalizedProjectPath(entry?.path)) continue;
+    if (!sources.has(entry.path)) {
+      issues.push(
+        issue(
+          `${at}.evidence[${index}].path`,
+          "must reference an existing hash-bound source.lineage path"
+        )
+      );
+    }
+  }
+
+  if (!Array.isArray(proposal.question_reviews)) return;
+  primeMarkdownEvidenceLocators(proposal.question_reviews, evidenceById, sources);
+  for (const [reviewIndex, review] of proposal.question_reviews.entries()) {
+    if (!Array.isArray(review?.evidence)) continue;
+    for (const [citationIndex, citation] of review.evidence.entries()) {
+      const citationPath = `${at}.question_reviews[${reviewIndex}].evidence[${citationIndex}]`;
+      const evidenceRecord = evidenceById.get(citation?.evidence_id);
+      const source = evidenceRecord ? sources.get(evidenceRecord.path) : null;
+      if (!source || !isString(citation?.locator)) continue;
+      const resolution = resolveEvidenceLocator(source, citation.locator);
+      if (resolution.status === "unsupported") continue;
+      if (resolution.status === "missing") {
+        issues.push(issue(`${citationPath}.locator`, resolution.reason));
+        continue;
+      }
+      if (
+        !reviewEvidenceFitsSource(
+          resolution.text,
+          review.conclusion,
+          review.rationale,
+          citation.relevance
+        )
+      ) {
+        issues.push(
+          issue(
+            `${citationPath}.relevance`,
+            "does not connect the located source content to this review answer"
+          )
+        );
+      }
+    }
+  }
+}
+
+function isAllowedHistoricalLineage(entry, allowed, evidencePaths) {
+  if (!isObject(allowed) || !isString(allowed.path) || !SHA256.test(allowed.sha256 || "")) {
+    return false;
+  }
+  // The promotion origin is a transition preimage, not product evidence. Any
+  // lineage path cited as evidence remains bound to its current retained bytes.
+  if (evidencePaths.has(entry.path)) return false;
+  const observed = entry.path.replaceAll("\\", "/");
+  const expected = allowed.path.replaceAll("\\", "/");
+  return (
+    entry.sha256 === allowed.sha256 && (observed === expected || observed.endsWith(`/${expected}`))
+  );
+}
+
+function readBoundEvidenceFile(root, relativePath, options = {}) {
+  const remainingBytes = options.remainingBytes;
+  const readLimit = Math.min(MAX_EVIDENCE_SOURCE_BYTES, remainingBytes);
+  let input;
+  try {
+    input = readProjectInput(root, relativePath, readLimit, {
+      projectRootAnchor: options.projectRootAnchor,
+      requireStablePath: true,
+    });
+  } catch (error) {
+    throw proposalEvidenceReadError(error, remainingBytes);
+  }
+  return {
+    path: input.path,
+    extension: path.extname(relativePath).toLowerCase(),
+    bytes: input.bytes,
+    sha256: proposalBytesHash(input.bytes),
+  };
+}
+
+function proposalEvidenceReadError(error, remainingBytes) {
+  const message = String(error?.message || error);
+  if (error?.code === "ENOENT" || error?.code === "ENOTDIR") {
+    return new Error("retained evidence source does not exist");
+  }
+  if (/project path contains symlink|ELOOP/i.test(message)) {
+    return new Error("retained evidence source must not use symlinks");
+  }
+  if (/project path (?:must be project-relative|escapes project root)/i.test(message)) {
+    return new Error("evidence source escapes the project root");
+  }
+  if (
+    /input must be an existing regular file|project path ancestor is not a directory/i.test(message)
+  ) {
+    return new Error("retained evidence source must be a regular file");
+  }
+  if (/input exceeds \d+-byte budget/i.test(message)) {
+    const exceedsPerFileLimit =
+      typeof error?.actualBytes === "bigint" &&
+      error.actualBytes > BigInt(MAX_EVIDENCE_SOURCE_BYTES);
+    return new Error(
+      exceedsPerFileLimit || remainingBytes >= MAX_EVIDENCE_SOURCE_BYTES
+        ? "retained evidence source exceeds the 8 MiB validation limit"
+        : "retained evidence sources exceed the aggregate 32 MiB validation limit"
+    );
+  }
+  if (/input (?:path )?changed during (?:containment validation|bounded read)/i.test(message)) {
+    return new Error("retained evidence source changed during validation");
+  }
+  return error;
+}
+
+function resolveEvidenceLocator(source, locator) {
+  const cached = cachedEvidenceSource(source);
+  const { text } = cached;
+  if (!TEXT_EVIDENCE_EXTENSIONS.has(source.extension) && !cached.looksLikeText) {
+    return { status: "unsupported" };
+  }
+  if (!cached.validUtf8) {
+    return { status: "missing", reason: "text evidence source is not valid UTF-8" };
+  }
+  const normalizedLocator = locator.trim();
+  const lineMatch = normalizedLocator.match(
+    /^(?:L|lines?\s*[: ]?)(\d+)(?:\s*[-–]\s*(?:L)?(\d+))?$/i
+  );
+  if (lineMatch) {
+    const lines = text.split(/\r?\n/);
+    const start = Number(lineMatch[1]);
+    const end = Number(lineMatch[2] || lineMatch[1]);
+    if (start < 1 || end < start || end > lines.length)
+      return { status: "missing", reason: "line locator is outside the retained source" };
+    if (end - start + 1 > MAX_LINE_LOCATOR_SPAN) {
+      return {
+        status: "missing",
+        reason: `line locator is too broad; select at most ${MAX_LINE_LOCATOR_SPAN} lines`,
+      };
+    }
+    return boundedLocatorResult(lines.slice(start - 1, end).join("\n"));
+  }
+  const pointer =
+    source.extension === ".json" && normalizedLocator.startsWith("/") ? normalizedLocator : null;
+  if (pointer) {
+    try {
+      let value = JSON.parse(text);
+      for (const part of pointer
+        .slice(1)
+        .split("/")
+        .map((item) => item.replace(/~1/g, "/").replace(/~0/g, "~"))) {
+        if ((isObject(value) || Array.isArray(value)) && Object.hasOwn(value, part))
+          value = value[part];
+        else return { status: "missing", reason: "JSON Pointer does not resolve in the source" };
+      }
+      return boundedLocatorResult(JSON.stringify(value));
+    } catch {
+      return { status: "missing", reason: "JSON locator requires a valid retained JSON source" };
+    }
+  }
+  if (source.extension === ".md" && normalizedLocator.startsWith("#")) {
+    const anchor = markdownAnchor(normalizedLocator.slice(1));
+    if (!anchor)
+      return {
+        status: "missing",
+        reason: "Markdown heading locator is empty after normalization",
+      };
+    indexMarkdownHeadingLocators(source, new Set([anchor]));
+    const resolution = cached.markdownLocators.get(anchor);
+    if (resolution.status !== "resolved") return resolution;
+    return boundedLocatorResult(
+      text.slice(resolution.start, resolution.end).replace(/\r\n/g, "\n")
+    );
+  }
+  if (!specificLiteralLocator(normalizedLocator)) {
+    return {
+      status: "missing",
+      reason:
+        "literal locator is too broad; use a line range, Markdown heading, JSON Pointer, stable marker, or specific phrase",
+    };
+  }
+  const matchedLines = text
+    .split(/\r?\n/)
+    .filter((line) => line.toLowerCase().includes(normalizedLocator.toLowerCase()));
+  if (matchedLines.length === 0)
+    return { status: "missing", reason: "locator does not occur in the retained source" };
+  if (matchedLines.length > 1) {
+    return {
+      status: "missing",
+      reason: "literal locator is ambiguous; use a unique marker or a structured locator",
+    };
+  }
+  return boundedLocatorResult(matchedLines[0]);
+}
+
+function cachedEvidenceSource(source) {
+  const existing = EVIDENCE_SOURCE_CACHE.get(source);
+  if (existing && existing.bytes === source.bytes && existing.extension === source.extension) {
+    return existing;
+  }
+  const text = source.bytes.toString("utf8");
+  const cached = {
+    bytes: source.bytes,
+    extension: source.extension,
+    text,
+    validUtf8: !text.includes("\uFFFD"),
+    looksLikeText:
+      TEXT_EVIDENCE_EXTENSIONS.has(source.extension) || looksLikeTextSource(source.bytes, text),
+    markdownLocators: new Map(),
+  };
+  EVIDENCE_SOURCE_CACHE.set(source, cached);
+  return cached;
+}
+
+function primeMarkdownEvidenceLocators(questionReviews, evidenceById, sources) {
+  const anchorsBySource = new Map();
+  for (const review of questionReviews) {
+    if (!Array.isArray(review?.evidence)) continue;
+    for (const citation of review.evidence) {
+      const evidenceRecord = evidenceById.get(citation?.evidence_id);
+      const source = evidenceRecord ? sources.get(evidenceRecord.path) : null;
+      if (!source || source.extension !== ".md" || !isString(citation?.locator)) continue;
+      const locator = citation.locator.trim();
+      if (!locator.startsWith("#")) continue;
+      const anchor = markdownAnchor(locator.slice(1));
+      if (!anchor) continue;
+      if (!anchorsBySource.has(source)) anchorsBySource.set(source, new Set());
+      anchorsBySource.get(source).add(anchor);
+    }
+  }
+  for (const [source, anchors] of anchorsBySource) indexMarkdownHeadingLocators(source, anchors);
+}
+
+function indexMarkdownHeadingLocators(source, requestedAnchors) {
+  const cached = cachedEvidenceSource(source);
+  const targets = new Map();
+  for (const anchor of requestedAnchors) {
+    if (!cached.markdownLocators.has(anchor)) {
+      targets.set(anchor, { matches: 0, start: 0, end: null, level: 0 });
+    }
+  }
+  if (targets.size === 0 || !cached.validUtf8) return;
+
+  const active = Array(7).fill(null);
+  let ambiguous = 0;
+  scanMarkdownHeadings(cached.text, (heading) => {
+    for (let level = heading.level; level <= 6; level += 1) {
+      const open = active[level];
+      if (open && open.end === null) open.end = heading.boundary;
+      active[level] = null;
+    }
+
+    const anchor = markdownAnchor(heading.text.replaceAll(MARKDOWN_COMMENT_SENTINEL, ""));
+    const target = targets.get(anchor);
+    if (!target || target.matches > 1) return true;
+    if (target.matches === 0) {
+      target.matches = 1;
+      target.start = heading.start;
+      target.level = heading.level;
+      active[heading.level] = target;
+      return true;
+    }
+
+    target.matches = 2;
+    ambiguous += 1;
+    for (let level = 1; level <= 6; level += 1) {
+      if (active[level] === target) active[level] = null;
+    }
+    return ambiguous < targets.size;
+  });
+
+  for (const [anchor, target] of targets) {
+    if (target.matches === 0) {
+      cached.markdownLocators.set(anchor, {
+        status: "missing",
+        reason: "Markdown heading locator does not resolve",
+      });
+    } else if (target.matches > 1) {
+      cached.markdownLocators.set(anchor, {
+        status: "missing",
+        reason: "Markdown heading locator is ambiguous",
+      });
+    } else {
+      cached.markdownLocators.set(anchor, {
+        status: "resolved",
+        start: target.start,
+        end: target.end === null ? cached.text.length : target.end,
+      });
+    }
+  }
+}
+
+function scanMarkdownHeadings(text, visit) {
+  let cursor = 0;
+  let fence = null;
+  let inHtmlComment = false;
+  while (cursor <= text.length) {
+    const newline = text.indexOf("\n", cursor);
+    const rawEnd = newline === -1 ? text.length : newline;
+    const contentEnd = rawEnd > cursor && text.charCodeAt(rawEnd - 1) === 13 ? rawEnd - 1 : rawEnd;
+    const rawLine = text.slice(cursor, contentEnd);
+
+    if (fence) {
+      if (closesMarkdownFence(rawLine, fence)) fence = null;
+    } else if (inHtmlComment) {
+      inHtmlComment = markdownOutsideHtmlComments(rawLine, true).inComment;
+    } else {
+      const openingFence = opensMarkdownFence(rawLine);
+      if (openingFence) fence = openingFence;
+      else {
+        const visible = markdownOutsideHtmlComments(rawLine, false);
+        inHtmlComment = visible.inComment;
+        const heading = markdownAtxHeading(visible.text);
+        if (heading) {
+          let boundary = cursor;
+          if (boundary > 0 && text.charCodeAt(boundary - 1) === 10) {
+            boundary -= 1;
+            if (boundary > 0 && text.charCodeAt(boundary - 1) === 13) boundary -= 1;
+          }
+          if (visit({ ...heading, start: cursor, boundary }) === false) return;
+        }
+      }
+    }
+
+    if (newline === -1) return;
+    cursor = newline + 1;
+  }
+}
+
+function markdownOutsideHtmlComments(line, initialState) {
+  let cursor = 0;
+  let inComment = initialState;
+  let visible = initialState ? MARKDOWN_COMMENT_SENTINEL : "";
+  while (cursor < line.length) {
+    if (inComment) {
+      const close = line.indexOf("-->", cursor);
+      if (close === -1) return { text: visible, inComment: true };
+      inComment = false;
+      cursor = close + 3;
+      continue;
+    }
+
+    const open = line.indexOf("<!--", cursor);
+    const tick = line.indexOf("`", cursor);
+    if (tick !== -1 && (open === -1 || tick < open)) {
+      let tickEnd = tick + 1;
+      while (line[tickEnd] === "`") tickEnd += 1;
+      const marker = line.slice(tick, tickEnd);
+      let close = line.indexOf(marker, tickEnd);
+      while (close !== -1 && (line[close - 1] === "`" || line[close + marker.length] === "`")) {
+        close = line.indexOf(marker, close + marker.length);
+      }
+      if (close === -1) {
+        visible += line.slice(cursor, tickEnd);
+        cursor = tickEnd;
+      } else {
+        const closeEnd = close + marker.length;
+        visible += line.slice(cursor, closeEnd);
+        cursor = closeEnd;
+      }
+      continue;
+    }
+    if (open === -1) return { text: visible + line.slice(cursor), inComment: false };
+
+    let backslashes = 0;
+    for (let index = open - 1; index >= 0 && line[index] === "\\"; index -= 1) backslashes += 1;
+    if (backslashes % 2 === 1) {
+      visible += line.slice(cursor, open + 1);
+      cursor = open + 1;
+      continue;
+    }
+    visible += `${line.slice(cursor, open)}${MARKDOWN_COMMENT_SENTINEL}`;
+    inComment = true;
+    cursor = open + 4;
+  }
+  return { text: visible, inComment };
+}
+
+function opensMarkdownFence(line) {
+  const match = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+  if (!match || (match[1][0] === "`" && match[2].includes("`"))) return null;
+  return { marker: match[1][0], length: match[1].length };
+}
+
+function closesMarkdownFence(line, fence) {
+  const match = line.match(/^ {0,3}(`+|~+)[ \t]*$/);
+  return Boolean(match && match[1][0] === fence.marker && match[1].length >= fence.length);
+}
+
+function markdownAtxHeading(line) {
+  const match = line.match(/^ {0,3}(#{1,6})(?:[ \t]+(.*)|[ \t]*)$/);
+  if (!match) return null;
+  return {
+    level: match[1].length,
+    text: (match[2] || "").replace(/[ \t]+#+[ \t]*$/, ""),
+  };
+}
+
+function specificLiteralLocator(locator) {
+  if (/^[a-z]{1,12}-?\d{1,8}$/i.test(locator)) return true;
+  if (/^[a-z][a-z0-9._-]*(?::|#)[a-z0-9][a-z0-9._:-]*$/i.test(locator)) return true;
+  const words = locator.match(/[a-z0-9]+/gi) || [];
+  return locator.length >= 8 && (words.length >= 2 || locator.length >= 12);
+}
+
+function boundedLocatorResult(text) {
+  if (Buffer.byteLength(text, "utf8") > MAX_LOCATED_EVIDENCE_BYTES) {
+    return {
+      status: "missing",
+      reason: "locator resolves to more than 64 KiB; select a narrower evidence location",
+    };
+  }
+  return { status: "resolved", text };
+}
+
+function looksLikeTextSource(bytes, decoded) {
+  if (decoded.includes("\uFFFD") || bytes.includes(0)) return false;
+  if (bytes.length === 0) return true;
+  let controls = 0;
+  for (const byte of bytes) {
+    if (byte < 32 && ![9, 10, 13].includes(byte)) controls += 1;
+  }
+  return controls / bytes.length < 0.01;
+}
+
+function markdownAnchor(value) {
+  return String(value)
+    .normalize("NFC")
+    .trim()
+    .toLowerCase()
+    .normalize("NFC")
+    .replace(/[^\p{L}\p{M}\p{N}\s-]/gu, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-");
+}
+
+function reviewEvidenceFitsSource(sourceText, conclusion, rationale, relevance) {
+  const generic = new Set([
+    "answer",
+    "baseline",
+    "conclusion",
+    "current",
+    "document",
+    "evidence",
+    "observation",
+    "proposal",
+    "rationale",
+    "record",
+    "review",
+    "source",
+    "support",
+  ]);
+  const sourceTokens = reviewTextTokens(sourceText, generic);
+  const answerTokens = new Set([
+    ...reviewTextTokens(conclusion, generic),
+    ...reviewTextTokens(rationale, generic),
+  ]);
+  const relevanceTokens = reviewTextTokens(relevance, generic);
+  const answerOverlap = [...sourceTokens].filter((token) => answerTokens.has(token));
+  const relevanceOverlap = [...sourceTokens].filter((token) => relevanceTokens.has(token));
+  return (
+    answerOverlap.length > 0 &&
+    relevanceOverlap.length > 0 &&
+    new Set([...answerOverlap, ...relevanceOverlap]).size >= 2
+  );
+}
+
+function validateReviewEvidence(value, at, issues, reviewRefs, answer) {
+  if (!Array.isArray(value) || value.length === 0) {
+    issues.push(issue(at, "evidence must be a non-empty array"));
+    return;
+  }
+  const seen = new Set();
+  value.forEach((entry, index) => {
+    const rowPath = `${at}[${index}]`;
+    if (!closed(entry, ["evidence_id", "locator", "relevance"], rowPath, issues)) return;
+    for (const field of ["evidence_id", "locator", "relevance"])
+      if (!(field in entry)) issues.push(issue(`${rowPath}.${field}`, "is required"));
+    if (!STABLE_ID.test(entry.evidence_id || "") || !entry.evidence_id.startsWith("evidence:"))
+      issues.push(issue(`${rowPath}.evidence_id`, "must be an evidence: stable id"));
+    requiredString(entry.locator, `${rowPath}.locator`, issues);
+    requiredString(entry.relevance, `${rowPath}.relevance`, issues);
+    const relevanceQuality = reviewEvidenceRelevanceQuality(
+      entry.relevance,
+      answer.conclusion,
+      answer.rationale,
+      answer.question
+    );
+    if (!relevanceQuality.ok) issues.push(issue(`${rowPath}.relevance`, relevanceQuality.reason));
+    const identity = `${entry.evidence_id}\u0000${entry.locator}`;
+    if (seen.has(identity))
+      issues.push(issue(rowPath, "duplicates an evidence id and locator in this answer"));
+    seen.add(identity);
+    reviewRefs.push(["evidence", entry.evidence_id, `${rowPath}.evidence_id`]);
+  });
+}
+
+function validateBoundReviewIndependence(value, at, issues) {
+  if (!Array.isArray(value) || value.length < 2) return;
+  const conclusions = value.map((entry) => normalizeReviewText(entry?.conclusion));
+  if (
+    conclusions.some((conclusion) => !conclusion) ||
+    new Set(conclusions).size !== conclusions.length
+  ) {
+    issues.push(issue(at, "must contain a distinct answer for every question"));
+  }
+  const rationales = new Set(value.map((entry) => normalizeReviewText(entry?.rationale)));
+  if (rationales.size !== value.length) {
+    issues.push(issue(at, "must contain a distinct rationale for every question"));
+  }
+  const locations = new Set(
+    value.flatMap((entry) =>
+      Array.isArray(entry?.evidence)
+        ? entry.evidence.map(
+            (evidence) => `${evidence?.evidence_id || ""}\u0000${evidence?.locator || ""}`
+          )
+        : []
+    )
+  );
+  if (locations.size < 2) issues.push(issue(at, "must bind more than one evidence location"));
+  const relevances = new Set(
+    value.flatMap((entry) =>
+      Array.isArray(entry?.evidence)
+        ? entry.evidence.map((evidence) => normalizeReviewText(evidence?.relevance))
+        : []
+    )
+  );
+  if (relevances.size < 2) {
+    issues.push(issue(at, "must explain evidence relevance for the individual answers"));
+  }
+}
+
+function validateReviewContract(proposal, at, issues) {
+  if (!Object.hasOwn(proposal, "review_contract")) return;
+  const contractPath = `${at}.review_contract`;
+  if (
+    !closed(
+      proposal.review_contract,
+      ["session_id", "tier", "required_question_ids"],
+      contractPath,
+      issues
+    )
+  )
+    return;
+  requiredString(proposal.review_contract.session_id, `${contractPath}.session_id`, issues);
+  enumValue(
+    proposal.review_contract.tier,
+    ["quick", "standard", "full", "agent"],
+    `${contractPath}.tier`,
+    issues,
+    "tier"
+  );
+  stringArray(
+    proposal.review_contract.required_question_ids,
+    `${contractPath}.required_question_ids`,
+    issues,
+    { nonEmpty: true }
+  );
+  for (const [index, questionId] of (Array.isArray(proposal.review_contract.required_question_ids)
+    ? proposal.review_contract.required_question_ids
+    : []
+  ).entries()) {
+    if (!QUESTION_ID.test(questionId || ""))
+      issues.push(
+        issue(`${contractPath}.required_question_ids[${index}]`, "must be a canonical question id")
+      );
+  }
+  if (proposal.review_contract.session_id !== proposal.source?.session_id)
+    issues.push(issue(`${contractPath}.session_id`, "must match source.session_id"));
+  const expectedIds = reviewQuestionIdsForTier(proposal.review_contract.tier);
+  if (
+    expectedIds &&
+    canonicalStringify(proposal.review_contract.required_question_ids) !==
+      canonicalStringify(expectedIds)
+  )
+    issues.push(
+      issue(
+        `${contractPath}.required_question_ids`,
+        "must exactly match the selected tier review question IDs"
+      )
+    );
+}
+
+function proposalReviewCoverage(proposal) {
+  const contract = isObject(proposal?.review_contract) ? proposal.review_contract : null;
+  const questionReviews = Array.isArray(proposal?.question_reviews)
+    ? proposal.question_reviews
+    : [];
+  const required = Array.isArray(contract?.required_question_ids)
+    ? contract.required_question_ids.filter((value) => typeof value === "string")
+    : [];
+  const actual = questionReviews
+    .map((entry) => entry?.question_id)
+    .filter((value) => typeof value === "string");
+  const seen = new Set();
+  const duplicates = new Set();
+  for (const questionId of actual) {
+    if (seen.has(questionId)) duplicates.add(questionId);
+    seen.add(questionId);
+  }
+  const expected = reviewQuestionIdsForTier(contract?.tier);
+  const tierContractCurrent =
+    Array.isArray(expected) && canonicalStringify(required) === canonicalStringify(expected);
+  const authoritative = Array.isArray(expected) ? expected : required;
+  const requiredSet = new Set(authoritative);
+  return Object.freeze({
+    bound: contract !== null,
+    session_id: contract?.session_id || null,
+    tier: contract?.tier || null,
+    required_question_ids: Object.freeze([...required]),
+    expected_question_ids: Object.freeze([...authoritative]),
+    reviewed_question_ids: Object.freeze([...actual]),
+    missing_question_ids: Object.freeze(
+      authoritative.filter((questionId) => !seen.has(questionId))
+    ),
+    unexpected_question_ids: Object.freeze(
+      [...seen].filter((questionId) => !requiredSet.has(questionId))
+    ),
+    duplicate_question_ids: Object.freeze([...duplicates]),
+    tier_contract_current: tierContractCurrent,
+    complete:
+      contract !== null &&
+      tierContractCurrent &&
+      authoritative.length > 0 &&
+      new Set(authoritative).size === authoritative.length &&
+      duplicates.size === 0 &&
+      questionReviews.length === actual.length &&
+      authoritative.length === actual.length &&
+      authoritative.every((questionId) => seen.has(questionId)),
+  });
 }
 
 function validateGlobalIds(proposal, at, issues) {
@@ -715,6 +1591,35 @@ function proposalApprovalSnapshotHash(proposal) {
   return proposalBytesHash(Buffer.from(canonicalStringify(snapshot)));
 }
 
+function deriveApprovalDecision(proposal, { approvedBy, approvedAt } = {}) {
+  if (!isObject(proposal?.review_contract) || !isString(proposal.review_contract.session_id)) {
+    throw new Error("canonical approval decision requires a bound proposal review session");
+  }
+  if (!isString(approvedBy)) {
+    throw new Error("canonical approval decision requires an explicit approver");
+  }
+  if (!ISO_8601.test(approvedAt || "") || Number.isNaN(Date.parse(approvedAt))) {
+    throw new Error("canonical approval decision requires an ISO-8601 UTC timestamp");
+  }
+  const decisionId = `groom-approval:${proposal.review_contract.session_id}`;
+  const decision = {
+    schema_version: 1,
+    decision_id: decisionId,
+    review_session_id: proposal.review_contract.session_id,
+    proposal_hash: proposalContentHash(proposal),
+    proposal_revision: proposal.revision,
+    review_revision: proposal.review?.revision ?? null,
+    review_content_sha256: proposal.review?.content_sha256 ?? null,
+    review_completed_at: proposal.review?.completed_at ?? null,
+    approved_by: approvedBy.trim(),
+    approved_at: approvedAt,
+  };
+  return Object.freeze({
+    id: decisionId,
+    sha256: proposalBytesHash(Buffer.from(canonicalStringify(decision))),
+  });
+}
+
 function validateRevisionTransition(previous, next) {
   const issues = [];
   const previousResult = validateProposal(previous, { path: "$previous" });
@@ -845,6 +1750,33 @@ function validateApproval(proposal, approval, options = {}) {
     if (!SHA256.test(approval.decision_sha256 || ""))
       issues.push(issue(`${at}.decision_sha256`, "must be a sha256 hash"));
   }
+  if (isObject(proposal.review_contract)) {
+    if (approval.decision_id === null || approval.decision_sha256 === null) {
+      issues.push(
+        issue(at, "current proposal approval requires the canonical Groom approval decision")
+      );
+    } else if (
+      isString(proposal.review_contract.session_id) &&
+      isString(approval.approved_by) &&
+      ISO_8601.test(approval.approved_at || "") &&
+      !Number.isNaN(Date.parse(approval.approved_at))
+    ) {
+      const canonicalDecision = deriveApprovalDecision(proposal, {
+        approvedBy: approval.approved_by,
+        approvedAt: approval.approved_at,
+      });
+      if (approval.decision_id !== canonicalDecision.id) {
+        issues.push(
+          issue(`${at}.decision_id`, "does not match the canonical Groom approval decision")
+        );
+      }
+      if (approval.decision_sha256 !== canonicalDecision.sha256) {
+        issues.push(
+          issue(`${at}.decision_sha256`, "does not match the canonical Groom approval decision")
+        );
+      }
+    }
+  }
   if (
     options.requireDecision &&
     (approval.decision_id === null || approval.decision_sha256 === null)
@@ -896,6 +1828,12 @@ function buildApproval(
     throw new Error("decisionId must be a non-empty decision identity");
   if (decisionSha256 !== null && !SHA256.test(decisionSha256))
     throw new Error("decisionSha256 must be a sha256 hash");
+  if (isObject(proposal.review_contract)) {
+    const canonicalDecision = deriveApprovalDecision(proposal, { approvedBy, approvedAt });
+    if (decisionId !== canonicalDecision.id || decisionSha256 !== canonicalDecision.sha256) {
+      throw new Error("current proposal approval must use the canonical Groom approval decision");
+    }
+  }
   return {
     schema_version: 1,
     kind: "proposal-approval",
@@ -930,6 +1868,9 @@ function executionContract(proposal) {
       acceptance_criteria: proposal.acceptance_criteria,
       edge_cases: proposal.edge_cases,
       design_requirements: proposal.design_requirements,
+      ...(proposal.design_context
+        ? { design_context: structuredClone(proposal.design_context) }
+        : {}),
       success_metrics: proposal.success_metrics,
       open_decisions: proposal.open_decisions,
       risks: proposal.risks,
@@ -944,7 +1885,15 @@ function readApprovedProposal(filePath, options = {}) {
   const source = readProposal(filePath, {
     projectRoot: options.projectRoot,
     expectedSlug: options.expectedSlug,
+    allowedHistoricalLineage: options.allowedHistoricalLineage,
+    requireCurrentPrototypeIdentity: options.requireCurrentPrototypeIdentity,
+    requireExperienceClassification: options.requireExperienceClassification,
   });
+  if (!source.reviewContractBound) {
+    throw new Error(
+      "approved canonical proposal uses a legacy-unbound-review-contract; return to pm:groom for migration and re-review"
+    );
+  }
   if (
     source.proposal.lifecycle !== "approved" &&
     !POST_APPROVAL_LIFECYCLES.has(source.proposal.lifecycle)
@@ -972,6 +1921,8 @@ function readApprovedProposal(filePath, options = {}) {
   return Object.freeze({
     kind: "approved-canonical-json",
     trustedApproval: true,
+    reviewContractBound: source.reviewContractBound,
+    compatibility: source.compatibility,
     source,
     approval: approvalSource.approval,
     approvalSource,
@@ -1017,6 +1968,10 @@ function readProposal(filePath, options = {}) {
     const result = validateProposal(proposal, {
       path: absolute,
       expectedSlug: options.expectedSlug,
+      projectRoot: options.projectRoot,
+      allowedHistoricalLineage: options.allowedHistoricalLineage,
+      requireCurrentPrototypeIdentity: options.requireCurrentPrototypeIdentity,
+      requireExperienceClassification: options.requireExperienceClassification,
     });
     if (!result.ok)
       throw new Error(
@@ -1025,6 +1980,10 @@ function readProposal(filePath, options = {}) {
     return Object.freeze({
       kind: "canonical-json",
       trustedApproval: false,
+      reviewContractBound: Boolean(proposal.review_contract),
+      compatibility: proposal.review_contract
+        ? "current-review-contract"
+        : "legacy-unbound-review-contract",
       proposal,
       contentSha256: result.content_sha256,
       bytesSha256: proposalBytesHash(bytes),
@@ -1179,8 +2138,11 @@ module.exports = {
   canonicalStringify,
   proposalContentHash,
   proposalApprovalSnapshotHash,
+  deriveApprovalDecision,
+  proposalReviewCoverage,
   proposalBytesHash,
   validateProposal,
+  validateCurrentProposalEvidence,
   validateApproval,
   buildApproval,
   validateRevisionTransition,

@@ -37,14 +37,20 @@ const {
 } = require("../scripts/lib/dev-session-schema");
 const {
   buildApproval: buildProposalApproval,
+  deriveApprovalDecision,
   proposalContentHash,
 } = require("../scripts/lib/proposal-schema");
 const {
+  attestPrBody,
   beginEffect,
   createReleaseTransaction,
   planEffect,
   reconcileEffect,
 } = require("../scripts/lib/release-transaction-schema");
+const {
+  bindCurrentReviewContract,
+  materializeProposalSources,
+} = require("./helpers/groom-review-fixture.js");
 
 test("decision version advances are explicit, audited, and compare-and-swap guarded", () => {
   const repo = makeRepo();
@@ -100,6 +106,65 @@ test("applyRouting persists observed risk and prevents kind from erasing safegua
   }
 });
 
+test("non-proposal Dev routes reject design context without bound provenance", () => {
+  const repo = makeRepo();
+  try {
+    const forgedDesignContext = {
+      design_requirements: ["Keep the primary action visible."],
+      ui_impact: true,
+      prototype: {
+        path: "wireframes/nonexistent.html",
+        sha256: `sha256:${"a".repeat(64)}`,
+      },
+      critical_states: ["loading", "empty", "error", "success"],
+      experience_invariants: ["Every state keeps the next action understandable."],
+      visual_invariants: ["The primary action remains visually dominant."],
+    };
+    const session = createSession({ slug: "unbound-design-context", sourceDir: repo.root });
+    assert.throws(
+      () =>
+        applyRouting(session, {
+          kind: "task",
+          size: "S",
+          risk: {},
+          design_context: forgedDesignContext,
+          work_units: [],
+        }),
+      /design_context requires approved proposal or RFC sidecar provenance/
+    );
+
+    const routed = applyRouting(session, {
+      kind: "task",
+      size: "S",
+      risk: {},
+      work_units: [],
+    });
+    assert.equal(routed.task.design_context, null);
+    const forgedPersistedSession = structuredClone(routed);
+    forgedPersistedSession.task.design_context = forgedDesignContext;
+    assert.ok(
+      validateSession(forgedPersistedSession).some(
+        (entry) =>
+          entry.path === "$.task.design_context" &&
+          /must be null without approved proposal or RFC sidecar provenance/.test(entry.message)
+      )
+    );
+    if (Ajv2020 && addFormats) {
+      const schema = JSON.parse(
+        fs.readFileSync(
+          path.resolve(__dirname, "..", "skills", "dev", "references", "dev-session.schema.json"),
+          "utf8"
+        )
+      );
+      const ajv = new Ajv2020({ allErrors: true, strict: false });
+      addFormats(ajv);
+      assert.equal(ajv.compile(schema)(forgedPersistedSession), false);
+    }
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test("applyRouting rejects invalid work-unit dependencies before persisting intake", () => {
   const repo = makeRepo();
   try {
@@ -144,11 +209,37 @@ test("Dev intake derives execution scope from approved canonical proposal and de
     const approvalPath = proposalPath.replace(/\.json$/, ".approval.json");
     fs.mkdirSync(path.dirname(proposalPath), { recursive: true });
     fs.writeFileSync(proposalPath, `${JSON.stringify(proposal, null, 2)}\n`);
-    const approval = buildProposalApproval(proposal, fs.readFileSync(proposalPath), {
+    const legacyApproval = buildProposalApproval(proposal, fs.readFileSync(proposalPath), {
       approvedBy: "user:owner",
       approvedAt: "2026-07-14T03:00:00.000Z",
       decisionId: "groom-approval:groom_test",
       decisionSha256: `sha256:${"6".repeat(64)}`,
+    });
+    fs.writeFileSync(approvalPath, `${JSON.stringify(legacyApproval, null, 2)}\n`);
+    assert.throws(
+      () =>
+        applyRouting(createSession({ slug: proposal.slug, sourceDir: repo.root }), {
+          kind: "proposal",
+          risk: {},
+          proposal_path: proposalPath,
+        }),
+      /legacy-unbound-review-contract/
+    );
+
+    bindCurrentReviewContract(proposal);
+    materializeProposalSources(repo.root, proposal);
+    proposal.review.content_sha256 = proposalContentHash(proposal);
+    fs.writeFileSync(proposalPath, `${JSON.stringify(proposal, null, 2)}\n`);
+    const approvedAt = "2026-07-14T03:00:00.000Z";
+    const decision = deriveApprovalDecision(proposal, {
+      approvedBy: "user:owner",
+      approvedAt,
+    });
+    const approval = buildProposalApproval(proposal, fs.readFileSync(proposalPath), {
+      approvedBy: "user:owner",
+      approvedAt,
+      decisionId: decision.id,
+      decisionSha256: decision.sha256,
     });
     fs.writeFileSync(approvalPath, `${JSON.stringify(approval, null, 2)}\n`);
     proposal.lifecycle = "planned";
@@ -482,7 +573,7 @@ test("review recertification must preserve every gate kind needed for final arch
   }
 });
 
-test("UI gate recertification requires Design Critique review and QA test evidence", () => {
+test("UI gate recertification rejects an unbound QA test record", () => {
   const repo = makeRepo();
   try {
     const session = createSession({ slug: "recertify-ui-gates", sourceDir: repo.root });
@@ -498,13 +589,26 @@ test("UI gate recertification requires Design Critique review and QA test eviden
       commit: repo.head(),
       records: [{ kind: "test", command: "qa", exit_code: 0, artifact: null }],
       recorded_at: "2026-07-14T00:00:00.000Z",
+      qa_run_count: 1,
+      qa_run_anchors: [
+        {
+          run: 1,
+          commit: repo.head(),
+          verdict: "pass",
+          report_sha256: "a".repeat(64),
+        },
+      ],
     };
-    const recertified = recertifyEvidence(session, ["design-critique", "qa"], repo.head(), {
-      "design-critique": [{ kind: "review", command: "critique", exit_code: 0, artifact: null }],
-      qa: [{ kind: "test", command: "qa", exit_code: 0, artifact: null }],
-    });
-    assert.equal(recertified.evidence["design-critique"].verification_records[0].kind, "review");
-    assert.equal(recertified.evidence.qa.verification_records[0].kind, "test");
+    assert.throws(
+      () =>
+        recertifyEvidence(session, ["design-critique", "qa"], repo.head(), {
+          "design-critique": [
+            { kind: "review", command: "critique", exit_code: 0, artifact: null },
+          ],
+          qa: [{ kind: "test", command: "qa", exit_code: 0, artifact: null }],
+        }),
+      /QA test evidence requires an absolute report artifact path/
+    );
   } finally {
     repo.cleanup();
   }
@@ -725,6 +829,8 @@ test("delivery receipt is cryptographically bound to the verified release transa
       "User authorized transaction delivery"
     );
     const commit = repo.head();
+    const prBody = "## Summary\n\nDelivery receipt fixture.\n";
+    const prBodySha256 = `sha256:${crypto.createHash("sha256").update(prBody).digest("hex")}`;
     let transaction = createReleaseTransaction({
       releaseMode: "delivery-only",
       runId: session.run_id,
@@ -758,8 +864,15 @@ test("delivery receipt is cryptographically bound to the verified release transa
           base: "main",
           commit,
           draft: false,
+          body_sha256: prBodySha256,
         },
-        receipt: { pr_number: 42, state: "OPEN", head_oid: commit, draft: false },
+        receipt: {
+          pr_number: 42,
+          state: "OPEN",
+          head_oid: commit,
+          draft: false,
+          body_sha256: prBodySha256,
+        },
       },
       {
         name: "merge",
@@ -770,17 +883,35 @@ test("delivery receipt is cryptographically bound to the verified release transa
           head_commit: commit,
           base: "main",
           method: "squash",
+          body_sha256: prBodySha256,
         },
         receipt: {
           state: "MERGED",
           pr_number: 42,
           merge_sha: "b".repeat(40),
           head_oid: commit,
+          body_sha256: prBodySha256,
         },
       },
     ];
     for (const effect of effects) {
       transaction = planEffect(transaction, { effect: effect.name, target: effect.target });
+      if (effect.name === "merge") {
+        const observedAt = new Date().toISOString();
+        transaction = attestPrBody(transaction, {
+          timestamp: observedAt,
+          observation: {
+            repository: "example/repo",
+            pr_number: 42,
+            state: "OPEN",
+            head_oid: commit,
+            base: "main",
+            draft: false,
+            body: prBody,
+            observed_at: observedAt,
+          },
+        });
+      }
       transaction = beginEffect(transaction, {
         effect: effect.name,
         authority: effect.authority,
@@ -1021,6 +1152,56 @@ test("the published JSON Schema exposes session and phase-result contracts", () 
   assert.equal(schema.additionalProperties, false);
   assert.equal(schema.$defs.phase_result.properties.schema_version.const, 1);
   assert.equal(schema.$defs.phase_result.additionalProperties, false);
+  assert.equal(schema.$defs.qa_run_anchor.additionalProperties, false);
+  assert.deepEqual(schema.$defs.evidence_set.dependentRequired.qa_run_anchors, ["qa_run_count"]);
+  assert.equal(
+    schema.$defs.evidence_set.properties.qa_run_anchors.items.$ref,
+    "#/$defs/qa_run_anchor"
+  );
+});
+
+test("runtime and published schema preserve the legacy count-only QA anchor migration state", () => {
+  if (!Ajv2020 || !addFormats) return;
+  const repo = makeRepo();
+  try {
+    const schema = JSON.parse(
+      fs.readFileSync(
+        path.resolve(__dirname, "..", "skills", "dev", "references", "dev-session.schema.json"),
+        "utf8"
+      )
+    );
+    const ajv = new Ajv2020({ allErrors: true, strict: false });
+    addFormats(ajv);
+    const validateSchema = ajv.compile(schema);
+    const legacy = createSession({ slug: "legacy-qa-anchor-parity", sourceDir: repo.root });
+    legacy.evidence.qa = {
+      commit: repo.head(),
+      records: [],
+      recorded_at: "2026-07-14T00:00:00.000Z",
+      qa_run_count: 2,
+    };
+    assert.deepEqual(validateSession(legacy), []);
+    assert.equal(validateSchema(legacy), true, JSON.stringify(validateSchema.errors));
+
+    const invalid = structuredClone(legacy);
+    invalid.evidence.qa.qa_run_anchors = [
+      { run: 1, commit: repo.head(), verdict: "pass", report_sha256: "a".repeat(64) },
+    ];
+    assert.ok(validateSession(invalid).some((error) => /exactly qa_run_count/.test(error.message)));
+    assert.equal(
+      validateSchema(invalid),
+      true,
+      "array/count equality is an intentional runtime constraint beyond portable JSON Schema"
+    );
+
+    delete invalid.evidence.qa.qa_run_count;
+    assert.ok(
+      validateSession(invalid).some((error) => /required with QA run anchors/.test(error.message))
+    );
+    assert.equal(validateSchema(invalid), false);
+  } finally {
+    repo.cleanup();
+  }
 });
 
 test("validateSession rejects unknown top-level fields and invalid paths", () => {

@@ -512,7 +512,7 @@ function seedRun(root, runId, source, finding = null) {
     external_effects: false,
   };
   write(root, targetPath, {
-    schema_version: 1,
+    schema_version: 2,
     relevance_policy: "changed-hunk-anchor-v1",
     run_id: runId,
     review_round: 1,

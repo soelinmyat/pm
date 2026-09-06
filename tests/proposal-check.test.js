@@ -16,7 +16,10 @@ const {
   canonicalStringify,
   proposalContentHash,
   proposalBytesHash,
+  proposalReviewCoverage,
+  deriveApprovalDecision,
   validateProposal,
+  validateCurrentProposalEvidence,
   validateApproval,
   buildApproval,
   validateRevisionTransition,
@@ -25,13 +28,64 @@ const {
   readProposal,
   readApprovedProposal,
 } = require("../scripts/lib/proposal-schema.js");
+const { buildPrototypeIdentity } = require("../scripts/lib/dev-work-units.js");
+const {
+  bindCurrentReviewContract,
+  materializeProposalSources,
+  reviewRowForTier,
+} = require("./helpers/groom-review-fixture.js");
 
 function fixture() {
   return JSON.parse(fs.readFileSync(fixturePath, "utf8"));
 }
 
+function designContext(overrides = {}) {
+  return {
+    design_requirements: ["Show lifecycle, revision, approval state, and open decisions visibly."],
+    ui_impact: true,
+    prototype: null,
+    critical_states: ["draft", "reviewed", "approved", "stale approval"],
+    experience_invariants: [
+      "Reviewers can identify the current decision state before inspecting implementation detail.",
+    ],
+    visual_invariants: ["Lifecycle and approval state remain visible at narrow widths."],
+    ...overrides,
+  };
+}
+
 function messages(result) {
   return result.issues.map((entry) => `${entry.path}: ${entry.message}`).join("\n");
+}
+
+const FULL_REVIEW_IDS = [
+  "problem-evidence",
+  "scope",
+  "acceptance",
+  "experience",
+  "feasibility",
+  "reversal",
+];
+
+function bindReviewContract(proposal, questionIds = FULL_REVIEW_IDS) {
+  proposal.review_contract = {
+    session_id: proposal.source.session_id,
+    tier: "full",
+    required_question_ids: [...questionIds],
+  };
+  proposal.question_reviews = questionIds.map((questionId, index) =>
+    reviewRowForTier("full", questionId, index)
+  );
+  return proposal;
+}
+
+function buildCurrentApproval(proposal, bytes, { approvedBy, approvedAt }) {
+  const decision = deriveApprovalDecision(proposal, { approvedBy, approvedAt });
+  return buildApproval(proposal, bytes, {
+    approvedBy,
+    approvedAt,
+    decisionId: decision.id,
+    decisionSha256: decision.sha256,
+  });
 }
 
 function tmpProject() {
@@ -50,6 +104,114 @@ test("schema-v1 fixture is a strict executable proposal", () => {
   );
   assert.equal(contract.approval_required, true);
   assert.equal(Object.isFrozen(contract), true);
+});
+
+test("proposal execution contract preserves one closed design context", () => {
+  const proposal = fixture();
+  proposal.design_context = designContext();
+  const result = validateProposal(proposal);
+  assert.equal(result.ok, true, messages(result));
+  assert.deepEqual(executionContract(proposal).design_context, proposal.design_context);
+
+  proposal.design_context.design_requirements[0] = "A different requirement.";
+  assert.match(messages(validateProposal(proposal)), /must match design_requirements/i);
+});
+
+test("bounded proposal reads recompute prototype hashes from repository bytes", () => {
+  const project = tmpProject();
+  try {
+    const prototypePath = "pm/backlog/wireframes/structured-groom.html";
+    const absolutePrototype = path.join(project.dir, prototypePath);
+    fs.mkdirSync(path.dirname(absolutePrototype), { recursive: true });
+    fs.writeFileSync(absolutePrototype, "<main>approved prototype</main>\n");
+    const prototypeHash = `sha256:${crypto
+      .createHash("sha256")
+      .update(fs.readFileSync(absolutePrototype))
+      .digest("hex")}`;
+    const proposal = fixture();
+    proposal.design_context = designContext({
+      prototype: { path: prototypePath, sha256: prototypeHash },
+    });
+    const proposalPath = path.join(
+      project.dir,
+      "pm",
+      "backlog",
+      "proposals",
+      "structured-groom.json"
+    );
+    fs.mkdirSync(path.dirname(proposalPath), { recursive: true });
+    fs.writeFileSync(proposalPath, `${JSON.stringify(proposal, null, 2)}\n`);
+
+    assert.equal(
+      readProposal(proposalPath, { projectRoot: project.dir }).proposal.slug,
+      proposal.slug
+    );
+    fs.writeFileSync(absolutePrototype, "<main>drifted prototype</main>\n");
+    assert.throws(
+      () => readProposal(proposalPath, { projectRoot: project.dir }),
+      /prototype.*sha256.*does not match repository bytes/i
+    );
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("current proposal reads bind every file in a multi-file prototype", () => {
+  const project = tmpProject();
+  try {
+    const prefix = "pm/backlog/wireframes/structured-groom";
+    const files = {
+      [`${prefix}/index.html`]: '<a href="decision.html">Decision</a>\n',
+      [`${prefix}/base.css`]: ".screen { display: grid; }\n",
+      [`${prefix}/decision.html`]: '<section class="screen">Decision</section>\n',
+      [`${prefix}/meta.json`]: `${JSON.stringify({
+        slug: "structured-groom",
+        screens: [
+          {
+            id: "decision",
+            label: "Decision",
+            file: "decision.html",
+            states: ["populated"],
+          },
+        ],
+      })}\n`,
+    };
+    for (const [relative, bytes] of Object.entries(files)) {
+      const target = path.join(project.dir, relative);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, bytes);
+    }
+    const proposal = fixture();
+    proposal.design_context = designContext({
+      prototype: buildPrototypeIdentity(`${prefix}/index.html`, project.dir),
+    });
+    const proposalPath = path.join(project.dir, "pm/backlog/proposals/structured-groom.json");
+    fs.mkdirSync(path.dirname(proposalPath), { recursive: true });
+    fs.writeFileSync(proposalPath, `${JSON.stringify(proposal, null, 2)}\n`);
+
+    const source = readProposal(proposalPath, {
+      projectRoot: project.dir,
+      requireCurrentPrototypeIdentity: true,
+      requireExperienceClassification: true,
+    });
+    assert.deepEqual(
+      executionContract(source.proposal).design_context.prototype.manifest,
+      proposal.design_context.prototype.manifest
+    );
+
+    fs.writeFileSync(path.join(project.dir, `${prefix}/decision.html`), "<main>drifted</main>\n");
+    assert.throws(
+      () =>
+        readProposal(proposalPath, {
+          projectRoot: project.dir,
+          requireCurrentPrototypeIdentity: true,
+          requireExperienceClassification: true,
+        }),
+      /prototype.*manifest.*decision\.html/i
+    );
+  } finally {
+    project.cleanup();
+  }
 });
 
 test("public validators return structured failures for malformed values", () => {
@@ -166,6 +328,511 @@ test("project paths and citations reject traversal, absolute paths, URLs, contro
   }
 });
 
+test("current review evidence is bound to retained source bytes and mechanically resolvable locators", () => {
+  const project = tmpProject();
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pm-proposal-evidence-outside-"));
+  try {
+    const proposal = bindCurrentReviewContract(fixture());
+    materializeProposalSources(project.dir, proposal);
+    const proposalPath = path.join(
+      project.dir,
+      "pm",
+      "backlog",
+      "proposals",
+      `${proposal.slug}.json`
+    );
+    const sourcePath = path.join(project.dir, proposal.source.lineage[0].path);
+    fs.mkdirSync(path.dirname(proposalPath), { recursive: true });
+    const write = () => fs.writeFileSync(proposalPath, `${JSON.stringify(proposal, null, 2)}\n`);
+    write();
+    assert.equal(
+      validateProposal(proposal, { projectRoot: project.dir }).ok,
+      true,
+      messages(validateProposal(proposal, { projectRoot: project.dir }))
+    );
+    assert.doesNotThrow(() => readProposal(proposalPath, { projectRoot: project.dir }));
+
+    const preciseLocators = proposal.question_reviews.map((review) => review.evidence[0].locator);
+    proposal.question_reviews.forEach((review, index) => {
+      review.evidence[0].locator = index % 2 === 0 ? "the" : "ion";
+    });
+    write();
+    assert.throws(
+      () => readProposal(proposalPath, { projectRoot: project.dir }),
+      /literal locator is too broad/i
+    );
+    proposal.question_reviews.forEach((review, index) => {
+      review.evidence[0].locator = preciseLocators[index];
+    });
+
+    const preciseBytes = fs.readFileSync(sourcePath);
+    const ambiguousBytes = Buffer.concat([
+      preciseBytes,
+      Buffer.from(
+        "approval transition marker identifies reviewed lifecycle evidence\napproval transition marker identifies reviewed lifecycle evidence\n"
+      ),
+    ]);
+    fs.writeFileSync(sourcePath, ambiguousBytes);
+    proposal.source.lineage[0].sha256 = proposalBytesHash(ambiguousBytes);
+    proposal.question_reviews[0].evidence[0].locator = "approval transition marker";
+    write();
+    assert.throws(
+      () => readProposal(proposalPath, { projectRoot: project.dir }),
+      /literal locator is ambiguous/i
+    );
+    fs.writeFileSync(sourcePath, preciseBytes);
+    proposal.source.lineage[0].sha256 = proposalBytesHash(preciseBytes);
+    proposal.question_reviews[0].evidence[0].locator = preciseLocators[0];
+
+    const realHash = proposal.source.lineage[0].sha256;
+    proposal.source.lineage[0].sha256 = `sha256:${"0".repeat(64)}`;
+    write();
+    assert.match(
+      messages(validateProposal(proposal, { projectRoot: project.dir })),
+      /does not match the retained source bytes/
+    );
+    proposal.source.lineage[0].sha256 = realHash;
+
+    const realLocator = proposal.question_reviews[0].evidence[0].locator;
+    proposal.question_reviews[0].evidence[0].locator = "F999-invented";
+    write();
+    assert.throws(
+      () => readProposal(proposalPath, { projectRoot: project.dir }),
+      /locator does not occur in the retained source/
+    );
+    proposal.question_reviews[0].evidence[0].locator = realLocator;
+
+    const relevantBytes = fs.readFileSync(sourcePath);
+    fs.rmSync(sourcePath);
+    write();
+    assert.throws(
+      () => readProposal(proposalPath, { projectRoot: project.dir }),
+      /retained evidence source does not exist/
+    );
+    fs.writeFileSync(sourcePath, relevantBytes);
+
+    const irrelevantBytes = Buffer.from(
+      "F1 Banana inventory and tropical weather totals.\nF2 Unrelated catering schedule and office paint colors.\n"
+    );
+    fs.writeFileSync(sourcePath, irrelevantBytes);
+    proposal.source.lineage[0].sha256 = proposalBytesHash(irrelevantBytes);
+    write();
+    assert.throws(
+      () => readProposal(proposalPath, { projectRoot: project.dir }),
+      /does not connect the located source content to this review answer/
+    );
+
+    fs.writeFileSync(sourcePath, relevantBytes);
+    proposal.source.lineage[0].sha256 = proposalBytesHash(relevantBytes);
+    const target = path.join(outside, "evidence.md");
+    fs.writeFileSync(target, relevantBytes);
+    fs.rmSync(sourcePath);
+    fs.symlinkSync(target, sourcePath);
+    write();
+    assert.throws(
+      () => readProposal(proposalPath, { projectRoot: project.dir }),
+      /must not use symlinks/
+    );
+
+    fs.rmSync(sourcePath);
+    const oversized = Buffer.alloc(8 * 1024 * 1024 + 1, "x");
+    fs.writeFileSync(sourcePath, oversized);
+    proposal.source.lineage[0].sha256 = proposalBytesHash(oversized);
+    write();
+    assert.throws(
+      () => readProposal(proposalPath, { projectRoot: project.dir }),
+      /exceeds the 8 MiB validation limit/
+    );
+  } finally {
+    fs.rmSync(outside, { recursive: true, force: true });
+    project.cleanup();
+  }
+});
+
+test("current evidence rejects an ancestor swap without reading outside replacement bytes", () => {
+  const project = tmpProject();
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pm-proposal-evidence-swap-"));
+  const proposal = bindCurrentReviewContract(fixture());
+  const source = proposal.source.lineage[0];
+  materializeProposalSources(project.dir, proposal);
+  const targetPath = path.join(project.dir, source.path);
+  const ancestorPath = path.dirname(targetPath);
+  const parkedAncestor = `${ancestorPath}.inside`;
+  const outsideTarget = path.join(outside, path.basename(targetPath));
+  const acceptedBytes = fs.readFileSync(targetPath);
+  const rejectedBytes = Buffer.alloc(acceptedBytes.length, 0x78);
+  fs.writeFileSync(outsideTarget, acceptedBytes);
+  fs.writeFileSync(targetPath, rejectedBytes);
+
+  const baseline = validateCurrentProposalEvidence(proposal, project.dir);
+  assert.equal(baseline.ok, false);
+  assert.match(messages(baseline), /does not match the retained source bytes/);
+
+  const canonicalTarget = fs.realpathSync(targetPath);
+  const originalOpenSync = fs.openSync;
+  const originalReadSync = fs.readSync;
+  let outsideDescriptor;
+  let swapped = false;
+  let outsideBytesRead = false;
+  fs.openSync = function swapEvidenceAncestorBeforeOpen(file, ...args) {
+    if (!swapped && path.resolve(String(file)) === canonicalTarget) {
+      fs.renameSync(ancestorPath, parkedAncestor);
+      fs.symlinkSync(outside, ancestorPath, process.platform === "win32" ? "junction" : "dir");
+      swapped = true;
+      outsideDescriptor = Reflect.apply(originalOpenSync, fs, [file, ...args]);
+      return outsideDescriptor;
+    }
+    return Reflect.apply(originalOpenSync, fs, [file, ...args]);
+  };
+  fs.readSync = function trackOutsideRead(descriptor, ...args) {
+    if (descriptor === outsideDescriptor) outsideBytesRead = true;
+    return Reflect.apply(originalReadSync, fs, [descriptor, ...args]);
+  };
+
+  try {
+    const result = validateCurrentProposalEvidence(proposal, project.dir);
+    assert.equal(result.ok, false);
+    assert.match(messages(result), /retained evidence source changed during validation/);
+    assert.equal(swapped, true, "the regression must exercise the ancestor-swap window");
+    assert.equal(outsideBytesRead, false, "outside replacement bytes must never be read");
+  } finally {
+    fs.openSync = originalOpenSync;
+    fs.readSync = originalReadSync;
+    if (swapped) {
+      fs.rmSync(ancestorPath, { force: true });
+      fs.renameSync(parkedAncestor, ancestorPath);
+    }
+    fs.rmSync(outside, { recursive: true, force: true });
+    project.cleanup();
+  }
+});
+
+test("current evidence keeps its resolved project root pinned across validation", () => {
+  const project = tmpProject();
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pm-proposal-root-swap-"));
+  const proposal = bindCurrentReviewContract(fixture());
+  const source = proposal.source.lineage[0];
+  materializeProposalSources(project.dir, proposal);
+  const requestedRoot = path.resolve(project.dir);
+  const canonicalRoot = fs.realpathSync(requestedRoot);
+  const parkedRoot = `${project.dir}.inside`;
+  const insideTarget = path.join(project.dir, source.path);
+  const outsideTarget = path.join(outside, source.path);
+  const acceptedBytes = fs.readFileSync(insideTarget);
+  fs.mkdirSync(path.dirname(outsideTarget), { recursive: true });
+  fs.writeFileSync(outsideTarget, acceptedBytes);
+  fs.writeFileSync(insideTarget, Buffer.alloc(acceptedBytes.length, 0x78));
+
+  const baseline = validateCurrentProposalEvidence(proposal, project.dir);
+  assert.equal(baseline.ok, false);
+  assert.match(messages(baseline), /does not match the retained source bytes/);
+
+  const originalRealpathSync = fs.realpathSync;
+  const originalLstatSync = fs.lstatSync;
+  const originalOpenSync = fs.openSync;
+  const originalReadSync = fs.readSync;
+  const outsideDescriptors = new Set();
+  let rootResolved = false;
+  let swapped = false;
+  let outsideBytesRead = false;
+  const isProjectRoot = (value) => {
+    const candidate = path.resolve(String(value));
+    return candidate === requestedRoot || candidate === canonicalRoot;
+  };
+  const swapRoot = () => {
+    fs.renameSync(project.dir, parkedRoot);
+    fs.symlinkSync(outside, project.dir, process.platform === "win32" ? "junction" : "dir");
+    swapped = true;
+  };
+  fs.realpathSync = function swapBeforeASecondRootResolution(value, ...args) {
+    if (isProjectRoot(value)) {
+      if (rootResolved && !swapped) swapRoot();
+      const result = Reflect.apply(originalRealpathSync, fs, [value, ...args]);
+      rootResolved = true;
+      return result;
+    }
+    return Reflect.apply(originalRealpathSync, fs, [value, ...args]);
+  };
+  fs.lstatSync = function swapBeforeAnchoringResolvedRoot(value, ...args) {
+    if (rootResolved && !swapped && isProjectRoot(value)) swapRoot();
+    return Reflect.apply(originalLstatSync, fs, [value, ...args]);
+  };
+  fs.openSync = function trackOutsideOpen(file, ...args) {
+    const descriptor = Reflect.apply(originalOpenSync, fs, [file, ...args]);
+    let real;
+    try {
+      real = Reflect.apply(originalRealpathSync, fs, [String(file)]);
+    } catch {
+      real = null;
+    }
+    if (real && (real === outside || real.startsWith(`${outside}${path.sep}`))) {
+      outsideDescriptors.add(descriptor);
+    }
+    return descriptor;
+  };
+  fs.readSync = function trackOutsideRead(descriptor, ...args) {
+    if (outsideDescriptors.has(descriptor)) outsideBytesRead = true;
+    return Reflect.apply(originalReadSync, fs, [descriptor, ...args]);
+  };
+
+  try {
+    const result = validateCurrentProposalEvidence(proposal, project.dir);
+    assert.equal(result.ok, false);
+    assert.match(messages(result), /cannot resolve project root|changed during validation/);
+    assert.equal(swapped, true, "the regression must exercise the project-root swap window");
+    assert.equal(outsideBytesRead, false, "outside replacement bytes must never be read");
+  } finally {
+    fs.realpathSync = originalRealpathSync;
+    fs.lstatSync = originalLstatSync;
+    fs.openSync = originalOpenSync;
+    fs.readSync = originalReadSync;
+    if (swapped) {
+      fs.rmSync(project.dir, { force: true });
+      fs.renameSync(parkedRoot, project.dir);
+    }
+    fs.rmSync(outside, { recursive: true, force: true });
+    project.cleanup();
+  }
+});
+
+test("Markdown heading locators preserve Unicode and canonical equivalence", () => {
+  const cases = [
+    { heading: "顧客調査", locator: "#顧客調査" },
+    { heading: "Résumé", locator: "#Re\u0301sume\u0301" },
+    { heading: "Re\u0301sume\u0301", locator: "#Résumé" },
+  ];
+
+  for (const { heading, locator } of cases) {
+    const project = tmpProject();
+    try {
+      const proposal = bindCurrentReviewContract(fixture());
+      for (const review of proposal.question_reviews) review.evidence[0].locator = locator;
+      const source = proposal.source.lineage[0];
+      const sourcePath = path.join(project.dir, source.path);
+      const reviewText = proposal.question_reviews
+        .map((review) => `${review.conclusion} ${review.rationale} ${review.evidence[0].relevance}`)
+        .join("\n");
+      const bytes = Buffer.from(`# ${heading}\n\n${reviewText}\n`);
+      fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
+      fs.writeFileSync(sourcePath, bytes);
+      source.sha256 = proposalBytesHash(bytes);
+
+      const result = validateCurrentProposalEvidence(proposal, project.dir);
+      assert.equal(result.ok, true, `${heading} -> ${locator}: ${messages(result)}`);
+    } finally {
+      project.cleanup();
+    }
+  }
+});
+
+test("Markdown heading locators reject empty and ambiguous canonical anchors", () => {
+  const cases = [
+    {
+      name: "symbol-only anchors",
+      locator: "#💡",
+      headings: ["★"],
+      expected: /Markdown heading locator is empty after normalization/,
+    },
+    {
+      name: "duplicate canonical anchors",
+      locator: "#Résumé",
+      headings: ["Résumé", "Re\u0301sume\u0301"],
+      expected: /Markdown heading locator is ambiguous/,
+    },
+  ];
+
+  for (const { name, locator, headings, expected } of cases) {
+    const project = tmpProject();
+    try {
+      const proposal = bindCurrentReviewContract(fixture());
+      for (const review of proposal.question_reviews) review.evidence[0].locator = locator;
+      const source = proposal.source.lineage[0];
+      const sourcePath = path.join(project.dir, source.path);
+      const reviewText = proposal.question_reviews
+        .map((review) => `${review.conclusion} ${review.rationale} ${review.evidence[0].relevance}`)
+        .join("\n");
+      const bytes = Buffer.from(
+        headings.map((heading) => `# ${heading}\n\n${reviewText}\n`).join("\n")
+      );
+      fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
+      fs.writeFileSync(sourcePath, bytes);
+      source.sha256 = proposalBytesHash(bytes);
+
+      const result = validateCurrentProposalEvidence(proposal, project.dir);
+      assert.equal(result.ok, false, name);
+      assert.match(messages(result), expected);
+    } finally {
+      project.cleanup();
+    }
+  }
+});
+
+test("Markdown heading locators ignore fenced examples and HTML comments", () => {
+  const project = tmpProject();
+  try {
+    const proposal = bindCurrentReviewContract(fixture());
+    for (const review of proposal.question_reviews) review.evidence[0].locator = "#Evidence";
+    const source = proposal.source.lineage[0];
+    const sourcePath = path.join(project.dir, source.path);
+    const reviewText = proposal.question_reviews
+      .map((review) => `${review.conclusion} ${review.rationale} ${review.evidence[0].relevance}`)
+      .join("\n");
+    const bytes = Buffer.from(
+      [
+        "# Evidence",
+        "",
+        "```markdown",
+        "# Evidence",
+        "# Fenced boundary",
+        "```",
+        "",
+        "~~~markdown <!-- this is fence info, not an HTML comment",
+        "# Evidence",
+        "~~~",
+        "",
+        "<!--",
+        "# Evidence",
+        "# Comment boundary",
+        "-->",
+        "<!-- # Evidence -->",
+        "<!-- hidden --># Evidence",
+        "#<!-- hidden --> Evidence",
+        "",
+        reviewText,
+        "",
+        "# Next real section",
+        "Unrelated trailing content.",
+        "",
+      ].join("\n")
+    );
+    fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
+    fs.writeFileSync(sourcePath, bytes);
+    source.sha256 = proposalBytesHash(bytes);
+
+    const result = validateCurrentProposalEvidence(proposal, project.dir);
+    assert.equal(result.ok, true, messages(result));
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("Markdown heading locators preserve operative text around inline comments and code", () => {
+  const cases = [
+    { heading: "# <!-- leading --> Evidence", locator: "#Evidence" },
+    { heading: "# Evidence <!-- trailing -->", locator: "#Evidence" },
+    { heading: "# Evidence`<!--distinct-->`", locator: "#evidence-distinct-" },
+    { heading: "# Evidence\\<!--distinct-->", locator: "#evidence-distinct-" },
+  ];
+
+  for (const { heading, locator } of cases) {
+    const project = tmpProject();
+    try {
+      const proposal = bindCurrentReviewContract(fixture());
+      for (const review of proposal.question_reviews) review.evidence[0].locator = locator;
+      const source = proposal.source.lineage[0];
+      const sourcePath = path.join(project.dir, source.path);
+      const reviewText = proposal.question_reviews
+        .map((review) => `${review.conclusion} ${review.rationale} ${review.evidence[0].relevance}`)
+        .join("\n");
+      const bytes = Buffer.from(`${heading}\n\n${reviewText}\n`);
+      fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
+      fs.writeFileSync(sourcePath, bytes);
+      source.sha256 = proposalBytesHash(bytes);
+
+      const result = validateCurrentProposalEvidence(proposal, project.dir);
+      assert.equal(result.ok, true, `${heading} -> ${locator}: ${messages(result)}`);
+    } finally {
+      project.cleanup();
+    }
+  }
+});
+
+test("Markdown heading sections preserve normalized CRLF boundaries before the size limit", () => {
+  const project = tmpProject();
+  try {
+    const proposal = bindCurrentReviewContract(fixture());
+    for (const review of proposal.question_reviews) review.evidence[0].locator = "#Evidence";
+    const source = proposal.source.lineage[0];
+    const sourcePath = path.join(project.dir, source.path);
+    const reviewText = proposal.question_reviews
+      .map((review) => `${review.conclusion} ${review.rationale} ${review.evidence[0].relevance}`)
+      .join("\n");
+    const sectionLines = ["# Evidence", "", reviewText, ...Array(22_000).fill("x")];
+    const normalizedSection = sectionLines.join("\n");
+    const rawSection = sectionLines.join("\r\n");
+    assert.ok(Buffer.byteLength(normalizedSection) < 64 * 1024);
+    assert.ok(Buffer.byteLength(rawSection) > 64 * 1024);
+    const bytes = Buffer.from(`${rawSection}\r\n# Next\r\nunrelated trailing content\r\n`);
+    fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
+    fs.writeFileSync(sourcePath, bytes);
+    source.sha256 = proposalBytesHash(bytes);
+
+    const result = validateCurrentProposalEvidence(proposal, project.dir);
+    assert.equal(result.ok, true, messages(result));
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("Markdown heading lookup is cached and stops after the second canonical match", () => {
+  const project = tmpProject();
+  const originalBufferToString = Buffer.prototype.toString;
+  const originalStringIndexOf = String.prototype.indexOf;
+  let sourceDecodes = 0;
+  let scannedLines = 0;
+  try {
+    const proposal = bindCurrentReviewContract(fixture());
+    for (const review of proposal.question_reviews) review.evidence[0].locator = "#Duplicate";
+    const source = proposal.source.lineage[0];
+    const sourcePath = path.join(project.dir, source.path);
+    const text = `# Duplicate\n# Duplicate\n${"ordinary tail text\n".repeat(20_000)}`;
+    const bytes = Buffer.from(text);
+    const sourceHash = proposalBytesHash(bytes);
+    fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
+    fs.writeFileSync(sourcePath, bytes);
+    source.sha256 = sourceHash;
+
+    Buffer.prototype.toString = function countedSourceDecode(...args) {
+      if (
+        args[0] === "utf8" &&
+        this.length === bytes.length &&
+        proposalBytesHash(this) === sourceHash
+      ) {
+        sourceDecodes += 1;
+      }
+      return originalBufferToString.apply(this, args);
+    };
+    String.prototype.indexOf = function countedLineScan(search, ...args) {
+      if (search === "\n" && this.length === text.length) scannedLines += 1;
+      return originalStringIndexOf.call(this, search, ...args);
+    };
+
+    const result = validateCurrentProposalEvidence(proposal, project.dir);
+    assert.equal(result.ok, false);
+    assert.match(messages(result), /Markdown heading locator is ambiguous/);
+    assert.equal(sourceDecodes, 1, "the retained Markdown source should be decoded once");
+    assert.equal(scannedLines, 2, "ambiguity should stop the heading scan at its second match");
+  } finally {
+    Buffer.prototype.toString = originalBufferToString;
+    String.prototype.indexOf = originalStringIndexOf;
+    project.cleanup();
+  }
+});
+
+test("current evidence records cannot cite a path outside hash-bound lineage", () => {
+  const project = tmpProject();
+  try {
+    const proposal = bindCurrentReviewContract(fixture());
+    materializeProposalSources(project.dir, proposal);
+    proposal.evidence[0].path = "pm/research/unbound-source.md";
+    const result = validateProposal(proposal, { projectRoot: project.dir });
+    assert.equal(result.ok, false);
+    assert.match(messages(result), /must reference an existing hash-bound source\.lineage path/);
+  } finally {
+    project.cleanup();
+  }
+});
+
 test("content hashing is deterministic, semantic, and revision-sensitive", () => {
   const proposal = fixture();
   const reordered = Object.fromEntries(Object.entries(proposal).reverse());
@@ -212,6 +879,36 @@ test("reviewed and approved lifecycle require review bound to current revision a
   };
   staleDraft.requirements[0].statement += " Stale.";
   assert.match(messages(validateProposal(staleDraft)), /review content hash does not match/);
+});
+
+test("bound review contracts require exact tier question IDs while legacy proposals stay explicit", () => {
+  const reviewed = bindReviewContract(fixture());
+  reviewed.lifecycle = "reviewed";
+  reviewed.question_reviews = reviewed.question_reviews.slice(0, 1);
+  reviewed.review = {
+    status: "passed",
+    revision: reviewed.revision,
+    content_sha256: proposalContentHash(reviewed),
+    completed_at: "2026-07-14T02:00:00.000Z",
+  };
+  const partial = validateProposal(reviewed);
+  assert.equal(partial.ok, false);
+  assert.match(messages(partial), /missing review question: scope/);
+  assert.deepEqual(proposalReviewCoverage(reviewed).missing_question_ids, FULL_REVIEW_IDS.slice(1));
+
+  bindReviewContract(reviewed);
+  reviewed.review.content_sha256 = proposalContentHash(reviewed);
+  assert.equal(validateProposal(reviewed).ok, true, messages(validateProposal(reviewed)));
+
+  const mismatched = bindReviewContract(fixture());
+  mismatched.review_contract.session_id = "groom_other";
+  assert.match(messages(validateProposal(mismatched)), /must match source\.session_id/);
+
+  const shortened = bindReviewContract(fixture(), ["problem-evidence"]);
+  assert.match(
+    messages(validateProposal(shortened)),
+    /must exactly match the selected tier review question IDs/
+  );
 });
 
 test("revision transition hook separates lifecycle changes from substantive revisions", () => {
@@ -359,6 +1056,49 @@ test("approval binds canonical identity, lifecycle, revision, semantic content, 
   );
 });
 
+test("current approval decisions cannot be replaced with arbitrary well-formed identities", () => {
+  const proposal = fixture();
+  bindCurrentReviewContract(proposal);
+  proposal.lifecycle = "approved";
+  proposal.review = {
+    status: "passed",
+    revision: proposal.revision,
+    content_sha256: proposalContentHash(proposal),
+    completed_at: "2026-07-14T02:00:00.000Z",
+  };
+  const bytes = Buffer.from(`${JSON.stringify(proposal, null, 2)}\n`);
+  const approvalInput = {
+    approvedBy: "user:owner",
+    approvedAt: "2026-07-14T03:00:00.000Z",
+  };
+  assert.throws(
+    () =>
+      buildApproval(proposal, bytes, {
+        ...approvalInput,
+        decisionId: "groom-approval:untrusted-session",
+        decisionSha256: `sha256:${"2".repeat(64)}`,
+      }),
+    /canonical Groom approval decision/i
+  );
+  const decision = deriveApprovalDecision(proposal, approvalInput);
+  const approval = buildApproval(proposal, bytes, {
+    ...approvalInput,
+    decisionId: decision.id,
+    decisionSha256: decision.sha256,
+  });
+  assert.equal(validateApproval(proposal, approval, { bytes }).ok, true);
+  assert.match(
+    messages(
+      validateApproval(
+        proposal,
+        { ...approval, decision_sha256: `sha256:${"2".repeat(64)}` },
+        { bytes }
+      )
+    ),
+    /canonical Groom approval decision/i
+  );
+});
+
 test("approval schema rejects unknown fields and forged hashes", () => {
   const proposal = fixture();
   proposal.lifecycle = "approved";
@@ -400,14 +1140,15 @@ test("approved reader preserves trust after lifecycle-only downstream transition
       content_sha256: proposalContentHash(proposal),
       completed_at: "2026-07-14T02:00:00.000Z",
     };
+    bindCurrentReviewContract(proposal);
+    materializeProposalSources(project.dir, proposal);
+    proposal.review.content_sha256 = proposalContentHash(proposal);
     const paths = resolveProposalPaths(project.dir, proposal.slug);
     fs.mkdirSync(path.dirname(paths.json), { recursive: true });
     fs.writeFileSync(paths.json, `${JSON.stringify(proposal, null, 2)}\n`);
-    const approval = buildApproval(proposal, fs.readFileSync(paths.json), {
+    const approval = buildCurrentApproval(proposal, fs.readFileSync(paths.json), {
       approvedBy: "user:owner",
       approvedAt: "2026-07-14T03:00:00.000Z",
-      decisionId: "groom-approval:groom_test",
-      decisionSha256: `sha256:${"4".repeat(64)}`,
     });
     fs.writeFileSync(paths.approval, `${JSON.stringify(approval, null, 2)}\n`);
 
@@ -422,6 +1163,8 @@ test("approved reader preserves trust after lifecycle-only downstream transition
     const exact = readApprovedProposal(paths.json, { projectRoot: project.dir });
     assert.equal(exact.exactBytesCurrent, true);
     assert.equal(exact.approvalBasis, "exact-approved-bytes");
+    assert.equal(exact.reviewContractBound, true);
+    assert.equal(exact.compatibility, "current-review-contract");
 
     proposal.lifecycle = "planned";
     proposal.updated_at = "2026-07-14T04:00:00.000Z";
@@ -453,6 +1196,8 @@ test("bounded reader validates canonical JSON and keeps legacy Markdown inspecti
     assert.equal(canonical.trustedApproval, false);
     assert.equal(canonical.proposal.slug, "structured-groom");
     assert.equal(canonical.bytesSha256, proposalBytesHash(fs.readFileSync(paths.json)));
+    assert.equal(canonical.reviewContractBound, false);
+    assert.equal(canonical.compatibility, "legacy-unbound-review-contract");
 
     const legacyFile = path.join(project.dir, "pm", "backlog", "legacy-proposal.md");
     fs.copyFileSync(legacyPath, legacyFile);
@@ -466,6 +1211,107 @@ test("bounded reader validates canonical JSON and keeps legacy Markdown inspecti
       () => readProposal(legacyFile, { projectRoot: project.dir }),
       /legacy compatibility/
     );
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("current proposal evidence rejects more than 64 retained source paths", () => {
+  const project = tmpProject();
+  try {
+    const lineage = [];
+    for (let index = 0; index < 65; index += 1) {
+      const relative = `pm/evidence/source-${String(index).padStart(2, "0")}.txt`;
+      const bytes = Buffer.from(`source ${index}\n`);
+      const absolute = path.join(project.dir, relative);
+      fs.mkdirSync(path.dirname(absolute), { recursive: true });
+      fs.writeFileSync(absolute, bytes);
+      lineage.push({
+        id: `source:budget-${String(index).padStart(2, "0")}`,
+        path: relative,
+        sha256: proposalBytesHash(bytes),
+      });
+    }
+    const result = validateCurrentProposalEvidence(
+      { review_contract: {}, source: { lineage }, evidence: [], question_reviews: [] },
+      project.dir
+    );
+    assert.equal(result.ok, false);
+    assert.match(messages(result), /at most 64 retained evidence sources/i);
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("aggregate evidence budget counts hard-linked source paths independently", () => {
+  const project = tmpProject();
+  try {
+    const bytes = Buffer.alloc(8 * 1024 * 1024, 0x61);
+    const lineage = [];
+    const first = path.join(project.dir, "pm/evidence/hardlink-0.txt");
+    fs.mkdirSync(path.dirname(first), { recursive: true });
+    fs.writeFileSync(first, bytes);
+    for (let index = 0; index < 5; index += 1) {
+      const relative = `pm/evidence/hardlink-${index}.txt`;
+      const absolute = path.join(project.dir, relative);
+      if (index > 0) fs.linkSync(first, absolute);
+      lineage.push({
+        id: `source:hardlink-${index}`,
+        path: relative,
+        sha256: proposalBytesHash(bytes),
+      });
+    }
+    const result = validateCurrentProposalEvidence(
+      { review_contract: {}, source: { lineage }, evidence: [], question_reviews: [] },
+      project.dir
+    );
+    assert.equal(result.ok, false);
+    assert.match(messages(result), /aggregate 32 MiB validation limit/i);
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("per-file evidence budget wins when one source also exceeds the aggregate remainder", () => {
+  const project = tmpProject();
+  try {
+    const eightMiB = Buffer.alloc(8 * 1024 * 1024, 0x61);
+    const oneMiB = Buffer.alloc(1024 * 1024, 0x62);
+    const nineMiB = Buffer.alloc(9 * 1024 * 1024, 0x63);
+    const evidenceDir = path.join(project.dir, "pm/evidence");
+    fs.mkdirSync(evidenceDir, { recursive: true });
+    const first = path.join(evidenceDir, "budget-0.bin");
+    fs.writeFileSync(first, eightMiB);
+    const lineage = [];
+    for (let index = 0; index < 3; index += 1) {
+      const relative = `pm/evidence/budget-${index}.bin`;
+      if (index > 0) fs.linkSync(first, path.join(project.dir, relative));
+      lineage.push({
+        id: `source:budget-${index}`,
+        path: relative,
+        sha256: proposalBytesHash(eightMiB),
+      });
+    }
+    fs.writeFileSync(path.join(evidenceDir, "budget-3.bin"), oneMiB);
+    lineage.push({
+      id: "source:budget-3",
+      path: "pm/evidence/budget-3.bin",
+      sha256: proposalBytesHash(oneMiB),
+    });
+    fs.writeFileSync(path.join(evidenceDir, "budget-4.bin"), nineMiB);
+    lineage.push({
+      id: "source:budget-4",
+      path: "pm/evidence/budget-4.bin",
+      sha256: proposalBytesHash(nineMiB),
+    });
+
+    const result = validateCurrentProposalEvidence(
+      { review_contract: {}, source: { lineage }, evidence: [], question_reviews: [] },
+      project.dir
+    );
+    assert.equal(result.ok, false);
+    assert.match(messages(result), /retained evidence source exceeds the 8 MiB validation limit/);
+    assert.doesNotMatch(messages(result), /aggregate 32 MiB validation limit/);
   } finally {
     project.cleanup();
   }
@@ -495,15 +1341,16 @@ test("CLI checks canonical proposal and optional approval with structured output
       content_sha256: proposalContentHash(proposal),
       completed_at: "2026-07-14T02:00:00.000Z",
     };
+    bindCurrentReviewContract(proposal);
+    materializeProposalSources(project.dir, proposal);
+    proposal.review.content_sha256 = proposalContentHash(proposal);
     const proposalFile = path.join(project.dir, "pm/backlog/proposals/structured-groom.json");
     fs.mkdirSync(path.dirname(proposalFile), { recursive: true });
     fs.writeFileSync(proposalFile, `${JSON.stringify(proposal, null, 2)}\n`);
     const bytes = fs.readFileSync(proposalFile);
-    const approval = buildApproval(proposal, bytes, {
+    const approval = buildCurrentApproval(proposal, bytes, {
       approvedBy: "user:owner",
       approvedAt: "2026-07-14T03:00:00.000Z",
-      decisionId: "groom-decision-01",
-      decisionSha256: `sha256:${"3".repeat(64)}`,
     });
     const approvalFile = proposalFile.replace(/\.json$/, ".approval.json");
     fs.writeFileSync(approvalFile, `${JSON.stringify(approval, null, 2)}\n`);
@@ -516,6 +1363,7 @@ test("CLI checks canonical proposal and optional approval with structured output
       process.execPath,
       [
         checker,
+        "--approved",
         "--proposal",
         proposalFile,
         "--approval",
@@ -525,9 +1373,9 @@ test("CLI checks canonical proposal and optional approval with structured output
         "--slug",
         "structured-groom",
         "--decision-id",
-        "groom-decision-01",
+        approval.decision_id,
         "--decision-sha256",
-        `sha256:${"3".repeat(64)}`,
+        approval.decision_sha256,
         "--json",
       ],
       { encoding: "utf8" }
@@ -537,6 +1385,7 @@ test("CLI checks canonical proposal and optional approval with structured output
     assert.equal(result.ok, true);
     assert.equal(result.content_sha256, proposalContentHash(proposal));
     assert.equal(result.proposal_sha256, proposalBytesHash(bytes));
+    assert.equal(result.trusted_approval, true);
 
     const mismatch = spawnSync(
       process.execPath,
@@ -579,6 +1428,80 @@ test("CLI checks canonical proposal and optional approval with structured output
     );
     assert.equal(crashWindow.status, 1);
     assert.match(crashWindow.stdout, /ENOENT/);
+  } finally {
+    project.cleanup();
+  }
+});
+
+test("approved CLI mode rejects inspection-readable legacy and decisionless approvals", () => {
+  const project = tmpProject();
+  try {
+    const proposal = fixture();
+    proposal.lifecycle = "approved";
+    proposal.review = {
+      status: "passed",
+      revision: proposal.revision,
+      content_sha256: proposalContentHash(proposal),
+      completed_at: "2026-07-14T02:00:00.000Z",
+    };
+    const proposalFile = path.join(project.dir, "pm/backlog/proposals/structured-groom.json");
+    fs.mkdirSync(path.dirname(proposalFile), { recursive: true });
+    fs.writeFileSync(proposalFile, `${JSON.stringify(proposal, null, 2)}\n`);
+    const approvalFile = proposalFile.replace(/\.json$/, ".approval.json");
+    fs.writeFileSync(
+      approvalFile,
+      `${JSON.stringify(
+        buildApproval(proposal, fs.readFileSync(proposalFile), {
+          approvedBy: "user:owner",
+          approvedAt: "2026-07-14T03:00:00.000Z",
+        }),
+        null,
+        2
+      )}\n`
+    );
+
+    const inspection = spawnSync(
+      process.execPath,
+      [checker, "--proposal", proposalFile, "--project-root", project.dir, "--json"],
+      { encoding: "utf8" }
+    );
+    assert.equal(inspection.status, 0, inspection.stderr || inspection.stdout);
+    assert.equal(JSON.parse(inspection.stdout).compatibility, "legacy-unbound-review-contract");
+
+    const strictLegacy = spawnSync(
+      process.execPath,
+      [checker, "--approved", "--proposal", proposalFile, "--project-root", project.dir, "--json"],
+      { encoding: "utf8" }
+    );
+    assert.equal(strictLegacy.status, 1);
+    assert.match(strictLegacy.stdout, /legacy-unbound-review-contract/i);
+
+    bindCurrentReviewContract(proposal);
+    materializeProposalSources(project.dir, proposal);
+    proposal.review.content_sha256 = proposalContentHash(proposal);
+    fs.writeFileSync(proposalFile, `${JSON.stringify(proposal, null, 2)}\n`);
+    fs.writeFileSync(
+      approvalFile,
+      `${JSON.stringify(
+        {
+          ...buildCurrentApproval(proposal, fs.readFileSync(proposalFile), {
+            approvedBy: "user:owner",
+            approvedAt: "2026-07-14T03:00:00.000Z",
+          }),
+          decision_id: null,
+          decision_sha256: null,
+        },
+        null,
+        2
+      )}\n`
+    );
+    const strictDecisionless = spawnSync(
+      process.execPath,
+      [checker, "--approved", "--proposal", proposalFile, "--project-root", project.dir, "--json"],
+      { encoding: "utf8" }
+    );
+    assert.equal(strictDecisionless.status, 1);
+    assert.match(strictDecisionless.stdout, /bound Groom decision identity/i);
   } finally {
     project.cleanup();
   }

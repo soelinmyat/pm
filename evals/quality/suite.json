@@ -11,6 +11,12 @@
       "effort": "high"
     },
     {
+      "id": "astra-high",
+      "adapter": "codex",
+      "model": "gpt-6-astra",
+      "effort": "high"
+    },
+    {
       "id": "opus-xhigh",
       "adapter": "claude",
       "model": "claude-opus-4-8",
@@ -247,42 +253,42 @@
           "type": "happy-path",
           "prompt_ref": "evals/quality/cases/design-critique.md",
           "scenario_ref": "quality-design-critique-happy-path",
-          "scenario_contract_hash": "sha256:8ed1c9ee5c9532cfb40ae252f48b1ee5e2d9b9eed7eb88d0c7a7a31279ae4abf"
+          "scenario_contract_hash": "sha256:bdf98f95c8df1949ea33b87fc571bdd65131fa0683329d0532833fbc2a589813"
         },
         {
           "id": "design-critique-ambiguous-input",
           "type": "ambiguous-input",
           "prompt_ref": "evals/quality/cases/design-critique.md",
           "scenario_ref": "quality-design-critique-ambiguous-input",
-          "scenario_contract_hash": "sha256:68eb4bc298d132b38c503c83b443392957f193e396f15a5e89db61d842488bbc"
+          "scenario_contract_hash": "sha256:3bb0b95c1368cd76d6df81ee67cb16d40c7b040a37fabbc846c96aee6ec46a79"
         },
         {
           "id": "design-critique-resume",
           "type": "resume",
           "prompt_ref": "evals/quality/cases/design-critique.md",
           "scenario_ref": "quality-design-critique-resume",
-          "scenario_contract_hash": "sha256:c9f2d1db38cd74196872e9c90e3dec148aed0bd1d0c1b83d5df1debc35d3e5c3"
+          "scenario_contract_hash": "sha256:9398a31c2e5490acd2d4ce2f90e580e1c4be900e4cb3f7f2ad70639d341012f7"
         },
         {
           "id": "design-critique-blocked-and-recovery",
           "type": "blocked-and-recovery",
           "prompt_ref": "evals/quality/cases/design-critique.md",
           "scenario_ref": "quality-design-critique-blocked-and-recovery",
-          "scenario_contract_hash": "sha256:673e1eb9dd32fd98c809753b5267cdef8cd847a39c82fdd15bbc9cb5c5b4b3a7"
+          "scenario_contract_hash": "sha256:5f91acc9b75c20257b3efb8d37a749f461ff80101826512e14be828e869acb4d"
         },
         {
           "id": "design-critique-low-quality-schema-valid",
           "type": "low-quality-schema-valid",
           "prompt_ref": "evals/quality/cases/design-critique.md",
           "scenario_ref": "quality-design-critique-low-quality-schema-valid",
-          "scenario_contract_hash": "sha256:d4af46b34230e64cfb3fdb0e4a4fc97180c6ad9bf4b37e9de4f4b0b2d543263c"
+          "scenario_contract_hash": "sha256:b81c24f22e8e7270645a4d4b60e1c34a1ad34b7d296eccd2a5c5debdfc4c1e3e"
         },
         {
           "id": "design-critique-repeated-run-variance",
           "type": "repeated-run-variance",
           "prompt_ref": "evals/quality/cases/design-critique.md",
           "scenario_ref": "quality-design-critique-repeated-run-variance",
-          "scenario_contract_hash": "sha256:1dc5fbaa27ad804062c7bdd3324fcbacf1ee87327d2f1c6829587f8ad7a90b51"
+          "scenario_contract_hash": "sha256:0ca76def82399041c5d0edc209a7432a60e078c7f127e95a1bcf245e77d891ba"
         }
       ]
     },

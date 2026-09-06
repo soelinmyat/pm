@@ -69,7 +69,7 @@ const STEP_TRANSITIONS = Object.freeze({
     3: Object.freeze([4, 6]),
     4: Object.freeze([5]),
     5: Object.freeze([6]),
-    6: Object.freeze([7, 9]),
+    6: Object.freeze([7]),
     7: Object.freeze([8, 9]),
     8: Object.freeze([9]),
     9: Object.freeze([10]),

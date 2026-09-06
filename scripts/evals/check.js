@@ -2,9 +2,11 @@
 "use strict";
 
 const { execFileSync } = require("node:child_process");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { parseFrontmatter } = require("../kb-frontmatter.js");
+const { validateCapabilityOracle } = require("./design-critique-capability.js");
 const { validateQualityTree } = require("./quality.js");
 
 const REQUIRED_SCENARIO_FILES = ["story.md", "setup.sh", "checks.sh"];
@@ -99,6 +101,94 @@ function validateEvalTree(rootDir = process.cwd()) {
   if (fs.existsSync(qualityDir)) {
     const quality = validateQualityTree(rootDir);
     issues.push(...quality.issues.map((message) => issue("evals/quality", message)));
+  }
+
+  const capabilityDir = path.join(rootDir, "evals", "capabilities", "design-critique");
+  if (fs.existsSync(path.join(rootDir, "plugin.config.json")) || fs.existsSync(capabilityDir)) {
+    issues.push(...validateDesignCritiqueCapability(rootDir).issues);
+  }
+
+  return { ok: issues.length === 0, issues };
+}
+
+function validateDesignCritiqueCapability(rootDir = process.cwd()) {
+  const issues = [];
+  const oraclePath = path.join(rootDir, "evals", "capabilities", "design-critique", "oracle.json");
+  if (!fs.existsSync(oraclePath)) {
+    return { ok: false, issues: [issue(oraclePath, "missing design-critique capability oracle")] };
+  }
+  let oracle;
+  try {
+    oracle = JSON.parse(fs.readFileSync(oraclePath, "utf8"));
+  } catch (error) {
+    return {
+      ok: false,
+      issues: [issue(oraclePath, `design-critique oracle is invalid JSON: ${error.message}`)],
+    };
+  }
+  issues.push(...validateCapabilityOracle(oracle).map((message) => issue(oraclePath, message)));
+  if (issues.length > 0) return { ok: false, issues };
+
+  const defective = oracle.cases.filter((item) => item.clean_control === false);
+  const clean = oracle.cases.filter((item) => item.clean_control === true);
+  if (defective.length < 3) {
+    issues.push(issue(oraclePath, "capability oracle requires at least three defective UI cases"));
+  }
+  if (clean.length < 1) {
+    issues.push(issue(oraclePath, "capability oracle requires at least one clean control"));
+  }
+  for (const item of defective) {
+    if (item.defects.length < 3 || item.defects.length > 6) {
+      issues.push(issue(oraclePath, `${item.id} must contain 3-6 defects`));
+    }
+  }
+
+  const fixtureRefs = new Set();
+  for (const item of oracle.cases) {
+    if (fixtureRefs.has(item.fixture_ref)) {
+      issues.push(issue(oraclePath, `${item.id} reuses fixture ${item.fixture_ref}`));
+    }
+    fixtureRefs.add(item.fixture_ref);
+    const fixturePath = path.resolve(rootDir, item.fixture_ref);
+    const fixtureRoot = path.resolve(rootDir, "evals", "quality", "fixtures", "design-critique");
+    if (!inside(fixtureRoot, fixturePath) || !fs.existsSync(fixturePath)) {
+      issues.push(
+        issue(oraclePath, `${item.id} fixture does not exist inside design-critique fixtures`)
+      );
+      continue;
+    }
+    if (!item.fixture_sha256) {
+      issues.push(issue(oraclePath, `${item.id} fixture_sha256 is required for source binding`));
+      continue;
+    }
+    const actual = `sha256:${crypto.createHash("sha256").update(fs.readFileSync(fixturePath)).digest("hex")}`;
+    if (actual !== item.fixture_sha256) {
+      issues.push(
+        issue(oraclePath, `${item.id} fixture_sha256 does not match ${item.fixture_ref}`)
+      );
+    }
+  }
+
+  const scenarioRoot = path.join(rootDir, "evals", "scenarios");
+  if (fs.existsSync(scenarioRoot)) {
+    const candidateText = fs
+      .readdirSync(scenarioRoot)
+      .filter((entry) => entry.startsWith("quality-design-critique-"))
+      .flatMap((entry) => {
+        const scenarioDir = path.join(scenarioRoot, entry);
+        return fs
+          .readdirSync(scenarioDir)
+          .filter((name) => fs.statSync(path.join(scenarioDir, name)).isFile())
+          .map((name) => fs.readFileSync(path.join(scenarioDir, name), "utf8"));
+      })
+      .join("\n");
+    for (const item of defective) {
+      for (const defect of item.defects) {
+        if (candidateText.includes(defect.id) || candidateText.includes(defect.fix_oracle)) {
+          issues.push(issue(oraclePath, `${defect.id} truth leaked into a candidate scenario`));
+        }
+      }
+    }
   }
 
   return { ok: issues.length === 0, issues };
@@ -362,6 +452,11 @@ function isExecutable(filePath) {
   return (fs.statSync(filePath).mode & 0o111) !== 0;
 }
 
+function inside(rootDir, candidatePath) {
+  const relative = path.relative(rootDir, candidatePath);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
 function issue(file, message) {
   return { file: toRel(file), message };
 }
@@ -389,6 +484,7 @@ if (require.main === module) {
 module.exports = {
   validateEvalTree,
   validateScenario,
+  validateDesignCritiqueCapability,
   validateBaselineLedger,
   validateResultLedger,
   REQUIRED_SENTINEL_IDS,

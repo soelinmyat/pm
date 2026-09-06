@@ -14,9 +14,19 @@ const path = require("node:path");
 const ROOT = path.resolve(__dirname, "..");
 const STEPS = path.join(ROOT, "skills", "groom", "steps");
 const REFERENCES = path.join(ROOT, "skills", "groom", "references");
+const { reviewQuestionIdsForTier } = require("../scripts/lib/groom-review-contract");
 
 function readReference(file) {
   return fs.readFileSync(path.join(REFERENCES, file), "utf8");
+}
+
+function documentedRequiredQuestionIds() {
+  const questions = readReference("review-questions.md");
+  const match = questions.match(
+    /<!-- canonical-review-question-ids -->\s*```json\s*([\s\S]*?)\s*```/
+  );
+  assert.ok(match, "review-questions.md must expose its canonical required IDs as JSON");
+  return JSON.parse(match[1]);
 }
 
 test("agent tier has one provider-neutral intake and synthesis path", () => {
@@ -54,14 +64,24 @@ test("runtime capability is probed rather than inferred from provider name", () 
   assert.match(tier, /record actual runtime capability probes/i);
 });
 
-test("agent review adds citation integrity to full question coverage", () => {
+test("agent review keeps full question coverage and tightens citation evidence", () => {
   const tier = readReference("tier-gating.md");
   const questions = readReference("review-questions.md");
 
-  assert.match(tier, /agent.*full plus sampled citation integrity/i);
-  assert.match(questions, /Agent evidence question/);
+  assert.match(tier, /agent.*same required question IDs as `full`/i);
+  assert.match(questions, /Citation integrity is not a seventh required question/i);
+  assert.match(questions, /Optional advisory enrichment/);
   assert.match(questions, /Citation integrity/);
   assert.match(questions, /citations real, current, correctly attributed/i);
+});
+
+test("documented tier-required question IDs exactly match the executable contract", () => {
+  const documented = documentedRequiredQuestionIds();
+
+  assert.deepEqual(Object.keys(documented), ["quick", "standard", "full", "agent"]);
+  for (const tier of Object.keys(documented)) {
+    assert.deepEqual(documented[tier], reviewQuestionIdsForTier(tier), `${tier} IDs drifted`);
+  }
 });
 
 test("review correctness is independent of worker count and persona names", () => {
@@ -78,5 +98,5 @@ test("review results bind complete question coverage to a frozen revision", () =
 
   assert.match(questions, /frozen proposal revision\/hash/i);
   assert.match(questions, /no `blocking` answer remains/i);
-  assert.match(questions, /disputes are explicitly resolved/i);
+  assert.match(questions, /every dispute is explicitly resolved/i);
 });

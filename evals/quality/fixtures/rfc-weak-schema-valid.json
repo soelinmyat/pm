@@ -3,6 +3,14 @@
   "slug": "export-job-recovery",
   "title": "Improve export recovery",
   "size": "M",
+  "design_context": {
+    "design_requirements": ["Show export recovery state."],
+    "ui_impact": false,
+    "prototype": null,
+    "critical_states": ["error"],
+    "experience_invariants": ["Recovery remains understandable."],
+    "visual_invariants": []
+  },
   "issues": [
     {
       "num": 1,

@@ -3,9 +3,7 @@ pre() {
   file-exists case-state.md
   file-matches case-state.md "Workflow: pm:design-critique"
   file-matches case-state.md "Case: low-quality-schema-valid"
-  file-exists ui/report.html
-  file-exists renders/mobile.txt
-  file-exists renders/print.txt
+  file-exists ui/design-critique/responsive-report.html
   file-exists weak-but-valid-artifact.json
   command-succeeds "node -e \"const x=require('./weak-but-valid-artifact.json');if(x.schema_version!==1||!x.status)process.exit(1)\""
   file-exists .pm/quality/base-main-ref

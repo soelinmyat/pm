@@ -102,7 +102,7 @@ Invoke `pm:review` in branch mode (no PR number argument):
 Invoke pm:review (no arguments — it will diff current branch against the default branch)
 ```
 
-This freezes the target, plans six logical lenses across available reviewers, validates structured evidence, preserves disagreement, runs bounded fix rounds, and publishes checked JSON plus HTML.
+This freezes the target, plans six baseline lenses plus risk-triggered security across available reviewers, validates structured evidence, preserves disagreement, runs bounded fix rounds, and publishes checked JSON plus HTML.
 
 For the full workflow, see `${CLAUDE_PLUGIN_ROOT}/skills/review/SKILL.md`.
 
@@ -124,7 +124,7 @@ Review passes only with complete current logical-lens coverage, no unresolved Re
 
 | Size | Review bar |
 |------|-----------|
-| XS/S via `pm:dev` | Checked `code-scan` report with bug, edge, reuse, quality, and efficiency coverage |
+| XS/S via `pm:dev` | Checked `code-scan` report with bug, edge, reuse, quality, and efficiency coverage, plus security when required by the bound Dev risk route |
 | Standalone `pm:ship` | Run `pm:review` unless a current `review` gate already exists |
 | M | Checked full report; safe mechanical fixes may run automatically; disputes require decisions. |
 | L/XL | Same machine gate; every handoff, advisory, decision, and fix round remains in the report. |

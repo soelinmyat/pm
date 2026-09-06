@@ -102,12 +102,17 @@ function runEval(opts) {
   const qualityProfile = opts.qualityProfile
     ? loadQualityProfile(rootDir, opts.qualityProfile)
     : null;
+  if (qualityProfile && opts.runtimeProfile) {
+    throw new Error("runtimeProfile cannot be combined with --quality-profile");
+  }
+  const runtimeProfile = opts.runtimeProfile || qualityProfile;
   if (qualityProfile && !qualityCase) {
     throw new Error("--quality-profile requires --quality-case");
   }
   if (qualityCase && ["codex", "claude"].includes(agent) && !qualityProfile) {
     throw new Error("live quality runs require --quality-profile");
   }
+  if (runtimeProfile) validateRuntimeProfile(runtimeProfile, agent);
   if (qualityProfile && qualityProfile.adapter !== agent) {
     throw new Error(
       `quality profile ${qualityProfile.id} requires adapter ${qualityProfile.adapter}, not ${agent}`
@@ -120,13 +125,44 @@ function runEval(opts) {
   paths.scenarioDir = scenarioDir;
   paths.scenarioId = scenarioId;
   paths.runId = runId;
-  paths.qualityProfile = qualityProfile;
+  // Adapters consume this path field for model/effort selection. A dedicated
+  // capability runner can supply a trusted runtime profile without pretending
+  // the run is one of the generic generated quality cases.
+  paths.qualityProfile = runtimeProfile;
 
   stageRuntime(rootDir, paths.runtimeDir);
-  safeCopyTree(scenarioDir, paths.scenarioStageDir);
+  if (opts.scenarioFiles !== undefined) {
+    if (qualityCase) {
+      throw new Error("scenarioFiles cannot be combined with a generated quality case");
+    }
+    stageTrustedScenarioFiles(paths.scenarioStageDir, opts.scenarioFiles);
+  } else {
+    safeCopyTree(scenarioDir, paths.scenarioStageDir);
+  }
   if (qualityCase) {
     stageQualityCase(paths, qualityCase);
   }
+  const stagedScenarioValidation = validateScenario(paths.scenarioStageDir);
+  if (!stagedScenarioValidation.ok) {
+    throw new Error(
+      `staged scenario validation failed: ${JSON.stringify(stagedScenarioValidation.issues, null, 2)}`
+    );
+  }
+  const scenarioIdentity = createScenarioIdentity({
+    id: scenarioId,
+    scenarioDir: paths.scenarioStageDir,
+  });
+  if (opts.expectedScenarioHash !== undefined) {
+    if (!/^sha256:[a-f0-9]{64}$/.test(String(opts.expectedScenarioHash || ""))) {
+      throw new Error("expectedScenarioHash must be a sha256 digest");
+    }
+    if (scenarioIdentity.scenario_hash !== opts.expectedScenarioHash) {
+      throw new Error(
+        `staged scenario identity does not match expected scenario bytes: expected ${opts.expectedScenarioHash}, observed ${scenarioIdentity.scenario_hash}`
+      );
+    }
+  }
+  if (opts.scenarioFiles !== undefined) sealStagedScenario(paths.scenarioStageDir);
   if (qualityProfile) {
     writeJson(path.join(paths.metadataDir, "quality_profile_identity.json"), {
       schema_version: 1,
@@ -136,14 +172,21 @@ function runEval(opts) {
       effort: qualityProfile.effort,
     });
   }
+  if (runtimeProfile) {
+    writeJson(path.join(paths.metadataDir, "runtime_profile_identity.json"), {
+      schema_version: 1,
+      id: runtimeProfile.id,
+      adapter: runtimeProfile.adapter,
+      model: runtimeProfile.model,
+      effort: runtimeProfile.effort,
+      ...(runtimeProfile.harness_only === true ? { harness_only: true } : {}),
+    });
+  }
   writeJson(
     path.join(paths.metadataDir, "source_identity.json"),
     sourceIdentity(rootDir, paths.runtimeDir)
   );
-  writeJson(
-    path.join(paths.metadataDir, "scenario_identity.json"),
-    createScenarioIdentity({ id: scenarioId, scenarioDir: paths.scenarioStageDir })
-  );
+  writeJson(path.join(paths.metadataDir, "scenario_identity.json"), scenarioIdentity);
   writeSandboxIdentity(paths, agent);
 
   writeJson(path.join(paths.metadataDir, "adapter_boot.json"), {
@@ -151,6 +194,7 @@ function runEval(opts) {
     run_id: runId,
     isolated_home: rel(paths.homeDir, runDir),
     staged_plugin_root: rel(paths.runtimeDir, runDir),
+    runtime_profile: runtimeProfile ? runtimeProfile.id : null,
     argv: [
       "node",
       "scripts/evals/run.js",
@@ -176,7 +220,12 @@ function runEval(opts) {
     return verdict;
   }
 
-  const setup = runSetup(paths);
+  let setup;
+  try {
+    setup = runSetup(paths);
+  } finally {
+    assertExpectedStagedScenario(paths, opts.expectedScenarioHash);
+  }
   if (setup.status !== 0) {
     const verdict = makeVerdict({
       scenarioId,
@@ -189,10 +238,21 @@ function runEval(opts) {
     writeJson(path.join(runDir, "verdict.json"), verdict);
     return verdict;
   }
+  if (opts.captureInputs) captureRunInputs(paths, opts.captureInputs);
 
-  const pre = runCheckPhase(paths, "pre");
+  let pre;
+  try {
+    pre = runCheckPhase(paths, "pre");
+  } finally {
+    assertExpectedStagedScenario(paths, opts.expectedScenarioHash);
+  }
   const hostRepoBefore = hostRepoSnapshot(rootDir);
-  const adapterResult = adapter.run({ scenarioId, paths });
+  let adapterResult;
+  try {
+    adapterResult = adapter.run({ scenarioId, paths });
+  } finally {
+    assertExpectedStagedScenario(paths, opts.expectedScenarioHash);
+  }
   // Backstop: if the run mutated the harness repo outside the (gitignored) run
   // dir — a walked-up commit, or new dirt/untracked in the source tree — that is
   // a containment escape regardless of what the adapter reported.
@@ -247,7 +307,12 @@ function runEval(opts) {
     writeJson(path.join(runDir, "verdict.json"), verdict);
     return verdict;
   }
-  const post = runCheckPhase(paths, "post");
+  let post;
+  try {
+    post = runCheckPhase(paths, "post");
+  } finally {
+    assertExpectedStagedScenario(paths, opts.expectedScenarioHash);
+  }
 
   const hazards = [...pre.hazards, ...post.hazards];
   const verdict = composeVerdict({
@@ -264,6 +329,140 @@ function runEval(opts) {
   });
   writeJson(path.join(runDir, "verdict.json"), verdict);
   return verdict;
+}
+
+function stageTrustedScenarioFiles(destination, files) {
+  if (!Array.isArray(files) || files.length === 0) {
+    throw new Error("scenarioFiles must be a non-empty array");
+  }
+  const names = new Set();
+  for (const [index, file] of files.entries()) {
+    if (!file || typeof file !== "object" || Array.isArray(file)) {
+      throw new Error(`scenarioFiles[${index}] must be an object`);
+    }
+    const keys = Object.keys(file).sort();
+    if (JSON.stringify(keys) !== JSON.stringify(["bytes", "mode", "name"])) {
+      throw new Error(`scenarioFiles[${index}] must contain only bytes, mode, and name`);
+    }
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$/.test(String(file.name || ""))) {
+      throw new Error(`scenarioFiles[${index}].name must be a safe filename`);
+    }
+    if (names.has(file.name)) throw new Error(`scenarioFiles duplicates ${file.name}`);
+    names.add(file.name);
+    if (!Buffer.isBuffer(file.bytes)) {
+      throw new Error(`scenarioFiles[${index}].bytes must be a Buffer`);
+    }
+    if (!Number.isInteger(file.mode) || file.mode < 0 || file.mode > 0o777) {
+      throw new Error(`scenarioFiles[${index}].mode must be a portable file mode`);
+    }
+    const target = path.join(destination, file.name);
+    fs.writeFileSync(target, file.bytes, { flag: "wx", mode: file.mode });
+    fs.chmodSync(target, file.mode);
+  }
+}
+
+function sealStagedScenario(scenarioDir) {
+  for (const entry of fs.readdirSync(scenarioDir)) {
+    const target = path.join(scenarioDir, entry);
+    const stat = fs.lstatSync(target);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) {
+      throw new Error(`staged scenario entry cannot be sealed: ${entry}`);
+    }
+    fs.chmodSync(target, stat.mode & 0o555);
+  }
+  fs.chmodSync(scenarioDir, 0o555);
+}
+
+function assertExpectedStagedScenario(paths, expectedScenarioHash) {
+  if (expectedScenarioHash === undefined) return;
+  const validation = validateScenario(paths.scenarioStageDir);
+  if (!validation.ok) {
+    throw new Error(
+      `staged scenario changed during execution: ${JSON.stringify(validation.issues)}`
+    );
+  }
+  const observed = createScenarioIdentity({
+    id: paths.scenarioId,
+    scenarioDir: paths.scenarioStageDir,
+  }).scenario_hash;
+  if (observed !== expectedScenarioHash) {
+    throw new Error(
+      `staged scenario changed during execution: expected ${expectedScenarioHash}, observed ${observed}`
+    );
+  }
+}
+
+function validateRuntimeProfile(profile, agent) {
+  if (!profile || typeof profile !== "object" || Array.isArray(profile)) {
+    throw new Error("runtime profile must be an object");
+  }
+  const allowed = new Set(["id", "adapter", "model", "effort", "harness_only"]);
+  for (const key of Object.keys(profile)) {
+    if (!allowed.has(key)) throw new Error(`runtime profile has unknown field ${key}`);
+  }
+  for (const field of ["id", "adapter", "model", "effort"]) {
+    if (typeof profile[field] !== "string" || !profile[field].trim()) {
+      throw new Error(`runtime profile ${field} is required`);
+    }
+  }
+  if (!/^[a-z0-9][a-z0-9-]{0,100}$/.test(profile.id)) {
+    throw new Error("runtime profile id must be a lowercase slug");
+  }
+  if (profile.adapter !== agent) {
+    throw new Error(
+      `runtime profile ${profile.id} requires adapter ${profile.adapter}, not ${agent}`
+    );
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(profile, "harness_only") &&
+    profile.harness_only !== true
+  ) {
+    throw new Error("runtime profile harness_only may only be true when present");
+  }
+}
+
+function captureRunInputs(paths, captures) {
+  if (!Array.isArray(captures) || captures.length === 0) {
+    throw new Error("captureInputs must be a non-empty array");
+  }
+  const inputDir = path.join(paths.metadataDir, "inputs");
+  fs.mkdirSync(inputDir, { recursive: true });
+  for (const [index, capture] of captures.entries()) {
+    if (!capture || typeof capture !== "object" || Array.isArray(capture)) {
+      throw new Error(`captureInputs[${index}] must be an object`);
+    }
+    const keys = Object.keys(capture);
+    if (keys.length !== 2 || !keys.includes("source") || !keys.includes("name")) {
+      throw new Error(`captureInputs[${index}] must contain only source and name`);
+    }
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$/.test(String(capture.name || ""))) {
+      throw new Error(`captureInputs[${index}].name must be a safe filename`);
+    }
+    if (typeof capture.source !== "string" || !capture.source || path.isAbsolute(capture.source)) {
+      throw new Error(`captureInputs[${index}].source must be a relative workdir path`);
+    }
+    const source = path.resolve(paths.workdir, capture.source);
+    if (!inside(paths.workdir, source)) {
+      throw new Error(`captureInputs[${index}].source escapes the workdir`);
+    }
+    const stat = fs.lstatSync(source);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) {
+      throw new Error(`captureInputs[${index}].source must be a regular non-linked file`);
+    }
+    if (stat.size > 4 * 1024 * 1024) {
+      throw new Error(`captureInputs[${index}].source exceeds 4194304 bytes`);
+    }
+    const real = fs.realpathSync(source);
+    if (!inside(fs.realpathSync(paths.workdir), real)) {
+      throw new Error(`captureInputs[${index}].source real path escapes the workdir`);
+    }
+    fs.copyFileSync(source, path.join(inputDir, capture.name), fs.constants.COPYFILE_EXCL);
+  }
+}
+
+function inside(rootDir, candidate) {
+  const relative = path.relative(rootDir, candidate);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
 function validateQualityCaseCompatibility(scenarioDir, qualityCase) {

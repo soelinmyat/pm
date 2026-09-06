@@ -15,8 +15,12 @@ const REVIEWER_BRIEF = path.join(PLUGIN_ROOT, "skills/dev/references/design-crit
 
 function extractConsistencyAuditScript() {
   const guide = fs.readFileSync(CAPTURE_GUIDE, "utf8");
-  const marker = "For each page, run this via `browser_evaluate`:";
-  const markerIndex = guide.indexOf(marker);
+  const section = "### Visual Consistency Audit";
+  const sectionIndex = guide.indexOf(section);
+  assert.notEqual(sectionIndex, -1, "capture guide must retain the visual consistency audit");
+
+  const marker = "run this via `browser_evaluate`";
+  const markerIndex = guide.indexOf(marker, sectionIndex);
   assert.notEqual(markerIndex, -1, "capture guide must document the browser_evaluate audit");
 
   const fencedStart = guide.indexOf("```javascript", markerIndex);
@@ -90,6 +94,8 @@ class FakeElement {
 class FakeDocument {
   constructor(roots) {
     this.elements = collectElements(roots);
+    this.defaultView = { innerWidth: 400 };
+    this.documentElement = { clientWidth: 400, scrollWidth: 400 };
   }
 
   querySelectorAll(selector) {
@@ -194,36 +200,38 @@ test("design critique audit flags cross-component and popover edge drift numeric
   });
 
   const audit = runAudit(new FakeDocument([main, popover]));
+  const findings = audit.observations.edge_alignment;
 
-  assert.ok(Array.isArray(audit.edgeAlignment), "audit must include edgeAlignment findings");
+  assert.equal(audit.kind, "dom-audit");
+  assert.ok(Array.isArray(findings), "raw audit must include edge-alignment observations");
   assert.ok(
-    audit.edgeAlignment.some(
+    findings.some(
       (finding) =>
-        finding.type === "stacked-sibling-edge" &&
-        finding.element.includes("getting-started-banner") &&
-        finding.edge === "right"
+        finding.code === "stacked-sibling-edge" &&
+        finding.locator.includes("getting-started-banner") &&
+        finding.detail.includes("right edge")
     ),
     "full-width banner should be flagged against inset siblings"
   );
   assert.ok(
-    audit.edgeAlignment.some(
+    findings.some(
       (finding) =>
-        finding.type === "stacked-sibling-edge" &&
-        finding.element.includes("inbox-filter-row") &&
-        finding.edge === "right"
+        finding.code === "stacked-sibling-edge" &&
+        finding.locator.includes("inbox-filter-row") &&
+        finding.detail.includes("right edge")
     ),
     "filter row right edge should be flagged against list row majority"
   );
   assert.ok(
-    audit.edgeAlignment.some(
+    findings.some(
       (finding) =>
-        finding.type === "inner-row-control-edge" &&
-        finding.element.includes("switch") &&
-        finding.edge === "right"
+        finding.code === "inner-row-control-edge" &&
+        finding.locator.includes("switch") &&
+        finding.detail.includes("right edge")
     ),
     "popover switch control should be flagged against sibling row controls"
   );
-  assert.equal(audit._meta.edge_alignment_issues, audit.edgeAlignment.length);
+  assert.ok(findings.length >= 3);
 });
 
 test("design critique docs route edge-alignment data to reviewer as high-confidence input", () => {

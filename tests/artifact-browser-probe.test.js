@@ -63,8 +63,11 @@ global.WebSocket = class FakeWebSocket {
   emit(type, event) { const listener = this.listeners.get(type); if (listener) listener(event); }
   send(raw) {
     const message = JSON.parse(raw);
+    if (process.env.PM_TEST_CDP_LOG) fs.appendFileSync(process.env.PM_TEST_CDP_LOG, JSON.stringify(message) + "\\n");
     const result = message.method === "Runtime.evaluate" && message.params.expression === "document.readyState"
       ? { result: { value: process.env.PM_TEST_READY ? "complete" : "loading" } }
+      : message.method === "Runtime.evaluate"
+        ? { result: { value: true } }
       : message.method === "Page.captureScreenshot"
         ? { data: Buffer.from("capture-bytes").toString("base64") }
       : {};
@@ -185,6 +188,51 @@ test("capture publication refuses a symlink destination", () => {
     });
     assert.equal(result.status, 1);
     assert.equal(fs.readFileSync(outside, "utf8"), "unchanged");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("network-isolated probes block outbound protocols and force Chromium offline", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-browser-network-isolation-"));
+  try {
+    const preload = writePreload(root);
+    const cdpLog = path.join(root, "cdp.jsonl");
+    const result = spawnSync(process.execPath, ["--require", preload, PROBE], {
+      input: JSON.stringify(
+        probeConfig(root, {
+          networkIsolation: true,
+          emulatedMedia: "print",
+          readinessTimeoutMs: 50,
+        })
+      ),
+      encoding: "utf8",
+      timeout: 2_000,
+      env: { ...process.env, PM_TEST_READY: "1", PM_TEST_CDP_LOG: cdpLog },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout), true);
+    const messages = fs
+      .readFileSync(cdpLog, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    const blocked = messages.find((message) => message.method === "Network.setBlockedURLs");
+    assert.deepEqual(blocked.params.urls, [
+      "http://*",
+      "https://*",
+      "ws://*",
+      "wss://*",
+      "ftp://*",
+    ]);
+    assert.deepEqual(
+      messages.find((message) => message.method === "Network.emulateNetworkConditions").params,
+      { offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0 }
+    );
+    assert.deepEqual(
+      messages.find((message) => message.method === "Emulation.setEmulatedMedia").params,
+      { media: "print" }
+    );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

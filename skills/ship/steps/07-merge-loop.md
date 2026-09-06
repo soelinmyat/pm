@@ -14,7 +14,7 @@ Drive the PR through all readiness gates to a confirmed merge, then clean up.
 
 ## How
 
-Read and validate `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/release-transaction.md` and `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/delivery-contract.md`. Require verified `push` and `create-pr` effects. Before arming auto-merge or issuing a manual merge, plan `merge` for the exact PR/prepared commit/base/method, call `begin`, and require canonical and snapshotted `merge: true`. On the optimized route, reload and require candidate state `merge-ready` before begin and every observe-first recovery; invalidation blocks new mutation and requires cancelling any armed auto-merge before remediation. If the exact PR has already merged, reconcile that irreversible observation instead of leaving the journal ambiguous. If merge was not explicitly requested and persisted before the action, the transaction records `denied` and Ship stops at the green PR boundary. `preferences.ship.auto_merge` alone is never merge authority.
+Read and validate `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/release-transaction.md` and `${CLAUDE_PLUGIN_ROOT}/skills/ship/references/delivery-contract.md`. Require verified `push` and `create-pr` effects. Before arming auto-merge or issuing a manual merge, freshly attest the exact live PR body, plan `merge` for the exact PR/prepared commit/base/method/body hash, call `begin`, and require canonical and snapshotted `merge: true`. On the optimized route, reload and require candidate state `merge-ready` before begin and every observe-first recovery; invalidation blocks new mutation and requires cancelling any armed auto-merge before remediation. If the exact PR has already merged, reconcile that irreversible observation instead of leaving the journal ambiguous. If merge was not explicitly requested and persisted before the action, the transaction records `denied` and Ship stops at the green PR boundary. `preferences.ship.auto_merge` alone is never merge authority.
 
 ### Pre-merge gate attestation (HARD-GATE)
 
@@ -31,9 +31,70 @@ For an optimized delivery, also verify `delivery-attestation-v1` for `remote_tip
 
 This enforces ship's Iron Law — "NEVER MERGE WITHOUT READING THE DIFF" — structurally. A stale review SHA means code is about to ship that no review ever read.
 
+### Reviewer-handoff body attestation (HARD-GATE)
+
+After all other pre-merge checks and immediately before the Merge `begin`, read
+the exact PR again through the contracted repository API. Save a bounded private
+observation at
+`.pm/dev-sessions/{slug}/ship/observations/pr-body-pre-merge.json` with exactly
+the normalized repository, PR number, `OPEN` state, head OID, base, boolean draft
+state, raw API `body` string, and `observed_at` captured as
+`new Date().toISOString()` immediately when that API response is read. The
+timestamp must use the runtime's exact `YYYY-MM-DDTHH:mm:ss.sssZ` form. Example:
+
+```json
+{
+  "repository": "acme/widget",
+  "pr_number": 42,
+  "state": "OPEN",
+  "head_oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "base": "main",
+  "draft": false,
+  "body": "## Summary\n\nCanonical reviewer handoff.\n",
+  "observed_at": "2026-09-05T06:12:34.567Z"
+}
+```
+
+Then run:
+
+```bash
+node "$PM_PLUGIN_ROOT/scripts/release-transaction.js" attest-pr-body \
+  --transaction ".pm/dev-sessions/{slug}/ship/release-transaction.json" \
+  --observation-file ".pm/dev-sessions/{slug}/ship/observations/pr-body-pre-merge.json" \
+  --json
+```
+
+The runtime rejects an observation more than five minutes old or more than 30
+seconds in the future, preserves its API-read `observed_at` without re-stamping
+it, hashes the observed body itself, and requires it to equal both the
+canonical `pr-body.md` bytes and the verified Create PR receipt. It also binds
+repository, PR number, prepared head, base, open state, and `draft: false`.
+Include that same `body_sha256` in the Merge target. The attestation is valid for
+five minutes and one Merge attempt only. If it expires or a definitely absent
+attempt becomes retry-safe, re-observe and attest again; never refresh the
+timestamp without another API read. An ambiguous `attempting` Merge remains
+observe-first because it may already be irreversible.
+
+A mismatched body means the reviewer handoff was externally edited or is stale.
+Stop before Merge and restore it only with explicit authority to edit the PR,
+then re-observe and attest. Do not treat an earlier verified Create PR receipt as
+current proof. After Merge, include the independently observed live
+`body_sha256` in the Merge receipt too; a different post-effect body cannot be
+reconciled as `matched`.
+
+If a pre-merge check exposes a **pre-existing unrelated default-branch
+failure**, require comparison evidence from the same command, toolchain, and
+current authoritative default-branch commit. Do not call the gate or Ship
+successful, bypass required checks, or expand scope automatically to repair it.
+Keep delivery blocked at the PR boundary, preserve both outputs, and ask for
+explicit authority to create a separate remediation unit. If remediation changes
+either branch, rerun the complete post-mutation recertification path before
+another merge attempt. A known baseline failure is context, never a passing
+result.
+
 Read and follow `${CLAUDE_PLUGIN_ROOT}/references/merge-loop.md` for the full procedure. Supply its variables only from the validated delivery contract. Every repository-aware `gh pr` / `gh run` call passes `--repo "$GH_REPO"` and the explicit `PR_NUMBER`; API calls use the persisted owner/repository. Wrap every network call with `gh_retry` so a transient 5xx / gateway / timeout does not abort the merge.
 
-After the merge command or auto-merge, independently observe the PR. Reconcile `merge` as matched only when state is `MERGED`, observed head OID equals the prepared commit, and a merge SHA is present. OPEN remains `attempting` while monitoring; CLOSED without merge or a different head is `conflict`.
+After the merge command or auto-merge, independently observe the PR. Reconcile `merge` as matched only when state is `MERGED`, observed head OID equals the prepared commit, the observed body hash still equals the Merge target, and a merge SHA is present. OPEN remains `attempting` while monitoring; CLOSED without merge, a different head, or a different body is `conflict`.
 
 For a versioned transaction, immediately plan `place-main-tag` for the release tag and verified merge SHA. Fetch the authoritative base, observe the remote tag first, and follow the effect protocol. Create and push the tag only when it is absent and `begin` returns `execute`. A matching tag is idempotent success; a tag at any other commit blocks and is never force-moved automatically. Delivery-only transactions skip this effect by schema.
 
@@ -102,6 +163,6 @@ Before cleanup, verify the backlog entry was written:
 
 ## Done-when
 
-The exact contracted PR and merge effects are verified, every delivery-loop fix was advanced and recertified before push, any versioned main-tag effect is verified at the merge SHA, required Product Memory updates are complete, and cleanup is done or intentionally skipped.
+The exact contracted PR and merge effects are verified, the canonical reviewer-handoff body has a fresh one-use pre-merge attestation plus matching post-merge observation, every delivery-loop fix was advanced and recertified before push, any versioned main-tag effect is verified at the merge SHA, required Product Memory updates are complete, and cleanup is done or intentionally skipped.
 
 Say: "Ship complete. PR merged and cleanup finished. What would you like to work on next?"

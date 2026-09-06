@@ -5,13 +5,17 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { writeTextAtomic: writeAtomicText } = require("./lib/atomic-file");
+const { readBoundedJsonFile } = require("./lib/safe-json-file");
 const { parseCliArgs } = require("./loop-args");
 const { recordSessionTelemetry } = require("./lib/telemetry");
 const { validateRfcSidecar } = require("./rfc-sidecar-check");
 const { rfcIssuesToDevWorkUnits } = require("./lib/rfc-work-units");
+const { findGitRoot } = require("./loop-git");
+const { resolveProfile } = require("./dev-runtime");
 
 const {
   advanceDecisionVersion,
+  anchorQaHistory,
   applyRouting,
   createSession,
   grantAuthority,
@@ -24,6 +28,7 @@ const {
   refreshCandidateIdentities,
   readSession,
   recertifyEvidence,
+  recordNonPassingQaCandidate,
   recordResult,
   resumeBlocked,
   transitionWorkUnit,
@@ -44,6 +49,7 @@ const EXIT = Object.freeze({
   BLOCKED: 5,
   RETRY_EXHAUSTED: 6,
 });
+const MAX_EVIDENCE_INPUT_BYTES = 4 * 1024 * 1024;
 
 function main(argv) {
   const { command, options } = parseArguments(argv);
@@ -62,6 +68,10 @@ function main(argv) {
       return recordCommand(options);
     case "recertify":
       return recertifyCommand(options);
+    case "anchor-qa-history":
+      return anchorQaHistoryCommand(options);
+    case "record-qa-nonpassing":
+      return recordQaNonPassingCommand(options);
     case "unblock":
       return unblockCommand(options);
     case "authorize":
@@ -155,16 +165,25 @@ function initCommand(options) {
   }
   let session;
   try {
+    const runtime = options.runtime || "inline";
+    const profile = resolveProfile({
+      provider: runtime,
+      profileName: options.profile,
+      overrides: {
+        ...(options.model ? { model: options.model } : {}),
+        ...(options.reasoning ? { effort: options.reasoning } : {}),
+      },
+    });
     session = createSession({
       slug: options.slug,
       sourceDir,
       task: options.task,
       kind: options.kind,
       size: options.size,
-      profile: options.profile,
-      runtime: options.runtime,
-      model: options.model,
-      reasoning: options.reasoning,
+      profile: profile.name,
+      runtime,
+      model: profile.model,
+      reasoning: profile.effort,
       mode: options.mode,
     });
   } catch (error) {
@@ -247,6 +266,7 @@ function routeCommand(options) {
   let rfcSidecar = null;
   let rfcSidecarPath = null;
   let rfcSidecarIdentity = null;
+  let rfcRepoRoot = null;
   try {
     facts = JSON.parse(fs.readFileSync(factsPath, "utf8"));
   } catch (error) {
@@ -269,7 +289,11 @@ function routeCommand(options) {
     } catch (error) {
       throw cliError(`cannot read RFC sidecar ${rfcSidecarPath}: ${error.message}`, EXIT.INVALID);
     }
-    const validation = validateRfcSidecar(rfcSidecar, rfcSidecarPath);
+    rfcRepoRoot = findGitRoot(path.dirname(rfcSidecarPath));
+    const validation = validateRfcSidecar(rfcSidecar, rfcSidecarPath, {
+      repoRoot: rfcRepoRoot,
+      requireCurrentDesignContext: true,
+    });
     if (!validation.ok) {
       throw cliError(
         `invalid RFC sidecar: ${validation.issues.map((entry) => entry.message).join("; ")}`,
@@ -280,7 +304,8 @@ function routeCommand(options) {
       facts = {
         ...facts,
         reference: facts.reference ?? rfcSidecarPath,
-        work_units: rfcIssuesToDevWorkUnits(rfcSidecar),
+        design_context: structuredClone(rfcSidecar.design_context),
+        work_units: rfcIssuesToDevWorkUnits(rfcSidecar, { repoRoot: rfcRepoRoot }),
       };
     } catch (error) {
       throw cliError(error.message, EXIT.PRECONDITION);
@@ -294,6 +319,8 @@ function routeCommand(options) {
         if (rfcSidecar) {
           const binding = validateRfcSidecar(rfcSidecar, rfcSidecarPath, {
             expectedSlug: session.slug,
+            repoRoot: rfcRepoRoot,
+            requireCurrentDesignContext: true,
           });
           if (!binding.ok) {
             throw new Error(
@@ -354,7 +381,11 @@ function recordCommand(options) {
       }
     }
     const session = readSession(sessionPath);
-    verifyRfcSidecarIdentity(session.task.rfc_sidecar);
+    verifyRfcSidecarIdentity(
+      session.task.rfc_sidecar,
+      session.task.design_context,
+      session.task.work_units
+    );
     const resultHash = hashResult(result);
     if (session.history.at(-1)?.result_hash === resultHash) {
       let idempotentSession = session;
@@ -629,7 +660,13 @@ function mutateSession(sessionPath, mutation, options = {}) {
   const releaseLock = acquireSessionLock(sessionPath);
   try {
     const session = readSession(sessionPath);
-    if (!options.allowSidecarRebind) verifyRfcSidecarIdentity(session.task.rfc_sidecar);
+    if (!options.allowSidecarRebind) {
+      verifyRfcSidecarIdentity(
+        session.task.rfc_sidecar,
+        session.task.design_context,
+        session.task.work_units
+      );
+    }
     const updated = mutation(session);
     writeSession(sessionPath, updated);
     return updated;
@@ -643,7 +680,7 @@ function recertifyCommand(options) {
   const sessionPath = path.resolve(options.session);
   let verification;
   try {
-    verification = JSON.parse(fs.readFileSync(path.resolve(options.evidence), "utf8"));
+    verification = readBoundedJsonFile(path.resolve(options.evidence), MAX_EVIDENCE_INPUT_BYTES);
   } catch (error) {
     throw cliError(
       `cannot read recertification evidence ${options.evidence}: ${error.message}`,
@@ -665,6 +702,95 @@ function recertifyCommand(options) {
     options,
     { session_path: sessionPath, phases, commit: options.commit },
     `Recertified ${phases.join(", ")} at ${options.commit}\n`
+  );
+  return EXIT.OK;
+}
+
+function recordQaNonPassingCommand(options) {
+  requireOnlyOptions(options, ["session", "status", "commit", "evidence", "json"]);
+  requireOptions(options, ["session", "status", "commit", "evidence"]);
+  const sessionPath = path.resolve(options.session);
+  let verification;
+  try {
+    verification = readBoundedJsonFile(path.resolve(options.evidence), MAX_EVIDENCE_INPUT_BYTES);
+  } catch (error) {
+    throw cliError(
+      `cannot read non-passing QA candidate evidence ${options.evidence}: ${error.message}`,
+      EXIT.INVALID
+    );
+  }
+  if (
+    !verification ||
+    typeof verification !== "object" ||
+    Array.isArray(verification) ||
+    Object.keys(verification).length !== 1 ||
+    !Array.isArray(verification.qa)
+  ) {
+    throw cliError(
+      "non-passing QA candidate evidence must contain exactly one qa array",
+      EXIT.INVALID
+    );
+  }
+  let updated;
+  try {
+    updated = mutateSession(sessionPath, (session) =>
+      recordNonPassingQaCandidate(session, options.status, options.commit, verification.qa)
+    );
+  } catch (error) {
+    throw cliError(error.message, EXIT.PRECONDITION);
+  }
+  emit(
+    options,
+    {
+      session_path: sessionPath,
+      status: options.status,
+      commit: options.commit,
+      qa_run_count: updated.evidence.qa.qa_run_count,
+    },
+    `Recorded ${options.status} QA candidate run ${updated.evidence.qa.qa_run_count}\n`
+  );
+  return EXIT.OK;
+}
+
+function anchorQaHistoryCommand(options) {
+  requireOnlyOptions(options, ["session", "commit", "evidence", "json"]);
+  requireOptions(options, ["session", "commit", "evidence"]);
+  const sessionPath = path.resolve(options.session);
+  let verification;
+  try {
+    verification = readBoundedJsonFile(path.resolve(options.evidence), MAX_EVIDENCE_INPUT_BYTES);
+  } catch (error) {
+    throw cliError(
+      `cannot read QA history anchoring evidence ${options.evidence}: ${error.message}`,
+      EXIT.INVALID
+    );
+  }
+  if (
+    !verification ||
+    typeof verification !== "object" ||
+    Array.isArray(verification) ||
+    Object.keys(verification).length !== 1 ||
+    !Array.isArray(verification.qa)
+  ) {
+    throw cliError("QA history anchoring evidence must contain exactly one qa array", EXIT.INVALID);
+  }
+  let updated;
+  try {
+    updated = mutateSession(sessionPath, (session) =>
+      anchorQaHistory(session, options.commit, verification.qa)
+    );
+  } catch (error) {
+    throw cliError(error.message, EXIT.PRECONDITION);
+  }
+  emit(
+    options,
+    {
+      session_path: sessionPath,
+      commit: options.commit,
+      qa_run_count: updated.evidence.qa.qa_run_count,
+      anchored_runs: updated.evidence.qa.qa_run_anchors.length,
+    },
+    `Anchored ${updated.evidence.qa.qa_run_anchors.length} QA runs at ${options.commit}\n`
   );
   return EXIT.OK;
 }
@@ -930,6 +1056,14 @@ function requireOptions(options, names) {
   }
 }
 
+function requireOnlyOptions(options, names) {
+  const allowed = new Set(names);
+  const unexpected = Object.keys(options).find((name) => !allowed.has(name));
+  if (unexpected) {
+    throw cliError(`unexpected option for this command: --${toKebab(unexpected)}`, EXIT.INVALID);
+  }
+}
+
 function toKebab(value) {
   return value.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
 }
@@ -960,6 +1094,8 @@ function helpText() {
     "  route --session <path> --facts <json-path> [--rfc-sidecar <json-path>] [--json]",
     "  record --session <path> --result <path> [--json]",
     "  recertify --session <path> --phases <csv> --commit <sha> --evidence <json-path> [--json]",
+    "  anchor-qa-history --session <path> --commit <sha> --evidence <json-path> [--json]",
+    "  record-qa-nonpassing --session <path> --status <failed|blocked> --commit <sha> --evidence <json-path> [--json]",
     "  unblock --session <path> --reason <resolution> [--json]",
     "  authorize --session <path> --grant <csv> --reason <consent> [--json]",
     "  advance-decision --session <path> --expected-version <n> --reason <direction> [--json]",

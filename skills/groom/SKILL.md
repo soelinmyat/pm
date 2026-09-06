@@ -40,7 +40,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
 | Tier | Required depth |
 |---|---|
-| `quick` | Intake, bounded evidence assessment, scope, draft, approval, handoff |
+| `quick` | Intake, bounded evidence assessment, scope, bounded design, draft, two-question review, approval, handoff |
 | `standard` | Adds strategy-aware research, synthesis, design requirements, and core review questions |
 | `full` | Adds complete review-question coverage and presentation/artifact quality |
 | `agent` | Provider-neutral full flow with stricter KB freshness and citation requirements |
@@ -71,7 +71,7 @@ Read every `.md` file in `${CLAUDE_PLUGIN_ROOT}/skills/groom/steps/` in numeric 
 - **"The Markdown says proposed, so it is approved."** Stop and check canonical JSON plus the approval audit.
 - **"I can repair the HTML or hash directly."** Instead regenerate every projection from the canonical proposal source.
 - **"Three reviewers ran, so coverage is complete."** Check every required decision question and its evidence-bound result.
-- **"Quick tier can skip research or approval."** Stop; use a bounded evidence assessment and explicit approval.
+- **"Quick tier can skip design, review, or approval."** Stop; bound their depth without removing the integrity gates.
 - **"This model needs different product policy."** Keep policy provider-neutral and capture only actual capability differences.
 - **"Engineering can settle the open product decision."** Stop, resolve it, or include an explicitly owned open decision before handoff.
 

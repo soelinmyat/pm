@@ -50,7 +50,7 @@ For `kind: proposal` (or absent/null via `resolveKind`), continue to Step 1.
 
 ### Step 1: Check for existing proposal + RFC
 
-Look first for `{pm_dir}/backlog/proposals/{slug}.json`. When present, Dev intake must route with `proposal_path`; the runner verifies the sibling approval audit and derives size and acceptance criteria from the execution contract. A generated Markdown status cannot override or repair canonical JSON. `dev-session next` re-verifies proposal revision, semantic content, approval-decision identity, and monotonic lifecycle on every resume.
+Look first for `{pm_dir}/backlog/proposals/{slug}.json`. When present, Dev intake must route with `proposal_path`; the runner requires a current bound review contract, verifies retained evidence and the sibling approval audit, and derives size and acceptance criteria from the execution contract. A `legacy-unbound-review-contract` proposal stays readable but returns to Groom for migration/re-review rather than entering Dev as trusted approval. A generated Markdown status cannot override or repair canonical JSON. `dev-session next` re-verifies proposal revision, semantic content, evidence bindings, approval-decision identity, and monotonic lifecycle on every resume.
 
 Only when canonical JSON does not exist, look for legacy `{pm_dir}/backlog/{slug}.md` and read frontmatter:
 

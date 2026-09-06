@@ -9,10 +9,11 @@ function rfcIssueId(num) {
   return `rfc-${num}`;
 }
 
-function rfcIssuesToDevWorkUnits(sidecar) {
+function rfcIssuesToDevWorkUnits(sidecar, options = {}) {
   if (sidecar?.schema_version !== 3) {
     throw new Error("executable Dev work units require an RFC schema-v3 sidecar");
   }
+  const designContext = sidecar.design_context ? structuredClone(sidecar.design_context) : null;
   const units = sidecar.issues.map((item) => ({
     id: rfcIssueId(item.num),
     title: item.title,
@@ -23,10 +24,15 @@ function rfcIssuesToDevWorkUnits(sidecar) {
       approach: item.approach,
       verification_commands: [...item.verification_commands],
       test_hooks: [...item.test_hooks],
+      ...(designContext ? { design_context: structuredClone(designContext) } : {}),
     },
     status: "pending",
   }));
-  return validateWorkUnits(units);
+  return validateWorkUnits(units, {
+    repoRoot: options.repoRoot,
+    requireCurrentPrototypeIdentity: true,
+    requireExperienceClassification: true,
+  });
 }
 
 module.exports = { rfcIssueId, rfcIssuesToDevWorkUnits };

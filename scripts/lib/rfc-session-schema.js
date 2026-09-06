@@ -11,7 +11,12 @@ const { findGitRoot, gitRelativePath, readGitFile, runGit } = require("../loop-g
 const { isRfc3339DateTime: isIsoDate } = require("./iso-time.js");
 const { markdownTableValue } = require("./session-scan.js");
 const { readApprovedProposal } = require("./proposal-schema.js");
+const { validateDesignContext } = require("./dev-work-units.js");
 const { grantActions } = require("./workflow-runtime/authority.js");
+const {
+  assertAstraProfileIntegrity,
+  assertRuntimeMatchesAstraProfile,
+} = require("./workflow-runtime/model-profile.js");
 const {
   createTransition,
   hashResult,
@@ -22,6 +27,7 @@ const {
   evidenceRecordIssues,
   runtimeRecordIssues,
 } = require("./workflow-runtime/result-envelope.js");
+const RFC_MODEL_PROFILES = require("../../skills/rfc/references/model-profiles.json");
 
 const PHASES = ["intake", "generation", "review", "approval", "handoff"];
 const STATUSES = new Set(["active", "awaiting_approval", "approved", "blocked", "complete"]);
@@ -33,6 +39,22 @@ const AUTHORITY_ACTIONS = [
   "open_browser",
   "start_implementation",
 ];
+
+function emptyContext() {
+  return {
+    configured: false,
+    source_kind: null,
+    proposal_path: null,
+    proposal_identity: null,
+    design_context: null,
+    linear_id: null,
+    size: null,
+    acceptance_criteria: [],
+    artifact_repo_root: null,
+    artifact_ownership: null,
+  };
+}
+
 function createSession(options) {
   if (!options?.slug || !options?.sourceDir) {
     throw new Error("createSession requires slug and sourceDir");
@@ -60,17 +82,7 @@ function createSession(options) {
       branch: gitValue(repoRoot, ["branch", "--show-current"], "detached"),
       base_commit: gitValue(repoRoot, ["rev-parse", "HEAD"], "unknown"),
     },
-    context: {
-      configured: false,
-      source_kind: null,
-      proposal_path: null,
-      proposal_identity: null,
-      linear_id: null,
-      size: null,
-      acceptance_criteria: [],
-      artifact_repo_root: null,
-      artifact_ownership: null,
-    },
+    context: emptyContext(),
     artifact: null,
     review: {
       status: "not_started",
@@ -118,6 +130,7 @@ function applyContext(session, facts, options = {}) {
     "linear_id",
     "size",
     "acceptance_criteria",
+    "design_context",
     "artifact_repo_root",
   ]);
   for (const field of Object.keys(facts)) {
@@ -134,12 +147,18 @@ function applyContext(session, facts, options = {}) {
   }
   let canonical = null;
   let proposalIdentity = null;
+  let effectiveDesignContext = null;
   let effectiveSize = facts.size;
   let effectiveAcceptanceCriteria = facts.acceptance_criteria;
   if (
     facts.source_kind === "proposal" &&
     path.extname(facts.proposal_path).toLowerCase() === ".json"
   ) {
+    if (facts.design_context !== undefined) {
+      throw new Error(
+        "canonical proposal design_context is derived from its approved execution contract; omit the duplicate intake field"
+      );
+    }
     const absoluteProposal = fs.realpathSync(path.resolve(facts.proposal_path));
     let proposalRoot;
     try {
@@ -147,7 +166,16 @@ function applyContext(session, facts, options = {}) {
     } catch {
       throw new Error(`canonical proposal is not inside a Git worktree: ${absoluteProposal}`);
     }
-    canonical = readApprovedProposal(absoluteProposal, { projectRoot: proposalRoot });
+    canonical = readApprovedProposal(absoluteProposal, {
+      projectRoot: proposalRoot,
+      requireCurrentPrototypeIdentity: true,
+      requireExperienceClassification: true,
+    });
+    if (!canonical.contract.design_context) {
+      throw new Error(
+        "approved canonical proposal lacks durable design_context; return to pm:groom to recertify design intent"
+      );
+    }
     const contractCriteria = canonical.contract.acceptance_criteria.map(formatAcceptanceCriterion);
     if (facts.size !== undefined && facts.size !== canonical.contract.size)
       throw new Error(
@@ -162,6 +190,9 @@ function applyContext(session, facts, options = {}) {
       );
     effectiveSize = canonical.contract.size;
     effectiveAcceptanceCriteria = contractCriteria;
+    effectiveDesignContext = canonical.contract.design_context
+      ? structuredClone(canonical.contract.design_context)
+      : null;
     proposalIdentity = {
       kind: canonical.kind,
       trusted_approval: true,
@@ -176,6 +207,11 @@ function applyContext(session, facts, options = {}) {
       decision_sha256: canonical.approval.decision_sha256,
       exact_approved_bytes_current: canonical.exactBytesCurrent,
     };
+  } else {
+    effectiveDesignContext =
+      facts.design_context === undefined || facts.design_context === null
+        ? null
+        : structuredClone(facts.design_context);
   }
   if (!["M", "L", "XL"].includes(effectiveSize)) {
     throw new Error("RFC size must be M, L, or XL; route XS/S directly to pm:dev");
@@ -208,12 +244,23 @@ function applyContext(session, facts, options = {}) {
     if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
       throw new Error("proposal_path must be inside artifact_repo_root");
   }
+  if (effectiveDesignContext === null) {
+    throw new Error(
+      "legacy Markdown and Linear RFC intake require caller-confirmed design_context; recertify the source before generation"
+    );
+  }
+  validateDesignContext(effectiveDesignContext, "RFC context design_context", {
+    repoRoot: artifactRepoRoot,
+    requireCurrentPrototypeIdentity: true,
+    requireExperienceClassification: true,
+  });
   const next = structuredClone(session);
   next.context = {
     configured: true,
     source_kind: facts.source_kind,
     proposal_path: facts.proposal_path ? path.resolve(facts.proposal_path) : null,
     proposal_identity: proposalIdentity,
+    design_context: effectiveDesignContext,
     linear_id: facts.linear_id || null,
     size: effectiveSize,
     acceptance_criteria: [...effectiveAcceptanceCriteria],
@@ -233,6 +280,7 @@ function nextDecision(session, sessionPath) {
   assertValidSession(session);
   verifySourceIdentity(session);
   verifyProposalIdentity(session);
+  if (session.phase !== "intake") assertCurrentSessionDesignContext(session);
   const pluginRoot = path.resolve(__dirname, "..", "..");
   const step = loadPhaseStep("rfc", session.phase, session.source.repo_root, pluginRoot);
   const instructionPath =
@@ -252,6 +300,93 @@ function nextDecision(session, sessionPath) {
     artifact_hash: session.artifact ? artifactFingerprint(session.artifact) : null,
     approval_required: session.phase === "approval",
   };
+}
+
+function assertCurrentSessionDesignContext(session) {
+  if (session.context.design_context === null) {
+    throw new Error(
+      "RFC session has legacy unbound design_context; run rfc-session recertify with current intake facts before generation or approval"
+    );
+  }
+  validateDesignContext(session.context.design_context, "RFC context design_context", {
+    repoRoot: session.context.artifact_repo_root,
+    requireCurrentPrototypeIdentity: true,
+    requireExperienceClassification: true,
+  });
+}
+
+function recertifyContext(session, facts, options = {}) {
+  assertValidSession(session);
+  verifySourceIdentity(session);
+  if (session.status === "complete") {
+    throw new Error(
+      "completed RFC sessions are immutable; initialize a new RFC run to recertify design context"
+    );
+  }
+  if (!session.context.configured) {
+    throw new Error("unconfigured RFC intake must use the context command");
+  }
+  let contextIsCurrent = true;
+  try {
+    assertCurrentSessionDesignContext(session);
+  } catch {
+    contextIsCurrent = false;
+  }
+  if (contextIsCurrent) {
+    throw new Error(
+      "RFC design_context is already current; use revise for reviewed content changes"
+    );
+  }
+
+  const now = options.now || new Date().toISOString();
+  const next = structuredClone(session);
+  const priorPhase = next.phase;
+  const priorArtifactHash = next.artifact ? artifactFingerprint(next.artifact) : null;
+  next.status = "active";
+  next.phase = "intake";
+  next.phase_attempt = 1;
+  next.context = emptyContext();
+  next.artifact = null;
+  next.review = {
+    status: "not_started",
+    artifact_hash: null,
+    rounds: 0,
+    verdicts: [],
+    reviewed_at: null,
+  };
+  next.approval = {
+    status: "pending",
+    approved_by: null,
+    approved_at: null,
+    artifact_hash: null,
+  };
+  for (const blocker of next.blockers) {
+    if (blocker.resolved_at) continue;
+    blocker.resolved_at = now;
+    blocker.resolution = "Superseded by explicit design-context recertification";
+  }
+  for (const action of AUTHORITY_ACTIONS) {
+    if (next.authority[action] !== true) continue;
+    next.authority[action] = false;
+    next.authority_log.push({
+      action,
+      granted: false,
+      reason: "Design-context recertification invalidated prior external authority",
+      recorded_at: now,
+    });
+  }
+  next.execution.runtime_session_id = null;
+  next.updated_at = now;
+  next.history.push(
+    createTransition({
+      priorPhase,
+      nextPhase: "intake",
+      reason: `legacy design-context recertification invalidated prior artifact ${priorArtifactHash || "(none)"}, review, approval, and external authority`,
+      timestamp: now,
+    })
+  );
+  assertValidSession(next);
+  return applyContext(next, facts, { ...options, now });
 }
 
 function recordResult(session, result, options = {}) {
@@ -337,6 +472,11 @@ function recordResult(session, result, options = {}) {
 function validatePassedResult(session, result, options) {
   if (session.phase === "intake") {
     if (!session.context.configured) throw new Error("intake requires configured RFC context");
+    try {
+      assertCurrentSessionDesignContext(session);
+    } catch (error) {
+      throw new Error(`intake requires current design_context before generation: ${error.message}`);
+    }
     return;
   }
   if (session.phase === "generation") {
@@ -345,6 +485,7 @@ function validatePassedResult(session, result, options) {
       ...options,
       expectedSlug: session.slug,
       expectedRepoRoot: session.context.artifact_repo_root,
+      expectedDesignContext: session.context.design_context,
       forbidApproved: true,
       requireHead: true,
     });
@@ -357,6 +498,7 @@ function validatePassedResult(session, result, options) {
       ...options,
       expectedSlug: session.slug,
       expectedRepoRoot: session.context.artifact_repo_root,
+      expectedDesignContext: session.context.design_context,
       forbidApproved: true,
       requireHead: true,
     });
@@ -381,6 +523,7 @@ function validatePassedResult(session, result, options) {
       ...options,
       expectedSlug: session.slug,
       expectedRepoRoot: session.context.artifact_repo_root,
+      expectedDesignContext: session.context.design_context,
       requireApproved: true,
       requireHead: true,
     });
@@ -419,6 +562,7 @@ function approveSession(session, input, options = {}) {
       ...options,
       expectedSlug: session.slug,
       expectedRepoRoot: session.context.artifact_repo_root,
+      expectedDesignContext: session.context.design_context,
       forbidApproved: true,
       requireHead: false,
     });
@@ -438,6 +582,7 @@ function approveSession(session, input, options = {}) {
     ...options,
     expectedSlug: session.slug,
     expectedRepoRoot: session.context.artifact_repo_root,
+    expectedDesignContext: session.context.design_context,
     forbidApproved: true,
     requireHead: false,
   });
@@ -684,6 +829,15 @@ function validateResultIdentity(session, result) {
   if (runtimeIssues.some((item) => item.path.endsWith(".session_id"))) {
     throw new Error("phase result runtime.session_id must be null or string");
   }
+  try {
+    assertRuntimeMatchesAstraProfile({
+      data: RFC_MODEL_PROFILES,
+      execution: session.execution,
+      runtime: result.runtime,
+    });
+  } catch (error) {
+    throw new Error(`phase result runtime is invalid: ${error.message}`);
+  }
   if (
     result.status === "blocked" &&
     (!isObject(result.blocker) ||
@@ -797,11 +951,22 @@ function verifyArtifact(artifact, options = {}) {
   } catch (error) {
     throw new Error(`RFC sidecar is malformed: ${error.message}`);
   }
+  if (
+    Object.prototype.hasOwnProperty.call(options, "expectedDesignContext") &&
+    options.expectedDesignContext === null
+  ) {
+    throw new Error(
+      "RFC session has legacy unbound design_context; run rfc-session recertify with current intake facts before generation or approval"
+    );
+  }
   const validation = validateRfcSidecar(sidecar, artifact.json_path, {
     expectedSlug: options.expectedSlug,
     htmlPath: artifact.html_path,
     storedHash: extractSidecarHash(html),
     sidecarHash: observed,
+    repoRoot,
+    expectedDesignContext: options.expectedDesignContext,
+    requireCurrentDesignContext: true,
   });
   if (!validation.ok) {
     throw new Error(
@@ -1029,6 +1194,7 @@ function buildApprovalAudit(session, artifact, options = {}) {
     ...options,
     expectedSlug: session.slug,
     expectedRepoRoot: session.context.artifact_repo_root,
+    expectedDesignContext: session.context.design_context,
     requireApproved: true,
     requireHead: true,
   });
@@ -1147,6 +1313,7 @@ function validateSession(session) {
       "source_kind",
       "proposal_path",
       "proposal_identity",
+      "design_context",
       "linear_id",
       "size",
       "acceptance_criteria",
@@ -1168,6 +1335,15 @@ function validateSession(session) {
       if (![null, "helper-v1"].includes(value.artifact_ownership))
         errors.push(issue(`${objectPath}.artifact_ownership`, "invalid"));
       validateProposalIdentity(value.proposal_identity, `${objectPath}.proposal_identity`, errors);
+      if (value.design_context !== null) {
+        try {
+          validateDesignContext(value.design_context, `${objectPath}.design_context`, {
+            repoRoot: nonEmpty(value.artifact_repo_root) ? value.artifact_repo_root : undefined,
+          });
+        } catch (error) {
+          errors.push(issue(`${objectPath}.design_context`, error.message));
+        }
+      }
       if (
         !Array.isArray(value.acceptance_criteria) ||
         value.acceptance_criteria.some((item) => !nonEmpty(item))
@@ -1192,7 +1368,20 @@ function validateSession(session) {
     if (!Array.isArray(session[field])) errors.push(issue(`$.${field}`, "must be an array"));
   }
   if (Array.isArray(session.attempts)) {
-    session.attempts.forEach((value, index) => validateAttempt(value, index, errors));
+    session.attempts.forEach((value, index) => {
+      validateAttempt(value, index, errors);
+      if (isObject(session.execution) && isObject(value?.runtime)) {
+        try {
+          assertRuntimeMatchesAstraProfile({
+            data: RFC_MODEL_PROFILES,
+            execution: session.execution,
+            runtime: value.runtime,
+          });
+        } catch (error) {
+          errors.push(issue(`$.attempts[${index}].runtime`, error.message));
+        }
+      }
+    });
   }
   if (Array.isArray(session.history)) {
     session.history.forEach((value, index) => validateHistory(value, index, errors));
@@ -1502,6 +1691,18 @@ function validateExecutionShape(value, errors) {
       if (typeof execution.headless !== "boolean") {
         errors.push(issue("$.execution.headless", "must be boolean"));
       }
+      try {
+        assertAstraProfileIntegrity({
+          data: RFC_MODEL_PROFILES,
+          provider: execution.runtime,
+          profileName: execution.profile,
+          model: execution.model,
+          effort: execution.reasoning,
+          profileWasExplicit: true,
+        });
+      } catch (error) {
+        errors.push(issue("$.execution", error.message));
+      }
     }
   );
 }
@@ -1521,6 +1722,8 @@ function upgradeCompatibleSession(input) {
   const session = structuredClone(input);
   if (isObject(session.context) && !Object.hasOwn(session.context, "proposal_identity"))
     session.context.proposal_identity = null;
+  if (isObject(session.context) && !Object.hasOwn(session.context, "design_context"))
+    session.context.design_context = null;
   if (isObject(session.context) && !Object.hasOwn(session.context, "artifact_ownership"))
     session.context.artifact_ownership = null;
   return session;
@@ -1581,6 +1784,8 @@ function verifyProposalIdentity(session) {
   try {
     trusted = readApprovedProposal(session.context.proposal_path, {
       projectRoot,
+      requireCurrentPrototypeIdentity: true,
+      requireExperienceClassification: true,
       expectedDecision: {
         id: identity.decision_id,
         sha256: identity.decision_sha256,
@@ -1601,6 +1806,10 @@ function verifyProposalIdentity(session) {
   for (const [field, value] of Object.entries(observed)) {
     if (identity[field] !== value)
       throw new Error(`proposal identity ${field} drifted; re-run RFC intake`);
+  }
+  const trustedDesignContext = trusted.contract.design_context || null;
+  if (stableStringify(session.context.design_context) !== stableStringify(trustedDesignContext)) {
+    throw new Error("proposal design_context drifted; re-run RFC intake");
   }
   const order = { approved: 0, planned: 1, "in-progress": 2, done: 3 };
   if (
@@ -1636,6 +1845,7 @@ module.exports = {
   hashResult,
   migrateLegacyMarkdown,
   nextDecision,
+  recertifyContext,
   recordResult,
   resumeBlocked,
   reviseSession,

@@ -10,9 +10,10 @@ Publish the machine report and accessible human report, validate the full eviden
 
 ## How
 
-1. Write `report.json` using `evidence-contract.md`. Bind the exact route and captures bytes, account for coverage, include mode-specific scores, findings, resolution history, rounds, outcome, and authority when deferred.
-2. Render `report.html` from `${CLAUDE_PLUGIN_ROOT}/references/templates/design-critique-report.html`. Replace `{{PLUGIN_VERSION}}` with `version` from `${CLAUDE_PLUGIN_ROOT}/plugin.config.json`; unresolved or stale generator versions fail validation. Show verdict first, coverage and scores next, then findings, before/after evidence, ownership handoffs, and methods. Its PM artifact metadata source must hash-bind `report.json`; evidence must hash-bind `captures.json`.
-3. Run `artifact-check.js` against the HTML, then run the full chain checker:
+1. Write `reviews.json` with exactly one evidence-bound Primary/Fresh Eyes pair for every round. Bind the exact route/captures, shared context source, per-round capture manifest, perspective instruction hash, canonical input/result, runtime/model, fresh context/invocation, and durable receipt. Record assurance as `workflow-attested-non-cryptographic`; never describe caller-authored identities as proof of separate model execution.
+2. Write schema-v2 `report.json` using `evidence-contract.md`. Bind the exact route, captures, and reviews bytes; repeat the honest review assurance; account for coverage; copy the final-round Primary scores exactly; reconcile every source/final finding exactly once; include resolution history, rounds, outcome, and authority when deferred. Derive passing eligibility from source Design blockers as well as final findings. Schema-v1 reports are inspection-only and cannot certify.
+3. Render `report.html` from `${CLAUDE_PLUGIN_ROOT}/references/templates/design-critique-report.html`. Replace `{{PLUGIN_VERSION}}` with `version` from `${CLAUDE_PLUGIN_ROOT}/plugin.config.json`; unresolved or stale generator versions fail validation. Show verdict first, coverage and scores next, then both perspective summaries, the visible non-cryptographic assurance, reconciliation, findings, before/after evidence, ownership handoffs, and methods. Its PM artifact metadata source must hash-bind `report.json`; evidence must hash-bind both `captures.json` and `reviews.json`. Each perspective and reconciliation row uses the required visible hash markers.
+4. Run `artifact-check.js` against the HTML, then run the full chain checker:
 
 ```bash
 node "$PM_PLUGIN_ROOT/scripts/design-critique-check.js" \
@@ -27,12 +28,13 @@ node "$PM_PLUGIN_ROOT/scripts/design-critique-check.js" \
 
 The checker resolves Chromium automatically. If the project uses a nonstandard browser binary, add `--browser "{CHROMIUM_PATH}"` or set `PM_ARTIFACT_BROWSER`. Remote-base verification is noninteractive and bounded; a timeout is a blocked gate, not permission to trust a stale local ref.
 
-4. For `passed`, update only the `design-critique` row in canonical `.pm/dev-sessions/{slug}/gates.json` with current commit and project-relative `.pm/dev-sessions/{slug}/design-critique/report.html` as the artifact. Preserve `tdd`, legacy `simplify`, `qa`, `review`, and `verification` rows; never write the flat legacy sidecar when the canonical session directory exists. For `failed`, `blocked`, or `deferred`, record a non-passing gate with the concrete reason; map `deferred` to `blocked` because the Dev schema has no deferred status.
-5. Run `dev-gate-check.js --require design-critique` only for a passed outcome. Return report paths, coverage, score summary, resolved blockers, remaining P2/P3 findings, and the single next action.
+5. For `passed`, update only the `design-critique` row in canonical `.pm/dev-sessions/{slug}/gates.json` with current commit and project-relative `.pm/dev-sessions/{slug}/design-critique/report.html` as the artifact. Preserve `tdd`, legacy `simplify`, `qa`, `review`, and `verification` rows; never write the flat legacy sidecar when the canonical session directory exists. For `failed`, `blocked`, or `deferred`, record a non-passing gate with the concrete reason; map `deferred` to `blocked` because the Dev schema has no deferred status.
+6. Run `dev-gate-check.js --require design-critique` only for a passed outcome. Return report paths, coverage, score summary, resolved blockers, remaining P2/P3 findings, and the single next action.
 
 ## Done-when
 
-- `route.json`, `captures.json`, `report.json`, and `report.html` are saved and mutually hash-bound.
+- `route.json`, `captures.json`, `reviews.json`, `report.json`, and `report.html` are saved and mutually hash-bound.
+- Every review and reconciliation row is visibly represented in the human report.
 - The artifact checker and design-critique checker pass for a `passed` outcome.
 - The preserved Dev gate sidecar reflects the exact outcome and current commit.
 - The user or calling phase has the report location and next action.

@@ -347,3 +347,19 @@ test("Ship journals ambiguous effects and places version tags only after verifie
   assert.match(merge, /plan `place-main-tag`/);
   assert.match(merge, /never force-moved automatically/);
 });
+
+test("Ship binds the reviewer handoff body through Create PR and the Merge boundary", () => {
+  const skill = read("skills/ship/SKILL.md");
+  const createPr = read("skills/ship/steps/05-create-pr.md");
+  const merge = read("skills/ship/steps/07-merge-loop.md");
+  const reference = read("skills/ship/references/release-transaction.md");
+
+  assert.match(skill, /exact canonical `pr-body\.md` bytes.*hash-bound/is);
+  assert.match(createPr, /create-pr.*body_sha256/is);
+  assert.match(createPr, /independently observed receipt.*body_sha256/is);
+  assert.match(createPr, /migrate-pr-body/);
+  assert.match(reference, /legacy schema-v1 journals may predate.*body_sha256/is);
+  assert.match(merge, /attest-pr-body/);
+  assert.match(merge, /five minutes and one Merge attempt only/i);
+  assert.match(merge, /include the independently observed live.*body_sha256.*Merge receipt/is);
+});

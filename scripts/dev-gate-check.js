@@ -19,7 +19,8 @@ const { MAX_HTML_BYTES, MAX_JSON_BYTES } = require("./lib/review-limits");
 const { isUiImpactPath } = require("./lib/ui-impact");
 const { deriveSessionSlug } = require("./lib/session-slug");
 const { resolveGateEvidenceContract } = require("./lib/dev-session-schema");
-const { hasCurrentEvidence } = require("./lib/workflow-runtime/records");
+const { checkQaReport } = require("./lib/qa-report-schema");
+const { currentEvidenceRecords } = require("./lib/workflow-runtime/records");
 
 const DEFAULT_MANIFEST_PATH = ".pm/dev-sessions/current.gates.json";
 const DEFAULT_REQUIRED_GATES = ["tdd", "design-critique", "qa", "review", "verification"];
@@ -211,12 +212,12 @@ function validateCanonicalDeliveryEvidence(
       continue;
     }
     const contract = resolveGateEvidenceContract(gate);
+    const currentRecords = currentEvidenceRecords(
+      session.evidence?.[contract.phase],
+      currentCommit
+    );
     if (
-      !hasCurrentEvidence(
-        session.evidence?.[contract.phase],
-        currentCommit,
-        (record) => record.kind === contract.kind
-      )
+      !currentRecords?.some((record) => record?.exit_code === 0 && record.kind === contract.kind)
     ) {
       issues.push(
         issue(
@@ -224,7 +225,61 @@ function validateCanonicalDeliveryEvidence(
           `canonical session evidence for ${gate} is missing or stale at current commit`
         )
       );
+      continue;
     }
+    if (gate === "qa") {
+      validateCanonicalQaDeliveryEvidence(
+        session,
+        currentRecords,
+        currentCommit,
+        manifestPath,
+        issues
+      );
+    }
+  }
+}
+
+function validateCanonicalQaDeliveryEvidence(
+  session,
+  records,
+  currentCommit,
+  manifestPath,
+  issues
+) {
+  const passingTests = records.filter(
+    (record) => record?.kind === "test" && record.exit_code === 0
+  );
+  if (passingTests.length !== 1) {
+    issues.push(
+      issue(manifestPath, "canonical QA evidence requires exactly one passing test record")
+    );
+    return;
+  }
+  if (
+    typeof passingTests[0].command !== "string" ||
+    !/qa-report-check(?:\.js)?(?:\s|$)/i.test(passingTests[0].command)
+  ) {
+    issues.push(
+      issue(manifestPath, "canonical QA evidence must record the executed qa-report-check command")
+    );
+  }
+  const reportPath = passingTests[0].artifact;
+  if (typeof reportPath !== "string" || !path.isAbsolute(reportPath)) {
+    issues.push(
+      issue(manifestPath, "canonical QA evidence requires an absolute report artifact path")
+    );
+    return;
+  }
+  const checked = checkQaReport({
+    session,
+    reportPath,
+    expectedCommit: currentCommit,
+    requirePassing: true,
+  });
+  for (const reportIssue of checked.issues) {
+    issues.push(
+      issue(manifestPath, `canonical QA report ${reportIssue.path}: ${reportIssue.message}`)
+    );
   }
 }
 
@@ -972,9 +1027,10 @@ function usage() {
 
 // These four helpers are intentionally NOT pulled from scripts/lib/check-cli.js
 // (where rfc-sidecar-check.js gets them). .githooks/pre-push runs the archived
-// `scripts/` tree plus plugin.config.json from the pushed commit in /tmp. Review
-// evidence validation may use that archived tree, but adding dependencies outside
-// it would break the push gate. Keep these trivial CLI helpers local.
+// `scripts/` tree, plugin.config.json, and the Dev/RFC model-profile data from the
+// pushed commit in /tmp. Review evidence validation may use that archived bundle,
+// but adding undeclared dependencies outside it would break the push gate. Keep
+// these trivial CLI helpers local.
 function issue(file, message) {
   return { file: toRel(file), message };
 }

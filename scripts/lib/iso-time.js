@@ -18,4 +18,29 @@ function isRfc3339DateTime(value) {
   return true;
 }
 
-module.exports = { isRfc3339DateTime };
+function compareRfc3339DateTimes(left, right) {
+  if (!isRfc3339DateTime(left) || !isRfc3339DateTime(right)) {
+    throw new TypeError("RFC 3339 comparison requires two valid date-times");
+  }
+  const leftMatch = left.match(RFC3339_DATE_TIME);
+  const rightMatch = right.match(RFC3339_DATE_TIME);
+  const leftWhole = Date.parse(withoutFraction(leftMatch));
+  const rightWhole = Date.parse(withoutFraction(rightMatch));
+  if (leftWhole !== rightWhole) return leftWhole < rightWhole ? -1 : 1;
+
+  const leftFraction = leftMatch[7] || "";
+  const rightFraction = rightMatch[7] || "";
+  const precision = Math.max(leftFraction.length, rightFraction.length);
+  for (let index = 0; index < precision; index += 1) {
+    const leftDigit = leftFraction[index] || "0";
+    const rightDigit = rightFraction[index] || "0";
+    if (leftDigit !== rightDigit) return leftDigit < rightDigit ? -1 : 1;
+  }
+  return 0;
+}
+
+function withoutFraction(match) {
+  return `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}${match[8]}`;
+}
+
+module.exports = { compareRfc3339DateTimes, isRfc3339DateTime };

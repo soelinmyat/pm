@@ -27,15 +27,19 @@ numbers over adjectives and tables over nested bullets.
 
 ## Output format
 
-**Markdown is the default for everything** — strategy, proposals, research,
-PRDs. Every markdown output file must include valid YAML frontmatter with
-`created:` and `updated:` dates; read
-`${CLAUDE_PLUGIN_ROOT}/references/frontmatter-schemas.md` for the schema
-matching the document type.
+**Use the owning skill's artifact contract.** Markdown is the default only when
+that contract does not require a canonical structured artifact or generated
+projection. Every authored markdown output must include valid YAML frontmatter
+with `created:` and `updated:` dates; read
+`${CLAUDE_PLUGIN_ROOT}/references/frontmatter-schemas.md` for the schema matching
+the document type.
 
-**HTML only where markdown can't express the content**: wireframes, mockups,
-architecture diagrams, and RFCs (which stay HTML via the template). Never HTML
-for proposals, strategy decks, or research output.
+HTML is appropriate where Markdown cannot express the content or the owning
+contract requires a deterministic reader: wireframes, mockups, architecture
+diagrams, RFCs, and generated proposal previews. A Groom proposal is canonical
+JSON with generated HTML and Markdown projections; never hand-edit either
+projection. Strategy and research remain Markdown unless their owning skill
+explicitly says otherwise.
 
 ### Template system
 
@@ -49,7 +53,13 @@ Templates live at `${CLAUDE_PLUGIN_ROOT}/references/templates/`.
 
 ### Wireframe rules
 
-- Self-contained (inline CSS, no external dependencies)
-- Clear labels, flow arrows, state annotations
-- All metadata lives in frontmatter of the parent markdown document, not in
-  sidecar files
+- Follow `skills/groom/references/prototype-format.md`; it owns file layout,
+  metadata, annotations, and prototype identity.
+- A single-file wireframe is self-contained: inline CSS and media, fragment-only
+  navigation, and no adjacent or remote dependency.
+- A multi-file wireframe may load only local files covered by its complete,
+  recomputed tree manifest; it never loads remote dependencies.
+- Use clear labels and state annotations. Follow the prototype contract's
+  numbered-callout rules instead of drawing free-floating arrows.
+- Store metadata in the single HTML artifact for single-file wireframes or in
+  the manifest-bound `meta.json` for multi-file wireframes.

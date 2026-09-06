@@ -2,38 +2,77 @@
 
 Review proposal decisions through independent questions. A runtime may answer them inline or distribute them to available workers. Never encode correctness as a fixed worker count or persona list.
 
-## Core questions (`standard`, `full`, `agent`)
+## Canonical required question IDs
 
-1. **Problem and evidence:** Does the evidence support the stated problem, audience, urgency, and confidence? Identify contradictions or unsupported causal claims.
-2. **Scope coherence:** Is this the smallest coherent outcome? Are non-goals, dependencies, and boundary cases explicit?
-3. **Execution usefulness:** Are requirements and acceptance criteria observable, testable, and free of accidental implementation design?
-4. **Experience completeness:** Do design requirements cover primary, failure, empty, loading, accessibility, responsive, and content states where applicable?
-5. **Feasibility boundary:** Is feasibility credible from current code/product facts without pre-deciding RFC architecture?
+The following IDs are the current executable review contract. Copy the selected tier's ordered list exactly into `review_contract.required_question_ids`; `agent` intentionally uses the same required questions as `full`.
 
-## Additional questions (`full`, `agent`)
-
-6. **Alternatives and reversal:** Is the recommended direction better than credible alternatives, and what evidence could reverse it?
-7. **Competitive/strategy fit:** Does the scope support current strategy and accurately characterize parity, table stakes, gap-fill, or differentiation?
-8. **Measurement:** Can success metrics distinguish feature failure from upstream/downstream causes?
-9. **Adversarial assumption:** What plausible counterexample, misuse, permission boundary, or operational constraint would make the proposal wrong?
-
-## Agent evidence question
-
-10. **Citation integrity:** Are sampled citations real, current, correctly attributed, and sufficient for the decisions they support?
-
-## Result contract
-
-Each answer contains:
+<!-- canonical-review-question-ids -->
 
 ```json
 {
-  "question_id": "scope-coherence",
-  "verdict": "pass | advisory | blocking | disputed",
-  "summary": "Concise answer",
-  "evidence": [{ "path": "pm/evidence/...", "locator": "F3" }],
+  "quick": ["assumption-risk", "experience"],
+  "standard": ["problem-evidence", "scope", "acceptance", "experience", "feasibility"],
+  "full": ["problem-evidence", "scope", "acceptance", "experience", "feasibility", "reversal"],
+  "agent": ["problem-evidence", "scope", "acceptance", "experience", "feasibility", "reversal"]
+}
+```
+
+## Required questions
+
+### `quick`
+
+- **`assumption-risk`:** Which evidence gap or assumption is most likely to reverse this recommendation?
+- **`experience`:** Are the primary experience, consequential states, and design requirements complete?
+
+### `standard`
+
+- **`problem-evidence`:** Is the problem and evidence chain sufficient for this decision?
+- **`scope`:** Is the scope coherent, minimal, and explicit about non-goals?
+- **`acceptance`:** Are acceptance criteria observable and implementation-neutral?
+- **`experience`:** Are user flows, failure states, and design requirements complete?
+- **`feasibility`:** Is feasibility credible without smuggling in an engineering design?
+
+### `full` and `agent`
+
+Use every `standard` question plus:
+
+- **`reversal`:** What assumption, counterexample, or competitive fact could reverse the recommendation?
+
+The `agent` tier tightens freshness and citation expectations inside these answers. Citation integrity is not a seventh required question in the current schema-v2 contract.
+
+## Optional advisory enrichment
+
+Reviewers may examine these dimensions when they materially improve the decision, but they are not tier-required question IDs:
+
+- **Competitive/strategy fit:** Does the scope support current strategy and accurately characterize parity, table stakes, gap-fill, or differentiation?
+- **Measurement:** Can success metrics distinguish feature failure from upstream/downstream causes?
+- **Adversarial assumption:** What plausible counterexample, misuse, permission boundary, or operational constraint would make the proposal wrong?
+- **Citation integrity:** Are sampled citations real, current, correctly attributed, and sufficient for the decisions they support?
+
+Capture useful results as advisory findings outside `question_reviews`. Promoting any of these dimensions into `review_contract.required_question_ids` requires a coordinated session-schema/runtime migration; do not add them ad hoc to a schema-v2 proposal.
+
+## Result contract
+
+Each required answer contains:
+
+```json
+{
+  "question_id": "scope",
+  "verdict": "pass | advisory",
+  "conclusion": "The decision reached for this question",
+  "rationale": "Why the proposal and cited evidence support that conclusion",
+  "evidence": [
+    {
+      "evidence_id": "evidence:customer-signal",
+      "locator": "F3 or another precise location",
+      "relevance": "How this location bears on this answer"
+    }
+  ],
   "confidence": "high | medium | low",
   "finding": null
 }
 ```
 
-A review passes only when every routed question has a current answer for the frozen proposal revision/hash, no `blocking` answer remains, and disputes are explicitly resolved. Advisory findings stay visible in the proposal and handoff.
+`conclusion` answers the question; it must not copy or lightly rearrange the question. `rationale` is a separate explanation, not a confidence adjective or restatement. Evidence points to a registered proposal evidence ID and a precise locator in its retained, hash-bound source, then explains its answer-specific relevance. Use a bounded line range, Markdown heading, JSON Pointer, unique stable marker such as `F3`, or a specific phrase that occurs on exactly one line; common substrings such as `the` and ambiguous multi-match phrases are not locators. For mechanically readable source formats, the locator must resolve and the located content must connect to the answer; a generic or unrelated source cannot certify all rows. A low-confidence conclusion cannot pass silently: record it as `advisory` with a concrete `finding` and tracked debt.
+
+Raw reviewer inputs may still raise blocking concerns or disagree. Normalize only after every dispute is explicitly resolved and no `blocking` answer remains. The canonical proposal uses `outcome` in place of the phase result's `verdict`, with the same conclusion, rationale, evidence, confidence, and finding bytes. Review passes only when every routed question has a current matching answer for the frozen proposal revision/hash and no failing answer remains. Advisory findings stay visible in the proposal, generated HTML/Markdown, and handoff.

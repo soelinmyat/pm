@@ -39,6 +39,8 @@ The goal is to find **genuinely close competitors** — not just well-known play
 
 **5-file completeness check (used throughout this phase and the synthesis gate):** every competitor slug must have all five files under `{pm_dir}/evidence/competitors/{slug}/` — `profile.md`, `features.md`, `api.md`, `seo.md` (note if SEO data is unavailable per provider config), `sentiment.md`. Every materially touched file must also pass `evidence.js validate --artifact` and standard PM validation. If any file is missing or its provenance fails, re-run only that section before proceeding.
 
+For each material comparison, calibrate confidence on **authority, independence, recency, and claim fit**. A vendor's current documentation is a primary source for what it offers, but not independent proof of usability or adoption. Three derivative sources that repeat the vendor or one report remain one evidence chain; seek direct customer or market evidence for experience claims. Write `high`, `medium`, or `low` with a short basis and preserve contradictions instead of averaging them away.
+
 Determine dispatch strategy based on candidate count and runtime capability. Read `${CLAUDE_PLUGIN_ROOT}/references/capability-gates.md` and `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/agent-runtime.md` for the runtime-neutral dispatch mechanics — do not hardcode any one runtime's dispatch syntax.
 
 **1 competitor:** Profile inline. Read the methodology in `${CLAUDE_PLUGIN_ROOT}/skills/research/references/competitor-profiling.md`, create the five files, then run the completeness check before Phase 3.
@@ -70,7 +72,7 @@ Without synthesis, profiling is raw data — not knowledge.
 2. Add or update a **Market Gaps** section in `{pm_dir}/evidence/competitors/index.md` — capabilities absent or weak across all competitors.
 3. **Update `{pm_dir}/insights/business/landscape.md`** — keep the landscape as the single source of truth for the market view:
    - **Key Players table:** Add any newly profiled competitors that aren't already listed (with website links). Remove any that turned out to be irrelevant. Update positioning/notable columns with insights from profiling.
-   - **Market Positioning Map:** Add `<!-- positioning -->` comment rows for newly profiled competitors. Adjust x/y coordinates based on what profiling revealed about their actual positioning. Remove entries for competitors that were dropped.
+   - **Market Positioning Map:** Add `<!-- positioning -->` comment rows for newly profiled competitors and update the Positioning Basis table. Classify each axis against its documented observable category anchors, preserve the stable display coordinate for that category, and cite the evidence IDs and confidence supporting the placement. Never turn qualitative disagreement into a falsely precise coordinate. Remove entries for competitors that were dropped.
    - **Initial Observations:** Update if competitor profiling revealed new gaps, tensions, or insights that change the market read.
    - Bump the `last_updated:` date in frontmatter.
 4. Append touched paths to `{pm_dir}/evidence/competitors/log.md`. If synthesis changed the landscape, append that write to `{pm_dir}/insights/business/log.md` too.
@@ -96,4 +98,4 @@ Only continue after explicit confirmation.
 
 ## Done-when
 
-All confirmed competitors pass the 5-file and Evidence v2 checks, the competitor index is updated with links and market gaps, the landscape reflects new players, standard PM validation passes, routing is complete or skipped, and logs are appended. Offer strategy, ideation, or grooming as the next action; do not execute another research mode.
+All confirmed competitors pass the 5-file and Evidence v2 checks, material comparisons include calibrated confidence, the competitor index is updated with links and market gaps, the landscape reflects new players with evidence-backed categorical positioning bases, standard PM validation passes, routing is complete or skipped, and logs are appended. Offer strategy, ideation, or grooming as the next action; do not execute another research mode.

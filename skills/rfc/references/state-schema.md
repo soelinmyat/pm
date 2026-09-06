@@ -36,6 +36,12 @@ The state binds generation, review, approval, and handoff to:
 
 Approval verifies both current HTML and sidecar bytes equal the reviewed fingerprint. A content edit routes back through review. The expected approval metadata-only HTML/commit update may change the HTML hash and commit but not the sidecar hash, and requires passing lifecycle-only evidence.
 
+## Design context
+
+For an approved canonical proposal, intake copies the proposal execution contract's closed `design_context` into `session.context.design_context`; callers cannot supply or override it. Legacy Markdown and Linear remain supported fresh sources only after the caller confirms and supplies the same closed current shape during intake. The field contains exact design requirement strings, explicit UI impact, an explicit `null` or source-bound prototype identity, critical states, and applicable experience/visual invariants. Multi-file prototypes carry a complete deterministic tree manifest, not only an `index.html` digest. Generation, review, approval, handoff, and Dev readiness reject a schema-v3 RFC without this context or whose value differs. Wherever repository context is available, validation recomputes the complete identity instead of accepting hash-shaped text.
+
+Historical schema-v2 sidecars, early schema-v3 sidecars without the complete context, and sessions with a `null`/legacy-partial context remain inspection-readable for compatibility. They are non-executable: for an active in-flight session, write current intake facts and run `rfc-session.js recertify --session <path> --facts <facts.json> --json`. That audited transition returns the run to intake and invalidates its prior artifact, review, approval, runtime continuation, and external authority before persisting the current context. Completed sessions remain immutable, so initialize a new RFC run instead. A canonical proposal that predates the field returns to Groom first; its recertification facts then derive the approved context rather than accepting a caller override.
+
 ## External authority
 
 `linear_create`, `loop_approval`, `open_browser`, and `start_implementation` default false. Each grant has an audit record with action, reason, and timestamp. RFC approval does not expand these booleans.

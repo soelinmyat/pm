@@ -104,6 +104,12 @@
       "requirement": "Improve the experience"
     }
   ],
+  "design_context": {
+    "design_requirements": ["Improve the experience"],
+    "prototype": null,
+    "critical_states": ["Improve the experience"],
+    "visual_invariants": ["Improve the experience"]
+  },
   "success_metrics": [
     {
       "id": "metric:drift",

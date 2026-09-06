@@ -75,18 +75,40 @@ Stop.
 
    - **Name** — short and descriptive (3-5 words)
    - **One-liner** — what it does for the user (outcome, not implementation)
-   - **Signal sources** — which source(s) support it, with file paths
+   - **Signal sources** — which source(s) support it, with file paths and one stable `chain_id` per original evidence chain; derivative copies share the upstream chain ID
    - **Strategic fit** — which priority it advances
    - **Competitor gap** — `unique` / `partial` / `parity`
    - **Dependencies** — other unbuilt features required, or `none`
    - **Scope signal** — `small` (< 1 day) / `medium` (1-3 days) / `large` (1+ week)
-   - **Evidence strength** — `strong` (3+ signals) / `moderate` (1-2) / `hypothesis`
+   - **Evidence strength** — `strong` (3+ independent, claim-fit evidence chains, including a direct or primary source when available) / `moderate` (at least 1 credible chain with explicit limits; keep this conservative label when several references remain correlated) / `hypothesis` (a sourced signal whose implication remains unverified). Derivative copies of one upstream claim are one chain.
+   - **Customer impact** — `low` (minor convenience) / `medium` (meaningful friction or outcome improvement) / `high` (removes a critical pain or unlocks the core job)
+   - **Reach** — `narrow` (edge segment) / `segment` (meaningful ICP segment) / `broad` (most of the ICP); this is a bounded category, not an invented user count
+   - **Urgency** — `later` (no time pressure) / `soon` (cost grows within the planning horizon) / `now` (current blocker, churn, safety, or expiring opportunity)
+   - **Expected outcome** — `incremental` / `meaningful` / `step-change`, judged on the user or business result if the idea works, not implementation volume
+   - **Learning value** — `low` / `medium` / `high`, based on how much the smallest release resolves a consequential uncertainty
+   - **Value basis** — one short, cited rationale for each of the five value inputs above. Use the signal paths already attached to the idea; do not invent market sizes, user counts, or outcome probabilities.
 
 5. **Rank.** Run the shared `rank-ideas` command over the exact candidate briefs. When Strategy exists, pass `{pm_dir}` as the root and its canonical `strategy.decision.json`; the command authenticates that companion against current Strategy Markdown before ranking. Without one, state that token-level strategy verification is unavailable. Use the runtime ordering and show its score components. Unknown priority or non-goal tokens require correction; confirmed non-goal conflicts block saving until the user drops/reshapes the idea or explicitly updates Strategy.
 
-6. **Present.** Show a ranked table (# / Idea / One-liner / Supports / Gap / Evidence / Deps / Scope), a count of how many were filtered out with brief reasons, and quick-wins vs big-bets callouts. Then ask how to proceed: (a) groom one now, (b) add their own ideas, (c) go deeper on one, (d) save all to backlog.
+   The ranker converts each bounded category to `0` / `1` / `2` and computes one documented `weighted_total`:
 
-7. **Write.** Only when the user confirms they want ideas saved. Immediately before writing, rebuild the exact final candidate briefs after every user addition or reshape, require the current Strategy companion to be authenticated, and rerun `rank-ideas`. Do not save while any unknown token or confirmed non-goal conflict remains unresolved. Then write each approved idea to `{pm_dir}/backlog/{idea-slug}.md`, hash it, and write and validate `{pm_dir}/backlog/{idea-slug}.decision.json`. **ID rule:** use the Linear identifier as `id` if an issue was created; otherwise fall back to the local `PM-{NNN}` sequence. Preserve the decision ID across ranking and wording changes. Then tell the user the count, paths, and that `/pm:groom {slug}` consumes this lineage and atomically marks it promoted only after approved Groom artifacts exist.
+   | Input | Maximum weight | What the category represents |
+   |---|---:|---|
+   | Customer impact | 20 | Depth of improvement for an affected customer |
+   | Reach | 12 | Breadth across the stated ICP |
+   | Urgency | 10 | Cost of waiting |
+   | Expected outcome | 14 | Size of the result if the idea works |
+   | Learning value | 10 | Consequential uncertainty retired |
+   | Strategic alignment | 14 | Fit to authenticated priority tokens |
+   | Competitor gap | 8 | Differentiation opportunity |
+   | Dependency efficiency | 6 | Readiness without unbuilt prerequisites |
+   | Scope efficiency | 6 | Smaller path to a useful result |
+
+   The first five inputs form `customer_value` (maximum 66). Evidence strength adjusts that subtotal to `confidence_adjusted_value` using a bounded factor (`hypothesis` 0.75, `moderate` 0.9, `strong` 1.0); strategy and delivery inputs then complete `weighted_total`. The weights are comparison policy, not forecast precision. No direct ordinal contributes more than 20 points, so strategic alignment or any other single judgment cannot dominate every other dimension. Existing v1 briefs without the five customer-value fields remain valid and receive neutral defaults; flag `value_inputs_legacy_defaulted` and collect explicit inputs before a new save.
+
+6. **Present.** Show a ranked table (# / Idea / One-liner / Weighted total / Customer value / Confidence / Supports / Deps / Scope), a count of how many were filtered out with brief reasons, and quick-wins vs big-bets callouts. Keep the ordinal inputs and their cited value basis visible on request; a total never replaces judgment. Then ask how to proceed: (a) groom one now, (b) add their own ideas, (c) go deeper on one, (d) save all to backlog.
+
+7. **Write.** Only when the user confirms they want ideas saved. Immediately before writing, rebuild the exact final candidate briefs after every user addition or reshape, assign each evidence reference its original-source `chain_id`, require the current Strategy companion to be authenticated, and rerun `rank-ideas`. Do not save while any unknown token or confirmed non-goal conflict remains unresolved. Then write each approved idea to `{pm_dir}/backlog/{idea-slug}.md`, hash it, and write `{pm_dir}/backlog/{idea-slug}.decision.json`. Before treating that new companion as saved, run `scripts/product-reasoning.js validate-idea-save --root "{pm_dir}" --input "{pm_dir}/backlog/{idea-slug}.decision.json"`; a normal legacy-readable `validate` is not the new-save gate. Fix every missing chain ID, customer-value field, basis, or binding before continuing. **ID rule:** use the Linear identifier as `id` if an issue was created; otherwise fall back to the local `PM-{NNN}` sequence. Preserve the decision ID across ranking and wording changes. Then tell the user the count, paths, and that `/pm:groom {slug}` consumes this lineage and atomically marks it promoted only after approved Groom artifacts exist.
 
    ```markdown
    ---
@@ -119,6 +141,13 @@ Stop.
    ## Competitor Context
    {Who has this, who doesn't, how ours would differ.}
 
+   ## Value Hypothesis
+   Customer impact: {category} — {cited basis}
+   Reach: {category} — {cited basis}
+   Urgency: {category} — {cited basis}
+   Expected outcome: {category} — {cited basis}
+   Learning value: {category} — {cited basis}
+
    ## Dependencies
    {What needs to exist first, or "None."}
 
@@ -145,6 +174,6 @@ When the user already knows what to build and wants to scope it — use `pm:groo
 
 ## Before Marking Done
 
-- [ ] User-approved Markdown and decision companions are saved with stable IDs, Evidence/source refs, deterministic ranks, and comparable fields; unapproved ideas remain unwritten.
+- [ ] User-approved Markdown and decision companions are saved with stable IDs, Evidence/source refs, deterministic weighted ranks, customer-impact and confidence-adjusted value inputs, and comparable fields; unapproved ideas remain unwritten.
 - [ ] The user confirmed which ideas to save and whether to think, groom, or stop.
 - [ ] Capability audit, signal provenance, five-filter, ranking, deduplication, and write validation gates passed.

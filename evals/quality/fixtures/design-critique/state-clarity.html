@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Notification settings</title>
+    <style>
+      :root {
+        font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+        color: #1d2638;
+        background: #f3f5f9;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+      }
+      main {
+        width: min(680px, calc(100% - 32px));
+        margin: 40px auto;
+        padding: 32px;
+        border: 1px solid #dce2ec;
+        border-radius: 14px;
+        background: #fff;
+      }
+      h1 {
+        margin-top: 0;
+      }
+      .field {
+        display: grid;
+        gap: 8px;
+        margin: 24px 0;
+      }
+      input,
+      select,
+      button {
+        min-height: 44px;
+        border: 1px solid #7e8ca4;
+        border-radius: 8px;
+        font: inherit;
+      }
+      input,
+      select {
+        padding: 0 12px;
+      }
+      .actions {
+        display: flex;
+        gap: 10px;
+      }
+      .actions button {
+        min-width: 128px;
+        padding: 0 18px;
+        border-color: #245dc5;
+        color: #fff;
+        background: #245dc5;
+        font-weight: 700;
+      }
+      button:focus-visible,
+      input:focus-visible,
+      select:focus-visible {
+        outline: 3px solid #935300;
+        outline-offset: 2px;
+      }
+      #notice {
+        min-height: 28px;
+        margin-top: 18px;
+        color: #44536a;
+      }
+      .spinner {
+        display: inline-block;
+        width: 16px;
+        height: 16px;
+        margin-right: 8px;
+        border: 2px solid #d9e0eb;
+        border-top-color: #245dc5;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Notification settings</h1>
+      <p>Choose how the team receives delivery updates.</p>
+      <form id="settings" novalidate>
+        <label class="field"
+          >Team email <input id="team-email" type="email" value="delivery@example.com" required
+        /></label>
+        <label class="field"
+          >Summary frequency
+          <select id="frequency">
+            <option>Daily</option>
+            <option>Weekly</option>
+          </select>
+        </label>
+        <div class="actions">
+          <button type="submit">Save settings</button>
+          <button id="test" type="button">Send test</button>
+        </div>
+        <div id="notice"></div>
+      </form>
+    </main>
+    <script>
+      const form = document.querySelector("#settings");
+      const email = document.querySelector("#team-email");
+      const notice = document.querySelector("#notice");
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        if (!email.validity.valid) {
+          notice.textContent = "Enter a valid address";
+          email.focus();
+          return;
+        }
+        notice.innerHTML = '<span class="spinner"></span>Saving';
+        window.setTimeout(() => {
+          notice.textContent = "Settings saved";
+          window.setTimeout(() => {
+            notice.textContent = "";
+          }, 600);
+        }, 800);
+      });
+      document.querySelector("#test").addEventListener("click", () => {
+        notice.textContent = "Something went wrong";
+      });
+    </script>
+  </body>
+</html>

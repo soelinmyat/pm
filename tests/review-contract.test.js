@@ -16,7 +16,7 @@ const {
   mergeSignals,
 } = require("../scripts/lib/review-contract");
 
-const ALL = ["bug", "design", "edge", "reuse", "quality", "efficiency"];
+const ALL = ["bug", "design", "edge", "reuse", "quality", "efficiency", "security"];
 
 test("change-anchor labels share exact head, base, and path formatting", () => {
   assert.equal(
@@ -161,6 +161,7 @@ test("Dev review context binds route identity and ordered acceptance criteria", 
     review_mode: "full",
     decision_version: 2,
     acceptance_sha256: context.acceptance_sha256,
+    security_review_required: false,
   });
   assert.match(context.acceptance_sha256, /^[a-f0-9]{64}$/);
   assert.notEqual(
@@ -169,6 +170,57 @@ test("Dev review context binds route identity and ordered acceptance criteria", 
       ...session,
       task: { acceptance_criteria: ["Second", "First"] },
     }).acceptance_sha256
+  );
+});
+
+test("Review security applicability follows Dev risk or conservative standalone paths", () => {
+  const context = devReviewContext({
+    run_id: "dev_sensitive",
+    slug: "sensitive",
+    routing: { review_mode: "full", decision_version: 1 },
+    task: {
+      acceptance_criteria: ["Keep tenant data private"],
+      risk: { security: 2, auth: 0, data: 1, destructive_data: false },
+    },
+  });
+  assert.equal(context.security_review_required, true);
+  assert.deepEqual(
+    deriveLensApplicability("full", [{ path: "server/account.js" }], context).find(
+      (item) => item.name === "security"
+    ),
+    {
+      name: "security",
+      applicable: true,
+      reason: "canonical Dev risk route requires dedicated security review",
+    }
+  );
+  assert.equal(
+    deriveLensApplicability("code-scan", [{ path: "server/account.js" }], null).find(
+      (item) => item.name === "security"
+    ).applicable,
+    false
+  );
+  assert.deepEqual(
+    deriveLensApplicability("full", [{ path: "src/auth/login.js" }], null).find(
+      (item) => item.name === "security"
+    ),
+    {
+      name: "security",
+      applicable: true,
+      reason: "standalone diff touches a security-sensitive path or dependency manifest",
+    }
+  );
+  assert.equal(
+    deriveLensApplicability("code-scan", [{ path: "package-lock.json" }], null).find(
+      (item) => item.name === "security"
+    ).applicable,
+    true
+  );
+  assert.equal(
+    deriveLensApplicability("full", [{ path: "src/author.js" }], null).find(
+      (item) => item.name === "security"
+    ).applicable,
+    false
   );
 });
 

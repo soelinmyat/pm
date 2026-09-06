@@ -32,6 +32,16 @@ function seed(workflow, sourceDir) {
       proposal_path: path.join(artifact.worktree, "pm", "backlog", "export-v2.md"),
       size: "M",
       acceptance_criteria: ["Preserve accepted export boundaries", "Revalidate source identity"],
+      design_context: {
+        design_requirements: ["Keep export lifecycle state and recovery actions explicit."],
+        ui_impact: false,
+        prototype: null,
+        critical_states: ["requested", "running", "completed", "failed"],
+        experience_invariants: [
+          "Every export state explains what happened and what the user can do next.",
+        ],
+        visual_invariants: [],
+      },
       artifact_repo_root: artifact.worktree,
     });
     session = rfc.recordResult(session, rfcResult(session));

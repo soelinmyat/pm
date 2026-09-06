@@ -51,6 +51,19 @@ jobs:
       - name: Run tests with coverage
         run: npx c8 --reporter=text node --test tests/*.test.js
 
+  managed-directory-windows:
+    name: Managed Directory Windows Smoke
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Publish and read a managed capture bundle
+        run: node --test tests/project-managed-directory-windows.test.js
+
   plugin-contract:
     name: Plugin Contract
     runs-on: ubuntu-latest

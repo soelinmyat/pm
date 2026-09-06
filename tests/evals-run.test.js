@@ -11,6 +11,7 @@ const repoRoot = path.resolve(__dirname, "..");
 const runScript = path.join(repoRoot, "scripts", "evals", "run.js");
 const { loadQualityCase } = require("../scripts/evals/quality.js");
 const { stageQualityCase } = require("../scripts/evals/run.js");
+const { hashTree } = require("../scripts/evals/stage.js");
 const { _private: codexPrivate } = require("../scripts/evals/adapters/codex.js");
 
 test("stub eval runner stages source and writes a passing verdict", () => {
@@ -88,6 +89,10 @@ test("eval runner stages and hashes an explicit quality case into the run story"
     const story = fs.readFileSync(path.join(runDir, "scenario", "story.md"), "utf8");
     assert.ok(story.includes(loadQualityCase(repoRoot, "dev-happy-path").prompt));
     assert.doesNotMatch(story, /Implement this small PM workflow change and push it when ready/);
+    const scenarioIdentity = JSON.parse(
+      fs.readFileSync(path.join(runDir, "metadata", "scenario_identity.json"), "utf8")
+    );
+    assert.equal(scenarioIdentity.scenario_hash, hashTree(path.join(runDir, "scenario")).hash);
   } finally {
     fs.rmSync(runDir, { recursive: true, force: true });
   }

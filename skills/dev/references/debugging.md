@@ -111,19 +111,13 @@ You MUST complete each phase before proceeding to the next.
 
    **This reveals:** Which layer fails (secrets → workflow ✓, workflow → build ✗)
 
-### CleanLog Common Issues
+### Repository-specific known issues
 
-Before deep investigation, check these frequent root causes:
-
-| Symptom | Likely cause | Fix |
-|---|---|---|
-| Mobile pre-push hook fails | Metro not running | `cd apps/mobile && npx expo start --dev-client` |
-| Worktree tests fail on first run | Missing API sync | `cd apps/api && bin/sync-api --spec` |
-| Frontend types don't match API | Stale contract | `bin/sync-api` then rebuild shared package |
-| Token class not found in Tailwind | Missing CSS variable | Check token pipeline: tokens.ts -> generate-css.ts -> dist/tokens.css |
-| `duration-normal` not working | Not a Tailwind utility | Use `duration-200` instead |
-| Vitest passes locally, fails in CI | `.env` masking | Check for `vi.stubEnv` + module-level constants; also mock the module |
-| Flex scroll not working | Missing containment | Every flex container needs `min-h-0 overflow-hidden`, only scroll target gets `overflow-y-auto` |
+Before deep investigation, read the current repository's AGENTS/CLAUDE guide,
+README, test scripts, and troubleshooting notes. Treat a documented known issue
+as a hypothesis to verify, not as the answer. Confirm the failing command,
+environment, generated artifacts, dependency state, and contract versions on
+this checkout before changing code.
 
 5. **Trace Data Flow**
 
@@ -189,12 +183,13 @@ Before deep investigation, check these frequent root causes:
 
 **Fix the root cause, not the symptom:**
 
-1. **Create Failing Test Case**
-   - Simplest possible reproduction
-   - Automated test if possible
-   - One-off test script if no framework
-   - MUST have before fixing
-   - See `tdd.md` in this directory for writing proper failing tests
+1. **Create Regression Evidence**
+   - Capture the simplest possible reproduction before fixing
+   - Prefer an automated behavior test that fails for the diagnosed cause
+   - Use a bounded reproduction script or trace when no test harness can express it
+   - For legacy, spike, generated-code, or configuration work, select the
+     matching risk-aware mode in `tdd.md`
+   - Do not confuse an environment/setup failure with evidence of the defect
 
 2. **Implement Single Fix**
    - Address the root cause identified
@@ -291,7 +286,8 @@ If systematic investigation reveals issue is truly environmental, timing-depende
 3. Implement appropriate handling (retry, timeout, error message)
 4. Add monitoring/logging for future investigation
 
-**But:** 95% of "no root cause" cases are incomplete investigation.
+Do not use "external" as a catch-all. State which observations rule out the
+components you control and what evidence identifies the external boundary.
 
 ## Supporting Techniques
 
@@ -300,16 +296,16 @@ These techniques are part of systematic debugging and available in this director
 - **`root-cause-tracing.md`** - Trace bugs backward through call stack to find original trigger
 - **`defense-in-depth.md`** - Add validation at multiple layers after finding root cause
 - **`condition-based-waiting.md`** - Replace arbitrary timeouts with condition polling
-- **Monorepo pitfalls:** Read `pitfalls.md` at repo root for Playwright, git/worktree, ESLint, and Rails gotchas
+- **Repository guidance:** Read the project's own troubleshooting or pitfalls
+  guide when present; verify each suggested cause against current evidence
 
 **Related references:**
-- **`tdd.md`** - For creating failing test case (Phase 4, Step 1)
+- **`tdd.md`** - For selecting and executing the risk-aware regression evidence mode (Phase 4, Step 1)
 - Verification gate (run tests, read output, confirm 0 failures before claiming fix)
 
-## Real-World Impact
+## Expected outcome
 
-From debugging sessions:
-- Systematic approach: 15-30 minutes to fix
-- Random fixes approach: 2-3 hours of thrashing
-- First-time fix rate: 95% vs 40%
-- New bugs introduced: Near zero vs common
+A completed investigation leaves a reproducible symptom, a single supported
+root-cause explanation, a focused fix, and current verification. If the evidence
+cannot distinguish competing causes, the work is still in investigation rather
+than ready for implementation.

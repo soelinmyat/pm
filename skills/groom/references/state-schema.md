@@ -84,7 +84,7 @@ Tier routing is defined in `tier-gating.md`. Approval is never a normal phase re
 }
 ```
 
-The executable closed schema is `scripts/lib/groom-session-schema.js`.
+The executable closed schema is `scripts/lib/groom-session-schema.js`. Newly created sessions use schema v2, whose Quick route includes bounded Design and Review. Existing schema-v1 sessions remain resumable on the route they froze; never rewrite their completed history to imitate v2.
 Fresh context requires `artifact_repo_root` to identify the matching helper-owned
 `codex/{slug}-groom` worktree. On read, v1 sessions written before this field existed
 are normalized to `null` so in-flight work can resume against the historical source
@@ -106,7 +106,24 @@ Every non-approval phase returns `groom-phase-result-v1`:
   "summary": "What this phase decided",
   "proposal": null,
   "evidence": [{ "kind": "scope", "command": "...", "exit_code": 0, "artifact": null }],
-  "question_outcomes": [],
+  "question_outcomes": [
+    {
+      "question_id": "scope",
+      "proposal_hash": "sha256:...",
+      "verdict": "pass | advisory",
+      "conclusion": "Decision reached",
+      "rationale": "Why it follows",
+      "evidence": [
+        {
+          "evidence_id": "evidence:registered-id",
+          "locator": "Precise location",
+          "relevance": "How this location bears on this answer"
+        }
+      ],
+      "confidence": "high | medium | low",
+      "finding": null
+    }
+  ],
   "capability_downgrades": [],
   "blocker": null,
   "runtime": {
@@ -118,14 +135,16 @@ Every non-approval phase returns `groom-phase-result-v1`:
 }
 ```
 
-The Draft and later applicable results carry exact proposal identity. Review results contain one current outcome for every routed independent question. Capability downgrades state the missing capability and chosen execution fallback; they never change product policy.
+The Draft and later applicable results carry exact proposal identity. Review results contain one current outcome for every routed independent question. Each result outcome must exactly match the canonical proposal row's conclusion, rationale, evidence, confidence, finding, and outcome/verdict before the session records Review as passed. Capability downgrades state the missing capability and chosen execution fallback; they never change product policy.
+
+For current schema-v2 sessions, `routing.review_questions` must exactly match the selected tier's built-in contract. The canonical proposal copies the session ID, tier, and ordered IDs into `review_contract`; Review and Approval recompute that binding and reject partial, duplicate, extra, or stale question rows. Legacy sessions and proposals remain readable with an explicit compatibility label, but their unbound rows cannot impersonate current review coverage.
 
 ## Approval chain
 
 1. Review certifies semantic `content_hash` plus `revision`.
-2. The user explicitly approves; `approve` records an immutable session decision ID/hash against that reviewed identity.
+2. The user explicitly approves; `approve` first recomputes any bound single-file or multi-file prototype identity from current repository bytes, then records an immutable session decision ID/hash against that reviewed identity.
 3. Canonical proposal lifecycle changes to `approved` without substantive content/revision change.
-4. `approval-audit` binds the session decision and exact approved JSON bytes.
+4. `approval-audit` independently recomputes the complete bound prototype identity again, then binds the session decision and exact approved JSON bytes.
 5. `proposal-check.js` verifies proposal, audit, and generated projections before handoff.
 
 Each crash window fails closed. A substantive revision clears review and approval and routes to the requested earlier phase.

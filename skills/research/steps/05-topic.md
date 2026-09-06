@@ -39,7 +39,7 @@ For targeted deep dives not covered by landscape or competitor profiling.
    - Get volume, difficulty, CPC for the topic as a keyword. Quantifies how much people search for this.
    - Check SERP overview — see who currently ranks and what the SERP looks like. Reveals content competition and opportunity.
    - If volume is significant, note it in findings. If zero volume, the topic may be too niche for SEO-driven content — note that too.
-4. **Web search.** Search for the topic directly. Fill gaps with follow-up searches.
+4. **Web search and calibrate coverage.** Search for the topic directly. Fill gaps with follow-up searches only while another source could change a decision or confidence. For every material claim, assess **authority, independence, recency, and claim fit**. Three derivative sources sharing one upstream origin are one evidence chain; a current primary source may carry more weight for a fact it controls, while causal or experience claims need an independent perspective or a stated limitation. Assign qualitative `high`, `medium`, or `low` confidence with a one-line basis rather than inventing a numerical probability.
 5. **Register durable sources.** For every source that supports a saved claim, write a JSON request under `{pm_state_dir}/evidence/requests/` and run `scripts/evidence.js register` as documented in `${CLAUDE_PLUGIN_ROOT}/references/evidence-system.md`. Use a portable host/path label, the specific page/section/result as locator, `freshness_kind: topic`, and `artifact_path: evidence/research/{topic-slug}.md`. Keep the returned Evidence-ID with the exact claim it supports. Reuse the same ID when the same source supports multiple claims or artifacts; registration adds artifact bindings idempotently.
 6. **Write findings** to `{pm_dir}/evidence/research/{topic-slug}.md` using the shared topic schema:
 
@@ -86,6 +86,9 @@ What this means for the product. Link to strategy sections if relevant.
 ## Open Questions
 What this research did NOT answer.
 
+## Confidence Notes
+- {Decision-relevant claim or claim cluster} — {high|medium|low}: authority={basis}; independence={basis}; recency={basis}; claim fit={basis}; limitation={none or unresolved uncertainty}.
+
 ## Source References
 - `ev_0123456789abcdef01234567` — https://example.com/article — accessed YYYY-MM-DD
 ```
@@ -117,4 +120,4 @@ What this research did NOT answer.
 
 ## Done-when
 
-The evidence file exists at `{pm_dir}/evidence/research/{topic-slug}.md` with claim-level Evidence-ID citations, hypotheses and contradictions are explicit, both validators pass, routing has run or been explicitly skipped, and evidence indexes/logs are updated. Then offer `/pm:groom {topic-slug}` or `/pm:ideate` as the concrete next action.
+The evidence file exists at `{pm_dir}/evidence/research/{topic-slug}.md` with claim-level Evidence-ID citations and confidence calibrated by source quality, hypotheses and contradictions are explicit, both validators pass, routing has run or been explicitly skipped, and evidence indexes/logs are updated. Then offer `/pm:groom {topic-slug}` or `/pm:ideate` as the concrete next action.

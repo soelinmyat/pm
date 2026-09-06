@@ -93,15 +93,25 @@ git worktree remove /tmp/check-default-$$ --force 2>/dev/null || true
 ```
 
 **If failures are pre-existing (also fail on {DEFAULT_BRANCH}):**
-1. Fix them in a separate commit with message: `fix: resolve pre-existing {test/lint/spec} failures`
-2. This is not optional. Pre-existing failures still block the push and must be fixed.
-3. Check AGENTS.md for common pre-push setup (e.g., `bin/sync-api --spec` for API spec generation, `pnpm build` for shared packages in monorepos). Run these first as they often resolve pre-existing issues.
+1. Confirm the comparison used the authoritative default-branch commit, same
+   dependency/tool versions, and the exact failing command. Save the branch and
+   default-branch outputs as separate evidence.
+2. If the failure is unrelated to the delivery diff, do not call the branch or
+   gate successful, bypass the hook, or silently expand scope to repair it.
+   Preserve the blocker and ask for explicit direction to open a separate
+   remediation unit or stop this delivery.
+3. If the failure is setup drift rather than source behavior, run only the
+   repository-documented setup/generation command, then repeat the exact
+   comparison. A source fix still needs separate scope and full recertification.
 
 **If failures are new (pass on {DEFAULT_BRANCH}, fail on branch):**
 - Fix the issue (missing build artifact, failing test, lint error)
 - Re-commit if needed: `git commit --amend` or new fix commit
 
-**In both cases:** Retry push (max 3 attempts).
+**For branch-caused failures or explicitly authorized remediation:** retry push
+after recertification, with a maximum of 3 attempts. A pre-existing unrelated
+failure remains blocked; it does not consume retries through repeated identical
+runs.
 
 Every hook fix, generated-file update, amend, or new commit triggers the complete post-mutation recertification protocol: run `release-transaction.js advance` to archive the prior generation, rerun current Review and changed routed gates, bind fresh evidence, regenerate effect targets, validate the delivery contract, and pass `dev-gate-check` on current HEAD before the next push attempt. Do not retry directly after committing a fix.
 

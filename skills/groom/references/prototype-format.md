@@ -1,12 +1,12 @@
 # Prototype Format
 
-How wireframes are created, named, and organized in the PM knowledge base. Used by `pm:groom` Step 6 (Design) to generate prototypes and by Step 7 (Draft Proposal) to link them from an offline-safe preview.
+How wireframes are created, named, and organized in the PM knowledge base. Used by `pm:groom` Step 5 (Design) to generate prototypes and by Step 6 (Draft) to link them from an offline-safe preview.
 
 For shared base styles and the starter template, see:
 - `${CLAUDE_PLUGIN_ROOT}/references/templates/wireframe-base.css`
 - `${CLAUDE_PLUGIN_ROOT}/references/templates/wireframe-base.html`
 
-> **Legacy.** Wireframes created before this spec (most files in `{pm_dir}/backlog/wireframes/` predating it) may use older patterns. Do not migrate them. Apply this spec to new wireframes only.
+> **Legacy.** Wireframes created before this spec (most files in `{pm_dir}/backlog/wireframes/` predating it) may use older patterns. Keep them inspection-readable. A legacy prototype that loads unbound files must be recertified into the current single-file or tree-bound form before a new RFC/Dev handoff; do not silently rewrite it during inspection.
 
 ---
 
@@ -38,11 +38,12 @@ Pick one tier per wireframe. Recorded in metadata.
 |---|---|---|
 | `sketch` | Structural / IA changes where layout matters more than visuals; very early grooming | Grayscale, dashed borders, hand-drawn feel, generic typography |
 | `wireframe` | Default for most UI features. Real text and proportions, but no project design tokens applied | System fonts, neutral palette, disciplined CSS via `wireframe-base.css` |
-| `mockup` | Project has a Tailwind config + tokens AND the feature needs visual review before implementation | Uses the real design system; close to running app appearance |
+| `mockup` | A usable existing visual system is available and the feature benefits from visual review before implementation | Reuses the smallest required project tokens/styles; close to the running app without a CDN dependency or invented design language |
 
-**Auto-selection in Step 6:**
-- If `tailwind.config.*` AND token files (`tokens.ts`, CSS variables, etc.) are detected → `mockup`
-- Otherwise default → `wireframe`
+**Auto-selection in Step 5:**
+- If a usable existing visual system is detected—a Tailwind theme, CSS variables/tokens/theme, or established styled component primitives—AND the feature benefits from fidelity before implementation → `mockup`
+- Treat a system as usable only when the prototype can reproduce the relevant shipped pattern faithfully and offline. Reuse observed tokens and component treatment; never invent missing tokens or infer a design system from an unused config file.
+- If no usable system exists, or reproducing it would be guesswork → `wireframe`
 - User can override to `sketch` for early-grooming structural exploration
 
 ---
@@ -80,7 +81,7 @@ For any wireframe with dynamic content, the file MUST include separate screen bl
 
 Static or one-shot UI (e.g., a settings layout that only ever shows configuration) can declare `populated`-only.
 
-State coverage is checked by the `@designer` reviewer in Step 8. Missing states are blocking unless metadata declares `"states_only": ["populated"]` with a brief justification.
+State coverage is checked by the `@designer` reviewer in Step 7. Missing states are blocking unless metadata declares `"states_only": ["populated"]` with a brief justification.
 
 ---
 
@@ -114,7 +115,7 @@ Every wireframe carries metadata. **Single-file**: embedded as `<script type="ap
   ],
   "viewport": "desktop | mobile | responsive",
   "includes_chrome": true | false,
-  "design_system_source": "tailwind-config | css-tokens | fallback | none",
+  "design_system_source": "tailwind-config | css-tokens | component-primitives | fallback | none",
   "created": "YYYY-MM-DD",
   "updated": "YYYY-MM-DD"
 }
@@ -123,7 +124,7 @@ Every wireframe carries metadata. **Single-file**: embedded as `<script type="ap
 ### Field semantics
 
 - `slug` — matches the proposal slug (e.g., `dashboard-proposal-hero`)
-- `fidelity` — selected by Step 6 per §2 rules
+- `fidelity` — selected by Step 5 per §2 rules
 - `screens[].id` — kebab-case, used as `data-screen` attribute
 - `screens[].states` — list of states actually rendered in the wireframe (not the states the feature could theoretically have)
 - `screens[].file` — only set for multi-file wireframes; relative to the wireframe folder
@@ -131,17 +132,18 @@ Every wireframe carries metadata. **Single-file**: embedded as `<script type="ap
 - `includes_chrome` — `true` when the wireframe legitimately shows app-level nav (per §5)
 - `design_system_source`:
   - `tailwind-config` — Tailwind config detected and used (mockup tier)
-  - `css-tokens` — CSS variables / token file detected (mockup tier)
+  - `css-tokens` — CSS variables, token file, or theme source detected and used (mockup tier)
+  - `component-primitives` — existing styled components are the usable visual source when no separate token file exists (mockup tier)
   - `fallback` — design system not found; using `wireframe-base.css` primitives (wireframe tier)
   - `none` — sketch tier, no styling system
 
-### Read by Step 7
+### Read by Step 6
 
-When generating the proposal HTML, Step 7 reads the wireframe metadata to auto-populate the "Screens" caption under the hero prototype. The caption format is:
+When generating the proposal HTML, Step 6 reads the wireframe metadata to auto-populate the "Screens" caption under the hero prototype. The caption format is:
 
 > Screens — {label1} · {label2} · {label3}
 
-If metadata is missing, Step 7 falls back to a generic "View prototype" caption with no screens listed.
+If metadata is missing, Step 6 falls back to a generic "View prototype" caption with no screens listed.
 
 ---
 
@@ -174,7 +176,16 @@ The `<ol class="callout-notes">` sits outside the canvas, below it. CSS auto-num
 
 ## 8. Referencing from the proposal
 
+Prototype certification supports at most 128 files and 512 total directory entries. Empty directories count toward the entry limit. The conservative markup scanner rejects namespace-prefixed XML elements and any HTML `template` encountered after SVG or MathML content; put static HTML templates before foreign content or remove them. These restrictions avoid relying on browser namespace recovery to establish a complete dependency inventory.
+
 The proposal HTML is an inert, self-contained artifact. It never frames or executes a prototype. Instead, show a metadata-derived preview card between the title block and TL;DR and link to the standalone prototype:
+
+The canonical proposal JSON also records the prototype in `design_context.prototype`, or explicit `null` when no prototype was approved. Generate the value after final refinement with `node ${CLAUDE_PLUGIN_ROOT}/scripts/prototype-identity.js --repo-root {artifact_repo_root} --path {project-relative-entry-path} --json`.
+
+- Single-file identity is `{ "path", "sha256" }` and binds that complete artifact. It must be self-contained: inline CSS and media, keep navigation fragment-local, and do not load a local or remote stylesheet, script, frame, or media resource. If the prototype needs supporting files, use the `index.html` bundle form instead.
+- Multi-file identity adds `manifest: { schema_version: 1, files: [{ path, sha256 }], tree_sha256 }`. Paths are relative to the prototype directory and sorted. The bounded manifest covers the entire directory tree, including `index.html`, `meta.json`, `base.css`, every screen HTML file, and supporting assets. Every active HTML, SVG, and CSS resource reference must be local, normalized, resolve inside that directory, and name a manifest entry. Remote/root-absolute resources, missing targets, active scripts, inline event handlers, `srcdoc`, `srcset`, refresh/base directives, and unsupported active `.htm`/`.xhtml` files are rejected because their rendered dependencies cannot be completely certified.
+
+Groom recomputes the binding both when recording human approval and when creating its approval audit; RFC and Dev recheck it during downstream intake and resume. A changed, added, removed, missing, symlinked, oversized, or out-of-bounds file blocks the transition. A legacy multi-file binding that hashes only `index.html` remains inspection-readable but must be recertified in Groom before a current RFC/Dev handoff.
 
 ```html
 <figure class="hero-prototype">
@@ -214,7 +225,7 @@ The proposal HTML is an inert, self-contained artifact. It never frames or execu
 
 ## 9. Quality checklist
 
-Before marking a wireframe done in Step 6:
+Before marking a wireframe done in Step 5:
 
 - [ ] File at the correct path per §1 (single-file at `{slug}.html`, or subfolder at `{slug}/`)
 - [ ] Fidelity tier set in metadata, matches the visual treatment
@@ -225,3 +236,5 @@ Before marking a wireframe done in Step 6:
 - [ ] Metadata complete and valid per §6 schema
 - [ ] Callouts (if any) use the standard pattern per §7 — no floating text inside canvas
 - [ ] Opens cleanly when previewed standalone from the proposal link
+- [ ] Canonical proposal `design_context.prototype` matches the current single-file bytes or complete multi-file tree, or is explicitly `null` when no prototype was approved
+- [ ] Every multi-file HTML/SVG/CSS dependency is local, resolves inside the bundle, and appears in the manifest; no unsupported active markup or executable dependency remains

@@ -632,12 +632,13 @@ test("delivery and archival use the same current phase evidence kinds", () => {
   assert.equal(current.ok, true, JSON.stringify(current.issues));
 });
 
-test("delivery uses Design Critique and QA phase evidence kinds for UI routes", () => {
-  const currentCommit = "abc123";
+test("delivery rejects legacy null QA evidence and requires the canonical passing report", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-delivery-qa-gate-"));
+  const currentCommit = "a".repeat(40);
   const canonicalSession = {
     run_id: "run-ui",
     slug: "ui-feature",
-    source: { branch: "feat/ui-feature" },
+    source: { repo_root: root, branch: "feat/ui-feature" },
     routing: {
       review_mode: "full",
       required_gates: ["design-critique", "qa"],
@@ -657,24 +658,263 @@ test("delivery uses Design Critique and QA phase evidence kinds for UI routes", 
       },
       qa: {
         commit: currentCommit,
-        records: [{ kind: "test", exit_code: 0 }],
+        records: [{ kind: "test", exit_code: 0, artifact: null }],
       },
     },
+    attempts: [{ phase: "qa", status: "passed", commit: currentCommit }],
   };
-  const result = checkGateManifest(
-    manifest([gate("design-critique"), gate("qa")], { run_id: canonicalSession.run_id }),
-    {
-      currentCommit,
-      currentBranch: canonicalSession.source.branch,
-      changedFiles: ["src/component.tsx"],
-      requiredGates: canonicalSession.routing.required_gates,
-      requiredAuthorities: ["push_feature_branch"],
-      manifestPath: ".pm/dev-sessions/ui-feature/gates.json",
-      canonicalSession,
-    }
+  const options = {
+    artifactRoot: root,
+    currentCommit,
+    currentBranch: canonicalSession.source.branch,
+    changedFiles: ["src/component.tsx"],
+    requiredGates: canonicalSession.routing.required_gates,
+    requiredAuthorities: ["push_feature_branch"],
+    manifestPath: ".pm/dev-sessions/ui-feature/gates.json",
+    canonicalSession,
+  };
+  const gates = manifest(
+    [
+      gate("design-critique", currentCommit, { artifact: __filename }),
+      gate("qa", currentCommit, { artifact: __filename }),
+    ],
+    { run_id: canonicalSession.run_id }
   );
-  assert.equal(result.ok, true, JSON.stringify(result.issues));
+
+  try {
+    const legacy = checkGateManifest(gates, options);
+    assert.equal(legacy.ok, false);
+    assert.match(JSON.stringify(legacy.issues), /canonical QA evidence.*absolute report artifact/);
+
+    const reportPath = path.join(
+      root,
+      ".pm",
+      "dev-sessions",
+      canonicalSession.slug,
+      "qa",
+      "report.json"
+    );
+    const outputPath = path.join(path.dirname(reportPath), "evidence", "run-1.json");
+    const output = passingQaOutput(currentCommit);
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+    fs.writeFileSync(outputPath, output);
+    fs.writeFileSync(
+      reportPath,
+      `${JSON.stringify(passingQaReport(currentCommit, outputPath, output), null, 2)}\n`
+    );
+    canonicalSession.evidence.qa.records = [
+      {
+        kind: "test",
+        command: "node scripts/qa-report-check.js",
+        exit_code: 0,
+        artifact: reportPath,
+      },
+    ];
+    const valid = checkGateManifest(gates, options);
+    assert.equal(valid.ok, true, JSON.stringify(valid.issues));
+
+    canonicalSession.evidence.qa.qa_run_count = 1;
+    appendPassingQaReverification(reportPath, currentCommit);
+    const unrecordedExtraRun = checkGateManifest(gates, options);
+    assert.equal(unrecordedExtraRun.ok, false);
+    assert.match(
+      JSON.stringify(unrecordedExtraRun.issues),
+      /must contain exactly 1 runs: one per runner-recorded QA run/
+    );
+    fs.writeFileSync(
+      reportPath,
+      `${JSON.stringify(passingQaReport(currentCommit, outputPath, output), null, 2)}\n`
+    );
+    fs.rmSync(path.join(path.dirname(reportPath), "evidence", "report-run-1.json"));
+
+    canonicalSession.evidence.qa.records[0].command = null;
+    const nullCommand = checkGateManifest(gates, options);
+    assert.equal(nullCommand.ok, false);
+    assert.match(JSON.stringify(nullCommand.issues), /executed qa-report-check command/);
+    canonicalSession.evidence.qa.records[0].command = "node scripts/qa-report-check.js";
+
+    const forged = passingQaReport(currentCommit, outputPath, output);
+    delete forged.receipts;
+    delete forged.runs[0].receipt_ids;
+    fs.writeFileSync(reportPath, `${JSON.stringify(forged, null, 2)}\n`);
+    const vacuous = checkGateManifest(gates, options);
+    assert.equal(vacuous.ok, false);
+    assert.match(JSON.stringify(vacuous.issues), /executed evidence receipt|receipt_ids/);
+    fs.writeFileSync(
+      reportPath,
+      `${JSON.stringify(passingQaReport(currentCommit, outputPath, output), null, 2)}\n`
+    );
+
+    canonicalSession.evidence.qa = {
+      commit: "c".repeat(40),
+      records: [{ kind: "test", exit_code: 0, artifact: null }],
+      verified_commit: currentCommit,
+      verification_records: [
+        {
+          kind: "test",
+          command: "node scripts/qa-report-check.js",
+          exit_code: 0,
+          artifact: reportPath,
+        },
+      ],
+    };
+    const recertified = checkGateManifest(gates, options);
+    assert.equal(recertified.ok, true, JSON.stringify(recertified.issues));
+
+    canonicalSession.evidence.qa.verification_records[0].artifact = null;
+    const forgedRecertification = checkGateManifest(gates, options);
+    assert.equal(forgedRecertification.ok, false);
+    assert.match(
+      JSON.stringify(forgedRecertification.issues),
+      /canonical QA evidence.*absolute report artifact/
+    );
+    canonicalSession.evidence.qa.verification_records[0].artifact = reportPath;
+
+    const staleCommit = "b".repeat(40);
+    const staleOutput = passingQaOutput(staleCommit);
+    fs.writeFileSync(outputPath, staleOutput);
+    const staleReport = passingQaReport(staleCommit, outputPath, staleOutput);
+    fs.writeFileSync(reportPath, `${JSON.stringify(staleReport, null, 2)}\n`);
+    const stale = checkGateManifest(gates, options);
+    assert.equal(stale.ok, false);
+    assert.match(JSON.stringify(stale.issues), /must equal current result commit/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
+
+function passingQaReport(commit, outputPath, output = passingQaOutput(commit)) {
+  return {
+    schema_version: 2,
+    commit,
+    verdict: "pass",
+    health_score: 100,
+    tier: "full",
+    platform: "web",
+    assertions: { passed: 12, total: 12 },
+    finding_counts: { critical: 0, high: 0, medium: 0, low: 0 },
+    findings: [],
+    category_breakdown: [
+      "console",
+      "links",
+      "visual",
+      "functional",
+      "ux",
+      "performance",
+      "accessibility",
+    ].map((category) => ({ category, score: 100 })),
+    coverage: { acceptance_criteria: [], critical_states: [] },
+    receipts: [
+      {
+        id: "qa-run-1-tests",
+        run: 1,
+        kind: "deterministic",
+        commit,
+        command: "node --test tests/acceptance.test.js",
+        exit_code: 0,
+        assertions: { passed: 12, total: 12 },
+        output: {
+          path: outputPath,
+          sha256: crypto.createHash("sha256").update(output).digest("hex"),
+          bytes: output.length,
+        },
+        screenshot_ids: [],
+      },
+    ],
+    screenshots: [],
+    runs: [
+      {
+        run: 1,
+        kind: "initial",
+        commit,
+        checked_at: "2026-09-04T01:00:00.000Z",
+        verdict: "pass",
+        health_score: 100,
+        assertions: { passed: 12, total: 12 },
+        finding_ids: [],
+        receipt_ids: ["qa-run-1-tests"],
+      },
+    ],
+  };
+}
+
+function appendPassingQaReverification(reportPath, commit) {
+  const previousBytes = fs.readFileSync(reportPath);
+  const report = JSON.parse(previousBytes);
+  const run = report.runs.length + 1;
+  const evidenceRoot = path.join(path.dirname(reportPath), "evidence");
+  const snapshotPath = path.join(evidenceRoot, `report-run-${run - 1}.json`);
+  const receiptId = `qa-run-${run}-tests`;
+  const outputPath = path.join(evidenceRoot, `run-${run}.json`);
+  const output = passingQaOutput(commit, receiptId, `reverify-${run}`);
+  fs.writeFileSync(snapshotPath, previousBytes);
+  fs.writeFileSync(outputPath, output);
+  report.commit = commit;
+  report.receipts.push({
+    id: receiptId,
+    run,
+    kind: "deterministic",
+    commit,
+    command: "node --test tests/acceptance.test.js",
+    exit_code: 0,
+    assertions: { passed: 12, total: 12 },
+    output: {
+      path: outputPath,
+      sha256: crypto.createHash("sha256").update(output).digest("hex"),
+      bytes: output.length,
+    },
+    screenshot_ids: [],
+  });
+  report.runs.push({
+    run,
+    kind: "reverify",
+    commit,
+    checked_at: "2026-09-04T02:00:00.000Z",
+    verdict: "pass",
+    health_score: 100,
+    assertions: { passed: 12, total: 12 },
+    finding_ids: [],
+    receipt_ids: [receiptId],
+    previous_verdict: "pass",
+    previous_health_score: 100,
+    fixed_finding_ids: [],
+    still_open_finding_ids: [],
+    new_finding_ids: [],
+    fixed_finding_evidence: [],
+    previous_report: {
+      path: snapshotPath,
+      sha256: crypto.createHash("sha256").update(previousBytes).digest("hex"),
+      bytes: previousBytes.length,
+    },
+  });
+  fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+}
+
+function passingQaOutput(commit, receiptId = "qa-run-1-tests", idPrefix = "acceptance") {
+  return Buffer.from(
+    `${JSON.stringify(
+      {
+        schema_version: 1,
+        assurance: "workflow-attested-non-cryptographic",
+        receipt_id: receiptId,
+        commit,
+        kind: "deterministic",
+        command: "node --test tests/acceptance.test.js",
+        exit_code: 0,
+        assertions: Array.from({ length: 12 }, (_, index) => ({
+          id: `${idPrefix}-${index + 1}`,
+          status: "passed",
+          probe: `acceptance assertion ${index + 1}`,
+          observed: "expected state observed",
+          expected: "expected state observed",
+          finding_ids: [],
+        })),
+      },
+      null,
+      2
+    )}\n`
+  );
+}
 
 test("review render evidence rejects forged retained-render boundaries", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-review-render-forgery-"));

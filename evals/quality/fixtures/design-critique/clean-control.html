@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Release health</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+        color: #172033;
+        background: #f3f6fa;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+      }
+      .skip-link {
+        position: absolute;
+        left: 12px;
+        top: -60px;
+        z-index: 10;
+        padding: 12px;
+        color: #fff;
+        background: #143d8f;
+      }
+      .skip-link:focus {
+        top: 12px;
+      }
+      header,
+      main {
+        width: min(1040px, calc(100% - 32px));
+        margin: 0 auto;
+      }
+      header {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 22px 0;
+      }
+      nav ul {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+      nav a {
+        display: inline-flex;
+        min-height: 44px;
+        align-items: center;
+        padding: 0 12px;
+        color: #214f9e;
+      }
+      main {
+        padding: 24px 0 64px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: clamp(28px, 5vw, 42px);
+        line-height: 1.1;
+      }
+      .lede {
+        max-width: 64ch;
+        margin: 0 0 28px;
+        color: #4a5870;
+      }
+      .summary {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+        gap: 16px;
+      }
+      .card {
+        padding: 20px;
+        border: 1px solid #d4dce8;
+        border-radius: 12px;
+        background: #fff;
+      }
+      .card strong {
+        display: block;
+        margin: 10px 0 4px;
+        font-size: 30px;
+      }
+      .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: #146c3b;
+        font-weight: 700;
+      }
+      .status::before {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: currentColor;
+        content: "";
+      }
+      button {
+        min-height: 44px;
+        margin-top: 24px;
+        padding: 0 18px;
+        border: 0;
+        border-radius: 8px;
+        color: #fff;
+        background: #1d56bd;
+        font: inherit;
+        font-weight: 700;
+      }
+      a:focus-visible,
+      button:focus-visible {
+        outline: 3px solid #935300;
+        outline-offset: 3px;
+      }
+      @media (max-width: 520px) {
+        header {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+        nav,
+        nav ul {
+          width: 100%;
+        }
+        nav a {
+          justify-content: center;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#content">Skip to main content</a>
+    <header>
+      <strong>Relay</strong>
+      <nav aria-label="Primary">
+        <ul>
+          <li><a href="#health" aria-current="page">Health</a></li>
+          <li><a href="#metrics">Metrics</a></li>
+        </ul>
+      </nav>
+    </header>
+    <main id="content">
+      <h1 id="health">Release health</h1>
+      <p class="lede">Production services are healthy. Metrics were refreshed two minutes ago.</p>
+      <section id="metrics" class="summary" aria-label="Current release metrics">
+        <article class="card">
+          <span>Successful deploys</span><strong>24</strong><span>Past seven days</span>
+        </article>
+        <article class="card">
+          <span>Error rate</span><strong>0.02%</strong><span>Past hour</span>
+        </article>
+        <article class="card">
+          <span>Current status</span><strong class="status">Operational</strong
+          ><span>All regions</span>
+        </article>
+      </section>
+      <button id="refresh" type="button" aria-describedby="refresh-status">Refresh metrics</button>
+      <p id="refresh-status" role="status" aria-live="polite">Metrics are current.</p>
+    </main>
+    <script>
+      const refresh = document.querySelector("#refresh");
+      const status = document.querySelector("#refresh-status");
+      refresh.addEventListener("click", () => {
+        status.textContent = "Metrics refreshed. All services remain operational.";
+      });
+    </script>
+  </body>
+</html>

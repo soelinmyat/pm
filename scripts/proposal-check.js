@@ -8,6 +8,7 @@ const { inspectHtmlArtifact } = require("./artifact-check.js");
 const { renderProposal } = require("./proposal-render.js");
 const {
   proposalBytesHash,
+  readApprovedProposal,
   readProposal,
   readApproval,
   resolveProposalPaths,
@@ -21,6 +22,7 @@ function parseArgs(argv) {
     if (arg === "--json") options.json = true;
     else if (arg === "--legacy") options.allowLegacy = true;
     else if (arg === "--projections") options.projections = true;
+    else if (arg === "--approved") options.approved = true;
     else if (
       [
         "--proposal",
@@ -51,11 +53,26 @@ function parseArgs(argv) {
 
 function check(options) {
   try {
-    const source = readProposal(options.proposal, {
-      projectRoot: options.projectRoot,
-      expectedSlug: options.slug,
-      allowLegacy: options.allowLegacy,
-    });
+    const expectedDecision = options.decisionId
+      ? { id: options.decisionId, sha256: options.decisionSha256 }
+      : undefined;
+    const trusted = options.approved
+      ? readApprovedProposal(options.proposal, {
+          projectRoot: options.projectRoot,
+          expectedSlug: options.slug,
+          approvalPath: options.approval,
+          expectedDecision,
+          requireCurrentPrototypeIdentity: true,
+          requireExperienceClassification: true,
+        })
+      : null;
+    const source =
+      trusted?.source ||
+      readProposal(options.proposal, {
+        projectRoot: options.projectRoot,
+        expectedSlug: options.slug,
+        allowLegacy: options.allowLegacy,
+      });
     if (source.kind === "legacy-markdown")
       return {
         ok: true,
@@ -73,14 +90,23 @@ function check(options) {
       lifecycle: source.proposal.lifecycle,
       content_sha256: source.contentSha256,
       proposal_sha256: source.bytesSha256,
+      review_contract_bound: source.reviewContractBound,
+      compatibility: source.compatibility,
       approval_verified: false,
     };
+    let actuallyVerifiedApproval = trusted;
+    if (trusted) {
+      result.trusted_approval = true;
+      result.approval_verified = true;
+      result.exact_approved_bytes_current = trusted.exactBytesCurrent;
+      result.approval_basis = trusted.approvalBasis;
+    }
     const approvalPath =
       options.approval ||
       (["approved", "planned", "in-progress", "done"].includes(source.proposal.lifecycle)
         ? source.path.replace(/\.json$/, ".approval.json")
         : null);
-    if (approvalPath) {
+    if (approvalPath && !trusted) {
       const approvalSource = readApproval(approvalPath, { projectRoot: options.projectRoot });
       const proposalSource = readProposal(options.proposal, {
         projectRoot: options.projectRoot,
@@ -101,18 +127,24 @@ function check(options) {
       const approvalResult = validateApproval(source.proposal, approvalSource.approval, {
         bytes: proposalSource.bytes,
         path: approvalSource.path,
-        expectedDecision: options.decisionId
-          ? { id: options.decisionId, sha256: options.decisionSha256 }
-          : undefined,
+        expectedDecision,
         allowLifecycleAdvance: true,
       });
       if (!approvalResult.ok) return { ...result, ok: false, issues: approvalResult.issues };
       result.approval_verified = true;
       result.exact_approved_bytes_current = approvalResult.exact_bytes_current;
       result.approval_basis = approvalResult.approval_basis;
+      if (source.reviewContractBound) {
+        actuallyVerifiedApproval = {
+          trustedApproval: true,
+          approval: approvalSource.approval,
+        };
+      }
     }
     if (options.projections) {
-      const projection = validateProjections(source, options.projectRoot);
+      const projection = validateProjections(source, options.projectRoot, {
+        actuallyVerifiedApproval,
+      });
       if (!projection.ok) return { ...result, ok: false, issues: projection.issues };
       result.projections_verified = true;
       result.html_sha256 = projection.html_sha256;
@@ -127,7 +159,7 @@ function check(options) {
   }
 }
 
-function validateProjections(source, projectRoot) {
+function validateProjections(source, projectRoot, options = {}) {
   const paths = resolveProposalPaths(projectRoot, source.proposal.slug);
   const issues = [];
   if (!fs.existsSync(paths.html))
@@ -182,6 +214,7 @@ function validateProjections(source, projectRoot) {
   const expected = renderProposal(source.proposal, {
     sourceBytes: source.bytes,
     sourcePath: expectedSourcePath,
+    actuallyVerifiedApproval: options.actuallyVerifiedApproval,
   });
   if (!htmlBytes.equals(Buffer.from(expected.html)))
     issues.push({

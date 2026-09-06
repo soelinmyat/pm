@@ -365,14 +365,18 @@ for push_ref_line in "${push_ref_lines[@]}"; do
   if [[ -f "$gate_manifest" ]]; then
     checker_tmp=$(mktemp -d "${TMPDIR:-/tmp}/pm-dev-gate-check.XXXXXX") || exit 1
     checker_archive="$checker_tmp/scripts.tar"
-    if ! git archive --format=tar --output="$checker_archive" "$local_oid" scripts plugin.config.json; then
+    if ! git archive --format=tar --output="$checker_archive" "$local_oid" \
+      scripts \
+      plugin.config.json \
+      skills/dev/references/model-profiles.json \
+      skills/rfc/references/model-profiles.json; then
       rm -rf "$checker_tmp"
-      echo "ERROR: unable to archive scripts from pushed commit $local_oid."
+      echo "ERROR: unable to archive the gate runtime from pushed commit $local_oid."
       exit 1
     fi
     if ! tar -xf "$checker_archive" -C "$checker_tmp"; then
       rm -rf "$checker_tmp"
-      echo "ERROR: unable to extract scripts from pushed commit $local_oid."
+      echo "ERROR: unable to extract the gate runtime from pushed commit $local_oid."
       exit 1
     fi
     rm -f "$checker_archive"

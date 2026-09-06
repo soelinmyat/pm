@@ -68,7 +68,7 @@ Read ${CLAUDE_PLUGIN_ROOT}/skills/dev/references/qa.md and run diff-aware QA.
 
 | Arg | Effect | Mode |
 |-----|--------|------|
-| `--quick` | Force Quick tier regardless of session size | Both |
+| `--quick` | Force Quick only for a manual run outside a Dev gate; it cannot weaken a routed Dev tier | Manual reference |
 | `--page <route>` | Test a specific route | Manual reference |
 | `--feature <desc>` | Test by feature description | Manual reference |
 | `--diff` | Build charter from `git diff {DEFAULT_BRANCH}...HEAD` | Manual reference |
@@ -227,10 +227,10 @@ Otherwise                                      ->  "web" (Playwright MCP)
 ### Detect tier
 
 ```
---quick flag          ->  Quick
 Dev session size XS   ->  Quick
 Dev session size S    ->  Focused
 Dev session size M+   ->  Full
+--quick (no Dev session) -> Quick
 --diff flag (no size) ->  Focused
 --page flag (no size) ->  Quick
 --feature (no size)   ->  Focused
@@ -577,7 +577,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/qa-issue-taxonomy.md` for full
 | **Console** | 15% | Layer 1 (Structural) |
 | **Links** | 10% | Layer 1 (Structural) |
 | **Visual** | 10% | Layer 2 (DOM) + Layer 5 (Screenshots) |
-| **Functional** | 20% | Layer 3 (Data) + Layer 4 (Interaction) |
+| **Functional** | 25% | Layer 3 (Data) + Layer 4 (Interaction) |
 | **UX** | 15% | Layer 4 (Interaction) + Layer 5 (Screenshots) |
 | **Performance** | 10% | Layer 1 (Console/Network timing) |
 | **Accessibility** | 15% | Layer 1 (ARIA tree) + Layer 2 (contrast via DOM) |
@@ -623,19 +623,26 @@ Every finding has an evidence type that determines its confidence:
 
 Every finding MUST include evidence:
 
-```markdown
-### [SEVERITY] Category: Short description
-
-**Route:** /path
-**Evidence type:** ASSERTION | STRUCTURAL | CONSOLE | VISUAL
-**Evidence:** `browser_evaluate('.card-title', 'fontSize')` → "14px" (expected: "18px")
-**Screenshot:** `/tmp/qa/{feature}/NN-page-state.png` (supporting)
-**Expected:** 18px per heading-md token
-**Actual:** 14px
+```json
+{
+  "id": "qa-stable-local-id",
+  "severity": "high",
+  "category": "visual",
+  "summary": "Heading token is not applied",
+  "route": "/path",
+  "evidence": {
+    "type": "assertion",
+    "probe": "computed font size for .card-title",
+    "observed": "14px",
+    "expected": "18px",
+    "screenshot": "/tmp/qa/{feature}/NN-page-state.png"
+  },
+  "disposition": "open"
+}
 ```
 
 <HARD-RULE>
-NEVER report a finding without evidence. Prefer ASSERTION/STRUCTURAL/CONSOLE evidence over VISUAL. If a finding can only be evidenced by a screenshot, mark confidence as Medium.
+NEVER report a finding without evidence. Prefer ASSERTION/STRUCTURAL/CONSOLE evidence over VISUAL. The `visual` evidence type is explicitly the Medium-confidence lane; do not present it as deterministic proof.
 </HARD-RULE>
 
 ---
@@ -644,9 +651,9 @@ NEVER report a finding without evidence. Prefer ASSERTION/STRUCTURAL/CONSOLE evi
 
 | Verdict | Criteria | Action |
 |---------|----------|--------|
-| **Pass** | Health >= 80, zero Critical, zero High | Ship it. |
-| **Pass with concerns** | Health >= 60, zero Critical, <= 2 High | Ship with caution. Note High issues for immediate backlog. |
-| **Fail** | Health < 60, OR any Critical, OR > 2 High | Do not ship. Must fix and re-verify. |
+| **Pass** | Health >= 80, no unresolved Critical or High finding | Continue with the current QA evidence. |
+| **Pass with concerns** | Health >= 60 and < 80, no unresolved Critical or High finding | Continue only with the remaining Medium/Low concerns called out explicitly. |
+| **Fail** | Health < 60, OR any unresolved Critical or High finding | Do not ship. Fix and re-verify. |
 | **Blocked** | Servers won't start, can't authenticate, env broken | Cannot test. Fix environment first. |
 
 ```
@@ -657,40 +664,202 @@ Verdict: {PASS / PASS WITH CONCERNS / FAIL / BLOCKED}
 
 ## Phase 6: Report
 
-### Embedded mode (dev session exists)
+Write one standalone machine-readable artifact at
+`.pm/dev-sessions/{slug}/qa/report.json` in both persistent and manual-reference
+modes. Derive `{slug}` from the canonical Dev session when one exists; otherwise
+use the shared session-slug normalization for the current branch or requested
+feature. Create only the `qa/` directory needed for this artifact.
 
-Append structured report to `.pm/dev-sessions/{slug}/session.json` under `## QA`:
+For a Dev gate, the report path is a closed trust boundary: use the exact absolute
+`.pm/dev-sessions/{slug}/qa/report.json` path, with no symlink or path alias. The
+report's `commit` must equal the phase-result commit and current HEAD. Validate it
+before recording the result:
 
-```markdown
-## QA
-
-### Run 1 — {date}
-- **Verdict:** {Pass/Pass with concerns/Fail/Blocked}
-- **Health:** {score}/100
-- **Tier:** {Quick/Focused/Full}
-- **Platform:** {web/mobile}
-- **Assertions run:** {count passed}/{count total}
-- **Screenshots:** /tmp/qa/{feature}/
-
-#### Findings ({N} total: {C} critical, {H} high, {M} medium, {L} low)
-
-{findings in severity order, each with evidence type + evidence}
-
-#### Category Breakdown
-| Category | Score | Findings | Evidence Types |
-|----------|-------|----------|----------------|
-| Console | {score} | {count} | {CONSOLE} |
-| Links | {score} | {count} | {STRUCTURAL} |
-| Visual | {score} | {count} | {ASSERTION, VISUAL} |
-| Functional | {score} | {count} | {ASSERTION} |
-| UX | {score} | {count} | {VISUAL} |
-| Performance | {score} | {count} | {CONSOLE} |
-| Accessibility | {score} | {count} | {STRUCTURAL} |
+```bash
+node ${PM_PLUGIN_ROOT}/scripts/qa-report-check.js \
+  --session <absolute-session.json> \
+  --report <absolute-report.json> \
+  --commit <current-HEAD>
 ```
 
-### Manual reference mode (no dev session)
+For a `fail` or `blocked` verdict, validate the same closed report with
+`--allow-nonpassing`. That flag certifies only structural integrity; it never
+turns the verdict into a passing gate. Return the validated non-passing phase
+result immediately so the Dev runner records the attempt before any fix or
+re-verification begins.
 
-Write full report to `/tmp/qa/{feature}/report.md`.
+`session.json` remains lifecycle state. QA may read it for context, but never
+inserts prose, headings, findings, or report payloads into it. The Dev runner
+records the phase result and gate pointer separately.
+
+The report keeps the latest decision at the top level and immutable summaries of
+each attempt in `runs`. Before writing the report, retain every deterministic or
+browser assertion result under `.pm/dev-sessions/{slug}/qa/evidence/`. Each
+result is a closed JSON object with `schema_version`, assurance
+`workflow-attested-non-cryptographic`, `receipt_id`, the owning run's `commit`,
+`kind`, the exact non-placeholder `command`, normalized `exit_code`, and one row
+per executed assertion (`id`, `status`, `probe`, `observed`, `expected`,
+`finding_ids`). `finding_ids` is empty for general coverage or lists the exact
+findings that assertion probes. This is an honest local workflow attestation:
+the checker detects missing, stale, vacuous, or altered evidence, but it is not a
+signed proof against deliberate local fabrication.
+
+Each retained result uses this shape (one assertion row shown):
+
+```json
+{
+  "schema_version": 1,
+  "assurance": "workflow-attested-non-cryptographic",
+  "receipt_id": "qa-run-1-browser",
+  "commit": "<current HEAD>",
+  "kind": "browser",
+  "command": "playwright: execute dashboard acceptance assertions",
+  "exit_code": 0,
+  "assertions": [
+    {
+      "id": "dashboard-save",
+      "status": "passed",
+      "probe": "Submit the edited account form",
+      "observed": "Success status appeared and the saved name persisted after reload",
+      "expected": "The save succeeds and persists after reload",
+      "finding_ids": []
+    }
+  ]
+}
+```
+
+The report template is:
+
+```json
+{
+  "schema_version": 2,
+  "commit": "<current HEAD>",
+  "verdict": "pass | pass-with-concerns | fail | blocked",
+  "health_score": 100,
+  "tier": "quick | focused | full",
+  "platform": "web | mobile",
+  "assertions": { "passed": 12, "total": 12 },
+  "finding_counts": { "critical": 0, "high": 0, "medium": 0, "low": 0 },
+  "findings": [],
+  "category_breakdown": [
+    { "category": "console", "score": 100 },
+    { "category": "links", "score": 100 },
+    { "category": "visual", "score": 100 },
+    { "category": "functional", "score": 100 },
+    { "category": "ux", "score": 100 },
+    { "category": "performance", "score": 100 },
+    { "category": "accessibility", "score": 100 }
+  ],
+  "coverage": {
+    "acceptance_criteria": [
+      {
+        "index": 0,
+        "target": "<exact session acceptance criterion at index 0>",
+        "assertion_ids": ["dashboard-save"]
+      }
+    ],
+    "critical_states": [
+      {
+        "index": 0,
+        "target": "<exact session design critical state at index 0>",
+        "assertion_ids": ["dashboard-empty-state"]
+      }
+    ]
+  },
+  "receipts": [
+    {
+      "id": "qa-run-1-browser",
+      "run": 1,
+      "kind": "browser",
+      "commit": "<current HEAD>",
+      "command": "playwright: execute dashboard acceptance assertions",
+      "exit_code": 0,
+      "assertions": { "passed": 12, "total": 12 },
+      "output": {
+        "path": "<absolute .pm/dev-sessions/{slug}/qa/evidence/run-1-browser.json>",
+        "sha256": "<SHA-256 of exact result bytes>",
+        "bytes": 4096
+      },
+      "screenshot_ids": []
+    }
+  ],
+  "screenshots": [],
+  "runs": [
+    {
+      "run": 1,
+      "kind": "initial",
+      "commit": "<current HEAD>",
+      "checked_at": "<RFC3339>",
+      "verdict": "pass",
+      "health_score": 100,
+      "assertions": { "passed": 12, "total": 12 },
+      "finding_ids": [],
+      "receipt_ids": ["qa-run-1-browser"]
+    }
+  ]
+}
+```
+
+The checker treats every object as closed. Every passing run binds one or more
+unique receipts, and its assertion totals are recomputed from the structured
+results. `qa-report-check.js` rereads each result, checks its hash and byte count,
+and matches its receipt, command, exit code, assertion rows, and commit. A report
+whose evidence is only manual prose, `qa-report-check.js` itself, a no-op command,
+or unstructured “all tests passed” text cannot certify. Deterministic receipts
+with no screenshots remain valid for non-UI QA.
+
+For a passing report, `coverage.acceptance_criteria` must reproduce every session
+acceptance criterion in exact order, and `coverage.critical_states` must reproduce
+the ordered, de-duplicated critical states from the task and work-unit design
+contexts. Every row binds at least one passed assertion ID from the latest run's
+retained receipts. The report tier is fixed by routed task size: XS is `quick`, S
+is `focused`, and M/L/XL are `full`; an invocation flag cannot weaken that Dev
+gate. If `task.design_context.ui_impact` is true or `task.risk.ui` is greater than
+zero, the latest run must include a successful browser receipt; its critical-state
+coverage must use passed assertions from browser receipts.
+
+`finding_counts` counts only findings
+whose disposition is `open`; fixed findings stay in `findings` without lowering
+the latest category or health score. Every finding uses the exact fields shown in
+the Finding Format, a disposition of `open` or `fixed`, and evidence type
+`assertion`, `structural`, `console`, or `visual`. Preserve a finding's original
+severity, category, summary, route, and evidence across every later run; record
+the fix proof separately in `fixed_finding_evidence`. Visual evidence requires
+an absolute screenshot path also listed in `screenshots`. Screenshots are
+optional unless visual evidence cites one. When present, each screenshot is a closed
+`{id, run, commit, path, sha256, bytes, width, height}` PNG binding stored under
+the canonical QA evidence directory and referenced by exactly one receipt with
+the same run and commit. The 15-screenshot limit applies independently to each
+run, so retained screenshots from older runs do not consume the current run's
+budget. The seven category rows are mandatory and are recomputed from open
+findings. Category weights total 100%
+(Console 15, Links 10, Visual 10, Functional 25, UX 15, Performance 10,
+Accessibility 15), so the checker also recomputes `health_score`.
+
+Example retained screenshot row:
+
+```json
+{
+  "id": "dashboard-empty",
+  "run": 2,
+  "commit": "<owning run commit>",
+  "path": "<absolute .pm/dev-sessions/{slug}/qa/evidence/dashboard-empty.png>",
+  "sha256": "<SHA-256 of exact PNG bytes>",
+  "bytes": 24576,
+  "width": 1440,
+  "height": 900
+}
+```
+
+Write atomically. On re-verification, first retain the exact existing report bytes
+as `qa/evidence/report-run-{previous-run}.json`, compute its SHA-256 and byte
+length, then append the new run and atomically replace `report.json`. Preserve
+prior runs, receipts, screenshots, and their original commits; only the latest
+run and top-level report commit must equal current HEAD. Every historical commit
+must resolve in the session repository, and each later run commit must descend
+from its predecessor. Keep fixed findings with an explicit `fixed` disposition
+rather than deleting their history. A passing artifact must have zero unresolved
+Critical and zero unresolved High findings.
 
 ### Print summary to user
 
@@ -715,6 +884,31 @@ QA Complete
 
 In persistent worker mode, re-verify is triggered by a **resume message from the dev orchestrator**, not a `--re-verify` flag. The worker already has servers running, auth session active, design tokens discovered, test charter built, and previous findings in context.
 
+The Dev orchestrator records every structurally validated `fail` or `blocked`
+QA result through the runner before applying a fix or sending a resume message.
+The ordered QA attempts, `evidence.qa.qa_run_count`, and
+`evidence.qa.qa_run_anchors` in `session.json` are the durable external history
+anchors. Every accepted anchor binds its run number, commit, verdict, and exact
+report-byte digest. During the QA phase, the report must contain exactly the
+recorded attempts plus one candidate run. After QA, validate each
+recertification candidate with `qa-report-check.js --qa-candidate`; it permits
+exactly the anchored count plus one run. A passing candidate advances the count
+and immutable ledger plus gate evidence through `dev-session recertify`. A failing or blocked candidate
+must be checked with `--qa-candidate --allow-nonpassing` and recorded with
+`dev-session record-qa-nonpassing`; that command advances only the history
+anchors, so a later fixed candidate is again exactly one run ahead and the failed
+candidate cannot grant or refresh the QA gate. Ordinary report checks and
+delivery gates require exact count, identity, and report-byte equality.
+
+For a schema-v3 session that predates immutable anchors, do not edit
+`session.json`. Audit the existing accepted report with
+`qa-report-check.js --qa-history-anchor`, record that successful check in a
+phase-keyed evidence file, and run `dev-session anchor-qa-history`. The runner
+requires the audited report to end at exact HEAD, binds every stored QA gate
+commit to a passing run in the complete retained chain, and preserves an
+existing run count exactly before writing the missing anchors. It does not
+refresh the stale gate commit or verification fields.
+
 ### What the orchestrator sends
 
 Use the runtime adapter from `agent-runtime.md` to resume the same QA worker with a message like:
@@ -738,7 +932,8 @@ Do NOT re-run Phase 0 (environment is still ready). Jump to Phase 3 re-verify.
 6. Smoke-check adjacent routes for regressions (navigate, check console, verify key elements)
 7. Recompute health score with updated findings
 8. Update verdict
-9. Write results to `.pm/dev-sessions/{slug}/session.json` and return verdict to orchestrator
+9. Retain the exact old report as `qa/evidence/report-run-{previous-run}.json`, hash-bind it from the new run, then atomically update `report.json` while preserving prior runs, receipts, screenshots, and commits
+10. Return the verdict to the orchestrator
 
 **What the worker skips on re-verify:**
 - Phase 0 (servers already running, auth active, tokens discovered)
@@ -748,33 +943,61 @@ Do NOT re-run Phase 0 (environment is still ready). Jump to Phase 3 re-verify.
 
 ### Re-verify flow (manual reference mode)
 
-For manual reference runs, re-verify works the old way:
+For manual reference runs, re-verify from the same standalone artifact:
 
-1. Read previous findings from `.pm/dev-sessions/{slug}/session.json` `## QA` section
+1. Read previous findings from `.pm/dev-sessions/{slug}/qa/report.json`
 2. Re-run Phase 0 (environment readiness — cold start needed)
 3. Filter to Critical and High, re-run assertions, update verdict
 
 ### Report format (re-verify, both modes)
 
-Append to existing `## QA` section. Do NOT overwrite previous runs.
+Before appending a structured `reverify` entry, copy the exact old `report.json`
+bytes to the canonical `qa/evidence/report-run-{previous-run}.json` path. Bind
+that predecessor with `previous_report: {path, sha256, bytes}`. Do not overwrite
+prior entries or rewrite their commits. Record the previous and updated
+verdict/health, assertions re-run, fixed finding IDs, still-open finding IDs, and
+new finding IDs. The fixed and still-open arrays exactly partition the
+predecessor's open findings; the new array is exactly the current findings that
+were absent from the predecessor, and all three arrays are disjoint. No prior
+finding may disappear. For each fixed finding, add exactly one
+`fixed_finding_evidence` row with passed assertion IDs from this re-verification
+run, and ensure each referenced assertion's `finding_ids` contains that finding.
+Then update the top-level latest-state fields. Never hand-edit re-verification
+history into `session.json`; the Dev runner records each phase attempt.
 
-```markdown
-### Run 2 (Re-verify) — {date}
-- **Previous verdict:** {Fail}
-- **Updated verdict:** {Pass/Pass with concerns/Fail}
-- **Previous health:** {score}/100
-- **Updated health:** {score}/100
-- **Mode:** persistent-agent | manual-reference
+An initial run has exactly the fields in the example above. Every later run uses
+`kind: "reverify"` and additionally includes `previous_verdict`,
+`previous_health_score`, `fixed_finding_ids`, `still_open_finding_ids`, and
+`new_finding_ids`, `fixed_finding_evidence`, and `previous_report`. Every run,
+receipt, and screenshot carries its owning commit. Run numbers are contiguous
+from 1; the latest commit, verdict, health, assertions, and complete finding-ID
+set must equal the top-level state.
 
-#### Fixed
-- [HIGH] Font size mismatch on .card-title — FIXED (now 18px, was 14px)
-- [CRITICAL] Sort order reversed — FIXED (verified descending)
-
-#### Still Present
-- [HIGH] {description} — NOT FIXED (browser_evaluate still returns {wrong value})
-
-#### New Issues
-- {any regressions found during smoke-check}
+```json
+{
+  "run": 2,
+  "kind": "reverify",
+  "commit": "<current HEAD>",
+  "checked_at": "<RFC3339>",
+  "verdict": "pass",
+  "health_score": 100,
+  "assertions": { "passed": 4, "total": 4 },
+  "finding_ids": ["qa-fixed-modal"],
+  "receipt_ids": ["qa-run-2-browser"],
+  "previous_verdict": "fail",
+  "previous_health_score": 96,
+  "fixed_finding_ids": ["qa-fixed-modal"],
+  "still_open_finding_ids": [],
+  "new_finding_ids": [],
+  "fixed_finding_evidence": [
+    { "finding_id": "qa-fixed-modal", "assertion_ids": ["modal-submit-fixed"] }
+  ],
+  "previous_report": {
+    "path": "<absolute qa/evidence/report-run-1.json>",
+    "sha256": "<SHA-256 of exact predecessor report bytes>",
+    "bytes": 8192
+  }
+}
 ```
 
 ---
@@ -816,9 +1039,10 @@ ALWAYS kill servers you started when QA is fully done (final passing verdict in 
 
 ---
 
-## State File Integration
+## State and Report Integration
 
-QA reads from and writes to `.pm/dev-sessions/{slug}/session.json`.
+QA reads lifecycle context from `.pm/dev-sessions/{slug}/session.json` when it
+exists and writes evidence only to `.pm/dev-sessions/{slug}/qa/report.json`.
 
 **Reads:**
 - Feature description, platform, affected routes, **acceptance criteria** (Phase 1 — manual reference mode only; persistent agent gets these from spawn prompt)
@@ -826,12 +1050,13 @@ QA reads from and writes to `.pm/dev-sessions/{slug}/session.json`.
 - Design critique status for layer selection (Phase 3)
 
 **Writes:**
-- `## QA` section with verdict, health score, assertion results, findings (Phase 6)
-- Re-verify results appended to same section (both modes)
+- Latest verdict, health score, assertion results, and findings in `qa/report.json`
+- Re-verify summaries appended to that report's `runs` array in both modes
 
-If `.pm/dev-sessions/` does not exist, create it (`mkdir -p .pm/dev-sessions`) before writing.
-
-Legacy path: also check `.dev-state-{slug}.md` at repo root. Read from legacy if found, write to new path.
+If the report directory does not exist, create
+`.pm/dev-sessions/{slug}/qa/` before the atomic write. A legacy
+`.dev-state-{slug}.md` may supply read-only context, but all new QA evidence goes
+to the standalone JSON report.
 
 ---
 
@@ -861,9 +1086,11 @@ Legacy path: also check `.dev-state-{slug}.md` at repo root. Read from legacy if
 5. <NEVER>Report a visual finding from a screenshot when it can be measured via DOM. Use `browser_evaluate` first.</NEVER>
 6. <NEVER>Re-run Phase 0 on re-verify in persistent mode. The environment is already ready.</NEVER>
 7. <NEVER>Run Layers 2+5 unless `--visual` is explicitly passed. QA is functional by default.</NEVER>
-8. <MUST>For Full tier: every acceptance criterion must have at least one DOM assertion.</MUST>
+8. <MUST>For every passing Dev report: bind each exact session acceptance criterion and design critical state to at least one passed latest-run assertion.</MUST>
 9. <MUST>For Full tier: test at minimum 3 viewports (1440px, 768px, 375px).</MUST>
-10. <MUST>For re-verify: re-run the exact assertions from previous findings, don't just re-screenshot.</MUST>
-11. <MUST>For re-verify: append to existing QA section, never overwrite previous runs.</MUST>
-12. <MUST>Print the summary to orchestrator/user on every run, regardless of mode.</MUST>
-13. <MUST>Verify server health before re-running assertions in persistent mode.</MUST>
+10. <MUST>For UI-scoped Dev reports: include a successful latest-run browser receipt and use browser assertions for critical states.</MUST>
+11. <MUST>For re-verify: re-run the exact assertions from previous findings, don't just re-screenshot.</MUST>
+12. <MUST>For re-verify: preserve and hash-bind the predecessor report, then append one structured run summary without rewriting old evidence.</MUST>
+13. <MUST>Associate every fix assertion with its finding ID, and record every QA verdict through the Dev runner before fixes continue.</MUST>
+14. <MUST>Print the summary to orchestrator/user on every run, regardless of mode.</MUST>
+15. <MUST>Verify server health before re-running assertions in persistent mode.</MUST>

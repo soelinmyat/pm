@@ -1,11 +1,22 @@
 "use strict";
 
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const zlib = require("node:zlib");
 
 const PNG_SIGNATURE = Buffer.from("89504e470d0a1a0a", "hex");
 const MIN_RENDER_BYTES = 1024;
 const MAX_DECODED_BYTES = 128 * 1024 * 1024;
+const PRODUCT_UI_VISUAL_THRESHOLDS = Object.freeze({
+  minVisiblePixelRatio: 0.01,
+  minMeaningfulPixelRatio: 0.01,
+  minMeaningfulTileRatio: 0.03,
+  minMeaningfulPixelsPerTileRatio: 0.01,
+  minLuminanceRange: 16,
+  minVisualDistance: 0.005,
+  minChangedTileRatio: 0.03,
+  minChangedTileDistance: 0.01,
+});
 const PDF_TOKEN = new RegExp(String.raw`^[^\s<>\[\]()%/]+`);
 const VALID_DEPTHS = Object.freeze({
   0: new Set([1, 2, 4, 8, 16]),
@@ -20,6 +31,38 @@ function inspectPng(filePath) {
 }
 
 function inspectPngBytes(bytes) {
+  const inspected = inspectPngInternal(bytes, false);
+  return { width: inspected.width, height: inspected.height };
+}
+
+function inspectPngVisualBytes(bytes) {
+  return inspectPngInternal(bytes, true);
+}
+
+function inspectPngHeaderBytes(bytes) {
+  if (
+    !Buffer.isBuffer(bytes) ||
+    bytes.length < MIN_RENDER_BYTES ||
+    !bytes.subarray(0, 8).equals(PNG_SIGNATURE)
+  ) {
+    throw new Error("invalid PNG capture");
+  }
+  const length = bytes.readUInt32BE(8);
+  const end = 8 + 12 + length;
+  const type = bytes.subarray(12, 16).toString("ascii");
+  if (length !== 13 || type !== "IHDR" || end > bytes.length) {
+    throw new Error("invalid PNG header order");
+  }
+  const data = bytes.subarray(16, 16 + length);
+  if (
+    crc32(Buffer.concat([Buffer.from(type, "ascii"), data])) !== bytes.readUInt32BE(16 + length)
+  ) {
+    throw new Error("invalid PNG IHDR checksum");
+  }
+  return parseHeader(data);
+}
+
+function inspectPngInternal(bytes, includeVisualEvidence) {
   if (
     !Buffer.isBuffer(bytes) ||
     bytes.length < MIN_RENDER_BYTES ||
@@ -55,12 +98,22 @@ function inspectPngBytes(bytes) {
       if (dataEnded) throw new Error("PNG IDAT chunks must be consecutive");
       sawData = true;
       compressed.push(data);
+    } else if (type === "tRNS" && includeVisualEvidence) {
+      throw new Error("PNG transparency chunks are unsupported for visual identity");
     } else if (type === "IEND") {
       if (length !== 0 || !sawData || end !== bytes.length)
         throw new Error("invalid PNG end chunk");
       validatePalette(header.colorType, sawPalette);
-      validatePixels(header, compressed);
-      return { width: header.width, height: header.height };
+      const pixelStream = validatePixelStream(header, compressed);
+      if (!includeVisualEvidence) return { width: header.width, height: header.height };
+      const pixels = decodePixels(header, pixelStream);
+      return {
+        width: header.width,
+        height: header.height,
+        bitDepth: header.bitDepth,
+        colorType: header.colorType,
+        ...visualPixelEvidence(header, pixels),
+      };
     } else if (sawData) dataEnded = true;
     offset = end;
   }
@@ -91,7 +144,7 @@ function validatePalette(colorType, sawPalette) {
   if ([0, 4].includes(colorType) && sawPalette) throw new Error("grayscale PNG forbids a palette");
 }
 
-function validatePixels(header, compressed) {
+function validatePixelStream(header, compressed) {
   const channels = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }[header.colorType];
   const rowBytes = Math.ceil((header.width * channels * header.bitDepth) / 8);
   const expected = (rowBytes + 1) * header.height;
@@ -106,6 +159,287 @@ function validatePixels(header, compressed) {
   if (pixels.length !== expected) throw new Error("invalid PNG pixel length");
   for (let row = 0; row < header.height; row += 1)
     if (pixels[row * (rowBytes + 1)] > 4) throw new Error("invalid PNG row filter");
+  return { channels, rowBytes, pixels };
+}
+
+function decodePixels(header, pixelStream) {
+  const { channels, rowBytes, pixels } = pixelStream;
+  const bytesPerPixel = Math.max(1, Math.ceil((channels * header.bitDepth) / 8));
+  const decoded = Buffer.alloc(rowBytes * header.height);
+  for (let row = 0; row < header.height; row += 1) {
+    const filter = pixels[row * (rowBytes + 1)];
+    const sourceOffset = row * (rowBytes + 1) + 1;
+    const targetOffset = row * rowBytes;
+    if (filter === 0) {
+      pixels.copy(decoded, targetOffset, sourceOffset, sourceOffset + rowBytes);
+      continue;
+    }
+    for (let column = 0; column < rowBytes; column += 1) {
+      const raw = pixels[sourceOffset + column];
+      const left = column >= bytesPerPixel ? decoded[targetOffset + column - bytesPerPixel] : 0;
+      const up = row > 0 ? decoded[targetOffset + column - rowBytes] : 0;
+      const upperLeft =
+        row > 0 && column >= bytesPerPixel
+          ? decoded[targetOffset + column - rowBytes - bytesPerPixel]
+          : 0;
+      decoded[targetOffset + column] = unfilteredByte(filter, raw, left, up, upperLeft);
+    }
+  }
+  return decoded;
+}
+
+function unfilteredByte(filter, raw, left, up, upperLeft) {
+  if (filter === 0) return raw;
+  if (filter === 1) return (raw + left) & 0xff;
+  if (filter === 2) return (raw + up) & 0xff;
+  if (filter === 3) return (raw + Math.floor((left + up) / 2)) & 0xff;
+  return (raw + paeth(left, up, upperLeft)) & 0xff;
+}
+
+function paeth(left, up, upperLeft) {
+  const estimate = left + up - upperLeft;
+  const leftDistance = Math.abs(estimate - left);
+  const upDistance = Math.abs(estimate - up);
+  const upperLeftDistance = Math.abs(estimate - upperLeft);
+  if (leftDistance <= upDistance && leftDistance <= upperLeftDistance) return left;
+  return upDistance <= upperLeftDistance ? up : upperLeft;
+}
+
+function visualPixelEvidence(header, pixels) {
+  const totalPixels = header.width * header.height;
+  if (header.bitDepth !== 8 || !new Set([0, 2, 4, 6]).has(header.colorType)) {
+    return {
+      pixelSha256: null,
+      visiblePixels: null,
+      totalPixels,
+      hasVisualVariation: null,
+      meaningfulPixelRatio: null,
+      meaningfulTileRatio: null,
+      colorBucketCount: null,
+      luminanceRange: null,
+      perceptualGrid: null,
+    };
+  }
+  const channels = { 0: 1, 2: 3, 4: 2, 6: 4 }[header.colorType];
+  const hash = crypto.createHash("sha256");
+  hash.update(`rgba8:${header.width}x${header.height}\0`);
+  let visibleAlphaUnits = 0;
+  let sawVisiblePixel = false;
+  let firstVisibleRed = 0;
+  let firstVisibleGreen = 0;
+  let firstVisibleBlue = 0;
+  let firstVisibleAlpha = 0;
+  let hasVisualVariation = false;
+  const metrics = createVisualMetrics(header.width, header.height);
+  if (header.colorType === 6) {
+    let canonicalPixels = null;
+    for (let offset = 0; offset < pixels.length; offset += 4) {
+      const pixel = offset / 4;
+      const x = pixel % header.width;
+      const y = Math.floor(pixel / header.width);
+      if (pixels[offset + 3] === 0) {
+        if (pixels[offset] !== 0 || pixels[offset + 1] !== 0 || pixels[offset + 2] !== 0) {
+          canonicalPixels ||= Buffer.from(pixels);
+          canonicalPixels[offset] = 0;
+          canonicalPixels[offset + 1] = 0;
+          canonicalPixels[offset + 2] = 0;
+        }
+        metrics.observe(x, y, 0, 0, 0, 0);
+        continue;
+      }
+      const alpha = pixels[offset + 3];
+      const opacity = alpha / 255;
+      const effectiveRed = alpha === 255 ? pixels[offset] : Math.round(pixels[offset] * opacity);
+      const effectiveGreen =
+        alpha === 255 ? pixels[offset + 1] : Math.round(pixels[offset + 1] * opacity);
+      const effectiveBlue =
+        alpha === 255 ? pixels[offset + 2] : Math.round(pixels[offset + 2] * opacity);
+      visibleAlphaUnits += alpha;
+      if (!sawVisiblePixel) {
+        sawVisiblePixel = true;
+        firstVisibleRed = effectiveRed;
+        firstVisibleGreen = effectiveGreen;
+        firstVisibleBlue = effectiveBlue;
+        firstVisibleAlpha = alpha;
+      } else if (
+        effectiveRed !== firstVisibleRed ||
+        effectiveGreen !== firstVisibleGreen ||
+        effectiveBlue !== firstVisibleBlue ||
+        alpha !== firstVisibleAlpha
+      )
+        hasVisualVariation = true;
+      metrics.observe(x, y, effectiveRed, effectiveGreen, effectiveBlue, alpha);
+    }
+    hash.update(canonicalPixels || pixels);
+    return {
+      pixelSha256: hash.digest("hex"),
+      visiblePixels: visibleAlphaUnits / 255,
+      totalPixels,
+      hasVisualVariation,
+      ...metrics.finish(),
+    };
+  }
+  for (let row = 0; row < header.height; row += 1) {
+    const normalized = Buffer.alloc(header.width * 4);
+    const rowOffset = row * header.width * channels;
+    for (let column = 0; column < header.width; column += 1) {
+      const source = rowOffset + column * channels;
+      const target = column * 4;
+      let red;
+      let green;
+      let blue;
+      let alpha;
+      if (header.colorType === 0) {
+        red = green = blue = pixels[source];
+        alpha = 255;
+      } else if (header.colorType === 2) {
+        [red, green, blue] = pixels.subarray(source, source + 3);
+        alpha = 255;
+      } else if (header.colorType === 4) {
+        red = green = blue = pixels[source];
+        alpha = pixels[source + 1];
+      } else {
+        [red, green, blue, alpha] = pixels.subarray(source, source + 4);
+      }
+      normalized[target] = alpha === 0 ? 0 : red;
+      normalized[target + 1] = alpha === 0 ? 0 : green;
+      normalized[target + 2] = alpha === 0 ? 0 : blue;
+      normalized[target + 3] = alpha;
+      const opacity = alpha / 255;
+      const effectiveRed = alpha === 255 ? red : Math.round(red * opacity);
+      const effectiveGreen = alpha === 255 ? green : Math.round(green * opacity);
+      const effectiveBlue = alpha === 255 ? blue : Math.round(blue * opacity);
+      if (alpha > 0) {
+        visibleAlphaUnits += alpha;
+        if (!sawVisiblePixel) {
+          sawVisiblePixel = true;
+          firstVisibleRed = effectiveRed;
+          firstVisibleGreen = effectiveGreen;
+          firstVisibleBlue = effectiveBlue;
+          firstVisibleAlpha = alpha;
+        } else if (
+          effectiveRed !== firstVisibleRed ||
+          effectiveGreen !== firstVisibleGreen ||
+          effectiveBlue !== firstVisibleBlue ||
+          alpha !== firstVisibleAlpha
+        )
+          hasVisualVariation = true;
+      }
+      metrics.observe(column, row, effectiveRed, effectiveGreen, effectiveBlue, alpha);
+    }
+    hash.update(normalized);
+  }
+  return {
+    pixelSha256: hash.digest("hex"),
+    visiblePixels: visibleAlphaUnits / 255,
+    totalPixels,
+    hasVisualVariation,
+    ...metrics.finish(),
+  };
+}
+
+function createVisualMetrics(width, height) {
+  const gridSize = 8;
+  const bucketCount = 16 * 16 * 16;
+  const buckets = new Float64Array(bucketCount);
+  const tileBuckets = new Float64Array(gridSize * gridSize * bucketCount);
+  const redSums = new Float64Array(gridSize * gridSize);
+  const greenSums = new Float64Array(gridSize * gridSize);
+  const blueSums = new Float64Array(gridSize * gridSize);
+  const cellCounts = new Uint32Array(gridSize * gridSize);
+  const visibleCellCounts = new Float64Array(gridSize * gridSize);
+  let minimumLuminance = 255;
+  let maximumLuminance = 0;
+
+  function observe(x, y, effectiveRed, effectiveGreen, effectiveBlue, alpha) {
+    const cellX = Math.min(gridSize - 1, Math.floor((x * gridSize) / width));
+    const cellY = Math.min(gridSize - 1, Math.floor((y * gridSize) / height));
+    const cell = cellY * gridSize + cellX;
+    redSums[cell] += effectiveRed;
+    greenSums[cell] += effectiveGreen;
+    blueSums[cell] += effectiveBlue;
+    cellCounts[cell] += 1;
+    if (alpha === 0) return;
+    visibleCellCounts[cell] += alpha;
+    const bucket = (effectiveRed >> 4) * 256 + (effectiveGreen >> 4) * 16 + (effectiveBlue >> 4);
+    buckets[bucket] += alpha;
+    tileBuckets[cell * bucketCount + bucket] += alpha;
+    const luminance = Math.round(
+      (54 * effectiveRed + 183 * effectiveGreen + 19 * effectiveBlue) / 256
+    );
+    minimumLuminance = Math.min(minimumLuminance, luminance);
+    maximumLuminance = Math.max(maximumLuminance, luminance);
+  }
+
+  function finish() {
+    let dominantBucket = 0;
+    let dominantPixels = 0;
+    let visiblePixels = 0;
+    let colorBucketCount = 0;
+    for (let bucket = 0; bucket < buckets.length; bucket += 1) {
+      const count = buckets[bucket];
+      visiblePixels += count;
+      if (count > 0) colorBucketCount += 1;
+      if (count > dominantPixels) {
+        dominantPixels = count;
+        dominantBucket = bucket;
+      }
+    }
+    let meaningfulTiles = 0;
+    for (let cell = 0; cell < gridSize * gridSize; cell += 1) {
+      const dominantInCell = tileBuckets[cell * bucketCount + dominantBucket];
+      const nonDominantInCell = visibleCellCounts[cell] - dominantInCell;
+      if (
+        visibleCellCounts[cell] > 0 &&
+        nonDominantInCell / visibleCellCounts[cell] >=
+          PRODUCT_UI_VISUAL_THRESHOLDS.minMeaningfulPixelsPerTileRatio
+      )
+        meaningfulTiles += 1;
+    }
+    const perceptual = Buffer.alloc(gridSize * gridSize * 3);
+    for (let cell = 0; cell < gridSize * gridSize; cell += 1) {
+      const count = cellCounts[cell] || 1;
+      perceptual[cell * 3] = Math.round(redSums[cell] / count);
+      perceptual[cell * 3 + 1] = Math.round(greenSums[cell] / count);
+      perceptual[cell * 3 + 2] = Math.round(blueSums[cell] / count);
+    }
+    return {
+      meaningfulPixelRatio:
+        visiblePixels === 0 ? 0 : (visiblePixels - dominantPixels) / visiblePixels,
+      meaningfulTileRatio: meaningfulTiles / (gridSize * gridSize),
+      colorBucketCount,
+      luminanceRange: visiblePixels === 0 ? 0 : maximumLuminance - minimumLuminance,
+      perceptualGrid: perceptual.toString("base64"),
+    };
+  }
+
+  return { observe, finish };
+}
+
+function visualDistance(left, right) {
+  return visualDifference(left, right)?.distance ?? null;
+}
+
+function visualDifference(left, right) {
+  if (typeof left?.perceptualGrid !== "string" || typeof right?.perceptualGrid !== "string")
+    return null;
+  const leftGrid = Buffer.from(left.perceptualGrid, "base64");
+  const rightGrid = Buffer.from(right.perceptualGrid, "base64");
+  if (leftGrid.length !== 192 || rightGrid.length !== leftGrid.length) return null;
+  let difference = 0;
+  let changedTiles = 0;
+  for (let index = 0; index < leftGrid.length; index += 3) {
+    let tileDifference = 0;
+    for (let channel = 0; channel < 3; channel += 1)
+      tileDifference += Math.abs(leftGrid[index + channel] - rightGrid[index + channel]);
+    difference += tileDifference;
+    if (tileDifference / (3 * 255) >= PRODUCT_UI_VISUAL_THRESHOLDS.minChangedTileDistance)
+      changedTiles += 1;
+  }
+  return {
+    distance: difference / (leftGrid.length * 255),
+    changedTileRatio: changedTiles / (leftGrid.length / 3),
+  };
 }
 
 function inspectPdf(filePath) {
@@ -477,4 +811,14 @@ function crc32(bytes) {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-module.exports = { inspectPdf, inspectPdfBytes, inspectPng, inspectPngBytes };
+module.exports = {
+  PRODUCT_UI_VISUAL_THRESHOLDS,
+  inspectPdf,
+  inspectPdfBytes,
+  inspectPng,
+  inspectPngBytes,
+  inspectPngHeaderBytes,
+  inspectPngVisualBytes,
+  visualDifference,
+  visualDistance,
+};
