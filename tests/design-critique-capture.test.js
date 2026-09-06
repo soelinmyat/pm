@@ -1611,12 +1611,14 @@ function stopChild(child) {
 
 async function startLoopbackWebSocketServer(root) {
   const statsPath = path.join(root, "stats.json");
+  const requestsPath = `${statsPath}.requests.json`;
   const serverSource = String.raw`
     const crypto = require("node:crypto");
     const fs = require("node:fs");
     const http = require("node:http");
     const statsPath = process.argv[1];
     const stats = { handshakes: 0, frames: 0 };
+    const requests = [];
     const save = () => fs.writeFileSync(statsPath, JSON.stringify(stats));
     const countApplicationFrame = (chunk) => {
       if (chunk.length > 0 && (chunk[0] & 0x0f) <= 2) stats.frames += 1;
@@ -1624,6 +1626,8 @@ async function startLoopbackWebSocketServer(root) {
     save();
     const server = http.createServer((request, response) => {
       const requested = new URL(request.url, "http://" + request.headers.host);
+      requests.push(requested.pathname);
+      fs.writeFileSync(statsPath + ".requests.json", JSON.stringify(requests));
       if (requested.pathname === "/service-worker.js") {
         const socketUrl = "ws://" + request.headers.host + "/socket";
         response.writeHead(200, {
@@ -1671,7 +1675,7 @@ async function startLoopbackWebSocketServer(root) {
         : '';
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       response.end(
-        '<!doctype html><html><head><meta charset="utf-8"><style>' +
+        '<!doctype html><html><head><meta charset="utf-8"><link rel="icon" href="data:,"><style>' +
         'body{margin:0;background:#eef2ff;color:#172033;font:16px system-ui}' +
         'main{max-width:800px;margin:40px auto;padding:32px;background:white;border-radius:16px}' +
         'button{padding:12px 20px;background:#3157d5;color:white;border:0;border-radius:8px}' +
@@ -1709,7 +1713,7 @@ async function startLoopbackWebSocketServer(root) {
     stdio: ["ignore", "pipe", "pipe"],
   });
   const { port } = JSON.parse(await waitForChildLine(server));
-  return { server, statsPath, port };
+  return { server, statsPath, requestsPath, port };
 }
 
 function createBrowserFixture({
@@ -1950,7 +1954,7 @@ test(
   { skip: browserSkip },
   async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-capture-cli-"));
-    const { server, port } = await startLoopbackWebSocketServer(root);
+    const { server, requestsPath, port } = await startLoopbackWebSocketServer(root);
     try {
       execFileSync("git", ["init", "-q"], { cwd: root });
       execFileSync("git", ["config", "user.name", "PM Test"], { cwd: root });
@@ -2009,6 +2013,7 @@ test(
         { cwd: root, stdio: ["ignore", "pipe", "pipe"] }
       );
       const executed = await waitForChildResult(child);
+      assert.deepEqual(JSON.parse(fs.readFileSync(requestsPath, "utf8")), ["/capture"]);
       assert.equal(executed.code, 0, executed.stderr);
       const result = JSON.parse(executed.stdout);
       assert.equal(result.ok, true);
