@@ -145,69 +145,70 @@ describe("dev runtime structured dispatch", () => {
     }
   });
 
-  it("resumes the recorded model after policy changes and preserves evidence on rejection", () => {
-    const fixture = createFixture("codex");
-    try {
-      const policyFile = path.join(fixture.worktree, ".pm", "execution-policy.json");
-      fs.mkdirSync(path.dirname(policyFile));
-      const setPolicy = (model) =>
-        fs.writeFileSync(
-          policyFile,
-          JSON.stringify({
-            schema_version: 1,
-            defaults: { codex: { model, effort: "high" } },
-            workflows: {},
-          })
+  for (const directResult of [false, true])
+    it(`resumes the recorded model with direct result ${directResult} after policy changes and preserves evidence on rejection`, () => {
+      const fixture = createFixture("codex");
+      try {
+        const policyFile = path.join(fixture.worktree, ".pm", "execution-policy.json");
+        fs.mkdirSync(path.dirname(policyFile));
+        const setPolicy = (model) =>
+          fs.writeFileSync(
+            policyFile,
+            JSON.stringify({
+              schema_version: 1,
+              defaults: { codex: { model, effort: "high" } },
+              workflows: {},
+            })
+          );
+        setPolicy("gpt-6-astra");
+        const launchFile = path.join(fixture.tmp, "resume-launch.json");
+        installStub(
+          fixture.binDir,
+          "codex",
+          [
+            `#!${process.execPath}`,
+            'const fs = require("node:fs"); const args = process.argv.slice(2);',
+            'if (args.includes("--version")) { console.log("codex-cli 0.144.0"); process.exit(0); }',
+            'if (args.includes("--help")) { console.log("exec resume --sandbox --json --output-schema --output-last-message"); process.exit(0); }',
+            `fs.writeFileSync(${JSON.stringify(launchFile)}, JSON.stringify(args));`,
+            `fs.writeFileSync(${directResult ? JSON.stringify(fixture.resultFile) : 'args[args.indexOf("--output-last-message") + 1]'}, JSON.stringify(${JSON.stringify(validCompleted("codex", fixture.commit))}));`,
+            'console.log(JSON.stringify({ type: "thread.started", thread_id: "retained-worker" }));',
+          ].join("\n")
         );
-      setPolicy("gpt-6-astra");
-      const launchFile = path.join(fixture.tmp, "resume-launch.json");
-      installStub(
-        fixture.binDir,
-        "codex",
-        [
-          `#!${process.execPath}`,
-          'const fs = require("node:fs"); const args = process.argv.slice(2);',
-          'if (args.includes("--version")) { console.log("codex-cli 0.144.0"); process.exit(0); }',
-          'if (args.includes("--help")) { console.log("exec resume --sandbox --json --output-schema --output-last-message"); process.exit(0); }',
-          `fs.writeFileSync(${JSON.stringify(launchFile)}, JSON.stringify(args));`,
-          `fs.writeFileSync(args[args.indexOf("--output-last-message") + 1], JSON.stringify(${JSON.stringify(validCompleted("codex", fixture.commit))}));`,
-          'console.log(JSON.stringify({ type: "thread.started", thread_id: "retained-worker" }));',
-        ].join("\n")
-      );
-      runDispatch(fixture);
-      setPolicy("gpt-5.6-sol");
-      runDispatch(fixture, {}, ["--resume-id", "retained-worker"]);
-      const runtimePath = path.join(fixture.tmp, "runtime.json");
-      const runtime = JSON.parse(fs.readFileSync(runtimePath));
-      const args = JSON.parse(fs.readFileSync(launchFile));
-      assert.equal(runtime.profile, "codex-astra");
-      assert.equal(args[args.indexOf("--model") + 1], "gpt-6-astra");
-      const previous = fs.readFileSync(fixture.resultFile);
-      assert.throws(
-        () => runDispatch(fixture, {}, ["--resume-id", "wrong-worker"]),
-        /recorded runtime/
-      );
-      assert.deepEqual(fs.readFileSync(fixture.resultFile), previous);
-      assert.throws(
-        () =>
-          runDispatch(fixture, {}, [
-            "--resume-id",
-            "retained-worker",
-            "--profile",
-            "codex-workhorse",
-          ]),
-        /recorded runtime/
-      );
-      fs.rmSync(runtimePath);
-      assert.throws(
-        () => runDispatch(fixture, {}, ["--resume-id", "retained-worker"]),
-        /recorded runtime/
-      );
-      assert.deepEqual(fs.readFileSync(fixture.resultFile), previous);
-    } finally {
-      fs.rmSync(fixture.tmp, { recursive: true, force: true });
-    }
-  });
+        runDispatch(fixture);
+        setPolicy("gpt-5.6-sol");
+        runDispatch(fixture, {}, ["--resume-id", "retained-worker"]);
+        const runtimePath = path.join(fixture.tmp, "runtime.json");
+        const runtime = JSON.parse(fs.readFileSync(runtimePath));
+        const args = JSON.parse(fs.readFileSync(launchFile));
+        assert.equal(runtime.profile, "codex-astra");
+        assert.equal(args[args.indexOf("--model") + 1], "gpt-6-astra");
+        const previous = fs.readFileSync(fixture.resultFile);
+        assert.throws(
+          () => runDispatch(fixture, {}, ["--resume-id", "wrong-worker"]),
+          /recorded runtime/
+        );
+        assert.deepEqual(fs.readFileSync(fixture.resultFile), previous);
+        assert.throws(
+          () =>
+            runDispatch(fixture, {}, [
+              "--resume-id",
+              "retained-worker",
+              "--profile",
+              "codex-workhorse",
+            ]),
+          /recorded runtime/
+        );
+        fs.rmSync(runtimePath);
+        assert.throws(
+          () => runDispatch(fixture, {}, ["--resume-id", "retained-worker"]),
+          /recorded runtime/
+        );
+        assert.deepEqual(fs.readFileSync(fixture.resultFile), previous);
+      } finally {
+        fs.rmSync(fixture.tmp, { recursive: true, force: true });
+      }
+    });
 
   it("rejects invalid prompt, worktree, and ownership inputs before launching a model", () => {
     const fixture = createFixture("codex");

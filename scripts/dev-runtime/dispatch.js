@@ -134,7 +134,7 @@ async function main(argv = process.argv.slice(2)) {
   const stderr = execution.stderrTail || "";
 
   let result;
-  let resumeId = sessionId;
+  let resumeId = execution.resumeId ?? sessionId;
   try {
     if (fs.existsSync(options.resultFile)) {
       result = validateWorkerResult(fs.readFileSync(options.resultFile, "utf8"), {
@@ -180,6 +180,7 @@ async function main(argv = process.argv.slice(2)) {
         status: "blocked",
         exit_status: execution.status,
         signal: execution.signal,
+        resume_id: resumeId,
         error: error.message,
       });
       process.stderr.write(`Agent exited without a valid structured result: ${error.message}\n`);
@@ -367,6 +368,8 @@ function runStreaming(command, args, options) {
     child.on("close", (status, signal) => {
       fs.closeSync(eventsFd);
       fs.closeSync(stderrFd);
+      const identity = identityEvent ? JSON.parse(identityEvent) : null;
+      const resumeId = identity?.thread_id ?? identity?.threadId ?? identity?.session_id ?? null;
       const stdoutText = stdoutTail.toString();
       const stderrText = stderrTail.toString();
       const extractionEvents = [identityEvent, systemEvents.toString(), resultEvent, stdoutText]
@@ -387,6 +390,7 @@ function runStreaming(command, args, options) {
         signal,
         error: spawnError,
         extractionEvents,
+        resumeId,
         stderrTail: stderrText,
       });
     });
