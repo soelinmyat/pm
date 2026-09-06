@@ -9,6 +9,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 const { applyRouting, createSession, nextDecision } = require("../scripts/lib/dev-session-schema");
+const { validateWorkUnits } = require("../scripts/lib/dev-work-units");
 const {
   buildApproval,
   deriveApprovalDecision,
@@ -87,6 +88,44 @@ test("direct proposal intake preserves approved design context and detects later
       /prototype.*sha256.*does not match repository bytes/i
     );
   } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("work units share prototype verification within one call and recheck on the next call", () => {
+  const repo = makeRepo();
+  const originalOpen = fs.openSync;
+  try {
+    const prepared = writeApprovedProposal(repo, { size: "S", withPrototype: true });
+    const units = Array.from({ length: 8 }, (_, index) => ({
+      id: `unit-${index}`,
+      title: `Unit ${index}`,
+      depends_on: [],
+      owns: [`src/${index}.js`],
+      status: "pending",
+      contract: {
+        acceptance_criteria: ["Preserve approved design"],
+        approach: "Implement UI",
+        verification_commands: ["node --test"],
+        test_hooks: [],
+        design_context: prepared.proposal.design_context,
+      },
+    }));
+    let opens = 0;
+    const canonicalPrototypePath = fs.realpathSync(prepared.prototypePath);
+    fs.openSync = function (file, ...args) {
+      if (String(file) === canonicalPrototypePath) opens += 1;
+      return Reflect.apply(originalOpen, fs, [file, ...args]);
+    };
+    validateWorkUnits(units, { repoRoot: repo, requireCurrentPrototypeIdentity: true });
+    assert.equal(opens, 1);
+    fs.writeFileSync(prepared.prototypePath, "<main>Unapproved drift</main>");
+    assert.throws(
+      () => validateWorkUnits(units, { repoRoot: repo, requireCurrentPrototypeIdentity: true }),
+      /does not match repository bytes/
+    );
+  } finally {
+    fs.openSync = originalOpen;
     fs.rmSync(repo, { recursive: true, force: true });
   }
 });

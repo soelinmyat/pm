@@ -2888,17 +2888,19 @@ function recordResult(session, result, options = {}) {
       records: structuredClone(result.evidence),
       recorded_at: timestamp,
     };
-    if (priorPhase === "qa") {
-      const qaErrors = [];
-      const checked = validateQaEvidence(session, result, qaErrors, "$.evidence", {
-        qaCandidate: "required",
-      });
-      if (qaErrors.length > 0) {
-        throw validationError("QA evidence changed before it could be recorded", qaErrors);
-      }
-      next.evidence[priorPhase].qa_run_count = checked.run_count;
-      next.evidence[priorPhase].qa_run_anchors = structuredClone(checked.run_anchors);
+  }
+  if (priorPhase === "qa" && ["passed", "failed", "blocked"].includes(result.status)) {
+    const qaErrors = [];
+    const checked = validateQaEvidence(session, result, qaErrors, "$.evidence", {
+      qaCandidate: "required",
+    });
+    if (qaErrors.length > 0) {
+      throw validationError("QA evidence changed before it could be recorded", qaErrors);
     }
+    // Non-passing attempts retain immutable history without granting gate evidence.
+    next.evidence.qa ||= { commit: null, records: [], recorded_at: timestamp };
+    next.evidence.qa.qa_run_count = checked.run_count;
+    next.evidence.qa.qa_run_anchors = structuredClone(checked.run_anchors);
   }
 
   if (result.status === "passed" && priorPhase === "ship" && next.execution.mode === "headless") {

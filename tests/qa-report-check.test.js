@@ -502,6 +502,13 @@ test("every QA verdict is runner-recorded before re-verification and prevents hi
   assert.equal(session.phase, "qa");
   assert.equal(session.phase_attempt, 2);
   assert.equal(session.attempts.at(-1).status, "failed");
+  assert.equal(session.evidence.qa.commit, null);
+  assert.deepEqual(session.evidence.qa.records, []);
+  assert.equal(session.evidence.qa.qa_run_count, 1);
+  assert.equal(
+    session.evidence.qa.qa_run_anchors[0].report_sha256,
+    crypto.createHash("sha256").update(fs.readFileSync(written.reportPath)).digest("hex")
+  );
 
   fs.appendFileSync(path.join(repo.root, "README.md"), "fixed after recorded QA\n");
   execFileSync("git", ["add", "README.md"], { cwd: repo.root });
@@ -568,6 +575,26 @@ test("blocked QA reports can be structurally checked and recorded without becomi
   result.evidence[0].command = "node scripts/qa-report-check.js --allow-nonpassing";
   assert.deepEqual(validateResult(session, result), []);
   assert.notEqual(JSON.parse(fs.readFileSync(written.reportPath, "utf8")).verdict, "pass");
+  const recorded = recordResult(session, result);
+  assert.equal(recorded.evidence.qa.commit, null);
+  assert.deepEqual(recorded.evidence.qa.records, []);
+  assert.equal(recorded.evidence.qa.qa_run_anchors[0].verdict, "blocked");
+  assert.equal(
+    recorded.evidence.qa.qa_run_anchors[0].report_sha256,
+    crypto.createHash("sha256").update(fs.readFileSync(written.reportPath)).digest("hex")
+  );
+  const checkRecorded = () =>
+    checkQaReport({
+      session: recorded,
+      reportPath: written.reportPath,
+      expectedCommit: repo.head(),
+      requirePassing: false,
+    });
+  assert.equal(checkRecorded().ok, true);
+  fs.appendFileSync(written.reportPath, "\n");
+  const rewritten = checkRecorded();
+  assert.equal(rewritten.ok, false);
+  assert.match(JSON.stringify(rewritten.issues), /exact accepted QA report bytes/);
 });
 
 test("QA report file must use the exact in-session path and rejects symlinks", (t) => {

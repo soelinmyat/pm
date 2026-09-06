@@ -348,6 +348,7 @@ function validateWorkUnitContract(contract, unitId, options = {}) {
       repoRoot: options.repoRoot,
       requireCurrentPrototypeIdentity: options.requireCurrentPrototypeIdentity,
       requireExperienceClassification: options.requireExperienceClassification,
+      prototypeVerificationCache: options.prototypeVerificationCache,
     });
   }
 }
