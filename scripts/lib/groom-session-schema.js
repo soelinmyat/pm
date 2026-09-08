@@ -523,7 +523,7 @@ function resumeBlocked(session, input, options = {}) {
   const blocker = next.blockers.at(-1);
   blocker.resolved_at = now;
   blocker.resolution = input.resolution.trim();
-  next.status = "active";
+  next.status = session.approval.status === "approved" ? "approved" : "active";
   next.phase_attempt += 1;
   next.updated_at = now;
   next.history.push(
