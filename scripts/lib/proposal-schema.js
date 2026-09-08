@@ -785,6 +785,9 @@ function validateCurrentEvidenceSources(proposal, projectRoot, at, issues, optio
         remainingBytes: MAX_EVIDENCE_TOTAL_BYTES - totalSourceBytes,
       });
       totalSourceBytes += source.bytes.length;
+      if (entry.sha256 !== source.sha256) {
+        source = retainedPromotionOrigin(source, entry, proposal) || source;
+      }
       sources.set(entry.path, source);
     } catch (error) {
       issues.push(issue(`${sourcePath}.path`, error.message));
@@ -844,6 +847,38 @@ function validateCurrentEvidenceSources(proposal, projectRoot, at, issues, optio
         );
       }
     }
+  }
+}
+
+function retainedPromotionOrigin(source, entry, proposal) {
+  // A decision companion is mutable lifecycle state. New promotions retain its
+  // exact preimage; evidence locators must resolve against those approved bytes,
+  // never against the subsequently promoted decision text.
+  if (!entry.path.endsWith(".decision.json") || !SHA256.test(entry.sha256 || "")) return null;
+  try {
+    const current = JSON.parse(source.bytes.toString("utf8"));
+    const promotion = current?.promotion;
+    if (
+      current?.document_type !== "decision-brief" ||
+      promotion?.status !== "promoted" ||
+      promotion.target_ref !== `backlog/proposals/${proposal.slug}.json` ||
+      promotion.origin_decision_sha256 !== entry.sha256 ||
+      typeof promotion.origin_decision_json !== "string"
+    )
+      return null;
+    const bytes = Buffer.from(promotion.origin_decision_json, "utf8");
+    if (bytes.length > 4 * 1024 * 1024 || proposalBytesHash(bytes) !== entry.sha256) return null;
+    const original = JSON.parse(bytes.toString("utf8"));
+    if (
+      original?.document_type !== "decision-brief" ||
+      original.decision_id !== current.decision_id ||
+      original.kind !== current.kind ||
+      original.slug !== current.slug
+    )
+      return null;
+    return { ...source, bytes, sha256: entry.sha256 };
+  } catch {
+    return null;
   }
 }
 

@@ -85,6 +85,8 @@ pm/
 
 ### Example output
 
+Think-to-Groom handoff preserves approved proposal identity even when the selected Think direction has a different slug. Promotion still verifies exact approval and source lineage; generated `proposal:<slug>` reader IDs are accepted by KB validation when their filename, kind, and proposal link match.
+
 A backlog entry after grooming:
 
 ```yaml

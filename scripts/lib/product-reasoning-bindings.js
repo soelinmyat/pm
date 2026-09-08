@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { parseFrontmatter } = require("../kb-frontmatter");
 const { readProjectInput } = require("./safe-project-output");
+const { promotionTargetSlug } = require("./product-reasoning-schema");
 const { readApprovedProposal } = require("./proposal-schema");
 
 const MAX_BINDING_FILE_BYTES = 16 * 1024 * 1024;
@@ -118,7 +119,7 @@ function verifyDecisionBriefBindings(root, brief, options = {}) {
         : `backlog/${brief.slug}.decision.json`;
     const approved = readApprovedProposal(path.resolve(root, targetRef), {
       projectRoot: proposalProjectRoot(root),
-      expectedSlug: brief.slug,
+      expectedSlug: promotionTargetSlug(brief, targetRef),
       expectedDecision: brief.promotion.approval_decision,
       // Promotion replaces the origin companion after the approved proposal has
       // bound its pre-transition bytes. Permit only that authenticated historical
@@ -191,8 +192,11 @@ function verifyCanonicalReaderMarker(brief, cache) {
     if (brief.kind === "think") {
       if (parsed.data.status !== "promoted")
         issues.push(`${canonical.markdown}: promoted Think status must equal promoted`);
-      if (parsed.data.promoted_to !== brief.slug)
-        issues.push(`${canonical.markdown}: promoted_to must equal ${brief.slug}`);
+      const targetSlug = promotionTargetSlug(brief, brief.promotion.target_ref);
+      if (!targetSlug || parsed.data.promoted_to !== targetSlug)
+        issues.push(
+          `${canonical.markdown}: promoted_to must equal ${targetSlug || "the canonical Groom target slug"}`
+        );
     } else if (
       brief.kind === "idea" &&
       !new Set(["proposed", "planned", "in-progress", "done"]).has(parsed.data.status)

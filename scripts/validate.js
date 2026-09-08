@@ -361,12 +361,19 @@ function validateBacklogItem(filePath, data, errors, warnings) {
     }
   }
 
-  if (data.id && !/^[A-Z]+-\d+$/.test(data.id)) {
+  const proposalSlug =
+    typeof data.id === "string" ? /^proposal:([a-z0-9]+(?:-[a-z0-9]+)*)$/.exec(data.id)?.[1] : null;
+  const proposalId =
+    proposalSlug &&
+    data.kind === "proposal" &&
+    rel === `${proposalSlug}.md` &&
+    data.prd === `proposals/${proposalSlug}.html`;
+  if (data.id && !/^[A-Z]+-\d+$/.test(data.id) && !proposalId) {
     pushIssue(
       errors,
       rel,
       "id",
-      `invalid ID format "${data.id}" — expected TEAM-NNN (e.g., PM-036, CLE-123)`
+      `invalid ID format "${data.id}" — expected TEAM-NNN or proposal:<slug> on a matching proposal reader`
     );
   }
 

@@ -511,7 +511,7 @@ test("promote requires exact approved Groom lineage and atomically closes origin
   fs.writeFileSync(path.join(root, decisionPath), `${JSON.stringify(wrongOriginHash, null, 2)}\n`);
   result = run(["validate", "--root", root, "--input", path.join(root, decisionPath)]);
   assert.equal(result.status, 2);
-  assert.match(result.stdout, /does not match the retained source bytes/);
+  assert.match(result.stdout, /origin_decision_json must retain the exact bounded origin bytes/);
   fs.writeFileSync(path.join(root, decisionPath), promotedBytes);
 
   const retainedEvidencePath = path.join(projectRoot, proposal.source.lineage[0].path);
@@ -608,7 +608,11 @@ test("promoted reader lifecycle invariants replay after the initial transition",
     const directory = kind === "think" ? "thinking" : "backlog";
     const markdown = `${directory}/${slug}.md`;
     return {
-      brief: { kind, slug, promotion: { status: "promoted" } },
+      brief: {
+        kind,
+        slug,
+        promotion: { status: "promoted", target_ref: `backlog/proposals/${slug}.json` },
+      },
       cache: new Map([
         [
           markdown,

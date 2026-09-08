@@ -17,6 +17,7 @@ const {
   verifyDecisionBriefBindings,
 } = require("./lib/product-reasoning-bindings");
 const {
+  promotionTargetSlug,
   decisionId,
   featureId,
   featureSourceSnapshot,
@@ -250,12 +251,14 @@ function promote(root, request, options = {}) {
     throw new Error(`promotion decision_path must equal ${canonical.decision}`);
   if (!bindingPaths.includes(canonical.markdown))
     throw new Error(`promotion binding_paths must include canonical origin ${canonical.markdown}`);
-  const canonicalTarget = `backlog/proposals/${brief.slug}.json`;
-  if (request.target_ref !== canonicalTarget)
-    throw new Error(`promotion target_ref must equal ${canonicalTarget}`);
+  const targetSlug = promotionTargetSlug(brief, request.target_ref);
+  if (!targetSlug)
+    throw new Error(
+      "promotion target_ref must equal a canonical Groom proposal path; Ideate requires its origin slug"
+    );
   const approved = readApprovedProposal(path.resolve(root, request.target_ref), {
     projectRoot: proposalProjectRoot(root),
-    expectedSlug: brief.slug,
+    expectedSlug: targetSlug,
     expectedDecision: request.approval_decision,
   });
   if (!approved.exactBytesCurrent || approved.source.proposal.lifecycle !== "approved")
@@ -295,7 +298,7 @@ function promote(root, request, options = {}) {
       sha256: `sha256:${crypto.createHash("sha256").update(input.bytes).digest("hex")}`,
     };
   });
-  validatePromotionReader(brief, captured);
+  validatePromotionReader(brief, captured, targetSlug);
   const confirmedAt = Date.parse(request.confirmed_at);
   const chronologyFloor = Math.max(
     Date.parse(brief.updated_at),
@@ -309,7 +312,8 @@ function promote(root, request, options = {}) {
     sourceArtifacts,
     request.confirmed_at,
     request.approval_decision,
-    originSha256
+    originSha256,
+    decisionInput.bytes.toString("utf8")
   );
   writeProjectJsonAtomic(root, request.decision_path, promoted, {
     maxBytes: 4 * 1024 * 1024,
@@ -357,7 +361,7 @@ function canonicalRequestPath(value, label) {
   return normalized;
 }
 
-function validatePromotionReader(brief, captured) {
+function validatePromotionReader(brief, captured, targetSlug = brief.slug) {
   const canonical = canonicalReaderPaths(brief);
   const readerIssues = verifyCanonicalReaderMarker(brief, captured);
   if (readerIssues.length)
@@ -366,8 +370,8 @@ function validatePromotionReader(brief, captured) {
   const expectedStatus = brief.kind === "think" ? "promoted" : "proposed";
   if (reader.status !== expectedStatus)
     throw new Error(`promotion canonical reader status must equal ${expectedStatus}`);
-  if (brief.kind === "think" && reader.promoted_to !== brief.slug)
-    throw new Error(`promotion canonical reader promoted_to must equal ${brief.slug}`);
+  if (brief.kind === "think" && reader.promoted_to !== targetSlug)
+    throw new Error(`promotion canonical reader promoted_to must equal ${targetSlug}`);
 }
 
 function sha256(bytes) {
