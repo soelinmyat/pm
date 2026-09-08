@@ -117,6 +117,31 @@ function planOptions(extra = {}) {
   };
 }
 
+test("capture assertion accepts bounded native preparation and rejects executable actions", () => {
+  const value = assertion();
+  value.before_capture = [
+    { kind: "tab", count: 2, reverse: false },
+    { kind: "scroll-into-view", locator: { by: "id", value: "save" } },
+  ];
+  assert.doesNotThrow(() => validateStateAssertion(value));
+  for (const action of [
+    { kind: "evaluate", expression: "document.body.remove()" },
+    { kind: "tab", count: 101, reverse: false },
+    { kind: "tab", count: 1.5, reverse: false },
+    { kind: "tab", count: 1, reverse: "false" },
+    { kind: "scroll-into-view", locator: { by: "css", value: "button" } },
+  ]) {
+    assert.throws(() => validateStateAssertion({ ...value, before_capture: [action] }));
+  }
+  assert.throws(() => validateStateAssertion({ ...value, before_capture: [] }));
+  assert.throws(() =>
+    validateStateAssertion({
+      ...value,
+      before_capture: Array(2).fill({ kind: "tab", count: 60, reverse: false }),
+    })
+  );
+});
+
 test("capture plan derives state and viewport from the frozen coverage row", () => {
   const plan = prepareCapturePlan(
     route(),
@@ -549,6 +574,14 @@ test("probe validation fails closed on URL, viewport, network, or timestamp drif
     },
   };
   assert.doesNotThrow(() => validateProbeResult(result, plan));
+  const scrolled = structuredClone(result);
+  scrolled.page.css_viewport.scroll_height = 2000;
+  scrolled.page.css_viewport.scroll_y = 1400;
+  assert.doesNotThrow(() => validateProbeResult(scrolled, plan));
+  for (const offset of [-1, 1401, 1.5, null, "1"]) {
+    scrolled.page.css_viewport.scroll_y = offset;
+    assert.throws(() => validateProbeResult(scrolled, plan), /viewport/);
+  }
   assert.doesNotThrow(() =>
     validateProbeResult(
       {
@@ -1726,6 +1759,7 @@ function createBrowserFixture({
   persistentWorker = false,
   focusabilityControls = false,
   stateMarkerStyle = "",
+  belowFold = false,
 } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-trusted-capture-"));
   const external = externalRequest ? '<img src="https://example.invalid/tracker.png" alt="">' : "";
@@ -1760,6 +1794,7 @@ function createBrowserFixture({
   const html = `<!doctype html><html><head><meta charset="utf-8"><style>
 *{box-sizing:border-box}body{margin:0;background:#eef2ff;color:#172033;font:16px system-ui}header{background:#18264a;color:white;padding:18px 28px}nav a{color:white;margin-right:16px}main{max-width:900px;margin:30px auto;padding:24px;background:white;border-radius:16px}h1{font-size:32px}h2{font-size:22px}.cards{display:grid;grid-template-columns:1fr 1fr;gap:16px}.card{padding:18px;border:1px solid #ccd3e1;border-radius:12px}button{padding:10px 18px;background:#3157d5;color:white;border:0;border-radius:8px}
 ${stateMarkerStyle ? `#account{${stateMarkerStyle}}` : ""}
+${belowFold ? "#account{margin-top:1400px}button:focus-visible{outline:4px solid orange}" : ""}
 </style></head><body><header><nav aria-label="Primary"><a href="#account">Accounts</a></nav></header><main id="account" data-testid="account-state" data-pm-state="primary"><header><h1>Account overview</h1></header><section aria-labelledby="summary"><h2 id="summary">Summary</h2><div class="cards"><article class="card"><h2>Usage</h2><p>Stable product evidence.</p></article><article class="card"><h2>Plan</h2><p>Professional tier.</p></article></div><button>Save changes</button>${focusabilityMarkup}</section>${descendantOverlay}</main>${external}${overlay}${late}${webSocket}${persistentWorkerScript}</body></html>`;
   return {
     root,
@@ -1784,6 +1819,71 @@ function runBrowserCapture(fixture, allowedOrigins = []) {
     verificationPath: fixture.verificationPath,
   });
 }
+
+for (const { key, count, reverse } of [
+  { key: "Tab", count: 2, reverse: false },
+  { key: "Shift+Tab", count: 1, reverse: true },
+]) {
+  test(
+    `browser capture reaches below-fold controls with native ${key} and retains scroll evidence`,
+    { skip: browserSkip },
+    () => {
+      const fixture = createBrowserFixture({ belowFold: true });
+      fixture.stateAssertion.before_capture = [{ kind: "tab", count, reverse }];
+      fixture.stateAssertion.all.push({
+        locator: { by: "role-name", value: "button:Save changes" },
+        expect: { kind: "focused" },
+      });
+      try {
+        const result = runBrowserCapture(fixture);
+        assert.ok(result.page.css_viewport.scroll_y > 1000);
+        assert.equal(result.assertion_passed, true);
+      } finally {
+        fs.rmSync(fixture.root, { recursive: true, force: true });
+      }
+    }
+  );
+}
+
+test(
+  "browser capture scrolls an exact native target into view without focusing it",
+  { skip: browserSkip },
+  () => {
+    const fixture = createBrowserFixture({ belowFold: true });
+    fixture.stateAssertion.before_capture = [
+      { kind: "scroll-into-view", locator: { by: "id", value: "account" } },
+    ];
+    try {
+      const result = runBrowserCapture(fixture);
+      assert.ok(result.page.css_viewport.scroll_y > 1000);
+      assert.equal(result.assertion_passed, true);
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
+  "scrolled captures still reject occluded state markers and missing action targets",
+  { skip: browserSkip },
+  () => {
+    for (const occluded of [true, false]) {
+      const fixture = createBrowserFixture({ belowFold: true, occluded });
+      fixture.stateAssertion.before_capture = [
+        {
+          kind: "scroll-into-view",
+          locator: { by: "id", value: occluded ? "account" : "missing" },
+        },
+      ];
+      try {
+        assert.throws(() => runBrowserCapture(fixture), occluded ? /occluded/ : /exactly one node/);
+        assert.equal(fs.existsSync(fixture.outputPath), false);
+      } finally {
+        fs.rmSync(fixture.root, { recursive: true, force: true });
+      }
+    }
+  }
+);
 
 test(
   "browser probe acquires one same-page screenshot, AX tree, and DOM snapshot",

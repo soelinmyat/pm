@@ -125,6 +125,16 @@ The raw probe is schema v1 with exactly `schema_version`, `kind`, `subject_id`, 
 
 Audit schema v1 without a raw binding is readable only as part of non-authoritative route-v1 inspection. It cannot certify current work. Never author a new schema-v1 audit or downgrade route/audit evidence to bypass normalization.
 
+Optional assertion `before_capture` actions are part of the existing assertion
+byte hash and invocation binding. Only bounded native Tab/Shift+Tab and exact
+`id`/`test-id` scrolling are supported (1–20 actions, 100 Tab presses total).
+Preparation is followed by fresh network settlement before the frozen samples.
+It cannot write markers, execute caller code, click, or submit. A scroll action
+does not establish keyboard reach; focused and visible guards remain required
+for focus/keyboard states. CSS viewport offsets may be nonzero but must be
+nonnegative integers within the document bounds. Native hit-tests use document
+coordinates while retained hit-test points remain viewport-relative.
+
 ## Bound reviewer inputs
 
 Before either reviewer starts, write one shared context source. Both perspectives bind the same bytes; free-text copies of the brief or principles are not allowed in a review input.

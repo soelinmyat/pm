@@ -307,7 +307,15 @@ function validateMeaningfulVisual(inspected) {
 function validateStateAssertion(assertion, expected = null) {
   exactObject(
     assertion,
-    ["schema_version", "subject_id", "coverage_id", "state", "state_marker", "all"],
+    [
+      "schema_version",
+      "subject_id",
+      "coverage_id",
+      "state",
+      "state_marker",
+      "all",
+      ...(Object.hasOwn(assertion || {}, "before_capture") ? ["before_capture"] : []),
+    ],
     "state assertion"
   );
   if (assertion.schema_version !== 2)
@@ -393,7 +401,47 @@ function validateStateAssertion(assertion, expected = null) {
       throw new Error(`state assertion.all[${index}].expect.value is invalid`);
   }
   validateSemanticStateGuard(assertion);
+  validateCaptureActions(assertion.before_capture);
   return assertion;
+}
+
+function validateCaptureActions(actions) {
+  if (actions === undefined) return;
+  if (!Array.isArray(actions) || actions.length < 1 || actions.length > 20)
+    throw new Error("before_capture must contain 1 through 20 actions");
+  let tabs = 0;
+  for (const action of actions) {
+    if (action?.kind === "tab") {
+      exactObject(action, ["kind", "count", "reverse"], "Tab action");
+      if (
+        !Number.isSafeInteger(action.count) ||
+        action.count < 1 ||
+        action.count > 100 ||
+        typeof action.reverse !== "boolean"
+      )
+        throw new Error("Tab action requires count 1 through 100 and boolean reverse");
+      tabs += action.count;
+    } else if (action?.kind === "scroll-into-view") {
+      exactObject(action, ["kind", "locator"], "scroll action");
+      exactObject(action.locator, ["by", "value"], "scroll locator");
+      if (!["id", "test-id"].includes(action.locator.by))
+        throw new Error("scroll locator must use id or test-id");
+      boundedText(action.locator.value, 500, "scroll locator value");
+    } else throw new Error("unsupported before_capture action");
+  }
+  if (tabs > 100) throw new Error("before_capture exceeds 100 Tab presses");
+}
+
+function validViewportScroll(viewport) {
+  return ["x", "y"].every((axis) => {
+    const offset = viewport[`scroll_${axis}`];
+    const dimension = axis === "x" ? "width" : "height";
+    return (
+      Number.isSafeInteger(offset) &&
+      offset >= 0 &&
+      offset <= viewport[`scroll_${dimension}`] - viewport[`client_${dimension}`]
+    );
+  });
 }
 
 function validateSemanticStateGuard(assertion) {
@@ -899,8 +947,7 @@ function validateProbeResult(result, plan) {
     viewport.client_width !== plan.viewport.width ||
     viewport.client_height !== plan.viewport.height ||
     viewport.device_scale_factor !== 1 ||
-    viewport.scroll_x !== 0 ||
-    viewport.scroll_y !== 0 ||
+    !validViewportScroll(viewport) ||
     viewport.visual_scale !== 1 ||
     viewport.page_zoom !== 1
   )
@@ -1498,6 +1545,8 @@ module.exports = {
   validateMeaningfulVisual,
   validateRoute,
   validateStateAssertion,
+  validateCaptureActions,
+  validViewportScroll,
   validateSurfacePattern,
   validateUrlIdentity,
   validateViewport,

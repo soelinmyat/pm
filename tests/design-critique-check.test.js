@@ -889,7 +889,14 @@ function refreshTrustedCaptureObservations(fixture) {
     );
 }
 
-function attachTrustedCaptureObservation(root, route, routeBinding, capture, evidence) {
+function attachTrustedCaptureObservation(
+  root,
+  route,
+  routeBinding,
+  capture,
+  evidence,
+  scrollY = 0
+) {
   const coverage = route.coverage.find((item) => item.id === capture.coverage_id);
   const subject = route.subjects.find((item) => item.id === coverage.subject_id);
   const audits = Object.fromEntries(
@@ -958,10 +965,10 @@ function attachTrustedCaptureObservation(root, route, routeBinding, capture, evi
     client_width: capture.width,
     client_height: capture.height,
     scroll_width: capture.width,
-    scroll_height: capture.height,
+    scroll_height: capture.height + 2000,
     device_scale_factor: 1,
     scroll_x: 0,
-    scroll_y: 0,
+    scroll_y: scrollY,
     visual_scale: 1,
     page_zoom: 1,
   };
@@ -2161,6 +2168,27 @@ test("rejects navigation drift inside a rebound trusted capture manifest", () =>
   const result = check(fixture);
   assert.equal(result.ok, false);
   assert.match(JSON.stringify(result.issues), /must equal the asserted expected URL/);
+});
+
+test("trusted checker accepts bound scroll offsets but rejects offsets outside document bounds", () => {
+  const fixture = makeFixture();
+  const capture = fixture.captures.captures[0];
+  for (const scrollY of [1200, -1, 2001, 0.5]) {
+    attachTrustedCaptureObservation(
+      fixture.root,
+      fixture.route,
+      binding(fixture.root, fixture.routePath),
+      capture,
+      fixture.captures.evidence,
+      scrollY
+    );
+    rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+    fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+    rewriteReportAndHtml(fixture);
+    const result = check(fixture);
+    assert.equal(result.ok, scrollY === 1200, JSON.stringify(result.issues));
+    if (scrollY !== 1200) assert.match(JSON.stringify(result.issues), /CSS viewport/);
+  }
 });
 
 test("rejects a cross-origin lookalike route even when that origin is allowlisted", () => {

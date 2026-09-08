@@ -43,6 +43,7 @@ const {
   validateSurfacePattern,
   validateUrlIdentity,
   validateViewport,
+  validViewportScroll,
   urlMatchesSurface,
 } = require("./design-critique-capture");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
@@ -1188,8 +1189,7 @@ function validateTrustedPage(manifest, capture, route, coverage, label, issues) 
     viewport.scroll_width < capture.width ||
     viewport.scroll_height < capture.height ||
     viewport.device_scale_factor !== 1 ||
-    viewport.scroll_x !== 0 ||
-    viewport.scroll_y !== 0 ||
+    !validViewportScroll(viewport) ||
     viewport.visual_scale !== 1 ||
     viewport.page_zoom !== 1
   )

@@ -91,6 +91,33 @@ Allowed guard locators are `id`, `test-id`, and `role-name` (`role:accessible-na
 
 For the state marker and every `visible` guard, visible means the node and its ancestors are not hidden, use visible layout, have at least 1% effective multiplied opacity, survive ancestor overflow clipping, and intersect the visual viewport. The helper also asks Chromium to hit-test the center and four inset points; at least one point must hit the asserted node or one of its descendants. Ordinary nested content remains valid. A sibling overlay fails, and one positioned descendant branch covering at least 90% of the marker and winning every sampled point also fails. This sampled hit test is deterministic but is not a complete paint-order proof: irregular or partial occlusion between the five sample points can remain undetected.
 
+### Native preparation for below-fold and keyboard states
+
+An assertion may include an optional `before_capture` array. It is hash-bound with
+the assertion, runs after initial page readiness, and must settle again before
+the unchanged atomic screenshot/AX/DOM checks begin:
+
+```json
+"before_capture": [
+  { "kind": "tab", "count": 2, "reverse": false },
+  { "kind": "scroll-into-view", "locator": { "by": "id", "value": "save" } }
+]
+```
+
+Use 1–20 actions and at most 100 total Tab presses. `reverse: true` sends
+Shift+Tab. Scrolling uses Chromium's native scroll command and an exact, unique
+`id` or `test-id`; it does not focus the node. For keyboard-reach evidence, use
+Tab alone so browser focus navigation reveals the control. Add matching
+`focused` and `visible` guards; actions do not replace any semantic guard or
+the exact routed `data-pm-state` marker. Review-only fixtures may expose that
+marker, but the capture tool never manufactures it. Arbitrary JavaScript, CSS
+selectors, click, submit, and typing actions are unsupported.
+
+Normal-size viewports may be scrolled. The retained CSS viewport records the
+observed nonnegative integer offsets within document bounds; dimensions, zoom,
+scale, hit-testing, repeated observations and pixels must still match. Do not
+inflate viewport height merely to bring a below-fold target into frame.
+
 ### Capture sequence
 
 ```bash
