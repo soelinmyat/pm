@@ -200,10 +200,12 @@ function validateDecisionBrief(value) {
   if (value.promotion?.status === "promoted") {
     if (!new Set(["think", "idea"]).has(value.kind))
       issues.push("only Think and Ideate decisions can be promoted to Groom");
-    const canonicalTarget = value.slug ? `backlog/proposals/${value.slug}.json` : null;
-    if (canonicalTarget && value.promotion.target_ref !== canonicalTarget)
-      issues.push(`promoted decision target_ref must equal ${canonicalTarget}`);
-    const canonicalApproval = value.slug ? `backlog/proposals/${value.slug}.approval.json` : null;
+    const targetSlug = promotionTargetSlug(value, value.promotion.target_ref);
+    if (!targetSlug)
+      issues.push(
+        `promoted decision target_ref must equal a canonical Groom proposal path${value.kind === "idea" ? " with the origin slug" : ""}`
+      );
+    const canonicalApproval = targetSlug ? `backlog/proposals/${targetSlug}.approval.json` : null;
     if (canonicalApproval && !artifactPaths.has(canonicalApproval))
       issues.push(`promoted decision must bind canonical approval audit ${canonicalApproval}`);
     if (
@@ -242,6 +244,18 @@ function validateIdeaForSave(value) {
       issues.push("moderate idea evidence requires at least one credible evidence chain");
   }
   return [...new Set(issues)];
+}
+
+// Think readers retain their own identity when a Groom session keeps an earlier
+// proposal slug. Ideate readers share the generated backlog path, so their slug
+// must remain aligned. Approval and exact origin lineage are verified separately.
+function promotionTargetSlug(brief, targetRef) {
+  const match =
+    typeof targetRef === "string"
+      ? /^backlog\/proposals\/([a-z0-9]+(?:-[a-z0-9]+)*)\.json$/.exec(targetRef)
+      : null;
+  if (!match || !new Set(["think", "idea"]).has(brief.kind)) return null;
+  return brief.kind === "think" || match[1] === brief.slug ? match[1] : null;
 }
 
 function canonicalDecisionReader(kind, slugValue) {
@@ -307,6 +321,7 @@ function validatePromotion(promotion, sourceArtifacts, issues) {
       "confirmed_at",
       "approval_decision",
       "origin_decision_sha256",
+      "origin_decision_json",
     ],
     "decision.promotion",
     issues
@@ -314,6 +329,28 @@ function validatePromotion(promotion, sourceArtifacts, issues) {
   if (!PROMOTION_STATUSES.has(promotion.status))
     issues.push("decision.promotion.status is invalid");
   const promoted = promotion.status === "promoted";
+  if (promotion.origin_decision_json !== undefined) {
+    const snapshot = promotion.origin_decision_json;
+    if (
+      !promoted ||
+      typeof snapshot !== "string" ||
+      Buffer.byteLength(snapshot) > 4 * 1024 * 1024 ||
+      `sha256:${crypto
+        .createHash("sha256")
+        .update(typeof snapshot === "string" ? snapshot : "")
+        .digest("hex")}` !== promotion.origin_decision_sha256
+    ) {
+      issues.push(
+        "decision.promotion.origin_decision_json must retain the exact bounded origin bytes"
+      );
+    } else {
+      try {
+        JSON.parse(snapshot);
+      } catch {
+        issues.push("decision.promotion.origin_decision_json must be valid JSON");
+      }
+    }
+  }
   if (promoted) {
     if (promotion.target_kind !== "groom")
       issues.push("promoted decision target_kind must be groom");
@@ -531,7 +568,8 @@ function promoteDecisionBrief(
   sourceArtifacts,
   confirmedAt,
   approvalDecision,
-  originDecisionSha256
+  originDecisionSha256,
+  originDecisionJson
 ) {
   const existingIssues = validateDecisionBrief(brief);
   if (existingIssues.length)
@@ -545,6 +583,7 @@ function promoteDecisionBrief(
       confirmed_at: confirmedAt,
       approval_decision: approvalDecision,
       origin_decision_sha256: originDecisionSha256,
+      ...(originDecisionJson !== undefined ? { origin_decision_json: originDecisionJson } : {}),
     },
     source_artifacts: sourceArtifacts,
     updated_at: confirmedAt,
@@ -1048,6 +1087,7 @@ function stringArray(value, label, issues, options = {}) {
 }
 
 module.exports = {
+  promotionTargetSlug,
   decisionId,
   featureId,
   featureSourceSnapshot,

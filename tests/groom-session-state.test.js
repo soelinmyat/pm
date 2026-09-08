@@ -19,6 +19,7 @@ const {
   nextDecision,
   recordResult,
   reviseSession,
+  resumeBlocked,
   validateSession,
 } = require("../scripts/lib/groom-session-schema");
 const {
@@ -248,6 +249,21 @@ test("approval binds exact proposal bytes and revision, and revise invalidates i
     assert.equal(session.approval.proposal_hash, proposal.content_hash);
     assert.equal(session.approval.proposal_revision, 1);
     assert.equal(session.phase, "handoff");
+    const approvalBeforeBlock = structuredClone(session.approval);
+    session = recordResult(session, {
+      ...passed(session),
+      status: "blocked",
+      blocker: {
+        code: "integration-failure",
+        reason: "Origin promotion unavailable",
+        remediation: "Repair origin promotion",
+      },
+    });
+    session = resumeBlocked(session, { resolution: "Origin promotion repaired" });
+    assert.equal(session.status, "approved");
+    assert.equal(session.phase, "handoff");
+    assert.deepEqual(session.approval, approvalBeforeBlock);
+    assert.deepEqual(validateSession(session), []);
 
     const changed = JSON.parse(fs.readFileSync(proposalPath, "utf8"));
     changed.revision = 2;
