@@ -1820,25 +1820,30 @@ function runBrowserCapture(fixture, allowedOrigins = []) {
   });
 }
 
-test(
-  "browser capture reaches below-fold controls with native Tab and retains scroll evidence",
-  { skip: browserSkip },
-  () => {
-    const fixture = createBrowserFixture({ belowFold: true });
-    fixture.stateAssertion.before_capture = [{ kind: "tab", count: 2, reverse: false }];
-    fixture.stateAssertion.all.push({
-      locator: { by: "role-name", value: "button:Save changes" },
-      expect: { kind: "focused" },
-    });
-    try {
-      const result = runBrowserCapture(fixture);
-      assert.ok(result.page.css_viewport.scroll_y > 1000);
-      assert.equal(result.assertion_passed, true);
-    } finally {
-      fs.rmSync(fixture.root, { recursive: true, force: true });
+for (const { key, count, reverse } of [
+  { key: "Tab", count: 2, reverse: false },
+  { key: "Shift+Tab", count: 1, reverse: true },
+]) {
+  test(
+    `browser capture reaches below-fold controls with native ${key} and retains scroll evidence`,
+    { skip: browserSkip },
+    () => {
+      const fixture = createBrowserFixture({ belowFold: true });
+      fixture.stateAssertion.before_capture = [{ kind: "tab", count, reverse }];
+      fixture.stateAssertion.all.push({
+        locator: { by: "role-name", value: "button:Save changes" },
+        expect: { kind: "focused" },
+      });
+      try {
+        const result = runBrowserCapture(fixture);
+        assert.ok(result.page.css_viewport.scroll_y > 1000);
+        assert.equal(result.assertion_passed, true);
+      } finally {
+        fs.rmSync(fixture.root, { recursive: true, force: true });
+      }
     }
-  }
-);
+  );
+}
 
 test(
   "browser capture scrolls an exact native target into view without focusing it",
