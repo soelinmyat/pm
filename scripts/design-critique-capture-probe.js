@@ -7,6 +7,7 @@ const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
+const { validateCaptureActions } = require("./design-critique-capture");
 
 const MAX_CDP_MESSAGE_CHARS = 96 * 1024 * 1024;
 const MAX_CAPTURE_BYTES = 64 * 1024 * 1024;
@@ -1196,12 +1197,19 @@ async function verifyAssertionHitTargets(
     }));
     const accepted = [];
     for (const point of points) {
-      const hit = await client.send("DOM.getNodeForLocation", {
-        x: point.x,
-        y: point.y,
-        includeUserAgentShadowDOM: true,
-        ignorePointerEventsNone: true,
-      });
+      const hit = await client
+        .send("DOM.getNodeForLocation", {
+          // CDP takes document coordinates; evidence retains viewport coordinates.
+          x: Math.floor(point.x + pageX),
+          y: Math.floor(point.y + pageY),
+          includeUserAgentShadowDOM: true,
+          ignorePointerEventsNone: true,
+        })
+        .catch((error) => {
+          throw new Error(
+            `${error.message} (${requirement.label}, x=${point.x}, y=${point.y}, scroll=${pageX},${pageY})`
+          );
+        });
       if (isNodeOrDescendant(hit.backendNodeId, requirement.node, model))
         accepted.push({ ...point, backend_node_id: hit.backendNodeId });
     }
@@ -1947,6 +1955,7 @@ function canonicalSample(sample) {
 
 async function main() {
   const config = JSON.parse(fs.readFileSync(0, "utf8"));
+  validateCaptureActions(config.stateAssertion?.before_capture);
   const allowedOrigins = normalizeAllowedOrigins(config.allowedOrigins || []);
   const allowedNetworkOrigins = webSocketPolicyOrigins(allowedOrigins);
   const readinessTimeoutMs = config.readinessTimeoutMs;
@@ -2495,6 +2504,47 @@ async function main() {
       "margin-bottom",
       "-webkit-mask-box-image-source",
     ];
+    if (config.stateAssertion.before_capture) {
+      // Only native navigation is allowed; the assertion file hash binds these actions.
+      // Never click, submit, execute caller code, or manufacture a state marker.
+      for (const action of config.stateAssertion.before_capture || []) {
+        assertNetworkHealthy();
+        if (action.kind === "tab") {
+          const budget = { remaining: action.count };
+          while (budget.remaining > 0)
+            await dispatchKeyboardKey(client, "Tab", budget, action.reverse ? 8 : 0);
+        } else {
+          const snapshot = await client.send("DOMSnapshot.captureSnapshot", { computedStyles: [] });
+          const attribute = action.locator.by === "id" ? "id" : "data-testid";
+          const matches = snapshotNodeModel(snapshot).filter(
+            (node) => node.attributes[attribute] === action.locator.value
+          );
+          if (matches.length !== 1)
+            throw new Error("scroll target must resolve to exactly one node");
+          await client.send("DOM.scrollIntoViewIfNeeded", {
+            backendNodeId: matches[0].backendNodeId,
+          });
+        }
+      }
+      // Input can initiate lazy loading or focus animations: reacquire settled readiness.
+      const actionDeadline = Date.now() + readinessTimeoutMs;
+      const actionsFinishedAt = Date.now();
+      while (Date.now() < actionDeadline) {
+        assertNetworkHealthy();
+        if (
+          pendingRequests.size === 0 &&
+          pendingWebSockets.size === 0 &&
+          activeFetchHandlers.size === 0 &&
+          activeTargetHandlers.size === 0 &&
+          Date.now() - lastNetworkActivity >= settleMs &&
+          Date.now() - actionsFinishedAt >= settleMs
+        )
+          break;
+        await sleep(25);
+      }
+      if (Date.now() >= actionDeadline) throw new Error("capture actions did not settle");
+      readyAt = new Date().toISOString();
+    }
     criticalWindow = true;
     const before = await nativeSample(client, target.id, computedStyles, config.stateAssertion);
     const first = await client.send("Page.captureScreenshot", {
