@@ -20,11 +20,18 @@ const smallUiRisk = {
 
 test("routeDevWork: assessed small UI changes combine design checks into QA", () => {
   for (const size of ["XS", "S"]) {
-    const route = routeDevWork({ kind: "task", size, risk: smallUiRisk });
+    const route = routeDevWork({ kind: "task", size, ui_platform: "web", risk: smallUiRisk });
     assert.deepEqual(route.required_gates, ["tdd", "qa", "review", "verification"]);
     assert.equal(route.required_phases.includes("design-critique"), false);
     assert.equal(route.required_phases.includes("qa"), true);
     assert.equal(route.review_mode, "code-scan");
+  }
+});
+
+test("focused browser QA never replaces mobile or unknown platform safeguards", () => {
+  for (const ui_platform of [undefined, "mobile", "mixed", "unknown"]) {
+    const route = routeDevWork({ kind: "task", size: "XS", ui_platform, risk: smallUiRisk });
+    assert.ok(route.required_gates.includes("design-critique"));
   }
 });
 

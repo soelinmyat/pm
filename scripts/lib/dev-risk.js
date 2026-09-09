@@ -165,6 +165,7 @@ function routeDevWork(facts = {}) {
 function usesFocusedUiQa(facts) {
   const risk = facts?.risk;
   return (
+    facts?.ui_platform === "web" &&
     ["XS", "S"].includes(facts?.size) &&
     risk?.ui === 1 &&
     [0, 1].includes(risk.behavioral) &&

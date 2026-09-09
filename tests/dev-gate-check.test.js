@@ -17,6 +17,7 @@ test("default gate checks honor canonical focused QA without reinstating critiqu
     slug: "example",
     task: {
       size: "XS",
+      ui_platform: "web",
       risk: {
         behavioral: 1,
         security: 0,

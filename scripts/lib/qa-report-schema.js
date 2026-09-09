@@ -1035,17 +1035,20 @@ function validateSessionCoverage(report, session, receipts, retained, issues) {
       }
       if (target === "Keyboard focus and navigation") continue;
       const screenshot = screenshots.get(row?.screenshot_id);
+      let capture;
       const hasScreenshot =
         screenshot &&
         ids.some((id) => {
           const assertion = currentAssertions.get(id);
           const receipt = receipts.byId.get(assertion?.receipt_id);
-          return (
+          const linked =
             receipt?.kind === "browser" &&
             boundedArray(receipt.screenshot_ids, MAX_SCREENSHOTS).includes(screenshot.id) &&
             screenshot.run === latest.run &&
-            screenshot.commit === report.commit
-          );
+            screenshot.commit === report.commit &&
+            assertion?.capture?.screenshot_id === screenshot.id;
+          if (linked) capture = assertion.capture;
+          return linked;
         });
       if (!hasScreenshot)
         add(
@@ -1055,11 +1058,15 @@ function validateSessionCoverage(report, session, receipts, retained, issues) {
         );
       else {
         try {
+          if (!capture || capture.scale !== "css" || capture.full_page !== false)
+            throw new Error("requires browser-observed CSS-scale viewport capture metadata");
           validateWebViewport(
             target === "Desktop layout" ? "desktop" : "narrow",
-            screenshot.width,
-            screenshot.height
+            capture.css_width,
+            capture.css_height
           );
+          if (screenshot.width !== capture.css_width || screenshot.height !== capture.css_height)
+            throw new Error("PNG dimensions must match the observed CSS viewport");
         } catch (error) {
           add(issues, "report.coverage.critical_states", `${target}: ${error.message}`);
         }
@@ -1975,8 +1982,43 @@ function validateExecutionOutput(bytes, receipt, findingIds, at, issues) {
       add(issues, assertionAt, "must be an object");
       continue;
     }
-    closed(assertion, ASSERTION_RESULT_FIELDS, assertionAt, issues);
+    closed(assertion, [...ASSERTION_RESULT_FIELDS, "capture"], assertionAt, issues);
     required(assertion, ASSERTION_RESULT_FIELDS, assertionAt, issues);
+    if (assertion.capture !== undefined) {
+      const capture = assertion.capture;
+      const captureAt = `${assertionAt}.capture`;
+      const fields = [
+        "screenshot_id",
+        "css_width",
+        "css_height",
+        "device_pixel_ratio",
+        "scale",
+        "full_page",
+      ];
+      if (!object(capture)) add(issues, captureAt, "must be an object");
+      else {
+        closed(capture, fields, captureAt, issues);
+        required(capture, fields, captureAt, issues);
+        if (receipt.kind !== "browser") add(issues, captureAt, "requires a browser receipt");
+        if (
+          !localId(capture.screenshot_id) ||
+          !boundedArray(receipt.screenshot_ids, MAX_SCREENSHOTS).includes(capture.screenshot_id)
+        )
+          add(issues, `${captureAt}.screenshot_id`, "must bind a screenshot in this receipt");
+        integerInRange(capture.css_width, 1, 8192, `${captureAt}.css_width`, issues);
+        integerInRange(capture.css_height, 1, 8192, `${captureAt}.css_height`, issues);
+        if (
+          !Number.isFinite(capture.device_pixel_ratio) ||
+          capture.device_pixel_ratio <= 0 ||
+          capture.device_pixel_ratio > 8
+        )
+          add(issues, `${captureAt}.device_pixel_ratio`, "must be finite, positive, and at most 8");
+        if (!["css", "device"].includes(capture.scale))
+          add(issues, `${captureAt}.scale`, "must be css or device");
+        if (typeof capture.full_page !== "boolean")
+          add(issues, `${captureAt}.full_page`, "must be boolean");
+      }
+    }
     if (!localId(assertion.id)) add(issues, `${assertionAt}.id`, "must be a stable local ID");
     else if (ids.has(assertion.id)) add(issues, `${assertionAt}.id`, "must be unique");
     else {

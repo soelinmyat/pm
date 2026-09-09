@@ -72,6 +72,13 @@ test("Dev-bound behavioral corrections are eligible without extending decision o
     );
   assert.deepEqual(report().auto_fix_eligible, [finding.id]);
   assert.equal(report().outcome, "failed", "eligibility does not certify a correction");
+  target.dev_context.acceptance_sha256 = crypto.createHash("sha256").update("[]").digest("hex");
+  assert.deepEqual(
+    report().auto_fix_eligible,
+    [],
+    "an empty acceptance contract does not authorize behavioral corrections"
+  );
+  target.dev_context.acceptance_sha256 = "a".repeat(64);
   target.generator.version = "1.13.55";
   assert.deepEqual(report().auto_fix_eligible, [], "frozen earlier reports keep their policy");
   target.generator.version = "1.13.56";

@@ -35,6 +35,7 @@ test("focused UI QA cannot pass with a generic browser receipt alone", (t) => {
   t.after(repo.cleanup);
   const session = createSession({ slug: "focused-ui", sourceDir: repo.root });
   session.task.size = "XS";
+  session.task.ui_platform = "web";
   session.task.risk = {
     behavioral: 1,
     security: 0,
@@ -104,7 +105,49 @@ test("focused UI QA cannot pass with a generic browser receipt alone", (t) => {
     report.coverage.critical_states[index].screenshot_id = screenshot.id;
   }
   fs.writeFileSync(reportPath, JSON.stringify(report));
+  assert.equal(verify().ok, false, "PNG dimensions alone do not attest a CSS viewport");
+  const outputBinding = report.receipts[0].output;
+  const output = JSON.parse(fs.readFileSync(outputBinding.path, "utf8"));
+  const saveOutput = () => {
+    const bytes = Buffer.from(JSON.stringify(output));
+    fs.writeFileSync(outputBinding.path, bytes);
+    outputBinding.bytes = bytes.length;
+    outputBinding.sha256 = digest(bytes);
+    fs.writeFileSync(reportPath, JSON.stringify(report));
+  };
+  output.assertions[0].capture = {
+    screenshot_id: "desktop",
+    css_width: 1440,
+    css_height: 900,
+    device_pixel_ratio: 1,
+    scale: "css",
+    full_page: false,
+  };
+  output.assertions[1].capture = {
+    screenshot_id: "narrow",
+    css_width: 375,
+    css_height: 812,
+    device_pixel_ratio: 3,
+    scale: "css",
+    full_page: false,
+  };
+  saveOutput();
   assert.equal(verify().ok, true, JSON.stringify(verify().issues));
+  output.assertions[0].capture.css_width = 480;
+  output.assertions[0].capture.device_pixel_ratio = 3;
+  output.assertions[0].capture.scale = "device";
+  saveOutput();
+  assert.equal(verify().ok, false, "device pixels cannot impersonate a desktop CSS viewport");
+  Object.assign(output.assertions[0].capture, {
+    css_width: 1440,
+    device_pixel_ratio: 1,
+    scale: "css",
+    full_page: true,
+  });
+  saveOutput();
+  assert.equal(verify().ok, false, "full-page pixels cannot impersonate viewport evidence");
+  output.assertions[0].capture.full_page = false;
+  saveOutput();
   report.coverage.critical_states[1].screenshot_id = "desktop";
   fs.writeFileSync(reportPath, JSON.stringify(report));
   assert.equal(verify().ok, false, "a desktop capture cannot satisfy narrow coverage");

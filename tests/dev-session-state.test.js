@@ -101,6 +101,22 @@ test("applyRouting persists observed risk and prevents kind from erasing safegua
     assert.ok(routed.routing.required_gates.includes("review"));
     assert.deepEqual(validateSession(routed), []);
     assert.equal(session.task.risk_tier, "unassessed", "routing must not mutate its input");
+    const web = applyRouting(session, {
+      kind: "task",
+      size: "XS",
+      ui_platform: "web",
+      risk: { ui: 1 },
+    });
+    assert.equal(web.task.ui_platform, "web");
+    assert.deepEqual(validateSession(web), []);
+    assert.throws(
+      () => applyRouting(session, { kind: "task", size: "XS", ui_platform: "desktop", risk: {} }),
+      /ui_platform/
+    );
+    assert.equal(
+      applyRouting(web, { kind: "task", size: "XS", risk: {} }).task.ui_platform,
+      undefined
+    );
     const exempt = applyRouting(session, {
       kind: "task",
       size: "XS",
