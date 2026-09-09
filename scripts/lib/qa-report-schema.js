@@ -1013,6 +1013,12 @@ function validateSessionCoverage(report, session, receipts, retained, issues) {
     }
   }
   if (sessionUsesFocusedUiQa(session)) {
+    if (report.platform !== "web")
+      add(
+        issues,
+        "report.platform",
+        "focused UI QA platform must equal the session's web platform"
+      );
     const used = new Set();
     const screenshots = new Map(
       boundedArray(report.screenshots, MAX_SCREENSHOTS_TOTAL)

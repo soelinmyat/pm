@@ -133,6 +133,11 @@ test("focused UI QA cannot pass with a generic browser receipt alone", (t) => {
   };
   saveOutput();
   assert.equal(verify().ok, true, JSON.stringify(verify().issues));
+  report.platform = "mobile";
+  fs.writeFileSync(reportPath, JSON.stringify(report));
+  assert.equal(verify().ok, false, "focused web QA must reject contradictory mobile evidence");
+  assert.match(JSON.stringify(verify().issues), /platform.*web/);
+  report.platform = "web";
   output.assertions[0].capture.css_width = 480;
   output.assertions[0].capture.device_pixel_ratio = 3;
   output.assertions[0].capture.scale = "device";
