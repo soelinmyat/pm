@@ -426,13 +426,24 @@ function validateTask(task, errors) {
     "size",
     "risk",
     "risk_tier",
+    "non_behavioral_reason",
     "acceptance_criteria",
     "work_units",
   ]);
   validateExactFields(task, fields, "$.task", errors);
   for (const field of fields) {
-    if (!new Set(["rfc_sidecar", "proposal", "design_context"]).has(field))
+    if (!new Set(["rfc_sidecar", "proposal", "design_context", "non_behavioral_reason"]).has(field))
       requireField(task, field, "$.task", errors);
+  }
+  if (
+    task.non_behavioral_reason !== undefined &&
+    (typeof task.non_behavioral_reason !== "string" ||
+      !task.non_behavioral_reason.trim() ||
+      task.non_behavioral_reason.length > 2000)
+  ) {
+    errors.push(
+      issue("$.task.non_behavioral_reason", "must be a non-empty string of at most 2000 characters")
+    );
   }
   if (task.reference !== null && typeof task.reference !== "string") {
     errors.push(issue("$.task.reference", "must be null or a string"));
@@ -1982,6 +1993,9 @@ function applyRouting(session, facts, options = {}) {
     destructive_data: route.risk.destructive_data,
   };
   next.task.risk_tier = route.risk_tier;
+  if (!route.required_gates.includes("tdd"))
+    next.task.non_behavioral_reason = effectiveFacts.non_behavioral_reason.trim();
+  else delete next.task.non_behavioral_reason;
   if (effectiveFacts.acceptance_criteria !== undefined) {
     if (!Array.isArray(effectiveFacts.acceptance_criteria)) {
       throw new TypeError("acceptance_criteria must be an array");

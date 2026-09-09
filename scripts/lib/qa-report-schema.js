@@ -9,6 +9,7 @@ const FOCUSED_UI_STATES = ["Desktop layout", "Narrow layout", "Keyboard focus an
 const { readDescriptorBounded } = require("./bounded-descriptor-read");
 const { compareRfc3339DateTimes, isRfc3339DateTime } = require("./iso-time");
 const { inspectPngBytes, inspectPngHeaderBytes } = require("./media-inspect");
+const { validateWebViewport } = require("./product-ui-viewport");
 
 const MAX_QA_REPORT_BYTES = 4 * 1024 * 1024;
 const MAX_QA_EVIDENCE_BYTES = 16 * 1024 * 1024;
@@ -932,8 +933,10 @@ function validateCoverageRows(rows, at, issues) {
       add(issues, rowAt, "must be an object");
       continue;
     }
-    closed(row, COVERAGE_ROW_FIELDS, rowAt, issues);
+    closed(row, [...COVERAGE_ROW_FIELDS, "screenshot_id"], rowAt, issues);
     required(row, COVERAGE_ROW_FIELDS, rowAt, issues);
+    if (row.screenshot_id !== undefined && !localId(row.screenshot_id))
+      add(issues, `${rowAt}.screenshot_id`, "must be a stable local ID");
     if (row.index !== index) add(issues, `${rowAt}.index`, `must equal ${index}`);
     boundedText(row.target, `${rowAt}.target`, issues, 20_000);
     validateStringArray(row.assertion_ids, `${rowAt}.assertion_ids`, issues, {
@@ -1011,7 +1014,11 @@ function validateSessionCoverage(report, session, receipts, retained, issues) {
   }
   if (sessionUsesFocusedUiQa(session)) {
     const used = new Set();
-    const layoutScreenshots = new Set();
+    const screenshots = new Map(
+      boundedArray(report.screenshots, MAX_SCREENSHOTS_TOTAL)
+        .filter(object)
+        .map((screenshot) => [screenshot.id, screenshot])
+    );
     for (const target of FOCUSED_UI_STATES) {
       const row = boundedArray(report.coverage?.critical_states, MAX_ASSERTION_RESULTS).find(
         (entry) => entry?.target === target
@@ -1027,26 +1034,37 @@ function validateSessionCoverage(report, session, receipts, retained, issues) {
         used.add(id);
       }
       if (target === "Keyboard focus and navigation") continue;
-      const hasScreenshot = ids.some((id) => {
-        const assertion = currentAssertions.get(id);
-        const receipt = receipts.byId.get(assertion?.receipt_id);
-        for (const screenshotId of boundedArray(receipt?.screenshot_ids, MAX_SCREENSHOTS))
-          layoutScreenshots.add(screenshotId);
-        return receipt?.screenshot_ids?.length > 0;
-      });
+      const screenshot = screenshots.get(row?.screenshot_id);
+      const hasScreenshot =
+        screenshot &&
+        ids.some((id) => {
+          const assertion = currentAssertions.get(id);
+          const receipt = receipts.byId.get(assertion?.receipt_id);
+          return (
+            receipt?.kind === "browser" &&
+            boundedArray(receipt.screenshot_ids, MAX_SCREENSHOTS).includes(screenshot.id) &&
+            screenshot.run === latest.run &&
+            screenshot.commit === report.commit
+          );
+        });
       if (!hasScreenshot)
         add(
           issues,
           "report.coverage.critical_states",
           `${target} requires a current browser screenshot`
         );
+      else {
+        try {
+          validateWebViewport(
+            target === "Desktop layout" ? "desktop" : "narrow",
+            screenshot.width,
+            screenshot.height
+          );
+        } catch (error) {
+          add(issues, "report.coverage.critical_states", `${target}: ${error.message}`);
+        }
+      }
     }
-    if (layoutScreenshots.size < 2)
-      add(
-        issues,
-        "report.screenshots",
-        "focused UI requires separate desktop and narrow screenshots"
-      );
   }
 }
 

@@ -51,6 +51,43 @@ const { readProjectInput } = require("../scripts/lib/safe-project-output");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 let installedBrowser = null;
+test("Dev-bound behavioral corrections are eligible without extending decision or external authority", () => {
+  const finding = { ...validFinding("bug"), disputed: false };
+  const target = {
+    run_id: "review-test",
+    review_round: 1,
+    iteration_cap: 3,
+    lenses: [],
+    generator: { name: "pm:review", version: "1.13.56" },
+    dev_context: { acceptance_sha256: "a".repeat(64) },
+  };
+  const report = () =>
+    buildCanonicalReport(
+      target,
+      { relative: "target.json", sha256: "b".repeat(64) },
+      [],
+      null,
+      { findings: [finding], unresolved_disagreements: [] },
+      "report.html"
+    );
+  assert.deepEqual(report().auto_fix_eligible, [finding.id]);
+  assert.equal(report().outcome, "failed", "eligibility does not certify a correction");
+  target.generator.version = "1.13.55";
+  assert.deepEqual(report().auto_fix_eligible, [], "frozen earlier reports keep their policy");
+  target.generator.version = "1.13.56";
+  finding.decision_required = true;
+  assert.deepEqual(report().auto_fix_eligible, []);
+  finding.decision_required = false;
+  finding.disputed = true;
+  assert.deepEqual(report().auto_fix_eligible, []);
+  finding.disputed = false;
+  target.dev_context = null;
+  assert.deepEqual(
+    report().auto_fix_eligible,
+    [],
+    "read-only standalone review does not authorize behavioral edits"
+  );
+});
 try {
   installedBrowser = resolveBrowser();
 } catch {

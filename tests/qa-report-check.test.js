@@ -94,11 +94,25 @@ test("focused UI QA cannot pass with a generic browser receipt alone", (t) => {
       requirePassing: true,
       qaCandidate: "required",
     });
+  assert.equal(verify().ok, false, "two identical tiny captures do not prove responsive QA");
+  for (const [index, screenshot] of report.screenshots.entries()) {
+    const width = index === 0 ? 1440 : 375;
+    const height = index === 0 ? 900 : 812;
+    const bytes = testPng(width, height);
+    fs.writeFileSync(screenshot.path, bytes);
+    Object.assign(screenshot, { width, height, bytes: bytes.length, sha256: digest(bytes) });
+    report.coverage.critical_states[index].screenshot_id = screenshot.id;
+  }
+  fs.writeFileSync(reportPath, JSON.stringify(report));
   assert.equal(verify().ok, true, JSON.stringify(verify().issues));
+  report.coverage.critical_states[1].screenshot_id = "desktop";
+  fs.writeFileSync(reportPath, JSON.stringify(report));
+  assert.equal(verify().ok, false, "a desktop capture cannot satisfy narrow coverage");
+  report.coverage.critical_states[1].screenshot_id = "narrow";
   report.receipts[0].screenshot_ids = ["desktop"];
   report.screenshots.pop();
   fs.writeFileSync(reportPath, JSON.stringify(report));
-  assert.match(JSON.stringify(verify().issues), /separate desktop and narrow screenshots/);
+  assert.match(JSON.stringify(verify().issues), /current browser screenshot/);
   report.coverage.critical_states[2].assertion_ids = ["acceptance-1"];
   fs.writeFileSync(reportPath, JSON.stringify(report));
   assert.match(JSON.stringify(verify().issues), /distinct assertions/);
@@ -2666,13 +2680,13 @@ function digest(bytes) {
   return crypto.createHash("sha256").update(bytes).digest("hex");
 }
 
-function testPng() {
+function testPng(width = 10, height = 10) {
   const header = Buffer.alloc(13);
-  header.writeUInt32BE(10, 0);
-  header.writeUInt32BE(10, 4);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
   header[8] = 8;
   header[9] = 6;
-  const rows = Buffer.alloc((10 * 4 + 1) * 10);
+  const rows = Buffer.alloc((width * 4 + 1) * height);
   return Buffer.concat([
     Buffer.from("89504e470d0a1a0a", "hex"),
     pngChunk("IHDR", header),

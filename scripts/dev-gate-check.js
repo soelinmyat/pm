@@ -95,7 +95,12 @@ function checkGateManifest(manifest, opts = {}) {
   if (canonicalSession) {
     if (requiredGatesInput.length === 0) {
       const minimum = ["review", "verification"];
-      if (canonicalSession.task?.risk?.behavioral > 0) minimum.push("tdd");
+      const task = canonicalSession.task;
+      const hasTddException =
+        task?.risk?.behavioral === 0 &&
+        typeof task.non_behavioral_reason === "string" &&
+        task.non_behavioral_reason.trim().length > 0;
+      if (!hasTddException) minimum.push("tdd");
       if (canonicalSession.task?.risk?.ui > 0 || canonicalSession.task?.design_context?.ui_impact) {
         minimum.push("qa");
         if (!sessionUsesFocusedUiQa(canonicalSession)) minimum.push("design-critique");

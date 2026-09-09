@@ -55,6 +55,18 @@ test("default gate checks honor canonical focused QA without reinstating critiqu
   });
   assert.match(JSON.stringify(omitted.issues), /canonical risk requires gate review/);
   assert.match(JSON.stringify(omitted.issues), /canonical risk requires gate tdd/);
+  session.task.risk.behavioral = 0;
+  const checkException = () =>
+    checkGateManifest(manifest([], { run_id: session.run_id }), {
+      canonicalSession: session,
+      manifestPath: ".pm/dev-sessions/example/gates.json",
+      currentCommit: "abc123",
+    });
+  assert.match(JSON.stringify(checkException().issues), /canonical risk requires gate tdd/);
+  session.task.non_behavioral_reason = "Documentation-only label correction";
+  assert.doesNotMatch(JSON.stringify(checkException().issues), /canonical risk requires gate tdd/);
+  session.task.risk.behavioral = 1;
+  assert.match(JSON.stringify(checkException().issues), /canonical risk requires gate tdd/);
 });
 const checkScript = path.join(repoRoot, "scripts", "dev-gate-check.js");
 

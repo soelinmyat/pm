@@ -60,7 +60,7 @@ Resolve session paths with `deriveSessionSlug` from `scripts/lib/session-slug.js
 ## Red Flags — Self-Check
 
 - **"The finding sounds similar, so I can merge it."** Keep deterministic identity; semantic guessing can erase evidence.
-- **"Confidence above 80 means the fix is safe."** Check Review ownership, dispute state, decision state, and `fix_kind: mechanical` before any auto-fix.
+- **"Confidence above 80 means the fix is safe."** Check Review ownership, dispute/decision state, and existing implementation authority. Behavioral corrections also need a bound Dev acceptance contract and observed red/green regression evidence; eligibility alone is not authorization or certification.
 - **"Design Critique passed, so source design review is redundant."** Keep rendered craft and source-level design-system compliance in their distinct ownership domains.
 - **"The bug or edge reviewer will notice security issues anyway."** Stop: security is a distinct risk-triggered lens; include its own verdict when `security_review_required` is true or a standalone diff touches security-sensitive paths or dependency manifests.
 - **"I fixed the blocker, so the old results still count."** Stop and recertify because any source mutation invalidates the target/results/report chain.

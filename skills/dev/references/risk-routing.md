@@ -34,7 +34,7 @@ Set `destructive_data: true` separately when the data operation deletes or irrev
 - A score of `3` in any dimension or an aggregate score of `6+` is high risk.
 - High and critical risk always require full review and verification. `kind: task` or `kind: bug` cannot remove those gates.
 - M/L/XL proposals require groom/RFC readiness. Tasks and bugs may use their supplied context, but risk still controls review depth.
-- Behavioral changes require TDD. A non-behavioral change may skip TDD only with a concrete recorded reason.
+- Behavioral changes require TDD. A non-behavioral change may skip TDD only with a concrete intake `non_behavioral_reason`, persisted as `task.non_behavioral_reason`. Missing legacy reasons do not prove an exemption; retain TDD or use a fresh successor intake.
 - UI impact always adds current browser QA. Explicitly assessed XS/S work with `ui: 1`, `behavioral: 0` or `1`, every other dimension `0`, and `destructive_data: false` combines visual/accessibility review into QA instead of a separate design-critique phase. Missing assessments, complex interactions (`ui: 2+`), or any consequential boundary retain standalone critique. Never lower risk to escape a failed check.
 - Review and verification are always retained; low-risk XS/S work uses the code-scan review mode.
 
