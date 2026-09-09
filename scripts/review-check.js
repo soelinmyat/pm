@@ -1532,7 +1532,12 @@ function buildCanonicalReport(
             finding.owner === "review" &&
             finding.disposition === "open" &&
             finding.confidence >= 80 &&
-            finding.fix_kind === "mechanical" &&
+            (finding.fix_kind === "mechanical" ||
+              (finding.fix_kind === "behavioral" &&
+                /^1\.13\.(?:5[6-9]|[6-9]\d|[1-9]\d{2,})$/.test(target.generator?.version || "") &&
+                Boolean(target.dev_context?.acceptance_sha256) &&
+                target.dev_context.acceptance_sha256 !==
+                  crypto.createHash("sha256").update("[]").digest("hex"))) &&
             finding.disputed === false &&
             finding.decision_required === false
         )

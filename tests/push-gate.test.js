@@ -74,6 +74,8 @@ function writeGates(dir, slug, gatesManifest, { grantPush = true } = {}) {
   if (grantPush)
     session = grantAuthority(session, ["push_feature_branch"], "Test authorizes branch push");
   session.routing.review_mode = "code-scan";
+  // These fixtures exercise all five gates, so declare their canonical route.
+  session.routing.required_gates = [...REQUIRED];
   gatesManifest.run_id = session.run_id;
   fs.writeFileSync(path.join(sessionDir, "gates.json"), JSON.stringify(gatesManifest, null, 2));
   fs.writeFileSync(path.join(sessionDir, "session.json"), JSON.stringify(session, null, 2));

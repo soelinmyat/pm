@@ -10,6 +10,65 @@ const path = require("node:path");
 const zlib = require("node:zlib");
 
 const repoRoot = path.resolve(__dirname, "..");
+
+test("default gate checks honor canonical focused QA without reinstating critique", () => {
+  const session = {
+    run_id: "dev_run-1",
+    slug: "example",
+    task: {
+      size: "XS",
+      ui_platform: "web",
+      risk: {
+        behavioral: 1,
+        security: 0,
+        auth: 0,
+        data: 0,
+        external_contract: 0,
+        operational: 0,
+        ui: 1,
+        reversibility: 0,
+        cross_module: 0,
+        destructive_data: false,
+      },
+    },
+    routing: { review_mode: "code-scan", required_gates: ["tdd", "qa", "review", "verification"] },
+  };
+  const result = checkGateManifest(manifest([], { run_id: session.run_id }), {
+    canonicalSession: session,
+    manifestPath: ".pm/dev-sessions/example/gates.json",
+    currentCommit: "abc123",
+  });
+  assert.equal(result.ok, false, "missing safety evidence still fails");
+  assert.doesNotMatch(JSON.stringify(result.issues), /missing required gate design-critique/);
+  assert.match(JSON.stringify(result.issues), /missing required gate qa/);
+  session.task.risk.auth = 1;
+  const sensitive = checkGateManifest(manifest([], { run_id: session.run_id }), {
+    canonicalSession: session,
+    manifestPath: ".pm/dev-sessions/example/gates.json",
+    currentCommit: "abc123",
+  });
+  assert.match(JSON.stringify(sensitive.issues), /canonical risk requires gate design-critique/);
+  session.routing.required_gates = ["verification"];
+  const omitted = checkGateManifest(manifest([], { run_id: session.run_id }), {
+    canonicalSession: session,
+    manifestPath: ".pm/dev-sessions/example/gates.json",
+    currentCommit: "abc123",
+  });
+  assert.match(JSON.stringify(omitted.issues), /canonical risk requires gate review/);
+  assert.match(JSON.stringify(omitted.issues), /canonical risk requires gate tdd/);
+  session.task.risk.behavioral = 0;
+  const checkException = () =>
+    checkGateManifest(manifest([], { run_id: session.run_id }), {
+      canonicalSession: session,
+      manifestPath: ".pm/dev-sessions/example/gates.json",
+      currentCommit: "abc123",
+    });
+  assert.match(JSON.stringify(checkException().issues), /canonical risk requires gate tdd/);
+  session.task.non_behavioral_reason = "Documentation-only label correction";
+  assert.doesNotMatch(JSON.stringify(checkException().issues), /canonical risk requires gate tdd/);
+  session.task.risk.behavioral = 1;
+  assert.match(JSON.stringify(checkException().issues), /canonical risk requires gate tdd/);
+});
 const checkScript = path.join(repoRoot, "scripts", "dev-gate-check.js");
 
 const {
@@ -783,6 +842,218 @@ test("delivery rejects legacy null QA evidence and requires the canonical passin
   }
 });
 
+test("marketing title and contextual link route through focused QA and final delivery", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-marketing-delivery-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const { routeDevWork } = require("../scripts/lib/dev-risk");
+  const commit = "a".repeat(40);
+  const task = {
+    kind: "task",
+    size: "XS",
+    ui_platform: "web",
+    risk: {
+      behavioral: 1,
+      security: 0,
+      auth: 0,
+      data: 0,
+      external_contract: 0,
+      operational: 0,
+      ui: 1,
+      reversibility: 0,
+      cross_module: 0,
+      destructive_data: false,
+    },
+    acceptance_criteria: [
+      "Evidence search title describes cleaning inspection software",
+      "Operations contextual link opens /features/evidence#client-review",
+      "Desktop and narrow layouts support native keyboard navigation",
+    ],
+  };
+  const route = routeDevWork(task);
+  assert.deepEqual(route.required_gates, ["tdd", "qa", "review", "verification"]);
+  assert.equal(route.required_phases.includes("design-critique"), false);
+  const session = {
+    run_id: "dev_marketing",
+    slug: "marketing",
+    task,
+    source: { repo_root: root, branch: "feat/marketing" },
+    routing: { ...route, decision_version: 1 },
+    authority: { push_feature_branch: true },
+    authority_log: [
+      {
+        actions: ["push_feature_branch"],
+        reason: "Approved title/link release",
+        granted_at: "2026-09-09T00:00:00Z",
+      },
+    ],
+    evidence: {
+      implementation: { commit, records: [{ kind: "test", exit_code: 0 }] },
+      review: {
+        commit,
+        records: [
+          { kind: "review", exit_code: 0 },
+          { kind: "test", exit_code: 0 },
+        ],
+      },
+    },
+    attempts: [{ phase: "qa", status: "passed", commit }],
+  };
+  const base = path.join(root, ".pm/dev-sessions/marketing");
+  const reportPath = path.join(base, "qa/report.json");
+  const outputPath = path.join(base, "qa/evidence/browser.json");
+  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+  const execution = JSON.parse(passingQaOutput(commit));
+  execution.kind = "browser";
+  execution.command = "playwright test marketing-title-contextual-link";
+  execution.assertions[0].probe = "Desktop Operations link is readable";
+  execution.assertions[1].probe = "Narrow Operations link is readable";
+  execution.assertions[2].probe = "Native Tab and Enter open Evidence anchor";
+  execution.assertions[3].probe = "Evidence search title matches approved copy";
+  const report = passingQaReport(commit, outputPath);
+  report.tier = "quick";
+  Object.assign(report.receipts[0], { kind: execution.kind, command: execution.command });
+  report.coverage.acceptance_criteria = task.acceptance_criteria.map((target, index) => ({
+    index,
+    target,
+    assertion_ids:
+      index === 0
+        ? ["acceptance-4"]
+        : index === 1
+          ? ["acceptance-3"]
+          : ["acceptance-1", "acceptance-2", "acceptance-3"],
+  }));
+  report.coverage.critical_states = [
+    "Desktop layout",
+    "Narrow layout",
+    "Keyboard focus and navigation",
+  ].map((target, index) => ({ index, target, assertion_ids: [`acceptance-${index + 1}`] }));
+  for (const [index, width, height] of [
+    [0, 1440, 900],
+    [1, 375, 812],
+  ]) {
+    const id = index === 0 ? "desktop" : "narrow";
+    const screenshotPath = path.join(path.dirname(outputPath), id + ".png");
+    const bytes = validGatePng(width, height);
+    fs.writeFileSync(screenshotPath, bytes);
+    report.screenshots.push({
+      id,
+      run: 1,
+      commit,
+      path: screenshotPath,
+      sha256: fileDigestBytes(bytes),
+      bytes: bytes.length,
+      width,
+      height,
+    });
+    report.receipts[0].screenshot_ids.push(id);
+    report.coverage.critical_states[index].screenshot_id = id;
+    execution.assertions[index].capture = {
+      screenshot_id: id,
+      css_width: width,
+      css_height: height,
+      device_pixel_ratio: 1,
+      scale: "css",
+      full_page: false,
+    };
+  }
+  const bytes = Buffer.from(JSON.stringify(execution));
+  fs.writeFileSync(outputPath, bytes);
+  report.receipts[0].output = {
+    path: outputPath,
+    sha256: fileDigestBytes(bytes),
+    bytes: bytes.length,
+  };
+  const saveQa = () => fs.writeFileSync(reportPath, JSON.stringify(report));
+  saveQa();
+  session.evidence.qa = {
+    commit,
+    records: [
+      {
+        kind: "test",
+        command: "node scripts/qa-report-check.js",
+        exit_code: 0,
+        artifact: reportPath,
+      },
+    ],
+  };
+  const lenses = ["bug", "edge", "reuse", "quality", "efficiency"];
+  const reviewDir = path.join(base, "review"),
+    htmlPath = path.join(reviewDir, "report.html");
+  fs.mkdirSync(reviewDir, { recursive: true });
+  fs.writeFileSync(htmlPath, "<!doctype html><title>Marketing source review</title>");
+  fs.writeFileSync(path.join(reviewDir, "report.json"), "{}");
+  const render = seedReviewRenderManifest(root, htmlPath, { coverage: "5/5", commit });
+  // Source review's independent verdict is a fixture boundary. Routing, retained
+  // browser evidence, PNG/viewport validation and final authority gates stay real.
+  const reviewModule = require("../scripts/review-check");
+  t.mock.method(reviewModule, "expandFromReport", (options) => options);
+  t.mock.method(reviewModule, "checkReview", () => ({
+    ok: true,
+    issues: [],
+    target: {
+      mode: route.review_mode,
+      source: { commit, base_ref: "origin/main", base_commit: "base123" },
+      dev_context: devReviewContext(session),
+    },
+    report: reviewReportForMarkers({ coverage: lenses, commit }),
+    validated_human_report: { path: path.relative(root, htmlPath), sha256: fileDigest(htmlPath) },
+  }));
+  const rows = route.required_gates.map((name) => gate(name, commit, { artifact: __filename }));
+  Object.assign(
+    rows.find((row) => row.name === "review"),
+    {
+      artifact: path.relative(root, htmlPath),
+      evidence_kind: "review-report-v1",
+      render_manifest: render.path,
+      render_manifest_sha256: render.sha256,
+      lenses,
+    }
+  );
+  const gates = manifest(rows, { run_id: session.run_id });
+  const options = {
+    artifactRoot: root,
+    currentCommit: commit,
+    currentBranch: session.source.branch,
+    changedFiles: [
+      "apps/marketing/src/pages/features/evidence.astro",
+      "apps/marketing/src/pages/features/operations.astro",
+    ],
+    canonicalSession: session,
+    requireSessionBinding: true,
+    requiredAuthorities: ["push_feature_branch"],
+    manifestPath: path.join(base, "gates.json"),
+    authoritativeBaseRef: "origin/main",
+    authoritativeBaseCommit: "base123",
+  };
+  const verify = () => checkGateManifest(gates, options);
+  assert.equal(verify().ok, true, JSON.stringify(verify().issues));
+  report.platform = "mobile";
+  saveQa();
+  assert.equal(verify().ok, false, "delivery rejects a contradictory platform");
+  report.platform = "web";
+  saveQa();
+  const currentScreenshot = report.screenshots[1];
+  report.screenshots.pop();
+  saveQa();
+  assert.equal(verify().ok, false, "delivery rejects missing narrow evidence");
+  report.screenshots.push(currentScreenshot);
+  saveQa();
+  report.commit = "b".repeat(40);
+  saveQa();
+  assert.equal(verify().ok, false, "delivery rejects stale QA evidence");
+  report.commit = commit;
+  saveQa();
+  for (const row of rows) {
+    row.commit = "b".repeat(40);
+    assert.equal(verify().ok, false, `delivery rejects stale ${row.name}`);
+    row.commit = commit;
+  }
+  session.authority.push_feature_branch = false;
+  assert.equal(verify().ok, false, "focused QA does not grant publishing authority");
+  session.authority.push_feature_branch = true;
+  assert.equal(verify().ok, true, JSON.stringify(verify().issues));
+});
+
 function passingQaReport(commit, outputPath, output = passingQaOutput(commit)) {
   return {
     schema_version: 2,
@@ -1247,9 +1518,9 @@ function seedReviewRenderManifest(root, htmlPath, values = {}) {
   return { path: path.relative(root, manifest), sha256: fileDigest(manifest) };
 }
 
-function reviewReportForMarkers({ coverage = [] } = {}) {
+function reviewReportForMarkers({ coverage = [], commit = "abc123" } = {}) {
   return {
-    source: { commit: "abc123", base_ref: "origin/main", base_commit: "base123" },
+    source: { commit, base_ref: "origin/main", base_commit: "base123" },
     outcome: "passed",
     review_round: 1,
     blockers: [],
@@ -1259,8 +1530,8 @@ function reviewReportForMarkers({ coverage = [] } = {}) {
   };
 }
 
-function reviewRenderedMarkers({ coverage = "0/0" } = {}) {
-  const report = reviewReportForMarkers();
+function reviewRenderedMarkers({ coverage = "0/0", commit = "abc123" } = {}) {
+  const report = reviewReportForMarkers({ commit });
   const rows = [
     [{ "data-review-outcome": "passed" }, "passed"],
     [{ "data-review-round": "1" }, "1"],

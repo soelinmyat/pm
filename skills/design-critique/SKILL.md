@@ -18,6 +18,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
 ## When NOT to use
 
+- For a canonical Dev route that combines explicitly assessed low-risk XS/S UI review into QA. Follow Dev's visual/browser QA contract instead; no standalone critique artifacts or skipped gate row are needed. An explicit user request for standalone critique still uses this skill.
 - Before an interface or artifact can be rendered. Use `pm:think` for uncertain design direction, `pm:groom` for product scope and interaction requirements, or `pm:rfc` for implementation architecture.
 - For functional acceptance behavior, data integrity, or workflow correctness. Keep those in Dev QA.
 - For source correctness, security, reuse, maintainability, or runtime efficiency. Use `pm:review`.

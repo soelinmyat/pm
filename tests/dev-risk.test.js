@@ -5,6 +5,70 @@ const assert = require("node:assert/strict");
 
 const { assessRisk, routeDevWork } = require("../scripts/lib/dev-risk");
 
+const smallUiRisk = {
+  behavioral: 1,
+  security: 0,
+  auth: 0,
+  data: 0,
+  external_contract: 0,
+  operational: 0,
+  ui: 1,
+  reversibility: 0,
+  cross_module: 0,
+  destructive_data: false,
+};
+
+test("routeDevWork: assessed small UI changes combine design checks into QA", () => {
+  for (const size of ["XS", "S"]) {
+    const route = routeDevWork({ kind: "task", size, ui_platform: "web", risk: smallUiRisk });
+    assert.deepEqual(route.required_gates, ["tdd", "qa", "review", "verification"]);
+    assert.equal(route.required_phases.includes("design-critique"), false);
+    assert.equal(route.required_phases.includes("qa"), true);
+    assert.equal(route.review_mode, "code-scan");
+  }
+});
+
+test("focused browser QA never replaces mobile or unknown platform safeguards", () => {
+  for (const ui_platform of [undefined, "mobile", "mixed", "unknown"]) {
+    const route = routeDevWork({ kind: "task", size: "XS", ui_platform, risk: smallUiRisk });
+    assert.ok(route.required_gates.includes("design-critique"));
+  }
+});
+
+test("routeDevWork: incomplete or consequential UI risk retains standalone critique", () => {
+  const risks = [
+    { ui: 1 },
+    ...Object.keys(smallUiRisk).map((key) => {
+      const risk = { ...smallUiRisk };
+      delete risk[key];
+      return risk;
+    }),
+    ...[
+      "security",
+      "auth",
+      "data",
+      "external_contract",
+      "operational",
+      "reversibility",
+      "cross_module",
+    ].map((key) => ({ ...smallUiRisk, [key]: 1 })),
+    { ...smallUiRisk, ui: 2 },
+    { ...smallUiRisk, behavioral: 2 },
+    { ...smallUiRisk, destructive_data: true },
+  ];
+  for (const risk of risks.filter((risk) => risk.ui > 0)) {
+    assert.ok(
+      routeDevWork({ kind: "task", size: "S", risk }).required_gates.includes("design-critique"),
+      JSON.stringify(risk)
+    );
+  }
+  assert.ok(
+    routeDevWork({ kind: "task", size: "M", risk: smallUiRisk }).required_gates.includes(
+      "design-critique"
+    )
+  );
+});
+
 test("assessRisk: defaults missing dimensions to zero without mutating input", () => {
   const facts = { behavioral: 1 };
   const result = assessRisk(facts);

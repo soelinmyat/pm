@@ -95,6 +95,13 @@ test("verification reuses only retained passing results with current complete id
       prose.checks.map((item) => item.command),
       ["npm test"]
     );
+    const large = path.join(root, "large-asset.bin");
+    const descriptor = fs.openSync(large, "w");
+    fs.ftruncateSync(descriptor, 16 * 1024 * 1024 + 1);
+    fs.closeSync(descriptor);
+    const oversized = buildVerificationPlan(input, { root, prior });
+    assert.equal(oversized.identities.source, null);
+    assert.ok(oversized.checks.every((item) => item.action === "run" && item.key === null));
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

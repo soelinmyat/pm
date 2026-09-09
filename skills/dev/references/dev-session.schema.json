@@ -347,6 +347,8 @@
         "size": { "enum": ["XS", "S", "M", "L", "XL", "unknown"] },
         "risk": { "$ref": "#/$defs/risk" },
         "risk_tier": { "type": "string", "minLength": 1 },
+        "non_behavioral_reason": { "type": "string", "minLength": 1, "maxLength": 2000, "pattern": "\\S" },
+        "ui_platform": { "enum": ["web", "mobile", "mixed", "unknown"] },
         "acceptance_criteria": { "type": "array", "items": { "type": "string" } },
         "work_units": { "type": "array", "items": { "$ref": "#/$defs/work_unit" } }
       },

@@ -30,6 +30,150 @@ const {
 const SHA_A = "a".repeat(40);
 const QA_COMMAND = "node --test tests/acceptance.test.js";
 
+test("focused UI QA cannot pass with a generic browser receipt alone", (t) => {
+  const repo = makeRepo();
+  t.after(repo.cleanup);
+  const session = createSession({ slug: "focused-ui", sourceDir: repo.root });
+  session.task.size = "XS";
+  session.task.ui_platform = "web";
+  session.task.risk = {
+    behavioral: 1,
+    security: 0,
+    auth: 0,
+    data: 0,
+    external_contract: 0,
+    operational: 0,
+    ui: 1,
+    reversibility: 0,
+    cross_module: 0,
+    destructive_data: false,
+  };
+  session.routing.required_gates = ["tdd", "qa", "review", "verification"];
+  const { reportPath } = writePassingReport(session, repo.head(), {
+    kind: "browser",
+    command: "playwright test contextual link",
+  });
+  const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+  report.tier = "quick";
+  fs.writeFileSync(reportPath, JSON.stringify(report));
+  const checked = checkQaReport({
+    session,
+    reportPath,
+    expectedCommit: repo.head(),
+    requirePassing: true,
+    qaCandidate: "required",
+  });
+  assert.equal(checked.ok, false);
+  assert.match(JSON.stringify(checked.issues), /session-bound rows/);
+  report.coverage.critical_states = [
+    "Desktop layout",
+    "Narrow layout",
+    "Keyboard focus and navigation",
+  ].map((target, index) => ({ index, target, assertion_ids: [`acceptance-${index + 1}`] }));
+  const png = testPng();
+  report.screenshots = ["desktop", "narrow"].map((id) => {
+    const screenshotPath = path.join(path.dirname(reportPath), "evidence", `${id}.png`);
+    fs.writeFileSync(screenshotPath, png);
+    return {
+      id,
+      run: 1,
+      commit: repo.head(),
+      path: screenshotPath,
+      sha256: digest(png),
+      bytes: png.length,
+      width: 10,
+      height: 10,
+    };
+  });
+  report.receipts[0].screenshot_ids = ["desktop", "narrow"];
+  fs.writeFileSync(reportPath, JSON.stringify(report));
+  const verify = () =>
+    checkQaReport({
+      session,
+      reportPath,
+      expectedCommit: repo.head(),
+      requirePassing: true,
+      qaCandidate: "required",
+    });
+  assert.equal(verify().ok, false, "two identical tiny captures do not prove responsive QA");
+  for (const [index, screenshot] of report.screenshots.entries()) {
+    const width = index === 0 ? 1440 : 375;
+    const height = index === 0 ? 900 : 812;
+    const bytes = testPng(width, height);
+    fs.writeFileSync(screenshot.path, bytes);
+    Object.assign(screenshot, { width, height, bytes: bytes.length, sha256: digest(bytes) });
+    report.coverage.critical_states[index].screenshot_id = screenshot.id;
+  }
+  fs.writeFileSync(reportPath, JSON.stringify(report));
+  assert.equal(verify().ok, false, "PNG dimensions alone do not attest a CSS viewport");
+  const outputBinding = report.receipts[0].output;
+  const output = JSON.parse(fs.readFileSync(outputBinding.path, "utf8"));
+  const saveOutput = () => {
+    const bytes = Buffer.from(JSON.stringify(output));
+    fs.writeFileSync(outputBinding.path, bytes);
+    outputBinding.bytes = bytes.length;
+    outputBinding.sha256 = digest(bytes);
+    fs.writeFileSync(reportPath, JSON.stringify(report));
+  };
+  output.assertions[0].capture = {
+    screenshot_id: "desktop",
+    css_width: 1440,
+    css_height: 900,
+    device_pixel_ratio: 1,
+    scale: "css",
+    full_page: false,
+  };
+  output.assertions[1].capture = {
+    screenshot_id: "narrow",
+    css_width: 375,
+    css_height: 812,
+    device_pixel_ratio: 3,
+    scale: "css",
+    full_page: false,
+  };
+  saveOutput();
+  assert.equal(verify().ok, true, JSON.stringify(verify().issues));
+  report.platform = "mobile";
+  fs.writeFileSync(reportPath, JSON.stringify(report));
+  assert.equal(verify().ok, false, "focused web QA must reject contradictory mobile evidence");
+  assert.match(JSON.stringify(verify().issues), /platform.*web/);
+  report.platform = "web";
+  output.assertions[0].capture.css_width = 480;
+  output.assertions[0].capture.device_pixel_ratio = 3;
+  output.assertions[0].capture.scale = "device";
+  saveOutput();
+  assert.equal(verify().ok, false, "device pixels cannot impersonate a desktop CSS viewport");
+  Object.assign(output.assertions[0].capture, {
+    css_width: 1440,
+    device_pixel_ratio: 1,
+    scale: "css",
+    full_page: true,
+  });
+  saveOutput();
+  assert.equal(verify().ok, false, "full-page pixels cannot impersonate viewport evidence");
+  output.assertions[0].capture.full_page = false;
+  saveOutput();
+  report.coverage.critical_states[1].screenshot_id = "desktop";
+  fs.writeFileSync(reportPath, JSON.stringify(report));
+  assert.equal(verify().ok, false, "a desktop capture cannot satisfy narrow coverage");
+  report.coverage.critical_states[1].screenshot_id = "narrow";
+  report.receipts[0].screenshot_ids = ["desktop"];
+  report.screenshots.pop();
+  fs.writeFileSync(reportPath, JSON.stringify(report));
+  assert.match(JSON.stringify(verify().issues), /current browser screenshot/);
+  report.coverage.critical_states[2].assertion_ids = ["acceptance-1"];
+  fs.writeFileSync(reportPath, JSON.stringify(report));
+  assert.match(JSON.stringify(verify().issues), /distinct assertions/);
+  report.coverage.critical_states[2].assertion_ids = ["absent-assertion"];
+  fs.writeFileSync(reportPath, JSON.stringify(report));
+  assert.equal(verify().ok, false);
+  report.coverage.critical_states[2].assertion_ids = ["acceptance-3"];
+  report.receipts[0].screenshot_ids = [];
+  report.screenshots = [];
+  fs.writeFileSync(reportPath, JSON.stringify(report));
+  assert.match(JSON.stringify(verify().issues), /current browser screenshot/);
+});
+
 function qaOutput(
   commit,
   receiptId = "qa-run-1-tests",
@@ -2584,13 +2728,13 @@ function digest(bytes) {
   return crypto.createHash("sha256").update(bytes).digest("hex");
 }
 
-function testPng() {
+function testPng(width = 10, height = 10) {
   const header = Buffer.alloc(13);
-  header.writeUInt32BE(10, 0);
-  header.writeUInt32BE(10, 4);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
   header[8] = 8;
   header[9] = 6;
-  const rows = Buffer.alloc((10 * 4 + 1) * 10);
+  const rows = Buffer.alloc((width * 4 + 1) * height);
   return Buffer.concat([
     Buffer.from("89504e470d0a1a0a", "hex"),
     pngChunk("IHDR", header),

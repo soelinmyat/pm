@@ -34,9 +34,13 @@ Set `destructive_data: true` separately when the data operation deletes or irrev
 - A score of `3` in any dimension or an aggregate score of `6+` is high risk.
 - High and critical risk always require full review and verification. `kind: task` or `kind: bug` cannot remove those gates.
 - M/L/XL proposals require groom/RFC readiness. Tasks and bugs may use their supplied context, but risk still controls review depth.
-- Behavioral changes require TDD. A non-behavioral change may skip TDD only with a concrete recorded reason.
-- UI impact adds design critique and QA.
+- Behavioral changes require TDD. A non-behavioral change may skip TDD only with a concrete intake `non_behavioral_reason`, persisted as `task.non_behavioral_reason`. Missing legacy reasons do not prove an exemption; retain TDD or use a fresh successor intake.
+- UI impact always adds current UI QA. Explicitly assessed web-only XS/S work with `ui_platform: "web"`, `ui: 1`, `behavioral: 0` or `1`, every other dimension `0`, and `destructive_data: false` combines visual/accessibility review into browser QA instead of a separate design-critique phase. Persist `ui_platform` through intake; mobile, mixed, unknown, or missing platform retains standalone critique and the existing platform-appropriate QA. Missing risk assessments, complex interactions (`ui: 2+`), or any consequential boundary also retain standalone critique. Never lower risk to escape a failed check.
 - Review and verification are always retained; low-risk XS/S work uses the code-scan review mode.
+
+Focused UI QA includes desktop and narrow visual inspection plus native keyboard focus/navigation. Retain actual screenshots and executed browser assertions in the existing QA report; do not create a second design report or require a percentage pixel change for focus. Evidence remains workflow-attested, not cryptographic proof of browser execution.
+
+Existing sessions keep their recorded route after an update. To adopt changed policy, preserve the prior session and failed evidence, then start a successor intake with the same scope and freshly assessed risks. Record the predecessor path and reason in intake evidence. Never rewrite a blocked phase as passed or copy prior gate verdicts; certify current source again.
 
 ## Delivery candidate routing
 

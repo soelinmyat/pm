@@ -20,7 +20,7 @@ After implementation and scoped evidence, **stop** and return the structured wor
 ## Root-owned lifecycle context
 
 ```
-Setup -> Implement -> Design Critique (if UI) ->
+Setup -> Implement -> Design Critique (if routed) ->
   QA (if UI, iterates on Fail) ->
   Review (M/L/XL) or Code Scan (XS/S) -> Verification -> Gate Check -> Push + PR ->
   Merge -> Cleanup -> Done

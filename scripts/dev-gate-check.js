@@ -21,6 +21,7 @@ const { deriveSessionSlug } = require("./lib/session-slug");
 const { resolveGateEvidenceContract } = require("./lib/dev-session-schema");
 const { checkQaReport } = require("./lib/qa-report-schema");
 const { currentEvidenceRecords } = require("./lib/workflow-runtime/records");
+const { sessionUsesFocusedUiQa } = require("./lib/dev-risk");
 
 const DEFAULT_MANIFEST_PATH = ".pm/dev-sessions/current.gates.json";
 const DEFAULT_REQUIRED_GATES = ["tdd", "design-critique", "qa", "review", "verification"];
@@ -57,7 +58,13 @@ function checkGateManifest(manifest, opts = {}) {
       issues: [issue(opts.manifestPath || DEFAULT_MANIFEST_PATH, "reviewEvidenceMode is invalid")],
     };
   const requiredGatesInput = normalizeGateNames(opts.requiredGates);
-  const requiredGates = requiredGatesInput.length > 0 ? requiredGatesInput : DEFAULT_REQUIRED_GATES;
+  const routedGates = opts.canonicalSession?.routing?.required_gates;
+  const requiredGates =
+    requiredGatesInput.length > 0
+      ? requiredGatesInput
+      : Array.isArray(routedGates) && routedGates.length > 0
+        ? [...routedGates]
+        : DEFAULT_REQUIRED_GATES;
   const allowSkippedGates = new Set(
     normalizeGateNames(opts.allowSkippedGates || DEFAULT_ALLOW_SKIPPED_GATES)
   );
@@ -86,6 +93,23 @@ function checkGateManifest(manifest, opts = {}) {
       issue(manifestPath, opts.sessionError || "canonical gates require sibling session.json")
     );
   if (canonicalSession) {
+    if (requiredGatesInput.length === 0) {
+      const minimum = ["review", "verification"];
+      const task = canonicalSession.task;
+      const hasTddException =
+        task?.risk?.behavioral === 0 &&
+        typeof task.non_behavioral_reason === "string" &&
+        task.non_behavioral_reason.trim().length > 0;
+      if (!hasTddException) minimum.push("tdd");
+      if (canonicalSession.task?.risk?.ui > 0 || canonicalSession.task?.design_context?.ui_impact) {
+        minimum.push("qa");
+        if (!sessionUsesFocusedUiQa(canonicalSession)) minimum.push("design-critique");
+      }
+      for (const name of minimum) {
+        if (!requiredGates.includes(name))
+          issues.push(issue(manifestPath, `canonical risk requires gate ${name}`));
+      }
+    }
     if (canonicalSession.run_id !== manifest.run_id)
       issues.push(issue(manifestPath, "gate run_id must equal sibling session.json"));
     if (!new Set(["full", "code-scan"]).has(canonicalSession.routing?.review_mode))
@@ -1032,9 +1056,6 @@ function parseArgs(argv) {
     }
   }
 
-  if (opts.requiredGates.length === 0) {
-    opts.requiredGates = DEFAULT_REQUIRED_GATES;
-  }
   return opts;
 }
 

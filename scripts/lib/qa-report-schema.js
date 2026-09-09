@@ -4,9 +4,12 @@ const crypto = require("node:crypto");
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { sessionUsesFocusedUiQa } = require("./dev-risk");
+const FOCUSED_UI_STATES = ["Desktop layout", "Narrow layout", "Keyboard focus and navigation"];
 const { readDescriptorBounded } = require("./bounded-descriptor-read");
 const { compareRfc3339DateTimes, isRfc3339DateTime } = require("./iso-time");
 const { inspectPngBytes, inspectPngHeaderBytes } = require("./media-inspect");
+const { validateWebViewport } = require("./product-ui-viewport");
 
 const MAX_QA_REPORT_BYTES = 4 * 1024 * 1024;
 const MAX_QA_EVIDENCE_BYTES = 16 * 1024 * 1024;
@@ -930,8 +933,10 @@ function validateCoverageRows(rows, at, issues) {
       add(issues, rowAt, "must be an object");
       continue;
     }
-    closed(row, COVERAGE_ROW_FIELDS, rowAt, issues);
+    closed(row, [...COVERAGE_ROW_FIELDS, "screenshot_id"], rowAt, issues);
     required(row, COVERAGE_ROW_FIELDS, rowAt, issues);
+    if (row.screenshot_id !== undefined && !localId(row.screenshot_id))
+      add(issues, `${rowAt}.screenshot_id`, "must be a stable local ID");
     if (row.index !== index) add(issues, `${rowAt}.index`, `must equal ${index}`);
     boundedText(row.target, `${rowAt}.target`, issues, 20_000);
     validateStringArray(row.assertion_ids, `${rowAt}.assertion_ids`, issues, {
@@ -1007,6 +1012,73 @@ function validateSessionCoverage(report, session, receipts, retained, issues) {
       );
     }
   }
+  if (sessionUsesFocusedUiQa(session)) {
+    if (report.platform !== "web")
+      add(
+        issues,
+        "report.platform",
+        "focused UI QA platform must equal the session's web platform"
+      );
+    const used = new Set();
+    const screenshots = new Map(
+      boundedArray(report.screenshots, MAX_SCREENSHOTS_TOTAL)
+        .filter(object)
+        .map((screenshot) => [screenshot.id, screenshot])
+    );
+    for (const target of FOCUSED_UI_STATES) {
+      const row = boundedArray(report.coverage?.critical_states, MAX_ASSERTION_RESULTS).find(
+        (entry) => entry?.target === target
+      );
+      const ids = boundedArray(row?.assertion_ids, MAX_ASSERTION_RESULTS);
+      for (const id of ids) {
+        if (used.has(id))
+          add(
+            issues,
+            "report.coverage.critical_states",
+            "focused UI checks require distinct assertions"
+          );
+        used.add(id);
+      }
+      if (target === "Keyboard focus and navigation") continue;
+      const screenshot = screenshots.get(row?.screenshot_id);
+      let capture;
+      const hasScreenshot =
+        screenshot &&
+        ids.some((id) => {
+          const assertion = currentAssertions.get(id);
+          const receipt = receipts.byId.get(assertion?.receipt_id);
+          const linked =
+            receipt?.kind === "browser" &&
+            boundedArray(receipt.screenshot_ids, MAX_SCREENSHOTS).includes(screenshot.id) &&
+            screenshot.run === latest.run &&
+            screenshot.commit === report.commit &&
+            assertion?.capture?.screenshot_id === screenshot.id;
+          if (linked) capture = assertion.capture;
+          return linked;
+        });
+      if (!hasScreenshot)
+        add(
+          issues,
+          "report.coverage.critical_states",
+          `${target} requires a current browser screenshot`
+        );
+      else {
+        try {
+          if (!capture || capture.scale !== "css" || capture.full_page !== false)
+            throw new Error("requires browser-observed CSS-scale viewport capture metadata");
+          validateWebViewport(
+            target === "Desktop layout" ? "desktop" : "narrow",
+            capture.css_width,
+            capture.css_height
+          );
+          if (screenshot.width !== capture.css_width || screenshot.height !== capture.css_height)
+            throw new Error("PNG dimensions must match the observed CSS viewport");
+        } catch (error) {
+          add(issues, "report.coverage.critical_states", `${target}: ${error.message}`);
+        }
+      }
+    }
+  }
 }
 
 function qaTierForSize(size) {
@@ -1025,6 +1097,12 @@ function sessionCriticalStates(session) {
   ];
   const states = [];
   const seen = new Set();
+  if (sessionUsesFocusedUiQa(session)) {
+    for (const state of FOCUSED_UI_STATES) {
+      states.push(state);
+      seen.add(state);
+    }
+  }
   for (const context of contexts) {
     for (const state of Array.isArray(context?.critical_states) ? context.critical_states : []) {
       if (typeof state === "string" && !seen.has(state)) {
@@ -1910,8 +1988,43 @@ function validateExecutionOutput(bytes, receipt, findingIds, at, issues) {
       add(issues, assertionAt, "must be an object");
       continue;
     }
-    closed(assertion, ASSERTION_RESULT_FIELDS, assertionAt, issues);
+    closed(assertion, [...ASSERTION_RESULT_FIELDS, "capture"], assertionAt, issues);
     required(assertion, ASSERTION_RESULT_FIELDS, assertionAt, issues);
+    if (assertion.capture !== undefined) {
+      const capture = assertion.capture;
+      const captureAt = `${assertionAt}.capture`;
+      const fields = [
+        "screenshot_id",
+        "css_width",
+        "css_height",
+        "device_pixel_ratio",
+        "scale",
+        "full_page",
+      ];
+      if (!object(capture)) add(issues, captureAt, "must be an object");
+      else {
+        closed(capture, fields, captureAt, issues);
+        required(capture, fields, captureAt, issues);
+        if (receipt.kind !== "browser") add(issues, captureAt, "requires a browser receipt");
+        if (
+          !localId(capture.screenshot_id) ||
+          !boundedArray(receipt.screenshot_ids, MAX_SCREENSHOTS).includes(capture.screenshot_id)
+        )
+          add(issues, `${captureAt}.screenshot_id`, "must bind a screenshot in this receipt");
+        integerInRange(capture.css_width, 1, 8192, `${captureAt}.css_width`, issues);
+        integerInRange(capture.css_height, 1, 8192, `${captureAt}.css_height`, issues);
+        if (
+          !Number.isFinite(capture.device_pixel_ratio) ||
+          capture.device_pixel_ratio <= 0 ||
+          capture.device_pixel_ratio > 8
+        )
+          add(issues, `${captureAt}.device_pixel_ratio`, "must be finite, positive, and at most 8");
+        if (!["css", "device"].includes(capture.scale))
+          add(issues, `${captureAt}.scale`, "must be css or device");
+        if (typeof capture.full_page !== "boolean")
+          add(issues, `${captureAt}.full_page`, "must be boolean");
+      }
+    }
     if (!localId(assertion.id)) add(issues, `${assertionAt}.id`, "must be a stable local ID");
     else if (ids.has(assertion.id)) add(issues, `${assertionAt}.id`, "must be unique");
     else {

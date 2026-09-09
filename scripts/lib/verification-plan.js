@@ -24,7 +24,9 @@ function sourceIdentity(root) {
       const stat = fs.lstatSync(path.join(root, name));
       // Symlinks/submodules may depend on content outside this inventory.
       // Keep planning possible, but require execution instead of reuse.
-      if (!stat.isFile()) return null;
+      // Large assets exceed our hashing budget, not the project's ability to
+      // run checks. Unknown identity disables reuse, just like a symlink.
+      if (!stat.isFile() || stat.size > LIMIT) return null;
       digest.update(String(stat.mode));
     } catch (error) {
       if (error.code !== "ENOENT") throw error;

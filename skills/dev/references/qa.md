@@ -2,7 +2,7 @@
 
 Report-only QA gate for the dev lifecycle. Tests the running app using DOM assertions as primary evidence and screenshots as supporting evidence. Never modifies source code.
 
-**Core shift:** The LLM designs assertions and interprets structured results. It does NOT judge pixels in screenshots.
+**Core shift:** Use executed assertions for measurable behavior. When visual layers are enabled, inspect screenshots for composition and readability; do not present visual judgment as deterministic proof.
 
 **Separation of concerns:** QA finds problems. The dev flow fixes them. QA re-verifies.
 
@@ -258,7 +258,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/qa-dom-assertions.md` for Play
 
 ### Quick
 
-Charter is a smoke check with DOM verification:
+Charter is a smoke check with DOM verification. For combined low-risk UI review, also include the mandatory desktop/narrow visual and native-keyboard checks from Step 07; Quick does not remove them:
 
 ```markdown
 ## Test Charter (Quick)
@@ -362,7 +362,7 @@ With --visual flag:
   Run: All 5 layers
 ```
 
-**Rationale:** QA's unique value is functional correctness — does the data render right, do interactions work, do state transitions happen. Visual concerns (design tokens, layout composition, style consistency) are the domain of design critique, which runs as a separate stage. When visual QA is needed without design critique (e.g., a manual reference run), pass `--visual`.
+**Rationale:** QA checks functional correctness. When standalone design critique is routed, that stage owns visual composition. For risk-assessed XS/S UI without standalone critique, visual QA is mandatory: use `--visual`, inspect desktop/narrow screenshots, and exercise native keyboard focus/navigation. Manual visual reference runs also use `--visual`.
 
 Log the decision:
 ```
