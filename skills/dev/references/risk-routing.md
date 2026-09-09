@@ -35,8 +35,12 @@ Set `destructive_data: true` separately when the data operation deletes or irrev
 - High and critical risk always require full review and verification. `kind: task` or `kind: bug` cannot remove those gates.
 - M/L/XL proposals require groom/RFC readiness. Tasks and bugs may use their supplied context, but risk still controls review depth.
 - Behavioral changes require TDD. A non-behavioral change may skip TDD only with a concrete recorded reason.
-- UI impact adds design critique and QA.
+- UI impact always adds current browser QA. Explicitly assessed XS/S work with `ui: 1`, `behavioral: 0` or `1`, every other dimension `0`, and `destructive_data: false` combines visual/accessibility review into QA instead of a separate design-critique phase. Missing assessments, complex interactions (`ui: 2+`), or any consequential boundary retain standalone critique. Never lower risk to escape a failed check.
 - Review and verification are always retained; low-risk XS/S work uses the code-scan review mode.
+
+Focused UI QA includes desktop and narrow visual inspection plus native keyboard focus/navigation. Retain actual screenshots and executed browser assertions in the existing QA report; do not create a second design report or require a percentage pixel change for focus. Evidence remains workflow-attested, not cryptographic proof of browser execution.
+
+Existing sessions keep their recorded route after an update. To adopt changed policy, preserve the prior session and failed evidence, then start a successor intake with the same scope and freshly assessed risks. Record the predecessor path and reason in intake evidence. Never rewrite a blocked phase as passed or copy prior gate verdicts; certify current source again.
 
 ## Delivery candidate routing
 

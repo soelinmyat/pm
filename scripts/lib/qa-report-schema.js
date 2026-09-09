@@ -4,6 +4,8 @@ const crypto = require("node:crypto");
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { sessionUsesFocusedUiQa } = require("./dev-risk");
+const FOCUSED_UI_STATES = ["Desktop layout", "Narrow layout", "Keyboard focus and navigation"];
 const { readDescriptorBounded } = require("./bounded-descriptor-read");
 const { compareRfc3339DateTimes, isRfc3339DateTime } = require("./iso-time");
 const { inspectPngBytes, inspectPngHeaderBytes } = require("./media-inspect");
@@ -1007,6 +1009,45 @@ function validateSessionCoverage(report, session, receipts, retained, issues) {
       );
     }
   }
+  if (sessionUsesFocusedUiQa(session)) {
+    const used = new Set();
+    const layoutScreenshots = new Set();
+    for (const target of FOCUSED_UI_STATES) {
+      const row = boundedArray(report.coverage?.critical_states, MAX_ASSERTION_RESULTS).find(
+        (entry) => entry?.target === target
+      );
+      const ids = boundedArray(row?.assertion_ids, MAX_ASSERTION_RESULTS);
+      for (const id of ids) {
+        if (used.has(id))
+          add(
+            issues,
+            "report.coverage.critical_states",
+            "focused UI checks require distinct assertions"
+          );
+        used.add(id);
+      }
+      if (target === "Keyboard focus and navigation") continue;
+      const hasScreenshot = ids.some((id) => {
+        const assertion = currentAssertions.get(id);
+        const receipt = receipts.byId.get(assertion?.receipt_id);
+        for (const screenshotId of boundedArray(receipt?.screenshot_ids, MAX_SCREENSHOTS))
+          layoutScreenshots.add(screenshotId);
+        return receipt?.screenshot_ids?.length > 0;
+      });
+      if (!hasScreenshot)
+        add(
+          issues,
+          "report.coverage.critical_states",
+          `${target} requires a current browser screenshot`
+        );
+    }
+    if (layoutScreenshots.size < 2)
+      add(
+        issues,
+        "report.screenshots",
+        "focused UI requires separate desktop and narrow screenshots"
+      );
+  }
 }
 
 function qaTierForSize(size) {
@@ -1025,6 +1066,12 @@ function sessionCriticalStates(session) {
   ];
   const states = [];
   const seen = new Set();
+  if (sessionUsesFocusedUiQa(session)) {
+    for (const state of FOCUSED_UI_STATES) {
+      states.push(state);
+      seen.add(state);
+    }
+  }
   for (const context of contexts) {
     for (const state of Array.isArray(context?.critical_states) ? context.critical_states : []) {
       if (typeof state === "string" && !seen.has(state)) {

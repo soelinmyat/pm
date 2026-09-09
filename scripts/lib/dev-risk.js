@@ -125,9 +125,16 @@ function routeDevWork(facts = {}) {
   }
 
   if (risk.dimensions.ui > 0) {
-    requiredGates.push("design-critique", "qa");
-    requiredPhases.push("design-critique", "qa");
-    reasons.push("UI impact requires design critique and QA");
+    if (!usesFocusedUiQa(facts)) {
+      requiredGates.push("design-critique");
+      requiredPhases.push("design-critique");
+      reasons.push("UI impact requires standalone design critique");
+    } else {
+      reasons.push("Assessed low-risk XS/S UI combines visual and keyboard review into QA");
+    }
+    requiredGates.push("qa");
+    requiredPhases.push("qa");
+    reasons.push("UI impact requires current browser QA");
   }
 
   requiredPhases.push("review", "ship", "retro");
@@ -153,6 +160,29 @@ function routeDevWork(facts = {}) {
   };
 }
 
+// Missing assessments are not evidence of safety. Keep the existing full path
+// unless every boundary was explicitly assessed and the UI change is minor.
+function usesFocusedUiQa(facts) {
+  const risk = facts?.risk;
+  return (
+    ["XS", "S"].includes(facts?.size) &&
+    risk?.ui === 1 &&
+    [0, 1].includes(risk.behavioral) &&
+    risk.destructive_data === false &&
+    DIMENSION_NAMES.filter((name) => !["ui", "behavioral"].includes(name)).every(
+      (name) => risk[name] === 0
+    )
+  );
+}
+
+function sessionUsesFocusedUiQa(session) {
+  return (
+    usesFocusedUiQa(session?.task) &&
+    session?.routing?.required_gates?.includes("qa") === true &&
+    !session.routing.required_gates.includes("design-critique")
+  );
+}
+
 function normalizeReason(value) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
@@ -165,4 +195,6 @@ module.exports = {
   DIMENSION_NAMES,
   assessRisk,
   routeDevWork,
+  usesFocusedUiQa,
+  sessionUsesFocusedUiQa,
 };

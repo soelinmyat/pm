@@ -192,6 +192,8 @@ function buildCodexInstallDoc(config) {
 
 PM now ships a native Codex plugin manifest at \`.codex-plugin/plugin.json\`.
 
+Dev uses the same risk-based review in Codex: explicitly assessed low-risk XS/S UI changes combine visual/accessibility checks into browser QA; consequential or uncertain changes retain standalone design critique. Existing sessions retain their recorded route. Start a successor intake to adopt new routing, preserving previous evidence rather than changing old verdicts.
+
 After installation, PM automatically discovers repository-native delivery
 capabilities and selects the safest supported route with zero consumer edits.
 The review-first route requires an explicitly authorized machine-readable

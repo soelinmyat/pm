@@ -37,7 +37,7 @@ Turn the request and available product context into confirmed scope plus a durab
      --json
    ```
 
-9. Read back the route. M/L/XL proposals include readiness; tasks/bugs with adequate supplied scope may skip readiness. High-risk work uses full review regardless of kind or size. UI impact adds design critique and QA. Review and verification remain mandatory.
+9. Read back the route. M/L/XL proposals include readiness; tasks/bugs with adequate supplied scope may skip readiness. High-risk work uses full review regardless of kind or size. UI impact always adds QA; explicitly assessed low-risk XS/S UI combines visual review into QA as defined in `risk-routing.md`. All other UI retains standalone design critique. Review and verification remain mandatory.
 10. Record a passing intake phase result with no fabricated test evidence. The runner, not prose, selects the next routed phase.
 
 ## Done-when

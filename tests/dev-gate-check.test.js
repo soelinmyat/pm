@@ -10,6 +10,52 @@ const path = require("node:path");
 const zlib = require("node:zlib");
 
 const repoRoot = path.resolve(__dirname, "..");
+
+test("default gate checks honor canonical focused QA without reinstating critique", () => {
+  const session = {
+    run_id: "dev_run-1",
+    slug: "example",
+    task: {
+      size: "XS",
+      risk: {
+        behavioral: 1,
+        security: 0,
+        auth: 0,
+        data: 0,
+        external_contract: 0,
+        operational: 0,
+        ui: 1,
+        reversibility: 0,
+        cross_module: 0,
+        destructive_data: false,
+      },
+    },
+    routing: { review_mode: "code-scan", required_gates: ["tdd", "qa", "review", "verification"] },
+  };
+  const result = checkGateManifest(manifest([], { run_id: session.run_id }), {
+    canonicalSession: session,
+    manifestPath: ".pm/dev-sessions/example/gates.json",
+    currentCommit: "abc123",
+  });
+  assert.equal(result.ok, false, "missing safety evidence still fails");
+  assert.doesNotMatch(JSON.stringify(result.issues), /missing required gate design-critique/);
+  assert.match(JSON.stringify(result.issues), /missing required gate qa/);
+  session.task.risk.auth = 1;
+  const sensitive = checkGateManifest(manifest([], { run_id: session.run_id }), {
+    canonicalSession: session,
+    manifestPath: ".pm/dev-sessions/example/gates.json",
+    currentCommit: "abc123",
+  });
+  assert.match(JSON.stringify(sensitive.issues), /canonical risk requires gate design-critique/);
+  session.routing.required_gates = ["verification"];
+  const omitted = checkGateManifest(manifest([], { run_id: session.run_id }), {
+    canonicalSession: session,
+    manifestPath: ".pm/dev-sessions/example/gates.json",
+    currentCommit: "abc123",
+  });
+  assert.match(JSON.stringify(omitted.issues), /canonical risk requires gate review/);
+  assert.match(JSON.stringify(omitted.issues), /canonical risk requires gate tdd/);
+});
 const checkScript = path.join(repoRoot, "scripts", "dev-gate-check.js");
 
 const {

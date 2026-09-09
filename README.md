@@ -1,5 +1,7 @@
 # PM — Shared Product Brain for Small Teams
 
+Small, explicitly assessed low-risk UI changes use one combined visual/browser QA pass (desktop, narrow screen, and keyboard), followed by source review and release checks. Larger, sensitive, or uncertain changes retain standalone design critique. No safety-bypass flag is needed.
+
 [![CI](https://github.com/soelinmyat/pm/actions/workflows/ci.yml/badge.svg)](https://github.com/soelinmyat/pm/actions/workflows/ci.yml)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/soelinmyat/pm)](https://github.com/soelinmyat/pm/releases)

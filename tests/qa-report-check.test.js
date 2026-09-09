@@ -30,6 +30,88 @@ const {
 const SHA_A = "a".repeat(40);
 const QA_COMMAND = "node --test tests/acceptance.test.js";
 
+test("focused UI QA cannot pass with a generic browser receipt alone", (t) => {
+  const repo = makeRepo();
+  t.after(repo.cleanup);
+  const session = createSession({ slug: "focused-ui", sourceDir: repo.root });
+  session.task.size = "XS";
+  session.task.risk = {
+    behavioral: 1,
+    security: 0,
+    auth: 0,
+    data: 0,
+    external_contract: 0,
+    operational: 0,
+    ui: 1,
+    reversibility: 0,
+    cross_module: 0,
+    destructive_data: false,
+  };
+  session.routing.required_gates = ["tdd", "qa", "review", "verification"];
+  const { reportPath } = writePassingReport(session, repo.head(), {
+    kind: "browser",
+    command: "playwright test contextual link",
+  });
+  const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+  report.tier = "quick";
+  fs.writeFileSync(reportPath, JSON.stringify(report));
+  const checked = checkQaReport({
+    session,
+    reportPath,
+    expectedCommit: repo.head(),
+    requirePassing: true,
+    qaCandidate: "required",
+  });
+  assert.equal(checked.ok, false);
+  assert.match(JSON.stringify(checked.issues), /session-bound rows/);
+  report.coverage.critical_states = [
+    "Desktop layout",
+    "Narrow layout",
+    "Keyboard focus and navigation",
+  ].map((target, index) => ({ index, target, assertion_ids: [`acceptance-${index + 1}`] }));
+  const png = testPng();
+  report.screenshots = ["desktop", "narrow"].map((id) => {
+    const screenshotPath = path.join(path.dirname(reportPath), "evidence", `${id}.png`);
+    fs.writeFileSync(screenshotPath, png);
+    return {
+      id,
+      run: 1,
+      commit: repo.head(),
+      path: screenshotPath,
+      sha256: digest(png),
+      bytes: png.length,
+      width: 10,
+      height: 10,
+    };
+  });
+  report.receipts[0].screenshot_ids = ["desktop", "narrow"];
+  fs.writeFileSync(reportPath, JSON.stringify(report));
+  const verify = () =>
+    checkQaReport({
+      session,
+      reportPath,
+      expectedCommit: repo.head(),
+      requirePassing: true,
+      qaCandidate: "required",
+    });
+  assert.equal(verify().ok, true, JSON.stringify(verify().issues));
+  report.receipts[0].screenshot_ids = ["desktop"];
+  report.screenshots.pop();
+  fs.writeFileSync(reportPath, JSON.stringify(report));
+  assert.match(JSON.stringify(verify().issues), /separate desktop and narrow screenshots/);
+  report.coverage.critical_states[2].assertion_ids = ["acceptance-1"];
+  fs.writeFileSync(reportPath, JSON.stringify(report));
+  assert.match(JSON.stringify(verify().issues), /distinct assertions/);
+  report.coverage.critical_states[2].assertion_ids = ["absent-assertion"];
+  fs.writeFileSync(reportPath, JSON.stringify(report));
+  assert.equal(verify().ok, false);
+  report.coverage.critical_states[2].assertion_ids = ["acceptance-3"];
+  report.receipts[0].screenshot_ids = [];
+  report.screenshots = [];
+  fs.writeFileSync(reportPath, JSON.stringify(report));
+  assert.match(JSON.stringify(verify().issues), /current browser screenshot/);
+});
+
 function qaOutput(
   commit,
   receiptId = "qa-run-1-tests",
