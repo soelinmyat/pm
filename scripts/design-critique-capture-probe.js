@@ -1519,18 +1519,18 @@ function domObservations(
       const lower = levels[index + 1];
       const upperSize = majorityNumber(headings.get(upper), "font-size");
       const lowerSize = majorityNumber(headings.get(lower), "font-size");
-      if (lowerSize >= upperSize)
+      const upperWeight = majorityNumber(headings.get(upper), "font-weight");
+      const lowerWeight = majorityNumber(headings.get(lower), "font-weight");
+      if (lowerSize > upperSize || (lowerSize === upperSize && lowerWeight >= upperWeight))
         addIssue(
           hierarchy,
           issue(
             lowerSize > upperSize ? "inverted-heading-size" : "collapsed-heading-size",
             `${upper}>${lower}`,
-            `${lower} (${lowerSize}px) is not smaller than ${upper} (${upperSize}px).`
+            `${lower} (${lowerSize}px) does not have a smaller size or lighter equal-size weight than ${upper} (${upperSize}px).`
           ),
           "hierarchy"
         );
-      const upperWeight = majorityNumber(headings.get(upper), "font-weight");
-      const lowerWeight = majorityNumber(headings.get(lower), "font-weight");
       if (lowerWeight - upperWeight >= 200)
         addIssue(
           hierarchy,
@@ -1547,13 +1547,15 @@ function domObservations(
       const bodySize = majorityNumber(paragraphs, "font-size");
       const smallest = levels.at(-1);
       const headingSize = majorityNumber(headings.get(smallest), "font-size");
-      if (bodySize >= headingSize)
+      const bodyWeight = majorityNumber(paragraphs, "font-weight");
+      const headingWeight = majorityNumber(headings.get(smallest), "font-weight");
+      if (bodySize > headingSize || (bodySize === headingSize && bodyWeight >= headingWeight))
         addIssue(
           hierarchy,
           issue(
             "body-exceeds-heading",
             smallest,
-            `Body text (${bodySize}px) is not smaller than ${smallest} (${headingSize}px).`
+            `Body text (${bodySize}px/${bodyWeight}) is not subordinate to ${smallest} (${headingSize}px/${headingWeight}).`
           ),
           "hierarchy"
         );
