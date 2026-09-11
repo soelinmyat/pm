@@ -2,6 +2,8 @@
 
 Small, explicitly assessed low-risk web UI changes use one combined visual/browser QA pass (desktop, narrow screen, and keyboard), followed by source review and release checks. Mobile, mixed-platform, larger, sensitive, or uncertain changes retain standalone design critique. No safety-bypass flag is needed.
 
+Product UI capture supports reserved scrollbar gutters without treating the smaller content area as a viewport mismatch. Screenshot dimensions, zoom, and capture identity checks still apply.
+
 Verified corrections within an already-approved Dev task do not need repeated approval: behavioral fixes require red/green regression evidence and fresh review. New scope, consequential decisions, disputes and external actions retain their approval boundaries.
 
 [![CI](https://github.com/soelinmyat/pm/actions/workflows/ci.yml/badge.svg)](https://github.com/soelinmyat/pm/actions/workflows/ci.yml)

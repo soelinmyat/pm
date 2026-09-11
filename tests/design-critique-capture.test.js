@@ -574,6 +574,22 @@ test("probe validation fails closed on URL, viewport, network, or timestamp drif
     },
   };
   assert.doesNotThrow(() => validateProbeResult(result, plan));
+  // Stable scrollbar gutters reduce layout dimensions, while the
+  // native document viewport and screenshot retain the routed dimensions.
+  const gutter = structuredClone(result);
+  gutter.page.css_viewport.client_width = 1013;
+  gutter.page.css_viewport.client_height = 589;
+  assert.doesNotThrow(() => validateProbeResult(gutter, plan));
+  for (const [field, value] of [
+    ["client_width", 1025],
+    ["client_height", 601],
+    ["client_width", 0],
+    ["client_height", 0],
+  ]) {
+    const invalid = structuredClone(result);
+    invalid.page.css_viewport[field] = value;
+    assert.throws(() => validateProbeResult(invalid, plan), /viewport/);
+  }
   const scrolled = structuredClone(result);
   scrolled.page.css_viewport.scroll_height = 2000;
   scrolled.page.css_viewport.scroll_y = 1400;
@@ -1760,6 +1776,7 @@ function createBrowserFixture({
   focusabilityControls = false,
   stateMarkerStyle = "",
   belowFold = false,
+  stableGutter = false,
 } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-trusted-capture-"));
   const external = externalRequest ? '<img src="https://example.invalid/tracker.png" alt="">' : "";
@@ -1793,6 +1810,7 @@ function createBrowserFixture({
         : "";
   const html = `<!doctype html><html><head><meta charset="utf-8"><style>
 *{box-sizing:border-box}body{margin:0;background:#eef2ff;color:#172033;font:16px system-ui}header{background:#18264a;color:white;padding:18px 28px}nav a{color:white;margin-right:16px}main{max-width:900px;margin:30px auto;padding:24px;background:white;border-radius:16px}h1{font-size:32px}h2{font-size:22px}.cards{display:grid;grid-template-columns:1fr 1fr;gap:16px}.card{padding:18px;border:1px solid #ccd3e1;border-radius:12px}button{padding:10px 18px;background:#3157d5;color:white;border:0;border-radius:8px}
+${stableGutter ? "html{scrollbar-gutter:stable}::-webkit-scrollbar{width:11px}" : ""}
 ${stateMarkerStyle ? `#account{${stateMarkerStyle}}` : ""}
 ${belowFold ? "#account{margin-top:1400px}button:focus-visible{outline:4px solid orange}" : ""}
 </style></head><body><header><nav aria-label="Primary"><a href="#account">Accounts</a></nav></header><main id="account" data-testid="account-state" data-pm-state="primary"><header><h1>Account overview</h1></header><section aria-labelledby="summary"><h2 id="summary">Summary</h2><div class="cards"><article class="card"><h2>Usage</h2><p>Stable product evidence.</p></article><article class="card"><h2>Plan</h2><p>Professional tier.</p></article></div><button>Save changes</button>${focusabilityMarkup}</section>${descendantOverlay}</main>${external}${overlay}${late}${webSocket}${persistentWorkerScript}</body></html>`;
@@ -2505,3 +2523,28 @@ test(
     }
   }
 );
+
+for (const belowFold of [false, true]) {
+  test(
+    `browser capture preserves full viewport with a stable scrollbar gutter (overflow: ${belowFold})`,
+    { skip: browserSkip },
+    () => {
+      const fixture = createBrowserFixture({ stableGutter: true, belowFold });
+      if (belowFold) {
+        fixture.stateAssertion.before_capture = [
+          { kind: "scroll-into-view", locator: { by: "id", value: "account" } },
+        ];
+      }
+      try {
+        const result = runBrowserCapture(fixture);
+        assert.equal(result.page.css_viewport.inner_width, 1024);
+        assert.equal(result.page.css_viewport.client_width, 1013);
+        assert.equal(result.page.css_viewport.inner_height, 600);
+        assert.equal(result.dom_observations.viewport.inner_width, 1024);
+        assert.equal(result.dom_observations.viewport.client_width, 1013);
+      } finally {
+        fs.rmSync(fixture.root, { recursive: true, force: true });
+      }
+    }
+  );
+}
