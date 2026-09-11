@@ -1452,7 +1452,16 @@ function domObservations(
   });
   // Compare typography only within the nearest semantic region. A navigation
   // heading does not establish a size hierarchy for a sibling main or dialog.
-  const regionTags = new Set(["main", "nav", "aside", "section", "article", "form", "dialog"]);
+  const regionTags = new Set([
+    "main",
+    "nav",
+    "aside",
+    "section",
+    "article",
+    "form",
+    "dialog",
+    "search",
+  ]);
   const regionRoles = new Set([
     "main",
     "navigation",
@@ -1465,6 +1474,7 @@ function domObservations(
     "dialog",
     "alertdialog",
     "tabpanel",
+    "search",
   ]);
   // ARIA uses the first recognized concrete role token, not the first region
   // token: role="button main" is a button, while role="unknown main" is main.

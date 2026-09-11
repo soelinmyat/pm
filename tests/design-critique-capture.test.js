@@ -2620,6 +2620,20 @@ test("typography hierarchy is scoped to semantic regions while same-region defec
     cssContentSize: { width: 400, height: 300 },
   };
   assert.deepEqual(domObservations(model, metrics, styles).hierarchy, []);
+  for (const searchAttributes of [null, { role: "search" }]) {
+    model[1].nodeName = searchAttributes ? "div" : "search";
+    model[1].attributes = { id: "search-region", ...searchAttributes };
+    model[1].parentIndex = 3;
+    assert.deepEqual(domObservations(model, metrics, styles).hierarchy, []);
+    model[4].parentIndex = 1;
+    assert.ok(
+      domObservations(model, metrics, styles).hierarchy.some(
+        (x) => x.code === "body-exceeds-heading"
+      )
+    );
+    model[4].parentIndex = 3;
+  }
+  model[1].parentIndex = 0;
   model[1].nodeName = "div";
   model[1].attributes.role = " NAVIGATION ";
   model[3].nodeName = "div";
