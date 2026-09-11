@@ -2620,6 +2620,20 @@ test("typography hierarchy is scoped to semantic regions while same-region defec
     cssContentSize: { width: 400, height: 300 },
   };
   assert.deepEqual(domObservations(model, metrics, styles).hierarchy, []);
+  model[1].nodeName = "div";
+  model[1].attributes.role = " NAVIGATION ";
+  model[3].nodeName = "div";
+  model[3].attributes.role = "unknown main";
+  assert.deepEqual(domObservations(model, metrics, styles).hierarchy, []);
+  model[1].attributes.role = "button navigation";
+  model[3].attributes.role = "button main";
+  assert.ok(
+    domObservations(model, metrics, styles).hierarchy.some((x) => x.code === "body-exceeds-heading")
+  );
+  model[1].nodeName = "nav";
+  model[1].attributes.role = "";
+  model[3].nodeName = "main";
+  model[3].attributes.role = "";
   model[4].parentIndex = 1;
   assert.ok(
     domObservations(model, metrics, styles).hierarchy.some((x) => x.code === "body-exceeds-heading")
@@ -2632,6 +2646,11 @@ test("typography hierarchy is scoped to semantic regions while same-region defec
     domObservations(model, metrics, styles).hierarchy.some((x) => x.code === "body-exceeds-heading")
   );
   model[4].parentIndex = 3;
+  model.push(node(7, 3, "header", 16), node(8, 7, "h2", 12));
+  assert.ok(
+    domObservations(model, metrics, styles).hierarchy.some((x) => x.code === "body-exceeds-heading")
+  );
+  model.splice(-2);
   model.push(node(5, 3, "h1", 12), node(6, 3, "h2", 24));
   assert.ok(
     domObservations(model, metrics, styles).hierarchy.some(
@@ -2686,3 +2705,64 @@ test(
     }
   }
 );
+
+test("semantic region resolution stays linear at maximum DOM depth", () => {
+  const count = 25000;
+  let parentReads = 0;
+  const makeNode = (index, parent, nodeName) => ({
+    index,
+    backendNodeId: index + 1,
+    nodeName,
+    attributes: {},
+    get parentIndex() {
+      if (++parentReads > count * 20) throw new Error("nonlinear ancestor work");
+      return parent;
+    },
+    layout: { bounds: [0, 0, 10, 10], styles: ["block", "visible", "1", "16px", "400"] },
+  });
+  const model = [];
+  for (let i = 0; i < count; i++) {
+    model.push(makeNode(i * 2, i === 0 ? -1 : (i - 1) * 2, "div"));
+    model.push(makeNode(i * 2 + 1, i * 2, "p"));
+  }
+  const metrics = {
+    cssLayoutViewport: { clientWidth: 100, clientHeight: 100 },
+    cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 100, clientHeight: 100 },
+    cssContentSize: { width: 100, height: 100 },
+  };
+  assert.deepEqual(
+    domObservations(model, metrics, [
+      "display",
+      "visibility",
+      "opacity",
+      "font-size",
+      "font-weight",
+    ]).hierarchy,
+    []
+  );
+  assert.ok(parentReads <= count * 20);
+});
+
+test("header wrappers retain their owning main typography hierarchy", () => {
+  const styles = ["display", "visibility", "opacity", "font-size", "font-weight"];
+  const n = (index, parentIndex, nodeName, size) => ({
+    index,
+    parentIndex,
+    backendNodeId: index + 1,
+    nodeName,
+    attributes: {},
+    layout: {
+      bounds: [0, index * 20, 100, 20],
+      styles: ["block", "visible", "1", `${size}px`, "400"],
+    },
+  });
+  const model = [n(0, -1, "main", 16), n(1, 0, "header", 16), n(2, 1, "h2", 12), n(3, 0, "p", 16)];
+  const metrics = {
+    cssLayoutViewport: { clientWidth: 400, clientHeight: 300 },
+    cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 400, clientHeight: 300 },
+    cssContentSize: { width: 400, height: 300 },
+  };
+  assert.ok(
+    domObservations(model, metrics, styles).hierarchy.some((x) => x.code === "body-exceeds-heading")
+  );
+});

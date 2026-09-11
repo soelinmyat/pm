@@ -1452,17 +1452,7 @@ function domObservations(
   });
   // Compare typography only within the nearest semantic region. A navigation
   // heading does not establish a size hierarchy for a sibling main or dialog.
-  const regionTags = new Set([
-    "main",
-    "nav",
-    "aside",
-    "header",
-    "footer",
-    "section",
-    "article",
-    "form",
-    "dialog",
-  ]);
+  const regionTags = new Set(["main", "nav", "aside", "section", "article", "form", "dialog"]);
   const regionRoles = new Set([
     "main",
     "navigation",
@@ -1476,22 +1466,49 @@ function domObservations(
     "alertdialog",
     "tabpanel",
   ]);
+  // ARIA uses the first recognized concrete role token, not the first region
+  // token: role="button main" is a button, while role="unknown main" is main.
+  const concreteRoles = new Set(
+    "alert alertdialog application article banner blockquote button caption cell checkbox code columnheader combobox complementary contentinfo definition deletion dialog directory document emphasis feed figure form generic grid gridcell group heading img insertion link list listbox listitem log main marquee math menu menubar menuitem menuitemcheckbox menuitemradio meter navigation none note option paragraph presentation progressbar radio radiogroup region row rowgroup rowheader scrollbar search searchbox separator slider spinbutton status strong subscript superscript switch tab table tablist tabpanel term textbox time timer toolbar tooltip tree treegrid treeitem".split(
+      " "
+    )
+  );
+  const isRegion = (node) => {
+    const explicitRole = String(node.attributes.role || "")
+      .trim()
+      .toLowerCase()
+      .split(/\s+/)
+      .find((role) => concreteRoles.has(role));
+    return explicitRole ? regionRoles.has(explicitRole) : regionTags.has(node.nodeName);
+  };
   const byIndex = new Map(model.map((node) => [node.index, node]));
-  const regions = new Map();
-  for (const node of visibleNodes) {
+  const nearestRegion = new Map();
+  const resolveRegion = (start) => {
+    const trail = [];
+    const seen = new Set();
+    let current = start;
     let region = null;
-    const visited = new Set();
-    for (
-      let parent = byIndex.get(node.parentIndex);
-      parent && !visited.has(parent.index);
-      parent = byIndex.get(parent.parentIndex)
-    ) {
-      visited.add(parent.index);
-      if (regionTags.has(parent.nodeName) || regionRoles.has(parent.attributes.role)) {
-        region = parent;
+    while (current && !seen.has(current.index)) {
+      if (nearestRegion.has(current.index)) {
+        region = nearestRegion.get(current.index);
         break;
       }
+      seen.add(current.index);
+      trail.push(current);
+      if (isRegion(current)) {
+        region = current;
+        break;
+      }
+      current = byIndex.get(current.parentIndex);
     }
+    for (const node of trail) nearestRegion.set(node.index, region);
+    return region;
+  };
+  const regions = new Map();
+  for (const node of visibleNodes.filter(
+    (candidate) => candidate.nodeName === "p" || /^h[1-6]$/.test(candidate.nodeName)
+  )) {
+    const region = resolveRegion(byIndex.get(node.parentIndex));
     if (!regions.has(region)) regions.set(region, []);
     regions.get(region).push(node);
   }
