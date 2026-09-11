@@ -4646,3 +4646,20 @@ test("human report metadata binds the exact reviews manifest", () => {
     /metadata evidence must bind the exact reviews manifest/
   );
 });
+
+test("accepts localized cross-state pixel changes in trusted native captures", () => {
+  const fixture = makeFixture();
+  const desktop = fixture.captures.captures.find((item) => item.coverage_id === "ui-primary");
+  // A thin full-width highlight changes several tiles but less than 0.5% on average.
+  addRequiredStateCapture(
+    fixture,
+    "success",
+    validPng(desktop.width, desktop.height, 0, 0, 50, desktop.width * 2)
+  );
+  const result = check(fixture);
+  assert.equal(
+    result.issues.some((issue) => /materially different decoded pixels/.test(issue.message)),
+    false,
+    JSON.stringify(result.issues)
+  );
+});
