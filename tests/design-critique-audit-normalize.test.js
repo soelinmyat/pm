@@ -305,3 +305,36 @@ test("CLI opts into managed pointers only for canonical capture raw paths", (t) 
     /project path contains symlink/
   );
 });
+
+test("active named modal permits a hidden background main but preserves accessibility failures", () => {
+  const raw = accessibilityRaw();
+  raw.observations.landmarks = [];
+  raw.observations.dialogs = [
+    {
+      role: "dialog",
+      name: "Administration",
+      locator: "dialog#settings",
+      modal: true,
+      contains_focus: true,
+    },
+  ];
+  assert.equal(normalize(raw).checks.landmarks, true);
+  raw.observations.dialogs[0].contains_focus = false;
+  assert.equal(normalize(raw).checks.landmarks, false);
+  raw.observations.dialogs[0].contains_focus = true;
+  raw.observations.dialogs[0].modal = false;
+  assert.equal(normalize(raw).checks.landmarks, false);
+  raw.observations.dialogs[0].modal = true;
+  raw.observations.dialogs[0].name = "";
+  assert.equal(normalize(raw).checks.names, false);
+  assert.equal(normalize(raw).checks.landmarks, false);
+  raw.observations.dialogs[0].name = "Administration";
+  raw.observations.controls[0].name = "";
+  raw.observations.controls[0].tab_index = -1;
+  assert.deepEqual(normalize(raw).checks, { landmarks: true, names: false, focus_order: false });
+  raw.observations.landmarks = [
+    { role: "main", name: "", locator: "main#a" },
+    { role: "main", name: "", locator: "main#b" },
+  ];
+  assert.equal(normalize(raw).checks.landmarks, false);
+});

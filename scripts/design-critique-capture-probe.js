@@ -622,6 +622,21 @@ function accessibilityEvidence(axTree, model, compositeBackendNodeIds = new Set(
       .map((node) => [node.backendNodeId, node])
   );
   const landmarks = [];
+  const dialogs = [];
+  const axById = new Map((axTree.nodes || []).map((node) => [node.nodeId, node]));
+  const focusedAncestors = new Set();
+  for (const focused of axTree.nodes || []) {
+    if (focused.ignored === true || axProperties(focused).get("focused") !== true) continue;
+    const visited = new Set();
+    for (
+      let current = focused;
+      current && !visited.has(current.nodeId);
+      current = axById.get(current.parentId)
+    ) {
+      visited.add(current.nodeId);
+      focusedAncestors.add(current.nodeId);
+    }
+  }
   const controls = [];
   const controlBackendNodeIds = [];
   const landmarkRoles = new Set([
@@ -660,6 +675,20 @@ function accessibilityEvidence(axTree, model, compositeBackendNodeIds = new Set(
       .trim();
     if (name.length > 1000) throw new Error("accessible name exceeds 1000 characters");
     const locator = nodeLocator(node);
+    if (["dialog", "alertdialog"].includes(role)) {
+      appendBoundedEvidence(
+        dialogs,
+        {
+          role,
+          name,
+          locator,
+          modal: axProperties(axNode).get("modal") === true,
+          contains_focus: focusedAncestors.has(axNode.nodeId),
+        },
+        MAX_LANDMARKS,
+        "accessibility dialogs"
+      );
+    }
     if (landmarkRoles.has(role)) {
       appendBoundedEvidence(
         landmarks,
@@ -696,7 +725,7 @@ function accessibilityEvidence(axTree, model, compositeBackendNodeIds = new Set(
       controlBackendNodeIds.push(node.backendNodeId);
     }
   }
-  return { observations: { landmarks, controls }, controlBackendNodeIds };
+  return { observations: { landmarks, controls, dialogs }, controlBackendNodeIds };
 }
 
 function accessibilityObservations(axTree, model, compositeBackendNodeIds = new Set()) {
@@ -1421,67 +1450,114 @@ function domObservations(
     visibleIntersections.set(node, intersection);
     return true;
   });
-  const headings = new Map();
-  for (const node of visibleNodes.filter((candidate) => /^h[1-6]$/.test(candidate.nodeName))) {
-    if (!headings.has(node.nodeName)) headings.set(node.nodeName, []);
-    headings.get(node.nodeName).push(node);
-  }
-  const levels = [...headings.keys()].sort();
-  const majorityNumber = (nodes, property) => {
-    const counts = new Map();
-    for (const node of nodes) {
-      const value = parsePixels(style(node, property));
-      counts.set(value, (counts.get(value) || 0) + 1);
+  // Compare typography only within the nearest semantic region. A navigation
+  // heading does not establish a size hierarchy for a sibling main or dialog.
+  const regionTags = new Set([
+    "main",
+    "nav",
+    "aside",
+    "header",
+    "footer",
+    "section",
+    "article",
+    "form",
+    "dialog",
+  ]);
+  const regionRoles = new Set([
+    "main",
+    "navigation",
+    "complementary",
+    "banner",
+    "contentinfo",
+    "region",
+    "article",
+    "form",
+    "dialog",
+    "alertdialog",
+    "tabpanel",
+  ]);
+  const byIndex = new Map(model.map((node) => [node.index, node]));
+  const regions = new Map();
+  for (const node of visibleNodes) {
+    let region = null;
+    const visited = new Set();
+    for (
+      let parent = byIndex.get(node.parentIndex);
+      parent && !visited.has(parent.index);
+      parent = byIndex.get(parent.parentIndex)
+    ) {
+      visited.add(parent.index);
+      if (regionTags.has(parent.nodeName) || regionRoles.has(parent.attributes.role)) {
+        region = parent;
+        break;
+      }
     }
-    return (
-      [...counts.entries()].sort(
-        (left, right) => right[1] - left[1] || left[0] - right[0]
-      )[0]?.[0] || 0
-    );
-  };
-  for (let index = 0; index + 1 < levels.length; index += 1) {
-    const upper = levels[index];
-    const lower = levels[index + 1];
-    const upperSize = majorityNumber(headings.get(upper), "font-size");
-    const lowerSize = majorityNumber(headings.get(lower), "font-size");
-    if (lowerSize >= upperSize)
-      addIssue(
-        hierarchy,
-        issue(
-          lowerSize > upperSize ? "inverted-heading-size" : "collapsed-heading-size",
-          `${upper}>${lower}`,
-          `${lower} (${lowerSize}px) is not smaller than ${upper} (${upperSize}px).`
-        ),
-        "hierarchy"
-      );
-    const upperWeight = majorityNumber(headings.get(upper), "font-weight");
-    const lowerWeight = majorityNumber(headings.get(lower), "font-weight");
-    if (lowerWeight - upperWeight >= 200)
-      addIssue(
-        hierarchy,
-        issue(
-          "inverted-heading-weight",
-          `${upper}>${lower}`,
-          `${lower} (${lowerWeight}) is substantially bolder than ${upper} (${upperWeight}).`
-        ),
-        "hierarchy"
-      );
+    if (!regions.has(region)) regions.set(region, []);
+    regions.get(region).push(node);
   }
-  const paragraphs = visibleNodes.filter((node) => node.nodeName === "p");
-  if (paragraphs.length && levels.length) {
-    const bodySize = majorityNumber(paragraphs, "font-size");
-    const smallest = levels.at(-1);
-    const headingSize = majorityNumber(headings.get(smallest), "font-size");
-    if (bodySize >= headingSize)
-      addIssue(
-        hierarchy,
-        issue(
-          "body-exceeds-heading",
-          smallest,
-          `Body text (${bodySize}px) is not smaller than ${smallest} (${headingSize}px).`
-        ),
-        "hierarchy"
+  for (const regionNodes of regions.values()) {
+    const headings = new Map();
+    for (const node of regionNodes.filter((candidate) => /^h[1-6]$/.test(candidate.nodeName))) {
+      if (!headings.has(node.nodeName)) headings.set(node.nodeName, []);
+      headings.get(node.nodeName).push(node);
+    }
+    const levels = [...headings.keys()].sort();
+    const majorityNumber = (nodes, property) => {
+      const counts = new Map();
+      for (const node of nodes) {
+        const value = parsePixels(style(node, property));
+        counts.set(value, (counts.get(value) || 0) + 1);
+      }
+      return (
+        [...counts.entries()].sort(
+          (left, right) => right[1] - left[1] || left[0] - right[0]
+        )[0]?.[0] || 0
       );
+    };
+    for (let index = 0; index + 1 < levels.length; index += 1) {
+      const upper = levels[index];
+      const lower = levels[index + 1];
+      const upperSize = majorityNumber(headings.get(upper), "font-size");
+      const lowerSize = majorityNumber(headings.get(lower), "font-size");
+      if (lowerSize >= upperSize)
+        addIssue(
+          hierarchy,
+          issue(
+            lowerSize > upperSize ? "inverted-heading-size" : "collapsed-heading-size",
+            `${upper}>${lower}`,
+            `${lower} (${lowerSize}px) is not smaller than ${upper} (${upperSize}px).`
+          ),
+          "hierarchy"
+        );
+      const upperWeight = majorityNumber(headings.get(upper), "font-weight");
+      const lowerWeight = majorityNumber(headings.get(lower), "font-weight");
+      if (lowerWeight - upperWeight >= 200)
+        addIssue(
+          hierarchy,
+          issue(
+            "inverted-heading-weight",
+            `${upper}>${lower}`,
+            `${lower} (${lowerWeight}) is substantially bolder than ${upper} (${upperWeight}).`
+          ),
+          "hierarchy"
+        );
+    }
+    const paragraphs = regionNodes.filter((node) => node.nodeName === "p");
+    if (paragraphs.length && levels.length) {
+      const bodySize = majorityNumber(paragraphs, "font-size");
+      const smallest = levels.at(-1);
+      const headingSize = majorityNumber(headings.get(smallest), "font-size");
+      if (bodySize >= headingSize)
+        addIssue(
+          hierarchy,
+          issue(
+            "body-exceeds-heading",
+            smallest,
+            `Body text (${bodySize}px) is not smaller than ${smallest} (${headingSize}px).`
+          ),
+          "hierarchy"
+        );
+    }
   }
 
   const signatures = [

@@ -63,7 +63,30 @@ function normalizeRawAudit(raw, rawBinding) {
 }
 
 function normalizeAccessibility(observations) {
-  exactObject(observations, ["landmarks", "controls"], "raw accessibility observations");
+  exactObjectWithOptional(
+    observations,
+    ["landmarks", "controls"],
+    ["dialogs"],
+    "raw accessibility observations"
+  );
+  boundedArray(
+    observations.dialogs === undefined ? [] : observations.dialogs,
+    MAX_LANDMARKS,
+    "raw accessibility dialogs"
+  );
+  const dialogs = (observations.dialogs === undefined ? [] : observations.dialogs).map(
+    (item, index) => {
+      const label = `raw accessibility dialogs[${index}]`;
+      exactObject(item, ["role", "name", "locator", "modal", "contains_focus"], label);
+      if (!["dialog", "alertdialog"].includes(item.role))
+        throw new Error(`${label}.role must be dialog or alertdialog`);
+      boundedString(item.name, MAX_DETAIL_CHARS, `${label}.name`, true);
+      boundedString(item.locator, MAX_LOCATOR_CHARS, `${label}.locator`);
+      for (const field of ["modal", "contains_focus"])
+        if (typeof item[field] !== "boolean") throw new Error(`${label}.${field} must be boolean`);
+      return item;
+    }
+  );
   boundedArray(observations.landmarks, MAX_LANDMARKS, "raw accessibility landmarks");
   boundedArray(observations.controls, MAX_CONTROLS, "raw accessibility controls");
 
@@ -104,12 +127,22 @@ function normalizeAccessibility(observations) {
 
   const findings = [];
   const mainLandmarks = landmarks.filter((item) => item.role === "main");
-  if (mainLandmarks.length !== 1)
+  const activeModals = dialogs.filter(
+    (item) => item.modal && item.contains_focus && item.name.trim()
+  );
+  if (mainLandmarks.length !== 1 && !(mainLandmarks.length === 0 && activeModals.length === 1))
     findings.push({
       check: "landmarks",
       code: mainLandmarks.length === 0 ? "missing-main-landmark" : "multiple-main-landmarks",
       locator: "document",
       detail: `Expected exactly one main landmark; observed ${mainLandmarks.length}.`,
+    });
+  for (const item of dialogs.filter((dialog) => !dialog.name.trim()))
+    findings.push({
+      check: "names",
+      code: "missing-dialog-name",
+      locator: item.locator,
+      detail: `${item.role} has no accessible name.`,
     });
   const byRole = new Map();
   for (const item of landmarks) {

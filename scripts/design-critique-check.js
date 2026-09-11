@@ -777,7 +777,13 @@ function validateCaptures(root, captures, route, routeFile, runtime, issues) {
       add(issues, `captures.captures`, `non-applicable coverage ${item.id} cannot have a capture`);
   }
   validateDistinctActiveCaptures(root, acceptedCaptureRows, coverage, decodedByCapture, issues);
-  validateCrossStateVisualDistance(acceptedCaptureRows, coverage, decodedByCapture, issues);
+  validateCrossStateVisualDistance(
+    acceptedCaptureRows,
+    coverage,
+    decodedByCapture,
+    observationByCapture,
+    issues
+  );
   validateEvidence(
     root,
     captures.evidence,
@@ -824,7 +830,13 @@ function validateDistinctActiveCaptures(root, captureRows, coverage, decodedByCa
   }
 }
 
-function validateCrossStateVisualDistance(captureRows, coverage, decodedByCapture, issues) {
+function validateCrossStateVisualDistance(
+  captureRows,
+  coverage,
+  decodedByCapture,
+  observationByCapture,
+  issues
+) {
   const groups = new Map();
   for (const capture of captureRows) {
     const routeCoverage = coverage.get(capture?.coverage_id);
@@ -854,7 +866,16 @@ function validateCrossStateVisualDistance(captureRows, coverage, decodedByCaptur
           decodedByCapture.get(left.capture.id),
           decodedByCapture.get(right.capture.id)
         );
-        if (!isMaterialVisualDifference(difference)) {
+        // Native state assertions and stable capture receipts provide state proof.
+        // Localized focus/content changes need meaningful changed tiles, not a
+        // minimum average over the whole viewport. Legacy/untrusted captures and
+        // before/after remediation retain the stricter global-distance rule.
+        const localizedNativeChange =
+          observationByCapture.has(left.capture.id) &&
+          observationByCapture.has(right.capture.id) &&
+          difference !== null &&
+          difference.changedTileRatio >= MIN_CROSS_STATE_CHANGED_TILE_RATIO;
+        if (!isMaterialVisualDifference(difference) && !localizedNativeChange) {
           violationCount += 1;
           if (emittedDiagnostics < MAX_RULE_DIAGNOSTICS - 1) {
             add(

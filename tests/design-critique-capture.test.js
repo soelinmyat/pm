@@ -2548,3 +2548,134 @@ for (const belowFold of [false, true]) {
     }
   );
 }
+
+test("native AX retains modal role, name and descendant focus without trusting DOM aria alone", () => {
+  const model = [
+    {
+      index: 0,
+      backendNodeId: 1,
+      parentIndex: -1,
+      nodeName: "div",
+      attributes: { id: "settings", "aria-modal": "true" },
+    },
+    { index: 1, backendNodeId: 2, parentIndex: 0, nodeName: "button", attributes: { id: "save" } },
+  ];
+  const tree = {
+    nodes: [
+      {
+        nodeId: "a",
+        backendDOMNodeId: 1,
+        role: { value: "dialog" },
+        name: { value: "Settings" },
+        properties: [{ name: "modal", value: { value: true } }],
+      },
+      {
+        nodeId: "b",
+        parentId: "a",
+        backendDOMNodeId: 2,
+        role: { value: "button" },
+        name: { value: "Save" },
+        properties: [{ name: "focused", value: { value: true } }],
+      },
+    ],
+  };
+  const observed = accessibilityObservations(tree, model);
+  assert.deepEqual(observed.dialogs, [
+    {
+      role: "dialog",
+      name: "Settings",
+      locator: "div#settings",
+      modal: true,
+      contains_focus: true,
+    },
+  ]);
+  tree.nodes[0].properties = [];
+  assert.equal(accessibilityObservations(tree, model).dialogs[0].modal, false);
+  tree.nodes[0].ignored = true;
+  assert.deepEqual(accessibilityObservations(tree, model).dialogs, []);
+});
+test("typography hierarchy is scoped to semantic regions while same-region defects remain", () => {
+  const styles = ["display", "visibility", "opacity", "font-size", "font-weight"];
+  const node = (index, parentIndex, nodeName, size, attributes = {}) => ({
+    index,
+    parentIndex,
+    backendNodeId: index + 1,
+    nodeName,
+    attributes: { id: `node-${index}`, ...attributes },
+    layout: {
+      bounds: [0, index * 20, 100, 20],
+      styles: ["block", "visible", "1", `${size}px`, "400"],
+    },
+  });
+  const model = [
+    node(0, -1, "html", 16),
+    node(1, 0, "nav", 16),
+    node(2, 1, "h2", 12),
+    node(3, 0, "main", 16),
+    node(4, 3, "p", 16),
+  ];
+  const metrics = {
+    cssLayoutViewport: { clientWidth: 400, clientHeight: 300 },
+    cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 400, clientHeight: 300 },
+    cssContentSize: { width: 400, height: 300 },
+  };
+  assert.deepEqual(domObservations(model, metrics, styles).hierarchy, []);
+  model[4].parentIndex = 1;
+  assert.ok(
+    domObservations(model, metrics, styles).hierarchy.some((x) => x.code === "body-exceeds-heading")
+  );
+  model[4].parentIndex = 3;
+  model.push(node(5, 3, "h1", 12), node(6, 3, "h2", 24));
+  assert.ok(
+    domObservations(model, metrics, styles).hierarchy.some(
+      (x) => x.code === "inverted-heading-size"
+    )
+  );
+});
+
+test(
+  "native modal captures retain accessible context and scoped typography",
+  { skip: browserSkip },
+  () => {
+    const fixture = createBrowserFixture();
+    let html = decodeURIComponent(fixture.url.split(",").slice(1).join(","));
+    html = html.replace(
+      '<main id="account"',
+      '<main aria-hidden="true"><h1>Background</h1></main><dialog aria-label="Administration" id="account"'
+    );
+    const lastMain = html.lastIndexOf("</main>");
+    html =
+      html.slice(0, lastMain) +
+      '</dialog><script>document.querySelector("#account").showModal()</script>' +
+      html.slice(lastMain + 7);
+    fixture.url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+    try {
+      const result = runBrowserCapture(fixture);
+      assert.equal(
+        result.accessibility_observations.landmarks.some((x) => x.role === "main"),
+        false
+      );
+      assert.deepEqual(result.accessibility_observations.dialogs, [
+        {
+          role: "dialog",
+          name: "Administration",
+          locator: "dialog#account",
+          modal: true,
+          contains_focus: true,
+        },
+      ]);
+      const raw = {
+        schema_version: 1,
+        kind: "accessibility-tree",
+        subject_id: "account-detail",
+        commit: "a".repeat(40),
+        capture_ids: ["modal"],
+        observations: result.accessibility_observations,
+      };
+      const normalized = normalizeRawAudit(raw, { path: "raw.json", sha256: "a".repeat(64) });
+      assert.equal(normalized.checks.landmarks, true, JSON.stringify(normalized));
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+);
