@@ -944,8 +944,8 @@ function validateProbeResult(result, plan) {
   if (
     viewport.inner_width !== plan.viewport.width ||
     viewport.inner_height !== plan.viewport.height ||
-    viewport.client_width !== plan.viewport.width ||
-    viewport.client_height !== plan.viewport.height ||
+    viewport.client_width > viewport.inner_width ||
+    viewport.client_height > viewport.inner_height ||
     viewport.device_scale_factor !== 1 ||
     !validViewportScroll(viewport) ||
     viewport.visual_scale !== 1 ||

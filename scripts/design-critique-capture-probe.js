@@ -1390,7 +1390,13 @@ function repeatedContainerIdentity(node) {
   return declaredComponentVariantIdentity(node, "container");
 }
 
-function domObservations(model, metrics, computedStyles, visibilityEvaluator = null) {
+function domObservations(
+  model,
+  metrics,
+  computedStyles,
+  visibilityEvaluator = null,
+  viewport = metrics.cssLayoutViewport
+) {
   const styleIndex = new Map(computedStyles.map((name, index) => [name, index]));
   const style = (node, name) => node.layout?.styles?.[styleIndex.get(name)] || "";
   const evaluateVisibility = visibilityEvaluatorFor(model, style, metrics, visibilityEvaluator);
@@ -1684,7 +1690,7 @@ function domObservations(model, metrics, computedStyles, visibilityEvaluator = n
 
   return {
     viewport: {
-      inner_width: Math.round(metrics.cssLayoutViewport.clientWidth),
+      inner_width: Math.round(viewport.clientWidth),
       client_width: Math.round(metrics.cssLayoutViewport.clientWidth),
       scroll_width: Math.max(
         Math.round(metrics.cssLayoutViewport.clientWidth),
@@ -1698,7 +1704,23 @@ function domObservations(model, metrics, computedStyles, visibilityEvaluator = n
   };
 }
 
-function pageIdentity(frameTree, metrics) {
+function nativeViewport(model) {
+  // Blink's document layout box is the full viewport, even when a reserved
+  // gutter or visible scrollbar reduces both protocol viewport client widths.
+  const document = model.find((node) => node.parentIndex === -1 && node.nodeName === "#document");
+  const bounds = document?.layout?.bounds;
+  if (
+    !Array.isArray(bounds) ||
+    bounds.length !== 4 ||
+    !bounds.every(Number.isFinite) ||
+    bounds[2] <= 0 ||
+    bounds[3] <= 0
+  )
+    throw new Error("DOM snapshot omitted native document viewport bounds");
+  return { clientWidth: bounds[2], clientHeight: bounds[3] };
+}
+
+function pageIdentity(frameTree, metrics, viewport) {
   const frame = frameTree.frameTree?.frame;
   if (!frame?.id || !frame.loaderId || typeof frame.url !== "string")
     throw new Error("browser omitted main-frame identity");
@@ -1708,8 +1730,8 @@ function pageIdentity(frameTree, metrics) {
     loader_id: frame.loaderId,
     final_url: frame.url,
     css_viewport: {
-      inner_width: Math.round(metrics.cssLayoutViewport.clientWidth),
-      inner_height: Math.round(metrics.cssLayoutViewport.clientHeight),
+      inner_width: Math.round(viewport.clientWidth),
+      inner_height: Math.round(viewport.clientHeight),
       client_width: Math.round(metrics.cssLayoutViewport.clientWidth),
       client_height: Math.round(metrics.cssLayoutViewport.clientHeight),
       scroll_width: Math.max(
@@ -1917,7 +1939,8 @@ async function nativeSample(client, targetId, computedStyles, stateAssertion) {
     client.send("Accessibility.getFullAXTree", { depth: -1 }),
   ]);
   const model = snapshotNodeModel(snapshot);
-  const identity = pageIdentity(frameTree, metrics);
+  const viewport = nativeViewport(model);
+  const identity = pageIdentity(frameTree, metrics, viewport);
   identity.target_id = targetId;
   const styleIndex = new Map(computedStyles.map((name, index) => [name, index]));
   const style = (node, name) => node.layout?.styles?.[styleIndex.get(name)] || "";
@@ -1945,7 +1968,7 @@ async function nativeSample(client, targetId, computedStyles, stateAssertion) {
     accessibility: accessibility.observations,
     accessibilityControlBackendNodeIds: accessibility.controlBackendNodeIds,
     compositeKeyboardCandidates: compositeKeyboardCandidates(axTree, model),
-    dom: domObservations(model, metrics, computedStyles, visibilityEvaluator),
+    dom: domObservations(model, metrics, computedStyles, visibilityEvaluator, viewport),
   };
 }
 
