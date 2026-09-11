@@ -895,7 +895,8 @@ function attachTrustedCaptureObservation(
   routeBinding,
   capture,
   evidence,
-  scrollY = 0
+  scrollY = 0,
+  viewportOverrides = {}
 ) {
   const coverage = route.coverage.find((item) => item.id === capture.coverage_id);
   const subject = route.subjects.find((item) => item.id === coverage.subject_id);
@@ -971,6 +972,7 @@ function attachTrustedCaptureObservation(
     scroll_y: scrollY,
     visual_scale: 1,
     page_zoom: 1,
+    ...viewportOverrides,
   };
   const pageIdentity = {
     target_id: `target-${capture.id}`,
@@ -2168,6 +2170,45 @@ test("rejects navigation drift inside a rebound trusted capture manifest", () =>
   const result = check(fixture);
   assert.equal(result.ok, false);
   assert.match(JSON.stringify(result.issues), /must equal the asserted expected URL/);
+});
+
+test("trusted checker accepts scrollbar gutters and rejects invalid viewport dimensions", () => {
+  const fixture = makeFixture();
+  const capture = fixture.captures.captures[0];
+  const gutter = {
+    client_width: capture.width - 11,
+    client_height: capture.height - 11,
+    scroll_width: capture.width - 11,
+    scroll_height: capture.height - 11,
+  };
+  for (const [overrides, accepted] of [
+    [gutter, true],
+    [{ ...gutter, scroll_height: capture.height + 2000 }, true],
+    [{ ...gutter, client_width: 0 }, false],
+    [{ ...gutter, client_height: 0 }, false],
+    [{ ...gutter, client_width: capture.width + 1 }, false],
+    [{ ...gutter, client_height: capture.height + 1 }, false],
+    [{ ...gutter, inner_width: capture.width - 1 }, false],
+    [{ ...gutter, inner_height: capture.height - 1 }, false],
+    [{ ...gutter, scroll_width: capture.width - 12 }, false],
+    [{ ...gutter, scroll_height: capture.height - 12 }, false],
+  ]) {
+    attachTrustedCaptureObservation(
+      fixture.root,
+      fixture.route,
+      binding(fixture.root, fixture.routePath),
+      capture,
+      fixture.captures.evidence,
+      0,
+      overrides
+    );
+    rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+    fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+    rewriteReportAndHtml(fixture);
+    const result = check(fixture);
+    assert.equal(result.ok, accepted, JSON.stringify(result.issues));
+    if (!accepted) assert.match(JSON.stringify(result.issues), /css_viewport|CSS viewport/);
+  }
 });
 
 test("trusted checker accepts bound scroll offsets but rejects offsets outside document bounds", () => {

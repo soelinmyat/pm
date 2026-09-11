@@ -1184,10 +1184,10 @@ function validateTrustedPage(manifest, capture, route, coverage, label, issues) 
   if (
     viewport.inner_width !== capture.width ||
     viewport.inner_height !== capture.height ||
-    viewport.client_width !== capture.width ||
-    viewport.client_height !== capture.height ||
-    viewport.scroll_width < capture.width ||
-    viewport.scroll_height < capture.height ||
+    viewport.client_width > viewport.inner_width ||
+    viewport.client_height > viewport.inner_height ||
+    viewport.scroll_width < viewport.client_width ||
+    viewport.scroll_height < viewport.client_height ||
     viewport.device_scale_factor !== 1 ||
     !validViewportScroll(viewport) ||
     viewport.visual_scale !== 1 ||
