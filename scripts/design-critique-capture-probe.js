@@ -615,7 +615,23 @@ function compositeKeyboardCandidates(axTree, model) {
     )
       appendBoundedEvidence(candidates, group, MAX_CONTROLS, "composite keyboard candidates");
   }
-  return candidates;
+  // Probe inner panels before an outer widget can unmount their frozen nodes.
+  const byIndex = new Map(model.map((node) => [node.index, node]));
+  const depths = new Map();
+  const ownerDepth = (candidate) => {
+    let node = byBackendId.get(candidate.owner_backend_node_id);
+    const trail = [];
+    const seen = new Set();
+    while (node && !depths.has(node.index) && !seen.has(node.index)) {
+      seen.add(node.index);
+      trail.push(node.index);
+      node = byIndex.get(node.parentIndex);
+    }
+    let depth = node ? depths.get(node.index) || 0 : 0;
+    for (const index of trail.reverse()) depths.set(index, ++depth);
+    return depths.get(byBackendId.get(candidate.owner_backend_node_id)?.index) || 0;
+  };
+  return candidates.sort((left, right) => ownerDepth(right) - ownerDepth(left));
 }
 
 function accessibilityEvidence(axTree, model, compositeBackendNodeIds = new Set()) {
@@ -1437,7 +1453,13 @@ function declaredComponentVariantIdentity(node, groupName) {
     checkedRoles.has(role) && ["true", "false", "mixed"].includes(checkedValue)
       ? checkedValue
       : null;
-  const nativeState = { input_type: inputType, disabled, selected, checked };
+  const pressedValue = String(node.attributes["aria-pressed"] || "")
+    .trim()
+    .toLowerCase();
+  const isButton = role === "button" || (!role && node.nodeName === "button");
+  const pressed =
+    isButton && ["true", "false", "mixed"].includes(pressedValue) ? pressedValue : null;
+  const nativeState = { input_type: inputType, disabled, selected, checked, pressed };
   const declaration = variant
     ? { group: groupName, element: node.nodeName, component, variant, ...nativeState }
     : {
@@ -2000,7 +2022,10 @@ async function entryHasDocumentKeyboardReach(
     )
       return false;
     const focusedAfterTab = await focusedBackendNodeId(client, executionContextId);
-    return focusedAfterTab === entryBackendNodeId || groupBackendNodeIds.has(focusedAfterTab);
+    if (focusedAfterTab === entryBackendNodeId || groupBackendNodeIds.has(focusedAfterTab))
+      return true;
+    // Native controls can consume a Tab in their internal focus surface.
+    // Fall back to proving an actual exit from and return to the whole group.
   }
   for (const [leaveModifiers, returnModifiers] of [
     [0, 8],
@@ -2092,6 +2117,9 @@ async function probeCompositeKeyboardAccess(client, candidates) {
     const currentTree = await client.send("Page.getFrameTree");
     if (typeof originalUrl === "string" && currentTree.frameTree?.frame?.url !== originalUrl) {
       for (const candidate of [...candidates].reverse()) {
+        // Restoring an outer tab may detach the inner frozen selection.
+        const restoredTree = await client.send("Page.getFrameTree");
+        if (restoredTree.frameTree?.frame?.url === originalUrl) break;
         if (candidate.owner_role !== "tablist" || candidate.selected_backend_node_ids?.length !== 1)
           continue;
         const selected = candidate.selected_backend_node_ids[0];

@@ -163,3 +163,38 @@ test("the group owner is internal when proving a child entry", async () => {
     false
   );
 });
+
+for (const externalReturn of [true, false]) {
+  test(`an external predecessor retaining Tab uses verified group fallback: ${externalReturn}`, async () => {
+    let focus = 1;
+    const protocol = {
+      async send(method, args) {
+        if (method === "DOM.focus") {
+          focus = args.backendNodeId === 10 ? 11 : args.backendNodeId;
+          return {};
+        }
+        if (method === "Input.dispatchKeyEvent" && args.type === "rawKeyDown") {
+          if (focus !== 1 && externalReturn) focus = focus === 20 ? 11 : 20;
+          return {};
+        }
+        if (method === "Runtime.evaluate" && args.expression === "document.activeElement")
+          return { result: { objectId: String(focus) } };
+        if (method === "DOM.describeNode")
+          return { node: { backendNodeId: Number(args.objectId) } };
+        return {};
+      },
+    };
+    assert.equal(
+      await entry(
+        protocol,
+        1,
+        10,
+        { from_backend_node_id: 1, modifiers: 0 },
+        { remaining: 10 },
+        new Set([11, 12]),
+        10
+      ),
+      externalReturn
+    );
+  });
+}

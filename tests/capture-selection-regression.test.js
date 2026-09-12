@@ -112,3 +112,36 @@ test("checked radio state is intentional but same-state drift remains flagged", 
     2
   );
 });
+
+function pressedButton(i, pressed, activeStyle, role = "button") {
+  return tab(i, false, activeStyle, {
+    role,
+    "data-component": "PaneListItem",
+    "data-variant": "default",
+    "aria-pressed": pressed,
+  });
+}
+for (const role of ["button", ""]) {
+  test(`pressed state separates declared ${role || "native button"} variants`, () => {
+    assert.deepEqual(
+      inspect([pressedButton(0, "true", true, role), pressedButton(1, "false", false, role)]),
+      []
+    );
+    assert.deepEqual(
+      inspect([pressedButton(0, "mixed", true, role), pressedButton(1, "false", false, role)]),
+      []
+    );
+    assert.equal(
+      inspect([pressedButton(0, "true", true, role), pressedButton(1, "true", false, role)]).length,
+      2
+    );
+  });
+}
+test("invalid pressed values and non-button roles cannot hide drift", () => {
+  assert.equal(inspect([pressedButton(0, "yes", true), pressedButton(1, "no", false)]).length, 2);
+  assert.equal(
+    inspect([pressedButton(0, "true", true, "radio"), pressedButton(1, "false", false, "radio")])
+      .length,
+    2
+  );
+});
