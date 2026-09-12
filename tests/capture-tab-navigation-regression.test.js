@@ -10,7 +10,7 @@ const { resolveBrowser, runCaptureProbe } = require("../scripts/design-critique-
 for (const mode of ["restore", "missing-selection", "wrong-route"]) {
   test(`URL-backed tabs: ${mode}`, async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-tab-restore-"));
-    const html = `<!doctype html><html><body><main data-testid="state" data-pm-state="ready"><h1>Tabs</h1><button>Before</button><div role="tablist" aria-label="Views"><button id="first" role="tab" tabindex="0" ${mode === "missing-selection" ? "" : 'aria-selected="true"'}>First</button><button id="second" role="tab" tabindex="-1" aria-selected="false">Second</button></div><button>After</button></main><script>
+    const html = `<!doctype html><html><head><link rel="icon" href="data:,"></head><body><main data-testid="state" data-pm-state="ready"><h1>Tabs</h1><button>Before</button><div role="tablist" aria-label="Views"><button id="first" role="tab" tabindex="0" ${mode === "missing-selection" ? "" : 'aria-selected="true"'}>First</button><button id="second" role="tab" tabindex="-1" aria-selected="false">Second</button></div><button>After</button></main><script>
    const tabs=[...document.querySelectorAll('[role=tab]')];
    function select(i){tabs.forEach((t,n)=>{t.tabIndex=n===i?0:-1;t.setAttribute('aria-selected',String(n===i))});history.replaceState(null,'','?tab='+i);tabs[i].focus()}
    document.querySelector('[role=tablist]').addEventListener('keydown',e=>{if(e.key.startsWith('Arrow')){e.preventDefault();select(1)}else if(e.key==='Enter'){e.preventDefault();${mode === "wrong-route" ? "history.replaceState(null,'','/other')" : "select(tabs.indexOf(document.activeElement))"}}});
