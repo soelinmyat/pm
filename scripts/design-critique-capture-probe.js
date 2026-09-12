@@ -1971,7 +1971,11 @@ async function entryHasDocumentKeyboardReach(
   budget,
   memberBackendNodeIds = new Set()
 ) {
-  if (entryProbe) {
+  if (
+    entryProbe &&
+    entryProbe.from_backend_node_id !== entryBackendNodeId &&
+    !memberBackendNodeIds.has(entryProbe.from_backend_node_id)
+  ) {
     await client.send("DOM.focus", { backendNodeId: entryProbe.from_backend_node_id });
     const focusedFrom = await focusedBackendNodeId(client, executionContextId);
     if (

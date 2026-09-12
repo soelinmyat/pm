@@ -123,3 +123,28 @@ test("fallback accepts leaving the group and native Tab returning to its active 
   };
   assert.equal(await entry(client, 1, 10, null, { remaining: 10 }, new Set([11, 12, 13])), true);
 });
+
+test("an explicit probe starting inside the group cannot prove document entry", async () => {
+  assert.equal(
+    await entry(
+      client(11),
+      1,
+      10,
+      { from_backend_node_id: 11, modifiers: 0 },
+      { remaining: 10 },
+      new Set([11, 12])
+    ),
+    false
+  );
+  assert.equal(
+    await entry(
+      client(12),
+      1,
+      10,
+      { from_backend_node_id: 11, modifiers: 0 },
+      { remaining: 10 },
+      new Set([11, 12])
+    ),
+    false
+  );
+});
