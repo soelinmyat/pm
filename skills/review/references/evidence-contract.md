@@ -161,3 +161,9 @@ Source, test, contract, and design-token locators are resolved from the target's
 For a non-passing round, write its report and HTML inside `runs/{RUN_ID}/round-{N}/` instead of the canonical root. Bind that stable report with `--prior-report` after the fix commit.
 
 During synthesis, use `--stage draft` with the current run's `round-{N}/draft-report.json` and `draft-report.html`. After decisions are complete, rerun with `--stage final` (or omit `--stage`) and finalize the appropriate canonical or round report exactly once.
+
+### Immutable upstream design evidence
+
+New target publication snapshots Design Critique JSON under the round's `upstream/design-critique.json` and binds those exact bytes. Snapshot publication refuses changed existing content. Current source freshness still requires the design commit to equal the target commit.
+
+For pre-snapshot targets, `review-upstream.js recover --root <root> --target <target.json> --archive <original.json>` verifies the original digest, commit and outcome, preserves the exact bytes, and writes an exclusive `upstream/design-critique-recovery.json`. Its schema-v1 record contains the original target path/digest, original design binding, archive path/digest and fixed snapshot path/digest. Historical lineage validation rechecks the target, archive and snapshot; normal current validation never applies this relocation. The original target and canonical design report are unchanged. Recovery authenticates preserved upstream bytes only: every other historical report, source and lineage check still applies.

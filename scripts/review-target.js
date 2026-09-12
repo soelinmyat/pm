@@ -253,6 +253,7 @@ function validateCanonicalReviewPass(root, reportPath, latest) {
       verifyFrozenGit: true,
       verifyBrowser: false,
       allowHistoricalGeneratorVersion: true,
+      allowHistoricalUpstreamRecovery: true,
     })
   );
   if (!checked.ok)
@@ -683,6 +684,11 @@ function main(argv = process.argv.slice(2)) {
       options.outPath,
       expectedReviewPath(reviewRoot, target.review_round, "target"),
       "target"
+    );
+    require("./review-upstream").snapshotDesign(
+      options.root || process.cwd(),
+      options.outPath,
+      target
     );
     try {
       const publication = projectFile.writeProjectJsonAtomic(

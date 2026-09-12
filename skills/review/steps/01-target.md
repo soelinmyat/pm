@@ -32,6 +32,19 @@ node "$PM_PLUGIN_ROOT/scripts/review-target.js" \
 Resolve the delivery remote before target creation. Use `origin` for ordinary Dev Review. When Ship selected another named remote, pass that exact name with `--remote`; the target and delivery checker must resolve the same authoritative remote HEAD.
 
 For Dev-routed work and Review invoked by Ship, `--dev-session` is mandatory and binds the stable run, slug, review mode, decision version, and acceptance-criteria digest. Ship bootstraps the canonical session before invoking Review when necessary. Omit it only for a genuinely advisory standalone Review that will not write a delivery-authoritative gate row. Add `--acceptance`, `--design-critique`, or `--prior-report` when those current artifacts exist. For rounds 2–3, keep the same run ID, increment `--round`, and bind the immediately prior immutable `round-{N-1}/report.json`. `review-target.js` rejects a different run ID while that Dev decision version has an unfinished lineage. A new run is allowed only after the latest lineage passes or explicit direction advances the Dev decision version.
+The target command copies supplied Design Critique bytes into immutable `round-{N}/upstream/design-critique.json` before publishing the target. Later canonical design reports can advance without changing that binding.
+
+For an older target that bound a mutable canonical design report, retain the original target and reports. If the exact original design JSON was archived, record its recovery with:
+
+```bash
+node "$PM_PLUGIN_ROOT/scripts/review-upstream.js" recover \
+  --root "$PWD" \
+  --target ".pm/dev-sessions/{slug}/review/runs/{OLD_RUN_ID}/round-{N}/target.json" \
+  --archive "{preserved-original-design-report.json}"
+```
+
+Recovery requires the original SHA-256, commit, and outcome. It preserves an immutable snapshot and a separate recovery record; it does not rewrite historical evidence. Only historical lineage validation consumes recovery, while current Review freshness stays strict. Keep the archive as evidence. Missing or changed original bytes cannot be recovered by substituting a current report or resetting the Dev decision version. Retry the normal target command after successful recovery.
+
 6. Read the generated allocation. Treat its physical workers, logical lenses, runtime snapshot, and applicability decisions as authoritative for this round.
 
 ## Done-when

@@ -1269,9 +1269,15 @@ test("review target CLI can start a fresh Dev run after a canonical pass", () =>
   const sessionPath = ".pm/dev-sessions/example/session.json";
   write(fixture.root, sessionPath, session);
   const firstPath = ".pm/dev-sessions/example/review/runs/dev-first/round-1/target.json";
+  const designPath = ".pm/dev-sessions/example/design-critique/report.json";
+  const archivedDesignPath = ".pm/dev-sessions/example/design-critique/historical/report.json";
+  write(fixture.root, designPath, { commit: fixture.target.source.commit, outcome: "passed" });
+  fs.mkdirSync(path.dirname(path.join(fixture.root, archivedDesignPath)), { recursive: true });
+  fs.copyFileSync(path.join(fixture.root, designPath), path.join(fixture.root, archivedDesignPath));
   const first = buildReviewTarget({
     root: fixture.root,
     outPath: firstPath,
+    designCritiquePath: designPath,
     runId: "dev-first",
     mode: "full",
     profile: "codex-workhorse",
@@ -1341,6 +1347,30 @@ test("review target CLI can start a fresh Dev run after a canonical pass", () =>
   assert.match(JSON.stringify(currentValidation.issues), /metadata must bind/);
   fs.writeFileSync(historicalHtmlPath, historicalHtml);
 
+  fs.writeFileSync(path.join(fixture.root, "src/example.js"), "module.exports = { value: 3 };\n");
+  git(fixture.root, ["add", "src/example.js"]);
+  git(fixture.root, ["commit", "-qm", "new implementation after passed review"]);
+  const nextCommit = git(fixture.root, ["rev-parse", "HEAD"]).trim();
+  write(fixture.root, designPath, { commit: nextCommit, outcome: "passed" });
+  const targetBytes = fs.readFileSync(path.join(fixture.root, firstPath));
+  require("../scripts/review-upstream").recoverDesign(fixture.root, firstPath, archivedDesignPath);
+  assert.deepEqual(fs.readFileSync(path.join(fixture.root, firstPath)), targetBytes);
+  const stale = checkReview(
+    expandFromReport({
+      root: fixture.root,
+      reportPath,
+      fromReport: true,
+      verifyGit: false,
+      verifyFrozenGit: true,
+      verifyBrowser: false,
+    })
+  );
+  assert.equal(
+    stale.ok,
+    false,
+    "ordinary validation must not silently recover historical upstream evidence"
+  );
+
   const targetScript = path.join(__dirname, "..", "scripts", "review-target.js");
   const nextPath = ".pm/dev-sessions/example/review/runs/dev-release/round-1/target.json";
   const next = spawnSync(
@@ -1363,12 +1393,20 @@ test("review target CLI can start a fresh Dev run after a canonical pass", () =>
       "2",
       "--dev-session",
       sessionPath,
+      "--design-critique",
+      designPath,
     ],
     { encoding: "utf8" }
   );
   assert.equal(next.status, 0, next.stderr);
   assert.equal(JSON.parse(next.stdout).run_id, "dev-release");
   assert.ok(fs.existsSync(path.join(fixture.root, nextPath)));
+  const nextTarget = JSON.parse(fs.readFileSync(path.join(fixture.root, nextPath)));
+  const snapshotPath = nextTarget.upstream.design_critique.path;
+  assert.match(snapshotPath, /round-1\/upstream\/design-critique.json$/);
+  const frozenDesign = fs.readFileSync(path.join(fixture.root, snapshotPath));
+  write(fixture.root, designPath, { commit: "c".repeat(40), outcome: "passed" });
+  assert.deepEqual(fs.readFileSync(path.join(fixture.root, snapshotPath)), frozenDesign);
 });
 
 test("Dev review lineage inventory fails closed on symlinked run and round ancestors", (t) => {
