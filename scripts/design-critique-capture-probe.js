@@ -1650,6 +1650,61 @@ function domObservations(
     }
   }
 
+  const byParent = new Map();
+  const glyphChildren = new Map();
+  for (const node of model) {
+    if (!glyphChildren.has(node.parentIndex)) glyphChildren.set(node.parentIndex, []);
+    glyphChildren.get(node.parentIndex).push(node);
+    if (!visibleIntersections.has(node)) continue;
+    if (!byParent.has(node.parentIndex)) byParent.set(node.parentIndex, []);
+    byParent.get(node.parentIndex).push(node);
+  }
+  const checkboxGlyphGeometry = (node) => {
+    if (node.nodeName !== "button" || node.attributes.role !== "checkbox") return null;
+    const bounds = node.layout?.bounds;
+    if (!Array.isArray(bounds) || bounds.length !== 4 || !bounds.every(Number.isFinite))
+      return null;
+    const [x, y, width, height] = bounds;
+    const geometry = [["button", 0, 0, width, height]];
+    const stack = [...(glyphChildren.get(node.index) || [])];
+    const seen = new Set([node.index]);
+    const graphicNodes = new Set([
+      "span",
+      "div",
+      "svg",
+      "g",
+      "path",
+      "circle",
+      "ellipse",
+      "rect",
+      "line",
+      "polyline",
+      "polygon",
+      "use",
+      "img",
+    ]);
+    while (stack.length) {
+      const child = stack.pop();
+      if (seen.has(child.index)) return null;
+      seen.add(child.index);
+      // Nonpainting wrappers still connect their visible text and glyph descendants.
+      stack.push(...(glyphChildren.get(child.index) || []));
+      if (!visibleIntersections.has(child)) continue;
+      // Text (including SVG text and generated content) keeps typography checks.
+      if (!graphicNodes.has(child.nodeName)) return null;
+      const childBounds = child.layout?.bounds;
+      if (
+        !Array.isArray(childBounds) ||
+        childBounds.length !== 4 ||
+        !childBounds.every(Number.isFinite)
+      )
+        return null;
+      const [left, top, childWidth, childHeight] = childBounds;
+      geometry.push([child.nodeName, left - x, top - y, childWidth, childHeight]);
+    }
+    return JSON.stringify(geometry);
+  };
+
   const signatures = [
     {
       name: "heading",
@@ -1713,26 +1768,43 @@ function domObservations(
     }
     for (const nodes of byIdentity.values()) {
       if (nodes.length < 2) continue;
-      for (const property of group.properties) {
+      const glyphGeometry = new Map(nodes.map((node) => [node, checkboxGlyphGeometry(node)]));
+      const glyphOnly =
+        group.name === "button" && [...glyphGeometry.values()].every((value) => value !== null);
+      const properties = glyphOnly
+        ? [
+            ...group.properties.filter(
+              (property) => !["font-size", "font-weight"].includes(property)
+            ),
+            "glyph-geometry",
+          ]
+        : group.properties;
+      const signatureValue = (node, property) =>
+        property === "glyph-geometry" ? glyphGeometry.get(node) : style(node, property);
+      for (const property of properties) {
         const counts = new Map();
         for (const node of nodes) {
-          const value = style(node, property);
+          const value = signatureValue(node, property);
           counts.set(value, (counts.get(value) || 0) + 1);
         }
         if (counts.size < 2) continue;
         const majority = [...counts.entries()].sort(
           (left, right) => right[1] - left[1] || left[0].localeCompare(right[0])
         )[0][0];
-        for (const node of nodes.filter((candidate) => style(candidate, property) !== majority)) {
+        for (const node of nodes.filter(
+          (candidate) => signatureValue(candidate, property) !== majority
+        )) {
           addIssue(
             consistency,
             issue(
               "visual-variance",
               node,
-              `${group.name === "heading" ? node.nodeName : group.name} ${property}: ${style(
-                node,
-                property
-              )} differs from ${majority}.`
+              property === "glyph-geometry"
+                ? "Checkbox glyph geometry differs from the repeated component baseline."
+                : `${group.name === "heading" ? node.nodeName : group.name} ${property}: ${signatureValue(
+                    node,
+                    property
+                  )} differs from ${majority}.`
             ),
             "consistency"
           );
@@ -1801,11 +1873,6 @@ function domObservations(
     }
   }
 
-  const byParent = new Map();
-  for (const node of visibleNodes) {
-    if (!byParent.has(node.parentIndex)) byParent.set(node.parentIndex, []);
-    byParent.get(node.parentIndex).push(node);
-  }
   const alignmentParent = (node) => {
     const classes = node.attributes.class || "";
     return (
