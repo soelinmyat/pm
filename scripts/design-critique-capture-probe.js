@@ -571,6 +571,7 @@ function compositeKeyboardCandidates(axTree, model) {
         owner_backend_node_id: owner.backendDOMNodeId,
         owner_role: String(valueOf(owner.role) || "").toLowerCase(),
         member_backend_node_ids: [],
+        selected_backend_node_ids: [],
         entry_backend_node_ids: [],
         entry_probes: {},
       });
@@ -578,6 +579,8 @@ function compositeKeyboardCandidates(axTree, model) {
     const group = groups.get(owner.nodeId);
     group.member_backend_node_ids.push(node.backendNodeId);
     const properties = axProperties(axNode);
+    if (role === "tab" && properties.get("selected") === true)
+      group.selected_backend_node_ids.push(node.backendNodeId);
     if (
       properties.get("focusable") === true &&
       documentTabStopIndex(node, properties) >= 0 &&
@@ -612,7 +615,23 @@ function compositeKeyboardCandidates(axTree, model) {
     )
       appendBoundedEvidence(candidates, group, MAX_CONTROLS, "composite keyboard candidates");
   }
-  return candidates;
+  // Probe inner panels before an outer widget can unmount their frozen nodes.
+  const byIndex = new Map(model.map((node) => [node.index, node]));
+  const depths = new Map();
+  const ownerDepth = (candidate) => {
+    let node = byBackendId.get(candidate.owner_backend_node_id);
+    const trail = [];
+    const seen = new Set();
+    while (node && !depths.has(node.index) && !seen.has(node.index)) {
+      seen.add(node.index);
+      trail.push(node.index);
+      node = byIndex.get(node.parentIndex);
+    }
+    let depth = node ? depths.get(node.index) || 0 : 0;
+    for (const index of trail.reverse()) depths.set(index, ++depth);
+    return depths.get(byBackendId.get(candidate.owner_backend_node_id)?.index) || 0;
+  };
+  return candidates.sort((left, right) => ownerDepth(right) - ownerDepth(left));
 }
 
 function accessibilityEvidence(axTree, model, compositeBackendNodeIds = new Set()) {
@@ -1398,7 +1417,49 @@ function declaredComponentVariantIdentity(node, groupName) {
     String(node.attributes["aria-disabled"] || "")
       .trim()
       .toLowerCase() === "true";
-  const nativeState = { input_type: inputType, disabled };
+  // ARIA selection is a visual state, not a styling discrepancy. Radix tabs
+  // share class tokens and apply active styles through data-state selectors.
+  // Use the semantic state rather than trusting arbitrary data-state values.
+  const role = String(node.attributes.role || "")
+    .trim()
+    .toLowerCase();
+  const selectedValue = String(node.attributes["aria-selected"] || "")
+    .trim()
+    .toLowerCase();
+  const selectionRoles = new Set([
+    "tab",
+    "option",
+    "treeitem",
+    "row",
+    "gridcell",
+    "columnheader",
+    "rowheader",
+  ]);
+  const selected =
+    selectionRoles.has(role) && ["true", "false"].includes(selectedValue)
+      ? selectedValue === "true"
+      : null;
+  const checkedValue = String(node.attributes["aria-checked"] || "")
+    .trim()
+    .toLowerCase();
+  const checkedRoles = new Set([
+    "checkbox",
+    "radio",
+    "switch",
+    "menuitemcheckbox",
+    "menuitemradio",
+  ]);
+  const checked =
+    checkedRoles.has(role) && ["true", "false", "mixed"].includes(checkedValue)
+      ? checkedValue
+      : null;
+  const pressedValue = String(node.attributes["aria-pressed"] || "")
+    .trim()
+    .toLowerCase();
+  const isButton = role === "button" || (!role && node.nodeName === "button");
+  const pressed =
+    isButton && ["true", "false", "mixed"].includes(pressedValue) ? pressedValue : null;
+  const nativeState = { input_type: inputType, disabled, selected, checked, pressed };
   const declaration = variant
     ? { group: groupName, element: node.nodeName, component, variant, ...nativeState }
     : {
@@ -1589,6 +1650,61 @@ function domObservations(
     }
   }
 
+  const byParent = new Map();
+  const glyphChildren = new Map();
+  for (const node of model) {
+    if (!glyphChildren.has(node.parentIndex)) glyphChildren.set(node.parentIndex, []);
+    glyphChildren.get(node.parentIndex).push(node);
+    if (!visibleIntersections.has(node)) continue;
+    if (!byParent.has(node.parentIndex)) byParent.set(node.parentIndex, []);
+    byParent.get(node.parentIndex).push(node);
+  }
+  const checkboxGlyphGeometry = (node) => {
+    if (node.nodeName !== "button" || node.attributes.role !== "checkbox") return null;
+    const bounds = node.layout?.bounds;
+    if (!Array.isArray(bounds) || bounds.length !== 4 || !bounds.every(Number.isFinite))
+      return null;
+    const [x, y, width, height] = bounds;
+    const geometry = [["button", 0, 0, width, height]];
+    const stack = [...(glyphChildren.get(node.index) || [])];
+    const seen = new Set([node.index]);
+    const graphicNodes = new Set([
+      "span",
+      "div",
+      "svg",
+      "g",
+      "path",
+      "circle",
+      "ellipse",
+      "rect",
+      "line",
+      "polyline",
+      "polygon",
+      "use",
+      "img",
+    ]);
+    while (stack.length) {
+      const child = stack.pop();
+      if (seen.has(child.index)) return null;
+      seen.add(child.index);
+      // Nonpainting wrappers still connect their visible text and glyph descendants.
+      stack.push(...(glyphChildren.get(child.index) || []));
+      if (!visibleIntersections.has(child)) continue;
+      // Text (including SVG text and generated content) keeps typography checks.
+      if (!graphicNodes.has(child.nodeName)) return null;
+      const childBounds = child.layout?.bounds;
+      if (
+        !Array.isArray(childBounds) ||
+        childBounds.length !== 4 ||
+        !childBounds.every(Number.isFinite)
+      )
+        return null;
+      const [left, top, childWidth, childHeight] = childBounds;
+      geometry.push([child.nodeName, left - x, top - y, childWidth, childHeight]);
+    }
+    return JSON.stringify(geometry);
+  };
+
   const signatures = [
     {
       name: "heading",
@@ -1645,33 +1761,50 @@ function domObservations(
     for (const node of visibleNodes.filter(group.match)) {
       const key =
         group.name === "heading"
-          ? node.nodeName
+          ? `${resolveRegion(byIndex.get(node.parentIndex))?.index ?? "document"}:${declaredComponentVariantIdentity(node, group.name)}`
           : declaredComponentVariantIdentity(node, group.name);
       if (!byIdentity.has(key)) byIdentity.set(key, []);
       byIdentity.get(key).push(node);
     }
-    for (const [key, nodes] of byIdentity) {
+    for (const nodes of byIdentity.values()) {
       if (nodes.length < 2) continue;
-      for (const property of group.properties) {
+      const glyphGeometry = new Map(nodes.map((node) => [node, checkboxGlyphGeometry(node)]));
+      const glyphOnly =
+        group.name === "button" && [...glyphGeometry.values()].every((value) => value !== null);
+      const properties = glyphOnly
+        ? [
+            ...group.properties.filter(
+              (property) => !["font-size", "font-weight"].includes(property)
+            ),
+            "glyph-geometry",
+          ]
+        : group.properties;
+      const signatureValue = (node, property) =>
+        property === "glyph-geometry" ? glyphGeometry.get(node) : style(node, property);
+      for (const property of properties) {
         const counts = new Map();
         for (const node of nodes) {
-          const value = style(node, property);
+          const value = signatureValue(node, property);
           counts.set(value, (counts.get(value) || 0) + 1);
         }
         if (counts.size < 2) continue;
         const majority = [...counts.entries()].sort(
           (left, right) => right[1] - left[1] || left[0].localeCompare(right[0])
         )[0][0];
-        for (const node of nodes.filter((candidate) => style(candidate, property) !== majority)) {
+        for (const node of nodes.filter(
+          (candidate) => signatureValue(candidate, property) !== majority
+        )) {
           addIssue(
             consistency,
             issue(
               "visual-variance",
               node,
-              `${group.name === "heading" ? key : group.name} ${property}: ${style(
-                node,
-                property
-              )} differs from ${majority}.`
+              property === "glyph-geometry"
+                ? "Checkbox glyph geometry differs from the repeated component baseline."
+                : `${group.name === "heading" ? node.nodeName : group.name} ${property}: ${signatureValue(
+                    node,
+                    property
+                  )} differs from ${majority}.`
             ),
             "consistency"
           );
@@ -1740,11 +1873,6 @@ function domObservations(
     }
   }
 
-  const byParent = new Map();
-  for (const node of visibleNodes) {
-    if (!byParent.has(node.parentIndex)) byParent.set(node.parentIndex, []);
-    byParent.get(node.parentIndex).push(node);
-  }
   const alignmentParent = (node) => {
     const classes = node.attributes.class || "";
     return (
@@ -1858,6 +1986,7 @@ function pageIdentity(frameTree, metrics, viewport) {
 
 const KEYBOARD_EVENT_BUDGET = 8192;
 const KEY_DEFINITIONS = Object.freeze({
+  Enter: Object.freeze({ code: "Enter", windowsVirtualKeyCode: 13 }),
   ArrowDown: Object.freeze({ code: "ArrowDown", windowsVirtualKeyCode: 40 }),
   ArrowLeft: Object.freeze({ code: "ArrowLeft", windowsVirtualKeyCode: 37 }),
   ArrowRight: Object.freeze({ code: "ArrowRight", windowsVirtualKeyCode: 39 }),
@@ -1942,9 +2071,16 @@ async function entryHasDocumentKeyboardReach(
   executionContextId,
   entryBackendNodeId,
   entryProbe,
-  budget
+  budget,
+  memberBackendNodeIds = new Set(),
+  ownerBackendNodeId = entryBackendNodeId
 ) {
-  if (entryProbe) {
+  const groupBackendNodeIds = new Set([...memberBackendNodeIds, ownerBackendNodeId]);
+  if (
+    entryProbe &&
+    entryProbe.from_backend_node_id !== entryBackendNodeId &&
+    !groupBackendNodeIds.has(entryProbe.from_backend_node_id)
+  ) {
     await client.send("DOM.focus", { backendNodeId: entryProbe.from_backend_node_id });
     const focusedFrom = await focusedBackendNodeId(client, executionContextId);
     if (
@@ -1953,20 +2089,24 @@ async function entryHasDocumentKeyboardReach(
     )
       return false;
     const focusedAfterTab = await focusedBackendNodeId(client, executionContextId);
-    return focusedAfterTab === entryBackendNodeId;
+    if (focusedAfterTab === entryBackendNodeId || groupBackendNodeIds.has(focusedAfterTab))
+      return true;
+    // Native controls can consume a Tab in their internal focus surface.
+    // Fall back to proving an actual exit from and return to the whole group.
   }
   for (const [leaveModifiers, returnModifiers] of [
     [0, 8],
     [8, 0],
   ]) {
     await client.send("DOM.focus", { backendNodeId: entryBackendNodeId });
-    if ((await focusedBackendNodeId(client, executionContextId)) !== entryBackendNodeId) continue;
+    const initialFocus = await focusedBackendNodeId(client, executionContextId);
+    if (initialFocus !== entryBackendNodeId && !groupBackendNodeIds.has(initialFocus)) continue;
     if (!(await dispatchKeyboardKey(client, "Tab", budget, leaveModifiers))) return false;
     const departed = await focusedBackendNodeId(client, executionContextId);
-    if (departed === entryBackendNodeId) continue;
+    if (departed === entryBackendNodeId || groupBackendNodeIds.has(departed)) continue;
     if (!(await dispatchKeyboardKey(client, "Tab", budget, returnModifiers))) return false;
-    if ((await focusedBackendNodeId(client, executionContextId)) === entryBackendNodeId)
-      return true;
+    const returnedFocus = await focusedBackendNodeId(client, executionContextId);
+    if (returnedFocus === entryBackendNodeId || groupBackendNodeIds.has(returnedFocus)) return true;
   }
   return false;
 }
@@ -1998,7 +2138,9 @@ async function probeCompositeKeyboardAccess(client, candidates) {
             executionContextId,
             entryBackendNodeId,
             candidate.entry_probes[entryBackendNodeId],
-            budget
+            budget,
+            members,
+            candidate.owner_backend_node_id
           );
         } catch {
           continue;
@@ -2011,8 +2153,18 @@ async function probeCompositeKeyboardAccess(client, candidates) {
             let previous = focusedCompositeMember(state, candidate, members);
             for (let step = 0; step < members.size; step += 1) {
               if (!(await dispatchKeyboardKey(client, key, budget))) return observedMembers;
-              state = await compositeFocusState(client, executionContextId, candidate);
-              const current = focusedCompositeMember(state, candidate, members);
+              // Roving focus libraries commonly defer arrow focus to a timer.
+              // Observe actual focus for a bounded window rather than treating
+              // the first protocol response as the completed interaction.
+              const deadline = Date.now() + 250;
+              let current;
+              do {
+                state = await compositeFocusState(client, executionContextId, candidate);
+                current = focusedCompositeMember(state, candidate, members);
+                if (current !== null && current !== previous) break;
+                if (Date.now() >= deadline) break;
+                await sleep(10);
+              } while (true);
               if (current === null || current === previous) break;
               observedMembers.add(current);
               previous = current;
@@ -2022,6 +2174,28 @@ async function probeCompositeKeyboardAccess(client, candidates) {
           }
           if ([...members].every((member) => observedMembers.has(member))) break;
         }
+      }
+      // Restore this frozen selection while its nodes still exist: probing an
+      // outer tab next may unmount this panel. Native handlers may each restore
+      // only their own query state, so the final exact URL check stays decisive.
+      const originalUrl = frameTree.frameTree?.frame?.url;
+      const currentTree = await client.send("Page.getFrameTree");
+      if (
+        typeof originalUrl === "string" &&
+        currentTree.frameTree?.frame?.url !== originalUrl &&
+        candidate.owner_role === "tablist" &&
+        candidate.selected_backend_node_ids?.length === 1
+      ) {
+        const selected = candidate.selected_backend_node_ids[0];
+        await client.send("DOM.focus", { backendNodeId: selected });
+        if ((await focusedBackendNodeId(client, executionContextId)) !== selected) continue;
+        if (!(await dispatchKeyboardKey(client, "Enter", budget))) break;
+        const deadline = Date.now() + 250;
+        do {
+          const restored = await client.send("Page.getFrameTree");
+          if (restored.frameTree?.frame?.url === originalUrl) break;
+          await sleep(10);
+        } while (Date.now() < deadline);
       }
     }
     return observedMembers;

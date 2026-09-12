@@ -2538,10 +2538,17 @@ for (const belowFold of [false, true]) {
       try {
         const result = runBrowserCapture(fixture);
         assert.equal(result.page.css_viewport.inner_width, 1024);
-        assert.equal(result.page.css_viewport.client_width, 1013);
+        // Chromium may report the full layout width when no vertical overflow exists.
+        // The screenshot must still retain all 1024 pixels in either gutter mode.
+        assert.ok(
+          (belowFold ? [1013] : [1013, 1024]).includes(result.page.css_viewport.client_width)
+        );
         assert.equal(result.page.css_viewport.inner_height, 600);
         assert.equal(result.dom_observations.viewport.inner_width, 1024);
-        assert.equal(result.dom_observations.viewport.client_width, 1013);
+        assert.equal(
+          result.dom_observations.viewport.client_width,
+          result.page.css_viewport.client_width
+        );
       } finally {
         fs.rmSync(fixture.root, { recursive: true, force: true });
       }
@@ -2780,3 +2787,144 @@ test("header wrappers retain their owning main typography hierarchy", () => {
     domObservations(model, metrics, styles).hierarchy.some((x) => x.code === "body-exceeds-heading")
   );
 });
+
+test("heading consistency separates navigation from content but catches drift within one region", () => {
+  const styles = ["display", "visibility", "opacity", "font-size", "font-weight"];
+  const node = (index, parentIndex, nodeName, size) => ({
+    index,
+    parentIndex,
+    backendNodeId: index + 1,
+    nodeName,
+    attributes: {},
+    layout: {
+      bounds: [0, index * 25, 100, 20],
+      styles: ["block", "visible", "1", `${size}px`, "600"],
+    },
+  });
+  const model = [
+    node(0, -1, "html", 16),
+    node(1, 0, "nav", 16),
+    node(2, 1, "h3", 11),
+    node(3, 0, "main", 16),
+    node(4, 3, "h3", 15),
+  ];
+  const metrics = {
+    cssLayoutViewport: { clientWidth: 400, clientHeight: 300 },
+    cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 400, clientHeight: 300 },
+    cssContentSize: { width: 400, height: 300 },
+  };
+  assert.deepEqual(domObservations(model, metrics, styles).consistency, []);
+  model[2].parentIndex = 3;
+  assert.ok(
+    domObservations(model, metrics, styles).consistency.some((x) => x.code === "visual-variance")
+  );
+  model[2].attributes.class = "section-title";
+  model[4].attributes.class = "page-title";
+  assert.deepEqual(domObservations(model, metrics, styles).consistency, []);
+});
+
+test("textless checkbox typography ignores inheritance while rendered text and glyph geometry remain checked", () => {
+  const styles = ["display", "visibility", "opacity", "font-size", "font-weight"];
+  const node = (index, parentIndex, nodeName, bounds, font, attributes = {}) => ({
+    index,
+    parentIndex,
+    backendNodeId: index + 1,
+    nodeName,
+    attributes,
+    layout: { bounds, styles: ["block", "visible", "1", `${font}px`, "400"] },
+  });
+  const model = [
+    node(0, -1, "main", [0, 0, 400, 300], 16),
+    node(1, 0, "button", [10, 10, 16, 16], 13, {
+      role: "checkbox",
+      "aria-checked": "false",
+      class: "checkbox",
+    }),
+    node(2, 0, "button", [40, 10, 16, 16], 15, {
+      role: "checkbox",
+      "aria-checked": "false",
+      class: "checkbox",
+    }),
+  ];
+  const metrics = {
+    cssLayoutViewport: { clientWidth: 400, clientHeight: 300 },
+    cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 400, clientHeight: 300 },
+    cssContentSize: { width: 400, height: 300 },
+  };
+  const inspect = () => domObservations(model, metrics, styles).consistency;
+  assert.deepEqual(inspect(), [], "empty fixed-size checkboxes do not render their inherited font");
+  model.push(node(3, 1, "svg", [10, 10, 16, 16], 13), node(4, 2, "svg", [40, 10, 16, 16], 15));
+  assert.deepEqual(inspect(), [], "equal fixed SVG glyphs do not render inherited font");
+  model[4].layout.bounds[2] = 18;
+  assert.ok(
+    inspect().some((x) => /geometry/.test(x.detail)),
+    "different glyph width remains observable"
+  );
+  model[4].layout.bounds[2] = 16;
+  model[2].layout.bounds[2] = 18;
+  assert.ok(
+    inspect().some((x) => /geometry/.test(x.detail)),
+    "different root width remains observable"
+  );
+  model[2].layout.bounds[2] = 16;
+  model.push(node(5, 1, "#text", [10, 10, 8, 13], 13), node(6, 2, "#text", [40, 10, 8, 15], 15));
+  assert.ok(
+    inspect().some((x) => /font-size/.test(x.detail)),
+    "checkbox text retains typography comparison"
+  );
+  model[1].attributes.role = "button";
+  model[2].attributes.role = "button";
+  assert.ok(
+    inspect().some((x) => /font-size/.test(x.detail)),
+    "ordinary text buttons retain typography comparison"
+  );
+});
+
+for (const missingLayout of [false, true]) {
+  test(`checkbox descendants remain observable through nonpainting wrappers: ${missingLayout}`, () => {
+    const styles = ["display", "visibility", "opacity", "font-size", "font-weight"];
+    const node = (index, parentIndex, nodeName, bounds, font, attributes = {}) => ({
+      index,
+      parentIndex,
+      backendNodeId: index + 1,
+      nodeName,
+      attributes,
+      layout: { bounds, styles: ["block", "visible", "1", `${font}px`, "400"] },
+    });
+    const model = [
+      node(0, -1, "main", [0, 0, 400, 300], 16),
+      node(1, 0, "button", [10, 10, 30, 30], 13, { role: "checkbox", class: "checkbox" }),
+      node(2, 0, "button", [60, 10, 30, 30], 18, { role: "checkbox", class: "checkbox" }),
+      node(3, 1, "span", [0, 0, 0, 0], 13),
+      node(4, 2, "span", [0, 0, 0, 0], 18),
+      node(5, 3, "#text", [10, 10, 15, 13], 13),
+      node(6, 4, "#text", [60, 10, 20, 18], 18),
+    ];
+    for (const wrapper of [model[3], model[4]]) {
+      if (missingLayout) wrapper.layout = null;
+      else wrapper.layout.styles[0] = "contents";
+    }
+    const metrics = {
+      cssLayoutViewport: { clientWidth: 400, clientHeight: 300 },
+      cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 400, clientHeight: 300 },
+      cssContentSize: { width: 400, height: 300 },
+    };
+    const inspect = () => domObservations(model, metrics, styles).consistency;
+    assert.ok(
+      inspect().some((x) => /font-size/.test(x.detail)),
+      "rendered nested text must retain typography checks"
+    );
+    model[5].nodeName = model[6].nodeName = "svg";
+    assert.ok(
+      inspect().some((x) => /geometry/.test(x.detail)),
+      "rendered nested glyph geometry must remain checked"
+    );
+    model[5].layout.bounds = [10, 10, 16, 16];
+    model[6].layout.bounds = [60, 10, 16, 16];
+    assert.deepEqual(
+      inspect(),
+      [],
+      "matching nested glyphs safely ignore unused inherited typography"
+    );
+  });
+}
