@@ -2108,25 +2108,21 @@ async function probeCompositeKeyboardAccess(client, candidates) {
           if ([...members].every((member) => observedMembers.has(member))) break;
         }
       }
-    }
-    // URL-backed tabs may update history during real arrow navigation. Restore
-    // only the uniquely selected tab observed in the frozen AX tree, using the
-    // widget's own focus/Enter handlers. Never rewrite history or relax the
-    // final URL/network checks; absent or broken restoration still fails.
-    const originalUrl = frameTree.frameTree?.frame?.url;
-    const currentTree = await client.send("Page.getFrameTree");
-    if (typeof originalUrl === "string" && currentTree.frameTree?.frame?.url !== originalUrl) {
-      for (const candidate of [...candidates].reverse()) {
-        // Restoring an outer tab may detach the inner frozen selection.
-        const restoredTree = await client.send("Page.getFrameTree");
-        if (restoredTree.frameTree?.frame?.url === originalUrl) break;
-        if (candidate.owner_role !== "tablist" || candidate.selected_backend_node_ids?.length !== 1)
-          continue;
+      // Restore this frozen selection while its nodes still exist: probing an
+      // outer tab next may unmount this panel. Native handlers may each restore
+      // only their own query state, so the final exact URL check stays decisive.
+      const originalUrl = frameTree.frameTree?.frame?.url;
+      const currentTree = await client.send("Page.getFrameTree");
+      if (
+        typeof originalUrl === "string" &&
+        currentTree.frameTree?.frame?.url !== originalUrl &&
+        candidate.owner_role === "tablist" &&
+        candidate.selected_backend_node_ids?.length === 1
+      ) {
         const selected = candidate.selected_backend_node_ids[0];
         await client.send("DOM.focus", { backendNodeId: selected });
         if ((await focusedBackendNodeId(client, executionContextId)) !== selected) continue;
         if (!(await dispatchKeyboardKey(client, "Enter", budget))) break;
-        // Allow the application's asynchronous activation handler to settle.
         const deadline = Date.now() + 250;
         do {
           const restored = await client.send("Page.getFrameTree");

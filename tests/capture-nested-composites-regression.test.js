@@ -46,10 +46,13 @@ function candidates() {
   };
   return m.exports.candidates(ax, model);
 }
-function client(restoreWorks = true) {
+function client(restoreWorks = true, nestedQuery = false) {
   let focus = 1,
     innerDetached = false,
-    url = "http://localhost/?tab=original";
+    innerStatus = "original",
+    url = `http://localhost/?tab=original${nestedQuery ? "&inner=original" : ""}`;
+  const route = (tab) =>
+    `http://localhost/?tab=${tab}${nestedQuery ? `&inner=${innerStatus}` : ""}`;
   return {
     get url() {
       return url;
@@ -66,14 +69,21 @@ function client(restoreWorks = true) {
       if (method === "Input.dispatchKeyEvent" && args.type === "rawKeyDown") {
         if (args.key === "Tab") focus = args.modifiers === 8 ? 11 : 31;
         else if (args.key.startsWith("Arrow")) {
-          if ([31, 32].includes(focus)) focus = focus === 31 ? 32 : 31;
-          else {
+          if ([31, 32].includes(focus)) {
+            focus = focus === 31 ? 32 : 31;
+            if (nestedQuery) {
+              innerStatus = "other";
+              url = route("original");
+            }
+          } else {
             focus = focus === 11 ? 12 : 11;
             innerDetached = true;
-            url = "http://localhost/?tab=other";
+            url = route("other");
           }
-        } else if (args.key === "Enter" && focus === 11 && restoreWorks)
-          url = "http://localhost/?tab=original";
+        } else if (args.key === "Enter" && restoreWorks) {
+          if (focus === 31) innerStatus = "original";
+          if ([11, 31].includes(focus)) url = route("original");
+        }
         return {};
       }
       if (method === "Runtime.evaluate" && args.expression === "document.activeElement")
@@ -95,6 +105,16 @@ test("nested frozen composites are probed before outer navigation detaches them"
 });
 test("broken outer restoration cannot claim the original URL after nested probing", async () => {
   const browser = client(false);
-  await assert.rejects(m.exports.probe(browser, candidates()), /frozen inner node detached/);
+  await m.exports.probe(browser, candidates());
   assert.equal(browser.url, "http://localhost/?tab=other");
+});
+
+test("each nested selection restores its own URL before outer navigation remounts it", async () => {
+  const browser = client(true, true);
+  const observed = await m.exports.probe(browser, candidates());
+  assert.deepEqual(
+    [...observed].sort((a, b) => a - b),
+    [11, 12, 31, 32]
+  );
+  assert.equal(browser.url, "http://localhost/?tab=original&inner=original");
 });
