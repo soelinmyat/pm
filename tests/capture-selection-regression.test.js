@@ -88,3 +88,27 @@ test("aria-selected on ordinary action buttons cannot hide drift", () =>
       .length,
     2
   ));
+
+test("checked radio state is intentional but same-state drift remains flagged", () => {
+  assert.deepEqual(
+    inspect([
+      tab(0, false, true, { role: "radio", "aria-checked": "true" }),
+      tab(1, false, false, { role: "radio", "aria-checked": "false" }),
+    ]),
+    []
+  );
+  assert.equal(
+    inspect([
+      tab(0, false, true, { role: "radio", "aria-checked": "true" }),
+      tab(1, false, false, { role: "radio", "aria-checked": "true" }),
+    ]).length,
+    2
+  );
+  assert.equal(
+    inspect([
+      tab(0, false, true, { role: "button", "aria-checked": "true" }),
+      tab(1, false, false, { role: "button", "aria-checked": "false" }),
+    ]).length,
+    2
+  );
+});

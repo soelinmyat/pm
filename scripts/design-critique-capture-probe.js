@@ -1423,7 +1423,21 @@ function declaredComponentVariantIdentity(node, groupName) {
     selectionRoles.has(role) && ["true", "false"].includes(selectedValue)
       ? selectedValue === "true"
       : null;
-  const nativeState = { input_type: inputType, disabled, selected };
+  const checkedValue = String(node.attributes["aria-checked"] || "")
+    .trim()
+    .toLowerCase();
+  const checkedRoles = new Set([
+    "checkbox",
+    "radio",
+    "switch",
+    "menuitemcheckbox",
+    "menuitemradio",
+  ]);
+  const checked =
+    checkedRoles.has(role) && ["true", "false", "mixed"].includes(checkedValue)
+      ? checkedValue
+      : null;
+  const nativeState = { input_type: inputType, disabled, selected, checked };
   const declaration = variant
     ? { group: groupName, element: node.nodeName, component, variant, ...nativeState }
     : {
@@ -1670,12 +1684,12 @@ function domObservations(
     for (const node of visibleNodes.filter(group.match)) {
       const key =
         group.name === "heading"
-          ? `${resolveRegion(byIndex.get(node.parentIndex))?.index ?? "document"}:${node.nodeName}`
+          ? `${resolveRegion(byIndex.get(node.parentIndex))?.index ?? "document"}:${declaredComponentVariantIdentity(node, group.name)}`
           : declaredComponentVariantIdentity(node, group.name);
       if (!byIdentity.has(key)) byIdentity.set(key, []);
       byIdentity.get(key).push(node);
     }
-    for (const [key, nodes] of byIdentity) {
+    for (const nodes of byIdentity.values()) {
       if (nodes.length < 2) continue;
       for (const property of group.properties) {
         const counts = new Map();
@@ -1693,7 +1707,7 @@ function domObservations(
             issue(
               "visual-variance",
               node,
-              `${group.name === "heading" ? key : group.name} ${property}: ${style(
+              `${group.name === "heading" ? node.nodeName : group.name} ${property}: ${style(
                 node,
                 property
               )} differs from ${majority}.`
@@ -1969,12 +1983,14 @@ async function entryHasDocumentKeyboardReach(
   entryBackendNodeId,
   entryProbe,
   budget,
-  memberBackendNodeIds = new Set()
+  memberBackendNodeIds = new Set(),
+  ownerBackendNodeId = entryBackendNodeId
 ) {
+  const groupBackendNodeIds = new Set([...memberBackendNodeIds, ownerBackendNodeId]);
   if (
     entryProbe &&
     entryProbe.from_backend_node_id !== entryBackendNodeId &&
-    !memberBackendNodeIds.has(entryProbe.from_backend_node_id)
+    !groupBackendNodeIds.has(entryProbe.from_backend_node_id)
   ) {
     await client.send("DOM.focus", { backendNodeId: entryProbe.from_backend_node_id });
     const focusedFrom = await focusedBackendNodeId(client, executionContextId);
@@ -1984,7 +2000,7 @@ async function entryHasDocumentKeyboardReach(
     )
       return false;
     const focusedAfterTab = await focusedBackendNodeId(client, executionContextId);
-    return focusedAfterTab === entryBackendNodeId || memberBackendNodeIds.has(focusedAfterTab);
+    return focusedAfterTab === entryBackendNodeId || groupBackendNodeIds.has(focusedAfterTab);
   }
   for (const [leaveModifiers, returnModifiers] of [
     [0, 8],
@@ -1992,14 +2008,13 @@ async function entryHasDocumentKeyboardReach(
   ]) {
     await client.send("DOM.focus", { backendNodeId: entryBackendNodeId });
     const initialFocus = await focusedBackendNodeId(client, executionContextId);
-    if (initialFocus !== entryBackendNodeId && !memberBackendNodeIds.has(initialFocus)) continue;
+    if (initialFocus !== entryBackendNodeId && !groupBackendNodeIds.has(initialFocus)) continue;
     if (!(await dispatchKeyboardKey(client, "Tab", budget, leaveModifiers))) return false;
     const departed = await focusedBackendNodeId(client, executionContextId);
-    if (departed === entryBackendNodeId || memberBackendNodeIds.has(departed)) continue;
+    if (departed === entryBackendNodeId || groupBackendNodeIds.has(departed)) continue;
     if (!(await dispatchKeyboardKey(client, "Tab", budget, returnModifiers))) return false;
     const returnedFocus = await focusedBackendNodeId(client, executionContextId);
-    if (returnedFocus === entryBackendNodeId || memberBackendNodeIds.has(returnedFocus))
-      return true;
+    if (returnedFocus === entryBackendNodeId || groupBackendNodeIds.has(returnedFocus)) return true;
   }
   return false;
 }
@@ -2032,7 +2047,8 @@ async function probeCompositeKeyboardAccess(client, candidates) {
             entryBackendNodeId,
             candidate.entry_probes[entryBackendNodeId],
             budget,
-            members
+            members,
+            candidate.owner_backend_node_id
           );
         } catch {
           continue;

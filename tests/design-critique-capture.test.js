@@ -2818,4 +2818,7 @@ test("heading consistency separates navigation from content but catches drift wi
   assert.ok(
     domObservations(model, metrics, styles).consistency.some((x) => x.code === "visual-variance")
   );
+  model[2].attributes.class = "section-title";
+  model[4].attributes.class = "page-title";
+  assert.deepEqual(domObservations(model, metrics, styles).consistency, []);
 });

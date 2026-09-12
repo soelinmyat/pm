@@ -148,3 +148,18 @@ test("an explicit probe starting inside the group cannot prove document entry", 
     false
   );
 });
+
+test("the group owner is internal when proving a child entry", async () => {
+  assert.equal(
+    await entry(
+      client(11),
+      1,
+      11,
+      { from_backend_node_id: 10, modifiers: 0 },
+      { remaining: 10 },
+      new Set([11, 12]),
+      10
+    ),
+    false
+  );
+});
