@@ -173,6 +173,8 @@ matching source/environment/dependency evidence and preserve required final
 checks. Structural proposal scores are explicitly labeled; semantic judgment
 still requires evidence-based review.
 
+Review targets retain immutable copies of their upstream design report. If an older target references a canonical report that has since advanced, PM can recover an archived original only when its hash, commit and outcome match exactly, preserving the historical target and recording the recovery separately.
+
 The [quality evaluation suite](evals/README.md) covers daily Research, Think,
 Strategy, and Ideate work as well as delivery workflows. It reports observed
 efficiency data and leaves unavailable measurements unknown. No general Astra

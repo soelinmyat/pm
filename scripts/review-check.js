@@ -430,12 +430,25 @@ function validateTargetBindings(root, target, reviewRoot, options, issues) {
     }
   }
   if (target.upstream?.design_critique) {
-    const value = validateExactJsonBinding(
-      root,
-      target.upstream.design_critique,
-      "target.upstream.design_critique",
-      issues
-    );
+    let value;
+    if (
+      options.allowHistoricalUpstreamRecovery === true &&
+      options.verifyGit === false &&
+      options.verifyFrozenGit === true
+    ) {
+      try {
+        value = require("./review-upstream").recoveredDesign(root, options.targetPath, target);
+      } catch (error) {
+        add(issues, "target.upstream.design_critique", error.message);
+      }
+    }
+    if (!value)
+      value = validateExactJsonBinding(
+        root,
+        target.upstream.design_critique,
+        "target.upstream.design_critique",
+        issues
+      );
     if (
       value &&
       (value.commit !== target.upstream.design_critique.commit ||
@@ -500,6 +513,7 @@ function validateTargetBindings(root, target, reviewRoot, options, issues) {
             verifyGit: false,
             verifyFrozenGit: true,
             verifyBrowser: false,
+            allowHistoricalUpstreamRecovery: true,
           })
         );
         if (!prior.ok)
