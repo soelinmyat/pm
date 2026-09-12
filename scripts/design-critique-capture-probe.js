@@ -571,6 +571,7 @@ function compositeKeyboardCandidates(axTree, model) {
         owner_backend_node_id: owner.backendDOMNodeId,
         owner_role: String(valueOf(owner.role) || "").toLowerCase(),
         member_backend_node_ids: [],
+        selected_backend_node_ids: [],
         entry_backend_node_ids: [],
         entry_probes: {},
       });
@@ -578,6 +579,8 @@ function compositeKeyboardCandidates(axTree, model) {
     const group = groups.get(owner.nodeId);
     group.member_backend_node_ids.push(node.backendNodeId);
     const properties = axProperties(axNode);
+    if (role === "tab" && properties.get("selected") === true)
+      group.selected_backend_node_ids.push(node.backendNodeId);
     if (
       properties.get("focusable") === true &&
       documentTabStopIndex(node, properties) >= 0 &&
@@ -1398,7 +1401,29 @@ function declaredComponentVariantIdentity(node, groupName) {
     String(node.attributes["aria-disabled"] || "")
       .trim()
       .toLowerCase() === "true";
-  const nativeState = { input_type: inputType, disabled };
+  // ARIA selection is a visual state, not a styling discrepancy. Radix tabs
+  // share class tokens and apply active styles through data-state selectors.
+  // Use the semantic state rather than trusting arbitrary data-state values.
+  const role = String(node.attributes.role || "")
+    .trim()
+    .toLowerCase();
+  const selectedValue = String(node.attributes["aria-selected"] || "")
+    .trim()
+    .toLowerCase();
+  const selectionRoles = new Set([
+    "tab",
+    "option",
+    "treeitem",
+    "row",
+    "gridcell",
+    "columnheader",
+    "rowheader",
+  ]);
+  const selected =
+    selectionRoles.has(role) && ["true", "false"].includes(selectedValue)
+      ? selectedValue === "true"
+      : null;
+  const nativeState = { input_type: inputType, disabled, selected };
   const declaration = variant
     ? { group: groupName, element: node.nodeName, component, variant, ...nativeState }
     : {
@@ -1645,7 +1670,7 @@ function domObservations(
     for (const node of visibleNodes.filter(group.match)) {
       const key =
         group.name === "heading"
-          ? node.nodeName
+          ? `${resolveRegion(byIndex.get(node.parentIndex))?.index ?? "document"}:${node.nodeName}`
           : declaredComponentVariantIdentity(node, group.name);
       if (!byIdentity.has(key)) byIdentity.set(key, []);
       byIdentity.get(key).push(node);
@@ -1858,6 +1883,7 @@ function pageIdentity(frameTree, metrics, viewport) {
 
 const KEYBOARD_EVENT_BUDGET = 8192;
 const KEY_DEFINITIONS = Object.freeze({
+  Enter: Object.freeze({ code: "Enter", windowsVirtualKeyCode: 13 }),
   ArrowDown: Object.freeze({ code: "ArrowDown", windowsVirtualKeyCode: 40 }),
   ArrowLeft: Object.freeze({ code: "ArrowLeft", windowsVirtualKeyCode: 37 }),
   ArrowRight: Object.freeze({ code: "ArrowRight", windowsVirtualKeyCode: 39 }),
@@ -1942,7 +1968,8 @@ async function entryHasDocumentKeyboardReach(
   executionContextId,
   entryBackendNodeId,
   entryProbe,
-  budget
+  budget,
+  memberBackendNodeIds = new Set()
 ) {
   if (entryProbe) {
     await client.send("DOM.focus", { backendNodeId: entryProbe.from_backend_node_id });
@@ -1953,19 +1980,21 @@ async function entryHasDocumentKeyboardReach(
     )
       return false;
     const focusedAfterTab = await focusedBackendNodeId(client, executionContextId);
-    return focusedAfterTab === entryBackendNodeId;
+    return focusedAfterTab === entryBackendNodeId || memberBackendNodeIds.has(focusedAfterTab);
   }
   for (const [leaveModifiers, returnModifiers] of [
     [0, 8],
     [8, 0],
   ]) {
     await client.send("DOM.focus", { backendNodeId: entryBackendNodeId });
-    if ((await focusedBackendNodeId(client, executionContextId)) !== entryBackendNodeId) continue;
+    const initialFocus = await focusedBackendNodeId(client, executionContextId);
+    if (initialFocus !== entryBackendNodeId && !memberBackendNodeIds.has(initialFocus)) continue;
     if (!(await dispatchKeyboardKey(client, "Tab", budget, leaveModifiers))) return false;
     const departed = await focusedBackendNodeId(client, executionContextId);
-    if (departed === entryBackendNodeId) continue;
+    if (departed === entryBackendNodeId || memberBackendNodeIds.has(departed)) continue;
     if (!(await dispatchKeyboardKey(client, "Tab", budget, returnModifiers))) return false;
-    if ((await focusedBackendNodeId(client, executionContextId)) === entryBackendNodeId)
+    const returnedFocus = await focusedBackendNodeId(client, executionContextId);
+    if (returnedFocus === entryBackendNodeId || memberBackendNodeIds.has(returnedFocus))
       return true;
   }
   return false;
@@ -1998,7 +2027,8 @@ async function probeCompositeKeyboardAccess(client, candidates) {
             executionContextId,
             entryBackendNodeId,
             candidate.entry_probes[entryBackendNodeId],
-            budget
+            budget,
+            members
           );
         } catch {
           continue;
@@ -2011,8 +2041,18 @@ async function probeCompositeKeyboardAccess(client, candidates) {
             let previous = focusedCompositeMember(state, candidate, members);
             for (let step = 0; step < members.size; step += 1) {
               if (!(await dispatchKeyboardKey(client, key, budget))) return observedMembers;
-              state = await compositeFocusState(client, executionContextId, candidate);
-              const current = focusedCompositeMember(state, candidate, members);
+              // Roving focus libraries commonly defer arrow focus to a timer.
+              // Observe actual focus for a bounded window rather than treating
+              // the first protocol response as the completed interaction.
+              const deadline = Date.now() + 250;
+              let current;
+              do {
+                state = await compositeFocusState(client, executionContextId, candidate);
+                current = focusedCompositeMember(state, candidate, members);
+                if (current !== null && current !== previous) break;
+                if (Date.now() >= deadline) break;
+                await sleep(10);
+              } while (true);
               if (current === null || current === previous) break;
               observedMembers.add(current);
               previous = current;
@@ -2022,6 +2062,29 @@ async function probeCompositeKeyboardAccess(client, candidates) {
           }
           if ([...members].every((member) => observedMembers.has(member))) break;
         }
+      }
+    }
+    // URL-backed tabs may update history during real arrow navigation. Restore
+    // only the uniquely selected tab observed in the frozen AX tree, using the
+    // widget's own focus/Enter handlers. Never rewrite history or relax the
+    // final URL/network checks; absent or broken restoration still fails.
+    const originalUrl = frameTree.frameTree?.frame?.url;
+    const currentTree = await client.send("Page.getFrameTree");
+    if (typeof originalUrl === "string" && currentTree.frameTree?.frame?.url !== originalUrl) {
+      for (const candidate of [...candidates].reverse()) {
+        if (candidate.owner_role !== "tablist" || candidate.selected_backend_node_ids?.length !== 1)
+          continue;
+        const selected = candidate.selected_backend_node_ids[0];
+        await client.send("DOM.focus", { backendNodeId: selected });
+        if ((await focusedBackendNodeId(client, executionContextId)) !== selected) continue;
+        if (!(await dispatchKeyboardKey(client, "Enter", budget))) break;
+        // Allow the application's asynchronous activation handler to settle.
+        const deadline = Date.now() + 250;
+        do {
+          const restored = await client.send("Page.getFrameTree");
+          if (restored.frameTree?.frame?.url === originalUrl) break;
+          await sleep(10);
+        } while (Date.now() < deadline);
       }
     }
     return observedMembers;

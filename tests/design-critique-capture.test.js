@@ -2538,10 +2538,17 @@ for (const belowFold of [false, true]) {
       try {
         const result = runBrowserCapture(fixture);
         assert.equal(result.page.css_viewport.inner_width, 1024);
-        assert.equal(result.page.css_viewport.client_width, 1013);
+        // Chromium may report the full layout width when no vertical overflow exists.
+        // The screenshot must still retain all 1024 pixels in either gutter mode.
+        assert.ok(
+          (belowFold ? [1013] : [1013, 1024]).includes(result.page.css_viewport.client_width)
+        );
         assert.equal(result.page.css_viewport.inner_height, 600);
         assert.equal(result.dom_observations.viewport.inner_width, 1024);
-        assert.equal(result.dom_observations.viewport.client_width, 1013);
+        assert.equal(
+          result.dom_observations.viewport.client_width,
+          result.page.css_viewport.client_width
+        );
       } finally {
         fs.rmSync(fixture.root, { recursive: true, force: true });
       }
@@ -2778,5 +2785,37 @@ test("header wrappers retain their owning main typography hierarchy", () => {
   };
   assert.ok(
     domObservations(model, metrics, styles).hierarchy.some((x) => x.code === "body-exceeds-heading")
+  );
+});
+
+test("heading consistency separates navigation from content but catches drift within one region", () => {
+  const styles = ["display", "visibility", "opacity", "font-size", "font-weight"];
+  const node = (index, parentIndex, nodeName, size) => ({
+    index,
+    parentIndex,
+    backendNodeId: index + 1,
+    nodeName,
+    attributes: {},
+    layout: {
+      bounds: [0, index * 25, 100, 20],
+      styles: ["block", "visible", "1", `${size}px`, "600"],
+    },
+  });
+  const model = [
+    node(0, -1, "html", 16),
+    node(1, 0, "nav", 16),
+    node(2, 1, "h3", 11),
+    node(3, 0, "main", 16),
+    node(4, 3, "h3", 15),
+  ];
+  const metrics = {
+    cssLayoutViewport: { clientWidth: 400, clientHeight: 300 },
+    cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 400, clientHeight: 300 },
+    cssContentSize: { width: 400, height: 300 },
+  };
+  assert.deepEqual(domObservations(model, metrics, styles).consistency, []);
+  model[2].parentIndex = 3;
+  assert.ok(
+    domObservations(model, metrics, styles).consistency.some((x) => x.code === "visual-variance")
   );
 });

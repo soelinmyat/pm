@@ -316,3 +316,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for how to add platform support, create c
 ## License
 
 MIT. Copyright (c) 2026 Soe Lin Myat. See [LICENSE](./LICENSE).
+
+Design capture follows real keyboard focus, including asynchronous roving tab controls. It restores URL-backed tabs through their native handlers and requires the original URL afterward. Typography consistency is compared within semantic page regions.
