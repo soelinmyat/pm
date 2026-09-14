@@ -177,6 +177,61 @@ test(
   }
 );
 
+test("documented synthesis routes structured drafts before publication and retains HTML fallback", () => {
+  const synthesis = fs.readFileSync(
+    path.join(__dirname, "../skills/review/steps/03-synthesize.md"),
+    "utf8"
+  );
+  assert.match(synthesis, /initially omitting `--human-report`/);
+  assert.match(synthesis, /skip draft HTML rendering/);
+  assert.match(synthesis, /HTML presentation required/);
+  for (const needsHtml of [false, true]) {
+    const fixture = makeFixture({ maxWorkers: 3 });
+    if (needsHtml)
+      setFindingForLens(fixture, "bug", { ...validFinding("bug"), severity: "medium" });
+    const round = path.dirname(fixture.targetPath);
+    for (const stage of ["draft", "final"]) {
+      const reportPath = stage === "draft" ? `${round}/draft-report.json` : fixture.reportPath;
+      const htmlPath = stage === "draft" ? `${round}/draft-report.html` : fixture.htmlPath;
+      const options = {
+        root: fixture.root,
+        targetPath: fixture.targetPath,
+        resultPaths: fixture.resultPaths,
+        reportPath,
+        reportStage: stage,
+        writeReport: true,
+      };
+      let result = checkReview(options);
+      if (needsHtml) {
+        assert.equal(result.ok, false);
+        assert.ok(result.issues.every((issue) => issue.path === "report.presentation"));
+        assert.match(JSON.stringify(result.issues), /HTML presentation required/);
+        assert.equal(fs.existsSync(path.join(fixture.root, reportPath)), false);
+        options.humanReportPath = htmlPath;
+        result = checkReview(options);
+        assert.equal(result.ok, true, JSON.stringify(result.issues));
+        renderReviewReport({ root: fixture.root, reportPath, outputPath: htmlPath });
+        // Browser behavior is covered by the existing rendered-evidence tests;
+        // this sequence verifies routing, bindings and structural validation.
+      } else {
+        assert.equal(result.ok, true, JSON.stringify(result.issues));
+        assert.equal(result.report.human_report, null);
+        assert.equal(fs.existsSync(path.join(fixture.root, htmlPath)), false);
+      }
+      const checked = checkReview(
+        expandFromReport({
+          root: fixture.root,
+          reportPath,
+          fromReport: true,
+          reportStage: stage,
+          verifyBrowser: false,
+        })
+      );
+      assert.equal(checked.ok, true, JSON.stringify(checked.issues));
+    }
+  }
+});
+
 test("routine clean source review publishes structured evidence without a browser", () => {
   const fixture = makeFixture({ maxWorkers: 3 });
   const options = {
