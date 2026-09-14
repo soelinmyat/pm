@@ -1,5 +1,5 @@
 ---
-description: "Model-adaptive development lifecycle — routes by observed risk, resumes from durable phase state, and verifies delivery evidence."
+description: "Implement or fix code, or resume an active development session. Use Ship for delivery of already committed changes."
 argument-hint: "[ticket-id or description]"
 ---
 

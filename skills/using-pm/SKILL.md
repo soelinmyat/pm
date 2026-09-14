@@ -1,6 +1,6 @@
 ---
 name: using-pm
-description: "Use when a session opens with a general PM request, the user asks which PM skill or workflow applies, or the runtime must route a concrete request into the correct plugin skill before acting. Do not use for subagents or to add ceremony to direct questions."
+description: "Route general PM requests to the appropriate workflow. Keep direct questions and narrowly scoped instructions direct."
 ---
 
 <SUBAGENT-STOP>

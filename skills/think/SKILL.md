@@ -1,6 +1,6 @@
 ---
 name: think
-description: "Use when exploring a product idea, reasoning through a decision, or challenging assumptions before committing to build. Use when the user says 'let's think about', 'what if we', 'how should we approach', 'should we', 'I'm not sure whether', or describes a tradeoff without a clear direction. Use when the user has an idea but hasn't validated the framing. Lighter than groom — structured thinking, not ceremony."
+description: "Explore a product decision, challenge assumptions, and compare approaches before committing to build."
 ---
 
 # pm:think

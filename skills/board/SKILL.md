@@ -1,6 +1,6 @@
 ---
 name: board
-description: "Use when the user wants a visual Kanban board of loop/backlog progress — columns of cards, in-flight leases, recent loop runs, and budget usage — served locally in the browser. Observational surveying with one explicit, separately authorized loop kill-switch control."
+description: "Show the PM Kanban board and loop progress. Use for a visual backlog or worker-status view."
 ---
 
 # pm:board

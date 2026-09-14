@@ -1,6 +1,6 @@
 ---
 name: start
-description: "Use when the user says start PM, open PM, resume active work, show the project pulse, or bootstrap PM in a new repository; it resolves paths before routing."
+description: "Initialize or resume a PM workspace and show its project pulse. Use when asked to start or open PM."
 ---
 
 # pm:start

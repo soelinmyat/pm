@@ -1,6 +1,6 @@
 ---
 name: design-critique
-description: "Use after implemented UI, UX, frontend, mobile, CSS, layout, visual, component, page, interaction, proposal HTML, RFC HTML, or PM report changes. Use when the user asks for design critique, artifact critique, UI review, visual QA, visual review, design pass, polish review, layout review, frontend review, HTML report review, proposal review, RFC presentation review, responsive review, print review, or when pm:dev needs its mandatory PM-native design critique gate before QA, review, push, PR, or ship."
+description: "Inspect rendered UI or document presentation. Use for visual QA or a routed design gate; use Review for source defects."
 ---
 
 # pm:design-critique

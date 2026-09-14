@@ -1,5 +1,5 @@
 ---
-description: "Create an evidence-backed, explicitly approved product proposal with structured RFC/Dev handoff."
+description: "Turn a validated product idea into a scoped proposal with acceptance criteria. Use when writing or revising a PRD."
 argument-hint: "<feature-idea>"
 ---
 

@@ -1,5 +1,5 @@
 ---
-description: "Bidirectional knowledge base sync by default. Usage: /pm:sync, /pm:sync pull, /pm:sync push, /pm:sync status, /pm:sync setup"
+description: "Synchronize the PM knowledge base with its configured backend. Use for explicit knowledge-base push, pull, or sync."
 argument-hint: "[pull|push|status|setup]"
 ---
 

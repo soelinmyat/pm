@@ -1,6 +1,6 @@
 ---
 name: sync
-description: "Use when the user wants to sync, push, pull, upload, download, connect, or inspect the PM knowledge base backed by git or productmemory.io. Bare /pm:sync is bidirectional; explicit /pm:sync pull, push, status, and setup are overrides. Triggers include 'sync my knowledge base', 'push kb', 'pull kb', 'upload pm', 'download pm', and 'sync to productmemory'."
+description: "Synchronize the PM knowledge base with its configured backend. Use for explicit knowledge-base push, pull, or sync."
 ---
 
 # pm:sync

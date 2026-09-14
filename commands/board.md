@@ -1,6 +1,6 @@
 ---
 name: board
-description: "Local browser Kanban of loop/backlog progress — columns of cards, in-flight leases, recent runs, and budget usage. Read-only, plus the loop kill switch."
+description: "Show the PM Kanban board and loop progress. Use for a visual backlog or worker-status view."
 argument-hint: "[optional: port, e.g. 'on 4500']"
 ---
 

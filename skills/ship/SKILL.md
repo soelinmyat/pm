@@ -1,6 +1,6 @@
 ---
 name: ship
-description: "Use when shipping committed changes — review, push, PR, CI monitor, and auto-merge in one flow. Use when the user says 'ship it', 'push this', 'create a PR', 'merge this', 'send it', 'land this', 'get this in', 'open a PR', 'ready to merge', 'submit this', or wants to take committed code through the full review-push-PR-merge lifecycle. Also handles existing PRs to completion — babysit CI, resolve feedback, and merge."
+description: "Take committed changes through review, PR, CI, and authorized merge. Keep requests for only a raw Git push direct."
 ---
 
 # /ship

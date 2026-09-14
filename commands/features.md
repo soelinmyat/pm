@@ -1,5 +1,5 @@
 ---
-description: "Scan the codebase and generate readable plus machine-consumable feature inventories with stable source-bound IDs."
+description: "Inventory user-facing product capabilities from source code and save them to the PM knowledge base."
 argument-hint: ""
 ---
 

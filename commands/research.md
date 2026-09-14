@@ -1,5 +1,5 @@
 ---
-description: "Durable, source-registered market research. Modes: landscape, competitors, or an evidence-cited topic."
+description: "Investigate markets, competitors, or customer questions and save sourced findings. Answer quick factual questions directly."
 argument-hint: "<mode-or-topic>"
 ---
 

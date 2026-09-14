@@ -1,6 +1,6 @@
 ---
 name: bug
-description: "Atomically file a bug report with observed, expected, and reproduction context, then route it directly to pm:dev."
+description: "Record an observed defect in the backlog. Use to file or track a bug; use Dev to investigate and fix code."
 argument-hint: "<title>"
 ---
 

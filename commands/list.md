@@ -1,6 +1,6 @@
 ---
 name: list
-description: "Terminal view of in-flight PM artefacts — active sessions, backlog proposals, RFCs awaiting dev, and recently shipped."
+description: "List active PM work and status in the terminal. Use Board for the visual Kanban view."
 argument-hint: "[follow-up like 'show all proposals' or 'just the RFCs']"
 ---
 

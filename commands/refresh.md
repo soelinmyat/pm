@@ -1,5 +1,5 @@
 ---
-description: "Audit ledger-backed freshness and missing sections, then conflict-safe patch without losing existing content."
+description: "Update stale PM research and fill evidence gaps while preserving valid existing content."
 argument-hint: "[seo|landscape|topics|<competitor-slug>]"
 ---
 

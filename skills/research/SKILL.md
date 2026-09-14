@@ -1,6 +1,6 @@
 ---
 name: research
-description: "Use when doing market research, competitive intelligence, or building the product knowledge base. Use when the user says 'research this', 'analyze the market', 'who are our competitors', 'what does the landscape look like', 'competitive analysis', 'research {topic}', 'what's the market for', 'profile competitors', 'update landscape', 'dig into {topic}', or wants durable research artifacts saved to the knowledge base. Three modes: landscape, competitors, topic. Outputs persistent research files — not quick answers."
+description: "Investigate markets, competitors, or customer questions and save sourced findings. Answer quick factual questions directly."
 ---
 
 # pm:research

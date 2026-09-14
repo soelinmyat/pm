@@ -1,6 +1,6 @@
 ---
 name: features
-description: "Scan the codebase, extract user-facing features, and write a structured feature inventory to the resolved PM knowledge base. Use when the user says 'features', 'feature inventory', 'scan features', 'what does this product do', or 'product capabilities'."
+description: "Inventory user-facing product capabilities from source code and save them to the PM knowledge base."
 ---
 
 # pm:features
