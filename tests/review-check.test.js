@@ -177,6 +177,113 @@ test(
   }
 );
 
+test("routine clean source review publishes structured evidence without a browser", () => {
+  const fixture = makeFixture({ maxWorkers: 3 });
+  const options = {
+    root: fixture.root,
+    targetPath: fixture.targetPath,
+    resultPaths: fixture.resultPaths,
+    reportPath: fixture.reportPath,
+    writeReport: true,
+  };
+  const generated = checkReview(options);
+  assert.equal(generated.ok, true, JSON.stringify(generated.issues));
+  assert.equal(generated.report.human_report, null);
+  const cli = spawnSync(
+    process.execPath,
+    [
+      path.join(__dirname, "../scripts/review-check.js"),
+      "--root",
+      fixture.root,
+      "--target",
+      fixture.targetPath,
+      ...fixture.resultPaths.flatMap((item) => ["--result", item]),
+      "--report",
+      fixture.reportPath,
+      "--write-report",
+    ],
+    { encoding: "utf8" }
+  );
+  assert.equal(cli.status, 0, cli.stdout + cli.stderr);
+  const checked = () =>
+    checkReview(
+      expandFromReport({
+        root: fixture.root,
+        reportPath: fixture.reportPath,
+        fromReport: true,
+      })
+    );
+  assert.equal(checked().ok, true, JSON.stringify(checked().issues));
+  assert.equal(fs.existsSync(path.join(fixture.root, fixture.htmlPath)), false);
+  const { checkGateManifest } = require("../scripts/dev-gate-check");
+  const row = {
+    name: "review",
+    status: "passed",
+    commit: fixture.target.source.commit,
+    artifact: fixture.reportPath,
+    evidence_kind: "review-report-v1",
+    report_sha256: binding(fixture.root, fixture.reportPath).sha256,
+    lenses: generated.report.coverage.completed,
+    reason: "",
+    checked_at: new Date().toISOString(),
+  };
+  const gate = () =>
+    checkGateManifest(
+      { schema_version: 1, gates: [row] },
+      {
+        currentCommit: fixture.target.source.commit,
+        requiredGates: ["review"],
+        artifactRoot: fixture.root,
+        manifestPath: "gates.json",
+      }
+    );
+  assert.equal(gate().ok, true, JSON.stringify(gate().issues));
+  row.report_sha256 = "0".repeat(64);
+  assert.match(JSON.stringify(gate().issues), /exact report_sha256/);
+  row.report_sha256 = binding(fixture.root, fixture.reportPath).sha256;
+  const report = JSON.parse(fs.readFileSync(path.join(fixture.root, fixture.reportPath)));
+  report.top_issue = "tampered";
+  write(fixture.root, fixture.reportPath, report);
+  assert.equal(checked().ok, false);
+  assert.equal(gate().ok, false);
+  write(fixture.root, fixture.reportPath, generated.report);
+  const resultPath = fixture.resultPaths[0];
+  const resultBytes = fs.readFileSync(path.join(fixture.root, resultPath));
+  const changedResult = JSON.parse(resultBytes);
+  changedResult.verdicts[0].summary = "Changed after publication";
+  write(fixture.root, resultPath, changedResult);
+  assert.equal(checked().ok, false, "result binding drift must fail");
+  fs.writeFileSync(path.join(fixture.root, resultPath), resultBytes);
+  fs.appendFileSync(path.join(fixture.root, "src/example.js"), "// source drift\n");
+  assert.equal(checked().ok, false);
+});
+
+test("structured publication conservatively excludes risky, unknown and presentation inputs", () => {
+  const fixture = makeFixture({ maxWorkers: 3 });
+  const report = generate(fixture).report;
+  const { structuredReviewPolicy } = require("../scripts/lib/review-presentation");
+  const eligible = (r = report, t = fixture.target, session = null) =>
+    structuredReviewPolicy({ report: r, target: t, session }).eligible;
+  assert.equal(eligible(), true);
+  for (const name of ["src/view.tsx", "src/auth.js", "README.md", "scripts/review-check.js"]) {
+    const target = structuredClone(fixture.target);
+    target.changed_files[0].path = name;
+    assert.equal(eligible(report, target), false, name);
+  }
+  for (const patch of [
+    { findings: [validFinding("bug")] },
+    { outcome: "blocked" },
+    { unresolved_disagreements: ["dispute"] },
+    { decisions: { path: "decision.json" } },
+  ])
+    assert.equal(eligible({ ...report, ...patch }), false);
+  assert.equal(eligible(report, { ...fixture.target, lenses: [] }), false);
+  assert.equal(eligible(report, { ...fixture.target, review_round: 2 }), false);
+  const target = { ...fixture.target, dev_context: { security_review_required: false } };
+  assert.equal(eligible(report, target), false, "unknown canonical risk");
+  assert.equal(eligible(report, target, { task: { risk_tier: "high", risk: {} } }), false);
+});
+
 test("line range validation counts newline-dense buffers without materializing lines", () => {
   const issues = [];
   const bytes = Buffer.alloc(8 * 1024 * 1024, 0x0a);

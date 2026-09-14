@@ -343,12 +343,13 @@ function validateReviewReportArtifact(
     issues.push(issue(manifestPath, "review evidence_kind must equal review-report-v1"));
     return;
   }
+  const structured = /(?:^|\/)review\/report\.json$/.test(reviewGate.artifact || "");
   const htmlPath = resolveArtifactPath(reviewGate.artifact, artifactRoot);
   if (canonicalSession) {
     const canonicalReview = path.join(
       path.dirname(resolveArtifactPath(manifestPath, artifactRoot)),
       "review",
-      "report.html"
+      structured ? "report.json" : "report.html"
     );
     if (path.resolve(htmlPath) !== path.resolve(canonicalReview)) {
       issues.push(
@@ -358,7 +359,7 @@ function validateReviewReportArtifact(
     }
   }
   if (
-    path.basename(htmlPath) !== "report.html" ||
+    path.basename(htmlPath) !== (structured ? "report.json" : "report.html") ||
     path.basename(path.dirname(htmlPath)) !== "review"
   ) {
     issues.push(issue(manifestPath, "review-report-v1 artifact must point to review/report.html"));
@@ -376,13 +377,14 @@ function validateReviewReportArtifact(
     path.resolve(resolvedRenderManifest) === path.resolve(expectedRenderManifest) &&
     /^[a-f0-9]{64}$/.test(reviewGate.render_manifest_sha256 || "");
   if (
-    !resolvedRenderManifest ||
-    path.resolve(resolvedRenderManifest) !== path.resolve(expectedRenderManifest)
+    !structured &&
+    (!resolvedRenderManifest ||
+      path.resolve(resolvedRenderManifest) !== path.resolve(expectedRenderManifest))
   )
     issues.push(
       issue(manifestPath, "review-report-v1 requires render_manifest review/renders/manifest.json")
     );
-  else if (!/^[a-f0-9]{64}$/.test(reviewGate.render_manifest_sha256 || ""))
+  else if (!structured && !/^[a-f0-9]{64}$/.test(reviewGate.render_manifest_sha256 || ""))
     issues.push(issue(manifestPath, "review-report-v1 requires render_manifest_sha256"));
   let renderValidated = false;
   try {
@@ -399,7 +401,14 @@ function validateReviewReportArtifact(
         verifyBrowser: false,
       })
     );
-    if (renderBindingValid) {
+    if (structured) {
+      const file = require("./lib/project-file").readProjectInput(root, relative, MAX_JSON_BYTES);
+      if (digest(file.bytes) !== reviewGate.report_sha256)
+        issues.push(issue(manifestPath, "structured review requires exact report_sha256"));
+      if (result.report?.human_report !== null)
+        issues.push(issue(manifestPath, "structured review must not bind HTML"));
+    }
+    if (!structured && renderBindingValid) {
       validateReviewRenderManifest(
         reviewGate,
         htmlPath,
@@ -504,7 +513,7 @@ function validateReviewReportArtifact(
         );
     }
   } catch (error) {
-    if (renderBindingValid && !renderValidated)
+    if (!structured && renderBindingValid && !renderValidated)
       validateReviewRenderManifest(
         reviewGate,
         htmlPath,

@@ -12,7 +12,7 @@ const RENDERER = path.join(__dirname, "../review-report.js");
 // A report about presentation machinery must exercise responsive captures and
 // print. Check both sides of renames; unknown source inventories never qualify.
 const PRESENTATION_PATH =
-  /(?:^|\/)(?:templates?|styles?|css|renderers?|presentation)(?:\/|[.-])|(?:review-report|review-presentation|review-contract|review-limits|artifact-|media-inspect|dev-gate-check)|\.(?:html?|css|scss|sass|less|svg|tsx|jsx|vue|svelte)$/i;
+  /(?:^|\/)(?:templates?|styles?|css|renderers?|presentation)(?:\/|[.-])|(?:review-report|review-check|review-target|review-presentation|review-contract|review-limits|artifact-|media-inspect|dev-gate-check)|\.(?:html?|css|scss|sass|less|svg|tsx|jsx|vue|svelte)$/i;
 
 function reviewPresentationPolicy({ report, target }) {
   const full = (reason) => ({ mode: "full", policy: POLICY, reason });
@@ -91,6 +91,61 @@ function reviewPresentationPolicy({ report, target }) {
   };
 }
 
+// Structured publication deliberately has a narrower contract than compact HTML.
+// Recompute eligibility from validated canonical inputs; it is never a waiver flag.
+function structuredReviewPolicy({ report, target, session = null }) {
+  const compact = reviewPresentationPolicy({ report, target });
+  if (compact.mode !== "compact") return { eligible: false, reason: compact.reason };
+  if (
+    report.findings.length !== 0 ||
+    report.decisions !== null ||
+    target.review_round !== 1 ||
+    target.prior_report !== null ||
+    target.changed_files.length > 5
+  )
+    return { eligible: false, reason: "findings, decisions, prior rounds, or broad change" };
+  if (!["full", "code-scan"].includes(target.mode))
+    return { eligible: false, reason: "unknown review mode" };
+  const { deriveLensApplicability } = require("./review-contract");
+  if (
+    JSON.stringify(target.lenses) !==
+    JSON.stringify(deriveLensApplicability(target.mode, target.changed_files, target.dev_context))
+  )
+    return { eligible: false, reason: "unknown review lens inventory" };
+  const paths = target.changed_files.flatMap((row) => [row.path, row.old_path].filter(Boolean));
+  if (
+    paths.some((name) => !/\.(?:js|ts|py|rb|go|rs|java)$/.test(name)) ||
+    deriveLensApplicability(
+      "full",
+      paths.map((name) => ({ path: name }))
+    ).some((lens) => ["design", "security"].includes(lens.name) && lens.applicable)
+  )
+    return { eligible: false, reason: "sensitive or unknown source paths" };
+  if (target.dev_context) {
+    const risk = session?.task?.risk;
+    const dimensions = [
+      "behavioral",
+      "security",
+      "auth",
+      "data",
+      "external_contract",
+      "operational",
+      "ui",
+      "reversibility",
+      "cross_module",
+    ];
+    if (
+      !risk ||
+      !["low", "medium"].includes(session.task.risk_tier) ||
+      risk.destructive_data !== false ||
+      dimensions.some((key) => !Number.isInteger(risk[key]) || risk[key] < 0 || risk[key] > 1) ||
+      ["security", "auth", "data", "ui", "operational"].some((key) => risk[key] !== 0)
+    )
+      return { eligible: false, reason: "high or unknown canonical risk" };
+  }
+  return { eligible: true, reason: "bounded clean source review" };
+}
+
 // This binds presentation only. The delivery gate separately validates the
 // complete canonical Review evidence, source and lens results as before.
 function readReviewPresentation(root, htmlPath) {
@@ -147,6 +202,7 @@ function digest(bytes) {
 
 module.exports = {
   POLICY,
+  structuredReviewPolicy,
   readReviewPresentation,
   reviewPresentationPolicy,
   validateCompactReviewPresentation,

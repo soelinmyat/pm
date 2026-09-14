@@ -42,6 +42,22 @@ test("concise capture fixture passes the entry-point contract rules", () => {
   assert.deepEqual(issues, []);
 });
 
+test("capability-first descriptions do not need a trigger phrase or padding", () => {
+  const ctx = buildContext(path.join(fixtures, "valid-capture"));
+  ctx.skills[0].skillFm.description = "Capture customer evidence.";
+  const rule = d2Rules().find((entry) => entry.id === "D2-SKILL-001-contract-sections");
+  assert.deepEqual(rule.check(ctx), []);
+});
+
+test("skill descriptions must be nonempty strings", () => {
+  const rule = d2Rules().find((entry) => entry.id === "D2-SKILL-001-contract-sections");
+  for (const description of [undefined, null, "", "   ", 42, { capability: "capture" }]) {
+    const ctx = buildContext(path.join(fixtures, "valid-capture"));
+    ctx.skills[0].skillFm.description = description;
+    assert.ok(rule.check(ctx).some((issue) => issue.message.includes("description")));
+  }
+});
+
 test("thin boilerplate fails skill and step substance checks", () => {
   const ctx = buildContext(path.join(fixtures, "invalid-boilerplate"));
   const byId = new Map(d2Rules().map((rule) => [rule.id, rule]));

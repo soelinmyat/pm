@@ -25,7 +25,7 @@ runs/{run-id}/
   round-2/                 # created only after source mutation
   round-3/                 # hard cap
 report.json              # canonical passing projection only
-report.html              # canonical passing human artifact only
+report.html              # required only for HTML presentation
 renders/
   manifest.json          # hash-binds canonical viewports, full pages, metrics, and print
 supplements/
@@ -119,9 +119,9 @@ Design Critique and QA handoffs require a trusted external approval channel. Rev
 
 Generate canonical `report.json` with `review-check.js --write-report`. It binds target, every result, decisions, prior report, source identity, coverage, findings/signals, blockers, disputes, auto-fix eligibility, handoffs, top issue, and next action.
 
-Render `report.html` with `scripts/review-report.js`, which uses `references/templates/review-report.html`. Metadata generator exactly matches the hash-bound generator recorded by `target.json` and propagated into `report.json`. Metadata source binds `report.json`; evidence binds target, every result, and decisions. Unresolved tokens fail.
+When HTML presentation is required or requested, render `report.html` with `scripts/review-report.js`, which uses `references/templates/review-report.html`. Metadata generator exactly matches the hash-bound generator recorded by `target.json` and propagated into `report.json`. Metadata source binds `report.json`; evidence binds target, every result, and decisions. Unresolved tokens fail.
 
-The first screenful visibly binds outcome, round, blocker count, top issue, and next action. The top issue ranks gate blockers and disputes first, then every residual finding by severity and confidence; a passing report cannot claim there is no issue while lower-severity findings remain. Every finding marker visibly includes issue, impact, fix, owner, evidence refs, signals, dispute/decision state, and the advisory, non-executable verification plan. Structural and locally observed browser validation ignore hidden/offscreen/clipped text.
+For HTML, the first screenful visibly binds outcome, round, blocker count, top issue, and next action. The top issue ranks gate blockers and disputes first, then every residual finding by severity and confidence; a passing report cannot claim there is no issue while lower-severity findings remain. Every finding marker visibly includes issue, impact, fix, owner, evidence refs, signals, dispute/decision state, and the advisory, non-executable verification plan. Structural and locally observed browser validation ignore hidden/offscreen/clipped text.
 
 ## Post-pass freshness
 
@@ -142,7 +142,9 @@ The gate row still requires `verified_commit`/`verified_at` for the current comm
 
 ## Commands
 
-Generate the canonical report:
+Generate the canonical report. Omit `--human-report` first for automatic structured eligibility; a clean bounded source review needs no HTML or browser. If the checker requires HTML, use the complete command below. Structured reports retain `human_report: null`; the gate artifact is `review/report.json` with its raw `report_sha256` instead of HTML and a render manifest. Every source/result/session and freshness check still applies. Eligibility is recomputed, never asserted by the caller.
+
+Generate an HTML-backed report:
 
 ```bash
 node "$PM_PLUGIN_ROOT/scripts/review-check.js" \

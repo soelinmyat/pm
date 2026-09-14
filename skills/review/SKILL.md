@@ -1,13 +1,13 @@
 ---
 name: review
-description: "Evidence-bound source review after implementation. Use when the user says review this diff, code review, run review, check this branch, inspect the PR, find bugs, simplify this change, or when pm:dev/pm:ship requires the review gate. Plans six logical lenses as the baseline plus a risk-triggered security lens, validates structured findings, deduplicates signals, resolves disagreement, runs bounded fix rounds, and publishes JSON plus HTML evidence. Do not use for rendered visual critique (use pm:design-critique) or live functional QA."
+description: "Review committed source changes with bound findings, coverage and freshness checks. Use when reviewing a diff, branch or PR, or satisfying the Dev/Ship review gate; not visual critique or live QA."
 ---
 
 # Review
 
 ## Purpose
 
-Review the exact current branch diff for source correctness, contracts, tests, reuse, maintainability, efficiency, source-level design-system violations, and risk-triggered security failures. Produce a commit-bound `target.json`, reviewer results, canonical `report.json`, and readable `report.html` that Dev and Ship can verify without trusting a prose claim.
+Review the exact current branch diff for source correctness, contracts, tests, reuse, maintainability, efficiency, source-level design-system violations, and risk-triggered security failures. Produce a commit-bound `target.json`, reviewer results, canonical `report.json`, and, when presentation is required, readable `report.html` that Dev and Ship can verify without trusting a prose claim.
 
 ## Iron Law
 
@@ -86,10 +86,10 @@ Resolve session paths with `deriveSessionSlug` from `scripts/lib/session-slug.js
 
 ## Before marking done
 
-- [ ] `runs/{run-id}/round-{N}/target.json`, every planned result, and the round report are preserved; a pass also publishes canonical `review/report.json` and `review/report.html`.
+- [ ] `runs/{run-id}/round-{N}/target.json`, every planned result, and the round report are preserved; a pass also publishes canonical `review/report.json`, plus `review/report.html` when presentation is required.
 - [ ] The user confirmed the implementation scope, or the Dev/RFC session supplies it.
 - [ ] `review-check.js` passes against current HEAD and the authoritative remote base.
 - [ ] All applicable logical lenses have exact verdict coverage; disputes and decisions are explicit.
 - [ ] Review-owned blockers are resolved in a new complete round or the gate is reported failed/blocked.
-- [ ] The HTML artifact passes structural, locally observed browser viewport, accessibility, offline, and print checks.
+- [ ] Structured eligibility and exact report hash pass, or the HTML artifact passes structural, locally observed browser viewport, accessibility, offline, and print checks.
 - [ ] The `review` gate row points to the current checked report without deleting other gate rows.
