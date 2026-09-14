@@ -1,5 +1,5 @@
 ---
-description: "Import customer evidence, keep raw records private, and publish portable ledger-backed findings under pm/evidence/."
+description: "Import customer feedback files or folders into the PM knowledge base while preserving source evidence."
 argument-hint: "<path>"
 ---
 

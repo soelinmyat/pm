@@ -1,6 +1,6 @@
 ---
 name: list
-description: "Use when the user wants a terminal view of in-flight PM artefacts — active sessions, backlog proposals, RFCs awaiting dev, and recently shipped. Read-only surveying."
+description: "List active PM work and status in the terminal. Use Board for the visual Kanban view."
 ---
 
 # pm:list

@@ -1,6 +1,6 @@
 ---
 name: ideate
-description: "Use when the user wants to discover what to build next, generate feature ideas from the knowledge base, or mine gaps and opportunities. Use when the user says 'what should we build', 'generate ideas', 'what's missing', 'find opportunities', 'brainstorm features', or wants evidence-backed feature candidates ranked by strategic fit."
+description: "Generate product opportunities from customer evidence and knowledge-base gaps. Use to decide what to explore next."
 ---
 
 # pm:ideate

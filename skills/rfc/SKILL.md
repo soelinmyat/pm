@@ -1,6 +1,6 @@
 ---
 name: rfc
-description: "Technical RFC lifecycle for a groomed M/L/XL feature. Use when the user says 'write an RFC', 'generate RFC', 'create an RFC', 'technical design', 'review this RFC', or when pm:dev routes substantial work that needs an approved engineering design. Produces a reviewed, explicitly approved RFC and machine-readable implementation handoff."
+description: "Write or revise the technical implementation design for a groomed feature, including dependencies and verification."
 ---
 
 # RFC — Technical Design Lifecycle

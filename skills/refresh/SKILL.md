@@ -1,6 +1,6 @@
 ---
 name: refresh
-description: "Use when updating existing research to backfill gaps or refresh stale data. Audits pm/ files for staleness, patches without losing content."
+description: "Update stale PM research and fill evidence gaps while preserving valid existing content."
 ---
 
 # pm:refresh

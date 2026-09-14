@@ -1,6 +1,6 @@
 ---
 name: setup
-description: "Use when the user wants to toggle integrations, enable or disable Linear or Ahrefs, configure integrations, link repos, or configure separate-repo mode with phrases such as 'setup enable linear', 'disable ahrefs', 'setup separate-repo', or 'link repos'."
+description: "Configure PM integrations, repository paths, or execution preferences. Use Start to initialize a product workspace."
 ---
 
 # pm:setup

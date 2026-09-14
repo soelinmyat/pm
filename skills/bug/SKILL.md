@@ -1,6 +1,6 @@
 ---
 name: bug
-description: "Use when something broke, a regression appeared, behavior is unexpected, or the user says 'this is broken', 'file a bug', or 'track this defect'. Atomically writes a `kind: bug` backlog item with high/bug defaults and Observed, Expected, and Reproduction sections, then routes directly to pm:dev without Groom or RFC. Do not use for feature gaps or chores."
+description: "Record an observed defect in the backlog. Use to file or track a bug; use Dev to investigate and fix code."
 ---
 
 # pm:bug

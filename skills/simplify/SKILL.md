@@ -1,6 +1,6 @@
 ---
 name: simplify
-description: "Use when the user invokes deprecated pm:simplify or asks for the former simplify gate; redirect exactly to pm:review, whose reuse, quality, and efficiency lenses replace it."
+description: "Handle the deprecated pm:simplify command by routing to pm:review."
 ---
 
 # pm:simplify (deprecated)

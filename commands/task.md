@@ -1,6 +1,6 @@
 ---
 name: task
-description: "Atomically capture a lightweight task (chore, version bump, dependency update, small cleanup) and route it directly to pm:dev."
+description: "Record a small tracked action without Groom or RFC. Use to file a chore or todo; use Dev to implement it."
 argument-hint: "<title>"
 ---
 

@@ -274,11 +274,11 @@ Every `skills/*/SKILL.md` file is the entry point for a skill. It must give the 
 ```yaml
 ---
 name: skill-name
-description: "Trigger-rich description. Include 'Use when...' phrases with specific user language that should activate this skill. Include synonyms and edge-case triggers. The description is what Claude Code matches against — keyword density matters."
+description: "State the capability and the specific task that should activate it. Add a short exclusion only to prevent likely misrouting."
 ---
 ```
 
-The description is not documentation — it's a matching surface. Pack it with the phrases users actually say.
+Keep descriptions concise and discriminating. Put workflow details in the skill body and phase references. Avoid synonym lists, broad keyword triggers, and overlapping claims of ownership; distinguish direct requests from full lifecycle requests. Preserve model-neutral safety and evidence contracts.
 
 ### Required sections
 

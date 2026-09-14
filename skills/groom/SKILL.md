@@ -1,6 +1,6 @@
 ---
 name: groom
-description: "Use when a validated product idea needs a sprint-ready proposal or PRD: 'groom this', 'scope this', 'write a proposal', 'create a PRD', 'spec this out', or turn approved thinking into product scope. Produces an explicitly approved, machine-readable proposal plus an accessible HTML reader and RFC/Dev handoff. Do not use for open-ended 'should we build this?' exploration; use pm:think first."
+description: "Turn a validated product idea into a scoped proposal with acceptance criteria. Use when writing or revising a PRD."
 ---
 
 # pm:groom

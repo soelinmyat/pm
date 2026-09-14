@@ -1,5 +1,5 @@
 ---
-description: "Generate a technical RFC from a groomed product proposal. Takes M/L/XL features through intake, generation, and review."
+description: "Write or revise the technical implementation design for a groomed feature, including dependencies and verification."
 argument-hint: "<feature-slug>"
 ---
 

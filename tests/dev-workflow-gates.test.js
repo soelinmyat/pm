@@ -61,10 +61,19 @@ test("separate quality phases record gate evidence and run the checker", () => {
 });
 
 test("review absorbed the simplify lenses (v1.9)", () => {
-  const skill = read("skills/review/SKILL.md");
   const briefs = read("skills/review/references/reviewer-briefs.md");
   const contract = read("scripts/lib/review-contract.js");
-  assert.match(skill, /six logical lenses as the baseline/i);
+  const { deriveLensApplicability } = require("../scripts/lib/review-contract");
+  const baseline = ["bug", "design", "edge", "reuse", "quality", "efficiency"];
+  for (const mode of ["full", "code-scan"]) {
+    const lenses = deriveLensApplicability(mode, [{ path: "src/example.js" }]);
+    assert.deepEqual(
+      lenses.filter((lens) => lens.name !== "security").map((lens) => lens.name),
+      baseline.filter((name) => mode === "full" || name !== "design")
+    );
+    for (const name of ["reuse", "quality", "efficiency"])
+      assert.equal(lenses.find((lens) => lens.name === name).applicable, true);
+  }
   assert.match(briefs, /`bug`/);
   assert.match(briefs, /`design`/);
   assert.match(briefs, /`edge`/);

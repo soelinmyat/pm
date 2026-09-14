@@ -178,6 +178,26 @@ function checkReview(options) {
     merged,
     options.humanReportPath
   );
+  const structured = !options.humanReportPath;
+  if (structured && options.validateOnly !== true) {
+    let session = null;
+    if (target.dev_context) {
+      const loaded = readJson(
+        root,
+        `.pm/dev-sessions/${target.dev_context.slug}/session.json`,
+        "session",
+        issues
+      );
+      session = loaded?.value;
+    }
+    const policy = require("./lib/review-presentation").structuredReviewPolicy({
+      report,
+      target,
+      session,
+    });
+    if (!policy.eligible)
+      add(issues, "report.presentation", `HTML presentation required: ${policy.reason}`);
+  }
   const reportStage = options.reportStage || "final";
   if (
     reportStage === "final" &&
@@ -204,7 +224,7 @@ function checkReview(options) {
     });
     if (options.reportPath !== expectedReport)
       add(issues, "report.path", `must equal ${expectedReport}`);
-    if (options.humanReportPath !== expectedHuman)
+    if (!structured && options.humanReportPath !== expectedHuman)
       add(issues, "report.human_report.path", `must equal ${expectedHuman}`);
   }
 
@@ -1901,8 +1921,6 @@ function parseArgs(argv) {
   if (!out.fromReport && !out.targetPath) throw new Error("--target is required");
   if (!out.fromReport && out.resultPaths.length === 0)
     throw new Error("at least one --result is required");
-  if (out.writeReport && !out.humanReportPath)
-    throw new Error("--write-report requires --human-report");
   if (out.writeReport && out.fromReport)
     throw new Error("--write-report and --from-report cannot be combined");
   return out;

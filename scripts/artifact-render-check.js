@@ -254,7 +254,9 @@ function renderArtifact(options) {
 function assertRenderSourceIdentity(htmlPath, expected, watcher = null) {
   if (watcher) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
   if (watcher && fs.existsSync(watcher.driftPath))
-    throw new Error("HTML source changed during artifact capture");
+    throw new Error(
+      `HTML source changed during artifact capture: ${fs.readFileSync(watcher.driftPath, "utf8").trim()}`
+    );
   if (watcher && !processAlive(watcher.child.pid))
     throw new Error("HTML source watcher stopped during artifact capture");
   const actual = readRenderSourceIdentity(htmlPath);

@@ -1,6 +1,6 @@
 ---
 name: loop
-description: "Use when the user asks for loop engineering, AI development loop orchestration, stale-card reconciliation, a Kanban/Kannan board, periodic wake-ups, git-backed work status sync, scheduler setup, unattended workers, or `/pm:loop status`, `/pm:loop wake`, `/pm:loop config`, `/pm:loop install`, `/pm:loop work`, `/pm:loop reconcile`."
+description: "Configure or reconcile unattended PM workers, schedules, leases, and recovery. Use Board to view their progress."
 ---
 
 # pm:loop

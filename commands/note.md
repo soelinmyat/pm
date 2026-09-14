@@ -1,6 +1,6 @@
 ---
 name: note
-description: "Quick-capture an evidence-ID-backed customer signal or product observation into the shared product brain."
+description: "Capture one customer signal or product observation as a lightweight evidence record."
 argument-hint: "<signal or observation>"
 ---
 

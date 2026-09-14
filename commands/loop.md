@@ -1,5 +1,5 @@
 ---
-description: "Loop orchestration — run bare /pm:loop and it reads the situation and offers the next step; or name a subcommand (status/wake/config/install/work/reconcile)."
+description: "Configure or reconcile unattended PM workers, schedules, leases, and recovery. Use Board to view their progress."
 argument-hint: "[status|wake|config|install|work|reconcile] [--dry-run|--apply] [--mode dev|ship|research]"
 ---
 

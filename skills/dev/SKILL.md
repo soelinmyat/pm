@@ -1,6 +1,6 @@
 ---
 name: dev
-description: "Development lifecycle for building, debugging, fixing, implementing, testing, reviewing, or shipping code. Use when the user says 'build this', 'implement this', 'fix this bug', 'code this up', 'work on PM-123', 'develop this feature', 'ship this', or asks to resume an active development session. Routes by observed risk and scope, supports inline or delegated work, and resumes from durable phase state."
+description: "Implement or fix code, or resume an active development session. Use Ship for delivery of already committed changes."
 ---
 
 # Dev — Development Lifecycle
@@ -16,6 +16,7 @@ Take an implementation request from intake to verified delivery while preserving
 ## When NOT to use
 
 - For explanation or read-only code questions, answer directly.
+- For an explicitly local-only edit that does not invoke Dev, use focused repository checks directly without creating a delivery session. Report local completion; later delivery still requires current review and ship gates.
 - For open-ended product exploration, use `pm:think`.
 - For a validated feature that still needs a sprint-ready proposal, use `pm:groom`.
 - For M/L/XL proposal work without an approved technical design, use `pm:rfc` and resume dev after approval.
@@ -33,7 +34,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 3. **Run one phase at a time.** Use `scripts/dev-session.js next` to obtain the active phase, required capabilities, gates, evidence kinds, allowed modes, and instruction path. Read only that step plus its `requires` references. Files in `.pm/workflows/dev/` override same-named bundled steps. Do not preload later phases. Set `PM_DEV_LEGACY_PROMPT=1` only as a temporary compatibility fallback to the previous eager-loading behavior.
 4. **Build a bounded execution packet.** Use `scripts/dev-prompt.js` to include exactly: objective, acceptance criteria, current phase, repository context, owned files, constraints, authority, required evidence, and result contract. Do not include instructions for later phases or unrelated repository history.
 5. **Choose execution mode deliberately.** Inline is the default for one ordered work unit. Delegate only when `scripts/lib/dev-work-units.js` reports dependency-ready units with disjoint ownership or when a required review skill mandates a read-only fan-out. Workers may edit, test, and commit only within assigned authority; root owns integration, push, PR creation, merge, and tracker updates.
-6. **Use a verified runtime profile.** For CLI workers, probe capabilities and use `scripts/dev-runtime/dispatch.js`. Defaults are `gpt-5.6-sol` at `high` and `claude-opus-4-8` at `xhigh`; profiles are data in `references/model-profiles.json`, not prompt prose. Missing structured output, event streaming, resume, or safe-permission support blocks dispatch instead of silently degrading.
+6. **Use a verified runtime profile.** For CLI workers, probe capabilities and use `scripts/dev-runtime/dispatch.js`. Resolve the explicit execution policy and `references/model-profiles.json`; do not infer the worker model from the host chat model. Missing structured output, event streaming, resume, or safe-permission support blocks dispatch instead of silently degrading.
 7. **Advance from evidence, not narrative.** Each phase returns the strict result envelope described by `references/dev-session.schema.json`. Record it with `scripts/dev-session.js record`. Only the runner advances phase state, enforces retry limits, validates reachable/current commits, and decides completion. A worker cannot declare work merged or mutate aggregate state.
 8. **Complete routed gates.** Risk routing determines review depth and whether design critique/QA apply. The final ship action must still pass `scripts/dev-gate-check.js` against current HEAD. In `PM_LOOP_WORKER=1` mode, stop after the reviewed PR is opened and return the loop result; do not merge or update durable card state.
 

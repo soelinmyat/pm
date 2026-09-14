@@ -1,6 +1,6 @@
 ---
 name: task
-description: "Use when the user wants a lightweight tracked action that skips Groom and RFC: file a task, add a chore, capture a todo, bump a version, update a dependency, or record a small cleanup. Atomically writes a `kind: task` backlog item with medium/chore defaults and routes it directly to pm:dev. Do not use for regressions, feature discovery, or customer evidence."
+description: "Record a small tracked action without Groom or RFC. Use to file a chore or todo; use Dev to implement it."
 ---
 
 # pm:task

@@ -1,6 +1,6 @@
 ---
 name: note
-description: "Use when capturing a customer signal, product observation, or evidence worth remembering. Quick-capture into the shared product brain."
+description: "Capture one customer signal or product observation as a lightweight evidence record."
 ---
 
 # pm:note

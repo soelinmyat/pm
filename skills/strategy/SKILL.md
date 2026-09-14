@@ -1,6 +1,6 @@
 ---
 name: strategy
-description: "Use when creating or maintaining a product strategy document. Covers ICP, value prop, competitive positioning, priorities, non-goals. Triggers on 'strategy,' 'positioning,' 'ICP,' 'non-goals,' 'product direction.'"
+description: "Create or revise product strategy, including target customers, positioning, priorities, and non-goals."
 ---
 
 # pm:strategy

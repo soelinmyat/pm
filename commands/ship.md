@@ -1,5 +1,5 @@
 ---
-description: "Prepare the final release tree, review it, and resumably push, create or reconcile a PR, monitor CI, merge, and place any main release tag. Also resumes existing PRs without replaying verified effects."
+description: "Take committed changes through review, PR, CI, and authorized merge. Keep requests for only a raw Git push direct."
 argument-hint: "[PR-number]"
 ---
 

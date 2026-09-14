@@ -1,5 +1,5 @@
 ---
-description: "Enable or disable integrations. Usage: /pm:setup enable linear, /pm:setup disable ahrefs"
+description: "Configure PM integrations, repository paths, or execution preferences. Use Start to initialize a product workspace."
 argument-hint: "<enable|disable> <integration>"
 ---
 

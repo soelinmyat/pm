@@ -35,11 +35,12 @@ module.exports = {
           });
         }
       }
-      const description = String(skill.skillFm.description || "");
-      if (!/\buse when\b/i.test(description) || description.length < 35) {
+      const description = skill.skillFm.description;
+      if (typeof description !== "string" || !description.trim()) {
         issues.push({
           file: `skills/${skill.name}/SKILL.md`,
-          message: "description must be trigger-rich and include a concrete `Use when...` phrase",
+          message:
+            "description must be a nonempty string describing the capability and its task boundary",
         });
       }
       const operative = operativeMarkdown(skill.skillBody);
