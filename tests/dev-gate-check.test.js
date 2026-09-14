@@ -2808,3 +2808,22 @@ test("review gate authenticates base equivalence over the frozen reviewed commit
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("documentation under design-system permits a proven no-visual-impact skip", () => {
+  const result = checkGateManifest(
+    manifest([
+      gate("design-critique", "abc123", {
+        status: "skipped",
+        artifact: "",
+        reason: "documentation-only change with no visual impact",
+      }),
+    ]),
+    {
+      currentCommit: "abc123",
+      requiredGates: ["design-critique"],
+      manifestPath: ".pm/dev-sessions/current.gates.json",
+      changedFiles: ["docs/design-system/product-design-guidance.md"],
+    }
+  );
+  assert.equal(result.ok, true, JSON.stringify(result.issues));
+});

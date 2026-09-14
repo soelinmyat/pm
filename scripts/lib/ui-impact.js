@@ -56,6 +56,14 @@ function isFrontendRouteModule(file) {
 
 function isUiImpactPath(file) {
   if (typeof file !== "string" || KB_ARTIFACT_PATH_RE.test(file)) return false;
+  // Plain repository documentation is not a rendered UI merely because it
+  // discusses components, themes or a design system. Keep route/content trees
+  // conservative: frameworks can compile Markdown there into application UI.
+  if (
+    /^docs\/.*\.(md|markdown)$/i.test(file) &&
+    !/(^|\/)(app|pages?|routes?|content)(\/|$)/i.test(file)
+  )
+    return false;
   if (UI_PATH_RE.test(file)) return true;
   if (UI_TOKEN_DATA_RE.test(file)) return true;
   if (UI_TEMPLATE_MARKUP_RE.test(file)) return true;
