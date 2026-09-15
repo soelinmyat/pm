@@ -8,6 +8,8 @@ Small keyboard-focus indicators are compared within bounded outline or outer-sha
 
 Verified corrections within an already-approved Dev task do not need repeated approval: behavioral fixes require red/green regression evidence and fresh review. New scope, consequential decisions, disputes and external actions retain their approval boundaries.
 
+When reviewers recommend the same fix in different words, they can explicitly confirm a common remedy without replacing their original findings. Every affected reviewer must agree; incomplete or conflicting clarification remains blocked, and no finding is dismissed by that agreement.
+
 [![CI](https://github.com/soelinmyat/pm/actions/workflows/ci.yml/badge.svg)](https://github.com/soelinmyat/pm/actions/workflows/ci.yml)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/soelinmyat/pm)](https://github.com/soelinmyat/pm/releases)

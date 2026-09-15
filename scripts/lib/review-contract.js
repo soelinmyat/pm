@@ -196,6 +196,7 @@ function findingId(finding) {
 }
 
 function mergeSignals(signals, decisions) {
+  const agreements = agreedRemedies(signals || []);
   const byId = new Map();
   for (const signal of signals || []) {
     const rows = byId.get(signal.id) || [];
@@ -217,7 +218,10 @@ function mergeSignals(signals, decisions) {
     const severity = rows
       .map((row) => row.severity)
       .sort((left, right) => severityRank(right) - severityRank(left))[0];
-    const disputed = materialDisagreement(rows);
+    const agreedFix = agreements.get(id);
+    const disputed =
+      materialDisagreement(rows, Boolean(agreedFix)) ||
+      (rows.some((row) => row.remediation_agreement !== undefined) && !agreedFix);
     const canonical = {
       id,
       category: lead.category,
@@ -240,6 +244,7 @@ function mergeSignals(signals, decisions) {
       disputed,
       decision,
       signals: rows,
+      ...(agreedFix ? { agreed_fix: agreedFix } : {}),
     };
     const decisionAuthoritative = applyDecision(canonical, decision);
     if (
@@ -251,6 +256,51 @@ function mergeSignals(signals, decisions) {
   }
   markCrossFindingConflicts(findings, unresolved);
   return { findings, unresolved_disagreements: [...new Set(unresolved)].sort() };
+}
+
+function agreedRemedies(signals) {
+  const remedies = new Map();
+  for (const signal of signals) {
+    const agreement = signal.remediation_agreement;
+    if (
+      !agreement ||
+      !Array.isArray(agreement.finding_ids) ||
+      typeof agreement.remedy !== "string" ||
+      !agreement.remedy.trim() ||
+      Object.keys(agreement).some((key) => !["finding_ids", "remedy"].includes(key))
+    )
+      continue;
+    const ids = agreement.finding_ids;
+    if (
+      !ids.includes(signal.id) ||
+      new Set(ids).size !== ids.length ||
+      ids.some((id) => typeof id !== "string")
+    )
+      continue;
+    const group = signals.filter((row) => ids.includes(row.id));
+    if (
+      new Set(group.map((row) => row.id)).size !== ids.length ||
+      new Set(group.map((row) => row.reviewer_id)).size < 2
+    )
+      continue;
+    const key = JSON.stringify([...ids].sort());
+    if (
+      group.some((row) => {
+        const other = row.remediation_agreement;
+        return (
+          !other ||
+          !Array.isArray(other.finding_ids) ||
+          Object.keys(other).some((field) => !["finding_ids", "remedy"].includes(field)) ||
+          JSON.stringify([...other.finding_ids].sort()) !== key ||
+          other.remedy !== agreement.remedy
+        );
+      }) ||
+      materialDisagreement(group, true)
+    )
+      continue;
+    for (const id of ids) remedies.set(id, agreement.remedy);
+  }
+  return remedies;
 }
 
 function markCrossFindingConflicts(findings, unresolved) {
@@ -275,7 +325,8 @@ function markCrossFindingConflicts(findings, unresolved) {
         if (right.line_start > left.line_end) break;
         const overlaps = left.line_start <= right.line_end && right.line_start <= left.line_end;
         const incompatibleFix =
-          left.fix_kind !== right.fix_kind || normalize(left.fix) !== normalize(right.fix);
+          left.fix_kind !== right.fix_kind ||
+          normalize(left.agreed_fix || left.fix) !== normalize(right.agreed_fix || right.fix);
         if (!overlaps || !incompatibleFix) continue;
         left.disputed = true;
         right.disputed = true;
@@ -285,7 +336,7 @@ function markCrossFindingConflicts(findings, unresolved) {
   }
 }
 
-function materialDisagreement(rows) {
+function materialDisagreement(rows, proseAgreed = false) {
   if (rows.length < 2) return false;
   const severities = rows.map((row) => severityRank(row.severity));
   const owners = new Set(rows.map((row) => row.owner));
@@ -298,7 +349,7 @@ function materialDisagreement(rows) {
     owners.size > 1 ||
     dispositions.size > 1 ||
     fixKinds.size > 1 ||
-    fixes.size > 1 ||
+    (!proseAgreed && fixes.size > 1) ||
     decisionRequirements.size > 1
   );
 }

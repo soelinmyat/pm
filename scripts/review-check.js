@@ -940,11 +940,31 @@ function validateSignal(root, finding, reviewerId, assignedLenses, target, label
       "owner",
       "disposition",
       "decision_required",
+      "remediation_agreement",
     ],
     label,
     issues
   );
   let valid = true;
+  if (finding.remediation_agreement !== undefined) {
+    const agreement = finding.remediation_agreement;
+    const at = `${label}.remediation_agreement`;
+    if (!object(agreement)) add(issues, at, "must be an object");
+    else {
+      closed(agreement, ["finding_ids", "remedy"], at, issues);
+      if (!text(agreement.remedy) || agreement.remedy.length > MAX_FINDING_PROSE_CHARS)
+        add(issues, `${at}.remedy`, "requires a bounded nonempty common remedy");
+      if (
+        !Array.isArray(agreement.finding_ids) ||
+        !agreement.finding_ids.length ||
+        agreement.finding_ids.length > MAX_FINDINGS_PER_ROUND ||
+        !agreement.finding_ids.includes(finding.id) ||
+        new Set(agreement.finding_ids).size !== agreement.finding_ids.length ||
+        agreement.finding_ids.some((id) => typeof id !== "string" || !/^rv-[a-f0-9]{20}$/.test(id))
+      )
+        add(issues, `${at}.finding_ids`, "requires unique finding IDs including this finding");
+    }
+  }
   if (!assignedLenses.includes(finding.category)) {
     add(issues, `${label}.category`, "must be assigned to this reviewer");
     valid = false;
@@ -1780,6 +1800,7 @@ function validateRenderedReportMarkers(markers, report, issues) {
         finding.issue,
         finding.impact,
         finding.fix,
+        ...(finding.agreed_fix ? [finding.agreed_fix] : []),
         finding.verify,
         finding.owner,
         `Decision required: ${finding.decision_required ? "yes" : "no"}`,
@@ -1968,6 +1989,7 @@ function findingRenderChars(finding) {
     finding.impact,
     finding.fix,
     finding.fix_kind,
+    finding.remediation_agreement?.remedy,
     finding.verify,
     finding.owner,
     finding.disposition,

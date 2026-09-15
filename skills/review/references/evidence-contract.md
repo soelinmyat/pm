@@ -10,6 +10,8 @@ The default assurance level is `local-observation`. An optional future externall
 
 ## Files
 
+Reviewer findings may optionally carry `remediation_agreement` with unique `finding_ids` (including the current finding) and a bounded nonempty `remedy`. All signals for every named ID must confirm exactly the same group and remedy, with at least two distinct planned reviewers. Result target/source/run/round bindings remain mandatory. This additive clarification resolves only fix-prose disagreement, not other material conflicts or decision gates. Canonical findings retain original signals and add `agreed_fix`; human reports show both. Original result files must be preserved and clarified results supplied separately before round finalization. Legacy results without this field keep conservative disagreement handling. Like reviewer results generally, these are local observations, not cryptographic identity attestations.
+
 Store the chain under `.pm/dev-sessions/{slug}/review/`:
 
 ```text

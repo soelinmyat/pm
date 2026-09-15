@@ -51,6 +51,59 @@ const { readProjectInput } = require("../scripts/lib/safe-project-output");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 let installedBrowser = null;
+test("reviewer clarification is target-bound and visible without replacing findings", () => {
+  for (const variant of ["agreed", "partial", "unknown", "malformed", "stale"]) {
+    const fixture = makeFixture({ maxWorkers: 3 });
+    fixture.reportPath = `${path.dirname(fixture.targetPath)}/report.json`;
+    fixture.htmlPath = `${path.dirname(fixture.targetPath)}/report.html`;
+    const first = validFinding("bug");
+    const second = {
+      ...validFinding("edge"),
+      fix: "Preserve the expected return value and test it.",
+    };
+    const agreement = {
+      finding_ids: [first.id, second.id].sort(),
+      remedy: "Restore the documented return value with regression coverage.",
+    };
+    first.remediation_agreement = structuredClone(agreement);
+    second.remediation_agreement = structuredClone(agreement);
+    if (variant === "partial") delete second.remediation_agreement;
+    if (variant === "unknown") {
+      first.remediation_agreement.finding_ids.push("rv-" + "f".repeat(20));
+      second.remediation_agreement.finding_ids.push("rv-" + "f".repeat(20));
+    }
+    if (variant === "malformed") first.remediation_agreement.remedy = false;
+    setFindingForLens(fixture, "bug", first);
+    setFindingForLens(fixture, "edge", second);
+    if (variant === "stale") {
+      const file = path.join(fixture.root, fixture.resultPaths[0]);
+      const result = JSON.parse(fs.readFileSync(file, "utf8"));
+      result.target.sha256 = "f".repeat(64);
+      fs.writeFileSync(file, JSON.stringify(result));
+    }
+    const result = generate(fixture);
+    if (["malformed", "stale"].includes(variant)) {
+      assert.equal(result.ok, false, variant);
+      continue;
+    }
+    assert.equal(result.ok, true, JSON.stringify(result.issues));
+    const report = JSON.parse(fs.readFileSync(path.join(fixture.root, fixture.reportPath), "utf8"));
+    assert.equal(report.outcome, variant === "agreed" ? "failed" : "blocked");
+    assert.equal(report.findings.length, 2);
+    if (variant === "agreed") {
+      renderReviewReport({
+        root: fixture.root,
+        reportPath: fixture.reportPath,
+        outputPath: fixture.htmlPath,
+      });
+      const html = fs.readFileSync(path.join(fixture.root, fixture.htmlPath), "utf8");
+      assert.ok(html.includes(agreement.remedy));
+      assert.ok(html.includes(first.fix));
+      assert.ok(html.includes(second.fix));
+    }
+  }
+});
+
 test("Dev-bound behavioral corrections are eligible without extending decision or external authority", () => {
   const finding = { ...validFinding("bug"), disputed: false };
   const target = {
