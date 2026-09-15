@@ -885,7 +885,10 @@ function refreshTrustedCaptureObservations(fixture) {
       fixture.route,
       routeBinding,
       capture,
-      fixture.captures.evidence
+      fixture.captures.evidence,
+      0,
+      {},
+      fixture.nativeFocusProof ?? true
     );
 }
 
@@ -896,7 +899,8 @@ function attachTrustedCaptureObservation(
   capture,
   evidence,
   scrollY = 0,
-  viewportOverrides = {}
+  viewportOverrides = {},
+  nativeFocusProof = true
 ) {
   const coverage = route.coverage.find((item) => item.id === capture.coverage_id);
   const subject = route.subjects.find((item) => item.id === coverage.subject_id);
@@ -930,6 +934,14 @@ function attachTrustedCaptureObservation(
       },
     ],
   };
+  if (nativeFocusProof && ["focus", "keyboard"].includes(coverage.state)) {
+    if (nativeFocusProof !== "no-tab")
+      assertion.before_capture = [{ kind: "tab", count: 1, reverse: false }];
+    assertion.all.push({
+      locator: { by: "role-name", value: "button:Save account" },
+      expect: { kind: "focused" },
+    });
+  }
   const assertionBinding = write(
     root,
     `${path.posix.dirname(routeBinding.path)}/state-assertions/${coverage.id}.json`,
@@ -1219,9 +1231,10 @@ function validPng(
   marker = 0,
   ancillaryBytes = 0,
   onePixelMarker = null,
-  markerPixelCount = 1
+  markerPixelCount = 1,
+  focusRing = false
 ) {
-  const cacheKey = `${width}:${height}:${marker}:${ancillaryBytes}:${onePixelMarker}:${markerPixelCount}`;
+  const cacheKey = `${width}:${height}:${marker}:${ancillaryBytes}:${onePixelMarker}:${markerPixelCount}:${focusRing}`;
   if (PNG_CACHE.has(cacheKey)) return PNG_CACHE.get(cacheKey);
   const header = Buffer.alloc(13);
   header.writeUInt32BE(width, 0);
@@ -1266,6 +1279,17 @@ function validPng(
       rows[pixel] = onePixelMarker;
       rows[pixel + 1] = 10;
       rows[pixel + 2] = 20;
+    }
+  }
+  if (focusRing) {
+    for (let y = 5; y < 40; y += 1) {
+      for (let x = 5; x < 75; x += 1) {
+        if (x >= 8 && x < 72 && y >= 8 && y < 37) continue;
+        const pixel = y * (width * 4 + 1) + 1 + x * 4;
+        rows[pixel] = 20;
+        rows[pixel + 1] = 240;
+        rows[pixel + 2] = 130;
+      }
     }
   }
   const chunks = [
@@ -4661,5 +4685,52 @@ test("accepts localized cross-state pixel changes in trusted native captures", (
     result.issues.some((issue) => /materially different decoded pixels/.test(issue.message)),
     false,
     JSON.stringify(result.issues)
+  );
+});
+
+test("accepts a thin native keyboard focus ring that coarse viewport tiles miss", () => {
+  const fixture = makeFixture();
+  addRequiredStateCapture(fixture, "keyboard", validPng(1440, 1000, 0, 0, null, 1, true));
+  const result = check(fixture);
+  assert.equal(
+    result.issues.some((issue) => /materially different decoded pixels/.test(issue.message)),
+    false,
+    JSON.stringify(result.issues)
+  );
+});
+
+test("native keyboard focus does not excuse unrelated corner noise", () => {
+  const fixture = makeFixture();
+  addRequiredStateCapture(fixture, "keyboard", validPng(1440, 1000, 0, 0, 50, 100));
+  assert.equal(
+    check(fixture).issues.some((issue) =>
+      /materially different decoded pixels/.test(issue.message)
+    ),
+    true
+  );
+});
+
+test("thin focus changes require both focused assertions and native keyboard input", () => {
+  for (const proof of [false, "no-tab"]) {
+    const fixture = makeFixture();
+    fixture.nativeFocusProof = proof;
+    addRequiredStateCapture(fixture, "keyboard", validPng(1440, 1000, 0, 0, null, 1, true));
+    assert.equal(
+      check(fixture).issues.some((issue) =>
+        /materially different decoded pixels/.test(issue.message)
+      ),
+      true
+    );
+  }
+});
+
+test("native keyboard focus cannot distinguish identical decoded screenshots", () => {
+  const fixture = makeFixture();
+  addRequiredStateCapture(fixture, "keyboard", validPng(1440, 1000));
+  assert.equal(
+    check(fixture).issues.some((issue) =>
+      /materially different decoded pixels/.test(issue.message)
+    ),
+    true
   );
 });

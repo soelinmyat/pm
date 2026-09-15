@@ -778,6 +778,7 @@ function validateCaptures(root, captures, route, routeFile, runtime, issues) {
   }
   validateDistinctActiveCaptures(root, acceptedCaptureRows, coverage, decodedByCapture, issues);
   validateCrossStateVisualDistance(
+    root,
     acceptedCaptureRows,
     coverage,
     decodedByCapture,
@@ -831,6 +832,7 @@ function validateDistinctActiveCaptures(root, captureRows, coverage, decodedByCa
 }
 
 function validateCrossStateVisualDistance(
+  root,
   captureRows,
   coverage,
   decodedByCapture,
@@ -875,7 +877,15 @@ function validateCrossStateVisualDistance(
           observationByCapture.has(right.capture.id) &&
           difference !== null &&
           difference.changedTileRatio >= MIN_CROSS_STATE_CHANGED_TILE_RATIO;
-        if (!isMaterialVisualDifference(difference) && !localizedNativeChange) {
+        const nativeFocusChange =
+          !isMaterialVisualDifference(difference) &&
+          !localizedNativeChange &&
+          hasNativeFocusPixelChange(root, left, right, observationByCapture);
+        if (
+          !isMaterialVisualDifference(difference) &&
+          !localizedNativeChange &&
+          !nativeFocusChange
+        ) {
           violationCount += 1;
           if (emittedDiagnostics < MAX_RULE_DIAGNOSTICS - 1) {
             add(
@@ -895,6 +905,79 @@ function validateCrossStateVisualDistance(
       "captures.captures",
       `${violationCount - emittedDiagnostics} additional cross-state visual-distance failures omitted after ${emittedDiagnostics} diagnostics`
     );
+}
+
+// A native focus indicator can be much smaller than a viewport tile. Inspect a
+// bounded neighbourhood of the natively hit-tested focused control instead.
+// This is only a visual-distance fallback: all receipt, focus, audit and pixel
+// identity checks still apply, as does the unchanged material-distance floor.
+function hasNativeFocusPixelChange(root, left, right, observations) {
+  const leftObservation = observations.get(left.capture.id);
+  const rightObservation = observations.get(right.capture.id);
+  if (
+    !leftObservation ||
+    !rightObservation ||
+    left.capture.width !== right.capture.width ||
+    left.capture.height !== right.capture.height ||
+    left.capture.full_page ||
+    right.capture.full_page ||
+    !isDeepStrictEqual(
+      leftObservation.manifest.page.css_viewport,
+      rightObservation.manifest.page.css_viewport
+    )
+  )
+    return false;
+  for (const side of [left, right]) {
+    if (!["focus", "keyboard"].includes(side.coverage.state)) continue;
+    const observation = observations.get(side.capture.id);
+    const assertion = observation.assertion;
+    if (!assertion?.before_capture?.some((action) => action.kind === "tab" && action.count > 0))
+      continue;
+    const focused = assertion.all.filter((clause) => clause.expect.kind === "focused");
+    for (const clause of focused) {
+      const index = assertion.all.findIndex(
+        (candidate) =>
+          candidate.expect.kind === "visible" &&
+          isDeepStrictEqual(candidate.locator, clause.locator)
+      );
+      if (index < 0) continue;
+      const point = observation.manifest.page.state_assertion.visibility.checks.find(
+        (check) => check.label === `state assertion clause ${index + 1}`
+      );
+      if (!point) continue;
+      const x = Math.max(0, Math.floor(point.x) - 128);
+      const y = Math.max(0, Math.floor(point.y) - 48);
+      const region = {
+        x,
+        y,
+        width: Math.min(left.capture.width - x, 256),
+        height: Math.min(left.capture.height - y, 96),
+      };
+      try {
+        const before = readBoundFile(root, left.capture.path, "focus comparison", []);
+        const after = readBoundFile(root, right.capture.path, "focus comparison", []);
+        if (
+          !before ||
+          !after ||
+          before.sha256 !== left.capture.sha256 ||
+          after.sha256 !== right.capture.sha256
+        )
+          continue;
+        if (
+          isMaterialVisualDifference(
+            visualDifference(
+              inspectPngVisualBytes(before.bytes, region),
+              inspectPngVisualBytes(after.bytes, region)
+            )
+          )
+        )
+          return true;
+      } catch {
+        // Invalid or unavailable local evidence cannot grant an exception.
+      }
+    }
+  }
+  return false;
 }
 
 function validateTrustedCaptureObservation(
@@ -998,7 +1081,21 @@ function validateTrustedCaptureObservation(
     issues
   );
   validateTrustedTimestamps(manifest, at, issues);
-  return { manifest, manifestFile: file };
+  let focusAssertion = null;
+  try {
+    if (assertion) {
+      const value = JSON.parse(assertion.bytes.toString("utf8"));
+      validateStateAssertion(value, {
+        subject_id: coverage?.subject_id,
+        coverage_id: coverage?.id,
+        state: coverage?.state,
+      });
+      focusAssertion = value;
+    }
+  } catch {
+    // The assertion validator already reports malformed JSON.
+  }
+  return { manifest, manifestFile: file, assertion: focusAssertion };
 }
 
 function validateTrustedStateAssertion(root, manifest, routeFile, coverage, label, issues) {

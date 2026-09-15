@@ -16,6 +16,27 @@ test("strict PNG inspection accepts a complete decodable image", () => {
   assert.deepEqual(inspectPngBytes(png({ colorType: 6 })), { width: 10, height: 10 });
 });
 
+test("visual regions retain full pixel identity but exclude distant changes from comparison", () => {
+  const region = { x: 10, y: 10, width: 20, height: 20 };
+  const base = rgbaPng(100, 100, () => [255, 255, 255, 255]);
+  const changed = rgbaPng(100, 100, (x, y) =>
+    x > 80 && y > 80 ? [0, 0, 0, 255] : [255, 255, 255, 255]
+  );
+  const cropped = inspectPngVisualBytes(changed, region);
+  assert.equal(cropped.pixelSha256, inspectPngVisualBytes(changed).pixelSha256);
+  assert.equal(visualDifference(inspectPngVisualBytes(base, region), cropped).distance, 0);
+  assert.ok(
+    visualDifference(inspectPngVisualBytes(base), inspectPngVisualBytes(changed)).distance > 0
+  );
+  for (const invalid of [
+    { ...region, x: -1 },
+    { ...region, width: 0 },
+    { ...region, x: 99 },
+    { ...region, y: 0.5 },
+  ])
+    assert.throws(() => inspectPngVisualBytes(base, invalid), /invalid PNG visual region/);
+});
+
 test("visual PNG inspection ignores ancillary encoding bytes in its pixel identity", () => {
   const first = inspectPngVisualBytes(png({ colorType: 6, textByte: 0x61 }));
   const second = inspectPngVisualBytes(png({ colorType: 6, textByte: 0x62 }));
