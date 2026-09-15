@@ -35,8 +35,12 @@ function inspectPngBytes(bytes) {
   return { width: inspected.width, height: inspected.height };
 }
 
-function inspectPngVisualBytes(bytes) {
-  return inspectPngInternal(bytes, true);
+function inspectPngVisualBytes(bytes, region = null) {
+  return inspectPngInternal(bytes, true, region);
+}
+
+function createPngRegionInspector(bytes) {
+  return inspectPngInternal(bytes, true, null, true);
 }
 
 function inspectPngHeaderBytes(bytes) {
@@ -62,7 +66,7 @@ function inspectPngHeaderBytes(bytes) {
   return parseHeader(data);
 }
 
-function inspectPngInternal(bytes, includeVisualEvidence) {
+function inspectPngInternal(bytes, includeVisualEvidence, region = null, lazyRegions = false) {
   if (
     !Buffer.isBuffer(bytes) ||
     bytes.length < MIN_RENDER_BYTES ||
@@ -107,13 +111,14 @@ function inspectPngInternal(bytes, includeVisualEvidence) {
       const pixelStream = validatePixelStream(header, compressed);
       if (!includeVisualEvidence) return { width: header.width, height: header.height };
       const pixels = decodePixels(header, pixelStream);
-      return {
+      const inspectRegion = (selectedRegion) => ({
         width: header.width,
         height: header.height,
         bitDepth: header.bitDepth,
         colorType: header.colorType,
-        ...visualPixelEvidence(header, pixels),
-      };
+        ...visualPixelEvidence(header, pixels, selectedRegion),
+      });
+      return lazyRegions ? inspectRegion : inspectRegion(region);
     } else if (sawData) dataEnded = true;
     offset = end;
   }
@@ -205,7 +210,7 @@ function paeth(left, up, upperLeft) {
   return upDistance <= upperLeftDistance ? up : upperLeft;
 }
 
-function visualPixelEvidence(header, pixels) {
+function visualPixelEvidence(header, pixels, region = null) {
   const totalPixels = header.width * header.height;
   if (header.bitDepth !== 8 || !new Set([0, 2, 4, 6]).has(header.colorType)) {
     return {
@@ -230,7 +235,7 @@ function visualPixelEvidence(header, pixels) {
   let firstVisibleBlue = 0;
   let firstVisibleAlpha = 0;
   let hasVisualVariation = false;
-  const metrics = createVisualMetrics(header.width, header.height);
+  const metrics = createVisualMetrics(header.width, header.height, region);
   if (header.colorType === 6) {
     let canonicalPixels = null;
     for (let offset = 0; offset < pixels.length; offset += 4) {
@@ -338,7 +343,19 @@ function visualPixelEvidence(header, pixels) {
   };
 }
 
-function createVisualMetrics(width, height) {
+function createVisualMetrics(width, height, region = null) {
+  if (region !== null) {
+    if (
+      ![region.x, region.y, region.width, region.height].every(Number.isInteger) ||
+      region.x < 0 ||
+      region.y < 0 ||
+      region.width < 1 ||
+      region.height < 1 ||
+      region.x + region.width > width ||
+      region.y + region.height > height
+    )
+      throw new Error("invalid PNG visual region");
+  }
   const gridSize = 8;
   const bucketCount = 16 * 16 * 16;
   const buckets = new Float64Array(bucketCount);
@@ -352,8 +369,22 @@ function createVisualMetrics(width, height) {
   let maximumLuminance = 0;
 
   function observe(x, y, effectiveRed, effectiveGreen, effectiveBlue, alpha) {
-    const cellX = Math.min(gridSize - 1, Math.floor((x * gridSize) / width));
-    const cellY = Math.min(gridSize - 1, Math.floor((y * gridSize) / height));
+    if (
+      region &&
+      (x < region.x ||
+        y < region.y ||
+        x >= region.x + region.width ||
+        y >= region.y + region.height)
+    )
+      return;
+    const cellX = Math.min(
+      gridSize - 1,
+      Math.floor(((x - (region?.x || 0)) * gridSize) / (region?.width || width))
+    );
+    const cellY = Math.min(
+      gridSize - 1,
+      Math.floor(((y - (region?.y || 0)) * gridSize) / (region?.height || height))
+    );
     const cell = cellY * gridSize + cellX;
     redSums[cell] += effectiveRed;
     greenSums[cell] += effectiveGreen;
@@ -819,6 +850,7 @@ module.exports = {
   inspectPngBytes,
   inspectPngHeaderBytes,
   inspectPngVisualBytes,
+  createPngRegionInspector,
   visualDifference,
   visualDistance,
 };

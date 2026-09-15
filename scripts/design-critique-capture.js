@@ -853,15 +853,53 @@ function validateAssertionVisibility(value, label, expectedLabels = null) {
   for (const [index, check] of value.checks.entries()) {
     exactObject(
       check,
-      ["label", "asserted_backend_node_id", "hit_backend_node_id", "x", "y"],
+      [
+        "label",
+        "asserted_backend_node_id",
+        "hit_backend_node_id",
+        "x",
+        "y",
+        ...(Object.hasOwn(check, "visual_bounds") ? ["visual_bounds"] : []),
+        ...(Object.hasOwn(check, "focus_indicator_regions") ? ["focus_indicator_regions"] : []),
+      ],
       `${label}.checks[${index}]`
     );
     boundedText(check.label, 100, `${label}.checks[${index}].label`);
+    if (Object.hasOwn(check, "focus_indicator_regions")) {
+      if (!Array.isArray(check.focus_indicator_regions) || check.focus_indicator_regions.length > 4)
+        throw new Error(`${label}.checks[${index}].focus_indicator_regions is invalid`);
+      for (const region of check.focus_indicator_regions) {
+        exactObject(region, ["x", "y", "width", "height"], "focus_indicator_regions");
+        for (const field of ["x", "y", "width", "height"])
+          if (
+            !Number.isSafeInteger(region[field]) ||
+            region[field] < (["width", "height"].includes(field) ? 1 : 0)
+          )
+            throw new Error("focus_indicator_regions contains invalid geometry");
+      }
+    }
     if (expectedLabels && check.label !== expectedLabels[index])
       throw new Error(`${label}.checks[${index}].label does not match the assertion clause`);
     for (const field of ["asserted_backend_node_id", "hit_backend_node_id", "x", "y"])
       if (!Number.isSafeInteger(check[field]) || check[field] < 0)
         throw new Error(`${label}.checks[${index}].${field} is invalid`);
+    if (Object.hasOwn(check, "visual_bounds")) {
+      const bounds = check.visual_bounds;
+      exactObject(bounds, ["x", "y", "width", "height"], `${label}.checks[${index}].visual_bounds`);
+      for (const field of ["x", "y", "width", "height"])
+        if (
+          !Number.isSafeInteger(bounds[field]) ||
+          bounds[field] < (["width", "height"].includes(field) ? 1 : 0)
+        )
+          throw new Error(`${label}.checks[${index}].visual_bounds.${field} is invalid`);
+      if (
+        check.x < bounds.x ||
+        check.y < bounds.y ||
+        check.x >= bounds.x + bounds.width ||
+        check.y >= bounds.y + bounds.height
+      )
+        throw new Error(`${label}.checks[${index}].visual_bounds excludes the hit-tested point`);
+    }
   }
   if (expectedLabels && value.verified_nodes !== expectedLabels.length)
     throw new Error(`${label} did not hit-test every required visible assertion node`);

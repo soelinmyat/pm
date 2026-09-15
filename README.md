@@ -4,6 +4,8 @@ Small, explicitly assessed low-risk web UI changes use one combined visual/brows
 
 Product UI capture supports reserved scrollbar gutters without treating the smaller content area as a viewport mismatch. Screenshot dimensions, zoom, and capture identity checks still apply. Native design audits also account for active modal dialogs, compare typography within related semantic regions, and accept localized state changes with meaningful changed tiles. Duplicate images, pixel beacons, and genuine accessibility defects still fail.
 
+Small keyboard-focus indicators are compared within bounded outline or outer-shadow bands when viewport-wide averaging misses them. This fallback requires native Tab input, an observed indicator-style change, matching viewport geometry, and material changes on at least two bands. Unchanged screenshots, control-interior noise, adjacent noise, and untrusted captures do not qualify. It does not replace the visual accessibility review.
+
 Verified corrections within an already-approved Dev task do not need repeated approval: behavioral fixes require red/green regression evidence and fresh review. New scope, consequential decisions, disputes and external actions retain their approval boundaries.
 
 [![CI](https://github.com/soelinmyat/pm/actions/workflows/ci.yml/badge.svg)](https://github.com/soelinmyat/pm/actions/workflows/ci.yml)

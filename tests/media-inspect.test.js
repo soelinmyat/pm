@@ -8,12 +8,52 @@ const {
   inspectPdfBytes,
   inspectPngBytes,
   inspectPngVisualBytes,
+  createPngRegionInspector,
   visualDifference,
   visualDistance,
 } = require("../scripts/lib/media-inspect");
 
 test("strict PNG inspection accepts a complete decodable image", () => {
   assert.deepEqual(inspectPngBytes(png({ colorType: 6 })), { width: 10, height: 10 });
+});
+
+test("regional inspector decodes once and computes regions lazily", (t) => {
+  const bytes = rgbaPng(100, 100, (x, y) => [x, y, 80, 255]);
+  const regions = [0, 20, 40, 60].map((x) => ({ x, y: 10, width: 20, height: 10 }));
+  const expected = regions.map((region) => inspectPngVisualBytes(bytes, region));
+  const inflate = zlib.inflateSync;
+  let decodes = 0;
+  t.mock.method(zlib, "inflateSync", (...args) => {
+    decodes++;
+    return inflate(...args);
+  });
+  const inspect = createPngRegionInspector(bytes);
+  assert.equal(decodes, 1);
+  for (const [index, region] of regions.entries())
+    assert.deepEqual(inspect(region), expected[index]);
+  assert.equal(decodes, 1);
+  assert.throws(() => inspect({ x: -1, y: 0, width: 10, height: 10 }), /invalid PNG visual region/);
+});
+
+test("visual regions retain full pixel identity but exclude distant changes from comparison", () => {
+  const region = { x: 10, y: 10, width: 20, height: 20 };
+  const base = rgbaPng(100, 100, () => [255, 255, 255, 255]);
+  const changed = rgbaPng(100, 100, (x, y) =>
+    x > 80 && y > 80 ? [0, 0, 0, 255] : [255, 255, 255, 255]
+  );
+  const cropped = inspectPngVisualBytes(changed, region);
+  assert.equal(cropped.pixelSha256, inspectPngVisualBytes(changed).pixelSha256);
+  assert.equal(visualDifference(inspectPngVisualBytes(base, region), cropped).distance, 0);
+  assert.ok(
+    visualDifference(inspectPngVisualBytes(base), inspectPngVisualBytes(changed)).distance > 0
+  );
+  for (const invalid of [
+    { ...region, x: -1 },
+    { ...region, width: 0 },
+    { ...region, x: 99 },
+    { ...region, y: 0.5 },
+  ])
+    assert.throws(() => inspectPngVisualBytes(base, invalid), /invalid PNG visual region/);
 });
 
 test("visual PNG inspection ignores ancillary encoding bytes in its pixel identity", () => {
