@@ -1015,6 +1015,12 @@ function attachTrustedCaptureObservation(
           ? {}
           : {
               visual_bounds: { x: 5, y: 5, width: 70, height: 35 },
+              focus_indicator_regions: [
+                { x: 5, y: 5, width: 70, height: 3 },
+                { x: 5, y: 37, width: 70, height: 3 },
+                { x: 5, y: 8, width: 3, height: 29 },
+                { x: 72, y: 8, width: 3, height: 29 },
+              ],
             }),
       },
     ],
@@ -1286,9 +1292,11 @@ function validPng(
       rows[pixel + 2] = 20;
     }
   }
-  if (focusRing === "nearby-noise") {
-    for (let y = 10; y < 26; y += 1) {
-      for (let x = 90; x < 106; x += 1) {
+  if (focusRing === "nearby-noise" || focusRing === "interior-noise") {
+    const left = focusRing === "interior-noise" ? 30 : 90;
+    const size = focusRing === "interior-noise" ? 6 : 16;
+    for (let y = 15; y < 15 + size; y += 1) {
+      for (let x = left; x < left + size; x += 1) {
         const pixel = y * (width * 4 + 1) + 1 + x * 4;
         rows[pixel] = 255;
         rows[pixel + 1] = 255;
@@ -4727,6 +4735,21 @@ test("native keyboard focus does not excuse unrelated corner noise", () => {
 test("native keyboard focus rejects nearby changes outside the focused control", () => {
   const fixture = makeFixture();
   addRequiredStateCapture(fixture, "keyboard", validPng(1440, 1000, 0, 0, null, 1, "nearby-noise"));
+  assert.equal(
+    check(fixture).issues.some((issue) =>
+      /materially different decoded pixels/.test(issue.message)
+    ),
+    true
+  );
+});
+
+test("native keyboard focus rejects an interior pixel beacon", () => {
+  const fixture = makeFixture();
+  addRequiredStateCapture(
+    fixture,
+    "keyboard",
+    validPng(1440, 1000, 0, 0, null, 1, "interior-noise")
+  );
   assert.equal(
     check(fixture).issues.some((issue) =>
       /materially different decoded pixels/.test(issue.message)

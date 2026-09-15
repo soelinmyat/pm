@@ -1210,13 +1210,90 @@ function positionedDescendantCovers(
   return assertedArea > 0 && overlapArea / assertedArea >= 0.9;
 }
 
+const FOCUS_STYLE_NAMES = [
+  "outline-style",
+  "outline-width",
+  "outline-offset",
+  "outline-color",
+  "box-shadow",
+];
+
+function focusIndicatorRegions(node, style, prior, metrics) {
+  if (!prior || !node.layout?.bounds) return [];
+  const current = Object.fromEntries(FOCUS_STYLE_NAMES.map((key) => [key, style(node, key)]));
+  let outer = 0;
+  let inset = 0;
+  if (
+    FOCUS_STYLE_NAMES.slice(0, 4).some((key) => current[key] !== prior[key]) &&
+    !["", "none", "hidden"].includes(current["outline-style"])
+  ) {
+    const width = Number.parseFloat(current["outline-width"]);
+    const offset = Number.parseFloat(current["outline-offset"]);
+    if (!Number.isFinite(width) || !Number.isFinite(offset) || width <= 0) return [];
+    outer = Math.max(0, width + offset) + 1;
+    inset = Math.max(0, -offset);
+  }
+  if (
+    current["box-shadow"] &&
+    current["box-shadow"] !== "none" &&
+    current["box-shadow"] !== prior["box-shadow"]
+  ) {
+    for (const shadow of current["box-shadow"].split(/,(?![^()]*\))/)) {
+      if (/\binset\b/.test(shadow)) continue;
+      const lengths = shadow
+        .replace(/(?:rgba?|hsla?|color|oklab|oklch|lab|lch)\([^)]*\)/g, "")
+        .trim()
+        .split(/\s+/);
+      if (
+        lengths.length < 2 ||
+        lengths.length > 4 ||
+        lengths.some((value) => !/^-?(?:\d+\.?\d*|\.\d+)px$/.test(value))
+      )
+        return [];
+      const [x, y, blur = 0, spread = 0] = lengths.map(Number.parseFloat);
+      if (blur < 0) return [];
+      outer = Math.max(outer, Math.max(Math.abs(x), Math.abs(y)) + blur * 1.5 + spread + 1);
+    }
+  }
+  if (outer <= 0 || outer > 16 || inset > 16) return [];
+  const [x, y, width, height] = node.layout.bounds;
+  if (width <= inset * 2 || height <= inset * 2) return [];
+  const left = x - outer,
+    top = y - outer,
+    right = x + width + outer,
+    bottom = y + height + outer;
+  const innerLeft = x + inset,
+    innerTop = y + inset;
+  const innerRight = x + width - inset,
+    innerBottom = y + height - inset;
+  const viewport = metrics.cssVisualViewport;
+  return [
+    [left, top, right, innerTop],
+    [left, innerBottom, right, bottom],
+    [left, innerTop, innerLeft, innerBottom],
+    [innerRight, innerTop, right, innerBottom],
+  ]
+    .map(([l, t, r, b]) => {
+      const sx = Math.max(0, Math.ceil(l - viewport.pageX));
+      const sy = Math.max(0, Math.ceil(t - viewport.pageY));
+      return {
+        x: sx,
+        y: sy,
+        width: Math.min(viewport.clientWidth, Math.floor(r - viewport.pageX)) - sx,
+        height: Math.min(viewport.clientHeight, Math.floor(b - viewport.pageY)) - sy,
+      };
+    })
+    .filter((region) => region.width > 0 && region.height > 0);
+}
+
 async function verifyAssertionHitTargets(
   client,
   requirements,
   model,
   style,
   metrics,
-  visibilityEvaluator = null
+  visibilityEvaluator = null,
+  baselineStyles = null
 ) {
   const evaluateVisibility = visibilityEvaluatorFor(model, style, metrics, visibilityEvaluator);
   const checks = [];
@@ -1305,6 +1382,12 @@ async function verifyAssertionHitTargets(
       x: acceptedPoint.x,
       y: acceptedPoint.y,
       ...(visualBounds ? { visual_bounds: visualBounds } : {}),
+      focus_indicator_regions: focusIndicatorRegions(
+        requirement.node,
+        style,
+        baselineStyles?.get(requirement.node.backendNodeId),
+        metrics
+      ),
     });
   }
   return {
@@ -2228,7 +2311,13 @@ async function probeCompositeKeyboardAccess(client, candidates) {
   }
 }
 
-async function nativeSample(client, targetId, computedStyles, stateAssertion) {
+async function nativeSample(
+  client,
+  targetId,
+  computedStyles,
+  stateAssertion,
+  baselineStyles = null
+) {
   const [frameTree, metrics, snapshot, axTree] = await Promise.all([
     client.send("Page.getFrameTree"),
     client.send("Page.getLayoutMetrics"),
@@ -2262,7 +2351,8 @@ async function nativeSample(client, targetId, computedStyles, stateAssertion) {
     model,
     style,
     metrics,
-    visibilityEvaluator
+    visibilityEvaluator,
+    baselineStyles
   );
   const accessibility = accessibilityEvidence(axTree, model);
   return {
@@ -2812,6 +2902,8 @@ async function main() {
       "outline-style",
       "outline-width",
       "outline-offset",
+      "outline-color",
+      "box-shadow",
       "background-color",
       "gap",
       "overflow",
@@ -2833,7 +2925,22 @@ async function main() {
       "margin-bottom",
       "-webkit-mask-box-image-source",
     ];
+    let baselineStyles = null;
     if (config.stateAssertion.before_capture) {
+      const baseline = snapshotNodeModel(
+        await client.send("DOMSnapshot.captureSnapshot", {
+          computedStyles: FOCUS_STYLE_NAMES,
+          includeDOMRects: true,
+        })
+      );
+      baselineStyles = new Map(
+        baseline.map((node) => [
+          node.backendNodeId,
+          Object.fromEntries(
+            FOCUS_STYLE_NAMES.map((key, index) => [key, node.layout?.styles?.[index] || ""])
+          ),
+        ])
+      );
       // Only native navigation is allowed; the assertion file hash binds these actions.
       // Never click, submit, execute caller code, or manufacture a state marker.
       for (const action of config.stateAssertion.before_capture || []) {
@@ -2875,7 +2982,13 @@ async function main() {
       readyAt = new Date().toISOString();
     }
     criticalWindow = true;
-    const before = await nativeSample(client, target.id, computedStyles, config.stateAssertion);
+    const before = await nativeSample(
+      client,
+      target.id,
+      computedStyles,
+      config.stateAssertion,
+      baselineStyles
+    );
     const first = await client.send("Page.captureScreenshot", {
       format: "png",
       fromSurface: true,
@@ -2884,7 +2997,13 @@ async function main() {
     if (!first.data) throw new Error("browser did not return screenshot bytes");
     const firstAttestation = writeExclusiveFile(config.outputPath, first.data, "screenshot");
     const capturedAt = new Date().toISOString();
-    const middle = await nativeSample(client, target.id, computedStyles, config.stateAssertion);
+    const middle = await nativeSample(
+      client,
+      target.id,
+      computedStyles,
+      config.stateAssertion,
+      baselineStyles
+    );
     const second = await client.send("Page.captureScreenshot", {
       format: "png",
       fromSurface: true,
@@ -2896,7 +3015,13 @@ async function main() {
       second.data,
       "verification screenshot"
     );
-    const after = await nativeSample(client, target.id, computedStyles, config.stateAssertion);
+    const after = await nativeSample(
+      client,
+      target.id,
+      computedStyles,
+      config.stateAssertion,
+      baselineStyles
+    );
     if (
       canonicalSample(before) !== canonicalSample(middle) ||
       canonicalSample(middle) !== canonicalSample(after)
@@ -3029,6 +3154,7 @@ if (require.main === module)
   });
 
 module.exports = {
+  focusIndicatorRegions,
   appendBoundedEvidence,
   accessibilityObservations,
   createVisibilityEvaluator,

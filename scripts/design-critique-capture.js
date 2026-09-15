@@ -860,10 +860,24 @@ function validateAssertionVisibility(value, label, expectedLabels = null) {
         "x",
         "y",
         ...(Object.hasOwn(check, "visual_bounds") ? ["visual_bounds"] : []),
+        ...(Object.hasOwn(check, "focus_indicator_regions") ? ["focus_indicator_regions"] : []),
       ],
       `${label}.checks[${index}]`
     );
     boundedText(check.label, 100, `${label}.checks[${index}].label`);
+    if (Object.hasOwn(check, "focus_indicator_regions")) {
+      if (!Array.isArray(check.focus_indicator_regions) || check.focus_indicator_regions.length > 4)
+        throw new Error(`${label}.checks[${index}].focus_indicator_regions is invalid`);
+      for (const region of check.focus_indicator_regions) {
+        exactObject(region, ["x", "y", "width", "height"], "focus_indicator_regions");
+        for (const field of ["x", "y", "width", "height"])
+          if (
+            !Number.isSafeInteger(region[field]) ||
+            region[field] < (["width", "height"].includes(field) ? 1 : 0)
+          )
+            throw new Error("focus_indicator_regions contains invalid geometry");
+      }
+    }
     if (expectedLabels && check.label !== expectedLabels[index])
       throw new Error(`${label}.checks[${index}].label does not match the assertion clause`);
     for (const field of ["asserted_backend_node_id", "hit_backend_node_id", "x", "y"])

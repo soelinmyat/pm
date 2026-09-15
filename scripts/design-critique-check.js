@@ -946,8 +946,8 @@ function hasNativeFocusPixelChange(root, left, right, observations) {
       );
       // Legacy hit-point-only receipts remain valid, but cannot grant this
       // fallback: geometry must have been measured by the native producer.
-      const region = point?.visual_bounds;
-      if (!region) continue;
+      const regions = point?.focus_indicator_regions;
+      if (!regions || regions.length < 2) continue;
       try {
         const before = readBoundFile(root, left.capture.path, "focus comparison", []);
         const after = readBoundFile(root, right.capture.path, "focus comparison", []);
@@ -959,12 +959,14 @@ function hasNativeFocusPixelChange(root, left, right, observations) {
         )
           continue;
         if (
-          isMaterialVisualDifference(
-            visualDifference(
-              inspectPngVisualBytes(before.bytes, region),
-              inspectPngVisualBytes(after.bytes, region)
+          regions.filter((region) =>
+            isMaterialVisualDifference(
+              visualDifference(
+                inspectPngVisualBytes(before.bytes, region),
+                inspectPngVisualBytes(after.bytes, region)
+              )
             )
-          )
+          ).length >= 2
         )
           return true;
       } catch {

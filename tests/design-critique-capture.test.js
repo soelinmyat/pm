@@ -25,6 +25,7 @@ const {
   appendBoundedEvidence,
   createVisibilityEvaluator,
   domObservations,
+  focusIndicatorRegions,
   installWebSocketPolicy,
   nodeVisibleInViewport,
   normalizeAllowedOrigins,
@@ -1419,6 +1420,34 @@ test("DOM asymmetry requires a repeated component baseline and reports only outl
   );
 });
 
+test("focus indicator geometry includes changed outer shadows but excludes the control interior", () => {
+  const node = { backendNodeId: 1, layout: { bounds: [20, 20, 40, 40] } };
+  const before = {
+    "outline-style": "none",
+    "outline-width": "0px",
+    "outline-offset": "0px",
+    "outline-color": "rgb(0, 0, 0)",
+    "box-shadow": "none",
+  };
+  const after = { ...before, "box-shadow": "rgb(0, 0, 255) 0px 0px 0px 3px" };
+  const metrics = {
+    cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 100, clientHeight: 100 },
+  };
+  const regions = focusIndicatorRegions(node, (n, key) => after[key], before, metrics);
+  assert.equal(regions.length, 4);
+  assert.ok(
+    regions.every((r) => !(r.x < 60 && r.x + r.width > 20 && r.y < 60 && r.y + r.height > 20))
+  );
+  assert.deepEqual(
+    focusIndicatorRegions(node, (n, key) => before[key], before, metrics),
+    []
+  );
+  assert.deepEqual(
+    focusIndicatorRegions(node, (n, key) => after[key], null, metrics),
+    []
+  );
+});
+
 test("native hit testing distinguishes legitimate nested content from occluding overlays", async () => {
   const metrics = {
     cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 100, clientHeight: 100 },
@@ -1800,6 +1829,7 @@ function createBrowserFixture({
   stateMarkerStyle = "",
   belowFold = false,
   stableGutter = false,
+  shadowFocus = false,
 } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-trusted-capture-"));
   const external = externalRequest ? '<img src="https://example.invalid/tracker.png" alt="">' : "";
@@ -1836,6 +1866,7 @@ function createBrowserFixture({
 ${stableGutter ? "html{scrollbar-gutter:stable}::-webkit-scrollbar{width:11px}" : ""}
 ${stateMarkerStyle ? `#account{${stateMarkerStyle}}` : ""}
 ${belowFold ? "#account{margin-top:1400px}button:focus-visible{outline:4px solid orange}" : ""}
+${shadowFocus ? "button{outline:none}button:focus-visible{outline:none;box-shadow:0 0 0 3px blue}" : ""}
 </style></head><body><header><nav aria-label="Primary"><a href="#account">Accounts</a></nav></header><main id="account" data-testid="account-state" data-pm-state="primary"><header><h1>Account overview</h1></header><section aria-labelledby="summary"><h2 id="summary">Summary</h2><div class="cards"><article class="card"><h2>Usage</h2><p>Stable product evidence.</p></article><article class="card"><h2>Plan</h2><p>Professional tier.</p></article></div><button>Save changes</button>${focusabilityMarkup}</section>${descendantOverlay}</main>${external}${overlay}${late}${webSocket}${persistentWorkerScript}</body></html>`;
   return {
     root,
@@ -1879,12 +1910,40 @@ for (const { key, count, reverse } of [
         const result = runBrowserCapture(fixture);
         assert.ok(result.page.css_viewport.scroll_y > 1000);
         assert.equal(result.assertion_passed, true);
+        assert.ok(
+          result.assertion_visibility.checks.some(
+            (check) => check.focus_indicator_regions.length >= 2
+          )
+        );
       } finally {
         fs.rmSync(fixture.root, { recursive: true, force: true });
       }
     }
   );
 }
+
+test(
+  "browser capture measures a shadow-only focus ring after native Tab",
+  { skip: browserSkip },
+  () => {
+    const fixture = createBrowserFixture({ shadowFocus: true });
+    fixture.stateAssertion.before_capture = [{ kind: "tab", count: 2, reverse: false }];
+    fixture.stateAssertion.all.push({
+      locator: { by: "role-name", value: "button:Save changes" },
+      expect: { kind: "focused" },
+    });
+    try {
+      const result = runBrowserCapture(fixture);
+      assert.ok(
+        result.assertion_visibility.checks.some(
+          (check) => check.focus_indicator_regions.length === 4
+        )
+      );
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+);
 
 test(
   "browser capture scrolls an exact native target into view without focusing it",
