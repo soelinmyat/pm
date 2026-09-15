@@ -574,6 +574,18 @@ test("probe validation fails closed on URL, viewport, network, or timestamp drif
     },
   };
   assert.doesNotThrow(() => validateProbeResult(result, plan));
+  const geometry = structuredClone(result);
+  geometry.assertion_visibility.checks[1].visual_bounds = { x: 5, y: 5, width: 40, height: 40 };
+  assert.doesNotThrow(() => validateProbeResult(geometry, plan));
+  for (const bounds of [
+    { x: 5, y: 5, width: 0, height: 40 },
+    { x: 5, y: 5, width: 40.5, height: 40 },
+    { x: 30, y: 5, width: 40, height: 40 },
+    { x: 5, y: 5, width: 40, height: 40, extra: true },
+  ]) {
+    geometry.assertion_visibility.checks[1].visual_bounds = bounds;
+    assert.throws(() => validateProbeResult(geometry, plan), /visual_bounds/);
+  }
   // Stable scrollbar gutters reduce layout dimensions, while the
   // native document viewport and screenshot retain the routed dimensions.
   const gutter = structuredClone(result);
@@ -1456,6 +1468,17 @@ test("native hit testing distinguishes legitimate nested content from occluding 
     metrics
   );
   assert.equal(passed.verified_nodes, 1);
+  assert.deepEqual(passed.checks[0].visual_bounds, { x: 10, y: 10, width: 40, height: 40 });
+  target.styles = { "outline-style": "solid", "outline-width": "2px", "outline-offset": "2px" };
+  const outlined = await verifyAssertionHitTargets(
+    { send: async () => ({ backendNodeId: descendant.backendNodeId }) },
+    [{ label: "state marker", node: target }],
+    model,
+    style,
+    metrics
+  );
+  assert.deepEqual(outlined.checks[0].visual_bounds, { x: 5, y: 5, width: 50, height: 50 });
+  target.styles = {};
 
   const nestedWrapper = {
     index: 2,

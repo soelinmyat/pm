@@ -1011,6 +1011,11 @@ function attachTrustedCaptureObservation(
         hit_backend_node_id: 2,
         x: 20,
         y: 20,
+        ...(nativeFocusProof === "no-geometry"
+          ? {}
+          : {
+              visual_bounds: { x: 5, y: 5, width: 70, height: 35 },
+            }),
       },
     ],
   };
@@ -1281,7 +1286,16 @@ function validPng(
       rows[pixel + 2] = 20;
     }
   }
-  if (focusRing) {
+  if (focusRing === "nearby-noise") {
+    for (let y = 10; y < 26; y += 1) {
+      for (let x = 90; x < 106; x += 1) {
+        const pixel = y * (width * 4 + 1) + 1 + x * 4;
+        rows[pixel] = 255;
+        rows[pixel + 1] = 255;
+        rows[pixel + 2] = 255;
+      }
+    }
+  } else if (focusRing) {
     for (let y = 5; y < 40; y += 1) {
       for (let x = 5; x < 75; x += 1) {
         if (x >= 8 && x < 72 && y >= 8 && y < 37) continue;
@@ -4710,8 +4724,19 @@ test("native keyboard focus does not excuse unrelated corner noise", () => {
   );
 });
 
+test("native keyboard focus rejects nearby changes outside the focused control", () => {
+  const fixture = makeFixture();
+  addRequiredStateCapture(fixture, "keyboard", validPng(1440, 1000, 0, 0, null, 1, "nearby-noise"));
+  assert.equal(
+    check(fixture).issues.some((issue) =>
+      /materially different decoded pixels/.test(issue.message)
+    ),
+    true
+  );
+});
+
 test("thin focus changes require both focused assertions and native keyboard input", () => {
-  for (const proof of [false, "no-tab"]) {
+  for (const proof of [false, "no-tab", "no-geometry"]) {
     const fixture = makeFixture();
     fixture.nativeFocusProof = proof;
     addRequiredStateCapture(fixture, "keyboard", validPng(1440, 1000, 0, 0, null, 1, true));

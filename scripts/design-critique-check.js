@@ -908,7 +908,7 @@ function validateCrossStateVisualDistance(
 }
 
 // A native focus indicator can be much smaller than a viewport tile. Inspect a
-// bounded neighbourhood of the natively hit-tested focused control instead.
+// native bounds of the hit-tested focused control and its bounded outline instead.
 // This is only a visual-distance fallback: all receipt, focus, audit and pixel
 // identity checks still apply, as does the unchanged material-distance floor.
 function hasNativeFocusPixelChange(root, left, right, observations) {
@@ -944,15 +944,10 @@ function hasNativeFocusPixelChange(root, left, right, observations) {
       const point = observation.manifest.page.state_assertion.visibility.checks.find(
         (check) => check.label === `state assertion clause ${index + 1}`
       );
-      if (!point) continue;
-      const x = Math.max(0, Math.floor(point.x) - 128);
-      const y = Math.max(0, Math.floor(point.y) - 48);
-      const region = {
-        x,
-        y,
-        width: Math.min(left.capture.width - x, 256),
-        height: Math.min(left.capture.height - y, 96),
-      };
+      // Legacy hit-point-only receipts remain valid, but cannot grant this
+      // fallback: geometry must have been measured by the native producer.
+      const region = point?.visual_bounds;
+      if (!region) continue;
       try {
         const before = readBoundFile(root, left.capture.path, "focus comparison", []);
         const after = readBoundFile(root, right.capture.path, "focus comparison", []);

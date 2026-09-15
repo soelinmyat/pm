@@ -1275,12 +1275,36 @@ async function verifyAssertionHitTargets(
         throw new Error(`${requirement.label} is covered by a positioned descendant`);
     }
     const acceptedPoint = accepted[0];
+    // Derive the comparison area from native layout/computed style, not a
+    // hit-point neighbourhood that could include unrelated adjacent content.
+    const outlineStyle = style(requirement.node, "outline-style");
+    const outlineWidth = Number.parseFloat(style(requirement.node, "outline-width")) || 0;
+    const outlineOffset = Number.parseFloat(style(requirement.node, "outline-offset")) || 0;
+    const outset =
+      outlineStyle && outlineStyle !== "none" && outlineStyle !== "hidden"
+        ? Math.max(0, outlineWidth + outlineOffset) + 1
+        : 0;
+    let visualBounds = null;
+    if (Number.isFinite(outset) && outset <= 16) {
+      const x = Math.max(0, Math.floor(intersection.left - pageX - outset));
+      const y = Math.max(0, Math.floor(intersection.top - pageY - outset));
+      const right = Math.min(
+        metrics.cssVisualViewport.clientWidth,
+        Math.ceil(intersection.right - pageX + outset)
+      );
+      const bottom = Math.min(
+        metrics.cssVisualViewport.clientHeight,
+        Math.ceil(intersection.bottom - pageY + outset)
+      );
+      if (right > x && bottom > y) visualBounds = { x, y, width: right - x, height: bottom - y };
+    }
     checks.push({
       label: requirement.label,
       asserted_backend_node_id: requirement.node.backendNodeId,
       hit_backend_node_id: acceptedPoint.backend_node_id,
       x: acceptedPoint.x,
       y: acceptedPoint.y,
+      ...(visualBounds ? { visual_bounds: visualBounds } : {}),
     });
   }
   return {
@@ -2785,6 +2809,9 @@ async function main() {
       "border-top-width",
       "border-top-style",
       "border-top-color",
+      "outline-style",
+      "outline-width",
+      "outline-offset",
       "background-color",
       "gap",
       "overflow",
