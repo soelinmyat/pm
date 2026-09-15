@@ -147,6 +147,108 @@ test("overlapping findings with different identities cannot evade fix disagreeme
   assert.deepEqual(merged.unresolved_disagreements, [first.id, second.id].sort());
 });
 
+function agreeingSignals() {
+  const first = { ...sampleFinding(), reviewer_id: "worker-a" };
+  first.id = findingId(first);
+  const second = {
+    ...first,
+    reviewer_id: "worker-b",
+    rule: "second-rule",
+    fix: "Equivalent wording.",
+  };
+  second.id = findingId(second);
+  const agreement = {
+    finding_ids: [first.id, second.id].sort(),
+    remedy: "Invalidate the stale cache before reading.",
+  };
+  first.remediation_agreement = structuredClone(agreement);
+  second.remediation_agreement = structuredClone(agreement);
+  return [first, second];
+}
+
+test("matching independent clarification resolves prose only and retains original signals", () => {
+  const signals = agreeingSignals();
+  const merged = mergeSignals(signals, []);
+  assert.deepEqual(merged.unresolved_disagreements, []);
+  assert.equal(merged.findings.length, 2);
+  assert.ok(
+    merged.findings.every(
+      (finding) => finding.agreed_fix === signals[0].remediation_agreement.remedy
+    )
+  );
+  assert.deepEqual(
+    merged.findings.flatMap((finding) => finding.signals).sort((a, b) => a.id.localeCompare(b.id)),
+    [...signals].sort((a, b) => a.id.localeCompare(b.id))
+  );
+});
+
+test("incomplete, mismatched, malformed or non-independent clarification stays blocked", () => {
+  const mutations = [
+    (rows) => {
+      delete rows[1].remediation_agreement;
+    },
+    (rows) => {
+      rows[1].remediation_agreement.remedy = "Delete the cache.";
+    },
+    (rows) => {
+      rows[1].reviewer_id = rows[0].reviewer_id;
+    },
+    (rows) => {
+      for (const row of rows) row.remediation_agreement.finding_ids.push("rv-unknown");
+    },
+    (rows) => {
+      for (const row of rows) row.remediation_agreement.finding_ids = [rows[0].id];
+    },
+    (rows) => {
+      for (const row of rows) row.remediation_agreement.remedy = "";
+    },
+    (rows) => {
+      rows[1].fix_kind = "decision";
+    },
+    (rows) => {
+      rows[1].owner = "qa";
+    },
+    (rows) => {
+      rows[1].disposition = "dismissed";
+    },
+    (rows) => {
+      rows[1].decision_required = true;
+    },
+    (rows) => {
+      rows[0].severity = "low";
+      rows[1].severity = "critical";
+    },
+  ];
+  for (const mutate of mutations) {
+    const signals = agreeingSignals();
+    mutate(signals);
+    assert.ok(mergeSignals(signals, []).unresolved_disagreements.length > 0, mutate.toString());
+  }
+});
+
+test("every signal for an agreed finding must independently confirm", () => {
+  const signals = agreeingSignals();
+  signals.push({ ...signals[0], reviewer_id: "worker-c", remediation_agreement: undefined });
+  assert.ok(mergeSignals(signals, []).unresolved_disagreements.length > 0);
+});
+
+test("partial clarification cannot silently include an unconfirmed overlapping reviewer", () => {
+  const signals = agreeingSignals();
+  const third = {
+    ...sampleFinding(),
+    reviewer_id: "worker-c",
+    rule: "third-rule",
+    fix: "Third remedy.",
+  };
+  third.id = findingId(third);
+  signals.push(third);
+  for (const row of signals.slice(0, 2)) row.remediation_agreement.remedy = third.fix;
+  assert.ok(mergeSignals(signals, []).unresolved_disagreements.length > 0);
+  const agreement = { finding_ids: signals.map((row) => row.id).sort(), remedy: third.fix };
+  for (const row of signals) row.remediation_agreement = structuredClone(agreement);
+  assert.deepEqual(mergeSignals(signals, []).unresolved_disagreements, []);
+});
+
 test("Dev review context binds route identity and ordered acceptance criteria", () => {
   const session = {
     run_id: "dev_example",

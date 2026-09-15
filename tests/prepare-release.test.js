@@ -110,6 +110,38 @@ test("prepare-release commits version files without creating a feature tag and r
   }
 });
 
+test("prepare-release uses the originating session from a registered worktree without copying it", () => {
+  const item = fixture();
+  try {
+    const worktree = path.join(path.dirname(item.root), "feature");
+    git(item.root, "worktree", "add", "-b", "fix/release-test", worktree);
+    const { createSession, updateWorkspace } = require("../scripts/lib/dev-session-schema");
+    const session = updateWorkspace(
+      createSession({ sourceDir: item.root, slug: "release-test", allowSlugMismatch: true }),
+      worktree
+    );
+    const canonical = path.join(item.root, sessionRel);
+    fs.writeFileSync(canonical, JSON.stringify(session));
+    const before = fs.readFileSync(canonical);
+    const result = spawnSync(
+      process.execPath,
+      [script, "patch", "--root", worktree, "--session", canonical],
+      { cwd: worktree, encoding: "utf8" }
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.existsSync(path.join(worktree, sessionRel)), false);
+    assert.deepEqual(fs.readFileSync(canonical), before);
+    const transaction = JSON.parse(
+      fs.readFileSync(
+        path.join(worktree, ".pm/dev-sessions/release-test/ship/release-transaction.json")
+      )
+    );
+    assert.equal(transaction.run_id, session.run_id);
+  } finally {
+    item.cleanup();
+  }
+});
+
 test("prepare-release refuses dirty tracked work instead of absorbing it", () => {
   const item = fixture();
   try {

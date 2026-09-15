@@ -53,6 +53,8 @@ Set up an isolated git worktree for every task — including XS. Worktree isolat
    Continue using the absolute session path returned by `init`; it remains in the originating repository even after cwd moves into the feature worktree.
 7. **Update local backlog status to in-progress:**
 
+   Release preparation, Review and gate checks resolve the originating session through registered Git worktrees. Pass its original absolute path when a command accepts `--session` or `--dev-session`; do not copy it into the source worktree. Worktree-local `gates.json`, Review evidence and release transactions remain local. A session in another worktree must bind this repository, source worktree, branch and namespace; a stale copied session is an error, not a fallback authority.
+
    **Loop worker branch:** If `PM_LOOP_WORKER=1`, skip this backlog write (including the parent write) and log `Backlog write: skipped-loop-worker`. The loop worker already owns the durable claim and is the only process allowed to finalize card state. Continue with worktree prep and every implementation/quality gate below.
 
    <HARD-RULE>

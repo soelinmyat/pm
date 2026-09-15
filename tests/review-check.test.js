@@ -51,6 +51,106 @@ const { readProjectInput } = require("../scripts/lib/safe-project-output");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 let installedBrowser = null;
+test("separate clarification files preserve exact original results", () => {
+  for (const variant of ["valid", "changed", "missing", "no-agreement"]) {
+    const fixture = makeFixture({ maxWorkers: 3 });
+    fixture.reportPath = `${path.dirname(fixture.targetPath)}/report.json`;
+    fixture.htmlPath = `${path.dirname(fixture.targetPath)}/report.html`;
+    const first = validFinding("bug");
+    const second = { ...validFinding("edge"), fix: "Equivalent correction." };
+    setFindingForLens(fixture, "bug", first);
+    setFindingForLens(fixture, "edge", second);
+    const originals = fixture.resultPaths.map((file) =>
+      fs.readFileSync(path.join(fixture.root, file), "utf8")
+    );
+    for (let i = 0; i < 2; i += 1) {
+      const result = JSON.parse(originals[i]);
+      for (const finding of result.findings) {
+        if (variant !== "no-agreement")
+          finding.remediation_agreement = {
+            finding_ids: [first.id, second.id].sort(),
+            remedy: "Restore the documented return value.",
+          };
+      }
+      if (variant === "changed" && i === 0) result.findings[0].fix = "Rewritten original.";
+      const destination = fixture.resultPaths[i].replace("/results/", "/clarifications/");
+      fs.mkdirSync(path.dirname(path.join(fixture.root, destination)), { recursive: true });
+      fs.writeFileSync(path.join(fixture.root, destination), JSON.stringify(result));
+      if (variant === "missing" && i === 0)
+        fs.unlinkSync(path.join(fixture.root, fixture.resultPaths[i]));
+      fixture.resultPaths[i] = destination;
+    }
+    const checked = generate(fixture);
+    assert.equal(checked.ok, variant === "valid", JSON.stringify(checked.issues));
+    if (variant === "valid")
+      for (let i = 0; i < 2; i += 1) {
+        assert.equal(
+          fs.readFileSync(
+            path.join(
+              fixture.root,
+              fixture.resultPaths[i].replace("/clarifications/", "/results/")
+            ),
+            "utf8"
+          ),
+          originals[i]
+        );
+      }
+  }
+});
+
+test("reviewer clarification is target-bound and visible without replacing findings", () => {
+  for (const variant of ["agreed", "partial", "unknown", "malformed", "stale"]) {
+    const fixture = makeFixture({ maxWorkers: 3 });
+    fixture.reportPath = `${path.dirname(fixture.targetPath)}/report.json`;
+    fixture.htmlPath = `${path.dirname(fixture.targetPath)}/report.html`;
+    const first = validFinding("bug");
+    const second = {
+      ...validFinding("edge"),
+      fix: "Preserve the expected return value and test it.",
+    };
+    const agreement = {
+      finding_ids: [first.id, second.id].sort(),
+      remedy: "Restore the documented return value with regression coverage.",
+    };
+    first.remediation_agreement = structuredClone(agreement);
+    second.remediation_agreement = structuredClone(agreement);
+    if (variant === "partial") delete second.remediation_agreement;
+    if (variant === "unknown") {
+      first.remediation_agreement.finding_ids.push("rv-" + "f".repeat(20));
+      second.remediation_agreement.finding_ids.push("rv-" + "f".repeat(20));
+    }
+    if (variant === "malformed") first.remediation_agreement.remedy = false;
+    setFindingForLens(fixture, "bug", first);
+    setFindingForLens(fixture, "edge", second);
+    if (variant === "stale") {
+      const file = path.join(fixture.root, fixture.resultPaths[0]);
+      const result = JSON.parse(fs.readFileSync(file, "utf8"));
+      result.target.sha256 = "f".repeat(64);
+      fs.writeFileSync(file, JSON.stringify(result));
+    }
+    const result = generate(fixture);
+    if (["malformed", "stale"].includes(variant)) {
+      assert.equal(result.ok, false, variant);
+      continue;
+    }
+    assert.equal(result.ok, true, JSON.stringify(result.issues));
+    const report = JSON.parse(fs.readFileSync(path.join(fixture.root, fixture.reportPath), "utf8"));
+    assert.equal(report.outcome, variant === "agreed" ? "failed" : "blocked");
+    assert.equal(report.findings.length, 2);
+    if (variant === "agreed") {
+      renderReviewReport({
+        root: fixture.root,
+        reportPath: fixture.reportPath,
+        outputPath: fixture.htmlPath,
+      });
+      const html = fs.readFileSync(path.join(fixture.root, fixture.htmlPath), "utf8");
+      assert.ok(html.includes(agreement.remedy));
+      assert.ok(html.includes(first.fix));
+      assert.ok(html.includes(second.fix));
+    }
+  }
+});
+
 test("Dev-bound behavioral corrections are eligible without extending decision or external authority", () => {
   const finding = { ...validFinding("bug"), disputed: false };
   const target = {
@@ -1208,6 +1308,62 @@ test("target creation rejects oversized optional bindings before reading them", 
       }),
     /exceeds 4 MiB JSON/
   );
+});
+
+test("Review binds the originating worktree session without a local copy", () => {
+  const fixture = makeFixture({ maxWorkers: 2 });
+  const worktree = `${fixture.root}-worktree`;
+  git(fixture.root, ["worktree", "add", "-b", "fix/example", worktree]);
+  const { updateWorkspace } = require("../scripts/lib/dev-session-schema");
+  const session = updateWorkspace(
+    createSession({ sourceDir: fixture.root, slug: "example" }),
+    worktree
+  );
+  const canonical = ".pm/dev-sessions/example/session.json";
+  write(fixture.root, canonical, session);
+  const targetPath = ".pm/dev-sessions/example/review/runs/cross-worktree/round-1/target.json";
+  const target = buildReviewTarget({
+    root: worktree,
+    maxWorkers: 2,
+    runId: "cross-worktree",
+    mode: "full",
+    outPath: targetPath,
+    devSessionPath: path.join(fixture.root, canonical),
+  });
+  write(worktree, targetPath, target);
+  const resultPaths = target.allocation.map((worker) => {
+    const relative = `${path.dirname(targetPath)}/results/${worker.worker_id}.json`;
+    write(worktree, relative, {
+      schema_version: 1,
+      run_id: target.run_id,
+      review_round: 1,
+      target: binding(worktree, targetPath),
+      source: target.source,
+      worker_id: worker.worker_id,
+      profile: worker.profile,
+      runtime: worker.runtime,
+      lenses: worker.lenses,
+      verdicts: worker.lenses.map((lens) => ({
+        lens,
+        outcome: "clean",
+        summary: "No current finding.",
+      })),
+      findings: [],
+      checked_at: new Date().toISOString(),
+    });
+    return relative;
+  });
+  const checked = checkReview({
+    root: worktree,
+    targetPath,
+    resultPaths,
+    reportPath: ".pm/dev-sessions/example/review/report.json",
+    humanReportPath: ".pm/dev-sessions/example/review/report.html",
+    writeReport: true,
+  });
+  assert.equal(checked.ok, true, JSON.stringify(checked.issues));
+  assert.equal(target.dev_context.run_id, session.run_id);
+  assert.equal(fs.existsSync(path.join(worktree, canonical)), false);
 });
 
 test("Dev-routed targets require the canonical sibling session and routed mode", () => {
