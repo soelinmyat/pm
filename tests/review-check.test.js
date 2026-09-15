@@ -1263,6 +1263,62 @@ test("target creation rejects oversized optional bindings before reading them", 
   );
 });
 
+test("Review binds the originating worktree session without a local copy", () => {
+  const fixture = makeFixture({ maxWorkers: 2 });
+  const worktree = `${fixture.root}-worktree`;
+  git(fixture.root, ["worktree", "add", "-b", "fix/example", worktree]);
+  const { updateWorkspace } = require("../scripts/lib/dev-session-schema");
+  const session = updateWorkspace(
+    createSession({ sourceDir: fixture.root, slug: "example" }),
+    worktree
+  );
+  const canonical = ".pm/dev-sessions/example/session.json";
+  write(fixture.root, canonical, session);
+  const targetPath = ".pm/dev-sessions/example/review/runs/cross-worktree/round-1/target.json";
+  const target = buildReviewTarget({
+    root: worktree,
+    maxWorkers: 2,
+    runId: "cross-worktree",
+    mode: "full",
+    outPath: targetPath,
+    devSessionPath: path.join(fixture.root, canonical),
+  });
+  write(worktree, targetPath, target);
+  const resultPaths = target.allocation.map((worker) => {
+    const relative = `${path.dirname(targetPath)}/results/${worker.worker_id}.json`;
+    write(worktree, relative, {
+      schema_version: 1,
+      run_id: target.run_id,
+      review_round: 1,
+      target: binding(worktree, targetPath),
+      source: target.source,
+      worker_id: worker.worker_id,
+      profile: worker.profile,
+      runtime: worker.runtime,
+      lenses: worker.lenses,
+      verdicts: worker.lenses.map((lens) => ({
+        lens,
+        outcome: "clean",
+        summary: "No current finding.",
+      })),
+      findings: [],
+      checked_at: new Date().toISOString(),
+    });
+    return relative;
+  });
+  const checked = checkReview({
+    root: worktree,
+    targetPath,
+    resultPaths,
+    reportPath: ".pm/dev-sessions/example/review/report.json",
+    humanReportPath: ".pm/dev-sessions/example/review/report.html",
+    writeReport: true,
+  });
+  assert.equal(checked.ok, true, JSON.stringify(checked.issues));
+  assert.equal(target.dev_context.run_id, session.run_id);
+  assert.equal(fs.existsSync(path.join(worktree, canonical)), false);
+});
+
 test("Dev-routed targets require the canonical sibling session and routed mode", () => {
   const fixture = makeFixture({ maxWorkers: 2 });
   const session = createSession({

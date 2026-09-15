@@ -182,13 +182,13 @@ function checkReview(options) {
   if (structured && options.validateOnly !== true) {
     let session = null;
     if (target.dev_context) {
-      const loaded = readJson(
-        root,
-        `.pm/dev-sessions/${target.dev_context.slug}/session.json`,
-        "session",
-        issues
-      );
-      session = loaded?.value;
+      try {
+        session = require("./lib/dev-session-location").loadDevSession(root, {
+          slug: target.dev_context.slug,
+        }).value;
+      } catch (error) {
+        add(issues, "session", error.message);
+      }
     }
     const policy = require("./lib/review-presentation").structuredReviewPolicy({
       report,

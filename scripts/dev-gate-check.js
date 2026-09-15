@@ -1240,8 +1240,9 @@ function readSiblingSessionContext(manifestPath) {
   if (path.basename(manifestPath) !== "gates.json") return { session: null, error: null };
   try {
     const sessionPath = path.join(path.dirname(manifestPath), "session.json");
-    const file = readRegularProjectFile(sessionPath, process.cwd(), MAX_JSON_BYTES);
-    const session = JSON.parse(file.bytes.toString("utf8"));
+    const { value: session } = require("./lib/dev-session-location").loadDevSession(process.cwd(), {
+      sessionPath,
+    });
     const validation = require("./lib/dev-session-schema").validateSession(session);
     if (validation.length > 0)
       throw new Error(

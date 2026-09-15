@@ -287,7 +287,9 @@ function runCommand(args, options = {}) {
       };
     }
     if (args.command === "begin") {
-      const session = readJson(resolvePrivateFile(args.session, cwd, "session"), "Dev session");
+      const { value: session } = require("./lib/dev-session-location").loadDevSession(cwd, {
+        sessionPath: args.session,
+      });
       if (session.run_id !== transaction.run_id) {
         throw new Error("Dev session run_id does not match the release transaction");
       }
@@ -366,7 +368,9 @@ function initializeDeliveryTransaction(args, cwd, transactionPath) {
       status: statusView(existing, relative(cwd, transactionPath)),
     };
   }
-  const session = readJson(resolvePrivateFile(args.session, cwd, "session"), "Dev session");
+  const { value: session } = require("./lib/dev-session-location").loadDevSession(cwd, {
+    sessionPath: args.session,
+  });
   const branch = git(cwd, ["branch", "--show-current"]);
   const commit = git(cwd, ["rev-parse", "HEAD"]);
   if (branch !== session.source?.branch)

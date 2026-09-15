@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { writeJsonAtomic } = require("./lib/atomic-file");
+const { loadDevSession } = require("./lib/dev-session-location");
 const { createReleaseTransaction, transactionIssues } = require("./lib/release-transaction-schema");
 
 const VERSION_FILES = [
@@ -34,8 +35,7 @@ function parseArgs(argv) {
 
 function prepareRelease(input, options = {}) {
   const root = fs.realpathSync(path.resolve(input.root || process.cwd()));
-  const sessionPath = privatePath(root, input.session, "session");
-  const session = readJson(sessionPath, "Dev session");
+  const { value: session } = loadDevSession(root, { sessionPath: input.session });
   if (session.authority?.commit !== true)
     throw new Error("Dev session does not grant commit authority");
   const branch = git(root, ["branch", "--show-current"]);
@@ -46,8 +46,7 @@ function prepareRelease(input, options = {}) {
     throw new Error("Dev session branch does not match current branch");
   const transactionPath = privatePath(
     root,
-    input.transaction ||
-      path.join(path.dirname(path.relative(root, sessionPath)), "ship/release-transaction.json"),
+    input.transaction || `.pm/dev-sessions/${session.slug}/ship/release-transaction.json`,
     "transaction"
   );
   if (fs.existsSync(transactionPath)) {

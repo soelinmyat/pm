@@ -17,6 +17,7 @@ const { MAX_CHANGED_FILE_BYTES, MAX_JSON_BYTES } = require("./lib/review-limits"
 const projectFile = require("./lib/project-file");
 const { readProjectInput } = projectFile;
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
+const { loadDevSession } = require("./lib/dev-session-location");
 // Shared with the freshness evaluator so environment hardening cannot drift
 // between the side that freezes a hash and the side that re-derives it.
 const { gitExec: git, trustedDiffArgs } = require("./lib/git-env");
@@ -273,7 +274,7 @@ function validateCanonicalReviewPass(root, reportPath, latest) {
 }
 
 function loadDevContext(root, relative, expected) {
-  const loaded = optionalJsonFileBinding(root, relative, "Dev session");
+  const loaded = loadDevSession(root, { sessionPath: relative, slug: expected.expectedSlug });
   if (!loaded) throw new Error("Dev session is required");
   const errors = require("./lib/dev-session-schema").validateSession(loaded.value);
   if (errors.length > 0)
@@ -286,8 +287,6 @@ function loadDevContext(root, relative, expected) {
   if (!expected.expectedSlug) throw new Error("Dev-routed review target path lacks a session slug");
   if (loaded.value.slug !== expected.expectedSlug)
     throw new Error(`Dev session slug must equal target namespace ${expected.expectedSlug}`);
-  if (relative !== `.pm/dev-sessions/${expected.expectedSlug}/session.json`)
-    throw new Error("Dev session path must be the canonical sibling session.json");
   if (loaded.value.routing.review_mode !== expected.expectedMode)
     throw new Error("Dev session review mode must equal the requested target mode");
   return { context: devReviewContext(loaded.value), execution: loaded.value.execution };

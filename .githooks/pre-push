@@ -217,9 +217,13 @@ verify_release_preparation() {
   if git tag -l "v$version" | grep -qx "v$version"; then
     return 0
   fi
+  if ! session=$(node scripts/lib/dev-session-location.js "$PWD" "$slug"); then
+    echo "ERROR: Cannot resolve the canonical release session."
+    return 1
+  fi
   if [[ ! -f "$transaction" || ! -f "$session" || -L "$transaction" || -L "$session" ]]; then
     echo "ERROR: release version $version requires canonical prepared-release evidence."
-    echo "Expected $transaction and sibling session.json; feature-commit tags are not required."
+    echo "Expected $transaction and canonical session.json; feature-commit tags are not required."
     return 1
   fi
   if ! node - "$transaction" "$session" "$commit" "$version" <<'NODE'
@@ -347,10 +351,12 @@ for push_ref_line in "${push_ref_lines[@]}"; do
     echo "Migrate and recertify .pm/dev-sessions/${gate_slug}/gates.json with sibling session.json."
     exit 1
   fi
-  if [[ -f "$canonical_gate_manifest" && ! -f "${canonical_session_dir}/session.json" ]]; then
-    echo "ERROR: Canonical PM gate manifest requires sibling session.json."
-    gate_session_detected=1
-    exit 1
+  if [[ -f "$canonical_gate_manifest" ]]; then
+    if ! node scripts/lib/dev-session-location.js "$PWD" "$gate_slug" >/dev/null; then
+      echo "ERROR: Canonical PM gate manifest requires a valid canonical session.json."
+      gate_session_detected=1
+      exit 1
+    fi
   fi
 
   if [[ -n "$changed_pm_runtime_files" || "$gate_session_detected" -eq 1 ]]; then
