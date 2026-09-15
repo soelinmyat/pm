@@ -1238,7 +1238,13 @@ function focusIndicatorRegions(node, style, prior, metrics) {
     current["box-shadow"] !== "none" &&
     current["box-shadow"] !== prior["box-shadow"]
   ) {
+    const unchanged = (prior["box-shadow"] || "").split(/,(?![^()]*\))/).map((s) => s.trim());
     for (const shadow of current["box-shadow"].split(/,(?![^()]*\))/)) {
+      const existing = unchanged.indexOf(shadow.trim());
+      if (existing >= 0) {
+        unchanged.splice(existing, 1);
+        continue;
+      }
       if (/\binset\b/.test(shadow)) continue;
       const lengths = shadow
         .replace(/(?:rgba?|hsla?|color|oklab|oklch|lab|lch)\([^)]*\)/g, "")

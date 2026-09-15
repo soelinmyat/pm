@@ -19,6 +19,7 @@ const {
   inspectPdfBytes,
   inspectPngHeaderBytes,
   inspectPngVisualBytes,
+  createPngRegionInspector,
   visualDifference,
 } = require("./lib/media-inspect");
 const { isManagedCaptureMemberPath } = require("./lib/design-critique-capture-path");
@@ -958,17 +959,18 @@ function hasNativeFocusPixelChange(root, left, right, observations) {
           after.sha256 !== right.capture.sha256
         )
           continue;
-        if (
-          regions.filter((region) =>
+        const inspectBefore = createPngRegionInspector(before.bytes);
+        const inspectAfter = createPngRegionInspector(after.bytes);
+        let qualifying = 0;
+        for (const region of regions) {
+          if (
             isMaterialVisualDifference(
-              visualDifference(
-                inspectPngVisualBytes(before.bytes, region),
-                inspectPngVisualBytes(after.bytes, region)
-              )
+              visualDifference(inspectBefore(region), inspectAfter(region))
             )
-          ).length >= 2
-        )
-          return true;
+          )
+            qualifying++;
+          if (qualifying >= 2) return true;
+        }
       } catch {
         // Invalid or unavailable local evidence cannot grant an exception.
       }

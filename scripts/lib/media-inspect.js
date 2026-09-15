@@ -39,6 +39,10 @@ function inspectPngVisualBytes(bytes, region = null) {
   return inspectPngInternal(bytes, true, region);
 }
 
+function createPngRegionInspector(bytes) {
+  return inspectPngInternal(bytes, true, null, true);
+}
+
 function inspectPngHeaderBytes(bytes) {
   if (
     !Buffer.isBuffer(bytes) ||
@@ -62,7 +66,7 @@ function inspectPngHeaderBytes(bytes) {
   return parseHeader(data);
 }
 
-function inspectPngInternal(bytes, includeVisualEvidence, region = null) {
+function inspectPngInternal(bytes, includeVisualEvidence, region = null, lazyRegions = false) {
   if (
     !Buffer.isBuffer(bytes) ||
     bytes.length < MIN_RENDER_BYTES ||
@@ -107,13 +111,14 @@ function inspectPngInternal(bytes, includeVisualEvidence, region = null) {
       const pixelStream = validatePixelStream(header, compressed);
       if (!includeVisualEvidence) return { width: header.width, height: header.height };
       const pixels = decodePixels(header, pixelStream);
-      return {
+      const inspectRegion = (selectedRegion) => ({
         width: header.width,
         height: header.height,
         bitDepth: header.bitDepth,
         colorType: header.colorType,
-        ...visualPixelEvidence(header, pixels, region),
-      };
+        ...visualPixelEvidence(header, pixels, selectedRegion),
+      });
+      return lazyRegions ? inspectRegion : inspectRegion(region);
     } else if (sawData) dataEnded = true;
     offset = end;
   }
@@ -845,6 +850,7 @@ module.exports = {
   inspectPngBytes,
   inspectPngHeaderBytes,
   inspectPngVisualBytes,
+  createPngRegionInspector,
   visualDifference,
   visualDistance,
 };

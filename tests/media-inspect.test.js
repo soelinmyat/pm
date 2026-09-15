@@ -8,12 +8,31 @@ const {
   inspectPdfBytes,
   inspectPngBytes,
   inspectPngVisualBytes,
+  createPngRegionInspector,
   visualDifference,
   visualDistance,
 } = require("../scripts/lib/media-inspect");
 
 test("strict PNG inspection accepts a complete decodable image", () => {
   assert.deepEqual(inspectPngBytes(png({ colorType: 6 })), { width: 10, height: 10 });
+});
+
+test("regional inspector decodes once and computes regions lazily", (t) => {
+  const bytes = rgbaPng(100, 100, (x, y) => [x, y, 80, 255]);
+  const regions = [0, 20, 40, 60].map((x) => ({ x, y: 10, width: 20, height: 10 }));
+  const expected = regions.map((region) => inspectPngVisualBytes(bytes, region));
+  const inflate = zlib.inflateSync;
+  let decodes = 0;
+  t.mock.method(zlib, "inflateSync", (...args) => {
+    decodes++;
+    return inflate(...args);
+  });
+  const inspect = createPngRegionInspector(bytes);
+  assert.equal(decodes, 1);
+  for (const [index, region] of regions.entries())
+    assert.deepEqual(inspect(region), expected[index]);
+  assert.equal(decodes, 1);
+  assert.throws(() => inspect({ x: -1, y: 0, width: 10, height: 10 }), /invalid PNG visual region/);
 });
 
 test("visual regions retain full pixel identity but exclude distant changes from comparison", () => {

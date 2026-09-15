@@ -1435,6 +1435,17 @@ test("focus indicator geometry includes changed outer shadows but excludes the c
   };
   const regions = focusIndicatorRegions(node, (n, key) => after[key], before, metrics);
   assert.equal(regions.length, 4);
+  const decoration = "rgb(0, 0, 0) 0px 10px 15px -3px";
+  assert.deepEqual(
+    focusIndicatorRegions(
+      node,
+      (n, key) => (key === "box-shadow" ? `${decoration}, ${after[key]}` : after[key]),
+      { ...before, "box-shadow": decoration },
+      metrics
+    ),
+    regions,
+    "unchanged decorative shadow must not enlarge a newly added focus ring"
+  );
   assert.ok(
     regions.every((r) => !(r.x < 60 && r.x + r.width > 20 && r.y < 60 && r.y + r.height > 20))
   );
