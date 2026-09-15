@@ -423,7 +423,7 @@ test("source repo pre-push hook uses the shared gate checker for PM runtime chan
   assert.match(text, /canonical_gate_manifest="\$\{canonical_session_dir\}\/gates\.json"/);
   assert.match(text, /Legacy PM gate manifests are inspection-only/);
   assert.match(text, /current\.gates\.json/);
-  assert.match(text, /Canonical PM gate manifest requires sibling session\.json/);
+  assert.match(text, /Canonical PM gate manifest requires a valid canonical session\.json/);
   assert.doesNotMatch(text, /gate_manifest="\$legacy_gate_manifest"/);
   assert.match(text, /authoritative_base_commit/);
   assert.match(text, /changed_pm_runtime_files/);
@@ -531,6 +531,9 @@ test("pre-push runs the dev gate checker from the pushed commit, not the dirty w
     fs.mkdirSync(path.join(dir, "skills", "dev", "references"), { recursive: true });
     fs.mkdirSync(path.join(dir, "skills", "rfc", "references"), { recursive: true });
     fs.mkdirSync(path.join(dir, "scripts", "lib"), { recursive: true });
+    fs.cpSync(path.join(repoRoot, "scripts", "lib"), path.join(dir, "scripts", "lib"), {
+      recursive: true,
+    });
     fs.writeFileSync(
       path.join(dir, "plugin.config.json"),
       JSON.stringify({ commands: ["dev"] }, null, 2)
