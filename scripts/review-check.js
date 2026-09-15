@@ -135,7 +135,24 @@ function checkReview(options) {
         const expected = expectedReviewPath(reviewRoot, target.review_round, "result", {
           workerId: resultFile.value.worker_id,
         });
-        if (resultFile.relative !== expected)
+        if (resultFile.relative === expected.replace("/results/", "/clarifications/")) {
+          const original = readJson(root, expected, `results[${index}].original`, issues);
+          const clarified = structuredClone(resultFile.value);
+          const additions = (clarified.findings || []).filter(
+            (finding) => finding.remediation_agreement !== undefined
+          );
+          for (const finding of clarified.findings || []) delete finding.remediation_agreement;
+          if (
+            !additions.length ||
+            !original ||
+            JSON.stringify(clarified) !== JSON.stringify(original.value)
+          )
+            add(
+              issues,
+              `results[${index}].original`,
+              "clarification may only add remediation_agreement to preserved original findings"
+            );
+        } else if (resultFile.relative !== expected)
           add(issues, `results[${index}].path`, `must equal ${expected}`);
       } catch (error) {
         add(issues, `results[${index}].path`, error.message);

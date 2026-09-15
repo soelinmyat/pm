@@ -51,6 +51,53 @@ const { readProjectInput } = require("../scripts/lib/safe-project-output");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 
 let installedBrowser = null;
+test("separate clarification files preserve exact original results", () => {
+  for (const variant of ["valid", "changed", "missing", "no-agreement"]) {
+    const fixture = makeFixture({ maxWorkers: 3 });
+    fixture.reportPath = `${path.dirname(fixture.targetPath)}/report.json`;
+    fixture.htmlPath = `${path.dirname(fixture.targetPath)}/report.html`;
+    const first = validFinding("bug");
+    const second = { ...validFinding("edge"), fix: "Equivalent correction." };
+    setFindingForLens(fixture, "bug", first);
+    setFindingForLens(fixture, "edge", second);
+    const originals = fixture.resultPaths.map((file) =>
+      fs.readFileSync(path.join(fixture.root, file), "utf8")
+    );
+    for (let i = 0; i < 2; i += 1) {
+      const result = JSON.parse(originals[i]);
+      for (const finding of result.findings) {
+        if (variant !== "no-agreement")
+          finding.remediation_agreement = {
+            finding_ids: [first.id, second.id].sort(),
+            remedy: "Restore the documented return value.",
+          };
+      }
+      if (variant === "changed" && i === 0) result.findings[0].fix = "Rewritten original.";
+      const destination = fixture.resultPaths[i].replace("/results/", "/clarifications/");
+      fs.mkdirSync(path.dirname(path.join(fixture.root, destination)), { recursive: true });
+      fs.writeFileSync(path.join(fixture.root, destination), JSON.stringify(result));
+      if (variant === "missing" && i === 0)
+        fs.unlinkSync(path.join(fixture.root, fixture.resultPaths[i]));
+      fixture.resultPaths[i] = destination;
+    }
+    const checked = generate(fixture);
+    assert.equal(checked.ok, variant === "valid", JSON.stringify(checked.issues));
+    if (variant === "valid")
+      for (let i = 0; i < 2; i += 1) {
+        assert.equal(
+          fs.readFileSync(
+            path.join(
+              fixture.root,
+              fixture.resultPaths[i].replace("/clarifications/", "/results/")
+            ),
+            "utf8"
+          ),
+          originals[i]
+        );
+      }
+  }
+});
+
 test("reviewer clarification is target-bound and visible without replacing findings", () => {
   for (const variant of ["agreed", "partial", "unknown", "malformed", "stale"]) {
     const fixture = makeFixture({ maxWorkers: 3 });

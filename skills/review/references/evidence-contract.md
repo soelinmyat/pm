@@ -19,6 +19,7 @@ runs/{run-id}/
   round-1/
     target.json
     results/{worker-id}.json
+    clarifications/{worker-id}.json # optional additive agreement; original required unchanged
     decisions.json        # only when decisions exist
     draft-report.json     # mutable synthesis before decisions
     draft-report.html     # only when draft presentation requires HTML

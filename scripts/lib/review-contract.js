@@ -280,7 +280,19 @@ function agreedRemedies(signals) {
     const group = signals.filter((row) => ids.includes(row.id));
     if (
       new Set(group.map((row) => row.id)).size !== ids.length ||
-      new Set(group.map((row) => row.reviewer_id)).size < 2
+      new Set(group.map((row) => row.reviewer_id)).size < 2 ||
+      signals.some(
+        (outside) =>
+          !ids.includes(outside.id) &&
+          group.some(
+            (inside) =>
+              normalizePath(outside.file) === normalizePath(inside.file) &&
+              outside.line_start <= inside.line_end &&
+              inside.line_start <= outside.line_end &&
+              (outside.fix_kind !== inside.fix_kind ||
+                normalize(outside.fix) !== normalize(inside.fix))
+          )
+      )
     )
       continue;
     const key = JSON.stringify([...ids].sort());

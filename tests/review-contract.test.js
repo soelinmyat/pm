@@ -232,6 +232,23 @@ test("every signal for an agreed finding must independently confirm", () => {
   assert.ok(mergeSignals(signals, []).unresolved_disagreements.length > 0);
 });
 
+test("partial clarification cannot silently include an unconfirmed overlapping reviewer", () => {
+  const signals = agreeingSignals();
+  const third = {
+    ...sampleFinding(),
+    reviewer_id: "worker-c",
+    rule: "third-rule",
+    fix: "Third remedy.",
+  };
+  third.id = findingId(third);
+  signals.push(third);
+  for (const row of signals.slice(0, 2)) row.remediation_agreement.remedy = third.fix;
+  assert.ok(mergeSignals(signals, []).unresolved_disagreements.length > 0);
+  const agreement = { finding_ids: signals.map((row) => row.id).sort(), remedy: third.fix };
+  for (const row of signals) row.remediation_agreement = structuredClone(agreement);
+  assert.deepEqual(mergeSignals(signals, []).unresolved_disagreements, []);
+});
+
 test("Dev review context binds route identity and ordered acceptance criteria", () => {
   const session = {
     run_id: "dev_example",
