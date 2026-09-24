@@ -97,105 +97,149 @@ function renderHtml(proposal, identity) {
       return lineage ? [{ path: entry.path, sha256: lineage.sha256 }] : [];
     }),
   };
-  const contractRows = [
-    ["Scope", listText(proposal.scope.in_scope, "statement")],
-    ["Non-goals", listText(proposal.scope.non_goals, "statement")],
-    [
-      "Acceptance criteria",
-      proposal.acceptance_criteria
-        .map((item) => `${item.given}; ${item.when}; ${item.then}`)
-        .join(" • "),
-    ],
-    [
-      "Edge cases",
-      proposal.edge_cases
-        .map((item) => `${sentenceStem(item.scenario)}: ${item.expected_behavior}`)
-        .join(" • "),
-    ],
-    ["Design requirements", listText(proposal.design_requirements, "requirement")],
-    ...(proposal.design_context
-      ? [
-          ["UI impact", uiImpactText(proposal.design_context)],
-          ["Critical states", proposal.design_context.critical_states.join(" • ")],
-          [
-            "Experience invariants",
-            arrayText(proposal.design_context.experience_invariants, "None declared"),
-          ],
-          ["Visual invariants", proposal.design_context.visual_invariants.join(" • ")],
-          ["Prototype", prototypeIdentityText(proposal.design_context.prototype)],
-        ]
-      : []),
-    [
-      "Open decisions",
-      proposal.open_decisions.length
-        ? proposal.open_decisions.map((item) => item.question).join(" • ")
-        : "None",
-    ],
-  ];
-  const sections = [
-    section(
-      "problem",
-      "I",
-      "Problem & Context",
-      `<p class="lead">${h(proposal.decision_brief.problem)}</p>${evidenceHtml(proposal)}`
-    ),
-    section("jtbd", "II", "Users & Job to be Done", jtbdHtml(proposal)),
-    section("usecases", "III", "Requirements & Acceptance", requirementsHtml(proposal)),
-    section("scope", "IV", "Scope", scopeHtml(proposal)),
-    section("requirements", "V", "Functional Requirements", requirementsListHtml(proposal)),
-    section(
-      "edge",
-      "VI",
-      "Edge Cases & Constraints",
-      tableHtml(
-        ["Case", "Expected handling"],
-        proposal.edge_cases.map((item) => [item.scenario, item.expected_behavior])
-      )
-    ),
-    section("flow", "VII", "Design Requirements", designContextHtml(proposal)),
-    section("competitive", "VIII", "Alternatives", alternativesHtml(proposal)),
-    section("feasibility", "IX", "Risks & Feasibility", risksHtml(proposal)),
-    section("open-q", "X", "Decisions", decisionsHtml(proposal)),
-    section(
-      "metrics",
-      "XI",
-      "Success Metrics",
-      tableHtml(
-        ["Metric", "Baseline", "Target", "Window"],
-        proposal.success_metrics.map((item) => [
-          item.metric,
-          item.baseline,
-          item.target,
-          item.window,
-        ])
-      )
-    ),
-    section("status", "XII", "Review & Next Steps", statusHtml(proposal, identity)),
-  ].join("\n");
+  const groups = proposalReaderGroups(proposal, identity);
   return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${h(proposal.title)} — Product proposal</title>
-<script id="pm-artifact" type="application/json">${safeJson(metadata)}</script>
-<style>${css}</style>
-</head>
+<script id="pm-artifact" type="application/json">${safeJson(metadata)}</script><style>${css}</style></head>
 <body data-proposal-revision="${proposal.revision}" data-content-sha256="${h(identity.contentSha256)}" data-source-sha256="${h(identity.sourceSha256)}">
 <a class="skip-link" href="#content">Skip to content</a>
+<div class="reader-layout"><details class="reader-navigation"><summary>In this proposal</summary><nav class="reader-nav" aria-label="Proposal sections">${readerNavigation(groups)}</nav></details>
 <main class="page" id="content">
-  <header class="masthead"><span class="masthead-id">${h(proposal.id)}</span><div class="masthead-meta"><a class="status-mark" data-pm-lifecycle href="#decision-action" aria-label="${h(approval)}; go to decision status">${h(approval)}</a><span>Revision ${proposal.revision}</span><span>Priority ${h(proposal.priority)}</span><span>Size ${h(proposal.size)}</span></div></header>
-  <div class="title-block"><h1>${h(proposal.title)}</h1><p class="lede">${h(proposal.outcome)}</p></div>
-  ${prototypeHeroHtml(proposal, identity)}
-  ${decisionActionHtml(proposal, identity)}
-  <div class="tldr"><dl><dt>For</dt><dd>${h(proposal.audience.map((item) => item.name).join(", "))}</dd><dt>What</dt><dd>${h(proposal.decision_brief.recommendation)}</dd><dt>Why now</dt><dd>${h(proposal.decision_brief.why_now)}</dd></dl></div>
-  <section class="decision-brief" id="decision-brief"><h2><span class="sec-num" aria-hidden="true">00</span>Decision Brief</h2><p>${h(proposal.decision_brief.recommendation)}</p></section>
-  <section class="execution-contract" id="execution-contract"><div class="execution-contract-label">Execution Contract</div>${tableHtml(["Field", "Contract"], contractRows)}</section>
-  <details class="appendix-disclosure" open><summary><span>Detailed evidence &amp; delivery appendix</span><span class="appendix-disclosure-meta"><span class="appendix-disclosure-meta-open">12 sections · collapse to focus</span><span class="appendix-disclosure-meta-closed">12 sections · expand for evidence</span></span></summary><nav class="toc" aria-label="Proposal sections">${tocHtml()}</nav><div id="appendix">${sections}</div></details>
-  <footer><span>Content ${h(identity.contentSha256.slice(0, 22))}…</span><span>Source revision ${proposal.revision}</span></footer>
-</main>
-</body>
-</html>\n`;
+<header class="masthead"><span class="masthead-id">${h(proposal.id)}</span><div class="masthead-meta"><a class="status-mark" data-pm-lifecycle href="#decision-action" aria-label="${h(approval)}; go to decision status">${h(approval)}</a><span>Revision ${proposal.revision}</span><span>Priority ${h(proposal.priority)}</span><span>Size ${h(proposal.size)}</span></div></header>
+<div class="title-block"><h1>${h(proposal.title)}</h1><p class="lede">${h(proposal.outcome)}</p></div>
+${decisionActionHtml(proposal, identity)}
+${groups.map((group) => `<section id="${group.id}"><h2>${h(group.title)}</h2>${group.disclosure ? `<details class="${group.disclosure}"><summary>${h(group.summary)}</summary>` : ""}${group.children.map((child) => `<section class="reader-subsection" id="${child.id}"><h3>${h(child.title)}</h3>${child.body}</section>`).join("\n")}${group.disclosure ? "</details>" : ""}</section>`).join("\n")}
+<footer><span>Content ${h(identity.contentSha256.slice(0, 22))}…</span><span>Source revision ${proposal.revision}</span></footer>
+</main></div></body></html>\n`;
+}
+
+function proposalReaderGroups(proposal, identity) {
+  // Source text stays exact; readability comes from authoring and grouping, never truncation.
+  const body = (value) => `<p>${h(value)}</p>`;
+  const subordinate = (html) =>
+    html.replace(/<h3>/g, '<p class="reader-label"><strong>').replace(/<\/h3>/g, "</strong></p>");
+  return [
+    {
+      id: "decision-brief",
+      title: "Overview",
+      children: [
+        {
+          id: "recommendation",
+          title: "Recommendation",
+          body: body(proposal.decision_brief.recommendation),
+        },
+        {
+          id: "problem",
+          title: "Problem and timing",
+          body: body(proposal.decision_brief.problem) + body(proposal.decision_brief.why_now),
+        },
+        { id: "scope", title: "Scope", body: scopeHtml(proposal) },
+        { id: "feasibility", title: "Risks and safeguards", body: risksHtml(proposal) },
+        {
+          id: "open-q",
+          title: "Decisions",
+          body:
+            subordinate(decisionsHtml(proposal)) +
+            (proposal.advisory_debt.length
+              ? `<p><strong>Advisory items</strong></p>${listHtml(proposal.advisory_debt.map((item) => `${item.summary} — ${item.severity} severity · ${item.status}`))}`
+              : ""),
+        },
+      ],
+    },
+    {
+      id: "mockups",
+      title: "Mockups",
+      children: [
+        {
+          id: "prototype",
+          title: "Interaction prototype",
+          body:
+            prototypeHeroHtml(proposal, identity) ||
+            "<p>No prototype is linked. Do not infer an approved design from this proposal.</p>",
+        },
+      ],
+    },
+    {
+      id: "execution-contract",
+      title: "Execution Contract",
+      disclosure: "execution-disclosure",
+      summary: "Read requirements, acceptance criteria, and design constraints",
+      children: [
+        { id: "requirements", title: "Requirements", body: requirementsListHtml(proposal) },
+        { id: "usecases", title: "Acceptance criteria", body: requirementsHtml(proposal) },
+        {
+          id: "edge",
+          title: "Edge cases",
+          body: tableHtml(
+            ["Case", "Expected handling"],
+            proposal.edge_cases.map((item) => [item.scenario, item.expected_behavior])
+          ),
+        },
+        {
+          id: "flow",
+          title: "Design requirements",
+          body: subordinate(designContextHtml(proposal)),
+        },
+        {
+          id: "handoff",
+          title: "Dependencies and constraints",
+          body:
+            listOrEmptyHtml(proposal.handoff.dependencies) +
+            listOrEmptyHtml(proposal.handoff.constraints),
+        },
+      ],
+    },
+    {
+      id: "evaluation",
+      title: "Evaluation",
+      children: [
+        {
+          id: "metrics",
+          title: "Success metrics",
+          body: tableHtml(
+            ["Metric", "Baseline", "Target", "Window"],
+            proposal.success_metrics.map((item) => [
+              item.metric,
+              item.baseline,
+              item.target,
+              item.window,
+            ])
+          ),
+        },
+        { id: "competitive", title: "Alternatives", body: alternativesHtml(proposal) },
+      ],
+    },
+    {
+      id: "appendix",
+      title: "Evidence and review",
+      disclosure: "appendix-disclosure",
+      summary: "Read sources, audience context, and review records",
+      children: [
+        { id: "jtbd", title: "Users and jobs", body: jtbdHtml(proposal) },
+        { id: "evidence", title: "Evidence provenance", body: subordinate(evidenceHtml(proposal)) },
+        {
+          id: "assumptions",
+          title: "Assumptions and confidence",
+          body:
+            body(`Confidence: ${proposal.confidence}`) +
+            tableHtml(
+              ["Assumption", "Confidence", "Validation"],
+              proposal.assumptions.map((item) => [item.statement, item.confidence, item.validation])
+            ),
+        },
+        {
+          id: "status",
+          title: "Review and approval",
+          body: subordinate(statusHtml(proposal, identity)),
+        },
+      ],
+    },
+  ];
+}
+
+function readerNavigation(groups) {
+  return `<ul class="reader-nav-groups">${groups.map((group) => `<li><a href="#${group.id}">${h(group.title)}</a><ul>${group.children.map((child) => `<li><a href="#${child.id}">${h(child.title)}</a></li>`).join("")}</ul></li>`).join("")}</ul>`;
 }
 
 function renderMarkdown(proposal, identity) {
@@ -250,14 +294,6 @@ ${proposal.outcome}
 
 **Why now.** ${proposal.decision_brief.why_now}
 
-## Evidence & provenance
-
-${evidenceMarkdown(proposal)}
-
-### Source lineage
-
-${proposal.source.lineage.map((item) => `- \`${item.id}\` — \`${item.path}\` · \`${item.sha256}\``).join("\n")}
-
 ## Execution Contract
 
 ### In scope
@@ -281,6 +317,14 @@ ${designContextMarkdown(proposal)}
 
 ### Open decisions
 ${proposal.open_decisions.length ? mdList(proposal.open_decisions, "question") : "- None"}
+
+## Evidence & provenance
+
+${evidenceMarkdown(proposal)}
+
+### Source lineage
+
+${proposal.source.lineage.map((item) => `- \`${item.id}\` — \`${item.path}\` · \`${item.sha256}\``).join("\n")}
 
 ## Review answers
 
@@ -345,10 +389,6 @@ function uiImpactText(context) {
   return "Not declared (legacy proposal)";
 }
 
-function arrayText(items, emptyText) {
-  return Array.isArray(items) && items.length ? items.join(" • ") : emptyText;
-}
-
 function listOrEmptyHtml(items) {
   return Array.isArray(items) && items.length ? listHtml(items) : "<p>None declared.</p>";
 }
@@ -357,12 +397,6 @@ function markdownListOrEmpty(items) {
   return Array.isArray(items) && items.length
     ? items.map((item) => `- ${item}`).join("\n")
     : "- None declared.";
-}
-
-function prototypeIdentityText(prototype) {
-  if (!prototype) return "None approved";
-  if (!prototype.manifest) return `${prototype.path} · ${prototype.sha256}`;
-  return `${prototype.path} · entry ${prototype.sha256} · tree ${prototype.manifest.tree_sha256} · ${prototype.manifest.files.length} bound files`;
 }
 
 function prototypeIdentityHtml(prototype) {
@@ -480,23 +514,12 @@ function yaml(value) {
 function mdList(items, field) {
   return items.map((item) => `- ${item[field]}`).join("\n");
 }
-function listText(items, field) {
-  return items.map((item) => item[field]).join(" • ");
-}
-function sentenceStem(value) {
-  return String(value ?? "")
-    .trim()
-    .replace(/[.:;!?]+$/, "");
-}
 function sentenceCase(value) {
   const text = String(value ?? "").trim();
   return text ? `${text.charAt(0).toUpperCase()}${text.slice(1)}` : text;
 }
 function listHtml(items) {
   return `<ul>${items.map((item) => `<li>${h(item)}</li>`).join("")}</ul>`;
-}
-function section(id, numeral, title, body) {
-  return `<section id="${id}"><h2><span class="sec-num" aria-hidden="true">${numeral}</span>${h(title)}</h2>${body}</section>`;
 }
 function tableHtml(headers, rows, options = {}) {
   const className = options.className ? ` class="${h(options.className)}"` : "";
@@ -580,7 +603,7 @@ function decisionsHtml(proposal) {
   const open = proposal.open_decisions
     .map(
       (item) =>
-        `<div class="open-q"><div class="open-q-q">${h(item.question)}</div><p class="open-q-rec">${h(item.recommendation || "Decision required")}</p></div>`
+        `<div class="open-q"><div class="open-q-q">${h(item.question)}</div><p class="open-q-rec">${h(item.recommendation || "Decision required")}</p>${item.owner ? `<p><strong>Owner.</strong> ${h(item.owner)}</p>` : ""}</div>`
     )
     .join("");
   const resolved = proposal.resolved_decisions
@@ -692,53 +715,6 @@ function decisionActionHtml(proposal, identity) {
 function abbreviatedSha(value) {
   const text = String(value || "");
   return /^sha256:[a-f0-9]{64}$/.test(text) ? `${text.slice(0, 15)}…${text.slice(-8)}` : text;
-}
-function tocHtml() {
-  const groups = [
-    [
-      "Understand",
-      [
-        ["problem", "I", "Problem"],
-        ["jtbd", "II", "Users & JTBD"],
-      ],
-    ],
-    [
-      "Define",
-      [
-        ["usecases", "III", "Acceptance"],
-        ["scope", "IV", "Scope"],
-        ["requirements", "V", "Requirements"],
-        ["edge", "VI", "Edge cases"],
-        ["flow", "VII", "Design"],
-      ],
-    ],
-    [
-      "Challenge",
-      [
-        ["competitive", "VIII", "Alternatives"],
-        ["feasibility", "IX", "Risks"],
-        ["open-q", "X", "Decisions"],
-      ],
-    ],
-    [
-      "Decide",
-      [
-        ["metrics", "XI", "Metrics"],
-        ["status", "XII", "Status"],
-      ],
-    ],
-  ];
-  return groups
-    .map(
-      ([group, links]) =>
-        `<div class="toc-group"><span class="toc-group-label">${group}</span>${links
-          .map(
-            ([id, n, label]) =>
-              `<a href="#${id}"><span class="toc-num" aria-hidden="true">${n}</span>${label}</a>`
-          )
-          .join("")}</div>`
-    )
-    .join("");
 }
 
 if (require.main === module) process.exitCode = main();

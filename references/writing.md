@@ -8,6 +8,17 @@ numbers over adjectives and tables over nested bullets.
 
 Keep chat updates short and verdict-first. Put reviewable detail in the owning artifact and link it; do not repeat the full evidence envelope in chat. Concision does not excuse omitting a material limitation, an approval boundary, or the evidence needed to assess a claim. A clean review may say that no actionable findings were found, with scope and verification limits; never invent findings or pad a correct answer to sound thorough.
 
+## Readable artifacts
+
+- One point per paragraph; normally one or two sentences. Split a paragraph that mixes rules, exceptions, and rationale into labeled bullets.
+- Lead with the conclusion or user outcome. Remove generic introductions and repeated explanations.
+- Give each fact one primary home. A short decision summary may point to detail; do not reproduce the same requirement in a summary table and again in the body.
+- Use lists for independent rules, numbered lists for sequences, and tables for comparisons. Do not move a wall of prose into a table cell.
+- Use one page title and two body heading levels: main sections and subsections. HTML navigation mirrors both levels with real anchors and indented child links. Use bold labels for finer distinctions.
+- Keep decision status, scope, material risks, uncertainty, unresolved decisions, and next action visible. Full acceptance criteria, execution details, evidence, and review history may use native disclosures.
+- Author concise source fields; never mechanically truncate canonical text or remove evidence to meet a word target. Existing long source text remains intact until deliberately revised through its owning approval workflow.
+- HTML disclosures must work without scripts, remain keyboard accessible, and expose their complete content in print. Verify links to collapsed subsections in a browser.
+
 ## Jargon ban list
 
 | Banned | Use instead |

@@ -1,13 +1,7 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PM-042 — Multi-Language Support</title>
-<script id="pm-artifact" type="application/json">
-{"schema_version":1,"id":"proposal:multi-language-support","kind":"proposal","slug":"multi-language-support","lifecycle":"reviewed","title":"Multi-Language Support","generated_at":"2026-04-10T00:00:00Z","generator":{"name":"pm:groom","version":"1.13.11"},"source":{"path":"pm/backlog/multi-language-support.md","sha256":null},"evidence":[]}
-</script>
-<style>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Structured Groom proposals — Product proposal</title>
+<script id="pm-artifact" type="application/json">{"schema_version":1,"id":"proposal:structured-groom","kind":"proposal","slug":"structured-groom","lifecycle":"draft","title":"Structured Groom proposals","generated_at":"2026-07-14T01:30:00.000Z","generator":{"name":"pm:groom","version":"1.13.65"},"source":{"path":"tests/fixtures/proposals/strong-v1.json","sha256":"sha256:d719392ee10afefee8988d9d0b49891abd76dc11f06fcd28278c2560527307c6"},"evidence":[{"path":"pm/research/groom-evidence.md","sha256":"sha256:1111111111111111111111111111111111111111111111111111111111111111"}]}</script><style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
@@ -843,367 +837,55 @@
   :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }
   @media print { body { background: #fff; color: #000; } .page { max-width: none; padding: 0; } .masthead { position: static; } .toc, .appendix-disclosure > summary { display: none; } .appendix-disclosure { border: 0; padding: 0; } .appendix-disclosure:not([open]) > :not(summary) { display: block !important; } .hero-prototype-preview { min-height: 0; padding: var(--space-3); } .hero-prototype-link[href]::after { content: ' (' attr(href) ')'; } table[data-responsive="true"] { display: table; } table[data-responsive="true"] thead { position: static; width: auto; height: auto; margin: 0; overflow: visible; clip: auto; white-space: normal; } table[data-responsive="true"] tbody { display: table-row-group; } table[data-responsive="true"] tr { display: table-row; } table[data-responsive="true"] td { display: table-cell; width: auto; } table[data-responsive="true"] td::before { display: none; } .source-lineage th:nth-child(1), .source-lineage td:nth-child(1) { width: 24%; } .source-lineage th:nth-child(2), .source-lineage td:nth-child(2) { width: 34%; } .source-lineage th:nth-child(3), .source-lineage td:nth-child(3) { width: 42%; } .source-lineage td:last-child { font-size: 0.7rem; } *, *::before, *::after { overflow: visible !important; box-shadow: none !important; } section, table, .execution-contract, .hero-prototype, .decision-action { break-inside: avoid; } }
-</style>
-</head>
-<body>
+
+/* Readable artifact navigation: two heading levels, exact source content. */
+.reader-layout{display:grid;grid-template-columns:200px minmax(0,840px);gap:40px;max-width:1140px;margin:0 auto;padding:32px 24px;align-items:start}
+.reader-layout .page{width:100%;max-width:none;margin:0;padding:0;min-width:0}
+.reader-nav{position:sticky;top:24px;max-height:calc(100vh - 48px);overflow:auto;padding:0 12px 0 0;font:14px/1.5 system-ui,sans-serif}
+.reader-nav ul{list-style:none;margin:0;padding:0}.reader-nav-groups>li{margin:0 0 16px}.reader-nav a{display:block;padding:5px 0;color:inherit;text-decoration:none;overflow-wrap:anywhere}.reader-nav-groups>li>a{font-weight:700}.reader-nav-groups>li>ul{padding-left:14px;border-left:1px solid #d8ded6;margin:4px 0}.reader-nav-groups>li>ul a{font-size:13px}.reader-nav a:hover{text-decoration:underline}
+.reader-layout h2{font-size:26px;line-height:1.25;margin:0 0 24px}.reader-layout h3{font-size:19px;line-height:1.35;margin:0 0 14px}.reader-layout .reader-subsection{border:0;padding:0;margin:28px 0;scroll-margin-top:96px}.reader-layout p,.reader-layout li{max-width:70ch}.reader-layout .reader-label{margin:20px 0 8px}.reader-layout section{scroll-margin-top:96px}
+.execution-disclosure>summary,.appendix-disclosure>summary{cursor:pointer;font-weight:600;padding:14px 0;list-style:revert}.execution-disclosure,.appendix-disclosure{margin:0}
+@media(max-width:900px){.reader-layout{display:block;padding:24px 16px}.reader-nav{position:static;max-height:none;margin-bottom:32px}.reader-nav-groups{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}}
+@media print{.reader-layout{display:block;max-width:none;padding:0}.reader-nav{display:none}.execution-disclosure>*,.appendix-disclosure>*{display:block!important}.execution-disclosure>summary,.appendix-disclosure>summary{display:none}.reader-layout section{break-inside:auto}}
+
+@media print{details::details-content{content-visibility:visible!important;display:block!important;height:auto!important}details>:not(summary){display:block!important}}
+
+/* Keep navigation available without putting a long index before mobile content. */
+.reader-navigation{position:sticky;top:24px;max-height:calc(100vh - 48px);overflow:auto;margin:0;min-width:0}
+.reader-navigation>.reader-nav{position:static;max-height:none;margin:0}
+.reader-navigation>summary{font:600 15px/1.5 system-ui,sans-serif;cursor:pointer;padding:12px 0}
+@media(min-width:901px){.reader-navigation>summary{display:none}.reader-navigation::details-content{content-visibility:visible;display:block;height:auto}.reader-navigation:not([open])>.reader-nav{display:block}}
+@media(max-width:900px){.reader-navigation{position:static;max-height:none;margin:0 0 24px;border-bottom:1px solid #d8ded6}.reader-navigation>.reader-nav{padding:12px 0}.reader-nav-groups{gap:12px}}
+@media print{.reader-navigation,.skip-link{display:none!important}h2,h3,.section-header,.reader-label{break-after:avoid}p,li{orphans:3;widows:3}}
+</style></head>
+<body data-proposal-revision="1" data-content-sha256="sha256:49189c5eeeb43cf037e8bc00042b37be891e5db4ba4169060a9ca5ce1eb4bcb7" data-source-sha256="sha256:d719392ee10afefee8988d9d0b49891abd76dc11f06fcd28278c2560527307c6">
 <a class="skip-link" href="#content">Skip to content</a>
-
+<div class="reader-layout"><details class="reader-navigation"><summary>In this proposal</summary><nav class="reader-nav" aria-label="Proposal sections"><ul class="reader-nav-groups"><li><a href="#decision-brief">Overview</a><ul><li><a href="#recommendation">Recommendation</a></li><li><a href="#problem">Problem and timing</a></li><li><a href="#scope">Scope</a></li><li><a href="#feasibility">Risks and safeguards</a></li><li><a href="#open-q">Decisions</a></li></ul></li><li><a href="#mockups">Mockups</a><ul><li><a href="#prototype">Interaction prototype</a></li></ul></li><li><a href="#execution-contract">Execution Contract</a><ul><li><a href="#requirements">Requirements</a></li><li><a href="#usecases">Acceptance criteria</a></li><li><a href="#edge">Edge cases</a></li><li><a href="#flow">Design requirements</a></li><li><a href="#handoff">Dependencies and constraints</a></li></ul></li><li><a href="#evaluation">Evaluation</a><ul><li><a href="#metrics">Success metrics</a></li><li><a href="#competitive">Alternatives</a></li></ul></li><li><a href="#appendix">Evidence and review</a><ul><li><a href="#jtbd">Users and jobs</a></li><li><a href="#evidence">Evidence provenance</a></li><li><a href="#assumptions">Assumptions and confidence</a></li><li><a href="#status">Review and approval</a></li></ul></li></ul></nav></details>
 <main class="page" id="content">
-
-  <!-- Masthead -->
-  <header class="masthead">
-    <span class="masthead-id">PM-042</span>
-    <div class="masthead-meta">
-      <a class="status-mark" href="#decision-action" aria-label="Reviewed; approval pending; go to decision status">Reviewed · Approval pending</a>
-      <span>Priority high</span>
-      <span>Size M</span>
-      <span>Apr 10, 2026</span>
-    </div>
-  </header>
-
-  <!-- Title block -->
-  <div class="title-block">
-    <h1>Multi-Language Support</h1>
-    <p class="lede">Users can switch the interface language and manage translated content, expanding reach to three new markets without creating separate product builds.</p>
-  </div>
-
-  <!-- Hero prototype (optional — render only when feature has a UI prototype; see prototype-format.md §8) -->
-  <figure class="hero-prototype">
-    <div class="hero-prototype-header">
-      <span class="hero-prototype-label">Prototype</span>
-      <span class="hero-prototype-fig">fig. 1 — wireframe</span>
-    </div>
-    <div class="hero-prototype-frame-wrap hero-prototype-preview" role="img" aria-label="Wireframe preview: settings, language picker, and translated interface screens">
-      <p class="hero-prototype-note">Offline preview placeholder — open the local prototype for the interactive flow.</p>
-    </div>
-    <figcaption class="hero-prototype-footer">
-      <span>
-        <span class="hero-prototype-screens-label">Screens</span>
-        Settings · Language picker · Translated UI
-      </span>
-      <a class="hero-prototype-link"
-         href="../wireframes/multi-language-support.html"
-         target="_blank" rel="noopener">Open full prototype →</a>
-    </figcaption>
-    <p class="hero-prototype-note">Lo-fi by intent — fidelity comes during implementation when real components are wired in.</p>
-  </figure>
-
-  <aside class="decision-action" id="decision-action" aria-label="Decision status">
-    <div class="decision-action-label">Decision status</div>
-    <p class="decision-state-summary"><span>Proposal <strong>Reviewed</strong></span><span>Review <strong>Passed</strong></span><span>Approval <strong>Pending</strong></span></p>
-    <h2 class="decision-action-title">Your approval is the next step</h2>
-    <p>Return to the active PM conversation and reply <strong>“Approve this proposal for technical design”</strong>, or describe the changes you want. If you are reopening it later, resume <code>/pm:groom multi-language-support</code>.</p>
-    <p class="decision-integrity">Approval applies only to revision <strong>1</strong> and its exact semantic content. Any substantive edit makes that approval stale.</p>
-  </aside>
-
-  <!-- TL;DR -->
-  <div class="tldr">
-    <dl>
-      <dt>For</dt><dd>Non-English-speaking users hitting hardcoded English UI; sales prospects in LATAM and APAC asking for localized chrome before they sign.</dd>
-      <dt>What</dt><dd>i18n framework, language picker in Settings, extracted UI strings, English/Spanish/Japanese translations.</dd>
-      <dt>Why now</dt><dd>28% of trial signups come from non-English markets but only 4% convert — competitors already ship 5+ languages and we're losing deals.</dd>
-    </dl>
-  </div>
-
-  <details class="appendix-disclosure" open>
-    <summary><span>Detailed evidence &amp; delivery appendix</span><span class="appendix-disclosure-meta"><span class="appendix-disclosure-meta-open">12 sections · collapse to focus</span><span class="appendix-disclosure-meta-closed">12 sections · expand for evidence</span></span></summary>
-
-  <!-- TOC -->
-  <nav class="toc" aria-label="Sections">
-    <div class="toc-group"><span class="toc-group-label">Understand</span><a href="#problem"><span class="toc-num" aria-hidden="true">I</span>Problem</a><a href="#jtbd"><span class="toc-num" aria-hidden="true">II</span>Users &amp; JTBD</a></div>
-    <div class="toc-group"><span class="toc-group-label">Define</span><a href="#usecases"><span class="toc-num" aria-hidden="true">III</span>Use Cases</a><a href="#scope"><span class="toc-num" aria-hidden="true">IV</span>Scope</a><a href="#requirements"><span class="toc-num" aria-hidden="true">V</span>Requirements</a><a href="#edge"><span class="toc-num" aria-hidden="true">VI</span>Edge Cases</a><a href="#flow"><span class="toc-num" aria-hidden="true">VII</span>Flow</a></div>
-    <div class="toc-group"><span class="toc-group-label">Challenge</span><a href="#competitive"><span class="toc-num" aria-hidden="true">VIII</span>Competitive</a><a href="#feasibility"><span class="toc-num" aria-hidden="true">IX</span>Feasibility</a><a href="#open-q"><span class="toc-num" aria-hidden="true">X</span>Open Questions</a></div>
-    <div class="toc-group"><span class="toc-group-label">Decide</span><a href="#metrics"><span class="toc-num" aria-hidden="true">XI</span>Metrics</a><a href="#status"><span class="toc-num" aria-hidden="true">XII</span>Status</a></div>
-  </nav>
-
-  <!-- ─── I. Problem ─── -->
-  <section id="problem">
-    <h2><span class="sec-num" aria-hidden="true">I</span>Problem &amp; Context</h2>
-    <p class="lead">Non-English-speaking users bounce at onboarding because every label, tooltip, and help string is hardcoded in English.</p>
-    <p>28% of trial signups come from non-English markets but only 4% convert — a 7x gap vs. English users. The strategic driver is geographic expansion (Q2 priority). Competitors Acme and Globex already ship 5+ languages; we're losing deals to localized alternatives in LATAM and APAC.</p>
-    <div class="annotation">
-      <span class="annotation-label">Sales evidence — March 2026</span>
-      <p>"Three enterprise prospects in Japan asked for Japanese UI before signing POC agreements."</p>
-    </div>
-  </section>
-
-  <!-- ─── II. Users & JTBD ─── -->
-  <section id="jtbd">
-    <h2><span class="sec-num" aria-hidden="true">II</span>Users &amp; Job to be Done</h2>
-
-    <div class="annotation annotation-jtbd">
-      <span class="annotation-label">Primary JTBD</span>
-      <p>When I sign up for a tool that promises to fit my workflow, I want the interface in <em>my own language</em>, so I can evaluate it without translating chrome in my head.</p>
-    </div>
-
-    <div class="personas">
-      <div class="persona">
-        <div class="persona-tag">Primary</div>
-        <div class="persona-name">Non-English trial user</div>
-        <p class="persona-desc">Discovers the product through localized marketing. Bounces during onboarding when the UI doesn't match. Pain: cognitive overhead translating every button label.</p>
-      </div>
-      <div class="persona">
-        <div class="persona-tag">Secondary</div>
-        <div class="persona-name">Enterprise buyer in APAC / LATAM</div>
-        <p class="persona-desc">Procurement requires localized UI before sign-off. Pain: blocks POC agreements; competitors who ship localization win the deal.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- ─── III. Use Cases ─── -->
-  <section id="usecases">
-    <h2><span class="sec-num" aria-hidden="true">III</span>Use Cases</h2>
-    <p class="lead">Top three user scenarios — ranked by frequency.</p>
-
-    <div class="usecases">
-      <div class="usecase">
-        <div class="usecase-title"><span class="usecase-num" aria-hidden="true">01</span>Switch language during first session</div>
-        <dl>
-          <dt>Trigger</dt><dd>User opens Settings → Language</dd>
-          <dt>Action</dt><dd>Picker shows English / Spanish / Japanese; selection persists per-user</dd>
-          <dt>Result</dt><dd>UI re-renders in selected language within the current session — no reload, no logout</dd>
-        </dl>
-      </div>
-
-      <div class="usecase">
-        <div class="usecase-title"><span class="usecase-num" aria-hidden="true">02</span>Browser-locale auto-detection on signup</div>
-        <dl>
-          <dt>Trigger</dt><dd>New user lands on signup page with non-English browser locale</dd>
-          <dt>Action</dt><dd>Page renders in detected language; banner offers to switch if mis-detected</dd>
-          <dt>Result</dt><dd>User reaches first-value moment in their own language — conversion lift expected</dd>
-        </dl>
-      </div>
-
-      <div class="usecase">
-        <div class="usecase-title"><span class="usecase-num" aria-hidden="true">03</span>User-generated content stays in original language</div>
-        <dl>
-          <dt>Trigger</dt><dd>User writes a note in Japanese, then switches UI to English</dd>
-          <dt>Action</dt><dd>Chrome translates; content stays Japanese</dd>
-          <dt>Result</dt><dd>No surprise machine-translation of user data — predictable behavior</dd>
-        </dl>
-      </div>
-    </div>
-  </section>
-
-  <!-- ─── IV. Scope ─── -->
-  <section id="scope">
-    <h2><span class="sec-num" aria-hidden="true">IV</span>Scope <span style="font-family:var(--sans); font-size:0.78rem; color:var(--ink-3); font-weight:400; letter-spacing:0">— Phase 1</span></h2>
-
-    <div class="scope">
-      <div class="scope-col">
-        <div class="scope-col-label">In scope</div>
-        <ul>
-          <li>i18n framework using ICU MessageFormat</li>
-          <li>Language picker in Settings (English, Spanish, Japanese)</li>
-          <li>Extract all UI strings to locale files</li>
-          <li>Browser-locale auto-detection on first visit</li>
-        </ul>
-      </div>
-      <div class="scope-col scope-col-out">
-        <div class="scope-col-label">Out of scope</div>
-        <ul>
-          <li>Machine translation of user content<em>scope creep; predictable behavior wins</em></li>
-          <li>RTL languages<em>Phase 2 — needs separate layout audit</em></li>
-          <li>Per-document language override<em>Phase 2</em></li>
-        </ul>
-      </div>
-    </div>
-    <div class="filter-tag">Gap-fill — competitors ship this; we're closing the gap to enter the market.</div>
-  </section>
-
-  <!-- ─── V. Functional Requirements ─── -->
-  <section id="requirements">
-    <h2><span class="sec-num" aria-hidden="true">V</span>Functional Requirements</h2>
-    <p class="lead">What each in-scope item must support, grouped by scope item.</p>
-
-    <h3>1 · i18n framework</h3>
-    <ul>
-      <li>ICU MessageFormat for pluralization, gender, and number formatting.</li>
-      <li>Locale files in <code>locales/{lang}.json</code>, one file per supported language.</li>
-      <li>Build-time check fails if any locale is missing keys present in <code>en.json</code>.</li>
-      <li>Runtime fallback to English when a key is missing in the active locale.</li>
-    </ul>
-
-    <h3>2 · Language picker</h3>
-    <ul>
-      <li>Settings page section titled "Language" with three options.</li>
-      <li>Selection persists to user profile; applies instantly without reload.</li>
-      <li>Status indicator shows save state (saving / saved).</li>
-    </ul>
-
-    <h3>3 · String extraction</h3>
-    <ul>
-      <li>Replace all hardcoded English strings with <code>t('key')</code> calls.</li>
-      <li>Lint rule rejects new commits with raw English strings in JSX/templates.</li>
-      <li>Provide initial translations for Spanish and Japanese (professional translation vendor).</li>
-    </ul>
-
-    <h3>4 · Browser-locale detection</h3>
-    <ul>
-      <li>On first visit, read <code>navigator.language</code> and match against supported locales.</li>
-      <li>If matched, render in detected language; if not, default to English.</li>
-      <li>Show one-time banner: "We detected your browser is in {lang}. Continue or switch?"</li>
-    </ul>
-  </section>
-
-  <!-- ─── VI. Edge Cases ─── -->
-  <section id="edge">
-    <h2><span class="sec-num" aria-hidden="true">VI</span>Edge Cases &amp; Constraints</h2>
-    <p class="lead">Boundary conditions and failure modes — each must have a defined handling.</p>
-
-    <table>
-      <thead>
-        <tr><th>Case</th><th>Expected handling</th></tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td><strong>Translation missing for active locale</strong></td>
-          <td>Fall back to English silently. Log to error tracker for translator backfill.</td>
-        </tr>
-        <tr>
-          <td><strong>Browser locale is a region we don't ship</strong></td>
-          <td>Match by base language (e.g., <code>es-MX</code> → Spanish). Default to English if no base match.</td>
-        </tr>
-        <tr>
-          <td><strong>String contains user variable (name, count)</strong></td>
-          <td>Use ICU MessageFormat placeholders — never concatenate translated fragments.</td>
-        </tr>
-        <tr>
-          <td><strong>User switches language mid-task</strong></td>
-          <td>Re-render chrome immediately; preserve form state and unsaved input.</td>
-        </tr>
-        <tr>
-          <td><strong>Translated string is significantly longer than English</strong></td>
-          <td>UI must reflow without truncation. CSS uses <code>min-content</code> for button labels.</td>
-        </tr>
-      </tbody>
-    </table>
-  </section>
-
-  <!-- ─── VII. Flow ─── -->
-  <section id="flow">
-    <h2><span class="sec-num" aria-hidden="true">VII</span>User Flow</h2>
-    <div class="diagram">
-      <pre class="diagram-text" aria-label="Delivery sequence diagram">
-flowchart TD
-    A[First visit] --> B{Browser locale matches supported?}
-    B -->|Yes| C[Render in detected language]
-    B -->|No| D[Render in English]
-    C --> E[Show 'switch language' banner]
-    D --> F[User signs up]
-    E --> F
-    F --> G[Profile saves language]
-    G --> H{User changes language?}
-    H -->|Yes| I[Re-render chrome]
-    H -->|No| J[Continue session]
-    I --> J
-      </pre>
-    </div>
-  </section>
-
-  <!-- ─── VIII. Competitive ─── -->
-  <section id="competitive">
-    <h2><span class="sec-num" aria-hidden="true">VIII</span>Competitive Context</h2>
-    <table>
-      <thead>
-        <tr><th>Tool</th><th>Languages</th><th>Approach</th></tr>
-      </thead>
-      <tbody>
-        <tr><td><strong>Acme</strong></td><td>9</td><td>Per-region builds; heavy infrastructure</td></tr>
-        <tr><td><strong>Globex</strong></td><td>5</td><td>Single build, runtime locale switching</td></tr>
-        <tr><td><strong>Initech</strong></td><td>English only</td><td>Same gap as us — competing for the same deals</td></tr>
-      </tbody>
-    </table>
-    <div class="annotation">
-      <span class="annotation-label">Handling decision</span>
-      <p><strong>Gap-fill.</strong> We're matching Globex's approach (single build, runtime switching) at 3 languages. Differentiation isn't the feature — it's how fast we can land it and beat Initech to localized deals.</p>
-    </div>
-  </section>
-
-  <!-- ─── IX. Feasibility ─── -->
-  <section id="feasibility">
-    <h2><span class="sec-num" aria-hidden="true">IX</span>Technical Feasibility</h2>
-    <p class="lead"><strong>Verdict:</strong> Feasible.</p>
-    <p><strong>Build on:</strong> existing React component library, user profile schema, settings page infrastructure.</p>
-    <p><strong>Build new:</strong> ICU MessageFormat integration, locale file structure, translation vendor pipeline, lint rule for hardcoded strings.</p>
-    <p><strong>Top risks:</strong> string extraction touches ~340 files (mechanical but tedious — schedule a one-shot codemod). Translation vendor turnaround is 5–10 business days per language. Long-string reflow may surface latent CSS bugs.</p>
-  </section>
-
-  <!-- ─── X. Open Questions ─── -->
-  <section id="open-q">
-    <h2><span class="sec-num" aria-hidden="true">X</span>Open Questions</h2>
-    <p class="lead">Decisions not yet made. Each carries a recommended answer.</p>
-
-    <div class="open-q">
-      <div class="open-q-q"><span class="open-q-num" aria-hidden="true">01</span>Do we ship all three languages at GA, or roll out one at a time?</div>
-      <p class="open-q-rec"><strong>Recommendation:</strong> ship all three at GA. Reduces "is X supported?" support load; sales motion is cleaner.</p>
-      <div class="open-q-meta"><span><strong>Owner</strong>Product</span><span><strong>By</strong>Pre-GA cut</span></div>
-    </div>
-
-    <div class="open-q">
-      <div class="open-q-q"><span class="open-q-num" aria-hidden="true">02</span>How do we source translations long-term?</div>
-      <p class="open-q-rec"><strong>Recommendation:</strong> Phase 1 uses a professional vendor; Phase 2 introduces an in-app contribution flow for community languages.</p>
-      <div class="open-q-meta"><span><strong>Owner</strong>Engineering</span><span><strong>By</strong>Phase 2 kickoff</span></div>
-    </div>
-
-    <details>
-      <summary>Resolved questions (3)</summary>
-      <div class="resolved-list">
-        <div class="resolved-q">
-          <div class="resolved-q-q">Should we machine-translate user content?</div>
-          <div class="resolved-q-a">No. Chrome only. Predictable user-data behavior wins.</div>
-        </div>
-        <div class="resolved-q">
-          <div class="resolved-q-q">RTL support in Phase 1?</div>
-          <div class="resolved-q-a">No. Needs a separate layout audit — Phase 2.</div>
-        </div>
-        <div class="resolved-q">
-          <div class="resolved-q-q">ICU MessageFormat or simpler key-value?</div>
-          <div class="resolved-q-a">ICU. Pluralization and gender alone justify the complexity.</div>
-        </div>
-      </div>
-    </details>
-  </section>
-
-  <!-- ─── XI. Metrics ─── -->
-  <section id="metrics">
-    <h2><span class="sec-num" aria-hidden="true">XI</span>Success Metrics</h2>
-    <table>
-      <thead>
-        <tr><th>Metric</th><th>Baseline</th><th>Target</th><th>By</th></tr>
-      </thead>
-      <tbody>
-        <tr><td><strong>Trial conversion in non-English markets</strong></td><td>4%</td><td>≥10%</td><td>90 days post-GA</td></tr>
-        <tr><td>Signups from APAC / LATAM</td><td>28%</td><td>≥40%</td><td>90 days post-GA</td></tr>
-        <tr><td>Enterprise POCs signed in target regions</td><td>0</td><td>≥3</td><td>90 days post-GA</td></tr>
-      </tbody>
-    </table>
-    <p style="margin-top:var(--space-3); font-size:0.92rem; color:var(--ink-3); max-width:var(--measure)"><strong style="color:var(--ink-2)">Caveat.</strong> Conversion lift assumes localized UI is the bottleneck. If conversion stays flat at 4% post-GA, the bottleneck is upstream (pricing, positioning, onboarding) and needs separate work.</p>
-  </section>
-
-  <!-- ─── XII. Status ─── -->
-  <section id="status">
-    <h2><span class="sec-num" aria-hidden="true">XII</span>Status &amp; Next Steps</h2>
-
-    <div class="pipeline">
-      <div class="pipeline-row"><div class="pipeline-step">Intake</div><div class="pipeline-verdict">Greenfield; clear strategic alignment</div></div>
-      <div class="pipeline-row"><div class="pipeline-step">Strategy check</div><div class="pipeline-verdict">Q2 priority — geographic expansion</div></div>
-      <div class="pipeline-row"><div class="pipeline-step">Research</div><div class="pipeline-verdict">i18n-landscape.md — 7 findings</div></div>
-      <div class="pipeline-row"><div class="pipeline-step">Scope</div><div class="pipeline-verdict">4 in / 3 out · gap-fill</div></div>
-      <div class="pipeline-row"><div class="pipeline-step">Scope review</div><div class="pipeline-verdict">PM ship-it · EM feasible</div></div>
-      <div class="pipeline-row"><div class="pipeline-step">Team review</div><div class="pipeline-verdict">All ready · 1 advisory item folded in</div></div>
-      <div class="pipeline-row"><div class="pipeline-step">Bar raiser</div><div class="pipeline-verdict">Ready</div></div>
-    </div>
-
-  </section>
-  </details>
-
-  <footer>
-    <span>PM-042 · Multi-Language Support</span>
-    <span>Product Proposal · Apr 10, 2026</span>
-  </footer>
-
-</main>
-
-</body>
-</html>
+<header class="masthead"><span class="masthead-id">proposal:structured-groom</span><div class="masthead-meta"><a class="status-mark" data-pm-lifecycle href="#decision-action" aria-label="Draft; go to decision status">Draft</a><span>Revision 1</span><span>Priority high</span><span>Size L</span></div></header>
+<div class="title-block"><h1>Structured Groom proposals</h1><p class="lede">Teams can approve and hand off one auditable product contract.</p></div>
+<aside class="decision-action" id="decision-action" aria-label="Decision status"><div class="decision-action-label">Decision status</div><p class="decision-state-summary"><span>Proposal <strong>Draft</strong></span><span>Review <strong>Pending</strong></span><span>Approval <strong>Blocked</strong></span></p><h2 class="decision-action-title">Review must finish before approval</h2><p>Resume <code>/pm:groom structured-groom</code> to complete review or revise this draft. Draft status never implies approval.</p><p class="decision-integrity">Approval applies only to revision <strong>1</strong> and content <code title="Full content identity: sha256:49189c5eeeb43cf037e8bc00042b37be891e5db4ba4169060a9ca5ce1eb4bcb7">sha256:49189c5e…1eb4bcb7</code>. Any substantive edit makes that approval stale.</p></aside>
+<section id="decision-brief"><h2>Overview</h2><section class="reader-subsection" id="recommendation"><h3>Recommendation</h3><p>Use one structured proposal with generated projections and hash-bound approval.</p></section>
+<section class="reader-subsection" id="problem"><h3>Problem and timing</h3><p>Proposal twins drift and prose status can be mistaken for approval.</p><p>The next workhorse models need a provider-neutral execution contract.</p></section>
+<section class="reader-subsection" id="scope"><h3>Scope</h3><div class="scope"><div class="scope-col"><div class="scope-col-label">In scope</div><ul><li>A strict proposal schema and checker.</li></ul></div><div class="scope-col scope-col-out"><div class="scope-col-label">Non-goals</div><ul><li>Automatic product approval.</li></ul></div></div></section>
+<section class="reader-subsection" id="feasibility"><h3>Risks and safeguards</h3><table data-responsive="true" aria-label="Risk and Likelihood and Impact and Mitigation"><thead><tr><th>Risk</th><th>Likelihood</th><th>Impact</th><th>Mitigation</th></tr></thead><tbody><tr><td data-label="Risk">Strict validation could strand legacy proposals.</td><td data-label="Likelihood">medium</td><td data-label="Impact">high</td><td data-label="Mitigation">Keep a bounded inspection-only legacy reader.</td></tr></tbody></table></section>
+<section class="reader-subsection" id="open-q"><h3>Decisions</h3><p>No open product decisions.</p><details><summary>Resolved decisions (1)</summary><div class="resolved-list"><div class="resolved-q"><div class="resolved-q-q">What is the canonical proposal source?</div><div class="resolved-q-a">Schema-v1 JSON. — It supports deterministic projections and machine handoff.</div></div></div></details></section></section>
+<section id="mockups"><h2>Mockups</h2><section class="reader-subsection" id="prototype"><h3>Interaction prototype</h3><p>No prototype is linked. Do not infer an approved design from this proposal.</p></section></section>
+<section id="execution-contract"><h2>Execution Contract</h2><details class="execution-disclosure"><summary>Read requirements, acceptance criteria, and design constraints</summary><section class="reader-subsection" id="requirements"><h3>Requirements</h3><ul><li>Approval must bind the exact proposal bytes and revision. (must)</li></ul></section>
+<section class="reader-subsection" id="usecases"><h3>Acceptance criteria</h3><div class="usecase"><div class="usecase-title"><span class="usecase-num" aria-hidden="true">01</span>ac:approval</div><dl><dt>Given</dt><dd>a reviewed proposal</dd><dt>When</dt><dd>a user explicitly approves it</dd><dt>Then</dt><dd>the audit binds its exact bytes, content hash, revision, and approver</dd></dl></div></section>
+<section class="reader-subsection" id="edge"><h3>Edge cases</h3><table data-responsive="true" aria-label="Case and Expected handling"><thead><tr><th>Case</th><th>Expected handling</th></tr></thead><tbody><tr><td data-label="Case">The proposal changes after approval.</td><td data-label="Expected handling">The approval audit fails closed.</td></tr></tbody></table></section>
+<section class="reader-subsection" id="flow"><h3>Design requirements</h3><ul><li>Show lifecycle, revision, approval state, and open decisions visibly.</li></ul>
+<p class="reader-label"><strong>UI impact</strong></p><p>Visual UI change</p>
+<p class="reader-label"><strong>Prototype</strong></p><p>No prototype approved.</p>
+<p class="reader-label"><strong>Critical states</strong></p><ul><li>draft</li><li>reviewed</li><li>approved</li><li>stale approval</li></ul>
+<p class="reader-label"><strong>Experience invariants</strong></p><ul><li>Reviewers can identify the current decision state before inspecting implementation detail.</li></ul>
+<p class="reader-label"><strong>Visual invariants</strong></p><ul><li>Lifecycle and approval state remain visible at narrow widths.</li></ul></section>
+<section class="reader-subsection" id="handoff"><h3>Dependencies and constraints</h3><p>None declared.</p><ul><li>No automatic approval</li><li>Preserve legacy inspection</li></ul></section></details></section>
+<section id="evaluation"><h2>Evaluation</h2><section class="reader-subsection" id="metrics"><h3>Success metrics</h3><table data-responsive="true" aria-label="Metric and Baseline and Target and Window"><thead><tr><th>Metric</th><th>Baseline</th><th>Target</th><th>Window</th></tr></thead><tbody><tr><td data-label="Metric">Projection drift accepted by validation</td><td data-label="Baseline">Possible</td><td data-label="Target">Zero accepted cases</td><td data-label="Window">Wave 5 certification</td></tr></tbody></table></section>
+<section class="reader-subsection" id="competitive"><h3>Alternatives</h3><table data-responsive="true" aria-label="Alternative and Why not"><thead><tr><th>Alternative</th><th>Why not</th></tr></thead><tbody><tr><td data-label="Alternative">Keep hand-edited Markdown and HTML twins</td><td data-label="Why not">It preserves drift and ambiguous approval.</td></tr></tbody></table></section></section>
+<section id="appendix"><h2>Evidence and review</h2><details class="appendix-disclosure"><summary>Read sources, audience context, and review records</summary><section class="reader-subsection" id="jtbd"><h3>Users and jobs</h3><div class="annotation annotation-jtbd"><span class="annotation-label">Job to be done</span><p>When a proposal is ready for delivery, I want to approve exact reviewed content, so downstream work cannot consume stale intent.</p></div><div class="personas"><div class="persona"><div class="persona-tag">Audience</div><div class="persona-name">Product delivery team</div><p class="persona-desc">People defining, approving, and implementing product work.</p></div></div></section>
+<section class="reader-subsection" id="evidence"><h3>Evidence provenance</h3><p class="reader-label"><strong>Evidence provenance</strong></p><div class="annotation"><span class="annotation-label">evidence:baseline · research</span><p>The current Markdown and HTML twins can drift.</p><p><strong>Source.</strong> <code>pm/research/groom-evidence.md</code><br><strong>Observed.</strong> 2026-07-14T01:00:00.000Z<br><strong>SHA-256.</strong> <code>sha256:1111111111111111111111111111111111111111111111111111111111111111</code></p></div><p class="reader-label"><strong>Source lineage</strong></p><table class="source-lineage" data-responsive="true" aria-label="Lineage ID and Retained source and SHA-256"><thead><tr><th>Lineage ID</th><th>Retained source</th><th>SHA-256</th></tr></thead><tbody><tr><td data-label="Lineage ID">source:research</td><td data-label="Retained source">pm/research/groom-evidence.md</td><td data-label="SHA-256">sha256:1111111111111111111111111111111111111111111111111111111111111111</td></tr></tbody></table></section>
+<section class="reader-subsection" id="assumptions"><h3>Assumptions and confidence</h3><p>Confidence: high</p><table data-responsive="true" aria-label="Assumption and Confidence and Validation"><thead><tr><th>Assumption</th><th>Confidence</th><th>Validation</th></tr></thead><tbody><tr><td data-label="Assumption">Machine consumers can read the canonical JSON directly.</td><td data-label="Confidence">high</td><td data-label="Validation">Exercise RFC and Dev readers against the fixture.</td></tr></tbody></table></section>
+<section class="reader-subsection" id="status"><h3>Review and approval</h3><p class="reader-label"><strong>Review answers</strong></p><article class="open-q"><div class="open-q-q">Is the problem and evidence chain sufficient?</div><p class="open-q-rec"><strong>Question result.</strong> Pass</p><p>Legacy review record; no retained conclusion or rationale.</p><div><strong>Evidence.</strong><ul><li>Evidence reference: evidence:baseline</li></ul></div></article><p class="reader-label"><strong>Approval</strong></p><p>Review required before approval.</p><p>Revision 1. Required approval identity <code>sha256:49189c5eeeb43cf037e8bc00042b37be891e5db4ba4169060a9ca5ce1eb4bcb7</code>.</p></section></details></section>
+<footer><span>Content sha256:49189c5eeeb43cf…</span><span>Source revision 1</span></footer>
+</main></div></body></html>

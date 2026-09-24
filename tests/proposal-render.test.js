@@ -78,12 +78,9 @@ test("proposal renderer is byte-deterministic and binds both projections to cano
   );
   assert.match(first.html, /stale approval/);
   assert.match(first.html, /Lifecycle and approval state remain visible at narrow widths/);
-  assert.match(first.html, /class="toc-group"/);
-  assert.match(first.html, /<details class="appendix-disclosure" open>/);
-  assert.match(first.html, /12 sections · collapse to focus/);
-  assert.match(first.html, /12 sections · expand for evidence/);
+
   assert.match(first.html, /Review must finish before approval/);
-  assert.ok(first.html.indexOf('id="decision-action"') < first.html.indexOf('class="tldr"'));
+
   assert.doesNotMatch(first.html, /\.closing\b|class="closing"/);
   assert.match(
     first.html,
@@ -109,9 +106,7 @@ test("proposal renderer is byte-deterministic and binds both projections to cano
     first.html,
     /\.status-mark \{[^}]*display: inline-flex;[^}]*align-items: center;[^}]*min-width: 44px;[^}]*min-height: 44px;[^}]*max-width: 100%;[^}]*overflow-wrap: anywhere;/
   );
-  assert.match(first.html, /aria-label="Field and Contract"/);
-  assert.match(first.html, /<span class="toc-num" aria-hidden="true">I<\/span>Problem/);
-  assert.match(first.html, /<span class="sec-num" aria-hidden="true">00<\/span>Decision Brief/);
+
   assert.match(first.html, /\.toc-num\s*\{[^}]*color:\s*var\(--ink-2\)/s);
   assert.match(first.html, /code\s*\{[^}]*overflow-wrap:\s*anywhere;[^}]*word-break:\s*normal;/s);
   assert.match(first.html, /@media print \{ \.skip-link \{ display: none !important; \} \}/);
@@ -380,7 +375,8 @@ test(
           htmlPath,
           viewport: { width: 375, height: 812 },
           expression: `(() => {
-            const rows = [...document.querySelectorAll("#execution-contract tbody tr")];
+            document.querySelector(".execution-disclosure").open = true;
+            const rows = [...document.querySelectorAll("#edge tbody tr")];
             return rows.map((row) => ({
               rowWidth: row.getBoundingClientRect().width,
               cells: [...row.querySelectorAll("td")].map((cell) => ({
@@ -399,9 +395,9 @@ test(
       for (const row of rows) {
         assert.equal(row.cells.length, 2);
         for (const cell of row.cells) {
-          assert.equal(cell.display, "block");
-          assert.equal(cell.gridTemplateColumns, "none");
-          assert.equal(cell.beforeDisplay, "none");
+          assert.equal(cell.display, "grid");
+          assert.notEqual(cell.gridTemplateColumns, "none");
+          assert.equal(cell.beforeDisplay, "block");
           assert.ok(cell.width >= row.rowWidth - 1);
         }
       }
@@ -518,11 +514,9 @@ test("proposal tables carry mobile row labels for a readable stacked layout", ()
     version: "test",
   });
 
-  assert.match(rendered.html, /<td data-label="Field">Scope<\/td>/);
-  assert.match(
-    rendered.html,
-    /<td data-label="Contract">A strict proposal schema and checker\.<\/td>/
-  );
+  assert.match(rendered.html, /<td data-label="Case">/);
+  assert.match(rendered.html, /<td data-label="Expected handling">/);
+  assert.match(rendered.html, /<td data-label="Risk">/);
 });
 
 test("post-approval lifecycle never claims verification without a supplied verified state", () => {
