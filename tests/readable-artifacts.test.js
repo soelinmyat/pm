@@ -63,3 +63,17 @@ test("disclosed contracts remain printable in current Chromium", () => {
     );
   }
 });
+
+test("advisory items retain severity and actual completion status", () => {
+  const proposal = structuredClone(fixture);
+  proposal.advisory_debt = [
+    { id: "a1", summary: "Resolved follow-up", severity: "low", status: "resolved" },
+    { id: "a2", summary: "Open follow-up", severity: "high", status: "open" },
+    { id: "a3", summary: "Accepted follow-up", severity: "medium", status: "accepted" },
+  ];
+  const { html } = renderProposal(proposal);
+  for (const item of proposal.advisory_debt) {
+    assert.ok(html.includes(`${item.summary} — ${item.severity} severity · ${item.status}`));
+  }
+  assert.doesNotMatch(html, /Outstanding advisory items/);
+});

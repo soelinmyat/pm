@@ -142,7 +142,7 @@ function proposalReaderGroups(proposal, identity) {
           body:
             subordinate(decisionsHtml(proposal)) +
             (proposal.advisory_debt.length
-              ? `<p><strong>Outstanding advisory items</strong></p>${listHtml(proposal.advisory_debt.map((item) => item.summary))}`
+              ? `<p><strong>Advisory items</strong></p>${listHtml(proposal.advisory_debt.map((item) => `${item.summary} — ${item.severity} severity · ${item.status}`))}`
               : ""),
         },
       ],
