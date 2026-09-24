@@ -149,6 +149,7 @@ implement top-to-bottom. Each issue should produce working, testable software on
 
 **Approach:**
 {Which files to create/modify, key implementation details, patterns to follow.
+Use numbered implementation steps and separate constraint bullets. Keep verification commands and ownership in their own fields; do not combine them into a long approach paragraph.
 Detailed enough that a developer with zero codebase context can execute.}
 
 **Owns:** {Exact files or conservative directory globs this issue may modify.}

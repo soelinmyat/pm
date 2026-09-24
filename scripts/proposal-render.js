@@ -104,7 +104,7 @@ function renderHtml(proposal, identity) {
 <script id="pm-artifact" type="application/json">${safeJson(metadata)}</script><style>${css}</style></head>
 <body data-proposal-revision="${proposal.revision}" data-content-sha256="${h(identity.contentSha256)}" data-source-sha256="${h(identity.sourceSha256)}">
 <a class="skip-link" href="#content">Skip to content</a>
-<div class="reader-layout"><nav class="reader-nav" aria-label="Proposal sections">${readerNavigation(groups)}</nav>
+<div class="reader-layout"><details class="reader-navigation"><summary>In this proposal</summary><nav class="reader-nav" aria-label="Proposal sections">${readerNavigation(groups)}</nav></details>
 <main class="page" id="content">
 <header class="masthead"><span class="masthead-id">${h(proposal.id)}</span><div class="masthead-meta"><a class="status-mark" data-pm-lifecycle href="#decision-action" aria-label="${h(approval)}; go to decision status">${h(approval)}</a><span>Revision ${proposal.revision}</span><span>Priority ${h(proposal.priority)}</span><span>Size ${h(proposal.size)}</span></div></header>
 <div class="title-block"><h1>${h(proposal.title)}</h1><p class="lede">${h(proposal.outcome)}</p></div>
