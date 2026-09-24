@@ -32,6 +32,10 @@ Follow `writing-rfcs.md` as the canonical document and sidecar contract. Preserv
 
 The paired JSON sidecar uses schema version 3 for identity, the intake-bound closed `design_context`, executable issue work units (`depends_on`, `owns`, acceptance criteria, approach, verification commands, and test hooks), and the five test-strategy fields. Schema v2 remains readable as a legacy, non-executable compatibility shape; it must be recertified through intake before generation, approval, or Dev handoff. `scripts/rfc-sidecar-check.js --current-handoff` is the executable schema/context/hash/slug gate.
 
+## Human reader
+
+Apply the readable-artifact rules in `references/writing.md` and the presentation section of `references/templates/rfc-template.md`. Follow the reference's nested navigation and H2/H3 hierarchy. Keep full contract and parser content in the HTML even inside native disclosures. Material risks and pending decisions remain visible in the brief; supporting rationale belongs once in technical detail. Never use a prose budget to omit execution fields or test strategy.
+
 ## Worker result
 
 Return one strict phase-result envelope. A passed generation result includes:

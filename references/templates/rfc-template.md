@@ -33,6 +33,14 @@ The lifecycle fields are changed together during approval; all other artifact me
 
 Render the same lifecycle once as visible text in a dedicated marker, for example `<span data-pm-lifecycle>Draft</span>`. This is the only visible text the lifecycle-only handoff may change.
 
+## Reader presentation
+
+Follow `references/writing.md`: one point per short paragraph, concrete lists, no duplicate rationale. Use H2 reader groups and H3 subsections with two-level navigation. Keep all stable IDs, sidecar bindings, issue-card classes, and test hooks.
+
+The Decision Brief stays visible. Put the full Execution Contract in a native disclosure with a visible section heading. Group technical detail beneath Appendix; use short labels rather than a third body-heading level. Keep the largest risk and decisions needed in the brief even when supporting detail is collapsed. Print must expose the complete contract and all issue detail.
+
+If the approved proposal binds a prototype, link the same exact prototype from the brief with its state/identity and a one-line design implication. Do not invent a new design or copy executable prototype HTML into the RFC. Technical diagrams explain architecture; they do not substitute for product mockups.
+
 ## Hero Header
 
 Title, one-line summary, metadata strip: size, status, author, task count.

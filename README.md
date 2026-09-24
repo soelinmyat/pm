@@ -326,3 +326,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for how to add platform support, create c
 MIT. Copyright (c) 2026 Soe Lin Myat. See [LICENSE](./LICENSE).
 
 Design capture follows real keyboard focus, including asynchronous roving tab controls. It restores URL-backed tabs through their native handlers and requires the original URL afterward. Typography consistency is compared within semantic page regions.
+
+### Reading generated artifacts
+
+Proposal and RFC HTML readers use section/subsection navigation, short decision-first prose, and expandable execution detail. Proposals place source-bound prototype links before implementation detail; absent prototypes are labeled honestly. Risks and pending decisions remain visible, and complete evidence and execution contracts remain available for review and printing.

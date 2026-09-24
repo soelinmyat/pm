@@ -158,13 +158,19 @@ Copy `review_contract.session_id`, `tier`, and the ordered `required_question_id
 
 ## Human reader order
 
-The generated HTML keeps three layers:
+The generated HTML uses the shared readable-artifact rules in `references/writing.md`:
 
-1. **Decision brief** — recommendation and approval boundary.
-2. **Execution contract** — structured scope and acceptance content.
-3. **Appendix** — evidence, audience/JTBD, design, alternatives, risks, decisions, review answers, and lineage.
+1. **Decision brief / Overview** — one recommendation, problem and timing, scope, material risks, and open decisions. Approval status remains visible above this section.
+2. **Mockups** — the source-bound prototype link and critical states, after the product context and before implementation detail. No linked prototype means an honest empty state, never invented approved visuals.
+3. **Execution Contract** — one complete requirements/acceptance/design/dependency reader in a native disclosure. RFC and Dev still consume canonical JSON.
+4. **Evaluation** — success measures and alternatives.
+5. **Appendix / Evidence and review** — audience/jobs, source provenance, assumptions, confidence, and review records in a native disclosure.
 
-Visible metadata includes lifecycle, verified approval state when a matching audit was actually supplied, revision, semantic content hash, source lineage, evidence freshness, UI-impact classification, experience invariants, complete prototype tree identity, and unresolved decisions. The reader must remain offline, inert, accessible, responsive, and printable.
+Use an H1 title, H2 groups, and H3 subsections with matching two-level navigation outside disclosures. Preserve stable section IDs. Do not repeat the recommendation or flatten the entire contract into a second summary table. All source content remains available; neither compact presentation nor a word budget changes the approval boundary.
+
+Prototype HTML remains a separate source-bound document. Never inject its HTML, executable content, or an iframe into the inert proposal reader. A linked prototype is not proof of approval: show the actual proposal approval verification separately. Annotated screen previews belong in the prototype, with a short caption, numbered callouts, and explicit state labels. Do not reproduce private example data in public reference artifacts.
+
+Visible metadata includes lifecycle, verified approval state only when a matching audit was supplied, revision, content identity, source lineage, evidence freshness, UI-impact classification, invariants, complete prototype identity, and unresolved decisions. Retain integrity details in the appropriate evidence/design sections. The reader remains offline, inert, accessible, responsive, and printable.
 
 ## Legacy compatibility
 
