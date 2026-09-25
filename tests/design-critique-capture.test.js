@@ -9,6 +9,7 @@ const path = require("node:path");
 const test = require("node:test");
 const {
   MAX_VIEWPORT_PIXELS,
+  browserIdentity,
   manifestShape,
   prepareCapturePlan,
   redactedUrlIdentity,
@@ -3021,3 +3022,20 @@ for (const missingLayout of [false, true]) {
     );
   });
 }
+
+test("browser identity ignores inode metadata-only changes but not content changes", () => {
+  // macOS updates the ctime of a signed app binary on launch; its bytes, mtime and path stay fixed.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-browser-identity-"));
+  const executable = path.join(dir, "chromium");
+  fs.writeFileSync(executable, "#!/bin/sh\necho Chromium 140.0.0.0\n");
+  fs.chmodSync(executable, 0o755);
+  const before = browserIdentity(executable);
+  const ctimeBefore = fs.statSync(executable, { bigint: true }).ctimeNs;
+  fs.chmodSync(executable, 0o700);
+  fs.chmodSync(executable, 0o755);
+  assert.notEqual(fs.statSync(executable, { bigint: true }).ctimeNs, ctimeBefore);
+  assert.deepEqual(browserIdentity(executable), before);
+  fs.writeFileSync(executable, "#!/bin/sh\necho Chromium 141.0.0.0\n");
+  assert.notDeepEqual(browserIdentity(executable), before);
+  fs.rmSync(dir, { recursive: true, force: true });
+});

@@ -626,7 +626,9 @@ function readFileIdentity(filePath) {
       offset += count;
     }
     const after = fs.fstatSync(descriptor, { bigint: true });
-    for (const field of ["dev", "ino", "size", "mtimeNs", "ctimeNs"])
+    // Content, inode and mtime identify the executable. ctime is excluded because
+    // macOS updates it when a signed app bundle launches without changing its bytes.
+    for (const field of ["dev", "ino", "size", "mtimeNs"])
       if (after[field] !== before[field])
         throw new Error("browser executable changed while hashing");
     return {
@@ -634,7 +636,6 @@ function readFileIdentity(filePath) {
         dev: String(after.dev),
         ino: String(after.ino),
         mtime_ns: String(after.mtimeNs),
-        ctime_ns: String(after.ctimeNs),
       },
       public: {
         path: realpath,
