@@ -19,7 +19,7 @@ for (const mode of ["restore", "missing-selection", "wrong-route"]) {
       process.execPath,
       [
         "-e",
-        "const http=require('node:http');const s=http.createServer((q,r)=>r.end(process.argv[1]));s.listen(0,'127.0.0.1',()=>console.log(s.address().port))",
+        "const http=require('node:http');const s=http.createServer((q,r)=>r.end(process.argv[1]));s.listen(0,'127.0.0.1',()=>process.stdout.write(s.address().port+'\\n'))",
         html,
       ],
       { stdio: ["ignore", "pipe", "inherit"] }
