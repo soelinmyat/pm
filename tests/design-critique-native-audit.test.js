@@ -81,7 +81,7 @@ test("native adapter rejects ambiguous, empty and fabricated web-shaped evidence
     normalize(input).findings.some((finding) => finding.code === "ambiguous-native-control")
   );
   input.observations.tab_index = 0;
-  assert.throws(() => normalize(input), /unexpected|fields/);
+  assert.throws(() => normalize(input), /unknown field|is required/);
 });
 
 test("native selector identity does not depend on JSON property order", () => {
@@ -323,4 +323,26 @@ test("native default and occurrence aliases cannot certify the same actual node 
   assert.ok(
     normalize(input).findings.some((finding) => finding.code === "duplicate-native-control")
   );
+});
+
+test("disabled declared controls still fail when outside the captured viewport", () => {
+  const input = raw();
+  Object.assign(input.observations.hierarchy.children[0].attributes, {
+    enabled: "false",
+    bounds: "[0,900][100,1000]",
+  });
+  const audit = normalize(input);
+  assert.equal(audit.checks.touch_targets, false);
+  assert.deepEqual(
+    audit.findings.map((finding) => finding.code),
+    ["clipped-touch-target"]
+  );
+  input.observations.hierarchy.children[0].attributes.bounds = "[16,120][40,140]";
+  assert.equal(normalize(input).checks.touch_targets, true);
+});
+
+test("native adapter names unknown observation fields", () => {
+  const input = raw();
+  input.observations.focus_order = [];
+  assert.throws(() => normalize(input), /native observations\.focus_order is an unknown field/);
 });

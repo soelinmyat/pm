@@ -6,6 +6,7 @@ const path = require("node:path");
 const { isManagedCaptureRawPath } = require("./lib/design-critique-capture-path");
 const { readProjectInput, writeProjectJsonAtomic } = require("./lib/project-file");
 const { normalizeNativeAccessibility } = require("./lib/design-critique-native-audit");
+const { exactObject, exactObjectWithOptional } = require("./lib/closed-object");
 
 const MAX_RAW_AUDIT_BYTES = 1024 * 1024;
 const MAX_CAPTURE_IDS = 40;
@@ -301,28 +302,6 @@ function validateCaptureIds(captureIds) {
     if (seen.has(value)) throw new Error("raw audit capture_ids must be unique");
     seen.add(value);
   }
-}
-
-function exactObject(value, fields, label) {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    throw new Error(`${label} must be an object`);
-  const allowed = new Set(fields);
-  const unknown = Object.keys(value).find((field) => !allowed.has(field));
-  const missing = fields.find((field) => !Object.prototype.hasOwnProperty.call(value, field));
-  if (unknown) throw new Error(`${label}.${unknown} is an unknown field`);
-  if (missing) throw new Error(`${label}.${missing} is required`);
-}
-
-function exactObjectWithOptional(value, requiredFields, optionalFields, label) {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    throw new Error(`${label} must be an object`);
-  const allowed = new Set([...requiredFields, ...optionalFields]);
-  const unknown = Object.keys(value).find((field) => !allowed.has(field));
-  const missing = requiredFields.find(
-    (field) => !Object.prototype.hasOwnProperty.call(value, field)
-  );
-  if (unknown) throw new Error(`${label}.${unknown} is an unknown field`);
-  if (missing) throw new Error(`${label}.${missing} is required`);
 }
 
 function boundedArray(value, maxItems, label, minItems = 0) {

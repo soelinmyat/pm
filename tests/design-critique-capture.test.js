@@ -20,6 +20,7 @@ const {
   validateSurfacePattern,
   validateViewport,
   urlMatchesSurface,
+  validateRoute,
 } = require("../scripts/design-critique-capture");
 const {
   accessibilityObservations,
@@ -3038,4 +3039,44 @@ test("browser identity ignores inode metadata-only changes but not content chang
   fs.writeFileSync(executable, "#!/bin/sh\necho Chromium 141.0.0.0\n");
   assert.notDeepEqual(browserIdentity(executable), before);
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("trusted web capture accepts mixed routes whose mobile rows declare native controls", () => {
+  const mixed = route();
+  mixed.subjects.push({
+    id: "scan-sheet",
+    title: "Scan sheet",
+    surface: "Scan sheet",
+    platform: "mobile",
+  });
+  mixed.coverage.push(
+    {
+      id: "scan-primary-device",
+      subject_id: "scan-sheet",
+      state: "primary",
+      viewport: "device",
+      required: true,
+      reason: "Changed native scan sheet",
+      native_controls: [{ by: "id", value: "scan-another" }],
+    },
+    {
+      id: "scan-empty-device",
+      subject_id: "scan-sheet",
+      state: "empty",
+      viewport: "device",
+      required: true,
+      reason: "Changed native empty copy",
+      native_controls: [],
+      native_scope: {
+        kind: "noninteractive-change",
+        reason: "Only the static empty-state copy changed on this native screen.",
+      },
+    }
+  );
+  assert.equal(validateRoute(mixed), mixed);
+  const web = route();
+  web.coverage[0].native_controls = [{ by: "id", value: "category" }];
+  assert.throws(() => validateRoute(web), /requires a mobile subject/);
+  mixed.coverage[2].native_controls = [{ by: "id", value: "category" }];
+  assert.throws(() => validateRoute(mixed), /empty controls/);
 });

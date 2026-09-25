@@ -1,20 +1,17 @@
 "use strict";
 
+const { exactObject, exactObjectWithOptional } = require("./closed-object");
+
 // Maestro exposes native labels and geometry, not web roles or keyboard tab order.
-function exact(value, keys, label) {
-  if (
-    !value ||
-    typeof value !== "object" ||
-    Array.isArray(value) ||
-    Object.keys(value).some((key) => !keys.includes(key)) ||
-    keys.some((key) => !Object.hasOwn(value, key))
-  )
-    throw new Error(`${label} has missing or unexpected fields`);
+function nativeRequiredChecks(nativeScope) {
+  return nativeScope === undefined
+    ? ["native_screen", "names", "touch_targets"]
+    : ["native_screen"];
 }
 
 function validateNativeControls(controls, nativeScope) {
   if (nativeScope !== undefined) {
-    exact(nativeScope, ["kind", "reason"], "native scope");
+    exactObject(nativeScope, ["kind", "reason"], "native scope");
     if (
       nativeScope.kind !== "noninteractive-change" ||
       typeof nativeScope.reason !== "string" ||
@@ -33,11 +30,7 @@ function validateNativeControls(controls, nativeScope) {
   const seen = new Set();
   const selectors = new Map();
   for (const control of controls) {
-    exact(
-      control,
-      ["by", "value", ...(Object.hasOwn(control || {}, "occurrence") ? ["occurrence"] : [])],
-      "native control"
-    );
+    exactObjectWithOptional(control, ["by", "value"], ["occurrence"], "native control");
     if (
       !["id", "label"].includes(control.by) ||
       typeof control.value !== "string" ||
@@ -79,19 +72,14 @@ function bounds(value) {
 }
 
 function normalizeNativeAccessibility(observations) {
-  exact(
+  exactObjectWithOptional(
     observations,
-    [
-      "platform",
-      "viewport",
-      "controls",
-      "hierarchy",
-      ...(Object.hasOwn(observations || {}, "native_scope") ? ["native_scope"] : []),
-    ],
+    ["platform", "viewport", "controls", "hierarchy"],
+    ["native_scope"],
     "native observations"
   );
   if (observations.platform !== "maestro-ios") throw new Error("unsupported native platform");
-  exact(observations.viewport, ["width", "height", "scale"], "native viewport");
+  exactObject(observations.viewport, ["width", "height", "scale"], "native viewport");
   const { width, height, scale } = observations.viewport;
   if (
     ![width, height].every((n) => Number.isInteger(n) && n > 0 && n <= 10000) ||
@@ -107,11 +95,7 @@ function normalizeNativeAccessibility(observations) {
     if (depth > 100 || nodes.length >= 10000)
       throw new Error("native hierarchy exceeds node/depth budget");
     const flags = ["enabled", "focused", "checked", "selected"];
-    exact(
-      node,
-      ["attributes", "children", ...flags.filter((key) => Object.hasOwn(node || {}, key))],
-      "native hierarchy node"
-    );
+    exactObjectWithOptional(node, ["attributes", "children"], flags, "native hierarchy node");
     if (
       !node.attributes ||
       typeof node.attributes !== "object" ||
@@ -213,31 +197,27 @@ function normalizeNativeAccessibility(observations) {
         locator,
         "Declared control has no enabled state."
       );
-    if (enabled !== "false") {
-      if (!r)
-        issue(
-          "touch_targets",
-          "missing-native-bounds",
-          locator,
-          "Declared control has no measured bounds."
-        );
-      else {
-        if (r[2] - r[0] < 44 || r[3] - r[1] < 44)
-          issue(
-            "touch_targets",
-            "small-touch-target",
-            locator,
-            "Enabled control is smaller than 44 by 44 logical points."
-          );
-        if (r[0] < 0 || r[1] < 0 || r[2] > width || r[3] > height)
-          issue(
-            "touch_targets",
-            "clipped-touch-target",
-            locator,
-            "Enabled control extends outside the captured viewport."
-          );
-      }
-    }
+    if (!r && enabled !== "false")
+      issue(
+        "touch_targets",
+        "missing-native-bounds",
+        locator,
+        "Declared control has no measured bounds."
+      );
+    if (r && enabled !== "false" && (r[2] - r[0] < 44 || r[3] - r[1] < 44))
+      issue(
+        "touch_targets",
+        "small-touch-target",
+        locator,
+        "Enabled control is smaller than 44 by 44 logical points."
+      );
+    if (r && (r[0] < 0 || r[1] < 0 || r[2] > width || r[3] > height))
+      issue(
+        "touch_targets",
+        "clipped-touch-target",
+        locator,
+        "Declared control extends outside the captured viewport."
+      );
   }
   return {
     platform: "maestro-ios",
@@ -254,12 +234,13 @@ function normalizeNativeAccessibility(observations) {
         : "Scoped Maestro labels, enabled state and viewport geometry only; VoiceOver traversal, semantics, occlusion and focus order require separate manual review.",
     ],
     checks: Object.fromEntries(
-      (noninteractive ? ["native_screen"] : ["native_screen", "names", "touch_targets"]).map(
-        (check) => [check, !findings.some((finding) => finding.check === check)]
-      )
+      nativeRequiredChecks(observations.native_scope).map((check) => [
+        check,
+        !findings.some((finding) => finding.check === check),
+      ])
     ),
     findings,
   };
 }
 
-module.exports = { normalizeNativeAccessibility, validateNativeControls };
+module.exports = { nativeRequiredChecks, normalizeNativeAccessibility, validateNativeControls };

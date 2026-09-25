@@ -32,7 +32,10 @@ const {
 } = require("./lib/design-critique-review-result");
 const { createProjectInputVerificationContext, readProjectInput } = require("./lib/project-file");
 const { MAX_RAW_AUDIT_BYTES, normalizeAuditBytes } = require("./design-critique-audit-normalize");
-const { validateNativeControls } = require("./lib/design-critique-native-audit");
+const {
+  nativeRequiredChecks,
+  validateNativeControls,
+} = require("./lib/design-critique-native-audit");
 const {
   ACQUISITION_METHOD: TRUSTED_CAPTURE_ACQUISITION,
   BROWSER_ARGS_PROFILE: TRUSTED_CAPTURE_BROWSER_PROFILE,
@@ -1619,9 +1622,7 @@ function validateAuditEvidence(
   const requiredChecks =
     entry.kind === "accessibility-tree"
       ? nativeAudit
-        ? audit.native_scope?.kind === "noninteractive-change"
-          ? ["native_screen"]
-          : ["native_screen", "names", "touch_targets"]
+        ? nativeRequiredChecks(audit.native_scope)
         : ["landmarks", "names", "focus_order"]
       : [
           "overflow",
