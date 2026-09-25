@@ -2612,11 +2612,11 @@ async function probeCompositeKeyboardAccess(client, candidates, frozenNode) {
         for (const member of observed)
           observedMembers.add(candidate.frozen_by_live?.get(member) ?? member);
         if (!withinBudget) return observedMembers;
-        // A widget that re-rendered while its own probe ran observed nothing;
-        // retry it through its live replacement.
+        // A widget that re-rendered while its own probe ran stopped short of
+        // its remaining members; retry it through its live replacement.
         if (
           pass === 0 &&
-          observed.size === 0 &&
+          candidate.member_backend_node_ids.some((member) => !observed.has(member)) &&
           (await candidateDetached(client, executionContextId, candidate))
         )
           detached.push(pendingCandidate);
