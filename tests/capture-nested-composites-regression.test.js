@@ -89,6 +89,9 @@ function client(restoreWorks = true, nestedQuery = false) {
       if (method === "Runtime.evaluate" && args.expression === "document.activeElement")
         return { result: { objectId: String(focus) } };
       if (method === "DOM.describeNode") return { node: { backendNodeId: Number(args.objectId) } };
+      if (method === "DOM.resolveNode") return { object: { objectId: String(args.backendNodeId) } };
+      if (method === "Runtime.callFunctionOn" && args.functionDeclaration.includes("this.form"))
+        return { result: { value: false } };
       if (method === "Accessibility.getPartialAXTree") return { nodes: [] };
       return {};
     },

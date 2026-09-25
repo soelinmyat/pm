@@ -2491,6 +2491,64 @@ async function selectionLost(client, selected) {
   return node ? selectionState(role, axProperties(node)) === false : false;
 }
 
+// A restore key clicks a native button, and Enter in any form field submits
+// its form; either would send a request the capture never asked for.
+async function restoreSubmitsForm(client, executionContextId, backendNodeId, key) {
+  try {
+    const resolved = await client.send("DOM.resolveNode", {
+      backendNodeId,
+      executionContextId,
+      objectGroup: "pm-composite-keyboard-probe",
+    });
+    if (!resolved?.object?.objectId) return true;
+    const submits = await client.send("Runtime.callFunctionOn", {
+      objectId: resolved.object.objectId,
+      functionDeclaration: `function (key) {
+        if (!this.form) return false;
+        if (this instanceof HTMLButtonElement) return this.type === "submit";
+        return this instanceof HTMLInputElement &&
+          (key === "Enter" || this.type === "submit" || this.type === "image");
+      }`,
+      arguments: [{ value: key }],
+      returnByValue: true,
+      silent: true,
+    });
+    return submits?.result?.value !== false;
+  } catch {
+    return true;
+  }
+}
+
+const RESTORE_QUIET_MS = 150;
+const RESTORE_SETTLE_MAX_MS = 600;
+
+// A restored selection can re-render the widgets it controls from a timer or
+// an exit animation, so the next candidate waits for the DOM to go quiet.
+async function waitForDomQuiet(client, executionContextId) {
+  await client.send("Runtime.evaluate", {
+    expression: `new Promise((resolve) => {
+      let quiet;
+      const done = () => {
+        observer.disconnect();
+        clearTimeout(quiet);
+        clearTimeout(cap);
+        resolve(true);
+      };
+      const observer = new MutationObserver(() => {
+        clearTimeout(quiet);
+        quiet = setTimeout(done, ${RESTORE_QUIET_MS});
+      });
+      observer.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+      quiet = setTimeout(done, ${RESTORE_QUIET_MS});
+      const cap = setTimeout(done, ${RESTORE_SETTLE_MAX_MS});
+    })`,
+    contextId: executionContextId,
+    awaitPromise: true,
+    returnByValue: true,
+    silent: true,
+  });
+}
+
 async function probeCompositeKeyboardAccess(client, candidates, frozenNode) {
   if (candidates.length === 0) return new Set();
   const frameTree = await client.send("Page.getFrameTree");
@@ -2557,6 +2615,8 @@ async function probeCompositeKeyboardAccess(client, candidates, frozenNode) {
           selected[0]
         );
         if (liveSelected === null) continue;
+        if (await restoreSubmitsForm(client, executionContextId, liveSelected, restoreKey))
+          continue;
         if (
           !(urlDrift && candidate.owner_role === "tablist") &&
           !(await selectionLost(client, liveSelected))
@@ -2570,6 +2630,7 @@ async function probeCompositeKeyboardAccess(client, candidates, frozenNode) {
         }
         if ((await focusedBackendNodeId(client, executionContextId)) !== liveSelected) continue;
         if (!(await dispatchKeyboardKey(client, restoreKey, budget))) return observedMembers;
+        await waitForDomQuiet(client, executionContextId);
         if (!urlDrift) continue;
         const deadline = Date.now() + 250;
         do {
