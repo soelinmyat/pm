@@ -2177,8 +2177,8 @@ function pageIdentity(frameTree, metrics, viewport) {
 
 const KEYBOARD_EVENT_BUDGET = 8192;
 const KEY_DEFINITIONS = Object.freeze({
-  " ": Object.freeze({ code: "Space", windowsVirtualKeyCode: 32 }),
-  Enter: Object.freeze({ code: "Enter", windowsVirtualKeyCode: 13 }),
+  " ": Object.freeze({ code: "Space", windowsVirtualKeyCode: 32, text: " " }),
+  Enter: Object.freeze({ code: "Enter", windowsVirtualKeyCode: 13, text: "\r" }),
   ArrowDown: Object.freeze({ code: "ArrowDown", windowsVirtualKeyCode: 40 }),
   ArrowLeft: Object.freeze({ code: "ArrowLeft", windowsVirtualKeyCode: 37 }),
   ArrowRight: Object.freeze({ code: "ArrowRight", windowsVirtualKeyCode: 39 }),
@@ -2198,7 +2198,12 @@ async function dispatchKeyboardKey(client, key, budget, modifiers = 0) {
     nativeVirtualKeyCode: definition.windowsVirtualKeyCode,
     modifiers,
   };
-  await client.send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...event });
+  // Text keys need a character-producing keyDown: native buttons activate
+  // from the keypress that rawKeyDown never generates.
+  const down = definition.text
+    ? { type: "keyDown", text: definition.text, unmodifiedText: definition.text }
+    : { type: "rawKeyDown" };
+  await client.send("Input.dispatchKeyEvent", { ...down, ...event });
   await client.send("Input.dispatchKeyEvent", { type: "keyUp", ...event });
   await client.send("Runtime.evaluate", { expression: "void 0", returnByValue: true });
   return true;
@@ -2357,19 +2362,22 @@ async function liveAxNode(client, backendNodeId) {
   }
 }
 
+function candidateNodeIds(candidate) {
+  return new Set([
+    candidate.owner_backend_node_id,
+    ...candidate.member_backend_node_ids,
+    ...(candidate.selected_backend_node_ids ?? []),
+    ...candidate.entry_backend_node_ids,
+    ...Object.values(candidate.entry_probes).map((probe) => probe.from_backend_node_id),
+  ]);
+}
+
 // Map a remounted widget's frozen nodes to live replacements in the same
 // place with the same accessible role and name. Observed members still
 // certify the frozen control rows through frozen_by_live.
 async function remapCompositeCandidate(client, candidate, frozenNode, resolve) {
-  const ids = new Set([
-    candidate.owner_backend_node_id,
-    ...candidate.member_backend_node_ids,
-    ...candidate.selected_backend_node_ids,
-    ...candidate.entry_backend_node_ids,
-    ...Object.values(candidate.entry_probes).map((probe) => probe.from_backend_node_id),
-  ]);
   const live = new Map();
-  for (const id of ids) {
+  for (const id of candidateNodeIds(candidate)) {
     const path = frozenNode(id)?.path;
     const replacement = path ? resolve(path) : null;
     if (replacement !== null) live.set(id, replacement);
@@ -2381,10 +2389,13 @@ async function remapCompositeCandidate(client, candidate, frozenNode, resolve) {
     members.length !== candidate.member_backend_node_ids.length
   )
     return null;
-  for (const id of [candidate.owner_backend_node_id, ...candidate.member_backend_node_ids]) {
-    const identity = frozenNode(id).identity;
-    if (!identity || axIdentity(await liveAxNode(client, live.get(id))) !== identity) return null;
-  }
+  const identities = await Promise.all(
+    [candidate.owner_backend_node_id, ...candidate.member_backend_node_ids].map(async (id) => {
+      const identity = frozenNode(id).identity;
+      return Boolean(identity) && axIdentity(await liveAxNode(client, live.get(id))) === identity;
+    })
+  );
+  if (identities.includes(false)) return null;
   const entryProbes = {};
   for (const [entry, probe] of Object.entries(candidate.entry_probes)) {
     if (live.has(Number(entry)) && live.has(probe.from_backend_node_id))
@@ -2397,7 +2408,7 @@ async function remapCompositeCandidate(client, candidate, frozenNode, resolve) {
     ...candidate,
     owner_backend_node_id: live.get(candidate.owner_backend_node_id),
     member_backend_node_ids: members,
-    selected_backend_node_ids: map(candidate.selected_backend_node_ids),
+    selected_backend_node_ids: map(candidate.selected_backend_node_ids ?? []),
     entry_backend_node_ids: map(candidate.entry_backend_node_ids),
     entry_probes: entryProbes,
     frozen_by_live: new Map([...live].map(([frozen, current]) => [current, frozen])),
@@ -2407,14 +2418,8 @@ async function remapCompositeCandidate(client, candidate, frozenNode, resolve) {
 // A remounted previous tab stop also detaches the candidate: its entry probe
 // would otherwise focus a stale node and skip an intact widget.
 async function candidateDetached(client, executionContextId, candidate) {
-  const ids = new Set([
-    candidate.owner_backend_node_id,
-    ...candidate.member_backend_node_ids,
-    ...candidate.entry_backend_node_ids,
-    ...Object.values(candidate.entry_probes).map((probe) => probe.from_backend_node_id),
-  ]);
   const connected = await Promise.all(
-    [...ids].map((id) => nodeConnected(client, executionContextId, id))
+    [...candidateNodeIds(candidate)].map((id) => nodeConnected(client, executionContextId, id))
   );
   return connected.includes(false);
 }
@@ -2496,21 +2501,22 @@ async function probeCompositeKeyboardAccess(client, candidates, frozenNode) {
     let pending = candidates;
     // One bounded retry pass re-finds widgets that an earlier probe remounted.
     for (let pass = 0; pass < 2 && pending.length > 0; pass += 1) {
-      if (pass > 0) {
-        const resolve = await liveElementResolver(client);
-        const remapped = [];
-        for (const candidate of pending) {
-          const live = await remapCompositeCandidate(client, candidate, frozenNode, resolve);
-          if (live) remapped.push(live);
-        }
-        pending = remapped;
-      }
       const detached = [];
-      for (const candidate of pending) {
+      // A retry probe can remount the widgets still waiting, so each probe
+      // invalidates the live paths resolved before it.
+      let resolve = null;
+      for (const pendingCandidate of pending) {
+        let candidate = pendingCandidate;
+        if (pass > 0) {
+          resolve ??= await liveElementResolver(client);
+          candidate = await remapCompositeCandidate(client, candidate, frozenNode, resolve);
+          if (!candidate) continue;
+        }
         if (await candidateDetached(client, executionContextId, candidate)) {
-          detached.push(candidate);
+          detached.push(pendingCandidate);
           continue;
         }
+        resolve = null;
         const observed = new Set();
         const withinBudget = await probeCompositeCandidate(
           client,

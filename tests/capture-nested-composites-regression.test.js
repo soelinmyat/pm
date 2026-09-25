@@ -66,7 +66,7 @@ function client(restoreWorks = true, nestedQuery = false) {
         focus = args.backendNodeId;
         return {};
       }
-      if (method === "Input.dispatchKeyEvent" && args.type === "rawKeyDown") {
+      if (method === "Input.dispatchKeyEvent" && ["rawKeyDown", "keyDown"].includes(args.type)) {
         if (args.key === "Tab") focus = args.modifiers === 8 ? 11 : 31;
         else if (args.key.startsWith("Arrow")) {
           if ([31, 32].includes(focus)) {
