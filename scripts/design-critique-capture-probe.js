@@ -553,9 +553,10 @@ function selectionState(role, properties) {
 }
 
 function isElementNode(node) {
-  // A doctype shares its root element's name, so prefer the snapshot node type.
-  if (node?.nodeType !== undefined) return node.nodeType === 1;
-  return Boolean(node?.nodeName) && !/^(#|::)/.test(node.nodeName);
+  // Snapshot pseudo-elements have element type but are not live DOM children,
+  // and a doctype shares its root element's name.
+  if (!node?.nodeName || /^(#|::)/.test(node.nodeName)) return false;
+  return node.nodeType === undefined || node.nodeType === 1;
 }
 
 // Element-only child positions from the document root identify a remounted
@@ -577,6 +578,40 @@ function frozenElementPath(model, byIndex) {
       current = byIndex.get(current.parentIndex);
     }
     return current?.nodeName === "#document" && path.length > 0 ? path.reverse() : null;
+  };
+}
+
+function axIdentity(axNode) {
+  if (!axNode) return null;
+  const role = String(valueOf(axNode.role) || "").toLowerCase();
+  return JSON.stringify([role, String(valueOf(axNode.name) || "")]);
+}
+
+// Resolve a frozen node's element path and accessible identity on demand, so
+// only a remounted widget pays for it. Sample comparison skips this function.
+function frozenCompositeNodes(axTree, model) {
+  let lookup;
+  return (backendNodeId) => {
+    if (!lookup) {
+      const byIndex = new Map(model.map((node) => [node.index, node]));
+      const byBackendId = new Map(
+        model
+          .filter((node) => Number.isInteger(node.backendNodeId))
+          .map((node) => [node.backendNodeId, node])
+      );
+      const axByBackendId = new Map(
+        (axTree.nodes || [])
+          .filter((node) => Number.isInteger(node.backendDOMNodeId))
+          .map((node) => [node.backendDOMNodeId, node])
+      );
+      const elementPath = frozenElementPath(model, byIndex);
+      lookup = (id) => {
+        const node = byBackendId.get(id);
+        const path = node ? elementPath(node) : null;
+        return path ? { path, identity: axIdentity(axByBackendId.get(id)) } : null;
+      };
+    }
+    return lookup(backendNodeId);
   };
 }
 
@@ -657,21 +692,6 @@ function compositeKeyboardCandidates(axTree, model) {
   // commonly discloses or replaces the widgets after it. The probe re-finds
   // any widget that an unexpected order still remounts.
   const byIndex = new Map(model.map((node) => [node.index, node]));
-  const elementPath = frozenElementPath(model, byIndex);
-  for (const candidate of candidates) {
-    const ids = new Set([
-      candidate.owner_backend_node_id,
-      ...candidate.member_backend_node_ids,
-      ...candidate.selected_backend_node_ids,
-      ...candidate.entry_backend_node_ids,
-      ...Object.values(candidate.entry_probes).map((probe) => probe.from_backend_node_id),
-    ]);
-    candidate.element_paths = {};
-    for (const backendNodeId of ids) {
-      const path = elementPath(byBackendId.get(backendNodeId));
-      if (path) candidate.element_paths[backendNodeId] = path;
-    }
-  }
   const depths = new Map();
   const ownerDepth = (candidate) => {
     let node = byBackendId.get(candidate.owner_backend_node_id);
@@ -2307,10 +2327,19 @@ async function nodeConnected(client, executionContextId, backendNodeId) {
 
 async function liveElementResolver(client) {
   const { root } = await client.send("DOM.getDocument", { depth: -1, pierce: false });
+  const elementChildren = new Map();
+  const childrenOf = (node) => {
+    if (!elementChildren.has(node))
+      elementChildren.set(
+        node,
+        (node.children || []).filter((child) => child.nodeType === 1)
+      );
+    return elementChildren.get(node);
+  };
   return (path) => {
     let node = root;
     for (const [name, position] of path) {
-      const element = (node?.children || []).filter((child) => child.nodeType === 1)[position];
+      const element = node ? childrenOf(node)[position] : undefined;
       if (String(element?.localName || element?.nodeName || "").toLowerCase() !== name) return null;
       node = element;
     }
@@ -2318,21 +2347,46 @@ async function liveElementResolver(client) {
   };
 }
 
-// Map a remounted widget's frozen nodes to their live replacements. Observed
-// members still certify the frozen control rows through frozen_by_live.
-function remapCompositeCandidate(candidate, resolve) {
-  const live = new Map();
-  for (const [backendNodeId, path] of Object.entries(candidate.element_paths || {})) {
-    const replacement = resolve(path);
-    if (replacement !== null) live.set(Number(backendNodeId), replacement);
+async function liveAxNode(client, backendNodeId) {
+  try {
+    const partialTree = await client.send("Accessibility.getPartialAXTree", {
+      backendNodeId,
+      fetchRelatives: false,
+    });
+    return (partialTree.nodes || []).find((item) => item.backendDOMNodeId === backendNodeId);
+  } catch {
+    return undefined;
   }
-  const map = (ids) => ids.map((id) => live.get(id)).filter((id) => id !== undefined);
+}
+
+// Map a remounted widget's frozen nodes to live replacements in the same
+// place with the same accessible role and name. Observed members still
+// certify the frozen control rows through frozen_by_live.
+async function remapCompositeCandidate(client, candidate, frozenNode, resolve) {
+  const ids = new Set([
+    candidate.owner_backend_node_id,
+    ...candidate.member_backend_node_ids,
+    ...candidate.selected_backend_node_ids,
+    ...candidate.entry_backend_node_ids,
+    ...Object.values(candidate.entry_probes).map((probe) => probe.from_backend_node_id),
+  ]);
+  const live = new Map();
+  for (const id of ids) {
+    const path = frozenNode(id)?.path;
+    const replacement = path ? resolve(path) : null;
+    if (replacement !== null) live.set(id, replacement);
+  }
+  const map = (items) => items.map((id) => live.get(id)).filter((id) => id !== undefined);
   const members = map(candidate.member_backend_node_ids);
   if (
     !live.has(candidate.owner_backend_node_id) ||
     members.length !== candidate.member_backend_node_ids.length
   )
     return null;
+  for (const id of [candidate.owner_backend_node_id, ...candidate.member_backend_node_ids]) {
+    const identity = frozenNode(id).identity;
+    if (!identity || axIdentity(await liveAxNode(client, live.get(id))) !== identity) return null;
+  }
   const entryProbes = {};
   for (const [entry, probe] of Object.entries(candidate.entry_probes)) {
     if (live.has(Number(entry)) && live.has(probe.from_backend_node_id))
@@ -2350,6 +2404,16 @@ function remapCompositeCandidate(candidate, resolve) {
     entry_probes: entryProbes,
     frozen_by_live: new Map([...live].map(([frozen, current]) => [current, frozen])),
   };
+}
+
+async function candidateDetached(client, executionContextId, candidate) {
+  const ids = new Set([
+    candidate.owner_backend_node_id,
+    ...candidate.member_backend_node_ids,
+    ...candidate.entry_backend_node_ids,
+  ]);
+  for (const id of ids) if (!(await nodeConnected(client, executionContextId, id))) return true;
+  return false;
 }
 
 async function probeCompositeCandidate(client, executionContextId, candidate, budget, observed) {
@@ -2402,21 +2466,13 @@ async function probeCompositeCandidate(client, executionContextId, candidate, bu
   return true;
 }
 
-async function selectionLost(client, candidate, selected) {
-  try {
-    const partialTree = await client.send("Accessibility.getPartialAXTree", {
-      backendNodeId: selected,
-      fetchRelatives: false,
-    });
-    const node = (partialTree.nodes || []).find((item) => item.backendDOMNodeId === selected);
-    const role = String(valueOf(node?.role) || "").toLowerCase();
-    return node ? selectionState(role, axProperties(node)) === false : false;
-  } catch {
-    return false;
-  }
+async function selectionLost(client, selected) {
+  const node = await liveAxNode(client, selected);
+  const role = String(valueOf(node?.role) || "").toLowerCase();
+  return node ? selectionState(role, axProperties(node)) === false : false;
 }
 
-async function probeCompositeKeyboardAccess(client, candidates) {
+async function probeCompositeKeyboardAccess(client, candidates, frozenNode) {
   if (candidates.length === 0) return new Set();
   const frameTree = await client.send("Page.getFrameTree");
   const frameId = frameTree.frameTree?.frame?.id;
@@ -2439,11 +2495,16 @@ async function probeCompositeKeyboardAccess(client, candidates) {
     for (let pass = 0; pass < 2 && pending.length > 0; pass += 1) {
       if (pass > 0) {
         const resolve = await liveElementResolver(client);
-        pending = pending.map((candidate) => remapCompositeCandidate(candidate, resolve));
+        const remapped = [];
+        for (const candidate of pending) {
+          const live = await remapCompositeCandidate(client, candidate, frozenNode, resolve);
+          if (live) remapped.push(live);
+        }
+        pending = remapped;
       }
       const detached = [];
-      for (const candidate of pending.filter(Boolean)) {
-        if (!(await nodeConnected(client, executionContextId, candidate.owner_backend_node_id))) {
+      for (const candidate of pending) {
+        if (await candidateDetached(client, executionContextId, candidate)) {
           detached.push(candidate);
           continue;
         }
@@ -2470,7 +2531,7 @@ async function probeCompositeKeyboardAccess(client, candidates) {
           typeof originalUrl === "string" && currentTree.frameTree?.frame?.url !== originalUrl;
         if (
           !(urlDrift && candidate.owner_role === "tablist") &&
-          !(await selectionLost(client, candidate, selected[0]))
+          !(await selectionLost(client, selected[0]))
         )
           continue;
         await client.send("DOM.focus", { backendNodeId: selected[0] });
@@ -2542,6 +2603,7 @@ async function nativeSample(
     accessibility: accessibility.observations,
     accessibilityControlBackendNodeIds: accessibility.controlBackendNodeIds,
     compositeKeyboardCandidates: compositeKeyboardCandidates(axTree, model),
+    compositeFrozenNode: frozenCompositeNodes(axTree, model),
     dom: domObservations(model, metrics, computedStyles, visibilityEvaluator, viewport),
   };
 }
@@ -3251,7 +3313,8 @@ async function main() {
     // Exercise widget handlers only after the retained screenshot and DOM/AX samples are frozen.
     const compositeBackendNodeIds = await probeCompositeKeyboardAccess(
       client,
-      middle.compositeKeyboardCandidates
+      middle.compositeKeyboardCandidates,
+      middle.compositeFrozenNode
     );
     for (const [index, backendNodeId] of middle.accessibilityControlBackendNodeIds.entries()) {
       const control = middle.accessibility.controls[index];

@@ -1830,6 +1830,36 @@ async function startLoopbackWebSocketServer(root) {
   return { server, statsPath, requestsPath, port };
 }
 
+// A mode radiogroup whose "Existing" selection discloses a sensors radiogroup.
+const DISCLOSURE_VARIANTS = {
+  disclosure: { placement: "afterend" },
+  "trailing-disclosure": { placement: "beforebegin" },
+  "pseudo-disclosure": { placement: "beforebegin", pseudo: true },
+  "member-disclosure": { placement: "beforebegin", keepOwner: true },
+  "relabel-disclosure": { placement: "beforebegin", relabel: true },
+};
+
+function disclosureControls({ placement, pseudo = false, keepOwner = false, relabel = false }) {
+  const radio = (id, label, checked) =>
+    `<button id="${id}" role="radio" aria-checked="${checked}" tabindex="${checked || (relabel && id === "mode-existing") ? 0 : -1}">${label}</button>`;
+  const sensorButtons = (a, b) =>
+    radio(`sensor-${a}`, `Sensor ${a.toUpperCase()}`, true) +
+    radio(`sensor-${b}`, `Sensor ${b.toUpperCase()}`, false);
+  const style = pseudo
+    ? `<style>section::before,#mode::before,#mode::after{content:"";}</style>`
+    : "";
+  const modeRadios =
+    radio("mode-existing", "Existing", !relabel) +
+    radio("mode-new", "New", false) +
+    radio("mode-none", "None", false);
+  const onSelect = relabel
+    ? `id=>{document.querySelector("#sensors").remove();renderSensors(id==="mode-existing"?${JSON.stringify(sensorButtons("a", "b"))}:${JSON.stringify(sensorButtons("c", "d"))})}`
+    : keepOwner
+      ? `id=>{if(id==="mode-existing")renderSensors();else document.querySelector("#sensors").replaceChildren()}`
+      : `id=>{if(id==="mode-existing")renderSensors();else document.querySelector("#sensors")?.remove()}`;
+  return `${style}<section aria-label="Disclosure example"><div id="mode" role="radiogroup" aria-label="Mode">${modeRadios}</div></section><script>{const select=(group,radio,onSelect)=>{const radios=[...group.querySelectorAll("[role=radio]")];radios.forEach(item=>{item.tabIndex=item===radio?0:-1;item.setAttribute("aria-checked",String(item===radio))});radio.focus();onSelect?.(radio.id)};const roving=(group,onSelect)=>{if(group.dataset.roving)return;group.dataset.roving="1";group.addEventListener("click",event=>{const radio=event.target.closest("[role=radio]");if(radio)select(group,radio,onSelect)});group.addEventListener("keydown",event=>{const direction=event.key==="ArrowDown"?1:event.key==="ArrowUp"?-1:0;if(!direction)return;event.preventDefault();const radios=[...group.querySelectorAll("[role=radio]")];const next=radios.indexOf(document.activeElement)+direction;if(next>=0&&next<radios.length)select(group,radios[next],onSelect)})};const mode=document.querySelector("#mode");const renderSensors=(buttons=${JSON.stringify(sensorButtons("a", "b"))})=>{let sensors=document.querySelector("#sensors");if(!sensors){mode.insertAdjacentHTML("${placement}",'<div id="sensors" role="radiogroup" aria-label="Sensors"></div>');sensors=document.querySelector("#sensors")}if(!sensors.children.length)sensors.innerHTML=buttons;roving(sensors)};renderSensors();roving(mode,${onSelect})}</script>`;
+}
+
 function createBrowserFixture({
   externalRequest = false,
   occluded = false,
@@ -1865,17 +1895,16 @@ function createBrowserFixture({
   const persistentWorkerScript = persistentWorker
     ? '<script>new Worker("data:text/javascript;charset=utf-8,"+encodeURIComponent("setInterval(()=>{},10000)"));</script>'
     : "";
-  const focusabilityMarkup =
-    focusabilityControls === "disclosure" || focusabilityControls === "trailing-disclosure"
-      ? `<section aria-label="Disclosure example"><div id="mode" role="radiogroup" aria-label="Mode"><button id="mode-existing" role="radio" aria-checked="true" tabindex="0">Existing</button><button id="mode-new" role="radio" aria-checked="false" tabindex="-1">New</button><button id="mode-none" role="radio" aria-checked="false" tabindex="-1">None</button></div></section><script>{const select=(group,radio,onSelect)=>{const radios=[...group.querySelectorAll("[role=radio]")];radios.forEach(item=>{item.tabIndex=item===radio?0:-1;item.setAttribute("aria-checked",String(item===radio))});radio.focus();onSelect?.(radio.id)};const roving=(group,onSelect)=>{group.addEventListener("click",event=>{const radio=event.target.closest("[role=radio]");if(radio)select(group,radio,onSelect)});group.addEventListener("keydown",event=>{const direction=event.key==="ArrowDown"?1:event.key==="ArrowUp"?-1:0;if(!direction)return;event.preventDefault();const radios=[...group.querySelectorAll("[role=radio]")];const next=radios.indexOf(document.activeElement)+direction;if(next>=0&&next<radios.length)select(group,radios[next],onSelect)})};const mode=document.querySelector("#mode");const renderSensors=()=>{if(document.querySelector("#sensors"))return;mode.insertAdjacentHTML("${focusabilityControls === "disclosure" ? "afterend" : "beforebegin"}",'<div id="sensors" role="radiogroup" aria-label="Sensors"><button id="sensor-a" role="radio" aria-checked="true" tabindex="0">Sensor A</button><button id="sensor-b" role="radio" aria-checked="false" tabindex="-1">Sensor B</button></div>');roving(document.querySelector("#sensors"))};renderSensors();roving(mode,id=>{if(id==="mode-existing")renderSensors();else document.querySelector("#sensors")?.remove()})}</script>`
-      : focusabilityControls === "active-descendant"
-        ? '<section aria-label="Active descendant example"><div id="plans" role="listbox" aria-label="Plans" aria-activedescendant="plan-free" tabindex="0"><div id="plan-free" role="option" tabindex="-1">Free</div><div id="plan-pro" role="option" tabindex="-1">Pro</div><div id="plan-team" role="option" tabindex="-1">Team</div></div></section><script>{const listbox=document.querySelector("#plans");const options=[...listbox.querySelectorAll("[role=option]")];listbox.addEventListener("keydown",event=>{const direction=event.key==="ArrowDown"?1:event.key==="ArrowUp"?-1:0;if(!direction)return;event.preventDefault();const current=options.findIndex(option=>option.id===listbox.getAttribute("aria-activedescendant"));const next=(current+direction+options.length)%options.length;listbox.setAttribute("aria-activedescendant",options[next].id)})}</script>'
-        : focusabilityControls
-          ? '<section aria-label="Focus examples"><a id="no-destination" role="link">No destination</a><a id="destination" href="#account">Destination</a><label for="plan-select">Plan</label><select id="plan-select"><option>Free</option><option>Pro</option></select><div id="views" role="tablist" aria-label="Views"><button id="summary-tab" role="tab" tabindex="0">Summary tab</button><button id="history-tab" role="tab" tabindex="-1">History tab</button><button id="nameless-tab" role="tab" tabindex="-1"></button></div></section>' +
-            (focusabilityControls === "working"
-              ? '<script>{const tabs=[...document.querySelectorAll("#views>[role=tab]")];document.querySelector("#views").addEventListener("keydown",event=>{const direction=event.key==="ArrowRight"?1:event.key==="ArrowLeft"?-1:0;if(!direction)return;event.preventDefault();const current=tabs.indexOf(document.activeElement);const next=(current+direction+tabs.length)%tabs.length;tabs.forEach((tab,index)=>{tab.tabIndex=index===next?0:-1});tabs[next].focus()})}</script>'
-              : "")
-          : "";
+  const focusabilityMarkup = DISCLOSURE_VARIANTS[focusabilityControls]
+    ? disclosureControls(DISCLOSURE_VARIANTS[focusabilityControls])
+    : focusabilityControls === "active-descendant"
+      ? '<section aria-label="Active descendant example"><div id="plans" role="listbox" aria-label="Plans" aria-activedescendant="plan-free" tabindex="0"><div id="plan-free" role="option" tabindex="-1">Free</div><div id="plan-pro" role="option" tabindex="-1">Pro</div><div id="plan-team" role="option" tabindex="-1">Team</div></div></section><script>{const listbox=document.querySelector("#plans");const options=[...listbox.querySelectorAll("[role=option]")];listbox.addEventListener("keydown",event=>{const direction=event.key==="ArrowDown"?1:event.key==="ArrowUp"?-1:0;if(!direction)return;event.preventDefault();const current=options.findIndex(option=>option.id===listbox.getAttribute("aria-activedescendant"));const next=(current+direction+options.length)%options.length;listbox.setAttribute("aria-activedescendant",options[next].id)})}</script>'
+      : focusabilityControls
+        ? '<section aria-label="Focus examples"><a id="no-destination" role="link">No destination</a><a id="destination" href="#account">Destination</a><label for="plan-select">Plan</label><select id="plan-select"><option>Free</option><option>Pro</option></select><div id="views" role="tablist" aria-label="Views"><button id="summary-tab" role="tab" tabindex="0">Summary tab</button><button id="history-tab" role="tab" tabindex="-1">History tab</button><button id="nameless-tab" role="tab" tabindex="-1"></button></div></section>' +
+          (focusabilityControls === "working"
+            ? '<script>{const tabs=[...document.querySelectorAll("#views>[role=tab]")];document.querySelector("#views").addEventListener("keydown",event=>{const direction=event.key==="ArrowRight"?1:event.key==="ArrowLeft"?-1:0;if(!direction)return;event.preventDefault();const current=tabs.indexOf(document.activeElement);const next=(current+direction+tabs.length)%tabs.length;tabs.forEach((tab,index)=>{tab.tabIndex=index===next?0:-1});tabs[next].focus()})}</script>'
+            : "")
+        : "";
   const html = `<!doctype html><html><head><meta charset="utf-8"><style>
 *{box-sizing:border-box}body{margin:0;background:#eef2ff;color:#172033;font:16px system-ui}header{background:#18264a;color:white;padding:18px 28px}nav a{color:white;margin-right:16px}main{max-width:900px;margin:30px auto;padding:24px;background:white;border-radius:16px}h1{font-size:32px}h2{font-size:22px}.cards{display:grid;grid-template-columns:1fr 1fr;gap:16px}.card{padding:18px;border:1px solid #ccd3e1;border-radius:12px}button{padding:10px 18px;background:#3157d5;color:white;border:0;border-radius:8px}
 ${stableGutter ? "html{scrollbar-gutter:stable}::-webkit-scrollbar{width:11px}" : ""}
@@ -2078,6 +2107,8 @@ test(
 for (const [focusabilityControls, description] of [
   ["disclosure", "a later sibling"],
   ["trailing-disclosure", "an earlier sibling"],
+  ["pseudo-disclosure", "a sibling under generated content"],
+  ["member-disclosure", "a persistent group's remounted members"],
 ]) {
   test(
     `browser focus evidence certifies ${description} that a composite selection replaces`,
@@ -2099,6 +2130,25 @@ for (const [focusabilityControls, description] of [
     }
   );
 }
+
+test(
+  "browser focus evidence does not certify a replaced group through a different widget",
+  { skip: browserSkip },
+  () => {
+    const fixture = createBrowserFixture({ focusabilityControls: "relabel-disclosure" });
+    try {
+      const result = runBrowserCapture(fixture);
+      const byLocator = new Map(
+        result.accessibility_observations.controls.map((item) => [item.locator, item])
+      );
+      assert.equal(byLocator.get("button#mode-new").focus_context, "composite");
+      assert.equal(byLocator.get("button#sensor-b").tab_index, -1);
+      assert.notEqual(byLocator.get("button#sensor-b").focus_context, "composite");
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+);
 
 test(
   "browser focus evidence follows native tab stops and observed roving keyboard ownership",
