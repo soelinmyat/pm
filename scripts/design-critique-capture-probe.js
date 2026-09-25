@@ -408,6 +408,7 @@ function snapshotNodeModel(snapshot) {
       index,
       backendNodeId: nodes.backendNodeId?.[index],
       parentIndex: nodes.parentIndex?.[index] ?? -1,
+      nodeType: nodes.nodeType?.[index],
       nodeName: (strings[nodes.nodeName[index]] || "").toLowerCase(),
       attributes,
       layout: layoutByNode.get(index) || null,
@@ -543,6 +544,42 @@ function documentKeyboardEntryProbes(axTree, byBackendId, model) {
   return probes;
 }
 
+function selectionState(role, properties) {
+  if (role !== "radio" && role !== "tab") return null;
+  const value = properties.get(role === "radio" ? "checked" : "selected");
+  if (value === true || value === "true") return true;
+  if (value === false || value === "false") return false;
+  return null;
+}
+
+function isElementNode(node) {
+  // A doctype shares its root element's name, so prefer the snapshot node type.
+  if (node?.nodeType !== undefined) return node.nodeType === 1;
+  return Boolean(node?.nodeName) && !/^(#|::)/.test(node.nodeName);
+}
+
+// Element-only child positions from the document root identify a remounted
+// node in the same place; shadow and detached subtrees have no such path.
+function frozenElementPath(model, byIndex) {
+  const positions = new Map();
+  const counts = new Map();
+  for (const node of model) {
+    if (!isElementNode(node)) continue;
+    const position = counts.get(node.parentIndex) || 0;
+    positions.set(node.index, position);
+    counts.set(node.parentIndex, position + 1);
+  }
+  return (node) => {
+    const path = [];
+    let current = node;
+    while (isElementNode(current) && path.length < 512) {
+      path.push([current.nodeName, positions.get(current.index)]);
+      current = byIndex.get(current.parentIndex);
+    }
+    return current?.nodeName === "#document" && path.length > 0 ? path.reverse() : null;
+  };
+}
+
 function compositeKeyboardCandidates(axTree, model) {
   const byBackendId = new Map(
     model
@@ -579,7 +616,7 @@ function compositeKeyboardCandidates(axTree, model) {
     const group = groups.get(owner.nodeId);
     group.member_backend_node_ids.push(node.backendNodeId);
     const properties = axProperties(axNode);
-    if (role === "tab" && properties.get("selected") === true)
+    if (selectionState(role, properties) === true)
       group.selected_backend_node_ids.push(node.backendNodeId);
     if (
       properties.get("focusable") === true &&
@@ -616,9 +653,25 @@ function compositeKeyboardCandidates(axTree, model) {
       appendBoundedEvidence(candidates, group, MAX_CONTROLS, "composite keyboard candidates");
   }
   // Probe inner panels before an outer widget can unmount their frozen nodes,
-  // and later siblings before earlier ones: an earlier selection commonly
-  // discloses or replaces the widgets after it, never the reverse.
+  // and later siblings before earlier ones because an earlier selection
+  // commonly discloses or replaces the widgets after it. The probe re-finds
+  // any widget that an unexpected order still remounts.
   const byIndex = new Map(model.map((node) => [node.index, node]));
+  const elementPath = frozenElementPath(model, byIndex);
+  for (const candidate of candidates) {
+    const ids = new Set([
+      candidate.owner_backend_node_id,
+      ...candidate.member_backend_node_ids,
+      ...candidate.selected_backend_node_ids,
+      ...candidate.entry_backend_node_ids,
+      ...Object.values(candidate.entry_probes).map((probe) => probe.from_backend_node_id),
+    ]);
+    candidate.element_paths = {};
+    for (const backendNodeId of ids) {
+      const path = elementPath(byBackendId.get(backendNodeId));
+      if (path) candidate.element_paths[backendNodeId] = path;
+    }
+  }
   const depths = new Map();
   const ownerDepth = (candidate) => {
     let node = byBackendId.get(candidate.owner_backend_node_id);
@@ -2104,6 +2157,7 @@ function pageIdentity(frameTree, metrics, viewport) {
 
 const KEYBOARD_EVENT_BUDGET = 8192;
 const KEY_DEFINITIONS = Object.freeze({
+  " ": Object.freeze({ code: "Space", windowsVirtualKeyCode: 32 }),
   Enter: Object.freeze({ code: "Enter", windowsVirtualKeyCode: 13 }),
   ArrowDown: Object.freeze({ code: "ArrowDown", windowsVirtualKeyCode: 40 }),
   ArrowLeft: Object.freeze({ code: "ArrowLeft", windowsVirtualKeyCode: 37 }),
@@ -2229,6 +2283,139 @@ async function entryHasDocumentKeyboardReach(
   return false;
 }
 
+const COMPOSITE_RESTORE_KEYS = Object.freeze({ radiogroup: " ", tablist: "Enter" });
+
+async function nodeConnected(client, executionContextId, backendNodeId) {
+  try {
+    const resolved = await client.send("DOM.resolveNode", {
+      backendNodeId,
+      executionContextId,
+      objectGroup: "pm-composite-keyboard-probe",
+    });
+    if (!resolved?.object?.objectId) return true;
+    const connected = await client.send("Runtime.callFunctionOn", {
+      objectId: resolved.object.objectId,
+      functionDeclaration: "function () { return this.isConnected; }",
+      returnByValue: true,
+      silent: true,
+    });
+    return connected?.result?.value !== false;
+  } catch {
+    return false;
+  }
+}
+
+async function liveElementResolver(client) {
+  const { root } = await client.send("DOM.getDocument", { depth: -1, pierce: false });
+  return (path) => {
+    let node = root;
+    for (const [name, position] of path) {
+      const element = (node?.children || []).filter((child) => child.nodeType === 1)[position];
+      if (String(element?.localName || element?.nodeName || "").toLowerCase() !== name) return null;
+      node = element;
+    }
+    return Number.isInteger(node?.backendNodeId) ? node.backendNodeId : null;
+  };
+}
+
+// Map a remounted widget's frozen nodes to their live replacements. Observed
+// members still certify the frozen control rows through frozen_by_live.
+function remapCompositeCandidate(candidate, resolve) {
+  const live = new Map();
+  for (const [backendNodeId, path] of Object.entries(candidate.element_paths || {})) {
+    const replacement = resolve(path);
+    if (replacement !== null) live.set(Number(backendNodeId), replacement);
+  }
+  const map = (ids) => ids.map((id) => live.get(id)).filter((id) => id !== undefined);
+  const members = map(candidate.member_backend_node_ids);
+  if (
+    !live.has(candidate.owner_backend_node_id) ||
+    members.length !== candidate.member_backend_node_ids.length
+  )
+    return null;
+  const entryProbes = {};
+  for (const [entry, probe] of Object.entries(candidate.entry_probes)) {
+    if (live.has(Number(entry)) && live.has(probe.from_backend_node_id))
+      entryProbes[live.get(Number(entry))] = {
+        ...probe,
+        from_backend_node_id: live.get(probe.from_backend_node_id),
+      };
+  }
+  return {
+    ...candidate,
+    owner_backend_node_id: live.get(candidate.owner_backend_node_id),
+    member_backend_node_ids: members,
+    selected_backend_node_ids: map(candidate.selected_backend_node_ids),
+    entry_backend_node_ids: map(candidate.entry_backend_node_ids),
+    entry_probes: entryProbes,
+    frozen_by_live: new Map([...live].map(([frozen, current]) => [current, frozen])),
+  };
+}
+
+async function probeCompositeCandidate(client, executionContextId, candidate, budget, observed) {
+  const members = new Set(candidate.member_backend_node_ids);
+  for (const entryBackendNodeId of candidate.entry_backend_node_ids) {
+    let documentReachable = false;
+    try {
+      documentReachable = await entryHasDocumentKeyboardReach(
+        client,
+        executionContextId,
+        entryBackendNodeId,
+        candidate.entry_probes[entryBackendNodeId],
+        budget,
+        members,
+        candidate.owner_backend_node_id
+      );
+    } catch {
+      continue;
+    }
+    if (!documentReachable) continue;
+    for (const key of COMPOSITE_ARROW_KEYS[candidate.owner_role]) {
+      try {
+        await client.send("DOM.focus", { backendNodeId: entryBackendNodeId });
+        let state = await compositeFocusState(client, executionContextId, candidate);
+        let previous = focusedCompositeMember(state, candidate, members);
+        for (let step = 0; step < members.size; step += 1) {
+          if (!(await dispatchKeyboardKey(client, key, budget))) return false;
+          // Roving focus libraries commonly defer arrow focus to a timer.
+          // Observe actual focus for a bounded window rather than treating
+          // the first protocol response as the completed interaction.
+          const deadline = Date.now() + 250;
+          let current;
+          do {
+            state = await compositeFocusState(client, executionContextId, candidate);
+            current = focusedCompositeMember(state, candidate, members);
+            if (current !== null && current !== previous) break;
+            if (Date.now() >= deadline) break;
+            await sleep(10);
+          } while (true);
+          if (current === null || current === previous) break;
+          observed.add(current);
+          previous = current;
+        }
+      } catch {
+        // A detached or replaced widget cannot certify the frozen control rows.
+      }
+      if ([...members].every((member) => observed.has(member))) break;
+    }
+  }
+  return true;
+}
+
+async function selectionLost(client, candidate, selected) {
+  try {
+    const partialTree = await client.send("Accessibility.getPartialAXTree", {
+      backendNodeId: selected,
+      fetchRelatives: false,
+    });
+    const node = (partialTree.nodes || []).find((item) => item.backendDOMNodeId === selected);
+    const role = String(valueOf(node?.role) || "").toLowerCase();
+    return node ? selectionState(role, axProperties(node)) === false : false;
+  } catch {
+    return false;
+  }
+}
+
 async function probeCompositeKeyboardAccess(client, candidates) {
   if (candidates.length === 0) return new Set();
   const frameTree = await client.send("Page.getFrameTree");
@@ -2245,69 +2432,51 @@ async function probeCompositeKeyboardAccess(client, candidates) {
   const executionContextId = isolatedWorld.executionContextId;
   const budget = { remaining: KEYBOARD_EVENT_BUDGET };
   const observedMembers = new Set();
+  const originalUrl = frameTree.frameTree?.frame?.url;
   try {
-    for (const candidate of candidates) {
-      const members = new Set(candidate.member_backend_node_ids);
-      for (const entryBackendNodeId of candidate.entry_backend_node_ids) {
-        let documentReachable = false;
-        try {
-          documentReachable = await entryHasDocumentKeyboardReach(
-            client,
-            executionContextId,
-            entryBackendNodeId,
-            candidate.entry_probes[entryBackendNodeId],
-            budget,
-            members,
-            candidate.owner_backend_node_id
-          );
-        } catch {
+    let pending = candidates;
+    // One bounded retry pass re-finds widgets that an earlier probe remounted.
+    for (let pass = 0; pass < 2 && pending.length > 0; pass += 1) {
+      if (pass > 0) {
+        const resolve = await liveElementResolver(client);
+        pending = pending.map((candidate) => remapCompositeCandidate(candidate, resolve));
+      }
+      const detached = [];
+      for (const candidate of pending.filter(Boolean)) {
+        if (!(await nodeConnected(client, executionContextId, candidate.owner_backend_node_id))) {
+          detached.push(candidate);
           continue;
         }
-        if (!documentReachable) continue;
-        for (const key of COMPOSITE_ARROW_KEYS[candidate.owner_role]) {
-          try {
-            await client.send("DOM.focus", { backendNodeId: entryBackendNodeId });
-            let state = await compositeFocusState(client, executionContextId, candidate);
-            let previous = focusedCompositeMember(state, candidate, members);
-            for (let step = 0; step < members.size; step += 1) {
-              if (!(await dispatchKeyboardKey(client, key, budget))) return observedMembers;
-              // Roving focus libraries commonly defer arrow focus to a timer.
-              // Observe actual focus for a bounded window rather than treating
-              // the first protocol response as the completed interaction.
-              const deadline = Date.now() + 250;
-              let current;
-              do {
-                state = await compositeFocusState(client, executionContextId, candidate);
-                current = focusedCompositeMember(state, candidate, members);
-                if (current !== null && current !== previous) break;
-                if (Date.now() >= deadline) break;
-                await sleep(10);
-              } while (true);
-              if (current === null || current === previous) break;
-              observedMembers.add(current);
-              previous = current;
-            }
-          } catch {
-            // A detached or replaced widget cannot certify the frozen control rows.
-          }
-          if ([...members].every((member) => observedMembers.has(member))) break;
-        }
-      }
-      // Restore this frozen selection while its nodes still exist: probing an
-      // outer tab next may unmount this panel. Native handlers may each restore
-      // only their own query state, so the final exact URL check stays decisive.
-      const originalUrl = frameTree.frameTree?.frame?.url;
-      const currentTree = await client.send("Page.getFrameTree");
-      if (
-        typeof originalUrl === "string" &&
-        currentTree.frameTree?.frame?.url !== originalUrl &&
-        candidate.owner_role === "tablist" &&
-        candidate.selected_backend_node_ids?.length === 1
-      ) {
-        const selected = candidate.selected_backend_node_ids[0];
-        await client.send("DOM.focus", { backendNodeId: selected });
-        if ((await focusedBackendNodeId(client, executionContextId)) !== selected) continue;
-        if (!(await dispatchKeyboardKey(client, "Enter", budget))) break;
+        const observed = new Set();
+        const withinBudget = await probeCompositeCandidate(
+          client,
+          executionContextId,
+          candidate,
+          budget,
+          observed
+        );
+        for (const member of observed)
+          observedMembers.add(candidate.frozen_by_live?.get(member) ?? member);
+        if (!withinBudget) return observedMembers;
+        // Restore this frozen selection while its nodes still exist: probing
+        // an outer tab next may unmount this panel, and a changed selection
+        // can hide the widgets it controls. Native handlers may each restore
+        // only their own query state, so the final exact URL check stays decisive.
+        const selected = candidate.selected_backend_node_ids;
+        const restoreKey = COMPOSITE_RESTORE_KEYS[candidate.owner_role];
+        if (!restoreKey || selected?.length !== 1) continue;
+        const currentTree = await client.send("Page.getFrameTree");
+        const urlDrift =
+          typeof originalUrl === "string" && currentTree.frameTree?.frame?.url !== originalUrl;
+        if (
+          !(urlDrift && candidate.owner_role === "tablist") &&
+          !(await selectionLost(client, candidate, selected[0]))
+        )
+          continue;
+        await client.send("DOM.focus", { backendNodeId: selected[0] });
+        if ((await focusedBackendNodeId(client, executionContextId)) !== selected[0]) continue;
+        if (!(await dispatchKeyboardKey(client, restoreKey, budget))) return observedMembers;
+        if (!urlDrift) continue;
         const deadline = Date.now() + 250;
         do {
           const restored = await client.send("Page.getFrameTree");
@@ -2315,6 +2484,7 @@ async function probeCompositeKeyboardAccess(client, candidates) {
           await sleep(10);
         } while (Date.now() < deadline);
       }
+      pending = detached;
     }
     return observedMembers;
   } finally {
