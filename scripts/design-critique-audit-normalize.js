@@ -67,6 +67,7 @@ function normalizeRawAudit(raw, rawBinding) {
       ? {
           platform: normalized.platform,
           controls: normalized.controls,
+          ...(normalized.native_scope ? { native_scope: normalized.native_scope } : {}),
           limitations: normalized.limitations,
         }
       : {}),

@@ -177,3 +177,150 @@ test("native envelopes reject unsupported platforms and web audit substitution",
   legacy.schema_version = 1;
   assert.throws(() => normalize(legacy), /unknown field/);
 });
+
+function noninteractiveRaw() {
+  const input = raw();
+  input.observations.controls = [];
+  input.observations.native_scope = {
+    kind: "noninteractive-change",
+    reason:
+      "The changed submission loading body contains skeleton rows only; the shared navigation control is unchanged.",
+  };
+  return input;
+}
+
+test("native noninteractive scope measures screen geometry without interaction certificates", () => {
+  const input = noninteractiveRaw();
+  const audit = normalize(input);
+  assert.deepEqual(audit.controls, []);
+  assert.deepEqual(audit.native_scope, input.observations.native_scope);
+  assert.deepEqual(audit.checks, { native_screen: true });
+  assert.equal(audit.checks.names, undefined);
+  assert.equal(audit.checks.touch_targets, undefined);
+  assert.match(
+    audit.limitations.join(" "),
+    /No interaction, accessible-name or touch-target certificate/
+  );
+  input.observations.hierarchy.attributes.bounds = "[0,0][401,874]";
+  assert.deepEqual(normalize(input).checks, { native_screen: false });
+});
+
+test("native noninteractive scope must be explicit, bounded and exclusive of controls", () => {
+  for (const mutate of [
+    (input) => {
+      delete input.observations.native_scope;
+    },
+    (input) => {
+      input.observations.native_scope = null;
+    },
+    (input) => {
+      input.observations.native_scope.reason = "Not applicable";
+    },
+    (input) => {
+      input.observations.native_scope.reason = " ".repeat(80);
+    },
+    (input) => {
+      input.observations.native_scope.reason = "x".repeat(2001);
+    },
+    (input) => {
+      input.observations.native_scope.kind = "skip-accessibility";
+    },
+    (input) => {
+      input.observations.native_scope.approved = true;
+    },
+    (input) => {
+      input.observations.controls = [{ by: "id", value: "category" }];
+    },
+    (input) => {
+      input.observations.platform = "maestro-android";
+    },
+  ]) {
+    const input = noninteractiveRaw();
+    mutate(input);
+    assert.throws(() => normalize(input));
+  }
+});
+
+function repeatedControlsRaw() {
+  const input = raw();
+  const second = JSON.parse(JSON.stringify(input.observations.hierarchy.children[0]));
+  second.attributes.bounds = "[200,120][340,164]";
+  input.observations.hierarchy.children.push(second);
+  return input;
+}
+
+test("native occurrence selectors select actual ordered repeated controls", () => {
+  const input = repeatedControlsRaw();
+  input.observations.controls = [
+    { by: "id", value: "category", occurrence: 0 },
+    { by: "id", value: "category", occurrence: 1 },
+  ];
+  assert.deepEqual(normalize(input).checks, {
+    native_screen: true,
+    names: true,
+    touch_targets: true,
+  });
+  input.observations.hierarchy.children[1].attributes.bounds = "[200,120][240,160]";
+  const audit = normalize(input);
+  assert.ok(
+    audit.findings.some(
+      (finding) => finding.code === "small-touch-target" && finding.locator === "id:category#1"
+    )
+  );
+  input.observations.controls = [{ by: "id", value: "category", occurrence: 0 }];
+  assert.deepEqual(normalize(input).findings, []);
+});
+
+test("native occurrence selectors cannot hide ambiguity, missing nodes or duplicate scope", () => {
+  const input = repeatedControlsRaw();
+  assert.ok(
+    normalize(input).findings.some((finding) => finding.code === "ambiguous-native-control")
+  );
+  input.observations.controls = [{ by: "id", value: "category", occurrence: 2 }];
+  assert.ok(
+    normalize(input).findings.some(
+      (finding) => finding.code === "native-control-occurrence-out-of-range"
+    )
+  );
+  input.observations.hierarchy.children.pop();
+  input.observations.controls[0].occurrence = 0;
+  assert.ok(
+    normalize(input).findings.some((finding) => finding.code === "unnecessary-native-occurrence")
+  );
+  input.observations.controls[0].value = "missing";
+  assert.ok(normalize(input).findings.some((finding) => finding.code === "missing-native-control"));
+  for (const controls of [
+    [{ by: "id", value: "category", occurrence: -1 }],
+    [{ by: "id", value: "category", occurrence: 0.5 }],
+    [{ by: "id", value: "category", occurrence: 100 }],
+    [{ by: "id", value: "category", occurrence: "0" }],
+    [
+      { by: "id", value: "category", occurrence: 0 },
+      { occurrence: 0, value: "category", by: "id" },
+    ],
+    [
+      { by: "id", value: "category" },
+      { by: "id", value: "category", occurrence: 0 },
+    ],
+    [
+      { by: "id", value: "category", occurrence: 0 },
+      { by: "id", value: "category" },
+    ],
+  ]) {
+    const fixture = repeatedControlsRaw();
+    fixture.observations.controls = controls;
+    assert.throws(() => normalize(fixture));
+  }
+});
+
+test("native default and occurrence aliases cannot certify the same actual node twice", () => {
+  const input = repeatedControlsRaw();
+  input.observations.hierarchy.children[1].attributes.accessibilityText = "Second category";
+  input.observations.controls = [
+    { by: "label", value: "Category, All" },
+    { by: "id", value: "category", occurrence: 0 },
+  ];
+  assert.ok(
+    normalize(input).findings.some((finding) => finding.code === "duplicate-native-control")
+  );
+});

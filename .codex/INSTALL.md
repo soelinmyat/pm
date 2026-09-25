@@ -4,7 +4,7 @@ PM now ships a native Codex plugin manifest at `.codex-plugin/plugin.json`.
 
 Dev uses the same risk-based review in Codex: explicitly assessed low-risk XS/S web UI changes combine visual/accessibility checks into browser QA; mobile, mixed-platform, consequential, or uncertain changes retain standalone design critique. Existing sessions retain their recorded route. Start a successor intake to adopt new routing, preserving previous evidence rather than changing old verdicts.
 
-For native iOS UI, retain the Maestro hierarchy and screenshot from the same state, predeclare changed-control selectors in design-critique coverage, and run the native audit normalizer. This supplies scoped name/state/geometry evidence; it does not certify VoiceOver traversal or fabricate web accessibility fields.
+For native iOS UI, retain the Maestro hierarchy and screenshot from the same state, predeclare changed-control selectors in design-critique coverage, and run the native audit normalizer. This supplies scoped name/state/geometry evidence; it does not certify VoiceOver traversal or fabricate web accessibility fields. Repeated controls use actual hierarchy occurrences. Explicitly declared noninteractive changes produce only screen-geometry evidence and require source-bound scope review.
 
 After installation, PM automatically discovers repository-native delivery
 capabilities and selects the safest supported route with zero consumer edits.

@@ -540,15 +540,24 @@ function validateCoverage(route, subjects, subjectIds, issues) {
     }
     closed(
       item,
-      ["id", "subject_id", "state", "viewport", "required", "reason", "native_controls"],
+      [
+        "id",
+        "subject_id",
+        "state",
+        "viewport",
+        "required",
+        "reason",
+        "native_controls",
+        "native_scope",
+      ],
       at,
       issues
     );
-    if (item.native_controls !== undefined) {
+    if (item.native_controls !== undefined || item.native_scope !== undefined) {
       if (route.mode !== "product-ui" || subjectsById.get(item.subject_id)?.platform !== "mobile")
         add(issues, `${at}.native_controls`, "requires a mobile product-ui subject");
       try {
-        validateNativeControls(item.native_controls);
+        validateNativeControls(item.native_controls, item.native_scope);
       } catch (error) {
         add(issues, `${at}.native_controls`, error.message);
       }
@@ -1510,7 +1519,7 @@ function validateAuditEvidence(
       ...(normalizedAuditRequired ? ["raw"] : []),
       "checks",
       "findings",
-      ...(nativeAudit ? ["platform", "controls", "limitations"] : []),
+      ...(nativeAudit ? ["platform", "controls", "limitations", "native_scope"] : []),
     ],
     label,
     issues
@@ -1545,6 +1554,12 @@ function validateAuditEvidence(
         issues,
         `${label}.controls`,
         "must equal the native controls declared in cited route coverage"
+      );
+    if (!isDeepStrictEqual(coverage?.native_scope, audit.native_scope))
+      add(
+        issues,
+        `${label}.native_scope`,
+        "must equal the native scope declared in cited route coverage"
       );
     const viewport = raw?.observations?.viewport;
     if (
@@ -1604,7 +1619,9 @@ function validateAuditEvidence(
   const requiredChecks =
     entry.kind === "accessibility-tree"
       ? nativeAudit
-        ? ["native_screen", "names", "touch_targets"]
+        ? audit.native_scope?.kind === "noninteractive-change"
+          ? ["native_screen"]
+          : ["native_screen", "names", "touch_targets"]
         : ["landmarks", "names", "focus_order"]
       : [
           "overflow",

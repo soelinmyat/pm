@@ -12,12 +12,32 @@ function exact(value, keys, label) {
     throw new Error(`${label} has missing or unexpected fields`);
 }
 
-function validateNativeControls(controls) {
+function validateNativeControls(controls, nativeScope) {
+  if (nativeScope !== undefined) {
+    exact(nativeScope, ["kind", "reason"], "native scope");
+    if (
+      nativeScope.kind !== "noninteractive-change" ||
+      typeof nativeScope.reason !== "string" ||
+      nativeScope.reason.trim().length < 40 ||
+      nativeScope.reason.length > 2000
+    )
+      throw new Error(
+        "native scope requires noninteractive-change and a concrete 40-through-2000-character reason"
+      );
+    if (!Array.isArray(controls) || controls.length !== 0)
+      throw new Error("noninteractive native scope requires an explicit empty controls array");
+    return;
+  }
   if (!Array.isArray(controls) || controls.length < 1 || controls.length > 100)
     throw new Error("native controls must contain 1 through 100 selectors");
   const seen = new Set();
+  const selectors = new Map();
   for (const control of controls) {
-    exact(control, ["by", "value"], "native control");
+    exact(
+      control,
+      ["by", "value", ...(Object.hasOwn(control || {}, "occurrence") ? ["occurrence"] : [])],
+      "native control"
+    );
     if (
       !["id", "label"].includes(control.by) ||
       typeof control.value !== "string" ||
@@ -25,9 +45,23 @@ function validateNativeControls(controls) {
       control.value.length > 500
     )
       throw new Error("native controls require an exact id or label selector");
-    const key = JSON.stringify([control.by, control.value]);
+    const hasOccurrence = Object.hasOwn(control, "occurrence");
+    if (
+      hasOccurrence &&
+      (!Number.isInteger(control.occurrence) || control.occurrence < 0 || control.occurrence > 99)
+    )
+      throw new Error("native control occurrence must be an integer from 0 through 99");
+    const selector = JSON.stringify([control.by, control.value]);
+    const key = JSON.stringify([
+      control.by,
+      control.value,
+      hasOccurrence ? control.occurrence : null,
+    ]);
     if (seen.has(key)) throw new Error("native controls must be unique");
+    if (selectors.has(selector) && selectors.get(selector) !== hasOccurrence)
+      throw new Error("native controls cannot overlap default and occurrence selectors");
     seen.add(key);
+    selectors.set(selector, hasOccurrence);
   }
 }
 
@@ -45,7 +79,17 @@ function bounds(value) {
 }
 
 function normalizeNativeAccessibility(observations) {
-  exact(observations, ["platform", "viewport", "controls", "hierarchy"], "native observations");
+  exact(
+    observations,
+    [
+      "platform",
+      "viewport",
+      "controls",
+      "hierarchy",
+      ...(Object.hasOwn(observations || {}, "native_scope") ? ["native_scope"] : []),
+    ],
+    "native observations"
+  );
   if (observations.platform !== "maestro-ios") throw new Error("unsupported native platform");
   exact(observations.viewport, ["width", "height", "scale"], "native viewport");
   const { width, height, scale } = observations.viewport;
@@ -56,7 +100,8 @@ function normalizeNativeAccessibility(observations) {
     scale > 4
   )
     throw new Error("native viewport requires positive dimensions and scale from 1 through 4");
-  validateNativeControls(observations.controls);
+  validateNativeControls(observations.controls, observations.native_scope);
+  const noninteractive = observations.native_scope !== undefined;
   const nodes = [];
   function walk(node, depth = 0) {
     if (depth > 100 || nodes.length >= 10000)
@@ -114,13 +159,15 @@ function normalizeNativeAccessibility(observations) {
     );
   const label = (attributes) =>
     attributes.accessibilityText || attributes.text || attributes.title || "";
+  const selectedNodes = new Set();
   for (const control of observations.controls) {
-    const locator = `${control.by}:${control.value}`;
+    const hasOccurrence = Object.hasOwn(control, "occurrence");
+    const locator = `${control.by}:${control.value}${hasOccurrence ? `#${control.occurrence}` : ""}`;
     const matches = nodes.filter(
       ({ attributes }) =>
         (control.by === "id" ? attributes["resource-id"] : label(attributes)) === control.value
     );
-    if (matches.length !== 1) {
+    if (!matches.length || (!hasOccurrence && matches.length !== 1)) {
       issue(
         "native_screen",
         matches.length ? "ambiguous-native-control" : "missing-native-control",
@@ -129,7 +176,29 @@ function normalizeNativeAccessibility(observations) {
       );
       continue;
     }
-    const { attributes, rectangle: r, enabled } = matches[0];
+    if (hasOccurrence && (matches.length === 1 || control.occurrence >= matches.length)) {
+      issue(
+        "native_screen",
+        matches.length === 1
+          ? "unnecessary-native-occurrence"
+          : "native-control-occurrence-out-of-range",
+        locator,
+        `Occurrence selectors require repeated matches and an in-range index; observed ${matches.length}.`
+      );
+      continue;
+    }
+    const selected = matches[hasOccurrence ? control.occurrence : 0];
+    if (selectedNodes.has(selected)) {
+      issue(
+        "native_screen",
+        "duplicate-native-control",
+        locator,
+        "Another declared selector already selected this hierarchy node."
+      );
+      continue;
+    }
+    selectedNodes.add(selected);
+    const { attributes, rectangle: r, enabled } = selected;
     if (!label(attributes).trim())
       issue(
         "names",
@@ -173,14 +242,21 @@ function normalizeNativeAccessibility(observations) {
   return {
     platform: "maestro-ios",
     controls: observations.controls.map((control) => ({ ...control })),
+    ...(noninteractive ? { native_scope: { ...observations.native_scope } } : {}),
     limitations: [
-      "Scoped Maestro labels, enabled state and viewport geometry only; VoiceOver traversal, semantics, occlusion and focus order require separate manual review.",
+      ...(noninteractive
+        ? [
+            "Noninteractive changed content only. No interaction, accessible-name or touch-target certificate is emitted; source-bound Primary review must verify the declared scope and reason.",
+          ]
+        : []),
+      noninteractive
+        ? "Only measured screen geometry is checked; VoiceOver traversal, semantics, occlusion and focus order require separate manual review."
+        : "Scoped Maestro labels, enabled state and viewport geometry only; VoiceOver traversal, semantics, occlusion and focus order require separate manual review.",
     ],
     checks: Object.fromEntries(
-      ["native_screen", "names", "touch_targets"].map((check) => [
-        check,
-        !findings.some((finding) => finding.check === check),
-      ])
+      (noninteractive ? ["native_screen"] : ["native_screen", "names", "touch_targets"]).map(
+        (check) => [check, !findings.some((finding) => finding.check === check)]
+      )
     ),
     findings,
   };
