@@ -10,6 +10,7 @@ const path = require("node:path");
 const zlib = require("node:zlib");
 const { buildManifest, inspectHtmlArtifact } = require("../scripts/artifact-check");
 const { normalizeAuditBytes } = require("../scripts/design-critique-audit-normalize");
+const { MAX_COVERAGE_REASON_LENGTH } = require("../scripts/lib/design-critique-coverage-reason");
 const {
   ACQUISITION_METHOD,
   BROWSER_ARGS_PROFILE,
@@ -3034,10 +3035,16 @@ test("binds Fresh Eyes reviews to the fresh-eyes-v2 prompt profile", () => {
   assert.match(JSON.stringify(result.issues), /prompt_profile.*must equal fresh-eyes-v2/);
 });
 
-for (const [label, reason] of [
-  ["non-string", 42],
-  ["null", null],
-  ["overlong", "x".repeat(1001)],
+const REASON_BOUND = /reason.*must be a string of at most 2000 characters/;
+for (const [label, reason, message] of [
+  ["non-string", 42, REASON_BOUND],
+  ["null", null, REASON_BOUND],
+  ["overlong", "x".repeat(MAX_COVERAGE_REASON_LENGTH + 1), REASON_BOUND],
+  [
+    "multi-line",
+    "Body scrolled to its end\n- injected | coverage ui-primary",
+    /reason.*must not contain control characters/,
+  ],
 ]) {
   test(`rejects a ${label} route coverage reason`, () => {
     const fixture = makeFixture();
@@ -3045,12 +3052,19 @@ for (const [label, reason] of [
     rewrite(fixture.root, fixture.routePath, fixture.route);
     const result = check(fixture);
     assert.equal(result.ok, false);
-    assert.match(
-      JSON.stringify(result.issues),
-      /reason.*must be a string of at most 1000 characters/
-    );
+    assert.match(JSON.stringify(result.issues), message);
   });
 }
+
+test("accepts a route coverage reason at the limit capture shares", () => {
+  const fixture = makeFixture();
+  fixture.route.coverage.find((item) => item.id === "ui-primary").reason = "x".repeat(
+    MAX_COVERAGE_REASON_LENGTH
+  );
+  rewrite(fixture.root, fixture.routePath, fixture.route);
+  const result = check(fixture);
+  assert.doesNotMatch(JSON.stringify(result.issues), /coverage\[\d+\]\.reason/);
+});
 
 test("rejects empty accessibility audit evidence", () => {
   const fixture = makeFixture();

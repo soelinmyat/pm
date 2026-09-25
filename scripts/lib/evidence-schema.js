@@ -567,6 +567,7 @@ module.exports = {
   createEvidenceRecord,
   deriveEvidenceId,
   emptyEvidenceLedger,
+  hasControlCharacter,
   migrateLegacyEvidenceRecord,
   refreshEvidence,
   registerEvidence,
