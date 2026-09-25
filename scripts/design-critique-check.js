@@ -1536,6 +1536,15 @@ function validateAuditEvidence(
   const raw = normalizedAuditRequired
     ? validateNormalizedAudit(root, audit, entry, label, issues)
     : null;
+  if (!nativeAudit) {
+    const declaresNative = (audit.capture_ids || []).some((id) => {
+      const capture = captureRows.find((item) => item.id === id);
+      const coverage = route.coverage?.find((item) => item.id === capture?.coverage_id);
+      return coverage?.native_controls !== undefined || coverage?.native_scope !== undefined;
+    });
+    if (declaresNative)
+      add(issues, label, "coverage that declares native controls requires a native audit");
+  }
   if (nativeAudit) {
     const subject = route.subjects?.find((item) => item.id === entry.subject_id);
     if (
@@ -1567,7 +1576,6 @@ function validateAuditEvidence(
     const viewport = raw?.observations?.viewport;
     if (
       capture?.kind !== "screenshot" ||
-      capture?.active !== true ||
       !viewport ||
       viewport.width * viewport.scale !== capture.width ||
       viewport.height * viewport.scale !== capture.height
@@ -1575,7 +1583,7 @@ function validateAuditEvidence(
       add(
         issues,
         `${label}.raw.observations.viewport`,
-        "must match the active native screenshot pixel dimensions"
+        "must match the cited native screenshot pixel dimensions"
       );
   }
   const subjectCoverage = new Set(

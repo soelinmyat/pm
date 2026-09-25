@@ -3112,8 +3112,33 @@ test("native viewport and deterministic normalized output remain capture-bound",
   evidence.sha256 = write(fixture.root, evidence.path, JSON.stringify(audit)).sha256;
   bindNativeFixture(fixture);
   const issues = JSON.stringify(check(fixture).issues);
-  assert.match(issues, /active native screenshot pixel dimensions/);
+  assert.match(issues, /cited native screenshot pixel dimensions/);
   assert.match(issues, /deterministic normalization/);
+});
+
+test("retained native audits bind to their cited capture even when it is inactive", () => {
+  const fixture = nativeAuditFixture();
+  fixture.captures.captures[0].active = false;
+  bindNativeFixture(fixture);
+  const issues = JSON.stringify(check(fixture).issues);
+  assert.doesNotMatch(issues, /native screenshot pixel dimensions/);
+});
+
+test("coverage that declares native controls rejects a web-shaped audit", () => {
+  const fixture = makeFixture();
+  fixture.route.subjects[0].platform = "mobile";
+  for (const row of fixture.route.coverage)
+    if (row.required) row.native_controls = [{ by: "id", value: "save" }];
+  rewrite(fixture.root, fixture.routePath, fixture.route);
+  fixture.captures.route = binding(fixture.root, fixture.routePath);
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.route = binding(fixture.root, fixture.routePath);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  assert.match(
+    JSON.stringify(check(fixture).issues),
+    /coverage that declares native controls requires a native audit/
+  );
 });
 
 test("rejects a normalized audit when its raw probe bytes are tampered", () => {

@@ -7,7 +7,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { execFileSync, spawnSync } = require("node:child_process");
 const { normalizeRawAudit } = require("./design-critique-audit-normalize");
-const { exactObjectWithOptional } = require("./lib/closed-object");
+const { exactObject, exactObjectWithOptional } = require("./lib/closed-object");
 const { validateNativeControls } = require("./lib/design-critique-native-audit");
 const { compareRfc3339DateTimes, isRfc3339DateTime } = require("./lib/iso-time");
 const { PRODUCT_UI_VISUAL_THRESHOLDS, inspectPngVisualBytes } = require("./lib/media-inspect");
@@ -52,16 +52,6 @@ const STATES = new Set([
 ]);
 function digest(bytes) {
   return crypto.createHash("sha256").update(bytes).digest("hex");
-}
-
-function exactObject(value, fields, label) {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    throw new Error(`${label} must be an object`);
-  const allowed = new Set(fields);
-  const unknown = Object.keys(value).find((field) => !allowed.has(field));
-  const missing = fields.find((field) => !Object.prototype.hasOwnProperty.call(value, field));
-  if (unknown) throw new Error(`${label}.${unknown} is an unknown field`);
-  if (missing) throw new Error(`${label}.${missing} is required`);
 }
 
 function slug(value, label) {
