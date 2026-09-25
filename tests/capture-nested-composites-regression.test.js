@@ -46,7 +46,7 @@ function candidates() {
   };
   return m.exports.candidates(ax, model);
 }
-function client(restoreWorks = true, nestedQuery = false) {
+function client(restoreWorks = true, nestedQuery = false, navigatingRestore = false) {
   let focus = 1,
     innerDetached = false,
     innerStatus = "original",
@@ -66,7 +66,7 @@ function client(restoreWorks = true, nestedQuery = false) {
         focus = args.backendNodeId;
         return {};
       }
-      if (method === "Input.dispatchKeyEvent" && args.type === "rawKeyDown") {
+      if (method === "Input.dispatchKeyEvent" && ["rawKeyDown", "keyDown"].includes(args.type)) {
         if (args.key === "Tab") focus = args.modifiers === 8 ? 11 : 31;
         else if (args.key.startsWith("Arrow")) {
           if ([31, 32].includes(focus)) {
@@ -86,9 +86,14 @@ function client(restoreWorks = true, nestedQuery = false) {
         }
         return {};
       }
+      if (method === "Runtime.evaluate" && args.awaitPromise && navigatingRestore)
+        throw new Error("Execution context was destroyed.");
       if (method === "Runtime.evaluate" && args.expression === "document.activeElement")
         return { result: { objectId: String(focus) } };
       if (method === "DOM.describeNode") return { node: { backendNodeId: Number(args.objectId) } };
+      if (method === "DOM.resolveNode") return { object: { objectId: String(args.backendNodeId) } };
+      if (method === "Runtime.callFunctionOn" && args.functionDeclaration.includes("this.form"))
+        return { result: { value: false } };
       if (method === "Accessibility.getPartialAXTree") return { nodes: [] };
       return {};
     },
@@ -117,4 +122,10 @@ test("each nested selection restores its own URL before outer navigation remount
     [11, 12, 31, 32]
   );
   assert.equal(browser.url, "http://localhost/?tab=original&inner=original");
+});
+
+test("a restore that navigates away from the probe context does not abort probing", async () => {
+  const browser = client(true, false, true);
+  const observed = await m.exports.probe(browser, candidates());
+  assert.ok(observed.has(12));
 });

@@ -1830,6 +1830,128 @@ async function startLoopbackWebSocketServer(root) {
   return { server, statsPath, requestsPath, port };
 }
 
+// A mode radiogroup whose "Existing" selection discloses a sensors radiogroup.
+const DISCLOSURE_VARIANTS = {
+  disclosure: { placement: "afterend" },
+  "trailing-disclosure": { placement: "beforebegin" },
+  "pseudo-disclosure": { placement: "beforebegin", pseudo: true },
+  "member-disclosure": { placement: "beforebegin", keepOwner: true },
+  "relabel-disclosure": { placement: "beforebegin", relabel: true },
+};
+
+function disclosureControls({ placement, pseudo = false, keepOwner = false, relabel = false }) {
+  const radio = (id, label, checked) =>
+    `<button id="${id}" role="radio" aria-checked="${checked}" tabindex="${checked || (relabel && id === "mode-existing") ? 0 : -1}">${label}</button>`;
+  const sensorButtons = (a, b) =>
+    radio(`sensor-${a}`, `Sensor ${a.toUpperCase()}`, true) +
+    radio(`sensor-${b}`, `Sensor ${b.toUpperCase()}`, false);
+  const style = pseudo
+    ? `<style>section::before,#mode::before,#mode::after{content:"";}</style>`
+    : "";
+  const modeRadios =
+    radio("mode-existing", "Existing", !relabel) +
+    radio("mode-new", "New", false) +
+    radio("mode-none", "None", false);
+  const onSelect = relabel
+    ? `id=>{document.querySelector("#sensors").remove();renderSensors(id==="mode-existing"?${JSON.stringify(sensorButtons("a", "b"))}:${JSON.stringify(sensorButtons("c", "d"))})}`
+    : keepOwner
+      ? `id=>{if(id==="mode-existing")renderSensors();else document.querySelector("#sensors").replaceChildren()}`
+      : `id=>{if(id==="mode-existing")renderSensors();else document.querySelector("#sensors")?.remove()}`;
+  return `${style}<section aria-label="Disclosure example"><div id="mode" role="radiogroup" aria-label="Mode">${modeRadios}</div></section><script>{const select=(group,radio,onSelect)=>{const radios=[...group.querySelectorAll("[role=radio]")];radios.forEach(item=>{item.tabIndex=item===radio?0:-1;item.setAttribute("aria-checked",String(item===radio))});radio.focus();onSelect?.(radio.id)};const roving=(group,onSelect)=>{if(group.dataset.roving)return;group.dataset.roving="1";group.addEventListener("click",event=>{const radio=event.target.closest("[role=radio]");if(radio)select(group,radio,onSelect)});group.addEventListener("keydown",event=>{const direction=event.key==="ArrowDown"?1:event.key==="ArrowUp"?-1:0;if(!direction)return;event.preventDefault();const radios=[...group.querySelectorAll("[role=radio]")];const next=radios.indexOf(document.activeElement)+direction;if(next>=0&&next<radios.length)select(group,radios[next],onSelect)})};const mode=document.querySelector("#mode");const renderSensors=(buttons=${JSON.stringify(sensorButtons("a", "b"))})=>{let sensors=document.querySelector("#sensors");if(!sensors){mode.insertAdjacentHTML("${placement}",'<div id="sensors" role="radiogroup" aria-label="Sensors"></div>');sensors=document.querySelector("#sensors")}if(!sensors.children.length)sensors.innerHTML=buttons;roving(sensors)};renderSensors();roving(mode,${onSelect})}</script>`;
+}
+
+// An intact sensors group whose previous tab stop is remounted by a later mode group.
+function remountedTabStopControls() {
+  const radio = (id, label, checked) =>
+    `<button id="${id}" role="radio" aria-checked="${checked}" tabindex="${checked ? 0 : -1}">${label}</button>`;
+  return `<section aria-label="Tab stop example"><button id="refresh">Refresh</button><div id="sensors" role="radiogroup" aria-label="Sensors">${radio("sensor-a", "Sensor A", true)}${radio("sensor-b", "Sensor B", false)}</div><div id="mode" role="radiogroup" aria-label="Mode">${radio("mode-existing", "Existing", true)}${radio("mode-new", "New", false)}</div></section><script>{const roving=(group,onSelect)=>{const radios=[...group.querySelectorAll("[role=radio]")];const select=radio=>{radios.forEach(item=>{item.tabIndex=item===radio?0:-1;item.setAttribute("aria-checked",String(item===radio))});radio.focus();onSelect?.()};group.addEventListener("click",event=>{const radio=event.target.closest("[role=radio]");if(radio)select(radio)});group.addEventListener("keydown",event=>{const direction=event.key==="ArrowDown"?1:event.key==="ArrowUp"?-1:0;if(!direction)return;event.preventDefault();const next=radios.indexOf(document.activeElement)+direction;if(next>=0&&next<radios.length)select(radios[next])})};roving(document.querySelector("#sensors"));roving(document.querySelector("#mode"),()=>{const refresh=document.querySelector("#refresh");refresh.replaceWith(refresh.cloneNode(true))})}</script>`;
+}
+
+// Three groups where a selection change in one re-renders the other two.
+function rerenderedGroupsControls() {
+  return `<section id="groups" aria-label="Rerender example"></section><script>{const state={g1:"a",g2:"a",g3:"a"};const markup=group=>\`<div id="\${group}" role="radiogroup" aria-label="Group \${group}">\${["a","b"].map(item=>\`<button id="\${group}-\${item}" role="radio" aria-checked="\${state[group]===item}" tabindex="\${state[group]===item?0:-1}">Option \${item}</button>\`).join("")}</div>\`;const render=active=>Object.keys(state).filter(group=>group!==active).forEach(group=>{const template=document.createElement("template");template.innerHTML=markup(group);document.getElementById(group).replaceWith(template.content)});document.querySelector("#groups").innerHTML=Object.keys(state).map(markup).join("");document.querySelector("#groups").addEventListener("keydown",event=>{const radio=event.target.closest("[role=radio]");const direction=event.key==="ArrowDown"?1:event.key==="ArrowUp"?-1:0;if(!radio||!direction)return;event.preventDefault();const radios=[...radio.parentElement.children];const next=radios[radios.indexOf(radio)+direction];if(!next)return;radios.forEach(item=>{item.tabIndex=item===next?0:-1;item.setAttribute("aria-checked",String(item===next))});next.focus();state[radio.parentElement.id]=next.id.slice(-1);render(radio.parentElement.id)})}</script>`;
+}
+
+// Button tabs that select on arrows and on click only, disclosing a sibling group.
+// `form` puts the tabs in a form as default submit buttons; `deferred` re-renders
+// the restored sensors group from a timer.
+function clickActivatedTabsControls({ form = false, deferred = false } = {}) {
+  const radio = (id, label, checked) =>
+    `<button id="${id}" role="radio" aria-checked="${checked}" tabindex="${checked ? 0 : -1}">${label}</button>`;
+  const sensors = `<div id="sensors" role="radiogroup" aria-label="Sensors">${radio("sensor-a", "Sensor A", true)}${radio("sensor-b", "Sensor B", false)}</div>`;
+  return `<section aria-label="Tabs example"><div id="panel">${sensors}</div><${form ? "form onsubmit=\"event.preventDefault();fetch('https://example.invalid/submitted')\"" : "div"}><div id="views" role="tablist" aria-label="Views"><button id="tab-a" role="tab" aria-selected="true" tabindex="0">Sensors</button><button id="tab-b" role="tab" aria-selected="false" tabindex="-1">History</button></div></${form ? "form" : "div"}></section><script>{const tabs=[...document.querySelectorAll("[role=tab]")];const roving=group=>{group.addEventListener("keydown",event=>{const direction=event.key==="ArrowDown"?1:event.key==="ArrowUp"?-1:0;if(!direction)return;event.preventDefault();const radios=[...group.querySelectorAll("[role=radio]")];const next=radios[radios.indexOf(document.activeElement)+direction];if(!next)return;radios.forEach(item=>{item.tabIndex=item===next?0:-1;item.setAttribute("aria-checked",String(item===next))});next.focus()})};const select=tab=>{tabs.forEach(item=>{item.tabIndex=item===tab?0:-1;item.setAttribute("aria-selected",String(item===tab))});tab.focus();const panel=document.querySelector("#panel");const show=()=>{panel.innerHTML=${JSON.stringify(sensors)};roving(panel.firstChild)};if(tab.id!=="tab-a")panel.innerHTML="";else ${deferred ? "setTimeout(show,100)" : "show()"}};roving(document.querySelector("#sensors"));tabs.forEach(tab=>tab.addEventListener("click",()=>select(tab)));document.querySelector("#views").addEventListener("keydown",event=>{const direction=event.key==="ArrowRight"?1:event.key==="ArrowLeft"?-1:0;if(!direction)return;event.preventDefault();const next=tabs[tabs.indexOf(document.activeElement)+direction];if(next)select(next)})}</script>`;
+}
+
+// Button tabs that re-render themselves on every selection, disclosing a sibling group.
+function selfRemountingTabsControls() {
+  const radio = (id, label, checked) =>
+    `<button id="${id}" role="radio" aria-checked="${checked}" tabindex="${checked ? 0 : -1}">${label}</button>`;
+  const sensors = `<div id="sensors" role="radiogroup" aria-label="Sensors">${radio("sensor-a", "Sensor A", true)}${radio("sensor-b", "Sensor B", false)}</div>`;
+  return `<section aria-label="Remounting tabs example"><div id="panel">${sensors}</div><div><div id="views" role="tablist" aria-label="Views"></div></div></section><script>{const views=document.querySelector("#views");const panel=document.querySelector("#panel");const ids=["tab-a","tab-b"];const labels={"tab-a":"Sensors","tab-b":"History"};const roving=group=>{group.addEventListener("keydown",event=>{const direction=event.key==="ArrowDown"?1:event.key==="ArrowUp"?-1:0;if(!direction)return;event.preventDefault();const radios=[...group.querySelectorAll("[role=radio]")];const next=radios[radios.indexOf(document.activeElement)+direction];if(!next)return;radios.forEach(item=>{item.tabIndex=item===next?0:-1;item.setAttribute("aria-checked",String(item===next))});next.focus()})};const render=selected=>{views.innerHTML=ids.map(id=>\`<button id="\${id}" role="tab" aria-selected="\${id===selected}" tabindex="\${id===selected?0:-1}">\${labels[id]}</button>\`).join("")};const select=id=>{render(id);document.getElementById(id).focus();panel.innerHTML=id==="tab-a"?${JSON.stringify(sensors)}:"";if(panel.firstChild)roving(panel.firstChild)};render("tab-a");roving(document.querySelector("#sensors"));views.addEventListener("click",event=>{const tab=event.target.closest("[role=tab]");if(tab)select(tab.id)});views.addEventListener("keydown",event=>{const direction=event.key==="ArrowRight"?1:event.key==="ArrowLeft"?-1:0;if(!direction)return;event.preventDefault();const next=ids[ids.indexOf(document.activeElement.id)+direction];if(next)select(next)})}</script>`;
+}
+
+// A tablist whose host re-renders it once, as a lazily hydrated widget would:
+// on the first focus (so its probe loses the focused tab) or, with `afterSelect`,
+// on its second selection change (so its probe loses only the tab it had not reached).
+function remountingHostTabsControls({ afterSelect = false } = {}) {
+  const ids = afterSelect ? ["view-a", "view-b", "view-c"] : ["view-a", "view-b"];
+  const labels = { "view-a": "Summary", "view-b": "History", "view-c": "Alerts" };
+  const tabs = (selected) =>
+    `<div id="views" role="tablist" aria-label="Views">${ids.map((id) => `<button id="${id}" role="tab" aria-selected="${id === selected}" tabindex="${id === selected ? 0 : -1}">${labels[id]}</button>`).join("")}</div>`;
+  const tabMarkup = Object.fromEntries(ids.map((id) => [id, tabs(id)]));
+  const hydrate = `const hydrate=selected=>{if(host.dataset.hydrated)return false;host.dataset.hydrated="1";host.innerHTML=markup[selected];return true};`;
+  const onFocus = afterSelect
+    ? ""
+    : `host.addEventListener("focusin",()=>hydrate("view-a"),{capture:true});`;
+  const afterMove = afterSelect
+    ? `host.dataset.moves=Number(host.dataset.moves||0)+1;if(host.dataset.moves==="2"&&hydrate(next.id))host.querySelector("#"+next.id).focus();`
+    : "";
+  return `<section aria-label="Hydrating tabs example"><div id="views-host">${tabs("view-a")}</div></section><script>{const host=document.querySelector("#views-host");const markup=${JSON.stringify(tabMarkup)};${hydrate}${onFocus}host.addEventListener("keydown",event=>{const direction=event.key==="ArrowRight"?1:event.key==="ArrowLeft"?-1:0;if(!direction)return;const tabs=[...host.querySelectorAll("[role=tab]")];const next=tabs[tabs.indexOf(document.activeElement)+direction];if(!next)return;event.preventDefault();tabs.forEach(tab=>{tab.tabIndex=tab===next?0:-1;tab.setAttribute("aria-selected",String(tab===next))});next.focus();${afterMove}})}</script>`;
+}
+
+// An owner-focused radiogroup whose radios cannot take focus themselves.
+function activeDescendantRadiogroupControls() {
+  return '<section aria-label="Active descendant radios"><div id="sizes" role="radiogroup" aria-label="Sizes" aria-activedescendant="size-m" tabindex="0"><div id="size-s" role="radio" aria-checked="false">Small</div><div id="size-m" role="radio" aria-checked="true">Medium</div><div id="size-l" role="radio" aria-checked="false">Large</div></div></section><script>{const group=document.querySelector("#sizes");const radios=[...group.querySelectorAll("[role=radio]")];group.addEventListener("keydown",event=>{const direction=event.key==="ArrowDown"?1:event.key==="ArrowUp"?-1:0;if(!direction)return;event.preventDefault();const current=radios.findIndex(radio=>radio.id===group.getAttribute("aria-activedescendant"));const next=radios[current+direction];if(!next)return;group.setAttribute("aria-activedescendant",next.id);radios.forEach(radio=>radio.setAttribute("aria-checked",String(radio===next)))})}</script>';
+}
+
+// A listbox that moves its active descendant on arrow keys.
+function activeDescendantListboxControls() {
+  return '<section aria-label="Active descendant example"><div id="plans" role="listbox" aria-label="Plans" aria-activedescendant="plan-free" tabindex="0"><div id="plan-free" role="option" tabindex="-1">Free</div><div id="plan-pro" role="option" tabindex="-1">Pro</div><div id="plan-team" role="option" tabindex="-1">Team</div></div></section><script>{const listbox=document.querySelector("#plans");const options=[...listbox.querySelectorAll("[role=option]")];listbox.addEventListener("keydown",event=>{const direction=event.key==="ArrowDown"?1:event.key==="ArrowUp"?-1:0;if(!direction)return;event.preventDefault();const current=options.findIndex(option=>option.id===listbox.getAttribute("aria-activedescendant"));const next=(current+direction+options.length)%options.length;listbox.setAttribute("aria-activedescendant",options[next].id)})}</script>';
+}
+
+// Links, a select, and a tablist; `working` gives the tablist arrow-key roving.
+function focusExamplesControls(working) {
+  return (
+    '<section aria-label="Focus examples"><a id="no-destination" role="link">No destination</a><a id="destination" href="#account">Destination</a><label for="plan-select">Plan</label><select id="plan-select"><option>Free</option><option>Pro</option></select><div id="views" role="tablist" aria-label="Views"><button id="summary-tab" role="tab" tabindex="0">Summary tab</button><button id="history-tab" role="tab" tabindex="-1">History tab</button><button id="nameless-tab" role="tab" tabindex="-1"></button></div></section>' +
+    (working
+      ? '<script>{const tabs=[...document.querySelectorAll("#views>[role=tab]")];document.querySelector("#views").addEventListener("keydown",event=>{const direction=event.key==="ArrowRight"?1:event.key==="ArrowLeft"?-1:0;if(!direction)return;event.preventDefault();const current=tabs.indexOf(document.activeElement);const next=(current+direction+tabs.length)%tabs.length;tabs.forEach((tab,index)=>{tab.tabIndex=index===next?0:-1});tabs[next].focus()})}</script>'
+      : "")
+  );
+}
+
+// Named focusability fixtures other than the disclosure variants.
+const FOCUSABILITY_VARIANTS = {
+  "remounted-tab-stop": remountedTabStopControls,
+  "rerendered-groups": rerenderedGroupsControls,
+  "click-activated-tabs": () => clickActivatedTabsControls(),
+  "form-tabs": () => clickActivatedTabsControls({ form: true }),
+  "deferred-tabs": () => clickActivatedTabsControls({ deferred: true }),
+  "self-remounting-tabs": selfRemountingTabsControls,
+  "remount-on-focus-tabs": () => remountingHostTabsControls(),
+  "remount-after-select-tabs": () => remountingHostTabsControls({ afterSelect: true }),
+  "active-descendant-radiogroup": activeDescendantRadiogroupControls,
+  "active-descendant": activeDescendantListboxControls,
+};
+
+// Markup for a named focusability fixture; any other truthy name gets the
+// generic focus examples.
+function focusabilityControlsMarkup(name) {
+  if (!name) return "";
+  if (DISCLOSURE_VARIANTS[name]) return disclosureControls(DISCLOSURE_VARIANTS[name]);
+  if (FOCUSABILITY_VARIANTS[name]) return FOCUSABILITY_VARIANTS[name]();
+  return focusExamplesControls(name === "working");
+}
+
 function createBrowserFixture({
   externalRequest = false,
   occluded = false,
@@ -1865,15 +1987,7 @@ function createBrowserFixture({
   const persistentWorkerScript = persistentWorker
     ? '<script>new Worker("data:text/javascript;charset=utf-8,"+encodeURIComponent("setInterval(()=>{},10000)"));</script>'
     : "";
-  const focusabilityMarkup =
-    focusabilityControls === "active-descendant"
-      ? '<section aria-label="Active descendant example"><div id="plans" role="listbox" aria-label="Plans" aria-activedescendant="plan-free" tabindex="0"><div id="plan-free" role="option" tabindex="-1">Free</div><div id="plan-pro" role="option" tabindex="-1">Pro</div><div id="plan-team" role="option" tabindex="-1">Team</div></div></section><script>{const listbox=document.querySelector("#plans");const options=[...listbox.querySelectorAll("[role=option]")];listbox.addEventListener("keydown",event=>{const direction=event.key==="ArrowDown"?1:event.key==="ArrowUp"?-1:0;if(!direction)return;event.preventDefault();const current=options.findIndex(option=>option.id===listbox.getAttribute("aria-activedescendant"));const next=(current+direction+options.length)%options.length;listbox.setAttribute("aria-activedescendant",options[next].id)})}</script>'
-      : focusabilityControls
-        ? '<section aria-label="Focus examples"><a id="no-destination" role="link">No destination</a><a id="destination" href="#account">Destination</a><label for="plan-select">Plan</label><select id="plan-select"><option>Free</option><option>Pro</option></select><div id="views" role="tablist" aria-label="Views"><button id="summary-tab" role="tab" tabindex="0">Summary tab</button><button id="history-tab" role="tab" tabindex="-1">History tab</button><button id="nameless-tab" role="tab" tabindex="-1"></button></div></section>' +
-          (focusabilityControls === "working"
-            ? '<script>{const tabs=[...document.querySelectorAll("#views>[role=tab]")];document.querySelector("#views").addEventListener("keydown",event=>{const direction=event.key==="ArrowRight"?1:event.key==="ArrowLeft"?-1:0;if(!direction)return;event.preventDefault();const current=tabs.indexOf(document.activeElement);const next=(current+direction+tabs.length)%tabs.length;tabs.forEach((tab,index)=>{tab.tabIndex=index===next?0:-1});tabs[next].focus()})}</script>'
-            : "")
-        : "";
+  const focusabilityMarkup = focusabilityControlsMarkup(focusabilityControls);
   const html = `<!doctype html><html><head><meta charset="utf-8"><style>
 *{box-sizing:border-box}body{margin:0;background:#eef2ff;color:#172033;font:16px system-ui}header{background:#18264a;color:white;padding:18px 28px}nav a{color:white;margin-right:16px}main{max-width:900px;margin:30px auto;padding:24px;background:white;border-radius:16px}h1{font-size:32px}h2{font-size:22px}.cards{display:grid;grid-template-columns:1fr 1fr;gap:16px}.card{padding:18px;border:1px solid #ccd3e1;border-radius:12px}button{padding:10px 18px;background:#3157d5;color:white;border:0;border-radius:8px}
 ${stableGutter ? "html{scrollbar-gutter:stable}::-webkit-scrollbar{width:11px}" : ""}
@@ -2073,6 +2187,179 @@ test(
   }
 );
 
+for (const [focusabilityControls, description] of [
+  ["disclosure", "a later sibling"],
+  ["trailing-disclosure", "an earlier sibling"],
+  ["pseudo-disclosure", "a sibling under generated content"],
+  ["member-disclosure", "a persistent group's remounted members"],
+]) {
+  test(
+    `browser focus evidence certifies ${description} that a composite selection replaces`,
+    { skip: browserSkip },
+    () => {
+      const fixture = createBrowserFixture({ focusabilityControls });
+      try {
+        const result = runBrowserCapture(fixture);
+        const byLocator = new Map(
+          result.accessibility_observations.controls.map((item) => [item.locator, item])
+        );
+        assert.equal(byLocator.get("button#mode-new").focus_context, "composite");
+        assert.equal(byLocator.get("button#mode-none").focus_context, "composite");
+        assert.equal(byLocator.get("button#sensor-b").tab_index, -1);
+        assert.equal(byLocator.get("button#sensor-b").focus_context, "composite");
+      } finally {
+        fs.rmSync(fixture.root, { recursive: true, force: true });
+      }
+    }
+  );
+}
+
+test(
+  "browser focus evidence certifies an intact group whose previous tab stop was remounted",
+  { skip: browserSkip },
+  () => {
+    const fixture = createBrowserFixture({ focusabilityControls: "remounted-tab-stop" });
+    try {
+      const result = runBrowserCapture(fixture);
+      const byLocator = new Map(
+        result.accessibility_observations.controls.map((item) => [item.locator, item])
+      );
+      assert.equal(byLocator.get("button#mode-new").focus_context, "composite");
+      assert.equal(byLocator.get("button#sensor-b").tab_index, -1);
+      assert.equal(byLocator.get("button#sensor-b").focus_context, "composite");
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
+  "browser focus evidence retries a group that an earlier retry probe remounts again",
+  { skip: browserSkip },
+  () => {
+    const fixture = createBrowserFixture({ focusabilityControls: "rerendered-groups" });
+    try {
+      const result = runBrowserCapture(fixture);
+      const byLocator = new Map(
+        result.accessibility_observations.controls.map((item) => [item.locator, item])
+      );
+      assert.equal(byLocator.get("button#g1-b").tab_index, -1);
+      assert.equal(byLocator.get("button#g1-b").focus_context, "composite");
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
+  "browser focus evidence restores click-activated button tabs before probing disclosed groups",
+  { skip: browserSkip },
+  () => {
+    const fixture = createBrowserFixture({ focusabilityControls: "click-activated-tabs" });
+    try {
+      const result = runBrowserCapture(fixture);
+      const byLocator = new Map(
+        result.accessibility_observations.controls.map((item) => [item.locator, item])
+      );
+      assert.equal(byLocator.get("button#tab-b").focus_context, "composite");
+      assert.equal(byLocator.get("button#sensor-b").tab_index, -1);
+      assert.equal(byLocator.get("button#sensor-b").focus_context, "composite");
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
+  "browser focus evidence leaves a selected tab alone when restoring it would submit a form",
+  { skip: browserSkip },
+  () => {
+    const fixture = createBrowserFixture({ focusabilityControls: "form-tabs" });
+    try {
+      const result = runBrowserCapture(fixture);
+      const byLocator = new Map(
+        result.accessibility_observations.controls.map((item) => [item.locator, item])
+      );
+      assert.equal(byLocator.get("button#tab-b").focus_context, "composite");
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
+  "browser focus evidence waits for a restore to re-render the groups it controls",
+  { skip: browserSkip },
+  () => {
+    const fixture = createBrowserFixture({ focusabilityControls: "deferred-tabs" });
+    try {
+      const result = runBrowserCapture(fixture);
+      const byLocator = new Map(
+        result.accessibility_observations.controls.map((item) => [item.locator, item])
+      );
+      assert.equal(byLocator.get("button#sensor-b").tab_index, -1);
+      assert.equal(byLocator.get("button#sensor-b").focus_context, "composite");
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
+  "browser focus evidence retries a group that detaches during its own probe",
+  { skip: browserSkip },
+  () => {
+    const fixture = createBrowserFixture({ focusabilityControls: "remount-on-focus-tabs" });
+    try {
+      const result = runBrowserCapture(fixture);
+      const byLocator = new Map(
+        result.accessibility_observations.controls.map((item) => [item.locator, item])
+      );
+      assert.equal(byLocator.get("button#view-b").tab_index, -1);
+      assert.equal(byLocator.get("button#view-b").focus_context, "composite");
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
+  "browser focus evidence retries a group that detaches partway through its own probe",
+  { skip: browserSkip },
+  () => {
+    const fixture = createBrowserFixture({ focusabilityControls: "remount-after-select-tabs" });
+    try {
+      const result = runBrowserCapture(fixture);
+      const byLocator = new Map(
+        result.accessibility_observations.controls.map((item) => [item.locator, item])
+      );
+      assert.equal(byLocator.get("button#view-c").tab_index, -1);
+      assert.equal(byLocator.get("button#view-c").focus_context, "composite");
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
+  "browser focus evidence does not certify a replaced group through a different widget",
+  { skip: browserSkip },
+  () => {
+    const fixture = createBrowserFixture({ focusabilityControls: "relabel-disclosure" });
+    try {
+      const result = runBrowserCapture(fixture);
+      const byLocator = new Map(
+        result.accessibility_observations.controls.map((item) => [item.locator, item])
+      );
+      assert.equal(byLocator.get("button#mode-new").focus_context, "composite");
+      assert.equal(byLocator.get("button#sensor-b").tab_index, -1);
+      assert.notEqual(byLocator.get("button#sensor-b").focus_context, "composite");
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+);
+
 test(
   "browser focus evidence follows native tab stops and observed roving keyboard ownership",
   { skip: browserSkip },
@@ -2125,6 +2412,41 @@ test(
       });
       assert.equal(reachableAudit.checks.focus_order, true);
       assert.equal(reachableAudit.checks.names, false);
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
+  "browser focus evidence restores the live selection of a tablist that re-renders itself",
+  { skip: browserSkip },
+  () => {
+    const fixture = createBrowserFixture({ focusabilityControls: "self-remounting-tabs" });
+    try {
+      const result = runBrowserCapture(fixture);
+      const byLocator = new Map(
+        result.accessibility_observations.controls.map((item) => [item.locator, item])
+      );
+      assert.equal(byLocator.get("button#sensor-b").tab_index, -1);
+      assert.equal(byLocator.get("button#sensor-b").focus_context, "composite");
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
+  "browser focus evidence skips restoring a selection whose radio cannot take focus",
+  { skip: browserSkip },
+  () => {
+    const fixture = createBrowserFixture({ focusabilityControls: "active-descendant-radiogroup" });
+    try {
+      const result = runBrowserCapture(fixture);
+      const byLocator = new Map(
+        result.accessibility_observations.controls.map((item) => [item.locator, item])
+      );
+      assert.equal(byLocator.get("div#size-l").focus_context, "composite");
     } finally {
       fs.rmSync(fixture.root, { recursive: true, force: true });
     }
