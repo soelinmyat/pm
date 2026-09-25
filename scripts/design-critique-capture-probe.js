@@ -615,7 +615,9 @@ function compositeKeyboardCandidates(axTree, model) {
     )
       appendBoundedEvidence(candidates, group, MAX_CONTROLS, "composite keyboard candidates");
   }
-  // Probe inner panels before an outer widget can unmount their frozen nodes.
+  // Probe inner panels before an outer widget can unmount their frozen nodes,
+  // and later siblings before earlier ones: an earlier selection commonly
+  // discloses or replaces the widgets after it, never the reverse.
   const byIndex = new Map(model.map((node) => [node.index, node]));
   const depths = new Map();
   const ownerDepth = (candidate) => {
@@ -631,7 +633,10 @@ function compositeKeyboardCandidates(axTree, model) {
     for (const index of trail.reverse()) depths.set(index, ++depth);
     return depths.get(byBackendId.get(candidate.owner_backend_node_id)?.index) || 0;
   };
-  return candidates.sort((left, right) => ownerDepth(right) - ownerDepth(left));
+  const ownerIndex = (candidate) => byBackendId.get(candidate.owner_backend_node_id)?.index ?? -1;
+  return candidates.sort(
+    (left, right) => ownerDepth(right) - ownerDepth(left) || ownerIndex(right) - ownerIndex(left)
+  );
 }
 
 function accessibilityEvidence(axTree, model, compositeBackendNodeIds = new Set()) {
