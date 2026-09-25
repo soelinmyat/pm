@@ -6,6 +6,8 @@ Product UI capture supports reserved scrollbar gutters without treating the smal
 
 Small keyboard-focus indicators are compared within bounded outline or outer-shadow bands when viewport-wide averaging misses them. This fallback requires native Tab input, an observed indicator-style change, matching viewport geometry, and material changes on at least two bands. Unchanged screenshots, control-interior noise, adjacent noise, and untrusted captures do not qualify. It does not replace the visual accessibility review.
 
+Native iOS design critique can retain Maestro hierarchy observations with a capture-bound scope of changed controls. It checks measured labels, enabled states, and visible touch-target geometry without fabricating browser landmarks or tab order. VoiceOver traversal, semantics, occlusion, and focus still need separate observation. Maestro commands also qualify as native UI-automation QA receipts when the existing output and assertion bindings pass. Repeated native controls can use predeclared observed occurrences; changed noninteractive states require an explicit source-reviewed scope and produce only screen-geometry evidence, never vacuous name or touch-target passes.
+
 Verified corrections within an already-approved Dev task do not need repeated approval: behavioral fixes require red/green regression evidence and fresh review. New scope, consequential decisions, disputes and external actions retain their approval boundaries.
 
 When reviewers recommend the same fix in different words, they can explicitly confirm a common remedy without replacing their original findings. Every affected reviewer must agree; incomplete or conflicting clarification remains blocked, and no finding is dismissed by that agreement.

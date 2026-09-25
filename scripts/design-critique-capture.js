@@ -7,6 +7,8 @@ const os = require("node:os");
 const path = require("node:path");
 const { execFileSync, spawnSync } = require("node:child_process");
 const { normalizeRawAudit } = require("./design-critique-audit-normalize");
+const { exactObject, exactObjectWithOptional } = require("./lib/closed-object");
+const { validateNativeControls } = require("./lib/design-critique-native-audit");
 const { compareRfc3339DateTimes, isRfc3339DateTime } = require("./lib/iso-time");
 const { PRODUCT_UI_VISUAL_THRESHOLDS, inspectPngVisualBytes } = require("./lib/media-inspect");
 const { readProjectInput } = require("./lib/project-file");
@@ -50,16 +52,6 @@ const STATES = new Set([
 ]);
 function digest(bytes) {
   return crypto.createHash("sha256").update(bytes).digest("hex");
-}
-
-function exactObject(value, fields, label) {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    throw new Error(`${label} must be an object`);
-  const allowed = new Set(fields);
-  const unknown = Object.keys(value).find((field) => !allowed.has(field));
-  const missing = fields.find((field) => !Object.prototype.hasOwnProperty.call(value, field));
-  if (unknown) throw new Error(`${label}.${unknown} is an unknown field`);
-  if (missing) throw new Error(`${label}.${missing} is required`);
 }
 
 function slug(value, label) {
@@ -120,6 +112,7 @@ function validateRoute(route) {
   if (!Array.isArray(route.subjects) || route.subjects.length < 1 || route.subjects.length > 100)
     throw new Error("route.subjects must contain 1 through 100 subjects");
   const subjectIds = new Set();
+  const mobileSubjectIds = new Set();
   for (const [index, subject] of route.subjects.entries()) {
     exactObject(subject, ["id", "title", "surface", "platform"], `route.subjects[${index}]`);
     slug(subject.id, `route.subjects[${index}].id`);
@@ -130,14 +123,16 @@ function validateRoute(route) {
     if (!new Set(["web", "mobile"]).has(subject.platform))
       throw new Error(`route.subjects[${index}].platform must be web or mobile`);
     if (subject.platform === "web") validateSurfacePattern(subject.surface);
+    else mobileSubjectIds.add(subject.id);
   }
   if (!Array.isArray(route.coverage) || route.coverage.length < 1 || route.coverage.length > 1000)
     throw new Error("route.coverage must contain 1 through 1000 rows");
   const coverageIds = new Set();
   for (const [index, coverage] of route.coverage.entries()) {
-    exactObject(
+    exactObjectWithOptional(
       coverage,
       ["id", "subject_id", "state", "viewport", "required", "reason"],
+      ["native_controls", "native_scope"],
       `route.coverage[${index}]`
     );
     slug(coverage.id, `route.coverage[${index}].id`);
@@ -151,6 +146,11 @@ function validateRoute(route) {
     if (typeof coverage.required !== "boolean")
       throw new Error(`route.coverage[${index}].required must be boolean`);
     boundedText(coverage.reason, 2000, `route.coverage[${index}].reason`);
+    if (coverage.native_controls !== undefined || coverage.native_scope !== undefined) {
+      if (!mobileSubjectIds.has(coverage.subject_id))
+        throw new Error(`route.coverage[${index}].native_controls requires a mobile subject`);
+      validateNativeControls(coverage.native_controls, coverage.native_scope);
+    }
   }
   return route;
 }
@@ -626,7 +626,9 @@ function readFileIdentity(filePath) {
       offset += count;
     }
     const after = fs.fstatSync(descriptor, { bigint: true });
-    for (const field of ["dev", "ino", "size", "mtimeNs", "ctimeNs"])
+    // Content, inode and mtime identify the executable. ctime is excluded because
+    // macOS updates it when a signed app bundle launches without changing its bytes.
+    for (const field of ["dev", "ino", "size", "mtimeNs"])
       if (after[field] !== before[field])
         throw new Error("browser executable changed while hashing");
     return {
@@ -634,7 +636,6 @@ function readFileIdentity(filePath) {
         dev: String(after.dev),
         ino: String(after.ino),
         mtime_ns: String(after.mtimeNs),
-        ctime_ns: String(after.ctimeNs),
       },
       public: {
         path: realpath,

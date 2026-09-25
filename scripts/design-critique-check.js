@@ -33,6 +33,10 @@ const {
 const { createProjectInputVerificationContext, readProjectInput } = require("./lib/project-file");
 const { MAX_RAW_AUDIT_BYTES, normalizeAuditBytes } = require("./design-critique-audit-normalize");
 const {
+  nativeRequiredChecks,
+  validateNativeControls,
+} = require("./lib/design-critique-native-audit");
+const {
   ACQUISITION_METHOD: TRUSTED_CAPTURE_ACQUISITION,
   BROWSER_ARGS_PROFILE: TRUSTED_CAPTURE_BROWSER_PROFILE,
   CAPTURE_ASSURANCE: TRUSTED_CAPTURE_ASSURANCE,
@@ -537,7 +541,30 @@ function validateCoverage(route, subjects, subjectIds, issues) {
       add(issues, at, "must be an object");
       continue;
     }
-    closed(item, ["id", "subject_id", "state", "viewport", "required", "reason"], at, issues);
+    closed(
+      item,
+      [
+        "id",
+        "subject_id",
+        "state",
+        "viewport",
+        "required",
+        "reason",
+        "native_controls",
+        "native_scope",
+      ],
+      at,
+      issues
+    );
+    if (item.native_controls !== undefined || item.native_scope !== undefined) {
+      if (route.mode !== "product-ui" || subjectsById.get(item.subject_id)?.platform !== "mobile")
+        add(issues, `${at}.native_controls`, "requires a mobile product-ui subject");
+      try {
+        validateNativeControls(item.native_controls, item.native_scope);
+      } catch (error) {
+        add(issues, `${at}.native_controls`, error.message);
+      }
+    }
     if (!slug(item.id) || ids.has(item.id)) add(issues, `${at}.id`, "must be unique kebab-case");
     ids.add(item.id);
     const decisionKey = JSON.stringify([item.subject_id, item.state, item.viewport]);
@@ -1484,6 +1511,7 @@ function validateAuditEvidence(
   const audit = readEvidenceJson(root, entry, label, issues);
   if (!audit) return null;
   const normalizedAuditRequired = route.schema_version === 2;
+  const nativeAudit = audit.platform === "maestro-ios";
   closed(
     audit,
     [
@@ -1494,6 +1522,7 @@ function validateAuditEvidence(
       ...(normalizedAuditRequired ? ["raw"] : []),
       "checks",
       "findings",
+      ...(nativeAudit ? ["platform", "controls", "limitations", "native_scope"] : []),
     ],
     label,
     issues
@@ -1507,6 +1536,56 @@ function validateAuditEvidence(
   const raw = normalizedAuditRequired
     ? validateNormalizedAudit(root, audit, entry, label, issues)
     : null;
+  if (!nativeAudit) {
+    const declaresNative = (audit.capture_ids || []).some((id) => {
+      const capture = captureRows.find((item) => item.id === id);
+      const coverage = route.coverage?.find((item) => item.id === capture?.coverage_id);
+      return coverage?.native_controls !== undefined || coverage?.native_scope !== undefined;
+    });
+    if (declaresNative)
+      add(issues, label, "coverage that declares native controls requires a native audit");
+  }
+  if (nativeAudit) {
+    const subject = route.subjects?.find((item) => item.id === entry.subject_id);
+    if (
+      !normalizedAuditRequired ||
+      route.mode !== "product-ui" ||
+      subject?.platform !== "mobile" ||
+      entry.kind !== "accessibility-tree" ||
+      raw?.schema_version !== 2
+    )
+      add(
+        issues,
+        label,
+        "native audit requires a schema-2 mobile product-ui accessibility capture"
+      );
+    const capture = captureRows.find((item) => item.id === audit.capture_ids?.[0]);
+    const coverage = route.coverage?.find((item) => item.id === capture?.coverage_id);
+    if (!coverage?.native_controls || !isDeepStrictEqual(coverage.native_controls, audit.controls))
+      add(
+        issues,
+        `${label}.controls`,
+        "must equal the native controls declared in cited route coverage"
+      );
+    if (!isDeepStrictEqual(coverage?.native_scope, audit.native_scope))
+      add(
+        issues,
+        `${label}.native_scope`,
+        "must equal the native scope declared in cited route coverage"
+      );
+    const viewport = raw?.observations?.viewport;
+    if (
+      capture?.kind !== "screenshot" ||
+      !viewport ||
+      viewport.width * viewport.scale !== capture.width ||
+      viewport.height * viewport.scale !== capture.height
+    )
+      add(
+        issues,
+        `${label}.raw.observations.viewport`,
+        "must match the cited native screenshot pixel dimensions"
+      );
+  }
   const subjectCoverage = new Set(
     (route.coverage || [])
       .filter((item) => item.subject_id === entry.subject_id)
@@ -1550,7 +1629,9 @@ function validateAuditEvidence(
     add(issues, `${label}.capture_ids`, "must include every active capture for the subject");
   const requiredChecks =
     entry.kind === "accessibility-tree"
-      ? ["landmarks", "names", "focus_order"]
+      ? nativeAudit
+        ? nativeRequiredChecks(audit.native_scope)
+        : ["landmarks", "names", "focus_order"]
       : [
           "overflow",
           "edge_alignment",

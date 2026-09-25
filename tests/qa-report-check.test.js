@@ -1574,6 +1574,51 @@ test("UI-impact QA requires current browser evidence for design context or route
   assert.match(JSON.stringify(checked.issues), /browser evidence receipt/);
 });
 
+test("mobile UI receipts accept the executed Maestro driver without weakening evidence checks", (t) => {
+  const repo = makeRepo();
+  t.after(repo.cleanup);
+  const session = createSession({ slug: "qa-maestro", sourceDir: repo.root });
+  session.task.risk.ui = 1;
+  for (const command of [
+    "JAVA_HOME=/opt/java maestro --device simulator-id test actions.yaml",
+    "maestro --device simulator-id hierarchy",
+  ]) {
+    const written = writePassingReport(session, repo.head(), { kind: "browser", command });
+    const report = JSON.parse(fs.readFileSync(written.reportPath, "utf8"));
+    report.platform = "mobile";
+    fs.writeFileSync(written.reportPath, JSON.stringify(report));
+    const checked = checkQaReport({
+      session,
+      reportPath: written.reportPath,
+      expectedCommit: repo.head(),
+      requirePassing: true,
+      qaCandidate: "required",
+    });
+    assert.equal(checked.ok, true, JSON.stringify(checked.issues));
+    fs.appendFileSync(written.outputPath, " ");
+    assert.equal(
+      checkQaReport({
+        session,
+        reportPath: written.reportPath,
+        expectedCommit: repo.head(),
+        requirePassing: true,
+        qaCandidate: "required",
+      }).ok,
+      false
+    );
+  }
+  const report = passingReport(SHA_A, undefined, {
+    kind: "browser",
+    command: "node qa-runner.cjs",
+  });
+  report.platform = "mobile";
+  assert.ok(
+    validateQaReport(report, { expectedCommit: SHA_A, requirePassing: true }).some((issue) =>
+      /automation driver/.test(issue.message)
+    )
+  );
+});
+
 test("optional browser screenshots are dimension- and hash-bound to their receipt", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-qa-report-screenshot-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

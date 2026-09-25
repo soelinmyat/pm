@@ -9,6 +9,7 @@ const path = require("node:path");
 const test = require("node:test");
 const {
   MAX_VIEWPORT_PIXELS,
+  browserIdentity,
   manifestShape,
   prepareCapturePlan,
   redactedUrlIdentity,
@@ -19,6 +20,7 @@ const {
   validateSurfacePattern,
   validateViewport,
   urlMatchesSurface,
+  validateRoute,
 } = require("../scripts/design-critique-capture");
 const {
   accessibilityObservations,
@@ -3021,3 +3023,60 @@ for (const missingLayout of [false, true]) {
     );
   });
 }
+
+test("browser identity ignores inode metadata-only changes but not content changes", () => {
+  // macOS updates the ctime of a signed app binary on launch; its bytes, mtime and path stay fixed.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-browser-identity-"));
+  const executable = path.join(dir, "chromium");
+  fs.writeFileSync(executable, "#!/bin/sh\necho Chromium 140.0.0.0\n");
+  fs.chmodSync(executable, 0o755);
+  const before = browserIdentity(executable);
+  const ctimeBefore = fs.statSync(executable, { bigint: true }).ctimeNs;
+  fs.chmodSync(executable, 0o700);
+  fs.chmodSync(executable, 0o755);
+  assert.notEqual(fs.statSync(executable, { bigint: true }).ctimeNs, ctimeBefore);
+  assert.deepEqual(browserIdentity(executable), before);
+  fs.writeFileSync(executable, "#!/bin/sh\necho Chromium 141.0.0.0\n");
+  assert.notDeepEqual(browserIdentity(executable), before);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("trusted web capture accepts mixed routes whose mobile rows declare native controls", () => {
+  const mixed = route();
+  mixed.subjects.push({
+    id: "scan-sheet",
+    title: "Scan sheet",
+    surface: "Scan sheet",
+    platform: "mobile",
+  });
+  mixed.coverage.push(
+    {
+      id: "scan-primary-device",
+      subject_id: "scan-sheet",
+      state: "primary",
+      viewport: "device",
+      required: true,
+      reason: "Changed native scan sheet",
+      native_controls: [{ by: "id", value: "scan-another" }],
+    },
+    {
+      id: "scan-empty-device",
+      subject_id: "scan-sheet",
+      state: "empty",
+      viewport: "device",
+      required: true,
+      reason: "Changed native empty copy",
+      native_controls: [],
+      native_scope: {
+        kind: "noninteractive-change",
+        reason: "Only the static empty-state copy changed on this native screen.",
+      },
+    }
+  );
+  assert.equal(validateRoute(mixed), mixed);
+  const web = route();
+  web.coverage[0].native_controls = [{ by: "id", value: "category" }];
+  assert.throws(() => validateRoute(web), /requires a mobile subject/);
+  mixed.coverage[2].native_controls = [{ by: "id", value: "category" }];
+  assert.throws(() => validateRoute(mixed), /empty controls/);
+});

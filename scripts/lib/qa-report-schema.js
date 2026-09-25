@@ -545,7 +545,7 @@ function validateReceiptCommand(receipt, at, issues) {
   }
   if (
     receipt.kind === "browser" &&
-    !/(?:playwright|webdriver|cypress|selenium|appium|chrom(?:e|ium)|browser|cdp|cua)/i.test(
+    !/(?:playwright|webdriver|cypress|selenium|appium|maestro|chrom(?:e|ium)|browser|cdp|cua)/i.test(
       command
     )
   ) {

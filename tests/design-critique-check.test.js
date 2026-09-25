@@ -3000,6 +3000,147 @@ test("rejects empty accessibility audit evidence", () => {
   assert.match(JSON.stringify(result.issues), /requires passing landmarks, names, focus_order/);
 });
 
+function nativeAuditFixture() {
+  const fixture = makeFixture();
+  fixture.route.subjects[0].platform = "mobile";
+  fixture.route.coverage = fixture.route.coverage.filter((row) => row.id !== "ui-primary-narrow");
+  fixture.captures.captures = fixture.captures.captures.slice(0, 1);
+  const capture = fixture.captures.captures[0];
+  delete capture.observation;
+  const controls = [{ by: "id", value: "save" }];
+  for (const row of fixture.route.coverage) {
+    row.viewport = "device";
+    if (row.required) row.native_controls = controls;
+  }
+  const raw = {
+    schema_version: 2,
+    kind: "accessibility-tree",
+    subject_id: "account-detail",
+    commit: COMMIT,
+    capture_ids: [capture.id],
+    observations: {
+      platform: "maestro-ios",
+      controls,
+      viewport: { width: capture.width, height: capture.height, scale: 1 },
+      hierarchy: {
+        attributes: { bounds: `[0,0][${capture.width},${capture.height}]` },
+        children: [
+          {
+            attributes: {
+              "resource-id": "save",
+              accessibilityText: "Save account",
+              enabled: "true",
+              bounds: "[16,100][160,144]",
+            },
+            children: [],
+          },
+        ],
+      },
+    },
+  };
+  const bytes = Buffer.from(JSON.stringify(raw));
+  const rawFile = write(fixture.root, "evidence/native-raw.json", bytes);
+  const file = write(
+    fixture.root,
+    "evidence/native-audit.json",
+    JSON.stringify(normalizeAuditBytes(bytes, rawFile))
+  );
+  fixture.captures.evidence = [
+    { id: "native-a11y", subject_id: "account-detail", kind: "accessibility-tree", ...file },
+  ];
+  return fixture;
+}
+
+function bindNativeFixture(fixture) {
+  rewrite(fixture.root, fixture.routePath, fixture.route);
+  fixture.captures.route = binding(fixture.root, fixture.routePath);
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.route = binding(fixture.root, fixture.routePath);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  fixture.report.coverage = { required: 1, captured: 1, percent: 100 };
+  for (const [key, score] of Object.entries(fixture.report.scores))
+    score.evidence_ids =
+      key === "accessibility" ? ["native-a11y"] : [fixture.captures.captures[0].id];
+  rewriteReportAndHtml(fixture);
+}
+
+test("accepts measured native audits without imposing browser landmarks or tab indices", () => {
+  const fixture = nativeAuditFixture();
+  bindNativeFixture(fixture);
+  const result = check(fixture);
+  assert.equal(result.ok, true, JSON.stringify(result.issues));
+});
+
+test("native audits cannot substitute for web evidence or omit declared scope", () => {
+  for (const [mutate, expected] of [
+    [
+      (fixture) => {
+        fixture.route.subjects[0].platform = "web";
+      },
+      /requires a schema-2 mobile/,
+    ],
+    [
+      (fixture) => {
+        delete fixture.route.coverage[0].native_controls;
+      },
+      /must equal the native controls/,
+    ],
+    [
+      (fixture) => {
+        fixture.route.coverage[0].native_controls = [{ by: "id", value: "other" }];
+      },
+      /must equal the native controls/,
+    ],
+  ]) {
+    const fixture = nativeAuditFixture();
+    mutate(fixture);
+    bindNativeFixture(fixture);
+    assert.match(JSON.stringify(check(fixture).issues), expected);
+  }
+});
+
+test("native viewport and deterministic normalized output remain capture-bound", () => {
+  const fixture = nativeAuditFixture();
+  const evidence = fixture.captures.evidence[0];
+  const rawPath = "evidence/native-raw.json";
+  const raw = JSON.parse(fs.readFileSync(path.join(fixture.root, rawPath), "utf8"));
+  raw.observations.viewport.scale = 2;
+  const bytes = Buffer.from(JSON.stringify(raw));
+  const rawFile = write(fixture.root, rawPath, bytes);
+  const audit = normalizeAuditBytes(bytes, rawFile);
+  audit.checks.touch_targets = false;
+  evidence.sha256 = write(fixture.root, evidence.path, JSON.stringify(audit)).sha256;
+  bindNativeFixture(fixture);
+  const issues = JSON.stringify(check(fixture).issues);
+  assert.match(issues, /cited native screenshot pixel dimensions/);
+  assert.match(issues, /deterministic normalization/);
+});
+
+test("retained native audits bind to their cited capture even when it is inactive", () => {
+  const fixture = nativeAuditFixture();
+  fixture.captures.captures[0].active = false;
+  bindNativeFixture(fixture);
+  const issues = JSON.stringify(check(fixture).issues);
+  assert.doesNotMatch(issues, /native screenshot pixel dimensions/);
+});
+
+test("coverage that declares native controls rejects a web-shaped audit", () => {
+  const fixture = makeFixture();
+  fixture.route.subjects[0].platform = "mobile";
+  for (const row of fixture.route.coverage)
+    if (row.required) row.native_controls = [{ by: "id", value: "save" }];
+  rewrite(fixture.root, fixture.routePath, fixture.route);
+  fixture.captures.route = binding(fixture.root, fixture.routePath);
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.route = binding(fixture.root, fixture.routePath);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  assert.match(
+    JSON.stringify(check(fixture).issues),
+    /coverage that declares native controls requires a native audit/
+  );
+});
+
 test("rejects a normalized audit when its raw probe bytes are tampered", () => {
   const fixture = makeFixture();
   const evidence = fixture.captures.evidence.find((item) => item.kind === "accessibility-tree");
@@ -4781,4 +4922,84 @@ test("native keyboard focus cannot distinguish identical decoded screenshots", (
     ),
     true
   );
+});
+
+function noninteractiveNativeFixture() {
+  const fixture = nativeAuditFixture();
+  const scope = {
+    kind: "noninteractive-change",
+    reason:
+      "The changed submission loading body contains skeleton rows only; the shared navigation control is unchanged.",
+  };
+  for (const row of fixture.route.coverage.filter((item) => item.required)) {
+    row.native_controls = [];
+    row.native_scope = scope;
+  }
+  const rawPath = "evidence/native-raw.json";
+  const raw = JSON.parse(fs.readFileSync(path.join(fixture.root, rawPath), "utf8"));
+  raw.observations.controls = [];
+  raw.observations.native_scope = scope;
+  const bytes = Buffer.from(JSON.stringify(raw));
+  const rawFile = write(fixture.root, rawPath, bytes);
+  const audit = normalizeAuditBytes(bytes, rawFile);
+  const evidence = fixture.captures.evidence[0];
+  evidence.sha256 = write(fixture.root, evidence.path, JSON.stringify(audit)).sha256;
+  return fixture;
+}
+
+test("accepts capture-bound native noninteractive scope without name or target passes", () => {
+  const fixture = noninteractiveNativeFixture();
+  bindNativeFixture(fixture);
+  const result = check(fixture);
+  assert.equal(result.ok, true, JSON.stringify(result.issues));
+});
+
+test("native noninteractive scope must match frozen coverage and cannot weaken web evidence", () => {
+  for (const [mutate, expected] of [
+    [
+      (fixture) => {
+        delete fixture.route.coverage[0].native_scope;
+      },
+      /native scope declared/,
+    ],
+    [
+      (fixture) => {
+        fixture.route.coverage[0].native_scope = {
+          kind: "noninteractive-change",
+          reason:
+            "The read-only result contains a changed status message and no changed interactive controls.",
+        };
+      },
+      /native scope declared/,
+    ],
+    [
+      (fixture) => {
+        delete fixture.route.coverage[0].native_controls;
+      },
+      /native controls/,
+    ],
+    [
+      (fixture) => {
+        fixture.route.subjects[0].platform = "web";
+      },
+      /requires a mobile product-ui|requires a schema-2 mobile/,
+    ],
+    [
+      (fixture) => {
+        const evidence = fixture.captures.evidence[0];
+        const audit = JSON.parse(fs.readFileSync(path.join(fixture.root, evidence.path), "utf8"));
+        audit.checks.names = true;
+        audit.checks.touch_targets = true;
+        evidence.sha256 = write(fixture.root, evidence.path, JSON.stringify(audit)).sha256;
+      },
+      /deterministic normalization/,
+    ],
+  ]) {
+    const fixture = noninteractiveNativeFixture();
+    mutate(fixture);
+    bindNativeFixture(fixture);
+    const result = check(fixture);
+    assert.equal(result.ok, false);
+    assert.match(JSON.stringify(result.issues), expected);
+  }
 });

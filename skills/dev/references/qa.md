@@ -706,6 +706,12 @@ signed proof against deliberate local fabrication.
 
 Each retained result uses this shape (one assertion row shown):
 
+For native mobile QA, `kind: "browser"` is the UI-automation receipt bucket;
+it does not claim a browser DOM was used. Record the actual Maestro or Appium
+command and native hierarchy assertions. If a wrapper launches the driver,
+retain the wrapper provenance separately and bind the executed child command;
+do not add a browser label to an otherwise unidentified command to pass validation.
+
 ```json
 {
   "schema_version": 1,
