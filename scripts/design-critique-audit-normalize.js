@@ -5,6 +5,7 @@ const crypto = require("node:crypto");
 const path = require("node:path");
 const { isManagedCaptureRawPath } = require("./lib/design-critique-capture-path");
 const { readProjectInput, writeProjectJsonAtomic } = require("./lib/project-file");
+const { normalizeNativeAccessibility } = require("./lib/design-critique-native-audit");
 
 const MAX_RAW_AUDIT_BYTES = 1024 * 1024;
 const MAX_CAPTURE_IDS = 40;
@@ -40,7 +41,10 @@ function normalizeRawAudit(raw, rawBinding) {
     ["schema_version", "kind", "subject_id", "commit", "capture_ids", "observations"],
     "raw audit"
   );
-  if (raw.schema_version !== 1) throw new Error("raw audit schema_version must equal 1");
+  if (raw.schema_version !== 1 && raw.schema_version !== 2)
+    throw new Error("raw audit schema_version must equal 1 or 2");
+  if (raw.schema_version === 2 && raw.kind !== "accessibility-tree")
+    throw new Error("raw audit schema_version 2 requires native accessibility-tree observations");
   if (!AUDIT_KINDS.has(raw.kind))
     throw new Error("raw audit kind must be accessibility-tree or dom-audit");
   if (!slug(raw.subject_id)) throw new Error("raw audit subject_id must be kebab-case");
@@ -48,15 +52,24 @@ function normalizeRawAudit(raw, rawBinding) {
   validateCaptureIds(raw.capture_ids);
 
   const normalized =
-    raw.kind === "accessibility-tree"
-      ? normalizeAccessibility(raw.observations)
-      : normalizeDom(raw.observations);
+    raw.schema_version === 2
+      ? normalizeNativeAccessibility(raw.observations)
+      : raw.kind === "accessibility-tree"
+        ? normalizeAccessibility(raw.observations)
+        : normalizeDom(raw.observations);
   return {
     schema_version: 2,
     subject_id: raw.subject_id,
     commit: raw.commit,
     capture_ids: [...raw.capture_ids],
     raw: { path: rawBinding.path, sha256: rawBinding.sha256 },
+    ...(raw.schema_version === 2
+      ? {
+          platform: normalized.platform,
+          controls: normalized.controls,
+          limitations: normalized.limitations,
+        }
+      : {}),
     checks: normalized.checks,
     findings: normalized.findings.sort(compareFindings),
   };

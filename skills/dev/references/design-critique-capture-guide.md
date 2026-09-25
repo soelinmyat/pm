@@ -194,8 +194,18 @@ Route schema v2 binds each web viewport label to the PNG's decoded dimensions an
    - tap_on: Navigate to target screens
    - take_screenshot: Capture each state
 4. Copy accepted screenshots to `.pm/dev-sessions/{slug}/design-critique/round-{N}/`
-5. Record the files and SHA-256 values in `captures.json`
+5. Retain the unmodified Maestro hierarchy alongside each screenshot, without navigating between them
+6. For iOS, declare native_controls in route coverage and wrap the measured hierarchy using the native raw schema below
+7. Normalize the raw audit and record the screenshot and normalized audit SHA-256 bindings in captures.json
 ```
+
+### Native iOS audit
+
+Use the native iOS contract in `skills/design-critique/references/evidence-contract.md`: raw schema 2, `kind: "accessibility-tree"`, exact subject/commit/capture identity, and observations containing `platform: "maestro-ios"`, logical `viewport: {width, height, scale}`, declared `controls`, and the actual Maestro `hierarchy`. The route coverage row must declare the identical ordered `native_controls` before capture. An exact `id` selector matches `resource-id`; `label` matches the observed accessible text. Include every changed interactive control in the state, not just a convenient passing subset.
+
+Maestro CLI is acceptable when MCP is unavailable: preserve `maestro --device {UDID} hierarchy` output and the same-state `xcrun simctl io {UDID} screenshot {path}`. Follow the repository simulator lock. Remove only a console prefix such as `None:` when placing the JSON in the raw envelope; retain original output for inspection. Do not transform node labels, bounds, enabled/selected states or children.
+
+Run `design-critique-audit-normalize.js --root ... --raw ... --output ...` as for web, then register only the normalized audit. Native checks cover scoped names, measured screen bounds, enabled state and visible 44-point targets. The checker binds the native viewport to actual PNG dimensions and rejects native audits for web subjects. VoiceOver focus/traversal, semantics, occlusion and screenshot/hierarchy simultaneity are explicit limitations requiring separate observation; never invent a web main landmark or tab index. Native Android normalization is not supported by this adapter.
 
 ### Maestro MCP tools reference
 
