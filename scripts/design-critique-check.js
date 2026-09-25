@@ -107,6 +107,7 @@ const MAX_ROUTE_SUBJECTS = 100;
 const MAX_ROUTE_COVERAGE_ROWS = 1_000;
 const MAX_CAPTURE_ROWS = MAX_ROUTE_COVERAGE_ROWS * 2;
 const MAX_RULE_DIAGNOSTICS = 25;
+const MAX_COVERAGE_REASON_LENGTH = 1_000;
 const MAX_NETWORK_ORIGINS = 100;
 const MAX_NETWORK_REQUESTS = 2_000;
 const MAX_EVIDENCE_BYTES = 64 * 1024 * 1024;
@@ -122,7 +123,7 @@ const REVIEW_PROMPTS = Object.freeze({
     path: path.join(__dirname, "../skills/dev/references/design-critique-reviewer.md"),
   }),
   "fresh-eyes": Object.freeze({
-    profile: "fresh-eyes-v1",
+    profile: "fresh-eyes-v2",
     path: path.join(__dirname, "../skills/dev/references/design-critique-fresh-eyes.md"),
   }),
 });
@@ -602,6 +603,15 @@ function validateCoverage(route, subjects, subjectIds, issues) {
     if (typeof item.required !== "boolean") add(issues, `${at}.required`, "must be boolean");
     if (item.required === false && !text(item.reason))
       add(issues, `${at}.reason`, "is required when not applicable");
+    else if (
+      item.reason !== undefined &&
+      (typeof item.reason !== "string" || item.reason.length > MAX_COVERAGE_REASON_LENGTH)
+    )
+      add(
+        issues,
+        `${at}.reason`,
+        `must be a string of at most ${MAX_COVERAGE_REASON_LENGTH} characters`
+      );
   }
   if (duplicateDecisionCount > duplicateDecisionDiagnostics)
     add(

@@ -16,7 +16,7 @@ The subject mode is separately `product-ui` or `pm-artifact`. Never infer subjec
 Run two evidence reviews:
 
 1. A primary reviewer receives route context, acceptance criteria, project principles, captures, accessibility evidence, and deterministic audits.
-2. Fresh Eyes receives only the subject/job description, project principles, and rendered evidence. It never receives previous findings, implementation rationale, or round history.
+2. Fresh Eyes receives only the subject/job description, project principles, rendered evidence, and each capture's routed coverage ID, state, viewport, and visible-state reason from the bound route. It never receives previous findings, implementation rationale, or round history.
 
 Run them in parallel when isolated delegation is available. Otherwise run two explicitly isolated inline passes. Merge findings in the orchestrator using deterministic subject/region/rule/evidence identity; do not dispatch a third “merge” reviewer.
 
