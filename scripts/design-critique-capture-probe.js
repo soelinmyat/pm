@@ -2231,17 +2231,19 @@ function activeDescendantBackendNodeId(axNode) {
   return Number.isInteger(backendNodeId) ? backendNodeId : null;
 }
 
+async function axNode(client, backendNodeId) {
+  const partialTree = await client.send("Accessibility.getPartialAXTree", {
+    backendNodeId,
+    fetchRelatives: false,
+  });
+  return (partialTree.nodes || []).find((item) => item.backendDOMNodeId === backendNodeId);
+}
+
 async function compositeFocusState(client, executionContextId, candidate) {
-  const [focusedBackendNodeIdValue, partialTree] = await Promise.all([
+  const [focusedBackendNodeIdValue, owner] = await Promise.all([
     focusedBackendNodeId(client, executionContextId),
-    client.send("Accessibility.getPartialAXTree", {
-      backendNodeId: candidate.owner_backend_node_id,
-      fetchRelatives: false,
-    }),
+    axNode(client, candidate.owner_backend_node_id),
   ]);
-  const owner = (partialTree.nodes || []).find(
-    (node) => node.backendDOMNodeId === candidate.owner_backend_node_id
-  );
   return {
     activeDescendantBackendNodeId: activeDescendantBackendNodeId(owner),
     focusedBackendNodeId: focusedBackendNodeIdValue,
@@ -2349,11 +2351,7 @@ async function liveElementResolver(client) {
 
 async function liveAxNode(client, backendNodeId) {
   try {
-    const partialTree = await client.send("Accessibility.getPartialAXTree", {
-      backendNodeId,
-      fetchRelatives: false,
-    });
-    return (partialTree.nodes || []).find((item) => item.backendDOMNodeId === backendNodeId);
+    return await axNode(client, backendNodeId);
   } catch {
     return undefined;
   }
@@ -2406,14 +2404,19 @@ async function remapCompositeCandidate(client, candidate, frozenNode, resolve) {
   };
 }
 
+// A remounted previous tab stop also detaches the candidate: its entry probe
+// would otherwise focus a stale node and skip an intact widget.
 async function candidateDetached(client, executionContextId, candidate) {
   const ids = new Set([
     candidate.owner_backend_node_id,
     ...candidate.member_backend_node_ids,
     ...candidate.entry_backend_node_ids,
+    ...Object.values(candidate.entry_probes).map((probe) => probe.from_backend_node_id),
   ]);
-  for (const id of ids) if (!(await nodeConnected(client, executionContextId, id))) return true;
-  return false;
+  const connected = await Promise.all(
+    [...ids].map((id) => nodeConnected(client, executionContextId, id))
+  );
+  return connected.includes(false);
 }
 
 async function probeCompositeCandidate(client, executionContextId, candidate, budget, observed) {

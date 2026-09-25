@@ -1860,6 +1860,13 @@ function disclosureControls({ placement, pseudo = false, keepOwner = false, rela
   return `${style}<section aria-label="Disclosure example"><div id="mode" role="radiogroup" aria-label="Mode">${modeRadios}</div></section><script>{const select=(group,radio,onSelect)=>{const radios=[...group.querySelectorAll("[role=radio]")];radios.forEach(item=>{item.tabIndex=item===radio?0:-1;item.setAttribute("aria-checked",String(item===radio))});radio.focus();onSelect?.(radio.id)};const roving=(group,onSelect)=>{if(group.dataset.roving)return;group.dataset.roving="1";group.addEventListener("click",event=>{const radio=event.target.closest("[role=radio]");if(radio)select(group,radio,onSelect)});group.addEventListener("keydown",event=>{const direction=event.key==="ArrowDown"?1:event.key==="ArrowUp"?-1:0;if(!direction)return;event.preventDefault();const radios=[...group.querySelectorAll("[role=radio]")];const next=radios.indexOf(document.activeElement)+direction;if(next>=0&&next<radios.length)select(group,radios[next],onSelect)})};const mode=document.querySelector("#mode");const renderSensors=(buttons=${JSON.stringify(sensorButtons("a", "b"))})=>{let sensors=document.querySelector("#sensors");if(!sensors){mode.insertAdjacentHTML("${placement}",'<div id="sensors" role="radiogroup" aria-label="Sensors"></div>');sensors=document.querySelector("#sensors")}if(!sensors.children.length)sensors.innerHTML=buttons;roving(sensors)};renderSensors();roving(mode,${onSelect})}</script>`;
 }
 
+// An intact sensors group whose previous tab stop is remounted by a later mode group.
+function remountedTabStopControls() {
+  const radio = (id, label, checked) =>
+    `<button id="${id}" role="radio" aria-checked="${checked}" tabindex="${checked ? 0 : -1}">${label}</button>`;
+  return `<section aria-label="Tab stop example"><button id="refresh">Refresh</button><div id="sensors" role="radiogroup" aria-label="Sensors">${radio("sensor-a", "Sensor A", true)}${radio("sensor-b", "Sensor B", false)}</div><div id="mode" role="radiogroup" aria-label="Mode">${radio("mode-existing", "Existing", true)}${radio("mode-new", "New", false)}</div></section><script>{const roving=(group,onSelect)=>{const radios=[...group.querySelectorAll("[role=radio]")];const select=radio=>{radios.forEach(item=>{item.tabIndex=item===radio?0:-1;item.setAttribute("aria-checked",String(item===radio))});radio.focus();onSelect?.()};group.addEventListener("click",event=>{const radio=event.target.closest("[role=radio]");if(radio)select(radio)});group.addEventListener("keydown",event=>{const direction=event.key==="ArrowDown"?1:event.key==="ArrowUp"?-1:0;if(!direction)return;event.preventDefault();const next=radios.indexOf(document.activeElement)+direction;if(next>=0&&next<radios.length)select(radios[next])})};roving(document.querySelector("#sensors"));roving(document.querySelector("#mode"),()=>{const refresh=document.querySelector("#refresh");refresh.replaceWith(refresh.cloneNode(true))})}</script>`;
+}
+
 function createBrowserFixture({
   externalRequest = false,
   occluded = false,
@@ -1897,14 +1904,16 @@ function createBrowserFixture({
     : "";
   const focusabilityMarkup = DISCLOSURE_VARIANTS[focusabilityControls]
     ? disclosureControls(DISCLOSURE_VARIANTS[focusabilityControls])
-    : focusabilityControls === "active-descendant"
-      ? '<section aria-label="Active descendant example"><div id="plans" role="listbox" aria-label="Plans" aria-activedescendant="plan-free" tabindex="0"><div id="plan-free" role="option" tabindex="-1">Free</div><div id="plan-pro" role="option" tabindex="-1">Pro</div><div id="plan-team" role="option" tabindex="-1">Team</div></div></section><script>{const listbox=document.querySelector("#plans");const options=[...listbox.querySelectorAll("[role=option]")];listbox.addEventListener("keydown",event=>{const direction=event.key==="ArrowDown"?1:event.key==="ArrowUp"?-1:0;if(!direction)return;event.preventDefault();const current=options.findIndex(option=>option.id===listbox.getAttribute("aria-activedescendant"));const next=(current+direction+options.length)%options.length;listbox.setAttribute("aria-activedescendant",options[next].id)})}</script>'
-      : focusabilityControls
-        ? '<section aria-label="Focus examples"><a id="no-destination" role="link">No destination</a><a id="destination" href="#account">Destination</a><label for="plan-select">Plan</label><select id="plan-select"><option>Free</option><option>Pro</option></select><div id="views" role="tablist" aria-label="Views"><button id="summary-tab" role="tab" tabindex="0">Summary tab</button><button id="history-tab" role="tab" tabindex="-1">History tab</button><button id="nameless-tab" role="tab" tabindex="-1"></button></div></section>' +
-          (focusabilityControls === "working"
-            ? '<script>{const tabs=[...document.querySelectorAll("#views>[role=tab]")];document.querySelector("#views").addEventListener("keydown",event=>{const direction=event.key==="ArrowRight"?1:event.key==="ArrowLeft"?-1:0;if(!direction)return;event.preventDefault();const current=tabs.indexOf(document.activeElement);const next=(current+direction+tabs.length)%tabs.length;tabs.forEach((tab,index)=>{tab.tabIndex=index===next?0:-1});tabs[next].focus()})}</script>'
-            : "")
-        : "";
+    : focusabilityControls === "remounted-tab-stop"
+      ? remountedTabStopControls()
+      : focusabilityControls === "active-descendant"
+        ? '<section aria-label="Active descendant example"><div id="plans" role="listbox" aria-label="Plans" aria-activedescendant="plan-free" tabindex="0"><div id="plan-free" role="option" tabindex="-1">Free</div><div id="plan-pro" role="option" tabindex="-1">Pro</div><div id="plan-team" role="option" tabindex="-1">Team</div></div></section><script>{const listbox=document.querySelector("#plans");const options=[...listbox.querySelectorAll("[role=option]")];listbox.addEventListener("keydown",event=>{const direction=event.key==="ArrowDown"?1:event.key==="ArrowUp"?-1:0;if(!direction)return;event.preventDefault();const current=options.findIndex(option=>option.id===listbox.getAttribute("aria-activedescendant"));const next=(current+direction+options.length)%options.length;listbox.setAttribute("aria-activedescendant",options[next].id)})}</script>'
+        : focusabilityControls
+          ? '<section aria-label="Focus examples"><a id="no-destination" role="link">No destination</a><a id="destination" href="#account">Destination</a><label for="plan-select">Plan</label><select id="plan-select"><option>Free</option><option>Pro</option></select><div id="views" role="tablist" aria-label="Views"><button id="summary-tab" role="tab" tabindex="0">Summary tab</button><button id="history-tab" role="tab" tabindex="-1">History tab</button><button id="nameless-tab" role="tab" tabindex="-1"></button></div></section>' +
+            (focusabilityControls === "working"
+              ? '<script>{const tabs=[...document.querySelectorAll("#views>[role=tab]")];document.querySelector("#views").addEventListener("keydown",event=>{const direction=event.key==="ArrowRight"?1:event.key==="ArrowLeft"?-1:0;if(!direction)return;event.preventDefault();const current=tabs.indexOf(document.activeElement);const next=(current+direction+tabs.length)%tabs.length;tabs.forEach((tab,index)=>{tab.tabIndex=index===next?0:-1});tabs[next].focus()})}</script>'
+              : "")
+          : "";
   const html = `<!doctype html><html><head><meta charset="utf-8"><style>
 *{box-sizing:border-box}body{margin:0;background:#eef2ff;color:#172033;font:16px system-ui}header{background:#18264a;color:white;padding:18px 28px}nav a{color:white;margin-right:16px}main{max-width:900px;margin:30px auto;padding:24px;background:white;border-radius:16px}h1{font-size:32px}h2{font-size:22px}.cards{display:grid;grid-template-columns:1fr 1fr;gap:16px}.card{padding:18px;border:1px solid #ccd3e1;border-radius:12px}button{padding:10px 18px;background:#3157d5;color:white;border:0;border-radius:8px}
 ${stableGutter ? "html{scrollbar-gutter:stable}::-webkit-scrollbar{width:11px}" : ""}
@@ -2130,6 +2139,25 @@ for (const [focusabilityControls, description] of [
     }
   );
 }
+
+test(
+  "browser focus evidence certifies an intact group whose previous tab stop was remounted",
+  { skip: browserSkip },
+  () => {
+    const fixture = createBrowserFixture({ focusabilityControls: "remounted-tab-stop" });
+    try {
+      const result = runBrowserCapture(fixture);
+      const byLocator = new Map(
+        result.accessibility_observations.controls.map((item) => [item.locator, item])
+      );
+      assert.equal(byLocator.get("button#mode-new").focus_context, "composite");
+      assert.equal(byLocator.get("button#sensor-b").tab_index, -1);
+      assert.equal(byLocator.get("button#sensor-b").focus_context, "composite");
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+);
 
 test(
   "browser focus evidence does not certify a replaced group through a different widget",
