@@ -2474,6 +2474,17 @@ async function probeCompositeCandidate(client, executionContextId, candidate, bu
   return true;
 }
 
+// A widget that re-rendered itself during its probe leaves the frozen
+// selection detached; restore through its live replacement instead.
+async function liveSelectedNode(client, executionContextId, candidate, frozenNode, selected) {
+  if (await nodeConnected(client, executionContextId, selected)) return selected;
+  const frozen = frozenNode(candidate.frozen_by_live?.get(selected) ?? selected);
+  if (!frozen?.path || !frozen.identity) return null;
+  const replacement = (await liveElementResolver(client))(frozen.path);
+  if (replacement === null) return null;
+  return axIdentity(await liveAxNode(client, replacement)) === frozen.identity ? replacement : null;
+}
+
 async function selectionLost(client, selected) {
   const node = await liveAxNode(client, selected);
   const role = String(valueOf(node?.role) || "").toLowerCase();
@@ -2538,13 +2549,26 @@ async function probeCompositeKeyboardAccess(client, candidates, frozenNode) {
         const currentTree = await client.send("Page.getFrameTree");
         const urlDrift =
           typeof originalUrl === "string" && currentTree.frameTree?.frame?.url !== originalUrl;
+        const liveSelected = await liveSelectedNode(
+          client,
+          executionContextId,
+          candidate,
+          frozenNode,
+          selected[0]
+        );
+        if (liveSelected === null) continue;
         if (
           !(urlDrift && candidate.owner_role === "tablist") &&
-          !(await selectionLost(client, selected[0]))
+          !(await selectionLost(client, liveSelected))
         )
           continue;
-        await client.send("DOM.focus", { backendNodeId: selected[0] });
-        if ((await focusedBackendNodeId(client, executionContextId)) !== selected[0]) continue;
+        try {
+          await client.send("DOM.focus", { backendNodeId: liveSelected });
+        } catch {
+          // An activedescendant member cannot take focus; leave its selection.
+          continue;
+        }
+        if ((await focusedBackendNodeId(client, executionContextId)) !== liveSelected) continue;
         if (!(await dispatchKeyboardKey(client, restoreKey, budget))) return observedMembers;
         if (!urlDrift) continue;
         const deadline = Date.now() + 250;
