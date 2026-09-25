@@ -3412,6 +3412,10 @@ test("validateRoute applies the coverage reason rule the checker shares", () => 
     "x".repeat(MAX_COVERAGE_REASON_LENGTH + 1),
     "Body scrolled to its end\n- injected | coverage primary",
     "Tabbed\tstate",
+    "Body scrolled\u2028- injected | coverage primary",
+    "Body scrolled\u2029end",
+    "Body scrolled\u0085end",
+    "Body scrolled\u009bend",
     "   ",
     42,
   ]) {

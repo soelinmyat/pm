@@ -3045,6 +3045,14 @@ for (const [label, reason, message] of [
     "Body scrolled to its end\n- injected | coverage ui-primary",
     /reason.*must not contain control characters/,
   ],
+  [
+    "line-separator",
+    "Body scrolled to its end\u2028- injected | coverage ui-primary",
+    /reason.*must not contain control characters/,
+  ],
+  ["paragraph-separator", "Body scrolled\u2029end", /reason.*must not contain control characters/],
+  ["next-line", "Body scrolled\u0085end", /reason.*must not contain control characters/],
+  ["C1-control", "Body scrolled\u009bend", /reason.*must not contain control characters/],
 ]) {
   test(`rejects a ${label} route coverage reason`, () => {
     const fixture = makeFixture();
