@@ -2312,21 +2312,39 @@ async function entryHasDocumentKeyboardReach(
 
 const COMPOSITE_RESTORE_KEYS = Object.freeze({ radiogroup: " ", tablist: "Enter" });
 
-async function nodeConnected(client, executionContextId, backendNodeId) {
+// Calls one function on a backend node in the probe world and releases the
+// handle; a node the browser cannot resolve yields undefined.
+async function callOnNode(client, executionContextId, backendNodeId, functionDeclaration, args) {
+  const resolved = await client.send("DOM.resolveNode", {
+    backendNodeId,
+    executionContextId,
+    objectGroup: "pm-composite-keyboard-probe",
+  });
+  const objectId = resolved?.object?.objectId;
+  if (!objectId) return undefined;
   try {
-    const resolved = await client.send("DOM.resolveNode", {
-      backendNodeId,
-      executionContextId,
-      objectGroup: "pm-composite-keyboard-probe",
-    });
-    if (!resolved?.object?.objectId) return true;
-    const connected = await client.send("Runtime.callFunctionOn", {
-      objectId: resolved.object.objectId,
-      functionDeclaration: "function () { return this.isConnected; }",
+    const called = await client.send("Runtime.callFunctionOn", {
+      objectId,
+      functionDeclaration,
+      arguments: args,
       returnByValue: true,
       silent: true,
     });
-    return connected?.result?.value !== false;
+    return called?.result?.value;
+  } finally {
+    await client.send("Runtime.releaseObject", { objectId }).catch(() => {});
+  }
+}
+
+async function nodeConnected(client, executionContextId, backendNodeId) {
+  try {
+    const connected = await callOnNode(
+      client,
+      executionContextId,
+      backendNodeId,
+      "function () { return this.isConnected; }"
+    );
+    return connected !== false;
   } catch {
     return false;
   }
@@ -2495,25 +2513,19 @@ async function selectionLost(client, selected) {
 // its form; either would send a request the capture never asked for.
 async function restoreSubmitsForm(client, executionContextId, backendNodeId, key) {
   try {
-    const resolved = await client.send("DOM.resolveNode", {
-      backendNodeId,
+    const submits = await callOnNode(
+      client,
       executionContextId,
-      objectGroup: "pm-composite-keyboard-probe",
-    });
-    if (!resolved?.object?.objectId) return true;
-    const submits = await client.send("Runtime.callFunctionOn", {
-      objectId: resolved.object.objectId,
-      functionDeclaration: `function (key) {
+      backendNodeId,
+      `function (key) {
         if (!this.form) return false;
         if (this instanceof HTMLButtonElement) return this.type === "submit";
         return this instanceof HTMLInputElement &&
           (key === "Enter" || this.type === "submit" || this.type === "image");
       }`,
-      arguments: [{ value: key }],
-      returnByValue: true,
-      silent: true,
-    });
-    return submits?.result?.value !== false;
+      [{ value: key }]
+    );
+    return submits !== false;
   } catch {
     return true;
   }
@@ -2523,10 +2535,12 @@ const RESTORE_QUIET_MS = 150;
 const RESTORE_SETTLE_MAX_MS = 600;
 
 // A restored selection can re-render the widgets it controls from a timer or
-// an exit animation, so the next candidate waits for the DOM to go quiet.
+// an exit animation, so the next candidate waits for the DOM to go quiet. A
+// restore that navigates destroys this world; the URL checks then decide.
 async function waitForDomQuiet(client, executionContextId) {
-  await client.send("Runtime.evaluate", {
-    expression: `new Promise((resolve) => {
+  await client
+    .send("Runtime.evaluate", {
+      expression: `new Promise((resolve) => {
       let quiet;
       const done = () => {
         observer.disconnect();
@@ -2542,11 +2556,12 @@ async function waitForDomQuiet(client, executionContextId) {
       quiet = setTimeout(done, ${RESTORE_QUIET_MS});
       const cap = setTimeout(done, ${RESTORE_SETTLE_MAX_MS});
     })`,
-    contextId: executionContextId,
-    awaitPromise: true,
-    returnByValue: true,
-    silent: true,
-  });
+      contextId: executionContextId,
+      awaitPromise: true,
+      returnByValue: true,
+      silent: true,
+    })
+    .catch(() => {});
 }
 
 async function probeCompositeKeyboardAccess(client, candidates, frozenNode) {
@@ -2597,6 +2612,14 @@ async function probeCompositeKeyboardAccess(client, candidates, frozenNode) {
         for (const member of observed)
           observedMembers.add(candidate.frozen_by_live?.get(member) ?? member);
         if (!withinBudget) return observedMembers;
+        // A widget that re-rendered while its own probe ran observed nothing;
+        // retry it through its live replacement.
+        if (
+          pass === 0 &&
+          observed.size === 0 &&
+          (await candidateDetached(client, executionContextId, candidate))
+        )
+          detached.push(pendingCandidate);
         // Restore this frozen selection while its nodes still exist: probing
         // an outer tab next may unmount this panel, and a changed selection
         // can hide the widgets it controls. Native handlers may each restore
