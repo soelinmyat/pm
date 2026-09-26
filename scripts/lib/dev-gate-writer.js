@@ -218,7 +218,12 @@ function qaRowFields(layout, session, evidence, head, manifestPath, deps) {
   deps.validateQa(session, evidence.records, head, manifestPath, issues);
   if (issues.length > 0) throw gateError(`QA check failed: ${formatIssues(issues)}`);
   const report = evidence.passing.find((record) => typeof record.artifact === "string");
-  return { artifact: projectRelative(layout.root, report.artifact) };
+  // In the default split layout the QA report stays beside the originating
+  // session, which the checker resolves by its absolute path.
+  const absolute = path.resolve(layout.root, report.artifact.trim());
+  const local = path.relative(layout.root, absolute);
+  if (local.startsWith("..") || path.isAbsolute(local)) return { artifact: absolute };
+  return { artifact: toPosix(local) };
 }
 
 function evidenceArtifact(layout, evidence) {
@@ -342,9 +347,15 @@ function planGateWrite(request, deps = defaultDeps()) {
     reviewEvidenceMode: "enforce",
   });
   // A recorded failure is the requested outcome, not a reason to refuse it.
-  const expectedOutcome = `required gate ${name} is ${status}`;
+  // Neither is an existing unresolved legacy simplify row, which only a
+  // passed review retires.
+  const recordedOutcomes = new Set([
+    `required gate ${name} is ${status}`,
+    "legacy gate simplify is failed — resolve or remove it",
+    "legacy gate simplify is blocked — resolve or remove it",
+  ]);
   const issues = (result?.issues || []).filter(
-    (item) => !(status !== "passed" && status !== "skipped" && item.message === expectedOutcome)
+    (item) => !(status !== "passed" && status !== "skipped" && recordedOutcomes.has(item.message))
   );
   if (issues.length > 0) {
     const hint = gates.some(isFailedLegacySimplify)

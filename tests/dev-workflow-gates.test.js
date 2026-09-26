@@ -1001,5 +1001,23 @@ test("embedded publish steps leave the record and gate write to the calling Dev 
     const record = text.search(/dev-session\.js"? record\b/);
     const gate = text.search(/dev-session\.js"? gate\b/);
     assert.ok(record !== -1 && record < gate, `${file} records before writing its gate standalone`);
+    assert.match(
+      text,
+      new RegExp(
+        `Outside Dev, run \`dev-gate-check\\.js --require [a-z-]+\`[^\\n]*Inside Dev, ${step} runs`
+      ),
+      `${file} leaves the gate check to ${step}`
+    );
+    assert.doesNotMatch(
+      text,
+      /^6\. Run `dev-gate-check/m,
+      `${file} does not check before the row exists`
+    );
+    const doneWhen = text.slice(text.indexOf("## Done-when"));
+    assert.match(
+      doneWhen,
+      new RegExp(`inside Dev, ${step} writes`),
+      `${file} Done-when defers to ${step}`
+    );
   }
 });

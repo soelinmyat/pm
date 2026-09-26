@@ -523,6 +523,44 @@ test("failed rows still write in the split layout on a detached worktree", () =>
   }
 });
 
+test("qa rows in the split layout keep the originating report path absolute", () => {
+  const repo = makeRepo("split-qa");
+  try {
+    const worktree = path.join(path.dirname(repo.root), "split-qa-worktree");
+    git(repo.root, ["worktree", "add", "-q", "-b", "fix/split-qa", worktree]);
+    const moved = repo.run(["workspace", "--session", repo.sessionPath, "--worktree", worktree]);
+    assert.equal(moved.status, 0, moved.stderr);
+    const head = git(worktree, ["rev-parse", "HEAD"]);
+    const reportPath = path.join(path.dirname(repo.sessionPath), "qa", "report.json");
+    fs.mkdirSync(path.dirname(reportPath), { recursive: true });
+    fs.writeFileSync(reportPath, "{}");
+    repo.recordEvidence(
+      "qa",
+      [{ kind: "test", command: "qa-report-check.js", exit_code: 0, artifact: reportPath }],
+      head
+    );
+    const session = repo.session();
+    const plan = planGateWrite(
+      { sessionPath: repo.sessionPath, session, name: "qa" },
+      {
+        head: () => head,
+        resolveContext: () => ({
+          currentBranch: "fix/split-qa",
+          changedFiles: ["scripts/feature.js"],
+          authoritativeBaseRef: "origin/main",
+          authoritativeBaseCommit: "b".repeat(40),
+          authoritativePushUrlSha256: "d".repeat(64),
+        }),
+        checkManifest: () => ({ ok: true, issues: [] }),
+        validateQa: () => {},
+      }
+    );
+    assert.equal(plan.row.artifact, reportPath);
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test("evidence artifacts follow the checker's path rules", () => {
   const repo = makeRepo();
   try {
@@ -600,6 +638,28 @@ test("other gates keep a blocked legacy simplify row and say how to clear it", (
         planGateWrite({ sessionPath: fx.sessionPath, session: fx.session, name: "tdd" }, fx.deps),
       /gates\.json#gates\[0\]: legacy gate simplify is blocked; a passed review gate retires/
     );
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("a failed legacy simplify row does not block recording another failure", () => {
+  const fx = writerFixture("tdd", "implementation", passingTest);
+  try {
+    writeLegacySimplify(fx, "failed");
+    fx.deps.checkManifest = require("../scripts/dev-gate-check").checkGateManifest;
+    const plan = planGateWrite(
+      {
+        sessionPath: fx.sessionPath,
+        session: fx.session,
+        name: "tdd",
+        status: "failed",
+        reason: "suite red",
+      },
+      fx.deps
+    );
+    assert.equal(plan.row.status, "failed");
+    assert.deepEqual(plan.retired, []);
   } finally {
     fx.cleanup();
   }
