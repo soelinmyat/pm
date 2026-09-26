@@ -28,18 +28,8 @@ function defaultDeps() {
     checkDesignCritique: (options) =>
       require("../design-critique-check").checkDesignCritique(options),
     validateQa: gateCheck.validateCanonicalQaDeliveryEvidence,
-    isAncestor: (root, ancestor, descendant) => {
-      try {
-        require("node:child_process").execFileSync(
-          "git",
-          ["merge-base", "--is-ancestor", ancestor, descendant],
-          { cwd: root, stdio: "ignore" }
-        );
-        return true;
-      } catch {
-        return false;
-      }
-    },
+    isAncestor: (root, ancestor, descendant) =>
+      require("./review-freshness").isAncestor(root, ancestor, descendant),
   };
 }
 

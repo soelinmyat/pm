@@ -917,6 +917,38 @@ test("recertified design-critique without a route source reruns at the critiqued
   }
 });
 
+test("gate writer ancestry proof ignores an inherited Git environment", () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), "pm-gate-ancestry-env-"));
+  const git = (...args) =>
+    execFileSync("git", args, {
+      cwd: repo,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "t",
+        GIT_AUTHOR_EMAIL: "t@example.com",
+        GIT_COMMITTER_NAME: "t",
+        GIT_COMMITTER_EMAIL: "t@example.com",
+      },
+    }).trim();
+  const inherited = process.env.GIT_DIR;
+  try {
+    git("init", "-q");
+    const [older, newer] = ["older", "newer"].map((name) => {
+      git("commit", "-q", "--allow-empty", "-m", name);
+      return git("rev-parse", "HEAD");
+    });
+    process.env.GIT_DIR = path.join(repo, "not-a-git-dir");
+    const { isAncestor } = require("../scripts/lib/dev-gate-writer").defaultDeps();
+    assert.equal(isAncestor(repo, older, newer), true);
+    assert.equal(isAncestor(repo, newer, older), false);
+  } finally {
+    if (inherited === undefined) delete process.env.GIT_DIR;
+    else process.env.GIT_DIR = inherited;
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test("gate writer proves a re-captured critique's ancestry with real Git in order", () => {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), "pm-gate-ancestry-"));
   const git = (...args) =>
