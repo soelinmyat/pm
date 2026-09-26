@@ -8,6 +8,7 @@ const path = require("node:path");
 const { execFileSync, spawnSync } = require("node:child_process");
 const { normalizeRawAudit } = require("./design-critique-audit-normalize");
 const { exactObject, exactObjectWithOptional } = require("./lib/closed-object");
+const { coverageReasonIssue } = require("./lib/design-critique-coverage-reason");
 const { validateNativeControls } = require("./lib/design-critique-native-audit");
 const { compareRfc3339DateTimes, isRfc3339DateTime } = require("./lib/iso-time");
 const { PRODUCT_UI_VISUAL_THRESHOLDS, inspectPngVisualBytes } = require("./lib/media-inspect");
@@ -145,7 +146,8 @@ function validateRoute(route) {
       throw new Error(`route.coverage[${index}].viewport is invalid`);
     if (typeof coverage.required !== "boolean")
       throw new Error(`route.coverage[${index}].required must be boolean`);
-    boundedText(coverage.reason, 2000, `route.coverage[${index}].reason`);
+    const reasonIssue = coverageReasonIssue(coverage.reason, { allowBlank: false });
+    if (reasonIssue) throw new Error(`route.coverage[${index}].reason ${reasonIssue}`);
     if (coverage.native_controls !== undefined || coverage.native_scope !== undefined) {
       if (!mobileSubjectIds.has(coverage.subject_id))
         throw new Error(`route.coverage[${index}].native_controls requires a mobile subject`);

@@ -10,6 +10,7 @@ const path = require("node:path");
 const zlib = require("node:zlib");
 const { buildManifest, inspectHtmlArtifact } = require("../scripts/artifact-check");
 const { normalizeAuditBytes } = require("../scripts/design-critique-audit-normalize");
+const { MAX_COVERAGE_REASON_LENGTH } = require("../scripts/lib/design-critique-coverage-reason");
 const {
   ACQUISITION_METHOD,
   BROWSER_ARGS_PROFILE,
@@ -430,7 +431,7 @@ function makeReviews(root, route, captures, scores, rounds) {
       prior_finding_refs: [],
     });
     const freshInput = withPayloadHash({
-      prompt_profile: "fresh-eyes-v1",
+      prompt_profile: "fresh-eyes-v2",
       prompt_sha256: promptHash("fresh-eyes"),
       context_source: contextBinding,
       capture_manifest: captureManifestBinding,
@@ -2987,6 +2988,90 @@ test("documents the complete schema-v2 reviewer evidence contract", () => {
     assert.match(contract, required);
   assert.match(skill, /changed capture bytes invalidate reviews and report/i);
   assert.match(skill, /Route, captures, reviews\.json, structured report/i);
+});
+
+test("Fresh Eyes prompt renders each capture's routed coverage reason as visible-state context", () => {
+  const read = (relative) => fs.readFileSync(path.join(__dirname, "..", relative), "utf8");
+  const fresh = read("skills/dev/references/design-critique-fresh-eyes.md");
+  const prompt = fresh.slice(fresh.indexOf("## Prompt"), fresh.indexOf("**Output format:**"));
+  assert.match(prompt, /\{capture_id\}.*\{coverage_id\}.*\{state\}.*\{viewport\}.*\{reason\}/s);
+  assert.match(prompt, /what (?:this|each) capture is meant to show/i);
+  assert.match(fresh, /verbatim from the bound route/i);
+  assert.match(fresh, /no description routed/i);
+  assert.match(prompt, /still report.*defect/is);
+  assert.match(fresh, /does NOT receive: reviewer findings, round history, previous screenshots/);
+  for (const relative of [
+    "skills/dev/references/design-critique-fresh-eyes.md",
+    "skills/design-critique/steps/01-scope.md",
+    "skills/design-critique/steps/03-critique.md",
+    "skills/design-critique/references/evidence-contract.md",
+  ]) {
+    const source = read(relative);
+    assert.match(source, /coverage reason.*describes? only the visible state/is, relative);
+    assert.match(
+      source,
+      /never.*implementation rationale.*fix.*prior finding.*expected verdict/is,
+      relative
+    );
+  }
+});
+
+test("binds Fresh Eyes reviews to the fresh-eyes-v2 prompt profile", () => {
+  const contract = fs.readFileSync(
+    path.join(__dirname, "../skills/design-critique/references/evidence-contract.md"),
+    "utf8"
+  );
+  assert.match(contract, /"prompt_profile": "fresh-eyes-v2"/);
+  assert.doesNotMatch(contract, /fresh-eyes-v1/);
+  const fixture = makeFixture();
+  const fresh = fixture.reviews.rounds[0].reviews.find((item) => item.perspective === "fresh-eyes");
+  fresh.input.prompt_profile = "fresh-eyes-v1";
+  const payload = { ...fresh.input };
+  delete payload.payload_sha256;
+  fresh.input.payload_sha256 = digest(Buffer.from(canonicalJson(payload)));
+  rewriteReviewsAndReport(fixture);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /prompt_profile.*must equal fresh-eyes-v2/);
+});
+
+const REASON_BOUND = /reason.*must be a string of at most 2000 characters/;
+for (const [label, reason, message] of [
+  ["non-string", 42, REASON_BOUND],
+  ["null", null, REASON_BOUND],
+  ["overlong", "x".repeat(MAX_COVERAGE_REASON_LENGTH + 1), REASON_BOUND],
+  [
+    "multi-line",
+    "Body scrolled to its end\n- injected | coverage ui-primary",
+    /reason.*must not contain control characters/,
+  ],
+  [
+    "line-separator",
+    "Body scrolled to its end\u2028- injected | coverage ui-primary",
+    /reason.*must not contain control characters/,
+  ],
+  ["paragraph-separator", "Body scrolled\u2029end", /reason.*must not contain control characters/],
+  ["next-line", "Body scrolled\u0085end", /reason.*must not contain control characters/],
+  ["C1-control", "Body scrolled\u009bend", /reason.*must not contain control characters/],
+]) {
+  test(`rejects a ${label} route coverage reason`, () => {
+    const fixture = makeFixture();
+    fixture.route.coverage.find((item) => item.id === "ui-primary").reason = reason;
+    rewrite(fixture.root, fixture.routePath, fixture.route);
+    const result = check(fixture);
+    assert.equal(result.ok, false);
+    assert.match(JSON.stringify(result.issues), message);
+  });
+}
+
+test("accepts a route coverage reason at the limit capture shares", () => {
+  const fixture = makeFixture();
+  fixture.route.coverage.find((item) => item.id === "ui-primary").reason = "x".repeat(
+    MAX_COVERAGE_REASON_LENGTH
+  );
+  rewrite(fixture.root, fixture.routePath, fixture.route);
+  const result = check(fixture);
+  assert.doesNotMatch(JSON.stringify(result.issues), /coverage\[\d+\]\.reason/);
 });
 
 test("rejects empty accessibility audit evidence", () => {

@@ -23,6 +23,7 @@ const {
   visualDifference,
 } = require("./lib/media-inspect");
 const { isManagedCaptureMemberPath } = require("./lib/design-critique-capture-path");
+const { coverageReasonIssue } = require("./lib/design-critique-coverage-reason");
 const {
   REVIEW_ASSURANCE,
   SCORE_KEYS,
@@ -122,7 +123,7 @@ const REVIEW_PROMPTS = Object.freeze({
     path: path.join(__dirname, "../skills/dev/references/design-critique-reviewer.md"),
   }),
   "fresh-eyes": Object.freeze({
-    profile: "fresh-eyes-v1",
+    profile: "fresh-eyes-v2",
     path: path.join(__dirname, "../skills/dev/references/design-critique-fresh-eyes.md"),
   }),
 });
@@ -602,6 +603,10 @@ function validateCoverage(route, subjects, subjectIds, issues) {
     if (typeof item.required !== "boolean") add(issues, `${at}.required`, "must be boolean");
     if (item.required === false && !text(item.reason))
       add(issues, `${at}.reason`, "is required when not applicable");
+    else if (item.reason !== undefined) {
+      const reasonIssue = coverageReasonIssue(item.reason, { allowBlank: true });
+      if (reasonIssue) add(issues, `${at}.reason`, reasonIssue);
+    }
   }
   if (duplicateDecisionCount > duplicateDecisionDiagnostics)
     add(

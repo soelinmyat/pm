@@ -22,6 +22,7 @@ const {
   urlMatchesSurface,
   validateRoute,
 } = require("../scripts/design-critique-capture");
+const { MAX_COVERAGE_REASON_LENGTH } = require("../scripts/lib/design-critique-coverage-reason");
 const {
   accessibilityObservations,
   appendBoundedEvidence,
@@ -3401,4 +3402,25 @@ test("trusted web capture accepts mixed routes whose mobile rows declare native 
   assert.throws(() => validateRoute(web), /requires a mobile subject/);
   mixed.coverage[2].native_controls = [{ by: "id", value: "category" }];
   assert.throws(() => validateRoute(mixed), /empty controls/);
+});
+
+test("validateRoute applies the coverage reason rule the checker shares", () => {
+  const atLimit = route();
+  atLimit.coverage[0].reason = "x".repeat(MAX_COVERAGE_REASON_LENGTH);
+  assert.equal(validateRoute(atLimit), atLimit);
+  for (const reason of [
+    "x".repeat(MAX_COVERAGE_REASON_LENGTH + 1),
+    "Body scrolled to its end\n- injected | coverage primary",
+    "Tabbed\tstate",
+    "Body scrolled\u2028- injected | coverage primary",
+    "Body scrolled\u2029end",
+    "Body scrolled\u0085end",
+    "Body scrolled\u009bend",
+    "   ",
+    42,
+  ]) {
+    const invalid = route();
+    invalid.coverage[0].reason = reason;
+    assert.throws(() => validateRoute(invalid), /route\.coverage\[0\]\.reason/);
+  }
 });

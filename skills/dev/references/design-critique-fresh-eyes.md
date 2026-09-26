@@ -6,12 +6,15 @@ Zero-context regression check. Sees the page as a user would — for the first t
 
 This reviewer receives ZERO context from the design reviewer or prior rounds. It sees ONLY:
 - The current screenshots frozen in the bound round capture manifest
+- For each supplied capture: its capture ID plus the coverage ID, state, viewport, and coverage reason copied verbatim from the bound route that the round capture manifest binds
 - The brief in the bound shared context source: page description, target persona, job to be done
 - The design principles in that same bound source
 
 It does NOT receive: reviewer findings, round history, previous screenshots, or any context about what was changed.
 
 It also does not receive normalized audits, acceptance criteria, ticket context, implementation rationale, or the Primary result. Do not copy the brief or principles into unbound input fields. The invocation must use a fresh context identity. Using the same provider, model, or runtime is allowed; continuing inside a context that already saw prohibited material is not.
+
+A coverage reason describes only the visible state the capture is meant to show, such as "accessibility large text, sheet body scrolled to its end"; it never carries implementation rationale, fixes, prior findings, or expected verdicts. Copy it verbatim from the bound route. When a row has a missing, empty, or blank reason, render `no description routed`. Never add, summarize, or rewrite descriptions in the prompt.
 
 ## Purpose
 
@@ -29,6 +32,12 @@ You are seeing this interface for the first time. You have no history with it an
 
 **Design principles (from project):**
 {design_principles from CLAUDE.md}
+
+**Captures (what each capture is meant to show):**
+- {capture_id} | coverage {coverage_id} | state {state} | viewport {viewport} | {reason}
+(one line per supplied capture)
+
+Read each description as the state the capture intends, such as a view scrolled to its end. That intended state is not a defect by itself. Still report any defect you can see within that state.
 
 **Look at the screenshots and answer:**
 
