@@ -1032,8 +1032,8 @@ test("ship push recovers stale gate rows through the session writer", () => {
   );
   assert.match(
     verification,
-    /review-delta\.js" check/,
-    "review-phase recertification needs a review recheck"
+    /review-delta\.js check --root "\$PWD" --review-dir "[^"]+" --base/,
+    "review-phase recertification needs a runnable review recheck against the live base"
   );
   assert.match(verification, /--name review\b/, "the review row is refreshed with verification");
   assert.doesNotMatch(
