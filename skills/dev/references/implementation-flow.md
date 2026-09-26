@@ -187,9 +187,9 @@ Log the scan result in `.pm/dev-sessions/{slug}/session.json`:
 
 ### TDD Evidence Gate
 
-For behavior-changing code, record the failing test command and the final passing command in a small artifact such as `.pm/dev-sessions/{slug}.tdd.json`. Then update `.pm/dev-sessions/{slug}/gates.json` with `tdd: passed`, the artifact path, and the current commit SHA.
+For behavior-changing code, keep the failing and final passing test output as artifacts, record the implementation phase result with its passing `test` evidence at current HEAD, then run `node "$PM_PLUGIN_ROOT/scripts/dev-session.js" gate --session <absolute session.json> --name tdd`. The command derives the row from that recorded evidence, validates it with `dev-gate-check.js`, and refuses to write when the evidence is missing or stale. Never hand-edit `gates.json`.
 
-Docs-only, config-only, generated-only, or lockfile-only changes may record `tdd: skipped`, but only with a concrete reason. A missing `tdd` row blocks the pre-push gate checker.
+Docs-only, config-only, generated-only, or lockfile-only changes may record `tdd: skipped` with `--status skipped --reason "<concrete reason>"`; the command rejects a skip the gate checker would reject. A missing `tdd` row blocks the pre-push gate checker.
 
 #### Sub-agent parallelism budget
 

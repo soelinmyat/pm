@@ -8,7 +8,9 @@ const { MAX_JSON_BYTES } = require("./review-limits");
 
 // Session state stays at its originating worktree. Only that single file may
 // cross the source-root boundary; evidence and output paths remain local.
-function loadDevSession(root, { slug, sessionPath } = {}) {
+// allowDetached admits a detached source worktree (no current branch) for
+// callers that only record a non-passing state; a different branch still fails.
+function loadDevSession(root, { slug, sessionPath, allowDetached = false } = {}) {
   root = fs.realpathSync(path.resolve(root));
   let requested = sessionPath ? path.resolve(root, sessionPath) : null;
   const match = requested
@@ -70,11 +72,12 @@ function loadDevSession(root, { slug, sessionPath } = {}) {
     }
     const issues = require("./dev-session-schema").validateSession(session);
     if (issues.length) throw new Error("Originating Dev session is invalid");
+    const branch = gitExec(root, ["branch", "--show-current"]).trim();
     if (
       session.slug !== slug ||
       fs.realpathSync(session.source.repo_root) !== fs.realpathSync(candidate) ||
       fs.realpathSync(session.source.worktree) !== root ||
-      session.source.branch !== gitExec(root, ["branch", "--show-current"]).trim()
+      (session.source.branch !== branch && !(allowDetached && branch === ""))
     )
       throw new Error(
         "Originating Dev session does not match source worktree, branch or namespace"

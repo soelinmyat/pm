@@ -54,6 +54,11 @@ test("separate quality phases record gate evidence and run the checker", () => {
     read("skills/dev/steps/08-review.md"),
   ].join("\n");
   assert.match(text, /gate manifest/);
+  assert.match(
+    text,
+    /dev-session\.js gate --session <absolute session\.json> --name design-critique/
+  );
+  assert.match(text, /never hand-edit the gate manifest/);
   assert.match(text, /scripts\/dev-gate-check\.js/);
   assert.match(text, /design-critique: passed/);
   assert.match(text, /qa: passed/);
@@ -124,6 +129,10 @@ test("design critique uses the bound two-mode evidence contract", () => {
   assert.match(resolve, /two total review rounds/);
   assert.match(publish, /scripts\/design-critique-check\.js/);
   assert.match(publish, /map `deferred` to `blocked`/);
+  assert.match(
+    publish,
+    /dev-session\.js" gate --session <absolute session\.json> --name design-critique/
+  );
   assert.match(publish, /\.pm\/dev-sessions\/\{slug\}\/gates\.json/);
   assert.match(publish, /\.pm\/dev-sessions\/\{slug\}\/design-critique\/report\.html/);
   assert.doesNotMatch(publish, /\.pm\/dev-sessions\/\{slug\}\.gates\.json/);
@@ -160,6 +169,8 @@ test("review skip requires a current checked report and gate row", () => {
   assert.match(ship, /--from-report/);
   assert.match(ship, /do NOT skip/);
   assert.match(publish, /Preserve all other rows/);
+  assert.match(publish, /dev-session\.js" gate --session <absolute session\.json> --name review/);
+  assert.match(publish, /Never hand-edit the gate manifest/);
   assert.match(publish, /evidence_kind/);
 });
 
@@ -342,7 +353,7 @@ test("ship push step requires the full default gate contract before git push", (
   assert.doesNotMatch(text, /--require review,verification/);
   assert.match(text, /any required gate row is stale/);
   assert.match(text, /any required gate is missing/);
-  assert.match(text, /verified_commit/);
+  assert.match(text, /any required gate row is stale[^\n]*dev-session recertify/);
 });
 
 test("ship merge loop rechecks the full sidecar against the remote branch tip", () => {
@@ -968,4 +979,67 @@ test("UI sentinel checks the PM-native design critique gate", () => {
   // the sentinel must name the PM-native skill either way.
   assert.match(checks, /gate-evidence pm:design-critique/);
   assert.doesNotMatch(checks, /skill-called critique\b/);
+});
+
+test("gate writes follow the recorded phase result they certify", () => {
+  for (const file of ["skills/dev/steps/08-review.md", "skills/dev/steps/06-design-critique.md"]) {
+    const text = read(file);
+    const record = text.search(/dev-session\.js"? record\b/);
+    const gate = text.search(/dev-session\.js"? gate\b/);
+    assert.ok(record !== -1 && gate !== -1, `${file} records and writes the gate`);
+    assert.ok(record < gate, `${file} records the phase result before writing its gate`);
+  }
+});
+
+test("embedded publish steps leave the record and gate write to the calling Dev step", () => {
+  for (const [file, step] of [
+    ["skills/review/steps/05-publish.md", "Dev step 08"],
+    ["skills/design-critique/steps/05-publish.md", "Dev step 06"],
+  ]) {
+    const text = read(file);
+    assert.match(text, new RegExp(`Inside Dev, ${step} records`), `${file} defers to ${step}`);
+    const record = text.search(/dev-session\.js"? record\b/);
+    const gate = text.search(/dev-session\.js"? gate\b/);
+    assert.ok(record !== -1 && record < gate, `${file} records before writing its gate standalone`);
+    assert.match(
+      text,
+      new RegExp(
+        `Outside Dev, run \`dev-gate-check\\.js --require [a-z-]+\`[^\\n]*Inside Dev, ${step} runs`
+      ),
+      `${file} leaves the gate check to ${step}`
+    );
+    assert.doesNotMatch(
+      text,
+      /^6\. Run `dev-gate-check/m,
+      `${file} does not check before the row exists`
+    );
+    const doneWhen = text.slice(text.indexOf("## Done-when"));
+    assert.match(
+      doneWhen,
+      new RegExp(`inside Dev, ${step} writes`),
+      `${file} Done-when defers to ${step}`
+    );
+  }
+});
+
+test("ship push recovers stale gate rows through the session writer", () => {
+  const text = read("skills/ship/steps/04-push.md");
+  const verification = text.split("\n").find((line) => line.includes("--name verification"));
+  assert.match(
+    verification,
+    /recertify --phases review/,
+    "verification evidence lives in the review phase"
+  );
+  assert.match(
+    verification,
+    /review-delta\.js check --root "\$PWD" --review-dir "[^"]+" --base/,
+    "review-phase recertification needs a runnable review recheck against the live base"
+  );
+  assert.match(verification, /--name review\b/, "the review row is refreshed with verification");
+  assert.doesNotMatch(
+    text,
+    /write `verified_commit` \/ `verified_at`/,
+    "stale rows are never hand-written"
+  );
+  assert.match(text, /recertify it with `dev-session recertify` and rerun `dev-session gate`/);
 });

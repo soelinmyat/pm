@@ -141,7 +141,7 @@ A canonical passing report stays frozen at its reviewed commit. When HEAD moves 
 
 Base equivalence is a separate check, not a third acceptance path. It authenticates the *reviewed* commit's base binding when the authoritative default branch advances past the frozen `base_commit`: the frozen base must be an ancestor of the live base and `git merge-base` of the reviewed commit against both bases must be identical, so the reviewed three-dot diff scope is unchanged. A rewritten base, or a base that absorbed the branch's own content, fails. It says nothing about HEAD — `evaluateReviewFreshness` never calls it — so it neither accepts nor rejects a moved delivery commit on its own.
 
-The gate row still requires `verified_commit`/`verified_at` for the current commit (written together via `dev-session recertify`); a passing `review-delta.js check` (exit 0) is the sanctioned recheck evidence for that recertification. Freshness acceptance never overwrites the frozen report, target, or render manifest.
+The gate row still requires `verified_commit`/`verified_at` for the current commit (after `dev-session recertify`, rerun `dev-session gate --name review` to write both together); a passing `review-delta.js check` (exit 0) is the sanctioned recheck evidence for that recertification. Freshness acceptance never overwrites the frozen report, target, or render manifest.
 
 ## Commands
 

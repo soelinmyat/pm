@@ -223,6 +223,17 @@ function checkGateManifest(manifest, opts = {}) {
   return { ok: issues.length === 0, issues };
 }
 
+// The gate's evidence phase records at commit and those its evidence contract
+// accepts as passing. The gate writer uses the same rule.
+function currentPassingRecords(session, gate, commit) {
+  const contract = resolveGateEvidenceContract(gate);
+  const records = currentEvidenceRecords(session.evidence?.[contract.phase], commit);
+  const passing = (records || []).filter(
+    (record) => record?.exit_code === 0 && record.kind === contract.kind
+  );
+  return { contract, records, passing };
+}
+
 function validateCanonicalDeliveryEvidence(
   session,
   requestedGates,
@@ -235,14 +246,12 @@ function validateCanonicalDeliveryEvidence(
       issues.push(issue(manifestPath, `delivery check omitted routed gate ${gate}`));
       continue;
     }
-    const contract = resolveGateEvidenceContract(gate);
-    const currentRecords = currentEvidenceRecords(
-      session.evidence?.[contract.phase],
+    const { records: currentRecords, passing } = currentPassingRecords(
+      session,
+      gate,
       currentCommit
     );
-    if (
-      !currentRecords?.some((record) => record?.exit_code === 0 && record.kind === contract.kind)
-    ) {
+    if (passing.length === 0) {
       issues.push(
         issue(
           manifestPath,
@@ -1156,64 +1165,33 @@ function main(argv = process.argv.slice(2)) {
     return 1;
   }
   const sibling = readSiblingSessionContext(manifestPath);
-  let currentBranch = opts.currentBranch || null;
-  if (sibling.session && opts.reviewEvidenceMode === "enforce" && !currentBranch) {
-    try {
-      currentBranch = gitExec(process.cwd(), ["branch", "--show-current"]).trim();
-      if (!currentBranch) throw new Error("detached HEAD");
-    } catch (error) {
-      const result = {
-        ok: false,
-        issues: [issue(manifestPath, `unable to determine delivery branch: ${error.message}`)],
-      };
-      printResult(result, opts.json);
-      return 1;
-    }
+  let context;
+  try {
+    context = resolveEnforcementContext({
+      cwd: process.cwd(),
+      session: sibling.session,
+      enforce: opts.reviewEvidenceMode === "enforce",
+      currentCommit,
+      currentBranch: opts.currentBranch || null,
+      changedFiles: opts.changedFiles,
+      baseRef: opts.baseRef || null,
+      remote: opts.remote,
+    });
+  } catch (err) {
+    const result = {
+      ok: false,
+      issues: [issue(err.issuePath === "manifest" ? manifestPath : process.cwd(), err.message)],
+    };
+    printResult(result, opts.json);
+    return 1;
   }
-  let changedFiles = opts.changedFiles;
-  let authoritativeBaseRef = opts.baseRef || null;
-  let authoritativeBaseCommit = null;
-  let authoritativePushUrlSha256 = null;
-  if (sibling.session && opts.reviewEvidenceMode === "enforce") {
-    try {
-      const deliveryRemote = opts.remote || "origin";
-      if (
-        sibling.session.source?.delivery_remote &&
-        sibling.session.source.delivery_remote !== deliveryRemote
-      )
-        throw new Error(
-          `delivery remote ${deliveryRemote} must equal session remote ${sibling.session.source.delivery_remote}`
-        );
-      const trusted = require("./review-target").resolveTrustedBase(process.cwd(), deliveryRemote);
-      if (opts.baseRef && opts.baseRef !== trusted.ref)
-        throw new Error(`supplied base ${opts.baseRef} must equal remote default ${trusted.ref}`);
-      authoritativeBaseRef = trusted.ref;
-      authoritativeBaseCommit = trusted.commit;
-      authoritativePushUrlSha256 = trusted.remote_push_url_sha256;
-      changedFiles = loadChangedFilesFromGit(trusted.commit, process.cwd(), currentCommit);
-    } catch (err) {
-      const result = {
-        ok: false,
-        issues: [
-          issue(process.cwd(), `unable to resolve authoritative remote base: ${err.message}`),
-        ],
-      };
-      printResult(result, opts.json);
-      return 1;
-    }
-  } else if (opts.baseRef) {
-    try {
-      changedFiles = loadChangedFilesFromGit(opts.baseRef, process.cwd(), currentCommit);
-      authoritativeBaseCommit = gitExec(process.cwd(), ["rev-parse", opts.baseRef]).trim();
-    } catch (err) {
-      const result = {
-        ok: false,
-        issues: [issue(process.cwd(), `unable to determine changed files: ${err.message}`)],
-      };
-      printResult(result, opts.json);
-      return 1;
-    }
-  }
+  const {
+    currentBranch,
+    changedFiles,
+    authoritativeBaseRef,
+    authoritativeBaseCommit,
+    authoritativePushUrlSha256,
+  } = context;
 
   const result = checkGateManifest(manifest, {
     currentCommit,
@@ -1234,6 +1212,68 @@ function main(argv = process.argv.slice(2)) {
   });
   printResult(result, opts.json);
   return result.ok ? 0 : 1;
+}
+
+// Resolves the delivery branch, authoritative remote base, and changed files a
+// canonical gate check is judged against. Shared by the checker CLI and the
+// scripted gate writer so both bind a row to the same base.
+function resolveEnforcementContext({
+  cwd = process.cwd(),
+  session = null,
+  enforce = true,
+  currentCommit,
+  currentBranch = null,
+  changedFiles,
+  baseRef = null,
+  remote,
+}) {
+  const fail = (message, issuePath) => {
+    const error = new Error(message);
+    error.issuePath = issuePath;
+    return error;
+  };
+  let branch = currentBranch || null;
+  if (session && enforce && !branch) {
+    try {
+      branch = gitExec(cwd, ["branch", "--show-current"]).trim();
+      if (!branch) throw new Error("detached HEAD");
+    } catch (error) {
+      throw fail(`unable to determine delivery branch: ${error.message}`, "manifest");
+    }
+  }
+  const context = {
+    currentBranch: branch,
+    changedFiles,
+    authoritativeBaseRef: baseRef || null,
+    authoritativeBaseCommit: null,
+    authoritativePushUrlSha256: null,
+  };
+  if (session && enforce) {
+    try {
+      const deliveryRemote = remote || "origin";
+      if (session.source?.delivery_remote && session.source.delivery_remote !== deliveryRemote)
+        throw new Error(
+          `delivery remote ${deliveryRemote} must equal session remote ${session.source.delivery_remote}`
+        );
+      const trusted = require("./review-target").resolveTrustedBase(cwd, deliveryRemote);
+      if (baseRef && baseRef !== trusted.ref)
+        throw new Error(`supplied base ${baseRef} must equal remote default ${trusted.ref}`);
+      context.authoritativeBaseRef = trusted.ref;
+      context.authoritativeBaseCommit = trusted.commit;
+      context.authoritativePushUrlSha256 = trusted.remote_push_url_sha256;
+      context.changedFiles = loadChangedFilesFromGit(trusted.commit, cwd, currentCommit);
+    } catch (err) {
+      throw fail(`unable to resolve authoritative remote base: ${err.message}`, "cwd");
+    }
+  } else if (baseRef) {
+    try {
+      context.changedFiles = loadChangedFilesFromGit(baseRef, cwd, currentCommit);
+      context.authoritativeBaseCommit = gitExec(cwd, ["rev-parse", baseRef]).trim();
+    } catch (err) {
+      throw fail(`unable to determine changed files: ${err.message}`, "cwd");
+    }
+  }
+  return context;
 }
 
 function readSiblingSessionContext(manifestPath) {
@@ -1263,14 +1303,19 @@ if (require.main === module) {
 
 module.exports = {
   DEFAULT_ALLOW_SKIPPED_GATES,
+  artifactExists,
   DEFAULT_REQUIRED_GATES,
+  VALID_STATUSES,
   checkGateManifest,
+  currentPassingRecords,
   validateReviewRenderManifest,
   deriveSessionSlug,
   loadChangedFilesFromGit,
   loadGateManifest,
   normalizeChangedFiles,
   parseArgs,
+  resolveEnforcementContext,
+  validateCanonicalQaDeliveryEvidence,
   currentGitCommit,
   main,
 };
