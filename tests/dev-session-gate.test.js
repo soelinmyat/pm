@@ -392,7 +392,8 @@ test("design-critique rows rerun the full critique chain before writing", () => 
       reportPath: ".pm/dev-sessions/unit/design-critique/report.json",
       commit: "c".repeat(40),
       baseRef: "origin/main",
-      baseCommit: "a".repeat(40),
+      baseCommit: "b".repeat(40),
+      verifyRemote: false,
     });
     fx.deps.checkDesignCritique = () => ({
       ok: false,
@@ -452,6 +453,88 @@ test("gate refuses a session outside its own worktree", () => {
         planGateWrite({ sessionPath: fx.sessionPath, session: fx.session, name: "tdd" }, fx.deps),
       /canonical session/
     );
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("gate resolves the base through the session's delivery remote", () => {
+  const repo = makeRepo();
+  try {
+    git(repo.root, ["remote", "rename", "origin", "upstream"]);
+    const session = repo.session();
+    session.source.delivery_remote = "upstream";
+    repo.saveSession(session);
+    repo.recordEvidence("implementation", passingTest);
+    const result = repo.gate(["--name", "tdd"]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(repo.gates().gates[0].status, "passed");
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("failed and blocked rows need neither a reachable remote nor a branch", () => {
+  const repo = makeRepo();
+  try {
+    git(repo.root, ["remote", "set-url", "origin", path.join(repo.root, "missing.git")]);
+    git(repo.root, ["checkout", "-q", "--detach"]);
+    const failed = repo.gate([
+      "--name",
+      "review",
+      "--status",
+      "failed",
+      "--reason",
+      "blocked on P1",
+    ]);
+    assert.equal(failed.status, 0, failed.stderr);
+    const blocked = repo.gate(["--name", "qa", "--status", "blocked", "--reason", "no device"]);
+    assert.equal(blocked.status, 0, blocked.stderr);
+    assert.deepEqual(
+      repo.gates().gates.map((row) => [row.name, row.status]),
+      [
+        ["review", "failed"],
+        ["qa", "blocked"],
+      ]
+    );
+    const passed = repo.gate(["--name", "tdd"]);
+    assert.notEqual(passed.status, 0);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("recertified design-critique rows rely on recertification, not a HEAD-bound rerun", () => {
+  const fx = writerFixture("design-critique", "design-critique", [
+    { kind: "review", command: "design-critique-check.js", exit_code: 0, artifact: null },
+  ]);
+  try {
+    const records = fx.session.evidence["design-critique"].records;
+    fx.session.evidence["design-critique"] = {
+      commit: "e".repeat(40),
+      records,
+      verified_commit: "c".repeat(40),
+      verified_at: "2026-09-26T00:00:00.000Z",
+      verification_records: records,
+    };
+    const dc = path.join(fx.dir, "design-critique");
+    fs.mkdirSync(dc);
+    fs.writeFileSync(
+      path.join(dc, "route.json"),
+      JSON.stringify({ source: { commit: "e".repeat(40), base_commit: "b".repeat(40) } })
+    );
+    fs.writeFileSync(path.join(dc, "report.html"), "<html></html>");
+    fx.deps.checkDesignCritique = () => ({
+      ok: false,
+      issues: [{ path: "commit", message: "supplied commit must equal current HEAD" }],
+    });
+    const plan = planGateWrite(
+      { sessionPath: fx.sessionPath, session: fx.session, name: "design-critique" },
+      fx.deps
+    );
+    assert.equal(plan.row.commit, "e".repeat(40));
+    assert.equal(plan.row.verified_commit, "c".repeat(40));
+    assert.equal(plan.row.artifact, ".pm/dev-sessions/unit/design-critique/report.html");
   } finally {
     fx.cleanup();
   }

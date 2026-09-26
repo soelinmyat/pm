@@ -1295,6 +1295,7 @@ if (require.main === module) {
 module.exports = {
   DEFAULT_ALLOW_SKIPPED_GATES,
   DEFAULT_REQUIRED_GATES,
+  VALID_STATUSES,
   checkGateManifest,
   validateReviewRenderManifest,
   deriveSessionSlug,

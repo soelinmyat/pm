@@ -12,8 +12,13 @@ const path = require("node:path");
 const { currentEvidenceRecords } = require("./workflow-runtime/records");
 const { resolveGateEvidenceContract } = require("./dev-session-schema");
 
-const GATE_NAMES = new Set(["tdd", "design-critique", "qa", "review", "verification"]);
-const GATE_STATUSES = new Set(["passed", "failed", "blocked", "skipped"]);
+// Gate names and statuses come from the checker so the writer can never
+// accept a row the checker rejects. Required lazily: the checker is heavy and
+// tests inject their own deps.
+function gateVocabulary() {
+  const { DEFAULT_REQUIRED_GATES, VALID_STATUSES } = require("../dev-gate-check");
+  return { names: new Set(DEFAULT_REQUIRED_GATES), statuses: VALID_STATUSES };
+}
 
 function defaultDeps() {
   const gateCheck = require("../dev-gate-check");
@@ -170,14 +175,13 @@ function reviewRowFields(layout) {
   };
 }
 
-function designCritiqueRowFields(layout, head, context, deps) {
+// A recertified critique was checked at its original commit; its route is
+// bound to that commit, so it cannot be rerun at HEAD. The recertification
+// record and dev-gate-check carry it instead. Otherwise the chain is rerun
+// against the base the enforcement context already resolved.
+function designCritiqueRowFields(layout, head, context, evidence, deps) {
   const base = `${layout.sessionDirRel}/design-critique`;
-  let route;
-  try {
-    route = JSON.parse(fs.readFileSync(path.join(layout.root, base, "route.json"), "utf8"));
-  } catch (error) {
-    throw gateError(`design-critique gate requires ${base}/route.json: ${error.message}`);
-  }
+  if (evidence.recertified) return { artifact: `${base}/report.html` };
   const result = deps.checkDesignCritique({
     root: layout.root,
     routePath: `${base}/route.json`,
@@ -185,7 +189,8 @@ function designCritiqueRowFields(layout, head, context, deps) {
     reportPath: `${base}/report.json`,
     commit: head,
     baseRef: context.authoritativeBaseRef,
-    baseCommit: route?.source?.base_commit,
+    baseCommit: context.authoritativeBaseCommit,
+    verifyRemote: false,
   });
   if (!result?.ok)
     throw gateError(`design-critique check failed: ${formatIssues(result?.issues || [])}`);
@@ -218,9 +223,10 @@ function evidenceArtifact(layout, evidence) {
 }
 
 function validateRequest({ name, status, reason, artifact }) {
-  if (!GATE_NAMES.has(name))
+  const vocabulary = gateVocabulary();
+  if (!vocabulary.names.has(name))
     throw Object.assign(gateError(`unknown gate ${name}`), { invalidInput: true });
-  if (!GATE_STATUSES.has(status))
+  if (!vocabulary.statuses.has(status))
     throw Object.assign(gateError(`invalid gate status ${status}`), { invalidInput: true });
   if (status === "passed" && (reason || artifact))
     throw Object.assign(
@@ -243,11 +249,16 @@ function planGateWrite(request, deps = defaultDeps()) {
   const head = deps.head(layout.root);
   const now = request.now || new Date().toISOString();
   const manifest = loadManifest(layout.manifestPath, session);
+  // Passed and skipped rows are judged against the authoritative delivery
+  // base. Recording a failure must work offline and on a detached HEAD, and
+  // no checker reads the base for those rows.
+  const enforce = status === "passed" || status === "skipped";
   const context = deps.resolveContext({
     cwd: layout.root,
     session,
-    enforce: true,
+    enforce,
     currentCommit: head,
+    remote: session.source?.delivery_remote,
   });
 
   let row;
@@ -256,7 +267,7 @@ function planGateWrite(request, deps = defaultDeps()) {
     let fields;
     if (name === "review") fields = reviewRowFields(layout);
     else if (name === "design-critique")
-      fields = designCritiqueRowFields(layout, head, context, deps);
+      fields = designCritiqueRowFields(layout, head, context, evidence, deps);
     else if (name === "qa")
       fields = qaRowFields(layout, session, evidence, head, layout.manifestPath, deps);
     else fields = { artifact: evidenceArtifact(layout, evidence) };
@@ -312,4 +323,4 @@ function planGateWrite(request, deps = defaultDeps()) {
   return { manifestPath: layout.manifestPath, manifest: candidate, row };
 }
 
-module.exports = { GATE_NAMES, GATE_STATUSES, planGateWrite };
+module.exports = { planGateWrite };
