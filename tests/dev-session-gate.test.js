@@ -794,3 +794,42 @@ test("recertified design-critique rows rerun the critique at the critiqued commi
     fx.cleanup();
   }
 });
+
+test("recertified design-critique re-captured at HEAD reruns the full HEAD-bound check", () => {
+  const fx = writerFixture("design-critique", "design-critique", [
+    { kind: "review", command: "design-critique-check.js", exit_code: 0, artifact: null },
+  ]);
+  try {
+    const records = fx.session.evidence["design-critique"].records;
+    fx.session.evidence["design-critique"] = {
+      commit: "e".repeat(40),
+      records,
+      verified_commit: "c".repeat(40),
+      verified_at: "2026-09-26T00:00:00.000Z",
+      verification_records: records,
+    };
+    const dc = path.join(fx.dir, "design-critique");
+    fs.mkdirSync(dc);
+    fs.writeFileSync(
+      path.join(dc, "route.json"),
+      JSON.stringify({ source: { commit: "c".repeat(40), base_commit: "b".repeat(40) } })
+    );
+    fs.writeFileSync(path.join(dc, "report.html"), "<html></html>");
+    const request = { sessionPath: fx.sessionPath, session: fx.session, name: "design-critique" };
+    const plan = planGateWrite(request, fx.deps);
+    assert.equal(plan.row.commit, "e".repeat(40));
+    assert.equal(plan.row.verified_commit, "c".repeat(40));
+    assert.deepEqual(fx.calls.designCritique, {
+      root: fx.root,
+      routePath: ".pm/dev-sessions/unit/design-critique/route.json",
+      capturesPath: ".pm/dev-sessions/unit/design-critique/captures.json",
+      reportPath: ".pm/dev-sessions/unit/design-critique/report.json",
+      commit: "c".repeat(40),
+      baseRef: "origin/main",
+      baseCommit: "b".repeat(40),
+      verifyRemote: false,
+    });
+  } finally {
+    fx.cleanup();
+  }
+});

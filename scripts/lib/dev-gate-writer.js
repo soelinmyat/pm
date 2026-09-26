@@ -180,6 +180,8 @@ function reviewRowFields(layout) {
 // critique is bound to the commit it captured, so it is rerun at that commit
 // without the HEAD-bound Git identity checks. It gets no base commit: the
 // route's own base is the only record of it, so comparing the two proves nothing.
+// A recertified phase whose critique was re-captured at HEAD (its route source
+// commit is HEAD) is held to the full HEAD-bound check instead.
 function designCritiqueRowFields(layout, head, context, evidence, deps) {
   const base = `${layout.sessionDirRel}/design-critique`;
   const paths = {
@@ -188,7 +190,9 @@ function designCritiqueRowFields(layout, head, context, evidence, deps) {
     capturesPath: `${base}/captures.json`,
     reportPath: `${base}/report.json`,
   };
-  const options = evidence.recertified
+  const checkedAtOriginal =
+    evidence.recertified && routeSourceCommit(layout.root, paths.routePath) !== head;
+  const options = checkedAtOriginal
     ? {
         ...paths,
         commit: evidence.phaseEvidence.commit,
@@ -206,6 +210,14 @@ function designCritiqueRowFields(layout, head, context, evidence, deps) {
   if (!result?.ok)
     throw gateError(`design-critique check failed: ${formatIssues(result?.issues || [])}`);
   return { artifact: `${base}/report.html` };
+}
+
+function routeSourceCommit(root, routePath) {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(root, routePath), "utf8"))?.source?.commit ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function qaRowFields(layout, session, evidence, head, manifestPath, deps) {
