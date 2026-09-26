@@ -56,7 +56,7 @@ function toPosix(value) {
 // worktree: either the sibling copy there or, in the default Dev layout, the
 // originating session in another registered worktree. The manifest and every
 // Review, QA and critique artifact stay local to the source worktree.
-function resolveSessionLayout(sessionPath, session) {
+function resolveSessionLayout(sessionPath, session, { allowDetached = false } = {}) {
   const worktree = session?.source?.worktree;
   if (typeof worktree !== "string" || !path.isAbsolute(worktree))
     throw gateError("gate writes require a session with an absolute source.worktree");
@@ -67,7 +67,7 @@ function resolveSessionLayout(sessionPath, session) {
   try {
     root = fs.realpathSync(worktree);
     resolvedSession = fs.realpathSync(sessionPath);
-    canonical = fs.realpathSync(loadDevSession(root, { slug }).path);
+    canonical = fs.realpathSync(loadDevSession(root, { slug, allowDetached }).path);
   } catch (error) {
     throw gateError(`gate writes require the canonical session for ${worktree}: ${error.message}`);
   }
@@ -222,15 +222,13 @@ function qaRowFields(layout, session, evidence, head, manifestPath, deps) {
 }
 
 function evidenceArtifact(layout, evidence) {
+  const { artifactExists } = require("../dev-gate-check");
   const withArtifact = evidence.passing.find(
-    (record) =>
-      typeof record.artifact === "string" &&
-      record.artifact.trim() !== "" &&
-      fs.existsSync(path.resolve(layout.root, record.artifact.split("#")[0]))
+    (record) => typeof record.artifact === "string" && artifactExists(record.artifact, layout.root)
   );
   if (withArtifact) {
     try {
-      return projectRelative(layout.root, withArtifact.artifact);
+      return projectRelative(layout.root, withArtifact.artifact.trim());
     } catch {
       // Evidence outside the project falls back to the session anchor below.
     }
@@ -265,14 +263,14 @@ function planGateWrite(request, deps = defaultDeps()) {
   const status = request.status || "passed";
   const reason = request.reason || "";
   validateRequest({ name, status, reason, artifact: request.artifact });
-  const layout = resolveSessionLayout(sessionPath, session);
-  const head = deps.head(layout.root);
-  const now = request.now || new Date().toISOString();
-  const manifest = loadManifest(layout.manifestPath, session);
   // Passed and skipped rows are judged against the authoritative delivery
   // base. Recording a failure must work offline and on a detached HEAD, and
   // no checker reads the base for those rows.
   const enforce = status === "passed" || status === "skipped";
+  const layout = resolveSessionLayout(sessionPath, session, { allowDetached: !enforce });
+  const head = deps.head(layout.root);
+  const now = request.now || new Date().toISOString();
+  const manifest = loadManifest(layout.manifestPath, session);
   const context = deps.resolveContext({
     cwd: layout.root,
     session,

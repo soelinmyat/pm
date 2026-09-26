@@ -491,6 +491,59 @@ test("gate writes the worktree manifest for a session kept in the originating ch
   }
 });
 
+test("failed rows still write in the split layout on a detached worktree", () => {
+  const repo = makeRepo("detached");
+  try {
+    const worktree = path.join(path.dirname(repo.root), "detached-worktree");
+    git(repo.root, ["worktree", "add", "-q", "-b", "fix/detached", worktree]);
+    const moved = repo.run(["workspace", "--session", repo.sessionPath, "--worktree", worktree]);
+    assert.equal(moved.status, 0, moved.stderr);
+    repo.recordEvidence("implementation", passingTest, git(worktree, ["rev-parse", "HEAD"]));
+    git(worktree, ["checkout", "-q", "--detach"]);
+    const failed = repo.gate([
+      "--name",
+      "review",
+      "--status",
+      "failed",
+      "--reason",
+      "rebase stopped on a conflict",
+    ]);
+    assert.equal(failed.status, 0, failed.stderr);
+    const gatesPath = path.join(worktree, ".pm", "dev-sessions", "detached", "gates.json");
+    const rows = JSON.parse(fs.readFileSync(gatesPath, "utf8")).gates;
+    assert.deepEqual(
+      rows.map((row) => [row.name, row.status]),
+      [["review", "failed"]]
+    );
+    const passed = repo.gate(["--name", "tdd"]);
+    assert.notEqual(passed.status, 0);
+    assert.match(passed.stderr, /canonical session/);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("evidence artifacts follow the checker's path rules", () => {
+  const repo = makeRepo();
+  try {
+    const log = path.join(path.dirname(repo.sessionPath), "tdd.log");
+    fs.writeFileSync(log, "ok\n");
+    repo.recordEvidence("implementation", [
+      {
+        kind: "test",
+        command: "node --test",
+        exit_code: 0,
+        artifact: " .pm/dev-sessions/gate-cli/tdd.log ",
+      },
+    ]);
+    const result = repo.gate(["--name", "tdd"]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(repo.gates().gates[0].artifact, ".pm/dev-sessions/gate-cli/tdd.log");
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test("gate refuses a session copy the checker would not resolve", () => {
   const repo = makeRepo("stale");
   try {

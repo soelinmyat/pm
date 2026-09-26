@@ -990,3 +990,16 @@ test("gate writes follow the recorded phase result they certify", () => {
     assert.ok(record < gate, `${file} records the phase result before writing its gate`);
   }
 });
+
+test("embedded publish steps leave the record and gate write to the calling Dev step", () => {
+  for (const [file, step] of [
+    ["skills/review/steps/05-publish.md", "Dev step 08"],
+    ["skills/design-critique/steps/05-publish.md", "Dev step 06"],
+  ]) {
+    const text = read(file);
+    assert.match(text, new RegExp(`Inside Dev, ${step} records`), `${file} defers to ${step}`);
+    const record = text.search(/dev-session\.js"? record\b/);
+    const gate = text.search(/dev-session\.js"? gate\b/);
+    assert.ok(record !== -1 && record < gate, `${file} records before writing its gate standalone`);
+  }
+});
