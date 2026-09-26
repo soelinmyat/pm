@@ -281,6 +281,10 @@ function writerFixture(gateName, phase, records) {
     validateQa(_session, currentRecords, commit) {
       calls.qa = { currentRecords, commit };
     },
+    isAncestor(_root, ancestor, descendant) {
+      (calls.ancestry ||= []).push([ancestor, descendant]);
+      return true;
+    },
   };
   return {
     root,
@@ -829,6 +833,53 @@ test("recertified design-critique re-captured at HEAD reruns the full HEAD-bound
       baseCommit: "b".repeat(40),
       verifyRemote: false,
     });
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("recertified design-critique re-captured after the critiqued commit reruns at its route source", () => {
+  const fx = writerFixture("design-critique", "design-critique", [
+    { kind: "review", command: "design-critique-check.js", exit_code: 0, artifact: null },
+  ]);
+  try {
+    const records = fx.session.evidence["design-critique"].records;
+    fx.session.evidence["design-critique"] = {
+      commit: "e".repeat(40),
+      records,
+      verified_commit: "c".repeat(40),
+      verified_at: "2026-09-26T00:00:00.000Z",
+      verification_records: records,
+    };
+    const dc = path.join(fx.dir, "design-critique");
+    fs.mkdirSync(dc);
+    fs.writeFileSync(
+      path.join(dc, "route.json"),
+      JSON.stringify({ source: { commit: "d".repeat(40), base_commit: "a".repeat(40) } })
+    );
+    fs.writeFileSync(path.join(dc, "report.html"), "<html></html>");
+    const request = { sessionPath: fx.sessionPath, session: fx.session, name: "design-critique" };
+    const plan = planGateWrite(request, fx.deps);
+    assert.equal(plan.row.commit, "e".repeat(40));
+    assert.equal(plan.row.verified_commit, "c".repeat(40));
+    assert.deepEqual(fx.calls.designCritique, {
+      root: fx.root,
+      routePath: ".pm/dev-sessions/unit/design-critique/route.json",
+      capturesPath: ".pm/dev-sessions/unit/design-critique/captures.json",
+      reportPath: ".pm/dev-sessions/unit/design-critique/report.json",
+      commit: "d".repeat(40),
+      baseRef: "origin/main",
+      verifyGit: false,
+    });
+    assert.deepEqual(fx.calls.ancestry, [
+      ["e".repeat(40), "d".repeat(40)],
+      ["d".repeat(40), "c".repeat(40)],
+    ]);
+    fx.deps.isAncestor = (_root, ancestor) => ancestor !== "e".repeat(40);
+    assert.throws(
+      () => planGateWrite(request, fx.deps),
+      /route source d{40} must descend from e{40} and precede HEAD/
+    );
   } finally {
     fx.cleanup();
   }

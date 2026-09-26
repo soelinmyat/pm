@@ -28,6 +28,18 @@ function defaultDeps() {
     checkDesignCritique: (options) =>
       require("../design-critique-check").checkDesignCritique(options),
     validateQa: gateCheck.validateCanonicalQaDeliveryEvidence,
+    isAncestor: (root, ancestor, descendant) => {
+      try {
+        require("node:child_process").execFileSync(
+          "git",
+          ["merge-base", "--is-ancestor", ancestor, descendant],
+          { cwd: root, stdio: "ignore" }
+        );
+        return true;
+      } catch {
+        return false;
+      }
+    },
   };
 }
 
@@ -181,7 +193,9 @@ function reviewRowFields(layout) {
 // without the HEAD-bound Git identity checks. It gets no base commit: the
 // route's own base is the only record of it, so comparing the two proves nothing.
 // A recertified phase whose critique was re-captured at HEAD (its route source
-// commit is HEAD) is held to the full HEAD-bound check instead.
+// commit is HEAD) is held to the full HEAD-bound check instead. One re-captured
+// at a later commit that is not HEAD is rerun at that route source commit,
+// since the captures are bound to it rather than to the original evidence.
 function designCritiqueRowFields(layout, head, context, evidence, deps) {
   const base = `${layout.sessionDirRel}/design-critique`;
   const paths = {
@@ -190,12 +204,25 @@ function designCritiqueRowFields(layout, head, context, evidence, deps) {
     capturesPath: `${base}/captures.json`,
     reportPath: `${base}/report.json`,
   };
-  const checkedAtOriginal =
-    evidence.recertified && routeSourceCommit(layout.root, paths.routePath) !== head;
+  const sourceCommit = routeSourceCommit(layout.root, paths.routePath);
+  const checkedAtOriginal = evidence.recertified && sourceCommit !== head;
+  const original = evidence.phaseEvidence.commit;
+  if (
+    checkedAtOriginal &&
+    sourceCommit &&
+    sourceCommit !== original &&
+    !(
+      deps.isAncestor(layout.root, original, sourceCommit) &&
+      deps.isAncestor(layout.root, sourceCommit, head)
+    )
+  )
+    throw gateError(
+      `design-critique route source ${sourceCommit} must descend from ${original} and precede HEAD`
+    );
   const options = checkedAtOriginal
     ? {
         ...paths,
-        commit: evidence.phaseEvidence.commit,
+        commit: sourceCommit || original,
         baseRef: context.authoritativeBaseRef,
         verifyGit: false,
       }
