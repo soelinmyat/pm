@@ -353,7 +353,7 @@ test("ship push step requires the full default gate contract before git push", (
   assert.doesNotMatch(text, /--require review,verification/);
   assert.match(text, /any required gate row is stale/);
   assert.match(text, /any required gate is missing/);
-  assert.match(text, /verified_commit/);
+  assert.match(text, /any required gate row is stale[^\n]*dev-session recertify/);
 });
 
 test("ship merge loop rechecks the full sidecar against the remote branch tip", () => {
@@ -1020,4 +1020,26 @@ test("embedded publish steps leave the record and gate write to the calling Dev 
       `${file} Done-when defers to ${step}`
     );
   }
+});
+
+test("ship push recovers stale gate rows through the session writer", () => {
+  const text = read("skills/ship/steps/04-push.md");
+  const verification = text.split("\n").find((line) => line.includes("--name verification"));
+  assert.match(
+    verification,
+    /recertify --phases review/,
+    "verification evidence lives in the review phase"
+  );
+  assert.match(
+    verification,
+    /review-delta\.js" check/,
+    "review-phase recertification needs a review recheck"
+  );
+  assert.match(verification, /--name review\b/, "the review row is refreshed with verification");
+  assert.doesNotMatch(
+    text,
+    /write `verified_commit` \/ `verified_at`/,
+    "stale rows are never hand-written"
+  );
+  assert.match(text, /recertify it with `dev-session recertify` and rerun `dev-session gate`/);
 });

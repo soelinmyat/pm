@@ -223,6 +223,17 @@ function checkGateManifest(manifest, opts = {}) {
   return { ok: issues.length === 0, issues };
 }
 
+// The gate's evidence phase records at commit and those its evidence contract
+// accepts as passing. The gate writer uses the same rule.
+function currentPassingRecords(session, gate, commit) {
+  const contract = resolveGateEvidenceContract(gate);
+  const records = currentEvidenceRecords(session.evidence?.[contract.phase], commit);
+  const passing = (records || []).filter(
+    (record) => record?.exit_code === 0 && record.kind === contract.kind
+  );
+  return { contract, records, passing };
+}
+
 function validateCanonicalDeliveryEvidence(
   session,
   requestedGates,
@@ -235,14 +246,12 @@ function validateCanonicalDeliveryEvidence(
       issues.push(issue(manifestPath, `delivery check omitted routed gate ${gate}`));
       continue;
     }
-    const contract = resolveGateEvidenceContract(gate);
-    const currentRecords = currentEvidenceRecords(
-      session.evidence?.[contract.phase],
+    const { records: currentRecords, passing } = currentPassingRecords(
+      session,
+      gate,
       currentCommit
     );
-    if (
-      !currentRecords?.some((record) => record?.exit_code === 0 && record.kind === contract.kind)
-    ) {
+    if (passing.length === 0) {
       issues.push(
         issue(
           manifestPath,
@@ -1298,6 +1307,7 @@ module.exports = {
   DEFAULT_REQUIRED_GATES,
   VALID_STATUSES,
   checkGateManifest,
+  currentPassingRecords,
   validateReviewRenderManifest,
   deriveSessionSlug,
   loadChangedFilesFromGit,

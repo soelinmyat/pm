@@ -48,7 +48,7 @@ Run any documented setup commands before pushing.
 
 ### Dev gate checker
 
-Before running `git push`, ensure canonical `.pm/dev-sessions/{slug}/gates.json` has a current `verification` row. If it is missing or stale, run the full project test suite fresh using the command from AGENTS.md or the dev session's `## Project Context`, read the output, record or recertify it as passing `test` evidence in the session, and run `node "$PM_PLUGIN_ROOT/scripts/dev-session.js" gate --session <absolute session.json> --name verification`. Never hand-edit `gates.json`.
+Before running `git push`, ensure canonical `.pm/dev-sessions/{slug}/gates.json` has a current `verification` row. If it is missing or stale, run the full project test suite fresh using the command from AGENTS.md or the dev session's `## Project Context`, read the output, and run a passing `node "$PM_PLUGIN_ROOT/scripts/review-delta.js" check` for the frozen Review report. Verification evidence lives in the review phase, so write both records to a phase-keyed evidence file and run `dev-session recertify --phases review` with it: the fresh suite as a `test` record and the check as a `review` record. Then run `node "$PM_PLUGIN_ROOT/scripts/dev-session.js" gate --session <absolute session.json>` with `--name review`, then `--name verification`. If the check fails, rerun `pm:review` instead. Never hand-edit `gates.json`.
 
 Read `{DELIVERY_REMOTE}` from canonical `session.json` at `source.delivery_remote`. Stop if it is absent, if the named remote no longer exists, or if its sole configured push URL, normalized GitHub owner/repo, head, base, or SHA-256 differs from the delivery contract frozen by Review. Never fall back to `origin`.
 
@@ -66,7 +66,7 @@ node "$PM_PLUGIN_ROOT/scripts/dev-gate-check.js" \
   --base "{DELIVERY_REMOTE}/{DEFAULT_BRANCH}"
 ```
 
-If the manifest is missing or any required gate is missing, stop and run the missing gate first. If any required gate row is stale, run the final recertification pass from `skills/dev/steps/08-review.md`: rerun gates whose relevant surface changed, or write `verified_commit` / `verified_at` only when the existing evidence still applies to current HEAD. Do not treat green CI, a PR label, or remembered test output as a substitute for a current sidecar row.
+If the manifest is missing or any required gate is missing, stop and run the missing gate first. If any required gate row is stale, run the final recertification pass from `skills/dev/steps/08-review.md`: rerun gates whose relevant surface changed, or, only when the existing evidence still applies to current HEAD, recertify it with `dev-session recertify` and rerun `dev-session gate` for that gate. Never hand-edit `gates.json`. Do not treat green CI, a PR label, or remembered test output as a substitute for a current sidecar row.
 
 ### Attempt push
 

@@ -9,8 +9,6 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { currentEvidenceRecords } = require("./workflow-runtime/records");
-const { resolveGateEvidenceContract } = require("./dev-session-schema");
 const { loadDevSession } = require("./dev-session-location");
 
 // Gate names and statuses come from the checker so the writer can never
@@ -125,12 +123,9 @@ function loadManifest(manifestPath, session) {
 // Returns the passing records for the gate's evidence phase at HEAD, and
 // whether they were reached through recertification.
 function currentPassingEvidence(session, name, head) {
-  const contract = resolveGateEvidenceContract(name);
+  const { currentPassingRecords } = require("../dev-gate-check");
+  const { contract, records, passing } = currentPassingRecords(session, name, head);
   const phaseEvidence = session.evidence?.[contract.phase];
-  const records = currentEvidenceRecords(phaseEvidence, head) || [];
-  const passing = records.filter(
-    (record) => record?.exit_code === 0 && record.kind === contract.kind
-  );
   if (passing.length === 0)
     throw gateError(
       `no passing ${contract.kind} evidence for ${contract.phase} at HEAD ${head}; record or recertify it first`
@@ -138,7 +133,7 @@ function currentPassingEvidence(session, name, head) {
   return {
     contract,
     phaseEvidence,
-    records,
+    records: records || [],
     passing,
     recertified: phaseEvidence.commit !== head,
   };

@@ -604,6 +604,29 @@ test("gate refuses a session copy the checker would not resolve", () => {
   }
 });
 
+test("the writer and the delivery check share one current-evidence rule", () => {
+  const { currentPassingRecords } = require("../scripts/dev-gate-check");
+  const fx = writerFixture("tdd", "implementation", [
+    ...passingTest,
+    { kind: "lint", command: "eslint", exit_code: 0, artifact: null },
+    { kind: "test", command: "node --test red", exit_code: 1, artifact: null },
+  ]);
+  try {
+    const shared = currentPassingRecords(fx.session, "tdd", "c".repeat(40));
+    assert.deepEqual(shared.contract, { phase: "implementation", kind: "test" });
+    assert.equal(shared.records.length, 3);
+    assert.deepEqual(shared.passing, passingTest);
+    assert.deepEqual(currentPassingRecords(fx.session, "tdd", "e".repeat(40)).passing, []);
+    const plan = planGateWrite(
+      { sessionPath: fx.sessionPath, session: fx.session, name: "tdd" },
+      fx.deps
+    );
+    assert.equal(plan.row.status, "passed");
+  } finally {
+    fx.cleanup();
+  }
+});
+
 test("a passed review retires a failed legacy simplify row", () => {
   const fx = writerFixture("review", "review", [
     { kind: "review", command: "review-check.js", exit_code: 0, artifact: null },
