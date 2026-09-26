@@ -735,8 +735,9 @@ function gateCommand(options) {
   }
   emit(
     options,
-    { manifest_path: plan.manifestPath, row: plan.row },
-    `Recorded ${plan.row.name} ${plan.row.status} at ${plan.row.commit}\n`
+    { manifest_path: plan.manifestPath, row: plan.row, retired: plan.retired },
+    `Recorded ${plan.row.name} ${plan.row.status} at ${plan.row.commit}\n` +
+      (plan.retired.length ? `Retired legacy gate ${plan.retired.join(", ")}\n` : "")
   );
   return EXIT.OK;
 }

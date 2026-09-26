@@ -11,6 +11,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { currentEvidenceRecords } = require("./workflow-runtime/records");
 const { resolveGateEvidenceContract } = require("./dev-session-schema");
+const { loadDevSession } = require("./dev-session-location");
 
 // Gate names and statuses come from the checker so the writer can never
 // accept a row the checker rejects. Required lazily: the checker is heavy and
@@ -39,7 +40,7 @@ function gateError(message) {
 function formatIssues(issues) {
   return issues
     .slice(0, 5)
-    .map((item) => `${item.path}: ${item.message}`)
+    .map((item) => `${item.path ?? item.file}: ${item.message}`)
     .join("; ");
 }
 
@@ -51,31 +52,35 @@ function toPosix(value) {
   return value.split(path.sep).join("/");
 }
 
-// The session must be the canonical one inside its own worktree, so every
-// artifact path the row records resolves from the same project root the
-// delivery checker uses.
+// The session must be the one the delivery checker resolves for its source
+// worktree: either the sibling copy there or, in the default Dev layout, the
+// originating session in another registered worktree. The manifest and every
+// Review, QA and critique artifact stay local to the source worktree.
 function resolveSessionLayout(sessionPath, session) {
   const worktree = session?.source?.worktree;
   if (typeof worktree !== "string" || !path.isAbsolute(worktree))
     throw gateError("gate writes require a session with an absolute source.worktree");
-  const expected = path.join(worktree, ".pm", "dev-sessions", String(session.slug), "session.json");
+  const slug = String(session.slug);
   let root;
   let resolvedSession;
+  let canonical;
   try {
     root = fs.realpathSync(worktree);
     resolvedSession = fs.realpathSync(sessionPath);
+    canonical = fs.realpathSync(loadDevSession(root, { slug }).path);
   } catch (error) {
-    throw gateError(`gate writes require the canonical session ${expected}: ${error.message}`);
+    throw gateError(`gate writes require the canonical session for ${worktree}: ${error.message}`);
   }
-  if (
-    resolvedSession !== path.join(root, ".pm", "dev-sessions", String(session.slug), "session.json")
-  )
-    throw gateError(`gate writes require the canonical session ${expected}`);
-  const sessionDir = path.dirname(resolvedSession);
+  if (resolvedSession !== canonical)
+    throw gateError(`gate writes require the canonical session ${canonical}`);
+  const sessionDir = path.join(root, ".pm", "dev-sessions", slug);
+  const local = path.relative(root, resolvedSession);
   return {
     root,
     sessionDir,
-    sessionRel: toPosix(path.relative(root, resolvedSession)),
+    // A session outside the worktree is anchored by its absolute path, which
+    // the checker resolves as-is.
+    sessionRef: local.startsWith("..") || path.isAbsolute(local) ? resolvedSession : toPosix(local),
     sessionDirRel: toPosix(path.relative(root, sessionDir)),
     manifestPath: path.join(sessionDir, "gates.json"),
   };
@@ -230,7 +235,11 @@ function evidenceArtifact(layout, evidence) {
       // Evidence outside the project falls back to the session anchor below.
     }
   }
-  return `${layout.sessionRel}#evidence.${evidence.contract.phase}`;
+  return `${layout.sessionRef}#evidence.${evidence.contract.phase}`;
+}
+
+function isFailedLegacySimplify(gate) {
+  return gate?.name === "simplify" && (gate.status === "failed" || gate.status === "blocked");
 }
 
 function validateRequest({ name, status, reason, artifact }) {
@@ -303,7 +312,17 @@ function planGateWrite(request, deps = defaultDeps()) {
     };
   }
 
-  const gates = manifest.gates.filter((gate) => gate?.name !== name);
+  // Review absorbed the legacy simplify gate, so a passed Review retires a
+  // recorded simplify failure instead of being blocked by it forever.
+  const retired = [];
+  const gates = manifest.gates.filter((gate) => {
+    if (gate?.name === name) return false;
+    if (name === "review" && status === "passed" && isFailedLegacySimplify(gate)) {
+      retired.push(gate.name);
+      return false;
+    }
+    return true;
+  });
   const index = manifest.gates.findIndex((gate) => gate?.name === name);
   if (index === -1) gates.push(row);
   else gates.splice(index, 0, row);
@@ -329,9 +348,13 @@ function planGateWrite(request, deps = defaultDeps()) {
   const issues = (result?.issues || []).filter(
     (item) => !(status !== "passed" && status !== "skipped" && item.message === expectedOutcome)
   );
-  if (issues.length > 0)
-    throw gateError(`gate ${name} failed dev-gate-check: ${formatIssues(issues)}`);
-  return { manifestPath: layout.manifestPath, manifest: candidate, row };
+  if (issues.length > 0) {
+    const hint = gates.some(isFailedLegacySimplify)
+      ? "; a passed review gate retires the legacy simplify row"
+      : "";
+    throw gateError(`gate ${name} failed dev-gate-check: ${formatIssues(issues)}${hint}`);
+  }
+  return { manifestPath: layout.manifestPath, manifest: candidate, row, retired };
 }
 
 module.exports = { planGateWrite };

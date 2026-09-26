@@ -43,8 +43,8 @@ function makeRepo(slug = "gate-cli") {
     XDG_CONFIG_HOME: path.join(root, ".test-config"),
     PM_EXECUTION_POLICY_FILE: "",
   };
-  const run = (script, args) =>
-    spawnSync(process.execPath, [script, ...args], { cwd: root, encoding: "utf8", env });
+  const run = (script, args, cwd = root) =>
+    spawnSync(process.execPath, [script, ...args], { cwd, encoding: "utf8", env });
   const init = run(CLI, ["init", "--slug", slug, "--source-dir", root, "--json"]);
   assert.equal(init.status, 0, init.stderr);
   const sessionPath = JSON.parse(init.stdout).session_path;
@@ -54,7 +54,7 @@ function makeRepo(slug = "gate-cli") {
     gatesPath: path.join(path.dirname(sessionPath), "gates.json"),
     head: () => git(root, ["rev-parse", "HEAD"]),
     run: (args) => run(CLI, args),
-    check: (args) => run(CHECK, args),
+    check: (args, cwd) => run(CHECK, args, cwd),
     session: () => JSON.parse(fs.readFileSync(sessionPath, "utf8")),
     saveSession(value) {
       fs.writeFileSync(sessionPath, JSON.stringify(value, null, 2));
@@ -293,23 +293,48 @@ function writerFixture(gateName, phase, records) {
   };
 }
 
+function writeReviewReport(fx) {
+  const reviewDir = path.join(fx.dir, "review");
+  fs.mkdirSync(path.join(reviewDir, "renders"), { recursive: true });
+  fs.writeFileSync(
+    path.join(reviewDir, "report.json"),
+    JSON.stringify({
+      human_report: { path: ".pm/dev-sessions/unit/review/report.html" },
+      coverage: { completed: ["bug", "edge", "reuse", "quality", "efficiency", "product"] },
+    })
+  );
+  fs.writeFileSync(path.join(reviewDir, "report.html"), "<html></html>");
+  const renderBytes = Buffer.from('{"renders":[]}');
+  fs.writeFileSync(path.join(reviewDir, "renders", "manifest.json"), renderBytes);
+  return renderBytes;
+}
+
+function writeLegacySimplify(fx, status) {
+  fs.writeFileSync(
+    path.join(fx.dir, "gates.json"),
+    JSON.stringify({
+      schema_version: 1,
+      run_id: "dev_unit",
+      gates: [
+        {
+          name: "simplify",
+          status,
+          commit: "a".repeat(40),
+          artifact: "",
+          reason: "old",
+          checked_at: "2026-01-01T00:00:00Z",
+        },
+      ],
+    })
+  );
+}
+
 test("review rows are derived from the canonical review report", () => {
   const fx = writerFixture("review", "review", [
     { kind: "review", command: "review-check.js", exit_code: 0, artifact: null },
   ]);
   try {
-    const reviewDir = path.join(fx.dir, "review");
-    fs.mkdirSync(path.join(reviewDir, "renders"), { recursive: true });
-    fs.writeFileSync(
-      path.join(reviewDir, "report.json"),
-      JSON.stringify({
-        human_report: { path: ".pm/dev-sessions/unit/review/report.html" },
-        coverage: { completed: ["bug", "edge", "reuse", "quality", "efficiency", "product"] },
-      })
-    );
-    fs.writeFileSync(path.join(reviewDir, "report.html"), "<html></html>");
-    const renderBytes = Buffer.from('{"renders":[]}');
-    fs.writeFileSync(path.join(reviewDir, "renders", "manifest.json"), renderBytes);
+    const renderBytes = writeReviewReport(fx);
 
     const plan = planGateWrite(
       { sessionPath: fx.sessionPath, session: fx.session, name: "review" },
@@ -339,7 +364,7 @@ test("review rows are derived from the canonical review report", () => {
     const structuredBytes = Buffer.from(
       JSON.stringify({ human_report: null, coverage: { completed: ["bug"] } })
     );
-    fs.writeFileSync(path.join(reviewDir, "report.json"), structuredBytes);
+    fs.writeFileSync(path.join(fx.dir, "review", "report.json"), structuredBytes);
     const structured = planGateWrite(
       { sessionPath: fx.sessionPath, session: fx.session, name: "review" },
       fx.deps
@@ -438,6 +463,89 @@ test("qa rows revalidate the recorded QA report and point at it", () => {
       () =>
         planGateWrite({ sessionPath: fx.sessionPath, session: fx.session, name: "qa" }, fx.deps),
       /canonical QA report outcome/
+    );
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("gate writes the worktree manifest for a session kept in the originating checkout", () => {
+  const repo = makeRepo("split");
+  try {
+    const worktree = path.join(path.dirname(repo.root), "split-worktree");
+    git(repo.root, ["worktree", "add", "-q", "-b", "fix/split", worktree]);
+    const moved = repo.run(["workspace", "--session", repo.sessionPath, "--worktree", worktree]);
+    assert.equal(moved.status, 0, moved.stderr);
+    repo.recordEvidence("implementation", passingTest, git(worktree, ["rev-parse", "HEAD"]));
+    const result = repo.gate(["--name", "tdd"]);
+    assert.equal(result.status, 0, result.stderr);
+    const gatesPath = path.join(worktree, ".pm", "dev-sessions", "split", "gates.json");
+    assert.equal(JSON.parse(result.stdout).manifest_path, gatesPath);
+    assert.equal(fs.existsSync(repo.gatesPath), false);
+    const [row] = JSON.parse(fs.readFileSync(gatesPath, "utf8")).gates;
+    assert.equal(row.artifact, `${repo.sessionPath}#evidence.implementation`);
+    const checked = repo.check(["--manifest", gatesPath, "--require", "tdd", "--json"], worktree);
+    assert.equal(checked.status, 0, checked.stdout + checked.stderr);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("gate refuses a session copy the checker would not resolve", () => {
+  const repo = makeRepo("stale");
+  try {
+    repo.recordEvidence("implementation", passingTest);
+    const copy = path.join(path.dirname(repo.root), "copy", ".pm", "dev-sessions", "stale");
+    fs.mkdirSync(copy, { recursive: true });
+    fs.copyFileSync(repo.sessionPath, path.join(copy, "session.json"));
+    const result = repo.run([
+      "gate",
+      "--session",
+      path.join(copy, "session.json"),
+      "--name",
+      "tdd",
+    ]);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /canonical session/);
+    assert.equal(fs.existsSync(repo.gatesPath), false);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("a passed review retires a failed legacy simplify row", () => {
+  const fx = writerFixture("review", "review", [
+    { kind: "review", command: "review-check.js", exit_code: 0, artifact: null },
+  ]);
+  try {
+    writeReviewReport(fx);
+    writeLegacySimplify(fx, "failed");
+    const plan = planGateWrite(
+      { sessionPath: fx.sessionPath, session: fx.session, name: "review" },
+      fx.deps
+    );
+    assert.deepEqual(plan.retired, ["simplify"]);
+    assert.deepEqual(
+      plan.manifest.gates.map((gate) => gate.name),
+      ["review"]
+    );
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("other gates keep a blocked legacy simplify row and say how to clear it", () => {
+  const fx = writerFixture("tdd", "implementation", passingTest);
+  try {
+    writeLegacySimplify(fx, "blocked");
+    fx.deps.checkManifest = () => ({
+      ok: false,
+      issues: [{ file: "gates.json#gates[0]", message: "legacy gate simplify is blocked" }],
+    });
+    assert.throws(
+      () =>
+        planGateWrite({ sessionPath: fx.sessionPath, session: fx.session, name: "tdd" }, fx.deps),
+      /gates\.json#gates\[0\]: legacy gate simplify is blocked; a passed review gate retires/
     );
   } finally {
     fx.cleanup();

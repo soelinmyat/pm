@@ -54,7 +54,10 @@ test("separate quality phases record gate evidence and run the checker", () => {
     read("skills/dev/steps/08-review.md"),
   ].join("\n");
   assert.match(text, /gate manifest/);
-  assert.match(text, /dev-session\.js gate --name design-critique/);
+  assert.match(
+    text,
+    /dev-session\.js gate --session <absolute session\.json> --name design-critique/
+  );
   assert.match(text, /never hand-edit the gate manifest/);
   assert.match(text, /scripts\/dev-gate-check\.js/);
   assert.match(text, /design-critique: passed/);
@@ -976,4 +979,14 @@ test("UI sentinel checks the PM-native design critique gate", () => {
   // the sentinel must name the PM-native skill either way.
   assert.match(checks, /gate-evidence pm:design-critique/);
   assert.doesNotMatch(checks, /skill-called critique\b/);
+});
+
+test("gate writes follow the recorded phase result they certify", () => {
+  for (const file of ["skills/dev/steps/08-review.md", "skills/dev/steps/06-design-critique.md"]) {
+    const text = read(file);
+    const record = text.search(/dev-session\.js"? record\b/);
+    const gate = text.search(/dev-session\.js"? gate\b/);
+    assert.ok(record !== -1 && gate !== -1, `${file} records and writes the gate`);
+    assert.ok(record < gate, `${file} records the phase result before writing its gate`);
+  }
 });
