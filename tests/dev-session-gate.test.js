@@ -504,7 +504,7 @@ test("failed and blocked rows need neither a reachable remote nor a branch", () 
   }
 });
 
-test("recertified design-critique rows rely on recertification, not a HEAD-bound rerun", () => {
+test("recertified design-critique rows rerun the critique at the critiqued commit", () => {
   const fx = writerFixture("design-critique", "design-critique", [
     { kind: "review", command: "design-critique-check.js", exit_code: 0, artifact: null },
   ]);
@@ -521,20 +521,32 @@ test("recertified design-critique rows rely on recertification, not a HEAD-bound
     fs.mkdirSync(dc);
     fs.writeFileSync(
       path.join(dc, "route.json"),
-      JSON.stringify({ source: { commit: "e".repeat(40), base_commit: "b".repeat(40) } })
+      JSON.stringify({ source: { commit: "e".repeat(40), base_commit: "a".repeat(40) } })
     );
     fs.writeFileSync(path.join(dc, "report.html"), "<html></html>");
-    fx.deps.checkDesignCritique = () => ({
-      ok: false,
-      issues: [{ path: "commit", message: "supplied commit must equal current HEAD" }],
-    });
-    const plan = planGateWrite(
-      { sessionPath: fx.sessionPath, session: fx.session, name: "design-critique" },
-      fx.deps
-    );
+    const request = { sessionPath: fx.sessionPath, session: fx.session, name: "design-critique" };
+    const plan = planGateWrite(request, fx.deps);
     assert.equal(plan.row.commit, "e".repeat(40));
     assert.equal(plan.row.verified_commit, "c".repeat(40));
     assert.equal(plan.row.artifact, ".pm/dev-sessions/unit/design-critique/report.html");
+    assert.deepEqual(fx.calls.designCritique, {
+      root: fx.root,
+      routePath: ".pm/dev-sessions/unit/design-critique/route.json",
+      capturesPath: ".pm/dev-sessions/unit/design-critique/captures.json",
+      reportPath: ".pm/dev-sessions/unit/design-critique/report.json",
+      commit: "e".repeat(40),
+      baseRef: "origin/main",
+      baseCommit: "a".repeat(40),
+      verifyGit: false,
+    });
+    fx.deps.checkDesignCritique = () => ({
+      ok: false,
+      issues: [{ path: "report.outcome", message: "must be passed" }],
+    });
+    assert.throws(
+      () => planGateWrite(request, fx.deps),
+      /design-critique check failed.*report\.outcome/
+    );
   } finally {
     fx.cleanup();
   }

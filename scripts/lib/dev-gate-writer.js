@@ -175,23 +175,43 @@ function reviewRowFields(layout) {
   };
 }
 
-// A recertified critique was checked at its original commit; its route is
-// bound to that commit, so it cannot be rerun at HEAD. The recertification
-// record and dev-gate-check carry it instead. Otherwise the chain is rerun
-// against the base the enforcement context already resolved.
+// The critique chain is always rerun. A fresh critique is checked at HEAD
+// against the base the enforcement context already resolved. A recertified
+// critique is bound to the commit it captured, so it is rerun at that commit
+// against its own route base, without the HEAD-bound Git identity checks.
 function designCritiqueRowFields(layout, head, context, evidence, deps) {
   const base = `${layout.sessionDirRel}/design-critique`;
-  if (evidence.recertified) return { artifact: `${base}/report.html` };
-  const result = deps.checkDesignCritique({
+  const paths = {
     root: layout.root,
     routePath: `${base}/route.json`,
     capturesPath: `${base}/captures.json`,
     reportPath: `${base}/report.json`,
-    commit: head,
-    baseRef: context.authoritativeBaseRef,
-    baseCommit: context.authoritativeBaseCommit,
-    verifyRemote: false,
-  });
+  };
+  let options;
+  if (evidence.recertified) {
+    let route;
+    try {
+      route = JSON.parse(fs.readFileSync(path.join(layout.root, paths.routePath), "utf8"));
+    } catch (error) {
+      throw gateError(`design-critique gate requires ${paths.routePath}: ${error.message}`);
+    }
+    options = {
+      ...paths,
+      commit: evidence.phaseEvidence.commit,
+      baseRef: context.authoritativeBaseRef,
+      baseCommit: route?.source?.base_commit,
+      verifyGit: false,
+    };
+  } else {
+    options = {
+      ...paths,
+      commit: head,
+      baseRef: context.authoritativeBaseRef,
+      baseCommit: context.authoritativeBaseCommit,
+      verifyRemote: false,
+    };
+  }
+  const result = deps.checkDesignCritique(options);
   if (!result?.ok)
     throw gateError(`design-critique check failed: ${formatIssues(result?.issues || [])}`);
   return { artifact: `${base}/report.html` };
