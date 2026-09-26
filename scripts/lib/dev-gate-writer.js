@@ -28,6 +28,8 @@ function defaultDeps() {
     checkDesignCritique: (options) =>
       require("../design-critique-check").checkDesignCritique(options),
     validateQa: gateCheck.validateCanonicalQaDeliveryEvidence,
+    isAncestor: (root, ancestor, descendant) =>
+      require("./review-freshness").isAncestor(root, ancestor, descendant),
   };
 }
 
@@ -181,7 +183,11 @@ function reviewRowFields(layout) {
 // without the HEAD-bound Git identity checks. It gets no base commit: the
 // route's own base is the only record of it, so comparing the two proves nothing.
 // A recertified phase whose critique was re-captured at HEAD (its route source
-// commit is HEAD) is held to the full HEAD-bound check instead.
+// commit is HEAD) is held to the full HEAD-bound check instead. One re-captured
+// at a later commit that is not HEAD is rerun at that route source commit,
+// since the captures are bound to it rather than to the original evidence.
+// On that path the checker's own source-commit comparison is trivially met, so
+// the ancestry proof below (original, then route source, then HEAD) is the guard.
 function designCritiqueRowFields(layout, head, context, evidence, deps) {
   const base = `${layout.sessionDirRel}/design-critique`;
   const paths = {
@@ -190,12 +196,23 @@ function designCritiqueRowFields(layout, head, context, evidence, deps) {
     capturesPath: `${base}/captures.json`,
     reportPath: `${base}/report.json`,
   };
-  const checkedAtOriginal =
-    evidence.recertified && routeSourceCommit(layout.root, paths.routePath) !== head;
-  const options = checkedAtOriginal
+  const sourceCommit = routeSourceCommit(layout.root, paths.routePath);
+  const recertifiedOffHead = evidence.recertified && sourceCommit !== head;
+  const original = evidence.phaseEvidence.commit;
+  if (recertifiedOffHead && sourceCommit && sourceCommit !== original) {
+    const betweenOriginalAndHead =
+      deps.isAncestor(layout.root, original, sourceCommit) &&
+      deps.isAncestor(layout.root, sourceCommit, head);
+    if (!betweenOriginalAndHead) {
+      throw gateError(
+        `could not prove design-critique route source ${sourceCommit} descends from ${original} and precedes HEAD`
+      );
+    }
+  }
+  const options = recertifiedOffHead
     ? {
         ...paths,
-        commit: evidence.phaseEvidence.commit,
+        commit: sourceCommit || original,
         baseRef: context.authoritativeBaseRef,
         verifyGit: false,
       }
@@ -373,4 +390,4 @@ function planGateWrite(request, deps = defaultDeps()) {
   return { manifestPath: layout.manifestPath, manifest: candidate, row, retired };
 }
 
-module.exports = { planGateWrite };
+module.exports = { planGateWrite, defaultDeps };
