@@ -68,6 +68,8 @@ function main(argv) {
       return recordCommand(options);
     case "recertify":
       return recertifyCommand(options);
+    case "gate":
+      return gateCommand(options);
     case "anchor-qa-history":
       return anchorQaHistoryCommand(options);
     case "record-qa-nonpassing":
@@ -140,6 +142,8 @@ function parseArguments(argv) {
     "repository-capability-identity",
     "gate-plan-identity",
     "at",
+    "name",
+    "artifact",
   ];
   const spec = Object.fromEntries(valueFlags.map((name) => [`--${name}`, { type: "string" }]));
   spec["--json"] = { key: "json", type: "boolean" };
@@ -707,6 +711,36 @@ function recertifyCommand(options) {
   return EXIT.OK;
 }
 
+function gateCommand(options) {
+  requireOnlyOptions(options, ["session", "name", "status", "reason", "artifact", "json"]);
+  requireOptions(options, ["session", "name"]);
+  const sessionPath = path.resolve(options.session);
+  const { planGateWrite } = require("./lib/dev-gate-writer");
+  const releaseLock = acquireSessionLock(sessionPath);
+  let plan;
+  try {
+    plan = planGateWrite({
+      sessionPath,
+      session: readSession(sessionPath),
+      name: options.name,
+      status: options.status || "passed",
+      reason: options.reason,
+      artifact: options.artifact,
+    });
+    writeJsonAtomic(plan.manifestPath, plan.manifest);
+  } catch (error) {
+    throw cliError(error.message, error.invalidInput ? EXIT.INVALID : EXIT.PRECONDITION);
+  } finally {
+    releaseLock();
+  }
+  emit(
+    options,
+    { manifest_path: plan.manifestPath, row: plan.row },
+    `Recorded ${plan.row.name} ${plan.row.status} at ${plan.row.commit}\n`
+  );
+  return EXIT.OK;
+}
+
 function recordQaNonPassingCommand(options) {
   requireOnlyOptions(options, ["session", "status", "commit", "evidence", "json"]);
   requireOptions(options, ["session", "status", "commit", "evidence"]);
@@ -1095,6 +1129,7 @@ function helpText() {
     "  route --session <path> --facts <json-path> [--rfc-sidecar <json-path>] [--json]",
     "  record --session <path> --result <path> [--json]",
     "  recertify --session <path> --phases <csv> --commit <sha> --evidence <json-path> [--json]",
+    "  gate --session <path> --name <gate> [--status <passed|failed|blocked|skipped>] [--reason <text>] [--artifact <path>] [--json]",
     "  anchor-qa-history --session <path> --commit <sha> --evidence <json-path> [--json]",
     "  record-qa-nonpassing --session <path> --status <failed|blocked> --commit <sha> --evidence <json-path> [--json]",
     "  unblock --session <path> --reason <resolution> [--json]",

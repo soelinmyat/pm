@@ -1,7 +1,7 @@
 ---
 name: Publish
 order: 5
-description: Publish checked structured and HTML reports and update only the Design Critique gate row
+description: Publish checked structured and HTML reports and record only the Design Critique gate row through dev-session gate
 ---
 
 ## Goal
@@ -28,7 +28,7 @@ node "$PM_PLUGIN_ROOT/scripts/design-critique-check.js" \
 
 The checker resolves Chromium automatically. If the project uses a nonstandard browser binary, add `--browser "{CHROMIUM_PATH}"` or set `PM_ARTIFACT_BROWSER`. Remote-base verification is noninteractive and bounded; a timeout is a blocked gate, not permission to trust a stale local ref.
 
-5. For `passed`, update only the `design-critique` row in canonical `.pm/dev-sessions/{slug}/gates.json` with current commit and project-relative `.pm/dev-sessions/{slug}/design-critique/report.html` as the artifact. Preserve `tdd`, legacy `simplify`, `qa`, `review`, and `verification` rows; never write the flat legacy sidecar when the canonical session directory exists. For `failed`, `blocked`, or `deferred`, record a non-passing gate with the concrete reason; map `deferred` to `blocked` because the Dev schema has no deferred status.
+5. Never hand-edit the gate manifest `.pm/dev-sessions/{slug}/gates.json`. After the runner records the passing `design-critique` phase evidence at current HEAD, run `node "$PM_PLUGIN_ROOT/scripts/dev-session.js" gate --session <absolute session.json> --name design-critique`. It reruns this checker chain against the session's route, captures, and report, writes only the `design-critique` row with the project-relative `.pm/dev-sessions/{slug}/design-critique/report.html` artifact, preserves every other row, and writes nothing if any check fails. Preserve `tdd`, legacy `simplify`, `qa`, `review`, and `verification` rows; never write the flat legacy sidecar when the canonical session directory exists. For `failed`, `blocked`, or `deferred`, run the same command with `--status failed|blocked --reason "<concrete reason>"`; map `deferred` to `blocked` because the Dev schema has no deferred status.
 6. Run `dev-gate-check.js --require design-critique` only for a passed outcome. Return report paths, coverage, score summary, resolved blockers, remaining P2/P3 findings, and the single next action.
 
 ## Done-when

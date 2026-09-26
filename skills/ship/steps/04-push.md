@@ -48,7 +48,7 @@ Run any documented setup commands before pushing.
 
 ### Dev gate checker
 
-Before running `git push`, ensure canonical `.pm/dev-sessions/{slug}/gates.json` has a current `verification` row. If it is missing or stale, run the full project test suite fresh using the command from AGENTS.md or the dev session's `## Project Context`, read the output, and record `verification: passed` with the command output artifact or state section path.
+Before running `git push`, ensure canonical `.pm/dev-sessions/{slug}/gates.json` has a current `verification` row. If it is missing or stale, run the full project test suite fresh using the command from AGENTS.md or the dev session's `## Project Context`, read the output, record or recertify it as passing `test` evidence in the session, and run `node "$PM_PLUGIN_ROOT/scripts/dev-session.js" gate --session <absolute session.json> --name verification`. Never hand-edit `gates.json`.
 
 Read `{DELIVERY_REMOTE}` from canonical `session.json` at `source.delivery_remote`. Stop if it is absent, if the named remote no longer exists, or if its sole configured push URL, normalized GitHub owner/repo, head, base, or SHA-256 differs from the delivery contract frozen by Review. Never fall back to `origin`.
 

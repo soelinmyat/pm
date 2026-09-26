@@ -219,9 +219,9 @@ Gate names are `tdd`, `design-critique`, `qa`, `review`, and `verification` (`si
 Rules:
 
 - Canonical v2 manifests include `run_id` equal to the sibling `session.json`. The gate checker rejects a missing or mismatched sibling even when commits happen to match. Only `.pm/dev-sessions/{slug}/gates.json` may authorize delivery; flat and `current.gates.json` manifests are inspection-only migration inputs and never authorize Dev completion, push, PR creation, or Ship. Gate-row artifact and manifest values remain project-relative even though the gate manifest is nested: for example, Review records `.pm/dev-sessions/{slug}/review/report.html` and `.pm/dev-sessions/{slug}/review/renders/manifest.json`, while Design Critique records `.pm/dev-sessions/{slug}/design-critique/report.html`. Inspection returns `ok: false`, `authoritative: false`, a separate `inspection_ok` diagnostic, and a nonzero CLI status. Enforcement requires every passed required `review` row to declare `evidence_kind: review-report-v1`, hash-bind the canonical Review render manifest with `render_manifest` and `render_manifest_sha256`, live beneath the same canonical session directory, match the Review target to the authoritative delivery base, bind the Dev run/slug/routing/acceptance context, record lenses exactly equal to the report's completed coverage, and pass canonical report plus retained-render validation.
-- Update the row immediately after each gate runs or is explicitly skipped.
+- Write rows only with `node "$PM_PLUGIN_ROOT/scripts/dev-session.js" gate --session <absolute session.json> --name <gate> [--status failed|blocked|skipped --reason <text>]`, immediately after the runner records the gate's phase evidence. Never hand-edit the manifest. The command creates it when absent (run, size, and kind from `session.json`), upserts only the named row, derives a `passed` row from current phase evidence at HEAD, reruns the gate's checker, and writes atomically only when the candidate passes `dev-gate-check.js` for that gate.
 - `commit` is the evidence commit where the gate ran or was explicitly skipped.
-- `verified_commit` / `verified_at` are optional recertification fields written after later commits. They mean the original gate evidence was rechecked against that final tree. These two fields must be written together.
+- `verified_commit` / `verified_at` are optional recertification fields written after later commits. They mean the original gate evidence was rechecked against that final tree. After `dev-session recertify`, rerun `dev-session gate` for the gate; it writes both fields together.
 - QA evidence records `qa_run_count` plus `qa_run_anchors`, an ordered immutable ledger containing each accepted run number, commit, verdict, and exact report-byte SHA-256. Ordinary checks bind the latest anchor to the current canonical report bytes; candidate checks bind prior anchors through each next run's retained `previous_report` snapshot. A post-QA report must equal the accepted count unless `qa-report-check.js --qa-candidate` is explicitly validating exactly one new run. Successful candidates advance both fields through `dev-session recertify`. Failing or blocked candidates must first pass `qa-report-check.js --qa-candidate --allow-nonpassing`, then advance both fields through `dev-session record-qa-nonpassing`; they never update `verified_commit`, `verified_at`, or `verification_records` and never grant the QA gate.
 - The `review` row carries a `lenses` array recording only applicable lenses that actually ran: the baseline `bug`, `design`, `edge`, `reuse`, `quality`, and `efficiency` set (minus `design` when conditionally skipped), plus `security` exactly once when the bound Dev context records `security_review_required: true`. On M/L/XL manifests the checker requires the absorbed lenses `reuse`, `quality`, `efficiency` to be present — a pre-v1.9 3-lens review row does not pass.
 - Final push/ship checks accept a row only when either `commit` or `verified_commit` equals `git rev-parse HEAD`; otherwise the row is stale.
@@ -240,7 +240,7 @@ Rules:
     --require-authority push_feature_branch,create_pr \
     --base origin/{DEFAULT_BRANCH}
   ```
-- If the checker fails for a missing gate, run that gate. If it fails for a stale gate, use the final recertification rule above: rerun the gate when its relevant surface changed, or write `verified_commit` / `verified_at` only when the evidence still applies. Do not push around it.
+- If the checker fails for a missing gate, run that gate. If it fails for a stale gate, use the final recertification rule above: rerun the gate when its relevant surface changed, or recertify with `dev-session recertify` and rerun `dev-session gate` only when the evidence still applies. Do not push around it.
 
 ## Template
 
@@ -368,6 +368,6 @@ Per-task agents handle QA/review/ship internally. This section aggregates key ev
 - Keep `Stage started at` current at every stage transition and set `Completed at` when the session finishes
 - Include all decisions made so far — a cold reader should understand the full context
 - After design critique, add the report path
-- After every quality gate, update `.pm/dev-sessions/{slug}/gates.json`
+- After every quality gate, record its row with `dev-session.js gate` (never by hand)
 - Resume Instructions section must be populated at every stage transition. A cold reader should be able to continue the session from this section alone.
 - After retro, delete the file

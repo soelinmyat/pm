@@ -54,6 +54,8 @@ test("separate quality phases record gate evidence and run the checker", () => {
     read("skills/dev/steps/08-review.md"),
   ].join("\n");
   assert.match(text, /gate manifest/);
+  assert.match(text, /dev-session\.js gate --name design-critique/);
+  assert.match(text, /never hand-edit the gate manifest/);
   assert.match(text, /scripts\/dev-gate-check\.js/);
   assert.match(text, /design-critique: passed/);
   assert.match(text, /qa: passed/);
@@ -124,6 +126,10 @@ test("design critique uses the bound two-mode evidence contract", () => {
   assert.match(resolve, /two total review rounds/);
   assert.match(publish, /scripts\/design-critique-check\.js/);
   assert.match(publish, /map `deferred` to `blocked`/);
+  assert.match(
+    publish,
+    /dev-session\.js" gate --session <absolute session\.json> --name design-critique/
+  );
   assert.match(publish, /\.pm\/dev-sessions\/\{slug\}\/gates\.json/);
   assert.match(publish, /\.pm\/dev-sessions\/\{slug\}\/design-critique\/report\.html/);
   assert.doesNotMatch(publish, /\.pm\/dev-sessions\/\{slug\}\.gates\.json/);
@@ -160,6 +166,8 @@ test("review skip requires a current checked report and gate row", () => {
   assert.match(ship, /--from-report/);
   assert.match(ship, /do NOT skip/);
   assert.match(publish, /Preserve all other rows/);
+  assert.match(publish, /dev-session\.js" gate --session <absolute session\.json> --name review/);
+  assert.match(publish, /Never hand-edit the gate manifest/);
   assert.match(publish, /evidence_kind/);
 });
 
