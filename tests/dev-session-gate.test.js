@@ -536,7 +536,6 @@ test("recertified design-critique rows rerun the critique at the critiqued commi
       reportPath: ".pm/dev-sessions/unit/design-critique/report.json",
       commit: "e".repeat(40),
       baseRef: "origin/main",
-      baseCommit: "a".repeat(40),
       verifyGit: false,
     });
     fx.deps.checkDesignCritique = () => ({

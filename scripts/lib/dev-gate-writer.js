@@ -178,7 +178,8 @@ function reviewRowFields(layout) {
 // The critique chain is always rerun. A fresh critique is checked at HEAD
 // against the base the enforcement context already resolved. A recertified
 // critique is bound to the commit it captured, so it is rerun at that commit
-// against its own route base, without the HEAD-bound Git identity checks.
+// without the HEAD-bound Git identity checks. It gets no base commit: the
+// route's own base is the only record of it, so comparing the two proves nothing.
 function designCritiqueRowFields(layout, head, context, evidence, deps) {
   const base = `${layout.sessionDirRel}/design-critique`;
   const paths = {
@@ -187,30 +188,20 @@ function designCritiqueRowFields(layout, head, context, evidence, deps) {
     capturesPath: `${base}/captures.json`,
     reportPath: `${base}/report.json`,
   };
-  let options;
-  if (evidence.recertified) {
-    let route;
-    try {
-      route = JSON.parse(fs.readFileSync(path.join(layout.root, paths.routePath), "utf8"));
-    } catch (error) {
-      throw gateError(`design-critique gate requires ${paths.routePath}: ${error.message}`);
-    }
-    options = {
-      ...paths,
-      commit: evidence.phaseEvidence.commit,
-      baseRef: context.authoritativeBaseRef,
-      baseCommit: route?.source?.base_commit,
-      verifyGit: false,
-    };
-  } else {
-    options = {
-      ...paths,
-      commit: head,
-      baseRef: context.authoritativeBaseRef,
-      baseCommit: context.authoritativeBaseCommit,
-      verifyRemote: false,
-    };
-  }
+  const options = evidence.recertified
+    ? {
+        ...paths,
+        commit: evidence.phaseEvidence.commit,
+        baseRef: context.authoritativeBaseRef,
+        verifyGit: false,
+      }
+    : {
+        ...paths,
+        commit: head,
+        baseRef: context.authoritativeBaseRef,
+        baseCommit: context.authoritativeBaseCommit,
+        verifyRemote: false,
+      };
   const result = deps.checkDesignCritique(options);
   if (!result?.ok)
     throw gateError(`design-critique check failed: ${formatIssues(result?.issues || [])}`);
