@@ -196,6 +196,8 @@ function reviewRowFields(layout) {
 // commit is HEAD) is held to the full HEAD-bound check instead. One re-captured
 // at a later commit that is not HEAD is rerun at that route source commit,
 // since the captures are bound to it rather than to the original evidence.
+// On that path the checker's own source-commit comparison is trivially met, so
+// the ancestry proof below (original, then route source, then HEAD) is the guard.
 function designCritiqueRowFields(layout, head, context, evidence, deps) {
   const base = `${layout.sessionDirRel}/design-critique`;
   const paths = {
@@ -205,21 +207,19 @@ function designCritiqueRowFields(layout, head, context, evidence, deps) {
     reportPath: `${base}/report.json`,
   };
   const sourceCommit = routeSourceCommit(layout.root, paths.routePath);
-  const checkedAtOriginal = evidence.recertified && sourceCommit !== head;
+  const recertifiedOffHead = evidence.recertified && sourceCommit !== head;
   const original = evidence.phaseEvidence.commit;
-  if (
-    checkedAtOriginal &&
-    sourceCommit &&
-    sourceCommit !== original &&
-    !(
+  if (recertifiedOffHead && sourceCommit && sourceCommit !== original) {
+    const betweenOriginalAndHead =
       deps.isAncestor(layout.root, original, sourceCommit) &&
-      deps.isAncestor(layout.root, sourceCommit, head)
-    )
-  )
-    throw gateError(
-      `design-critique route source ${sourceCommit} must descend from ${original} and precede HEAD`
-    );
-  const options = checkedAtOriginal
+      deps.isAncestor(layout.root, sourceCommit, head);
+    if (!betweenOriginalAndHead) {
+      throw gateError(
+        `could not prove design-critique route source ${sourceCommit} descends from ${original} and precedes HEAD`
+      );
+    }
+  }
+  const options = recertifiedOffHead
     ? {
         ...paths,
         commit: sourceCommit || original,
@@ -400,4 +400,4 @@ function planGateWrite(request, deps = defaultDeps()) {
   return { manifestPath: layout.manifestPath, manifest: candidate, row, retired };
 }
 
-module.exports = { planGateWrite };
+module.exports = { planGateWrite, defaultDeps };

@@ -786,6 +786,7 @@ test("recertified design-critique rows rerun the critique at the critiqued commi
       baseRef: "origin/main",
       verifyGit: false,
     });
+    assert.equal(fx.calls.ancestry, undefined);
     fx.deps.checkDesignCritique = () => ({
       ok: false,
       issues: [{ path: "report.outcome", message: "must be passed" }],
@@ -878,9 +879,95 @@ test("recertified design-critique re-captured after the critiqued commit reruns 
     fx.deps.isAncestor = (_root, ancestor) => ancestor !== "e".repeat(40);
     assert.throws(
       () => planGateWrite(request, fx.deps),
-      /route source d{40} must descend from e{40} and precede HEAD/
+      /could not prove design-critique route source d{40} descends from e{40} and precedes HEAD/
     );
+    fx.deps.isAncestor = (_root, ancestor) => ancestor !== "d".repeat(40);
+    assert.throws(() => planGateWrite(request, fx.deps), /precedes HEAD/);
   } finally {
     fx.cleanup();
+  }
+});
+
+test("recertified design-critique without a route source reruns at the critiqued commit", () => {
+  const fx = writerFixture("design-critique", "design-critique", [
+    { kind: "review", command: "design-critique-check.js", exit_code: 0, artifact: null },
+  ]);
+  try {
+    const records = fx.session.evidence["design-critique"].records;
+    fx.session.evidence["design-critique"] = {
+      commit: "e".repeat(40),
+      records,
+      verified_commit: "c".repeat(40),
+      verified_at: "2026-09-26T00:00:00.000Z",
+      verification_records: records,
+    };
+    const dc = path.join(fx.dir, "design-critique");
+    fs.mkdirSync(dc);
+    fs.writeFileSync(path.join(dc, "route.json"), JSON.stringify({ source: {} }));
+    fs.writeFileSync(path.join(dc, "report.html"), "<html></html>");
+    planGateWrite(
+      { sessionPath: fx.sessionPath, session: fx.session, name: "design-critique" },
+      fx.deps
+    );
+    assert.equal(fx.calls.designCritique.commit, "e".repeat(40));
+    assert.equal(fx.calls.designCritique.verifyGit, false);
+    assert.equal(fx.calls.ancestry, undefined);
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("gate writer proves a re-captured critique's ancestry with real Git in order", () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), "pm-gate-ancestry-"));
+  const git = (...args) =>
+    execFileSync("git", args, {
+      cwd: repo,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "t",
+        GIT_AUTHOR_EMAIL: "t@example.com",
+        GIT_COMMITTER_NAME: "t",
+        GIT_COMMITTER_EMAIL: "t@example.com",
+      },
+    }).trim();
+  try {
+    git("init", "-q");
+    const commits = ["original", "source", "head"].map((name) => {
+      git("commit", "-q", "--allow-empty", "-m", name);
+      return git("rev-parse", "HEAD");
+    });
+    const [original, source, head] = commits;
+    const fx = writerFixture("design-critique", "design-critique", [
+      { kind: "review", command: "design-critique-check.js", exit_code: 0, artifact: null },
+    ]);
+    try {
+      const records = fx.session.evidence["design-critique"].records;
+      fx.session.evidence["design-critique"] = {
+        commit: original,
+        records,
+        verified_commit: head,
+        verified_at: "2026-09-26T00:00:00.000Z",
+        verification_records: records,
+      };
+      const dc = path.join(fx.dir, "design-critique");
+      fs.mkdirSync(dc);
+      const route = path.join(dc, "route.json");
+      fs.writeFileSync(path.join(dc, "report.html"), "<html></html>");
+      const { isAncestor } = require("../scripts/lib/dev-gate-writer").defaultDeps();
+      fx.deps.head = () => head;
+      fx.deps.isAncestor = (_root, ancestor, descendant) => isAncestor(repo, ancestor, descendant);
+      const request = { sessionPath: fx.sessionPath, session: fx.session, name: "design-critique" };
+      fs.writeFileSync(route, JSON.stringify({ source: { commit: source } }));
+      planGateWrite(request, fx.deps);
+      assert.equal(fx.calls.designCritique.commit, source);
+      fx.session.evidence["design-critique"].commit = source;
+      fs.writeFileSync(route, JSON.stringify({ source: { commit: original } }));
+      assert.throws(() => planGateWrite(request, fx.deps), /could not prove/);
+    } finally {
+      fx.cleanup();
+    }
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
   }
 });
