@@ -555,7 +555,8 @@ setInterval(() => {}, 1000);
       () =>
         runBrowserProbe({}, "browser probe", {
           probePath,
-          timeoutMs: 100,
+          // Allow the child to publish its cleanup channel even under full-suite load.
+          timeoutMs: 5000,
           terminateBrowser: (pid) => terminated.push(pid),
           removeProfile: (profileDir) => {
             removed.push(profileDir);
