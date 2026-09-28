@@ -720,6 +720,7 @@ function accessibilityEvidence(axTree, model, compositeBackendNodeIds = new Set(
   );
   const landmarks = [];
   const dialogs = [];
+  const activeModalBackendIds = [];
   const axById = new Map((axTree.nodes || []).map((node) => [node.nodeId, node]));
   const focusedAncestors = new Set();
   for (const focused of axTree.nodes || []) {
@@ -773,6 +774,8 @@ function accessibilityEvidence(axTree, model, compositeBackendNodeIds = new Set(
     if (name.length > 1000) throw new Error("accessible name exceeds 1000 characters");
     const locator = nodeLocator(node);
     if (["dialog", "alertdialog"].includes(role)) {
+      if (name && axProperties(axNode).get("modal") === true && focusedAncestors.has(axNode.nodeId))
+        activeModalBackendIds.push(axNode.backendDOMNodeId);
       appendBoundedEvidence(
         dialogs,
         {
@@ -822,7 +825,11 @@ function accessibilityEvidence(axTree, model, compositeBackendNodeIds = new Set(
       controlBackendNodeIds.push(node.backendNodeId);
     }
   }
-  return { observations: { landmarks, controls, dialogs }, controlBackendNodeIds };
+  return {
+    observations: { landmarks, controls, dialogs },
+    controlBackendNodeIds,
+    activeModalBackendNodeId: activeModalBackendIds.length === 1 ? activeModalBackendIds[0] : null,
+  };
 }
 
 function accessibilityObservations(axTree, model, compositeBackendNodeIds = new Set()) {
@@ -1676,7 +1683,8 @@ function domObservations(
   metrics,
   computedStyles,
   visibilityEvaluator = null,
-  viewport = metrics.cssLayoutViewport
+  viewport = metrics.cssLayoutViewport,
+  activeModalBackendNodeId = null
 ) {
   const styleIndex = new Map(computedStyles.map((name, index) => [name, index]));
   const style = (node, name) => node.layout?.styles?.[styleIndex.get(name)] || "";
@@ -1766,10 +1774,36 @@ function domObservations(
     for (const node of trail) nearestRegion.set(node.index, region);
     return region;
   };
+  // Typography belongs to the active, named modal while it owns focus. Keep
+  // the CSS visibility evaluator unchanged: aria-hidden content can still be
+  // painted, and other geometry audits must continue observing those pixels.
+  const modalRoot =
+    activeModalBackendNodeId === null
+      ? null
+      : model.find((node) => node.backendNodeId === activeModalBackendNodeId);
+  const inModal = new Map();
+  const withinTypographyScope = (node) => {
+    if (!modalRoot) return true;
+    const trail = [];
+    const seen = new Set();
+    let current = node;
+    let included = false;
+    while (current && !seen.has(current.index)) {
+      if (current === modalRoot || inModal.has(current.index)) {
+        included = current === modalRoot || inModal.get(current.index);
+        break;
+      }
+      seen.add(current.index);
+      trail.push(current);
+      current = byIndex.get(current.parentIndex);
+    }
+    for (const item of trail) inModal.set(item.index, included);
+    return included;
+  };
   const regions = new Map();
-  for (const node of visibleNodes.filter(
-    (candidate) => candidate.nodeName === "p" || /^h[1-6]$/.test(candidate.nodeName)
-  )) {
+  for (const node of visibleNodes
+    .filter(withinTypographyScope)
+    .filter((candidate) => candidate.nodeName === "p" || /^h[1-6]$/.test(candidate.nodeName))) {
     const region = resolveRegion(byIndex.get(node.parentIndex));
     if (!regions.has(region)) regions.set(region, []);
     regions.get(region).push(node);
@@ -1896,6 +1930,15 @@ function domObservations(
     return JSON.stringify(geometry);
   };
 
+  const typographyProperties = new Set([
+    "font-size",
+    "font-weight",
+    "line-height",
+    "color",
+    "letter-spacing",
+    "text-transform",
+    "text-decoration-line",
+  ]);
   const signatures = [
     {
       name: "heading",
@@ -1973,8 +2016,11 @@ function domObservations(
       const signatureValue = (node, property) =>
         property === "glyph-geometry" ? glyphGeometry.get(node) : style(node, property);
       for (const property of properties) {
+        const comparedNodes = typographyProperties.has(property)
+          ? nodes.filter(withinTypographyScope)
+          : nodes;
         const counts = new Map();
-        for (const node of nodes) {
+        for (const node of comparedNodes) {
           const value = signatureValue(node, property);
           counts.set(value, (counts.get(value) || 0) + 1);
         }
@@ -1982,7 +2028,7 @@ function domObservations(
         const majority = [...counts.entries()].sort(
           (left, right) => right[1] - left[1] || left[0].localeCompare(right[0])
         )[0][0];
-        for (const node of nodes.filter(
+        for (const node of comparedNodes.filter(
           (candidate) => signatureValue(candidate, property) !== majority
         )) {
           addIssue(
@@ -2721,7 +2767,14 @@ async function nativeSample(
     accessibilityControlBackendNodeIds: accessibility.controlBackendNodeIds,
     compositeKeyboardCandidates: compositeKeyboardCandidates(axTree, model),
     compositeFrozenNode: frozenCompositeNodes(axTree, model),
-    dom: domObservations(model, metrics, computedStyles, visibilityEvaluator, viewport),
+    dom: domObservations(
+      model,
+      metrics,
+      computedStyles,
+      visibilityEvaluator,
+      viewport,
+      accessibility.activeModalBackendNodeId
+    ),
   };
 }
 
