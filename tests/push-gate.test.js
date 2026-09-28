@@ -21,7 +21,11 @@ test("delivery bypass inputs all use bounded no-follow project reads", () => {
   assert.equal((bypass.match(/readDeliveryJson\(/g) || []).length, 4);
 });
 const { deriveSessionSlug } = require("../scripts/dev-gate-check.js");
-const { createSession, grantAuthority } = require("../scripts/lib/dev-session-schema");
+const {
+  createSession,
+  grantAuthority,
+  updateWorkspace,
+} = require("../scripts/lib/dev-session-schema");
 
 // ---------------------------------------------------------------------------
 // hooks/push-gate is a PreToolUse (Bash matcher, async:false) hook that makes
@@ -371,6 +375,125 @@ test("push is allowed when the enforcement checker returns a clean verdict", () 
     assertAllow(runHook("git push origin HEAD", { cwd: dir }, { PM_PLUGIN_ROOT: fakeRoot }));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(fakeRoot, { recursive: true, force: true });
+  }
+});
+
+// A Dev session created in the main checkout keeps session.json at its origin
+// while gates.json lives beside the assigned worktree. The hook must resolve that
+// originating session instead of treating the worktree push as unverified.
+function makeWorktreeSession({ grantPush = true, mutate } = {}) {
+  const dir = makeRepo();
+  git(dir, "checkout", "-q", "main");
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "push-gate-wt-"));
+  const worktree = path.join(parent, "source");
+  git(dir, "worktree", "add", "-q", worktree, "feat/x");
+  let session = updateWorkspace(
+    createSession({ slug: "x", sourceDir: dir, allowSlugMismatch: true }),
+    worktree
+  );
+  if (grantPush)
+    session = grantAuthority(session, ["push_feature_branch"], "Test authorizes branch push");
+  session.routing.review_mode = "code-scan";
+  session.routing.required_gates = [...REQUIRED];
+  if (mutate) mutate(session);
+  const originDir = path.join(dir, ".pm", "dev-sessions", "x");
+  fs.mkdirSync(originDir, { recursive: true });
+  fs.writeFileSync(path.join(originDir, "session.json"), JSON.stringify(session, null, 2));
+  const manifest = passingManifest(worktree, "x", headSha(worktree));
+  manifest.run_id = session.run_id;
+  const worktreeDir = path.join(worktree, ".pm", "dev-sessions", "x");
+  fs.mkdirSync(worktreeDir, { recursive: true });
+  fs.writeFileSync(path.join(worktreeDir, "gates.json"), JSON.stringify(manifest, null, 2));
+  const cleanup = () => {
+    fs.rmSync(parent, { recursive: true, force: true });
+    fs.rmSync(dir, { recursive: true, force: true });
+  };
+  return { dir, worktree, session, cleanup };
+}
+
+function cleanCheckerRoot() {
+  const fakeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "push-gate-cleanroot-"));
+  fs.mkdirSync(path.join(fakeRoot, "scripts"), { recursive: true });
+  fs.writeFileSync(
+    path.join(fakeRoot, "scripts", "dev-gate-check.js"),
+    `"use strict";\n` +
+      `module.exports = require(${JSON.stringify(path.join(ROOT, "scripts", "dev-gate-check.js"))});\n` +
+      `if (require.main === module) process.exitCode = 0;\n`
+  );
+  return fakeRoot;
+}
+
+test("worktree push resolves the originating canonical session and is gated", () => {
+  const fixture = makeWorktreeSession();
+  const fakeRoot = cleanCheckerRoot();
+  try {
+    assertAllow(
+      runHook("git push origin HEAD", { cwd: fixture.worktree }, { PM_PLUGIN_ROOT: fakeRoot })
+    );
+    assertAllow(
+      runHook("git push -u origin feat/x", { cwd: fixture.worktree }, { PM_PLUGIN_ROOT: fakeRoot })
+    );
+    // The real checker loads the originating session and blocks only on its
+    // missing phase evidence, never on session resolution.
+    const real = runHook("git push origin HEAD", { cwd: fixture.worktree });
+    assertBlock(real, /canonical session evidence for tdd is missing or stale at current commit/);
+    assert.doesNotMatch(
+      decisionOf(real).permissionDecisionReason,
+      /session\.json|cannot validate|needs canonical session|Expected one canonical/
+    );
+    assert.equal(
+      fs.existsSync(path.join(fixture.worktree, ".pm", "dev-sessions", "x", "session.json")),
+      false
+    );
+  } finally {
+    fixture.cleanup();
+    fs.rmSync(fakeRoot, { recursive: true, force: true });
+  }
+});
+
+test("worktree push still blocks without an originating session or push authority", () => {
+  const fakeRoot = cleanCheckerRoot();
+  const cases = [
+    {
+      label: "no originating session",
+      fixture: () => {
+        const f = makeWorktreeSession();
+        fs.rmSync(path.join(f.dir, ".pm", "dev-sessions", "x", "session.json"));
+        return f;
+      },
+      reason: /no canonical session\.json beside gates\.json/,
+    },
+    {
+      label: "session assigned to another worktree",
+      fixture: () => makeWorktreeSession({ mutate: (s) => (s.source.worktree = os.tmpdir()) }),
+      reason: /no canonical session\.json beside gates\.json/,
+    },
+    {
+      label: "session bound to another branch",
+      fixture: () => makeWorktreeSession({ mutate: (s) => (s.source.branch = "feat/y") }),
+      reason: /cannot validate canonical session x|does not match source worktree/,
+    },
+    {
+      label: "session without push authority",
+      fixture: () => makeWorktreeSession({ grantPush: false }),
+      reason: /does not grant push_feature_branch/,
+    },
+  ];
+  try {
+    for (const item of cases) {
+      const f = item.fixture();
+      try {
+        assertBlock(
+          runHook("git push origin HEAD", { cwd: f.worktree }, { PM_PLUGIN_ROOT: fakeRoot }),
+          item.reason,
+          item.label
+        );
+      } finally {
+        f.cleanup();
+      }
+    }
+  } finally {
     fs.rmSync(fakeRoot, { recursive: true, force: true });
   }
 });

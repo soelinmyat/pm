@@ -10,7 +10,9 @@ const { MAX_JSON_BYTES } = require("./review-limits");
 // cross the source-root boundary; evidence and output paths remain local.
 // allowDetached admits a detached source worktree (no current branch) for
 // callers that only record a non-passing state; a different branch still fails.
-function loadDevSession(root, { slug, sessionPath, allowDetached = false } = {}) {
+// optional returns null when no registered worktree holds a session for root;
+// every mismatch or ambiguity still throws.
+function loadDevSession(root, { slug, sessionPath, allowDetached = false, optional = false } = {}) {
   root = fs.realpathSync(path.resolve(root));
   let requested = sessionPath ? path.resolve(root, sessionPath) : null;
   const match = requested
@@ -56,14 +58,22 @@ function loadDevSession(root, { slug, sessionPath, allowDetached = false } = {})
       throw error;
     }
     if (commonDirectory(candidate) !== common) throw new Error("Dev session repository mismatch");
+    let bytes;
+    try {
+      bytes = readProjectInput(candidate, relative, MAX_JSON_BYTES).bytes;
+    } catch (error) {
+      if (requested && requested !== local) throw error;
+      // Discovery must not follow another worktree's symlinked state. Such a
+      // path cannot be an authority candidate. Any other read failure is
+      // reported, never read as an absent session.
+      if (error.message.startsWith("project path contains symlink")) continue;
+      throw new Error(`Dev session at ${file} is unreadable: ${error.message}`);
+    }
     let loaded;
     try {
-      loaded = readSession(candidate, relative);
+      loaded = { path: file, value: JSON.parse(bytes.toString("utf8")) };
     } catch (error) {
-      // Discovery must not follow another worktree's symlinked state. Such a
-      // path cannot be an authority candidate; an explicit request still fails.
-      if (!requested || requested === local) continue;
-      throw error;
+      throw new Error(`Dev session at ${file} is not valid JSON: ${error.message}`);
     }
     const session = loaded.value;
     if (requested && requested !== local && path.resolve(file) !== requested) continue;
@@ -84,6 +94,7 @@ function loadDevSession(root, { slug, sessionPath, allowDetached = false } = {})
       );
     matches.push(loaded);
   }
+  if (optional && matches.length === 0) return null;
   if (matches.length !== 1)
     throw new Error("Expected one canonical Dev session in this repository's registered worktrees");
   return matches[0];
