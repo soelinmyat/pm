@@ -3106,7 +3106,7 @@ test(
     let html = decodeURIComponent(fixture.url.split(",").slice(1).join(","));
     html = html.replace(
       '<main id="account"',
-      '<main aria-hidden="true"><h1>Background</h1></main><dialog aria-label="Administration" id="account"'
+      '<main aria-hidden="true"><h3 style="font-size:13px">KPIs</h3><p style="font-size:36px">64.4%</p></main><dialog aria-label="Administration" id="account"'
     );
     const lastMain = html.lastIndexOf("</main>");
     html =
@@ -3129,6 +3129,7 @@ test(
           contains_focus: true,
         },
       ]);
+      assert.deepEqual(result.dom_observations.hierarchy, []);
       const raw = {
         schema_version: 1,
         kind: "accessibility-tree",
@@ -3423,4 +3424,40 @@ test("validateRoute applies the coverage reason rule the checker shares", () => 
     invalid.coverage[0].reason = reason;
     assert.throws(() => validateRoute(invalid), /route\.coverage\[0\]\.reason/);
   }
+});
+
+test("typography active-modal scope excludes background but retains foreground defects", () => {
+  const styles = ["display", "visibility", "opacity", "font-size", "font-weight"];
+  const node = (index, parentIndex, nodeName, size, attributes = {}) => ({
+    index,
+    parentIndex,
+    backendNodeId: index + 1,
+    nodeName,
+    attributes,
+    layout: {
+      bounds: [0, index * 20, 100, 20],
+      styles: ["block", "visible", "1", `${size}px`, "400"],
+    },
+  });
+  const model = [
+    node(0, -1, "html", 16),
+    node(1, 0, "main", 16, { "aria-hidden": "true" }),
+    node(2, 1, "h3", 13),
+    node(3, 1, "p", 36),
+    node(4, 0, "dialog", 16),
+    node(5, 4, "h2", 24),
+    node(6, 4, "p", 16),
+  ];
+  const metrics = {
+    cssLayoutViewport: { clientWidth: 400, clientHeight: 300 },
+    cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 400, clientHeight: 300 },
+    cssContentSize: { width: 400, height: 300 },
+  };
+  const inspect = (modal) =>
+    domObservations(model, metrics, styles, null, metrics.cssLayoutViewport, modal).hierarchy;
+  assert.ok(inspect(null).some((item) => item.code === "body-exceeds-heading"));
+  assert.deepEqual(inspect(5), []);
+  model[6].layout.styles[3] = "32px";
+  assert.ok(inspect(5).some((item) => item.code === "body-exceeds-heading"));
+  assert.ok(inspect(999).some((item) => item.code === "body-exceeds-heading"));
 });
