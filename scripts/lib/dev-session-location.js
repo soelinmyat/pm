@@ -10,7 +10,9 @@ const { MAX_JSON_BYTES } = require("./review-limits");
 // cross the source-root boundary; evidence and output paths remain local.
 // allowDetached admits a detached source worktree (no current branch) for
 // callers that only record a non-passing state; a different branch still fails.
-function loadDevSession(root, { slug, sessionPath, allowDetached = false } = {}) {
+// optional returns null when no registered worktree holds a session for root;
+// every mismatch or ambiguity still throws.
+function loadDevSession(root, { slug, sessionPath, allowDetached = false, optional = false } = {}) {
   root = fs.realpathSync(path.resolve(root));
   let requested = sessionPath ? path.resolve(root, sessionPath) : null;
   const match = requested
@@ -84,6 +86,7 @@ function loadDevSession(root, { slug, sessionPath, allowDetached = false } = {})
       );
     matches.push(loaded);
   }
+  if (optional && matches.length === 0) return null;
   if (matches.length !== 1)
     throw new Error("Expected one canonical Dev session in this repository's registered worktrees");
   return matches[0];

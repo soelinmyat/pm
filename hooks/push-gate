@@ -45,6 +45,9 @@ const { readProjectInput } = require(
 const { validateSession } = require(
   path.join(HOOK_ROOT, "scripts", "lib", "dev-session-schema.js")
 );
+const { loadDevSession } = require(
+  path.join(HOOK_ROOT, "scripts", "lib", "dev-session-location.js")
+);
 const { isGitObjectId, zeroObjectIdLike } = require(
   path.join(HOOK_ROOT, "scripts", "lib", "git-object-id.js")
 );
@@ -1813,19 +1816,32 @@ function loadCanonicalSessionCandidate(located, slug, stat) {
   }
 
   const relative = path.join(".pm", "dev-sessions", slug, "session.json");
+  let sibling = true;
   try {
     fs.lstatSync(path.join(candidate.directory, "session.json"));
   } catch (error) {
-    if (error.code === "ENOENT") {
-      candidate.missingSession = true;
+    if (error.code !== "ENOENT") {
+      candidate.error = error.message;
       return candidate;
     }
-    candidate.error = error.message;
-    return candidate;
+    sibling = false;
   }
   try {
-    const file = readProjectInput(located.root, relative, MAX_SESSION_BYTES);
-    const session = JSON.parse(file.bytes.toString("utf8"));
+    let session;
+    if (sibling) {
+      const file = readProjectInput(located.root, relative, MAX_SESSION_BYTES);
+      session = JSON.parse(file.bytes.toString("utf8"));
+    } else {
+      // A Dev worktree keeps gates.json locally while session.json stays in the
+      // originating checkout. Resolve only a registered, unsymlinked origin that
+      // binds this worktree and branch; any mismatch fails closed as an error.
+      const origin = loadDevSession(located.root, { slug, optional: true });
+      if (!origin) {
+        candidate.missingSession = true;
+        return candidate;
+      }
+      session = origin.value;
+    }
     const validation = validateSession(session);
     if (validation.length > 0)
       throw new Error(
@@ -2185,8 +2201,12 @@ function gatePush(baseCwd, push) {
     }
     return false;
   }
-  if (!fs.existsSync(path.join(canonicalSessionDir, "session.json"))) {
-    blockUnverified(branch, manifestPath, "canonical sibling session.json is missing");
+  if (!session) {
+    blockUnverified(
+      branch,
+      manifestPath,
+      "canonical session.json is missing beside gates.json and in the originating checkout"
+    );
     return true;
   }
   if (

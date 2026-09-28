@@ -120,6 +120,21 @@ test("discovery ignores another worktree's symlinked state but explicit traversa
   );
 });
 
+test("optional discovery returns null only when no origin binds the worktree", (t) => {
+  const f = fixture(t);
+  assert.equal(loadDevSession(f.worktree, { slug: "location-test", optional: true }).path, f.file);
+  const changed = structuredClone(f.session);
+  changed.source.branch = "fix/other";
+  fs.writeFileSync(f.file, JSON.stringify(changed));
+  assert.throws(
+    () => loadDevSession(f.worktree, { slug: "location-test", optional: true }),
+    /does not match/
+  );
+  fs.rmSync(f.file);
+  assert.equal(loadDevSession(f.worktree, { slug: "location-test", optional: true }), null);
+  assert.throws(() => loadDevSession(f.worktree, { slug: "location-test" }), /Expected one/);
+});
+
 test("a stale worktree copy is rejected instead of becoming a second authority", (t) => {
   const f = fixture(t);
   const duplicate = path.join(f.worktree, f.relative);
