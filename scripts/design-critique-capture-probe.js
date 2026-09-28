@@ -1930,6 +1930,15 @@ function domObservations(
     return JSON.stringify(geometry);
   };
 
+  const typographyProperties = new Set([
+    "font-size",
+    "font-weight",
+    "line-height",
+    "color",
+    "letter-spacing",
+    "text-transform",
+    "text-decoration-line",
+  ]);
   const signatures = [
     {
       name: "heading",
@@ -2007,8 +2016,11 @@ function domObservations(
       const signatureValue = (node, property) =>
         property === "glyph-geometry" ? glyphGeometry.get(node) : style(node, property);
       for (const property of properties) {
+        const comparedNodes = typographyProperties.has(property)
+          ? nodes.filter(withinTypographyScope)
+          : nodes;
         const counts = new Map();
-        for (const node of nodes) {
+        for (const node of comparedNodes) {
           const value = signatureValue(node, property);
           counts.set(value, (counts.get(value) || 0) + 1);
         }
@@ -2016,7 +2028,7 @@ function domObservations(
         const majority = [...counts.entries()].sort(
           (left, right) => right[1] - left[1] || left[0].localeCompare(right[0])
         )[0][0];
-        for (const node of nodes.filter(
+        for (const node of comparedNodes.filter(
           (candidate) => signatureValue(candidate, property) !== majority
         )) {
           addIssue(
