@@ -51,21 +51,31 @@ function loadDevSession(root, { slug, sessionPath, allowDetached = false, option
     )
       continue;
     const file = path.join(candidate, relative);
+    let stat;
     try {
-      fs.lstatSync(file);
+      stat = fs.lstatSync(file);
     } catch (error) {
       if (error.code === "ENOENT") continue;
       throw error;
     }
     if (commonDirectory(candidate) !== common) throw new Error("Dev session repository mismatch");
-    let loaded;
+    // A corrupt or oversized regular file is reported, never read as absent.
+    if (stat.isFile() && stat.size > MAX_JSON_BYTES)
+      throw new Error(`Dev session at ${file} exceeds the ${MAX_JSON_BYTES}-byte budget`);
+    let bytes;
     try {
-      loaded = readSession(candidate, relative);
+      bytes = readProjectInput(candidate, relative, MAX_JSON_BYTES).bytes;
     } catch (error) {
       // Discovery must not follow another worktree's symlinked state. Such a
       // path cannot be an authority candidate; an explicit request still fails.
       if (!requested || requested === local) continue;
       throw error;
+    }
+    let loaded;
+    try {
+      loaded = { path: file, value: JSON.parse(bytes.toString("utf8")) };
+    } catch (error) {
+      throw new Error(`Dev session at ${file} is not valid JSON: ${error.message}`);
     }
     const session = loaded.value;
     if (requested && requested !== local && path.resolve(file) !== requested) continue;

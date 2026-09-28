@@ -135,6 +135,21 @@ test("optional discovery returns null only when no origin binds the worktree", (
   assert.throws(() => loadDevSession(f.worktree, { slug: "location-test" }), /Expected one/);
 });
 
+test("discovery reports a corrupt or oversized origin session instead of reading it as absent", (t) => {
+  const f = fixture(t);
+  fs.writeFileSync(f.file, '{"truncated":');
+  assert.throws(
+    () => loadDevSession(f.worktree, { slug: "location-test", optional: true }),
+    /is not valid JSON/
+  );
+  const { MAX_JSON_BYTES } = require("../scripts/lib/review-limits");
+  fs.writeFileSync(f.file, " ".repeat(MAX_JSON_BYTES + 1));
+  assert.throws(
+    () => loadDevSession(f.worktree, { slug: "location-test", optional: true }),
+    /exceeds the \d+-byte budget/
+  );
+});
+
 test("a stale worktree copy is rejected instead of becoming a second authority", (t) => {
   const f = fixture(t);
   const duplicate = path.join(f.worktree, f.relative);
