@@ -146,8 +146,30 @@ test("discovery reports a corrupt or oversized origin session instead of reading
   fs.writeFileSync(f.file, " ".repeat(MAX_JSON_BYTES + 1));
   assert.throws(
     () => loadDevSession(f.worktree, { slug: "location-test", optional: true }),
-    /exceeds the \d+-byte budget/
+    /is unreadable: input exceeds \d+-byte budget/
   );
+  fs.rmSync(f.file);
+  fs.mkdirSync(f.file);
+  assert.throws(
+    () => loadDevSession(f.worktree, { slug: "location-test", optional: true }),
+    /is unreadable: input must be an existing regular file/
+  );
+});
+
+test("discovery ignores oversized state behind another worktree's symlink", (t) => {
+  const f = fixture(t);
+  const other = path.join(f.parent, "unrelated");
+  f.git(f.root, "worktree", "add", "-b", "fix/unrelated", other);
+  const outside = path.join(f.parent, "outside-sessions");
+  fs.mkdirSync(path.join(outside, "location-test"), { recursive: true });
+  const { MAX_JSON_BYTES } = require("../scripts/lib/review-limits");
+  fs.writeFileSync(
+    path.join(outside, "location-test", "session.json"),
+    " ".repeat(MAX_JSON_BYTES + 1)
+  );
+  fs.mkdirSync(path.join(other, ".pm"));
+  fs.symlinkSync(outside, path.join(other, ".pm/dev-sessions"));
+  assert.equal(loadDevSession(f.worktree, { slug: "location-test" }).path, f.file);
 });
 
 test("a stale worktree copy is rejected instead of becoming a second authority", (t) => {

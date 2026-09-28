@@ -51,25 +51,23 @@ function loadDevSession(root, { slug, sessionPath, allowDetached = false, option
     )
       continue;
     const file = path.join(candidate, relative);
-    let stat;
     try {
-      stat = fs.lstatSync(file);
+      fs.lstatSync(file);
     } catch (error) {
       if (error.code === "ENOENT") continue;
       throw error;
     }
     if (commonDirectory(candidate) !== common) throw new Error("Dev session repository mismatch");
-    // A corrupt or oversized regular file is reported, never read as absent.
-    if (stat.isFile() && stat.size > MAX_JSON_BYTES)
-      throw new Error(`Dev session at ${file} exceeds the ${MAX_JSON_BYTES}-byte budget`);
     let bytes;
     try {
       bytes = readProjectInput(candidate, relative, MAX_JSON_BYTES).bytes;
     } catch (error) {
+      if (requested && requested !== local) throw error;
       // Discovery must not follow another worktree's symlinked state. Such a
-      // path cannot be an authority candidate; an explicit request still fails.
-      if (!requested || requested === local) continue;
-      throw error;
+      // path cannot be an authority candidate. Any other read failure is
+      // reported, never read as an absent session.
+      if (error.message.startsWith("project path contains symlink")) continue;
+      throw new Error(`Dev session at ${file} is unreadable: ${error.message}`);
     }
     let loaded;
     try {
