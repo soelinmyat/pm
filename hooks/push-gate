@@ -1804,6 +1804,9 @@ function canonicalSessionsDirectory(repoDir) {
   return { root, directory: current };
 }
 
+const NO_CANONICAL_SESSION =
+  "no canonical session.json beside gates.json, and no registered checkout holds one assigned to this worktree";
+
 function loadCanonicalSessionCandidate(located, slug, stat) {
   const candidate = { slug, directory: path.join(located.directory, slug), session: null };
   if (stat.isSymbolicLink()) {
@@ -1942,7 +1945,7 @@ function selectCanonicalSessionTargets(repoDir, shape, currentBranch) {
     );
     if (invalid)
       return {
-        error: `cannot classify wildcard push against canonical session ${invalid.slug}: ${invalid.error || "canonical session.json is missing"}`,
+        error: `cannot classify wildcard push against canonical session ${invalid.slug}: ${invalid.error || NO_CANONICAL_SESSION}`,
       };
   }
   if (shape.unresolvedCurrent) {
@@ -1951,7 +1954,7 @@ function selectCanonicalSessionTargets(repoDir, shape, currentBranch) {
     );
     if (invalid)
       return {
-        error: `cannot resolve detached destination against canonical session ${invalid.slug}: ${invalid.error || "canonical session.json is missing"}`,
+        error: `cannot resolve detached destination against canonical session ${invalid.slug}: ${invalid.error || NO_CANONICAL_SESSION}`,
       };
     if (index.sessions.length > 0)
       return {
@@ -2202,11 +2205,7 @@ function gatePush(baseCwd, push) {
     return false;
   }
   if (!session) {
-    blockUnverified(
-      branch,
-      manifestPath,
-      "canonical session.json is missing beside gates.json and in the originating checkout"
-    );
+    blockUnverified(branch, manifestPath, NO_CANONICAL_SESSION);
     return true;
   }
   if (

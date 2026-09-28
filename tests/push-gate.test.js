@@ -434,10 +434,14 @@ test("worktree push resolves the originating canonical session and is gated", ()
     assertAllow(
       runHook("git push -u origin feat/x", { cwd: fixture.worktree }, { PM_PLUGIN_ROOT: fakeRoot })
     );
-    // The real checker still evaluates the gates against the originating session.
+    // The real checker loads the originating session and blocks only on its
+    // missing phase evidence, never on session resolution.
     const real = runHook("git push origin HEAD", { cwd: fixture.worktree });
-    assertBlock(real, null);
-    assert.doesNotMatch(decisionOf(real).permissionDecisionReason, /session\.json is missing/);
+    assertBlock(real, /canonical session evidence for tdd is missing or stale at current commit/);
+    assert.doesNotMatch(
+      decisionOf(real).permissionDecisionReason,
+      /session\.json|cannot validate|needs canonical session|Expected one canonical/
+    );
     assert.equal(
       fs.existsSync(path.join(fixture.worktree, ".pm", "dev-sessions", "x", "session.json")),
       false
@@ -458,12 +462,12 @@ test("worktree push still blocks without an originating session or push authorit
         fs.rmSync(path.join(f.dir, ".pm", "dev-sessions", "x", "session.json"));
         return f;
       },
-      reason: /session\.json is missing/,
+      reason: /no canonical session\.json beside gates\.json/,
     },
     {
       label: "session assigned to another worktree",
       fixture: () => makeWorktreeSession({ mutate: (s) => (s.source.worktree = os.tmpdir()) }),
-      reason: /session\.json is missing/,
+      reason: /no canonical session\.json beside gates\.json/,
     },
     {
       label: "session bound to another branch",
