@@ -986,7 +986,10 @@ test("ownership: repository config cannot hide changed paths from the check", ()
     git(path.join(repo, "mod"), "config", "user.name", "Test");
     git(path.join(repo, "mod"), "commit", "--allow-empty", "-qm", "bump");
     fs.writeFileSync(path.join(repo, "sub", "s"), "new\n");
-    git(repo, "add", "mod", "sub/s");
+    // git 2.54+ makes `git add` skip a submodule set to ignore=all, so stage the pointer directly.
+    const modHead = git(path.join(repo, "mod"), "rev-parse", "HEAD");
+    git(repo, "update-index", "--cacheinfo", `160000,${modHead},mod`);
+    git(repo, "add", "sub/s");
     git(repo, "commit", "-qm", "bump mod and edit sub/s");
     const bump = git(repo, "rev-parse", "HEAD");
     for (const baseCommit of [base, undefined]) {
