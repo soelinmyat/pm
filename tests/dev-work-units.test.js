@@ -270,6 +270,60 @@ test("validateWorkUnitResult: verifies completed commit HEAD, file count, and ow
   }
 });
 
+test("validateWorkUnitResult matches owns entries that carry a trailing annotation", () => {
+  const worktree = fs.mkdtempSync(path.join(os.tmpdir(), "dev-work-unit-annotated-"));
+  try {
+    execFileSync("git", ["init", "-q", worktree]);
+    execFileSync("git", ["-C", worktree, "config", "user.email", "test@example.com"]);
+    execFileSync("git", ["-C", worktree, "config", "user.name", "Test"]);
+    fs.mkdirSync(path.join(worktree, "config"));
+    fs.writeFileSync(path.join(worktree, "config", "application.rb"), "app\n");
+    fs.writeFileSync(path.join(worktree, "config", "new_file.rb"), "new\n");
+    execFileSync("git", ["-C", worktree, "add", "."]);
+    execFileSync("git", ["-C", worktree, "commit", "-qm", "annotated"]);
+    const commit = execFileSync("git", ["-C", worktree, "rev-parse", "HEAD"], {
+      encoding: "utf8",
+    }).trim();
+    const result = {
+      schema_version: 1,
+      work_unit_id: "annotated",
+      status: "completed",
+      summary: "Done.",
+      commit,
+      files_changed: 2,
+      evidence: [{ kind: "test", exit_code: 0 }],
+      blocker: null,
+      runtime: { provider: "claude" },
+    };
+
+    assert.doesNotThrow(() =>
+      validateWorkUnitResult(result, {
+        expectedOwnership: [
+          "config/application.rb (insert_after ActionDispatch::Executor only)",
+          "config/new_file.rb (new; executor to_complete registration)",
+        ],
+        worktree,
+      })
+    );
+    assert.throws(
+      () =>
+        validateWorkUnitResult(result, {
+          expectedOwnership: ["config/application.rb (new)", "config/new_file.rb(new)"],
+          worktree,
+        }),
+      /outside assigned ownership: config\/new_file\.rb/
+    );
+  } finally {
+    fs.rmSync(worktree, { recursive: true, force: true });
+  }
+});
+
+test("ownershipOverlaps: ignores trailing owns annotations", () => {
+  assert.equal(ownershipOverlaps(["src/a.js (new)"], ["src/a.js"]), true);
+  assert.equal(ownershipOverlaps(["src (helpers only)"], ["src/a.js (new)"]), true);
+  assert.equal(ownershipOverlaps(["src/a.js (new)"], ["src/b.js (new)"]), false);
+});
+
 test("validateWorkUnitResult checks the full assigned commit range and a clean worktree", () => {
   const worktree = fs.mkdtempSync(path.join(os.tmpdir(), "dev-work-unit-range-"));
   try {

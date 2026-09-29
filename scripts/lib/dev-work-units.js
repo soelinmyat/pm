@@ -1573,8 +1573,8 @@ function ownershipOverlaps(left, right) {
 }
 
 function patternsOverlap(leftValue, rightValue) {
-  const left = normalizePattern(leftValue);
-  const right = normalizePattern(rightValue);
+  const left = normalizeOwnershipPattern(leftValue);
+  const right = normalizeOwnershipPattern(rightValue);
   if (left === right) return true;
 
   const leftGlob = hasGlob(left);
@@ -1728,7 +1728,7 @@ function validateCompletedCommit(result, options) {
 
 function pathIsOwned(fileValue, patternValue) {
   const file = normalizePattern(fileValue);
-  const pattern = normalizePattern(patternValue);
+  const pattern = normalizeOwnershipPattern(patternValue);
   if (hasGlob(pattern)) return globMatches(pattern, file);
   return file === pattern || file.startsWith(`${pattern}/`);
 }
@@ -1778,6 +1778,12 @@ function normalizePattern(value) {
     .replace(/^\.\//, "")
     .replace(/\/{2,}/g, "/")
     .replace(/\/$/, "");
+}
+
+// RFC owns entries may carry a trailing note, e.g. "config/application.rb (insert_after only)".
+// The note scopes the edit for the worker; ownership is the path before it.
+function normalizeOwnershipPattern(value) {
+  return normalizePattern(value.trim().replace(/\s+\([^()]*\)$/, ""));
 }
 
 function hasGlob(value) {
