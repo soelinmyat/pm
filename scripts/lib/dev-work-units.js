@@ -1715,8 +1715,13 @@ function validateCompletedCommit(result, options) {
   if (result.commit !== head) {
     throw new Error(`worker commit is stale or outside assigned worktree HEAD: expected ${head}`);
   }
+  const patterns = ownership.map((entry) =>
+    resolveOwnershipPattern(entry, changedPaths, (literal) =>
+      pathExistsAt(worktree, result.commit, literal)
+    )
+  );
   const escaped = changedPaths.filter(
-    (file) => !ownership.some((pattern) => pathIsOwned(file, pattern))
+    (file) => !patterns.some((pattern) => pathIsOwned(file, pattern))
   );
   if (escaped.length > 0) {
     throw new Error(
@@ -1730,12 +1735,34 @@ function validateCompletedCommit(result, options) {
   }
 }
 
+// Each owns entry gets exactly one meaning when checking a commit. A trailing "(...)" is part
+// of the name when that literal path exists at the commit or the commit touches it; otherwise
+// it is a note and only the path before it is owned.
+function resolveOwnershipPattern(entry, changedPaths, literalExists) {
+  const forms = ownershipPatternForms(entry);
+  if (forms.length === 1) return forms[0];
+  const [literal, stripped] = forms;
+  if (hasGlob(literal)) return stripped;
+  const touched = changedPaths.some(
+    (file) => normalizePattern(file) === literal || normalizePattern(file).startsWith(`${literal}/`)
+  );
+  return touched || literalExists(literal) ? literal : stripped;
+}
+
+function pathExistsAt(worktree, commit, literal) {
+  try {
+    runGit(worktree, ["cat-file", "-e", `${commit}:${literal}`]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function pathIsOwned(fileValue, patternValue) {
   const file = normalizePattern(fileValue);
-  return ownershipPatternForms(patternValue).some((pattern) => {
-    if (hasGlob(pattern)) return globMatches(pattern, file);
-    return file === pattern || file.startsWith(`${pattern}/`);
-  });
+  const pattern = normalizePattern(patternValue);
+  if (hasGlob(pattern)) return globMatches(pattern, file);
+  return file === pattern || file.startsWith(`${pattern}/`);
 }
 
 function runGit(worktree, args) {
@@ -1763,19 +1790,21 @@ function validateOwnershipList(value, label) {
     throw new TypeError(`${label} must be a non-empty array`);
   }
   if (value.some((item) => !nonEmpty(item))) throw new TypeError(`${label} contains an empty path`);
-  for (const item of value) {
-    for (const form of ownershipPatternForms(item)) validateRepoRelativePattern(form, label);
-  }
+  for (const item of value) validateRepoRelativePattern(item, label);
 }
 
+// Checks the entry as written and, for an annotated owns entry, the path before the note.
 function validateRepoRelativePattern(value, label) {
-  const normalized = value.trim().replace(/\\/g, "/");
-  if (
-    normalized.startsWith("/") ||
-    /^[A-Za-z]:\//.test(normalized) ||
-    normalized.split("/").includes("..")
-  ) {
-    throw new Error(`${label} must be a repo-relative path pattern`);
+  const raw = value.trim();
+  for (const form of new Set([raw, stripOwnsAnnotation(raw)])) {
+    const normalized = form.replace(/\\/g, "/");
+    if (
+      normalized.startsWith("/") ||
+      /^[A-Za-z]:\//.test(normalized) ||
+      normalized.split("/").includes("..")
+    ) {
+      throw new Error(`${label} must be a repo-relative path pattern`);
+    }
   }
 }
 
@@ -1788,12 +1817,16 @@ function normalizePattern(value) {
 }
 
 // RFC owns entries may carry a trailing note, e.g. "config/application.rb (insert_after only)".
-// The note scopes the edit for the worker; ownership is the path before it. A real path that
-// ends in parentheses, e.g. "assets/Icons (old)", still owns itself, so both forms count.
+// The note scopes the edit for the worker; ownership is the path before it. A real path can
+// also end in parentheses, e.g. "assets/Icons (old)", so callers get both forms.
 function ownershipPatternForms(value) {
   const literal = normalizePattern(value);
-  const stripped = normalizePattern(value.trim().replace(/\s+\([^()]*\)$/, ""));
+  const stripped = normalizePattern(stripOwnsAnnotation(value.trim()));
   return stripped === literal ? [literal] : [literal, stripped];
+}
+
+function stripOwnsAnnotation(value) {
+  return value.replace(/\s+\([^()]*\)$/, "");
 }
 
 function hasGlob(value) {
