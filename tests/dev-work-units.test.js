@@ -982,6 +982,8 @@ test("ownership: repository config cannot hide changed paths from the check", ()
     git(repo, "commit", "-qm", "base");
     const base = git(repo, "rev-parse", "HEAD");
 
+    git(path.join(repo, "mod"), "config", "user.email", "test@example.com");
+    git(path.join(repo, "mod"), "config", "user.name", "Test");
     git(path.join(repo, "mod"), "commit", "--allow-empty", "-qm", "bump");
     fs.writeFileSync(path.join(repo, "sub", "s"), "new\n");
     git(repo, "add", "mod", "sub/s");
