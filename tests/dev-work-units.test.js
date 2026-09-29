@@ -536,6 +536,47 @@ test("ownership: annotated entries are validated after the note is stripped", ()
   );
 });
 
+test("ownership: glob characters inside a note on a plain path are prose", () => {
+  const worktree = fs.mkdtempSync(path.join(os.tmpdir(), "dev-work-unit-glob-note-"));
+  const git = (...args) =>
+    execFileSync("git", ["-C", worktree, ...args], { encoding: "utf8" }).trim();
+  try {
+    execFileSync("git", ["init", "-q", worktree]);
+    git("config", "user.email", "test@example.com");
+    git("config", "user.name", "Test");
+    fs.writeFileSync(path.join(worktree, "docs"), "old\n");
+    fs.writeFileSync(path.join(worktree, "docs (v1)"), "v1\n");
+    git("add", ".");
+    git("commit", "-qm", "base");
+    const base = git("rev-parse", "HEAD");
+    fs.writeFileSync(path.join(worktree, "docs"), "new\n");
+    git("commit", "-qam", "edit docs");
+    const commit = git("rev-parse", "HEAD");
+    for (const owns of ["docs (v?)", "docs (fix [typo] *now*)"]) {
+      assert.doesNotThrow(
+        () =>
+          validateWorkUnitResult(
+            {
+              schema_version: 1,
+              work_unit_id: "glob-note",
+              status: "completed",
+              summary: "Done.",
+              commit,
+              files_changed: 1,
+              evidence: [{ kind: "test", exit_code: 0 }],
+              blocker: null,
+              runtime: { provider: "claude" },
+            },
+            { expectedOwnership: [owns], worktree, baseCommit: base }
+          ),
+        owns
+      );
+    }
+  } finally {
+    fs.rmSync(worktree, { recursive: true, force: true });
+  }
+});
+
 test("ownership: notes with nested parentheses and stacked notes are stripped", () => {
   const worktree = fs.mkdtempSync(path.join(os.tmpdir(), "dev-work-unit-nested-note-"));
   const git = (...args) =>

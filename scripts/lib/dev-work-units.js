@@ -1727,19 +1727,17 @@ function validateCompletedCommit(result, options) {
   if (result.commit !== head) {
     throw new Error(`worker commit is stale or outside assigned worktree HEAD: expected ${head}`);
   }
-  let patterns;
+  let owners;
   try {
-    patterns = ownership.map((entry) =>
-      resolveOwnershipPattern(entry, ownershipPaths, (literal) =>
-        literalNamesCommitFile(worktree, result.commit, literal)
+    owners = ownership.map((entry) =>
+      resolveOwnershipMatcher(entry, ownershipPaths, (form, owns) =>
+        formNamesCommitFile(worktree, result.commit, form, owns)
       )
     );
   } catch (error) {
     throw new Error(`could not verify worker commit in assigned worktree: ${error.message}`);
   }
-  const escaped = ownershipPaths.filter(
-    (file) => !patterns.some((pattern) => pathIsOwned(file, pattern))
-  );
+  const escaped = ownershipPaths.filter((file) => !owners.some((owns) => owns(file)));
   if (escaped.length > 0) {
     throw new Error(
       `worker commit changed paths outside assigned ownership: ${escaped.join(", ")}`
@@ -1752,43 +1750,54 @@ function validateCompletedCommit(result, options) {
   }
 }
 
-// Each owns entry gets exactly one meaning when checking a commit. Forms are tried longest
-// first: a trailing "(...)" is part of the name when the commit touches a path that form names
-// or a file at the commit matches it (a glob is matched the same way); otherwise it is a note.
-// With no match, every note is stripped and only the path before them is owned.
-function resolveOwnershipPattern(entry, changedPaths, namesCommitFile) {
+// Each owns entry gets exactly one meaning when checking a commit, returned as a matcher. Forms
+// are tried longest first: a trailing "(...)" is part of the name when the commit touches a path
+// that form names or a file at the commit matches it; otherwise it is a note. With no match,
+// every note is stripped and only the path before them is owned. Glob characters inside a note
+// are prose, so when the path before the notes is plain, every form is matched as a plain path.
+function resolveOwnershipMatcher(entry, changedPaths, namesCommitFile) {
   const forms = ownershipPatternForms(entry);
+  const glob = hasGlob(forms[forms.length - 1]);
+  const matchers = forms.map((form) => ownershipMatcher(form, glob));
   const named = forms
     .slice(0, -1)
-    .find((form) => changedPaths.some((file) => pathIsOwned(file, form)) || namesCommitFile(form));
-  return named || forms[forms.length - 1];
+    .findIndex(
+      (form, index) =>
+        changedPaths.some(matchers[index]) || namesCommitFile(form, matchers[index], glob)
+    );
+  return matchers[named === -1 ? forms.length - 1 : named];
 }
 
-// Looks up only what the literal can name: one object for a plain path, and for a glob the
-// files under its fixed directory prefix, so the check stays cheap in large repositories.
-function literalNamesCommitFile(worktree, commit, literal) {
-  if (!hasGlob(literal)) {
+// Looks up only what a form can name: one object for a plain path, and for a glob the files
+// under its fixed directory prefix, so the check stays cheap in large repositories.
+function formNamesCommitFile(worktree, commit, form, owns, glob) {
+  if (!glob) {
     try {
-      runGit(worktree, ["cat-file", "-e", `${commit}:${literal}`]);
+      runGit(worktree, ["cat-file", "-e", `${commit}:${form}`]);
       return true;
     } catch {
       return false;
     }
   }
-  const prefix = literal.slice(0, literal.search(/[*?[\]{}]/));
+  const prefix = form.slice(0, form.search(/[*?[\]{}]/));
   const directory = prefix.slice(0, prefix.lastIndexOf("/") + 1).replace(/\/$/, "");
   const args = ["ls-tree", "-r", "-z", "--name-only", commit];
   if (directory) args.push("--", directory);
   return sharedRunGit(args, worktree, { maxBuffer: LS_TREE_MAX_BUFFER })
     .split("\0")
-    .some((file) => file && pathIsOwned(file, literal));
+    .some((file) => file && owns(file));
 }
 
-function pathIsOwned(fileValue, patternValue) {
-  const file = normalizePattern(fileValue);
-  const pattern = normalizePattern(patternValue);
-  if (hasGlob(pattern)) return globMatches(pattern, file);
-  return file === pattern || file.startsWith(`${pattern}/`);
+// Builds the path test for one normalized pattern once, so matching many files stays cheap.
+function ownershipMatcher(pattern, glob = hasGlob(pattern)) {
+  if (glob) {
+    const expression = globRegExp(pattern);
+    return (file) => expression.test(normalizePattern(file));
+  }
+  return (fileValue) => {
+    const file = normalizePattern(fileValue);
+    return file === pattern || file.startsWith(`${pattern}/`);
+  };
 }
 
 function runGit(worktree, args) {
@@ -1888,6 +1897,10 @@ function rootsIntersect(left, right) {
 }
 
 function globMatches(pattern, value) {
+  return globRegExp(pattern).test(value);
+}
+
+function globRegExp(pattern) {
   let expression = "^";
   for (let index = 0; index < pattern.length; index += 1) {
     const char = pattern[index];
@@ -1904,7 +1917,7 @@ function globMatches(pattern, value) {
     else expression += char.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
   }
   expression += "$";
-  return new RegExp(expression).test(value);
+  return new RegExp(expression);
 }
 
 function parseResult(input) {
