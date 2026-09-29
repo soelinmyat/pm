@@ -21,6 +21,8 @@ function runGit(args, cwd, options = {}) {
     // Bounds callers that run git off a request path (e.g. the board's async
     // kill-switch push / fetch); undefined leaves execFileSync unbounded.
     timeout: options.timeout,
+    // Callers that list whole trees raise Node's 1 MiB default; undefined keeps it.
+    maxBuffer: options.maxBuffer,
   }).trim();
 }
 

@@ -7,6 +7,8 @@ const { runGit: sharedRunGit } = require("../loop-git");
 const { isRfc3339DateTime } = require("./iso-time");
 const { inspectStableProjectInput, readProjectInput } = require("./safe-project-output");
 
+const LS_TREE_MAX_BUFFER = 64 * 1024 * 1024;
+
 const VALID_STATUSES = new Set(["pending", "running", "completed", "blocked", "failed"]);
 const WORK_UNIT_FIELDS = new Set([
   "id",
@@ -1725,15 +1727,16 @@ function validateCompletedCommit(result, options) {
   if (result.commit !== head) {
     throw new Error(`worker commit is stale or outside assigned worktree HEAD: expected ${head}`);
   }
-  let commitFiles;
-  const patterns = ownership.map((entry) =>
-    resolveOwnershipPattern(entry, ownershipPaths, () => {
-      commitFiles ??= runGit(worktree, ["ls-tree", "-r", "--name-only", result.commit])
-        .split("\n")
-        .filter(Boolean);
-      return commitFiles;
-    })
-  );
+  let patterns;
+  try {
+    patterns = ownership.map((entry) =>
+      resolveOwnershipPattern(entry, ownershipPaths, (literal) =>
+        literalNamesCommitFile(worktree, result.commit, literal)
+      )
+    );
+  } catch (error) {
+    throw new Error(`could not verify worker commit in assigned worktree: ${error.message}`);
+  }
   const escaped = ownershipPaths.filter(
     (file) => !patterns.some((pattern) => pathIsOwned(file, pattern))
   );
@@ -1752,12 +1755,32 @@ function validateCompletedCommit(result, options) {
 // Each owns entry gets exactly one meaning when checking a commit. A trailing "(...)" is part
 // of the name when the commit touches a path it names or a file at the commit matches it (a
 // glob is matched the same way); otherwise it is a note and only the path before it is owned.
-function resolveOwnershipPattern(entry, changedPaths, listCommitFiles) {
+function resolveOwnershipPattern(entry, changedPaths, namesCommitFile) {
   const forms = ownershipPatternForms(entry);
   if (forms.length === 1) return forms[0];
   const [literal, stripped] = forms;
-  const named = (file) => pathIsOwned(file, literal);
-  return changedPaths.some(named) || listCommitFiles().some(named) ? literal : stripped;
+  const touched = changedPaths.some((file) => pathIsOwned(file, literal));
+  return touched || namesCommitFile(literal) ? literal : stripped;
+}
+
+// Looks up only what the literal can name: one object for a plain path, and for a glob the
+// files under its fixed directory prefix, so the check stays cheap in large repositories.
+function literalNamesCommitFile(worktree, commit, literal) {
+  if (!hasGlob(literal)) {
+    try {
+      runGit(worktree, ["cat-file", "-e", `${commit}:${literal}`]);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  const prefix = literal.slice(0, literal.search(/[*?[\]{}]/));
+  const directory = prefix.slice(0, prefix.lastIndexOf("/") + 1).replace(/\/$/, "");
+  const args = ["ls-tree", "-r", "-z", "--name-only", commit];
+  if (directory) args.push("--", directory);
+  return sharedRunGit(args, worktree, { maxBuffer: LS_TREE_MAX_BUFFER })
+    .split("\0")
+    .some((file) => file && pathIsOwned(file, literal));
 }
 
 function pathIsOwned(fileValue, patternValue) {

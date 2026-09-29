@@ -468,6 +468,60 @@ test("ownership: literal meaning holds for globs and survives moves out of the l
   }
 });
 
+test("ownership: annotated entries resolve in repositories with over 1 MiB of path names", () => {
+  const worktree = fs.mkdtempSync(path.join(os.tmpdir(), "dev-work-unit-big-tree-"));
+  const git = (...args) =>
+    execFileSync("git", ["-C", worktree, ...args], {
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+    }).trim();
+  try {
+    execFileSync("git", ["init", "-q", worktree]);
+    git("config", "user.email", "test@example.com");
+    git("config", "user.name", "Test");
+    const bulk = path.join(worktree, "d".repeat(200));
+    fs.mkdirSync(bulk);
+    for (let index = 0; index < 5500; index += 1) {
+      fs.writeFileSync(path.join(bulk, `f${index}`), "");
+    }
+    fs.mkdirSync(path.join(worktree, "config"));
+    fs.writeFileSync(path.join(worktree, "config", "application.rb"), "old\n");
+    git("add", ".");
+    git("commit", "-qm", "base");
+    const base = git("rev-parse", "HEAD");
+    assert.ok(git("ls-tree", "-r", "--name-only", base).length > 1024 * 1024);
+
+    fs.writeFileSync(path.join(worktree, "config", "application.rb"), "new\n");
+    git("commit", "-qam", "edit");
+    const commit = git("rev-parse", "HEAD");
+    for (const owns of [
+      ["config/application.rb (insert_after only)"],
+      ["**/application.rb (insert_after only)"],
+    ]) {
+      assert.doesNotThrow(
+        () =>
+          validateWorkUnitResult(
+            {
+              schema_version: 1,
+              work_unit_id: "big-tree",
+              status: "completed",
+              summary: "Done.",
+              commit,
+              files_changed: 1,
+              evidence: [{ kind: "test", exit_code: 0 }],
+              blocker: null,
+              runtime: { provider: "claude" },
+            },
+            { expectedOwnership: owns, worktree, baseCommit: base }
+          ),
+        owns[0]
+      );
+    }
+  } finally {
+    fs.rmSync(worktree, { recursive: true, force: true });
+  }
+});
+
 test("ownership: annotated entries are validated after the note is stripped", () => {
   assert.throws(() => ownershipOverlaps(["foo/.. (x)"], ["bar"]), /repo-relative/);
   assert.throws(() => ownershipOverlaps(["bar"], ["/abs/path (new)"]), /repo-relative/);
