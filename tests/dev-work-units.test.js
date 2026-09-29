@@ -860,6 +860,93 @@ test("ownership: annotated lookups report git errors and list each glob director
   }
 });
 
+test("ownership: only a full object id from the worker reaches git", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "dev-work-unit-commit-arg-"));
+  const worktree = path.join(root, "repo");
+  const written = path.join(root, "written");
+  const git = (...args) =>
+    execFileSync("git", ["-C", worktree, ...args], { encoding: "utf8" }).trim();
+  try {
+    execFileSync("git", ["init", "-q", worktree]);
+    git("config", "user.email", "test@example.com");
+    git("config", "user.name", "Test");
+    fs.writeFileSync(path.join(worktree, "a.txt"), "a\n");
+    git("add", ".");
+    git("commit", "-qm", "base");
+
+    assert.throws(
+      () =>
+        validateWorkUnitResult(
+          {
+            schema_version: 1,
+            work_unit_id: "commit-arg",
+            status: "completed",
+            summary: "Done.",
+            commit: `--output=${written}`,
+            files_changed: 1,
+            evidence: [{ kind: "test", exit_code: 0 }],
+            blocker: null,
+            runtime: { provider: "claude" },
+          },
+          { expectedOwnership: ["a.txt"], worktree }
+        ),
+      /could not verify worker commit in assigned worktree: commit is not a full object id/
+    );
+    assert.equal(fs.existsSync(written), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("ownership: annotated lookups read repository paths from a subdirectory worktree", () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), "dev-work-unit-subdir-"));
+  const worktree = path.join(repo, "sub");
+  const git = (...args) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
+  const completed = (commit) => ({
+    schema_version: 1,
+    work_unit_id: "subdir",
+    status: "completed",
+    summary: "Done.",
+    commit,
+    files_changed: 1,
+    evidence: [{ kind: "test", exit_code: 0 }],
+    blocker: null,
+    runtime: { provider: "claude" },
+  });
+  try {
+    execFileSync("git", ["init", "-q", repo]);
+    git("config", "user.email", "test@example.com");
+    git("config", "user.name", "Test");
+    for (const dir of ["sub", "lib/y (keep)", "lib/y"]) {
+      fs.mkdirSync(path.join(repo, dir), { recursive: true });
+    }
+    fs.writeFileSync(path.join(repo, "sub", "s"), "s\n");
+    fs.writeFileSync(path.join(repo, "lib", "y (keep)", "z"), "z\n");
+    fs.writeFileSync(path.join(repo, "lib", "y", "b"), "old\n");
+    git("add", ".");
+    git("commit", "-qm", "base");
+    const base = git("rev-parse", "HEAD");
+    fs.writeFileSync(path.join(repo, "lib", "y", "b"), "new\n");
+    git("commit", "-qam", "edit lib/y/b");
+    const commit = git("rev-parse", "HEAD");
+
+    for (const owns of ["lib/y (keep)", "lib/* (keep)"]) {
+      assert.throws(
+        () =>
+          validateWorkUnitResult(completed(commit), {
+            expectedOwnership: [owns],
+            worktree,
+            baseCommit: base,
+          }),
+        /outside assigned ownership: lib\/y\/b/,
+        owns
+      );
+    }
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test("ownership: notes with nested parentheses and stacked notes are stripped", () => {
   const worktree = fs.mkdtempSync(path.join(os.tmpdir(), "dev-work-unit-nested-note-"));
   const git = (...args) =>

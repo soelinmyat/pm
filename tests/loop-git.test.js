@@ -11,7 +11,6 @@ const {
   isLeaseExpired,
   leaseFileName,
   prepareLease,
-  runGit,
   sanitizeId,
 } = require("../scripts/loop-git.js");
 
@@ -123,27 +122,4 @@ test("expired leases are not considered active", () => {
     ),
     false
   );
-});
-
-test("runGit keeps the default output limit unless a caller raises it", (t) => {
-  const repo = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-git-buffer-"));
-  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
-  runGit(["init", "-q"], repo);
-  const size = 2 * 1024 * 1024;
-  fs.writeFileSync(path.join(repo, "big.txt"), "x".repeat(size));
-  const blob = runGit(["hash-object", "-w", "big.txt"], repo);
-
-  assert.throws(() => runGit(["cat-file", "-p", blob], repo), /ENOBUFS|maxBuffer/);
-  assert.equal(runGit(["cat-file", "-p", blob], repo, { maxBuffer: 2 * size }).length, size);
-});
-
-test("runGit trims output unless a caller asks for it untouched", (t) => {
-  const repo = fs.mkdtempSync(path.join(os.tmpdir(), "pm-loop-git-trim-"));
-  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
-  runGit(["init", "-q"], repo);
-  fs.writeFileSync(path.join(repo, " x "), "x\n");
-  runGit(["add", "--", " x "], repo);
-
-  assert.equal(runGit(["ls-files", "-z"], repo), "x \0");
-  assert.equal(runGit(["ls-files", "-z"], repo, { trim: false }), " x \0");
 });

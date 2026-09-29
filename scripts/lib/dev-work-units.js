@@ -4,10 +4,9 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { runGit: sharedRunGit } = require("../loop-git");
+const { gitExec } = require("./git-env");
 const { isRfc3339DateTime } = require("./iso-time");
 const { inspectStableProjectInput, readProjectInput } = require("./safe-project-output");
-
-const PATH_LIST_MAX_BUFFER = 64 * 1024 * 1024;
 
 const VALID_STATUSES = new Set(["pending", "running", "completed", "blocked", "failed"]);
 const WORK_UNIT_FIELDS = new Set([
@@ -1704,6 +1703,11 @@ function validateCompletedCommit(result, options) {
       ":(exclude).pm/**",
     ]);
     if (dirty) throw new Error(`assigned worktree is dirty: ${dirty.split("\n")[0]}`);
+    // The worker supplies the commit, so only a full object id reaches git: a value such as
+    // "--output=<file>" would otherwise run as an option.
+    if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(result.commit)) {
+      throw new Error(`commit is not a full object id: ${result.commit}`);
+    }
     if (options.baseCommit) {
       runGit(worktree, ["merge-base", "--is-ancestor", options.baseCommit, result.commit]);
     }
@@ -1770,10 +1774,7 @@ function resolveOwnershipMatcher(entry, changedPaths, namesCommitPath) {
 // non-ASCII or special characters, and untrimmed, so a leading or trailing space survives.
 // Pathspecs are literal, so a path such as ":x" or ":!y" is a name, not pathspec magic.
 function listGitPaths(worktree, args) {
-  return sharedRunGit(["--literal-pathspecs", args[0], "-z", ...args.slice(1)], worktree, {
-    maxBuffer: PATH_LIST_MAX_BUFFER,
-    trim: false,
-  })
+  return gitExec(worktree, ["--literal-pathspecs", args[0], "-z", ...args.slice(1)])
     .split("\0")
     .filter(Boolean);
 }
@@ -1781,11 +1782,12 @@ function listGitPaths(worktree, args) {
 // Returns a lookup that asks only what a form can name: the one tree entry for a plain path,
 // and for a glob every file, directory and submodule under its fixed directory prefix, so the
 // check stays cheap in large repositories. ls-tree lists an entry without its content, and a
-// git failure throws instead of reading as "not there". Listings are cached by directory, so
-// stacked notes on one glob list it once.
+// git failure throws instead of reading as "not there". --full-tree keeps paths relative to the
+// repository root, as the diff prints them, when the worktree is a subdirectory. Listings are
+// cached by directory, so stacked notes on one glob list it once.
 function commitPathLookup(worktree, commit) {
   const listings = new Map();
-  const list = (args) => listGitPaths(worktree, ["ls-tree", "--name-only", ...args]);
+  const list = (args) => listGitPaths(worktree, ["ls-tree", "--full-tree", "--name-only", ...args]);
   return (form, owns, glob) => {
     if (!glob) return list([commit, "--", form]).includes(form);
     const prefix = form.slice(0, form.search(/[*?[\]{}]/));
