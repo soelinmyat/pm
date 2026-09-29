@@ -536,6 +536,46 @@ test("ownership: annotated entries are validated after the note is stripped", ()
   );
 });
 
+test("ownership: an annotated glob keeps its literal meaning when it names an untouched file", () => {
+  const worktree = fs.mkdtempSync(path.join(os.tmpdir(), "dev-work-unit-glob-untouched-"));
+  const git = (...args) =>
+    execFileSync("git", ["-C", worktree, ...args], { encoding: "utf8" }).trim();
+  try {
+    execFileSync("git", ["init", "-q", worktree]);
+    git("config", "user.email", "test@example.com");
+    git("config", "user.name", "Test");
+    fs.mkdirSync(path.join(worktree, "src"));
+    fs.writeFileSync(path.join(worktree, "src", "a (keep)"), "a\n");
+    fs.writeFileSync(path.join(worktree, "src", "b"), "old\n");
+    git("add", ".");
+    git("commit", "-qm", "base");
+    const base = git("rev-parse", "HEAD");
+    fs.writeFileSync(path.join(worktree, "src", "b"), "new\n");
+    git("commit", "-qam", "edit b");
+    const commit = git("rev-parse", "HEAD");
+    assert.throws(
+      () =>
+        validateWorkUnitResult(
+          {
+            schema_version: 1,
+            work_unit_id: "glob-untouched",
+            status: "completed",
+            summary: "Done.",
+            commit,
+            files_changed: 1,
+            evidence: [{ kind: "test", exit_code: 0 }],
+            blocker: null,
+            runtime: { provider: "claude" },
+          },
+          { expectedOwnership: ["src/* (keep)"], worktree, baseCommit: base }
+        ),
+      /outside assigned ownership: src\/b/
+    );
+  } finally {
+    fs.rmSync(worktree, { recursive: true, force: true });
+  }
+});
+
 test("ownership: glob characters inside a note on a plain path are prose", () => {
   const worktree = fs.mkdtempSync(path.join(os.tmpdir(), "dev-work-unit-glob-note-"));
   const git = (...args) =>

@@ -1730,8 +1730,8 @@ function validateCompletedCommit(result, options) {
   let owners;
   try {
     owners = ownership.map((entry) =>
-      resolveOwnershipMatcher(entry, ownershipPaths, (form, owns) =>
-        formNamesCommitFile(worktree, result.commit, form, owns)
+      resolveOwnershipMatcher(entry, ownershipPaths, (form, owns, glob) =>
+        formNamesCommitFile(worktree, result.commit, form, owns, glob)
       )
     );
   } catch (error) {
