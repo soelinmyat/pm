@@ -400,6 +400,74 @@ test("ownership: a real path ending in parentheses does not also own the strippe
   }
 });
 
+test("ownership: literal meaning holds for globs and survives moves out of the literal path", () => {
+  const worktree = fs.mkdtempSync(path.join(os.tmpdir(), "dev-work-unit-paren-glob-"));
+  const git = (...args) =>
+    execFileSync("git", ["-C", worktree, ...args], { encoding: "utf8" }).trim();
+  const completed = (commit, filesChanged) => ({
+    schema_version: 1,
+    work_unit_id: "paren-glob",
+    status: "completed",
+    summary: "Done.",
+    commit,
+    files_changed: filesChanged,
+    evidence: [{ kind: "test", exit_code: 0 }],
+    blocker: null,
+    runtime: { provider: "claude" },
+  });
+  try {
+    execFileSync("git", ["init", "-q", worktree]);
+    git("config", "user.email", "test@example.com");
+    git("config", "user.name", "Test");
+    fs.mkdirSync(path.join(worktree, "src (copy)"));
+    fs.writeFileSync(path.join(worktree, "src (copy)", "a.txt"), "moved content\n");
+    fs.writeFileSync(path.join(worktree, "keep.txt"), "keep\n");
+    git("add", ".");
+    git("commit", "-qm", "base");
+    const base = git("rev-parse", "HEAD");
+
+    fs.mkdirSync(path.join(worktree, "a"));
+    fs.writeFileSync(path.join(worktree, "a", "Untitled (1)"), "u\n");
+    git("add", ".");
+    git("commit", "-qm", "glob literal");
+    const globCommit = git("rev-parse", "HEAD");
+    assert.doesNotThrow(() =>
+      validateWorkUnitResult(completed(globCommit, 1), {
+        expectedOwnership: ["**/Untitled (1)"],
+        worktree,
+        baseCommit: base,
+      })
+    );
+
+    fs.mkdirSync(path.join(worktree, "src"));
+    git("mv", "src (copy)/a.txt", "src/a.txt");
+    fs.writeFileSync(path.join(worktree, "src", "new.txt"), "new\n");
+    git("add", ".");
+    git("commit", "-qm", "move out of literal path");
+    const moveCommit = git("rev-parse", "HEAD");
+    assert.throws(
+      () =>
+        validateWorkUnitResult(completed(moveCommit, 2), {
+          expectedOwnership: ["src (copy)"],
+          worktree,
+          baseCommit: globCommit,
+        }),
+      /outside assigned ownership: src\/a\.txt, src\/new\.txt/
+    );
+    assert.throws(
+      () =>
+        validateWorkUnitResult(completed(moveCommit, 2), {
+          expectedOwnership: ["src/**"],
+          worktree,
+          baseCommit: globCommit,
+        }),
+      /outside assigned ownership: src \(copy\)\/a\.txt/
+    );
+  } finally {
+    fs.rmSync(worktree, { recursive: true, force: true });
+  }
+});
+
 test("ownership: annotated entries are validated after the note is stripped", () => {
   assert.throws(() => ownershipOverlaps(["foo/.. (x)"], ["bar"]), /repo-relative/);
   assert.throws(() => ownershipOverlaps(["bar"], ["/abs/path (new)"]), /repo-relative/);

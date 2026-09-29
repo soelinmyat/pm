@@ -1690,6 +1690,7 @@ function validateCompletedCommit(result, options) {
 
   let head;
   let changedPaths;
+  let ownershipPaths;
   try {
     head = runGit(worktree, ["rev-parse", "HEAD"]);
     const dirty = runGit(worktree, [
@@ -1708,6 +1709,15 @@ function validateCompletedCommit(result, options) {
       ? ["diff", "--name-only", `${options.baseCommit}..${result.commit}`]
       : ["diff-tree", "--root", "--no-commit-id", "--name-only", "-r", result.commit];
     changedPaths = runGit(worktree, diffArgs).split("\n").filter(Boolean);
+    // A rename lists only its new path, so ownership is checked with renames split into the
+    // deleted source and the added destination: moving a file needs ownership of both ends.
+    ownershipPaths = runGit(worktree, [
+      ...diffArgs.slice(0, 1),
+      "--no-renames",
+      ...diffArgs.slice(1),
+    ])
+      .split("\n")
+      .filter(Boolean);
   } catch (error) {
     throw new Error(`could not verify worker commit in assigned worktree: ${error.message}`);
   }
@@ -1715,12 +1725,16 @@ function validateCompletedCommit(result, options) {
   if (result.commit !== head) {
     throw new Error(`worker commit is stale or outside assigned worktree HEAD: expected ${head}`);
   }
+  let commitFiles;
   const patterns = ownership.map((entry) =>
-    resolveOwnershipPattern(entry, changedPaths, (literal) =>
-      pathExistsAt(worktree, result.commit, literal)
-    )
+    resolveOwnershipPattern(entry, ownershipPaths, () => {
+      commitFiles ??= runGit(worktree, ["ls-tree", "-r", "--name-only", result.commit])
+        .split("\n")
+        .filter(Boolean);
+      return commitFiles;
+    })
   );
-  const escaped = changedPaths.filter(
+  const escaped = ownershipPaths.filter(
     (file) => !patterns.some((pattern) => pathIsOwned(file, pattern))
   );
   if (escaped.length > 0) {
@@ -1736,26 +1750,14 @@ function validateCompletedCommit(result, options) {
 }
 
 // Each owns entry gets exactly one meaning when checking a commit. A trailing "(...)" is part
-// of the name when that literal path exists at the commit or the commit touches it; otherwise
-// it is a note and only the path before it is owned.
-function resolveOwnershipPattern(entry, changedPaths, literalExists) {
+// of the name when the commit touches a path it names or a file at the commit matches it (a
+// glob is matched the same way); otherwise it is a note and only the path before it is owned.
+function resolveOwnershipPattern(entry, changedPaths, listCommitFiles) {
   const forms = ownershipPatternForms(entry);
   if (forms.length === 1) return forms[0];
   const [literal, stripped] = forms;
-  if (hasGlob(literal)) return stripped;
-  const touched = changedPaths.some(
-    (file) => normalizePattern(file) === literal || normalizePattern(file).startsWith(`${literal}/`)
-  );
-  return touched || literalExists(literal) ? literal : stripped;
-}
-
-function pathExistsAt(worktree, commit, literal) {
-  try {
-    runGit(worktree, ["cat-file", "-e", `${commit}:${literal}`]);
-    return true;
-  } catch {
-    return false;
-  }
+  const named = (file) => pathIsOwned(file, literal);
+  return changedPaths.some(named) || listCommitFiles().some(named) ? literal : stripped;
 }
 
 function pathIsOwned(fileValue, patternValue) {
