@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { runGit: sharedRunGit } = require("../loop-git");
 const { GIT_DIFF_TRUST_CONFIG, gitExec } = require("./git-env");
+const { isGitObjectId } = require("./git-object-id");
 const { isRfc3339DateTime } = require("./iso-time");
 const { inspectStableProjectInput, readProjectInput } = require("./safe-project-output");
 
@@ -1705,7 +1706,7 @@ function validateCompletedCommit(result, options) {
     if (dirty) throw new Error(`assigned worktree is dirty: ${dirty.split("\n")[0]}`);
     // The worker supplies the commit, so only a full object id reaches git: a value such as
     // "--output=<file>" would otherwise run as an option.
-    if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(result.commit)) {
+    if (!isGitObjectId(result.commit)) {
       throw new Error(`commit is not a full object id: ${result.commit}`);
     }
     if (options.baseCommit) {
