@@ -205,7 +205,13 @@ test("rfc sidecar checker requires a canonical uppercase top-level size", () => 
 });
 
 test("schema-v3 ownership uses the same repo-relative contract as Dev", () => {
-  for (const ownership of ["/tmp/file", "C:\\temp\\file", "../outside", "apps/.. (new)"]) {
+  for (const ownership of [
+    "/tmp/file",
+    "C:\\temp\\file",
+    "../outside",
+    "apps/.. (new)",
+    "apps/.. (a (b)) (c)",
+  ]) {
     const result = validateRfcSidecar(sidecar({ issues: [issueRow({ owns: [ownership] })] }));
     assert.equal(result.ok, false, ownership);
     assert.match(messages(result), /repo-relative path pattern/);

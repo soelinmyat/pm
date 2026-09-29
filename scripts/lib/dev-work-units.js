@@ -1752,15 +1752,16 @@ function validateCompletedCommit(result, options) {
   }
 }
 
-// Each owns entry gets exactly one meaning when checking a commit. A trailing "(...)" is part
-// of the name when the commit touches a path it names or a file at the commit matches it (a
-// glob is matched the same way); otherwise it is a note and only the path before it is owned.
+// Each owns entry gets exactly one meaning when checking a commit. Forms are tried longest
+// first: a trailing "(...)" is part of the name when the commit touches a path that form names
+// or a file at the commit matches it (a glob is matched the same way); otherwise it is a note.
+// With no match, every note is stripped and only the path before them is owned.
 function resolveOwnershipPattern(entry, changedPaths, namesCommitFile) {
   const forms = ownershipPatternForms(entry);
-  if (forms.length === 1) return forms[0];
-  const [literal, stripped] = forms;
-  const touched = changedPaths.some((file) => pathIsOwned(file, literal));
-  return touched || namesCommitFile(literal) ? literal : stripped;
+  const named = forms
+    .slice(0, -1)
+    .find((form) => changedPaths.some((file) => pathIsOwned(file, form)) || namesCommitFile(form));
+  return named || forms[forms.length - 1];
 }
 
 // Looks up only what the literal can name: one object for a plain path, and for a glob the
@@ -1820,8 +1821,7 @@ function validateOwnershipList(value, label) {
 
 // Checks the entry as written and, for an annotated owns entry, the path before the note.
 function validateRepoRelativePattern(value, label) {
-  const raw = value.trim();
-  for (const form of new Set([raw, stripOwnsAnnotation(raw)])) {
+  for (const form of ownsAnnotationForms(value.trim())) {
     const normalized = form.replace(/\\/g, "/");
     if (
       normalized.startsWith("/") ||
@@ -1841,17 +1841,35 @@ function normalizePattern(value) {
     .replace(/\/$/, "");
 }
 
-// RFC owns entries may carry a trailing note, e.g. "config/application.rb (insert_after only)".
-// The note scopes the edit for the worker; ownership is the path before it. A real path can
-// also end in parentheses, e.g. "assets/Icons (old)", so callers get both forms.
+// RFC owns entries may carry trailing notes, e.g. "config/application.rb (insert_after only)"
+// or "config/app.rb (only the foo() call) (keep order)". A note scopes the edit for the worker;
+// ownership is the path before it. A real path can also end in parentheses, e.g.
+// "assets/Icons (old)", so callers get every form, from the entry as written down to the path
+// with all notes stripped.
 function ownershipPatternForms(value) {
-  const literal = normalizePattern(value);
-  const stripped = normalizePattern(stripOwnsAnnotation(value.trim()));
-  return stripped === literal ? [literal] : [literal, stripped];
+  return [...new Set(ownsAnnotationForms(value.trim()).map(normalizePattern))];
 }
 
-function stripOwnsAnnotation(value) {
-  return value.replace(/\s+\([^()]*\)$/, "");
+function ownsAnnotationForms(value) {
+  const forms = [value];
+  for (let start = trailingNoteStart(value); start > 0; start = trailingNoteStart(value)) {
+    value = value.slice(0, start).trimEnd();
+    forms.push(value);
+  }
+  return forms;
+}
+
+// Index of the "(" that opens a balanced "(...)" group ending the value after whitespace,
+// or -1 when the value does not end in such a group.
+function trailingNoteStart(value) {
+  if (!value.endsWith(")")) return -1;
+  let depth = 0;
+  for (let index = value.length - 1; index >= 0; index -= 1) {
+    if (value[index] === ")") depth += 1;
+    else if (value[index] === "(") depth -= 1;
+    if (depth === 0) return index > 0 && /\s/.test(value[index - 1]) ? index : -1;
+  }
+  return -1;
 }
 
 function hasGlob(value) {

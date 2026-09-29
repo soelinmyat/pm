@@ -13,7 +13,7 @@ const { cleanGitEnv } = require("./lib/git-env.js");
 const { DEFAULT_LOOP_CONFIG, leaseTtlSeconds, loadLoopConfig } = require("./loop-config.js");
 
 function runGit(args, cwd, options = {}) {
-  return execFileSync("git", args, {
+  const execOptions = {
     cwd,
     encoding: "utf8",
     stdio: options.stdio || ["ignore", "pipe", "pipe"],
@@ -21,9 +21,11 @@ function runGit(args, cwd, options = {}) {
     // Bounds callers that run git off a request path (e.g. the board's async
     // kill-switch push / fetch); undefined leaves execFileSync unbounded.
     timeout: options.timeout,
-    // Callers that list whole trees raise Node's 1 MiB default; undefined keeps it.
-    maxBuffer: options.maxBuffer,
-  }).trim();
+  };
+  // Callers that list whole trees raise Node's 1 MiB default. The key is set only when
+  // given, because an explicit undefined makes execFileSync's output unbounded.
+  if (options.maxBuffer !== undefined) execOptions.maxBuffer = options.maxBuffer;
+  return execFileSync("git", args, execOptions).trim();
 }
 
 function readGitFile(commit, relativePath, cwd, options = {}) {

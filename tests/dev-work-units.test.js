@@ -529,6 +529,85 @@ test("ownership: annotated entries are validated after the note is stripped", ()
     () => validateWorkUnits([unit("annotated-escape", { owns: ["apps/.. (x)"] })]),
     /repo-relative/
   );
+  assert.throws(() => ownershipOverlaps(["foo/.. (only f() call)"], ["bar"]), /repo-relative/);
+  assert.throws(
+    () => validateWorkUnits([unit("stacked-escape", { owns: ["apps/.. (a) (b)"] })]),
+    /repo-relative/
+  );
+});
+
+test("ownership: notes with nested parentheses and stacked notes are stripped", () => {
+  const worktree = fs.mkdtempSync(path.join(os.tmpdir(), "dev-work-unit-nested-note-"));
+  const git = (...args) =>
+    execFileSync("git", ["-C", worktree, ...args], { encoding: "utf8" }).trim();
+  const completed = (commit) => ({
+    schema_version: 1,
+    work_unit_id: "nested-note",
+    status: "completed",
+    summary: "Done.",
+    commit,
+    files_changed: 1,
+    evidence: [{ kind: "test", exit_code: 0 }],
+    blocker: null,
+    runtime: { provider: "claude" },
+  });
+  try {
+    execFileSync("git", ["init", "-q", worktree]);
+    git("config", "user.email", "test@example.com");
+    git("config", "user.name", "Test");
+    fs.mkdirSync(path.join(worktree, "config"));
+    fs.writeFileSync(path.join(worktree, "config", "app.rb"), "old\n");
+    fs.mkdirSync(path.join(worktree, "Icons (old)"));
+    fs.writeFileSync(path.join(worktree, "Icons (old)", "a.png"), "png\n");
+    git("add", ".");
+    git("commit", "-qm", "base");
+    const base = git("rev-parse", "HEAD");
+
+    fs.writeFileSync(path.join(worktree, "config", "app.rb"), "new\n");
+    git("commit", "-qam", "edit app");
+    const appCommit = git("rev-parse", "HEAD");
+    for (const owns of [
+      "config/app.rb (only the foo() call)",
+      "config/app.rb (insert only) (keep order)",
+      "config/** (only (a) and (b))",
+    ]) {
+      assert.doesNotThrow(
+        () =>
+          validateWorkUnitResult(completed(appCommit), {
+            expectedOwnership: [owns],
+            worktree,
+            baseCommit: base,
+          }),
+        owns
+      );
+    }
+    assert.throws(
+      () =>
+        validateWorkUnitResult(completed(appCommit), {
+          expectedOwnership: ["config/app.rb(x) (note)"],
+          worktree,
+          baseCommit: base,
+        }),
+      /outside assigned ownership: config\/app\.rb/
+    );
+
+    fs.mkdirSync(path.join(worktree, "Icons"));
+    fs.writeFileSync(path.join(worktree, "Icons", "b.png"), "png\n");
+    git("add", ".");
+    git("commit", "-qm", "sibling");
+    const siblingCommit = git("rev-parse", "HEAD");
+    assert.throws(
+      () =>
+        validateWorkUnitResult(completed(siblingCommit), {
+          expectedOwnership: ["Icons (old) (rename only)"],
+          worktree,
+          baseCommit: appCommit,
+        }),
+      /outside assigned ownership: Icons\/b\.png/
+    );
+  } finally {
+    fs.rmSync(worktree, { recursive: true, force: true });
+  }
 });
 
 test("validateWorkUnitResult checks the full assigned commit range and a clean worktree", () => {
