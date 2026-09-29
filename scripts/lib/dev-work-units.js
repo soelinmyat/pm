@@ -1573,8 +1573,12 @@ function ownershipOverlaps(left, right) {
 }
 
 function patternsOverlap(leftValue, rightValue) {
-  const left = normalizeOwnershipPattern(leftValue);
-  const right = normalizeOwnershipPattern(rightValue);
+  return ownershipPatternForms(leftValue).some((left) =>
+    ownershipPatternForms(rightValue).some((right) => normalizedPatternsOverlap(left, right))
+  );
+}
+
+function normalizedPatternsOverlap(left, right) {
   if (left === right) return true;
 
   const leftGlob = hasGlob(left);
@@ -1728,9 +1732,10 @@ function validateCompletedCommit(result, options) {
 
 function pathIsOwned(fileValue, patternValue) {
   const file = normalizePattern(fileValue);
-  const pattern = normalizeOwnershipPattern(patternValue);
-  if (hasGlob(pattern)) return globMatches(pattern, file);
-  return file === pattern || file.startsWith(`${pattern}/`);
+  return ownershipPatternForms(patternValue).some((pattern) => {
+    if (hasGlob(pattern)) return globMatches(pattern, file);
+    return file === pattern || file.startsWith(`${pattern}/`);
+  });
 }
 
 function runGit(worktree, args) {
@@ -1758,7 +1763,9 @@ function validateOwnershipList(value, label) {
     throw new TypeError(`${label} must be a non-empty array`);
   }
   if (value.some((item) => !nonEmpty(item))) throw new TypeError(`${label} contains an empty path`);
-  for (const item of value) validateRepoRelativePattern(item, label);
+  for (const item of value) {
+    for (const form of ownershipPatternForms(item)) validateRepoRelativePattern(form, label);
+  }
 }
 
 function validateRepoRelativePattern(value, label) {
@@ -1781,9 +1788,12 @@ function normalizePattern(value) {
 }
 
 // RFC owns entries may carry a trailing note, e.g. "config/application.rb (insert_after only)".
-// The note scopes the edit for the worker; ownership is the path before it.
-function normalizeOwnershipPattern(value) {
-  return normalizePattern(value.trim().replace(/\s+\([^()]*\)$/, ""));
+// The note scopes the edit for the worker; ownership is the path before it. A real path that
+// ends in parentheses, e.g. "assets/Icons (old)", still owns itself, so both forms count.
+function ownershipPatternForms(value) {
+  const literal = normalizePattern(value);
+  const stripped = normalizePattern(value.trim().replace(/\s+\([^()]*\)$/, ""));
+  return stripped === literal ? [literal] : [literal, stripped];
 }
 
 function hasGlob(value) {

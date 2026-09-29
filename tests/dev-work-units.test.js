@@ -324,6 +324,48 @@ test("ownershipOverlaps: ignores trailing owns annotations", () => {
   assert.equal(ownershipOverlaps(["src/a.js (new)"], ["src/b.js (new)"]), false);
 });
 
+test("ownership: a real path ending in parentheses still owns itself", () => {
+  assert.equal(ownershipOverlaps(["assets/Icons (old)"], ["assets/Icons (old)/a.png"]), true);
+
+  const worktree = fs.mkdtempSync(path.join(os.tmpdir(), "dev-work-unit-paren-dir-"));
+  try {
+    execFileSync("git", ["init", "-q", worktree]);
+    execFileSync("git", ["-C", worktree, "config", "user.email", "test@example.com"]);
+    execFileSync("git", ["-C", worktree, "config", "user.name", "Test"]);
+    fs.mkdirSync(path.join(worktree, "assets", "Icons (old)"), { recursive: true });
+    fs.writeFileSync(path.join(worktree, "assets", "Icons (old)", "a.png"), "png\n");
+    execFileSync("git", ["-C", worktree, "add", "."]);
+    execFileSync("git", ["-C", worktree, "commit", "-qm", "paren dir"]);
+    const commit = execFileSync("git", ["-C", worktree, "rev-parse", "HEAD"], {
+      encoding: "utf8",
+    }).trim();
+
+    assert.doesNotThrow(() =>
+      validateWorkUnitResult(
+        {
+          schema_version: 1,
+          work_unit_id: "paren-dir",
+          status: "completed",
+          summary: "Done.",
+          commit,
+          files_changed: 1,
+          evidence: [{ kind: "test", exit_code: 0 }],
+          blocker: null,
+          runtime: { provider: "claude" },
+        },
+        { expectedOwnership: ["assets/Icons (old)"], worktree }
+      )
+    );
+  } finally {
+    fs.rmSync(worktree, { recursive: true, force: true });
+  }
+});
+
+test("ownership: annotated entries are validated after the note is stripped", () => {
+  assert.throws(() => ownershipOverlaps(["foo/.. (x)"], ["bar"]), /repo-relative/);
+  assert.throws(() => ownershipOverlaps(["bar"], ["/abs/path (new)"]), /repo-relative/);
+});
+
 test("validateWorkUnitResult checks the full assigned commit range and a clean worktree", () => {
   const worktree = fs.mkdtempSync(path.join(os.tmpdir(), "dev-work-unit-range-"));
   try {
