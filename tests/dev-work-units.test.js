@@ -947,6 +947,78 @@ test("ownership: annotated lookups read repository paths from a subdirectory wor
   }
 });
 
+test("ownership: repository config cannot hide changed paths from the check", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "dev-work-unit-diff-config-"));
+  const repo = path.join(root, "repo");
+  const git = (cwd, ...args) =>
+    execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" }).trim();
+  const completed = (commit) => ({
+    schema_version: 1,
+    work_unit_id: "diff-config",
+    status: "completed",
+    summary: "Done.",
+    commit,
+    files_changed: 2,
+    evidence: [{ kind: "test", exit_code: 0 }],
+    blocker: null,
+    runtime: { provider: "claude" },
+  });
+  try {
+    for (const dir of ["mod", "repo"]) {
+      execFileSync("git", ["init", "-q", path.join(root, dir)]);
+      git(path.join(root, dir), "config", "user.email", "test@example.com");
+      git(path.join(root, dir), "config", "user.name", "Test");
+    }
+    fs.writeFileSync(path.join(root, "mod", "f"), "f\n");
+    git(path.join(root, "mod"), "add", ".");
+    git(path.join(root, "mod"), "commit", "-qm", "mod");
+    fs.mkdirSync(path.join(repo, "sub"));
+    fs.mkdirSync(path.join(repo, "lib"));
+    fs.writeFileSync(path.join(repo, "sub", "s"), "old\n");
+    fs.writeFileSync(path.join(repo, "lib", "b"), "old\n");
+    git(repo, "-c", "protocol.file.allow=always", "submodule", "add", "-q", "../mod", "mod");
+    git(repo, "config", "-f", ".gitmodules", "submodule.mod.ignore", "all");
+    git(repo, "add", ".");
+    git(repo, "commit", "-qm", "base");
+    const base = git(repo, "rev-parse", "HEAD");
+
+    git(path.join(repo, "mod"), "commit", "--allow-empty", "-qm", "bump");
+    fs.writeFileSync(path.join(repo, "sub", "s"), "new\n");
+    git(repo, "add", "mod", "sub/s");
+    git(repo, "commit", "-qm", "bump mod and edit sub/s");
+    const bump = git(repo, "rev-parse", "HEAD");
+    for (const baseCommit of [base, undefined]) {
+      assert.throws(
+        () =>
+          validateWorkUnitResult(completed(bump), {
+            expectedOwnership: ["sub"],
+            worktree: repo,
+            baseCommit,
+          }),
+        /outside assigned ownership: mod$/,
+        String(baseCommit)
+      );
+    }
+
+    git(repo, "config", "diff.relative", "true");
+    fs.writeFileSync(path.join(repo, "sub", "s"), "newer\n");
+    fs.writeFileSync(path.join(repo, "lib", "b"), "new\n");
+    git(repo, "commit", "-qam", "edit sub/s and lib/b");
+    const relative = git(repo, "rev-parse", "HEAD");
+    assert.throws(
+      () =>
+        validateWorkUnitResult(completed(relative), {
+          expectedOwnership: ["sub/s"],
+          worktree: path.join(repo, "sub"),
+          baseCommit: bump,
+        }),
+      /outside assigned ownership: lib\/b$/
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("ownership: notes with nested parentheses and stacked notes are stripped", () => {
   const worktree = fs.mkdtempSync(path.join(os.tmpdir(), "dev-work-unit-nested-note-"));
   const git = (...args) =>

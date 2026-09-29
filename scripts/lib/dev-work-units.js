@@ -4,7 +4,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { runGit: sharedRunGit } = require("../loop-git");
-const { gitExec } = require("./git-env");
+const { GIT_DIFF_TRUST_CONFIG, gitExec } = require("./git-env");
 const { isRfc3339DateTime } = require("./iso-time");
 const { inspectStableProjectInput, readProjectInput } = require("./safe-project-output");
 
@@ -1711,9 +1711,23 @@ function validateCompletedCommit(result, options) {
     if (options.baseCommit) {
       runGit(worktree, ["merge-base", "--is-ancestor", options.baseCommit, result.commit]);
     }
+    // A submodule's .gitmodules "ignore" setting would otherwise drop its pointer bump.
     const diffArgs = options.baseCommit
-      ? ["diff", "--name-only", `${options.baseCommit}..${result.commit}`]
-      : ["diff-tree", "--root", "--no-commit-id", "--name-only", "-r", result.commit];
+      ? [
+          "diff",
+          "--name-only",
+          "--ignore-submodules=none",
+          `${options.baseCommit}..${result.commit}`,
+        ]
+      : [
+          "diff-tree",
+          "--root",
+          "--no-commit-id",
+          "--name-only",
+          "--ignore-submodules=none",
+          "-r",
+          result.commit,
+        ];
     changedPaths = listGitPaths(worktree, diffArgs);
     // A rename lists only its new path, so ownership is checked with renames split into the
     // deleted source and the added destination: moving a file needs ownership of both ends.
@@ -1772,9 +1786,16 @@ function resolveOwnershipMatcher(entry, changedPaths, namesCommitPath) {
 
 // Lists path names exactly as git stores them: NUL-separated, so git never quotes a name with
 // non-ASCII or special characters, and untrimmed, so a leading or trailing space survives.
-// Pathspecs are literal, so a path such as ":x" or ":!y" is a name, not pathspec magic.
+// Pathspecs are literal, so a path such as ":x" or ":!y" is a name, not pathspec magic. The
+// pinned diff config keeps "diff.relative" from dropping paths outside a subdirectory worktree.
 function listGitPaths(worktree, args) {
-  return gitExec(worktree, ["--literal-pathspecs", args[0], "-z", ...args.slice(1)])
+  return gitExec(worktree, [
+    ...GIT_DIFF_TRUST_CONFIG,
+    "--literal-pathspecs",
+    args[0],
+    "-z",
+    ...args.slice(1),
+  ])
     .split("\0")
     .filter(Boolean);
 }
