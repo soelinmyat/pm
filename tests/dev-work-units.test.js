@@ -617,6 +617,188 @@ test("ownership: glob characters inside a note on a plain path are prose", () =>
   }
 });
 
+test("ownership: an annotated entry keeps its literal meaning when it names a directory or submodule", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "dev-work-unit-literal-tree-"));
+  const worktree = path.join(root, "repo");
+  const git = (cwd, ...args) =>
+    execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" }).trim();
+  const completed = (commit) => ({
+    schema_version: 1,
+    work_unit_id: "literal-tree",
+    status: "completed",
+    summary: "Done.",
+    commit,
+    files_changed: 1,
+    evidence: [{ kind: "test", exit_code: 0 }],
+    blocker: null,
+    runtime: { provider: "claude" },
+  });
+  try {
+    for (const repo of ["sub", "repo"]) {
+      execFileSync("git", ["init", "-q", path.join(root, repo)]);
+      git(path.join(root, repo), "config", "user.email", "test@example.com");
+      git(path.join(root, repo), "config", "user.name", "Test");
+    }
+    fs.writeFileSync(path.join(root, "sub", "f"), "f\n");
+    git(path.join(root, "sub"), "add", ".");
+    git(path.join(root, "sub"), "commit", "-qm", "sub");
+    fs.mkdirSync(path.join(worktree, "lib", "y (keep)"), { recursive: true });
+    fs.writeFileSync(path.join(worktree, "lib", "y (keep)", "z"), "z\n");
+    fs.writeFileSync(path.join(worktree, "lib", "b"), "old\n");
+    fs.mkdirSync(path.join(worktree, "vendor", "lib"), { recursive: true });
+    fs.writeFileSync(path.join(worktree, "vendor", "lib", "a.txt"), "old\n");
+    git(
+      worktree,
+      "-c",
+      "protocol.file.allow=always",
+      "submodule",
+      "add",
+      "-q",
+      "../sub",
+      "vendor/lib (fork)"
+    );
+    git(worktree, "add", ".");
+    git(worktree, "commit", "-qm", "base");
+    const base = git(worktree, "rev-parse", "HEAD");
+
+    fs.writeFileSync(path.join(worktree, "lib", "b"), "new\n");
+    git(worktree, "commit", "-qam", "edit lib/b");
+    const libCommit = git(worktree, "rev-parse", "HEAD");
+    for (const owns of ["lib/y (keep)", "lib/* (keep)"]) {
+      assert.throws(
+        () =>
+          validateWorkUnitResult(completed(libCommit), {
+            expectedOwnership: [owns],
+            worktree,
+            baseCommit: base,
+          }),
+        /outside assigned ownership: lib\/b/,
+        owns
+      );
+    }
+
+    fs.writeFileSync(path.join(worktree, "vendor", "lib", "a.txt"), "new\n");
+    git(worktree, "commit", "-qam", "edit vendor/lib/a.txt");
+    const vendorCommit = git(worktree, "rev-parse", "HEAD");
+    for (const owns of ["vendor/lib (fork)", "vendor/* (fork)"]) {
+      assert.throws(
+        () =>
+          validateWorkUnitResult(completed(vendorCommit), {
+            expectedOwnership: [owns],
+            worktree,
+            baseCommit: libCommit,
+          }),
+        /outside assigned ownership: vendor\/lib\/a\.txt/,
+        owns
+      );
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("ownership: annotated lookups report git errors and list each glob directory once", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "dev-work-unit-lookup-"));
+  const worktree = path.join(root, "repo");
+  const shimDir = path.join(root, "bin");
+  const log = path.join(root, "git.log");
+  const git = (...args) =>
+    execFileSync("git", ["-C", worktree, ...args], { encoding: "utf8" }).trim();
+  const completed = (commit) => ({
+    schema_version: 1,
+    work_unit_id: "lookup",
+    status: "completed",
+    summary: "Done.",
+    commit,
+    files_changed: 1,
+    evidence: [{ kind: "test", exit_code: 0 }],
+    blocker: null,
+    runtime: { provider: "claude" },
+  });
+  const saved = {
+    PATH: process.env.PATH,
+    PM_TEST_GIT_LOG: process.env.PM_TEST_GIT_LOG,
+    PM_TEST_GIT_FAIL: process.env.PM_TEST_GIT_FAIL,
+    PM_TEST_REAL_GIT: process.env.PM_TEST_REAL_GIT,
+  };
+  const withShim = (fail, run) => {
+    fs.writeFileSync(log, "");
+    process.env.PATH = `${shimDir}${path.delimiter}${saved.PATH}`;
+    process.env.PM_TEST_GIT_LOG = log;
+    if (fail) process.env.PM_TEST_GIT_FAIL = "1";
+    else delete process.env.PM_TEST_GIT_FAIL;
+    try {
+      return run();
+    } finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (key === "PM_TEST_REAL_GIT") continue;
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  };
+  try {
+    process.env.PM_TEST_REAL_GIT = execFileSync("sh", ["-c", "command -v git"], {
+      encoding: "utf8",
+    }).trim();
+    fs.mkdirSync(shimDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(shimDir, "git"),
+      [
+        "#!/bin/sh",
+        'echo "$*" >> "$PM_TEST_GIT_LOG"',
+        'case "$1" in cat-file|ls-tree) [ -n "$PM_TEST_GIT_FAIL" ] && exit 128;; esac',
+        'exec "$PM_TEST_REAL_GIT" "$@"',
+        "",
+      ].join("\n"),
+      { mode: 0o755 }
+    );
+    execFileSync("git", ["init", "-q", worktree]);
+    git("config", "user.email", "test@example.com");
+    git("config", "user.name", "Test");
+    fs.mkdirSync(path.join(worktree, "src", "deep"), { recursive: true });
+    fs.writeFileSync(path.join(worktree, "src", "deep", "b"), "old\n");
+    fs.writeFileSync(path.join(worktree, "src (x)"), "x\n");
+    git("add", ".");
+    git("commit", "-qm", "base");
+    const base = git("rev-parse", "HEAD");
+    fs.writeFileSync(path.join(worktree, "src", "deep", "b"), "new\n");
+    git("commit", "-qam", "edit src/deep/b");
+    const commit = git("rev-parse", "HEAD");
+
+    for (const owns of ["src (x)", "src/** (x)"]) {
+      assert.throws(
+        () =>
+          withShim(true, () =>
+            validateWorkUnitResult(completed(commit), {
+              expectedOwnership: [owns],
+              worktree,
+              baseCommit: base,
+            })
+          ),
+        /could not verify worker commit/,
+        owns
+      );
+    }
+
+    withShim(false, () =>
+      validateWorkUnitResult(completed(commit), {
+        expectedOwnership: ["src/** (a) (b) (c)"],
+        worktree,
+        baseCommit: base,
+      })
+    );
+    const listings = fs
+      .readFileSync(log, "utf8")
+      .split("\n")
+      .filter((line) => line.startsWith("ls-tree"));
+    assert.equal(listings.length, 1, listings.join("\n"));
+  } finally {
+    delete process.env.PM_TEST_REAL_GIT;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("ownership: notes with nested parentheses and stacked notes are stripped", () => {
   const worktree = fs.mkdtempSync(path.join(os.tmpdir(), "dev-work-unit-nested-note-"));
   const git = (...args) =>
