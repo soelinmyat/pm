@@ -25,7 +25,9 @@ function runGit(args, cwd, options = {}) {
   // Callers that list whole trees raise Node's 1 MiB default. The key is set only when
   // given, because an explicit undefined makes execFileSync's output unbounded.
   if (options.maxBuffer !== undefined) execOptions.maxBuffer = options.maxBuffer;
-  return execFileSync("git", args, execOptions).trim();
+  const output = execFileSync("git", args, execOptions);
+  // NUL-separated path lists pass trim: false, because a path may start or end with a space.
+  return options.trim === false ? output : output.trim();
 }
 
 function readGitFile(commit, relativePath, cwd, options = {}) {

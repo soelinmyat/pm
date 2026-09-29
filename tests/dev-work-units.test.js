@@ -697,6 +697,67 @@ test("ownership: an annotated entry keeps its literal meaning when it names a di
   }
 });
 
+test("ownership: path names are read exactly as git stores them", () => {
+  const worktree = fs.mkdtempSync(path.join(os.tmpdir(), "dev-work-unit-raw-names-"));
+  const git = (...args) =>
+    execFileSync("git", ["-C", worktree, ...args], { encoding: "utf8" }).trim();
+  const completed = (commit, filesChanged = 1) => ({
+    schema_version: 1,
+    work_unit_id: "raw-names",
+    status: "completed",
+    summary: "Done.",
+    commit,
+    files_changed: filesChanged,
+    evidence: [{ kind: "test", exit_code: 0 }],
+    blocker: null,
+    runtime: { provider: "claude" },
+  });
+  const check = (commit, baseCommit, owns) =>
+    validateWorkUnitResult(completed(commit), {
+      expectedOwnership: [owns],
+      worktree,
+      baseCommit,
+    });
+  try {
+    execFileSync("git", ["init", "-q", worktree]);
+    git("config", "user.email", "test@example.com");
+    git("config", "user.name", "Test");
+    for (const dir of [":x (keep)", ":x", ":!y", "docs"]) {
+      fs.mkdirSync(path.join(worktree, dir), { recursive: true });
+    }
+    fs.writeFileSync(path.join(worktree, ":x (keep)", "f"), "f\n");
+    fs.writeFileSync(path.join(worktree, ":x", "f"), "old\n");
+    fs.writeFileSync(path.join(worktree, ":!y", "g"), "old\n");
+    fs.writeFileSync(path.join(worktree, "docs", "café.md"), "old\n");
+    fs.writeFileSync(path.join(worktree, " x"), "old\n");
+    fs.writeFileSync(path.join(worktree, "x"), "x\n");
+    git("add", ".");
+    git("commit", "-qm", "base");
+    const base = git("rev-parse", "HEAD");
+
+    const edit = (file, message) => {
+      fs.writeFileSync(path.join(worktree, file), `${message}\n`);
+      git("commit", "-qam", message);
+      return git("rev-parse", "HEAD");
+    };
+    const colon = edit(":x/f", "edit :x/f");
+    assert.throws(() => check(colon, base, ":x (keep)"), /outside assigned ownership: :x\/f/);
+
+    const bang = edit(":!y/g", "edit :!y/g");
+    assert.doesNotThrow(() => check(bang, colon, ":!y (note)"));
+
+    const accent = edit("docs/café.md", "edit docs/café.md");
+    for (const owns of ["docs/café.md (draft)", "docs"]) {
+      assert.doesNotThrow(() => check(accent, bang, owns), owns);
+    }
+
+    const space = edit(" x", "edit leading-space file");
+    assert.throws(() => check(space, accent, "x"), /outside assigned ownership: {2}x/);
+  } finally {
+    fs.rmSync(worktree, { recursive: true, force: true });
+  }
+});
+
 test("ownership: annotated lookups report git errors and list each glob directory once", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "dev-work-unit-lookup-"));
   const worktree = path.join(root, "repo");
@@ -747,7 +808,7 @@ test("ownership: annotated lookups report git errors and list each glob director
       [
         "#!/bin/sh",
         'echo "$*" >> "$PM_TEST_GIT_LOG"',
-        'case "$1" in cat-file|ls-tree) [ -n "$PM_TEST_GIT_FAIL" ] && exit 128;; esac',
+        'case " $* " in *" cat-file "*|*" ls-tree "*) [ -n "$PM_TEST_GIT_FAIL" ] && exit 128;; esac',
         'exec "$PM_TEST_REAL_GIT" "$@"',
         "",
       ].join("\n"),
@@ -791,7 +852,7 @@ test("ownership: annotated lookups report git errors and list each glob director
     const listings = fs
       .readFileSync(log, "utf8")
       .split("\n")
-      .filter((line) => line.startsWith("ls-tree"));
+      .filter((line) => line.split(" ").includes("ls-tree"));
     assert.equal(listings.length, 1, listings.join("\n"));
   } finally {
     delete process.env.PM_TEST_REAL_GIT;

@@ -7,7 +7,7 @@ const { runGit: sharedRunGit } = require("../loop-git");
 const { isRfc3339DateTime } = require("./iso-time");
 const { inspectStableProjectInput, readProjectInput } = require("./safe-project-output");
 
-const LS_TREE_MAX_BUFFER = 64 * 1024 * 1024;
+const PATH_LIST_MAX_BUFFER = 64 * 1024 * 1024;
 
 const VALID_STATUSES = new Set(["pending", "running", "completed", "blocked", "failed"]);
 const WORK_UNIT_FIELDS = new Set([
@@ -1710,16 +1710,14 @@ function validateCompletedCommit(result, options) {
     const diffArgs = options.baseCommit
       ? ["diff", "--name-only", `${options.baseCommit}..${result.commit}`]
       : ["diff-tree", "--root", "--no-commit-id", "--name-only", "-r", result.commit];
-    changedPaths = runGit(worktree, diffArgs).split("\n").filter(Boolean);
+    changedPaths = listGitPaths(worktree, diffArgs);
     // A rename lists only its new path, so ownership is checked with renames split into the
     // deleted source and the added destination: moving a file needs ownership of both ends.
-    ownershipPaths = runGit(worktree, [
+    ownershipPaths = listGitPaths(worktree, [
       ...diffArgs.slice(0, 1),
       "--no-renames",
       ...diffArgs.slice(1),
-    ])
-      .split("\n")
-      .filter(Boolean);
+    ]);
   } catch (error) {
     throw new Error(`could not verify worker commit in assigned worktree: ${error.message}`);
   }
@@ -1768,19 +1766,26 @@ function resolveOwnershipMatcher(entry, changedPaths, namesCommitPath) {
   return matchers[named === -1 ? forms.length - 1 : named];
 }
 
+// Lists path names exactly as git stores them: NUL-separated, so git never quotes a name with
+// non-ASCII or special characters, and untrimmed, so a leading or trailing space survives.
+// Pathspecs are literal, so a path such as ":x" or ":!y" is a name, not pathspec magic.
+function listGitPaths(worktree, args) {
+  return sharedRunGit(["--literal-pathspecs", args[0], "-z", ...args.slice(1)], worktree, {
+    maxBuffer: PATH_LIST_MAX_BUFFER,
+    trim: false,
+  })
+    .split("\0")
+    .filter(Boolean);
+}
+
 // Returns a lookup that asks only what a form can name: the one tree entry for a plain path,
 // and for a glob every file, directory and submodule under its fixed directory prefix, so the
-// check stays cheap in large repositories. ls-tree reads path names literally and lists an
-// entry without its content, and a git failure throws instead of reading as "not there".
-// Listings are cached by directory, so stacked notes on one glob list it once.
+// check stays cheap in large repositories. ls-tree lists an entry without its content, and a
+// git failure throws instead of reading as "not there". Listings are cached by directory, so
+// stacked notes on one glob list it once.
 function commitPathLookup(worktree, commit) {
   const listings = new Map();
-  const list = (args) =>
-    sharedRunGit(["ls-tree", "-z", "--name-only", ...args], worktree, {
-      maxBuffer: LS_TREE_MAX_BUFFER,
-    })
-      .split("\0")
-      .filter(Boolean);
+  const list = (args) => listGitPaths(worktree, ["ls-tree", "--name-only", ...args]);
   return (form, owns, glob) => {
     if (!glob) return list([commit, "--", form]).includes(form);
     const prefix = form.slice(0, form.search(/[*?[\]{}]/));
@@ -1793,15 +1798,14 @@ function commitPathLookup(worktree, commit) {
 }
 
 // Builds the path test for one normalized pattern once, so matching many files stays cheap.
+// Files come from git, which already stores canonical names, so they are matched as given: a
+// name such as " x" keeps its leading space and is never owned by "x".
 function ownershipMatcher(pattern, glob = hasGlob(pattern)) {
   if (glob) {
     const expression = globRegExp(pattern);
-    return (file) => expression.test(normalizePattern(file));
+    return (file) => expression.test(file);
   }
-  return (fileValue) => {
-    const file = normalizePattern(fileValue);
-    return file === pattern || file.startsWith(`${pattern}/`);
-  };
+  return (file) => file === pattern || file.startsWith(`${pattern}/`);
 }
 
 function runGit(worktree, args) {
