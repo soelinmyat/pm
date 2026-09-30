@@ -8,7 +8,9 @@ const { stableStringify } = require("./workflow-runtime/records.js");
 const { MAX_LINEAGE_HOPS, assertOwnsOnlyAmendment } = require("./rfc-amendment.js");
 const {
   approvalAuditRecord,
+  assertOwnsOnlyHtml,
   readCommittedApprovalAudit,
+  readCommittedHtml,
   readCommittedSidecar,
   validateSession: validateRfcSession,
 } = require("./rfc-session-schema.js");
@@ -72,7 +74,14 @@ function verifyRfcApproval({ sidecarPath, slug, archiveRepoRoot, lineageTo = nul
   if (committed.sha256 !== sha256(approvalBytes)) {
     throw new Error("RFC approval audit on disk differs from the committed approval audit");
   }
-  const lineage = walkLineage({ archived, approval, archiveRepoRoot, slug, lineageTo });
+  const lineage = walkLineage({
+    archived,
+    approval,
+    archiveRepoRoot,
+    slug,
+    lineageTo,
+    currentBytes: { sidecar: sidecarBytes, html: htmlBytes },
+  });
   return {
     approval,
     approval_sha256: committed.sha256,
@@ -83,14 +92,17 @@ function verifyRfcApproval({ sidecarPath, slug, archiveRepoRoot, lineageTo = nul
   };
 }
 
-function walkLineage({ archived, approval, archiveRepoRoot, slug, lineageTo }) {
+// currentBytes are the verified on-disk bytes of the newest run's artifacts, so
+// the first hop compares against them without reading them from Git again.
+function walkLineage({ archived, approval, archiveRepoRoot, slug, lineageTo, currentBytes }) {
   const lineage = [{ run_id: archived.run_id, sidecar_sha256: approval.sidecar_sha256 }];
   if (lineageTo && approval.sidecar_sha256 === lineageTo) return lineage;
   const visited = new Set([archived.run_id]);
   let current = archived;
   let audit = approval;
-  // Each hop's prior sidecar is the next hop's current one; read it once.
-  let currentSidecar = null;
+  // Each hop's prior artifact is the next hop's current one; read it once.
+  let currentSidecar = JSON.parse(currentBytes.sidecar.toString("utf8"));
+  let currentHtml = currentBytes.html.toString("utf8");
   while (audit.schema_version === 2) {
     if (lineage.length > MAX_LINEAGE_HOPS) {
       throw new Error(`RFC approval lineage exceeds ${MAX_LINEAGE_HOPS} amendments`);
@@ -122,10 +134,16 @@ function walkLineage({ archived, approval, archiveRepoRoot, slug, lineageTo }) {
       );
     }
     let priorSidecar;
+    let priorHtml;
     try {
       priorSidecar = readCommittedSidecar(prior.artifact);
-      currentSidecar ??= readCommittedSidecar(current.artifact);
-      assertOwnsOnlyAmendment(priorSidecar, currentSidecar, audit.amended_issue_nums);
+      priorHtml = readCommittedHtml(prior.artifact);
+      const changes = assertOwnsOnlyAmendment(
+        priorSidecar,
+        currentSidecar,
+        audit.amended_issue_nums
+      );
+      assertOwnsOnlyHtml(priorHtml, currentHtml, changes);
     } catch (error) {
       throw new Error(
         `RFC approval lineage step ${priorRunId} -> ${current.run_id} is not owns-only: ${error.message}`
@@ -135,6 +153,7 @@ function walkLineage({ archived, approval, archiveRepoRoot, slug, lineageTo }) {
     if (lineageTo && prior.artifact.sidecar_hash === lineageTo) return lineage;
     current = prior;
     currentSidecar = priorSidecar;
+    currentHtml = priorHtml;
     audit = priorAudit.audit;
   }
   if (lineageTo) {

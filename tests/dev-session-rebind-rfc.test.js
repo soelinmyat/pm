@@ -464,6 +464,37 @@ test("rebind-rfc is limited to a bound sidecar path after intake", () => {
   }
 });
 
+test("rebind-rfc refuses a phase past implementation and a finished session", () => {
+  const scenario = boundScenario([issue(1, [], ["README.md"]), issue(2, [1], ["src/second.js"])]);
+  const { sessionPath } = scenario;
+  try {
+    const anyHash = `sha256:${"c".repeat(64)}`;
+    scenario.enterImplementation();
+    const session = readSession(sessionPath);
+    session.phase = "review";
+    session.routing.required_phases = ["implementation", "review", "retro"];
+    fs.writeFileSync(sessionPath, JSON.stringify(session));
+    const before = fs.readFileSync(sessionPath, "utf8");
+    const inReview = scenario.rebind(anyHash);
+    assert.equal(inReview.status, 3, inReview.stderr);
+    assert.match(
+      inReview.stderr,
+      /rebind-rfc is limited to workspace, readiness, and implementation; session is in review/
+    );
+    assert.equal(fs.readFileSync(sessionPath, "utf8"), before);
+
+    session.phase = "implementation";
+    session.routing.required_phases = ["implementation", "retro"];
+    session.status = "handoff";
+    fs.writeFileSync(sessionPath, JSON.stringify(session));
+    const handedOff = scenario.rebind(anyHash);
+    assert.equal(handedOff.status, 3, handedOff.stderr);
+    assert.match(handedOff.stderr, /requires an active or blocked session; status is handoff/);
+  } finally {
+    scenario.cleanup();
+  }
+});
+
 test("rebind-rfc refuses a session that is not bound to an RFC sidecar", () => {
   const dev = makeDevRepo();
   try {

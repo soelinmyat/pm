@@ -3,6 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { execFileSync } = require("node:child_process");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 let Ajv2020;
@@ -19,10 +20,15 @@ const {
   validateSession,
 } = require("../scripts/lib/rfc-session-schema");
 const {
+  amendArtifact,
   completeAmendment,
   completeApprovedRun,
   makeRfcRepo,
+  passingVerdicts,
+  phaseResult,
   prepareApprovedHandoff,
+  recordFile,
+  resultEvidence,
 } = require("./helpers/rfc-run-fixture");
 
 const SLUG = "amendment-schema";
@@ -232,4 +238,180 @@ test("RFC docs say amend writes no artifact files and who edits them", () => {
       /appends? the `owns` entries[^.]*, sets the RFC lifecycle to `draft`, and commits/
     );
   }
+});
+
+function openAmendment(repo, completedPath, env = {}) {
+  return repo.run(
+    [
+      "amend",
+      "--completed",
+      completedPath,
+      "--source-dir",
+      repo.root,
+      "--issues",
+      "2",
+      "--reason",
+      "Issue 2 must also update the README",
+      "--json",
+    ],
+    env
+  );
+}
+
+// Rewrites the committed RFC HTML and returns the artifact identity of the new commit.
+function editCommittedHtml(repo, artifact, edit) {
+  fs.writeFileSync(artifact.html_path, edit(fs.readFileSync(artifact.html_path, "utf8")));
+  execFileSync("git", ["add", path.relative(repo.root, artifact.html_path)], { cwd: repo.root });
+  execFileSync("git", ["commit", "-qm", "edit RFC HTML"], { cwd: repo.root });
+  const html = fs.readFileSync(artifact.html_path);
+  return {
+    ...artifact,
+    html_hash: `sha256:${crypto.createHash("sha256").update(html).digest("hex")}`,
+    commit: repo.head(),
+  };
+}
+
+test("an amendment may change RFC HTML only to list the paths it adds", () => {
+  const repo = makeRfcRepo();
+  const slug = "amendment-prose";
+  try {
+    const approved = completeApprovedRun(repo, slug, { issues: twoIssues() });
+    const archived = JSON.parse(fs.readFileSync(approved.archivePath, "utf8"));
+    const amended = openAmendment(repo, approved.archivePath);
+    assert.equal(amended.status, 0, amended.stderr);
+    const { session } = JSON.parse(amended.stdout);
+    const artifact = amendArtifact(repo, slug, archived.artifact, (sidecar) =>
+      sidecar.issues[1].owns.push("README.md")
+    );
+    const review = (candidate) =>
+      recordFile(
+        repo,
+        session,
+        phaseResult(session, {
+          artifact: candidate,
+          evidence: [resultEvidence("review")],
+          reviewer_verdicts: passingVerdicts(candidate),
+        })
+      );
+    const rewritten = editCommittedHtml(repo, artifact, (html) =>
+      html.replace(
+        "<h1>Immutable RFC</h1>",
+        "<h1>Immutable RFC</h1>\n  <p>Also rewrite the scheduler.</p>"
+      )
+    );
+    const refused = review(rewritten);
+    assert.notEqual(refused.status, 0);
+    assert.match(
+      refused.stderr,
+      /amendment changed RFC HTML beyond the lifecycle and added owned paths/
+    );
+
+    const listed = editCommittedHtml(repo, rewritten, (html) =>
+      html.replace("\n  <p>Also rewrite the scheduler.</p>", "\n  <li>README.md</li>")
+    );
+    const accepted = review(listed);
+    assert.equal(accepted.status, 0, accepted.stderr);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("amend refuses a run whose prior lineage archive is missing", () => {
+  const { repo, approved, amendment } = amendedRepo();
+  try {
+    fs.rmSync(path.dirname(approved.archivePath), { recursive: true });
+    const refused = openAmendment(repo, amendment.archivePath);
+    assert.equal(refused.status, 3, refused.stderr);
+    assert.match(refused.stderr, /cannot amend: .*has no matching completed RFC run/);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("withdraw closes an open amendment run and frees the RFC for another amend", () => {
+  const repo = makeRfcRepo();
+  const slug = "amendment-withdraw";
+  try {
+    const approved = completeApprovedRun(repo, slug, { issues: twoIssues() });
+    const amended = openAmendment(repo, approved.archivePath);
+    assert.equal(amended.status, 0, amended.stderr);
+    const { session_path: sessionPath, session } = JSON.parse(amended.stdout);
+    const before = fs.readFileSync(sessionPath, "utf8");
+
+    const noReason = repo.run(["withdraw", "--session", sessionPath, "--json"]);
+    assert.notEqual(noReason.status, 0);
+    assert.match(noReason.stderr, /--reason/);
+    const loopWorker = repo.run(
+      ["withdraw", "--session", sessionPath, "--reason", "Wrong issue", "--json"],
+      { PM_LOOP_WORKER: "1" }
+    );
+    assert.equal(loopWorker.status, 3, loopWorker.stderr);
+    assert.match(loopWorker.stderr, /loop workers cannot withdraw/);
+    assert.equal(fs.readFileSync(sessionPath, "utf8"), before);
+
+    const withdrawn = repo.run([
+      "withdraw",
+      "--session",
+      sessionPath,
+      "--reason",
+      "Declared the wrong issue",
+      "--json",
+    ]);
+    assert.equal(withdrawn.status, 0, withdrawn.stderr);
+    const archiveDir = path.join(
+      path.dirname(path.dirname(approved.archivePath)),
+      "withdrawn",
+      session.run_id
+    );
+    assert.equal(JSON.parse(withdrawn.stdout).session_path, path.join(archiveDir, "session.json"));
+    assert.equal(fs.existsSync(sessionPath), false);
+    assert.equal(fs.readFileSync(path.join(archiveDir, "session.json"), "utf8"), before);
+    const record = JSON.parse(fs.readFileSync(path.join(archiveDir, "withdrawal.json"), "utf8"));
+    assert.equal(record.run_id, session.run_id);
+    assert.equal(record.slug, slug);
+    assert.equal(record.amends_run_id, approved.runId);
+    assert.equal(record.reason, "Declared the wrong issue");
+
+    const again = openAmendment(repo, approved.archivePath);
+    assert.equal(again.status, 0, again.stderr);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("withdraw refuses a run that is not an amendment", () => {
+  const repo = makeRfcRepo();
+  try {
+    const initialized = repo.run([
+      "init",
+      "--slug",
+      "original-run",
+      "--source-dir",
+      repo.root,
+      "--json",
+    ]);
+    assert.equal(initialized.status, 0, initialized.stderr);
+    const sessionPath = JSON.parse(initialized.stdout).session_path;
+    const refused = repo.run([
+      "withdraw",
+      "--session",
+      sessionPath,
+      "--reason",
+      "Changed mind",
+      "--json",
+    ]);
+    assert.equal(refused.status, 3, refused.stderr);
+    assert.match(refused.stderr, /only an open amendment run can be withdrawn/);
+    assert.equal(fs.existsSync(sessionPath), true);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("RFC handoff docs say an amendment leaves the proposal lifecycle alone", () => {
+  const handoff = fs.readFileSync(path.join(REFERENCES, "..", "steps", "05-handoff.md"), "utf8");
+  assert.doesNotMatch(handoff, /exactly as for an original run/);
+  assert.match(handoff, /amendment[^.]*leaves? the proposal lifecycle unchanged/i);
+  const skill = fs.readFileSync(path.join(REFERENCES, "..", "SKILL.md"), "utf8");
+  assert.match(skill, /rfc-session\.js withdraw --session/);
 });

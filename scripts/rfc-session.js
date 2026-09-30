@@ -14,7 +14,6 @@ const {
   hashResult,
   migrateLegacyMarkdown,
   nextDecision,
-  readCommittedApprovalAudit,
   recertifyContext,
   recordResult,
   resumeBlocked,
@@ -25,6 +24,7 @@ const {
 const { writeJsonAtomic } = require("./loop-git.js");
 const { resolveRfcProfile } = require("./lib/rfc-runtime-profile.js");
 const { assertAmendmentDepth, parseAmendedIssueNums } = require("./lib/rfc-amendment.js");
+const { readCompletedRun } = require("./lib/rfc-approval-audit.js");
 const { acquireOwnedLock } = require("./lib/owned-lock.js");
 const { recordSessionTelemetry } = require("./lib/telemetry");
 
@@ -35,6 +35,7 @@ function main(argv = process.argv.slice(2)) {
     const { command, options } = parseArgs(argv);
     if (command === "init") return initCommand(options);
     if (command === "amend") return amendCommand(options);
+    if (command === "withdraw") return withdrawCommand(options);
     if (command === "status") return statusCommand(options);
     if (command === "next") return nextCommand(options);
     if (command === "validate") return validateCommand(options);
@@ -112,20 +113,20 @@ function amendCommand(options) {
   } catch (error) {
     throw cliError(error.message, EXIT.INVALID);
   }
-  try {
-    readCommittedApprovalAudit(archived);
-  } catch (error) {
-    throw cliError(`cannot amend: ${error.message}`, EXIT.PRECONDITION);
-  }
   return createRun(options, {
     existsLabel: "active RFC session",
-    build: (execution) =>
-      createAmendmentSession(archived, {
-        sourceDir: path.resolve(options.sourceDir),
-        issueNums,
-        reason: options.reason,
-        ...execution,
-      }),
+    build: (execution) => {
+      try {
+        return createAmendmentSession(archived, {
+          sourceDir: path.resolve(options.sourceDir),
+          issueNums,
+          reason: options.reason,
+          ...execution,
+        });
+      } catch (error) {
+        throw new Error(`cannot amend: ${error.message}`);
+      }
+    },
     // Lineage checks run under the slug lock so concurrent amends cannot fork.
     underLock: () => {
       const successor = findAmendingRun(archived);
@@ -143,12 +144,61 @@ function amendCommand(options) {
         );
       }
       try {
-        assertAmendmentDepth(archived, (runId) => readCompletedRun(archived, runId));
+        assertAmendmentDepth(archived, (runId) =>
+          readCompletedRun(archived.source.repo_root, archived.slug, runId)
+        );
       } catch (error) {
         throw cliError(`cannot amend: ${error.message}`, EXIT.PRECONDITION);
       }
     },
   });
+}
+
+// Closes an open amendment run without approving it, so a wrong --issues
+// choice or a dropped path cannot hold the slug. The session bytes move beside
+// the completed runs under withdrawn/, which no lineage or successor check reads;
+// the approval it would have amended is untouched.
+function withdrawCommand(options) {
+  requireOptions(options, ["session", "reason"]);
+  if (process.env.PM_LOOP_WORKER === "1") {
+    throw cliError("loop workers cannot withdraw RFC amendments", EXIT.PRECONDITION);
+  }
+  const { session, sessionPath } = loadRequiredSession(options);
+  if (!session.amendment || session.status === "complete") {
+    throw cliError(
+      "only an open amendment run can be withdrawn; revise an original RFC run instead",
+      EXIT.PRECONDITION
+    );
+  }
+  const archiveDir = path.join(
+    path.dirname(path.dirname(completedSessionPath(session))),
+    "withdrawn",
+    session.run_id
+  );
+  const archivePath = path.join(archiveDir, "session.json");
+  const withdrawal = {
+    schema_version: 1,
+    run_id: session.run_id,
+    slug: session.slug,
+    amends_run_id: session.amendment.of_run_id,
+    reason: options.reason,
+    withdrawn_at: new Date().toISOString(),
+  };
+  withLock(sessionPath, () => {
+    const bytes = fs.readFileSync(sessionPath);
+    if (JSON.parse(bytes.toString("utf8")).run_id !== session.run_id) {
+      throw cliError("RFC session changed before it could be withdrawn", EXIT.PRECONDITION);
+    }
+    if (fs.existsSync(archiveDir)) {
+      throw cliError(`withdrawn RFC run already exists: ${archiveDir}`, EXIT.PRECONDITION);
+    }
+    fs.mkdirSync(archiveDir, { recursive: true });
+    fs.writeFileSync(archivePath, bytes, { mode: 0o600 });
+    writeJsonAtomic(path.join(archiveDir, "withdrawal.json"), withdrawal, { fileMode: 0o600 });
+    clearActiveRunDirectory(sessionPath);
+  });
+  emit(options, { session_path: archivePath, run_id: session.run_id, withdrawal });
+  return EXIT.OK;
 }
 
 function createRun(options, { existsLabel, build, underLock = () => {} }) {
@@ -189,16 +239,6 @@ function createRun(options, { existsLabel, build, underLock = () => {} }) {
   });
   emit(options, { session_path: sessionPath, session, next: nextDecision(session, sessionPath) });
   return EXIT.OK;
-}
-
-function readCompletedRun(archived, runId) {
-  const runPath = path.join(
-    path.dirname(path.dirname(completedSessionPath(archived))),
-    runId,
-    "session.json"
-  );
-  if (!fs.existsSync(runPath)) return null;
-  return JSON.parse(fs.readFileSync(runPath, "utf8"));
 }
 
 function completedSiblingRuns(archived) {

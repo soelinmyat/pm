@@ -198,6 +198,22 @@ function createAmendmentSession(archived, options) {
   return next;
 }
 
+function readCommittedHtml(artifact) {
+  const repoRoot = fs.realpathSync(artifact.repo_root);
+  let bytes;
+  try {
+    bytes = readGitFile(artifact.commit, gitRelativePath(repoRoot, artifact.html_path), repoRoot, {
+      timeout: 10_000,
+    });
+  } catch (error) {
+    throw new Error(`approved RFC HTML is not tracked at ${artifact.commit}: ${error.message}`);
+  }
+  if (sha256(bytes) !== artifact.html_hash) {
+    throw new Error(`approved RFC HTML at ${artifact.commit} does not match its recorded hash`);
+  }
+  return bytes.toString("utf8");
+}
+
 function readCommittedSidecar(artifact) {
   const repoRoot = fs.realpathSync(artifact.repo_root);
   let bytes;
@@ -256,7 +272,58 @@ function assertAmendmentArtifact(session, artifact) {
   }
   const priorSidecar = readCommittedSidecar(prior);
   const nextSidecar = JSON.parse(fs.readFileSync(artifact.json_path, "utf8"));
-  return assertOwnsOnlyAmendment(priorSidecar, nextSidecar, amendment.amended_issue_nums);
+  const changes = assertOwnsOnlyAmendment(priorSidecar, nextSidecar, amendment.amended_issue_nums);
+  assertOwnsOnlyHtml(
+    readCommittedHtml(prior),
+    fs.readFileSync(artifact.html_path, "utf8"),
+    changes
+  );
+  return changes;
+}
+
+// The approver confirms an amendment by its sidecar hash, so the HTML may not
+// carry any other change: only the lifecycle, the sidecar hash it cites, and
+// list items naming the paths the amendment adds.
+function assertOwnsOnlyHtml(priorHtml, nextHtml, changes) {
+  const added = changes.flatMap((change) => change.added_owns);
+  if (ownsOnlyCanonical(priorHtml, added) !== ownsOnlyCanonical(nextHtml, added)) {
+    throw new Error(
+      "amendment changed RFC HTML beyond the lifecycle and added owned paths; any other change is a new RFC design"
+    );
+  }
+}
+
+function ownsOnlyCanonical(html, addedPaths) {
+  let canonical = canonicalizeLifecycle(html).replace(
+    /(\bdata-sidecar-hash=["'])sha256:[0-9a-f]{64}(["'])/g,
+    "$1<SIDECAR>$2"
+  );
+  for (const owned of addedPaths) {
+    const text = [owned, escapeHtml(owned)]
+      .filter((value, index, all) => all.indexOf(value) === index)
+      .map(escapeRegExp)
+      .join("|");
+    canonical = canonical.replace(
+      new RegExp(`\\s*<li>(?:<code>)?(?:${text})(?:</code>)?</li>`, "g"),
+      ""
+    );
+  }
+  // Whitespace between tags carries no RFC content, and removing a list item
+  // can leave an extra line break behind.
+  return canonical.replace(/>\s+</g, "><");
+}
+
+function escapeHtml(value) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#x27;");
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function applyContext(session, facts, options = {}) {
@@ -2087,6 +2154,7 @@ module.exports = {
   applyContext,
   approveSession,
   approvalAuditRecord,
+  assertOwnsOnlyHtml,
   approvalTransitionDigest,
   assertValidSession,
   buildApprovalAudit,
@@ -2097,6 +2165,7 @@ module.exports = {
   migrateLegacyMarkdown,
   nextDecision,
   readCommittedApprovalAudit,
+  readCommittedHtml,
   readCommittedSidecar,
   recertifyContext,
   recordResult,

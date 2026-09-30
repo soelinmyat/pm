@@ -254,3 +254,33 @@ test("amend refuses a run whose lineage already holds the maximum amendments", (
   runs.get("rfc_0").amendment = { of_run_id: "rfc_1" };
   assert.throws(() => assertAmendmentDepth(runs.get("rfc_1"), load), /repeats/);
 });
+
+test("amendment HTML may differ only in lifecycle, sidecar hash, and listed added paths", () => {
+  const { assertOwnsOnlyHtml } = require("../scripts/lib/rfc-session-schema");
+  const page = (status, hash, extra = "") =>
+    [
+      `<script id="pm-artifact" type="application/json">{"lifecycle":"${status}"}</script>`,
+      `<script id="rfc-lifecycle" type="application/json">{"status":"${status}"}</script>`,
+      `<main data-sidecar-hash="sha256:${hash.repeat(64)}">`,
+      `<p>Status: <span data-pm-lifecycle>${status[0].toUpperCase()}${status.slice(1)}</span></p>`,
+      "<ul><li>src/a&amp;b.js</li>",
+      extra,
+      "</ul></main>",
+    ].join("\n");
+  const prior = page("approved", "a");
+  const added = [{ num: 2, added_owns: ["src/c&d.js", "src/e.js"] }];
+  assert.doesNotThrow(() => assertOwnsOnlyHtml(prior, page("draft", "b"), added));
+  assert.doesNotThrow(() =>
+    assertOwnsOnlyHtml(
+      prior,
+      page("draft", "b", "<li>src/c&amp;d.js</li>\n<li><code>src/e.js</code></li>"),
+      added
+    )
+  );
+  for (const extra of ["<li>src/other.js</li>", "<p>New prose.</p>", "<li>src/e.js</li><p>x</p>"]) {
+    assert.throws(
+      () => assertOwnsOnlyHtml(prior, page("draft", "b", extra), added),
+      /amendment changed RFC HTML beyond the lifecycle and added owned paths/
+    );
+  }
+});
