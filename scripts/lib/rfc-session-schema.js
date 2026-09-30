@@ -238,7 +238,7 @@ function readCommittedSidecar(artifact) {
 }
 
 // Reads the approval audit committed with a completed run and proves it is the
-// exact audit that run produced. Returns the audit and the hash of its bytes.
+// exact audit that run produced. Returns the audit, its bytes and their hash.
 function readCommittedApprovalAudit(archived) {
   const artifact = archived.artifact;
   const approvalPath = artifact.json_path.replace(/\.json$/i, ".approval.json");
@@ -262,7 +262,7 @@ function readCommittedApprovalAudit(archived) {
       `approval audit at ${artifact.commit} does not match completed RFC run ${archived.run_id}`
     );
   }
-  return { path: approvalPath, audit, sha256: sha256(bytes) };
+  return { path: approvalPath, audit, bytes, sha256: sha256(bytes) };
 }
 
 function assertAmendmentArtifact(session, artifact) {

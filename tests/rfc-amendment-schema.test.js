@@ -367,7 +367,7 @@ test("withdraw closes an open amendment run and frees the RFC for another amend"
   }
 });
 
-test("withdraw refuses an amendment once its approval is recorded", () => {
+test("withdraw refuses an approved amendment and restores the prior audit after revise", () => {
   const repo = makeRfcRepo();
   const slug = "amendment-withdraw-approved";
   try {
@@ -411,6 +411,8 @@ test("withdraw refuses an amendment once its approval is recorded", () => {
 
     // approval-audit rewrites the slug's approval.json to name this run, so a
     // withdraw here would leave the audit pointing at a run that never completes.
+    const auditPath = archived.artifact.json_path.replace(/\.json$/i, ".approval.json");
+    const priorAudit = fs.readFileSync(auditPath);
     const identityPath = path.join(repo.root, `${session.run_id}-artifact.json`);
     fs.writeFileSync(
       identityPath,
@@ -430,13 +432,44 @@ test("withdraw refuses an amendment once its approval is recorded", () => {
     assert.match(afterAudit.stderr, /approved amendment cannot be withdrawn/);
     assert.equal(fs.existsSync(sessionPath), true);
 
-    // revise resets the approval to pending, but the audit still names this run.
+    assert.notDeepEqual(fs.readFileSync(auditPath), priorAudit);
+
+    // revise resets the approval to pending while the audit still names this run,
+    // so withdraw puts back the audit of the approval it would have amended.
     const revised = repo.run(["revise", "--session", sessionPath, "--reason", "Rethink", "--json"]);
     assert.equal(revised.status, 0, revised.stderr);
     assert.equal(JSON.parse(fs.readFileSync(sessionPath, "utf8")).approval.status, "pending");
     const afterRevise = withdraw();
-    assert.equal(afterRevise.status, 3, afterRevise.stderr);
-    assert.match(afterRevise.stderr, /approval audit already names this amendment/);
+    assert.equal(afterRevise.status, 0, afterRevise.stderr);
+    assert.deepEqual(fs.readFileSync(auditPath), priorAudit);
+    assert.equal(fs.existsSync(sessionPath), false);
+    const again = openAmendment(repo, approved.archivePath);
+    assert.equal(again.status, 0, again.stderr);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("withdraw refuses when the approval audit cannot be read", () => {
+  const repo = makeRfcRepo();
+  const slug = "amendment-withdraw-unreadable";
+  try {
+    const approved = completeApprovedRun(repo, slug, { issues: twoIssues() });
+    const archived = JSON.parse(fs.readFileSync(approved.archivePath, "utf8"));
+    const amended = openAmendment(repo, approved.archivePath);
+    assert.equal(amended.status, 0, amended.stderr);
+    const { session_path: sessionPath } = JSON.parse(amended.stdout);
+    fs.writeFileSync(archived.artifact.json_path.replace(/\.json$/i, ".approval.json"), "{");
+    const refused = repo.run([
+      "withdraw",
+      "--session",
+      sessionPath,
+      "--reason",
+      "Wrong issue",
+      "--json",
+    ]);
+    assert.equal(refused.status, 3, refused.stderr);
+    assert.match(refused.stderr, /cannot read approval audit/);
     assert.equal(fs.existsSync(sessionPath), true);
   } finally {
     repo.cleanup();

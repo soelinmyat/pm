@@ -14,6 +14,7 @@ const {
   hashResult,
   migrateLegacyMarkdown,
   nextDecision,
+  readCommittedApprovalAudit,
   recertifyContext,
   recordResult,
   resumeBlocked,
@@ -25,6 +26,7 @@ const { writeJsonAtomic } = require("./loop-git.js");
 const { resolveRfcProfile } = require("./lib/rfc-runtime-profile.js");
 const { assertAmendmentDepth, parseAmendedIssueNums } = require("./lib/rfc-amendment.js");
 const { readCompletedRun } = require("./lib/rfc-approval-audit.js");
+const { writeFileAtomic } = require("./lib/atomic-file");
 const { acquireOwnedLock } = require("./lib/owned-lock.js");
 const { recordSessionTelemetry } = require("./lib/telemetry");
 
@@ -157,14 +159,15 @@ function amendCommand(options) {
 // Closes an open amendment run without approving it, so a wrong --issues
 // choice or a dropped path cannot hold the slug. The session bytes move beside
 // the completed runs under withdrawn/, which no lineage or successor check reads;
-// the approval it would have amended is untouched.
+// the approval it would have amended stays in force, and its audit is restored
+// if this run's approval-audit had already replaced it.
 function withdrawCommand(options) {
   requireOptions(options, ["session", "reason"]);
   if (process.env.PM_LOOP_WORKER === "1") {
     throw cliError("loop workers cannot withdraw RFC amendments", EXIT.PRECONDITION);
   }
   const { session, sessionPath } = loadRequiredSession(options);
-  assertWithdrawable(session);
+  withdrawalRestores(session);
   const archiveDir = path.join(
     path.dirname(path.dirname(completedSessionPath(session))),
     "withdrawn",
@@ -185,9 +188,13 @@ function withdrawCommand(options) {
     if (current.run_id !== session.run_id) {
       throw cliError("RFC session changed before it could be withdrawn", EXIT.PRECONDITION);
     }
-    assertWithdrawable(current);
+    const restores = withdrawalRestores(current);
     if (fs.existsSync(archiveDir)) {
       throw cliError(`withdrawn RFC run already exists: ${archiveDir}`, EXIT.PRECONDITION);
+    }
+    // Restore first: if archiving then fails, the run stays open and no audit names it.
+    for (const restore of restores) {
+      writeFileAtomic(restore.path, restore.bytes, { fileMode: 0o600 });
     }
     fs.mkdirSync(archiveDir, { recursive: true });
     fs.writeFileSync(archivePath, bytes, { mode: 0o600 });
@@ -198,10 +205,11 @@ function withdrawCommand(options) {
   return EXIT.OK;
 }
 
-// Handoff's approval-audit rewrites the slug's approval.json to name the run,
-// so once an approval is recorded, or its audit names this run (revise resets
-// the approval but leaves the audit), the amendment must finish handoff.
-function assertWithdrawable(session) {
+// An approved amendment must finish handoff. A revised one may still be withdrawn,
+// but handoff's approval-audit may already have rewritten the slug's approval.json
+// to name it (revise resets the approval, not the audit), so this returns the
+// prior run's committed audit bytes to put back. An unreadable audit fails closed.
+function withdrawalRestores(session) {
   if (!session.amendment || session.status === "complete") {
     throw cliError(
       "only an open amendment run can be withdrawn; revise an original RFC run instead",
@@ -217,6 +225,7 @@ function assertWithdrawable(session) {
   const sidecars = new Set(
     [session.artifact?.json_path, session.amendment.prior_artifact?.json_path].filter(Boolean)
   );
+  const restores = [];
   for (const jsonPath of sidecars) {
     const auditPath = jsonPath.replace(/\.json$/i, ".approval.json");
     let audit;
@@ -229,13 +238,33 @@ function assertWithdrawable(session) {
         EXIT.PRECONDITION
       );
     }
-    if (audit?.run_id === session.run_id) {
-      throw cliError(
-        "approval audit already names this amendment; approve it again and finish handoff",
-        EXIT.PRECONDITION
-      );
-    }
+    if (audit?.run_id === session.run_id) restores.push(priorApprovalAudit(session, auditPath));
   }
+  return restores;
+}
+
+function priorApprovalAudit(session, auditPath) {
+  const priorRunId = session.amendment.of_run_id;
+  let committed;
+  try {
+    const prior = readCompletedRun(session.source.repo_root, session.slug, priorRunId);
+    committed = readCommittedApprovalAudit(prior);
+  } catch (error) {
+    throw cliError(
+      `cannot restore the approval audit of ${priorRunId}: ${error.message}`,
+      EXIT.PRECONDITION
+    );
+  }
+  if (
+    path.resolve(committed.path) !== path.resolve(auditPath) ||
+    committed.sha256 !== session.amendment.prior_approval_sha256
+  ) {
+    throw cliError(
+      `committed approval audit of ${priorRunId} does not match the approval this run amends`,
+      EXIT.PRECONDITION
+    );
+  }
+  return { path: auditPath, bytes: committed.bytes };
 }
 
 function createRun(options, { existsLabel, build, underLock = () => {} }) {
