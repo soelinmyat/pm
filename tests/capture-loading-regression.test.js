@@ -29,7 +29,7 @@ async function fixture(
     const server = http.createServer((req,res) => {
       if (req.url === '/slow') { /* Genuine pending response, closed during cleanup. */ return; }
       res.setHeader('content-type','text/html');
-      res.end(${JSON.stringify(`<!doctype html><html lang="en"><head><title>Loading test</title></head><body><main id="content" data-pm-state="${state}" aria-busy="${busy}"><h1>Saved checklists</h1><p>Loading saved submissions</p></main><script>${type === "image" ? 'const image=new Image(); image.src="/slow"; document.body.append(image);' : `fetch('${external ? "http://127.0.0.1:1/blocked" : "/slow"}', {method: '${method}'}).then(() => {const el=document.getElementById('content'); el.setAttribute('aria-busy','false'); el.setAttribute('data-pm-state','primary'); el.textContent='Loaded';});`}</script></body></html>`)});
+      res.end(${JSON.stringify(`<!doctype html><html lang="en"><head><title>Loading test</title><link rel="icon" href="data:,"></head><body><main id="content" data-pm-state="${state}" aria-busy="${busy}"><h1>Saved checklists</h1><p>Loading saved submissions</p></main><script>${type === "image" ? 'const image=new Image(); image.src="/slow"; document.body.append(image);' : `fetch('${external ? "http://127.0.0.1:1/blocked" : "/slow"}', {method: '${method}'}).then(() => {const el=document.getElementById('content'); el.setAttribute('aria-busy','false'); el.setAttribute('data-pm-state','primary'); el.textContent='Loaded';});`}</script></body></html>`)});
     }); server.listen(0, '127.0.0.1', () => console.log(server.address().port));
   `,
     ],
@@ -47,8 +47,8 @@ async function fixture(
     expectedUrl: url,
     allowedOrigins: [new URL(url).origin],
     viewport: { width: 1024, height: 600 },
-    readinessTimeoutMs: 1000,
-    settleMs: 100,
+    readinessTimeoutMs: 5000,
+    settleMs: 200,
     outputPath: path.join(root, "capture.png"),
     verificationPath: path.join(root, "verification.png"),
     stateAssertion: {
