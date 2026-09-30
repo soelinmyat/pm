@@ -24,7 +24,7 @@ const {
 } = require("./lib/rfc-session-schema");
 const { writeJsonAtomic } = require("./loop-git.js");
 const { resolveRfcProfile } = require("./lib/rfc-runtime-profile.js");
-const { parseAmendedIssueNums } = require("./lib/rfc-amendment.js");
+const { assertAmendmentDepth, parseAmendedIssueNums } = require("./lib/rfc-amendment.js");
 const { acquireOwnedLock } = require("./lib/owned-lock.js");
 const { recordSessionTelemetry } = require("./lib/telemetry");
 
@@ -76,46 +76,15 @@ function parseArgs(argv) {
 
 function initCommand(options) {
   requireOptions(options, ["slug", "sourceDir"]);
-  let session;
-  try {
-    const execution = resolveRfcProfile({
-      sourceDir: path.resolve(options.sourceDir),
-      runtime: options.runtime,
-      profile: options.profile,
-      model: options.model,
-      reasoning: options.reasoning,
-    });
-    session = createSession({
-      slug: options.slug,
-      sourceDir: path.resolve(options.sourceDir),
-      ...execution,
-    });
-  } catch (error) {
-    throw cliError(error.message, EXIT.PRECONDITION);
-  }
-  const sessionPath = path.join(
-    session.source.repo_root,
-    ".pm",
-    "rfc-sessions",
-    session.slug,
-    "session.json"
-  );
-  withLock(sessionPath, () => {
-    if (fs.existsSync(sessionPath)) {
-      throw cliError(`RFC session already exists: ${sessionPath}`, EXIT.PRECONDITION);
-    }
-    clearActiveRunDirectory(sessionPath);
-    writeSession(sessionPath, session);
+  return createRun(options, {
+    existsLabel: "RFC session",
+    build: (execution) =>
+      createSession({
+        slug: options.slug,
+        sourceDir: path.resolve(options.sourceDir),
+        ...execution,
+      }),
   });
-  recordSessionTelemetry({
-    workflow: "rfc",
-    sessionPath,
-    prevSession: null,
-    session,
-    result: null,
-  });
-  emit(options, { session_path: sessionPath, session, next: nextDecision(session, sessionPath) });
-  return EXIT.OK;
 }
 
 // Opens an owns-only amendment run against a completed, approved RFC run. The
@@ -148,13 +117,34 @@ function amendCommand(options) {
   } catch (error) {
     throw cliError(`cannot amend: ${error.message}`, EXIT.PRECONDITION);
   }
-  const successor = findAmendingRun(archived);
-  if (successor) {
-    throw cliError(
-      `RFC run ${archived.run_id} was already amended by ${successor}; amend the latest run instead`,
-      EXIT.PRECONDITION
-    );
-  }
+  return createRun(options, {
+    existsLabel: "active RFC session",
+    build: (execution) =>
+      createAmendmentSession(archived, {
+        sourceDir: path.resolve(options.sourceDir),
+        issueNums,
+        reason: options.reason,
+        ...execution,
+      }),
+    // Lineage checks run under the slug lock so concurrent amends cannot fork.
+    underLock: () => {
+      const successor = findAmendingRun(archived);
+      if (successor) {
+        throw cliError(
+          `RFC run ${archived.run_id} was already amended by ${successor}; amend the latest run instead`,
+          EXIT.PRECONDITION
+        );
+      }
+      try {
+        assertAmendmentDepth(archived, (runId) => readCompletedRun(archived, runId));
+      } catch (error) {
+        throw cliError(`cannot amend: ${error.message}`, EXIT.PRECONDITION);
+      }
+    },
+  });
+}
+
+function createRun(options, { existsLabel, build, underLock = () => {} }) {
   let session;
   try {
     const execution = resolveRfcProfile({
@@ -164,12 +154,7 @@ function amendCommand(options) {
       model: options.model,
       reasoning: options.reasoning,
     });
-    session = createAmendmentSession(archived, {
-      sourceDir: path.resolve(options.sourceDir),
-      issueNums,
-      reason: options.reason,
-      ...execution,
-    });
+    session = build(execution);
   } catch (error) {
     throw cliError(error.message, EXIT.PRECONDITION);
   }
@@ -181,8 +166,9 @@ function amendCommand(options) {
     "session.json"
   );
   withLock(sessionPath, () => {
+    underLock();
     if (fs.existsSync(sessionPath)) {
-      throw cliError(`active RFC session already exists: ${sessionPath}`, EXIT.PRECONDITION);
+      throw cliError(`${existsLabel} already exists: ${sessionPath}`, EXIT.PRECONDITION);
     }
     clearActiveRunDirectory(sessionPath);
     writeSession(sessionPath, session);
@@ -196,6 +182,16 @@ function amendCommand(options) {
   });
   emit(options, { session_path: sessionPath, session, next: nextDecision(session, sessionPath) });
   return EXIT.OK;
+}
+
+function readCompletedRun(archived, runId) {
+  const runPath = path.join(
+    path.dirname(path.dirname(completedSessionPath(archived))),
+    runId,
+    "session.json"
+  );
+  if (!fs.existsSync(runPath)) return null;
+  return JSON.parse(fs.readFileSync(runPath, "utf8"));
 }
 
 function findAmendingRun(archived) {

@@ -335,7 +335,7 @@
                   "required": ["id", "status", "added_owns"],
                   "properties": {
                     "id": { "type": "string", "minLength": 1 },
-                    "status": { "enum": ["pending", "running", "blocked", "failed"] },
+                    "status": { "enum": ["pending", "running", "blocked", "failed", "completed"] },
                     "added_owns": {
                       "type": "array",
                       "minItems": 1,

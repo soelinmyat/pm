@@ -5,7 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { isRfc3339DateTime } = require("./iso-time.js");
 const { stableStringify } = require("./workflow-runtime/records.js");
-const { assertOwnsOnlyAmendment } = require("./rfc-amendment.js");
+const { MAX_LINEAGE_HOPS, assertOwnsOnlyAmendment } = require("./rfc-amendment.js");
 const {
   approvalAuditRecord,
   readCommittedApprovalAudit,
@@ -13,9 +13,6 @@ const {
   validateSession: validateRfcSession,
 } = require("./rfc-session-schema.js");
 
-// Owns-only amendments chain through `amends`; a longer chain means the RFC
-// needs a new design, not another ownership patch.
-const MAX_LINEAGE_HOPS = 16;
 const V1_FIELDS = [
   "schema_version",
   "run_id",

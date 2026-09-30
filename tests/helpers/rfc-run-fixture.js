@@ -104,6 +104,7 @@ function prepareApprovedHandoff(repo, slug, options = {}) {
       })),
     })
   );
+  if (options.beforeApprove) options.beforeApprove(session, artifact);
   session = approveSession(session, { approvedBy: "Test Owner" });
   artifact = writeArtifact(repo, slug, "approved", artifact);
   writeSession(payload.session_path, session);

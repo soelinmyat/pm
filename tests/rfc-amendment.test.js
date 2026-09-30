@@ -2,7 +2,12 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { assertOwnsOnlyAmendment, parseAmendedIssueNums } = require("../scripts/lib/rfc-amendment");
+const {
+  MAX_LINEAGE_HOPS,
+  assertAmendmentDepth,
+  assertOwnsOnlyAmendment,
+  parseAmendedIssueNums,
+} = require("../scripts/lib/rfc-amendment");
 
 function sidecar() {
   return {
@@ -63,6 +68,25 @@ test("amendments reject removed, reordered-away, or rewritten ownership", () => 
       ),
     /append-only.*app\/second\.rb/
   );
+});
+
+test("amendments keep prior owns as an ordered prefix; reorder or mid-list insertion is rejected", () => {
+  for (const owns of [
+    ["test/first_test.rb", "app/extra.rb", "app/first.rb"],
+    ["app/first.rb", "app/extra.rb", "test/first_test.rb"],
+  ]) {
+    assert.throws(
+      () =>
+        assertOwnsOnlyAmendment(
+          sidecar(),
+          amended((value) => {
+            value.issues[0].owns = owns;
+          }),
+          [1]
+        ),
+      /append-only/
+    );
+  }
 });
 
 test("amendments reject owns changes on undeclared issues", () => {
@@ -205,4 +229,22 @@ test("issue number lists parse as unique positive integers", () => {
   assert.throws(() => parseAmendedIssueNums("1,1"), /unique/);
   assert.throws(() => parseAmendedIssueNums("0"), /positive integer/);
   assert.throws(() => parseAmendedIssueNums("two"), /positive integer/);
+});
+
+test("amend refuses a run whose lineage already holds the maximum amendments", () => {
+  const runs = new Map();
+  for (let index = 0; index <= MAX_LINEAGE_HOPS; index += 1) {
+    runs.set(`rfc_${index}`, {
+      run_id: `rfc_${index}`,
+      amendment: index === 0 ? null : { of_run_id: `rfc_${index - 1}` },
+    });
+  }
+  const load = (runId) => runs.get(runId);
+  assert.doesNotThrow(() => assertAmendmentDepth(runs.get(`rfc_${MAX_LINEAGE_HOPS - 1}`), load));
+  assert.throws(
+    () => assertAmendmentDepth(runs.get(`rfc_${MAX_LINEAGE_HOPS}`), load),
+    new RegExp(`${MAX_LINEAGE_HOPS} amendments`)
+  );
+  runs.get("rfc_0").amendment = { of_run_id: "rfc_1" };
+  assert.throws(() => assertAmendmentDepth(runs.get("rfc_1"), load), /repeats/);
 });

@@ -13,11 +13,16 @@ try {
 } catch (error) {
   if (error.code !== "MODULE_NOT_FOUND") throw error;
 }
-const { approvalTransitionDigest, validateSession } = require("../scripts/lib/rfc-session-schema");
+const {
+  approvalTransitionDigest,
+  approveSession,
+  validateSession,
+} = require("../scripts/lib/rfc-session-schema");
 const {
   completeAmendment,
   completeApprovedRun,
   makeRfcRepo,
+  prepareApprovedHandoff,
 } = require("./helpers/rfc-run-fixture");
 
 const SLUG = "amendment-schema";
@@ -124,3 +129,31 @@ test(
     }
   }
 );
+
+test("a supplied --approved-sidecar-sha256 must match on an original run too", () => {
+  const repo = makeRfcRepo();
+  try {
+    let checked = false;
+    prepareApprovedHandoff(repo, "confirmed-original", {
+      beforeApprove: (session, artifact) => {
+        assert.throws(
+          () =>
+            approveSession(session, {
+              approvedBy: "Test Owner",
+              approvedSidecarSha256: `sha256:${"0".repeat(64)}`,
+            }),
+          /does not match the reviewed sidecar/
+        );
+        const approved = approveSession(session, {
+          approvedBy: "Test Owner",
+          approvedSidecarSha256: artifact.sidecar_hash,
+        });
+        assert.equal(approved.status, "approved");
+        checked = true;
+      },
+    });
+    assert.equal(checked, true);
+  } finally {
+    repo.cleanup();
+  }
+});

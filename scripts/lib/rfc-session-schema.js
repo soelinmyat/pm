@@ -742,19 +742,23 @@ function approveSession(session, input, options = {}) {
   if (artifactFingerprint(session.artifact) !== session.review.artifact_hash) {
     throw new Error("artifact changed after review; return to review before approval");
   }
-  if (session.amendment) {
-    if (!nonEmpty(input.approvedSidecarSha256)) {
-      throw new Error(
-        "amendment approval requires --approved-sidecar-sha256 with the reviewed sidecar hash the approver confirmed"
-      );
-    }
-    if (input.approvedSidecarSha256 !== session.artifact.sidecar_hash) {
-      throw new Error(
-        `--approved-sidecar-sha256 does not match the reviewed amendment sidecar ${session.artifact.sidecar_hash}`
-      );
-    }
-    assertAmendmentArtifact(session, session.artifact);
+  if (session.amendment && !nonEmpty(input.approvedSidecarSha256)) {
+    throw new Error(
+      "amendment approval requires --approved-sidecar-sha256 with the reviewed sidecar hash the approver confirmed"
+    );
   }
+  // A supplied confirmation is always binding, even where it is optional.
+  if (
+    input.approvedSidecarSha256 !== undefined &&
+    input.approvedSidecarSha256 !== session.artifact.sidecar_hash
+  ) {
+    throw new Error(
+      `--approved-sidecar-sha256 does not match the reviewed ${
+        session.amendment ? "amendment " : ""
+      }sidecar ${session.artifact.sidecar_hash}`
+    );
+  }
+  if (session.amendment) assertAmendmentArtifact(session, session.artifact);
   const next = structuredClone(session);
   const now = options.now || new Date().toISOString();
   next.approval = {

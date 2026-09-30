@@ -294,7 +294,7 @@ test("rebind-rfc adopts an approved owns-only amendment so a blocked unit can co
   }
 });
 
-test("rebind-rfc refuses completed-unit ownership changes and running-unit overlap", () => {
+test("rebind-rfc refuses running-unit overlap without touching the session", () => {
   const scenario = boundScenario([
     issue(1, [], ["README.md"]),
     issue(2, [1], ["src/two.js"]),
@@ -324,18 +324,97 @@ test("rebind-rfc refuses completed-unit ownership changes and running-unit overl
     assert.equal(overlap.status, 3, overlap.stderr);
     assert.match(overlap.stderr, /running work units rfc-2 and rfc-3 would share ownership/);
     assert.equal(fs.readFileSync(sessionPath, "utf8"), before);
+  } finally {
+    scenario.cleanup();
+  }
+});
 
-    const completedChange = completeAmendment(scenario.rfc, overlapping.archivePath, {
+// A finished unit whose commit also touched a path it did not own is recovered
+// by an approved amendment that extends its ownership. Its commit only ever
+// grows more covered, so the rebind records the change and implementation
+// continues against the amended contract.
+test("rebind-rfc lets a completed unit gain ownership under an approved amendment", () => {
+  const scenario = boundScenario([issue(1, [], ["README.md"]), issue(2, [1], ["src/two.js"])]);
+  const { dev, sessionPath } = scenario;
+  try {
+    scenario.enterImplementation();
+    const firstBase = scenario.start("rfc-1");
+    const first = scenario.complete(
+      "rfc-1",
+      firstBase,
+      dev.commit({ "README.md": "rfc-1\n" }, "rfc-1")
+    );
+    assert.equal(first.status, 0, first.stderr);
+
+    const amended = completeAmendment(scenario.rfc, scenario.approved.archivePath, {
       issues: "1",
-      reason: "rfc-1 retroactively owns docs",
+      reason: "rfc-1 also owns its docs page",
       mutate: (sidecar) => sidecar.issues[0].owns.push("docs/one.md"),
     });
     copyArchives(scenario.rfc, dev);
-    const completed = scenario.rebind(completedChange.sidecarHash);
-    assert.equal(completed.status, 3, completed.stderr);
-    assert.match(completed.stderr, /completed work unit rfc-1 ownership cannot change/);
-    assert.equal(fs.readFileSync(sessionPath, "utf8"), before);
+    const rebound = scenario.rebind(amended.sidecarHash);
+    assert.equal(rebound.status, 0, rebound.stderr);
+
+    const session = readSession(sessionPath);
+    const unit = session.task.work_units.find((candidate) => candidate.id === "rfc-1");
+    assert.equal(unit.status, "completed");
+    assert.deepEqual(unit.owns, ["README.md", "docs/one.md"]);
+    assert.deepEqual(session.task.rfc_contract_history.at(-1).changed_units, [
+      { id: "rfc-1", status: "completed", added_owns: ["docs/one.md"] },
+    ]);
+
+    const secondBase = scenario.start("rfc-2");
+    const second = scenario.complete(
+      "rfc-2",
+      secondBase,
+      dev.commit({ "src/two.js": "rfc-2\n" }, "rfc-2")
+    );
+    assert.equal(second.status, 0, second.stderr);
   } finally {
+    scenario.cleanup();
+  }
+});
+
+test("rebind-rfc rebuilds units only from the exact bytes the approval proves", () => {
+  const crypto = require("node:crypto");
+  const { rebindRfcContract } = require("../scripts/lib/dev-session-schema");
+  const scenario = boundScenario([issue(1, [], ["README.md"]), issue(2, [], ["src/second.js"])]);
+  const { dev, sessionPath, sidecarPath } = scenario;
+  const realRead = fs.readFileSync;
+  try {
+    scenario.enterImplementation();
+    scenario.start("rfc-2");
+    completeAmendment(scenario.rfc, scenario.approved.archivePath, {
+      issues: "2",
+      reason: "rfc-2 must also update the README",
+      mutate: (sidecar) => sidecar.issues[1].owns.push("README.md"),
+    });
+    copyArchives(scenario.rfc, dev);
+    const tampered = JSON.parse(realRead(sidecarPath, "utf8"));
+    tampered.issues[1].owns.push("src/unapproved.js");
+    const tamperedBytes = Buffer.from(`${JSON.stringify(tampered, null, 2)}\n`);
+    const tamperedHash = `sha256:${crypto.createHash("sha256").update(tamperedBytes).digest("hex")}`;
+    const realSidecar = fs.realpathSync(sidecarPath);
+    // Serve unapproved bytes everywhere except inside approval verification,
+    // as if the file were swapped back and forth around that check.
+    fs.readFileSync = function patched(file, ...rest) {
+      const target = typeof file === "string" && fs.existsSync(file) ? fs.realpathSync(file) : null;
+      if (target === realSidecar && !new Error().stack.includes("verifyRfcApproval")) {
+        return rest[0] ? tamperedBytes.toString(rest[0]?.encoding || rest[0]) : tamperedBytes;
+      }
+      return realRead.call(fs, file, ...rest);
+    };
+    assert.throws(
+      () =>
+        rebindRfcContract(readSession(sessionPath), {
+          sidecarPath,
+          expectedSha256: tamperedHash,
+          reason: "tampered rebind",
+        }),
+      /approval covers .* not the observed RFC sidecar/
+    );
+  } finally {
+    fs.readFileSync = realRead;
     scenario.cleanup();
   }
 });
@@ -486,6 +565,7 @@ test("task.rfc_contract_history is a closed, append-only audit shape", () => {
       { ...entry, reason: " " },
       { ...entry, changed_units: [] },
       { ...entry, changed_units: [{ id: "rfc-2", status: "running", added_owns: [] }] },
+      { ...entry, changed_units: [{ id: "rfc-2", status: "done", added_owns: ["README.md"] }] },
       { ...entry, recorded_at: "yesterday" },
     ]) {
       session.task.rfc_contract_history = [broken];
@@ -494,6 +574,11 @@ test("task.rfc_contract_history is a closed, append-only audit shape", () => {
         JSON.stringify(broken)
       );
     }
+    session.task.rfc_contract_history = [];
+    assert.ok(
+      validateSession(session).some((error) => /rfc_contract_history/.test(error.path)),
+      "an empty history is absent, not []"
+    );
     session.task.rfc_contract_history = [entry, { ...entry, from_sidecar_sha256: hash("d") }];
     assert.ok(
       validateSession(session).some((error) => /chain/.test(error.message)),

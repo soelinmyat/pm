@@ -1049,7 +1049,7 @@ test("RFC ownership corrections are documented as amend plus rebind-rfc, never s
   assert.match(devState, /dev-session rebind-rfc --session <path> --rfc-sidecar <json-path>/);
   assert.match(devState, /--expected-sidecar-sha256/);
   assert.match(devState, /`task\.rfc_contract_history`/);
-  assert.match(devState, /Completed units cannot change/);
+  assert.match(devState, /Completed units may gain ownership too/);
   assert.match(read("skills/dev/steps/05-implementation.md"), /do not edit the sidecar/);
   assert.match(read("skills/dev/SKILL.md"), /Never edit an approved sidecar in place/);
   const rfcState = read("skills/rfc/references/state-schema.md");

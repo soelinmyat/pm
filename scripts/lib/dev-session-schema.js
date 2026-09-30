@@ -429,8 +429,8 @@ const RFC_RUN_ID_PATTERN = /^rfc_[A-Za-z0-9_-]+$/;
 function validateRfcContractHistory(history, errors) {
   if (history === undefined) return;
   const base = "$.task.rfc_contract_history";
-  if (!Array.isArray(history)) {
-    errors.push(issue(base, "must be an array"));
+  if (!Array.isArray(history) || history.length === 0) {
+    errors.push(issue(base, "must be a non-empty array; omit it until the first rebind"));
     return;
   }
   history.forEach((entry, index) => {
@@ -471,8 +471,8 @@ function validateRfcContractHistory(history, errors) {
         validateExactFields(unit, new Set(["id", "status", "added_owns"]), unitPath, errors);
         if (typeof unit.id !== "string" || !unit.id)
           errors.push(issue(`${unitPath}.id`, "required"));
-        if (!["pending", "running", "blocked", "failed"].includes(unit.status)) {
-          errors.push(issue(`${unitPath}.status`, "must be a non-completed work-unit status"));
+        if (!["pending", "running", "blocked", "failed", "completed"].includes(unit.status)) {
+          errors.push(issue(`${unitPath}.status`, "must be a work-unit status"));
         }
         if (
           !Array.isArray(unit.added_owns) ||
@@ -2987,6 +2987,12 @@ function rebindRfcContract(session, { sidecarPath, expectedSha256, reason, now =
     archiveRepoRoot: session.source.repo_root,
     lineageTo: bound.sha256,
   });
+  // The approval re-reads the file, so bind it to the bytes the units come from.
+  if (verified.sidecar_sha256 !== observed) {
+    throw new Error(
+      `RFC approval covers ${verified.sidecar_sha256}, not the observed RFC sidecar ${observed}; retry rebind-rfc once the sidecar is stable`
+    );
+  }
   const rebuilt = rfcIssuesToDevWorkUnits(sidecar, { repoRoot });
   const current = session.task.work_units;
   if (
@@ -3012,11 +3018,8 @@ function rebindRfcContract(session, { sidecarPath, expectedSha256, reason, now =
     }
     const added = unit.owns.filter((owned) => !existing.owns.includes(owned));
     if (added.length === 0) return;
-    if (existing.status === "completed") {
-      throw new Error(
-        `completed work unit ${unit.id} ownership cannot change; its commit was verified against the prior contract`
-      );
-    }
+    // A completed unit may gain ownership too: its commit was verified against
+    // a subset of the new owns, so the approved amendment only widens coverage.
     next.task.work_units[index].owns = [...unit.owns];
     changedUnits.push({ id: unit.id, status: existing.status, added_owns: added });
   });

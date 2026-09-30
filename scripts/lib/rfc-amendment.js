@@ -2,6 +2,10 @@
 
 const { stableStringify } = require("./workflow-runtime/records.js");
 
+// Owns-only amendments chain through `amends`; a longer chain means the RFC
+// needs a new design, not another ownership patch.
+const MAX_LINEAGE_HOPS = 16;
+
 // A post-handoff amendment may only append owned paths to explicitly declared
 // issues. Everything else in the approved sidecar must stay byte-for-byte equal
 // in meaning, so the re-approval covers exactly the ownership change.
@@ -56,18 +60,41 @@ function assertOwnsOnlyAmendment(prior, next, amendedIssueNums) {
     if (new Set(nextOwns).size !== nextOwns.length) {
       throw new Error(`issue ${before.num} owns contain a duplicate path`);
     }
-    for (const owned of priorOwns) {
-      if (!nextOwns.includes(owned)) {
-        throw new Error(`issue ${before.num} owns are append-only; ${owned} was removed`);
+    priorOwns.forEach((owned, position) => {
+      if (nextOwns[position] !== owned) {
+        throw new Error(
+          `issue ${before.num} owns are append-only; ${owned} was removed, moved, or preceded by a new path`
+        );
       }
-    }
-    const added = nextOwns.filter((owned) => !priorOwns.includes(owned));
+    });
+    const added = nextOwns.slice(priorOwns.length);
     if (added.length === 0) {
       throw new Error(`issue ${before.num} adds no owned paths; drop it from --issues`);
     }
     changes.push({ num: before.num, added_owns: added });
   });
   return changes;
+}
+
+// Refuses to open another amendment once the chain would exceed what approval
+// verification walks. loadRun(runId) returns a completed run or null.
+function assertAmendmentDepth(archived, loadRun) {
+  const visited = new Set([archived.run_id]);
+  let depth = 0;
+  let current = archived;
+  while (current?.amendment) {
+    depth += 1;
+    if (depth >= MAX_LINEAGE_HOPS) {
+      throw new Error(
+        `RFC run ${archived.run_id} already has ${MAX_LINEAGE_HOPS} amendments in its lineage; write a new RFC`
+      );
+    }
+    const priorRunId = current.amendment.of_run_id;
+    if (visited.has(priorRunId)) throw new Error(`RFC amendment lineage repeats run ${priorRunId}`);
+    visited.add(priorRunId);
+    current = loadRun(priorRunId);
+  }
+  return depth;
 }
 
 function parseAmendedIssueNums(value) {
@@ -99,4 +126,9 @@ function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-module.exports = { assertOwnsOnlyAmendment, parseAmendedIssueNums };
+module.exports = {
+  MAX_LINEAGE_HOPS,
+  assertAmendmentDepth,
+  assertOwnsOnlyAmendment,
+  parseAmendedIssueNums,
+};
