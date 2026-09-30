@@ -201,7 +201,18 @@ function withdrawCommand(options) {
     writeJsonAtomic(path.join(archiveDir, "withdrawal.json"), withdrawal, { fileMode: 0o600 });
     clearActiveRunDirectory(sessionPath);
   });
-  emit(options, { session_path: archivePath, run_id: session.run_id, withdrawal });
+  const prior = session.amendment.prior_artifact;
+  // The approved RFC, sidecar and audit all sit at the prior run's artifact commit,
+  // so checking out these paths from it and committing undoes every amendment write.
+  const restore = {
+    commit: prior.commit,
+    paths: [
+      prior.html_path,
+      prior.json_path,
+      prior.json_path.replace(/\.json$/i, ".approval.json"),
+    ],
+  };
+  emit(options, { session_path: archivePath, run_id: session.run_id, withdrawal, restore });
   return EXIT.OK;
 }
 

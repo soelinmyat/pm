@@ -427,6 +427,9 @@ test("withdraw refuses an approved amendment and restores the prior audit after 
       "--json",
     ]);
     assert.equal(audited.status, 0, audited.stderr);
+    // Handoff commits the audit before it records the run.
+    execFileSync("git", ["add", path.relative(repo.root, auditPath)], { cwd: repo.root });
+    execFileSync("git", ["commit", "-qm", "approve amendment"], { cwd: repo.root });
     const afterAudit = withdraw();
     assert.equal(afterAudit.status, 3, afterAudit.stderr);
     assert.match(afterAudit.stderr, /approved amendment cannot be withdrawn/);
@@ -443,6 +446,27 @@ test("withdraw refuses an approved amendment and restores the prior audit after 
     assert.equal(afterRevise.status, 0, afterRevise.stderr);
     assert.deepEqual(fs.readFileSync(auditPath), priorAudit);
     assert.equal(fs.existsSync(sessionPath), false);
+
+    // The emitted recovery puts every amended file back at the prior commit.
+    const { restore } = JSON.parse(afterRevise.stdout);
+    assert.equal(restore.commit, archived.artifact.commit);
+    assert.deepEqual(restore.paths, [
+      archived.artifact.html_path,
+      archived.artifact.json_path,
+      auditPath,
+    ]);
+    const relative = restore.paths.map((file) => path.relative(repo.root, file));
+    execFileSync("git", ["checkout", restore.commit, "--", ...relative], { cwd: repo.root });
+    execFileSync("git", ["commit", "-qm", "withdraw amendment"], { cwd: repo.root });
+    const status = execFileSync("git", ["status", "--porcelain", "--", ...relative], {
+      cwd: repo.root,
+      encoding: "utf8",
+    });
+    assert.equal(status, "");
+    const committedAudit = execFileSync("git", ["show", `HEAD:${relative[2]}`], {
+      cwd: repo.root,
+    });
+    assert.deepEqual(committedAudit, priorAudit);
     const again = openAmendment(repo, approved.archivePath);
     assert.equal(again.status, 0, again.stderr);
   } finally {
@@ -512,4 +536,6 @@ test("RFC handoff docs say an amendment leaves the proposal lifecycle alone", ()
   const skill = fs.readFileSync(path.join(REFERENCES, "..", "SKILL.md"), "utf8");
   assert.match(skill, /rfc-session\.js withdraw --session/);
   assert.match(skill, /Once approved, an amendment cannot be withdrawn/);
+  assert.match(skill, /git checkout <restore\.commit> -- <restore\.paths>/);
+  assert.doesNotMatch(skill, /revert its artifact commit/);
 });
