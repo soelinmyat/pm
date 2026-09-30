@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 "use strict";
+const { validatePendingAtCapture } = require("./lib/capture-loading-readiness");
 
 const crypto = require("node:crypto");
 const { execFileSync } = require("node:child_process");
@@ -1223,7 +1224,15 @@ function validateTrustedNetworkLedger(root, manifest, label, issues) {
   }
   closed(
     ledger,
-    ["schema_version", "policy", "allowed_origins", "observed_origins", "requests", "violations"],
+    [
+      "schema_version",
+      "policy",
+      "allowed_origins",
+      "observed_origins",
+      "requests",
+      "violations",
+      "pending_at_capture",
+    ],
     at,
     issues
   );
@@ -1418,12 +1427,22 @@ function validateTrustedObservationIdentity(
   )
     add(issues, `${label}.configuration`, "contains an unsupported trusted capture configuration");
   const net = observation.network;
+  try {
+    validatePendingAtCapture(
+      network?.ledger.pending_at_capture,
+      network?.ledger.requests || [],
+      manifest.coverage.state
+    );
+  } catch (error) {
+    add(issues, `${label}.network.pending_at_capture`, error.message);
+  }
   if (
     !network ||
     net.policy !== "explicit-origin-allowlist" ||
     !isDeepStrictEqual(net.allowed_origins, network.ledger.allowed_origins) ||
     !isDeepStrictEqual(net.observed_origins, network.ledger.observed_origins) ||
     net.request_count !== network.ledger.requests.length ||
+    !isDeepStrictEqual(net.pending_at_capture, network.ledger.pending_at_capture) ||
     net.ledger_sha256 !== network.file.sha256 ||
     net.violations !== 0
   )

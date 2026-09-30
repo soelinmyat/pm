@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { execFileSync, spawnSync } = require("node:child_process");
+const { validatePendingAtCapture } = require("./lib/capture-loading-readiness");
 const { normalizeRawAudit } = require("./design-critique-audit-normalize");
 const { exactObject, exactObjectWithOptional } = require("./lib/closed-object");
 const { coverageReasonIssue } = require("./lib/design-critique-coverage-reason");
@@ -996,9 +997,10 @@ function validateProbeResult(result, plan) {
   if (result.assertion_passed !== true) throw new Error("capture probe did not pass its assertion");
   validateAttestation(result.screenshot, "capture probe.screenshot");
   validateAttestation(result.verification_screenshot, "capture probe.verification_screenshot");
-  exactObject(
+  exactObjectWithOptional(
     result.network,
     ["policy", "allowed_origins", "observed_origins", "requests", "violations"],
+    ["pending_at_capture"],
     "capture probe.network"
   );
   if (result.network.policy !== "explicit-origin-allowlist")
@@ -1011,6 +1013,11 @@ function validateProbeResult(result, plan) {
     throw new Error("capture probe network request ledger is outside bounds");
   if (!Array.isArray(result.network.observed_origins))
     throw new Error("capture probe observed origins must be an array");
+  validatePendingAtCapture(
+    result.network.pending_at_capture,
+    result.network.requests,
+    plan.assertion.state
+  );
   exactObject(
     result.timestamps,
     ["started_at", "page_ready_at", "captured_at", "completed_at"],
@@ -1203,7 +1210,7 @@ function manifestShape(manifest) {
       ["head", "tree", "tracked_status_sha256", "clean"],
       `capture manifest.observation.source.${key}`
     );
-  exactObject(
+  exactObjectWithOptional(
     manifest.observation.network,
     [
       "policy",
@@ -1213,6 +1220,7 @@ function manifestShape(manifest) {
       "ledger_sha256",
       "violations",
     ],
+    ["pending_at_capture"],
     "capture manifest.observation.network"
   );
   exactObject(
@@ -1337,6 +1345,9 @@ function captureProductUi(options, runtime = {}) {
       allowed_origins: probe.network.allowed_origins,
       observed_origins: probe.network.observed_origins,
       requests: probe.network.requests,
+      ...(probe.network.pending_at_capture
+        ? { pending_at_capture: probe.network.pending_at_capture }
+        : {}),
       violations: [],
     };
     const networkBytes = Buffer.from(`${JSON.stringify(networkLedger, null, 2)}\n`);
@@ -1438,6 +1449,9 @@ function captureProductUi(options, runtime = {}) {
           allowed_origins: probe.network.allowed_origins,
           observed_origins: probe.network.observed_origins,
           request_count: probe.network.requests.length,
+          ...(probe.network.pending_at_capture
+            ? { pending_at_capture: probe.network.pending_at_capture }
+            : {}),
           ledger_sha256: digest(networkBytes),
           violations: 0,
         },
