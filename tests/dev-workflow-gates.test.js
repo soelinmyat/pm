@@ -1043,3 +1043,21 @@ test("ship push recovers stale gate rows through the session writer", () => {
   );
   assert.match(text, /recertify it with `dev-session recertify` and rerun `dev-session gate`/);
 });
+
+test("RFC ownership corrections are documented as amend plus rebind-rfc, never sidecar edits", () => {
+  const devState = read("skills/dev/references/state-schema.md");
+  assert.match(devState, /dev-session rebind-rfc --session <path> --rfc-sidecar <json-path>/);
+  assert.match(devState, /--expected-sidecar-sha256/);
+  assert.match(devState, /`task\.rfc_contract_history`/);
+  assert.match(devState, /Completed units cannot change/);
+  assert.match(read("skills/dev/steps/05-implementation.md"), /do not edit the sidecar/);
+  assert.match(read("skills/dev/SKILL.md"), /Never edit an approved sidecar in place/);
+  const rfcState = read("skills/rfc/references/state-schema.md");
+  assert.match(rfcState, /## Amendments/);
+  assert.match(rfcState, /schema-v2 approval audit/);
+  assert.match(read("skills/rfc/steps/04-approval.md"), /--approved-sidecar-sha256/);
+  assert.match(
+    read("skills/rfc/steps/05-handoff.md"),
+    /Dev verifies every lineage hop from its own `source\.repo_root`/
+  );
+});

@@ -8,11 +8,13 @@ const {
   approveSession,
   assertValidSession,
   buildApprovalAudit,
+  createAmendmentSession,
   createSession,
   grantAuthority,
   hashResult,
   migrateLegacyMarkdown,
   nextDecision,
+  readCommittedApprovalAudit,
   recertifyContext,
   recordResult,
   resumeBlocked,
@@ -22,6 +24,7 @@ const {
 } = require("./lib/rfc-session-schema");
 const { writeJsonAtomic } = require("./loop-git.js");
 const { resolveRfcProfile } = require("./lib/rfc-runtime-profile.js");
+const { parseAmendedIssueNums } = require("./lib/rfc-amendment.js");
 const { acquireOwnedLock } = require("./lib/owned-lock.js");
 const { recordSessionTelemetry } = require("./lib/telemetry");
 
@@ -31,6 +34,7 @@ function main(argv = process.argv.slice(2)) {
   try {
     const { command, options } = parseArgs(argv);
     if (command === "init") return initCommand(options);
+    if (command === "amend") return amendCommand(options);
     if (command === "status") return statusCommand(options);
     if (command === "next") return nextCommand(options);
     if (command === "validate") return validateCommand(options);
@@ -114,6 +118,108 @@ function initCommand(options) {
   return EXIT.OK;
 }
 
+// Opens an owns-only amendment run against a completed, approved RFC run. The
+// prior archive stays byte-identical; the new run re-enters review and needs a
+// fresh approval of the amended sidecar hash before its own handoff.
+function amendCommand(options) {
+  requireOptions(options, ["completed", "sourceDir", "issues", "reason"]);
+  if (process.env.PM_LOOP_WORKER === "1") {
+    throw cliError("loop workers cannot amend RFCs", EXIT.PRECONDITION);
+  }
+  const completedPath = path.resolve(options.completed);
+  const archived = readSession(completedPath);
+  try {
+    assertValidSession(archived);
+  } catch (error) {
+    throw cliError(`completed RFC run is invalid: ${error.message}`, EXIT.PRECONDITION);
+  }
+  if (archived.status !== "complete") {
+    throw cliError("--completed must name a completed RFC run archive", EXIT.PRECONDITION);
+  }
+  assertCanonicalSessionPath(completedPath, archived);
+  let issueNums;
+  try {
+    issueNums = parseAmendedIssueNums(options.issues);
+  } catch (error) {
+    throw cliError(error.message, EXIT.INVALID);
+  }
+  try {
+    readCommittedApprovalAudit(archived);
+  } catch (error) {
+    throw cliError(`cannot amend: ${error.message}`, EXIT.PRECONDITION);
+  }
+  const successor = findAmendingRun(archived);
+  if (successor) {
+    throw cliError(
+      `RFC run ${archived.run_id} was already amended by ${successor}; amend the latest run instead`,
+      EXIT.PRECONDITION
+    );
+  }
+  let session;
+  try {
+    const execution = resolveRfcProfile({
+      sourceDir: path.resolve(options.sourceDir),
+      runtime: options.runtime,
+      profile: options.profile,
+      model: options.model,
+      reasoning: options.reasoning,
+    });
+    session = createAmendmentSession(archived, {
+      sourceDir: path.resolve(options.sourceDir),
+      issueNums,
+      reason: options.reason,
+      ...execution,
+    });
+  } catch (error) {
+    throw cliError(error.message, EXIT.PRECONDITION);
+  }
+  const sessionPath = path.join(
+    session.source.repo_root,
+    ".pm",
+    "rfc-sessions",
+    session.slug,
+    "session.json"
+  );
+  withLock(sessionPath, () => {
+    if (fs.existsSync(sessionPath)) {
+      throw cliError(`active RFC session already exists: ${sessionPath}`, EXIT.PRECONDITION);
+    }
+    clearActiveRunDirectory(sessionPath);
+    writeSession(sessionPath, session);
+  });
+  recordSessionTelemetry({
+    workflow: "rfc",
+    sessionPath,
+    prevSession: null,
+    session,
+    result: null,
+  });
+  emit(options, { session_path: sessionPath, session, next: nextDecision(session, sessionPath) });
+  return EXIT.OK;
+}
+
+function findAmendingRun(archived) {
+  const slugDir = path.dirname(path.dirname(completedSessionPath(archived)));
+  // An in-flight amendment is refused later by the active-session check.
+  const candidates = [];
+  if (fs.existsSync(slugDir)) {
+    for (const entry of fs.readdirSync(slugDir).sort()) {
+      candidates.push(path.join(slugDir, entry, "session.json"));
+    }
+  }
+  for (const candidate of candidates) {
+    if (!fs.existsSync(candidate)) continue;
+    let session;
+    try {
+      session = JSON.parse(fs.readFileSync(candidate, "utf8"));
+    } catch {
+      continue;
+    }
+    if (session?.amendment?.of_run_id === archived.run_id) return session.run_id;
+  }
+  return null;
+}
+
 function statusCommand(options) {
   const { session, sessionPath } = loadRequiredSession(options);
   emit(options, {
@@ -174,7 +280,10 @@ function approveCommand(options) {
     throw cliError("loop workers cannot approve RFCs", EXIT.PRECONDITION);
   }
   return mutateSession(options, (session) =>
-    approveSession(session, { approvedBy: options.approvedBy })
+    approveSession(session, {
+      approvedBy: options.approvedBy,
+      approvedSidecarSha256: options.approvedSidecarSha256,
+    })
   );
 }
 

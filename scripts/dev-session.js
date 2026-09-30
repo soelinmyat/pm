@@ -27,6 +27,7 @@ const {
   promptMetadata,
   refreshCandidateIdentities,
   readSession,
+  rebindRfcContract,
   recertifyEvidence,
   recordNonPassingQaCandidate,
   recordResult,
@@ -66,6 +67,8 @@ function main(argv) {
       return routeCommand(options);
     case "record":
       return recordCommand(options);
+    case "rebind-rfc":
+      return rebindRfcCommand(options);
     case "recertify":
       return recertifyCommand(options);
     case "gate":
@@ -124,6 +127,7 @@ function parseArguments(argv) {
     "output",
     "facts",
     "rfc-sidecar",
+    "expected-sidecar-sha256",
     "result",
     "phases",
     "commit",
@@ -661,6 +665,41 @@ function acquireSessionLock(sessionPath) {
   return attempt();
 }
 
+function rebindRfcCommand(options) {
+  requireOptions(options, ["session", "rfcSidecar", "expectedSidecarSha256", "reason"]);
+  const sessionPath = path.resolve(options.session);
+  let outcome;
+  try {
+    mutateSession(
+      sessionPath,
+      (session) => {
+        outcome = rebindRfcContract(session, {
+          sidecarPath: path.resolve(options.rfcSidecar),
+          expectedSha256: options.expectedSidecarSha256,
+          reason: options.reason,
+        });
+        return outcome.session;
+      },
+      { allowSidecarRebind: true }
+    );
+  } catch (error) {
+    throw cliError(error.message, EXIT.PRECONDITION);
+  }
+  emit(
+    options,
+    {
+      session_path: sessionPath,
+      task: outcome.session.task,
+      idempotent: outcome.idempotent,
+      entry: outcome.entry,
+    },
+    outcome.idempotent
+      ? "RFC sidecar already bound\n"
+      : `rebound RFC sidecar to ${outcome.entry.to_sidecar_sha256}\n`
+  );
+  return EXIT.OK;
+}
+
 function mutateSession(sessionPath, mutation, options = {}) {
   const releaseLock = acquireSessionLock(sessionPath);
   try {
@@ -1129,6 +1168,7 @@ function helpText() {
     "  prompt --session <path> --output <path> [--json]",
     "  route --session <path> --facts <json-path> [--rfc-sidecar <json-path>] [--json]",
     "  record --session <path> --result <path> [--json]",
+    "  rebind-rfc --session <path> --rfc-sidecar <json-path> --expected-sidecar-sha256 <sha256:hex> --reason <text> [--json]",
     "  recertify --session <path> --phases <csv> --commit <sha> --evidence <json-path> [--json]",
     "  gate --session <path> --name <gate> [--status <passed|failed|blocked|skipped>] [--reason <text>] [--artifact <path>] [--json]",
     "  anchor-qa-history --session <path> --commit <sha> --evidence <json-path> [--json]",

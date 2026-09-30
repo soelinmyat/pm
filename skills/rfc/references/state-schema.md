@@ -36,6 +36,17 @@ The state binds generation, review, approval, and handoff to:
 
 Approval verifies both current HTML and sidecar bytes equal the reviewed fingerprint. A content edit routes back through review. The expected approval metadata-only HTML/commit update may change the HTML hash and commit but not the sidecar hash, and requires passing lifecycle-only evidence.
 
+## Amendments
+
+An amendment run corrects work-unit ownership after handoff without rewriting an approved run. `rfc-session amend` reads a completed archive and opens a new run at review with `session.amendment`:
+
+- `of_run_id`, `prior_artifact` (the full prior identity), `prior_approval_sha256` (the committed prior audit), `amended_issue_nums`, `reason`, and `created_at`.
+- The amended sidecar may differ from the prior one only by appended `owns` entries on the declared issues. Removal, reordering, other fields, and undeclared issues are rejected at review, approval, and handoff.
+- Approval requires `--approved-sidecar-sha256` equal to the reviewed sidecar hash. The amendment block is part of the approval digest; runs without it keep their original digest.
+- Handoff writes a schema-v2 approval audit: the v1 fields plus `amends` (`run_id`, `approval_sha256`, `sidecar_sha256`, `html_sha256`), `amended_issue_nums`, and `reason`. See `rfc-approval.schema.json`.
+- Only the latest run may be amended, one amendment at a time. Amendments grant no external authority. Chains are limited to 16 hops.
+- Original runs carry `amendment: null`; legacy archives that omit the field still validate.
+
 ## Design context
 
 For an approved canonical proposal, intake copies the proposal execution contract's closed `design_context` into `session.context.design_context`; callers cannot supply or override it. Legacy Markdown and Linear remain supported fresh sources only after the caller confirms and supplies the same closed current shape during intake. The field contains exact design requirement strings, explicit UI impact, an explicit `null` or source-bound prototype identity, critical states, and applicable experience/visual invariants. Multi-file prototypes carry a complete deterministic tree manifest, not only an `index.html` digest. Generation, review, approval, handoff, and Dev readiness reject a schema-v3 RFC without this context or whose value differs. Wherever repository context is available, validation recomputes the complete identity instead of accepting hash-shaped text.

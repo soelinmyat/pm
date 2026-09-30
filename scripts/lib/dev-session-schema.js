@@ -16,6 +16,7 @@ const { deriveSessionSlug } = require("./session-slug");
 const { extractSidecarHash, sha256Hex, validateRfcSidecar } = require("../rfc-sidecar-check");
 const {
   analyzeWorkUnits,
+  ownershipOverlaps,
   validateDesignContext,
   validateWorkUnitResult,
   validateWorkUnits,
@@ -37,10 +38,8 @@ const { bindEffectReceipt } = require("./workflow-runtime/effect-receipt");
 const { transactionIssues } = require("./release-transaction-schema");
 const { checkQaReport } = require("./qa-report-schema");
 const { readApprovedProposal } = require("./proposal-schema");
-const {
-  approvalTransitionDigest,
-  validateSession: validateRfcSession,
-} = require("./rfc-session-schema");
+const { findContainingGitRoot, verifyRfcApproval } = require("./rfc-approval-audit");
+const { rfcIssuesToDevWorkUnits } = require("./rfc-work-units");
 const devModelProfiles = require("../../skills/dev/references/model-profiles.json");
 
 const RUNNER_VERSION = "3.0.0";
@@ -412,6 +411,90 @@ function validateSource(source, errors) {
   }
 }
 
+const RFC_CONTRACT_HISTORY_FIELDS = new Set([
+  "from_sidecar_sha256",
+  "to_sidecar_sha256",
+  "approval_run_id",
+  "approval_sha256",
+  "amends_run_id",
+  "reason",
+  "changed_units",
+  "recorded_at",
+]);
+const SHA256_PATTERN = /^sha256:[0-9a-f]{64}$/;
+const RFC_RUN_ID_PATTERN = /^rfc_[A-Za-z0-9_-]+$/;
+
+// Each rebind-rfc appends one entry; together they explain every sidecar hash
+// the session has been bound to since route.
+function validateRfcContractHistory(history, errors) {
+  if (history === undefined) return;
+  const base = "$.task.rfc_contract_history";
+  if (!Array.isArray(history)) {
+    errors.push(issue(base, "must be an array"));
+    return;
+  }
+  history.forEach((entry, index) => {
+    const entryPath = `${base}[${index}]`;
+    if (!isObject(entry)) {
+      errors.push(issue(entryPath, "must be an object"));
+      return;
+    }
+    validateExactFields(entry, RFC_CONTRACT_HISTORY_FIELDS, entryPath, errors);
+    for (const field of RFC_CONTRACT_HISTORY_FIELDS) requireField(entry, field, entryPath, errors);
+    for (const field of ["from_sidecar_sha256", "to_sidecar_sha256", "approval_sha256"]) {
+      if (!SHA256_PATTERN.test(entry[field] || "")) {
+        errors.push(issue(`${entryPath}.${field}`, "must be sha256"));
+      }
+    }
+    for (const field of ["approval_run_id", "amends_run_id"]) {
+      if (typeof entry[field] !== "string" || !RFC_RUN_ID_PATTERN.test(entry[field])) {
+        errors.push(issue(`${entryPath}.${field}`, "must be an RFC run id"));
+      }
+    }
+    if (typeof entry.reason !== "string" || !entry.reason.trim() || entry.reason.length > 2000) {
+      errors.push(
+        issue(`${entryPath}.reason`, "must be a non-empty string of at most 2000 characters")
+      );
+    }
+    if (!isIsoDate(entry.recorded_at)) {
+      errors.push(issue(`${entryPath}.recorded_at`, "must be an ISO timestamp"));
+    }
+    if (!Array.isArray(entry.changed_units) || entry.changed_units.length === 0) {
+      errors.push(issue(`${entryPath}.changed_units`, "must be a non-empty array"));
+    } else {
+      entry.changed_units.forEach((unit, unitIndex) => {
+        const unitPath = `${entryPath}.changed_units[${unitIndex}]`;
+        if (!isObject(unit)) {
+          errors.push(issue(unitPath, "must be an object"));
+          return;
+        }
+        validateExactFields(unit, new Set(["id", "status", "added_owns"]), unitPath, errors);
+        if (typeof unit.id !== "string" || !unit.id)
+          errors.push(issue(`${unitPath}.id`, "required"));
+        if (!["pending", "running", "blocked", "failed"].includes(unit.status)) {
+          errors.push(issue(`${unitPath}.status`, "must be a non-completed work-unit status"));
+        }
+        if (
+          !Array.isArray(unit.added_owns) ||
+          unit.added_owns.length === 0 ||
+          unit.added_owns.some((owned) => typeof owned !== "string" || !owned)
+        ) {
+          errors.push(issue(`${unitPath}.added_owns`, "must be a non-empty array of paths"));
+        }
+      });
+    }
+    const previous = history[index - 1];
+    if (previous && previous.to_sidecar_sha256 !== entry.from_sidecar_sha256) {
+      errors.push(
+        issue(
+          `${entryPath}.from_sidecar_sha256`,
+          "must chain: each entry starts at the previous to_sidecar_sha256"
+        )
+      );
+    }
+  });
+}
+
 function validateTask(task, errors) {
   if (!isObject(task)) {
     errors.push(issue("$.task", "must be an object"));
@@ -430,12 +513,14 @@ function validateTask(task, errors) {
     "ui_platform",
     "acceptance_criteria",
     "work_units",
+    "rfc_contract_history",
   ]);
   validateExactFields(task, fields, "$.task", errors);
   for (const field of fields) {
     if (
       !new Set([
         "rfc_sidecar",
+        "rfc_contract_history",
         "proposal",
         "design_context",
         "non_behavioral_reason",
@@ -486,6 +571,7 @@ function validateTask(task, errors) {
       errors.push(issue("$.task.rfc_sidecar.slug", "required"));
     }
   }
+  validateRfcContractHistory(task.rfc_contract_history, errors);
   validateProposalIdentity(task.proposal, errors);
   if (task.design_context !== undefined && task.design_context !== null) {
     const contractPath = task.proposal?.path || task.rfc_sidecar?.path;
@@ -1267,86 +1353,29 @@ function validateReadinessEvidence(session, result, errors) {
         )
       );
     }
-    const approval = JSON.parse(fs.readFileSync(approvalPath, "utf8"));
-    const approvalFields = [
-      "schema_version",
-      "run_id",
-      "slug",
-      "status",
-      "approved_by",
-      "approved_at",
-      "html_sha256",
-      "sidecar_sha256",
-      "approval_transition_sha256",
-    ];
-    if (
-      !isObject(approval) ||
-      Object.keys(approval).some((field) => !approvalFields.includes(field)) ||
-      approvalFields.some((field) => !Object.hasOwn(approval, field)) ||
-      approval.schema_version !== 1 ||
-      typeof approval.run_id !== "string" ||
-      !/^rfc_[A-Za-z0-9_-]+$/.test(approval.run_id) ||
-      approval.slug !== session.slug ||
-      approval.status !== "approved" ||
-      typeof approval.approved_by !== "string" ||
-      !approval.approved_by.trim() ||
-      !isIsoDate(approval.approved_at) ||
-      approval.html_sha256 !== `sha256:${sha256Hex(Buffer.from(html))}` ||
-      approval.sidecar_sha256 !== `sha256:${sha256Hex(sidecarBytes)}`
-    ) {
-      errors.push(
-        issue(
-          "$.evidence",
-          "RFC readiness requires a valid human approval audit for exact artifacts"
-        )
-      );
-      return;
+    let verified = null;
+    try {
+      verified = verifyRfcApproval({
+        sidecarPath,
+        slug: session.slug,
+        archiveRepoRoot: session.source.repo_root,
+      });
+    } catch (error) {
+      errors.push(issue("$.evidence", `RFC readiness rejected: ${error.message}`));
     }
-    const artifactRepoRoot = findContainingGitRoot(sidecarPath);
-    if (!artifactRepoRoot) {
-      errors.push(issue("$.evidence", "RFC readiness artifact is not inside a Git repository"));
-      return;
-    }
-    const archivePath = path.join(
-      session.source.repo_root,
-      ".pm",
-      "rfc-sessions",
-      "completed",
-      session.slug,
-      approval.run_id,
-      "session.json"
-    );
-    if (!fs.existsSync(archivePath)) {
-      errors.push(
-        issue("$.evidence", "RFC readiness approval audit has no matching completed RFC run")
-      );
-      return;
-    }
-    const archived = JSON.parse(fs.readFileSync(archivePath, "utf8"));
-    validateRfcReadinessDesignContext(
-      {
-        archived,
-        artifactRepoRoot,
-        devContext: session.task.design_context,
-        sidecarContext: sidecar.design_context,
-      },
-      errors
-    );
-    if (
-      archived.status !== "complete" ||
-      archived.slug !== session.slug ||
-      archived.run_id !== approval.run_id ||
-      validateRfcSession(archived).length > 0 ||
-      archived.approval.approved_by !== approval.approved_by ||
-      archived.approval.approved_at !== approval.approved_at ||
-      archived.artifact?.html_hash !== approval.html_sha256 ||
-      archived.artifact?.sidecar_hash !== approval.sidecar_sha256 ||
-      fs.realpathSync(archived.artifact?.repo_root || "") !== artifactRepoRoot ||
-      fs.realpathSync(archived.context?.artifact_repo_root || "") !== artifactRepoRoot ||
-      approval.approval_transition_sha256 !== approvalTransitionDigest(archived)
-    ) {
-      errors.push(
-        issue("$.evidence", "RFC readiness approval audit is not backed by its completed RFC run")
+    // Design-context drift is reported even when the approval itself fails, so
+    // one readiness attempt surfaces every recertification the operator owes.
+    const archived = verified?.archived ?? readReadinessArchive(session, approvalPath);
+    const artifactRepoRoot = verified?.artifact_repo_root ?? findContainingGitRoot(sidecarPath);
+    if (archived && artifactRepoRoot) {
+      validateRfcReadinessDesignContext(
+        {
+          archived,
+          artifactRepoRoot,
+          devContext: session.task.design_context,
+          sidecarContext: sidecar.design_context,
+        },
+        errors
       );
     }
   } catch (error) {
@@ -1390,13 +1419,22 @@ function validateRfcReadinessDesignContext(
   }
 }
 
-function findContainingGitRoot(filePath) {
-  let current = path.dirname(path.resolve(filePath));
-  while (true) {
-    if (fs.existsSync(path.join(current, ".git"))) return fs.realpathSync(current);
-    const parent = path.dirname(current);
-    if (parent === current) return null;
-    current = parent;
+function readReadinessArchive(session, approvalPath) {
+  try {
+    const runId = JSON.parse(fs.readFileSync(approvalPath, "utf8"))?.run_id;
+    if (typeof runId !== "string" || !RFC_RUN_ID_PATTERN.test(runId)) return null;
+    const archivePath = path.join(
+      session.source.repo_root,
+      ".pm",
+      "rfc-sessions",
+      "completed",
+      session.slug,
+      runId,
+      "session.json"
+    );
+    return fs.existsSync(archivePath) ? JSON.parse(fs.readFileSync(archivePath, "utf8")) : null;
+  } catch {
+    return null;
   }
 }
 
@@ -2834,7 +2872,7 @@ function verifyRfcSidecarIdentity(identity, expectedDesignContext, workUnits = [
   const observed = `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`;
   if (observed !== identity.sha256) {
     throw new Error(
-      "RFC sidecar identity hash drifted; reinitialize Dev or rerun route --rfc-sidecar while intake is active"
+      "RFC sidecar identity hash drifted; rerun route --rfc-sidecar while intake is active, adopt an approved RFC amendment with rebind-rfc, or reinitialize Dev"
     );
   }
   let sidecar;
@@ -2871,6 +2909,145 @@ function verifyRfcSidecarIdentity(identity, expectedDesignContext, workUnits = [
       );
     }
   }
+}
+
+const REBIND_RFC_PHASES = new Set(["workspace", "readiness", "implementation"]);
+
+// Adopts an approved owns-only RFC amendment into a Dev session that is past
+// intake. The on-disk sidecar must hash to expectedSha256 (compare-and-swap),
+// its approval must descend from the bound sidecar, and the only permitted Dev
+// change is appended ownership on work units that have not completed.
+function rebindRfcContract(session, { sidecarPath, expectedSha256, reason, now = new Date() }) {
+  assertValidSession(session);
+  const bound = session.task.rfc_sidecar;
+  if (!bound) {
+    throw new Error(
+      "Dev session is not bound to an RFC sidecar; route --rfc-sidecar binds one during intake"
+    );
+  }
+  if (session.phase === "intake") {
+    throw new Error(
+      "rebind-rfc applies after intake; rerun route --rfc-sidecar while intake is active"
+    );
+  }
+  if (!REBIND_RFC_PHASES.has(session.phase)) {
+    throw new Error(
+      `rebind-rfc is limited to workspace, readiness, and implementation; session is in ${session.phase}`
+    );
+  }
+  if (!["active", "blocked"].includes(session.status)) {
+    throw new Error(
+      `rebind-rfc requires an active or blocked session; status is ${session.status}`
+    );
+  }
+  if (typeof reason !== "string" || !reason.trim() || reason.length > 2000) {
+    throw new Error("rebind-rfc requires a --reason of at most 2000 characters");
+  }
+  if (!SHA256_PATTERN.test(expectedSha256 || "")) {
+    throw new Error("--expected-sidecar-sha256 must be sha256:<64 lowercase hex>");
+  }
+  let requested;
+  try {
+    requested = fs.realpathSync(sidecarPath);
+  } catch (error) {
+    throw new Error(`cannot resolve RFC sidecar ${sidecarPath}: ${error.message}`);
+  }
+  if (requested !== fs.realpathSync(bound.path)) {
+    throw new Error(`rebind-rfc must rebind the bound RFC sidecar ${bound.path}`);
+  }
+  const bytes = fs.readFileSync(bound.path);
+  const observed = `sha256:${sha256Hex(bytes)}`;
+  if (observed !== expectedSha256) {
+    throw new Error(
+      `--expected-sidecar-sha256 ${expectedSha256} does not match the observed RFC sidecar ${observed}`
+    );
+  }
+  if (observed === bound.sha256) {
+    verifyRfcSidecarIdentity(bound, session.task.design_context, session.task.work_units);
+    return { session, idempotent: true, entry: null };
+  }
+  const sidecar = JSON.parse(bytes.toString("utf8"));
+  const repoRoot = findGitRoot(path.dirname(bound.path));
+  const validation = validateRfcSidecar(sidecar, bound.path, {
+    expectedSlug: bound.slug,
+    expectedDesignContext: session.task.design_context,
+    repoRoot,
+    requireCurrentDesignContext: true,
+  });
+  if (!validation.ok) {
+    throw new Error(
+      `amended RFC sidecar is not executable: ${validation.issues
+        .map((entry) => entry.message)
+        .join("; ")}`
+    );
+  }
+  const verified = verifyRfcApproval({
+    sidecarPath: bound.path,
+    slug: session.slug,
+    archiveRepoRoot: session.source.repo_root,
+    lineageTo: bound.sha256,
+  });
+  const rebuilt = rfcIssuesToDevWorkUnits(sidecar, { repoRoot });
+  const current = session.task.work_units;
+  if (
+    rebuilt.length !== current.length ||
+    rebuilt.some((unit, index) => unit.id !== current[index].id)
+  ) {
+    throw new Error("amended RFC changed the Dev work-unit list; only ownership may change");
+  }
+  const next = structuredClone(session);
+  const changedUnits = [];
+  rebuilt.forEach((unit, index) => {
+    const existing = current[index];
+    for (const field of ["title", "depends_on", "contract"]) {
+      if (canonicalJson(unit[field]) !== canonicalJson(existing[field])) {
+        throw new Error(
+          `work unit ${unit.id} ${field} changed; an RFC amendment may only extend ownership`
+        );
+      }
+    }
+    const removed = existing.owns.filter((owned) => !unit.owns.includes(owned));
+    if (removed.length > 0) {
+      throw new Error(`work unit ${unit.id} ownership is append-only; ${removed[0]} was removed`);
+    }
+    const added = unit.owns.filter((owned) => !existing.owns.includes(owned));
+    if (added.length === 0) return;
+    if (existing.status === "completed") {
+      throw new Error(
+        `completed work unit ${unit.id} ownership cannot change; its commit was verified against the prior contract`
+      );
+    }
+    next.task.work_units[index].owns = [...unit.owns];
+    changedUnits.push({ id: unit.id, status: existing.status, added_owns: added });
+  });
+  if (changedUnits.length === 0) {
+    throw new Error("amended RFC adds no ownership to any Dev work unit");
+  }
+  const running = next.task.work_units.filter((unit) => unit.status === "running");
+  running.forEach((left, index) => {
+    for (const right of running.slice(index + 1)) {
+      if (ownershipOverlaps(left.owns, right.owns)) {
+        throw new Error(
+          `running work units ${left.id} and ${right.id} would share ownership; finish or release one before rebinding`
+        );
+      }
+    }
+  });
+  const entry = {
+    from_sidecar_sha256: bound.sha256,
+    to_sidecar_sha256: observed,
+    approval_run_id: verified.approval.run_id,
+    approval_sha256: verified.approval_sha256,
+    amends_run_id: verified.approval.amends.run_id,
+    reason: reason.trim(),
+    changed_units: changedUnits,
+    recorded_at: now.toISOString(),
+  };
+  next.task.rfc_sidecar = { ...bound, sha256: observed };
+  next.task.rfc_contract_history = [...(session.task.rfc_contract_history || []), entry];
+  assertValidSession(next);
+  verifyRfcSidecarIdentity(next.task.rfc_sidecar, next.task.design_context, next.task.work_units);
+  return { session: next, idempotent: false, entry };
 }
 
 function promptMetadata(session, sessionPath) {
@@ -3284,6 +3461,7 @@ module.exports = {
   refreshCandidateIdentities,
   recertifyEvidence,
   recordNonPassingQaCandidate,
+  rebindRfcContract,
   recordResult,
   resumeBlocked,
   restorePreUpgradeSnapshot,

@@ -37,6 +37,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 6. **Use a verified runtime profile.** For CLI workers, probe capabilities and use `scripts/dev-runtime/dispatch.js`. Resolve the explicit execution policy and `references/model-profiles.json`; do not infer the worker model from the host chat model. Missing structured output, event streaming, resume, or safe-permission support blocks dispatch instead of silently degrading.
 7. **Advance from evidence, not narrative.** Each phase returns the strict result envelope described by `references/dev-session.schema.json`. Record it with `scripts/dev-session.js record`. Only the runner advances phase state, enforces retry limits, validates reachable/current commits, and decides completion. A worker cannot declare work merged or mutate aggregate state.
 8. **Complete routed gates.** Risk routing determines review depth and whether design critique/QA apply. The final ship action must still pass `scripts/dev-gate-check.js` against current HEAD. In `PM_LOOP_WORKER=1` mode, stop after the reviewed PR is opened and return the loop result; do not merge or update durable card state.
+9. **Correct RFC ownership through an amendment.** Never edit an approved sidecar in place. Amend it with `/pm:rfc` and adopt the re-approved hash with `dev-session rebind-rfc`.
 
 ## Loop Worker Mode (headless)
 
