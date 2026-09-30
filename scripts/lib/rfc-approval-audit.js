@@ -89,6 +89,8 @@ function walkLineage({ archived, approval, archiveRepoRoot, slug, lineageTo }) {
   const visited = new Set([archived.run_id]);
   let current = archived;
   let audit = approval;
+  // Each hop's prior sidecar is the next hop's current one; read it once.
+  let currentSidecar = null;
   while (audit.schema_version === 2) {
     if (lineage.length > MAX_LINEAGE_HOPS) {
       throw new Error(`RFC approval lineage exceeds ${MAX_LINEAGE_HOPS} amendments`);
@@ -119,12 +121,11 @@ function walkLineage({ archived, approval, archiveRepoRoot, slug, lineageTo }) {
         `RFC approval lineage is broken: ${current.run_id} does not amend the approval of ${priorRunId}`
       );
     }
+    let priorSidecar;
     try {
-      assertOwnsOnlyAmendment(
-        readCommittedSidecar(prior.artifact),
-        readCommittedSidecar(current.artifact),
-        audit.amended_issue_nums
-      );
+      priorSidecar = readCommittedSidecar(prior.artifact);
+      currentSidecar ??= readCommittedSidecar(current.artifact);
+      assertOwnsOnlyAmendment(priorSidecar, currentSidecar, audit.amended_issue_nums);
     } catch (error) {
       throw new Error(
         `RFC approval lineage step ${priorRunId} -> ${current.run_id} is not owns-only: ${error.message}`
@@ -133,6 +134,7 @@ function walkLineage({ archived, approval, archiveRepoRoot, slug, lineageTo }) {
     lineage.push({ run_id: prior.run_id, sidecar_sha256: prior.artifact.sidecar_hash });
     if (lineageTo && prior.artifact.sidecar_hash === lineageTo) return lineage;
     current = prior;
+    currentSidecar = priorSidecar;
     audit = priorAudit.audit;
   }
   if (lineageTo) {
@@ -205,4 +207,4 @@ function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-module.exports = { MAX_LINEAGE_HOPS, findContainingGitRoot, verifyRfcApproval };
+module.exports = { MAX_LINEAGE_HOPS, findContainingGitRoot, readCompletedRun, verifyRfcApproval };

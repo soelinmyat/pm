@@ -135,6 +135,13 @@ function amendCommand(options) {
           EXIT.PRECONDITION
         );
       }
+      const superseding = findSupersedingRun(archived);
+      if (superseding) {
+        throw cliError(
+          `RFC run ${archived.run_id} was superseded by ${superseding}; amend the latest run instead`,
+          EXIT.PRECONDITION
+        );
+      }
       try {
         assertAmendmentDepth(archived, (runId) => readCompletedRun(archived, runId));
       } catch (error) {
@@ -194,26 +201,41 @@ function readCompletedRun(archived, runId) {
   return JSON.parse(fs.readFileSync(runPath, "utf8"));
 }
 
-function findAmendingRun(archived) {
+function completedSiblingRuns(archived) {
   const slugDir = path.dirname(path.dirname(completedSessionPath(archived)));
-  // An in-flight amendment is refused later by the active-session check.
-  const candidates = [];
-  if (fs.existsSync(slugDir)) {
-    for (const entry of fs.readdirSync(slugDir).sort()) {
-      candidates.push(path.join(slugDir, entry, "session.json"));
-    }
-  }
-  for (const candidate of candidates) {
+  const runs = [];
+  if (!fs.existsSync(slugDir)) return runs;
+  for (const entry of fs.readdirSync(slugDir).sort()) {
+    const candidate = path.join(slugDir, entry, "session.json");
     if (!fs.existsSync(candidate)) continue;
-    let session;
     try {
-      session = JSON.parse(fs.readFileSync(candidate, "utf8"));
+      const session = JSON.parse(fs.readFileSync(candidate, "utf8"));
+      if (session?.run_id !== archived.run_id) runs.push(session);
     } catch {
       continue;
     }
-    if (session?.amendment?.of_run_id === archived.run_id) return session.run_id;
   }
-  return null;
+  return runs;
+}
+
+// An in-flight amendment is refused later by the active-session check.
+function findAmendingRun(archived) {
+  const successor = completedSiblingRuns(archived).find(
+    (session) => session?.amendment?.of_run_id === archived.run_id
+  );
+  return successor ? successor.run_id : null;
+}
+
+// Only the latest approved run of a slug may be amended; a later fresh run
+// replaced the design an older run approved.
+function findSupersedingRun(archived) {
+  const approvedAt = (session) => Date.parse(session?.approval?.approved_at);
+  let latest = null;
+  for (const session of completedSiblingRuns(archived)) {
+    if (session?.status !== "complete" || !(approvedAt(session) > approvedAt(archived))) continue;
+    if (!latest || approvedAt(session) > approvedAt(latest)) latest = session;
+  }
+  return latest ? latest.run_id : null;
 }
 
 function statusCommand(options) {

@@ -157,3 +157,79 @@ test("a supplied --approved-sidecar-sha256 must match on an original run too", (
     repo.cleanup();
   }
 });
+
+test("an approval retry still checks a supplied sidecar hash", () => {
+  const repo = makeRfcRepo();
+  try {
+    let checked = false;
+    prepareApprovedHandoff(repo, "retry-confirmation", {
+      beforeApprove: (session, artifact) => {
+        const approved = approveSession(session, {
+          approvedBy: "Test Owner",
+          approvedSidecarSha256: artifact.sidecar_hash,
+        });
+        assert.throws(
+          () =>
+            approveSession(approved, {
+              approvedBy: "Test Owner",
+              approvedSidecarSha256: `sha256:${"0".repeat(64)}`,
+            }),
+          /does not match the reviewed sidecar/
+        );
+        const retried = approveSession(approved, {
+          approvedBy: "Test Owner",
+          approvedSidecarSha256: artifact.sidecar_hash,
+        });
+        assert.deepEqual(retried, approved);
+        assert.deepEqual(approveSession(approved, { approvedBy: "Test Owner" }), approved);
+        checked = true;
+      },
+    });
+    assert.equal(checked, true);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("amend refuses a run that a newer run of the same RFC superseded", () => {
+  const repo = makeRfcRepo();
+  const slug = "superseded-run";
+  try {
+    const first = completeApprovedRun(repo, slug, { issues: twoIssues() });
+    const second = completeApprovedRun(repo, slug, { issues: twoIssues() });
+    const amendArgs = (completed) => [
+      "amend",
+      "--completed",
+      completed,
+      "--source-dir",
+      repo.root,
+      "--issues",
+      "2",
+      "--reason",
+      "Issue 2 must also update the README",
+      "--json",
+    ];
+    const stale = repo.run(amendArgs(first.archivePath));
+    assert.equal(stale.status, 3, stale.stderr);
+    assert.match(
+      stale.stderr,
+      new RegExp(`superseded by ${second.runId}; amend the latest run instead`)
+    );
+    const latest = repo.run(amendArgs(second.archivePath));
+    assert.equal(latest.status, 0, latest.stderr);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("RFC docs say amend writes no artifact files and who edits them", () => {
+  const skill = fs.readFileSync(path.join(REFERENCES, "..", "SKILL.md"), "utf8");
+  const review = fs.readFileSync(path.join(REFERENCES, "..", "steps", "03-rfc-review.md"), "utf8");
+  for (const doc of [skill, review]) {
+    assert.match(doc, /amend[^.]*writes no artifact files/i);
+    assert.match(
+      doc,
+      /appends? the `owns` entries[^.]*, sets the RFC lifecycle to `draft`, and commits/
+    );
+  }
+});

@@ -38,7 +38,11 @@ const { bindEffectReceipt } = require("./workflow-runtime/effect-receipt");
 const { transactionIssues } = require("./release-transaction-schema");
 const { checkQaReport } = require("./qa-report-schema");
 const { readApprovedProposal } = require("./proposal-schema");
-const { findContainingGitRoot, verifyRfcApproval } = require("./rfc-approval-audit");
+const {
+  findContainingGitRoot,
+  readCompletedRun,
+  verifyRfcApproval,
+} = require("./rfc-approval-audit");
 const { rfcIssuesToDevWorkUnits } = require("./rfc-work-units");
 const devModelProfiles = require("../../skills/dev/references/model-profiles.json");
 
@@ -1423,16 +1427,7 @@ function readReadinessArchive(session, approvalPath) {
   try {
     const runId = JSON.parse(fs.readFileSync(approvalPath, "utf8"))?.run_id;
     if (typeof runId !== "string" || !RFC_RUN_ID_PATTERN.test(runId)) return null;
-    const archivePath = path.join(
-      session.source.repo_root,
-      ".pm",
-      "rfc-sessions",
-      "completed",
-      session.slug,
-      runId,
-      "session.json"
-    );
-    return fs.existsSync(archivePath) ? JSON.parse(fs.readFileSync(archivePath, "utf8")) : null;
+    return readCompletedRun(session.source.repo_root, session.slug, runId);
   } catch {
     return null;
   }
@@ -2916,7 +2911,7 @@ const REBIND_RFC_PHASES = new Set(["workspace", "readiness", "implementation"]);
 // Adopts an approved owns-only RFC amendment into a Dev session that is past
 // intake. The on-disk sidecar must hash to expectedSha256 (compare-and-swap),
 // its approval must descend from the bound sidecar, and the only permitted Dev
-// change is appended ownership on work units that have not completed.
+// change is appended ownership on work units, completed ones included.
 function rebindRfcContract(session, { sidecarPath, expectedSha256, reason, now = new Date() }) {
   assertValidSession(session);
   const bound = session.task.rfc_sidecar;
@@ -2966,21 +2961,13 @@ function rebindRfcContract(session, { sidecarPath, expectedSha256, reason, now =
     verifyRfcSidecarIdentity(bound, session.task.design_context, session.task.work_units);
     return { session, idempotent: true, entry: null };
   }
+  verifyRfcSidecarIdentity(
+    { ...bound, sha256: observed },
+    session.task.design_context,
+    session.task.work_units
+  );
   const sidecar = JSON.parse(bytes.toString("utf8"));
   const repoRoot = findGitRoot(path.dirname(bound.path));
-  const validation = validateRfcSidecar(sidecar, bound.path, {
-    expectedSlug: bound.slug,
-    expectedDesignContext: session.task.design_context,
-    repoRoot,
-    requireCurrentDesignContext: true,
-  });
-  if (!validation.ok) {
-    throw new Error(
-      `amended RFC sidecar is not executable: ${validation.issues
-        .map((entry) => entry.message)
-        .join("; ")}`
-    );
-  }
   const verified = verifyRfcApproval({
     sidecarPath: bound.path,
     slug: session.slug,

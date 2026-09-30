@@ -189,16 +189,22 @@ test("amendments reject top-level sidecar changes", () => {
   );
 });
 
-test("amendments must add at least one path to every declared issue", () => {
-  assert.throws(() => assertOwnsOnlyAmendment(sidecar(), sidecar(), [2]), /issue 2 adds no/);
+test("an amendment must add at least one path, but not to every declared issue", () => {
   assert.throws(
-    () =>
-      assertOwnsOnlyAmendment(
-        sidecar(),
-        amended((value) => value.issues[1].owns.push("test/first_test.rb")),
-        [1, 2]
-      ),
-    /issue 1 adds no/
+    () => assertOwnsOnlyAmendment(sidecar(), sidecar(), [2]),
+    /amendment adds no owned paths/
+  );
+  assert.throws(
+    () => assertOwnsOnlyAmendment(sidecar(), sidecar(), [1, 2]),
+    /amendment adds no owned paths/
+  );
+  assert.deepEqual(
+    assertOwnsOnlyAmendment(
+      sidecar(),
+      amended((value) => value.issues[1].owns.push("test/first_test.rb")),
+      [1, 2]
+    ),
+    [{ num: 2, added_owns: ["test/first_test.rb"] }]
   );
 });
 

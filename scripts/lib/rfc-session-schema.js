@@ -698,6 +698,21 @@ function validatePassedResult(session, result, options) {
   }
 }
 
+// A supplied confirmation is always binding, even where it is optional and on
+// an idempotent retry.
+function assertConfirmedSidecar(session, input) {
+  if (
+    input.approvedSidecarSha256 !== undefined &&
+    input.approvedSidecarSha256 !== session.artifact.sidecar_hash
+  ) {
+    throw new Error(
+      `--approved-sidecar-sha256 does not match the reviewed ${
+        session.amendment ? "amendment " : ""
+      }sidecar ${session.artifact.sidecar_hash}`
+    );
+  }
+}
+
 function approveSession(session, input, options = {}) {
   assertValidSession(session);
   verifySourceIdentity(session);
@@ -722,6 +737,7 @@ function approveSession(session, input, options = {}) {
     if (artifactFingerprint(session.artifact) !== session.approval.artifact_hash) {
       throw new Error("artifact changed after approval; return to review");
     }
+    assertConfirmedSidecar(session, input);
     return structuredClone(session);
   }
   if (session.phase !== "approval" || session.status !== "awaiting_approval") {
@@ -747,17 +763,7 @@ function approveSession(session, input, options = {}) {
       "amendment approval requires --approved-sidecar-sha256 with the reviewed sidecar hash the approver confirmed"
     );
   }
-  // A supplied confirmation is always binding, even where it is optional.
-  if (
-    input.approvedSidecarSha256 !== undefined &&
-    input.approvedSidecarSha256 !== session.artifact.sidecar_hash
-  ) {
-    throw new Error(
-      `--approved-sidecar-sha256 does not match the reviewed ${
-        session.amendment ? "amendment " : ""
-      }sidecar ${session.artifact.sidecar_hash}`
-    );
-  }
+  assertConfirmedSidecar(session, input);
   if (session.amendment) assertAmendmentArtifact(session, session.artifact);
   const next = structuredClone(session);
   const now = options.now || new Date().toISOString();

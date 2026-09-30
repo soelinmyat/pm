@@ -23,14 +23,15 @@ Produce a technically reviewed RFC with all blocking findings resolved and enter
 ## How
 
 1. Read the canonical artifact identity and verify the sidecar/HTML binding before dispatch. Reviewers read the current RFC, proposal, relevant repository instructions, and their single lens contract—not the entire workflow.
-2. Cover the three mandatory lenses from `review-contract.md`: `architecture-risk`, `test-strategy`, and `maintainability`. One capable reviewer may cover all lenses for a cohesive RFC; use independent parallel reviewers when lens isolation reduces correlated misses. For multi-issue RFCs, add only the cross-cutting integration/scope lenses justified by real dependencies.
-3. Require the strict verdict object from every lens. Deduplicate findings by evidence and affected contract. Do not infer `pass` from praise or silence.
-4. Run the **layered artifact gate**: Decision Brief quality and decision-readiness, Execution Contract completeness, appendix separation, and Contract/prose consistency.
-5. Fix blocking findings. Preserve advisory notes with role/lens attribution. Regenerate the sidecar whenever mirrored HTML data changes, recompute the hash, and commit the artifact pair together.
-6. Re-run every affected lens against the new artifact. Maximum two fix/review rounds; unresolved blocking findings produce a structured blocker.
-7. Run the sidecar validator once more. Record the final artifact identity, passing `review` evidence, and all three structured lens verdicts.
-8. The runner advances to approval as `status: awaiting_approval`. Do not update RFC frontmatter to approved, proposal status to planned, Linear, loop cards, or implementation state.
-9. When `PM_LOOP_WORKER=1`, skip proposal/backlog/approval writes, atomically return `needs-approval` with the reviewed document through `PM_LOOP_RESULT_FILE`, and stop. Never self-approve.
+2. For an amendment run (`session.amendment` is set), `rfc-session amend` writes no artifact files. Before dispatch, the agent appends the `owns` entries on the declared issues, sets the RFC lifecycle to `draft`, and commits the HTML/sidecar pair; review then covers that commit.
+3. Cover the three mandatory lenses from `review-contract.md`: `architecture-risk`, `test-strategy`, and `maintainability`. One capable reviewer may cover all lenses for a cohesive RFC; use independent parallel reviewers when lens isolation reduces correlated misses. For multi-issue RFCs, add only the cross-cutting integration/scope lenses justified by real dependencies.
+4. Require the strict verdict object from every lens. Deduplicate findings by evidence and affected contract. Do not infer `pass` from praise or silence.
+5. Run the **layered artifact gate**: Decision Brief quality and decision-readiness, Execution Contract completeness, appendix separation, and Contract/prose consistency.
+6. Fix blocking findings. Preserve advisory notes with role/lens attribution. Regenerate the sidecar whenever mirrored HTML data changes, recompute the hash, and commit the artifact pair together.
+7. Re-run every affected lens against the new artifact. Maximum two fix/review rounds; unresolved blocking findings produce a structured blocker.
+8. Run the sidecar validator once more. Record the final artifact identity, passing `review` evidence, and all three structured lens verdicts.
+9. The runner advances to approval as `status: awaiting_approval`. Do not update RFC frontmatter to approved, proposal status to planned, Linear, loop cards, or implementation state.
+10. When `PM_LOOP_WORKER=1`, skip proposal/backlog/approval writes, atomically return `needs-approval` with the reviewed document through `PM_LOOP_RESULT_FILE`, and stop. Never self-approve.
 
 ## Done-when
 

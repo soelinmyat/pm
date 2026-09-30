@@ -423,14 +423,10 @@ test("rebind-rfc is limited to a bound sidecar path after intake", () => {
   const scenario = boundScenario([issue(1, [], ["README.md"]), issue(2, [1], ["src/second.js"])]);
   const { dev, sessionPath } = scenario;
   try {
-    const amendment = completeAmendment(scenario.rfc, scenario.approved.archivePath, {
-      issues: "2",
-      reason: "rfc-2 must also update the README",
-      mutate: (sidecar) => sidecar.issues[1].owns.push("README.md"),
-    });
-    copyArchives(scenario.rfc, dev);
+    // Every guard here fires before the sidecar hash is compared.
+    const anyHash = `sha256:${"c".repeat(64)}`;
     const before = fs.readFileSync(sessionPath, "utf8");
-    const inIntake = scenario.rebind(amendment.sidecarHash);
+    const inIntake = scenario.rebind(anyHash);
     assert.equal(inIntake.status, 3, inIntake.stderr);
     assert.match(inIntake.stderr, /rerun route --rfc-sidecar while intake is active/);
     assert.equal(fs.readFileSync(sessionPath, "utf8"), before);
@@ -445,7 +441,7 @@ test("rebind-rfc is limited to a bound sidecar path after intake", () => {
       "--rfc-sidecar",
       copyPath,
       "--expected-sidecar-sha256",
-      amendment.sidecarHash,
+      anyHash,
       "--reason",
       "Wrong file",
     ]);
@@ -459,7 +455,7 @@ test("rebind-rfc is limited to a bound sidecar path after intake", () => {
       "--rfc-sidecar",
       scenario.sidecarPath,
       "--expected-sidecar-sha256",
-      amendment.sidecarHash,
+      anyHash,
     ]);
     assert.notEqual(missingReason.status, 0);
     assert.match(missingReason.stderr, /--reason/);

@@ -44,7 +44,7 @@ An amendment run corrects work-unit ownership after handoff without rewriting an
 - The amended sidecar may differ from the prior one only by appended `owns` entries on the declared issues. Removal, reordering, other fields, and undeclared issues are rejected at review, approval, and handoff.
 - Approval requires `--approved-sidecar-sha256` equal to the reviewed sidecar hash. The amendment block is part of the approval digest; runs without it keep their original digest.
 - Handoff writes a schema-v2 approval audit: the v1 fields plus `amends` (`run_id`, `approval_sha256`, `sidecar_sha256`, `html_sha256`), `amended_issue_nums`, and `reason`. See `rfc-approval.schema.json`.
-- Only the latest run may be amended, one amendment at a time. Amendments grant no external authority. Chains are limited to 16 hops.
+- Only the latest run may be amended (not one a later run superseded or an amendment already replaced), one amendment at a time. An amendment must add at least one path; a declared issue may end up adding none. Amendments grant no external authority. Chains are limited to 16 hops.
 - Original runs carry `amendment: null`; legacy archives that omit the field still validate.
 
 ## Design context
