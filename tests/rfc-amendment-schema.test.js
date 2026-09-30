@@ -360,6 +360,25 @@ test("withdraw closes an open amendment run and frees the RFC for another amend"
     assert.equal(record.amends_run_id, approved.runId);
     assert.equal(record.reason, "Declared the wrong issue");
 
+    // No amendment commit exists yet, so the documented recovery restores nothing and
+    // must still succeed without an empty commit.
+    const { restore } = JSON.parse(withdrawn.stdout);
+    const head = repo.head();
+    const relative = restore.paths.map((file) => path.relative(repo.root, file));
+    execFileSync(
+      "sh",
+      [
+        "-c",
+        'commit="$1"; shift; git checkout "$commit" -- "$@" && ' +
+          '{ git diff --cached --quiet -- "$@" || git commit -qm "withdraw amendment"; }',
+        "sh",
+        restore.commit,
+        ...relative,
+      ],
+      { cwd: repo.root }
+    );
+    assert.equal(repo.head(), head);
+
     const again = openAmendment(repo, approved.archivePath);
     assert.equal(again.status, 0, again.stderr);
   } finally {
@@ -537,5 +556,7 @@ test("RFC handoff docs say an amendment leaves the proposal lifecycle alone", ()
   assert.match(skill, /rfc-session\.js withdraw --session/);
   assert.match(skill, /Once approved, an amendment cannot be withdrawn/);
   assert.match(skill, /git checkout <restore\.commit> -- <restore\.paths>/);
+  // A withdraw before any amendment commit restores nothing, so the commit is conditional.
+  assert.match(skill, /git diff --cached --quiet -- <restore\.paths> \|\| git commit/);
   assert.doesNotMatch(skill, /revert its artifact commit/);
 });

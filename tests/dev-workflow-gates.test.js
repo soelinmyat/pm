@@ -1056,8 +1056,11 @@ test("RFC ownership corrections are documented as amend plus rebind-rfc, never s
   assert.match(rfcState, /## Amendments/);
   assert.match(rfcState, /schema-v2 approval audit/);
   assert.match(read("skills/rfc/steps/04-approval.md"), /--approved-sidecar-sha256/);
-  assert.match(
-    read("skills/rfc/steps/05-handoff.md"),
-    /Dev verifies every lineage hop from its own `source\.repo_root`/
-  );
+  const handoff = read("skills/rfc/steps/05-handoff.md");
+  assert.match(handoff, /Dev verifies every lineage hop from its own `source\.repo_root`/);
+  // The completed archive exists only once step 8 records handoff, so adoption follows it.
+  const archiveStep = handoff.indexOf("\n8. ");
+  assert.ok(archiveStep > 0);
+  assert.doesNotMatch(handoff.slice(0, archiveStep), /rebind-rfc|copy the new/);
+  assert.match(handoff.slice(archiveStep), /dev-session rebind-rfc/);
 });

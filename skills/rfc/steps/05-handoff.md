@@ -30,7 +30,7 @@ Publish the approved RFC and perform only the downstream effects authorized inde
    ```
 
    Commit `{slug}.approval.json`, update the result artifact identity to the new HEAD (HTML/sidecar hashes stay unchanged), and record `approval-audit` evidence pointing to its absolute path. Dev readiness rejects an RFC without this exact audit.
-   For an amendment run, the owns edit reset the RFC lifecycle to `draft` for review, so step 2 flips only the RFC lifecycle back to `approved`, preserving the amended sidecar bytes. An amendment leaves the proposal lifecycle unchanged, because Dev already holds that proposal in progress. `approval-audit` writes a v2 audit whose `amends` block names the prior run, approval hash, and prior HTML and sidecar hashes. Commit it the same way. Amendment runs grant no external authority; skip steps 4 through 7 and 9. The prior run's archive stays byte-identical. If Dev runs from a different source repository than this RFC run, copy the new `.pm/rfc-sessions/completed/{slug}/{run_id}/` archive into that repository beside the prior one, because Dev verifies every lineage hop from its own `source.repo_root`. Then adopt it in Dev with `dev-session rebind-rfc`.
+   For an amendment run, the owns edit reset the RFC lifecycle to `draft` for review, so step 2 flips only the RFC lifecycle back to `approved`, preserving the amended sidecar bytes. An amendment leaves the proposal lifecycle unchanged, because Dev already holds that proposal in progress. `approval-audit` writes a v2 audit whose `amends` block names the prior run, approval hash, and prior HTML and sidecar hashes. Commit it the same way. Amendment runs grant no external authority; skip steps 4 through 7, and replace step 9 as step 9 describes. The prior run's archive stays byte-identical.
 4. Treat external actions as separate authority:
    - Linear creation requires `authority.linear_create`.
    - Unattended loop pickup requires `authority.loop_approval` plus the loop's exact confirmation language.
@@ -46,7 +46,7 @@ Publish the approved RFC and perform only the downstream effects authorized inde
 6. Only when Linear authority exists, read `${CLAUDE_PLUGIN_ROOT}/references/linear-operations.md`, then use sidecar issue order, sanitize local links, and verify each created identifier. Partial failure is a blocker or precise partial result, never success.
 7. When loop authority exists, create/verify child cards in dependency order and use the loop's separate implementation approval contract. RFC approval never authorizes unattended merge.
 8. Do not delete canonical state. Record a passing handoff result with current artifact identity plus `handoff`, `lifecycle`, and `approval-audit` evidence. The runner archives it immutably.
-9. Offer `pm:dev {slug}`. Start it only with `start_implementation` authority.
+9. Offer `pm:dev {slug}`. Start it only with `start_implementation` authority. For an amendment run, step 8 has now archived it: if Dev runs from a different source repository than this RFC run, copy the new `.pm/rfc-sessions/completed/{slug}/{run_id}/` archive into that repository beside the prior one, because Dev verifies every lineage hop from its own `source.repo_root`. Then adopt it in the waiting Dev session with `dev-session rebind-rfc` instead of offering `pm:dev`.
 
 ## Done-when
 
