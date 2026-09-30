@@ -4,6 +4,8 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { runGit: sharedRunGit } = require("../loop-git");
+const { GIT_DIFF_TRUST_CONFIG, gitExec } = require("./git-env");
+const { isGitObjectId } = require("./git-object-id");
 const { isRfc3339DateTime } = require("./iso-time");
 const { inspectStableProjectInput, readProjectInput } = require("./safe-project-output");
 
@@ -1573,8 +1575,12 @@ function ownershipOverlaps(left, right) {
 }
 
 function patternsOverlap(leftValue, rightValue) {
-  const left = normalizePattern(leftValue);
-  const right = normalizePattern(rightValue);
+  return ownershipPatternForms(leftValue).some((left) =>
+    ownershipPatternForms(rightValue).some((right) => normalizedPatternsOverlap(left, right))
+  );
+}
+
+function normalizedPatternsOverlap(left, right) {
   if (left === right) return true;
 
   const leftGlob = hasGlob(left);
@@ -1686,6 +1692,7 @@ function validateCompletedCommit(result, options) {
 
   let head;
   let changedPaths;
+  let ownershipPaths;
   try {
     head = runGit(worktree, ["rev-parse", "HEAD"]);
     const dirty = runGit(worktree, [
@@ -1697,13 +1704,39 @@ function validateCompletedCommit(result, options) {
       ":(exclude).pm/**",
     ]);
     if (dirty) throw new Error(`assigned worktree is dirty: ${dirty.split("\n")[0]}`);
+    // The worker supplies the commit, so only a full object id reaches git: a value such as
+    // "--output=<file>" would otherwise run as an option.
+    if (!isGitObjectId(result.commit)) {
+      throw new Error(`commit is not a full object id: ${result.commit}`);
+    }
     if (options.baseCommit) {
       runGit(worktree, ["merge-base", "--is-ancestor", options.baseCommit, result.commit]);
     }
+    // A submodule's .gitmodules "ignore" setting would otherwise drop its pointer bump.
     const diffArgs = options.baseCommit
-      ? ["diff", "--name-only", `${options.baseCommit}..${result.commit}`]
-      : ["diff-tree", "--root", "--no-commit-id", "--name-only", "-r", result.commit];
-    changedPaths = runGit(worktree, diffArgs).split("\n").filter(Boolean);
+      ? [
+          "diff",
+          "--name-only",
+          "--ignore-submodules=none",
+          `${options.baseCommit}..${result.commit}`,
+        ]
+      : [
+          "diff-tree",
+          "--root",
+          "--no-commit-id",
+          "--name-only",
+          "--ignore-submodules=none",
+          "-r",
+          result.commit,
+        ];
+    changedPaths = listGitPaths(worktree, diffArgs);
+    // A rename lists only its new path, so ownership is checked with renames split into the
+    // deleted source and the added destination: moving a file needs ownership of both ends.
+    ownershipPaths = listGitPaths(worktree, [
+      ...diffArgs.slice(0, 1),
+      "--no-renames",
+      ...diffArgs.slice(1),
+    ]);
   } catch (error) {
     throw new Error(`could not verify worker commit in assigned worktree: ${error.message}`);
   }
@@ -1711,9 +1744,16 @@ function validateCompletedCommit(result, options) {
   if (result.commit !== head) {
     throw new Error(`worker commit is stale or outside assigned worktree HEAD: expected ${head}`);
   }
-  const escaped = changedPaths.filter(
-    (file) => !ownership.some((pattern) => pathIsOwned(file, pattern))
-  );
+  let owners;
+  try {
+    const namesCommitPath = commitPathLookup(worktree, result.commit);
+    owners = ownership.map((entry) =>
+      resolveOwnershipMatcher(entry, ownershipPaths, namesCommitPath)
+    );
+  } catch (error) {
+    throw new Error(`could not verify worker commit in assigned worktree: ${error.message}`);
+  }
+  const escaped = ownershipPaths.filter((file) => !owners.some((owns) => owns(file)));
   if (escaped.length > 0) {
     throw new Error(
       `worker commit changed paths outside assigned ownership: ${escaped.join(", ")}`
@@ -1726,11 +1766,70 @@ function validateCompletedCommit(result, options) {
   }
 }
 
-function pathIsOwned(fileValue, patternValue) {
-  const file = normalizePattern(fileValue);
-  const pattern = normalizePattern(patternValue);
-  if (hasGlob(pattern)) return globMatches(pattern, file);
-  return file === pattern || file.startsWith(`${pattern}/`);
+// Each owns entry gets exactly one meaning when checking a commit, returned as a matcher. Forms
+// are tried longest first: a trailing "(...)" is part of the name when the commit touches a path
+// that form names or a file, directory or submodule at the commit matches it; otherwise it is a
+// note. With no match, every note is stripped and only the path before them is owned. Glob
+// characters inside a note are prose, so when the path before the notes is plain, every form is
+// matched as a plain path.
+function resolveOwnershipMatcher(entry, changedPaths, namesCommitPath) {
+  const forms = ownershipPatternForms(entry);
+  const glob = hasGlob(forms[forms.length - 1]);
+  const matchers = forms.map((form) => ownershipMatcher(form, glob));
+  const named = forms
+    .slice(0, -1)
+    .findIndex(
+      (form, index) =>
+        changedPaths.some(matchers[index]) || namesCommitPath(form, matchers[index], glob)
+    );
+  return matchers[named === -1 ? forms.length - 1 : named];
+}
+
+// Lists path names exactly as git stores them: NUL-separated, so git never quotes a name with
+// non-ASCII or special characters, and untrimmed, so a leading or trailing space survives.
+// Pathspecs are literal, so a path such as ":x" or ":!y" is a name, not pathspec magic. The
+// pinned diff config keeps "diff.relative" from dropping paths outside a subdirectory worktree.
+function listGitPaths(worktree, args) {
+  return gitExec(worktree, [
+    ...GIT_DIFF_TRUST_CONFIG,
+    "--literal-pathspecs",
+    args[0],
+    "-z",
+    ...args.slice(1),
+  ])
+    .split("\0")
+    .filter(Boolean);
+}
+
+// Returns a lookup that asks only what a form can name: the one tree entry for a plain path,
+// and for a glob every file, directory and submodule under its fixed directory prefix, so the
+// check stays cheap in large repositories. ls-tree lists an entry without its content, and a
+// git failure throws instead of reading as "not there". --full-tree keeps paths relative to the
+// repository root, as the diff prints them, when the worktree is a subdirectory. Listings are
+// cached by directory, so stacked notes on one glob list it once.
+function commitPathLookup(worktree, commit) {
+  const listings = new Map();
+  const list = (args) => listGitPaths(worktree, ["ls-tree", "--full-tree", "--name-only", ...args]);
+  return (form, owns, glob) => {
+    if (!glob) return list([commit, "--", form]).includes(form);
+    const prefix = form.slice(0, form.search(/[*?[\]{}]/));
+    const directory = prefix.slice(0, prefix.lastIndexOf("/") + 1).replace(/\/$/, "");
+    if (!listings.has(directory)) {
+      listings.set(directory, list(["-r", "-t", commit, ...(directory ? ["--", directory] : [])]));
+    }
+    return listings.get(directory).some(owns);
+  };
+}
+
+// Builds the path test for one normalized pattern once, so matching many files stays cheap.
+// Files come from git, which already stores canonical names, so they are matched as given: a
+// name such as " x" keeps its leading space and is never owned by "x".
+function ownershipMatcher(pattern, glob = hasGlob(pattern)) {
+  if (glob) {
+    const expression = globRegExp(pattern);
+    return (file) => expression.test(file);
+  }
+  return (file) => file === pattern || file.startsWith(`${pattern}/`);
 }
 
 function runGit(worktree, args) {
@@ -1761,14 +1860,17 @@ function validateOwnershipList(value, label) {
   for (const item of value) validateRepoRelativePattern(item, label);
 }
 
+// Checks the entry as written and, for an annotated owns entry, the path before the note.
 function validateRepoRelativePattern(value, label) {
-  const normalized = value.trim().replace(/\\/g, "/");
-  if (
-    normalized.startsWith("/") ||
-    /^[A-Za-z]:\//.test(normalized) ||
-    normalized.split("/").includes("..")
-  ) {
-    throw new Error(`${label} must be a repo-relative path pattern`);
+  for (const form of ownsAnnotationForms(value.trim())) {
+    const normalized = form.replace(/\\/g, "/");
+    if (
+      normalized.startsWith("/") ||
+      /^[A-Za-z]:\//.test(normalized) ||
+      normalized.split("/").includes("..")
+    ) {
+      throw new Error(`${label} must be a repo-relative path pattern`);
+    }
   }
 }
 
@@ -1778,6 +1880,37 @@ function normalizePattern(value) {
     .replace(/^\.\//, "")
     .replace(/\/{2,}/g, "/")
     .replace(/\/$/, "");
+}
+
+// RFC owns entries may carry trailing notes, e.g. "config/application.rb (insert_after only)"
+// or "config/app.rb (only the foo() call) (keep order)". A note scopes the edit for the worker;
+// ownership is the path before it. A real path can also end in parentheses, e.g.
+// "assets/Icons (old)", so callers get every form, from the entry as written down to the path
+// with all notes stripped.
+function ownershipPatternForms(value) {
+  return [...new Set(ownsAnnotationForms(value.trim()).map(normalizePattern))];
+}
+
+function ownsAnnotationForms(value) {
+  const forms = [value];
+  for (let start = trailingNoteStart(value); start > 0; start = trailingNoteStart(value)) {
+    value = value.slice(0, start).trimEnd();
+    forms.push(value);
+  }
+  return forms;
+}
+
+// Index of the "(" that opens a balanced "(...)" group ending the value after whitespace,
+// or -1 when the value does not end in such a group.
+function trailingNoteStart(value) {
+  if (!value.endsWith(")")) return -1;
+  let depth = 0;
+  for (let index = value.length - 1; index >= 0; index -= 1) {
+    if (value[index] === ")") depth += 1;
+    else if (value[index] === "(") depth -= 1;
+    if (depth === 0) return index > 0 && /\s/.test(value[index - 1]) ? index : -1;
+  }
+  return -1;
 }
 
 function hasGlob(value) {
@@ -1796,6 +1929,10 @@ function rootsIntersect(left, right) {
 }
 
 function globMatches(pattern, value) {
+  return globRegExp(pattern).test(value);
+}
+
+function globRegExp(pattern) {
   let expression = "^";
   for (let index = 0; index < pattern.length; index += 1) {
     const char = pattern[index];
@@ -1812,7 +1949,7 @@ function globMatches(pattern, value) {
     else expression += char.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
   }
   expression += "$";
-  return new RegExp(expression).test(value);
+  return new RegExp(expression);
 }
 
 function parseResult(input) {

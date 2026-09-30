@@ -96,6 +96,36 @@ test("planned feature refs preserve SHA-256 object-ID width", () => {
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+test("a hook that exits 0 without reading its input still passes", () => {
+  const { root, plan, options } = fixture();
+  const epipe = Object.assign(new Error("spawnSync lefthook EPIPE"), { code: "EPIPE" });
+  const result = runRepositoryGates(plan, "targeted", {
+    ...options,
+    spawnSync: () => ({ status: 0, stdout: "", stderr: "", error: epipe }),
+  });
+  assert.equal(result.status, "passed", JSON.stringify(result));
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("a hook that fails or cannot run still fails when its input pipe also broke", () => {
+  const epipe = Object.assign(new Error("spawnSync lefthook EPIPE"), { code: "EPIPE" });
+  const enoent = Object.assign(new Error("spawnSync lefthook ENOENT"), { code: "ENOENT" });
+  for (const outcome of [
+    { status: 1, stdout: "", stderr: "", error: epipe },
+    { status: null, signal: "SIGTERM", stdout: "", stderr: "", error: epipe },
+    { status: 0, stdout: "", stderr: "", error: enoent },
+    null,
+  ]) {
+    const { root, plan, options } = fixture();
+    const result = runRepositoryGates(plan, "targeted", {
+      ...options,
+      spawnSync: () => outcome,
+    });
+    assert.equal(result.status, "failed", JSON.stringify({ outcome, result }));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("planned feature ref rejects a stale old OID", () => {
   const { root, plan, options } = fixture();
   const result = runRepositoryGates(plan, "targeted", {

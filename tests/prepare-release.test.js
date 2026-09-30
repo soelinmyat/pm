@@ -44,6 +44,9 @@ function fixture() {
     extracted.error?.message || extracted.stderr?.toString() || "tar extraction failed"
   );
   git(root, "init", "-q", "-b", "codex/ship-v2");
+  // No background gc or maintenance may still be writing when cleanup runs.
+  git(root, "config", "gc.auto", "0");
+  git(root, "config", "maintenance.auto", "false");
   git(root, "config", "user.email", "release-test@example.com");
   git(root, "config", "user.name", "Release Test");
   git(root, "add", ".");
@@ -67,7 +70,10 @@ function fixture() {
       2
     )}\n`
   );
-  return { root, cleanup: () => fs.rmSync(parent, { recursive: true, force: true }) };
+  return {
+    root,
+    cleanup: () => fs.rmSync(parent, { recursive: true, force: true, maxRetries: 5 }),
+  };
 }
 
 test("prepare-release commits version files without creating a feature tag and resumes idempotently", () => {

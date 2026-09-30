@@ -271,10 +271,12 @@ function runRepositoryGates(plan, mode, options = {}) {
       maxBuffer: 1024 * 1024,
     }
   );
-  if (!result || result.error || result.status !== 0)
+  // Git ignores EPIPE on pre-push input: a hook may exit 0 without reading it.
+  const brokenInputOnly = result?.error?.code === "EPIPE" && result.status === 0;
+  if (!result || (result.error && !brokenInputOnly) || result.status !== 0)
     return {
       status: "failed",
-      exit_code: result.status ?? 1,
+      exit_code: result?.status ?? 1,
       stderr: redactText(result?.stderr || result?.error?.message || "hook execution failed"),
     };
   return { status: "passed", exit_code: 0, commands, preflight_identity: preflight.identity };
