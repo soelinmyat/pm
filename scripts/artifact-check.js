@@ -642,6 +642,8 @@ module.exports = {
   inspectHtmlArtifact,
   parseArtifactMetadata,
   rawElementBodies,
+  readEndTagAt,
+  readStartTagAt,
   startTags,
   structuralMarkup,
   validateMetadata,

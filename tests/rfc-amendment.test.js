@@ -380,6 +380,63 @@ test("amendment HTML ends each amended issue card with one line of its added pat
   );
 });
 
+test("amendment HTML finds each issue card by its badge, whatever markup the card holds", () => {
+  const { assertOwnsOnlyHtml } = require("../scripts/lib/rfc-session-schema");
+  const line = "<p><strong>Added owned files:</strong> <code>src/new.js</code></p>";
+  const page = (status, hash, open, badge, body, extra) =>
+    [
+      `<script id="pm-artifact" type="application/json">{"lifecycle":"${status}"}</script>`,
+      `<script id="rfc-lifecycle" type="application/json">{"status":"${status}"}</script>`,
+      `<main data-sidecar-hash="sha256:${hash.repeat(64)}">`,
+      `<p>Status: <span data-pm-lifecycle>${status[0].toUpperCase()}${status.slice(1)}</span></p>`,
+      `<section class="issue-detail"><span class="issue-detail-num">1</span><p>Owns <code>src/one.js</code>.</p></section>`,
+      `${open}<span class="issue-detail-num">${badge}</span>${body}${extra}</section>`,
+      "</main>",
+    ].join("\n");
+  const cards = {
+    "an Issue-prefixed badge": ['<section class="issue-detail">', "Issue 2", "<p>Owns.</p>"],
+    "a zero-padded badge": ['<section class="issue-detail">', "02", "<p>Owns.</p>"],
+    "a quoted greater-than before the class": [
+      '<section data-note="a>b" class="issue-detail">',
+      "2",
+      "<p>Owns.</p>",
+    ],
+    "a closing tag inside a comment": [
+      '<section class="issue-detail">',
+      "2",
+      "<!-- ends at </section> --><p>Owns.</p>",
+    ],
+    "a nested element of the same name": [
+      '<section class="issue-detail">',
+      "2",
+      "<section><p>Owns.</p></section>",
+    ],
+  };
+  const added = [{ num: 2, added_owns: ["src/new.js"] }];
+  for (const [label, [open, badge, body]] of Object.entries(cards)) {
+    const prior = page("approved", "a", open, badge, body, "");
+    assert.doesNotThrow(
+      () => assertOwnsOnlyHtml(prior, page("draft", "b", open, badge, body, line), added),
+      label
+    );
+    assert.throws(
+      () => assertOwnsOnlyHtml(prior, page("draft", "b", open, badge, body, ""), added),
+      /must end issue 2's card with its added owned files/,
+      label
+    );
+  }
+  // A badge naming another issue, or only mentioning the number, is not that card.
+  for (const badge of ["Issue 12", "2b", "PM-244-2"]) {
+    const open = '<section class="issue-detail">';
+    const prior = page("approved", "a", open, badge, "<p>Owns.</p>", "");
+    assert.throws(
+      () => assertOwnsOnlyHtml(prior, page("draft", "b", open, badge, "<p>Owns.</p>", line), added),
+      /must end issue 2's card/,
+      badge
+    );
+  }
+});
+
 test("amendment HTML shows an added path as text, never as markup", () => {
   const { assertOwnsOnlyHtml } = require("../scripts/lib/rfc-session-schema");
   const page = (status, hash, extra) =>

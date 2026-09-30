@@ -3,7 +3,13 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { inspectHtmlArtifact } = require("../artifact-check.js");
+const {
+  attributeValue,
+  inspectHtmlArtifact,
+  readEndTagAt,
+  readStartTagAt,
+  startTags,
+} = require("../artifact-check.js");
 const { verifyArtifactWorktreeOwnership } = require("../artifact-worktree.js");
 const { extractSidecarHash, validateRfcSidecar } = require("../rfc-sidecar-check.js");
 const { loadPhaseStep } = require("../step-loader.js");
@@ -284,7 +290,7 @@ function assertAmendmentArtifact(session, artifact) {
 // The approver confirms an amendment by its sidecar hash but reads the HTML, so
 // the HTML must tell the same story and nothing more. Apart from the lifecycle
 // and the sidecar hash it cites, the only allowed change is one new last line in
-// each amended issue card that lists exactly that issue's added paths. A fixed
+// the card of each issue that gains paths, listing exactly those paths. A fixed
 // line at the card's top level renders wherever the card renders, needs no
 // existing listing to sit beside, and leaves nothing to guess about placement.
 // Nothing may be deleted.
@@ -332,26 +338,41 @@ function collapseWhitespace(html) {
 }
 
 // An issue's section is its issue-detail card, from the card's opening tag to
-// the matching close of the same element, so a path listed anywhere else fails.
+// the matching close of the same element. Tags are read quote-aware and comments
+// are blanked in place, so offsets still index the original HTML. A card's badge
+// may read "1", "01" or "Issue 1", the forms approved RFCs use.
 function issueSection(html, num) {
-  for (const open of html.matchAll(/<([a-z][a-z0-9]*)\b[^>]*\bclass=["']([^"']*)["'][^>]*>/gi)) {
-    if (!open[2].split(/\s+/).includes("issue-detail")) continue;
-    const end = closingTagIndex(html, open[1], open.index + open[0].length);
-    const marker = html
-      .slice(open.index, end < 0 ? html.length : end)
-      .match(/class=["'][^"']*\bissue-detail-num\b[^"']*["']>\s*(\d+)\s*</);
-    if (end >= 0 && marker && Number(marker[1]) === num) return [open.index, end];
+  const source = html.replace(/<!--[\s\S]*?-->/g, (comment) => " ".repeat(comment.length));
+  const tags = startTags(source);
+  for (const card of tags) {
+    if (!hasClass(card, "issue-detail")) continue;
+    const end = matchingCloseIndex(source, card);
+    if (end < 0) continue;
+    const badge = tags.find(
+      (tag) => tag.start >= card.end && tag.start < end && hasClass(tag, "issue-detail-num")
+    );
+    const label = badge && source.slice(badge.end).match(/^\s*(?:issue\s+)?(\d+)\s*</i);
+    if (label && Number(label[1]) === num) return [card.start, end];
   }
   return [-1, -1];
 }
 
-function closingTagIndex(html, tag, from) {
-  const tags = new RegExp(`<(/?)${tag}\\b[^>]*>`, "gi");
-  tags.lastIndex = from;
+function hasClass(tag, name) {
+  return (attributeValue(tag.attrs, ["class"]) || "").split(/\s+/).includes(name);
+}
+
+function matchingCloseIndex(source, card) {
   let depth = 1;
-  for (let match = tags.exec(html); match; match = tags.exec(html)) {
-    depth += match[1] ? -1 : 1;
-    if (depth === 0) return match.index;
+  for (let index = source.indexOf("<", card.end); index >= 0; index = source.indexOf("<", index)) {
+    const open = readStartTagAt(source, index);
+    if (open) {
+      if (open.name === card.name) depth += 1;
+      index = open.end;
+      continue;
+    }
+    const close = readEndTagAt(source, index);
+    if (close?.name === card.name && --depth === 0) return index;
+    index = close ? close.end : index + 1;
   }
   return -1;
 }
