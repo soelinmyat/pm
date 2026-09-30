@@ -246,20 +246,25 @@ function openAmendment(repo, completedPath, env = {}) {
   );
 }
 
-// Runs the withdraw recovery that SKILL.md documents, committing only the restore paths.
+// Runs the withdraw recovery exactly as SKILL.md words it, so the doc cannot drift from what
+// is tested. GIT_EDITOR=false makes a commit that would open an editor fail instead of hang.
 function runWithdrawRecovery(repo, restore) {
+  const skill = fs.readFileSync(path.join(REFERENCES, "..", "SKILL.md"), "utf8");
+  const match = skill.match(/`(git checkout <restore\.commit> [^`]+)`, then `([^`]+)`/);
+  assert.ok(match, "SKILL.md must document the withdraw recovery commands");
+  const fill = (command) =>
+    command.replaceAll("<restore.commit>", '"$commit"').replaceAll("<restore.paths>", '"$@"');
   const relative = restore.paths.map((file) => path.relative(repo.root, file));
   execFileSync(
     "sh",
     [
       "-c",
-      'commit="$1"; shift; git checkout "$commit" -- "$@" && ' +
-        '{ git diff --cached --quiet -- "$@" || git commit -qm "withdraw amendment" -- "$@"; }',
+      `commit="$1"; shift; ${fill(match[1])} && { ${fill(match[2])}; }`,
       "sh",
       restore.commit,
       ...relative,
     ],
-    { cwd: repo.root }
+    { cwd: repo.root, env: { ...process.env, GIT_EDITOR: "false" }, stdio: "pipe" }
   );
   return relative;
 }
@@ -577,7 +582,7 @@ test("RFC handoff docs say an amendment leaves the proposal lifecycle alone", ()
   // and it names the restore paths so unrelated staged work stays out of it.
   assert.match(
     skill,
-    /git diff --cached --quiet -- <restore\.paths> \|\| git commit -- <restore\.paths>/
+    /git diff --cached --quiet -- <restore\.paths> \|\| git commit -m "[^"]+" -- <restore\.paths>/
   );
   const schema = fs.readFileSync(path.join(REFERENCES, "state-schema.md"), "utf8");
   assert.match(schema, /committing only those paths, and only if that staged a change/);
