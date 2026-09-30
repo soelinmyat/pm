@@ -7,6 +7,7 @@ const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
+const { pendingRequestsReady } = require("./lib/capture-loading-readiness");
 const { validateCaptureActions } = require("./design-critique-capture");
 
 const MAX_CDP_MESSAGE_CHARS = 96 * 1024 * 1024;
@@ -2883,6 +2884,12 @@ async function main() {
 
     const requests = [];
     const pendingRequests = new Set();
+    const requestRecords = new Map();
+    let frozenPendingIds = null;
+    const requestsReady = () =>
+      pendingRequestsReady(config.stateAssertion.state, pendingRequests, requestRecords) &&
+      (frozenPendingIds === null ||
+        JSON.stringify([...pendingRequests].sort()) === frozenPendingIds);
     const pendingWebSockets = new Set();
     const webSocketOrigins = new Map();
     const violations = [];
@@ -2991,6 +2998,7 @@ async function main() {
             ++sequence
           );
           retainRequest(record);
+          requestRecords.set(scopedRequestId(connectionScope, sessionId, event.requestId), record);
           const policyMode =
             connectionScope === "browser"
               ? childWebSocketPolicyModes.get(sessionId)
@@ -3268,7 +3276,7 @@ async function main() {
       if (
         loadFired &&
         violations.length === 0 &&
-        pendingRequests.size === 0 &&
+        requestsReady() &&
         pendingWebSockets.size === 0 &&
         activeFetchHandlers.size === 0 &&
         activeTargetHandlers.size === 0 &&
@@ -3381,7 +3389,7 @@ async function main() {
       while (Date.now() < actionDeadline) {
         assertNetworkHealthy();
         if (
-          pendingRequests.size === 0 &&
+          requestsReady() &&
           pendingWebSockets.size === 0 &&
           activeFetchHandlers.size === 0 &&
           activeTargetHandlers.size === 0 &&
@@ -3394,6 +3402,10 @@ async function main() {
       if (Date.now() >= actionDeadline) throw new Error("capture actions did not settle");
       readyAt = new Date().toISOString();
     }
+    frozenPendingIds = JSON.stringify([...pendingRequests].sort());
+    const pendingAtCapture = [
+      ...new Set([...pendingRequests].map((id) => requestRecords.get(id).sequence)),
+    ].sort((a, b) => a - b);
     criticalWindow = true;
     const before = await nativeSample(
       client,
@@ -3448,7 +3460,7 @@ async function main() {
       assertNetworkHealthy();
       if (
         violations.length === 0 &&
-        pendingRequests.size === 0 &&
+        requestsReady() &&
         pendingWebSockets.size === 0 &&
         activeFetchHandlers.size === 0 &&
         activeTargetHandlers.size === 0 &&
@@ -3460,7 +3472,7 @@ async function main() {
     }
     assertNetworkHealthy();
     if (
-      pendingRequests.size > 0 ||
+      !requestsReady() ||
       pendingWebSockets.size > 0 ||
       activeFetchHandlers.size > 0 ||
       activeTargetHandlers.size > 0
@@ -3498,7 +3510,7 @@ async function main() {
       assertNetworkHealthy();
       if (
         violations.length === 0 &&
-        pendingRequests.size === 0 &&
+        requestsReady() &&
         pendingWebSockets.size === 0 &&
         activeFetchHandlers.size === 0 &&
         activeTargetHandlers.size === 0 &&
@@ -3509,7 +3521,7 @@ async function main() {
     }
     assertNetworkHealthy();
     if (
-      pendingRequests.size > 0 ||
+      !requestsReady() ||
       pendingWebSockets.size > 0 ||
       activeFetchHandlers.size > 0 ||
       activeTargetHandlers.size > 0
@@ -3543,6 +3555,7 @@ async function main() {
         allowed_origins: [...allowedOrigins].sort(),
         observed_origins: observedOrigins,
         requests,
+        pending_at_capture: pendingAtCapture,
         violations: [],
       },
       timestamps: {

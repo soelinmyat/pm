@@ -5088,3 +5088,31 @@ test("native noninteractive scope must match frozen coverage and cannot weaken w
     assert.match(JSON.stringify(result.issues), expected);
   }
 });
+
+test("trusted captures bind pending request evidence and reject it on non-loading states", () => {
+  const fixture = makeFixture();
+  const capture = fixture.captures.captures[0];
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(fixture.root, capture.observation.path), "utf8")
+  );
+  const ledgerPath = manifest.raw_evidence.network_ledger.path;
+  const ledger = JSON.parse(fs.readFileSync(path.join(fixture.root, ledgerPath), "utf8"));
+  ledger.requests.push({ ...ledger.requests[0], sequence: 2, resource_type: "Fetch" });
+  ledger.pending_at_capture = [2];
+  const networkBinding = write(fixture.root, ledgerPath, `${JSON.stringify(ledger, null, 2)}\n`);
+  manifest.raw_evidence.network_ledger = networkBinding;
+  manifest.observation.network.request_count = ledger.requests.length;
+  manifest.observation.network.pending_at_capture = [2];
+  manifest.observation.network.ledger_sha256 = networkBinding.sha256;
+  capture.observation = write(
+    fixture.root,
+    capture.observation.path,
+    `${JSON.stringify(manifest, null, 2)}\n`
+  );
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  const result = check(fixture);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /only permitted for loading captures/);
+});
