@@ -32,6 +32,10 @@ PM fixes this by making product knowledge **durable** and **wired into your work
 
 Built for teams where roles blur. The engineer makes product calls. The PM ships minor features. The designer reviews implementation. The biz lead needs context without asking for updates.
 
+Loading-state visual captures can retain genuine outstanding read-only Fetch/XHR
+requests. The helper records those requests in its evidence and keeps origin,
+visibility, and atomic stability checks enabled.
+
 ## What PM Is Not
 
 - Not a project management tool — Linear and Jira handle sprints and assignments
