@@ -16,9 +16,9 @@ const {
   phaseResult,
   prepareApprovedHandoff,
   recordFile,
+  relabelArtifact,
   resultEvidence,
   snapshotDir,
-  writeArtifact,
 } = require("./helpers/rfc-run-fixture");
 
 const CLI = path.resolve(__dirname, "..", "scripts", "rfc-session.js");
@@ -649,7 +649,7 @@ test("post-handoff amendment re-reviews owns-only changes and archives a v2 appr
     session = JSON.parse(approvedRun.stdout).session;
     assert.equal(session.phase, "handoff");
 
-    let approvedArtifact = writeArtifact(repo, slug, "approved", artifact);
+    let approvedArtifact = relabelArtifact(repo, slug, artifact, "approved");
     const identityPath = path.join(repo.root, `${session.run_id}-artifact.json`);
     fs.writeFileSync(identityPath, JSON.stringify(approvedArtifact));
     const audited = repo.run([

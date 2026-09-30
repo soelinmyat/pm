@@ -29,11 +29,67 @@ function currentDesignContext() {
   };
 }
 
+// Amends the approved pair the way the agent does: rewrite the sidecar, then
+// edit the approved HTML in place (lifecycle, sidecar hash, and one "Added owned
+// files" line at the end of each amended issue card). It always starts from the
+// prior artifact's commit, so repeated attempts do not stack.
 function amendArtifact(repo, slug, prior, mutate) {
-  const sidecar = JSON.parse(fs.readFileSync(prior.json_path, "utf8"));
+  const committed = (file) =>
+    execFileSync("git", ["show", `${prior.commit}:${path.relative(repo.root, file)}`], {
+      cwd: repo.root,
+      encoding: "utf8",
+    });
+  const before = JSON.parse(committed(prior.json_path));
+  const sidecar = structuredClone(before);
   mutate(sidecar);
   fs.writeFileSync(prior.json_path, `${JSON.stringify(sidecar)}\n`);
-  return writeArtifact(repo, slug, "draft", prior);
+  let html = committed(prior.html_path);
+  for (const issue of sidecar.issues) {
+    const old = before.issues.find((item) => item.num === issue.num);
+    const added = old ? issue.owns.filter((owned) => !old.owns.includes(owned)) : [];
+    if (added.length === 0) continue;
+    const card = html.indexOf(`<span class="issue-detail-num">${issue.num}</span>`);
+    const close = html.indexOf("</article>", card);
+    const listed = added.map((owned) => `<code>${owned}</code>`).join(", ");
+    html = `${html.slice(0, close)}<p><strong>Added owned files:</strong> ${listed}</p>${html.slice(close)}`;
+  }
+  fs.writeFileSync(prior.html_path, html);
+  return relabelArtifact(repo, slug, prior, "draft");
+}
+
+// Sets the lifecycle and sidecar hash of the RFC HTML in place, keeping every
+// other byte, and commits the pair.
+function relabelArtifact(repo, slug, artifact, status) {
+  const sidecarHash = `sha256:${crypto
+    .createHash("sha256")
+    .update(fs.readFileSync(artifact.json_path))
+    .digest("hex")}`;
+  const label = `${status[0].toUpperCase()}${status.slice(1)}`;
+  const html = fs
+    .readFileSync(artifact.html_path, "utf8")
+    .replace(/"lifecycle":"[a-z]+"/, `"lifecycle":"${status}"`)
+    .replace(/\{"status":"[a-z]+"\}/, `{"status":"${status}"}`)
+    .replace(/<span data-pm-lifecycle>[A-Za-z]+<\/span>/, `<span data-pm-lifecycle>${label}</span>`)
+    .replace(/data-sidecar-hash="sha256:[0-9a-f]{64}"/, `data-sidecar-hash="${sidecarHash}"`);
+  fs.writeFileSync(artifact.html_path, html);
+  execFileSync(
+    "git",
+    [
+      "add",
+      path.relative(repo.root, artifact.json_path),
+      path.relative(repo.root, artifact.html_path),
+    ],
+    { cwd: repo.root }
+  );
+  execFileSync("git", ["commit", "-qm", `${status} ${slug}`], { cwd: repo.root });
+  return {
+    html_path: artifact.html_path,
+    json_path: artifact.json_path,
+    html_hash: `sha256:${crypto.createHash("sha256").update(fs.readFileSync(artifact.html_path)).digest("hex")}`,
+    sidecar_hash: sidecarHash,
+    repo_root: repo.root,
+    commit: repo.head(),
+  };
 }
 
 function passingVerdicts(artifact) {
@@ -307,7 +363,7 @@ function completeAmendment(repo, completedPath, { issues, reason, mutate }) {
   ]);
   assert.equal(approved.status, 0, approved.stderr);
   const handoffSession = JSON.parse(approved.stdout).session;
-  let approvedArtifact = writeArtifact(repo, archived.slug, "approved", artifact);
+  let approvedArtifact = relabelArtifact(repo, archived.slug, artifact, "approved");
   const identityPath = path.join(repo.root, `${session.run_id}-artifact.json`);
   fs.writeFileSync(identityPath, JSON.stringify(approvedArtifact));
   const audited = repo.run([
@@ -430,6 +486,7 @@ module.exports = {
   phaseResult,
   prepareApprovedHandoff,
   recordFile,
+  relabelArtifact,
   resultEvidence,
   snapshotDir,
   twoIssues,
