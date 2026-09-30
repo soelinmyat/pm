@@ -1063,4 +1063,10 @@ test("RFC ownership corrections are documented as amend plus rebind-rfc, never s
   assert.ok(archiveStep > 0);
   assert.doesNotMatch(handoff.slice(0, archiveStep), /rebind-rfc|copy the new/);
   assert.match(handoff.slice(archiveStep), /dev-session rebind-rfc/);
+  // The closing Advance line must not offer a fresh pm:dev run for an amendment.
+  const advance = handoff.slice(handoff.indexOf("**Advance:**")).split("\n")[0];
+  assert.match(
+    advance,
+    /amendment run[^.]*dev-session rebind-rfc[^.]*instead of offering `pm:dev`/
+  );
 });

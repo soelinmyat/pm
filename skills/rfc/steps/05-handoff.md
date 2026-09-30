@@ -56,4 +56,4 @@ Publish the approved RFC and perform only the downstream effects authorized inde
 - Handoff evidence and current artifact identity are recorded and the session is complete.
 - The user has the RFC path and correct next action.
 
-**Advance:** RFC workflow complete. Offer `pm:dev {slug}`; do not start it without authority.
+**Advance:** RFC workflow complete. Offer `pm:dev {slug}`; do not start it without authority. For an amendment run, adopt it in the waiting Dev session with `dev-session rebind-rfc` instead of offering `pm:dev`.

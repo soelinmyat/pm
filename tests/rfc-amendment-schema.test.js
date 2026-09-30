@@ -246,6 +246,24 @@ function openAmendment(repo, completedPath, env = {}) {
   );
 }
 
+// Runs the withdraw recovery that SKILL.md documents, committing only the restore paths.
+function runWithdrawRecovery(repo, restore) {
+  const relative = restore.paths.map((file) => path.relative(repo.root, file));
+  execFileSync(
+    "sh",
+    [
+      "-c",
+      'commit="$1"; shift; git checkout "$commit" -- "$@" && ' +
+        '{ git diff --cached --quiet -- "$@" || git commit -qm "withdraw amendment" -- "$@"; }',
+      "sh",
+      restore.commit,
+      ...relative,
+    ],
+    { cwd: repo.root }
+  );
+  return relative;
+}
+
 // Rewrites the committed RFC HTML and returns the artifact identity of the new commit.
 function editCommittedHtml(repo, artifact, edit) {
   fs.writeFileSync(artifact.html_path, edit(fs.readFileSync(artifact.html_path, "utf8")));
@@ -364,19 +382,7 @@ test("withdraw closes an open amendment run and frees the RFC for another amend"
     // must still succeed without an empty commit.
     const { restore } = JSON.parse(withdrawn.stdout);
     const head = repo.head();
-    const relative = restore.paths.map((file) => path.relative(repo.root, file));
-    execFileSync(
-      "sh",
-      [
-        "-c",
-        'commit="$1"; shift; git checkout "$commit" -- "$@" && ' +
-          '{ git diff --cached --quiet -- "$@" || git commit -qm "withdraw amendment"; }',
-        "sh",
-        restore.commit,
-        ...relative,
-      ],
-      { cwd: repo.root }
-    );
+    runWithdrawRecovery(repo, restore);
     assert.equal(repo.head(), head);
 
     const again = openAmendment(repo, approved.archivePath);
@@ -474,9 +480,20 @@ test("withdraw refuses an approved amendment and restores the prior audit after 
       archived.artifact.json_path,
       auditPath,
     ]);
-    const relative = restore.paths.map((file) => path.relative(repo.root, file));
-    execFileSync("git", ["checkout", restore.commit, "--", ...relative], { cwd: repo.root });
-    execFileSync("git", ["commit", "-qm", "withdraw amendment"], { cwd: repo.root });
+    // Unrelated staged work in the artifact repository must stay out of the recovery commit.
+    fs.writeFileSync(path.join(repo.root, "unrelated.txt"), "not part of the RFC\n");
+    execFileSync("git", ["add", "unrelated.txt"], { cwd: repo.root });
+    const relative = runWithdrawRecovery(repo, restore);
+    const committed = execFileSync("git", ["show", "--name-only", "--format=", "HEAD"], {
+      cwd: repo.root,
+      encoding: "utf8",
+    });
+    assert.doesNotMatch(committed, /unrelated\.txt/);
+    const staged = execFileSync("git", ["diff", "--cached", "--name-only"], {
+      cwd: repo.root,
+      encoding: "utf8",
+    });
+    assert.equal(staged.trim(), "unrelated.txt");
     const status = execFileSync("git", ["status", "--porcelain", "--", ...relative], {
       cwd: repo.root,
       encoding: "utf8",
@@ -556,7 +573,13 @@ test("RFC handoff docs say an amendment leaves the proposal lifecycle alone", ()
   assert.match(skill, /rfc-session\.js withdraw --session/);
   assert.match(skill, /Once approved, an amendment cannot be withdrawn/);
   assert.match(skill, /git checkout <restore\.commit> -- <restore\.paths>/);
-  // A withdraw before any amendment commit restores nothing, so the commit is conditional.
-  assert.match(skill, /git diff --cached --quiet -- <restore\.paths> \|\| git commit/);
+  // A withdraw before any amendment commit restores nothing, so the commit is conditional,
+  // and it names the restore paths so unrelated staged work stays out of it.
+  assert.match(
+    skill,
+    /git diff --cached --quiet -- <restore\.paths> \|\| git commit -- <restore\.paths>/
+  );
+  const schema = fs.readFileSync(path.join(REFERENCES, "state-schema.md"), "utf8");
+  assert.match(schema, /committing only those paths, and only if that staged a change/);
   assert.doesNotMatch(skill, /revert its artifact commit/);
 });
