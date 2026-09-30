@@ -889,7 +889,8 @@ function refreshTrustedCaptureObservations(fixture) {
       fixture.captures.evidence,
       0,
       {},
-      fixture.nativeFocusProof ?? true
+      fixture.nativeFocusProof ?? true,
+      fixture.nativeStateProof
     );
 }
 
@@ -901,7 +902,8 @@ function attachTrustedCaptureObservation(
   evidence,
   scrollY = 0,
   viewportOverrides = {},
-  nativeFocusProof = true
+  nativeFocusProof = true,
+  nativeStateProof = null
 ) {
   const coverage = route.coverage.find((item) => item.id === capture.coverage_id);
   const subject = route.subjects.find((item) => item.id === coverage.subject_id);
@@ -942,6 +944,12 @@ function attachTrustedCaptureObservation(
       locator: { by: "role-name", value: "button:Save account" },
       expect: { kind: "focused" },
     });
+  }
+  if (nativeStateProof && (coverage.state === "error" || nativeStateProof === "empty-alert")) {
+    assertion.all[0].locator = {
+      by: "role-name",
+      value: nativeStateProof === "unnamed" ? "alert:" : "alert:Could not load records",
+    };
   }
   const assertionBinding = write(
     root,
@@ -985,6 +993,9 @@ function attachTrustedCaptureObservation(
     scroll_y: scrollY,
     visual_scale: 1,
     page_zoom: 1,
+    ...(nativeStateProof === "viewport-mismatch" && coverage.state === "error"
+      ? { scroll_y: 1 }
+      : {}),
     ...viewportOverrides,
   };
   const pageIdentity = {
@@ -1026,6 +1037,14 @@ function attachTrustedCaptureObservation(
       },
     ],
   };
+  if (nativeStateProof && coverage.state === "error") {
+    const check = assertionVisibility.checks[1];
+    check.x = 350;
+    check.y = 350;
+    delete check.focus_indicator_regions;
+    if (nativeStateProof === "no-geometry") delete check.visual_bounds;
+    else check.visual_bounds = { x: 300, y: 300, width: 400, height: 200 };
+  }
   let sourceTree = "d".repeat(40);
   try {
     sourceTree = execFileSync("git", ["rev-parse", "HEAD^{tree}"], {
@@ -1293,7 +1312,17 @@ function validPng(
       rows[pixel + 2] = 20;
     }
   }
-  if (focusRing === "nearby-noise" || focusRing === "interior-noise") {
+  if (focusRing === "state-content" || focusRing === "state-beacon") {
+    for (let y = 320; y < (focusRing === "state-beacon" ? 321 : 360); y++) {
+      for (let x = 390; x < (focusRing === "state-beacon" ? 391 : 510); x++) {
+        if (y % 12 >= 5) continue;
+        const pixel = y * (width * 4 + 1) + 1 + x * 4;
+        rows[pixel] = 30;
+        rows[pixel + 1] = 30;
+        rows[pixel + 2] = 30;
+      }
+    }
+  } else if (focusRing === "nearby-noise" || focusRing === "interior-noise") {
     const left = focusRing === "interior-noise" ? 30 : 90;
     const size = focusRing === "interior-noise" ? 6 : 16;
     for (let y = 15; y < 15 + size; y += 1) {
@@ -5116,3 +5145,40 @@ test("trusted captures bind pending request evidence and reject it on non-loadin
   assert.equal(result.ok, false);
   assert.match(JSON.stringify(result.issues), /only permitted for loading captures/);
 });
+
+test("native error/empty comparison accepts material content inside the measured alert", () => {
+  const fixture = makeFixture();
+  fixture.nativeStateProof = true;
+  addRequiredStateCapture(fixture, "empty", validPng(1440, 1000, 20));
+  addRequiredStateCapture(fixture, "error", validPng(1440, 1000, 20, 0, null, 1, "state-content"));
+  const result = check(fixture);
+  assert.equal(
+    result.issues.some((issue) => /materially different decoded pixels/.test(issue.message)),
+    false,
+    JSON.stringify(result.issues)
+  );
+});
+
+for (const [name, proof, pixels] of [
+  ["missing semantic guard", null, "state-content"],
+  ["missing native bounds", "no-geometry", "state-content"],
+  ["alert also asserted on empty", "empty-alert", "state-content"],
+  ["unnamed alert", "unnamed", "state-content"],
+  ["different viewport geometry", "viewport-mismatch", "state-content"],
+  ["single pixel beacon", true, "state-beacon"],
+  ["identical pixels", true, false],
+  ["unrelated pixel noise", true, "nearby-noise"],
+]) {
+  test(`native error/empty comparison rejects ${name}`, () => {
+    const fixture = makeFixture();
+    fixture.nativeStateProof = proof;
+    addRequiredStateCapture(fixture, "empty", validPng(1440, 1000, 20));
+    addRequiredStateCapture(fixture, "error", validPng(1440, 1000, 20, 0, null, 1, pixels));
+    assert.equal(
+      check(fixture).issues.some((issue) =>
+        /materially different decoded pixels/.test(issue.message)
+      ),
+      true
+    );
+  });
+}

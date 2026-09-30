@@ -918,7 +918,8 @@ function validateCrossStateVisualDistance(
         if (
           !isMaterialVisualDifference(difference) &&
           !localizedNativeChange &&
-          !nativeFocusChange
+          !nativeFocusChange &&
+          !hasNativeStateContentChange(root, left, right, observationByCapture)
         ) {
           violationCount += 1;
           if (emittedDiagnostics < MAX_RULE_DIAGNOSTICS - 1) {
@@ -939,6 +940,83 @@ function validateCrossStateVisualDistance(
       "captures.captures",
       `${violationCount - emittedDiagnostics} additional cross-state visual-distance failures omitted after ${emittedDiagnostics} diagnostics`
     );
+}
+
+// Error and empty content can occupy less than one coarse viewport tile.
+// Only compare a native-measured, visibly asserted named alert region; caller
+// crops and state labels alone cannot establish a localized pixel difference.
+function hasNativeStateContentChange(root, left, right, observations) {
+  if (
+    ![left.coverage.state, right.coverage.state].includes("error") ||
+    ![left.coverage.state, right.coverage.state].includes("empty")
+  )
+    return false;
+  const beforeObservation = observations.get(left.capture.id);
+  const afterObservation = observations.get(right.capture.id);
+  if (
+    !beforeObservation ||
+    !afterObservation ||
+    left.capture.width !== right.capture.width ||
+    left.capture.height !== right.capture.height ||
+    left.capture.full_page ||
+    right.capture.full_page ||
+    !isDeepStrictEqual(
+      beforeObservation.manifest.page.css_viewport,
+      afterObservation.manifest.page.css_viewport
+    )
+  )
+    return false;
+  const errorSide = left.coverage.state === "error" ? left : right;
+  const observation = observations.get(errorSide.capture.id);
+  const assertion = observation.assertion;
+  const emptyObservation = observations.get(
+    (left.coverage.state === "empty" ? left : right).capture.id
+  );
+  if (!assertion || assertion.state !== "error" || emptyObservation.assertion?.state !== "empty")
+    return false;
+  if (
+    emptyObservation.assertion.all.some(
+      (clause) =>
+        clause.expect.kind === "visible" &&
+        clause.locator.by === "role-name" &&
+        clause.locator.value.startsWith("alert:")
+    )
+  )
+    return false;
+  for (const [index, clause] of assertion.all.entries()) {
+    if (
+      clause.expect.kind !== "visible" ||
+      clause.locator.by !== "role-name" ||
+      !/^alert:[^\s].*/u.test(clause.locator.value)
+    )
+      continue;
+    const region = observation.manifest.page.state_assertion.visibility.checks.find(
+      (check) => check.label === `state assertion clause ${index + 1}`
+    )?.visual_bounds;
+    if (!region) continue;
+    try {
+      const before = readBoundFile(root, left.capture.path, "state content comparison", []);
+      const after = readBoundFile(root, right.capture.path, "state content comparison", []);
+      if (
+        !before ||
+        !after ||
+        before.sha256 !== left.capture.sha256 ||
+        after.sha256 !== right.capture.sha256
+      )
+        continue;
+      const difference = visualDifference(
+        createPngRegionInspector(before.bytes)(region),
+        createPngRegionInspector(after.bytes)(region)
+      );
+      // Apply the existing native changed-tile rule inside the semantic region.
+      // Wide alert containers can still dilute the whole-region average.
+      if (difference && difference.changedTileRatio >= MIN_CROSS_STATE_CHANGED_TILE_RATIO)
+        return true;
+    } catch {
+      // Unavailable or invalid native geometry cannot grant this fallback.
+    }
+  }
+  return false;
 }
 
 // A native focus indicator can be much smaller than a viewport tile. Inspect a
