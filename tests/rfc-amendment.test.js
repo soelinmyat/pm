@@ -312,6 +312,12 @@ test("amendment HTML must list each added path once, in its own issue, and chang
       listed.replace("</ul>", "<li>src/other.js</li></ul>")
     ),
     "adds prose": page("draft", "b", oneOwns, `${listed}<p>New prose.</p>`),
+    "lists a path unescaped": page(
+      "draft",
+      "b",
+      oneOwns,
+      "<p><strong>Owns:</strong> <code>src/two.js</code>, <code>src/c&d.js</code>, <code>src/e.js</code></p><ul><li>src/two.js</li></ul>"
+    ),
   };
   for (const [label, next] of Object.entries(refused)) {
     assert.throws(
@@ -320,4 +326,75 @@ test("amendment HTML must list each added path once, in its own issue, and chang
       label
     );
   }
+  // A list after the last issue card is outside every issue.
+  const risks = (items) => `<ul><li>Risk.</li>${items}</ul></main>`;
+  assert.throws(
+    () =>
+      assertOwnsOnlyHtml(
+        prior.replace("</main>", risks("")),
+        page("draft", "b", oneOwns, twoOwns).replace(
+          "</main>",
+          risks("<li>src/c&amp;d.js</li><li>src/e.js</li>")
+        ),
+        added
+      ),
+    /amendment changed RFC HTML beyond the lifecycle and added owned paths/
+  );
+});
+
+test("amendment HTML shows an added path as text, never as markup", () => {
+  const { assertOwnsOnlyHtml } = require("../scripts/lib/rfc-session-schema");
+  const page = (status, hash, owns) =>
+    [
+      `<script id="pm-artifact" type="application/json">{"lifecycle":"${status}"}</script>`,
+      `<script id="rfc-lifecycle" type="application/json">{"status":"${status}"}</script>`,
+      `<main data-sidecar-hash="sha256:${hash.repeat(64)}">`,
+      `<p>Status: <span data-pm-lifecycle>${status[0].toUpperCase()}${status.slice(1)}</span></p>`,
+      `<div class="issue-detail"><span class="issue-detail-num">1</span><p><strong>Owns:</strong> ${owns}</p><p>Rollback plan.</p></div>`,
+      "</main>",
+    ].join("\n");
+  const prior = page("approved", "a", "<code>src/a.js</code>");
+  const added = [{ num: 1, added_owns: ["src/c.js (see <!--)"] }];
+  assert.doesNotThrow(() =>
+    assertOwnsOnlyHtml(
+      prior,
+      page("draft", "b", "<code>src/a.js</code>, <code>src/c.js (see &lt;!--)</code>"),
+      added
+    )
+  );
+  assert.throws(
+    () =>
+      assertOwnsOnlyHtml(
+        prior,
+        page("draft", "b", "<code>src/a.js</code>, <code>src/c.js (see <!--)</code>"),
+        added
+      ),
+    /amendment changed RFC HTML beyond the lifecycle and added owned paths/
+  );
+});
+
+test("amendment HTML check stays fast for many added paths", () => {
+  const { assertOwnsOnlyHtml } = require("../scripts/lib/rfc-session-schema");
+  const paths = Array.from({ length: 24 }, (_, index) => `src/p${index}.js`);
+  const listing = (items) => items.map((owned) => `<code>${owned}</code>`).join(", ");
+  const page = (status, hash, owns, extra) =>
+    [
+      `<script id="pm-artifact" type="application/json">{"lifecycle":"${status}"}</script>`,
+      `<script id="rfc-lifecycle" type="application/json">{"status":"${status}"}</script>`,
+      `<main data-sidecar-hash="sha256:${hash.repeat(64)}">`,
+      `<p>Status: <span data-pm-lifecycle>${status[0].toUpperCase()}${status.slice(1)}</span></p>`,
+      // Each path already appears in the card, so every listing has many candidates.
+      `<div class="issue-detail"><span class="issue-detail-num">1</span><p><strong>Owns:</strong> ${owns}</p><p>Related: ${listing(paths)}, ${listing(paths)}</p>${extra}</div>`,
+      "</main>",
+    ].join("\n");
+  const prior = page("approved", "a", "<code>src/a.js</code>", "");
+  const owns = listing(["src/a.js", ...paths]);
+  const added = [{ num: 1, added_owns: paths }];
+  const started = Date.now();
+  assert.doesNotThrow(() => assertOwnsOnlyHtml(prior, page("draft", "b", owns, ""), added));
+  assert.throws(
+    () => assertOwnsOnlyHtml(prior, page("draft", "b", owns, "<p>Stray edit.</p>"), added),
+    /amendment changed RFC HTML beyond the lifecycle and added owned paths/
+  );
+  assert.ok(Date.now() - started < 2000, `check took ${Date.now() - started}ms`);
 });

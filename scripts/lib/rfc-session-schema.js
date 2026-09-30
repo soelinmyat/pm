@@ -10,7 +10,7 @@ const { loadPhaseStep } = require("../step-loader.js");
 const { findGitRoot, gitRelativePath, readGitFile, runGit } = require("../loop-git.js");
 const { assertOwnsOnlyAmendment } = require("./rfc-amendment.js");
 const { isRfc3339DateTime: isIsoDate } = require("./iso-time.js");
-const { escapeRegExp, markdownTableValue } = require("./session-scan.js");
+const { markdownTableValue } = require("./session-scan.js");
 const { readApprovedProposal } = require("./proposal-schema.js");
 const { validateDesignContext } = require("./dev-work-units.js");
 const { grantActions } = require("./workflow-runtime/authority.js");
@@ -284,68 +284,91 @@ function assertAmendmentArtifact(session, artifact) {
 // The approver confirms an amendment by its sidecar hash but reads the HTML, so
 // the HTML must tell the same story and nothing more. Apart from the lifecycle
 // and the sidecar hash it cites, the only allowed change is inserting each added
-// path exactly once inside its own issue's section, either as a list item or as
-// an inline code entry on the issue's owned-files line. Nothing may be deleted.
+// path exactly once inside its own issue card, either as a list item or as an
+// inline code entry on the issue's owned-files line. Nothing may be deleted.
 function assertOwnsOnlyHtml(priorHtml, nextHtml, changes) {
   const insertions = changes.flatMap((change) =>
-    change.added_owns.map((owned) => ({ num: change.num, owned }))
+    change.added_owns.map((owned) => ({ num: change.num, listings: ownedListings(owned) }))
   );
-  if (
-    !matchesWithInsertions(ownsOnlyCanonical(priorHtml), ownsOnlyCanonical(nextHtml), insertions)
-  ) {
+  insertions.forEach((insertion, index) => (insertion.id = index));
+  const prior = ownsOnlyCanonical(priorHtml);
+  const next = ownsOnlyCanonical(nextHtml);
+  if (!matchesWithInsertions(prior, next, insertions, 0, new Map())) {
     throw new Error(
       "amendment changed RFC HTML beyond the lifecycle and added owned paths; any other change is a new RFC design"
     );
   }
 }
 
-function ownsOnlyCanonical(html) {
-  // Whitespace between tags carries no RFC content, and inserting a list item
-  // may add a line break.
-  return canonicalizeLifecycle(html)
-    .replace(/(\bdata-sidecar-hash=["'])sha256:[0-9a-f]{64}(["'])/g, "$1<SIDECAR>$2")
-    .replace(/>\s+</g, "><");
+// A path is listed only in its HTML-escaped form, so it always renders as text
+// and can never add markup that hides part of the RFC from the approver.
+function ownedListings(owned) {
+  const text = escapeHtml(owned);
+  const code = `<code>${text}</code>`;
+  return [`<li>${text}</li>`, `<li>${code}</li>`, `, ${code}`, `${code}, `, code];
 }
 
-// Removes one listing of each added path from the next HTML, trying every
-// candidate position, and succeeds only when what remains is the prior HTML.
-function matchesWithInsertions(prior, next, insertions) {
+function ownsOnlyCanonical(html) {
+  // Whitespace between tags or after an inline list comma carries no RFC
+  // content, and inserting a listing may add a line break.
+  return canonicalizeLifecycle(html)
+    .replace(/(\bdata-sidecar-hash=["'])sha256:[0-9a-f]{64}(["'])/g, "$1<SIDECAR>$2")
+    .replace(/>\s+</g, "><")
+    .replace(/<\/code>\s*,\s*<code>/g, "</code>, <code>");
+}
+
+// Removes one listing of each added path from the next HTML and succeeds only
+// when what remains is the prior HTML. The leftmost remaining listing must cover
+// the first character where the two differ, so only listings there are tried,
+// and a remainder already refused is never tried again. This keeps the search
+// close to linear in the number of added paths.
+function matchesWithInsertions(prior, next, insertions, from, refused) {
   if (insertions.length === 0) return prior === next;
-  const [{ num, owned }, ...rest] = insertions;
-  const [start, end] = issueSection(next, num);
-  if (start < 0) return false;
-  const text = [owned, escapeHtml(owned)]
-    .filter((value, index, all) => all.indexOf(value) === index)
-    .map(escapeRegExp)
-    .join("|");
-  const forms = [
-    `<li>(?:<code>)?(?:${text})(?:</code>)?</li>`,
-    `,\\s*<code>(?:${text})</code>`,
-    `<code>(?:${text})</code>,\\s*`,
-    `<code>(?:${text})</code>`,
-  ];
-  for (const form of forms) {
-    const pattern = new RegExp(form, "g");
-    pattern.lastIndex = start;
-    for (let match = pattern.exec(next); match && match.index < end; match = pattern.exec(next)) {
-      if (match.index + match[0].length > end) break;
-      const candidate = next.slice(0, match.index) + next.slice(match.index + match[0].length);
-      if (matchesWithInsertions(prior, candidate, rest)) return true;
+  const key = insertions.map((insertion) => insertion.id).join(",");
+  if (refused.get(key)?.has(next)) return false;
+  let diff = from;
+  while (diff < prior.length && prior[diff] === next[diff]) diff += 1;
+  for (const [index, { num, listings }] of insertions.entries()) {
+    const [start, end] = issueSection(next, num);
+    if (start < 0) continue;
+    const rest = insertions.filter((_, other) => other !== index);
+    for (const listing of listings) {
+      const last = Math.min(diff, end - listing.length);
+      for (let at = Math.max(start, diff - listing.length + 1); at <= last; at += 1) {
+        if (!next.startsWith(listing, at)) continue;
+        const remainder = next.slice(0, at) + next.slice(at + listing.length);
+        if (matchesWithInsertions(prior, remainder, rest, at, refused)) return true;
+      }
     }
   }
+  if (!refused.has(key)) refused.set(key, new Set());
+  refused.get(key).add(next);
   return false;
 }
 
-// An issue's section runs from its issue-detail-num marker to the next issue's
-// marker. RFC HTML without markers is one section, so placement is unchecked there.
+// An issue's section is its issue-detail card, from the card's opening tag to
+// the matching close of the same element, so a path listed anywhere else fails.
 function issueSection(html, num) {
-  const markers = [
-    ...html.matchAll(/class=["'][^"']*\bissue-detail-num\b[^"']*["']>\s*(\d+)\s*</g),
-  ];
-  if (markers.length === 0) return [0, html.length];
-  const index = markers.findIndex((marker) => Number(marker[1]) === num);
-  if (index < 0) return [-1, -1];
-  return [markers[index].index, markers[index + 1]?.index ?? html.length];
+  for (const open of html.matchAll(/<([a-z][a-z0-9]*)\b[^>]*\bclass=["']([^"']*)["'][^>]*>/gi)) {
+    if (!open[2].split(/\s+/).includes("issue-detail")) continue;
+    const end = closingTagIndex(html, open[1], open.index + open[0].length);
+    const marker = html
+      .slice(open.index, end < 0 ? html.length : end)
+      .match(/class=["'][^"']*\bissue-detail-num\b[^"']*["']>\s*(\d+)\s*</);
+    if (end >= 0 && marker && Number(marker[1]) === num) return [open.index, end];
+  }
+  return [-1, -1];
+}
+
+function closingTagIndex(html, tag, from) {
+  const tags = new RegExp(`<(/?)${tag}\\b[^>]*>`, "gi");
+  tags.lastIndex = from;
+  let depth = 1;
+  for (let match = tags.exec(html); match; match = tags.exec(html)) {
+    depth += match[1] ? -1 : 1;
+    if (depth === 0) return match.index;
+  }
+  return -1;
 }
 
 function escapeHtml(value) {
