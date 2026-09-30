@@ -284,15 +284,24 @@ function assertAmendmentArtifact(session, artifact) {
 // The approver confirms an amendment by its sidecar hash but reads the HTML, so
 // the HTML must tell the same story and nothing more. Apart from the lifecycle
 // and the sidecar hash it cites, the only allowed change is inserting each added
-// path exactly once inside its own issue card, either as a list item or as an
-// inline code entry on the issue's owned-files line. Nothing may be deleted.
+// path exactly once inside its own issue card, as visible text in the same list
+// as a path the issue already owned. Nothing may be deleted.
 function assertOwnsOnlyHtml(priorHtml, nextHtml, changes) {
-  const insertions = changes.flatMap((change) =>
-    change.added_owns.map((owned) => ({ num: change.num, listings: ownedListings(owned) }))
-  );
-  insertions.forEach((insertion, index) => (insertion.id = index));
   const prior = ownsOnlyCanonical(priorHtml);
   const next = ownsOnlyCanonical(nextHtml);
+  const insertions = changes.flatMap((change) => {
+    const owned = {
+      prior: new Set(change.prior_owns.map(escapeHtml)),
+      all: [...change.prior_owns, ...change.added_owns].map(escapeHtml),
+    };
+    return change.added_owns.map((path) => ({
+      num: change.num,
+      listings: ownedListings(path),
+      owned,
+    }));
+  });
+  insertions.forEach((insertion, index) => (insertion.id = index));
+  assertAddedPathsListed(prior, next, changes);
   if (!matchesWithInsertions(prior, next, insertions, 0, new Map())) {
     throw new Error(
       "amendment changed RFC HTML beyond the lifecycle and added owned paths; any other change is a new RFC design"
@@ -300,12 +309,37 @@ function assertOwnsOnlyHtml(priorHtml, nextHtml, changes) {
   }
 }
 
+// A missing listing is fixable inside the amendment, so it gets its own error
+// rather than the new-design error below.
+function assertAddedPathsListed(prior, next, changes) {
+  for (const change of changes) {
+    const [priorStart, priorEnd] = issueSection(prior, change.num);
+    const [nextStart, nextEnd] = issueSection(next, change.num);
+    for (const path of change.added_owns) {
+      const text = escapeHtml(path);
+      const before = priorStart < 0 ? 0 : countOf(prior.slice(priorStart, priorEnd), text);
+      const after = nextStart < 0 ? 0 : countOf(next.slice(nextStart, nextEnd), text);
+      if (after <= before) {
+        throw new Error(
+          `amendment HTML does not list added path ${path} in issue ${change.num}; add it, HTML-escaped, to that issue's owned files`
+        );
+      }
+    }
+  }
+}
+
+function countOf(text, part) {
+  let count = 0;
+  for (let at = text.indexOf(part); at >= 0; at = text.indexOf(part, at + part.length)) count += 1;
+  return count;
+}
+
 // A path is listed only in its HTML-escaped form, so it always renders as text
 // and can never add markup that hides part of the RFC from the approver.
 function ownedListings(owned) {
   const text = escapeHtml(owned);
   const code = `<code>${text}</code>`;
-  return [`<li>${text}</li>`, `<li>${code}</li>`, `, ${code}`, `${code}, `, code];
+  return [`<li>${text}</li>`, `<li>${code}</li>`, `, ${code}`, `${code}, `];
 }
 
 function ownsOnlyCanonical(html) {
@@ -328,7 +362,7 @@ function matchesWithInsertions(prior, next, insertions, from, refused) {
   if (refused.get(key)?.has(next)) return false;
   let diff = from;
   while (diff < prior.length && prior[diff] === next[diff]) diff += 1;
-  for (const [index, { num, listings }] of insertions.entries()) {
+  for (const [index, { num, listings, owned }] of insertions.entries()) {
     const [start, end] = issueSection(next, num);
     if (start < 0) continue;
     const rest = insertions.filter((_, other) => other !== index);
@@ -336,6 +370,8 @@ function matchesWithInsertions(prior, next, insertions, from, refused) {
       const last = Math.min(diff, end - listing.length);
       for (let at = Math.max(start, diff - listing.length + 1); at <= last; at += 1) {
         if (!next.startsWith(listing, at)) continue;
+        if (!besideOwnedListing(next, at, listing, owned)) continue;
+        if (!inVisibleText(next, start, at)) continue;
         const remainder = next.slice(0, at) + next.slice(at + listing.length);
         if (matchesWithInsertions(prior, remainder, rest, at, refused)) return true;
       }
@@ -344,6 +380,114 @@ function matchesWithInsertions(prior, next, insertions, from, refused) {
   if (!refused.has(key)) refused.set(key, new Set());
   refused.get(key).add(next);
   return false;
+}
+
+// The listing must sit in an unbroken run of the issue's owned-path listings
+// (list items, or comma-separated inline code) that includes a path the issue
+// already owned, so it reads as ownership, not as a check or a sentence.
+function besideOwnedListing(html, at, listing, owned) {
+  const listed = [];
+  if (listing.startsWith("<li>")) {
+    for (let left = at; html.startsWith("</li>", left - 5); ) {
+      const open = html.lastIndexOf("<li>", left - 5);
+      const path = open < 0 ? null : listItemPath(html.slice(open, left), owned.all);
+      if (path === null) break;
+      listed.push(path);
+      left = open;
+    }
+    for (let right = at + listing.length; html.startsWith("<li>", right); ) {
+      const close = html.indexOf("</li>", right);
+      const path = close < 0 ? null : listItemPath(html.slice(right, close + 5), owned.all);
+      if (path === null) break;
+      listed.push(path);
+      right = close + 5;
+    }
+  } else {
+    const code = listing.startsWith(", ") ? at + 2 : at;
+    const codeEnd = code + listing.replace(/^, |, $/g, "").length;
+    for (let left = code; html.startsWith(", ", left - 2); ) {
+      const path = owned.all.find((item) => html.endsWith(`<code>${item}</code>`, left - 2));
+      if (path === undefined) break;
+      listed.push(path);
+      left -= `, <code>${path}</code>`.length;
+    }
+    for (let right = codeEnd; html.startsWith(", <code>", right); ) {
+      const path = owned.all.find((item) => html.startsWith(`, <code>${item}</code>`, right));
+      if (path === undefined) break;
+      listed.push(path);
+      right += `, <code>${path}</code>`.length;
+    }
+  }
+  return listed.some((path) => owned.prior.has(path));
+}
+
+// A list item lists a path when it holds the path, optionally as inline code,
+// followed only by a plain-text note.
+function listItemPath(item, paths) {
+  for (const path of paths) {
+    for (const head of [`<li>${path}`, `<li><code>${path}</code>`]) {
+      if (!item.startsWith(head)) continue;
+      const rest = item.slice(head.length);
+      if (rest === "</li>" || /^\s[^<]*<\/li>$/.test(rest)) return path;
+    }
+  }
+  return null;
+}
+
+// Only text the browser shows counts: a listing inside a tag, an attribute, a
+// comment, or an element whose content is not rendered as text is hidden.
+const HIDDEN_CONTENT = new Set([
+  "iframe",
+  "noembed",
+  "noframes",
+  "noscript",
+  "plaintext",
+  "script",
+  "style",
+  "template",
+  "textarea",
+  "title",
+  "xmp",
+]);
+
+function inVisibleText(html, from, at) {
+  let index = from;
+  while (index < at) {
+    if (html.startsWith("<!--", index)) {
+      const close = html.indexOf("-->", index + 4);
+      if (close < 0 || close + 3 > at) return false;
+      index = close + 3;
+    } else if (html[index] === "<") {
+      const close = tagEnd(html, index);
+      if (close < 0 || at <= close) return false;
+      const name = /^<([a-z][a-z0-9]*)/i.exec(html.slice(index, close + 1));
+      index = close + 1;
+      if (name && HIDDEN_CONTENT.has(name[1].toLowerCase())) {
+        const closing = new RegExp(`</${name[1]}`, "gi");
+        closing.lastIndex = index;
+        if (!closing.exec(html) || closing.lastIndex > at) return false;
+        index = closing.lastIndex;
+      }
+    } else {
+      index += 1;
+    }
+  }
+  return true;
+}
+
+function tagEnd(html, open) {
+  let quote = null;
+  for (let index = open + 1; index < html.length; index += 1) {
+    const char = html[index];
+    if (quote) {
+      if (char === quote) quote = null;
+    } else if ((char === '"' || char === "'") && /=\s*$/.test(html.slice(open, index))) {
+      quote = char;
+    } else if (char === ">") {
+      return index;
+    }
+  }
+  return -1;
 }
 
 // An issue's section is its issue-detail card, from the card's opening tag to

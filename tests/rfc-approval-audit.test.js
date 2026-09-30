@@ -9,23 +9,10 @@ const {
   completeAmendment,
   completeApprovedRun,
   makeRfcRepo,
+  twoIssues,
 } = require("./helpers/rfc-run-fixture");
 
 const SLUG = "audit-lineage";
-
-function twoIssues() {
-  return [1, 2].map((num) => ({
-    num,
-    title: `Issue ${num}`,
-    size: "S",
-    depends_on: num === 1 ? [] : [1],
-    owns: [num === 1 ? "README.md" : "src/two.js"],
-    acceptance_criteria: [`AC-${num}`],
-    approach: `Implement issue ${num}.`,
-    verification_commands: ["node --test"],
-    test_hooks: [`AC-${num}`],
-  }));
-}
 
 test("a v1 approval verifies against its completed run with a single-hop lineage", () => {
   const repo = makeRfcRepo();

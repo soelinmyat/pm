@@ -404,6 +404,21 @@ function markOwnedRfcRoot(root, slug) {
     execFileSync("git", ["config", key, value], { cwd: root });
 }
 
+// Two dependent issues, each owning one path, for amendment and audit tests.
+function twoIssues() {
+  return [1, 2].map((num) => ({
+    num,
+    title: `Issue ${num}`,
+    size: "S",
+    depends_on: num === 1 ? [] : [1],
+    owns: [num === 1 ? "README.md" : "src/two.js"],
+    acceptance_criteria: [`AC-${num}`],
+    approach: `Implement issue ${num}.`,
+    verification_commands: ["node --test"],
+    test_hooks: [`AC-${num}`],
+  }));
+}
+
 module.exports = {
   amendArtifact,
   completeAmendment,
@@ -417,5 +432,6 @@ module.exports = {
   recordFile,
   resultEvidence,
   snapshotDir,
+  twoIssues,
   writeArtifact,
 };

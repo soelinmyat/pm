@@ -70,7 +70,8 @@ function assertOwnsOnlyAmendment(prior, next, amendedIssueNums) {
     // A declared issue may add nothing, so an amendment can still be approved
     // after its review drops one of the paths it first proposed.
     const added = nextOwns.slice(priorOwns.length);
-    if (added.length > 0) changes.push({ num: before.num, added_owns: added });
+    if (added.length > 0)
+      changes.push({ num: before.num, prior_owns: priorOwns, added_owns: added });
   });
   if (changes.length === 0) {
     throw new Error("amendment adds no owned paths; append at least one path to a declared issue");

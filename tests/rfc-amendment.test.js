@@ -52,7 +52,7 @@ function amended(mutate) {
 test("an owns-only superset on declared issues is accepted and reports the added paths", () => {
   const next = amended((value) => value.issues[1].owns.push("test/first_test.rb"));
   assert.deepEqual(assertOwnsOnlyAmendment(sidecar(), next, [2]), [
-    { num: 2, added_owns: ["test/first_test.rb"] },
+    { num: 2, prior_owns: ["app/second.rb"], added_owns: ["test/first_test.rb"] },
   ]);
 });
 
@@ -204,7 +204,7 @@ test("an amendment must add at least one path, but not to every declared issue",
       amended((value) => value.issues[1].owns.push("test/first_test.rb")),
       [1, 2]
     ),
-    [{ num: 2, added_owns: ["test/first_test.rb"] }]
+    [{ num: 2, prior_owns: ["app/second.rb"], added_owns: ["test/first_test.rb"] }]
   );
 });
 
@@ -274,7 +274,7 @@ test("amendment HTML must list each added path once, in its own issue, and chang
   const twoOwns =
     "<p><strong>Owns:</strong> <code>src/two.js</code></p><ul><li>src/two.js</li></ul>";
   const prior = page("approved", "a", oneOwns, twoOwns);
-  const added = [{ num: 2, added_owns: ["src/c&d.js", "src/e.js"] }];
+  const added = [{ num: 2, prior_owns: ["src/two.js"], added_owns: ["src/c&d.js", "src/e.js"] }];
   const accepted = [
     // Inline, as the RFC template lists owned files.
     "<p><strong>Owns:</strong> <code>src/two.js</code>, <code>src/c&amp;d.js</code>, <code>src/e.js</code></p><ul><li>src/two.js</li></ul>",
@@ -285,7 +285,7 @@ test("amendment HTML must list each added path once, in its own issue, and chang
     assert.doesNotThrow(() => assertOwnsOnlyHtml(prior, page("draft", "b", oneOwns, two), added));
   }
   const listed = accepted[0];
-  const refused = {
+  const missing = {
     "leaves the added paths out": page("draft", "b", oneOwns, twoOwns),
     "lists a path under another issue": page(
       "draft",
@@ -293,6 +293,21 @@ test("amendment HTML must list each added path once, in its own issue, and chang
       oneOwns.replace("</code></p>", "</code>, <code>src/c&amp;d.js</code></p>"),
       "<p><strong>Owns:</strong> <code>src/two.js</code>, <code>src/e.js</code></p><ul><li>src/two.js</li></ul>"
     ),
+    "lists a path unescaped": page(
+      "draft",
+      "b",
+      oneOwns,
+      "<p><strong>Owns:</strong> <code>src/two.js</code>, <code>src/c&d.js</code>, <code>src/e.js</code></p><ul><li>src/two.js</li></ul>"
+    ),
+  };
+  for (const [label, next] of Object.entries(missing)) {
+    assert.throws(
+      () => assertOwnsOnlyHtml(prior, next, added),
+      /amendment HTML does not list added path src\/c&d\.js in issue 2; add it, HTML-escaped, to that issue's owned files/,
+      label
+    );
+  }
+  const refused = {
     "lists a path twice": page(
       "draft",
       "b",
@@ -312,12 +327,6 @@ test("amendment HTML must list each added path once, in its own issue, and chang
       listed.replace("</ul>", "<li>src/other.js</li></ul>")
     ),
     "adds prose": page("draft", "b", oneOwns, `${listed}<p>New prose.</p>`),
-    "lists a path unescaped": page(
-      "draft",
-      "b",
-      oneOwns,
-      "<p><strong>Owns:</strong> <code>src/two.js</code>, <code>src/c&d.js</code>, <code>src/e.js</code></p><ul><li>src/two.js</li></ul>"
-    ),
   };
   for (const [label, next] of Object.entries(refused)) {
     assert.throws(
@@ -338,6 +347,88 @@ test("amendment HTML must list each added path once, in its own issue, and chang
         ),
         added
       ),
+    /amendment HTML does not list added path src\/c&d\.js in issue 2/
+  );
+});
+
+test("amendment HTML lists an added path only beside the issue's owned files, as visible text", () => {
+  const { assertOwnsOnlyHtml } = require("../scripts/lib/rfc-session-schema");
+  const page = (status, hash, body) =>
+    [
+      `<script id="pm-artifact" type="application/json">{"lifecycle":"${status}"}</script>`,
+      `<script id="rfc-lifecycle" type="application/json">{"status":"${status}"}</script>`,
+      `<main data-sidecar-hash="sha256:${hash.repeat(64)}">`,
+      `<p>Status: <span data-pm-lifecycle>${status[0].toUpperCase()}${status.slice(1)}</span></p>`,
+      `<div class="issue-detail"><span class="issue-detail-num">1</span>${body}</div>`,
+      "</main>",
+    ].join("\n");
+  const card = (owns, others) =>
+    `<p><strong>Owns:</strong> ${owns}</p>` +
+    `<details><summary>Owned files and verification</summary><ul>${others.list}</ul></details>` +
+    `<p>Verify: <code>npm test</code></p><ul><li>Criterion one.</li></ul>` +
+    `<!-- ${others.comment} --><abbr title="${others.title}">x</abbr><script>${others.script}</script>`;
+  const base = {
+    list: "<li><code>src/a.js</code> (source)</li>",
+    comment: "<code>src/a.js</code>",
+    title: "<code>src/a.js</code>",
+    script: "<code>src/a.js</code>",
+  };
+  const prior = page("approved", "a", card("<code>src/a.js</code>", base));
+  const added = [{ num: 1, prior_owns: ["src/a.js"], added_owns: ["src/c.js"] }];
+  const draft = (owns, others) => page("draft", "b", card(owns, { ...base, ...others }));
+  const accepted = {
+    "on the owned-files line": draft("<code>src/a.js</code>, <code>src/c.js</code>", {}),
+    "before the prior path on that line": draft("<code>src/c.js</code>, <code>src/a.js</code>", {}),
+    "in the owned-files list": draft("<code>src/a.js</code>", {
+      list: "<li><code>src/a.js</code> (source)</li><li>src/c.js</li>",
+    }),
+  };
+  for (const [label, next] of Object.entries(accepted)) {
+    assert.doesNotThrow(() => assertOwnsOnlyHtml(prior, next, added), label);
+  }
+  const code = "<code>src/a.js</code>, <code>src/c.js</code>";
+  const refused = {
+    "beside a verification command": page(
+      "draft",
+      "b",
+      card("<code>src/a.js</code>", base).replace(
+        "<code>npm test</code>",
+        "<code>npm test</code>, <code>src/c.js</code>"
+      )
+    ),
+    "in an acceptance list": page(
+      "draft",
+      "b",
+      card("<code>src/a.js</code>", base).replace(
+        "<li>Criterion one.</li>",
+        "<li>Criterion one.</li><li>src/c.js</li>"
+      )
+    ),
+    "in a comment": draft("<code>src/a.js</code>", { comment: code }),
+    "in an attribute": draft("<code>src/a.js</code>", { title: code }),
+    "in a script": draft("<code>src/a.js</code>", { script: code }),
+  };
+  for (const [label, next] of Object.entries(refused)) {
+    assert.throws(
+      () => assertOwnsOnlyHtml(prior, next, added),
+      /amendment changed RFC HTML beyond the lifecycle and added owned paths/,
+      label
+    );
+  }
+  // An attribute value keeps its quotes even with spaces around the equals sign.
+  const spaced = (title) =>
+    page(
+      "draft",
+      "b",
+      card("<code>src/a.js</code>", { ...base, title }).replace('title="', 'title = "')
+    );
+  assert.throws(
+    () =>
+      assertOwnsOnlyHtml(
+        page("approved", "a", card("<code>src/a.js</code>", base).replace('title="', 'title = "')),
+        spaced(code),
+        added
+      ),
     /amendment changed RFC HTML beyond the lifecycle and added owned paths/
   );
 });
@@ -354,7 +445,7 @@ test("amendment HTML shows an added path as text, never as markup", () => {
       "</main>",
     ].join("\n");
   const prior = page("approved", "a", "<code>src/a.js</code>");
-  const added = [{ num: 1, added_owns: ["src/c.js (see <!--)"] }];
+  const added = [{ num: 1, prior_owns: ["src/a.js"], added_owns: ["src/c.js (see <!--)"] }];
   assert.doesNotThrow(() =>
     assertOwnsOnlyHtml(
       prior,
@@ -369,7 +460,7 @@ test("amendment HTML shows an added path as text, never as markup", () => {
         page("draft", "b", "<code>src/a.js</code>, <code>src/c.js (see <!--)</code>"),
         added
       ),
-    /amendment changed RFC HTML beyond the lifecycle and added owned paths/
+    /amendment HTML does not list added path src\/c\.js \(see <!--\) in issue 1/
   );
 });
 
@@ -389,7 +480,7 @@ test("amendment HTML check stays fast for many added paths", () => {
     ].join("\n");
   const prior = page("approved", "a", "<code>src/a.js</code>", "");
   const owns = listing(["src/a.js", ...paths]);
-  const added = [{ num: 1, added_owns: paths }];
+  const added = [{ num: 1, prior_owns: ["src/a.js"], added_owns: paths }];
   const started = Date.now();
   assert.doesNotThrow(() => assertOwnsOnlyHtml(prior, page("draft", "b", owns, ""), added));
   assert.throws(

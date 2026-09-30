@@ -29,24 +29,11 @@ const {
   prepareApprovedHandoff,
   recordFile,
   resultEvidence,
+  twoIssues,
 } = require("./helpers/rfc-run-fixture");
 
 const SLUG = "amendment-schema";
 const REFERENCES = path.join(__dirname, "..", "skills", "rfc", "references");
-
-function twoIssues() {
-  return [1, 2].map((num) => ({
-    num,
-    title: `Issue ${num}`,
-    size: "S",
-    depends_on: num === 1 ? [] : [1],
-    owns: [num === 1 ? "README.md" : "src/two.js"],
-    acceptance_criteria: [`AC-${num}`],
-    approach: `Implement issue ${num}.`,
-    verification_commands: ["node --test"],
-    test_hooks: [`AC-${num}`],
-  }));
-}
 
 function amendedRepo() {
   const repo = makeRfcRepo();
