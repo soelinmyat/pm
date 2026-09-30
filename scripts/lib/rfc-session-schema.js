@@ -3,11 +3,19 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { inspectHtmlArtifact } = require("../artifact-check.js");
+const {
+  attributeValue,
+  inspectHtmlArtifact,
+  readEndTagAt,
+  readStartTagAt,
+  startTags,
+} = require("../artifact-check.js");
 const { verifyArtifactWorktreeOwnership } = require("../artifact-worktree.js");
+const { escapeHtml } = require("../review-report.js");
 const { extractSidecarHash, validateRfcSidecar } = require("../rfc-sidecar-check.js");
 const { loadPhaseStep } = require("../step-loader.js");
 const { findGitRoot, gitRelativePath, readGitFile, runGit } = require("../loop-git.js");
+const { assertOwnsOnlyAmendment } = require("./rfc-amendment.js");
 const { isRfc3339DateTime: isIsoDate } = require("./iso-time.js");
 const { markdownTableValue } = require("./session-scan.js");
 const { readApprovedProposal } = require("./proposal-schema.js");
@@ -112,9 +120,262 @@ function createSession(options) {
     blockers: [],
     history: [],
     migration: null,
+    amendment: null,
   };
   assertValidSession(session);
   return session;
+}
+
+// Starts a new RFC run that amends a completed, approved run. The prior archive
+// is never touched: the new run re-enters review with the approved artifact and
+// can only append owned paths to the declared issues before re-approval.
+function createAmendmentSession(archived, options) {
+  assertValidSession(archived);
+  if (
+    archived.status !== "complete" ||
+    archived.approval.status !== "approved" ||
+    !isObject(archived.artifact)
+  ) {
+    throw new Error("only a completed, approved RFC run can be amended");
+  }
+  if (!nonEmpty(options?.reason)) throw new Error("RFC amendment requires a reason");
+  const issueNums = options.issueNums;
+  if (!Array.isArray(issueNums) || issueNums.length === 0) {
+    throw new Error("RFC amendment requires at least one declared issue number");
+  }
+  const approval = readCommittedApprovalAudit(archived);
+  const priorSidecar = readCommittedSidecar(archived.artifact);
+  const knownNums = (priorSidecar.issues || []).map((item) => item?.num);
+  for (const num of issueNums) {
+    if (!knownNums.includes(num)) {
+      throw new Error(`amended issue ${num} does not exist in the approved RFC`);
+    }
+  }
+  const base = createSession({
+    slug: archived.slug,
+    sourceDir: options.sourceDir,
+    runId: options.runId,
+    now: options.now,
+    profile: options.profile,
+    runtime: options.runtime,
+    model: options.model,
+    reasoning: options.reasoning,
+    mode: options.mode,
+    headless: options.headless,
+  });
+  if (base.source.repo_root !== fs.realpathSync(archived.source.repo_root)) {
+    throw new Error(
+      `amendment must run in the repository that archived ${archived.run_id}: ${archived.source.repo_root}`
+    );
+  }
+  const now = base.created_at;
+  const prior = archived.artifact;
+  const next = {
+    ...base,
+    phase: "review",
+    context: structuredClone(archived.context),
+    artifact: structuredClone(prior),
+    amendment: {
+      of_run_id: archived.run_id,
+      prior_artifact: {
+        html_path: prior.html_path,
+        json_path: prior.json_path,
+        html_hash: prior.html_hash,
+        sidecar_hash: prior.sidecar_hash,
+        repo_root: prior.repo_root,
+        commit: prior.commit,
+      },
+      prior_approval_sha256: approval.sha256,
+      amended_issue_nums: [...issueNums].sort((left, right) => left - right),
+      reason: options.reason,
+      created_at: now,
+    },
+  };
+  next.history = [
+    createTransition({
+      priorPhase: "handoff",
+      nextPhase: "review",
+      reason: `owns-only amendment of approved run ${archived.run_id}: ${options.reason}`,
+      timestamp: now,
+    }),
+  ];
+  assertValidSession(next);
+  verifySourceIdentity(next);
+  verifyProposalIdentity(next);
+  return next;
+}
+
+function readCommittedHtml(artifact) {
+  const repoRoot = fs.realpathSync(artifact.repo_root);
+  let bytes;
+  try {
+    bytes = readGitFile(artifact.commit, gitRelativePath(repoRoot, artifact.html_path), repoRoot, {
+      timeout: 10_000,
+    });
+  } catch (error) {
+    throw new Error(`approved RFC HTML is not tracked at ${artifact.commit}: ${error.message}`);
+  }
+  if (sha256(bytes) !== artifact.html_hash) {
+    throw new Error(`approved RFC HTML at ${artifact.commit} does not match its recorded hash`);
+  }
+  return bytes.toString("utf8");
+}
+
+function readCommittedSidecar(artifact) {
+  const repoRoot = fs.realpathSync(artifact.repo_root);
+  let bytes;
+  try {
+    bytes = readGitFile(artifact.commit, gitRelativePath(repoRoot, artifact.json_path), repoRoot, {
+      timeout: 10_000,
+    });
+  } catch (error) {
+    throw new Error(`approved RFC sidecar is not tracked at ${artifact.commit}: ${error.message}`);
+  }
+  if (sha256(bytes) !== artifact.sidecar_hash) {
+    throw new Error(`approved RFC sidecar at ${artifact.commit} does not match its recorded hash`);
+  }
+  return JSON.parse(bytes.toString("utf8"));
+}
+
+// Reads the approval audit committed with a completed run and proves it is the
+// exact audit that run produced. Returns the audit, its bytes and their hash.
+function readCommittedApprovalAudit(archived) {
+  const artifact = archived.artifact;
+  const approvalPath = artifact.json_path.replace(/\.json$/i, ".approval.json");
+  const repoRoot = fs.realpathSync(artifact.repo_root);
+  let bytes;
+  try {
+    bytes = readGitFile(artifact.commit, gitRelativePath(repoRoot, approvalPath), repoRoot, {
+      timeout: 10_000,
+    });
+  } catch (error) {
+    throw new Error(`approval audit is not tracked at ${artifact.commit}: ${error.message}`);
+  }
+  let audit;
+  try {
+    audit = JSON.parse(bytes.toString("utf8"));
+  } catch (error) {
+    throw new Error(`approval audit at ${artifact.commit} is malformed: ${error.message}`);
+  }
+  if (stableStringify(audit) !== stableStringify(approvalAuditRecord(archived, artifact))) {
+    throw new Error(
+      `approval audit at ${artifact.commit} does not match completed RFC run ${archived.run_id}`
+    );
+  }
+  return { path: approvalPath, audit, bytes, sha256: sha256(bytes) };
+}
+
+function assertAmendmentArtifact(session, artifact) {
+  const amendment = session.amendment;
+  if (!amendment) return null;
+  const prior = amendment.prior_artifact;
+  for (const field of ["html_path", "json_path"]) {
+    if (path.resolve(artifact[field]) !== path.resolve(prior[field])) {
+      throw new Error(`amendment must edit the approved RFC ${field} in place`);
+    }
+  }
+  if (fs.realpathSync(artifact.repo_root) !== fs.realpathSync(prior.repo_root)) {
+    throw new Error("amendment must stay in the approved RFC artifact repository");
+  }
+  const priorSidecar = readCommittedSidecar(prior);
+  const nextSidecar = JSON.parse(fs.readFileSync(artifact.json_path, "utf8"));
+  const changes = assertOwnsOnlyAmendment(priorSidecar, nextSidecar, amendment.amended_issue_nums);
+  assertOwnsOnlyHtml(
+    readCommittedHtml(prior),
+    fs.readFileSync(artifact.html_path, "utf8"),
+    changes
+  );
+  return changes;
+}
+
+// The approver confirms an amendment by its sidecar hash but reads the HTML, so
+// the HTML must tell the same story and nothing more. Apart from the lifecycle
+// and the sidecar hash it cites, the only allowed change is one new last line in
+// the card of each issue that gains paths, listing exactly those paths. A fixed
+// line at the card's top level renders wherever the card renders, needs no
+// existing listing to sit beside, and leaves nothing to guess about placement.
+// Nothing may be deleted.
+function assertOwnsOnlyHtml(priorHtml, nextHtml, changes) {
+  const prior = ownsOnlyCanonical(priorHtml);
+  let next = ownsOnlyCanonical(nextHtml);
+  for (const change of changes) {
+    const shown = addedOwnsLine(change.added_owns);
+    const line = collapseWhitespace(shown);
+    const [, end] = issueSection(next, change.num);
+    if (end < 0 || !next.startsWith(line, end - line.length)) {
+      throw new Error(
+        `amendment HTML must end issue ${change.num}'s card with its added owned files, exactly: ${shown}`
+      );
+    }
+    next = next.slice(0, end - line.length) + next.slice(end);
+  }
+  if (prior !== next) {
+    throw new Error(
+      "amendment changed RFC HTML beyond the lifecycle and added owned paths; any other change is a new RFC design"
+    );
+  }
+}
+
+// Paths are HTML-escaped, so a listed path always renders as text and can never
+// add markup that hides part of the RFC from the approver.
+function addedOwnsLine(paths) {
+  const listed = paths.map((owned) => `<code>${escapeHtml(owned)}</code>`).join(", ");
+  return `<p><strong>Added owned files:</strong> ${listed}</p>`;
+}
+
+function ownsOnlyCanonical(html) {
+  return collapseWhitespace(
+    canonicalizeLifecycle(html).replace(
+      /(\bdata-sidecar-hash=["'])sha256:[0-9a-f]{64}(["'])/g,
+      "$1<SIDECAR>$2"
+    )
+  );
+}
+
+// Whitespace between tags or after an inline list comma carries no RFC content,
+// and adding a line may add a line break.
+function collapseWhitespace(html) {
+  return html.replace(/>\s+</g, "><").replace(/<\/code>\s*,\s*<code>/g, "</code>, <code>");
+}
+
+// An issue's section is its issue-detail card, from the card's opening tag to
+// the matching close of the same element. Tags are read quote-aware and comments
+// are blanked in place, so offsets still index the original HTML. A card's badge
+// may read "1", "01" or "Issue 1", the forms approved RFCs use.
+function issueSection(html, num) {
+  const source = html.replace(/<!--[\s\S]*?-->/g, (comment) => " ".repeat(comment.length));
+  const tags = startTags(source);
+  for (const card of tags) {
+    if (!hasClass(card, "issue-detail")) continue;
+    const end = matchingCloseIndex(source, card);
+    if (end < 0) continue;
+    const badge = tags.find(
+      (tag) => tag.start >= card.end && tag.start < end && hasClass(tag, "issue-detail-num")
+    );
+    const label = badge && source.slice(badge.end).match(/^\s*(?:issue\s+)?(\d+)\s*</i);
+    if (label && Number(label[1]) === num) return [card.start, end];
+  }
+  return [-1, -1];
+}
+
+function hasClass(tag, name) {
+  return (attributeValue(tag.attrs, ["class"]) || "").split(/\s+/).includes(name);
+}
+
+function matchingCloseIndex(source, card) {
+  let depth = 1;
+  for (let index = source.indexOf("<", card.end); index >= 0; index = source.indexOf("<", index)) {
+    const open = readStartTagAt(source, index);
+    if (open) {
+      if (open.name === card.name) depth += 1;
+      index = open.end;
+      continue;
+    }
+    const close = readEndTagAt(source, index);
+    if (close?.name === card.name && --depth === 0) return index;
+    index = close ? close.end : index + 1;
+  }
+  return -1;
 }
 
 function applyContext(session, facts, options = {}) {
@@ -299,6 +560,16 @@ function nextDecision(session, sessionPath) {
     result_schema: step.resultSchema,
     artifact_hash: session.artifact ? artifactFingerprint(session.artifact) : null,
     approval_required: session.phase === "approval",
+    ...(session.amendment
+      ? {
+          amendment: {
+            of_run_id: session.amendment.of_run_id,
+            amended_issue_nums: session.amendment.amended_issue_nums,
+            reason: session.amendment.reason,
+            prior_sidecar_sha256: session.amendment.prior_artifact.sidecar_hash,
+          },
+        }
+      : {}),
   };
 }
 
@@ -502,6 +773,7 @@ function validatePassedResult(session, result, options) {
       forbidApproved: true,
       requireHead: true,
     });
+    assertAmendmentArtifact(session, result.artifact);
     validateReviewerVerdicts(result.reviewer_verdicts, artifactFingerprint(result.artifact));
     session.artifact = structuredClone(result.artifact);
     session.review = {
@@ -545,6 +817,21 @@ function validatePassedResult(session, result, options) {
   }
 }
 
+// A supplied confirmation is always binding, even where it is optional and on
+// an idempotent retry.
+function assertConfirmedSidecar(session, input) {
+  if (
+    input.approvedSidecarSha256 !== undefined &&
+    input.approvedSidecarSha256 !== session.artifact.sidecar_hash
+  ) {
+    throw new Error(
+      `--approved-sidecar-sha256 does not match the reviewed ${
+        session.amendment ? "amendment " : ""
+      }sidecar ${session.artifact.sidecar_hash}`
+    );
+  }
+}
+
 function approveSession(session, input, options = {}) {
   assertValidSession(session);
   verifySourceIdentity(session);
@@ -569,6 +856,7 @@ function approveSession(session, input, options = {}) {
     if (artifactFingerprint(session.artifact) !== session.approval.artifact_hash) {
       throw new Error("artifact changed after approval; return to review");
     }
+    assertConfirmedSidecar(session, input);
     return structuredClone(session);
   }
   if (session.phase !== "approval" || session.status !== "awaiting_approval") {
@@ -589,6 +877,13 @@ function approveSession(session, input, options = {}) {
   if (artifactFingerprint(session.artifact) !== session.review.artifact_hash) {
     throw new Error("artifact changed after review; return to review before approval");
   }
+  if (session.amendment && !nonEmpty(input.approvedSidecarSha256)) {
+    throw new Error(
+      "amendment approval requires --approved-sidecar-sha256 with the reviewed sidecar hash the approver confirmed"
+    );
+  }
+  assertConfirmedSidecar(session, input);
+  if (session.amendment) assertAmendmentArtifact(session, session.artifact);
   const next = structuredClone(session);
   const now = options.now || new Date().toISOString();
   next.approval = {
@@ -685,6 +980,11 @@ function grantAuthority(session, input, options = {}) {
   assertValidSession(session);
   verifySourceIdentity(session);
   verifyProposalIdentity(session);
+  if (session.amendment) {
+    throw new Error(
+      "amendment runs grant no new authority; external effects belong to the original RFC handoff"
+    );
+  }
   if (!AUTHORITY_ACTIONS.includes(input?.action)) {
     throw new Error(`unknown RFC authority action: ${String(input?.action)}`);
   }
@@ -1178,6 +1478,7 @@ function approvalTransitionDigest(session, artifact = session.artifact) {
           sidecar_hash: artifact.sidecar_hash,
           repo_root: artifact.repo_root,
         },
+        ...(session.amendment ? { amendment: session.amendment } : {}),
       })
     )
   );
@@ -1202,8 +1503,15 @@ function buildApprovalAudit(session, artifact, options = {}) {
     throw new Error("approval audit sidecar differs from the approved design");
   }
   verifyLifecycleOnlyTransition(session.artifact, artifact);
-  return {
-    schema_version: 1,
+  assertAmendmentArtifact(session, artifact);
+  return approvalAuditRecord(session, artifact);
+}
+
+// The exact approval audit a session produces for an artifact: schema v1 for an
+// original approval, v2 with amends lineage for an owns-only amendment.
+function approvalAuditRecord(session, artifact) {
+  const record = {
+    schema_version: session.amendment ? 2 : 1,
     run_id: session.run_id,
     slug: session.slug,
     status: "approved",
@@ -1212,6 +1520,18 @@ function buildApprovalAudit(session, artifact, options = {}) {
     html_sha256: artifact.html_hash,
     sidecar_sha256: artifact.sidecar_hash,
     approval_transition_sha256: approvalTransitionDigest(session, artifact),
+  };
+  if (!session.amendment) return record;
+  return {
+    ...record,
+    amends: {
+      run_id: session.amendment.of_run_id,
+      approval_sha256: session.amendment.prior_approval_sha256,
+      sidecar_sha256: session.amendment.prior_artifact.sidecar_hash,
+      html_sha256: session.amendment.prior_artifact.html_hash,
+    },
+    amended_issue_nums: [...session.amendment.amended_issue_nums],
+    reason: session.amendment.reason,
   };
 }
 
@@ -1276,6 +1596,8 @@ function validateSession(session) {
       "blockers",
       "history",
       "migration",
+      // Optional so raw pre-amendment archives still validate without an upgrade.
+      ...(Object.hasOwn(session, "amendment") ? ["amendment"] : []),
     ],
     "$",
     errors
@@ -1394,6 +1716,12 @@ function validateSession(session) {
   }
   if (session.migration !== null) {
     validateMigration(session.migration, errors);
+  }
+  if (session.amendment !== undefined && session.amendment !== null) {
+    validateAmendmentShape(session.amendment, errors);
+    if (session.amendment?.of_run_id === session.run_id) {
+      errors.push(issue("$.amendment.of_run_id", "must name a different, earlier run"));
+    }
   }
   validateExecutionShape(session.execution, errors);
   if (session.status === "awaiting_approval" && session.phase !== "approval") {
@@ -1604,6 +1932,45 @@ function validateMigration(value, errors) {
     errors.push(issue(`${objectPath}.approval_trusted`, "must be false"));
 }
 
+function validateAmendmentShape(value, errors) {
+  const objectPath = "$.amendment";
+  validateRecordObject(
+    value,
+    [
+      "of_run_id",
+      "prior_artifact",
+      "prior_approval_sha256",
+      "amended_issue_nums",
+      "reason",
+      "created_at",
+    ],
+    objectPath,
+    errors
+  );
+  if (!isObject(value)) return;
+  if (!/^rfc_[A-Za-z0-9_-]+$/.test(value.of_run_id || "")) {
+    errors.push(issue(`${objectPath}.of_run_id`, "must be an rfc_ run identifier"));
+  }
+  validateArtifactShape(value.prior_artifact, `${objectPath}.prior_artifact`, errors);
+  if (!/^sha256:[0-9a-f]{64}$/.test(value.prior_approval_sha256 || "")) {
+    errors.push(issue(`${objectPath}.prior_approval_sha256`, "must be sha256"));
+  }
+  const nums = value.amended_issue_nums;
+  if (
+    !Array.isArray(nums) ||
+    nums.length === 0 ||
+    nums.some(
+      (num, index) => !Number.isInteger(num) || num < 1 || (index > 0 && num <= nums[index - 1])
+    )
+  ) {
+    errors.push(
+      issue(`${objectPath}.amended_issue_nums`, "must be ascending unique positive integers")
+    );
+  }
+  if (!nonEmpty(value.reason)) errors.push(issue(`${objectPath}.reason`, "required"));
+  if (!isIsoDate(value.created_at)) errors.push(issue(`${objectPath}.created_at`, "invalid"));
+}
+
 function validateArtifactShape(value, objectPath, errors) {
   validateClosedObject(
     value,
@@ -1726,6 +2093,7 @@ function upgradeCompatibleSession(input) {
     session.context.design_context = null;
   if (isObject(session.context) && !Object.hasOwn(session.context, "artifact_ownership"))
     session.context.artifact_ownership = null;
+  if (!Object.hasOwn(session, "amendment")) session.amendment = null;
   return session;
 }
 
@@ -1837,14 +2205,20 @@ module.exports = {
   REQUIRED_REVIEW_LENSES,
   applyContext,
   approveSession,
+  approvalAuditRecord,
+  assertOwnsOnlyHtml,
   approvalTransitionDigest,
   assertValidSession,
   buildApprovalAudit,
+  createAmendmentSession,
   createSession,
   grantAuthority,
   hashResult,
   migrateLegacyMarkdown,
   nextDecision,
+  readCommittedApprovalAudit,
+  readCommittedHtml,
+  readCommittedSidecar,
   recertifyContext,
   recordResult,
   resumeBlocked,

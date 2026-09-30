@@ -1,32 +1,83 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://pm-plugin.local/schemas/rfc-approval-v1.json",
-  "title": "PM RFC approval audit v1",
-  "type": "object",
-  "additionalProperties": false,
-  "required": [
-    "schema_version",
-    "run_id",
-    "slug",
-    "status",
-    "approved_by",
-    "approved_at",
-    "html_sha256",
-    "sidecar_sha256",
-    "approval_transition_sha256"
-  ],
-  "properties": {
-    "schema_version": { "const": 1 },
-    "run_id": { "type": "string", "pattern": "^rfc_[A-Za-z0-9_-]+$" },
-    "slug": { "type": "string", "minLength": 1 },
-    "status": { "const": "approved" },
-    "approved_by": { "type": "string", "minLength": 1 },
-    "approved_at": { "type": "string", "format": "date-time" },
-    "html_sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
-    "sidecar_sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
-    "approval_transition_sha256": {
-      "type": "string",
-      "pattern": "^sha256:[a-f0-9]{64}$"
+  "$id": "https://pm-plugin.local/schemas/rfc-approval.json",
+  "title": "PM RFC approval audit",
+  "description": "v1 records the original human approval. v2 records re-approval of an owns-only amendment and chains to the approval it amends.",
+  "oneOf": [
+    {
+      "title": "v1 original approval",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "run_id",
+        "slug",
+        "status",
+        "approved_by",
+        "approved_at",
+        "html_sha256",
+        "sidecar_sha256",
+        "approval_transition_sha256"
+      ],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "run_id": { "type": "string", "pattern": "^rfc_[A-Za-z0-9_-]+$" },
+        "slug": { "type": "string", "minLength": 1 },
+        "status": { "const": "approved" },
+        "approved_by": { "type": "string", "minLength": 1 },
+        "approved_at": { "type": "string", "format": "date-time" },
+        "html_sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "sidecar_sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "approval_transition_sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    {
+      "title": "v2 amendment re-approval",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "run_id",
+        "slug",
+        "status",
+        "approved_by",
+        "approved_at",
+        "html_sha256",
+        "sidecar_sha256",
+        "approval_transition_sha256",
+        "amends",
+        "amended_issue_nums",
+        "reason"
+      ],
+      "properties": {
+        "schema_version": { "const": 2 },
+        "run_id": { "type": "string", "pattern": "^rfc_[A-Za-z0-9_-]+$" },
+        "slug": { "type": "string", "minLength": 1 },
+        "status": { "const": "approved" },
+        "approved_by": { "type": "string", "minLength": 1 },
+        "approved_at": { "type": "string", "format": "date-time" },
+        "html_sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "sidecar_sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "approval_transition_sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "amends": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["run_id", "approval_sha256", "sidecar_sha256", "html_sha256"],
+          "properties": {
+            "run_id": { "type": "string", "pattern": "^rfc_[A-Za-z0-9_-]+$" },
+            "approval_sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+            "sidecar_sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+            "html_sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+          }
+        },
+        "amended_issue_nums": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 1 }
+        },
+        "reason": { "type": "string", "minLength": 1 }
+      }
     }
-  }
+  ]
 }

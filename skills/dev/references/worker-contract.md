@@ -24,7 +24,7 @@ Every worker prompt has these sections exactly once:
 8. Stop conditions.
 9. Result schema.
 
-Do not include future phase instructions. The root owns phase transitions and any external action not expressly granted. A worker cannot grant itself additional authority.
+Do not include future phase instructions. The root owns phase transitions and any external action not expressly granted. A worker cannot grant itself additional authority. A worker also cannot widen its owned paths: if the fix needs a path outside them, return `blocked` naming the path, and the root decides whether to amend the RFC ownership.
 
 ## Quality checks
 
