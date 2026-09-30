@@ -474,4 +474,13 @@ test("amendment HTML shows an added path as text, never as markup", () => {
       ),
     /must end issue 1's card with its added owned files, exactly: .*src\/c\.js \(see &lt;!--\)/
   );
+  // The line uses the repo's one HTML escaper, so an apostrophe reads &#39;.
+  const quoted = [{ num: 1, added_owns: ["src/o'neil.js"] }];
+  const escapedLine = (code) =>
+    page("draft", "b", `<p><strong>Added owned files:</strong> <code>${code}</code></p>`);
+  assert.doesNotThrow(() => assertOwnsOnlyHtml(prior, escapedLine("src/o&#39;neil.js"), quoted));
+  assert.throws(
+    () => assertOwnsOnlyHtml(prior, escapedLine("src/o&#x27;neil.js"), quoted),
+    /must end issue 1's card/
+  );
 });

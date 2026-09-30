@@ -11,6 +11,7 @@ const {
   startTags,
 } = require("../artifact-check.js");
 const { verifyArtifactWorktreeOwnership } = require("../artifact-worktree.js");
+const { escapeHtml } = require("../review-report.js");
 const { extractSidecarHash, validateRfcSidecar } = require("../rfc-sidecar-check.js");
 const { loadPhaseStep } = require("../step-loader.js");
 const { findGitRoot, gitRelativePath, readGitFile, runGit } = require("../loop-git.js");
@@ -375,15 +376,6 @@ function matchingCloseIndex(source, card) {
     index = close ? close.end : index + 1;
   }
   return -1;
-}
-
-function escapeHtml(value) {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#x27;");
 }
 
 function applyContext(session, facts, options = {}) {
