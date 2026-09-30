@@ -170,6 +170,14 @@ function withdrawCommand(options) {
       EXIT.PRECONDITION
     );
   }
+  // Handoff's approval-audit rewrites the slug's approval.json to name this run,
+  // so a recorded approval must finish handoff rather than disappear.
+  if (session.approval.status === "approved") {
+    throw cliError(
+      "an approved amendment cannot be withdrawn; finish its handoff",
+      EXIT.PRECONDITION
+    );
+  }
   const archiveDir = path.join(
     path.dirname(path.dirname(completedSessionPath(session))),
     "withdrawn",

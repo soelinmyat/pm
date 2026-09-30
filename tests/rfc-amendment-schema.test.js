@@ -28,6 +28,7 @@ const {
   phaseResult,
   prepareApprovedHandoff,
   recordFile,
+  relabelArtifact,
   resultEvidence,
   twoIssues,
 } = require("./helpers/rfc-run-fixture");
@@ -366,6 +367,73 @@ test("withdraw closes an open amendment run and frees the RFC for another amend"
   }
 });
 
+test("withdraw refuses an amendment once its approval is recorded", () => {
+  const repo = makeRfcRepo();
+  const slug = "amendment-withdraw-approved";
+  try {
+    const approved = completeApprovedRun(repo, slug, { issues: twoIssues() });
+    const archived = JSON.parse(fs.readFileSync(approved.archivePath, "utf8"));
+    const amended = openAmendment(repo, approved.archivePath);
+    assert.equal(amended.status, 0, amended.stderr);
+    const { session_path: sessionPath, session } = JSON.parse(amended.stdout);
+    const artifact = amendArtifact(repo, slug, archived.artifact, (sidecar) =>
+      sidecar.issues[1].owns.push("README.md")
+    );
+    const reviewed = recordFile(
+      repo,
+      session,
+      phaseResult(session, {
+        artifact,
+        evidence: [resultEvidence("review")],
+        reviewer_verdicts: passingVerdicts(artifact),
+      })
+    );
+    assert.equal(reviewed.status, 0, reviewed.stderr);
+    const approval = repo.run([
+      "approve",
+      "--session",
+      sessionPath,
+      "--approved-by",
+      "Test Owner",
+      "--approved-sidecar-sha256",
+      artifact.sidecar_hash,
+      "--json",
+    ]);
+    assert.equal(approval.status, 0, approval.stderr);
+    const withdraw = () =>
+      repo.run(["withdraw", "--session", sessionPath, "--reason", "Too late", "--json"]);
+
+    const before = fs.readFileSync(sessionPath, "utf8");
+    const afterApprove = withdraw();
+    assert.equal(afterApprove.status, 3, afterApprove.stderr);
+    assert.match(afterApprove.stderr, /approved amendment cannot be withdrawn/);
+    assert.equal(fs.readFileSync(sessionPath, "utf8"), before);
+
+    // approval-audit rewrites the slug's approval.json to name this run, so a
+    // withdraw here would leave the audit pointing at a run that never completes.
+    const identityPath = path.join(repo.root, `${session.run_id}-artifact.json`);
+    fs.writeFileSync(
+      identityPath,
+      JSON.stringify(relabelArtifact(repo, slug, artifact, "approved"))
+    );
+    const audited = repo.run([
+      "approval-audit",
+      "--session",
+      sessionPath,
+      "--artifact",
+      identityPath,
+      "--json",
+    ]);
+    assert.equal(audited.status, 0, audited.stderr);
+    const afterAudit = withdraw();
+    assert.equal(afterAudit.status, 3, afterAudit.stderr);
+    assert.match(afterAudit.stderr, /approved amendment cannot be withdrawn/);
+    assert.equal(fs.existsSync(sessionPath), true);
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test("withdraw refuses a run that is not an amendment", () => {
   const repo = makeRfcRepo();
   try {
@@ -401,4 +469,5 @@ test("RFC handoff docs say an amendment leaves the proposal lifecycle alone", ()
   assert.match(handoff, /amendment[^.]*leaves? the proposal lifecycle unchanged/i);
   const skill = fs.readFileSync(path.join(REFERENCES, "..", "SKILL.md"), "utf8");
   assert.match(skill, /rfc-session\.js withdraw --session/);
+  assert.match(skill, /Once approved, an amendment cannot be withdrawn/);
 });
