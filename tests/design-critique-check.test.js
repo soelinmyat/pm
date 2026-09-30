@@ -945,10 +945,20 @@ function attachTrustedCaptureObservation(
       expect: { kind: "focused" },
     });
   }
-  if (nativeStateProof && (coverage.state === "error" || nativeStateProof === "empty-alert")) {
+  if (
+    nativeStateProof &&
+    (coverage.state === "error" ||
+      nativeStateProof === "empty-alert" ||
+      nativeStateProof === "empty-alert-alias")
+  ) {
     assertion.all[0].locator = {
       by: "role-name",
-      value: nativeStateProof === "unnamed" ? "alert:" : "alert:Could not load records",
+      value:
+        nativeStateProof === "unnamed"
+          ? "alert:"
+          : nativeStateProof === "empty-alert-alias" && coverage.state === "empty"
+            ? "ALERT :Could not load records"
+            : "alert:Could not load records",
     };
   }
   const assertionBinding = write(
@@ -1043,7 +1053,11 @@ function attachTrustedCaptureObservation(
     check.y = 350;
     delete check.focus_indicator_regions;
     if (nativeStateProof === "no-geometry") delete check.visual_bounds;
-    else check.visual_bounds = { x: 300, y: 300, width: 400, height: 200 };
+    else if (nativeStateProof === "tiny-region") {
+      check.x = 390;
+      check.y = 324;
+      check.visual_bounds = { x: 390, y: 324, width: 2, height: 1 };
+    } else check.visual_bounds = { x: 300, y: 300, width: 400, height: 200 };
   }
   let sourceTree = "d".repeat(40);
   try {
@@ -1312,9 +1326,21 @@ function validPng(
       rows[pixel + 2] = 20;
     }
   }
-  if (focusRing === "state-content" || focusRing === "state-beacon") {
-    for (let y = 320; y < (focusRing === "state-beacon" ? 321 : 360); y++) {
-      for (let x = 390; x < (focusRing === "state-beacon" ? 391 : 510); x++) {
+  if (
+    focusRing === "state-content" ||
+    focusRing === "state-beacon" ||
+    focusRing === "two-pixel-beacon"
+  ) {
+    for (
+      let y = 324;
+      y < (focusRing === "state-beacon" || focusRing === "two-pixel-beacon" ? 325 : 360);
+      y++
+    ) {
+      for (
+        let x = 390;
+        x < (focusRing === "state-beacon" ? 391 : focusRing === "two-pixel-beacon" ? 392 : 510);
+        x++
+      ) {
         if (y % 12 >= 5) continue;
         const pixel = y * (width * 4 + 1) + 1 + x * 4;
         rows[pixel] = 30;
@@ -5163,6 +5189,8 @@ for (const [name, proof, pixels] of [
   ["missing semantic guard", null, "state-content"],
   ["missing native bounds", "no-geometry", "state-content"],
   ["alert also asserted on empty", "empty-alert", "state-content"],
+  ["equivalent alert role on empty", "empty-alert-alias", "state-content"],
+  ["tiny two-pixel alert", "tiny-region", "two-pixel-beacon"],
   ["unnamed alert", "unnamed", "state-content"],
   ["different viewport geometry", "viewport-mismatch", "state-content"],
   ["single pixel beacon", true, "state-beacon"],
@@ -5182,3 +5210,11 @@ for (const [name, proof, pixels] of [
     );
   });
 }
+
+test("state beacon fixtures contain genuinely different decoded pixels", () => {
+  const base = inspectPngVisualBytes(validPng(1440, 1000, 20));
+  for (const mode of ["state-beacon", "two-pixel-beacon"]) {
+    const beacon = inspectPngVisualBytes(validPng(1440, 1000, 20, 0, null, 1, mode));
+    assert.notEqual(beacon.pixelSha256, base.pixelSha256);
+  }
+});

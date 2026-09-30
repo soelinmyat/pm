@@ -976,24 +976,30 @@ function hasNativeStateContentChange(root, left, right, observations) {
     return false;
   if (
     emptyObservation.assertion.all.some(
-      (clause) =>
-        clause.expect.kind === "visible" &&
-        clause.locator.by === "role-name" &&
-        clause.locator.value.startsWith("alert:")
+      (clause) => clause.expect.kind === "visible" && isAlertLocator(clause.locator)
     )
   )
     return false;
   for (const [index, clause] of assertion.all.entries()) {
     if (
       clause.expect.kind !== "visible" ||
-      clause.locator.by !== "role-name" ||
-      !/^alert:[^\s].*/u.test(clause.locator.value)
+      !isAlertLocator(clause.locator) ||
+      !clause.locator.value.slice(clause.locator.value.indexOf(":") + 1).trim()
     )
       continue;
     const region = observation.manifest.page.state_assertion.visibility.checks.find(
       (check) => check.label === `state assertion clause ${index + 1}`
     )?.visual_bounds;
-    if (!region) continue;
+    // Never magnify a near-invisible semantic node into a convincing grid.
+    // Use the existing meaningful visible-area floor before regional sampling.
+    if (
+      !region ||
+      region.width * region.height <
+        left.capture.width *
+          left.capture.height *
+          PRODUCT_UI_VISUAL_THRESHOLDS.minMeaningfulPixelRatio
+    )
+      continue;
     try {
       const before = readBoundFile(root, left.capture.path, "state content comparison", []);
       const after = readBoundFile(root, right.capture.path, "state content comparison", []);
@@ -1017,6 +1023,12 @@ function hasNativeStateContentChange(root, left, right, observations) {
     }
   }
   return false;
+}
+
+function isAlertLocator(locator) {
+  if (locator.by !== "role-name") return false;
+  const separator = locator.value.indexOf(":");
+  return separator >= 0 && locator.value.slice(0, separator).trim().toLowerCase() === "alert";
 }
 
 // A native focus indicator can be much smaller than a viewport tile. Inspect a
