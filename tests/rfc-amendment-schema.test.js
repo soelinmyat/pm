@@ -271,7 +271,7 @@ function editCommittedHtml(repo, artifact, edit) {
   };
 }
 
-test("an amendment may change RFC HTML only to list the paths it adds", () => {
+test("an amendment may change RFC HTML only to list the paths it adds in their issue", () => {
   const repo = makeRfcRepo();
   const slug = "amendment-prose";
   try {
@@ -307,7 +307,7 @@ test("an amendment may change RFC HTML only to list the paths it adds", () => {
     );
 
     const listed = editCommittedHtml(repo, rewritten, (html) =>
-      html.replace("\n  <p>Also rewrite the scheduler.</p>", "\n  <li>README.md</li>")
+      html.replace("\n  <p>Also rewrite the scheduler.</p>", "")
     );
     const accepted = review(listed);
     assert.equal(accepted.status, 0, accepted.stderr);

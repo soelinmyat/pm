@@ -225,7 +225,7 @@ function writeArtifact(repo, slug, status, prior = null, options = {}) {
       '  <section id="test-strategy" class="test-strategy"><div class="test-strategy-block"></div></section>',
       ...JSON.parse(fs.readFileSync(jsonPath, "utf8")).issues.map(
         (item) =>
-          `  <article class="issue-detail"><span class="issue-detail-num">${item.num}</span><span class="issue-detail-title">${item.title}</span><span class="issue-detail-size">${item.size}</span>${item.test_hooks.map((hook) => `<span class="hooks-badge">${hook}</span>`).join("")}</article>`
+          `  <article class="issue-detail"><span class="issue-detail-num">${item.num}</span><span class="issue-detail-title">${item.title}</span><span class="issue-detail-size">${item.size}</span><p><strong>Owns:</strong> ${item.owns.map((owned) => `<code>${owned}</code>`).join(", ")}</p>${item.test_hooks.map((hook) => `<span class="hooks-badge">${hook}</span>`).join("")}</article>`
       ),
       "  </main>",
       "</body>",

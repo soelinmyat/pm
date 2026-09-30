@@ -10,7 +10,7 @@ const { loadPhaseStep } = require("../step-loader.js");
 const { findGitRoot, gitRelativePath, readGitFile, runGit } = require("../loop-git.js");
 const { assertOwnsOnlyAmendment } = require("./rfc-amendment.js");
 const { isRfc3339DateTime: isIsoDate } = require("./iso-time.js");
-const { markdownTableValue } = require("./session-scan.js");
+const { escapeRegExp, markdownTableValue } = require("./session-scan.js");
 const { readApprovedProposal } = require("./proposal-schema.js");
 const { validateDesignContext } = require("./dev-work-units.js");
 const { grantActions } = require("./workflow-runtime/authority.js");
@@ -281,36 +281,71 @@ function assertAmendmentArtifact(session, artifact) {
   return changes;
 }
 
-// The approver confirms an amendment by its sidecar hash, so the HTML may not
-// carry any other change: only the lifecycle, the sidecar hash it cites, and
-// list items naming the paths the amendment adds.
+// The approver confirms an amendment by its sidecar hash but reads the HTML, so
+// the HTML must tell the same story and nothing more. Apart from the lifecycle
+// and the sidecar hash it cites, the only allowed change is inserting each added
+// path exactly once inside its own issue's section, either as a list item or as
+// an inline code entry on the issue's owned-files line. Nothing may be deleted.
 function assertOwnsOnlyHtml(priorHtml, nextHtml, changes) {
-  const added = changes.flatMap((change) => change.added_owns);
-  if (ownsOnlyCanonical(priorHtml, added) !== ownsOnlyCanonical(nextHtml, added)) {
+  const insertions = changes.flatMap((change) =>
+    change.added_owns.map((owned) => ({ num: change.num, owned }))
+  );
+  if (
+    !matchesWithInsertions(ownsOnlyCanonical(priorHtml), ownsOnlyCanonical(nextHtml), insertions)
+  ) {
     throw new Error(
       "amendment changed RFC HTML beyond the lifecycle and added owned paths; any other change is a new RFC design"
     );
   }
 }
 
-function ownsOnlyCanonical(html, addedPaths) {
-  let canonical = canonicalizeLifecycle(html).replace(
-    /(\bdata-sidecar-hash=["'])sha256:[0-9a-f]{64}(["'])/g,
-    "$1<SIDECAR>$2"
-  );
-  for (const owned of addedPaths) {
-    const text = [owned, escapeHtml(owned)]
-      .filter((value, index, all) => all.indexOf(value) === index)
-      .map(escapeRegExp)
-      .join("|");
-    canonical = canonical.replace(
-      new RegExp(`\\s*<li>(?:<code>)?(?:${text})(?:</code>)?</li>`, "g"),
-      ""
-    );
+function ownsOnlyCanonical(html) {
+  // Whitespace between tags carries no RFC content, and inserting a list item
+  // may add a line break.
+  return canonicalizeLifecycle(html)
+    .replace(/(\bdata-sidecar-hash=["'])sha256:[0-9a-f]{64}(["'])/g, "$1<SIDECAR>$2")
+    .replace(/>\s+</g, "><");
+}
+
+// Removes one listing of each added path from the next HTML, trying every
+// candidate position, and succeeds only when what remains is the prior HTML.
+function matchesWithInsertions(prior, next, insertions) {
+  if (insertions.length === 0) return prior === next;
+  const [{ num, owned }, ...rest] = insertions;
+  const [start, end] = issueSection(next, num);
+  if (start < 0) return false;
+  const text = [owned, escapeHtml(owned)]
+    .filter((value, index, all) => all.indexOf(value) === index)
+    .map(escapeRegExp)
+    .join("|");
+  const forms = [
+    `<li>(?:<code>)?(?:${text})(?:</code>)?</li>`,
+    `,\\s*<code>(?:${text})</code>`,
+    `<code>(?:${text})</code>,\\s*`,
+    `<code>(?:${text})</code>`,
+  ];
+  for (const form of forms) {
+    const pattern = new RegExp(form, "g");
+    pattern.lastIndex = start;
+    for (let match = pattern.exec(next); match && match.index < end; match = pattern.exec(next)) {
+      if (match.index + match[0].length > end) break;
+      const candidate = next.slice(0, match.index) + next.slice(match.index + match[0].length);
+      if (matchesWithInsertions(prior, candidate, rest)) return true;
+    }
   }
-  // Whitespace between tags carries no RFC content, and removing a list item
-  // can leave an extra line break behind.
-  return canonical.replace(/>\s+</g, "><");
+  return false;
+}
+
+// An issue's section runs from its issue-detail-num marker to the next issue's
+// marker. RFC HTML without markers is one section, so placement is unchecked there.
+function issueSection(html, num) {
+  const markers = [
+    ...html.matchAll(/class=["'][^"']*\bissue-detail-num\b[^"']*["']>\s*(\d+)\s*</g),
+  ];
+  if (markers.length === 0) return [0, html.length];
+  const index = markers.findIndex((marker) => Number(marker[1]) === num);
+  if (index < 0) return [-1, -1];
+  return [markers[index].index, markers[index + 1]?.index ?? html.length];
 }
 
 function escapeHtml(value) {
@@ -320,10 +355,6 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#x27;");
-}
-
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function applyContext(session, facts, options = {}) {

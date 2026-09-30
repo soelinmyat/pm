@@ -255,32 +255,69 @@ test("amend refuses a run whose lineage already holds the maximum amendments", (
   assert.throws(() => assertAmendmentDepth(runs.get("rfc_1"), load), /repeats/);
 });
 
-test("amendment HTML may differ only in lifecycle, sidecar hash, and listed added paths", () => {
+test("amendment HTML must list each added path once, in its own issue, and change nothing else", () => {
   const { assertOwnsOnlyHtml } = require("../scripts/lib/rfc-session-schema");
-  const page = (status, hash, extra = "") =>
+  const issue = (num, body) =>
+    `<div class="issue-detail"><span class="issue-detail-num">${num}</span>\n  ${body}\n</div>`;
+  const page = (status, hash, one, two) =>
     [
       `<script id="pm-artifact" type="application/json">{"lifecycle":"${status}"}</script>`,
       `<script id="rfc-lifecycle" type="application/json">{"status":"${status}"}</script>`,
       `<main data-sidecar-hash="sha256:${hash.repeat(64)}">`,
       `<p>Status: <span data-pm-lifecycle>${status[0].toUpperCase()}${status.slice(1)}</span></p>`,
-      "<ul><li>src/a&amp;b.js</li>",
-      extra,
-      "</ul></main>",
+      issue(1, one),
+      issue(2, two),
+      "</main>",
     ].join("\n");
-  const prior = page("approved", "a");
+  const oneOwns =
+    "<p><strong>Owns:</strong> <code>src/a&amp;b.js</code></p><p>Out of scope: <code>src/e.js</code></p>";
+  const twoOwns =
+    "<p><strong>Owns:</strong> <code>src/two.js</code></p><ul><li>src/two.js</li></ul>";
+  const prior = page("approved", "a", oneOwns, twoOwns);
   const added = [{ num: 2, added_owns: ["src/c&d.js", "src/e.js"] }];
-  assert.doesNotThrow(() => assertOwnsOnlyHtml(prior, page("draft", "b"), added));
-  assert.doesNotThrow(() =>
-    assertOwnsOnlyHtml(
-      prior,
-      page("draft", "b", "<li>src/c&amp;d.js</li>\n<li><code>src/e.js</code></li>"),
-      added
-    )
-  );
-  for (const extra of ["<li>src/other.js</li>", "<p>New prose.</p>", "<li>src/e.js</li><p>x</p>"]) {
+  const accepted = [
+    // Inline, as the RFC template lists owned files.
+    "<p><strong>Owns:</strong> <code>src/two.js</code>, <code>src/c&amp;d.js</code>, <code>src/e.js</code></p><ul><li>src/two.js</li></ul>",
+    // List items, as a details list of owned files.
+    "<p><strong>Owns:</strong> <code>src/two.js</code></p><ul><li>src/two.js</li>\n<li>src/c&amp;d.js</li><li><code>src/e.js</code></li></ul>",
+  ];
+  for (const two of accepted) {
+    assert.doesNotThrow(() => assertOwnsOnlyHtml(prior, page("draft", "b", oneOwns, two), added));
+  }
+  const listed = accepted[0];
+  const refused = {
+    "leaves the added paths out": page("draft", "b", oneOwns, twoOwns),
+    "lists a path under another issue": page(
+      "draft",
+      "b",
+      oneOwns.replace("</code></p>", "</code>, <code>src/c&amp;d.js</code></p>"),
+      "<p><strong>Owns:</strong> <code>src/two.js</code>, <code>src/e.js</code></p><ul><li>src/two.js</li></ul>"
+    ),
+    "lists a path twice": page(
+      "draft",
+      "b",
+      oneOwns,
+      listed.replace("</ul>", "<li>src/e.js</li></ul>")
+    ),
+    "deletes a prior line naming the path": page(
+      "draft",
+      "b",
+      "<p><strong>Owns:</strong> <code>src/a&amp;b.js</code></p>",
+      listed
+    ),
+    "lists an undeclared path": page(
+      "draft",
+      "b",
+      oneOwns,
+      listed.replace("</ul>", "<li>src/other.js</li></ul>")
+    ),
+    "adds prose": page("draft", "b", oneOwns, `${listed}<p>New prose.</p>`),
+  };
+  for (const [label, next] of Object.entries(refused)) {
     assert.throws(
-      () => assertOwnsOnlyHtml(prior, page("draft", "b", extra), added),
-      /amendment changed RFC HTML beyond the lifecycle and added owned paths/
+      () => assertOwnsOnlyHtml(prior, next, added),
+      /amendment changed RFC HTML beyond the lifecycle and added owned paths/,
+      label
     );
   }
 });
