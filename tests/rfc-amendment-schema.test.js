@@ -429,6 +429,15 @@ test("withdraw refuses an amendment once its approval is recorded", () => {
     assert.equal(afterAudit.status, 3, afterAudit.stderr);
     assert.match(afterAudit.stderr, /approved amendment cannot be withdrawn/);
     assert.equal(fs.existsSync(sessionPath), true);
+
+    // revise resets the approval to pending, but the audit still names this run.
+    const revised = repo.run(["revise", "--session", sessionPath, "--reason", "Rethink", "--json"]);
+    assert.equal(revised.status, 0, revised.stderr);
+    assert.equal(JSON.parse(fs.readFileSync(sessionPath, "utf8")).approval.status, "pending");
+    const afterRevise = withdraw();
+    assert.equal(afterRevise.status, 3, afterRevise.stderr);
+    assert.match(afterRevise.stderr, /approval audit already names this amendment/);
+    assert.equal(fs.existsSync(sessionPath), true);
   } finally {
     repo.cleanup();
   }

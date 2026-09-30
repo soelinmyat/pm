@@ -164,20 +164,7 @@ function withdrawCommand(options) {
     throw cliError("loop workers cannot withdraw RFC amendments", EXIT.PRECONDITION);
   }
   const { session, sessionPath } = loadRequiredSession(options);
-  if (!session.amendment || session.status === "complete") {
-    throw cliError(
-      "only an open amendment run can be withdrawn; revise an original RFC run instead",
-      EXIT.PRECONDITION
-    );
-  }
-  // Handoff's approval-audit rewrites the slug's approval.json to name this run,
-  // so a recorded approval must finish handoff rather than disappear.
-  if (session.approval.status === "approved") {
-    throw cliError(
-      "an approved amendment cannot be withdrawn; finish its handoff",
-      EXIT.PRECONDITION
-    );
-  }
+  assertWithdrawable(session);
   const archiveDir = path.join(
     path.dirname(path.dirname(completedSessionPath(session))),
     "withdrawn",
@@ -194,9 +181,11 @@ function withdrawCommand(options) {
   };
   withLock(sessionPath, () => {
     const bytes = fs.readFileSync(sessionPath);
-    if (JSON.parse(bytes.toString("utf8")).run_id !== session.run_id) {
+    const current = JSON.parse(bytes.toString("utf8"));
+    if (current.run_id !== session.run_id) {
       throw cliError("RFC session changed before it could be withdrawn", EXIT.PRECONDITION);
     }
+    assertWithdrawable(current);
     if (fs.existsSync(archiveDir)) {
       throw cliError(`withdrawn RFC run already exists: ${archiveDir}`, EXIT.PRECONDITION);
     }
@@ -207,6 +196,46 @@ function withdrawCommand(options) {
   });
   emit(options, { session_path: archivePath, run_id: session.run_id, withdrawal });
   return EXIT.OK;
+}
+
+// Handoff's approval-audit rewrites the slug's approval.json to name the run,
+// so once an approval is recorded, or its audit names this run (revise resets
+// the approval but leaves the audit), the amendment must finish handoff.
+function assertWithdrawable(session) {
+  if (!session.amendment || session.status === "complete") {
+    throw cliError(
+      "only an open amendment run can be withdrawn; revise an original RFC run instead",
+      EXIT.PRECONDITION
+    );
+  }
+  if (session.approval?.status === "approved") {
+    throw cliError(
+      "an approved amendment cannot be withdrawn; finish its handoff",
+      EXIT.PRECONDITION
+    );
+  }
+  const sidecars = new Set(
+    [session.artifact?.json_path, session.amendment.prior_artifact?.json_path].filter(Boolean)
+  );
+  for (const jsonPath of sidecars) {
+    const auditPath = jsonPath.replace(/\.json$/i, ".approval.json");
+    let audit;
+    try {
+      audit = JSON.parse(fs.readFileSync(auditPath, "utf8"));
+    } catch (error) {
+      if (error.code === "ENOENT") continue;
+      throw cliError(
+        `cannot read approval audit ${auditPath}: ${error.message}`,
+        EXIT.PRECONDITION
+      );
+    }
+    if (audit?.run_id === session.run_id) {
+      throw cliError(
+        "approval audit already names this amendment; approve it again and finish handoff",
+        EXIT.PRECONDITION
+      );
+    }
+  }
 }
 
 function createRun(options, { existsLabel, build, underLock = () => {} }) {
