@@ -48,7 +48,15 @@ function validated(data, expectedPath, expectedRevision) {
     Array.isArray(data.source_metadata)
   )
     throw new Error("Invalid knowledge metadata");
-  if (typeof data.content_base64 !== "string") throw new Error("Missing exact content");
+  if (
+    !Number.isInteger(data.byte_size) ||
+    data.byte_size < 0 ||
+    data.byte_size > 128 * 1024 * 1024 ||
+    typeof data.content_base64 !== "string" ||
+    data.content_base64.length !== Math.ceil(data.byte_size / 3) * 4 ||
+    Buffer.byteLength(JSON.stringify(data.source_metadata)) > 64 * 1024
+  )
+    throw new Error("Knowledge byte/hash mismatch: missing or unbounded exact content/metadata");
   const bytes = Buffer.from(data.content_base64, "base64");
   if (
     bytes.toString("base64") !== data.content_base64 ||
@@ -57,6 +65,44 @@ function validated(data, expectedPath, expectedRevision) {
   )
     throw new Error("Knowledge byte/hash mismatch");
   return bytes;
+}
+
+async function readVersion(transport, name, revision) {
+  let data = await transport.get(name, revision);
+  if (!data) return null;
+  if (data.content_encoding === "stream") {
+    if (
+      data.path !== name ||
+      !Number.isInteger(data.revision) ||
+      data.revision < 1 ||
+      (revision !== undefined && data.revision !== revision)
+    )
+      throw new Error("Knowledge identity/revision mismatch");
+    if (
+      typeof transport.download !== "function" ||
+      !Number.isInteger(data.byte_size) ||
+      data.byte_size < 1 ||
+      data.byte_size > 128 * 1024 * 1024
+    )
+      throw new Error("Bounded authenticated download transport required");
+    const parts = [],
+      digest = crypto.createHash("sha256");
+    let size = 0;
+    // Derive the target from the bound project/path/revision, never a returned URL.
+    for await (const chunk of await transport.download(name, data.revision)) {
+      if (!Buffer.isBuffer(chunk) || chunk.length === 0 || chunk.length > 1024 * 1024)
+        throw new Error("Invalid download chunk");
+      size += chunk.length;
+      if (size > data.byte_size) throw new Error("Download exceeds declared size");
+      digest.update(chunk);
+      parts.push(chunk);
+    }
+    if (size !== data.byte_size || digest.digest("hex") !== data.content_hash)
+      throw new Error("Download integrity mismatch");
+    data = { ...data, content_base64: Buffer.concat(parts).toString("base64") };
+  }
+  validated(data, name, revision);
+  return data;
 }
 
 function same(left, right) {
@@ -121,6 +167,7 @@ async function push({ manifest, transport, cache }) {
     }
     safePath(file.path);
     const bytes = fs.readFileSync(path.join(manifest.source_root, file.path));
+    if (bytes.length > 128 * 1024 * 1024) throw new Error("File exceeds bounded large-file limit");
     if (hash(bytes) !== file.sha256) throw new Error("Source drift during read");
     const input = {
       path: file.path,
@@ -129,8 +176,7 @@ async function push({ manifest, transport, cache }) {
       content_base64: bytes.toString("base64"),
       source_metadata: { source_file: file, authority: "historical-source-only" },
     };
-    const remote = await transport.get(file.path);
-    if (remote) validated(remote, file.path);
+    const remote = await readVersion(transport, file.path);
     if (remote && same(remote, input)) {
       result.unchanged.push(file.path);
       result.cache.files[file.path] = {
@@ -157,14 +203,25 @@ async function push({ manifest, transport, cache }) {
     }
     let response;
     try {
-      response = await transport.put({ ...input, if_revision: remote ? remote.revision : 0 });
+      if (bytes.length > 10 * 1024 * 1024) {
+        if (typeof transport.putStream !== "function")
+          throw new Error("Bounded upload transport required");
+        const metadata = { ...input };
+        delete metadata.content_base64;
+        response = await transport.putStream(
+          { ...metadata, byte_size: bytes.length, if_revision: remote ? remote.revision : 0 },
+          fs.createReadStream(path.join(manifest.source_root, file.path), {
+            highWaterMark: 1024 * 1024,
+          })
+        );
+      } else
+        response = await transport.put({ ...input, if_revision: remote ? remote.revision : 0 });
     } catch (error) {
       if (error.status !== 409 && error.status !== 428) throw error;
       result.conflicts.push({ path: file.path, reason: "conditional_write_failed" });
       continue;
     }
-    const exported = await transport.get(file.path, response.revision);
-    validated(exported, file.path, response.revision);
+    const exported = await readVersion(transport, file.path, response.revision);
     if (!same(exported, input)) throw new Error("Export reconciliation failed");
     result.uploaded.push(file.path);
     result.cache.files[file.path] = {
@@ -207,8 +264,7 @@ async function exportHistory(transport) {
   for (const row of before) {
     const revisions = [];
     for (let revision = 1; revision <= row.revision; revision++) {
-      const data = await transport.get(row.path, revision);
-      validated(data, row.path, revision);
+      const data = await readVersion(transport, row.path, revision);
       revisions.push(data);
     }
     if (row.content_hash !== revisions.at(-1).content_hash)
@@ -220,4 +276,4 @@ async function exportHistory(transport) {
   return { schema_version: 1, identity, files, execution_authority: false };
 }
 
-module.exports = { push, exportHistory, validated };
+module.exports = { push, exportHistory, validated, readVersion };

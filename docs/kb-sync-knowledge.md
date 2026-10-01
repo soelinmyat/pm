@@ -27,3 +27,15 @@ workspace where old PM gates could interpret them as current authority. Machine
 leases, worktrees, ownership, session state, and execution gates remain local.
 Cloud-native feature approval, artifact rendering, search/browse, ownership, and
 coordinated writer handoff require separate validated implementation.
+
+Large-file transport extension: `putStream(metadata, readable)` receives at most
+1 MB chunks for files above 10 MB; metadata excludes base64 and retains declared
+byte size, SHA256 and CAS precondition. The transport must implement the service's
+owner-scoped upload/chunk/complete protocol and abort unfinished sessions on terminal
+failure. `download(path, revision)` returns an async Buffer iterable with chunks no
+larger than 1 MB. Targets derive from bound service/project/path/revision, never a
+server-returned arbitrary URL. Reads reject mismatched revisions, size/hash failures,
+oversize chunks and metadata above 64 KB. Maximum decoded file size is 128 MB.
+Portable exports retain exact base64 bytes and can allocate up to that bounded file
+size; source transfer is streamed. A concrete authenticated session transport remains
+a cutover gate; this module does not discover keys or configure persistent credentials.

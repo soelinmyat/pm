@@ -159,3 +159,63 @@ test("exports reject new remote versions and newly added earlier paths", async (
   };
   await assert.rejects(exportHistory(f.transport), /Inventory changed/);
 });
+
+test("history streams large versions and rejects corrupted or oversize download chunks", async (t) => {
+  const f = fixture(t);
+  await push({ manifest: plan(f.root), transport: f.transport });
+  const target = "pm/backlog/asset.png",
+    original = f.transport.records.get(target)[0];
+  const bytes = Buffer.from(original.content_base64, "base64");
+  delete original.content_base64;
+  original.content_encoding = "stream";
+  original.content_url = "https://untrusted.example/ignored";
+  f.transport.download = async function* (name, revision) {
+    assert.equal(name, target);
+    assert.equal(revision, 1);
+    yield bytes.subarray(0, 1);
+    yield bytes.subarray(1);
+  };
+  const exported = await exportHistory(f.transport);
+  assert.deepEqual(
+    Buffer.from(
+      exported.files.find((file) => file.path === target).revisions[0].content_base64,
+      "base64"
+    ),
+    bytes
+  );
+  f.transport.download = async function* () {
+    yield Buffer.from("bad");
+  };
+  await assert.rejects(exportHistory(f.transport), /integrity mismatch/);
+  f.transport.download = async function* () {
+    yield Buffer.alloc(1024 * 1024 + 1);
+  };
+  await assert.rejects(exportHistory(f.transport), /Invalid download chunk/);
+});
+
+test("push uses bounded stream transport above inline cap and reconciles exact bytes", async (t) => {
+  const f = fixture(t);
+  const bytes = Buffer.from("<h1>Large</h1>" + "x".repeat(10 * 1024 * 1024));
+  const name = "pm/backlog/large.html";
+  fs.writeFileSync(path.join(f.root, name), bytes);
+  let streamed = 0;
+  f.transport.putStream = async (metadata, stream) => {
+    assert.equal(metadata.path, name);
+    assert.equal(metadata.content_base64, undefined);
+    const chunks = [];
+    for await (const chunk of stream) {
+      assert.ok(chunk.length <= 1024 * 1024);
+      chunks.push(chunk);
+    }
+    assert.deepEqual(Buffer.concat(chunks), bytes);
+    streamed++;
+    return f.transport.put({
+      ...metadata,
+      content_base64: Buffer.concat(chunks).toString("base64"),
+    });
+  };
+  const result = await push({ manifest: plan(f.root), transport: f.transport });
+  assert.equal(streamed, 1);
+  assert.ok(result.uploaded.includes(name));
+  assert.deepEqual(Buffer.from(f.transport.records.get(name)[0].content_base64, "base64"), bytes);
+});
