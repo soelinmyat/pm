@@ -13,9 +13,9 @@ async function inLiveScope(session, transport, operation) {
   if (scopes.has(session.run_id)) throw new Error("Native run is already executing locally");
   scopes.set(session.run_id, null); // Reserve before the first await.
   try {
-    await verifyCurrent(session, transport);
+    const current = await verifyCurrent(session, transport);
     scopes.set(session.run_id, identity(session));
-    return await operation();
+    return await operation(current);
   } finally {
     scopes.delete(session.run_id);
   }
@@ -189,7 +189,7 @@ async function verifyCurrent(session, transport) {
     validated.add(id);
   }
   for (const id of observed.dependencies) await dependency(id);
-  validateTaskContract(session);
-  return { client, observed, remote };
+  const checked = validateTaskContract(session);
+  return { client, observed, remote, checked };
 }
 module.exports = { assertLive, inLiveScope, validateNative, verifyCurrent };

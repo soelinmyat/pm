@@ -7,7 +7,7 @@ const { scoreProposal } = require("../proposal-quality-check");
 const { validateRfcSidecar } = require("../rfc-sidecar-check");
 const { rfcIssuesToDevWorkUnits } = require("./rfc-work-units");
 const { createProjectRootAnchor, readProjectInput } = require("./project-file");
-const { DIMENSION_NAMES, routeDevWork } = require("./dev-risk");
+const { DIMENSION_NAMES, assessRisk, routeDevWork } = require("./dev-risk");
 const sha = (bytes) => crypto.createHash("sha256").update(bytes).digest("hex");
 const equal = isDeepStrictEqual;
 function validateEntries(entries) {
@@ -100,6 +100,7 @@ function readContract(native, slug) {
     !equal(Object.keys(execution.risk).sort(), [...DIMENSION_NAMES, "destructive_data"].sort())
   )
     throw new Error("Complete reviewed native execution/risk contract required");
+  assessRisk(execution.risk); // Validate original types before deriving the UI minimum.
   // Current native bundle review is the human approval. Proposal lifecycle strings
   // and archived legacy decision files are source data, never approval authority.
   const facts = {
@@ -124,8 +125,9 @@ function readContract(native, slug) {
   return { facts, route, contract, rfc };
 }
 function validateTaskContract(session) {
-  const { facts, route } = readContract(session.task.native, session.slug);
-  if (session.phase === "intake") return;
+  const checked = readContract(session.task.native, session.slug);
+  const { facts, route } = checked;
+  if (session.phase === "intake") return checked;
   if (
     session.task.size !== facts.size ||
     session.task.kind !== facts.kind ||
@@ -152,5 +154,6 @@ function validateTaskContract(session) {
     }));
   if (!equal(immutable(session.task.work_units), immutable(facts.work_units)))
     throw new Error("Native work-unit contract changed; publish and review a new bundle");
+  return checked;
 }
 module.exports = { sha, validateEntries, readContract, validateTaskContract };

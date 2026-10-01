@@ -20,6 +20,11 @@ Retain the existing Dev steps, bounded phase prompts, model/runtime capability c
 | record | `record(sessionPath, result)` |
 | workspace | `workspace(sessionPath)` |
 | grant | `grant(sessionPath, actions, reason)` |
+| gate | `gate(sessionPath, {name, status, reason, artifact})` |
+| recertify | `recertifyEvidence(sessionPath, {phases, commit, verificationByPhase})` |
+| record-qa-candidate | `recordNonPassingQaCandidate(sessionPath, {status, commit, records})` |
+| anchor-qa-history | `anchorQaHistory(sessionPath, {commit, records})` |
+| unblock | `resumeBlocked(sessionPath, resolution)` |
 | work-unit | `transitionWorkUnit(sessionPath, input)` |
 | candidate transition | `transitionCandidate(sessionPath, input)` |
 
@@ -29,7 +34,9 @@ The decision also contains `native_contract`: the complete approved proposal exe
 
 ## Certification and recovery
 
-After completed implementation units, QA, review and verification, `certify(sessionPath)` uses the actual canonical current-HEAD gate checker, including retained QA evidence and independently validated review evidence. Certification grants no push, merge, deploy or messaging authority. Those actions require an explicit host authorization and the normal final delivery checks.
+After completed implementation units, QA, review and verification, `certify(sessionPath)` uses the actual canonical current-HEAD gate checker, including retained QA evidence and independently validated review evidence. Publish each gate through `gate` after recording its real phase evidence. The host delegates to the canonical gate planner and checker; it never constructs passing rows itself. After review changes HEAD, use fresh evidence through `recertifyEvidence` and retain failed or blocked QA attempts through `recordNonPassingQaCandidate`.
+
+Certification grants no push, merge, deploy or messaging authority. Those actions require an explicit host authorization and the normal final delivery checks.
 
 A durable intent precedes each remote start/report. On an unknown response, stop automatic writes. `recoverInitialization({sourceDir, slug})` and `recoverCertification(sessionPath)` accept only an exact already-acknowledged remote transition, rechecking current source and evidence, and never replay start/report. If the service state or evidence differs, reconcile explicitly. Do not delete the intent to turn an uncertain request into a retry.
 

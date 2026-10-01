@@ -478,3 +478,129 @@ test("certification recovery refuses foreign service or project before remote re
     assert.equal(f.calls.length, before);
   }
 });
+
+for (const invalidUi of [null, false, "0", -1, 4]) {
+  test(`native bootstrap rejects original UI risk ${JSON.stringify(invalidUi)} before remote start`, async (t) => {
+    const f = fixture(t);
+    const executionPath = "pm/execution.json";
+    const execution = JSON.parse(f.documents.get(executionPath));
+    execution.risk.ui = invalidUi;
+    const bytes = Buffer.from(JSON.stringify(execution));
+    f.documents.set(executionPath, bytes);
+    f.workflow.bundle.entries.find((entry) => entry.path === executionPath).content_hash =
+      sha(bytes);
+
+    await assert.rejects(
+      createNativeRuntime(f.transport).initialize(f.options),
+      /ui must be an integer from 0 to 3/
+    );
+    assert.ok(f.calls.every((call) => call.method === "GET"));
+    assert.equal(f.workflow.sessions.length, 0);
+    assert.equal(
+      fs.existsSync(path.join(f.root, ".pm", "dev-sessions", f.options.slug, "session.json")),
+      false
+    );
+  });
+}
+
+for (const relativeLink of [".pm", ".pm/dev-sessions", ".pm/dev-sessions/structured-groom"]) {
+  test(`native initialization refuses symlinked ${relativeLink} without outside writes`, async (t) => {
+    const f = fixture(t);
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "native-outside-"));
+    t.after(() => fs.rmSync(outside, { recursive: true, force: true }));
+    fs.writeFileSync(path.join(outside, "sentinel.txt"), "untouched");
+    const link = path.join(f.root, relativeLink);
+    fs.mkdirSync(path.dirname(link), { recursive: true });
+    fs.symlinkSync(outside, link, "dir");
+
+    await assert.rejects(createNativeRuntime(f.transport).initialize(f.options));
+
+    assert.deepEqual(fs.readdirSync(outside), ["sentinel.txt"]);
+    assert.equal(fs.readFileSync(path.join(outside, "sentinel.txt"), "utf8"), "untouched");
+    assert.ok(fs.lstatSync(link).isSymbolicLink());
+    assert.ok(f.calls.every((call) => call.method === "GET"));
+    assert.equal(f.workflow.sessions.length, 0);
+  });
+}
+
+test("native operations exclude another host operation on the same session and release the lock", async (t) => {
+  const f = fixture(t);
+  const runtime = createNativeRuntime(f.transport);
+  const initialized = await runtime.initialize(f.options);
+  const before = fs.readFileSync(initialized.session_path);
+  const request = f.transport.request;
+  let releaseRequest;
+  let markEntered;
+  const held = new Promise((resolve) => {
+    releaseRequest = resolve;
+  });
+  const entered = new Promise((resolve) => {
+    markEntered = resolve;
+  });
+  let holdNext = true;
+  f.transport.request = async (input) => {
+    if (holdNext && input.method === "GET") {
+      holdNext = false;
+      markEntered();
+      await held;
+    }
+    return request(input);
+  };
+  const pending = runtime.decision(initialized.session_path);
+  await entered;
+  try {
+    const callsBefore = f.calls.length;
+    await assert.rejects(
+      createNativeRuntime(f.transport).grant(
+        initialized.session_path,
+        ["push_feature_branch"],
+        "Explicit fixture authorization"
+      ),
+      /project write lock/
+    );
+    assert.equal(f.calls.length, callsBefore);
+    assert.deepEqual(fs.readFileSync(initialized.session_path), before);
+  } finally {
+    releaseRequest();
+    await pending;
+  }
+  const resumed = await runtime.decision(initialized.session_path);
+  assert.deepEqual(resumed.applicable_gates, initialized.decision.applicable_gates);
+  assert.deepEqual(fs.readFileSync(initialized.session_path), before);
+});
+
+for (const operation of ["recertifyEvidence", "recordNonPassingQaCandidate"]) {
+  test(`native ${operation} rejects stale authority before changing local evidence`, async (t) => {
+    const f = fixture(t);
+    const runtime = createNativeRuntime(f.transport);
+    const initialized = await runtime.initialize(f.options);
+    const before = fs.readFileSync(initialized.session_path);
+    const directory = path.dirname(initialized.session_path);
+    const beforeFiles = fs.readdirSync(directory).sort();
+    const input =
+      operation === "recertifyEvidence"
+        ? {
+            phases: ["qa"],
+            commit: initialized.session.source.base_commit,
+            verificationByPhase: { qa: [] },
+          }
+        : { status: "failed", commit: initialized.session.source.base_commit, records: [] };
+    // Establish that the wrapper reaches the real schema validator when authority is current.
+    await assert.rejects(
+      runtime[operation](initialized.session_path, input),
+      operation === "recertifyEvidence"
+        ? /cannot recertify missing evidence for qa/
+        : /non-passing QA candidates can only be recorded/
+    );
+    f.workflow.owner_id++;
+    const callsBefore = f.calls.length;
+    await assert.rejects(
+      runtime[operation](initialized.session_path, input),
+      /approval, scope, owner or bundle changed/
+    );
+    assert.deepEqual(fs.readFileSync(initialized.session_path), before);
+    assert.deepEqual(fs.readdirSync(directory).sort(), beforeFiles);
+    assert.ok(f.calls.slice(callsBefore).every((call) => call.method === "GET"));
+    assert.equal(f.workflow.sessions[0].state, "running");
+  });
+}

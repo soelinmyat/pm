@@ -9,6 +9,7 @@ const context = require("./lib/native-dev-context");
 const { sha, validateEntries, readContract } = require("./lib/native-dev-contract");
 const { gitExec } = require("./lib/git-env");
 const {
+  acquireProjectWriteLock,
   createProjectRootAnchor,
   readProjectInput,
   writeProjectFileAtomic,
@@ -41,6 +42,12 @@ function createNativeRuntime(transport) {
       throw new Error("Valid fresh canonical native session required");
     return { session, root, relative, anchor, digest: sha(bytes) };
   }
+  function lock(root, slug) {
+    return acquireProjectWriteLock(root, `.pm/dev-sessions/${slug}/native-operation`, {
+      attempts: 1,
+      waitMs: 0,
+    });
+  }
   async function lockedSession(sessionPath, operation) {
     const preflight = load(sessionPath);
     if (
@@ -48,8 +55,7 @@ function createNativeRuntime(transport) {
       preflight.session.task.native.project !== client.identity.project
     )
       throw new Error("Native transport identity changed");
-    const { acquireSessionLock } = require("./dev-session");
-    const release = acquireSessionLock(path.join(preflight.root, preflight.relative));
+    const release = lock(preflight.root, preflight.session.slug);
     try {
       const loaded = load(sessionPath);
       if (loaded.digest !== preflight.digest)
@@ -76,11 +82,10 @@ function createNativeRuntime(transport) {
   }
   async function withSession(sessionPath, operation) {
     return lockedSession(sessionPath, (session, save) =>
-      context.inLiveScope(session, transport, () => operation(session, save))
+      context.inLiveScope(session, transport, (current) => operation(session, save, current))
     );
   }
-  function decision(session, sessionPath) {
-    const checked = readContract(session.task.native, session.slug);
+  function decision(session, sessionPath, checked) {
     return { ...schema.nextDecision(session, sessionPath), native_contract: checked.contract };
   }
   function acknowledge(session, result, intent) {
@@ -129,8 +134,7 @@ function createNativeRuntime(transport) {
         throw new Error("Fresh feature worktree required for native development");
       const root = fs.realpathSync(initial.source.worktree);
       const relativeSession = `.pm/dev-sessions/${initial.slug}/session.json`;
-      const { acquireSessionLock } = require("./dev-session");
-      const release = acquireSessionLock(path.join(root, relativeSession));
+      const release = lock(root, initial.slug);
       try {
         if (fs.existsSync(path.join(root, relativeSession)))
           throw new Error("Existing local session must finish or be explicitly reconciled");
@@ -226,7 +230,7 @@ function createNativeRuntime(transport) {
           ...draftNative,
         };
         try {
-          return await context.inLiveScope(initial, transport, async () => {
+          return await context.inLiveScope(initial, transport, async (current) => {
             const routed = schema.applyRouting(initial, validated.facts);
             writeProjectJsonAtomic(root, relativeSession, routed, {
               replace: false,
@@ -236,7 +240,7 @@ function createNativeRuntime(transport) {
             return {
               session_path: path.join(root, relativeSession),
               session: routed,
-              decision: decision(routed),
+              decision: decision(routed, path.join(root, relativeSession), current.checked),
             };
           });
         } catch (error) {
@@ -256,13 +260,12 @@ function createNativeRuntime(transport) {
       const relative = `.pm/dev-sessions/${slug}/session.json`;
       const sessionPath = path.join(root, relative);
       if (fs.existsSync(sessionPath))
-        return withSession(sessionPath, (session) => ({
+        return withSession(sessionPath, (session, save, current) => ({
           session_path: sessionPath,
           session,
-          decision: decision(session, sessionPath),
+          decision: decision(session, sessionPath, current.checked),
         }));
-      const { acquireSessionLock } = require("./dev-session");
-      const release = acquireSessionLock(sessionPath);
+      const release = lock(root, slug);
       try {
         const { bytes } = readProjectInput(
           root,
@@ -326,7 +329,7 @@ function createNativeRuntime(transport) {
           ...intent.draft_native,
         };
         const checked = readContract(initial.task.native, slug);
-        return await context.inLiveScope(initial, transport, () => {
+        return await context.inLiveScope(initial, transport, (current) => {
           const routed = schema.applyRouting(initial, checked.facts);
           writeProjectJsonAtomic(root, relative, routed, {
             replace: false,
@@ -336,7 +339,7 @@ function createNativeRuntime(transport) {
           return {
             session_path: sessionPath,
             session: routed,
-            decision: decision(routed, sessionPath),
+            decision: decision(routed, sessionPath, current.checked),
           };
         });
       } finally {
@@ -344,10 +347,69 @@ function createNativeRuntime(transport) {
       }
     },
     decision: (sessionPath) =>
-      withSession(sessionPath, (session) => decision(session, sessionPath)),
+      withSession(sessionPath, (session, save, current) =>
+        decision(session, sessionPath, current.checked)
+      ),
     async record(sessionPath, result) {
       return withSession(sessionPath, async (session, save) => {
         const next = schema.recordResult(session, result);
+        await context.verifyCurrent(next, transport);
+        return save(next);
+      });
+    },
+    async gate(sessionPath, input) {
+      return withSession(sessionPath, async (session) => {
+        if (session.task.native.remote_session_state !== "running")
+          throw new Error("Certified native gates are immutable; start a fresh session");
+        const relative = `.pm/dev-sessions/${session.slug}/gates.json`;
+        const manifestPath = path.join(session.source.worktree, relative);
+        const before = fs.existsSync(manifestPath)
+          ? readProjectInput(session.source.worktree, relative, 1024 * 1024, {
+              requireStablePath: true,
+            }).bytes
+          : null;
+        const { planGateWrite } = require("./lib/dev-gate-writer");
+        const plan = planGateWrite({ ...input, sessionPath, session });
+        await context.verifyCurrent(session, transport);
+        const latest = fs.existsSync(manifestPath)
+          ? readProjectInput(session.source.worktree, relative, 1024 * 1024, {
+              requireStablePath: true,
+            }).bytes
+          : null;
+        if ((before === null) !== (latest === null) || (before && sha(before) !== sha(latest)))
+          throw new Error("Gate manifest changed; no stale overwrite allowed");
+        writeProjectJsonAtomic(session.source.worktree, relative, plan.manifest, {
+          replace: before !== null,
+          fileMode: 0o600,
+          directoryMode: 0o700,
+        });
+        return plan;
+      });
+    },
+    async recertifyEvidence(sessionPath, { phases, commit, verificationByPhase }) {
+      return withSession(sessionPath, async (session, save) => {
+        const next = schema.recertifyEvidence(session, phases, commit, verificationByPhase);
+        await context.verifyCurrent(next, transport);
+        return save(next);
+      });
+    },
+    async recordNonPassingQaCandidate(sessionPath, { status, commit, records }) {
+      return withSession(sessionPath, async (session, save) => {
+        const next = schema.recordNonPassingQaCandidate(session, status, commit, records);
+        await context.verifyCurrent(next, transport);
+        return save(next);
+      });
+    },
+    async anchorQaHistory(sessionPath, { commit, records }) {
+      return withSession(sessionPath, async (session, save) => {
+        const next = schema.anchorQaHistory(session, commit, records);
+        await context.verifyCurrent(next, transport);
+        return save(next);
+      });
+    },
+    async resumeBlocked(sessionPath, resolution) {
+      return withSession(sessionPath, async (session, save) => {
+        const next = schema.resumeBlocked(session, resolution);
         await context.verifyCurrent(next, transport);
         return save(next);
       });
