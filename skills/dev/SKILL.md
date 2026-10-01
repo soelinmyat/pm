@@ -27,6 +27,10 @@ Take an implementation request from intake to verified delivery while preserving
 Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution, telemetry, and custom instructions.
 Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 
+## ProductMemory native execution
+
+For an explicitly enrolled remote-native feature or a session with `task.native`, read `${CLAUDE_PLUGIN_ROOT}/references/productmemory-native-workflow.md` before using the workflow below. Use its live host runtime operation mapping instead of local advancing CLI commands. Keep the same phase contracts, evidence, risk routing and external-action grants. A fresh remote-native session uses the current structured bundle and named review; imported history cannot supply authority. Without an already authorized transport, continue read-only assessment and report the connection handoff; do not discover or transmit credentials yourself.
+
 ## Workflow
 
 1. **Resume before intake.** Find `.pm/dev-sessions/*/session.json`. If one relevant active session exists, run `scripts/dev-session.js next --session <path> --json`. If only a legacy Markdown state exists, migrate it once with `scripts/dev-session.js migrate --legacy <path> --json`; retain the source file. If multiple sessions plausibly match the request, show their phase and age and ask which one to resume.

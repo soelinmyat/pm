@@ -1,6 +1,7 @@
 "use strict";
 
 const crypto = require("node:crypto");
+const nativeContext = require("./native-dev-context");
 const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
@@ -506,6 +507,7 @@ function validateTask(task, errors) {
   }
   const fields = new Set([
     "reference",
+    "native",
     "rfc_sidecar",
     "proposal",
     "design_context",
@@ -523,6 +525,7 @@ function validateTask(task, errors) {
   for (const field of fields) {
     if (
       !new Set([
+        "native",
         "rfc_sidecar",
         "rfc_contract_history",
         "proposal",
@@ -575,10 +578,20 @@ function validateTask(task, errors) {
       errors.push(issue("$.task.rfc_sidecar.slug", "required"));
     }
   }
+  if (task.native !== undefined && task.native !== null) {
+    try {
+      nativeContext.validateNative(task.native);
+      if (task.proposal || task.rfc_sidecar || task.rfc_contract_history?.length)
+        throw new Error("Native provenance cannot impersonate legacy proposal/RFC authority");
+    } catch (error) {
+      errors.push(issue("$.task.native", error.message));
+    }
+  }
   validateRfcContractHistory(task.rfc_contract_history, errors);
   validateProposalIdentity(task.proposal, errors);
   if (task.design_context !== undefined && task.design_context !== null) {
-    const contractPath = task.proposal?.path || task.rfc_sidecar?.path;
+    const contractPath =
+      task.native?.snapshot_root || task.proposal?.path || task.rfc_sidecar?.path;
     if (!contractPath) {
       errors.push(
         issue(
@@ -588,7 +601,7 @@ function validateTask(task, errors) {
       );
     } else {
       try {
-        const repoRoot = findGitRoot(path.dirname(contractPath));
+        const repoRoot = task.native?.snapshot_root || findGitRoot(path.dirname(contractPath));
         validateDesignContext(task.design_context, "task design_context", { repoRoot });
       } catch (error) {
         errors.push(issue("$.task.design_context", error.message));
@@ -612,7 +625,8 @@ function validateTask(task, errors) {
     errors.push(issue("$.task.work_units", "must be an array"));
   } else {
     try {
-      const contractPath = task.rfc_sidecar?.path || task.proposal?.path;
+      const contractPath =
+        task.native?.snapshot_root || task.rfc_sidecar?.path || task.proposal?.path;
       if (
         !contractPath &&
         task.work_units.some(
@@ -624,7 +638,9 @@ function validateTask(task, errors) {
           "work-unit design_context requires approved proposal or RFC sidecar provenance"
         );
       }
-      const repoRoot = contractPath ? findGitRoot(path.dirname(contractPath)) : null;
+      const repoRoot =
+        task.native?.snapshot_root ||
+        (contractPath ? findGitRoot(path.dirname(contractPath)) : null);
       validateWorkUnits(task.work_units, { persisted: true, repoRoot });
     } catch (error) {
       errors.push(issue("$.task.work_units", error.message));
@@ -1158,6 +1174,7 @@ function validateResultRuntime(runtime, errors, runtimePath = "$.runtime") {
 }
 
 function validateResult(session, result, options = {}) {
+  nativeContext.assertLive(session);
   const errors = [...validateResultEnvelope(result)];
   if (!isObject(session) || !isObject(result)) return errors;
   validateAstraRuntimeBinding(session.execution, result.runtime, errors, "$.runtime");
@@ -1341,6 +1358,14 @@ function verifyRfcReadinessProvenance(session) {
 }
 
 function validateReadinessEvidence(session, result, errors) {
+  if (session.task.native) {
+    nativeContext.assertLive(session);
+    const artifact = evidenceArtifact(result, "rfc-readiness", errors);
+    const entry = session.task.native.entries.find((item) => item.role === "rfc");
+    if (artifact !== path.join(session.task.native.snapshot_root, entry.path))
+      errors.push(issue("$.evidence", "Native readiness must identify the pinned RFC snapshot"));
+    return;
+  }
   const sidecarPath = evidenceArtifact(result, "rfc-readiness", errors);
   if (!sidecarPath) return;
   const htmlPath = sidecarPath.replace(/\.json$/i, ".html");
@@ -2001,7 +2026,7 @@ function applyRouting(session, facts, options = {}) {
       decision_sha256: canonical.approval.decision_sha256,
     };
   }
-  const hasDesignContract = Boolean(proposalIdentity || options.rfcSidecar);
+  const hasDesignContract = Boolean(session.task.native || proposalIdentity || options.rfcSidecar);
   if (
     !hasDesignContract &&
     ((effectiveFacts.design_context !== undefined && effectiveFacts.design_context !== null) ||
@@ -2017,9 +2042,12 @@ function applyRouting(session, facts, options = {}) {
   }
   const effectiveDesignContext = proposalDesignContext || effectiveFacts.design_context || null;
   if (effectiveDesignContext) {
-    const contractPath = options.rfcSidecar?.path || proposalIdentity?.path;
+    const contractPath =
+      session.task.native?.snapshot_root || options.rfcSidecar?.path || proposalIdentity?.path;
     validateDesignContext(effectiveDesignContext, "Dev design_context", {
-      repoRoot: contractPath ? findGitRoot(path.dirname(contractPath)) : undefined,
+      repoRoot:
+        session.task.native?.snapshot_root ||
+        (contractPath ? findGitRoot(path.dirname(contractPath)) : undefined),
       requireCurrentPrototypeIdentity: true,
       requireExperienceClassification: true,
     });
@@ -2069,7 +2097,8 @@ function applyRouting(session, facts, options = {}) {
   }
   if (facts.work_units !== undefined) {
     if (!Array.isArray(facts.work_units)) throw new TypeError("work_units must be an array");
-    const contractPath = options.rfcSidecar?.path || proposalIdentity?.path;
+    const contractPath =
+      session.task.native?.snapshot_root || options.rfcSidecar?.path || proposalIdentity?.path;
     const workUnits = structuredClone(facts.work_units);
     if (effectiveDesignContext) {
       for (const unit of workUnits) {
@@ -2086,7 +2115,9 @@ function applyRouting(session, facts, options = {}) {
       }
     }
     validateWorkUnits(workUnits, {
-      repoRoot: contractPath ? findGitRoot(path.dirname(contractPath)) : null,
+      repoRoot:
+        session.task.native?.snapshot_root ||
+        (contractPath ? findGitRoot(path.dirname(contractPath)) : null),
       requireCurrentPrototypeIdentity: true,
       requireExperienceClassification: true,
     });
@@ -2554,6 +2585,7 @@ function runGit(repoDir, args) {
 }
 
 function assertValidSession(session) {
+  nativeContext.assertLive(session);
   const errors = validateSession(session);
   if (errors.length > 0) throw validationError("session is invalid", errors);
 }

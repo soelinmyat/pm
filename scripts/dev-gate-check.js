@@ -138,7 +138,7 @@ function checkGateManifest(manifest, opts = {}) {
       issues.push(issue(manifestPath, `canonical session does not grant authority ${action}`));
   }
   if (
-    (opts.requiredAuthorities || []).length > 0 &&
+    ((opts.requiredAuthorities || []).length > 0 || opts.requireDeliveryEvidence === true) &&
     Array.isArray(canonicalSession?.routing?.required_gates)
   ) {
     validateCanonicalDeliveryEvidence(
