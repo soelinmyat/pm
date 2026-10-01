@@ -8,6 +8,7 @@ const { createWorkflowClient } = require("./productmemory-workflow");
 const {
   sha,
   validateAuthoringEntries,
+  validateDraftEntryPaths,
   readDraftContract,
   materializePinnedSource,
 } = require("./lib/native-dev-contract");
@@ -278,6 +279,7 @@ function createNativeAuthoring(transport) {
           throw new Error("Closed authoring manifest required");
         if (!["groom", "rfc"].includes(input.stage))
           throw new Error("Explicit Groom or RFC publication stage required");
+        validateDraftEntryPaths(input.entries, input.stage);
         const entries = input.entries.map((entry) => {
           if (
             !entry ||

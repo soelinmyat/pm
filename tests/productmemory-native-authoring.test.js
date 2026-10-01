@@ -357,3 +357,25 @@ test("shared immutable-source materialization rejects malformed bytes and budget
   assert.equal(fs.statSync(path.join(f.root, destination)).mode & 0o777, 0o600);
   assert.throws(() => materializePinnedSource(base), /exist|replace|exclusive/i);
 });
+test("oversized and duplicate authoring manifests reject before draft reads", async (t) => {
+  for (const oversized of [true, false]) {
+    const f = authorFixture(t),
+      draft = fs.realpathSync(path.join(f.f.root, `.pm/authoring/${f.options.slug}/draft`));
+    f.options.input.entries = oversized
+      ? Array(101).fill(f.options.input.entries[0])
+      : [...f.options.input.entries, f.options.input.entries[0]];
+    const originalOpen = fs.openSync;
+    let reads = 0;
+    fs.openSync = (file, ...args) => {
+      if (typeof file === "string" && file.startsWith(draft + path.sep)) reads++;
+      return originalOpen(file, ...args);
+    };
+    try {
+      await assert.rejects(f.runtime.plan(f.options));
+    } finally {
+      fs.openSync = originalOpen;
+    }
+    assert.equal(reads, 0);
+    assert.equal(f.calls.length, 0);
+  }
+});

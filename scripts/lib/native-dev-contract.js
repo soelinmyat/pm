@@ -16,7 +16,7 @@ const {
 const { DIMENSION_NAMES, assessRisk, routeDevWork } = require("./dev-risk");
 const sha = (bytes) => crypto.createHash("sha256").update(bytes).digest("hex");
 const equal = isDeepStrictEqual;
-function validateSourceEntries(entries, immutable, requireRfc = true) {
+function validateSourceEntries(entries, immutable, requireRfc = true, requireHash = true) {
   if (!Array.isArray(entries) || entries.length < (requireRfc ? 3 : 1) || entries.length > 100)
     throw new Error("Complete native bundle required");
   const paths = new Set();
@@ -35,7 +35,7 @@ function validateSourceEntries(entries, immutable, requireRfc = true) {
       !entry.path.startsWith("pm/") ||
       entry.path.includes("\\") ||
       entry.path.split("/").some((part) => !part || part === "." || part === "..") ||
-      !/^[a-f0-9]{64}$/.test(entry.content_hash) ||
+      (requireHash && !/^[a-f0-9]{64}$/.test(entry.content_hash)) ||
       (immutable &&
         (!Number.isSafeInteger(entry.revision) ||
           entry.revision < 1 ||
@@ -50,6 +50,14 @@ function validateSourceEntries(entries, immutable, requireRfc = true) {
   for (const role of requireRfc ? ["proposal", "rfc"] : ["proposal"])
     if (entries.filter((item) => item.role === role).length !== 1)
       throw new Error(`Exactly one native ${role} required`);
+}
+function validateDraftEntryPaths(entries, stage) {
+  validateSourceEntries(
+    entries.map((entry) => ({ path: entry?.path, role: entry?.role })),
+    false,
+    stage === "rfc",
+    false
+  );
 }
 function materializePinnedSource({ root, destination, entry, data, total }) {
   if (
@@ -256,6 +264,7 @@ module.exports = {
   materializePinnedSource,
   validateEntries,
   validateAuthoringEntries,
+  validateDraftEntryPaths,
   readContract,
   readDraftContract,
   validateTaskContract,
