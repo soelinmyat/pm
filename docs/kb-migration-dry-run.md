@@ -1,7 +1,7 @@
 # Offline knowledge-base migration inventory
 
 `kb-migration-plan.js` prepares a local inventory before selecting a destination
-storage contract. It never reads credentials, calls a network service, changes the
+storage contract. It skips known credential filenames and never calls a network service, changes the
 source, creates approval decisions, or uploads project content.
 
 ```sh
@@ -52,3 +52,25 @@ Run focused checks with:
 node --test tests/kb-migration-plan.test.js tests/kb-sync-pm.test.js
 node scripts/validate.js --plugin
 ```
+
+## Worktree reconciliation
+
+Use `kb-migration-reconcile.js <canonical-source-root> <manifest>...` to retain
+one logical path with all distinct byte versions and source provenance. Identical
+versions collapse; conflicting versions remain review-required. Canonical selection
+must be supplied explicitly and never derives from timestamps, worktree recency or
+branch names. Files absent from canonical source remain archive-only pending review.
+No output permits production cutover. These IDs identify file paths and byte blobs;
+record IDs require a separately verified destination contract and project namespace.
+
+Source-root aliases may be supplied as the third argument to `plan`. They map an
+original absolute KB link to an inventoried relative path without reading the old
+location or rewriting content. Root-relative application routes, code references,
+source labels and dynamic template references are separate classes. They do not
+prove a target route/code dependency is available remotely.
+
+Arbitrary root/ancestor symlinks are rejected. Standard macOS `/tmp` and `/var`
+aliases are accepted only when they resolve to `/private/tmp` and `/private/var`.
+Credential-looking URL references are redacted in the manifest; original file bytes
+remain private backup material. Pattern recognition is incomplete, so outputs still
+require review before sharing.
