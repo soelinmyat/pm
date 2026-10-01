@@ -10,37 +10,64 @@ const { createProjectRootAnchor, readProjectInput } = require("./project-file");
 const { DIMENSION_NAMES, assessRisk, routeDevWork } = require("./dev-risk");
 const sha = (bytes) => crypto.createHash("sha256").update(bytes).digest("hex");
 const equal = isDeepStrictEqual;
-function validateEntries(entries) {
-  if (!Array.isArray(entries) || entries.length < 3 || entries.length > 100)
+function validateSourceEntries(entries, immutable, requireRfc = true) {
+  if (!Array.isArray(entries) || entries.length < (requireRfc ? 3 : 1) || entries.length > 100)
     throw new Error("Complete native bundle required");
   const paths = new Set();
   for (const entry of entries) {
     if (
       !entry ||
       Object.keys(entry).some(
-        (key) => !["path", "revision", "knowledge_version_id", "content_hash", "role"].includes(key)
+        (key) =>
+          !(
+            immutable
+              ? ["path", "revision", "knowledge_version_id", "content_hash", "role"]
+              : ["path", "content_hash", "role"]
+          ).includes(key)
       ) ||
       typeof entry.path !== "string" ||
       !entry.path.startsWith("pm/") ||
       entry.path.includes("\\") ||
       entry.path.split("/").some((part) => !part || part === "." || part === "..") ||
       !/^[a-f0-9]{64}$/.test(entry.content_hash) ||
-      !Number.isSafeInteger(entry.revision) ||
-      entry.revision < 1 ||
-      !Number.isSafeInteger(entry.knowledge_version_id) ||
-      entry.knowledge_version_id < 1 ||
+      (immutable &&
+        (!Number.isSafeInteger(entry.revision) ||
+          entry.revision < 1 ||
+          !Number.isSafeInteger(entry.knowledge_version_id) ||
+          entry.knowledge_version_id < 1)) ||
       !["proposal", "rfc", "supporting"].includes(entry.role) ||
       paths.has(entry.path)
     )
       throw new Error("Invalid immutable native bundle entry");
     paths.add(entry.path);
   }
-  for (const role of ["proposal", "rfc"])
+  for (const role of requireRfc ? ["proposal", "rfc"] : ["proposal"])
     if (entries.filter((item) => item.role === role).length !== 1)
       throw new Error(`Exactly one native ${role} required`);
 }
+function validateEntries(entries) {
+  validateSourceEntries(entries, true);
+}
+function validateAuthoringEntries(entries) {
+  validateSourceEntries(entries, true, false);
+  if (entries.filter((entry) => entry.role === "rfc").length > 1)
+    throw new Error("At most one authoring RFC required");
+}
 function readContract(native, slug) {
   validateEntries(native.entries);
+  return readDocumentContract(native, slug);
+}
+function readDraftContract(draft, slug, stage = "rfc") {
+  // Drafts use the same validators without fabricating remote revisions or
+  // knowledge-version IDs. This validation creates no approval authority.
+  if (!["groom", "rfc"].includes(stage))
+    throw new Error("Explicit product authoring stage required");
+  validateSourceEntries(draft.entries, false, stage === "rfc");
+  if (stage === "groom" && draft.entries.some((entry) => entry.role === "rfc"))
+    throw new Error("Groom publishes product scope before technical design");
+  return readDocumentContract(draft, slug, stage);
+}
+function readDocumentContract(native, slug, stage = "rfc") {
   const anchor = createProjectRootAnchor(native.snapshot_root);
   const documents = new Map();
   let total = 0;
@@ -75,6 +102,7 @@ function readContract(native, slug) {
   if (proposal.open_decisions.some((item) => item.blocks_approval !== false))
     throw new Error("Resolve approval-blocking proposal decisions before native execution");
   const contract = executionContract(proposal);
+  if (stage === "groom") return { contract };
   const rfc = parse(native.entries.find((item) => item.role === "rfc"));
   const rfcCheck = validateRfcSidecar(rfc, "native RFC", {
     expectedSlug: slug,
@@ -156,4 +184,11 @@ function validateTaskContract(session) {
     throw new Error("Native work-unit contract changed; publish and review a new bundle");
   return checked;
 }
-module.exports = { sha, validateEntries, readContract, validateTaskContract };
+module.exports = {
+  sha,
+  validateEntries,
+  validateAuthoringEntries,
+  readContract,
+  readDraftContract,
+  validateTaskContract,
+};

@@ -13,6 +13,17 @@ Turn an approved product proposal or genuinely dev-ready Linear issue into a tec
 
 **NEVER MARK AN RFC APPROVED WITHOUT EXPLICIT HUMAN APPROVAL OF THE CURRENT REVIEWED ARTIFACT.**
 
+## ProductMemory remote mode
+
+When the user selects ProductMemory as the shared source of truth, read
+`${CLAUDE_PLUGIN_ROOT}/references/productmemory-codex-host.md` and use its
+remote-first authoring route. Keep working drafts private, retain all the
+proposal/RFC validators and reviews, and publish exact versions through an
+already authorized MCP host. A current named human bundle review is the remote
+approval contract. Local lifecycle labels and archived approval files confer no
+remote authority. Do not create a checked-in local `pm/` mirror to enter this
+route. The local workflow below remains the route for local PM projects.
+
 ## When NOT to use
 
 - For XS/S work, route directly to `pm:dev`.

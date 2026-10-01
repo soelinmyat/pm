@@ -2808,8 +2808,29 @@ async function main() {
       "--remote-debugging-port=0",
       "about:blank",
     ],
-    { stdio: "ignore", detached: process.platform !== "win32" }
+    { stdio: ["ignore", "ignore", "pipe"], detached: process.platform !== "win32" }
   );
+  let launchError = null;
+  const launchHints = new Set();
+  browser.on("error", (error) => {
+    launchError = error.code || "spawn_error";
+  });
+  // Retain only known launch failure categories. Browser stderr may contain
+  // paths or URLs, so never include its arbitrary text in capture receipts.
+  browser.stderr.on("data", (bytes) => {
+    const text = bytes.toString("utf8");
+    for (const [category, pattern] of [
+      ["thread_resource", /pthread_create|Resource temporarily unavailable/i],
+      ["memory_resource", /out of memory|Cannot allocate memory/i],
+      ["sandbox", /No usable sandbox|Failed to move to new namespace/i],
+      ["profile_lock", /SingletonLock|ProcessSingleton/i],
+    ])
+      if (pattern.test(text)) launchHints.add(category);
+  });
+  const endpointError = (phase) =>
+    new Error(
+      `Chromium did not expose a debugging endpoint (${phase}; exit=${browser.exitCode ?? "running"}; signal=${browser.signalCode || "none"}; spawn=${launchError || "none"}; hints=${[...launchHints].sort().join(",") || "none"})`
+    );
   let client = null;
   let browserClient = null;
   let cleaned = false;
@@ -2855,8 +2876,13 @@ async function main() {
     const portFile = path.join(profileDir, "DevToolsActivePort");
     const endpointDeadline = Date.now() + 10_000;
     while (!fs.existsSync(portFile)) {
-      if (browser.exitCode !== null || Date.now() >= endpointDeadline)
-        throw new Error("Chromium did not expose a debugging endpoint");
+      if (
+        launchError ||
+        browser.exitCode !== null ||
+        browser.signalCode ||
+        Date.now() >= endpointDeadline
+      )
+        throw endpointError("port-file");
       await sleep(25);
     }
     const port = Number(fs.readFileSync(portFile, "utf8").split(/\r?\n/)[0]);
@@ -2869,8 +2895,7 @@ async function main() {
       ).catch(() => null);
       if (!browserEndpoint?.webSocketDebuggerUrl) await sleep(25);
     }
-    if (!browserEndpoint?.webSocketDebuggerUrl)
-      throw new Error("Chromium did not expose a debugging endpoint");
+    if (!browserEndpoint?.webSocketDebuggerUrl) throw endpointError("version-endpoint");
     let target = null;
     const targetDeadline = Date.now() + 10_000;
     while (!target && Date.now() < targetDeadline) {

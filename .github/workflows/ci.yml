@@ -49,7 +49,9 @@ jobs:
       - run: npm ci
 
       - name: Run tests with coverage
-        run: npx c8 --reporter=text node --test tests/*.test.js
+        # Each test file can launch an isolated Chromium process. Bound process
+        # concurrency on the shared runner; all browser assertions still run.
+        run: npx c8 --reporter=text node --test --test-concurrency=4 tests/*.test.js
 
   managed-directory-windows:
     name: Managed Directory Windows Smoke
