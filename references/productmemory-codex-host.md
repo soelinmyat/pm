@@ -27,7 +27,8 @@ failure journals and the actual tool error instead of manufacturing a result.
 Do not echo large source bodies to the conversation.
 
 Large immutable reads use `get_knowledge_file_chunk`, bounded to 1 MiB per call.
-The host verifies project/path/revision/position, chunk bytes and hashes, and the
+Metadata checks request `include_content: false` through the same authenticated
+tool and do not download chunks. The host verifies project/path/revision/position, chunk bytes and hashes, and the
 complete original file hash before native validation. This requires the service
 to expose that tool. Missing capability is a blocker, not permission to extract
 or transmit the bearer token.

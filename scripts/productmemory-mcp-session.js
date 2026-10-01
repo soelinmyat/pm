@@ -12,7 +12,11 @@ function createMcpSessionTransport({ identity, callTool }) {
     url.password
   )
     throw new Error("Explicit HTTPS MCP service origin required");
-  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(identity.project) || typeof callTool !== "function")
+  if (
+    typeof identity.project !== "string" ||
+    !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(identity.project) ||
+    typeof callTool !== "function"
+  )
     throw new Error("Explicit project and authorized MCP tool caller required");
   const binding = Object.freeze({ service_url: url.origin, project: identity.project });
   const bodyKeys = (body, allowed, required) => {
@@ -51,7 +55,7 @@ function createMcpSessionTransport({ identity, callTool }) {
       throw new Error("MCP request project/origin mismatch");
     const allowedQuery =
       requested.pathname === "/api/v1/knowledge_file"
-        ? ["project", "path", "revision"]
+        ? ["project", "path", "revision", "include_content"]
         : ["project", "bundle_revision", "bundle_before", "review_before", "session_before"];
     for (const key of requested.searchParams.keys()) {
       if (!allowedQuery.includes(key) || requested.searchParams.getAll(key).length !== 1)
@@ -66,11 +70,15 @@ function createMcpSessionTransport({ identity, callTool }) {
         path.split("/").some((p) => !p || p === "." || p === "..")
       )
         throw new Error("Explicit shared product path required");
+      const include = requested.searchParams.get("include_content");
+      if (include !== null && !["true", "false"].includes(include))
+        throw new Error("Explicit boolean include_content required");
       return {
         name: "get_knowledge_file",
         arguments: {
           project: binding.project,
           path,
+          ...(include === null ? {} : { include_content: include === "true" }),
           ...(requested.searchParams.has("revision")
             ? { revision: positive(requested.searchParams.get("revision")) }
             : {}),
@@ -255,6 +263,16 @@ function createMcpSessionTransport({ identity, callTool }) {
       if (
         response.status === 200 &&
         call.name === "get_knowledge_file" &&
+        call.arguments.include_content === false &&
+        ["content_base64", "content_url", "content_encoding"].some((key) =>
+          Object.hasOwn(response.body, key)
+        )
+      )
+        throw new Error("Metadata-only response must omit source bytes and streams");
+      if (
+        response.status === 200 &&
+        call.name === "get_knowledge_file" &&
+        call.arguments.include_content !== false &&
         response.body.content_encoding === "stream"
       )
         return { ...response, body: await hydrate(call, response.body) };

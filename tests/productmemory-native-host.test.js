@@ -214,3 +214,22 @@ test("host disconnect after acknowledged remote start retains durable intent and
   assert.ok(calls.length > 0);
   assert.equal(f.f.calls.filter((call) => call.method === "POST").length, 1);
 });
+
+test("CLI reports safe local validation diagnostics without inventing an uncertain remote write", () => {
+  const { spawnSync } = require("node:child_process");
+  const script = require("node:path").join(__dirname, "../scripts/productmemory-native-host.js");
+  const result = spawnSync(process.execPath, [script, "decision", "--source-dir", "/fixture"], {
+    encoding: "utf8",
+    timeout: 5000,
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /--project is required/);
+  assert.doesNotMatch(result.stderr, /replay uncertain writes/);
+  const unknown = spawnSync(
+    process.execPath,
+    [script, "decision", "--private-marker", "private-secret-marker"],
+    { encoding: "utf8", timeout: 5000 }
+  );
+  assert.equal(unknown.status, 1);
+  assert.doesNotMatch(unknown.stderr, /private-secret-marker/);
+});

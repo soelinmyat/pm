@@ -23,7 +23,7 @@ const categories = new Set([
 function createNativeAuthoring(transport) {
   const client = createWorkflowClient(transport);
   function location(sourceDir, slug) {
-    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug))
+    if (typeof slug !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug))
       throw new Error("Canonical authoring slug required");
     const root = fs.realpathSync(sourceDir);
     return {
@@ -118,10 +118,10 @@ function createNativeAuthoring(transport) {
     source(where, journal.entries, journal.execution_path, journal.stage);
     return journal;
   }
-  async function getFile(document, revision) {
+  async function getFile(document, revision, bytes = false) {
     const response = await transport.request({
       method: "GET",
-      path: `/api/v1/knowledge_file?project=${encodeURIComponent(client.identity.project)}&path=${encodeURIComponent(document)}${revision === undefined ? "" : `&revision=${revision}`}`,
+      path: `/api/v1/knowledge_file?project=${encodeURIComponent(client.identity.project)}&path=${encodeURIComponent(document)}${revision === undefined ? "" : `&revision=${revision}`}${bytes ? "" : "&include_content=false"}`,
     });
     if (response.status === 404) return null;
     if (
@@ -207,7 +207,7 @@ function createNativeAuthoring(transport) {
         for (const entry of observed.bundle.entries) {
           if (/\.(?:approval|session|lease)\.json$/i.test(entry.path))
             throw new Error("Private authority/runtime files cannot seed product drafts");
-          const remote = await getFile(entry.path, entry.revision);
+          const remote = await getFile(entry.path, entry.revision, true);
           if (
             !remote ||
             remote.revision !== entry.revision ||

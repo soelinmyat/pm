@@ -289,3 +289,29 @@ test("replacing an execution bundle returns through a fresh product review cycle
     false
   );
 });
+
+test("Groom refuses supporting evidence omitted from the publication manifest even when it exists in the private draft", async (t) => {
+  const f = authorFixture(t);
+  f.options.input.stage = "groom";
+  f.options.input.entries = f.options.input.entries.filter((entry) => entry.role === "proposal");
+  await assert.rejects(
+    f.runtime.plan(f.options),
+    /retained evidence source does not exist|source.*missing|source.*unavailable/i
+  );
+  assert.equal(f.calls.length, 0);
+  assert.equal(
+    fs.existsSync(path.join(f.f.root, `.pm/authoring/${f.options.slug}/publication.json`)),
+    false
+  );
+});
+test("missing or non-string authoring slug rejects before reads or private namespace creation", async (t) => {
+  for (const slug of [undefined, null, false, 123, { toString: () => "valid" }]) {
+    const f = authorFixture(t);
+    await assert.rejects(
+      f.runtime.plan({ ...f.options, slug }),
+      /Canonical authoring slug required/
+    );
+    assert.equal(f.calls.length, 0);
+    assert.equal(fs.existsSync(path.join(f.f.root, ".pm/authoring/undefined")), false);
+  }
+});

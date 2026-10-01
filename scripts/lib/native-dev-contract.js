@@ -1,12 +1,18 @@
 "use strict";
 const path = require("node:path");
+const fs = require("node:fs");
+const os = require("node:os");
 const crypto = require("node:crypto");
 const { isDeepStrictEqual } = require("node:util");
 const { validateProposal, executionContract } = require("./proposal-schema");
 const { scoreProposal } = require("../proposal-quality-check");
 const { validateRfcSidecar } = require("../rfc-sidecar-check");
 const { rfcIssuesToDevWorkUnits } = require("./rfc-work-units");
-const { createProjectRootAnchor, readProjectInput } = require("./project-file");
+const {
+  createProjectRootAnchor,
+  readProjectInput,
+  writeProjectFileAtomic,
+} = require("./project-file");
 const { DIMENSION_NAMES, assessRisk, routeDevWork } = require("./dev-risk");
 const sha = (bytes) => crypto.createHash("sha256").update(bytes).digest("hex");
 const equal = isDeepStrictEqual;
@@ -65,7 +71,30 @@ function readDraftContract(draft, slug, stage = "rfc") {
   validateSourceEntries(draft.entries, false, stage === "rfc");
   if (stage === "groom" && draft.entries.some((entry) => entry.role === "rfc"))
     throw new Error("Groom publishes product scope before technical design");
-  return readDocumentContract(draft, slug, stage);
+  if (typeof slug !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug))
+    throw new Error("Explicit draft product slug required");
+  // Validators must see only published bytes, never extra private draft files.
+  const snapshot = fs.mkdtempSync(path.join(os.tmpdir(), "pm-authoring-contract-"));
+  try {
+    let total = 0;
+    for (const entry of draft.entries) {
+      const bytes = readProjectInput(draft.snapshot_root, entry.path, 32 * 1024 * 1024, {
+        requireStablePath: true,
+      }).bytes;
+      total += bytes.length;
+      if (total > 64 * 1024 * 1024 || sha(bytes) !== entry.content_hash)
+        throw new Error("Bounded exact draft bytes required");
+      writeProjectFileAtomic(snapshot, entry.path, bytes, {
+        replace: false,
+        fileMode: 0o600,
+        directoryMode: 0o700,
+        maxBytes: 32 * 1024 * 1024,
+      });
+    }
+    return readDocumentContract({ ...draft, snapshot_root: snapshot }, slug, stage);
+  } finally {
+    fs.rmSync(snapshot, { recursive: true, force: true });
+  }
 }
 function readDocumentContract(native, slug, stage = "rfc") {
   const anchor = createProjectRootAnchor(native.snapshot_root);

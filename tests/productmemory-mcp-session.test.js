@@ -330,3 +330,80 @@ test("authoring writes carry exact CAS metadata and cannot replace the project o
   );
   assert.equal(f.calls.length, 1);
 });
+
+test("metadata-only knowledge reads use the authorized MCP tool without fetching source bytes", async () => {
+  const calls = [];
+  const transport = createMcpSessionTransport({
+    identity: { service_url: "https://productmemory.io", project: "cleanlog" },
+    callTool: async (call) => {
+      calls.push(call);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              path: "pm/asset.html",
+              revision: 3,
+              byte_size: 32 * 1024 * 1024,
+              content_hash: "a".repeat(64),
+              category: "document-artifact",
+              source_metadata: { history: "retained" },
+            }),
+          },
+        ],
+      };
+    },
+  });
+  const result = await transport.request({
+    method: "GET",
+    path: "/api/v1/knowledge_file?project=cleanlog&path=pm%2Fasset.html&include_content=false",
+  });
+  assert.equal(result.status, 200);
+  assert.deepEqual(calls, [
+    {
+      name: "get_knowledge_file",
+      arguments: { project: "cleanlog", path: "pm/asset.html", include_content: false },
+    },
+  ]);
+  assert.equal(Object.hasOwn(result.body, "content_base64"), false);
+});
+
+test("metadata-only mode fails closed if a service returns a stream and rejects coerced flags before tool calls", async () => {
+  let calls = 0;
+  const transport = createMcpSessionTransport({
+    identity: { service_url: "https://productmemory.io", project: "cleanlog" },
+    callTool: async () => {
+      calls++;
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              path: "pm/asset.html",
+              revision: 3,
+              content_encoding: "stream",
+              content_url: "/private-content",
+            }),
+          },
+        ],
+      };
+    },
+  });
+  await assert.rejects(
+    transport.request({
+      method: "GET",
+      path: "/api/v1/knowledge_file?project=cleanlog&path=pm%2Fasset.html&include_content=false",
+    }),
+    /Metadata-only response/
+  );
+  assert.equal(calls, 1);
+  for (const value of ["0", "FALSE", "null", ""])
+    await assert.rejects(
+      transport.request({
+        method: "GET",
+        path: `/api/v1/knowledge_file?project=cleanlog&path=pm%2Fasset.html&include_content=${value}`,
+      }),
+      /Explicit boolean/
+    );
+  assert.equal(calls, 1);
+});

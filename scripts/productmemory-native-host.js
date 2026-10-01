@@ -6,11 +6,19 @@
 const path = require("node:path");
 const { createMcpSessionTransport } = require("./productmemory-mcp-session");
 
+const safeDiagnostics = new WeakMap();
+function localValidationError(message) {
+  const error = new Error(message);
+  safeDiagnostics.set(error, message);
+  return error;
+}
 function createToolBridge({ input, output, maxBytes = 48 * 1024 * 1024 }) {
   let parts = [],
     bufferedBytes = 0,
     sequence = 0,
-    closed = false;
+    closed = false,
+    dispatched = false,
+    writeDispatched = false;
   const pending = new Map();
   const fail = (error) => {
     closed = true;
@@ -66,6 +74,12 @@ function createToolBridge({ input, output, maxBytes = 48 * 1024 * 1024 }) {
   input.on("error", () => fail(new Error("Authorized host input failed; no write replay")));
   output.on("error", () => fail(new Error("Authorized host output failed; no write replay")));
   return Object.freeze({
+    get hasDispatched() {
+      return dispatched;
+    },
+    get hasWriteDispatched() {
+      return writeDispatched;
+    },
     callTool(call) {
       if (
         !call ||
@@ -84,6 +98,12 @@ function createToolBridge({ input, output, maxBytes = 48 * 1024 * 1024 }) {
       return new Promise((resolve, reject) => {
         pending.set(id, { resolve, reject });
         try {
+          dispatched = true;
+          writeDispatched ||= ![
+            "get_feature_workflow",
+            "get_knowledge_file",
+            "get_knowledge_file_chunk",
+          ].includes(call.name);
           output.write(JSON.stringify({ kind: "native-mcp-tool-request", id, ...call }) + "\n");
         } catch {
           fail(new Error("Authorized host output failed; no write replay"));
@@ -123,11 +143,11 @@ function parseArgs(argv) {
       !argv[index + 1] ||
       argv[index + 1].startsWith("--")
     )
-      throw new Error("Explicit unique native host arguments required");
+      throw localValidationError("Explicit unique native host arguments required");
     values[key] = argv[index + 1];
   }
   for (const key of ["source-dir", "project", "service-url"])
-    if (!values[key]) throw new Error(`--${key} is required`);
+    if (!values[key]) throw localValidationError(`--${key} is required`);
   return { command, values };
 }
 
@@ -157,16 +177,21 @@ async function main(
     "author-publish",
     "author-recover",
   ]);
-  if (!operations.has(command)) throw new Error("Unsupported native host operation");
+  if (!operations.has(command)) throw localValidationError("Unsupported native host operation");
   const root = path.resolve(values["source-dir"]);
   const { readProjectInput } = require(path.join(pluginRoot, "lib/project-file"));
-  const data = values.input
-    ? JSON.parse(
+  let data = null;
+  if (values.input) {
+    try {
+      data = JSON.parse(
         readProjectInput(root, values.input, 4 * 1024 * 1024, {
           requireStablePath: true,
         }).bytes.toString("utf8")
-      )
-    : null;
+      );
+    } catch {
+      throw localValidationError("Input must be an available anchored file containing valid JSON.");
+    }
+  }
   if (
     !data &&
     [
@@ -182,7 +207,7 @@ async function main(
       "author-plan",
     ].includes(command)
   )
-    throw new Error("--input is required for this operation");
+    throw localValidationError("--input is required for this operation");
   const session = values.session ? path.resolve(root, values.session) : null;
   if (
     ![
@@ -195,7 +220,7 @@ async function main(
     ].includes(command) &&
     !session
   )
-    throw new Error("--session is required");
+    throw localValidationError("--session is required");
   const bridge = createToolBridge({ input, output });
   try {
     const transport = createMcpSessionTransport({
@@ -249,16 +274,31 @@ async function main(
     bridge.close();
     output.write(JSON.stringify({ kind: "native-host-result", result }) + "\n");
     return result;
+  } catch (error) {
+    if (!bridge.hasDispatched && !safeDiagnostics.has(error))
+      safeDiagnostics.set(
+        error,
+        "Local native validation failed before any MCP tool was requested. Check the selected source, product identity and anchored input."
+      );
+    if (bridge.hasDispatched && !bridge.hasWriteDispatched && !safeDiagnostics.has(error))
+      safeDiagnostics.set(
+        error,
+        "Native operation failed after read-only MCP requests. Inspect the host results and product contract; no new write was requested. Preserve any earlier intent for reconciliation."
+      );
+    throw error;
   } finally {
     bridge.abort();
   }
 }
 
 if (require.main === module)
-  main(process.argv.slice(2)).catch(() => {
+  main(process.argv.slice(2)).catch((error) => {
     // Never print arbitrary remote exception text or private input files.
+    const diagnostic = safeDiagnostics.get(error);
     process.stderr.write(
-      "Native host operation failed. Preserve local intent and inspect the authorized host's tool result; do not replay uncertain writes.\n"
+      diagnostic
+        ? `${diagnostic}\n`
+        : "Native host operation failed. Preserve local intent and inspect the authorized host's tool result; do not replay uncertain writes.\n"
     );
     process.exitCode = 1;
     process.stdin.pause();
