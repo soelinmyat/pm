@@ -1,46 +1,148 @@
 "use strict";
 const path = require("node:path");
+const fs = require("node:fs");
+const os = require("node:os");
 const crypto = require("node:crypto");
 const { isDeepStrictEqual } = require("node:util");
 const { validateProposal, executionContract } = require("./proposal-schema");
 const { scoreProposal } = require("../proposal-quality-check");
 const { validateRfcSidecar } = require("../rfc-sidecar-check");
 const { rfcIssuesToDevWorkUnits } = require("./rfc-work-units");
-const { createProjectRootAnchor, readProjectInput } = require("./project-file");
+const {
+  createProjectRootAnchor,
+  readProjectInput,
+  writeProjectFileAtomic,
+} = require("./project-file");
 const { DIMENSION_NAMES, assessRisk, routeDevWork } = require("./dev-risk");
 const sha = (bytes) => crypto.createHash("sha256").update(bytes).digest("hex");
 const equal = isDeepStrictEqual;
-function validateEntries(entries) {
-  if (!Array.isArray(entries) || entries.length < 3 || entries.length > 100)
+function validateSourceEntries(entries, immutable, requireRfc = true, requireHash = true) {
+  if (!Array.isArray(entries) || entries.length < (requireRfc ? 3 : 1) || entries.length > 100)
     throw new Error("Complete native bundle required");
   const paths = new Set();
   for (const entry of entries) {
     if (
       !entry ||
       Object.keys(entry).some(
-        (key) => !["path", "revision", "knowledge_version_id", "content_hash", "role"].includes(key)
+        (key) =>
+          !(
+            immutable
+              ? ["path", "revision", "knowledge_version_id", "content_hash", "role"]
+              : ["path", "content_hash", "role"]
+          ).includes(key)
       ) ||
       typeof entry.path !== "string" ||
       !entry.path.startsWith("pm/") ||
       entry.path.includes("\\") ||
       entry.path.split("/").some((part) => !part || part === "." || part === "..") ||
-      !/^[a-f0-9]{64}$/.test(entry.content_hash) ||
-      !Number.isSafeInteger(entry.revision) ||
-      entry.revision < 1 ||
-      !Number.isSafeInteger(entry.knowledge_version_id) ||
-      entry.knowledge_version_id < 1 ||
+      (requireHash && !/^[a-f0-9]{64}$/.test(entry.content_hash)) ||
+      (immutable &&
+        (!Number.isSafeInteger(entry.revision) ||
+          entry.revision < 1 ||
+          !Number.isSafeInteger(entry.knowledge_version_id) ||
+          entry.knowledge_version_id < 1)) ||
       !["proposal", "rfc", "supporting"].includes(entry.role) ||
       paths.has(entry.path)
     )
       throw new Error("Invalid immutable native bundle entry");
     paths.add(entry.path);
   }
-  for (const role of ["proposal", "rfc"])
+  for (const role of requireRfc ? ["proposal", "rfc"] : ["proposal"])
     if (entries.filter((item) => item.role === role).length !== 1)
       throw new Error(`Exactly one native ${role} required`);
 }
+function validateDraftEntryPaths(entries, stage) {
+  validateSourceEntries(
+    entries.map((entry) => ({ path: entry?.path, role: entry?.role })),
+    false,
+    stage === "rfc",
+    false
+  );
+}
+function materializePinnedSource({ root, destination, entry, data, total }) {
+  if (
+    data?.path !== entry.path ||
+    data.revision !== entry.revision ||
+    data.content_hash !== entry.content_hash ||
+    typeof data.content_base64 !== "string" ||
+    data.content_base64.length > 45 * 1024 * 1024
+  )
+    throw new Error("Pinned native source unavailable or exceeds bootstrap budget");
+  const bytes = Buffer.from(data.content_base64, "base64");
+  const nextTotal = total + bytes.length;
+  if (
+    !Number.isSafeInteger(total) ||
+    total < 0 ||
+    bytes.toString("base64") !== data.content_base64 ||
+    bytes.length !== data.byte_size ||
+    bytes.length > 32 * 1024 * 1024 ||
+    nextTotal > 64 * 1024 * 1024 ||
+    sha(bytes) !== entry.content_hash
+  )
+    throw new Error("Pinned native source hash/size mismatch");
+  writeProjectFileAtomic(root, destination, bytes, {
+    replace: false,
+    fileMode: 0o600,
+    directoryMode: 0o700,
+    maxBytes: 32 * 1024 * 1024,
+  });
+  return nextTotal;
+}
+function validateEntries(entries) {
+  validateSourceEntries(entries, true);
+}
+function validateAuthoringEntries(entries) {
+  validateSourceEntries(entries, true, false);
+  if (entries.filter((entry) => entry.role === "rfc").length > 1)
+    throw new Error("At most one authoring RFC required");
+}
 function readContract(native, slug) {
   validateEntries(native.entries);
+  return readDocumentContract(native, slug);
+}
+function readDraftContract(draft, slug, stage = "rfc", source = null) {
+  // Drafts use the same validators without fabricating remote revisions or
+  // knowledge-version IDs. This validation creates no approval authority.
+  if (!["groom", "rfc"].includes(stage))
+    throw new Error("Explicit product authoring stage required");
+  validateSourceEntries(draft.entries, false, stage === "rfc");
+  if (stage === "groom" && draft.entries.some((entry) => entry.role === "rfc"))
+    throw new Error("Groom publishes product scope before technical design");
+  if (typeof slug !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug))
+    throw new Error("Explicit draft product slug required");
+  const sourceRoot = source?.root ?? draft.snapshot_root;
+  const sourcePrefix = source?.prefix ?? "";
+  const sourceAnchor = source?.anchor ?? createProjectRootAnchor(sourceRoot);
+  // Validators must see only published bytes, never extra private draft files.
+  const snapshot = fs.mkdtempSync(path.join(os.tmpdir(), "pm-authoring-contract-"));
+  try {
+    let total = 0;
+    for (const entry of draft.entries) {
+      const bytes = readProjectInput(
+        sourceRoot,
+        sourcePrefix ? `${sourcePrefix}/${entry.path}` : entry.path,
+        32 * 1024 * 1024,
+        {
+          projectRootAnchor: sourceAnchor,
+          requireStablePath: true,
+        }
+      ).bytes;
+      total += bytes.length;
+      if (total > 64 * 1024 * 1024 || sha(bytes) !== entry.content_hash)
+        throw new Error("Bounded exact draft bytes required");
+      writeProjectFileAtomic(snapshot, entry.path, bytes, {
+        replace: false,
+        fileMode: 0o600,
+        directoryMode: 0o700,
+        maxBytes: 32 * 1024 * 1024,
+      });
+    }
+    return readDocumentContract({ ...draft, snapshot_root: snapshot }, slug, stage);
+  } finally {
+    fs.rmSync(snapshot, { recursive: true, force: true });
+  }
+}
+function readDocumentContract(native, slug, stage = "rfc") {
   const anchor = createProjectRootAnchor(native.snapshot_root);
   const documents = new Map();
   let total = 0;
@@ -75,6 +177,7 @@ function readContract(native, slug) {
   if (proposal.open_decisions.some((item) => item.blocks_approval !== false))
     throw new Error("Resolve approval-blocking proposal decisions before native execution");
   const contract = executionContract(proposal);
+  if (stage === "groom") return { contract };
   const rfc = parse(native.entries.find((item) => item.role === "rfc"));
   const rfcCheck = validateRfcSidecar(rfc, "native RFC", {
     expectedSlug: slug,
@@ -156,4 +259,13 @@ function validateTaskContract(session) {
     throw new Error("Native work-unit contract changed; publish and review a new bundle");
   return checked;
 }
-module.exports = { sha, validateEntries, readContract, validateTaskContract };
+module.exports = {
+  sha,
+  materializePinnedSource,
+  validateEntries,
+  validateAuthoringEntries,
+  validateDraftEntryPaths,
+  readContract,
+  readDraftContract,
+  validateTaskContract,
+};

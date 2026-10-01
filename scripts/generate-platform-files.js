@@ -239,6 +239,14 @@ can also appear in the skill picker; they are compatibility entry points into
 the native skill. Do not hand-edit their generated cache files. The plugin
 manifest publishes the canonical \`skills/\` directory.
 
+## ProductMemory through Codex MCP
+
+ProductMemory shared projects can use the credential-free Codex MCP host for
+remote-first Groom/RFC publication and native development. Read
+[the host protocol and approval boundaries](../references/productmemory-codex-host.md).
+Private runtime state stays local; connecting MCP and writer cutover remain
+separate user-coordinated steps.
+
 ## Consistent model selection
 
 An interactive Astra task does not automatically change a CLI worker's model.

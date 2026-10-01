@@ -338,3 +338,9 @@ Design capture follows real keyboard focus, including asynchronous roving tab co
 ### Reading generated artifacts
 
 Proposal and RFC HTML readers use section/subsection navigation, short decision-first prose, and expandable execution detail. Proposals place source-bound prototype links before implementation detail; absent prototypes are labeled honestly. Risks and pending decisions remain visible, and complete evidence and execution contracts remain available for review and printing.
+
+ProductMemory shared projects can use the credential-free Codex MCP host for
+remote-first Groom/RFC publication and native development. See
+[the host protocol and approval boundaries](references/productmemory-codex-host.md).
+Private runtime state stays local; connecting MCP and writer cutover remain
+separate user-coordinated steps.
