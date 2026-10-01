@@ -76,6 +76,7 @@ function verifyDelivery(sessionPath, session) {
     requireSessionBinding: true,
     reviewEvidenceMode: "enforce",
     requiredAuthorities: [],
+    requireDeliveryEvidence: true,
   });
   if (!checked.ok) throw new Error(`Current PM gates failed: ${checked.issues[0].message}`);
   return {
@@ -232,4 +233,4 @@ function createNativeDevAuthority({
   });
 }
 
-module.exports = { createNativeDevAuthority };
+module.exports = { createNativeDevAuthority, verifyDelivery };

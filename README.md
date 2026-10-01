@@ -1,5 +1,7 @@
 # PM — Shared Product Brain for Small Teams
 
+Opt-in ProductMemory native Dev uses a currently reviewed structured remote bundle and an already authorized host transport, with private local execution mechanics and unchanged canonical quality gates. It does not auto-configure credentials or enroll existing work. See [the native workflow contract](references/productmemory-native-workflow.md).
+
 Small, explicitly assessed low-risk web UI changes use one combined visual/browser QA pass (desktop, narrow screen, and keyboard), followed by source review and release checks. Mobile, mixed-platform, larger, sensitive, or uncertain changes retain standalone design critique. No safety-bypass flag is needed.
 
 Product UI capture supports reserved scrollbar gutters without treating the smaller content area as a viewport mismatch. Screenshot dimensions, zoom, and capture identity checks still apply. Native design audits compare typography within related semantic regions and, while one named modal owns focus, within that modal rather than its inactive background. They also accept localized state changes with meaningful changed tiles, and compare native-measured error alerts when shared page chrome obscures an error/empty content difference. Duplicate images, pixel beacons, and genuine accessibility defects still fail.

@@ -37,6 +37,10 @@ No bypass flags. If the groom or RFC cost feels disproportionate to the work, th
 
 Before proceeding, check whether an approved RFC exists for this work.
 
+### Remote-native readiness
+
+When `task.native` is present, use the current live host decision and its complete `native_contract`. Read the RFC entry from the exact private bundle snapshot, preserve its work-unit DAG and design contract, and return the normal readiness envelope with that absolute RFC path as `rfc-readiness` evidence. Record through the native host runtime. It rechecks the current named remote approval and source hashes; do not require or generate a legacy local audit for this path. Then advance to the next routed phase. Apply the local checks below to local sessions.
+
 ### Step 0: Kind short-circuit (runs first)
 
 If session state has `kind: task` or `kind: bug`, this is lightweight capture — groom and RFC are explicitly out of scope.

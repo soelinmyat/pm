@@ -1197,4 +1197,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { EXIT, main, parseArguments };
+module.exports = { EXIT, main, parseArguments, acquireSessionLock };

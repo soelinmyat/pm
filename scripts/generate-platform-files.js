@@ -190,6 +190,8 @@ function buildCodexInstallDoc(config) {
 
   return `# PM Plugin: Codex Installation
 
+Opt-in ProductMemory native Dev uses a currently reviewed structured remote bundle and an already authorized host transport, with private local execution mechanics and unchanged canonical quality gates. It does not auto-configure credentials or enroll existing work. See [the native workflow contract](../references/productmemory-native-workflow.md).
+
 PM now ships a native Codex plugin manifest at \`.codex-plugin/plugin.json\`.
 
 Dev uses the same risk-based review in Codex: explicitly assessed low-risk XS/S web UI changes combine visual/accessibility checks into browser QA; mobile, mixed-platform, consequential, or uncertain changes retain standalone design critique. Existing sessions retain their recorded route. Start a successor intake to adopt new routing, preserving previous evidence rather than changing old verdicts.

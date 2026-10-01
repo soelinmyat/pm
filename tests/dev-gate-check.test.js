@@ -2827,3 +2827,31 @@ test("documentation under design-system permits a proven no-visual-impact skip",
   );
   assert.equal(result.ok, true, JSON.stringify(result.issues));
 });
+
+test("native certification enforces canonical evidence without external grants", () => {
+  const session = {
+    run_id: "native-certification",
+    slug: "example",
+    source: { branch: "feature" },
+    task: { risk: { behavioral: 1, ui: 0 } },
+    routing: { review_mode: "code-scan", required_gates: ["tdd", "review", "verification"] },
+    evidence: {},
+    authority: {},
+    authority_log: [],
+  };
+  const checked = checkGateManifest(manifest([], { run_id: session.run_id }), {
+    canonicalSession: session,
+    requireDeliveryEvidence: true,
+    requiredAuthorities: [],
+    manifestPath: ".pm/dev-sessions/example/gates.json",
+    currentCommit: "abc123",
+  });
+  assert.equal(checked.ok, false);
+  for (const name of session.routing.required_gates)
+    assert.ok(
+      checked.issues.some((row) =>
+        row.message.includes(`canonical session evidence for ${name} is missing`)
+      )
+    );
+  assert.ok(checked.issues.every((row) => !row.message.includes("does not grant authority")));
+});

@@ -269,6 +269,204 @@
           "type": "object",
           "required": ["rfc_sidecar"],
           "properties": { "rfc_sidecar": { "type": "object" } }
+        },
+        {
+          "required": ["native"],
+          "properties": { "native": { "$ref": "#/$defs/native_provenance" } }
+        }
+      ]
+    },
+    "native_provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workflow_id",
+        "workflow_revision",
+        "bundle_id",
+        "review_id",
+        "owner_id",
+        "remote_session_id",
+        "remote_session_revision",
+        "kind",
+        "service_url",
+        "project",
+        "record_id",
+        "bundle_digest",
+        "reviewer",
+        "snapshot_root",
+        "execution_path",
+        "remote_session_state",
+        "certification",
+        "entries"
+      ],
+      "properties": {
+        "workflow_id": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "workflow_revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "bundle_id": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "review_id": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "owner_id": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "remote_session_id": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "remote_session_revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "kind": {
+          "const": "productmemory-native-dev-v1"
+        },
+        "service_url": {
+          "type": "string",
+          "pattern": "^https://[^/?#@]+$"
+        },
+        "project": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "record_id": {
+          "type": "string",
+          "pattern": "^bkl_[A-Za-z0-9]+$"
+        },
+        "bundle_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "reviewer": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "snapshot_root": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "execution_path": {
+          "type": "string",
+          "pattern": "^pm/"
+        },
+        "remote_session_state": {
+          "enum": [
+            "running",
+            "verified"
+          ]
+        },
+        "certification": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "commit",
+                "gate_manifest_sha256",
+                "verification"
+              ],
+              "properties": {
+                "commit": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{40}$"
+                },
+                "gate_manifest_sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "verification": {
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "entries": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "revision",
+              "knowledge_version_id",
+              "content_hash",
+              "role"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "pattern": "^pm/"
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "knowledge_version_id": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "content_hash": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "role": {
+                "enum": [
+                  "proposal",
+                  "rfc",
+                  "supporting"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "remote_session_state": {
+                "const": "running"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "certification": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "certification": {
+                "type": "object"
+              }
+            }
+          }
         }
       ]
     },
@@ -286,6 +484,7 @@
       ],
       "properties": {
         "reference": { "type": ["string", "null"] },
+        "native": { "$ref": "#/$defs/native_provenance" },
         "rfc_sidecar": {
           "oneOf": [
             { "type": "null" },
@@ -426,6 +625,16 @@
             }
           },
           "then": { "$ref": "#/$defs/design_context_provenance" }
+        },
+        {
+          "if": { "required": ["native"] },
+          "then": {
+            "properties": {
+              "proposal": { "type": "null" },
+              "rfc_sidecar": { "type": "null" },
+              "rfc_contract_history": { "maxItems": 0 }
+            }
+          }
         }
       ]
     },
