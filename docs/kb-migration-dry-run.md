@@ -49,7 +49,7 @@ historical approval verification and a representative migration are separate gat
 Run focused checks with:
 
 ```sh
-node --test tests/kb-migration-plan.test.js tests/kb-sync-pm.test.js
+node --test tests/kb-migration-plan.test.js tests/kb-migration-bundle.test.js tests/kb-sync-pm.test.js
 node scripts/validate.js --plugin
 ```
 
@@ -74,3 +74,36 @@ aliases are accepted only when they resolve to `/private/tmp` and `/private/var`
 Credential-looking URL references are redacted in the manifest; original file bytes
 remain private backup material. Pattern recognition is incomplete, so outputs still
 require review before sharing.
+
+## Private migration bundle
+
+Freeze source snapshots before building a bundle. This tooling is entirely offline;
+it does not authorize or perform uploads. Build requires an explicit project namespace,
+canonical source and manifests for every retained source:
+
+```sh
+node scripts/kb-migration-bundle.js build cleanlog /snapshot/canonical /private/bundle /private/plan-00.json /private/plan-01.json
+node scripts/kb-migration-bundle.js verify /private/bundle <trusted-build-receipt-sha256>
+node scripts/kb-migration-bundle.js restore /private/bundle /private/empty-restore
+```
+
+An optional `--supplements /private/supplements.json` accepts entries with `label`,
+`path` and `sha256` to preserve explicit backup metadata, guidance or baseline
+selection evidence. Supplements remain local-only. Symlink targets are never followed
+or recreated. Each source restores separately, preserving all retained versions.
+
+The index preserves exact source status and historical approval provenance, raw-byte
+hashes and source manifests. Shared-record candidate IDs are namespaced by project
+and source ID when present; collisions fail the build. These IDs still require a
+verified remote mapping contract. Missing or unresolved code, route and dynamic
+dependencies block active handoff. Baseline selection does not grant feature approval.
+
+Rebuilding identical inputs is idempotent. Verification recomputes derived metadata
+and checks every content object; restore checks hashes again. The adjacent checksum
+detects accidental corruption, while a separately retained trusted build receipt
+also detects index replacement. Checksums are not signatures. Keep all bundle files
+private: raw source bytes can contain information not recognized by the scanner.
+Build also reparses source files to reject altered status, identity, approval or
+dependency metadata even when their byte hashes still match. If interrupted between
+index and checksum creation, preserve the incomplete output and retry in a new empty
+destination; the tooling refuses to overwrite unverifiable remnants.
