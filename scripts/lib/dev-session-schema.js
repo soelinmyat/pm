@@ -1328,6 +1328,18 @@ function validateQaEvidence(session, result, errors, basePath = "$.evidence", op
   return checked;
 }
 
+function verifyRfcReadinessProvenance(session) {
+  const errors = [];
+  validateReadinessEvidence(
+    session,
+    {
+      evidence: [{ kind: "rfc-readiness", exit_code: 0, artifact: session.task.rfc_sidecar.path }],
+    },
+    errors
+  );
+  if (errors.length) throw validationError("RFC readiness provenance invalid", errors);
+}
+
 function validateReadinessEvidence(session, result, errors) {
   const sidecarPath = evidenceArtifact(result, "rfc-readiness", errors);
   if (!sidecarPath) return;
@@ -3460,6 +3472,7 @@ module.exports = {
   validateSession,
   validationError,
   verifyRfcSidecarIdentity,
+  verifyRfcReadinessProvenance,
   updateWorkspace,
   upgradeCompatibleSession,
   transitionWorkUnit,
