@@ -1,0 +1,54 @@
+# Offline knowledge-base migration inventory
+
+`kb-migration-plan.js` prepares a local inventory before selecting a destination
+storage contract. It never reads credentials, calls a network service, changes the
+source, creates approval decisions, or uploads project content.
+
+```sh
+node scripts/kb-migration-plan.js plan /absolute/path/to/knowledge-repo > /private/path/manifest.json
+node scripts/kb-migration-plan.js validate /private/path/manifest.json
+node scripts/kb-migration-plan.js verify /private/path/manifest.json
+node scripts/kb-migration-plan.js verify /private/path/manifest.json /absolute/path/to/restored-repo
+```
+
+Keep manifest outputs private: they contain project paths, IDs and historical
+approval attribution. The planner retains file hashes and exact source statuses;
+it does not emit file bodies or silently translate statuses to destination enums.
+Every regular file under `pm/` and `.pm/` receives a category, including unknown
+file types. Unknown files are reported for explicit mapping, not discarded.
+Runtime files remain classified as local runtime rather than remote payloads.
+
+Symlinks (including broken links), special files, credential filenames and known
+credential patterns are excluded and reported. Pattern detection is a limited
+guard, not a comprehensive secret audit. Never use its output as authorization to
+publish files or private runtime state. Back up symlink metadata separately if it
+is needed for recovery; this tool never follows or restores symlinks.
+
+Markdown links, frontmatter research/source/evidence paths and HTML/CSS asset
+references are resolved against the inventory. Missing and machine-absolute links
+are explicit warnings. JavaScript-generated links and JSON references are not
+fully inspected; retain the original bytes and review their contracts before
+cutover. A valid inventory does not mean the destination supports all content.
+
+Approval records and session approvals retain original actor, date and declared
+hashes as historical provenance. Hash matches only mean some inventoried file has
+that digest; they do not establish the correct artifact identity, an intact
+approval transition or a current human decision. Approval contract verification
+is always required before representing an imported item as approved.
+
+Verification detects changed, missing, newly added and replaced-by-symlink files.
+It does not treat excluded content as preserved. For multiple worktrees, generate
+one manifest per worktree and keep source identity; do not collapse competing
+versions under one destination ID. Take another inventory after pausing writers
+at cutover, since an offline scan is not an atomic snapshot of active workflows.
+
+All plans report `production_ready: false` and `cutover_allowed: false` deliberately.
+Destination API validation, conflict resolution, complete backup/restore,
+historical approval verification and a representative migration are separate gates.
+
+Run focused checks with:
+
+```sh
+node --test tests/kb-migration-plan.test.js tests/kb-sync-pm.test.js
+node scripts/validate.js --plugin
+```
