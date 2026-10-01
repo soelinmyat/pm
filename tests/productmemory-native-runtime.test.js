@@ -175,14 +175,7 @@ test("fresh native bootstrap needs no local proposal RFC or approval audit", asy
   assert.equal(fs.existsSync(path.join(f.root, "pm")), false);
   const runtime = createNativeRuntime(f.transport);
   const initialized = await runtime.initialize(f.options);
-  const Ajv2020 = require("ajv/dist/2020");
-  const ajv = new Ajv2020({ strict: false });
-  require("ajv-formats")(ajv);
-  const published = JSON.parse(
-    fs.readFileSync(path.join(__dirname, "../skills/dev/references/dev-session.schema.json"))
-  );
-  const validate = ajv.compile(published);
-  assert.equal(validate(initialized.session), true, JSON.stringify(validate.errors));
+  assert.deepEqual(schema.validateSession(initialized.session), []);
   assert.equal(initialized.session.task.proposal, null);
   assert.equal(initialized.session.task.rfc_sidecar, null);
   assert.equal(initialized.session.task.native.reviewer, "second-person@example.com");
@@ -197,6 +190,35 @@ test("fresh native bootstrap needs no local proposal RFC or approval audit", asy
   );
   assert.throws(() => schema.nextDecision(initialized.session), /live authorized host/);
   assert.equal(fs.existsSync(path.join(f.root, "pm")), false);
+});
+test("native bootstrap agrees with the published JSON schema", async (t) => {
+  function optionalDevRequire(request) {
+    try {
+      return require(request);
+    } catch (error) {
+      const firstLine = String(error?.message || "").split("\n", 1)[0];
+      if (error?.code === "MODULE_NOT_FOUND" && firstLine === `Cannot find module '${request}'`)
+        return null;
+      throw error;
+    }
+  }
+  const Ajv2020 = optionalDevRequire("ajv/dist/2020");
+  const addFormats = optionalDevRequire("ajv-formats");
+  if (!Ajv2020 || !addFormats) {
+    t.skip(
+      "JSON schema parity needs the development-only ajv packages; runtime validation remains covered"
+    );
+    return;
+  }
+  const f = fixture(t);
+  const initialized = await createNativeRuntime(f.transport).initialize(f.options);
+  const ajv = new Ajv2020({ strict: false });
+  addFormats(ajv);
+  const published = JSON.parse(
+    fs.readFileSync(path.join(__dirname, "../skills/dev/references/dev-session.schema.json"))
+  );
+  const validate = ajv.compile(published);
+  assert.equal(validate(initialized.session), true, JSON.stringify(validate.errors));
 });
 test("requests changes refuse remote start", async (t) => {
   const f = fixture(t);
