@@ -74,6 +74,7 @@ function resolveReference(from, reference, files) {
 
 function plan(root) {
   root = path.resolve(root);
+  if (fs.lstatSync(root).isSymbolicLink()) throw new Error("Source root must not be a symlink");
   const files = [];
   const excluded = [];
   function walk(relative) {
@@ -187,6 +188,16 @@ function plan(root) {
 function validate(manifest) {
   const errors = [];
   const warnings = [];
+  if (!manifest || !Array.isArray(manifest.files) || !Array.isArray(manifest.excluded)) {
+    return {
+      errors: [{ code: "invalid-manifest" }],
+      warnings,
+      inventory_valid: false,
+      cutover_allowed: false,
+    };
+  }
+  if (manifest.schema_version !== undefined && manifest.schema_version !== 1)
+    errors.push({ code: "unsupported-schema" });
   const paths = new Set();
   const ids = new Map();
   for (const file of manifest.files) {
@@ -224,6 +235,11 @@ function validate(manifest) {
 
 function verify(manifest, root = manifest.source_root) {
   const failures = [];
+  const validation = validate(manifest);
+  if (!validation.inventory_valid)
+    return { verified: false, failures: validation.errors, checked: 0 };
+  if (fs.lstatSync(path.resolve(root)).isSymbolicLink())
+    return { verified: false, failures: [{ reason: "symlink-root" }], checked: 0 };
   for (const file of manifest.files) {
     if (validate({ files: [file], excluded: [] }).errors.length) {
       failures.push({ path: file.path, reason: "unsafe-manifest" });
@@ -249,6 +265,16 @@ function verify(manifest, root = manifest.source_root) {
     if (!expected.has(file.path)) failures.push({ path: file.path, reason: "new-file" });
   for (const file of fresh.excluded)
     if (expected.has(file.path)) failures.push({ path: file.path, reason: "now-excluded" });
+  const priorExcluded = new Set(manifest.excluded.map((file) => `${file.path}:${file.reason}`));
+  for (const file of fresh.excluded) {
+    if (!priorExcluded.has(`${file.path}:${file.reason}`))
+      failures.push({ path: file.path, reason: "new-exclusion" });
+  }
+  const currentExcluded = new Set(fresh.excluded.map((file) => `${file.path}:${file.reason}`));
+  for (const file of manifest.excluded) {
+    if (!currentExcluded.has(`${file.path}:${file.reason}`))
+      failures.push({ path: file.path, reason: "missing-exclusion" });
+  }
   return { verified: failures.length === 0, failures, checked: manifest.files.length };
 }
 

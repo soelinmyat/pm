@@ -132,3 +132,14 @@ test("identical inventories are deterministic and retain duplicate identities as
   assert.deepEqual(plan(f.root), plan(f.root));
   assert.ok(plan(f.root).validation.warnings.some((x) => x.code === "duplicate-source-id"));
 });
+
+test("changed excluded inventory and unsupported schemas fail verification", (t) => {
+  const f = fixture(t);
+  f.write("pm/a.md", "A");
+  const manifest = plan(f.root);
+  f.write(".pm/credentials", "synthetic private fixture");
+  assert.equal(verify(manifest).verified, false);
+  assert.equal(verify(manifest).failures[0].reason, "new-exclusion");
+  assert.equal(validate({ ...manifest, schema_version: 999 }).inventory_valid, false);
+  assert.equal(validate({}).inventory_valid, false);
+});
