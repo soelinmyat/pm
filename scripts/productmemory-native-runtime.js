@@ -476,6 +476,11 @@ function createNativeRuntime(transport) {
         const { observed, remote } = await context.verifyCurrent(session, transport);
         if (gitExec(session.source.worktree, ["rev-parse", "HEAD"]).trim() !== proof.commit)
           throw new Error("Worktree changed during native certification");
+        // The remote preflight yields while retained evidence can change locally.
+        // Revalidate and bind the exact durable intent immediately before writing.
+        const currentProof = verifyDelivery(sessionPath, session);
+        if (JSON.stringify(currentProof) !== JSON.stringify(intent.proof))
+          throw new Error("Delivery evidence changed during native certification");
         const result = await client.report(observed, remote, {
           state: "verified",
           result_commit: proof.commit,

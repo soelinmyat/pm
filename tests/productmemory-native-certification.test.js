@@ -266,137 +266,168 @@ function publishReview(f, sessionPath, session) {
   return path.join(f.root, reportPath);
 }
 
-test("native execution publishes real gates and certifies through the canonical delivery verifier", async (t) => {
-  const f = fixture(t);
-  const runtime = createNativeRuntime(f.transport);
-  const initialized = await runtime.initialize(f.options);
-  const sessionPath = initialized.session_path;
-  let session = initialized.session;
-  const testCommand = "node native-check.cjs";
-  const executeTest = () =>
-    spawnSync(process.execPath, ["native-check.cjs"], {
-      cwd: f.root,
-      encoding: "utf8",
-    });
-  const record = async (evidence, filesChanged = []) => {
-    const decision = await runtime.decision(sessionPath);
-    const result = {
-      schema_version: 1,
-      run_id: session.run_id,
-      phase: decision.phase,
-      attempt: decision.attempt,
-      status: "passed",
-      summary: `${decision.phase} completed against the native contract`,
-      commit: decision.requires_commit ? f.git("rev-parse", "HEAD") : null,
-      files_changed: filesChanged,
-      evidence,
-      blocker: null,
-      runtime: { provider: "codex", model: "fixture", reasoning: "high" },
+for (const mutation of [null, "invalid-review", "changed-gates"]) {
+  test(`native certification uses current canonical evidence (${mutation || "success"})`, async (t) => {
+    const f = fixture(t);
+    const runtime = createNativeRuntime(f.transport);
+    const initialized = await runtime.initialize(f.options);
+    const sessionPath = initialized.session_path;
+    let session = initialized.session;
+    const testCommand = "node native-check.cjs";
+    const executeTest = () =>
+      spawnSync(process.execPath, ["native-check.cjs"], {
+        cwd: f.root,
+        encoding: "utf8",
+      });
+    const record = async (evidence, filesChanged = []) => {
+      const decision = await runtime.decision(sessionPath);
+      const result = {
+        schema_version: 1,
+        run_id: session.run_id,
+        phase: decision.phase,
+        attempt: decision.attempt,
+        status: "passed",
+        summary: `${decision.phase} completed against the native contract`,
+        commit: decision.requires_commit ? f.git("rev-parse", "HEAD") : null,
+        files_changed: filesChanged,
+        evidence,
+        blocker: null,
+        runtime: { provider: "codex", model: "fixture", reasoning: "high" },
+      };
+      session = await runtime.record(sessionPath, result);
     };
-    session = await runtime.record(sessionPath, result);
-  };
-  assert.deepEqual(session.routing.required_gates, ["tdd", "review", "verification"]);
-  assert.equal(session.phase, "intake");
-  await record([
-    {
-      kind: "intake",
-      command: "native reviewed execution contract",
-      exit_code: 0,
-      artifact: session.task.reference,
-    },
-  ]);
-  assert.equal(session.phase, "workspace");
-  session = await runtime.workspace(sessionPath);
-  await record([
-    { kind: "workspace", command: "git status --short", exit_code: 0, artifact: f.root },
-  ]);
-  assert.equal(session.phase, "readiness");
-  const rfcEntry = session.task.native.entries.find((entry) => entry.role === "rfc");
-  await record([
-    {
-      kind: "rfc-readiness",
-      command: "native bundle readiness",
-      exit_code: 0,
-      artifact: path.join(session.task.native.snapshot_root, rfcEntry.path),
-    },
-  ]);
-  assert.equal(session.phase, "implementation");
-  session = await runtime.transitionWorkUnit(sessionPath, { id: "rfc-1", status: "running" });
-  const red = executeTest();
-  assert.equal(red.status, 1, red.stdout + red.stderr);
-  fs.writeFileSync(path.join(f.root, "src/example.js"), "module.exports = 2;\n");
-  const green = executeTest();
-  assert.equal(green.status, 0, green.stdout + green.stderr);
-  f.git("add", "src/example.js");
-  f.git("commit", "-qm", "Implement native contract fixture");
-  const commit = f.git("rev-parse", "HEAD");
-  const testEvidence = {
-    kind: "test",
-    command: testCommand,
-    exit_code: green.status,
-    artifact: path.join(f.root, "native-check.cjs"),
-  };
-  session = await runtime.transitionWorkUnit(sessionPath, {
-    id: "rfc-1",
-    status: "completed",
-    result: {
-      schema_version: 1,
-      work_unit_id: "rfc-1",
+    assert.deepEqual(session.routing.required_gates, ["tdd", "review", "verification"]);
+    assert.equal(session.phase, "intake");
+    await record([
+      {
+        kind: "intake",
+        command: "native reviewed execution contract",
+        exit_code: 0,
+        artifact: session.task.reference,
+      },
+    ]);
+    assert.equal(session.phase, "workspace");
+    session = await runtime.workspace(sessionPath);
+    await record([
+      { kind: "workspace", command: "git status --short", exit_code: 0, artifact: f.root },
+    ]);
+    assert.equal(session.phase, "readiness");
+    const rfcEntry = session.task.native.entries.find((entry) => entry.role === "rfc");
+    await record([
+      {
+        kind: "rfc-readiness",
+        command: "native bundle readiness",
+        exit_code: 0,
+        artifact: path.join(session.task.native.snapshot_root, rfcEntry.path),
+      },
+    ]);
+    assert.equal(session.phase, "implementation");
+    session = await runtime.transitionWorkUnit(sessionPath, { id: "rfc-1", status: "running" });
+    const red = executeTest();
+    assert.equal(red.status, 1, red.stdout + red.stderr);
+    fs.writeFileSync(path.join(f.root, "src/example.js"), "module.exports = 2;\n");
+    const green = executeTest();
+    assert.equal(green.status, 0, green.stdout + green.stderr);
+    f.git("add", "src/example.js");
+    f.git("commit", "-qm", "Implement native contract fixture");
+    const commit = f.git("rev-parse", "HEAD");
+    const testEvidence = {
+      kind: "test",
+      command: testCommand,
+      exit_code: green.status,
+      artifact: path.join(f.root, "native-check.cjs"),
+    };
+    session = await runtime.transitionWorkUnit(sessionPath, {
+      id: "rfc-1",
       status: "completed",
-      summary: "Implemented the approved native contract after a failing regression",
-      commit,
-      files_changed: 1,
-      evidence: [testEvidence],
-      blocker: null,
-      runtime: { provider: "codex", model: "fixture" },
-    },
+      result: {
+        schema_version: 1,
+        work_unit_id: "rfc-1",
+        status: "completed",
+        summary: "Implemented the approved native contract after a failing regression",
+        commit,
+        files_changed: 1,
+        evidence: [testEvidence],
+        blocker: null,
+        runtime: { provider: "codex", model: "fixture" },
+      },
+    });
+    await record([testEvidence], ["src/example.js"]);
+    assert.equal(session.phase, "review");
+    await runtime.gate(sessionPath, { name: "tdd" });
+    const reportPath = publishReview(f, sessionPath, session);
+    const verification = executeTest();
+    assert.equal(verification.status, 0, verification.stdout + verification.stderr);
+    await record([
+      {
+        kind: "review",
+        command: "node scripts/review-check.js --from-report",
+        exit_code: 0,
+        artifact: reportPath,
+      },
+      { ...testEvidence, exit_code: verification.status },
+    ]);
+    assert.equal(session.phase, "ship");
+    await runtime.gate(sessionPath, { name: "review" });
+    await runtime.gate(sessionPath, { name: "verification" });
+    const manifestPath = path.join(path.dirname(sessionPath), "gates.json");
+    const manifest = JSON.parse(fs.readFileSync(manifestPath));
+    assert.deepEqual(
+      manifest.gates.map(({ name }) => name).sort(),
+      [...session.routing.required_gates].sort()
+    );
+    assert.ok(manifest.gates.every((row) => row.status === "passed" && row.commit === commit));
+    if (mutation) {
+      const request = f.transport.request;
+      let mutated = false;
+      f.transport.request = async (input) => {
+        const intentPath = path.join(path.dirname(sessionPath), "native-certification-intent.json");
+        if (!mutated && input.method === "GET" && fs.existsSync(intentPath)) {
+          mutated = true;
+          if (mutation === "invalid-review") {
+            const review = JSON.parse(fs.readFileSync(reportPath));
+            review.outcome = "failed";
+            fs.writeFileSync(reportPath, JSON.stringify(review));
+          } else {
+            const gates = JSON.parse(fs.readFileSync(manifestPath));
+            gates.gates[0].checked_at = new Date(Date.now() + 1000).toISOString();
+            fs.writeFileSync(manifestPath, JSON.stringify(gates));
+          }
+        }
+        return request(input);
+      };
+      await assert.rejects(runtime.certify(sessionPath));
+      assert.equal(mutated, true);
+      assert.equal(f.calls.filter((call) => call.method === "PATCH").length, 0);
+      assert.equal(f.workflow.sessions[0].state, "running");
+      assert.equal(
+        JSON.parse(fs.readFileSync(sessionPath)).task.native.remote_session_state,
+        "running"
+      );
+      return;
+    }
+    const certified = await runtime.certify(sessionPath);
+    assert.equal(certified.session.task.native.remote_session_state, "verified");
+    assert.equal(certified.session.task.native.certification.commit, commit);
+    assert.equal(
+      certified.session.task.native.certification.gate_manifest_sha256,
+      sha(fs.readFileSync(manifestPath))
+    );
+    const reports = f.calls.filter((call) => call.method === "PATCH");
+    assert.equal(reports.length, 1);
+    assert.equal(reports[0].body.result_commit, commit);
+    assert.equal(reports[0].body.state, "verified");
+    const remoteProof = JSON.parse(reports[0].body.verification);
+    assert.equal(remoteProof.kind, "pm-native-canonical-gates-v1");
+    assert.equal(remoteProof.run_id, session.run_id);
+    assert.deepEqual(
+      remoteProof.gates.map(({ name }) => name).sort(),
+      [...session.routing.required_gates].sort()
+    );
+    assert.equal((await runtime.certify(sessionPath)).idempotent, true);
+    assert.equal(f.calls.filter((call) => call.method === "PATCH").length, 1);
+    assert.equal(fs.existsSync(path.join(f.root, "pm")), false);
+    assert.equal(certified.session.authority.push_feature_branch, false);
+    assert.equal(certified.session.authority.merge, false);
   });
-  await record([testEvidence], ["src/example.js"]);
-  assert.equal(session.phase, "review");
-  await runtime.gate(sessionPath, { name: "tdd" });
-  const reportPath = publishReview(f, sessionPath, session);
-  const verification = executeTest();
-  assert.equal(verification.status, 0, verification.stdout + verification.stderr);
-  await record([
-    {
-      kind: "review",
-      command: "node scripts/review-check.js --from-report",
-      exit_code: 0,
-      artifact: reportPath,
-    },
-    { ...testEvidence, exit_code: verification.status },
-  ]);
-  assert.equal(session.phase, "ship");
-  await runtime.gate(sessionPath, { name: "review" });
-  await runtime.gate(sessionPath, { name: "verification" });
-  const manifestPath = path.join(path.dirname(sessionPath), "gates.json");
-  const manifest = JSON.parse(fs.readFileSync(manifestPath));
-  assert.deepEqual(
-    manifest.gates.map(({ name }) => name).sort(),
-    [...session.routing.required_gates].sort()
-  );
-  assert.ok(manifest.gates.every((row) => row.status === "passed" && row.commit === commit));
-  const certified = await runtime.certify(sessionPath);
-  assert.equal(certified.session.task.native.remote_session_state, "verified");
-  assert.equal(certified.session.task.native.certification.commit, commit);
-  assert.equal(
-    certified.session.task.native.certification.gate_manifest_sha256,
-    sha(fs.readFileSync(manifestPath))
-  );
-  const reports = f.calls.filter((call) => call.method === "PATCH");
-  assert.equal(reports.length, 1);
-  assert.equal(reports[0].body.result_commit, commit);
-  assert.equal(reports[0].body.state, "verified");
-  const remoteProof = JSON.parse(reports[0].body.verification);
-  assert.equal(remoteProof.kind, "pm-native-canonical-gates-v1");
-  assert.equal(remoteProof.run_id, session.run_id);
-  assert.deepEqual(
-    remoteProof.gates.map(({ name }) => name).sort(),
-    [...session.routing.required_gates].sort()
-  );
-  assert.equal((await runtime.certify(sessionPath)).idempotent, true);
-  assert.equal(f.calls.filter((call) => call.method === "PATCH").length, 1);
-  assert.equal(fs.existsSync(path.join(f.root, "pm")), false);
-  assert.equal(certified.session.authority.push_feature_branch, false);
-  assert.equal(certified.session.authority.merge, false);
-});
+}
