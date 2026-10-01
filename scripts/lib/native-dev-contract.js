@@ -51,6 +51,35 @@ function validateSourceEntries(entries, immutable, requireRfc = true) {
     if (entries.filter((item) => item.role === role).length !== 1)
       throw new Error(`Exactly one native ${role} required`);
 }
+function materializePinnedSource({ root, destination, entry, data, total }) {
+  if (
+    data?.path !== entry.path ||
+    data.revision !== entry.revision ||
+    data.content_hash !== entry.content_hash ||
+    typeof data.content_base64 !== "string" ||
+    data.content_base64.length > 45 * 1024 * 1024
+  )
+    throw new Error("Pinned native source unavailable or exceeds bootstrap budget");
+  const bytes = Buffer.from(data.content_base64, "base64");
+  const nextTotal = total + bytes.length;
+  if (
+    !Number.isSafeInteger(total) ||
+    total < 0 ||
+    bytes.toString("base64") !== data.content_base64 ||
+    bytes.length !== data.byte_size ||
+    bytes.length > 32 * 1024 * 1024 ||
+    nextTotal > 64 * 1024 * 1024 ||
+    sha(bytes) !== entry.content_hash
+  )
+    throw new Error("Pinned native source hash/size mismatch");
+  writeProjectFileAtomic(root, destination, bytes, {
+    replace: false,
+    fileMode: 0o600,
+    directoryMode: 0o700,
+    maxBytes: 32 * 1024 * 1024,
+  });
+  return nextTotal;
+}
 function validateEntries(entries) {
   validateSourceEntries(entries, true);
 }
@@ -63,7 +92,7 @@ function readContract(native, slug) {
   validateEntries(native.entries);
   return readDocumentContract(native, slug);
 }
-function readDraftContract(draft, slug, stage = "rfc") {
+function readDraftContract(draft, slug, stage = "rfc", source = null) {
   // Drafts use the same validators without fabricating remote revisions or
   // knowledge-version IDs. This validation creates no approval authority.
   if (!["groom", "rfc"].includes(stage))
@@ -73,14 +102,23 @@ function readDraftContract(draft, slug, stage = "rfc") {
     throw new Error("Groom publishes product scope before technical design");
   if (typeof slug !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug))
     throw new Error("Explicit draft product slug required");
+  const sourceRoot = source?.root ?? draft.snapshot_root;
+  const sourcePrefix = source?.prefix ?? "";
+  const sourceAnchor = source?.anchor ?? createProjectRootAnchor(sourceRoot);
   // Validators must see only published bytes, never extra private draft files.
   const snapshot = fs.mkdtempSync(path.join(os.tmpdir(), "pm-authoring-contract-"));
   try {
     let total = 0;
     for (const entry of draft.entries) {
-      const bytes = readProjectInput(draft.snapshot_root, entry.path, 32 * 1024 * 1024, {
-        requireStablePath: true,
-      }).bytes;
+      const bytes = readProjectInput(
+        sourceRoot,
+        sourcePrefix ? `${sourcePrefix}/${entry.path}` : entry.path,
+        32 * 1024 * 1024,
+        {
+          projectRootAnchor: sourceAnchor,
+          requireStablePath: true,
+        }
+      ).bytes;
       total += bytes.length;
       if (total > 64 * 1024 * 1024 || sha(bytes) !== entry.content_hash)
         throw new Error("Bounded exact draft bytes required");
@@ -215,6 +253,7 @@ function validateTaskContract(session) {
 }
 module.exports = {
   sha,
+  materializePinnedSource,
   validateEntries,
   validateAuthoringEntries,
   readContract,

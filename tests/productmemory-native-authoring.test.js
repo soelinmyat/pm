@@ -315,3 +315,45 @@ test("missing or non-string authoring slug rejects before reads or private names
     assert.equal(fs.existsSync(path.join(f.f.root, ".pm/authoring/undefined")), false);
   }
 });
+for (const phase of ["plan", "publish"]) {
+  test(`authoring ${phase} rejects a draft-root symlink before external reads or tool requests`, async (t) => {
+    const f = authorFixture(t);
+    if (phase === "publish") await f.runtime.plan(f.options);
+    const draft = path.join(f.f.root, `.pm/authoring/${f.options.slug}/draft`);
+    const outside = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "authoring-outside-"));
+    t.after(() => fs.rmSync(outside, { recursive: true, force: true }));
+    fs.renameSync(draft, path.join(outside, "draft"));
+    fs.symlinkSync(path.join(outside, "draft"), draft, "dir");
+    const calls = f.calls.length;
+    await assert.rejects(f.runtime[phase](f.options), /symlink|symbolic|containment|directory/i);
+    assert.equal(f.calls.length, calls);
+    assert.equal(
+      fs
+        .readFileSync(path.join(outside, "draft/pm/proposal.json"))
+        .equals(f.f.documents.get("pm/proposal.json")),
+      true
+    );
+  });
+}
+test("shared immutable-source materialization rejects malformed bytes and budgets before exclusive private writes", (t) => {
+  const f = fixture(t);
+  const { materializePinnedSource, sha } = require("../scripts/lib/native-dev-contract");
+  const bytes = Buffer.from("immutable product evidence");
+  const entry = { path: "pm/evidence.md", revision: 1, content_hash: sha(bytes) };
+  const data = { ...entry, byte_size: bytes.length, content_base64: bytes.toString("base64") };
+  const destination = ".pm/materialization/pm/evidence.md";
+  const base = { root: f.root, destination, entry, data, total: 0 };
+  for (const changed of [
+    { data: { ...data, content_base64: data.content_base64 + "!" } },
+    { data: { ...data, byte_size: bytes.length + 1 } },
+    { data: { ...data, content_hash: "0".repeat(64) } },
+    { total: 64 * 1024 * 1024 },
+  ]) {
+    assert.throws(() => materializePinnedSource({ ...base, ...changed }), /source.*(hash|budget)/i);
+    assert.equal(fs.existsSync(path.join(f.root, destination)), false);
+  }
+  assert.equal(materializePinnedSource(base), bytes.length);
+  assert.deepEqual(fs.readFileSync(path.join(f.root, destination)), bytes);
+  assert.equal(fs.statSync(path.join(f.root, destination)).mode & 0o777, 0o600);
+  assert.throws(() => materializePinnedSource(base), /exist|replace|exclusive/i);
+});

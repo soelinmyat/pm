@@ -6,13 +6,17 @@ const crypto = require("node:crypto");
 const { createWorkflowClient } = require("./productmemory-workflow");
 const schema = require("./lib/dev-session-schema");
 const context = require("./lib/native-dev-context");
-const { sha, validateEntries, readContract } = require("./lib/native-dev-contract");
+const {
+  sha,
+  validateEntries,
+  readContract,
+  materializePinnedSource,
+} = require("./lib/native-dev-contract");
 const { gitExec } = require("./lib/git-env");
 const {
   acquireProjectWriteLock,
   createProjectRootAnchor,
   readProjectInput,
-  writeProjectFileAtomic,
   writeProjectJsonAtomic,
 } = require("./lib/project-file");
 function createNativeRuntime(transport) {
@@ -157,30 +161,13 @@ function createNativeRuntime(transport) {
             method: "GET",
             path: `/api/v1/knowledge_file?project=${encodeURIComponent(client.identity.project)}&path=${encodeURIComponent(entry.path)}&revision=${entry.revision}`,
           });
-          const data = response?.body;
-          if (
-            response?.status !== 200 ||
-            data?.path !== entry.path ||
-            data.revision !== entry.revision ||
-            data.content_hash !== entry.content_hash ||
-            typeof data.content_base64 !== "string" ||
-            data.content_base64.length > 45 * 1024 * 1024
-          )
-            throw new Error("Pinned native source unavailable or exceeds bootstrap budget");
-          const bytes = Buffer.from(data.content_base64, "base64");
-          total += bytes.length;
-          if (
-            bytes.toString("base64") !== data.content_base64 ||
-            bytes.length !== data.byte_size ||
-            total > 64 * 1024 * 1024 ||
-            sha(bytes) !== entry.content_hash
-          )
-            throw new Error("Pinned native source hash/size mismatch");
-          writeProjectFileAtomic(root, `${relativeSnapshot}/${entry.path}`, bytes, {
-            replace: false,
-            fileMode: 0o600,
-            directoryMode: 0o700,
-            maxBytes: 32 * 1024 * 1024,
+          if (response?.status !== 200) throw new Error("Pinned native source unavailable");
+          total = materializePinnedSource({
+            root,
+            destination: `${relativeSnapshot}/${entry.path}`,
+            entry,
+            data: response.body,
+            total,
           });
         }
         const draftNative = {

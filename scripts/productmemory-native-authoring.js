@@ -5,12 +5,17 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { isDeepStrictEqual: equal } = require("node:util");
 const { createWorkflowClient } = require("./productmemory-workflow");
-const { sha, validateAuthoringEntries, readDraftContract } = require("./lib/native-dev-contract");
+const {
+  sha,
+  validateAuthoringEntries,
+  readDraftContract,
+  materializePinnedSource,
+} = require("./lib/native-dev-contract");
 const {
   acquireProjectWriteLock,
+  createProjectRootAnchor,
   readProjectInput,
   writeProjectJsonAtomic,
-  writeProjectFileAtomic,
 } = require("./lib/project-file");
 const categories = new Set([
   "record",
@@ -28,6 +33,8 @@ function createNativeAuthoring(transport) {
     const root = fs.realpathSync(sourceDir);
     return {
       root,
+      anchor: createProjectRootAnchor(root),
+      relativeDraft: `.pm/authoring/${slug}/draft`,
       draftRoot: path.join(root, `.pm/authoring/${slug}/draft`),
       journalPath: `.pm/authoring/${slug}/publication.json`,
       slug,
@@ -44,11 +51,14 @@ function createNativeAuthoring(transport) {
       attempts: 1,
       waitMs: 0,
     });
+  const readDraft = (where, document, maxBytes) =>
+    readProjectInput(where.root, `${where.relativeDraft}/${document}`, maxBytes, {
+      projectRootAnchor: where.anchor,
+      requireStablePath: true,
+    }).bytes;
   function source(where, entries, executionPath, stage) {
     const checked = entries.map((entry) => {
-      const bytes = readProjectInput(where.draftRoot, entry.path, 32 * 1024 * 1024, {
-        requireStablePath: true,
-      }).bytes;
+      const bytes = readDraft(where, entry.path, 32 * 1024 * 1024);
       if (sha(bytes) !== entry.content_hash)
         throw new Error("Authoring draft changed; plan a new publication");
       return { path: entry.path, role: entry.role, content_hash: entry.content_hash };
@@ -56,7 +66,8 @@ function createNativeAuthoring(transport) {
     return readDraftContract(
       { snapshot_root: where.draftRoot, entries: checked, execution_path: executionPath },
       where.slug,
-      stage
+      stage,
+      { root: where.root, prefix: where.relativeDraft, anchor: where.anchor }
     );
   }
   function load(where) {
@@ -208,28 +219,13 @@ function createNativeAuthoring(transport) {
           if (/\.(?:approval|session|lease)\.json$/i.test(entry.path))
             throw new Error("Private authority/runtime files cannot seed product drafts");
           const remote = await getFile(entry.path, entry.revision, true);
-          if (
-            !remote ||
-            remote.revision !== entry.revision ||
-            remote.content_hash !== entry.content_hash ||
-            typeof remote.content_base64 !== "string" ||
-            remote.content_base64.length > 45 * 1024 * 1024
-          )
-            throw new Error("Exact bounded immutable draft source required");
-          const bytes = Buffer.from(remote.content_base64, "base64");
-          total += bytes.length;
-          if (
-            bytes.toString("base64") !== remote.content_base64 ||
-            bytes.length !== remote.byte_size ||
-            sha(bytes) !== entry.content_hash ||
-            total > 64 * 1024 * 1024
-          )
-            throw new Error("Immutable authoring source bytes changed");
-          writeProjectFileAtomic(where.root, `.pm/authoring/${slug}/draft/${entry.path}`, bytes, {
-            replace: false,
-            fileMode: 0o600,
-            directoryMode: 0o700,
-            maxBytes: 32 * 1024 * 1024,
+          if (!remote) throw new Error("Exact immutable draft source required");
+          total = materializePinnedSource({
+            root: where.root,
+            destination: `${where.relativeDraft}/${entry.path}`,
+            entry,
+            data: remote,
+            total,
           });
           entries.push({
             path: entry.path,
@@ -303,9 +299,7 @@ function createNativeAuthoring(transport) {
             /\.(?:approval|session|lease)\.json$/i.test(entry.path)
           )
             throw new Error("Shared product documents only");
-          const bytes = readProjectInput(where.draftRoot, entry.path, 32 * 1024 * 1024, {
-            requireStablePath: true,
-          }).bytes;
+          const bytes = readDraft(where, entry.path, 32 * 1024 * 1024);
           return { ...structuredClone(entry), content_hash: sha(bytes), byte_size: bytes.length };
         });
         source(where, entries, input.execution_path, input.stage); // Full proposal/RFC/prototype/risk validation before any write.
@@ -387,9 +381,7 @@ function createNativeAuthoring(transport) {
           if (entry.state === "verified") continue;
           await workflow(journal);
           // Re-read exact bytes immediately before dispatch; the service enforces CAS.
-          const bytes = readProjectInput(where.draftRoot, entry.path, 10 * 1024 * 1024, {
-            requireStablePath: true,
-          }).bytes;
+          const bytes = readDraft(where, entry.path, 10 * 1024 * 1024);
           if (sha(bytes) !== entry.content_hash) throw new Error("Authoring draft changed");
           entry.state = "attempting";
           save(where, journal);
