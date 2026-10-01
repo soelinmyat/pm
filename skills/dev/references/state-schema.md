@@ -15,6 +15,7 @@ dev-session next --session <path> [--json]
 dev-session prompt --session <path> --output <path>
 dev-session route --session <path> --facts <json-path> [--json]
 dev-session record --session <path> --result <path>
+dev-session rebind-rfc --session <path> --rfc-sidecar <json-path> --expected-sidecar-sha256 <sha256:hex> --reason <text>
 dev-session recertify --session <path> --phases <csv> --commit <sha> --evidence <json-path>
 dev-session anchor-qa-history --session <path> --commit <sha> --evidence <json-path>
 dev-session record-qa-nonpassing --session <path> --status <failed|blocked> --commit <sha> --evidence <json-path>
@@ -66,6 +67,16 @@ intake -> workspace -> readiness -> implementation -> design-critique -> qa -> r
 During intake, `dev-session route` replaces that sequence with the executable decision from observed kind, size, risk, UI impact, and non-behavioral exceptions. A cold process recovers the current action solely by running `dev-session next --session ... --json`.
 
 For a direct approved XS/S proposal route, `task.design_context` is the exact closed context from the canonical proposal execution contract. The runner derives it rather than trusting caller prose, carries it into any supplied work-unit contract, recomputes a single-file or complete multi-file prototype identity from the proposal repository, and rechecks both persisted copies on every `next`. Explicit visual UI impact promotes routing to Design Critique and QA; nonvisual contexts carry experience invariants and no fabricated visual constraints. Non-proposal routes use `null`; RFC work units retain their exact per-contract context.
+
+### RFC amendment rebind
+
+`task.rfc_sidecar` pins the sidecar hash at intake, and every `next` re-verifies it. An in-place sidecar edit therefore blocks the session with an identity drift. After intake, the only sanctioned change is adopting an approved owns-only RFC amendment with `rebind-rfc`:
+
+- It is a compare-and-swap. The on-disk bound sidecar must hash to `--expected-sidecar-sha256`, and the path must be the bound path. Rebinding to the already-bound hash is an idempotent no-op.
+- The approval beside the sidecar must be backed by its completed RFC run and committed audit, and its v2 `amends` lineage must reach the bound hash. Every lineage archive must exist under this session's `source.repo_root`.
+- Rebuilt work units keep the same ids, titles, `depends_on`, and contracts. Ownership is append-only. Completed units may gain ownership too: their commits were verified against a subset of the amended owns, so the change only widens coverage and is recorded with `status: completed`. Running units may not end up sharing ownership.
+- Each rebind appends one `task.rfc_contract_history` entry: `from_sidecar_sha256`, `to_sidecar_sha256`, `approval_run_id`, `approval_sha256`, `amends_run_id`, `reason`, `changed_units[{id, status, added_owns}]`, and `recorded_at`. Entries chain from the previous `to_sidecar_sha256`.
+- It runs in workspace, readiness, or implementation while the session is active or blocked. During intake, rerun `route --rfc-sidecar` instead.
 
 ### Candidate lifecycle
 

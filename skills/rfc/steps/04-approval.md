@@ -34,6 +34,16 @@ Record the user's explicit decision for the exact reviewed artifact without load
    ```
 
    The command re-hashes both HTML and sidecar, verifies the binding and reviewed fingerprint, records approver/timestamp/fingerprint, and advances to handoff.
+
+   For an owns-only amendment run (`next` reports `amendment`), show the declared issues, every appended `owns` path, the reason, and the amended sidecar hash. The approver confirms that exact hash, and the command must carry it:
+
+   ```bash
+   node ${CLAUDE_PLUGIN_ROOT}/scripts/rfc-session.js approve \
+     --session {session_path} --approved-by {identity} \
+     --approved-sidecar-sha256 {amended_sidecar_sha256} --json
+   ```
+
+   A missing or different hash is refused.
 5. In Loop Worker Mode, never invoke `approve`; return `needs-approval` and stop.
 
 ## Done-when

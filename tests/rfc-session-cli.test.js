@@ -7,27 +7,21 @@ const fs = require("node:fs");
 const crypto = require("node:crypto");
 const os = require("node:os");
 const path = require("node:path");
+const { hashResult } = require("../scripts/lib/rfc-session-schema");
 const {
-  applyContext,
-  approveSession,
-  artifactFingerprint,
-  hashResult,
-  recordResult,
-} = require("../scripts/lib/rfc-session-schema");
-const { writeSession } = require("../scripts/rfc-session");
+  amendArtifact,
+  currentDesignContext,
+  makeRfcRepo: makeRepo,
+  passingVerdicts,
+  phaseResult,
+  prepareApprovedHandoff,
+  recordFile,
+  relabelArtifact,
+  resultEvidence,
+  snapshotDir,
+} = require("./helpers/rfc-run-fixture");
 
 const CLI = path.resolve(__dirname, "..", "scripts", "rfc-session.js");
-
-function currentDesignContext() {
-  return {
-    design_requirements: ["Keep approval and archive states explicit."],
-    ui_impact: false,
-    prototype: null,
-    critical_states: ["draft", "approved", "archived", "error"],
-    experience_invariants: ["Every state exposes its next action."],
-    visual_invariants: [],
-  };
-}
 
 test("RFC session CLI initializes, configures context, and selects one phase", () => {
   const repo = makeRepo();
@@ -534,233 +528,241 @@ test("terminal RFC runs archive immutably and retry across the archive boundary"
   }
 });
 
-function prepareApprovedHandoff(repo, slug) {
-  repo.own(slug);
-  const initialized = repo.run(["init", "--slug", slug, "--source-dir", repo.root, "--json"]);
-  assert.equal(initialized.status, 0, initialized.stderr);
-  const payload = JSON.parse(initialized.stdout);
-  let session = applyContext(payload.session, {
-    source_kind: "proposal",
-    proposal_path: path.join(repo.root, "proposal.md"),
-    size: "M",
-    acceptance_criteria: ["Archive exact approval"],
-    design_context: currentDesignContext(),
-    artifact_repo_root: repo.root,
-  });
-  session = recordResult(session, phaseResult(session));
-  let artifact = writeArtifact(repo, slug, "draft");
-  session = recordResult(
-    session,
-    phaseResult(session, { artifact, evidence: [resultEvidence("artifact")] })
-  );
-  session = recordResult(
-    session,
-    phaseResult(session, {
-      artifact,
-      evidence: [resultEvidence("review")],
-      reviewer_verdicts: ["architecture-risk", "test-strategy", "maintainability"].map((lens) => ({
-        lens,
-        artifact_hash: artifactFingerprint(artifact),
-        verdict: "pass",
-        blocking: [],
-        advisory: [],
-      })),
-    })
-  );
-  session = approveSession(session, { approvedBy: "Test Owner" });
-  artifact = writeArtifact(repo, slug, "approved", artifact);
-  writeSession(payload.session_path, session);
-  const artifactIdentityPath = path.join(repo.root, `${session.run_id}-artifact.json`);
-  fs.writeFileSync(artifactIdentityPath, JSON.stringify(artifact));
-  const audited = repo.run([
-    "approval-audit",
-    "--session",
-    payload.session_path,
-    "--artifact",
-    artifactIdentityPath,
-    "--json",
-  ]);
-  assert.equal(audited.status, 0, audited.stderr);
-  const approvalPath = artifact.json_path.replace(/\.json$/i, ".approval.json");
-  assert.equal(JSON.parse(audited.stdout).approval_path, approvalPath);
-  assert.equal(fs.statSync(approvalPath).mode & 0o777, 0o600);
-  execFileSync("git", ["add", path.relative(repo.root, approvalPath)], { cwd: repo.root });
-  execFileSync("git", ["commit", "-qm", `approve ${slug}`], { cwd: repo.root });
-  artifact = { ...artifact, commit: repo.head() };
-  const result = phaseResult(session, {
-    artifact,
-    evidence: [
-      resultEvidence("handoff"),
-      resultEvidence("lifecycle"),
-      resultEvidence("approval-audit", approvalPath),
-    ],
-  });
-  const resultPath = path.join(repo.root, `${session.run_id}-handoff.json`);
-  fs.writeFileSync(resultPath, JSON.stringify(result));
-  return { runId: session.run_id, sessionPath: payload.session_path, resultPath };
-}
+test("post-handoff amendment re-reviews owns-only changes and archives a v2 approval lineage", () => {
+  const repo = makeRepo();
+  try {
+    const slug = "amend-rfc";
+    const first = prepareApprovedHandoff(repo, slug);
+    const firstRecord = repo.run([
+      "record",
+      "--session",
+      first.sessionPath,
+      "--result",
+      first.resultPath,
+      "--json",
+    ]);
+    assert.equal(firstRecord.status, 0, firstRecord.stderr);
+    const firstArchive = JSON.parse(firstRecord.stdout).session_path;
+    const archived = JSON.parse(fs.readFileSync(firstArchive, "utf8"));
+    const archiveSnapshot = snapshotDir(path.dirname(firstArchive));
+    const amendArgs = [
+      "amend",
+      "--completed",
+      firstArchive,
+      "--source-dir",
+      repo.root,
+      "--issues",
+      "1",
+      "--reason",
+      "issue 1 verification edits docs/extra.md",
+      "--json",
+    ];
 
-function phaseResult(session, overrides = {}) {
-  return {
-    schema_version: 1,
-    run_id: session.run_id,
-    phase: session.phase,
-    attempt: session.phase_attempt,
-    status: "passed",
-    summary: `Completed ${session.phase}`,
-    artifact: null,
-    evidence: [],
-    reviewer_verdicts: [],
-    blocker: null,
-    runtime: { provider: "inline", model: "test", reasoning: "high", session_id: null },
-    ...overrides,
-  };
-}
+    const missingIssues = repo.run(amendArgs.filter((arg, index) => ![5, 6].includes(index)));
+    assert.equal(missingIssues.status, 2);
+    assert.match(missingIssues.stderr, /--issues is required/);
+    const loopWorker = repo.run(amendArgs, { PM_LOOP_WORKER: "1" });
+    assert.equal(loopWorker.status, 3);
+    assert.match(loopWorker.stderr, /loop workers cannot amend/);
 
-function resultEvidence(kind, artifact = null) {
-  return { kind, command: "node --test", exit_code: 0, artifact };
-}
+    const amended = repo.run(amendArgs);
+    assert.equal(amended.status, 0, amended.stderr);
+    const payload = JSON.parse(amended.stdout);
+    let session = payload.session;
+    assert.equal(payload.session_path, first.sessionPath);
+    assert.notEqual(session.run_id, first.runId);
+    assert.equal(session.phase, "review");
+    assert.equal(session.status, "active");
+    assert.equal(session.approval.status, "pending");
+    assert.equal(session.review.status, "not_started");
+    assert.deepEqual(Object.values(session.authority), [false, false, false, false]);
+    assert.equal(session.amendment.of_run_id, first.runId);
+    assert.deepEqual(session.amendment.amended_issue_nums, [1]);
+    assert.equal(session.amendment.prior_artifact.sidecar_hash, archived.artifact.sidecar_hash);
+    assert.equal(session.amendment.prior_artifact.commit, archived.artifact.commit);
+    assert.equal(payload.next.phase, "review");
 
-function writeArtifact(repo, slug, status, prior = null) {
-  const jsonPath = prior?.json_path || path.join(repo.root, `${slug}.json`);
-  const htmlPath = prior?.html_path || path.join(repo.root, `${slug}.html`);
-  if (!prior) {
-    const sidecar = {
-      schema_version: 3,
-      slug,
-      title: "Immutable RFC",
-      size: "M",
-      design_context: currentDesignContext(),
-      issues: [
-        {
-          num: 1,
-          title: "Archive approval",
-          size: "M",
-          depends_on: [],
-          owns: ["README.md"],
-          acceptance_criteria: ["Approval history is immutable"],
-          approach: "Archive every run by run ID.",
-          verification_commands: ["node --test"],
-          test_hooks: ["Approval history"],
-        },
-      ],
-      test_strategy: {
-        test_levels: "CLI integration",
-        new_infrastructure: "None",
-        regression_surface: "RFC sessions",
-        verification_commands: "node --test",
-        open_questions: "None",
-      },
-    };
-    fs.writeFileSync(jsonPath, `${JSON.stringify(sidecar)}\n`);
+    const concurrent = repo.run(amendArgs);
+    assert.equal(concurrent.status, 3);
+    assert.match(concurrent.stderr, /active RFC session already exists/);
+    const authorize = repo.run([
+      "authorize",
+      "--session",
+      first.sessionPath,
+      "--action",
+      "linear_create",
+      "--reason",
+      "not allowed",
+    ]);
+    assert.equal(authorize.status, 4);
+    assert.match(authorize.stderr, /amendment runs grant no new authority/);
+
+    const widened = amendArtifact(repo, slug, archived.artifact, (sidecar) => {
+      sidecar.issues[0].owns = ["docs/extra.md"];
+    });
+    const rejected = recordFile(
+      repo,
+      session,
+      phaseResult(session, {
+        artifact: widened,
+        evidence: [resultEvidence("review")],
+        reviewer_verdicts: passingVerdicts(widened),
+      })
+    );
+    assert.equal(rejected.status, 4, rejected.stderr);
+    assert.match(rejected.stderr, /append-only/);
+
+    const artifact = amendArtifact(repo, slug, archived.artifact, (sidecar) => {
+      sidecar.issues[0].owns = ["README.md", "docs/extra.md"];
+    });
+    const reviewed = recordFile(
+      repo,
+      session,
+      phaseResult(session, {
+        artifact,
+        evidence: [resultEvidence("review")],
+        reviewer_verdicts: passingVerdicts(artifact),
+      })
+    );
+    assert.equal(reviewed.status, 0, reviewed.stderr);
+    session = JSON.parse(reviewed.stdout).session;
+    assert.equal(session.phase, "approval");
+
+    const approveArgs = ["approve", "--session", first.sessionPath, "--approved-by", "Owner"];
+    const unconfirmed = repo.run(approveArgs);
+    assert.equal(unconfirmed.status, 4);
+    assert.match(unconfirmed.stderr, /--approved-sidecar-sha256/);
+    const wrongHash = repo.run([
+      ...approveArgs,
+      "--approved-sidecar-sha256",
+      archived.artifact.sidecar_hash,
+    ]);
+    assert.equal(wrongHash.status, 4);
+    assert.match(wrongHash.stderr, /does not match the reviewed amendment sidecar/);
+    const approvedRun = repo.run([
+      ...approveArgs,
+      "--approved-sidecar-sha256",
+      artifact.sidecar_hash,
+      "--json",
+    ]);
+    assert.equal(approvedRun.status, 0, approvedRun.stderr);
+    session = JSON.parse(approvedRun.stdout).session;
+    assert.equal(session.phase, "handoff");
+
+    let approvedArtifact = relabelArtifact(repo, slug, artifact, "approved");
+    const identityPath = path.join(repo.root, `${session.run_id}-artifact.json`);
+    fs.writeFileSync(identityPath, JSON.stringify(approvedArtifact));
+    const audited = repo.run([
+      "approval-audit",
+      "--session",
+      first.sessionPath,
+      "--artifact",
+      identityPath,
+      "--json",
+    ]);
+    assert.equal(audited.status, 0, audited.stderr);
+    const audit = JSON.parse(audited.stdout).approval;
+    const approvalPath = approvedArtifact.json_path.replace(/\.json$/i, ".approval.json");
+    const priorAuditBytes = execFileSync(
+      "git",
+      ["show", `${archived.artifact.commit}:${path.basename(approvalPath)}`],
+      { cwd: repo.root }
+    );
+    assert.equal(audit.schema_version, 2);
+    assert.equal(audit.run_id, session.run_id);
+    assert.deepEqual(audit.amends, {
+      run_id: first.runId,
+      approval_sha256: `sha256:${crypto.createHash("sha256").update(priorAuditBytes).digest("hex")}`,
+      sidecar_sha256: archived.artifact.sidecar_hash,
+      html_sha256: archived.artifact.html_hash,
+    });
+    assert.deepEqual(audit.amended_issue_nums, [1]);
+    assert.equal(audit.reason, "issue 1 verification edits docs/extra.md");
+    execFileSync("git", ["add", path.basename(approvalPath)], { cwd: repo.root });
+    execFileSync("git", ["commit", "-qm", "approve amendment"], { cwd: repo.root });
+    approvedArtifact = { ...approvedArtifact, commit: repo.head() };
+    const handoff = recordFile(
+      repo,
+      session,
+      phaseResult(session, {
+        artifact: approvedArtifact,
+        evidence: [
+          resultEvidence("handoff"),
+          resultEvidence("lifecycle"),
+          resultEvidence("approval-audit", approvalPath),
+        ],
+      })
+    );
+    assert.equal(handoff.status, 0, handoff.stderr);
+    const secondArchive = JSON.parse(handoff.stdout).session_path;
+    assert.match(secondArchive, new RegExp(`completed/${slug}/${session.run_id}/session\\.json$`));
+    assert.deepEqual(snapshotDir(path.dirname(firstArchive)), archiveSnapshot);
+
+    const stale = repo.run(amendArgs);
+    assert.equal(stale.status, 3);
+    assert.match(stale.stderr, new RegExp(`already amended by ${session.run_id}`));
+    const next = repo.run([
+      "amend",
+      "--completed",
+      secondArchive,
+      "--source-dir",
+      repo.root,
+      "--issues",
+      "1",
+      "--reason",
+      "chain a second amendment",
+      "--json",
+    ]);
+    assert.equal(next.status, 0, next.stderr);
+    assert.equal(JSON.parse(next.stdout).session.amendment.of_run_id, session.run_id);
+  } finally {
+    repo.cleanup();
   }
-  const sidecarHash = `sha256:${crypto
-    .createHash("sha256")
-    .update(fs.readFileSync(jsonPath))
-    .digest("hex")}`;
-  fs.writeFileSync(
-    htmlPath,
-    [
-      "<!doctype html>",
-      '<html lang="en">',
-      "<head>",
-      '  <meta charset="utf-8">',
-      '  <meta name="viewport" content="width=device-width, initial-scale=1">',
-      "  <title>Immutable RFC</title>",
-      `  <script id="pm-artifact" type="application/json">{"schema_version":1,"id":"rfc:${slug}","kind":"rfc","slug":"${slug}","lifecycle":"${status}","title":"Immutable RFC","generated_at":"2026-07-12T00:00:00Z","generator":{"name":"pm:rfc","version":"test"},"source":{"path":"proposal.md","sha256":null},"evidence":[]}</script>`,
-      "  <style>:focus-visible{outline:2px solid currentColor}@media(max-width:700px){main{padding:1rem}}@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto}}@media print{*{overflow:visible!important}}</style>",
-      "</head>",
-      "<body>",
-      `  <script id="rfc-lifecycle" type="application/json">{"status":"${status}"}</script>`,
-      '  <a class="skip-link" href="#content">Skip to content</a>',
-      '  <nav aria-label="RFC sections"><a href="#brief">Brief</a></nav>',
-      `  <main id="content" data-sidecar-hash="${sidecarHash}">`,
-      "  <h1>Immutable RFC</h1>",
-      `  <p>Status: <span data-pm-lifecycle>${status[0].toUpperCase()}${status.slice(1)}</span></p>`,
-      '  <section id="brief"></section>',
-      '  <section id="execution-contract"></section>',
-      '  <section id="appendix"></section>',
-      '  <section id="test-strategy" class="test-strategy"><div class="test-strategy-block"></div></section>',
-      '  <article class="issue-detail"><span class="issue-detail-num">1</span><span class="issue-detail-title">Archive approval</span><span class="issue-detail-size">M</span><span class="hooks-badge">Approval history</span></article>',
-      "  </main>",
-      "</body>",
-      "</html>",
-      "",
-    ].join("\n")
-  );
-  execFileSync(
-    "git",
-    ["add", path.relative(repo.root, jsonPath), path.relative(repo.root, htmlPath)],
-    {
-      cwd: repo.root,
-    }
-  );
-  execFileSync("git", ["commit", "-qm", `${status} ${slug}`], { cwd: repo.root });
-  return {
-    html_path: htmlPath,
-    json_path: jsonPath,
-    html_hash: `sha256:${crypto.createHash("sha256").update(fs.readFileSync(htmlPath)).digest("hex")}`,
-    sidecar_hash: sidecarHash,
-    repo_root: repo.root,
-    commit: repo.head(),
-  };
-}
+});
 
-function makeRepo() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-rfc-cli-"));
-  execFileSync("git", ["init", "-q", "-b", "main"], { cwd: root });
-  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: root });
-  execFileSync("git", ["config", "user.name", "Test"], { cwd: root });
-  fs.writeFileSync(path.join(root, "proposal.md"), "proposal\n");
-  execFileSync("git", ["add", "."], { cwd: root });
-  execFileSync("git", ["commit", "-qm", "fixture"], { cwd: root });
-  return {
-    root,
-    own(slug) {
-      markOwnedRfcRoot(root, slug);
-    },
-    head() {
-      return execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
-    },
-    run(args, env = {}) {
-      return spawnSync(process.execPath, [CLI, ...args], {
-        cwd: root,
-        encoding: "utf8",
-        env: { ...process.env, ...env },
-      });
-    },
-    cleanup() {
-      fs.rmSync(root, { recursive: true, force: true });
-    },
-  };
-}
-
-function markOwnedRfcRoot(root, slug) {
-  const branch = `codex/${slug}-rfc`;
-  if (
-    execFileSync("git", ["branch", "--show-current"], { cwd: root, encoding: "utf8" }).trim() !==
-    branch
-  )
-    execFileSync("git", ["branch", "-M", branch], { cwd: root });
-  const remotes = execFileSync("git", ["remote"], { cwd: root, encoding: "utf8" })
-    .split(/\r?\n/)
-    .filter(Boolean);
-  if (!remotes.includes("origin")) {
-    execFileSync("git", ["remote", "add", "origin", root], { cwd: root });
-  } else {
-    execFileSync("git", ["remote", "set-url", "origin", root], { cwd: root });
+test("amend refuses archives whose committed approval audit no longer matches", () => {
+  const repo = makeRepo();
+  try {
+    const first = prepareApprovedHandoff(repo, "tampered-rfc");
+    const recorded = repo.run([
+      "record",
+      "--session",
+      first.sessionPath,
+      "--result",
+      first.resultPath,
+      "--json",
+    ]);
+    assert.equal(recorded.status, 0, recorded.stderr);
+    const archivePath = JSON.parse(recorded.stdout).session_path;
+    const archived = JSON.parse(fs.readFileSync(archivePath, "utf8"));
+    archived.approval.approved_by = "Someone Else";
+    fs.writeFileSync(archivePath, JSON.stringify(archived));
+    const amended = repo.run([
+      "amend",
+      "--completed",
+      archivePath,
+      "--source-dir",
+      repo.root,
+      "--issues",
+      "1",
+      "--reason",
+      "tampered",
+    ]);
+    assert.equal(amended.status, 3);
+    assert.match(amended.stderr, /approval audit/);
+    const unknownIssue = repo.run([
+      "amend",
+      "--completed",
+      archivePath,
+      "--source-dir",
+      repo.root,
+      "--issues",
+      "7",
+      "--reason",
+      "missing issue",
+    ]);
+    assert.equal(unknownIssue.status, 3);
+  } finally {
+    repo.cleanup();
   }
-  const base = execFileSync("git", ["rev-parse", "HEAD"], {
-    cwd: root,
-    encoding: "utf8",
-  }).trim();
-  const urlHash = crypto.createHash("sha256").update(root).digest("hex");
-  for (const [key, value] of [
-    [`branch.${branch}.pmArtifactBase`, base],
-    [`branch.${branch}.pmArtifactKind`, "rfc"],
-    [`branch.${branch}.pmArtifactRemote`, "origin"],
-    [`branch.${branch}.pmArtifactDefaultBranch`, "main"],
-    [`branch.${branch}.pmArtifactRemoteUrlSha256`, urlHash],
-  ])
-    execFileSync("git", ["config", key, value], { cwd: root });
-}
+});
