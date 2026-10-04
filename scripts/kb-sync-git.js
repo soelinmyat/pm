@@ -310,6 +310,15 @@ function clone(pmDir, remoteUrl, opts = {}) {
  * @param {string} pmDir
  * @returns {{ ok: boolean, committed: number, error?: string }}
  */
+function conflictError(pmDir) {
+  const unmerged = runGitSafe(["ls-files", "--unmerged", "-z"], pmDir);
+  if (!unmerged.ok)
+    return "Cannot inspect knowledge-base conflicts; preserve state and inspect before sync";
+  return unmerged.output
+    ? "Knowledge-base conflict is unresolved; preserve the working files and retained autostash, resolve in the owning session, then retry"
+    : null;
+}
+
 function push(pmDir) {
   if (!isGitRepo(pmDir)) {
     return { ok: false, committed: 0, error: "pm/ is not a git repo. Run setup first." };
@@ -321,6 +330,9 @@ function push(pmDir) {
 
   const upstream = resolveUpstream(pmDir);
   if (!upstream.ok) return { ok: false, committed: 0, error: upstream.error };
+
+  const conflict = conflictError(pmDir);
+  if (conflict) return { ok: false, committed: 0, error: conflict };
 
   // Stage all changes
   const add = runGitSafe(["add", "-A"], pmDir);
@@ -412,6 +424,9 @@ function pull(pmDir) {
   const upstream = resolveUpstream(pmDir);
   if (!upstream.ok) return { ok: false, updated: 0, error: upstream.error };
 
+  const existingConflict = conflictError(pmDir);
+  if (existingConflict) return { ok: false, updated: 0, error: existingConflict };
+
   // Autostash restores working bytes but does not preserve index ownership.
   // Never collapse a user's staged/working variants as a side effect of sync.
   const staged = runGitSafe(["diff", "--cached", "--quiet"], pmDir);
@@ -435,6 +450,10 @@ function pull(pmDir) {
     runGitSafe(["rebase", "--abort"], pmDir);
     return { ok: false, updated: 0, error: `pull failed: ${pullResult.error}` };
   }
+
+  // Git may exit zero after an autostash pop conflict. Never stage those markers.
+  const restoredConflict = conflictError(pmDir);
+  if (restoredConflict) return { ok: false, updated: 0, error: restoredConflict };
 
   const changed = beforeHead.ok
     ? runGitSafe(trustedDiffArgs("--name-only", "-z", beforeHead.output, "HEAD"), pmDir)
@@ -656,6 +675,8 @@ function syncObservation(mode, pmDir, expectedRemoteHash) {
   if (!state.head || !state.upstream) {
     return { state: "absent", safe_to_retry: true, reason: "git upstream is not established" };
   }
+  const conflict = conflictError(pmDir);
+  if (conflict) return { state: "ambiguous", reason: conflict };
   const upstream = resolveUpstream(pmDir);
   if (!upstream.ok) return { state: "absent", safe_to_retry: true, reason: upstream.error };
   // Query the actual destination, never infer acknowledgement from a cached ref.

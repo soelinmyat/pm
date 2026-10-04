@@ -1528,3 +1528,45 @@ test("missing-upstream mixed checkout reports blocked without mutating either va
   );
   assert.equal(fs.readFileSync(path.join(seeded.pmDir, "strategy.md"), "utf8"), "working\n");
 });
+
+test("autostash conflict remains explicit and never publishes conflict markers", (t) => {
+  const remote = withBareRemote();
+  const seeded = withTempProject({ "pm/strategy.md": "base\n" });
+  const api = require(KB_SYNC_GIT_PATH);
+  assert.equal(api.setup(seeded.pmDir, remote.url).ok, true);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kb-conflict-receipt-"));
+  const second = path.join(root, "pm");
+  const state = path.join(root, ".pm");
+  gitExec(`git clone ${remote.url} ${second}`);
+  t.after(() => {
+    seeded.cleanup();
+    remote.cleanup();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  fs.writeFileSync(path.join(seeded.pmDir, "strategy.md"), "remote variant\n");
+  assert.equal(api.push(seeded.pmDir).ok, true);
+  fs.writeFileSync(path.join(second, "strategy.md"), "local variant\n");
+  const options = {
+    mode: "sync",
+    pmDir: second,
+    dotPmDir: state,
+    authorityActions: ["sync_knowledge_base"],
+  };
+  const result = api.runSyncEffect(options);
+  assert.equal(result.ok, false);
+  assert.equal(result.verified_receipt, null);
+  assert.match(result.error, /conflict/i);
+  assert.equal(
+    gitExec("git show main:strategy.md", { cwd: remote.path, encoding: "utf8" }),
+    "remote variant\n"
+  );
+  assert.match(fs.readFileSync(path.join(second, "strategy.md"), "utf8"), /local variant/);
+  assert.match(gitExec("git stash show -p", { cwd: second, encoding: "utf8" }), /local variant/);
+  const repeated = api.runSyncEffect({
+    ...options,
+    mode: "pull",
+    authorityActions: ["pull_knowledge_base"],
+  });
+  assert.equal(repeated.ok, false);
+  assert.equal(repeated.verified_receipt, null);
+});
