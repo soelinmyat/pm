@@ -5,6 +5,7 @@ const path = require("path");
 const crypto = require("node:crypto");
 const { resolvePmPaths } = require("./resolve-pm-dir.js");
 const { runGit } = require("./loop-git.js");
+const { trustedDiffArgs } = require("./lib/git-env.js");
 const { writeJsonAtomic } = require("./lib/atomic-file.js");
 const {
   runOperationalEffect,
@@ -411,6 +412,19 @@ function pull(pmDir) {
   const upstream = resolveUpstream(pmDir);
   if (!upstream.ok) return { ok: false, updated: 0, error: upstream.error };
 
+  // Autostash restores working bytes but does not preserve index ownership.
+  // Never collapse a user's staged/working variants as a side effect of sync.
+  const staged = runGitSafe(["diff", "--cached", "--quiet"], pmDir);
+  if (!staged.ok) {
+    return {
+      ok: false,
+      updated: 0,
+      error:
+        "Knowledge base has staged changes; preserve the index and working variants in the owning isolated session before pulling.",
+    };
+  }
+  const beforeHead = runGitSafe(["rev-parse", "HEAD"], pmDir);
+
   // --autostash: git stashes uncommitted changes, rebases, then pops automatically.
   // Cleaner than manual stash/pop and handles untracked files via .gitignore.
   const pullResult = runGitSafe(
@@ -422,11 +436,12 @@ function pull(pmDir) {
     return { ok: false, updated: 0, error: `pull failed: ${pullResult.error}` };
   }
 
-  let updated = 0;
-  const match = pullResult.output.match(/(\d+) files? changed/);
-  if (match) updated = parseInt(match[1], 10);
-
-  return { ok: true, updated };
+  const changed = beforeHead.ok
+    ? runGitSafe(trustedDiffArgs("--name-only", "-z", beforeHead.output, "HEAD"), pmDir)
+    : { ok: false };
+  if (!changed.ok)
+    return { ok: false, updated: 0, error: "Cannot count pulled changes from Git objects" };
+  return { ok: true, updated: changed.output.split("\0").filter(Boolean).length };
 }
 
 // ---------------------------------------------------------------------------
@@ -573,6 +588,37 @@ const SYNC_AUTHORITY = Object.freeze({
   pull: "pull_knowledge_base",
 });
 
+function worktreeIdentity(pmDir, statusResult) {
+  if (!statusResult.ok) return null;
+  if (!statusResult.output) return sha256("");
+  const digest = crypto.createHash("sha256");
+  digest.update(statusResult.output);
+  for (const args of [
+    trustedDiffArgs("--binary", "--"),
+    trustedDiffArgs("--cached", "--binary", "--"),
+  ]) {
+    const result = runGitSafe(args, pmDir);
+    if (!result.ok) return null;
+    digest.update(JSON.stringify(result.output));
+  }
+  const untracked = runGitSafe(["ls-files", "--others", "--exclude-standard", "-z"], pmDir);
+  if (!untracked.ok) return null;
+  for (const name of untracked.output.split("\0").filter(Boolean).sort()) {
+    try {
+      const file = path.join(pmDir, name);
+      const stat = fs.lstatSync(file);
+      // Unknown/submodule or oversized inputs prohibit recovery reuse.
+      if (!stat.isFile() && !stat.isSymbolicLink()) return null;
+      if (stat.size > 16 * 1024 * 1024) return null;
+      digest.update(JSON.stringify([name, stat.mode]));
+      digest.update(stat.isSymbolicLink() ? fs.readlinkSync(file) : fs.readFileSync(file));
+    } catch {
+      return null;
+    }
+  }
+  return `sha256:${digest.digest("hex")}`;
+}
+
 function localGitState(pmDir) {
   if (!isGitRepo(pmDir)) {
     return {
@@ -594,7 +640,7 @@ function localGitState(pmDir) {
     head: head.ok ? head.output : null,
     upstream: upstream.ok ? upstream.output : null,
     branch: branch.ok ? branch.branch : null,
-    worktree_sha256: sha256(worktree.ok ? worktree.output : "unreadable"),
+    worktree_sha256: worktreeIdentity(pmDir, worktree),
     remote_url_sha256: remoteUrl ? sha256(remoteUrl) : null,
   };
 }
@@ -610,8 +656,31 @@ function syncObservation(mode, pmDir, expectedRemoteHash) {
   if (!state.head || !state.upstream) {
     return { state: "absent", safe_to_retry: true, reason: "git upstream is not established" };
   }
+  const upstream = resolveUpstream(pmDir);
+  if (!upstream.ok) return { state: "absent", safe_to_retry: true, reason: upstream.error };
+  // Query the actual destination, never infer acknowledgement from a cached ref.
+  const destination =
+    mode === "pull" || mode === "clone"
+      ? { ok: true, output: upstream.remoteUrl }
+      : runGitSafe(["remote", "get-url", "--push", upstream.remote], pmDir);
+  if (!destination.ok)
+    return { state: "ambiguous", reason: "Cannot resolve remote acknowledgement destination" };
+  const remote = runGitSafe(
+    ["ls-remote", "--refs", "--", destination.output, upstream.mergeRef],
+    pmDir
+  );
+  if (!remote.ok)
+    return { state: "ambiguous", reason: `Remote acknowledgement failed: ${remote.error}` };
+  const rows = remote.output
+    .split("\n")
+    .filter(Boolean)
+    .map((row) => row.split("\t"));
+  const remoteHead =
+    rows.length === 1 && rows[0][1] === upstream.mergeRef && /^[a-f0-9]{40,64}$/.test(rows[0][0])
+      ? rows[0][0]
+      : null;
   const clean = state.worktree_sha256 === sha256("");
-  const aligned = state.head === state.upstream;
+  const aligned = state.head === state.upstream && state.head === remoteHead;
   // Setup configures the upstream; pending content belongs to a later sync.
   // Keep the actual cleanliness in the receipt without imposing push's gate.
   const verified = mode === "pull" || mode === "setup" ? aligned : aligned && clean;
@@ -629,6 +698,9 @@ function syncObservation(mode, pmDir, expectedRemoteHash) {
       head: state.head,
       upstream: state.upstream,
       branch: state.branch,
+      remote_head: remoteHead,
+      remote_ref: upstream.mergeRef,
+      acknowledged_url_sha256: sha256(destination.output),
       worktree_clean: clean,
       remote_url_sha256: state.remote_url_sha256,
     },
@@ -645,7 +717,7 @@ function refreshRemoteForRecovery(pmDir) {
 }
 
 function unchangedLocalMutationSurface(before, after) {
-  if (!before || !after) return false;
+  if (!before || !after || !before.worktree_sha256 || !after.worktree_sha256) return false;
   return ["repository", "head", "branch", "worktree_sha256", "remote_url_sha256"].every(
     (field) => before[field] === after[field]
   );
@@ -708,7 +780,7 @@ function runSyncEffect(options) {
     },
     intent: {
       mode,
-      branch: configuredUpstream?.ok ? configuredUpstream.branch : null,
+      branch: configuredUpstream?.branch || currentBranch(pmDir).branch || null,
       upstream: configuredUpstream?.ok ? configuredUpstream.ref : null,
     },
     precondition() {
@@ -753,6 +825,17 @@ function runSyncEffect(options) {
       return syncObservation(mode, pmDir, expectedRemoteHash);
     },
     mutate() {
+      if (["push", "pull", "sync"].includes(mode)) {
+        const attached = resolveUpstream(pmDir);
+        if (!attached.ok) {
+          routeStatus = { mode, uploaded: 0, downloaded: 0, errors: [attached.error], ok: false };
+          return {
+            blocked: true,
+            reason: attached.error,
+            recovery: { ...recovery, reason: attached.error },
+          };
+        }
+      }
       mutationStarted = true;
       const result = remoteUrl ? operations[mode](pmDir, remoteUrl) : operations[mode](pmDir);
       routeStatus = mutationStatus(mode, result);

@@ -3282,6 +3282,20 @@ function grantAuthority(session, actions, reason, options = {}) {
     timestamp: grantedAt,
     notGrantableMessage: (action) => `authority action is not externally grantable: ${action}`,
   });
+  // Replay the same scoped grant without prompting or growing the audit.
+  // Validate through grantActions first; an already-true field is not permission
+  // to grant an unsupported action. New reasons/effects retain their own audit.
+  const requested = [...new Set(actions)].sort();
+  if (
+    actions.every((action) => session.authority[action] === true) &&
+    session.authority_log.some(
+      (entry) =>
+        entry.reason === reason.trim() &&
+        JSON.stringify([...entry.actions].sort()) === JSON.stringify(requested)
+    )
+  ) {
+    return structuredClone(session);
+  }
   const next = structuredClone(session);
   next.authority = granted.authority;
   next.authority_log = granted.log;

@@ -231,10 +231,12 @@ function beginEffect(transaction, input) {
   const effect = requirePlannedEffect(next, input.effect);
   if (input.actor !== "root") throw new Error("release effects are root-owned");
   if (effect.status === "verified") return { transaction: next, decision: "already-verified" };
-  const optimizedMerge =
-    input.effect === "merge" &&
-    (next.evidence.candidate || next.effects["ready-pr"]?.status !== undefined);
-  if ((input.effect === "ready-pr" || optimizedMerge) && input.candidateState !== "merge-ready") {
+  const optimizedMerge = input.effect === "merge" && Boolean(next.evidence.candidate);
+  if (
+    next.evidence.candidate &&
+    (input.effect === "ready-pr" || optimizedMerge) &&
+    input.candidateState !== "merge-ready"
+  ) {
     throw new Error(`${input.effect} requires candidate state merge-ready`);
   }
   if (effect.status === "attempting") return { transaction: next, decision: "observe-first" };
@@ -246,7 +248,9 @@ function beginEffect(transaction, input) {
   }
   if (
     input.effect === "merge" &&
-    (next.evidence.candidate || next.effects["ready-pr"]?.status !== undefined)
+    (next.evidence.candidate ||
+      next.effects["create-pr"]?.target?.draft === true ||
+      next.effects["ready-pr"]?.status !== undefined)
   ) {
     if (next.effects["ready-pr"]?.status !== "verified") {
       throw new Error("merge requires verified effect ready-pr");
@@ -873,17 +877,17 @@ function validateEffectTarget(name, target, transaction) {
     requireTargetMatch(target, "commit", transaction.release.prepared_commit, "prepared commit");
     const candidateDraft = Boolean(transaction.evidence.candidate);
     // Schema-v1 comprehensive transactions created before draft binding omitted this field.
-    if (target.draft !== undefined || candidateDraft) {
-      requireTargetMatch(target, "draft", candidateDraft, "delivery route");
-    }
+    if (candidateDraft) requireTargetMatch(target, "draft", true, "delivery route");
+    else if (target.draft !== undefined && typeof target.draft !== "boolean")
+      throw new Error("create-pr target draft must be a boolean");
     // Persisted schema-v1 journals created before reviewer-handoff binding omit this field.
     if (target.body_sha256 !== undefined && !SHA256.test(target.body_sha256 || "")) {
       throw new Error("create-pr target body_sha256 is invalid");
     }
   }
   if (name === "ready-pr") {
-    if (!transaction.evidence.candidate)
-      throw new Error("ready-pr requires current candidate evidence");
+    if (!transaction.evidence.candidate && transaction.effects["create-pr"]?.target?.draft !== true)
+      throw new Error("ready-pr requires a draft create-pr target or current candidate evidence");
     const prReceipt = transaction.effects["create-pr"]?.verified_receipt?.receipt;
     if (!prReceipt) throw new Error("ready-pr target requires a verified create-pr receipt");
     requireTargetMatch(target, "repository", transaction.source.repository, "repository");

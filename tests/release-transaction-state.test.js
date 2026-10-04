@@ -1255,3 +1255,105 @@ test("release readiness consumes current canonical Review, QA, and verification 
     /prepared commit/
   );
 });
+
+test("comprehensive delivery may start as draft and must verify ready before merge", () => {
+  let value = transaction();
+  for (const kind of ["review", "verification"])
+    value = bindReleaseEvidence(value, {
+      kind,
+      commit: COMMIT,
+      artifact: `.pm/${kind}.json`,
+      sha256: `sha256:${"e".repeat(64)}`,
+    });
+  value = planEffect(value, {
+    effect: "push",
+    target: {
+      remote: "origin",
+      repository: "acme/widget",
+      branch: "codex/release-example",
+      commit: COMMIT,
+    },
+  });
+  value = beginEffect(value, {
+    effect: "push",
+    authority: { push_feature_branch: true },
+    actor: "root",
+  }).transaction;
+  const pushed = { remote_tip: COMMIT };
+  value = reconcileEffect(value, {
+    effect: "push",
+    outcome: "matched",
+    receipt: pushed,
+    observation: { target: value.effects.push.target, receipt: pushed },
+  }).transaction;
+  value = planEffect(value, {
+    effect: "create-pr",
+    target: {
+      repository: "acme/widget",
+      head: "codex/release-example",
+      base: "main",
+      commit: COMMIT,
+      draft: true,
+      body_sha256: PR_BODY_SHA256,
+    },
+  });
+  value = beginEffect(value, {
+    effect: "create-pr",
+    authority: { create_pr: true },
+    actor: "root",
+  }).transaction;
+  const created = {
+    pr_number: 42,
+    state: "OPEN",
+    head_oid: COMMIT,
+    draft: true,
+    body_sha256: PR_BODY_SHA256,
+  };
+  value = reconcileEffect(value, {
+    effect: "create-pr",
+    outcome: "matched",
+    receipt: created,
+    observation: { target: value.effects["create-pr"].target, receipt: created },
+  }).transaction;
+  value = planEffect(value, {
+    effect: "merge",
+    target: {
+      repository: "acme/widget",
+      pr_number: 42,
+      head_commit: COMMIT,
+      base: "main",
+      method: "squash",
+      body_sha256: PR_BODY_SHA256,
+    },
+  });
+  assert.throws(
+    () => beginEffect(value, { effect: "merge", authority: { merge: true }, actor: "root" }),
+    /requires verified effect ready-pr/
+  );
+  value = planEffect(value, {
+    effect: "ready-pr",
+    target: { repository: "acme/widget", pr_number: 42, commit: COMMIT },
+  });
+  assert.equal(
+    beginEffect(value, { effect: "ready-pr", authority: { create_pr: false }, actor: "root" })
+      .decision,
+    "denied"
+  );
+  value = beginEffect(value, {
+    effect: "ready-pr",
+    authority: { create_pr: true },
+    actor: "root",
+  }).transaction;
+  const ready = { pr_number: 42, state: "OPEN", head_oid: COMMIT, draft: false };
+  value = reconcileEffect(value, {
+    effect: "ready-pr",
+    outcome: "matched",
+    receipt: ready,
+    observation: { target: value.effects["ready-pr"].target, receipt: ready },
+  }).transaction;
+  // Fresh handoff attestation remains required after readiness; draft support is no merge bypass.
+  assert.throws(
+    () => beginEffect(value, { effect: "merge", authority: { merge: true }, actor: "root" }),
+    /attestation/
+  );
+});

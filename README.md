@@ -344,3 +344,9 @@ remote-first Groom/RFC publication and native development. See
 [the host protocol and approval boundaries](references/productmemory-codex-host.md).
 Private runtime state stays local; connecting MCP and writer cutover remain
 separate user-coordinated steps.
+
+### Evidence reuse and sync receipts
+
+PM separates retained feature review from integration checks when main advances. `scripts/review-impact.js` reports changed upstream paths against an explicitly complete dependency/contract closure; unknown coverage requires full validation. The report is advisory, while the existing review freshness checker and exact-head CI remain delivery gates. Identical workflow grants reuse their audit; material changes and platform permissions retain their own approval requirements.
+
+QA preflights fixtures, selectors, capture names, build setup and simulator ownership, and distinguishes harness failures from product assertions. Report formatting repairs preserve acceptance evidence only when its source and run bindings remain valid. Git KB sync records a live remote acknowledgement and blocks pull with staged changes to preserve staged and working variants. Missing upstream, mixed ownership, conflicts and unavailable remotes stay explicit blockers.

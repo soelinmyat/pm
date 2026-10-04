@@ -29,3 +29,5 @@ For a prose-only remediation disagreement, request clarification from every affe
 - Disputes/decisions and round-cap outcomes are explicit and durable.
 
 **Advance:** proceed to Step 5 (Publish report).
+
+Keep Review-owned blockers separate from unrelated or pre-existing followups. Bind a blocker to the causal changed hunk and explain its release impact; a pre-existing problem still blocks when this change exposes it or makes delivery unsafe. Preserve advisory findings and QA/design handoffs without restarting broad review merely to relabel them. Reuse a checked pass for identical content; changed fixes follow the bounded delta protocol, and uncertain/material changes require the owning full review. Never reset the round budget with a new run ID.
