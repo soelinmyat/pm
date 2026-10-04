@@ -74,7 +74,7 @@ node "$PM_PLUGIN_ROOT/scripts/release-transaction.js" status \
 The ordered effects are:
 
 ```text
-push → create-pr → ready-pr (optimized draft only) → merge → place-main-tag
+push → create-pr → ready-pr (draft delivery) → merge → place-main-tag
                                                      ↘ tracker-update
 ```
 
@@ -139,13 +139,13 @@ Target fields: `remote`, `repository`, `branch`, `commit`. The receipt field `re
 
 ### Create PR
 
-Target fields: `repository`, `head`, `base`, `commit`, `draft`, and `body_sha256`. Every new plan must provide the boolean and SHA-256 explicitly. The CLI independently hashes the exact sibling `pr-body.md` bytes and rejects a missing or different hash. The runtime requires `draft: true` exactly when current candidate evidence selects optimized publication and `draft: false` for the comprehensive route. Observe through the exact GitHub owner/repository and require zero or one matching PR. The independently observed receipt records `pr_number`, URL, `state: OPEN`, `head_oid`, exact planned `draft`, and `body_sha256` computed from the exact UTF-8 API body string; the head OID must equal `commit` and the body hash must equal the target. Multiple matches, a fork, wrong base, wrong draft state, wrong head OID, or different body is `conflict`.
+Target fields: `repository`, `head`, `base`, `commit`, `draft`, and `body_sha256`. Every new plan must provide the boolean and SHA-256 explicitly. The CLI independently hashes the exact sibling `pr-body.md` bytes and rejects a missing or different hash. Optimized publication requires `draft: true`; comprehensive delivery accepts either explicit draft state. Honor user-requested draft-first delivery and journal `ready-pr` before merge. Observe through the exact GitHub owner/repository and require zero or one matching PR. The independently observed receipt records `pr_number`, URL, `state: OPEN`, `head_oid`, exact planned `draft`, and `body_sha256` computed from the exact UTF-8 API body string; the head OID must equal `commit` and the body hash must equal the target. Multiple matches, a fork, wrong base, wrong draft state, wrong head OID, or different body is `conflict`.
 
 Legacy schema-v1 journals may predate `draft` or `body_sha256`. The canonical read boundary retains the existing safe draft migration: a formerly verified pre-Merge effect is reopened only for observe-first recovery and cannot become verified again until the live PR proves `draft: false`. For a missing body binding, restore the intended canonical `pr-body.md`, run `release-transaction.js migrate-pr-body`, then re-observe and reconcile the reopened Create PR attempt with a body-bound receipt. This command never mutates GitHub. Reopening Create PR discards a merely planned Merge because its upstream verification is no longer valid; plan Merge again after the body-bound Create PR receipt is verified. An attempting Merge must be reconciled first because it may already be irreversible. A denied, failed, or blocked Merge retains audit evidence and requires advancement to a fresh transaction generation before migration. A verified Merge may complete its remaining idempotent tag work without replay. A terminal transaction with required Merge and main tag already verified remains byte-for-byte immutable so an existing delivery receipt cannot be invalidated. `status` names the exact pending migration and `validate` blocks until the safe rebind is complete.
 
 ### Ready PR
 
-Optimized draft delivery only. Target fields: `repository`, verified `pr_number`, and `commit`. It depends on verified `create-pr`, can begin only while the canonical candidate is `merge-ready`, and uses the existing canonical `create_pr` authority; it never inherits merge authority. Observe through the exact GitHub owner/repository. The receipt records the same `pr_number`, `state: OPEN`, `head_oid` equal to `commit`, and `draft: false`. When `ready-pr` is planned, Merge cannot begin until this effect is verified. Comprehensive non-draft PRs do not plan this effect.
+Draft delivery. Target fields: `repository`, verified `pr_number`, and `commit`. It depends on verified `create-pr`, requires canonical `merge-ready` state for optimized candidates, and uses the existing canonical `create_pr` authority; it never inherits merge authority. Observe through the exact GitHub owner/repository. The receipt records the same `pr_number`, `state: OPEN`, `head_oid` equal to `commit`, and `draft: false`. When `ready-pr` is planned, Merge cannot begin until this effect is verified. Comprehensive draft PRs retain all prepared-release evidence and authority checks, and must verify this effect before merge. Comprehensive non-draft PRs do not plan this effect.
 
 ### Merge
 

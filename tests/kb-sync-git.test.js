@@ -331,16 +331,12 @@ test("journaled setup preserves pending content for the subsequent sync", (t) =>
     dotPmDir: dotPm,
     authorityActions: ["sync_knowledge_base"],
   });
-  assert.equal(synced.state, "verified", JSON.stringify(synced));
-  assert.equal(synced.verified_receipt.receipt.worktree_clean, true);
-  assert.equal(
-    gitExec("git show origin/configuration:strategy.md", { cwd: pmDir }).toString(),
-    "# Unstaged\n"
-  );
-  assert.equal(
-    gitExec("git show origin/configuration:notes.md", { cwd: pmDir }).toString(),
-    "# Untracked\n"
-  );
+  assert.equal(synced.state, "ambiguous", JSON.stringify(synced));
+  assert.equal(synced.verified_receipt, null);
+  assert.match(synced.error, /staged changes/);
+  assert.equal(gitExec("git show :strategy.md", { cwd: pmDir }).toString(), "# Staged\n");
+  assert.equal(fs.readFileSync(path.join(pmDir, "strategy.md"), "utf8"), "# Unstaged\n");
+  assert.equal(fs.readFileSync(path.join(pmDir, "notes.md"), "utf8"), "# Untracked\n");
 });
 
 for (const mode of ["push", "sync"]) {
@@ -1415,4 +1411,162 @@ test("writeSyncStatus writes correctly shaped JSON with git backend", (t) => {
   assert.equal(status.ok, true);
   assert.ok(status.lastSync);
   assert.ok(!isNaN(Date.parse(status.lastSync)), "lastSync must be valid ISO date");
+});
+
+test("journaled push never certifies stale tracking refs as remote acknowledgement", (t) => {
+  const remote = withBareRemote();
+  const seeded = withTempProject({ "pm/strategy.md": "# Strategy\n" });
+  const api = require(KB_SYNC_GIT_PATH);
+  assert.equal(api.setup(seeded.pmDir, remote.url).ok, true);
+  t.after(() => {
+    seeded.cleanup();
+    remote.cleanup();
+  });
+  const oldHead = gitExec("git rev-parse HEAD", { cwd: seeded.pmDir, encoding: "utf8" }).trim();
+  gitExec("git update-ref refs/heads/main HEAD~0", { cwd: remote.path });
+  // Remove the destination while preserving local HEAD and tracking refs.
+  gitExec("git update-ref -d refs/heads/main", { cwd: remote.path });
+  let calls = 0;
+  const result = api.runSyncEffect({
+    mode: "push",
+    pmDir: seeded.pmDir,
+    dotPmDir: seeded.dotPm,
+    authorityActions: ["push_knowledge_base"],
+    operations: {
+      push(target) {
+        calls++;
+        return api.push(target);
+      },
+    },
+  });
+  assert.equal(result.state, "verified");
+  assert.equal(calls, 1, "a local tracking ref is not a receipt");
+  assert.equal(result.verified_receipt.receipt.remote_head, oldHead);
+  assert.equal(result.verified_receipt.receipt.remote_ref, "refs/heads/main");
+});
+
+test("unavailable remote cannot receive a successful sync receipt", (t) => {
+  const remote = withBareRemote();
+  const seeded = withTempProject({ "pm/strategy.md": "# Strategy\n" });
+  const api = require(KB_SYNC_GIT_PATH);
+  assert.equal(api.setup(seeded.pmDir, remote.url).ok, true);
+  remote.cleanup();
+  t.after(seeded.cleanup);
+  const result = api.runSyncEffect({
+    mode: "push",
+    pmDir: seeded.pmDir,
+    dotPmDir: seeded.dotPm,
+    authorityActions: ["push_knowledge_base"],
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.verified_receipt, null);
+});
+
+test("local recovery identity detects content edits with unchanged porcelain status", (t) => {
+  const remote = withBareRemote();
+  const seeded = withTempProject({ "pm/strategy.md": "# Strategy\n" });
+  const api = require(KB_SYNC_GIT_PATH);
+  assert.equal(api.setup(seeded.pmDir, remote.url).ok, true);
+  t.after(() => {
+    seeded.cleanup();
+    remote.cleanup();
+  });
+  fs.writeFileSync(path.join(seeded.pmDir, "strategy.md"), "first working variant\n");
+  const first = api.localGitState(seeded.pmDir);
+  fs.writeFileSync(path.join(seeded.pmDir, "strategy.md"), "second working variant\n");
+  assert.notEqual(api.localGitState(seeded.pmDir).worktree_sha256, first.worktree_sha256);
+});
+
+test("pull preserves staged and working variants by blocking before autostash", (t) => {
+  const remote = withBareRemote();
+  const seeded = withTempProject({ "pm/strategy.md": "# Strategy\n" });
+  const api = require(KB_SYNC_GIT_PATH);
+  assert.equal(api.setup(seeded.pmDir, remote.url).ok, true);
+  t.after(() => {
+    seeded.cleanup();
+    remote.cleanup();
+  });
+  fs.writeFileSync(path.join(seeded.pmDir, "strategy.md"), "staged variant\n");
+  gitExec("git add strategy.md", { cwd: seeded.pmDir });
+  fs.writeFileSync(path.join(seeded.pmDir, "strategy.md"), "working variant\n");
+  const before = gitExec("git diff --cached", { cwd: seeded.pmDir, encoding: "utf8" });
+  const result = api.pull(seeded.pmDir);
+  assert.equal(result.ok, false);
+  assert.match(result.error, /staged.*preserv/i);
+  assert.equal(gitExec("git diff --cached", { cwd: seeded.pmDir, encoding: "utf8" }), before);
+  assert.equal(
+    fs.readFileSync(path.join(seeded.pmDir, "strategy.md"), "utf8"),
+    "working variant\n"
+  );
+});
+
+test("missing-upstream mixed checkout reports blocked without mutating either variant", (t) => {
+  const remote = withBareRemote();
+  const seeded = withTempProject({ "pm/strategy.md": "# Strategy\n" });
+  const api = require(KB_SYNC_GIT_PATH);
+  assert.equal(api.setup(seeded.pmDir, remote.url).ok, true);
+  t.after(() => {
+    seeded.cleanup();
+    remote.cleanup();
+  });
+  gitExec("git checkout -b unrelated-owner", { cwd: seeded.pmDir });
+  fs.writeFileSync(path.join(seeded.pmDir, "strategy.md"), "staged\n");
+  gitExec("git add strategy.md", { cwd: seeded.pmDir });
+  fs.writeFileSync(path.join(seeded.pmDir, "strategy.md"), "working\n");
+  const result = api.runSyncEffect({
+    mode: "sync",
+    pmDir: seeded.pmDir,
+    dotPmDir: seeded.dotPm,
+    authorityActions: ["sync_knowledge_base"],
+  });
+  assert.equal(result.state, "blocked");
+  assert.equal(result.verified_receipt, null);
+  assert.match(result.error, /unrelated-owner.*no upstream/);
+  assert.equal(
+    gitExec("git show :strategy.md", { cwd: seeded.pmDir, encoding: "utf8" }),
+    "staged\n"
+  );
+  assert.equal(fs.readFileSync(path.join(seeded.pmDir, "strategy.md"), "utf8"), "working\n");
+});
+
+test("autostash conflict remains explicit and never publishes conflict markers", (t) => {
+  const remote = withBareRemote();
+  const seeded = withTempProject({ "pm/strategy.md": "base\n" });
+  const api = require(KB_SYNC_GIT_PATH);
+  assert.equal(api.setup(seeded.pmDir, remote.url).ok, true);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kb-conflict-receipt-"));
+  const second = path.join(root, "pm");
+  const state = path.join(root, ".pm");
+  gitExec(`git clone ${remote.url} ${second}`);
+  t.after(() => {
+    seeded.cleanup();
+    remote.cleanup();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  fs.writeFileSync(path.join(seeded.pmDir, "strategy.md"), "remote variant\n");
+  assert.equal(api.push(seeded.pmDir).ok, true);
+  fs.writeFileSync(path.join(second, "strategy.md"), "local variant\n");
+  const options = {
+    mode: "sync",
+    pmDir: second,
+    dotPmDir: state,
+    authorityActions: ["sync_knowledge_base"],
+  };
+  const result = api.runSyncEffect(options);
+  assert.equal(result.ok, false);
+  assert.equal(result.verified_receipt, null);
+  assert.match(result.error, /conflict/i);
+  assert.equal(
+    gitExec("git show main:strategy.md", { cwd: remote.path, encoding: "utf8" }),
+    "remote variant\n"
+  );
+  assert.match(fs.readFileSync(path.join(second, "strategy.md"), "utf8"), /local variant/);
+  assert.match(gitExec("git stash show -p", { cwd: second, encoding: "utf8" }), /local variant/);
+  const repeated = api.runSyncEffect({
+    ...options,
+    mode: "pull",
+    authorityActions: ["pull_knowledge_base"],
+  });
+  assert.equal(repeated.ok, false);
+  assert.equal(repeated.verified_receipt, null);
 });

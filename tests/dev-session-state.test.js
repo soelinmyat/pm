@@ -1764,3 +1764,30 @@ test("legacy Markdown migrates without deleting its source", () => {
     repo.cleanup();
   }
 });
+
+test("identical approval replay preserves the existing authority audit", () => {
+  const repo = makeRepo();
+  try {
+    const session = createSession({ slug: "approval-continuity", sourceDir: repo.root });
+    const first = grantAuthority(
+      session,
+      ["push_feature_branch", "merge"],
+      "Publish this scoped release"
+    );
+    const repeated = grantAuthority(
+      first,
+      ["merge", "push_feature_branch", "merge"],
+      "Publish this scoped release"
+    );
+    assert.deepEqual(repeated, first);
+    const material = grantAuthority(first, ["create_pr"], "User authorized an additional effect");
+    assert.equal(material.authority_log.length, 2);
+    assert.equal(first.authority.create_pr, false);
+    assert.throws(
+      () => grantAuthority(first, ["local_writes"], "Publish this scoped release"),
+      /not externally grantable/
+    );
+  } finally {
+    repo.cleanup();
+  }
+});
