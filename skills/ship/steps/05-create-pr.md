@@ -110,7 +110,7 @@ After convergence and before CI, freeze the exact converged head and finish the 
 
 When the candidate route was not selected, follow the comprehensive PR path below unchanged.
 
-Build and plan the exact `create-pr` target with repository, head, base, prepared head commit, `draft: false`, and canonical `body_sha256`. The runtime will refuse a new target without that exact body binding and will refuse `begin` until `push` is verified. Observe existing PRs by all target dimensions before deciding whether creation is needed. Record a matching existing PR through `begin` plus `reconcile matched`; it is an idempotent success, not a reason to create another PR.
+Build and plan the exact `create-pr` target with repository, head, base, prepared head commit, explicit draft state, and canonical `body_sha256`. Honor requested draft-first delivery with `draft: true`; otherwise comprehensive delivery uses `draft: false`. All comprehensive gates pass before publication. The runtime will refuse a new target without that exact body binding and will refuse `begin` until `push` is verified. Observe existing PRs by all target dimensions before deciding whether creation is needed. Record a matching existing PR through `begin` plus `reconcile matched`; it is an idempotent success, not a reason to create another PR.
 
 If `release-transaction.js status` reports a legacy create-PR body migration,
 first restore and validate the intended canonical `PR_BODY_FILE`, then run
@@ -157,7 +157,7 @@ If the body differs, report the exact missing/stale sections and request explici
    using the Reviewer handoff contract above. Confirm every required heading is
    present and every acceptance criterion has evidence or an explicit blocker.
 
-4. Create the PR against the explicit reviewed identity:
+4. Create the PR against the explicit reviewed identity. Add `--draft` for requested draft-first delivery:
    ```
    gh pr create --repo "$GH_REPO" --head "$HEAD_BRANCH" --base "$BASE_BRANCH" \
      --title "[descriptive title]" --body-file "$PR_BODY_FILE"
@@ -213,3 +213,7 @@ Then run the Product Memory steps (backlog `prs` write is skipped — no merge y
 On the optimized route, exactly one open non-draft PR matches contracted repository/head/base identity and canonical reviewer-handoff body bytes, the transaction's `create-pr` and `ready-pr` effects are `verified`, every required review source has passed on its exact current head, zero required conversations remain unresolved, the exact prepared commit has a current signed final-candidate attestation, and candidate state is `merge-ready`; merge authority is still not implied. On the comprehensive route, exactly one PR has passed the contracted repository/head/base/prepared-commit/body identity check, the `create-pr` effect is observed as `verified`, any PR mutation had explicit `create_pr` authority, and merge behavior is resolved without treating a preference as consent.
 
 **Advance:** proceed to Step 6 (CI Monitor), then Step 7 only according to the explicit merge-authority and auto-merge branch; otherwise emit the green-PR early-exit report.
+
+### Comprehensive draft readiness
+
+For a comprehensive draft, record the verified Create PR receipt with `draft: true`. After current complete gates and the reviewer handoff pass, plan and begin `ready-pr` with the exact repository, verified PR number and prepared commit. Require canonical `create_pr` authority; on `execute`, run `gh pr ready "$PR_NUMBER" --repo "$GH_REPO"`. Independently observe the same open PR/head with `draft: false`, then reconcile `ready-pr` as matched before entering CI. Retain exact-head CI, fresh PR-body attestation and separate merge authority. Ambiguous readiness observes before replay. This route uses its existing comprehensive certification and does not acquire candidate-only permissions.

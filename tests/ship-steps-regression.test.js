@@ -340,7 +340,7 @@ test("Ship journals ambiguous effects and places version tags only after verifie
   assert.match(reference, /verified.*never replay/s);
   assert.match(
     reference,
-    /push → create-pr → ready-pr \(optimized draft only\) → merge → place-main-tag/
+    /push → create-pr → ready-pr \(draft delivery\) → merge → place-main-tag/
   );
   assert.match(push, /observe-first/);
   assert.match(push, /timeout or connection loss stays `attempting`/);
@@ -362,4 +362,12 @@ test("Ship binds the reviewer handoff body through Create PR and the Merge bound
   assert.match(merge, /attest-pr-body/);
   assert.match(merge, /five minutes and one Merge attempt only/i);
   assert.match(merge, /include the independently observed live.*body_sha256.*Merge receipt/is);
+});
+
+test("comprehensive requested drafts have an explicit ready-before-merge procedure", () => {
+  const step = read("skills/ship/steps/05-create-pr.md");
+  assert.match(step, /comprehensive draft/i);
+  assert.match(step, /requested draft-first/i);
+  assert.match(step, /ready-pr.*before.*CI/i);
+  assert.match(step, /--draft/);
 });
