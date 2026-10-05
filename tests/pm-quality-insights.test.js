@@ -490,3 +490,165 @@ test("writer lazy continuation qualification survives exact selection and routin
   const incomplete = route(pmDir, { selected_findings: ["Managers cannot find requests."] });
   assert.equal(incomplete.routes[0].action, "error");
 });
+
+// Frozen Review round-1 edge regressions.
+{
+  const A = "evidence/research/a.md",
+    B = "evidence/research/b.md",
+    I = "insights/product/decision.md";
+  const a1 = "Occasional managers lose context.",
+    a2 = "Administrators retain context.",
+    b = "Returning users recover context.";
+  function fixture(t) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-routing-frozen-"));
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    for (const [source, findings] of [
+      [A, [a1, a2]],
+      [B, [b]],
+    ])
+      writeMarkdown(
+        path.join(dir, source),
+        {
+          type: "evidence",
+          evidence_type: "research",
+          topic: "Context",
+          source_origin: "internal",
+          created: "2026-04-10",
+          updated: "2026-04-10",
+          sources: [],
+          cited_by: [],
+        },
+        `# Context\n\n## Findings\n\n${findings.map((f, n) => `${n + 1}. ${f}`).join("\n")}\n`
+      );
+    writeMarkdown(
+      path.join(dir, I),
+      {
+        type: "insight",
+        domain: "product",
+        topic: "Context decision",
+        last_updated: "2026-04-10",
+        status: "draft",
+        confidence: "low",
+        sources: [],
+      },
+      "# Context decision\n\nPrior analyst counterevidence.\n"
+    );
+    const routes = [
+      {
+        mode: "existing",
+        evidencePath: A,
+        insightPath: I,
+        description: "Context",
+        selected_findings: [a1],
+      },
+      {
+        mode: "existing",
+        evidencePath: B,
+        insightPath: I,
+        description: "Context",
+        selected_findings: [b],
+      },
+    ];
+    applyRoutes(dir, { routes }, { skipHotIndex: true });
+    rewriteInsights(dir, {
+      insights: [
+        {
+          insightPath: I,
+          synthesis: {
+            summary: "A bounded segment difference.",
+            claims: [
+              {
+                text: "Occasional managers differ from returning users.",
+                evidence_refs: [
+                  { path: A, finding: a1 },
+                  { path: B, finding: b },
+                ],
+              },
+            ],
+            confidence: {
+              level: "medium",
+              basis: "Observed task difference.",
+              limitations: "Population size unknown.",
+            },
+            open_questions: [],
+          },
+        },
+      ],
+    });
+    return { dir, routes };
+  }
+  test("rv-b874f2d764c981b68dae: identical two-source batch replay preserves current reviewed state and bytes", (t) => {
+    const { dir, routes } = fixture(t),
+      before = fs.readFileSync(path.join(dir, I), "utf8"),
+      log = fs.readFileSync(path.join(dir, "insights/product/log.md"), "utf8");
+    const result = applyRoutes(dir, { routes }, { skipHotIndex: true });
+    assert.deepEqual(result.rewrites, []);
+    assert.equal(fs.readFileSync(path.join(dir, I), "utf8"), before);
+    assert.equal(fs.readFileSync(path.join(dir, "insights/product/log.md"), "utf8"), log);
+  });
+  test("rv-abe241ee767039b86b86: selection-only digest failure retries after missing dependency is restored", (t) => {
+    const { dir, routes } = fixture(t),
+      originalB = fs.readFileSync(path.join(dir, B), "utf8");
+    fs.unlinkSync(path.join(dir, B));
+    const update = { ...routes[0], selected_findings: [a2] };
+    const failure = applyRoutes(dir, { routes: [update] });
+    assert.equal(failure.rewrites[0].action, "error");
+    assert.equal(loadMarkdown(path.join(dir, I)).frontmatter.digest_pending, "true");
+    assert.match(
+      fs.readFileSync(path.join(dir, "insights/product/index.md"), "utf8"),
+      /Context.*stale/
+    );
+    assert.match(
+      fs.readFileSync(path.join(dir, "insights/.hot.md"), "utf8"),
+      /Context decision \| stale \| low/
+    );
+    const logAfterFailure = fs.readFileSync(path.join(dir, "insights/product/log.md"), "utf8");
+    fs.writeFileSync(path.join(dir, B), originalB);
+    const retry = applyRoutes(dir, { routes: [update] });
+    assert.equal(retry.rewrites.length, 1);
+    assert.equal(retry.rewrites[0].action, "digest-updated");
+    assert.equal(retry.hotIndexGenerated, true);
+    assert.equal(loadMarkdown(path.join(dir, I)).frontmatter.digest_pending, undefined);
+    assert.equal(
+      fs.readFileSync(path.join(dir, "insights/product/log.md"), "utf8"),
+      logAfterFailure
+    );
+    const after = fs.readFileSync(path.join(dir, I), "utf8");
+    const replay = applyRoutes(dir, { routes: [update] }, { skipHotIndex: true });
+    assert.deepEqual(replay.rewrites, []);
+    assert.equal(fs.readFileSync(path.join(dir, I), "utf8"), after);
+    const body = loadMarkdown(path.join(dir, I)).body;
+    assert.match(body, /Historical assessment: linked evidence or claim selection changed/);
+    assert.ok(
+      body
+        .split("**Selected findings for this topic")[1]
+        .split("**Complete source context")[0]
+        .includes(a2)
+    );
+  });
+
+  test("pending selection digest also retries through standalone rewrite without a new selection change", (t) => {
+    const { dir, routes } = fixture(t),
+      originalB = fs.readFileSync(path.join(dir, B), "utf8");
+    fs.unlinkSync(path.join(dir, B));
+    const failure = applyRoutes(
+      dir,
+      { routes: [{ ...routes[0], selected_findings: [a2] }] },
+      { skipHotIndex: true }
+    );
+    assert.equal(failure.rewrites[0].action, "error");
+    const repeatFailure = rewriteInsights(dir, { insights: [I] });
+    assert.equal(repeatFailure.insights[0].action, "error");
+    assert.equal(loadMarkdown(path.join(dir, I)).frontmatter.digest_pending, "true");
+    fs.writeFileSync(path.join(dir, B), originalB);
+    const retry = rewriteInsights(dir, { insights: [I] });
+    assert.equal(retry.insights[0].action, "digest-updated");
+    assert.equal(loadMarkdown(path.join(dir, I)).frontmatter.digest_pending, undefined);
+    assert.match(
+      loadMarkdown(path.join(dir, I)).body,
+      /Historical assessment: linked evidence or claim selection changed/
+    );
+    const replay = rewriteInsights(dir, { insights: [I] });
+    assert.equal(replay.insights[0].action, "skipped");
+  });
+}

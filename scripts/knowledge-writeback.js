@@ -13,6 +13,8 @@ const {
 const { generateRouteSuggestions } = require("./insight-route-suggestions.js");
 const { validateCitationBindings } = require("./lib/evidence-schema");
 
+const { parseFindingItems } = require("./lib/finding-items");
+
 const INDEX_HEADER = "| Topic/Source | Description | Updated | Status |";
 const INDEX_DIVIDER = "|---|---|---|---|";
 
@@ -179,13 +181,20 @@ function normalizedFinding(value) {
 }
 
 function findingItems(section) {
-  return section
-    .split(/\r?\n(?=\s*(?:\d+\.|[-*])\s+)/)
-    .map((item) => item.replace(/^\s*(?:\d+\.|[-*])\s+/, "").trim())
-    .filter(Boolean);
+  const items = parseFindingItems(section);
+  return items.length ? items : section.trim() ? [section.trim()] : [];
 }
 
-function mergeBody(existing, payload) {
+function correctionHistory(correction, origin) {
+  const indent = (value) => value.trim().replace(/\n/g, "\n  ");
+  return `Superseded: ${indent(correction.finding)}\n  Replacement: ${indent(correction.replacement)}\n  Reason: ${indent(correction.reason)}${origin ? `\n  Origin: ${origin}` : ""}`;
+}
+
+function ownedFinding(finding, origin, mixed) {
+  return mixed && !/^\[(internal|external)\]/.test(finding) ? `[${origin}] ${finding}` : finding;
+}
+
+function mergeBody(existing, payload, mergeState) {
   const sections = existing.body.split(/(?=^## )/m);
   const updates = new Map([
     ["Summary", payload.summary],
@@ -200,18 +209,49 @@ function mergeBody(existing, payload) {
   const findingSection = sections.find((section) => /^## Findings\s*\n/.test(section));
   let findings = findingItems((findingSection || "").replace(/^## Findings\s*\n/, ""));
   const history = [];
+  let replayedCorrections = 0;
+  const previousHistory = sections.find((section) => /^## Superseded Findings\s*\n/.test(section));
+  const completedCorrections = parseFindingItems(
+    (previousHistory || "").replace(/^## Superseded Findings\s*\n/, "")
+  );
+  const mixed =
+    resolveSourceOrigin(existing.frontmatter.source_origin, payload.sourceOrigin) === "mixed";
   for (const correction of payload.supersedes) {
+    const replacementOrigin = correction.replacement.match(/^\[(internal|external)\]/)?.[1];
+    if (replacementOrigin && replacementOrigin !== payload.sourceOrigin)
+      throw new Error("cannot supersede another origin's or ambiguous finding");
     const index = findings.findIndex(
       (item) => normalizedFinding(item) === normalizedFinding(correction.finding)
     );
-    if (index === -1) throw new Error("superseded finding must match an existing finding exactly");
+    if (index === -1) {
+      const origin = payload.sourceOrigin;
+      const explicitOrigin = correction.finding.match(/^\[(internal|external)\]/)?.[1];
+      const expected = normalizedFinding(correctionHistory(correction, origin));
+      const legacyExpected = normalizedFinding(correctionHistory(correction));
+      const exactHistory = completedCorrections.some(
+        (item) =>
+          normalizedFinding(item) === expected ||
+          ((explicitOrigin || existing.frontmatter.source_origin) === origin &&
+            normalizedFinding(item) === legacyExpected)
+      );
+      const replacement = ownedFinding(correction.replacement.trim(), origin, mixed);
+      if (
+        !["internal", "external"].includes(origin) ||
+        (explicitOrigin && explicitOrigin !== origin) ||
+        !exactHistory ||
+        !findings.some((item) => normalizedFinding(item) === normalizedFinding(replacement))
+      )
+        throw new Error(
+          "superseded finding must match an existing finding exactly or an exact completed correction"
+        );
+      replayedCorrections++;
+      continue;
+    }
     const origin =
       findings[index].match(/^\[(internal|external)\]/)?.[1] || existing.frontmatter.source_origin;
-    if (origin !== payload.sourceOrigin)
+    if (origin !== payload.sourceOrigin || !["internal", "external"].includes(origin))
       throw new Error("cannot supersede another origin's or ambiguous finding");
-    history.push(
-      `- Superseded: ${findings[index]}\n  Replacement: ${correction.replacement.trim()}\n  Reason: ${correction.reason.trim()}`
-    );
+    history.push(`- ${correctionHistory({ ...correction, finding: findings[index] }, origin)}`);
     findings.splice(index, 1);
   }
   // Label ownership when origins become mixed, so later partial updates can
@@ -256,6 +296,8 @@ function mergeBody(existing, payload) {
   for (const [name, value] of updates) {
     if (value && !["None.", "- None."].includes(value)) rendered.push(`## ${name}\n\n${value}`);
   }
+  mergeState.supersessionReplay =
+    payload.supersedes.length > 0 && replayedCorrections === payload.supersedes.length;
   return `${rendered.join("\n\n").trim()}\n`;
 }
 
@@ -334,9 +376,10 @@ function upsertIndex(indexPath, fileName, description, updated, status) {
   writeAtomic(indexPath, rebuilt.endsWith("\n") ? rebuilt : `${rebuilt}\n`);
 }
 
-function appendLog(logPath, action, artifactPath, date) {
+function appendLog(logPath, action, artifactPath, date, skipDuplicate = false) {
   const existing = fs.existsSync(logPath) ? fs.readFileSync(logPath, "utf8") : "";
   const line = `${date} ${action} ${artifactPath}`;
+  if (skipDuplicate && existing.split(/\r?\n/).includes(line)) return;
   const content = existing ? `${existing.trimEnd()}\n${line}\n` : `${line}\n`;
   writeAtomic(logPath, content);
 }
@@ -384,7 +427,8 @@ function writeKnowledgeArtifact(pmDir, rawPayload) {
     sources,
     cited_by: citedBy,
   };
-  const body = existing ? mergeBody(existing, payload) : buildBody(payload);
+  const mergeState = {};
+  const body = existing ? mergeBody(existing, payload, mergeState) : buildBody(payload);
   const header = existing
     ? updateFrontmatter(existing, {
         topic: payload.topic,
@@ -407,7 +451,13 @@ function writeKnowledgeArtifact(pmDir, rawPayload) {
   writeAtomic(absolutePath, content);
 
   upsertIndex(indexPath, fileName, payload.description, updated, payload.status || sourceOrigin);
-  appendLog(logPath, existing ? "update" : "create", payload.artifactPath, now);
+  appendLog(
+    logPath,
+    existing ? "update" : "create",
+    payload.artifactPath,
+    now,
+    mergeState.supersessionReplay && content === existing.content
+  );
 
   const routeSuggestions = generateRouteSuggestions(pmDir, {
     evidencePath: payload.artifactPath,

@@ -15,6 +15,8 @@ const {
   writeMarkdown,
 } = require("./kb-utils.js");
 
+const { parseFindingItems } = require("./lib/finding-items");
+
 const DIGEST_START = "<!-- pm-source-digest:start -->";
 const DIGEST_END = "<!-- pm-source-digest:end -->";
 const REVIEW_START = "<!-- pm-reviewed-synthesis:start -->";
@@ -74,30 +76,7 @@ function extractFindings(body) {
       .split(/\r?\n\s*\r?\n/)
       .filter((paragraph) => paragraph.trim() && !/^#/.test(paragraph.trim()))
       .map((paragraph) => normalizeWhitespace(paragraph.replace(/^\s*(?:\d+\.|[-*])\s+/, "")));
-  const findings = [];
-  let active = "";
-  let listIndent = null;
-  let lazyContinuation = false;
-  for (const line of section.split(/\r?\n/)) {
-    const match = line.match(/^(\s*)(?:\d+[.)]|[-*])\s+(.*)$/);
-    if (match && (listIndent === null || match[1].length <= listIndent)) {
-      if (active) findings.push(normalizeWhitespace(active));
-      active = match[2];
-      listIndent = match[1].length;
-      lazyContinuation = true;
-    } else if (
-      active &&
-      line.trim() &&
-      !/^\s*#/.test(line) &&
-      (lazyContinuation || /^\s{2,}\S/.test(line))
-    ) {
-      active += ` ${line.trim()}`;
-    } else if (!line.trim()) {
-      lazyContinuation = false;
-    }
-  }
-  if (active) findings.push(normalizeWhitespace(active));
-  return findings;
+  return parseFindingItems(section).map(normalizeWhitespace);
 }
 
 function validateSelections(doc, selections) {
@@ -294,7 +273,10 @@ function rewriteSingleInsight(pmDir, target, now, options) {
   }));
   const changed =
     JSON.stringify(insightDoc.frontmatter.source_snapshots || []) !== JSON.stringify(snapshots);
-  if (!changed && !synthesis && !options.forceDigest)
+  const digestPending =
+    insightDoc.frontmatter.digest_pending === true ||
+    insightDoc.frontmatter.digest_pending === "true";
+  if (!changed && !synthesis && !options.forceDigest && !digestPending)
     return {
       insightPath,
       action: "skipped",
@@ -360,6 +342,9 @@ function rewriteSingleInsight(pmDir, target, now, options) {
     synthesis_state: synthesis ? "reviewed" : "needs-synthesis",
     source_snapshots: snapshots,
   };
+  // Selection changes may have been saved before an unavailable dependency
+  // prevented digesting. Clear pending work only in this successful write.
+  delete nextFrontmatter.digest_pending;
   writeMarkdown(absolutePath, nextFrontmatter, nextBody, [
     "type",
     "domain",

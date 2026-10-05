@@ -10,6 +10,7 @@ const {
   nextBacklogId: nextAtomicBacklogId,
 } = require("./capture-backlog.js");
 const { writeJsonAtomic, writeTextAtomic } = require("./lib/atomic-file");
+const { createProjectRootAnchor, readProjectInput } = require("./lib/safe-project-output");
 const { acquireOwnedLock } = require("./lib/owned-lock");
 const {
   createEvidenceRecord,
@@ -306,7 +307,10 @@ digested_through: ${digestedThrough}
  * @returns {{ frontmatter: object, entries: Array<{ timestamp: string, source: string, body: string, tags: string }> }}
  */
 function parseNotesFile(filePath) {
-  const content = fs.readFileSync(filePath, "utf8");
+  return parseNotesContent(fs.readFileSync(filePath, "utf8"));
+}
+
+function parseNotesContent(content) {
   const parsed = parseFrontmatter(content);
 
   const entries = [];
@@ -380,10 +384,21 @@ function collectNoteDigestCandidates(pmDir, options = {}) {
     throw new Error("note digest requires a valid clock and positive lookbackDays");
   }
   const knownDigests = options.knownDigests || {};
-  const notesDir = path.join(pmDir, "evidence", "notes");
-  if (!fs.existsSync(notesDir)) return [];
-  if (fs.lstatSync(notesDir).isSymbolicLink())
-    throw new Error("note digest directory must not be a symlink");
+  const root = path.resolve(pmDir);
+  if (!fs.existsSync(root)) return [];
+  const projectRootAnchor = createProjectRootAnchor(root);
+  const notesDir = path.join(root, "evidence", "notes");
+  for (const directory of [path.join(root, "evidence"), notesDir]) {
+    let stat;
+    try {
+      stat = fs.lstatSync(directory);
+    } catch (error) {
+      if (error.code === "ENOENT") return [];
+      throw error;
+    }
+    if (stat.isSymbolicLink() || !stat.isDirectory())
+      throw new Error("note digest ancestor must be a real directory, not a symlink");
+  }
   const files = fs
     .readdirSync(notesDir)
     .filter((name) => /^\d{4}-\d{2}\.md$/.test(name))
@@ -396,17 +411,22 @@ function collectNoteDigestCandidates(pmDir, options = {}) {
   const seenHashes = new Map();
   let bytes = 0;
   for (const file of files) {
-    const filePath = path.join(notesDir, file);
-    const stat = fs.lstatSync(filePath);
-    if (!stat.isFile() || stat.isSymbolicLink())
-      throw new Error("note digest requires regular monthly artifacts");
-    bytes += stat.size;
-    if (bytes > 4 * 1024 * 1024)
-      throw new Error(
-        "note digest exceeds 4 MiB; report the scope limit; this digest is incomplete"
-      );
+    let input;
+    try {
+      input = readProjectInput(root, `evidence/notes/${file}`, 4 * 1024 * 1024 - bytes, {
+        projectRootAnchor,
+        requireStablePath: true,
+      });
+    } catch (error) {
+      if (/^input exceeds \d+-byte budget$/.test(error.message))
+        throw new Error(
+          "note digest exceeds 4 MiB; report the scope limit; this digest is incomplete"
+        );
+      throw error;
+    }
+    bytes += input.bytes.length;
     const legacyOccurrences = new Map();
-    for (const entry of parseNotesFile(filePath).entries) {
+    for (const entry of parseNotesContent(input.bytes.toString("utf8")).entries) {
       const contentSha256 = `sha256:${crypto
         .createHash("sha256")
         .update(

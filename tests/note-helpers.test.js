@@ -1023,3 +1023,71 @@ test("legacy notes sharing a minute and source remain distinct eligible observat
   );
   assert.equal(appended.length, 3);
 });
+
+test("digest rejects symlinked evidence ancestors, note directories, and monthly leaves", (t) => {
+  const { pmDir, cleanup } = withTempPmDir();
+  t.after(cleanup);
+  const { collectNoteDigestCandidates } = require("../scripts/note-helpers.js");
+  const outside = path.join(path.dirname(pmDir), "outside");
+  fs.mkdirSync(path.join(outside, "notes"), { recursive: true });
+  const content =
+    "---\ntype: notes\nmonth: 2026-10\n---\n\n### 2026-10-01 09:00 — observation\nOutside signal\nTags: outside\n";
+  fs.writeFileSync(path.join(outside, "notes/2026-10.md"), content);
+  fs.mkdirSync(pmDir);
+  const evidence = path.join(pmDir, "evidence");
+  fs.symlinkSync(outside, evidence, "dir");
+  assert.throws(() => collectNoteDigestCandidates(pmDir), /symlink/);
+  fs.unlinkSync(evidence);
+  fs.mkdirSync(evidence);
+  fs.symlinkSync(path.join(outside, "notes"), path.join(evidence, "notes"), "dir");
+  assert.throws(() => collectNoteDigestCandidates(pmDir), /symlink/);
+  fs.unlinkSync(path.join(evidence, "notes"));
+  fs.mkdirSync(path.join(evidence, "notes"));
+  fs.symlinkSync(path.join(outside, "notes/2026-10.md"), path.join(evidence, "notes/2026-10.md"));
+  assert.throws(() => collectNoteDigestCandidates(pmDir), /symlink/);
+});
+
+test("digest uses verified descriptor bytes without reopening monthly inputs", (t) => {
+  const { pmDir, cleanup } = withTempPmDir();
+  t.after(cleanup);
+  const { collectNoteDigestCandidates } = require("../scripts/note-helpers.js");
+  const notesDir = path.join(pmDir, "evidence/notes");
+  fs.mkdirSync(notesDir, { recursive: true });
+  const file = path.join(notesDir, "2026-10.md");
+  fs.writeFileSync(
+    file,
+    "---\ntype: notes\nmonth: 2026-10\n---\n\n### 2026-10-01 09:00 — observation\nVerified signal\nTags: navigation\n"
+  );
+  const original = fs.readFileSync;
+  fs.readFileSync = (input, ...args) => {
+    if (input === file) throw new Error("unsafe monthly path reopen");
+    return original(input, ...args);
+  };
+  try {
+    const candidates = collectNoteDigestCandidates(pmDir);
+    assert.equal(candidates.length, 1);
+    assert.equal(candidates[0].body, "Verified signal");
+  } finally {
+    fs.readFileSync = original;
+  }
+});
+
+test("digest enforces total verified-byte and monthly-artifact budgets", (t) => {
+  const { pmDir, cleanup } = withTempPmDir();
+  t.after(cleanup);
+  const { collectNoteDigestCandidates } = require("../scripts/note-helpers.js");
+  const notesDir = path.join(pmDir, "evidence/notes");
+  fs.mkdirSync(notesDir, { recursive: true });
+  const file = path.join(notesDir, "2026-01.md");
+  fs.writeFileSync(file, Buffer.alloc(4 * 1024 * 1024, 32));
+  assert.deepEqual(collectNoteDigestCandidates(pmDir), []);
+  fs.writeFileSync(path.join(notesDir, "2026-02.md"), "one extra byte");
+  assert.throws(() => collectNoteDigestCandidates(pmDir), /exceeds 4 MiB/);
+  fs.rmSync(file);
+  fs.rmSync(path.join(notesDir, "2026-02.md"));
+  for (let index = 0; index < 129; index++) {
+    const month = String((index % 12) + 1).padStart(2, "0");
+    fs.writeFileSync(path.join(notesDir, `${2020 + Math.floor(index / 12)}-${month}.md`), "");
+  }
+  assert.throws(() => collectNoteDigestCandidates(pmDir), /exceeds 128 monthly artifacts/);
+});

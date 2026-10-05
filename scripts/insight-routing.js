@@ -170,6 +170,7 @@ function applySingleRoute(pmDir, route, now) {
   let addedSource = false;
   let sourceChanged = false;
   let selectionChanged = false;
+  let digestPending = false;
 
   if (route.mode === "new" && !insightExists) {
     const frontmatter = {
@@ -181,6 +182,7 @@ function applySingleRoute(pmDir, route, now) {
       confidence: "low",
       sources: [route.evidencePath],
       synthesis_state: "needs-synthesis",
+      digest_pending: true,
       source_claims: (selectedFindings || []).map((finding) => ({
         path: route.evidencePath,
         finding,
@@ -200,6 +202,7 @@ function applySingleRoute(pmDir, route, now) {
     citeChanged = true;
     addedSource = true;
     sourceChanged = true;
+    digestPending = true;
     appendLog(logPath, `${now} create ${route.insightPath}`);
     createLogged = true;
   } else {
@@ -217,15 +220,32 @@ function applySingleRoute(pmDir, route, now) {
       (item) => item.path === route.evidencePath
     );
     sourceChanged = !snapshot || snapshot.sha256 !== sourceFingerprint(evidenceDoc);
+    digestPending =
+      insightDoc.frontmatter.digest_pending === true ||
+      insightDoc.frontmatter.digest_pending === "true";
     const priorClaims = insightDoc.frontmatter.source_claims || [];
-    const nextClaims =
-      selectedFindings === undefined
-        ? priorClaims
-        : [
-            ...priorClaims.filter((claim) => claim.path !== route.evidencePath),
-            ...selectedFindings.map((finding) => ({ path: route.evidencePath, finding })),
-          ];
-    selectionChanged = JSON.stringify(priorClaims) !== JSON.stringify(nextClaims);
+    const priorSelection = priorClaims
+      .filter((claim) => claim.path === route.evidencePath)
+      .map((claim) => claim.finding);
+    selectionChanged =
+      selectedFindings !== undefined &&
+      JSON.stringify([...new Set(priorSelection)].sort()) !==
+        JSON.stringify([...selectedFindings].sort());
+    let nextClaims = priorClaims;
+    if (selectionChanged) {
+      const replacement = selectedFindings.map((finding) => ({
+        path: route.evidencePath,
+        finding,
+      }));
+      const first = priorClaims.findIndex((claim) => claim.path === route.evidencePath);
+      nextClaims = [];
+      for (let index = 0; index < priorClaims.length; index++) {
+        if (index === first) nextClaims.push(...replacement);
+        if (priorClaims[index].path !== route.evidencePath) nextClaims.push(priorClaims[index]);
+      }
+      if (first < 0) nextClaims.push(...replacement);
+    }
+    insightStatus = insightDoc.frontmatter.status || "draft";
     if (addedSource || sourceChanged || selectionChanged) {
       const nextFrontmatter = {
         ...insightDoc.frontmatter,
@@ -235,6 +255,7 @@ function applySingleRoute(pmDir, route, now) {
         synthesis_state: "needs-synthesis",
         status: insightDoc.frontmatter.status === "draft" ? "draft" : "stale",
         confidence: "low",
+        digest_pending: true,
       };
       writeMarkdown(insightAbsolute, nextFrontmatter, insightDoc.body, [
         "type",
@@ -247,10 +268,11 @@ function applySingleRoute(pmDir, route, now) {
       ]);
       action = "updated";
       citeChanged = addedSource;
+      digestPending = true;
+      insightStatus = nextFrontmatter.status;
     }
 
-    insightStatus = insightDoc.frontmatter.status || "draft";
-    if (sourceChanged) action = "updated";
+    if (digestPending) action = "updated";
   }
 
   const nextCitedBy = ensureUnique(evidenceDoc.frontmatter.cited_by, route.insightPath);
@@ -304,7 +326,8 @@ function applySingleRoute(pmDir, route, now) {
     addedCitation,
     sourceChanged,
     selectionChanged,
-    rewriteCandidate: addedSource || sourceChanged || selectionChanged,
+    digestPending,
+    rewriteCandidate: addedSource || sourceChanged || selectionChanged || digestPending,
   };
 }
 

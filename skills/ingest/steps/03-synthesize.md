@@ -1,7 +1,7 @@
 ---
 name: Synthesize
 order: 3
-description: Cluster normalized evidence into problem themes, score them, and write durable research artifacts
+description: Cluster normalized evidence into customer outcome themes and write supported research artifacts
 ---
 
 ## Synthesize Research

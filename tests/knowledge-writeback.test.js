@@ -616,3 +616,114 @@ test("quoted v2 markers cannot bypass citation enforcement", (t) => {
     assert.equal(fs.existsSync(path.join(pmDir, "evidence/research/log.md")), false);
   }
 });
+
+test("qualified findings retain complete selection, replay, and supersession identity", (t) => {
+  const { pmDir, cleanup } = createPmDir();
+  t.after(cleanup);
+  const {
+    extractFindings,
+    loadSourceDocument,
+    validateSelections,
+  } = require("../scripts/insight-rewrite.js");
+  const artifactPath = "evidence/research/approval-conditions.md";
+  const claim =
+    "[internal] Managers approve leave only after:\n  - checking team coverage\n    against the same team context\n  - confirming the request is pending\n\n  Only assigned approvers may complete this action.";
+  const unrelated = "[internal] Administrators can inspect completed requests.";
+  const base = {
+    artifactPath,
+    topic: "Leave approval",
+    summary: "Conditions constrain approval",
+    findings: [claim],
+  };
+  writeKnowledgeArtifact(pmDir, base);
+  writeKnowledgeArtifact(pmDir, { ...base, findings: [unrelated] });
+  writeKnowledgeArtifact(pmDir, base);
+  const absolutePath = path.join(pmDir, artifactPath);
+  const complete = claim.replace(/\s+/g, " ").trim();
+  assert.deepEqual(extractFindings(fs.readFileSync(absolutePath, "utf8")), [complete, unrelated]);
+  assert.deepEqual(validateSelections(loadSourceDocument(pmDir, artifactPath), [claim]), [
+    complete,
+  ]);
+  assert.throws(
+    () => validateSelections(loadSourceDocument(pmDir, artifactPath), ["checking team coverage"]),
+    /no longer exists/
+  );
+  const replacement =
+    "[internal] Delegates may approve only when the same coverage conditions hold.";
+  writeKnowledgeArtifact(pmDir, {
+    ...base,
+    findings: [replacement],
+    supersedes: [{ finding: claim, replacement, reason: "Verified delegated approval policy." }],
+  });
+  const content = fs.readFileSync(absolutePath, "utf8");
+  assert.deepEqual(extractFindings(content), [unrelated, replacement]);
+  assert.match(content, /Superseded: \[internal\] Managers approve leave only after:/);
+  assert.match(content, /Only assigned approvers may complete this action/);
+});
+
+test("supersession resumes index or log failures once and rejects conflicting replay", async (t) => {
+  for (const target of ["index.md", "log.md"]) {
+    await t.test(target, (t) => {
+      const { pmDir, cleanup } = createPmDir();
+      t.after(cleanup);
+      const artifactPath = "evidence/research/import-recovery.md";
+      const original = "[internal] CSV import is the only supported format.";
+      const replacement = "[internal] CSV and JSON import are supported.";
+      const base = {
+        artifactPath,
+        topic: "Import",
+        summary: "Supported formats",
+        findings: [original],
+      };
+      writeKnowledgeArtifact(pmDir, base);
+      const failedPath = path.join(pmDir, "evidence/research", target);
+      fs.unlinkSync(failedPath);
+      fs.mkdirSync(failedPath);
+      const correction = {
+        finding: original,
+        replacement,
+        reason: "Verified supported runtime.\n\nAlso inspected the public schema.",
+      };
+      const update = { ...base, findings: [replacement], supersedes: [correction] };
+      assert.throws(() => writeKnowledgeArtifact(pmDir, update), /EISDIR/);
+      const absolutePath = path.join(pmDir, artifactPath);
+      assert.match(fs.readFileSync(absolutePath, "utf8"), /## Superseded Findings/);
+      fs.rmdirSync(failedPath);
+      assert.doesNotThrow(() => writeKnowledgeArtifact(pmDir, update));
+      const content = fs.readFileSync(absolutePath, "utf8");
+      assert.equal((content.match(/Superseded:/g) || []).length, 1);
+      assert.equal((content.match(/^1\. \[internal\] CSV and JSON import/gm) || []).length, 1);
+      assert.match(
+        fs.readFileSync(path.join(pmDir, "evidence/research/index.md"), "utf8"),
+        /import-recovery.md/
+      );
+      const log = fs.readFileSync(path.join(pmDir, "evidence/research/log.md"), "utf8");
+      assert.match(log, /update evidence\/research\/import-recovery.md/);
+      writeKnowledgeArtifact(pmDir, update);
+      assert.equal(fs.readFileSync(path.join(pmDir, "evidence/research/log.md"), "utf8"), log);
+      for (const supersedes of [
+        [{ ...correction, reason: "A different rationale" }],
+        [{ ...correction, replacement: "[internal] XML is supported." }],
+      ]) {
+        assert.throws(
+          () => writeKnowledgeArtifact(pmDir, { ...update, supersedes }),
+          /exact completed correction/
+        );
+        assert.equal(fs.readFileSync(absolutePath, "utf8"), content);
+      }
+      assert.throws(
+        () => writeKnowledgeArtifact(pmDir, { ...update, sourceOrigin: "external" }),
+        /another origin|exact completed correction/
+      );
+      assert.equal(fs.readFileSync(absolutePath, "utf8"), content);
+      const missingReplacement = content.replace(
+        /^1\. \[internal\] CSV and JSON import are supported\.$/m,
+        "1. [internal] Current replacement was removed."
+      );
+      fs.writeFileSync(absolutePath, missingReplacement);
+      assert.throws(() => writeKnowledgeArtifact(pmDir, update), /exact completed correction/);
+      assert.equal(fs.readFileSync(absolutePath, "utf8"), missingReplacement);
+      assert.equal(fs.readFileSync(path.join(pmDir, "evidence/research/log.md"), "utf8"), log);
+    });
+  }
+});
