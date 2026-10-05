@@ -93,11 +93,18 @@ function validateSelections(doc, selections) {
   });
 }
 
-function replaceManagedBlock(body, start, end, block) {
+function validateManagedBlock(body, start, end) {
   const startAt = body.indexOf(start);
   const endAt = body.indexOf(end);
+  if (body.split(start).length > 2 || body.split(end).length > 2)
+    throw new Error("ambiguous managed insight block; preserve it for explicit repair");
   if (startAt < 0 !== endAt < 0 || (startAt >= 0 && endAt < startAt))
     throw new Error("incomplete managed insight block; preserve it for explicit repair");
+  return { startAt, endAt };
+}
+
+function replaceManagedBlock(body, start, end, block) {
+  const { startAt, endAt } = validateManagedBlock(body, start, end);
   if (startAt >= 0) return `${body.slice(0, startAt)}${block}${body.slice(endAt + end.length)}`;
   return `${body.trimEnd()}\n\n${block}\n`;
 }
@@ -117,7 +124,12 @@ function buildSourceDigest(evidenceDocs, sourceClaims = []) {
     "These are source excerpts, not a synthesized conclusion. Relevance, independent support, segment differences, and conflicting claims require analyst judgment.",
   ];
   for (const doc of evidenceDocs) {
-    parts.push("", `### ${doc.relativePath}`, "", `Source snapshot: ${sourceFingerprint(doc)}`);
+    parts.push(
+      "",
+      `### ${escapeManagedMarkers(doc.relativePath)}`,
+      "",
+      `Source snapshot: ${sourceFingerprint(doc)}`
+    );
     const selected = sourceClaims
       .filter((claim) => claim.path === doc.relativePath)
       .map((claim) => claim.finding);
@@ -207,7 +219,7 @@ function validateSynthesis(synthesis, evidenceDocs) {
 function buildReviewedSynthesis(synthesis) {
   const claims = synthesis.claims.map(
     (claim, index) =>
-      `${index + 1}. ${claim.text}\n${claim.evidence_refs.map((ref) => `   - ${ref.path}: ${ref.finding}`).join("\n")}`
+      `${index + 1}. ${escapeManagedMarkers(claim.text)}\n${claim.evidence_refs.map((ref) => `   - ${escapeManagedMarkers(ref.path)}: ${escapeManagedMarkers(ref.finding)}`).join("\n")}`
   );
   return [
     REVIEW_START,
@@ -215,7 +227,7 @@ function buildReviewedSynthesis(synthesis) {
     "",
     "The following assessment was supplied by the analyst. Source bindings validate excerpts, not whether the interpretation is correct. Earlier analyst text is retained above as historical context.",
     "",
-    synthesis.summary,
+    escapeManagedMarkers(synthesis.summary),
     "",
     "### Key Findings",
     "",
@@ -223,13 +235,13 @@ function buildReviewedSynthesis(synthesis) {
     "",
     "### Confidence Rationale",
     "",
-    `${synthesis.confidence.level}: ${synthesis.confidence.basis}`,
-    `Limitations: ${synthesis.confidence.limitations}`,
+    `${synthesis.confidence.level}: ${escapeManagedMarkers(synthesis.confidence.basis)}`,
+    `Limitations: ${escapeManagedMarkers(synthesis.confidence.limitations)}`,
     "",
     "### Open Questions",
     "",
     ...(synthesis.open_questions.length
-      ? synthesis.open_questions.map((text) => `- ${text}`)
+      ? synthesis.open_questions.map((text) => `- ${escapeManagedMarkers(text)}`)
       : ["No additional open questions were supplied by the analyst."]),
     REVIEW_END,
   ].join("\n");
@@ -276,6 +288,13 @@ function rewriteSingleInsight(pmDir, target, now, options) {
   const digestPending =
     insightDoc.frontmatter.digest_pending === true ||
     insightDoc.frontmatter.digest_pending === "true";
+  for (const [start, end] of [
+    [DIGEST_START, DIGEST_END],
+    [REVIEW_START, REVIEW_END],
+    [STATE_START, STATE_END],
+  ]) {
+    validateManagedBlock(insightDoc.body, start, end);
+  }
   if (!changed && !synthesis && !options.forceDigest && !digestPending)
     return {
       insightPath,
@@ -379,8 +398,10 @@ function rewriteInsights(pmDir, rawPayload, options = {}) {
 }
 
 function projectInsightUpdates(pmDir, results) {
-  const updated = results.insights.filter((result) =>
-    ["digest-updated", "synthesis-updated"].includes(result.action)
+  const updated = results.insights.filter(
+    (result) =>
+      ["digest-updated", "synthesis-updated"].includes(result.action) ||
+      (result.action === "skipped" && result.reason === "up-to-date")
   );
   if (!updated.length) return;
   // Load lazily: the writeback helper also depends on routing suggestions.

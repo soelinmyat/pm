@@ -652,3 +652,137 @@ test("writer lazy continuation qualification survives exact selection and routin
     assert.equal(replay.insights[0].action, "skipped");
   });
 }
+
+const MANAGED_MARKERS = [
+  "<!-- pm-source-digest:start -->",
+  "<!-- pm-source-digest:end -->",
+  "<!-- pm-reviewed-synthesis:start -->",
+  "<!-- pm-reviewed-synthesis:end -->",
+  "<!-- pm-insight-state:start -->",
+  "<!-- pm-insight-state:end -->",
+];
+
+test("rv-a38142031e7cadbef6c4: literal markers in all assessment fields cannot alter repeated synthesis boundaries", (t) => {
+  for (const marker of MANAGED_MARKERS) {
+    const pmDir = fixture(t);
+    const source = `evidence/research/quoted-${marker}.md`;
+    const finding = `An observed result ${marker} retains this qualification.`;
+    evidence(pmDir, source, [finding]);
+    insight(pmDir, [source]);
+    const assessment = (stamp) => ({
+      summary: `${stamp} summary ${marker} keeps its scope.`,
+      claims: [
+        {
+          text: `${stamp} bounded claim ${marker} keeps counterevidence.`,
+          evidence_refs: [{ path: source, finding }],
+        },
+      ],
+      confidence: {
+        level: "low",
+        basis: `${stamp} basis ${marker} records one source.`,
+        limitations: `${stamp} limitation ${marker} avoids broad inference.`,
+      },
+      open_questions: [`${stamp} question ${marker} preserves uncertainty.`],
+    });
+    const first = rewriteInsights(pmDir, {
+      insights: [{ insightPath: INSIGHT, synthesis: assessment("INITIAL") }],
+    });
+    assert.equal(first.insights[0].action, "synthesis-updated");
+    const next = rewriteInsights(pmDir, {
+      insights: [{ insightPath: INSIGHT, synthesis: assessment("REVISED") }],
+    });
+    assert.equal(next.insights[0].action, "synthesis-updated");
+    const body = loadMarkdown(path.join(pmDir, INSIGHT)).body;
+    for (const boundary of MANAGED_MARKERS) assert.equal(body.split(boundary).length - 1, 1);
+    assert.ok(body.includes(marker.replace("<", "&lt;")));
+    assert.match(body, /Historical Analyst Assessment/);
+    assert.match(body, /INITIAL limitation.*avoids broad inference/);
+    assert.match(body, /power-user study found no navigation problem/);
+    const current = body.slice(body.lastIndexOf("## Reviewed Synthesis"));
+    assert.doesNotMatch(current, /INITIAL/);
+    assert.match(current, /REVISED limitation.*avoids broad inference/);
+    assert.match(current, /retains this qualification/);
+    const unchanged = fs.readFileSync(path.join(pmDir, INSIGHT), "utf8");
+    const invalid = assessment("INVALID");
+    invalid.claims[0].evidence_refs[0].finding = "An observed result without its qualification.";
+    assert.equal(
+      rewriteInsights(pmDir, { insights: [{ insightPath: INSIGHT, synthesis: invalid }] })
+        .insights[0].action,
+      "error"
+    );
+    assert.equal(fs.readFileSync(path.join(pmDir, INSIGHT), "utf8"), unchanged);
+  }
+});
+
+test("ambiguous existing managed boundaries fail without changing analyst or evidence bytes", (t) => {
+  for (const marker of MANAGED_MARKERS) {
+    const pmDir = fixture(t);
+    evidence(pmDir);
+    insight(pmDir);
+    const doc = loadMarkdown(path.join(pmDir, INSIGHT));
+    writeMarkdown(
+      path.join(pmDir, INSIGHT),
+      doc.frontmatter,
+      `${doc.body}\n${marker}\nPrior qualification that must survive.\n${marker}\n`
+    );
+    const before = fs.readFileSync(path.join(pmDir, INSIGHT), "utf8");
+    const sourceBefore = fs.readFileSync(path.join(pmDir, SOURCE), "utf8");
+    const result = rewriteInsights(pmDir, { insights: [INSIGHT] });
+    assert.equal(result.insights[0].action, "error");
+    assert.match(result.insights[0].reason, /ambiguous managed insight block/);
+    assert.equal(fs.readFileSync(path.join(pmDir, INSIGHT), "utf8"), before);
+    assert.equal(fs.readFileSync(path.join(pmDir, SOURCE), "utf8"), sourceBefore);
+  }
+});
+
+for (const failedProjection of ["insights/product/index.md", "insights/.hot.md"]) {
+  test(`rv-436696e8e1f9085677ec: unchanged canonical retry repairs failed ${failedProjection}`, (t) => {
+    const pmDir = fixture(t);
+    evidence(pmDir);
+    insight(pmDir);
+    const blocked = path.join(pmDir, failedProjection);
+    fs.mkdirSync(blocked);
+    const invoke = () => {
+      try {
+        return {
+          status: 0,
+          stdout: execFileSync(
+            process.execPath,
+            [path.join(__dirname, "../scripts/insight-rewrite.js"), "--pm-dir", pmDir],
+            {
+              input: JSON.stringify({ insights: [INSIGHT] }),
+              encoding: "utf8",
+              stdio: ["pipe", "pipe", "pipe"],
+            }
+          ),
+        };
+      } catch (error) {
+        return { status: error.status, stderr: error.stderr };
+      }
+    };
+    const first = invoke();
+    assert.equal(first.status, 1);
+    const committed = fs.readFileSync(path.join(pmDir, INSIGHT), "utf8");
+    const canonical = loadMarkdown(path.join(pmDir, INSIGHT));
+    assert.equal(canonical.frontmatter.status, "stale");
+    assert.equal(canonical.frontmatter.synthesis_state, "needs-synthesis");
+    fs.rmdirSync(blocked);
+    const retry = invoke();
+    assert.equal(retry.status, 0, retry.stderr);
+    assert.equal(JSON.parse(retry.stdout).insights[0].reason, "up-to-date");
+    assert.equal(fs.readFileSync(path.join(pmDir, INSIGHT), "utf8"), committed);
+    assert.match(
+      fs.readFileSync(path.join(pmDir, "insights/product/index.md"), "utf8"),
+      /Request location.*stale/
+    );
+    assert.match(
+      fs.readFileSync(path.join(pmDir, "insights/.hot.md"), "utf8"),
+      /Request location \| stale \| low/
+    );
+    assert.ok(
+      fs
+        .readFileSync(path.join(pmDir, "insights/product/index.md"), "utf8")
+        .includes(canonical.frontmatter.last_updated)
+    );
+  });
+}
