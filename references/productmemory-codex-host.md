@@ -120,5 +120,8 @@ Use `recover-initialization --slug <slug>` after an uncertain start, or
 `recover-certification --session <canonical-session-path>` after an uncertain
 certification. Both observe exact remote acknowledgement without replay.
 
-A local fixture passing does not prove a connected user session, two-account
-acceptance or writer cutover. Verify those separately and retain their receipts.
+A local fixture passing does not prove a connected user session or writer cutover.
+Verify those separately and retain their receipts. One signed-in user can own,
+approve and accept completion of a feature; a second person is not required.
+Multiaccount visibility and conflict tests cover optional collaboration and do
+not make another person's participation a cutover prerequisite.

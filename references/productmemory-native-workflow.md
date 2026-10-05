@@ -10,6 +10,12 @@ Call `initialize({sourceDir, slug, recordId, executionPath})`. The current immut
 
 Initialization verifies proposal quality, acceptance requirements, evidence lineage, prototype identity, RFC ownership/dependency DAG and complete design/experience context before starting a remote session. It retains exact hash-checked bytes in a private `.pm/productmemory/<id>/pm/` snapshot; that is a disposable execution input, not a local shared-product store. Runtime mechanics and quality receipts remain private in `.pm/dev-sessions/<slug>/`. No historical runtime, lease or approval files are hydrated.
 
+The same signed-in human may own the feature, approve its current proposal and
+RFC bundles, and accept its verified completion. A second person is optional.
+Independent technical Review and QA retain their existing evidence contracts;
+they do not require a second human product approver. Account authentication,
+current approval, source hashes, CAS and owner-change invalidation still apply.
+
 ## Host operation mapping
 
 Retain the existing Dev steps, bounded phase prompts, model/runtime capability checks, strict result envelopes, TDD, QA, design critique and independent current-HEAD source review. For a session with `task.native`, replace every mutating/advancing local `dev-session` CLI operation with the corresponding live host runtime method:

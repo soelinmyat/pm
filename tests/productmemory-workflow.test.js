@@ -93,6 +93,23 @@ test("start binds exact observed review and source revisions without rereading o
   assert.equal(result.authority.trusted_approval, undefined);
 });
 
+test("one owner may also be the current human reviewer", async () => {
+  const { state, execution, session } = fixture();
+  state.owner = "solo@example.com";
+  state.bundle.review.user = state.owner;
+  const client = createWorkflowClient({
+    identity,
+    request: async () => ({
+      status: 200,
+      body: { workflow: { ...state, revision: 8, status: "in-progress" }, session },
+    }),
+  });
+  const result = await client.start(state, execution);
+  assert.equal(result.authority.owner_id, state.owner_id);
+  assert.equal(result.authority.reviewer, state.owner);
+  assert.equal(result.session.feature_bundle_review_id, state.bundle.review.id);
+});
+
 test("unapproved stale or ownerless bundle never starts", async () => {
   let calls = 0;
   const client = createWorkflowClient({
