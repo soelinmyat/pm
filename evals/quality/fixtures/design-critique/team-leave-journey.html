@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Team leave review fixture</title>
+    <style>
+      :root {
+        font-family: system-ui;
+        color: #1c232b;
+        background: #fafafa;
+      }
+      body {
+        margin: 0;
+      }
+      header,
+      main {
+        padding: 24px;
+      }
+      nav {
+        display: flex;
+        gap: 20px;
+      }
+      a {
+        color: inherit;
+      }
+      button,
+      summary {
+        cursor: pointer;
+        font: inherit;
+        padding: 8px 12px;
+      }
+      h1 {
+        font-size: 22px;
+      }
+      h2 {
+        font-size: 17px;
+      }
+      section {
+        max-width: 900px;
+      }
+      .row {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 14px 0;
+        border-bottom: 1px solid #ddd;
+      }
+      .card {
+        padding: 24px;
+        border: 1px solid #ccc;
+        border-radius: 12px;
+        background: white;
+        max-width: 560px;
+      }
+      .event {
+        padding: 20px;
+        margin-top: 16px;
+        border-radius: 12px;
+        background: #f2f3f5;
+      }
+      .muted {
+        color: #626971;
+      }
+      .facts {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 24px;
+      }
+      .return {
+        float: right;
+      }
+      #detail,
+      #sibling {
+        display: none;
+      }
+      body:has(#detail:target) #members,
+      body:has(#sibling:target) #members {
+        display: none;
+      }
+      #detail:target,
+      #sibling:target {
+        display: block;
+      }
+      @media (max-width: 500px) {
+        header,
+        main {
+          padding: 16px;
+        }
+        .facts {
+          grid-template-columns: 1fr;
+        }
+        .row {
+          flex-wrap: wrap;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <nav aria-label="Operations">
+        <a href="#members">Team</a><a href="#sibling">Work orders</a>
+      </nav>
+    </header>
+    <main>
+      <section id="members">
+        <div class="row">
+          <h1>Team</h1>
+          <details>
+            <summary aria-label="Team actions">…</summary>
+            <a href="#detail">Time off</a><button>Invite</button>
+          </details>
+        </div>
+        <div class="row">Aisha Rahman <span class="muted">Worker</span></div>
+      </section>
+      <section id="detail">
+        <h1>Time off <a class="return" href="#members">Members</a></h1>
+        <article class="card">
+          <h2>Aisha Rahman <span class="muted">Approved</span></h2>
+          <div class="facts">
+            <div>
+              <span class="muted">Type</span>
+              <p>Annual leave</p>
+            </div>
+            <div>
+              <span class="muted">Period</span>
+              <p>Full day · 20–22 October</p>
+            </div>
+          </div>
+          <span class="muted">Note</span>
+          <p>Morning shift cover arranged.</p>
+          <button>Correct</button>
+          <h2>Activity</h2>
+          <div class="event">
+            Approved
+            <p class="muted">5 October · Review manager</p>
+            <p>Coverage confirmed</p>
+          </div>
+          <div class="event">
+            Recorded
+            <p class="muted">4 October · Review manager</p>
+          </div>
+        </article>
+      </section>
+      <section id="sibling">
+        <a href="#members">Back to Team</a>
+        <h1>Replace foyer supplies</h1>
+        <dl>
+          <dt>Status</dt>
+          <dd>Completed</dd>
+          <dt>Location</dt>
+          <dd>Review office</dd>
+        </dl>
+        <h2>Activity</h2>
+        <p>Completed · Review manager · 5 October</p>
+        <p>Created · Review manager · 4 October</p>
+      </section>
+    </main>
+  </body>
+</html>

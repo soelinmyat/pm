@@ -205,6 +205,9 @@ If server or auth fails: Blocked. If seed or routes partially fail: note finding
 
 ## Phase 1: Orient
 
+For product UI, follow `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/product-ui-judgment.md`. Before reading the implementer's click path or rationale, attempt the affected user task from normal navigation with only the persona and goal. Observe discovery, destination clarity and return context. Keep the actual journey in the existing QA report and bind its assertions/screenshots there. Deep links can isolate later checks; they cannot replace this first attempt. A coached or unavailable attempt remains an explicit limitation, not a discoverability pass.
+
+
 ### Read context
 
 **Persistent agent mode:** All context (feature, ACs, routes, platform, tier) was provided in the spawn prompt. Read `.pm/dev-sessions/{slug}/session.json` only for supplementary context (e.g., key files, design decisions). Skip to "Print orientation."
@@ -340,7 +343,7 @@ Charter is a smoke check with DOM verification. For combined low-risk UI review,
 ```
 
 <HARD-RULE>
-For Full tier: every acceptance criterion MUST have at least one DOM assertion. If the AC is purely visual (e.g., "looks good"), convert it to a measurable assertion (e.g., "uses correct design tokens").
+For Full tier: every measurable acceptance claim MUST have an executed assertion. Translate vague visual criteria into task-specific observations and supported checks: whether the key facts are easy to scan, the destination is clear, and grouping follows the relevant product rule. Keep composition/readability judgment as an evidence-cited visual assessment alongside measurable checks. Correct tokens do not establish that a screen looks good; never replace the user's visual goal with token compliance or invent a deterministic assertion for subjective quality.
 </HARD-RULE>
 
 ---
@@ -954,6 +957,8 @@ For manual reference runs, re-verify from the same standalone artifact:
 1. Read previous findings from `.pm/dev-sessions/{slug}/qa/report.json`
 2. Re-run Phase 0 (environment readiness — cold start needed)
 3. Filter to Critical and High, re-run assertions, update verdict
+
+For navigation or composition fixes, recheck the affected entry-to-detail-to-return journey and the relevant sibling comparison. Preserve independent observations, unresolved findings and accepted tradeoffs; use the existing delta/freshness contracts for unchanged evidence rather than rerunning unrelated screens or copying an earlier verdict.
 
 ### Report format (re-verify, both modes)
 

@@ -41,9 +41,9 @@ Read each description as the state the capture intends, such as a view scrolled 
 
 **Look at the screenshots and answer:**
 
-1. Can you tell what this page does within 3 seconds?
+1. From the task and these views, can you identify the destination, key facts, and next action? Notice discovery and return context where shown; do not assume uncaptured steps succeeded.
 2. Where does your eye go first? Is that the right place?
-3. Does anything feel off, misaligned, or inconsistent?
+3. What is the weakest part for this task? Explain any inconsistency or composition tradeoff using visible elements and the supplied principles. Distinguish a visible concern from untested behavior; do not invent findings.
 ```
 
 **Output format:** return only the Fresh Eyes `result` object required by `reviews.json`:

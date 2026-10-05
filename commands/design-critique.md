@@ -7,3 +7,8 @@ Read the skill file at ${CLAUDE_PLUGIN_ROOT}/skills/design-critique/SKILL.md and
 Trusted web captures support assertion-bound native Tab/Shift+Tab and exact
 target scrolling through `before_capture`; follow the capture guide for limits
 and required state guards. Manual preparation is not certifying evidence.
+
+For product UI, use the task-first journey and composition method in
+`${CLAUDE_PLUGIN_ROOT}/skills/dev/references/product-ui-judgment.md`. Keep existing
+evidence and ownership contracts; do not substitute capture counts for usability
+judgment.

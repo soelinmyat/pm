@@ -281,7 +281,7 @@
           "type": "low-quality-schema-valid",
           "prompt_ref": "evals/quality/cases/design-critique.md",
           "scenario_ref": "quality-design-critique-low-quality-schema-valid",
-          "scenario_contract_hash": "sha256:b81c24f22e8e7270645a4d4b60e1c34a1ad34b7d296eccd2a5c5debdfc4c1e3e"
+          "scenario_contract_hash": "sha256:6c4b1e46c250b9fcf9a912f63820f4c9779504b4fea7f259b2b959f2a2e31ad7"
         },
         {
           "id": "design-critique-repeated-run-variance",

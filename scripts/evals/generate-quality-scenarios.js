@@ -153,6 +153,28 @@ function fixtureFor(workflow, type, caseId, state) {
   Object.assign(files, workflowFiles(workflow));
   pre.push(...workflowPreconditions(workflow));
   Object.assign(files, typeFiles(workflow, type));
+  if (workflow === "design-critique" && type === "low-quality-schema-valid") {
+    files["ui/design-critique/team-leave-journey.html"] = fs.readFileSync(
+      path.join(root, "evals/quality/fixtures/design-critique/team-leave-journey.html"),
+      "utf8"
+    );
+    files["product-principles.md"] =
+      "# Product principles\n\nEarn every pixel. Content is the UI. Use open detail sections and a shared activity timeline. Card surfaces are for distinct standalone tiles, not a wrapper for an entire request or every history event. Consistency means matching composition as well as tokens.\n";
+    files["weak-but-valid-artifact.json"] = `${JSON.stringify(
+      {
+        schema_version: 1,
+        status: "approved",
+        summary:
+          "All capture rows are present, token lint passes and shared components are used. The Team action menu follows the action pattern. The request uses Stack surface=card rather than a Card import. No design issues found.",
+        evidence: ["ui/design-critique/team-leave-journey.html"],
+        risks: [],
+        next_steps: ["Ship"],
+      },
+      null,
+      2
+    )}\n`;
+  }
+
   pre.push(...typePreconditions(type));
 
   if (["groom", "rfc", "dev", "review", "design-critique", "ship"].includes(workflow)) {
