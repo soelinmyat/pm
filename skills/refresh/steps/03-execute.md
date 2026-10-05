@@ -122,7 +122,7 @@ Parent skill handles: audit report, trust level selection, source/artifact compa
 
 After patching evidence files, route updated findings to insight topics.
 Read and follow `${CLAUDE_PLUGIN_ROOT}/references/insight-routing.md`.
-Pass only the evidence files that were refreshed in this run (content actually changed, not just a date bump).
+Pass only the evidence files that were refreshed in this run (content actually changed, not just a date bump). Include already-linked insight targets: a stable filename is not evidence of an unchanged claim. The routing helper compares source snapshots and marks affected prior conclusions stale/needs-synthesis. Select the exact current finding relevant to each topic, retaining counterevidence and segment limits; never substitute the first finding. Reconsider those affected conclusions through the analyst synthesis contract before describing them as refreshed knowledge.
 Skip `source_origin: internal` evidence (already skipped by refresh).
 If no evidence files were refreshed, skip routing entirely.
 
@@ -135,7 +135,7 @@ After individual competitor files are refreshed, regenerate synthesis files:
 3. If topic research files were refreshed, update `{pm_dir}/evidence/research/index.md` and `{pm_dir}/evidence/index.md`.
 4. Append touched files to the matching domain or evidence `log.md`.
 
-Only run the relevant index and log sync steps for domains or evidence pools that were actually updated during the refresh.
+Only run the relevant index and log sync steps for domains or evidence pools that were actually updated during the refresh. A comparison or recommendation whose source changed must be reconsidered, not merely re-dated. Preserve prior analyst text as historical when current support is unresolved; identify needs-synthesis items in the summary. Source-digest generation and provenance validation do not certify the product conclusion.
 
 ### Post-write Validation
 

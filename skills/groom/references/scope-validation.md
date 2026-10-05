@@ -1,33 +1,20 @@
 # Scope Validation Methodology
 
-Used by `pm:groom` during Step 4. Follow this guide to define scope precisely, apply the 10x filter, and produce a defensible in/out boundary before proposal drafting.
+Used by `pm:groom` during Step 3 (Scope). Follow this guide to define scope precisely, apply the 10x filter, and produce a defensible in/out boundary before proposal drafting.
 
 ---
 
 ## 1. Strategy Alignment (scope-level check)
 
-Read `strategy_check` from session state (extracted in Step 2).
+Use the current Research phase evidence and authoritative strategy artifact when available. Read the actual priorities, non-goals and target segment; do not rely on nonexistent cached session fields or assume an earlier parse is still current. Name which priority this outcome serves, check exclusions and newly added scope against the actual non-goals, and identify any deliberate secondary-segment choice. Do not manufacture three priorities when the strategy has a different shape.
 
-**If `strategy_check.context` is available** (standard/full tier where `strategy.md` existed):
-
-Read `strategy_check.context` from session state. Do NOT re-read `strategy.md` — Step 2 already parsed it.
-
-**Current priorities:** Which of the top 3 priorities (from `strategy_check.context.priorities`) does this scope serve? Write it down explicitly. If you cannot name the priority, the scope is suspect.
-
-**Non-goals against new scope items:** Step 2 already cleared the idea against non-goals. Only recheck here if **scope added items not covered by the original idea**. For each new in-scope item, check against `strategy_check.context.non_goals`. If conflict: stop and raise it explicitly.
-
-**ICP:** Is the target user of this scope the ICP (from `strategy_check.context.icp`), or a secondary segment? Building for secondary segments is allowed, but it must be a conscious choice. Name it.
-
-**If `strategy_check.context` is NOT available** (quick tier, or standard tier where `strategy.md` was missing):
-
-Skip priority alignment, non-goal validation, and ICP checks. Still run the 10x filter (Section 2) and scope definition (Section 3). Write `strategy_context_available: false` in the session state under `scope:`. Tell the user:
-> "Strategy alignment was not evaluated in this run (strategy context unavailable). Scope decisions are based on the 10x filter and direct user input only."
+If strategy context is unavailable, record that limitation in the Scope phase evidence. User/problem evidence may still support a bounded outcome, but alignment remains unknown. Do not add `strategy_check` or `scope` keys to the closed canonical session. Tell the user: “Strategy alignment was not evaluated because strategy context is unavailable; scope uses available problem evidence and explicit assumptions.”
 
 ---
 
 ## 2. The 10x Filter
 
-Before finalizing scope, work through these four questions with the user. Ask them ONE at a time — wait for each answer before presenting the next. Record answers in the state file.
+Before finalizing scope, answer these questions from available evidence. Ask the user only about unresolved choices that materially change the outcome. Record reasoning in the Scope phase evidence, not new session fields.
 
 **Q1: Is this meaningfully better than the best existing solution?**
 "Meaningfully" means: faster, cheaper, simpler, or more accurate by a margin users can feel — not a marginal improvement that requires a press release to explain.
@@ -35,7 +22,7 @@ Before finalizing scope, work through these four questions with the user. Ask th
 - Yes, clearly differentiated → `10x`
 - Matches competitors, closes a gap → `gap-fill`
 - Replicates what competitors already do well → `parity`
-- Basic expectation users assume exists (auth, search, dark mode) → `table-stakes`
+- Basic expectation established for this audience and task → `table-stakes`
 
 **Q2: Who specifically benefits, and can you name them?**
 Vague beneficiaries ("all users," "teams") are a red flag. Name the persona, the workflow, and the friction point being removed.
@@ -43,19 +30,19 @@ Vague beneficiaries ("all users," "teams") are a red flag. Name the persona, the
 **Q3: What does the user do today instead?**
 If users have a workaround that is "good enough," the threshold for shipping is higher — you need to clear the switching cost, not just match the workaround.
 
-**Q4: What does success look like in 90 days?**
-Name one leading indicator (not a lagging metric like revenue). If you cannot name a measurable outcome, the scope may be too vague to ship.
+**Q4: What observable change would establish success, and over what relevant period?**
+Name an outcome and, when useful, an earlier indicator connected to it. Distinguish leading from lagging measures and choose the horizon for the task; do not invent a universal 90-day target or claim a proxy proves success.
 
 ### Filter Result: What to Do with Each Label
 
 | Label | Meaning | Action |
 |---|---|---|
 | `10x` | Meaningfully better, clear differentiation | Proceed. Document the differentiation claim in the proposal. |
-| `gap-fill` | Closes an expected capability gap | Proceed. Note that this is table stakes, not a moat. |
-| `table-stakes` | Basic expected capability (auth, search, dark mode) | Proceed. No differentiation claim needed — users expect this to exist. |
+| `gap-fill` | Closes an expected capability gap | Proceed. Explain the missing capability and its user consequence; establish audience expectations before calling it table stakes. |
+| `table-stakes` | Basic expected capability for this audience and task | Proceed. No differentiation claim needed — users expect this to exist. |
 | `parity` | Replicates what competitors do beyond table stakes | Flag it. Ask for explicit strategic intent before proceeding. |
 
-Parity and table-stakes are different. Table-stakes features are things users assume any product has — not building them is a bug, not a strategy choice. Parity is actively copying a competitor's non-essential feature, which should be a deliberate call.
+Parity and table-stakes are different. Establish table stakes from this audience, domain and task; search or dark mode is not universally required. Missing a required correctness or authorization rule can be a defect, while other omissions can be deliberate scope choices. Parity is actively copying a competitor's non-essential feature, which should be a deliberate call.
 
 ---
 
@@ -82,7 +69,7 @@ OPEN QUESTIONS (scope-adjacent, not yet decided)
 - {Question}: {who needs to decide, and by when}
 ```
 
-Write this to `{source_dir}/.pm/groom-sessions/{topic-slug}/session.json` under the `scope` key. Do not proceed to Step 5 until both lists are confirmed by the user.
+Retain this as structured Scope phase output and bind its artifact in the existing `groom-phase-result-v1` scope evidence. Use `scripts/groom-session.js` to record the result; proposal content never lives in session state. Resolve material ambiguity before advancing through the canonical runner.
 
 ---
 
@@ -92,36 +79,31 @@ For each in-scope item, assign a rough quadrant:
 
 | Quadrant | Impact | Effort | Decision |
 |---|---|---|---|
-| Quick wins | High | Low | Do first. These build momentum and credibility. |
+| Quick wins | High | Low | Prefer when they deliver the coherent outcome; cheapness alone does not establish priority. |
 | Major bets | High | High | Worth it if aligned with a top priority. Size carefully. |
-| Fill-ins | Low | Low | Fine to include if they're genuinely cheap. Don't over-invest. |
-| Cut | Low | High | Remove from scope. |
+| Fill-ins | Low | Low | Include only when necessary to the outcome or explicitly justified; avoid cheap scope accumulation. |
+| Reconsider | Low | High | Defer only if this is independent of the promised outcome and required safety/domain behavior. |
 
 **Effort signals** (rough heuristics, not story points):
-- Low: UI change, config option, copy update, new query on existing data
-- High: new data model, new integration, architectural change, new permission surface
+- Estimate from the actual interactions, state transitions, data changes, permissions, migration and integration seams. A UI navigation change can be costly; an established model change can be small.
+- Name uncertainty and evidence from existing implementation rather than infer effort from the UI/backend label.
 
 **Impact signals:**
-- High: unblocks a key ICP workflow, removes a top complaint theme from reviews, closes a named competitor gap
-- Low: nice-to-have, edge-case coverage, secondary segment request
+- Assess frequency, severity, recoverability, affected audience and domain obligations. A frequent irritation and a rare irreversible loss have different but potentially high impact.
+- A competitor gap or request is an input, not proof of value. Trace it to the user job.
+- Rare but critical authorization, cancellation, concurrency, data integrity and recovery behavior can be necessary for a coherent outcome; do not classify edge-case coverage as low impact by default.
 
-Mark each in-scope item with its quadrant in the state file under `scope.in_scope`. Items landing in "Cut" move to `scope.out_of_scope` with reason "low impact, high effort."
+Record the reasoning and uncertainty alongside each quadrant in the retained Scope phase output. Before excluding an item, test whether the remaining scope still fulfills its claimed outcome safely. An exclusion remains a risk when it leaves a dependency, harm or unsupported assumption; naming it a non-goal does not make the risk disappear.
+
+Example: overlapping time-off requests may be rare, but preventing duplicate approval and incorrect balances belongs to correct request handling. Defer optional analytics before deferring the concurrency rule. Estimate a new navigation route from discoverability, permissions and return-context behavior, not from the label "UI change."
 
 ---
 
 ## 5. Scope Confirmation
 
-Before leaving Step 4, confirm with the user:
+Before leaving Step 3, present the coherent in/out boundary, material assumptions and differentiation claim. Ask for a decision only when an unresolved choice materially changes the scope; existing authorized intent can resolve routine choices. Do not require a new blanket approval ceremony.
 
-> "Here's the confirmed scope for '{topic}':
->
-> IN: {in_scope items}
-> OUT: {out_of_scope items with reasons}
-> 10x filter result: {label}
->
-> Proceed to scope review?"
-
-Do not advance to Step 5 without an explicit yes. Scope changes after proposal drafting are expensive.
+Record the Scope phase result through the canonical runner. Follow `steps/03-scope.md` and its frozen tier route: quick advances to Design (Step 5), standard/full to Synthesis (Step 4). Do not skip synthesis or hand-edit the phase.
 
 ## Semantic calibration
 

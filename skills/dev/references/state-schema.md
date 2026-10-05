@@ -350,12 +350,14 @@ Rules:
 - Attempts >= 3 on the same signature triggers escalation (the HARD-RULE on repeat-failure escalation). The escalation reads this table to populate the `tried:` field of the structured Blocked line.
 - Clear the table only when the PR reaches state `MERGED`.
 
-## Per-Task Events (multi-task only — written by Step 05 checkpoint)
+## Per-Task Events (legacy display only)
+
+Counts do not establish failures or causes. Current root-owned QA/Review/delivery reports and recorded attempts are authoritative; workers do not ship or certify aggregate gates. Retro follows actual evidence, not CI/review run counts.
 - Task 1: reviews=0, CI runs=1, conflict commits=0, verdict=Merged
 - Task 2: reviews=2, CI runs=3, conflict commits=1, verdict=Merged
 - Task 3: verdict=Blocked (reason: missing API endpoint)
 
-Per-task agents handle QA/review/ship internally. This section aggregates key events extracted from each task's PR after the agent returns, so retro (Step 10) can learn from them. See Step 05 checkpoint for extraction logic.
+These rows document the obsolete per-task delivery shape only. Current workers return scoped implementation evidence; root integration, QA, Review and delivery produce the reports used by retro. Do not populate these rows as new canonical state.
 
 ## Linear Context (if sourced from Linear)
 | Field | Value |
@@ -381,4 +383,4 @@ Per-task agents handle QA/review/ship internally. This section aggregates key ev
 - After design critique, add the report path
 - After every quality gate, record its row with `dev-session.js gate` (never by hand)
 - Resume Instructions section must be populated at every stage transition. A cold reader should be able to continue the session from this section alone.
-- After retro, delete the file
+- After retro, retain canonical session state and evidence as the durable audit/resume record; never delete it

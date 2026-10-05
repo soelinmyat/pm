@@ -14,6 +14,14 @@ Form the initial assessment from the task, rendered evidence and applicable prod
 
 Compare with a relevant established sibling screen when selecting or evaluating composition. Choose one with a similar user job, explain what is comparable, and name any justified differences. Bind any cited sibling captures through the existing evidence route; a source-only comparison proves implementation convention, not its current rendered quality. If no suitable sibling exists, say so and judge against the product principles. Do not require a fixed number of comparisons.
 
+## Inspect actual composition
+
+Personally inspect the rendered pixels at each relevant supplied desktop/narrow view before declaring the composition good. A completed journey, shared component, token audit or native accessibility tree cannot establish visual balance. Do not forward screenshots as visual evidence without examining them. Name a viewport or state that remains unseen; do not extend a task pass to unexamined presentation qualities.
+
+Evaluate relationships in the current task: label/control alignment, field-row placement and widths, the reason/input height relative to expected content, and how longer content grows or remains readable. Inspect whether tabs sit in the correct page context and their surface integrates with surrounding content, rather than forming an unrelated gray slab. Judge spacing, density, hierarchy and persistent context together. A horizontal textarea can fit all tokens and still dominate a modest form; aligned labels above a content-sized field may be better for that task. These are judgment prompts, not universal layout bans or a required defect count.
+
+Inspect available short and longer-content states when the changed control's sizing or growth is consequential. If only the empty/short state is supplied, say that growth remains unexamined. Compare a relevant strong screen or supplied alternative before accepting a composition tradeoff, while explaining differences in the jobs. Prioritize demonstrated user impact; weak visual craft can be a supported concern even when navigation works, and taste alone remains nonblocking.
+
 ## Explain the user consequence
 
 Ask whether the entry is discoverable, the destination remains clear, the important facts are easy to scan, decisions are understandable, and the person can return to context. Look at the whole composition: page width, grouping, hierarchy, density and repeated chrome. Allowed tokens and components can still make an inappropriate layout. A `Stack surface="card"` can recreate the same unwanted card composition as a `Card` import.
@@ -25,3 +33,7 @@ A complete report, capture count, high aggregate score or fluent rationale never
 ## Recheck the affected journey
 
 After a fix, rerun the part of the task the change can affect, including its entry and return context when navigation changed. Compare the relevant before/after views and the sibling pattern where composition changed. Preserve earlier evidence and unresolved findings. Reuse unchanged context only through the existing freshness/delta contracts, with the reason it still applies; never copy an old pass label onto new source. Add states or viewports when a new risk justifies them, not to repeat the entire review mechanically.
+
+## Evidence capability limits
+
+Judge each user-experience claim from evidence that can establish it. A permitted CUA journey can support a specific navigation or composition observation with explicit provenance even when it cannot satisfy the certifying capture contract. Read `design-critique-capture-guide.md` for supplemental evidence limits; preserve blocked certification and missing real-backend coverage. Capture counts and producer choice never establish usability by themselves.

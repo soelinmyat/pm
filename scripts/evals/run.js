@@ -13,7 +13,7 @@ const { safeCopyTree, createSourceIdentity, createScenarioIdentity } = require("
 const { parseCheckFrames } = require("./transcript.js");
 const { composeVerdict } = require("./verdict.js");
 const { parseFrontmatter } = require("../kb-frontmatter.js");
-const { loadQualityCase, loadQualityProfile } = require("./quality.js");
+const { loadQualityCase, loadQualityProfile, qualityCaseStory } = require("./quality.js");
 
 const RUNTIME_PATHS = [
   "commands",
@@ -495,16 +495,7 @@ function validateQualityCaseCompatibility(scenarioDir, qualityCase) {
 function stageQualityCase(paths, qualityCase) {
   const storyPath = path.join(paths.scenarioStageDir, "story.md");
   const story = fs.readFileSync(storyPath, "utf8");
-  const marker = /User message:[\s\S]*?\n\nStop condition:/;
-  if (!marker.test(story)) {
-    throw new Error(
-      `scenario ${paths.scenarioId} cannot accept a quality case: story has no user-message boundary`
-    );
-  }
-  fs.writeFileSync(
-    storyPath,
-    story.replace(marker, () => `User message: ${qualityCase.prompt}\n\nStop condition:`)
-  );
+  fs.writeFileSync(storyPath, qualityCaseStory(story, qualityCase.prompt, paths.scenarioId));
   writeJson(path.join(paths.metadataDir, "quality_case_identity.json"), {
     schema_version: 1,
     id: qualityCase.id,

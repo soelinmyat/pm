@@ -4,18 +4,33 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const crypto = require("node:crypto");
 const { hashTree } = require("./stage.js");
 const { productFixture, PRODUCT_WORKFLOWS } = require("./product-quality.js");
+const { extractCasePrompt, qualityCaseScenarioHash } = require("./quality.js");
 
 const root = path.resolve(__dirname, "../..");
 const suitePath = path.join(root, "evals", "quality", "suite.json");
 const suite = JSON.parse(fs.readFileSync(suitePath, "utf8"));
+const judgeResources = new Map();
+const selectedWorkflows = new Set();
+for (let index = 2; index < process.argv.length; index += 1) {
+  if (process.argv[index] !== "--workflow" || !process.argv[index + 1]) {
+    throw new Error("usage: generate-quality-scenarios.js [--workflow NAME ...]");
+  }
+  const name = process.argv[++index];
+  if (!suite.workflows.some((workflow) => workflow.id === name)) {
+    throw new Error(`unknown workflow ${name}`);
+  }
+  selectedWorkflows.add(name);
+}
 const responsiveReportFixture = fs.readFileSync(
   path.join(root, "evals", "quality", "fixtures", "design-critique", "responsive-report.html"),
   "utf8"
 );
 
 for (const workflow of suite.workflows) {
+  if (selectedWorkflows.size && !selectedWorkflows.has(workflow.id)) continue;
   for (const item of workflow.cases) {
     const scenarioId = `quality-${item.id}`;
     const scenarioDir = path.join(root, "evals", "scenarios", scenarioId);
@@ -27,10 +42,36 @@ for (const workflow of suite.workflows) {
     fs.chmodSync(path.join(scenarioDir, "checks.sh"), 0o644);
     item.scenario_ref = scenarioId;
     item.scenario_contract_hash = hashTree(scenarioDir).hash;
+    if (PRODUCT_WORKFLOWS.includes(workflow.id)) {
+      item.judge_guidance_ref = "evals/quality/product-judge-guidance.json";
+    }
+    if (item.judge_guidance_ref) {
+      if (!judgeResources.has(item.judge_guidance_ref)) {
+        judgeResources.set(
+          item.judge_guidance_ref,
+          JSON.parse(fs.readFileSync(path.join(root, item.judge_guidance_ref), "utf8"))
+        );
+      }
+      const guidance = judgeResources.get(item.judge_guidance_ref);
+      guidance.cases ||= {};
+      const prompt = extractCasePrompt(
+        fs.readFileSync(path.join(root, item.prompt_ref), "utf8"),
+        item.type
+      );
+      guidance.cases[item.id] = {
+        workflow: workflow.id,
+        quality_case_hash: `sha256:${crypto.createHash("sha256").update(prompt).digest("hex")}`,
+        scenario_contract_hash: item.scenario_contract_hash,
+        scenario_hash: qualityCaseScenarioHash(scenarioDir, prompt),
+      };
+    }
   }
 }
 
 fs.writeFileSync(suitePath, `${JSON.stringify(suite, null, 2)}\n`);
+for (const [reference, guidance] of judgeResources) {
+  fs.writeFileSync(path.join(root, reference), `${JSON.stringify(guidance, null, 2)}\n`);
+}
 
 function story(workflow, item, scenarioId) {
   return `---
@@ -158,6 +199,12 @@ function fixtureFor(workflow, type, caseId, state) {
       path.join(root, "evals/quality/fixtures/design-critique/team-leave-journey.html"),
       "utf8"
     );
+    for (const variant of ["a", "b"]) {
+      files[`ui/design-critique/leave-composition-${variant}.html`] = fs.readFileSync(
+        path.join(root, `evals/quality/fixtures/design-critique/leave-composition-${variant}.html`),
+        "utf8"
+      );
+    }
     files["product-principles.md"] =
       "# Product principles\n\nEarn every pixel. Content is the UI. Use open detail sections and a shared activity timeline. Card surfaces are for distinct standalone tiles, not a wrapper for an entire request or every history event. Consistency means matching composition as well as tokens.\n";
     files["weak-but-valid-artifact.json"] = `${JSON.stringify(
@@ -165,7 +212,7 @@ function fixtureFor(workflow, type, caseId, state) {
         schema_version: 1,
         status: "approved",
         summary:
-          "All capture rows are present, token lint passes and shared components are used. The Team action menu follows the action pattern. The request uses Stack surface=card rather than a Card import. No design issues found.",
+          "All capture rows are present, token lint passes and shared components are used. The Team action menu follows the action pattern. The request uses Stack surface=card rather than a Card import. Composition A uses shared input/tab styles, every label is bound and recording succeeds. No design issues found.",
         evidence: ["ui/design-critique/team-leave-journey.html"],
         risks: [],
         next_steps: ["Ship"],

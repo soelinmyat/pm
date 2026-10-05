@@ -126,7 +126,7 @@ test("generateRouteSuggestions ranks matching existing insights first", () => {
   }
 });
 
-test("generateRouteSuggestions skips already-linked insights and falls back to a seeded new route", () => {
+test("generateRouteSuggestions flags a linked source without a snapshot rather than seeding a duplicate topic", () => {
   const { pmDir, cleanup } = createPmDir();
   try {
     writeFile(
@@ -154,13 +154,10 @@ test("generateRouteSuggestions skips already-linked insights and falls back to a
       artifactMode: "decision-record",
     });
 
-    assert.equal(result.items[0].suggestions.length, 0);
-    assert.equal(result.items[0].suggestedNewRoute.mode, "new");
-    assert.equal(result.items[0].suggestedNewRoute.domain, "product");
-    assert.equal(
-      result.items[0].suggestedNewRoute.insightPath,
-      "insights/product/knowledge-loop.md"
-    );
+    assert.equal(result.items[0].suggestions.length, 1);
+    assert.equal(result.items[0].suggestions[0].insightPath, "insights/product/existing.md");
+    assert.equal(result.items[0].suggestions[0].source_changed, true);
+    assert.equal(result.items[0].suggestedNewRoute, null);
   } finally {
     cleanup();
   }

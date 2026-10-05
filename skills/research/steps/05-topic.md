@@ -109,7 +109,7 @@ What this research did NOT answer.
    Read and follow `${CLAUDE_PLUGIN_ROOT}/references/insight-routing.md`.
    Pass the evidence file path (`{pm_dir}/evidence/research/{topic-slug}.md`)
    and the key findings from Step 5 as input.
-   If no insight domains exist and no `{pm_dir}/strategy.md` exists, skip this step.
+   If no insight domains exist and no `{pm_dir}/strategy.md` exists, skip this step. Routed new or revised sources remain `needs-synthesis`/stale and low-confidence until interpreted; preserve the prior analyst body and complete findings digest. Do not automatically promote a routed insight or read it as verified demand.
 
 9. **Update evidence indexes**:
    - `{pm_dir}/evidence/research/index.md` — add or update the topic row with description, updated date, and `external` or `mixed` status.

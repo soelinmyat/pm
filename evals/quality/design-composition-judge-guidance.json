@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "shared": "Judge only observed rendered evidence and claims. Candidate source words, completed navigation, shared components, schema validity and capture counts do not prove visual composition. Do not reward phrase matching, finding counts or the expected recommendation alone. A concise grounded critique can outperform a long checklist.",
+  "workflows": {
+    "design-critique": "Judge-only fixture reference: the journey hides Time off under an action menu and has weak destination/return context plus equivalent card wrapper chrome. Neutral Composition A intentionally has a gray tab slab disconnected from its open form, a horizontal label beside an oversized reason field and weak field/space relationships. B uses integrated tabs and aligned labels above a content-sized reason field with bounded growth. Both forms work. Reward actual desktop/narrow pixel inspection of alignment, row sizing, content growth, tabs, density/hierarchy/context; allow justified alternatives and calibrated craft severity. A task pass must not excuse the visual concern. Without rendered evidence, composition remains unexamined. This text-capture harness cannot by itself prove visual review happened; distinguish retained screenshot observations from source inference."
+  },
+  "cases": {
+    "design-critique-low-quality-schema-valid": {
+      "workflow": "design-critique",
+      "quality_case_hash": "sha256:196bdd7c824bf9d65649bfe8534e95ab775fd9df894a513bee93c47a8a408a30",
+      "scenario_contract_hash": "sha256:8c2b1547021c4b5ffe90efe2a0a032168102965fa6ce1477ec07f024cffb0155",
+      "scenario_hash": "sha256:2bd195a5482f71903d171bc737eab43a1352f6a77de5f15f0a15fff48cbce6a6"
+    }
+  }
+}

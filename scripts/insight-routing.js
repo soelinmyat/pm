@@ -5,7 +5,6 @@ const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
 const {
-  ensureEvidencePath,
   ensureInsightPath,
   loadMarkdown,
   readStdin,
@@ -14,7 +13,13 @@ const {
   writeMarkdown,
 } = require("./kb-utils.js");
 const { upsertIndex } = require("./knowledge-writeback.js");
-const { rewriteInsights } = require("./insight-rewrite.js");
+const {
+  rewriteInsights,
+  ensureSourcePath,
+  loadSourceDocument,
+  sourceFingerprint,
+  validateSelections,
+} = require("./insight-rewrite.js");
 
 const HOT_INDEX_SCRIPT = path.join(__dirname, "hot-index.js");
 
@@ -95,7 +100,7 @@ function normalizePayload(rawPayload) {
 
   return routes.map((rawRoute) => {
     const route = rawRoute && typeof rawRoute === "object" ? rawRoute : {};
-    const evidencePath = ensureEvidencePath(route.evidencePath || route.evidence || "");
+    const evidencePath = ensureSourcePath(route.evidencePath || route.evidence || "");
     const insightPath = ensureInsightPath(route.insightPath || route.insight || "");
     const segments = insightPath.split("/");
     const domain = route.domain || segments[1];
@@ -126,20 +131,24 @@ function normalizePayload(rawPayload) {
       domain,
       topic,
       description,
+      selected_findings: route.selected_findings,
     };
   });
 }
 
 function applySingleRoute(pmDir, route, now) {
+  if (route.evidencePath === route.insightPath)
+    throw new Error("an insight cannot route itself as source evidence");
   const evidenceAbsolute = path.join(pmDir, route.evidencePath);
   if (!fs.existsSync(evidenceAbsolute)) {
     throw new Error(`missing evidence file "${route.evidencePath}"`);
   }
 
-  const evidenceDoc = loadMarkdown(evidenceAbsolute);
-  if (evidenceDoc.frontmatter.type !== "evidence") {
-    throw new Error(`expected evidence file at "${route.evidencePath}"`);
-  }
+  const evidenceDoc = loadSourceDocument(pmDir, route.evidencePath);
+  const selectedFindings =
+    route.selected_findings === undefined
+      ? undefined
+      : validateSelections(evidenceDoc, route.selected_findings);
 
   const insightAbsolute = path.join(pmDir, route.insightPath);
   const insightExists = fs.existsSync(insightAbsolute);
@@ -159,6 +168,8 @@ function applySingleRoute(pmDir, route, now) {
   let citeChanged = false;
   let createLogged = false;
   let addedSource = false;
+  let sourceChanged = false;
+  let selectionChanged = false;
 
   if (route.mode === "new" && !insightExists) {
     const frontmatter = {
@@ -169,6 +180,11 @@ function applySingleRoute(pmDir, route, now) {
       status: "draft",
       confidence: "low",
       sources: [route.evidencePath],
+      synthesis_state: "needs-synthesis",
+      source_claims: (selectedFindings || []).map((finding) => ({
+        path: route.evidencePath,
+        finding,
+      })),
     };
     writeMarkdown(insightAbsolute, frontmatter, buildSeedBody(route.topic), [
       "type",
@@ -183,6 +199,7 @@ function applySingleRoute(pmDir, route, now) {
     insightStatus = "draft";
     citeChanged = true;
     addedSource = true;
+    sourceChanged = true;
     appendLog(logPath, `${now} create ${route.insightPath}`);
     createLogged = true;
   } else {
@@ -196,11 +213,28 @@ function applySingleRoute(pmDir, route, now) {
       nextSources.length !==
       (Array.isArray(insightDoc.frontmatter.sources) ? insightDoc.frontmatter.sources.length : 0);
 
-    if (addedSource) {
+    const snapshot = (insightDoc.frontmatter.source_snapshots || []).find(
+      (item) => item.path === route.evidencePath
+    );
+    sourceChanged = !snapshot || snapshot.sha256 !== sourceFingerprint(evidenceDoc);
+    const priorClaims = insightDoc.frontmatter.source_claims || [];
+    const nextClaims =
+      selectedFindings === undefined
+        ? priorClaims
+        : [
+            ...priorClaims.filter((claim) => claim.path !== route.evidencePath),
+            ...selectedFindings.map((finding) => ({ path: route.evidencePath, finding })),
+          ];
+    selectionChanged = JSON.stringify(priorClaims) !== JSON.stringify(nextClaims);
+    if (addedSource || sourceChanged || selectionChanged) {
       const nextFrontmatter = {
         ...insightDoc.frontmatter,
         last_updated: now,
         sources: nextSources,
+        source_claims: nextClaims,
+        synthesis_state: "needs-synthesis",
+        status: insightDoc.frontmatter.status === "draft" ? "draft" : "stale",
+        confidence: "low",
       };
       writeMarkdown(insightAbsolute, nextFrontmatter, insightDoc.body, [
         "type",
@@ -212,10 +246,11 @@ function applySingleRoute(pmDir, route, now) {
         "sources",
       ]);
       action = "updated";
-      citeChanged = true;
+      citeChanged = addedSource;
     }
 
     insightStatus = insightDoc.frontmatter.status || "draft";
+    if (sourceChanged) action = "updated";
   }
 
   const nextCitedBy = ensureUnique(evidenceDoc.frontmatter.cited_by, route.insightPath);
@@ -246,6 +281,13 @@ function applySingleRoute(pmDir, route, now) {
 
   upsertIndex(indexPath, path.basename(route.insightPath), route.description, now, insightStatus);
 
+  if (!citeChanged && (sourceChanged || selectionChanged)) {
+    appendLog(
+      logPath,
+      `${now} update ${route.insightPath} reconsider source ${route.evidencePath}`
+    );
+  }
+
   if (citeChanged) {
     if (!createLogged) {
       appendLog(logPath, `${now} cite ${route.insightPath} -> ${route.evidencePath}`);
@@ -260,7 +302,9 @@ function applySingleRoute(pmDir, route, now) {
     action,
     addedSource,
     addedCitation,
-    rewriteCandidate: route.mode === "existing" && addedSource,
+    sourceChanged,
+    selectionChanged,
+    rewriteCandidate: addedSource || sourceChanged || selectionChanged,
   };
 }
 
@@ -284,8 +328,25 @@ function applyRoutes(pmDir, rawPayload, options = {}) {
   );
   const rewriteResult =
     rewriteTargets.length > 0
-      ? rewriteInsights(pmDir, { insights: rewriteTargets }, { now })
+      ? rewriteInsights(
+          pmDir,
+          { insights: rewriteTargets },
+          { now, forceDigest: results.some((result) => result.selectionChanged) }
+        )
       : { insights: [] };
+  // A digest can mark a previous conclusion stale. Project the actual resulting
+  // status instead of leaving the index at its pre-refresh value.
+  for (const result of rewriteResult.insights.filter((item) => item.action !== "error")) {
+    const route = routes.find((item) => item.insightPath === result.insightPath);
+    const insight = loadMarkdown(path.join(pmDir, result.insightPath));
+    upsertIndex(
+      path.join(pmDir, "insights", route.domain, "index.md"),
+      path.basename(result.insightPath),
+      route.description,
+      now,
+      insight.frontmatter.status || "draft"
+    );
+  }
   const didGenerateHotIndex =
     !options.skipHotIndex &&
     results.some((result) => result.action === "updated" || result.action === "created");

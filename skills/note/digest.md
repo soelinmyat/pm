@@ -1,50 +1,23 @@
 # Note Digest Pre-Step
 
-Run this before research intake (groom Phase 3 standard/full, or pm:research). Synthesizes un-digested notes from the last 30 days into research themes.
+Run this before research intake (groom standard/full, or pm:research). Preserve original signals and turn relevant corroboration into bounded research conclusions. A single observation is useful evidence, but does not establish prevalence.
 
 ## Flow
 
-1. **Scan for note files.** Glob `{pm_dir}/evidence/notes/*.md`. If the directory does not exist or contains no files, skip silently — no user interaction needed.
+1. **Collect the published signal pool.** Use `collectNoteDigestCandidates(pmDir, { now, knownDigests })` from `scripts/note-helpers.js`. `knownDigests` maps Evidence-IDs to original-plus-enrichment hashes saved by successful theme writes. The helper reads only bounded regular monthly note artifacts under `evidence/notes/`; never inspect private inputs or session transcripts for this digest. If no notes exist, skip silently. If a bound is exceeded, report the scope limit rather than silently omitting signals.
 
-2. **Filter to recent months.** Parse each file's frontmatter. Keep only files where `month` is within 30 days of today. For example, if today is 2026-04-15, keep 2026-04 and 2026-03 but not 2026-02.
+2. **Retain unresolved and changed evidence.** Include recent notes, older signals not yet incorporated into a durable theme, and changed enrichment regardless of timestamp. Existing `digested_through` values remain readable compatibility metadata; they never exclude a signal. A Monday singleton remains eligible when Friday brings corroboration. Late publication of a reviewed note retains its old capture date but is still eligible. For legacy notes without an Evidence-ID, migrate the published note under `references/evidence-system.md` before citation; do not invent a ledger ID.
 
-3. **Collect un-digested entries.** For each matching file:
-   - Parse note entries (split on `### ` headings).
-   - Read the `digested_through` frontmatter value.
-   - If `digested_through` is `null`, all entries are un-digested.
-   - If `digested_through` is a timestamp, only entries with timestamps **after** that value are un-digested.
-   - Collect all un-digested entries across all matching files.
+3. **Cluster by the user's outcome and context.** Use the original observation, enrichment, tags, and source. Retain jobs, successful outcomes, workarounds, constraints, and counterevidence alongside complaints. Do not force a fixed cluster count. Deduplicate exact Evidence-IDs; original wording, enrichment, and multiple artifacts from one originating observation are not independent corroboration. Explain what supports each claim, what contradicts it, which segment it covers, and what remains unknown.
 
-4. **Check threshold.** If fewer than 1 un-digested entry found, skip silently. Proceed to the next phase.
+4. **Write or update bounded themes.** A singleton may be retained as an explicitly single-observation finding or left unresolved in the signal pool; do not retire it merely because it was examined. Two entries do not automatically establish a trend: distinguish independent observations from repeated reports of the same incident. For example: “Two separate managers failed to locate Time off; one administrator found it readily. This supports a discoverability concern for occasional managers, while prevalence remains unknown.”
 
-5. **Cluster by topic.** Group the un-digested entries by topic/pain point:
-   - Use note content, tags, and source type as clustering signals.
-   - Similar pain points, competitor mentions, or feature areas group together.
-   - Aim for 2-5 clusters depending on note volume.
+   Read `references/evidence-system.md` and `references/mixed-origin.md`. Preserve the existing topic's findings, ownership, source metadata and open questions. Cite each claim with the exact `[evidence:ev_<24 hex>]` IDs that support it. Register the reviewed source binding to `evidence/research/{slug}.md` using the existing source identity and content; enrichment-derived observations retain lineage to the original ID rather than pretending to be new customers. Never bind pending sensitive evidence.
 
-6. **Write or update research themes.** For each cluster:
-   - If 2+ entries in the cluster, create or update a theme file in `{pm_dir}/evidence/research/`.
-   - If only 1 entry in the cluster, flag it in your output but do not create a theme file (single-signal threshold).
-   - Theme files use the existing research schema:
-     ```yaml
-     type: evidence
-     evidence_type: research
-     source_origin: internal
-     created: {today}
-     sources: []
-     cited_by: []
-     ```
-   - **Mixed-origin write contract:** If a theme file already exists with `source_origin: external`, set it to `mixed` (never overwrite to `internal`). If it already says `internal` or `mixed`, leave as-is.
-   - Append the note content as supporting evidence in the theme file body.
+   Theme frontmatter uses `type: evidence`, `evidence_type: research`, `source_origin: internal|mixed`, `provenance_version: 2`, created/updated dates, `sources`, and `cited_by`. Retain processed source receipts in `note_digest_sources`, an array of `{evidence_id, content_sha256}` pairs corresponding to the helper output. Receipts mean “incorporated into this artifact,” not “true” or “independent.” Each source's finding remains discoverable and claim-bound. Do not replace prior source receipts or duplicate an unchanged finding.
 
-7. **Update digested_through.** For each processed monthly log file, set `digested_through` in the frontmatter to the timestamp of the newest note processed from that file.
+5. **Validate before acknowledging incorporation.** Run `evidence.js validate --artifact` and normal PM validation. Save receipts only for observations actually represented in the successfully validated theme. Keep omitted, unresolved, and failed-write observations eligible; leave the monthly timestamp watermark untouched. On later runs, load receipt hashes from the existing themes into `knownDigests` and reconsider changed observations. Superseding a prior claim requires its exact text, replacement, and reason; retain the historical interpretation explicitly.
 
-8. **Update indexes.** If any new or modified theme files were created:
-   - Update `{pm_dir}/evidence/research/index.md` to include new themes.
-   - Update `{pm_dir}/evidence/research/log.md` with create/update entries.
-   - Update `{pm_dir}/evidence/index.md` if it exists and tracks research topics.
+6. **Route meaningful changed claims and update indexes.** Follow `references/insight-routing.md`, passing `selected_findings` with complete exact finding text and Evidence-ID markers where applicable. An existing path with changed content is a changed source, not a duplicate route. Preserve unrelated topic/index entries and update the research/evidence logs.
 
-9. **Report.** Briefly note what was digested:
-   > "Digested {N} notes into {M} research themes: {theme-list}"
-   
-   Or if nothing to digest, skip silently.
+7. **Report what changed in understanding.** Briefly identify incorporated observations, retained single signals, material contradictions, and uncertainty. Example: “Updated navigation research with two independent manager observations; retained one positive administrator observation and an unresolved mobile signal.” If nothing changed, skip silently. Do not report unresolved singles as digested into themes.

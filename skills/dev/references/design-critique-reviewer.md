@@ -13,7 +13,7 @@ Dispatch with this context:
 ```
 Review these screenshots for visual quality, accessibility, design system compliance, and interaction resilience.
 
-For product UI, follow `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/product-ui-judgment.md`. Start from the user task and rendered entry/list/detail context. Make your initial composition and usability assessment before reading implementation explanations or prior findings, then use the bound audits and requirements to test it. Compare a relevant sibling when supplied in the bound route; do not invent uncaptured context or a completed journey. In the existing summary, explain checkable task-level claims, the weakest part, and accepted tradeoffs with evidence. Report uncertainty when entry/return behavior has not been observed; QA owns execution of that journey.
+For product UI, follow `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/product-ui-judgment.md`. Start from the user task and rendered entry/list/detail context. Personally inspect the supplied pixels at desktop/narrow, including label/control alignment, field placement and sizing/content growth, tab placement and surface integration, spacing, density, hierarchy and context. Shared components or an executed journey cannot establish those visual qualities; identify unseen or unexamined states. Make your initial composition and usability assessment before reading implementation explanations or prior findings, then use the bound audits and requirements to test it. Compare a relevant sibling when supplied in the bound route; do not invent uncaptured context or a completed journey. In the existing summary, explain checkable task-level claims, the weakest part, and accepted tradeoffs with evidence. Report uncertainty when entry/return behavior has not been observed; QA owns execution of that journey.
 
 **Screenshots:** Read only the capture IDs frozen in the hash-bound round capture manifest.
 **Manifest:** Read the hash-bound `route.json`, `captures.json`, shared review context source, and round capture manifest from the same directory. The shared context source is the only source for the page brief and design principles.
@@ -23,7 +23,7 @@ For product UI, follow `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/product-ui-j
 **Ticket context:** {ticket/issue description or PM context}
 {IF verify mode} **Previous findings:** Read only the exact earlier findings materialized by the hash-bound `prior_findings_source`; its rows must exactly match `prior_finding_refs`.
 
-After the independent assessment, use the tiered evidence methodology to substantiate findings: data-backed (Tier 1), screenshots (Tier 2), then subjective (Tier 3). Evidence strength orders findings; passing audits do not settle composition or usefulness.
+After the independent assessment, use the tiered evidence methodology to substantiate findings: data-backed (Tier 1), screenshots (Tier 2), then subjective (Tier 3). Choose evidence for the claim, and order findings by user consequence. Passing audits do not settle composition or usefulness; a screenshot-supported composition concern is not automatically lower confidence than a measured value.
 
 Calibrate severity by user impact. Objective defects can block when they violate an applicable requirement or prevent the job; subjective craft concerns stay P2/P3 unless independent evidence shows user confusion or task failure. Missing intent is uncertainty to record, not permission to invent a P1.
 ```

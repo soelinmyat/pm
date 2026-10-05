@@ -17,49 +17,53 @@ function productFixture(workflow, type, caseId, state) {
       {
         id: "interview-a",
         origin: "customer-a",
+        kind: "customer-interview",
         date: "2026-09-01",
-        text: "Finance team A needs permission-scoped CSV exports before scheduling. One customer interview; no market-size estimate.",
+        text: "Team A, a six-person finance consultancy: 'On Friday I export the client figures and delete columns by hand before emailing each client. Last month I sent one client another client's margin. I won't turn on scheduled email until I can control which columns each client receives.'",
       },
       {
         id: "blog-a",
-        origin: "customer-a",
+        origin: "reporting-blog",
+        kind: "article",
         date: "2026-09-02",
-        text: "Retells interview-a; contains no independent customer observation.",
+        text: "Reporting Weekly: In our September 1 interview with Team A, its finance lead described sending a client another client's margin. That story illustrates the appeal of configurable exports. The article links to the Team A interview.",
       },
       {
         id: "newsletter-a",
-        origin: "customer-a",
+        origin: "finance-newsletter",
+        kind: "newsletter",
         date: "2026-09-03",
-        text: "Summarizes blog-a, which retells interview-a. No new evidence.",
+        text: "Finance Digest: Reporting Weekly tells the story of a consultancy sending the wrong margin figures to a client. Read their article about configurable exports in this week's links.",
       },
       {
         id: "interview-b",
         origin: "customer-b",
+        kind: "customer-interview",
         date: "2026-09-04",
-        text: "Finance team B already exports safely and prefers scheduled delivery. One customer interview; no population estimate.",
+        text: "Team B, a 250-person company with a finance operations group: 'Our saved views already restrict the columns for each department. The remaining chore is logging in every morning to download those views and send them. We'd try scheduled delivery if it used the same saved views.'",
       },
       {
         id: "product-doc",
         origin: "vendor",
+        kind: "product-documentation",
         date: "2026-09-05",
-        text: "The product supports manual CSV export. This technical fact does not establish customer demand or willingness to pay.",
+        text: "Product documentation: Saved views restrict visible columns. A signed-in user can download a saved view as a CSV. Email delivery is manual. There is no recipient-specific column policy or scheduled delivery option.",
       },
       {
         id: "old-strategy",
         origin: "team",
+        kind: "strategy-decision",
         date: "2024-01-01",
-        text: "Assume enterprise buyers and prioritize enterprise rollout. This assumption has not been revalidated against the new small-team interviews.",
+        text: "January 2024 strategy decision: Focus sales and engineering on enterprise finance operations. Our planning assumption is that larger accounts have the highest need for reporting automation. Prioritize enterprise rollout before small-team packages. Next review: July 2024.",
       },
     ],
   };
   const evidence = `${JSON.stringify(packet, null, 2)}\n`;
-  const resume = `${JSON.stringify({ accepted_scope: "small finance teams; draft only", evidence_sha256: hash(evidence), missing: ["limitations"] }, null, 2)}\n`;
+  const resume = `${JSON.stringify({ accepted_scope: "finance reporting; draft only", evidence_sha256: hash(evidence), missing: ["limitations"] }, null, 2)}\n`;
   const files = {
     "case-state.md": `# Quality case state\nWorkflow: pm:${workflow}\nCase: ${type}\nState: ${state}\nAll source data is synthetic. Use the local closed corpus.\nRead product-output-contract.md for artifact requirements.\n`,
     "product-evidence.json": evidence,
-    "product-output-contract.md": `Save quality-output.md and quality-outcome.json to the supplied artifact directory, using the standard case outcome contract. Also save product-evidence-receipt.json there with schema_version: 1, evidence_sha256 (SHA-256 of product-evidence.json), independent_demand_origins: 2, approval: "pending", and claims: [{ claim: "your consequential claim", source_id: "a packet source ID", excerpt: "verbatim supporting source passage" }]. Claims need at least one entry. This receipt proves source binding only; judges assess entailment, contradictions, stale assumptions, unsupported precision, usefulness, and false blockers. Save a draft even when a dependent conclusion is blocked.\n`,
-    "concise-control.md":
-      "Pilot permission-scoped CSV with team A. Team B prefers scheduling; two interviews cannot establish market demand. Recheck the enterprise assumption before committing rollout.\n",
+    "product-output-contract.md": `Save quality-output.md and quality-outcome.json to the supplied artifact directory, using the standard case outcome contract. Also save product-evidence-receipt.json there with schema_version: 1, evidence_sha256 (SHA-256 of product-evidence.json), independent_demand_origins (an integer you infer from the evidence), approval: "pending", and claims: [{ claim: "your consequential claim", source_id: "a packet source ID", excerpt: "verbatim supporting source passage" }]. Explain your origin grouping and the basis for your consequential claims in quality-output.md. Claims need at least one entry. This receipt proves source binding only; judges assess entailment, contradictions, stale assumptions, unsupported precision, usefulness, and false blockers. Save a draft even when a dependent conclusion is blocked.\n`,
     ".pm/quality/input-lock.json": `${JSON.stringify({ case_id: caseId, frozen: true, evidence_sha256: hash(evidence) })}\n`,
   };
   const pre = [
@@ -79,7 +83,7 @@ function productFixture(workflow, type, caseId, state) {
   }
   if (type === "ambiguous-input")
     files["decision-options.md"] =
-      "Option A: pilot permission-scoped CSV with A. Option B: pilot scheduling with B. Evidence disagrees; choose a reversible test.\n";
+      "The team can fund one reporting pilot this month: recipient column controls or delivery scheduling. Assess the choices against the source packet.\n";
   if (type === "resume") {
     files["product-resume.json"] = resume;
     files[".pm/quality/resume-session.json"] = resume;
@@ -112,8 +116,13 @@ function validateProductReceipt(receipt, packet, bytes) {
   if (!receipt || receipt.schema_version !== 1)
     return { ok: false, issues: ["receipt schema_version must equal 1"] };
   if (receipt.evidence_sha256 !== hash(bytes)) issues.push("evidence source hash mismatch");
-  if (receipt.independent_demand_origins !== 2)
-    issues.push("derivative publications are not independent customer demand origins");
+  // Origin grouping is a semantic claim for the blind judge, not a staged oracle.
+  if (
+    !Number.isInteger(receipt.independent_demand_origins) ||
+    receipt.independent_demand_origins < 0 ||
+    receipt.independent_demand_origins > packet.sources.length
+  )
+    issues.push("independent demand origins must be an integer within the source count");
   if (receipt.approval !== "pending") issues.push("draft must not claim adoption");
   if (!Array.isArray(receipt.claims) || receipt.claims.length === 0)
     issues.push("at least one source-bound consequential claim is required");

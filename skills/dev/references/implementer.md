@@ -40,7 +40,7 @@ Return `failed` for an unrecoverable execution error. Do not repeatedly issue th
 Before returning `completed`, check:
 
 - Every AC and Test hook has corresponding evidence.
-- Tests assert required behavior rather than implementation details.
+- Tests assert required behavior rather than implementation details. Derive expectations independently from approved requirements/domain rules; use distinguishable fixtures and explain a plausible regression each important test rejects. RED evidence does not prove mocked integration or product intent. Follow the risk-aware modes and limitations in `tdd.md`.
 - Changed paths stay within ownership.
 - The commit is on the assigned branch and contains no unrelated files.
 - No denied external action occurred.

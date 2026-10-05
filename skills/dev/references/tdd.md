@@ -212,3 +212,7 @@ never exercises the changed behavior does not replace the focused proof.
 - [ ] Generated code/config changes test their source contract and consumer.
 - [ ] Focused tests and the affected repository suite pass on the final tree.
 - [ ] Edge cases match the change's actual risk, not a generic checklist.
+
+## What RED proves
+
+An observed failure establishes that the test detects its asserted condition before the change. It does not establish that a mock matches the producer, that expected values reflect the domain, or that the user's whole task succeeds. Derive expectations from approved requirements/domain rules and independently calculated fixtures; explain the plausible defect each test would reject. Include changed integration boundaries and relevant optional/error/permission variants. If infrastructure prevents an independent boundary check, state that limit rather than claiming full correctness from unit tests.

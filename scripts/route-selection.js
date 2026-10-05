@@ -49,6 +49,18 @@ function normalizeRoute(route) {
     description: route.description,
   };
 
+  if (route.selected_findings !== undefined) {
+    if (
+      !Array.isArray(route.selected_findings) ||
+      route.selected_findings.some((finding) => typeof finding !== "string" || !finding.trim())
+    ) {
+      throw new Error("selected_findings must contain complete finding text");
+    }
+    // Preserve exact analyst selections and Evidence-ID markers across this
+    // transport step. The routing helper validates them against current source.
+    normalized.selected_findings = [...route.selected_findings];
+  }
+
   if (route.mode === "new") {
     normalized.domain = route.domain;
     normalized.topic = route.topic;

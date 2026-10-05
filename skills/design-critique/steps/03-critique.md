@@ -30,3 +30,5 @@ Produce evidence-cited, ownership-correct findings and six dimension scores with
 - Objective defects and subjective craft concerns have independently justified severity; preference alone created no blocking finding.
 
 **Advance:** proceed to Step 4 (Resolve).
+
+For product composition, personally inspect actual pixels in the routed desktop/narrow captures. Assess label/control alignment, row placement and sizing/content growth, tab placement/surface integration, spacing, density, hierarchy and persistent context. A functional journey or shared-component compliance cannot substitute for this judgment. Report unseen/unexamined states in the existing assessment; add no count or prose gate.

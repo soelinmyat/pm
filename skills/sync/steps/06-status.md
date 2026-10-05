@@ -41,7 +41,10 @@ If `uncommitted > 0`, add: "Run `/pm:sync` to pull remote changes first, then pu
 
 If `behind > 0`, add: "Run `/pm:sync` to pull remote changes and then push any local changes. Use `/pm:sync pull` only when you intentionally want the pull-only override."
 
-If everything is zero: "All synced."
+If everything is zero: "Local files match the last observed upstream state.
+Current remote state has not been checked." Include the last observation time
+when available; if unknown, say so. Zero cached divergence is not evidence that
+another machine has made no remote changes since that observation.
 
 If status reports detached HEAD or a missing upstream, show its repair guidance
 and stop. Do not display zero ahead/behind values for an undefined comparison.
@@ -91,4 +94,7 @@ Say: "What would you like to do next?"
 The user has a readable backend, remote, branch, locally observed divergence,
 dirty-state, and last-sync/effect summary, including the safest next action for any non-zero state.
 
-Offer `/pm:sync` for safe bidirectional recovery, an explicit one-way override when intentionally requested, or no action when everything is synced.
+Offer `/pm:sync` for bidirectional recovery or current remote verification, an
+explicit one-way override when intentionally requested, or no action when the
+user only wanted the locally observed status. Do not convert cached equality
+into a claim of current remote equality.

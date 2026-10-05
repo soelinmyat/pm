@@ -62,76 +62,26 @@ Install dependencies using the project's install command (read from AGENTS.md, o
 
 If AGENTS.md doesn't specify workspace setup, fall back to: install dependencies + run the project's test command once.
 
-Verify clean baseline: run the project test command (from AGENTS.md or convention detection). If tests fail, report as blocked (epic) or fix before proceeding (single-issue).
+Verify clean baseline: run the project test command (from AGENTS.md or convention detection). Classify a failure from its observed diagnostic: environment/setup, pre-existing defect, or task regression. Repair only within authorized ownership; report unrelated baseline defects and missing infrastructure rather than silently expanding a single-issue task. Never call a command with zero discovered tests a clean baseline.
 
 ---
 
 ## Step 2: Implement
 
-### Platform Detection (first step)
+### Affected-surface detection (first step)
 
-Before writing any code, detect which parts of the project are modified to auto-route gates:
+Route by the boundaries changed and the behavior affected, not mutually exclusive directory labels. Record source evidence for each affected surface: backend/domain/API, web, mobile, shared contract/types, jobs/data, and configuration. Backend plus web or mobile is full-stack work; web plus mobile is a multi-client change. A backend-only diff can still affect existing clients.
 
-```
-Modified areas = check plan files, ticket scope, or `git diff --name-only {DEFAULT_BRANCH}...HEAD`
+Exercise the relevant unit/domain checks, changed boundary integration checks, and user journey checks for each affected surface. Do not let a frontend label bypass changed backend logic, authorization, migration, or API tests. Do not infer that no UI files changed means no user-visible behavior changed. Keep the current canonical UI-platform enum for routing; describe additional affected boundaries in intake/implementation evidence rather than inventing schema fields.
 
-Classify the change:
-  "backend-only"  → only backend/API files
-  "frontend-only" → only frontend files (with or without backend)
-  "mobile-only"   → only mobile/native app files (with or without backend)
-  "full-stack"    → frontend + mobile (rare)
-```
-
-For monorepos, map to specific app directories. For single-app projects, classify by file type (controllers/models vs components/pages).
-
-Log in `.pm/dev-sessions/{slug}/session.json`:
-```
-- Platform: <detected platform>
-- Contract gate: <required | skipped (reason)>
-```
-
-This detection drives the contract gate and E2E routing below.
-
-```dot
-digraph implement {
-    "Classify change" [shape=box];
-    "Backend-only?" [shape=diamond];
-    "Frontend-only?" [shape=diamond];
-    "Full-stack" [shape=box];
-
-    "Backend TDD" [shape=box, style=filled, fillcolor="#ccffcc"];
-    "API contract sync" [shape=box];
-    "CONTRACT GATE" [shape=box, style=filled, fillcolor="#ffcccc"];
-    "Frontend mock/handler" [shape=box];
-    "Frontend TDD" [shape=box, style=filled, fillcolor="#ccffcc"];
-    "User flow?" [shape=diamond];
-    "E2E tests" [shape=box, style=filled, fillcolor="#ccccff"];
-    "Done" [shape=box];
-
-    "Classify change" -> "Backend-only?";
-    "Backend-only?" -> "Backend TDD" [label="yes"];
-    "Backend TDD" -> "API contract sync";
-    "API contract sync" -> "Done";
-
-    "Backend-only?" -> "Frontend-only?" [label="no"];
-    "Frontend-only?" -> "Frontend mock/handler" [label="yes"];
-
-    "Frontend-only?" -> "Full-stack" [label="no"];
-    "Full-stack" -> "Backend TDD";
-
-    "API contract sync" -> "CONTRACT GATE" [label="full-stack"];
-    "CONTRACT GATE" -> "Frontend mock/handler";
-    "Frontend mock/handler" -> "Frontend TDD";
-    "Frontend TDD" -> "User flow?";
-    "User flow?" -> "E2E tests" [label="yes"];
-    "User flow?" -> "Done" [label="no"];
-    "E2E tests" -> "Done";
-}
-```
+Examples:
+- Leave endpoint + web approval form: backend date/permission rules, contract compatibility, web validation and entry → approve → return journey.
+- Shared serializer used by web/mobile: producer tests and both consumers' relevant integration/empty/optional-state cases.
+- Visual-only spacing adjustment: supported viewport/rendered assessment and repository-required checks; do not invent a business-logic RED test.
 
 ### Contract Sync Gate (hard gate when project uses API contracts)
 
-**Auto-routed by Platform Detection above.** No manual decision needed.
+**Routed by changed contracts and their consumers.** Inspect boundary impact even when the work is described as backend-only.
 
 **Detection:** Read AGENTS.md for contract sync tooling. Common patterns:
 - OpenAPI/Swagger (rswag, swagger-codegen, etc.)
@@ -139,20 +89,14 @@ digraph implement {
 - tRPC (type-safe by default, may not need explicit sync)
 - Manual types (no contract gate, validated at integration test time)
 
-| Platform | Has contract tooling | Contract gate |
-|----------|---------------------|---------------|
-| backend-only | any | skip (no frontend consumer) |
-| frontend | yes | **run** |
-| frontend | no | skip (no contract tooling configured) |
-| full-stack | yes | **run** |
-| full-stack | no | skip |
+| Change | Contract verification |
+|--------|-----------------------|
+| Producer/API/schema changes with tooling | Regenerate/check the producer contract and verify compatibility with affected existing consumers, even without frontend edits |
+| Web/mobile consumer changes with tooling | Verify generated types and relevant fixtures/mocks against the producer contract; exercise the changed integration |
+| No contract tooling | Verify the actual producer/consumer boundary with meaningful integration tests; lack of codegen is not a compatibility exemption |
+| No contract behavior affected | Explain why the boundary is unchanged and retain applicable repository checks |
 
-Before any frontend work on a full-stack change with contract tooling:
-- [ ] API spec regenerated (per AGENTS.md commands)
-- [ ] Frontend mocks/handlers updated against spec
-- [ ] Contract smoke test passes (per AGENTS.md test commands)
-
-Fail -> fix before proceeding. No exceptions when contract tooling is configured.
+Use AGENTS.md commands. When schemas change, update generated artifacts and mocks with schema-valid optional/error variants; two agreeing mocks cannot prove a real boundary. Confirm request/response semantics, authorization, nullability, version compatibility and deploy-window behavior. Required boundary verification unavailable → report blocked/limited coverage under the dispatch contract, never call an unexecuted contract check passed.
 
 ### Component Pattern Scan (UI tasks only)
 
@@ -163,11 +107,11 @@ Before creating any new UI component (drawer, modal, dialog, sheet, card, panel,
 grep -rl "drawer\|Drawer\|Sheet" apps/{app}/src/components/ apps/{app}/src/features/ --include="*.tsx" | head -20
 ```
 
-**If an existing component exists:** Reuse it. Import and configure with props. Do not build a new one.
+**If an existing component fits the semantic task and supported behavior:** Reuse it. Verify the actual comparable screen rather than matching the component name alone. If the component is unsuitable, explain the concrete behavior/accessibility/maintenance mismatch and choose the smallest coherent adaptation; existing code is not automatically a quality standard.
 
 **If no existing component exists but you need multiple instances in this task:** Build the first instance as a reusable, prop-driven component in the appropriate components directory. Then import and configure it for each use case. Never copy-paste a component and tweak it.
 
-**If you're building across multiple tasks in a multi-task RFC:** Check what earlier tasks already built. Reuse their components. If the component needs extension, extend it with new props rather than creating a parallel implementation.
+**If you're building across multiple tasks in a multi-task RFC:** Check what earlier tasks already built. Reuse their components. Extend it when the added behavior remains coherent; avoid boolean-prop combinations that mix unrelated responsibilities. A separate component can be justified by different semantics or lifecycle.
 
 Log the scan result in `.pm/dev-sessions/{slug}/session.json`:
 ```
@@ -180,7 +124,7 @@ Log the scan result in `.pm/dev-sessions/{slug}/session.json`:
 
 ### Write code
 
-1. Read the plan file **end-to-end before writing code**. Plans may contain a "Revised" or "Updated" section that supersedes earlier code blocks. If you find contradictory implementations, the later revision is authoritative. When in doubt, check for epic review fix annotations (e.g., "Epic review fix:").
+1. Read the plan file **end-to-end before writing code**. Plans may contain a "Revised" or "Updated" section that supersedes earlier code blocks. If instructions contradict, verify which revision is explicitly approved and current; a later timestamp alone does not establish authority. Surface unresolved differences that materially change behavior. When in doubt, check for epic review fix annotations (e.g., "Epic review fix:").
 2. Follow `subagent-dev.md` (in this directory) for independent tasks
 3. Follow `tdd.md` (in this directory) for each feature
 4. Commit after each logical group of changes
@@ -208,8 +152,8 @@ See `test-layers.md` (same directory) for general test layer routing principles.
 ### E2E Decision
 
 **Web E2E (Playwright):**
-- **Write E2E:** CRUD flow, multi-step journey, auth-dependent behavior
-- **Skip E2E:** Purely visual, internal refactor, backend-only
+- **Write E2E:** CRUD flow, multi-step journey, auth-dependent behavior, changed discoverability/navigation or recovery affecting task completion
+- **Skip E2E:** Visual-only changes with no interaction/navigation effect, internal refactor covered at relevant boundaries, backend-only with no affected client journey
 
 **Mobile E2E (Maestro or project-specific):**
 - **Write E2E:** CRUD flow, multi-step journey, auth flows, navigation-heavy flows

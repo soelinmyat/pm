@@ -194,16 +194,25 @@ Persist their choice to `{pm_state_dir}/config.json` under `preferences.ship.aut
 
 ### Early-exit report (auto_merge disabled)
 
+Emit this only after Step 6 observes every required check passing for the exact
+current head. Interpolate CI from the complete required-check summary, including
+the head and check names. If checks fail, are pending, missing, stale, or
+unavailable, title the report `PR open — CI {state}` and name the blocker;
+do not call the PR green or ready. A verified empty policy says `No required CI
+checks configured`, not `passed`. Merge authority and other delivery gates
+remain separate.
+
 ```
 ## Shipped to PR
 
 **PR:** #N — [title] ([URL])
 **Branch:** [branch name]
 **Review:** [N issues found and fixed by review agents]
-**CI:** passed
+**CI:** {observed required-check outcome, exact head, check names or missing evidence}
 **Auto-merge:** disabled (preferences.ship.auto_merge = false)
 
-PR is green and ready. Merge manually or re-run `/pm:ship` to trigger the merge loop.
+{Only for every required check passing: PR checks are green for this head.}
+Merge manually or re-run `/pm:ship` with the required merge authority.
 ```
 
 Then run the Product Memory steps (backlog `prs` write is skipped — no merge yet) and exit. Do NOT run cleanup — the branch stays open.

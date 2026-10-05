@@ -2,6 +2,7 @@
 
 const crypto = require("node:crypto");
 const path = require("node:path");
+const { parseFrontmatter } = require("../kb-frontmatter");
 
 const SCHEMA_VERSION = 2;
 const HASH = /^sha256:[a-f0-9]{64}$/;
@@ -341,12 +342,13 @@ function validateCitationBindings({ markdown, ledger, artifactPath }) {
   const issues = validateEvidenceLedger(ledger);
   if (issues.length > 0) return issues.map((issue) => `ledger ${issue}`);
   if (typeof markdown !== "string") return ["markdown is required"];
-  if (!/\bprovenance_version:\s*2\b/.test(markdown)) return [];
+  const { data: metadata } = parseFrontmatter(markdown);
+  if (Number(metadata.provenance_version) !== 2) return [];
   const records = new Map(ledger.records.map((record) => [record.evidence_id, record]));
   const citations = [...markdown.matchAll(/\[evidence:(ev_[a-f0-9]{24})\]/g)].map(
     (match) => match[1]
   );
-  const isNotesArtifact = /(?:^|\n)type:\s*notes\s*(?:\n|$)/.test(markdown);
+  const isNotesArtifact = metadata.type === "notes";
   if (isNotesArtifact) {
     citations.push(
       ...[...markdown.matchAll(/^Evidence-ID:\s*(ev_[a-f0-9]{24})\s*$/gm)].map((match) => match[1])

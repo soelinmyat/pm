@@ -74,9 +74,11 @@ Not every product maps to these stages. Use what fits. The key constraint: a rea
 Do not split by internal architecture boundaries (plugin/server, frontend/backend, client/API). If the user experiences "team sharing" as one thing, it's one area — even if it spans three microservices.
 
 **Calibration:**
-- Target 8–20 features total. Fewer than 8 means you're too coarse. More than 20 means you're promoting sub-steps to features.
-- Target 3–6 areas. Fewer than 3 means you're grouping unrelated things. More than 6 means you're slicing too thin.
-- Each area should have 2–5 features. A single-feature area should be merged into an adjacent one.
+- Inventory the product's actual independently usable capabilities. There is no minimum feature count or preferred area count: a product with three capabilities is valid, and a broad product may need more than twenty.
+- Split only when a user can discover and use an outcome independently; group related outcomes when that helps a reader find them. A single-feature area is appropriate when merging it would obscure a distinct user job.
+- Trace discovery paths, permissions/entitlements, feature flags and prerequisites for the relevant user/context. Describe whether the outcome is reachable, restricted, disabled or only code-inferred in the outcome/highlights. Do not call an implemented route a working capability without support.
+- Confidence reflects the evidence and its limits, never the desired inventory shape. Uniform high confidence and justified low confidence are both allowed; explain meaningful uncertainty in readable prose. Source file counts are not independent observations of successful use.
+- Example: “Managers can approve requests when granted the approver role; the route and permission boundary are implemented, but narrow-screen discovery and completion have not been exercised.” This describes what is known without certifying the journey.
 
 **Output:** Structured feature list grouped by product area. Each in-memory feature also carries a semantic `key`, confidence, and source refs as defined in `references/product-reasoning.md`.
 
@@ -191,7 +193,7 @@ After the user approves the reconciled inventory:
 2. Hash the final Markdown bytes.
 3. For filesystem mode, run `scripts/product-reasoning.js feature-snapshot --source-root "${source_dir}" --request <source-refs.json>`. Write `features.json` using the v2 contract in `references/product-reasoning.md`, including the Git commit or filesystem snapshot identity and Markdown binding.
 4. Run `scripts/product-reasoning.js validate --root "${pm_dir}" --input "${pm_dir}/product/features.json" --source-root "${source_dir}"`, `scripts/product-reasoning-quality-check.js "${pm_dir}/product/features.json"`, and normal `pm validate`.
-5. If schema, the 7/10 quality gate, or project validation fails, fix the weakest shared-record dimensions and regenerate both artifacts. Do not add filler or patch one reader independently.
+5. If schema, the 7/10 structural-readiness check, or project validation fails, inspect and fix genuine omissions in the shared record and regenerate both artifacts. The lexical score does not establish product usefulness, independence, runtime availability, or confidence calibration. Independently examine these qualities even on a passing score. Do not add filler, inflate confidence, or patch one reader independently.
 
 ## Completion
 

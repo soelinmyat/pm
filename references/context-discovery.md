@@ -4,24 +4,19 @@ Reference document for all dev plugin skills and commands. Defines how project c
 
 ## Context Discovery (run at intake)
 
-### 1. Product Context (from CLAUDE.md)
+### 1. Product Context (task-relevant, sourced)
 
-Read CLAUDE.md at the project root. Extract:
+Start with the authorized task and applicable repository instructions, including root and nearest ancestor `AGENTS.md` files for the affected paths. Read relevant product/domain docs, README, CLAUDE.md when present, approved backlog/RFC, strategy, and existing behavior. CLAUDE.md is one possible source, not a required product manifest.
 
-| Field | Source | Fallback if missing |
-|-------|--------|-------------------|
-| Product name | First heading or explicit "Product:" line | Repository directory name |
-| Product description | First paragraph or "Description:" section | "Not documented" |
-| User personas | "Users" or "Personas" section | "Not documented" |
-| Scale expectations | "Scale" or numbers in context | "Not documented" |
-| Design principles | "Design" or "Principles" section | "Not documented" |
-| Domain concerns | Business-critical operations mentioned | "Not documented" |
+Extract the facts needed to judge this task: intended users and their problem, desired outcome, scope/non-goals, domain rules, expected scale, and applicable design principles. Cite each fact's file/section or task statement and distinguish approved intent from observed implementation and inference. Existing behavior can expose a constraint or defect; it does not automatically override approved intent.
 
-If CLAUDE.md is absent: log warning, use directory name as product name, all other fields "Not documented."
+Example: `Users: team managers approving leave — backlog/time-off.md § Problem (approved); date boundary uses workspace timezone — domain/time.md § Leave dates (approved); current form uses browser timezone — source inspection (observed discrepancy).`
+
+For conflicting sources, identify the conflict, authority, and freshness. Do not silently combine incompatible rules or assume a newer informal note supersedes an approved requirement. Resolve from the task/instructions where possible; surface a decision only when the unresolved difference materially changes behavior. Mark unavailable facts `Unknown (sources examined: …)`, rather than `Not documented` merely because CLAUDE.md is absent. Missing task-irrelevant personas or scale documentation is not automatically a blocking gap.
 
 ### 2. Technical Context (from AGENTS.md)
 
-Read AGENTS.md at the project root. For monorepos, also read `apps/*/AGENTS.md`.
+Read AGENTS.md at the project root and applicable instructions along the ancestor paths of affected code, tests, and packages. Monorepos may place instructions under packages, services, or other directories, not only apps. Preserve source citations in the context packet.
 
 | Field | Source | Fallback if missing |
 |-------|--------|-------------------|
@@ -29,15 +24,15 @@ Read AGENTS.md at the project root. For monorepos, also read `apps/*/AGENTS.md`.
 | Build command | "build" or "setup" section | None |
 | Monorepo structure | "apps/" or "packages/" section | Auto-detect from directory listing |
 | Conventions | Coding conventions section | None |
-| App-specific AGENTS.md paths | Scan `apps/*/AGENTS.md` | None |
+| App-specific AGENTS.md paths | Scan affected paths and their ancestors | None |
 
-**Convention-based test command inference** (when AGENTS.md absent):
+**Test command discovery** (when instructions omit it): confirm manifest scripts, installed runner, working directory and required fixtures. An inferred command remains a hypothesis until observed executing the intended tests; a command exiting zero with no tests is not verification.
 
 | Detection | Inferred command |
 |-----------|-----------------|
 | `package.json` with `"test"` script | `npm test` (or `pnpm test` if pnpm-lock.yaml exists, `yarn test` if yarn.lock exists) |
-| `Gemfile` present | `bundle exec rails test` |
-| `pyproject.toml` present | `pytest` |
+| `Gemfile` present | Inspect dependencies, Rake tasks and documented test command; do not assume Rails or Minitest |
+| `pyproject.toml` present | Inspect test dependencies and tool configuration; do not assume pytest is installed |
 | `go.mod` present | `go test ./...` |
 | None of above | Warn: "Could not detect test command. Specify in AGENTS.md." |
 
@@ -46,7 +41,7 @@ Read AGENTS.md at the project root. For monorepos, also read `apps/*/AGENTS.md`.
 | File found | Stack |
 |-----------|-------|
 | `package.json` | Node (check deps for React/Vue/Next/Expo/etc.) |
-| `Gemfile` / `Rakefile` | Ruby/Rails |
+| `Gemfile` / `Rakefile` | Ruby (confirm framework from dependencies) |
 | `pyproject.toml` / `requirements.txt` | Python |
 | `go.mod` | Go |
 | `Cargo.toml` | Rust |
@@ -92,27 +87,15 @@ After discovery, build this block for injection into agent prompts:
 **Non-goals:** {non_goals or "Not documented"}
 ```
 
-Fields marked "Not documented" are intentionally kept — review agents will flag undocumented fields as context gaps.
+Include source/provenance and any material uncertainty beside each value. Reviewers assess whether an unknown matters for this task; they must not invent context or treat every undocumented field as a defect. Reviewers may inspect original sources and correct the packet with evidence.
 
 ---
 
 ## State File Storage
 
-Store the structured context in the canonical session state (`.pm/dev-sessions/{slug}/session.json`) under `context`:
+Persist the sourced context packet as an intake evidence artifact in the canonical session directory and record it through the current session runner's supported evidence contract. Reference that artifact in downstream dispatch inputs. Do not add an unsupported `context` field or Markdown headings to strict `session.json`; the state schema remains authoritative. Legacy Markdown context is a resume aid, not current canonical evidence.
 
-```markdown
-## Project Context
-- Product: {product_name} — {description}
-- Stack: {stack}
-- Test command: {command}
-- Issue tracker: {type or "none"}
-- Monorepo: {yes/no, app list}
-- CLAUDE.md: {present/absent/minimal}
-- AGENTS.md: {present/absent}
-- Strategy: {present/absent}
-```
-
-This survives compaction and session resume.
+The packet preserves citations, examined sources, unresolved material conflicts, and observed versus approved facts across compaction and resume. Refresh it when task scope or an authoritative source changes; do not overwrite previous evidence as if it had always been known.
 
 ---
 
@@ -120,8 +103,8 @@ This survives compaction and session resume.
 
 Every command that dispatches review/investigation agents MUST:
 
-1. Read the session state file's `## Project Context` section (or run discovery if first invocation)
+1. Read the recorded intake context evidence and its sources (or run discovery on first invocation); on legacy resume, migrate verified facts rather than trusting old headings
 2. Build the context injection template above
 3. Include it in every agent prompt as `{PROJECT_CONTEXT}`
 
-This ensures all agents work from the same extracted facts, avoids each agent independently parsing files, and makes agent prompts project-agnostic.
+This ensures all agents work from the same extracted facts, preserves shared facts while allowing independent verification and correction of misleading or stale context.

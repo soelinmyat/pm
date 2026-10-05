@@ -14,6 +14,11 @@ This step is a **prompt file**. There is no node function to call. You, the agen
 
 Use the section order, row contract, and five-intent classifier below. Render only fields from the cached payload, and use the fall-through escalation instead of inventing behavior.
 
+Prefix human-readable output with `Snapshot: {meta.generatedAt} ({elapsed age}
+ago)`. Row `ageRelative` and `staleness` describe that snapshot. If elapsed age
+cannot be determined, show the timestamp and say current freshness is unknown.
+Raw JSON remains the exact cached payload with its existing `generatedAt`.
+
 ## Section order and caps
 
 1. **Active Sessions** — `payload.active`. Cap: 7 rows.
@@ -83,11 +88,17 @@ Triggers: "what's PM-45 about?", "tell me more about g/list-active-work", "detai
 
 Response: read the row's `sourcePath` file and summarize the most informative 2–4 lines (topic, phase, last action, next step). Do not reinterpret or speculate — only surface what the file already says.
 
+Label this summary `Current file detail, read at {observation time}`. It is a
+separate observation from the cached overview. If phase or next-step information
+differs, say that the overview is older; do not silently splice live detail into
+the cached rows or infer other rows changed. If the source has disappeared or
+cannot be read, report that limit and retain the snapshot's provenance.
+
 ### 5. show-staleness
 
 Triggers: "what's stale?", "what needs attention?", "anything cold?".
 
-Response: re-render only rows where `staleness` is `stale` or `cold`, grouped by staleness tier, sorted by age desc. If none match, say so in one line.
+Response: re-render only rows where `staleness` is `stale` or `cold`, grouped by staleness tier, sorted by age desc. If none match, say `No stale or cold rows in the snapshot taken at {meta.generatedAt}.` Staleness is an age signal, not proof that a row is blocked or that other work needs no attention.
 
 ## Fall-through escalation
 

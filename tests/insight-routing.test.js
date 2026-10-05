@@ -168,14 +168,14 @@ test("applyRoutes links an existing insight and regenerates the hot index", () =
     });
 
     assert.equal(result.routes[0].action, "updated");
-    assert.equal(result.rewrites[0].action, "rewritten");
+    assert.equal(result.rewrites[0].action, "digest-updated");
 
     const insightContent = fs.readFileSync(path.join(pmDir, "insights/product/target.md"), "utf8");
-    assert.match(insightContent, /status: "active"/);
+    assert.match(insightContent, /status: "draft"/);
     assert.match(insightContent, /sources:\n {2}- "evidence\/research\/source\.md"/);
-    assert.match(insightContent, /## Synthesis/);
-    assert.match(insightContent, /## Key Findings/);
-    assert.doesNotMatch(insightContent, /Seeded content\./);
+    assert.match(insightContent, /## Source Digest/);
+    assert.match(insightContent, /Complete source context/);
+    assert.match(insightContent, /Seeded content\./);
 
     const evidenceContent = fs.readFileSync(
       path.join(pmDir, "evidence/research/source.md"),
@@ -237,7 +237,7 @@ test("applyRoutes creates a new insight topic when requested", () => {
     });
 
     assert.equal(result.routes[0].action, "created");
-    assert.equal(result.rewrites.length, 0);
+    assert.equal(result.rewrites[0].action, "digest-updated");
 
     const insightPath = path.join(pmDir, "insights/business/new-signal.md");
     const insightContent = fs.readFileSync(insightPath, "utf8");
@@ -258,7 +258,7 @@ test("applyRoutes creates a new insight topic when requested", () => {
   }
 });
 
-test("insight-routing CLI skips duplicate links without appending duplicates", () => {
+test("insight-routing CLI retains duplicate links while flagging legacy unsnapshotted source", () => {
   const { pmDir, cleanup } = createPmDir();
   try {
     writeFile(
@@ -312,7 +312,8 @@ test("insight-routing CLI skips duplicate links without appending duplicates", (
     });
 
     const result = JSON.parse(stdout);
-    assert.equal(result.routes[0].action, "skipped");
+    assert.equal(result.routes[0].action, "updated");
+    assert.equal(result.rewrites[0].synthesis_state, "needs-synthesis");
 
     const evidenceContent = fs.readFileSync(
       path.join(pmDir, "evidence/research/linked.md"),
@@ -324,7 +325,7 @@ test("insight-routing CLI skips duplicate links without appending duplicates", (
       path.join(pmDir, "insights/product/already-linked.md"),
       "utf8"
     );
-    assert.equal((insightContent.match(/evidence\/research\/linked\.md/g) || []).length, 1);
+    assert.equal((insightContent.match(/ {2}- "evidence\/research\/linked\.md"/g) || []).length, 1);
 
     const insightLog = fs.readFileSync(path.join(pmDir, "insights/product/log.md"), "utf8");
     assert.equal((insightLog.match(/cite insights\/product\/already-linked\.md/g) || []).length, 0);

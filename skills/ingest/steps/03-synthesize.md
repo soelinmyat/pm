@@ -27,13 +27,13 @@ if [ -f "{pm_dir}/insights/.hot.md" ]; then
 fi
 ```
 
-- If `{pm_dir}/insights/.hot.md` exists, run `node ${CLAUDE_PLUGIN_ROOT}/scripts/hot-index.js --dir "{pm_dir}"` and parse the output table. Use existing insight topics to inform cluster naming (align new clusters with existing topic names where they overlap) and dedup (skip creating a new cluster when an existing insight already covers the same topic). Log: "Hot index loaded ({N} insights)".
+- If `{pm_dir}/insights/.hot.md` exists, run `node ${CLAUDE_PLUGIN_ROOT}/scripts/hot-index.js --dir "{pm_dir}"` and parse the output table. Use existing insight topics to inform cluster naming (align new clusters with existing topic names where they overlap) and dedup (reuse an overlapping topic while incorporating the new observation and any contradiction; deduplicate repeated evidence identity, never discard new evidence because its topic is familiar). Log: "Hot index loaded ({N} insights)".
 - If a match is found in the hot index, read the full insight `.md` file to confirm the overlap before merging or deduplicating.
 - If `{pm_dir}/insights/.hot.md` does not exist, fall back to reading insight files directly (current behavior). Log: "Hot index not found, falling back to direct file scan".
 
-Cluster records into **problem clusters**, not just filenames or raw keywords.
+Cluster records by user outcomes and context, including strengths, workarounds, constraints, and unmet needs; do not force a problem framing onto positive evidence or cluster solely by filenames or raw keywords.
 
-Before writing each topic, ensure every normalized record contributing to it is registered with `artifact_path: evidence/research/{slug}.md`. Keep each returned Evidence-ID with the claim it supports. A finding may cite multiple IDs; do not cite a whole source bundle when only one record supports the claim.
+Before publishing each topic, verify that its customer-sensitive sources have explicit review of their sanitized rendering. Pending records remain private and unbound; report the incomplete publication honestly. Ensure each reviewed normalized record contributing to the published topic is registered with `artifact_path: evidence/research/{slug}.md`. Keep each returned Evidence-ID with the claim it supports. A finding may cite multiple IDs; do not cite a whole source bundle when only one record supports the claim.
 
 Granularity rule:
 - cluster by the outcome the user wants
@@ -45,9 +45,12 @@ Good themes:
 - onboarding-friction
 - reporting-gaps
 - integration-fragility
+- auditable-decisions (including successful value and conditions that preserve it)
 
-Score clusters by:
-- frequency
+Judge each claim using independent originating observations, claim fit, source credibility, segment coverage, selection bias, and counterevidence. Several records from one customer, repeated tickets about one incident, or derivative summaries do not independently corroborate prevalence. Report the sample and known denominator; when the denominator is unavailable, say so. Preserve important rare constraints when severity or recoverability makes them consequential.
+
+Prioritize clusters by:
+- frequency of independent observations (not files, quotes, or normalized record count)
 - severity
 - recency
 - segment concentration
@@ -56,6 +59,7 @@ Score clusters by:
 For audio-sourced records, use `speaker_role` to weight quote selection:
 - Prefer `customer` quotes for pain points and representative quotes
 - Use `interviewer` quotes only for context (what prompted the response)
+- Keep unattributed speech `unknown`; do not count a leading prompt or ambiguous speaker as customer endorsement
 - Link audio-sourced quotes to their transcript: `[View transcript]({pm_dir}/evidence/transcripts/{slug}.md)`
 
 ### Shared research knowledge base
@@ -134,11 +138,11 @@ sources:
   - label: support-export.csv
     rows: [12, 14, 31]
     imported: YYYY-MM-DD
-evidence_count: 17
+evidence_count: 2 # distinct cited IDs; does not establish independent respondents
 segments:
   - SMB
   - Mid-market
-confidence: high
+confidence: low # example only; justify the claim using its support and limitations
 ---
 
 # Bulk Editing
@@ -152,6 +156,9 @@ confidence: high
 
 ## Representative Quotes
 > "Editing 50 rows one by one is painful."
+
+## Confidence Notes
+Explain originating observation independence, segment coverage, counterevidence, and the unknown denominator. Two cited IDs alone do not establish prevalence.
 
 ## Strategic Relevance
 How this supports or challenges the current strategy.

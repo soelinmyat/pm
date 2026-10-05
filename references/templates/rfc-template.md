@@ -61,7 +61,7 @@ Link back to the proposal and PRD.
 - Verification commands
 - Open implementation questions}
 
-**Contract wins:** if this section conflicts with later prose, update the prose before approval. Implementation agents execute from this section plus the Issue cards.
+**Resolve conflicts:** if this section conflicts with later prose, determine the correct choice from approved product intent and repository evidence, then synchronize both before approval. Implementation agents execute from this section plus the Issue cards.
 
 ## Appendix
 
@@ -150,7 +150,7 @@ implement top-to-bottom. Each issue should produce working, testable software on
 **Approach:**
 {Which files to create/modify, key implementation details, patterns to follow.
 Use numbered implementation steps and separate constraint bullets. Keep verification commands and ownership in their own fields; do not combine them into a long approach paragraph.
-Detailed enough that a developer with zero codebase context can execute.}
+Detailed enough that a developer with zero codebase context understands the interfaces, domain invariants and decisive tests. Preserve flexibility for routine implementation and mark unverified details explicitly.}
 
 **Owns:** {Exact files or conservative directory globs this issue may modify.}
 
@@ -202,13 +202,13 @@ Omit this subsection if all questions were resolved.}
 
 {Review iterations, fixes applied, reviewer verdicts.
 Populated during RFC review — leave empty in the initial draft.
-Format: date + entry (e.g., "Apr 8 — RFC approved. All reviewers signed off.")}
+Format: date + entry. Review completion and explicit human approval are different events; include only the event that actually occurred.}
 
 ## Usage Notes
 
-- Dev writes the RFC directly as HTML to `{pm_dir}/backlog/rfcs/{slug}.html` where `{slug}` matches the proposal slug.
-- After RFC is written, dev updates the proposal's frontmatter: `rfc: rfcs/{slug}.html`.
-- RFC review (3 reviewers) happens before implementation begins.
+- The RFC writer writes the RFC directly as HTML to `{pm_dir}/backlog/rfcs/{slug}.html` where `{slug}` matches the proposal slug.
+- Keep proposal lineage and lifecycle under the current RFC session/handoff contract; never edit the generated proposal Markdown as an independent source.
+- RFC review covers architecture-risk, test-strategy and maintainability before implementation; reviewer count follows the current review contract.
 - During implementation, canonical dev state (`.pm/dev-sessions/{slug}/session.json`) tracks per-issue progress. The RFC itself is not updated with status — it's the engineering plan, not a tracker.
 - Issue sizes within the RFC inform the implementation approach (TDD depth, review gates) per the dev skill's size routing.
-- Developer agents read the HTML file directly during implementation — HTML sections are clearly structured with IDs and semantic markup.
+- Developer agents consume the valid executable sidecar first and use HTML for supporting detail, following the current sidecar contract.

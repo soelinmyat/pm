@@ -11,6 +11,7 @@ const {
   writeAtomic,
 } = require("./kb-utils.js");
 const { generateRouteSuggestions } = require("./insight-route-suggestions.js");
+const { validateCitationBindings } = require("./lib/evidence-schema");
 
 const INDEX_HEADER = "| Topic/Source | Description | Updated | Status |";
 const INDEX_DIVIDER = "|---|---|---|---|";
@@ -123,19 +124,37 @@ function normalizePayload(rawPayload) {
   if (findings.length === 0) {
     throw new Error("findings must contain at least one item");
   }
+  if (!["internal", "external", "mixed"].includes(payload.sourceOrigin || "internal")) {
+    throw new Error("sourceOrigin must be internal, external, or mixed");
+  }
+  const supersedes = payload.supersedes || [];
+  if (
+    !Array.isArray(supersedes) ||
+    supersedes.some(
+      (item) =>
+        !item ||
+        ["finding", "replacement", "reason"].some(
+          (key) => typeof item[key] !== "string" || !item[key].trim()
+        )
+    )
+  ) {
+    throw new Error("supersedes requires exact finding, replacement, and reason strings");
+  }
 
   return {
     artifactPath,
     topic,
     summary,
     findings,
+    supersedes,
     artifactMode:
       typeof payload.artifactMode === "string" && payload.artifactMode.trim()
         ? payload.artifactMode.trim()
         : "general",
     description,
     sourceOrigin: payload.sourceOrigin || "internal",
-    status: payload.status || "internal",
+    sources: Array.isArray(payload.sources) ? payload.sources : [],
+    status: payload.status || null,
     implications: payload.implications || "None.",
     openQuestions: payload.openQuestions || "None.",
     strategicRelevance: payload.strategicRelevance || "None.",
@@ -150,8 +169,112 @@ function loadExistingArtifact(filePath) {
   const doc = loadMarkdown(filePath);
   return {
     content: doc.content,
+    body: doc.body,
     frontmatter: doc.frontmatter,
   };
+}
+
+function normalizedFinding(value) {
+  return String(value).replace(/\s+/g, " ").trim();
+}
+
+function findingItems(section) {
+  return section
+    .split(/\r?\n(?=\s*(?:\d+\.|[-*])\s+)/)
+    .map((item) => item.replace(/^\s*(?:\d+\.|[-*])\s+/, "").trim())
+    .filter(Boolean);
+}
+
+function mergeBody(existing, payload) {
+  const sections = existing.body.split(/(?=^## )/m);
+  const updates = new Map([
+    ["Summary", payload.summary],
+    ["Strategic Relevance", renderParagraph(payload.strategicRelevance).trim()],
+    ["Implications", renderParagraph(payload.implications).trim()],
+    ["Open Questions", renderParagraph(payload.openQuestions).trim()],
+    [
+      "Source Artifacts",
+      payload.sourceArtifacts.length ? renderList(payload.sourceArtifacts, false).trim() : "",
+    ],
+  ]);
+  const findingSection = sections.find((section) => /^## Findings\s*\n/.test(section));
+  let findings = findingItems((findingSection || "").replace(/^## Findings\s*\n/, ""));
+  const history = [];
+  for (const correction of payload.supersedes) {
+    const index = findings.findIndex(
+      (item) => normalizedFinding(item) === normalizedFinding(correction.finding)
+    );
+    if (index === -1) throw new Error("superseded finding must match an existing finding exactly");
+    const origin =
+      findings[index].match(/^\[(internal|external)\]/)?.[1] || existing.frontmatter.source_origin;
+    if (origin !== payload.sourceOrigin)
+      throw new Error("cannot supersede another origin's or ambiguous finding");
+    history.push(
+      `- Superseded: ${findings[index]}\n  Replacement: ${correction.replacement.trim()}\n  Reason: ${correction.reason.trim()}`
+    );
+    findings.splice(index, 1);
+  }
+  // Label ownership when origins become mixed, so later partial updates can
+  // distinguish an internal observation from an external claim.
+  if (resolveSourceOrigin(existing.frontmatter.source_origin, payload.sourceOrigin) === "mixed") {
+    const label = (item, origin) =>
+      /^(?:\[(?:internal|external)\])/.test(item) || !["internal", "external"].includes(origin)
+        ? item
+        : `[${origin}] ${item}`;
+    findings = findings.map((item) => label(item, existing.frontmatter.source_origin));
+    payload = {
+      ...payload,
+      findings: payload.findings.map((item) => label(item, payload.sourceOrigin)),
+      supersedes: payload.supersedes.map((item) => ({
+        ...item,
+        replacement: label(item.replacement.trim(), payload.sourceOrigin),
+      })),
+    };
+  }
+  const incoming = [
+    ...payload.findings,
+    ...payload.supersedes.map((item) => item.replacement.trim()),
+  ];
+  for (const item of incoming) {
+    if (!findings.some((prior) => normalizedFinding(prior) === normalizedFinding(item)))
+      findings.push(item);
+  }
+  updates.set("Findings", renderList(findings, true).trim());
+  if (history.length) updates.set("Superseded Findings", history.join("\n"));
+  const rendered = sections.map((section) => {
+    const heading = section.match(/^## (.+)\r?\n/);
+    if (!heading || !updates.has(heading[1].trim())) return section.trimEnd();
+    const name = heading[1].trim();
+    const addition = updates.get(name);
+    updates.delete(name);
+    if (name === "Findings") return `## Findings\n\n${addition}`;
+    const previous = section.slice(heading[0].length).trim();
+    if (!addition || ["None.", "- None."].includes(addition) || previous.includes(addition))
+      return section.trimEnd();
+    return `## ${name}\n\n${previous}${previous ? "\n\n" : ""}${addition}`;
+  });
+  for (const [name, value] of updates) {
+    if (value && !["None.", "- None."].includes(value)) rendered.push(`## ${name}\n\n${value}`);
+  }
+  return `${rendered.join("\n\n").trim()}\n`;
+}
+
+// Retain unknown fields, numeric provenance markers, source ownership and comments
+// byte-for-byte; only the explicitly owned scalar metadata changes.
+function updateFrontmatter(existing, changes) {
+  const match = existing.content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!match) throw new Error("existing writeback must have frontmatter");
+  let yaml = match[1];
+  for (const [key, value] of Object.entries(changes)) {
+    const pattern = new RegExp(`^${key}:.*(?:\\r?\\n[ \\t]+.*)*`, "m");
+    const line = Array.isArray(value)
+      ? serializeFrontmatter({ [key]: value })
+          .replace(/^---\n/, "")
+          .replace(/\n---\n$/, "")
+      : `${key}: ${JSON.stringify(value)}`;
+    yaml = pattern.test(yaml) ? yaml.replace(pattern, () => line) : `${yaml}\n${line}`;
+  }
+  return `---\n${yaml}\n---\n`;
 }
 
 function resolveSourceOrigin(existingSourceOrigin, incomingSourceOrigin) {
@@ -226,9 +349,23 @@ function writeKnowledgeArtifact(pmDir, rawPayload) {
   const logPath = path.join(pmDir, "evidence", "research", "log.md");
   const now = todayIso();
   const existing = loadExistingArtifact(absolutePath);
+  if (
+    existing &&
+    (existing.frontmatter.type !== "evidence" || existing.frontmatter.evidence_type !== "research")
+  ) {
+    throw new Error("existing writeback must be research evidence");
+  }
+  if (!existing && payload.supersedes.length)
+    throw new Error("cannot supersede findings in a new artifact");
   const created = existing ? existing.frontmatter.created || now : now;
   const updated = now;
-  const sources = Array.isArray(existing?.frontmatter.sources) ? existing.frontmatter.sources : [];
+  const sources = Array.isArray(existing?.frontmatter.sources)
+    ? [...existing.frontmatter.sources]
+    : [];
+  for (const source of payload.sources) {
+    if (!sources.some((prior) => JSON.stringify(prior) === JSON.stringify(source)))
+      sources.push(source);
+  }
   const citedBy = Array.isArray(existing?.frontmatter.cited_by)
     ? existing.frontmatter.cited_by
     : [];
@@ -247,11 +384,29 @@ function writeKnowledgeArtifact(pmDir, rawPayload) {
     sources,
     cited_by: citedBy,
   };
-  const body = buildBody(payload);
-  const content = `${serializeFrontmatter(frontmatter, EVIDENCE_PREFERRED_KEYS)}\n${body}`;
+  const body = existing ? mergeBody(existing, payload) : buildBody(payload);
+  const header = existing
+    ? updateFrontmatter(existing, {
+        topic: payload.topic,
+        source_origin: sourceOrigin,
+        updated,
+        ...(payload.sources.length ? { sources } : {}),
+      })
+    : serializeFrontmatter(frontmatter, EVIDENCE_PREFERRED_KEYS);
+  const content = `${header}\n${body}`;
+  if (Number(existing?.frontmatter.provenance_version) === 2) {
+    const ledgerPath = path.join(pmDir, "evidence", "provenance.json");
+    if (!fs.existsSync(ledgerPath)) throw new Error("v2 writeback requires its provenance ledger");
+    const issues = validateCitationBindings({
+      markdown: content,
+      ledger: JSON.parse(fs.readFileSync(ledgerPath, "utf8")),
+      artifactPath: payload.artifactPath,
+    });
+    if (issues.length) throw new Error(`v2 writeback citations invalid: ${issues.join("; ")}`);
+  }
   writeAtomic(absolutePath, content);
 
-  upsertIndex(indexPath, fileName, payload.description, updated, payload.status);
+  upsertIndex(indexPath, fileName, payload.description, updated, payload.status || sourceOrigin);
   appendLog(logPath, existing ? "update" : "create", payload.artifactPath, now);
 
   const routeSuggestions = generateRouteSuggestions(pmDir, {

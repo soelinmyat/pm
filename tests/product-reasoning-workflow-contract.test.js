@@ -83,5 +83,5 @@ test("shared artifact reference keeps Markdown primary and machine fields portab
   );
   assert.match(reference, /confirmed decision has at least two materially distinct alternatives/i);
   assert.match(reference, /equal plausible matches[\s\S]*require user resolution/i);
-  assert.match(reference, /score below 7\/10 is a quality failure/i);
+  assert.match(reference, /score below 7\/10 indicates a structural-readiness failure/i);
 });

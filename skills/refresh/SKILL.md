@@ -34,7 +34,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/evidence-system.md` before auditing; Evid
 - Mixed-origin files have ownership boundaries: preserve internal evidence; never rewrite a `mixed`- or `internal`-origin file to be uniformly external.
 - Run the audit (Step 2) before patching — it defines scope, freshness, and API cost. Skipping it burns budget and misses adjacent stale state.
 - Before an SEO refresh, project the Ahrefs call count and confirm scope with the user when it's high. If no SEO provider is configured, skip SEO and report it — never improvise pseudo-refresh data.
-- Every patch retains source provenance and access dates, records refreshed sections, and writes back only after staleness and origin ownership are verified.
+- Every patch retains source provenance and access dates, records refreshed sections, and writes back only after staleness and origin ownership are verified. Changed source claims require reconsidering linked conclusions even when paths are unchanged; a fresh timestamp or complete source digest is not completed synthesis. Confidence follows claim-level authority, independence, recency, and fit, never file count.
 - Every Evidence v2 mutation uses the audited `observed_content_sha256`; a mismatch is a conflict, not permission to overwrite.
 
 ## Red Flags — Self-Check
@@ -43,7 +43,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/evidence-system.md` before auditing; Evid
 - **"This file is probably stale."** Check the canonical threshold and its actual update/access dates.
 - **"The provider call is cheap enough."** Project cost and ask when the configured threshold requires confirmation.
 - **"Internal evidence can be refreshed from the web."** Keep internal and mixed-origin ownership boundaries intact.
-- **"A nearby stale section is harmless to include."** Keep the audit-defined scope unless the user expands it.
+- **"These insights share sources, so they mean the same thing."** Check whether the product question, segment, and context match; preserve distinct conclusions and counterevidence.
 
 ## References
 

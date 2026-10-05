@@ -9,14 +9,35 @@ needed to validate these definitions.
 Product cases exercise derivative sources, contradictory interviews, stale
 strategy, irrelevant citations, unsupported numerical precision, biased framing,
 resume repairs, partial research during a real dependency failure, and drafts
-whose approval remains pending. Happy-path and repeated-run cases contain a
-concise correct control: length and section count are not quality signals.
+whose approval remains pending. Candidate runs receive customer utterances,
+publication excerpts, product documentation, and an old team commitment;
+they must infer their implications. Research investigates claims and limits,
+Think chooses a pilot, Strategy reviews segment commitments, and Ideate derives
+and ranks opportunities. These tasks share a small corpus and do not establish
+general performance across domains.
 
-`product-evidence-valid` verifies actual source hashes, independent demand
-origins, excerpt existence, draft status, nonempty output, and preserved resume
+Concise correct controls and the origin-count reference live only in
+`evals/quality/product-judge-guidance.json`, outside the staged runtime and
+candidate fixtures. The blind packet builder adds them to judge instructions,
+not the shared scenario prompt. Each product case explicitly names its
+`judge_guidance_ref` in the selected suite. That resource binds the case's
+workflow, exact prompt hash, generated base contract hash, and actual staged
+scenario hash after the quality prompt is inserted; mismatches fail packet
+creation. `--root` and `--suite` resolve the selected resource, never an implicit
+finance answer based on a workflow name. Custom cases without a resource use
+generic semantic judging; custom corpora can supply their own bound reference.
+The generator refreshes the default product bindings with their fixtures.
+Candidate receipt instructions specify an
+inferred integer, not its answer. Length and section count are not quality
+signals. Generated product fixtures can be refreshed independently with repeated
+`--workflow research --workflow think --workflow strategy --workflow ideate`
+arguments; without filters the generator still refreshes the complete suite.
+
+`product-evidence-valid` verifies actual source hashes, the origin-count field's
+integer bounds, excerpt existence, draft status, nonempty output, and preserved resume
 state. The ordinary outcome and transcript checks still apply. Fully specified
 draft and repair cases reject explicit input-request tools. Questions in prose,
-claim entailment, false blockers, and decision usefulness require blind semantic
+origin grouping, claim entailment, false blockers, and decision usefulness require blind semantic
 judging; a source receipt alone cannot certify those qualities. Include
 `product-evidence-receipt.json` alongside `quality-output.md` and
 `quality-outcome.json` when capturing a product candidate.
@@ -26,6 +47,17 @@ runs cannot become quality passes because their writing is fluent. Independent
 judges assess whether the supplied passages actually support each consequential
 claim, including contradictory and stale evidence. Existing counterbalanced
 packet views and minimum-repeat rules apply.
+
+Ordinary candidate capture and blind packets contain text, Markdown, JSON, or
+HTML source. Their craft scores assess the supplied report and source; they do
+not establish experienced navigation, responsive composition, or interaction
+quality from pixels. Mark those claims unobserved unless appropriate rendered
+evidence is available. The separate design-critique capability harness has its
+own rendered-evidence and oracle contracts; this limitation does not describe
+that harness. Judge instructions are bound into the scorecard's evaluation
+design hash, so changed semantic references cannot silently compare as the same
+evaluation. Older scorecards remain readable but are not directly comparable
+to a changed evaluation design.
 
 ## Observed efficiency
 

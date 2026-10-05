@@ -1,343 +1,83 @@
 # Insight Routing
 
-Shared reference for routing evidence findings into synthesized insight topics. Invoked as a sub-step by research (topic mode), ingest (after Phase 3), and refresh (after evidence patching).
+Shared reference for Research, Ingest, Refresh, and durable decision/implementation findings. Routing makes evidence discoverable; it does not establish that a claim is true or synthesize a product decision.
 
-**Goal:** After new evidence is written, match its findings against existing insight topics (or seed new ones), present proposed routings for user confirmation, then atomically update both sides of the bidirectional citation.
+## Inputs and source selection
 
-Accepted routes must be applied with the helper script:
+Read the source and the target insight before proposing a route. Compare the actual product question, segment, situation, and supported claim; keyword overlap only suggests a place to inspect. Evidence that contradicts an insight belongs beside supporting evidence, with the disagreement visible.
 
-```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/insight-routing.js --pm-dir "{pm_dir}"
-```
+Use canonical source paths under `evidence/`. The existing landscape input `insights/business/landscape.md` is also supported. Never route an insight into itself; source and target paths must differ. Competitor artifacts and indexes retain their original type and provenance; do not relabel them merely to route them.
 
-Pass a JSON payload on stdin. The helper owns citation writes, domain index updates, domain log updates, evidence log updates, deterministic rewrites of affected existing insights, and hot-index regeneration.
+For each route, name the exact finding that relates to the topic, including its Evidence-ID markers. Pass complete finding text in `selected_findings`. On sources without a Findings section, use an exact source paragraph. Selection is supplied by the analyst, never inferred from the finding's position. Do not choose only agreeable evidence; inspect later findings, superseded claims, segment differences, and counterevidence.
 
----
-
-## When to Invoke
-
-Caller skills read and follow this document after writing evidence files. Five integration points:
-
-1. **Research topic mode** — after Step 5 (write findings), before updating indexes.
-2. **Research landscape mode** — after Step 5 (write landscape file), before update flow.
-3. **Research competitor mode** — after Phase 3 (Synthesize), as Phase 4.
-4. **Ingest** — after Phase 3 (Synthesize Research), before Phase 4 (Report Back).
-5. **Refresh** — after patching evidence files, before Synthesis File Refresh.
-
-### Inputs from Caller
-
-- **Evidence file path(s):** One or more canonical paths (e.g., `evidence/research/bulk-editing.md`).
-- **Key findings:** Summary of what the evidence contains — used for topic matching.
-- For ingest: potentially multiple evidence files with clustered findings. Batch all together for one routing pass.
-- For refresh: only evidence files whose content actually changed (not just a date bump). Skip `source_origin: internal` evidence.
-
----
-
-## Step 1: Domain Check and Seeding
-
-Check each domain under `insights/*/` for existing insight files.
-
-### 1.1 Discover domains
-
-Scan the filesystem for `insights/*/index.md`. Each directory with an `index.md` is a domain. Skip domains that use subdirectory-based content (e.g., `evidence/competitors/` contains per-competitor subdirectories, not flat insight files) — the routing sub-step only operates on domains with flat `type: insight` files.
-
-### 1.2 Check domain emptiness
-
-For each domain, count files with `type: insight` in their frontmatter. Files like `index.md`, `log.md`, and `type: landscape` files do not count. Check per-domain — an empty `product/` gets seeded even if `competitors/` is populated.
-
-### 1.3 Seed empty domains (if strategy.md exists)
-
-If a domain has zero insight files and `{pm_dir}/strategy.md` exists:
-
-1. Read `{pm_dir}/strategy.md`. Extract up to **6** specific, falsifiable product/business claims that map to this domain:
-   - For `trends/`: extract from "Core Value Prop" and "Differentiation" sections.
-   - For `business/`: extract from "Competitive Positioning" and "Go-to-Market" sections.
-   - For other domains: extract up to 6 relevant topics from strategy.md for that domain.
-   - Each topic must be a specific claim, not a vague priority. "Full-lifecycle context reduces tool switching" is good. "Better UX" is too vague.
-2. Present extracted topics to the user in a numbered list. Each topic is one line with a topic name and a one-sentence summary:
-   ```
-   Proposed insight topics for product/ (seeded from strategy.md):
-   1. Full-lifecycle context — PM context follows code from planning through implementation
-   2. Evidence-driven grooming — Feature decisions backed by research and customer evidence
-   3. ...
-
-   Which topics should I create? (all / select numbers / skip)
-   ```
-3. For accepted topics, create insight files with this template:
-   ```yaml
-   ---
-   type: insight
-   domain: {domain}
-   topic: {Topic Name}
-   last_updated: {today YYYY-MM-DD}
-   status: draft
-   confidence: low
-   sources: []
-   ---
-   # {Topic Name}
-
-   Seeded from strategy.md. No evidence routed yet.
-   ```
-4. Update the domain's `index.md`:
-   - If the index has no canonical table header (`| Topic/Source | Description | Updated | Status |`), add one before appending rows.
-   - Add one row per created file: `| [{slug}.md]({slug}.md) | {one-line summary} | {today} | draft |`
-5. Append `create` log entries to the domain's `log.md`:
-   ```
-   {today} create insights/{domain}/{slug}.md
-   ```
-
-If user rejects all topics, seeding is skipped. Routing proceeds with zero topics (goes to the skip/log path in Step 4).
-
-If no `{pm_dir}/strategy.md` exists and the domain is empty, skip seeding for that domain silently.
-
----
-
-## Step 2: Read Existing Topics
-
-Scan all `insights/*/index.md` files. For each insight file listed, read its frontmatter to build a topic map:
-
-```
-{domain}/{slug}: {
-  topic: "Full-lifecycle context",
-  sources: ["evidence/research/bulk-editing.md"],
-  filePath: "insights/product/full-lifecycle-context.md"
-}
-```
-
-Include both pre-existing topics and any just-seeded topics from Step 1.
-
-Skip domains that use subdirectory-based content (same check as Step 1.1).
-
----
-
-## Step 3: Match Findings to Topics
-
-For each finding in the evidence file(s):
-
-1. **Compare against existing topics.** Evaluate whether the finding relates to an existing insight topic. Consider semantic relevance, not just keyword overlap.
-2. **Propose matches** with a brief reason for each match.
-3. **Propose new topics** when a finding is substantial enough but does not match any existing topic. The user confirms both the topic name and its domain placement.
-
-### Deduplication check
-
-Before proposing a match, check if the evidence file path already exists in the insight's `sources` array. If it does, skip that evidence-topic pair — it was already routed in a previous pass.
-
----
-
-## Step 4: Batch Presentation
-
-Show all proposed routings in a single numbered list, grouped by domain for readability. For each proposed routing:
-
-- Topic name (existing or new)
-- Match type: `existing` or `new`
-- Evidence file path
-- One-line match reason
-
-```
-Proposed insight routings:
-
-product/
-  1. [existing] Full-lifecycle context <- evidence/research/bulk-editing.md
-     Bulk editing findings support the lifecycle context claim
-  2. [new] Inline collaboration patterns <- evidence/research/bulk-editing.md
-     New topic: collaboration patterns emerged from bulk editing research
-
-business/
-  3. [existing] Enterprise readiness <- evidence/research/bulk-editing.md
-     Bulk operations are an enterprise requirement
-
-Accept or skip per topic? (all / select numbers / skip all)
-```
-
-If no matches exist and no new topic is warranted, go directly to the skip path (Step 6).
-
----
-
-## Step 5: Atomic Write
-
-After the user accepts routes from Step 4, do not hand-edit insight and evidence files. Build a routing payload and apply it with `insight-routing.js`.
-
-```bash
-cat <<'JSON' | node ${CLAUDE_PLUGIN_ROOT}/scripts/insight-routing.js --pm-dir "{pm_dir}"
+```json
 {
-  "routes": [
-    {
-      "mode": "existing",
-      "evidencePath": "evidence/research/bulk-editing.md",
-      "insightPath": "insights/product/full-lifecycle-context.md",
-      "description": "Bulk editing strengthens the full-lifecycle context claim"
-    },
-    {
-      "mode": "new",
-      "evidencePath": "evidence/research/bulk-editing.md",
-      "insightPath": "insights/business/enterprise-readiness.md",
-      "domain": "business",
-      "topic": "Enterprise Readiness",
-      "description": "Bulk operations behave like an enterprise-readiness signal"
-    }
-  ]
+  "routes": [{
+    "mode": "existing",
+    "evidencePath": "evidence/research/team-requests.md",
+    "insightPath": "insights/product/request-discoverability.md",
+    "description": "Supervisors lose the team context when opening a request",
+    "selected_findings": [
+      "[internal] Supervisors cannot locate Time off from Team. [evidence:ev_0123456789abcdef01234567]"
+    ]
+  }]
 }
-JSON
 ```
 
-The script applies only the accepted routing decisions. Matching, user confirmation, and route selection still happen in this workflow.
+Apply accepted routes with `node ${CLAUDE_PLUGIN_ROOT}/scripts/insight-routing.js --pm-dir "{pm_dir}"`, passing JSON on stdin. Existing callers may omit `selected_findings`; this links the source and creates a complete source digest, but leaves relevance and synthesis explicitly pending. A selected excerpt no longer present in the current source is an error, not permission to silently pick the first finding.
 
-The helper processes each accepted routing atomically:
+## Finding topics
 
-### 5.1 For existing topics
+Discover domains from `insights/*/index.md` and read the relevant flat `type: insight` topics. Match questions and meaning, not source counts. If no suitable topic exists, propose a named topic and domain from the finding. When strategy exists and a domain is empty, up to six specific falsifiable strategy claims may seed draft topics; mark these as assumptions with no routed evidence. A strategic commitment is not customer-demand evidence.
 
-1. The helper reads the insight file at `insights/{domain}/{slug}.md`.
-2. **Dedup check:** If the evidence path is already in `sources`, the route is skipped.
-3. The helper appends the evidence file path to the insight's `sources` array.
-4. The helper updates `last_updated` to today.
-5. The helper reads the evidence file.
-6. The helper appends the insight file path to the evidence file's `cited_by` array.
-7. **Dedup check:** If the insight path is already in `cited_by`, the helper skips that backlink write.
+Present proposed existing/new routes together with their source, selected claim, and relevance or contradiction. Preserve the caller's scope and existing user confirmation convention; routing does not authorize unrelated knowledge-base edits.
 
-### 5.2 For new topics
+The optional `insight-route-suggestions.js` helper ranks lexical candidates only. Its `selection_required` flag means the author must inspect relevance. Already-linked sources with changed or missing snapshots are surfaced even if keywords disappeared, because the earlier conclusion may no longer hold. All changed-source dependents are returned; the lexical suggestion cap applies only to new matches. Do not interpret a suggestion score as support or semantic confidence.
 
-1. The helper creates the insight file using the seeding template (same as Step 1.3), but with `sources: ["{evidence path}"]` and `confidence: low`.
-2. The helper reads the evidence file.
-3. The helper appends the insight file path to the evidence file's `cited_by` array.
+## Writes and ownership
 
-### Write rules
+The routing helper owns citation backlinks, source links, domain indexes/logs, and hot-index regeneration. It writes only `cited_by` on evidence artifacts, preserving origin, internal quotes, evidence counts, source confidence, and source references. A source may support several topics without becoming several independent observations.
 
-- **Only write to `cited_by`** on evidence files. Never modify `source_origin`, `evidence_count`, `segments`, `confidence`, or internal `sources` entries.
-- **Never create duplicate entries** in `sources` or `cited_by`.
-- **On write failure:** skip that topic, report the error, and continue with the next topic. Do not attempt rollback.
-- Do not hand-edit `insights/{domain}/index.md`, `insights/{domain}/log.md`, `evidence/log.md`, or `insights/.hot.md` after the helper runs unless you are fixing a helper failure.
+For new topics, save draft/low with `synthesis_state: needs-synthesis`. Existing source links are deduplicated, but unchanged filenames do not prove unchanged meaning. The helper records `source_snapshots` using fingerprints of source content and metadata excluding citation backlinks. A changed or previously unrecorded snapshot, or changed selected finding, updates the digest and marks prior active insight stale/low with `synthesis_state: needs-synthesis`. No confidence increase follows file count. Unchanged linked source content is idempotent.
 
----
+Newly routed topics receive the same complete source digest as existing topics; they do not wait for a second source to become readable. Source excerpts retain later claims, uncertainty, contradiction, original Evidence-ID markers, and source references. `source_claims` retains exact selections per source; an old selected claim removed during refresh is shown as historical and needs reconciliation.
 
-## Step 5.5: Ripple Rewrite
+A failure is reported per route/insight while unaffected work is preserved. Inspect returned errors; do not claim synthesis complete merely because links or validation succeeded. Index status reflects the resulting draft/stale/current insight, rather than the pre-refresh status.
 
-After Step 5 links citations, rewrite the body of each affected **existing** insight as an evolving synthesis incorporating all linked evidence. Newly seeded topics (Step 5.2) are NOT rewritten — they keep their template body until the next routing pass adds more evidence.
+## Step 5.5: Evidence changes and analyst synthesis
 
-### 5.5.1 Collect rewrite targets
+Read `${CLAUDE_PLUGIN_ROOT}/references/insight-rewrite-template.md` for the reader contract. `scripts/insight-rewrite.js` now refreshes a managed **Source Digest** and preserves existing analyst body. It does not mechanically replace interpretation with a first sentence per file. A digest is source context, not an evolving semantic synthesis.
 
-Build a list of insight files that were updated (not created) in Step 5.1. These are files where a new entry was appended to the `sources` array during this routing pass. New topics created in Step 5.2 are excluded.
+Before reusing a `needs-synthesis` or stale insight for Think, Strategy, Ideate, or Groom, inspect the current selected claims and source context. Reconsider the product conclusion against authority, independent upstream origins, recency, exact claim fit, segment boundaries, and contradictory evidence. Keep uncertainty explicit when a supported conclusion cannot be reached. Read the linked source itself when excerpts cannot establish the context.
 
-### 5.5.2 Idempotency guard
+An analyst may supply structured synthesis to the same helper:
 
-For each target insight file, check whether a rewrite is needed:
-
-1. Read the insight file body (everything below the YAML frontmatter).
-2. If the body is a placeholder (e.g., "Seeded from strategy.md. No evidence routed yet." or similarly thin text with no Synthesis section), the rewrite proceeds.
-3. If the body already has a Synthesis section: compare the current `sources` array (sorted alphabetically) against the sources present at the time of the last rewrite. If the sorted arrays are identical, **skip the rewrite** — the insight is already up to date.
-4. If the sorted arrays differ (a source was added, removed, or replaced), the rewrite proceeds even if the source count is unchanged.
-
-### 5.5.3 Apply rewrites
-
-Do not hand-edit the body of each rewritten insight. The routing helper invokes `scripts/insight-rewrite.js` for all affected existing insights in the same pass.
-
-The rewrite helper:
-- reads the current insight file and all linked evidence files from `sources`
-- rebuilds the body using the template in `references/insight-rewrite-template.md`
-- updates only `last_updated`, `status`, and `confidence` in frontmatter
-- keeps `type`, `domain`, `topic`, and `sources` canonical
-- omits `Confidence Rationale` when the confidence remains `low`
-
-The rewrite is deterministic and file-native. It compiles from the linked evidence instead of dispatching another open-ended synthesis step.
-
-### 5.5.4 Confidence and status rules
-
-The subagent applies these rules when updating frontmatter:
-
-**Confidence** (based on source count):
-| Sources | Confidence |
-|---------|------------|
-| 0-1     | `low`      |
-| 2-3     | `medium`   |
-| 4+      | `high`     |
-
-**Status** transition:
-- If the insight has `status: draft`, at least 1 source, and the rewrite produced a non-placeholder body, update `status` to `active`.
-- If the insight is already `active` or any other status, do not change it.
-
-### 5.5.5 Failure handling
-
-If a subagent fails (error, timeout, malformed output):
-
-1. **Log the failure** — record the insight file path and error reason.
-2. **Do not block** — other rewrites and the overall routing flow continue.
-3. **Retain previous body** — the insight keeps its existing body text. No partial writes.
-4. **Do not retry** — the next routing pass that updates this insight's sources will trigger a rewrite attempt.
-
-### 5.5.6 Post-rewrite validation
-
-After all rewrites (successful and failed) complete, run the validator:
-
-```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "{pm_dir}"
+```json
+{
+  "insights": [{
+    "insightPath": "insights/product/request-discoverability.md",
+    "synthesis": {
+      "summary": "Test a persistent Team entry with the supervisors who reported losing the request destination; demand outside this segment is unknown.",
+      "claims": [{
+        "text": "The observed discoverability problem affects these supervisors, not necessarily every user.",
+        "evidence_refs": [{
+          "path": "evidence/research/team-requests.md",
+          "finding": "[internal] Supervisors cannot locate Time off from Team. [evidence:ev_0123456789abcdef01234567]"
+        }]
+      }],
+      "confidence": {
+        "level": "low",
+        "basis": "Direct observation supports the reported task friction in this segment.",
+        "limitations": "One upstream customer group; broader prevalence and improvement from the proposed entry remain untested."
+      },
+      "open_questions": ["Does a persistent entry reduce task-location failures for these supervisors?"]
+    }
+  }]
+}
 ```
 
-If validation fails, report the failure but do not block routing. Pre-existing unrelated validation failures do not block the flow.
+Run `node ${CLAUDE_PLUGIN_ROOT}/scripts/insight-rewrite.js --pm-dir "{pm_dir}"` with this JSON on stdin. Exact source-excerpt binding is checked before writing; it is not entailment or independent quality certification. The helper labels the supplied assessment Reviewed Synthesis, preserves earlier analyst body as historical context, and records `synthesis_state: reviewed`, active status, and the supplied confidence. Low confidence remains legitimate and always has a visible basis and limitation. Later source changes invalidate that assessment's currentness until reconsidered. The standalone CLI projects successful changes into the domain index and hot index, preserving existing index descriptions. The programmatic helper returns per-insight changes; its routing caller owns those projections.
 
----
+## Completion
 
-## Step 6: Update Indexes and Logs
-
-After the helper applies all writes:
-
-### For each affected insight domain:
-
-- `insight-routing.js` updates `insights/{domain}/index.md` — add or update rows for modified/created insight files.
-- `insight-routing.js` appends entries to `insights/{domain}/log.md`:
-  - For new topics: `{today} create insights/{domain}/{slug}.md`
-  - For updated topics: `{today} cite insights/{domain}/{slug}.md -> {evidence path}`
-
-### For the evidence pool:
-
-- `insight-routing.js` appends cite entries to `{pm_dir}/evidence/log.md` and `{pm_dir}/evidence/research/log.md` (or the appropriate evidence type log):
-  ```
-  {today} cite insights/{domain}/{slug}.md -> {evidence path}
-  ```
-
-### Regenerate hot index
-
-After all index and log updates are complete, `insight-routing.js` regenerates the hot index automatically. This keeps `insights/.hot.md` in sync with the latest routing changes.
-
-### Skip path
-
-When no matches exist and no new topic is warranted:
-- Append a skip entry to each checked domain's `log.md`:
-  ```
-  {today} skip reason: no match for {evidence path}
-  ```
-- Return to the caller skill.
-
----
-
-## Step 7: Validate
-
-After all writes, run the validator:
-
-```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/validate.js --dir "{pm_dir}"
-```
-
-If validation fails, report the failure and continue returning to the caller. Do not attempt auto-fix. Pre-existing unrelated validation failures do not block routing.
-
----
-
-## Multi-file Batching (Ingest)
-
-When ingest produces multiple evidence files, routing runs once with all findings batched:
-
-1. Collect all evidence file paths and their key findings.
-2. Run Steps 1-6 once, matching all findings against all topics in a single pass.
-3. The batch presentation shows all routings across all evidence files.
-
-This avoids repeated user prompts for each evidence file.
-
----
-
-## Quick Reference
-
-| Caller | Evidence input | When to skip routing |
-|--------|---------------|---------------------|
-| Research (topic mode) | Single evidence file + findings | No insight domains exist and no strategy.md |
-| Research (landscape mode) | Landscape file + Initial Observations / Market Segments | No other insight domains exist and no strategy.md |
-| Research (competitor mode) | Competitor index + Market Gaps / cross-competitor patterns | No insight domains exist and no strategy.md |
-| Ingest | Multiple evidence files + clustered findings | No insight domains exist and no strategy.md |
-| Refresh | Changed evidence files only | No files refreshed, or all files are `source_origin: internal` |
+Validate touched project artifacts with `scripts/validate.js --dir "{pm_dir}"` and the caller's Evidence v2 checks. Validation establishes schema/provenance consistency, not semantic quality. Report linked sources, changed-source conclusions needing reconsideration, supplied assessments, errors, and unresolved limitations honestly. Do not report source digest generation as completed product synthesis.

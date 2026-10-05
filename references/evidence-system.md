@@ -30,7 +30,7 @@ Never place absolute paths, raw customer content, account identifiers, or unrest
 
 ## Identity and revisions
 
-`evidence_id` is `ev_` plus the first 24 hexadecimal characters of SHA-256 over normalized `source_type`, portable `source_label`, and `locator`. Mutable content is not part of identity. The exact normalized content is represented by `content_sha256`.
+`evidence_id` is `ev_` plus the first 24 hexadecimal characters of SHA-256 over normalized `source_type`, portable `source_label`, and `locator`. Product-reasoning companions accept this ID and preserve existing legacy `ev-` plus 20 hexadecimal IDs for reading; never fabricate or rewrite legacy IDs to resemble Evidence v2. A syntactically valid declared ID is not a verified ledger or claim binding. Mutable content is not part of identity. The exact normalized content is represented by `content_sha256`.
 
 Registering the same ID and content hash is idempotent. Registering or refreshing changed content keeps the ID, appends the prior hash and timestamps to `revisions`, and publishes the new current hash. No command silently removes a record or revision.
 

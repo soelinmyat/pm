@@ -28,6 +28,7 @@ Do not use for bulk imports (`pm:ingest`), research synthesis (`pm:research`), c
 - Public/internal notes publish to the monthly reader artifact in one pass. Pending customer-sensitive/restricted originals stay under `{pm_state_dir}` with mode `0600` and have no reader-artifact binding.
 - Publish a sensitive note only through `publishReviewedNote` after sanitization and explicit PII review. The private original is never rewritten or copied into the monthly note.
 - Enrichment of a published note appends to the saved entry; the original is never rewritten or lost, and `note_count`/`digested_through` are left untouched. Do not append pending private text to a reader artifact as enrichment.
+- Digest pools retain isolated signals for later corroboration and reconsider changed enrichment by Evidence-ID plus content hash; a timestamp watermark never proves incorporation. Refer to `skills/note/digest.md` for the synthesis handoff.
 - Bulk file/transcript imports go to `pm:ingest`, not here; synthesis into a research artifact goes to `pm:research` or a direct edit of the existing topic file.
 
 ## Escalation Paths

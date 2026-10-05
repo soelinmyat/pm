@@ -105,13 +105,15 @@ All git commands below use `{DEFAULT_BRANCH}` — never hardcode `main`.
 
 ## Phase 0: Environment Readiness Gate
 
+Read `${CLAUDE_PLUGIN_ROOT}/references/browser-evidence-preflight.md` before any browser/server setup or capture. Preflight available documented tools, permitted methods and the required claims; use the bounded intake method context when unchanged and refresh it on runtime/policy/target changes. Plan a supported collector or honest fallback before executing the charter. Unavailable required evidence is blocked; supplemental CUA observations do not certify the product-UI route-schema-v2 native CDP bundle. This QA receipt contract remains separate from Design Critique capture certification and Review presentation.
+
 Before any testing, verify the agent can actually reach and interact with the app. Every failed QA run that dies on server startup or auth is wasted time.
 
 ### 0a. Design System Discovery (only with `--visual`)
 
 **Skip this step unless `--visual` is set.** Design token discovery is only needed for Layer 2 (Visual Fidelity) assertions, which don't run by default.
 
-Search the project for design tokens. This lookup table drives Layer 2 assertions. The source files ARE the design system — they can't drift from themselves.
+Search the project for design tokens. This lookup table drives Layer 2 assertions. Source files declare token values; confirm their semantic applicability against current approved design guidance. Tokens, component usage and docs can disagree. Cite the expectation and report a material conflict rather than certifying the implementation against its own constants.
 
 **Search order** (collect from all found, don't stop at first hit):
 
@@ -133,7 +135,7 @@ DESIGN_TOKENS = {
 
 **Storybook as bonus check:** If `.storybook/` exists, note it for Layer 2. Storybook is NOT a source of truth (it can drift), but comparing Storybook vs app renders of the same component is a useful second-order finding. Storybook drift means either the app or Storybook is wrong — report the difference, let the dev decide which to fix.
 
-**If no design system found:** note it in the readiness report. Layer 2 falls back to cross-page consistency checks — compare the same component (header, sidebar, card) across multiple routes and flag differences.
+**If no design system found:** note it in the readiness report. Layer 2 falls back to comparisons of equivalent semantic roles and states across strong existing screens. Differences are investigation cues; intentional hierarchy and platform behavior need not match.
 
 ### 0b. Start servers
 
@@ -343,7 +345,7 @@ Charter is a smoke check with DOM verification. For combined low-risk UI review,
 ```
 
 <HARD-RULE>
-For Full tier: every measurable acceptance claim MUST have an executed assertion. Translate vague visual criteria into task-specific observations and supported checks: whether the key facts are easy to scan, the destination is clear, and grouping follows the relevant product rule. Keep composition/readability judgment as an evidence-cited visual assessment alongside measurable checks. Correct tokens do not establish that a screen looks good; never replace the user's visual goal with token compliance or invent a deterministic assertion for subjective quality.
+For Full tier: every measurable acceptance claim MUST have an executed assertion. Each assertion must be capable of failing for a plausible defect in that claim: distinguishable fixtures, independently expected results, real user actions, and observable completion. A node count, toast, or token equality only proves that narrow property; it cannot substitute for persistence, authorization, correct filtering, or successful navigation. Translate vague visual criteria into task-specific observations and supported checks: whether the key facts are easy to scan, the destination is clear, and grouping follows the relevant product rule. Keep composition/readability judgment as an evidence-cited visual assessment alongside measurable checks. Correct tokens do not establish that a screen looks good; never replace the user's visual goal with token compliance or invent a deterministic assertion for subjective quality.
 </HARD-RULE>
 
 ---
@@ -386,14 +388,14 @@ browser_evaluate: "
 ```
 
 **What to flag:**
-- Missing ARIA labels on interactive elements
+- Missing accessible names on interactive elements (visible text or a valid associated label can supply the name; absence of `aria-label` alone is not a defect)
 - Console errors (filter noise: React DevTools, HMR, favicon 404)
 - Failed network requests (4xx, 5xx)
 - Missing expected elements in ARIA tree
 
 ### Layer 2: Visual Fidelity via DOM (deterministic)
 
-Measure CSS values instead of judging screenshots. This is where font size differences, spacing issues, and color mismatches get caught.
+Measure exact CSS values and inspect their rendered task effect; token equality alone cannot establish readable composition. This is where font size differences, spacing issues, and color mismatches get caught.
 
 **If design tokens were found in Phase 0a:** compare computed styles against the token lookup.
 
@@ -410,7 +412,7 @@ browser_evaluate: "
   })
 "
 → {"fontSize":"14px","fontWeight":"400","lineHeight":"20px",...}
-→ Token lookup says heading-md = 18px/600
+→ Approved dialog-heading mapping says heading-md = 18px/600; cite the mapping, not just a token that happens to exist
 → FAIL: .card-title fontSize 14px (expected 18px), fontWeight 400 (expected 600)
 ```
 
@@ -425,7 +427,7 @@ browser_evaluate: "...collect all h2 styles..."
 browser_navigate: /settings
 browser_evaluate: "...collect all h2 styles..."
 
-# Compare: if /dashboard h2 is 18px but /settings h2 is 14px → inconsistency
+# Compare equivalent heading roles/states; 18px vs 14px is a defect only if the applicable rule requires equivalence
 ```
 
 **What to check:**
@@ -455,12 +457,12 @@ browser_evaluate: "...extract .card-title computed styles..."
 ```
 
 **What to flag:**
-- Any CSS value that doesn't match design system source tokens (if tokens found)
+- CSS values that contradict the approved token mapping for this semantic role/state (cite source and applicability)
 - Storybook vs app drift on same component (if Storybook found)
-- Inconsistent values across similar elements or across pages (always)
+- Unexplained differences across equivalent roles/states; verify intended hierarchy before classifying a defect
 
 <HARD-RULE>
-NEVER report a visual finding based solely on a screenshot when it can be verified via DOM. Use `browser_evaluate` to measure, then attach the screenshot as supporting evidence.
+For a measurable visual claim, use `browser_evaluate` to measure the relevant property and cite its expected rule, alongside rendered evidence of the effect. Do not substitute a convenient DOM property for the user-facing claim, and do not dismiss directly visible clipping or composition problems because there is no single numeric oracle.
 </HARD-RULE>
 
 ### Layer 3: Data Correctness (spec-driven)
@@ -587,6 +589,8 @@ Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/qa-issue-taxonomy.md` for full
 
 ### Severity Levels
 
+Assign severity from the effect on the user's task, data, and recovery, including cumulative friction across the journey. Do not split an unusable core journey into cosmetic findings so a weighted score permits it to pass. Confirmed High/Critical task failures override the numerical index.
+
 | Severity | Definition | Deduction per finding |
 |----------|------------|----------------------|
 | **Critical** | Crash, data loss, security hole, complete feature failure | -25 |
@@ -595,6 +599,8 @@ Read `${CLAUDE_PLUGIN_ROOT}/skills/dev/references/qa-issue-taxonomy.md` for full
 | **Low** | Cosmetic issues, minor polish, nice-to-have improvements | -3 |
 
 ### Health Score Computation
+
+The persisted `health_score` is a **tested-scope finding index**, retained for schema/verdict compatibility. It summarizes observed finding deductions; it is not a probability of correctness, product certainty, coverage percentage, or evidence that unexamined categories are healthy. State the exercised journey, fixtures, viewports, and unexamined dimensions in the report narrative. No findings means no findings observed in that scope. Required coverage that cannot execute yields `blocked`, not a manufactured passed assertion or a high-confidence 100.
 
 ```
 Start at 100.
@@ -613,14 +619,16 @@ NEVER skip the health score. Even with zero findings, compute and report: 100/10
 
 ### Evidence Types
 
-Every finding has an evidence type that determines its confidence:
+Every finding has an evidence type describing its observation method. Assess two separate questions: how reliable is the observation, and how well supported is the expected behavior? No method automatically establishes product correctness. Record provenance/limitations in the existing `probe`, `observed`, and `expected` strings and the report narrative; do not invent schema fields.
 
-| Type | Source | Confidence | Example |
-|------|--------|------------|---------|
-| **ASSERTION** | `browser_evaluate` result | Highest | `font-size: 14px (expected 18px)` |
-| **STRUCTURAL** | `browser_snapshot` ARIA tree | High | `button missing aria-label` |
-| **CONSOLE** | `browser_console_messages` | High | `Uncaught TypeError: Cannot read 'map' of undefined` |
-| **VISUAL** | Screenshot + LLM judgment | Medium | `Layout shifts at 768px viewport` |
+| Type | Source | What it supports | Limitation |
+|------|--------|------------------|------------|
+| **ASSERTION** | Executed browser probe | An exact checked property for this fixture/state | A wrong oracle, empty set, wrong selector, or self-consistent calculation can still mislead |
+| **STRUCTURAL** | Browser accessibility snapshot | Exposed structure/names in this state | Presence does not prove visibility, keyboard use, or successful task completion |
+| **CONSOLE** | Runtime logs | An observed diagnostic | Determine the user consequence and causal link; noise is not automatically a bug |
+| **VISUAL** | Rendered capture and task observation | Visible clipping, composition, readability or hierarchy | State viewport, concrete observed effect, applicable expectation and uncertainty; avoid unsupported aesthetic certainty |
+
+Example: `observed: "dialog title is 14px at 375px viewport"`, `expected: "18px per design/tokens.md § dialog-heading; applicability confirmed for this dialog role"`. If the design expectation is uncertain, report the measurement and unresolved expectation separately. A screenshot can decisively show clipped text even though composition preferences need judgment.
 
 ### Finding Format
 
@@ -645,7 +653,7 @@ Every finding MUST include evidence:
 ```
 
 <HARD-RULE>
-NEVER report a finding without evidence. Prefer ASSERTION/STRUCTURAL/CONSOLE evidence over VISUAL. The `visual` evidence type is explicitly the Medium-confidence lane; do not present it as deterministic proof.
+NEVER report a finding without evidence. Choose the observation method that supports the actual claim. Use exact assertions where meaningful and rendered/task evidence for user effects. State expectation provenance and material uncertainty. A precise measurement does not certify a subjective goal; a visual finding is not automatically less reliable than a misleading assertion.
 </HARD-RULE>
 
 ---
@@ -877,7 +885,8 @@ Always print, regardless of mode:
 ```
 QA Complete
   Verdict: {verdict}
-  Health: {score}/100
+  Finding index (tested scope): {score}/100
+  Scope/limits: {journeys, fixtures and viewports exercised; required blockers and unexamined dimensions}
   Assertions: {passed}/{total} passed
   Issues: {C} critical, {H} high, {M} medium, {L} low
   Top issues:

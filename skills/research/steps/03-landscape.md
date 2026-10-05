@@ -28,7 +28,7 @@ First research activity in a new project. Produces the market overview that make
    - If `"ahrefs-mcp"`: use Ahrefs MCP tools to:
      - Get keyword ideas for the product category (matching terms, limit 30). Shows search demand behind the space.
      - For the top 3-5 keywords, check volume distribution across target countries (especially SEA markets if relevant). Reveals geographic demand.
-     - Get volume, difficulty, CPC for core category keywords. Shows market maturity.
+     - Get volume, difficulty, CPC for core category keywords. Describes search demand and advertising competition, not market maturity or product-market fit. State provider coverage and estimate limitations.
      - If any known competitor domains exist, discover organic competitors in the same keyword space. Reveals players not found via web search.
    - If `"none"` or returns an error: skip, log the error, continue with web search.
 

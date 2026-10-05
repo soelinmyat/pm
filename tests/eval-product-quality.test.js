@@ -30,29 +30,43 @@ function fixture(type = "happy-path") {
         {
           claim: "A needs permission-scoped CSV.",
           source_id: "interview-a",
-          excerpt: "Finance team A needs permission-scoped CSV exports before scheduling.",
+          excerpt:
+            "I won't turn on scheduled email until I can control which columns each client receives.",
         },
       ],
     },
   };
 }
-test("product cases cover all lifecycle states and calibrated concise controls", () => {
+test("product cases cover all lifecycle states without staging reference answers", () => {
   const suite = require("../evals/quality/suite.json");
   for (const workflow of PRODUCT_WORKFLOWS) {
     assert.equal(suite.workflows.find((item) => item.id === workflow).cases.length, 7);
     const generated = productFixture(workflow, "happy-path", `${workflow}-happy-path`, "ready");
-    assert.match(
-      generated.files["concise-control.md"],
-      /two interviews cannot establish market demand/
+    assert.equal(generated.files["concise-control.md"], undefined);
+    assert.doesNotMatch(
+      generated.files["product-output-contract.md"],
+      /independent_demand_origins:\s*2/
     );
     assert.match(generated.files["product-output-contract.md"], /judges assess entailment/i);
   }
 });
-test("source receipts accept concise correct evidence and reject derivative-count inflation, invented excerpts and approval", () => {
+test("behavioral receipt checks do not expose or certify the semantic origin-count answer", () => {
+  const { receipt, packet, bytes } = fixture();
+  // Counting retellings as independent origins is structurally valid but wrong.
+  // The judge-only reference, not the staged helper, must reject that reasoning.
+  assert.equal(
+    validateProductReceipt({ ...receipt, independent_demand_origins: 4 }, packet, bytes).ok,
+    true
+  );
+});
+test("source receipts accept concise correct evidence and reject malformed counts, invented excerpts and approval", () => {
   const { receipt, packet, bytes } = fixture();
   assert.equal(validateProductReceipt(receipt, packet, bytes).ok, true);
   for (const mutation of [
-    { independent_demand_origins: 4 },
+    { independent_demand_origins: -1 },
+    { independent_demand_origins: 2.5 },
+    { independent_demand_origins: "2" },
+    { independent_demand_origins: 7 },
     { evidence_sha256: "forged" },
     { approval: "adopted" },
     { claims: [{ claim: "73.2% want CSV", source_id: "interview-a", excerpt: "73.2% of buyers" }] },
@@ -126,7 +140,7 @@ test("generated product helper executes actual artifact checks and emits a failu
     assert.equal(status(), "pass");
     fs.writeFileSync(
       path.join(root, "product-evidence-receipt.json"),
-      JSON.stringify({ ...receipt, independent_demand_origins: 3 })
+      JSON.stringify({ ...receipt, evidence_sha256: "forged" })
     );
     assert.equal(status(), "fail");
   } finally {

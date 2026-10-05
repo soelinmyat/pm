@@ -1,0 +1,492 @@
+"use strict";
+
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { execFileSync } = require("node:child_process");
+const { writeKnowledgeArtifact } = require("../scripts/knowledge-writeback");
+const { applyRoutes } = require("../scripts/insight-routing");
+const { rewriteInsights, sourceFingerprint } = require("../scripts/insight-rewrite");
+const { generateRouteSuggestions } = require("../scripts/insight-route-suggestions");
+const { loadMarkdown, writeMarkdown } = require("../scripts/kb-utils");
+
+const SOURCE = "evidence/research/team-requests.md";
+const INSIGHT = "insights/product/request-location.md";
+const NAVIGATION =
+  "[internal] Supervisors cannot locate Time off from Team. [evidence:ev_0123456789abcdef01234567]";
+const COUNTER =
+  "Contradiction: administrators find the request destination quickly; broad prevalence is unverified. [evidence:ev_89abcdef0123456789abcdef]";
+
+function fixture(t) {
+  const pmDir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-quality-insights-"));
+  t.after(() => fs.rmSync(pmDir, { recursive: true, force: true }));
+  return pmDir;
+}
+
+function evidence(
+  pmDir,
+  source = SOURCE,
+  findings = ["[internal] The CSV import is useful for weekly uploads.", NAVIGATION, COUNTER]
+) {
+  writeMarkdown(
+    path.join(pmDir, source),
+    {
+      type: "evidence",
+      evidence_type: "research",
+      topic: "Team requests",
+      source_origin: "internal",
+      created: "2026-04-10",
+      updated: "2026-04-10",
+      sources: [],
+      cited_by: [],
+    },
+    `# Team requests\n\n## Summary\n\nOne supervisor group discussed several different tasks. Demand outside this group is unknown.\n\n## Findings\n\n${findings.map((finding, index) => `${index + 1}. ${finding}`).join("\n")}\n\n## Confidence Notes\n\nOne upstream interview group; derivative summaries are not independent support.\n\n## Open Questions\n\nWill a persistent Team entry improve task completion?\n\n## Superseded Findings\n\nAn older assumption of universal navigation failure was withdrawn.\n`
+  );
+}
+
+function insight(pmDir, sources = [SOURCE]) {
+  writeMarkdown(
+    path.join(pmDir, INSIGHT),
+    {
+      type: "insight",
+      domain: "product",
+      topic: "Request location",
+      last_updated: "2026-04-10",
+      status: "active",
+      confidence: "medium",
+      sources,
+    },
+    "# Request location\n\n## Synthesis\n\nTest navigation with supervisors before expanding this recommendation. Administrators may have different needs.\n\n## Analyst Counterevidence\n\nThe power-user study found no navigation problem.\n"
+  );
+}
+
+function route(pmDir, extra = {}) {
+  return applyRoutes(
+    pmDir,
+    {
+      routes: [
+        {
+          mode: "existing",
+          evidencePath: SOURCE,
+          insightPath: INSIGHT,
+          description: "Inspect request location",
+          ...extra,
+        },
+      ],
+    },
+    { skipHotIndex: true }
+  );
+}
+
+test("routing a later relevant claim preserves counterevidence and analyst text without asserting CSV relevance", (t) => {
+  const pmDir = fixture(t);
+  evidence(pmDir);
+  insight(pmDir);
+  const before = loadMarkdown(path.join(pmDir, INSIGHT)).body.trim();
+  const result = route(pmDir, { selected_findings: [NAVIGATION] });
+  assert.equal(result.rewrites[0].action, "digest-updated");
+  const after = loadMarkdown(path.join(pmDir, INSIGHT));
+  assert.ok(after.body.includes(before));
+  assert.ok(after.body.includes(COUNTER));
+  assert.match(after.body, /older assumption of universal navigation failure was withdrawn/);
+  assert.equal(after.frontmatter.source_claims[0].finding, NAVIGATION);
+  const selection = after.body
+    .split("**Selected findings for this topic")[1]
+    .split("**Complete source context")[0];
+  assert.match(selection, /Supervisors cannot locate/);
+  assert.doesNotMatch(selection, /CSV import/);
+  assert.equal(after.frontmatter.confidence, "low");
+  assert.equal(after.frontmatter.status, "stale");
+  assert.equal(after.frontmatter.synthesis_state, "needs-synthesis");
+  assert.match(after.body, /Confidence Rationale/);
+  assert.doesNotMatch(after.body, /support this topic from multiple angles/);
+});
+
+test("four derivative evidence files never promote confidence or synthesize independent demand", (t) => {
+  const pmDir = fixture(t);
+  const sources = [
+    SOURCE,
+    "evidence/research/copy-2.md",
+    "evidence/research/copy-3.md",
+    "evidence/research/copy-4.md",
+  ];
+  for (const source of sources) evidence(pmDir, source);
+  insight(pmDir, sources);
+  const result = rewriteInsights(pmDir, { insights: [INSIGHT] });
+  assert.equal(result.insights[0].confidence, "low");
+  const reader = loadMarkdown(path.join(pmDir, INSIGHT));
+  assert.equal(reader.frontmatter.source_snapshots.length, 4);
+  assert.match(reader.body, /No confidence upgrade is inferred/);
+  assert.doesNotMatch(reader.body, /Confidence is high because/);
+});
+
+test("same-path revised source is surfaced, prior selection becomes historical, and unchanged replay does not repeat", (t) => {
+  const pmDir = fixture(t);
+  evidence(pmDir);
+  insight(pmDir);
+  route(pmDir, { selected_findings: [NAVIGATION] });
+  assert.equal(generateRouteSuggestions(pmDir, { evidencePath: SOURCE }).suggestions.length, 0);
+  const beforeReplay = fs.readFileSync(path.join(pmDir, INSIGHT), "utf8");
+  const repeat = route(pmDir);
+  assert.equal(repeat.routes[0].action, "skipped");
+  assert.equal(repeat.rewrites.length, 0);
+  assert.equal(fs.readFileSync(path.join(pmDir, INSIGHT), "utf8"), beforeReplay);
+
+  evidence(pmDir, SOURCE, [
+    "[internal] The current supervisors locate requests successfully using their existing shortcut.",
+    COUNTER,
+  ]);
+  const suggestions = generateRouteSuggestions(pmDir, { evidencePath: SOURCE });
+  assert.equal(suggestions.suggestions[0].source_changed, true);
+  assert.equal(suggestions.suggestions[0].insightPath, INSIGHT);
+  assert.equal(suggestions.suggestedNewRoute, null);
+  const changed = route(pmDir);
+  assert.equal(changed.routes[0].sourceChanged, true);
+  assert.equal(changed.rewrites[0].synthesis_state, "needs-synthesis");
+  const reader = loadMarkdown(path.join(pmDir, INSIGHT));
+  assert.match(reader.body, /Previously selected findings no longer present/);
+  assert.ok(reader.body.includes(NAVIGATION));
+  assert.match(reader.body, /current supervisors locate requests successfully/);
+  assert.equal(generateRouteSuggestions(pmDir, { evidencePath: SOURCE }).suggestions.length, 0);
+});
+
+test("an invented or shortened selected finding cannot mutate source or insight", (t) => {
+  const pmDir = fixture(t);
+  evidence(pmDir);
+  insight(pmDir);
+  const priorSource = fs.readFileSync(path.join(pmDir, SOURCE), "utf8");
+  const priorInsight = fs.readFileSync(path.join(pmDir, INSIGHT), "utf8");
+  const result = route(pmDir, { selected_findings: ["Supervisors cannot locate Time off"] });
+  assert.equal(result.routes[0].action, "error");
+  assert.match(result.routes[0].reason, /no longer exists/);
+  assert.equal(fs.readFileSync(path.join(pmDir, SOURCE), "utf8"), priorSource);
+  assert.equal(fs.readFileSync(path.join(pmDir, INSIGHT), "utf8"), priorInsight);
+});
+
+test("supplied bounded synthesis keeps low-confidence rationale, exact source binding and prior counterevidence", (t) => {
+  const pmDir = fixture(t);
+  evidence(pmDir);
+  insight(pmDir);
+  route(pmDir, { selected_findings: [NAVIGATION] });
+  const synthesis = {
+    summary:
+      "Test the entry with the observed supervisor group; do not assume demand across the ICP.",
+    claims: [
+      {
+        text: "The supervisor group reported a task-location problem.",
+        evidence_refs: [{ path: SOURCE, finding: NAVIGATION }],
+      },
+    ],
+    confidence: {
+      level: "low",
+      basis: "Direct observation of one supervisor group.",
+      limitations: "Independent demand beyond this group is unknown.",
+    },
+    open_questions: ["Does a persistent entry resolve their task-location failure?"],
+  };
+  const result = rewriteInsights(pmDir, { insights: [{ insightPath: INSIGHT, synthesis }] });
+  assert.equal(result.insights[0].action, "synthesis-updated");
+  assert.equal(result.insights[0].semantic_quality_verified, false);
+  const reader = loadMarkdown(path.join(pmDir, INSIGHT));
+  assert.equal(reader.frontmatter.confidence, "low");
+  assert.equal(reader.frontmatter.status, "active");
+  assert.equal(reader.frontmatter.synthesis_state, "reviewed");
+  assert.match(reader.body, /power-user study found no navigation problem/);
+  assert.match(reader.body, /Independent demand beyond this group is unknown/);
+  assert.ok(reader.body.includes(COUNTER));
+  assert.ok(reader.body.includes(NAVIGATION));
+
+  const before = fs.readFileSync(path.join(pmDir, INSIGHT), "utf8");
+  synthesis.claims[0].evidence_refs[0].finding = "Invented independent support.";
+  const invalid = rewriteInsights(pmDir, { insights: [{ insightPath: INSIGHT, synthesis }] });
+  assert.equal(invalid.insights[0].action, "error");
+  assert.equal(fs.readFileSync(path.join(pmDir, INSIGHT), "utf8"), before);
+});
+
+test("landscape and competitor sources retain original provenance types during routing", (t) => {
+  const pmDir = fixture(t);
+  insight(pmDir, []);
+  const landscape = "insights/business/landscape.md";
+  writeMarkdown(
+    path.join(pmDir, landscape),
+    {
+      type: "insight",
+      domain: "business",
+      topic: "Landscape",
+      last_updated: "2026-04-10",
+      status: "active",
+      confidence: "low",
+      sources: [],
+    },
+    "# Landscape\n\n## Initial Observations\n\nDemand outside the observed segment is unknown.\n"
+  );
+  const competitor = "evidence/competitors/vendor/features.md";
+  writeMarkdown(
+    path.join(pmDir, competitor),
+    {
+      type: "competitor-features",
+      company: "Vendor",
+      slug: "vendor",
+      profiled: "2026-04-10",
+      sources: [],
+    },
+    "# Features\n\n## Scheduling\n\nThe documented API exposes read operations only.\n"
+  );
+  const result = applyRoutes(
+    pmDir,
+    {
+      routes: [landscape, competitor].map((evidencePath) => ({
+        mode: "existing",
+        evidencePath,
+        insightPath: INSIGHT,
+        description: "Inspect current source support",
+      })),
+    },
+    { skipHotIndex: true }
+  );
+  assert.equal(
+    result.routes.every((item) => item.action === "updated"),
+    true
+  );
+  assert.equal(result.rewrites[0].action, "digest-updated");
+  assert.equal(loadMarkdown(path.join(pmDir, landscape)).frontmatter.type, "insight");
+  assert.equal(loadMarkdown(path.join(pmDir, competitor)).frontmatter.type, "competitor-features");
+});
+
+test("source revisions invalidate a reviewed assessment and replacing it preserves the analyst history", (t) => {
+  const pmDir = fixture(t);
+  evidence(pmDir);
+  insight(pmDir);
+  route(pmDir, { selected_findings: [NAVIGATION] });
+  const synthesis = {
+    summary: "Observed supervisors need a visible entry; administrators are counterevidence.",
+    claims: [
+      {
+        text: "Supervisors reported difficulty.",
+        evidence_refs: [{ path: SOURCE, finding: NAVIGATION }],
+      },
+    ],
+    confidence: {
+      level: "low",
+      basis: "One observed group.",
+      limitations: "Administrators differ.",
+    },
+    open_questions: [],
+  };
+  rewriteInsights(pmDir, { insights: [{ insightPath: INSIGHT, synthesis }] });
+  const newFinding = "[internal] The same supervisors now locate requests successfully.";
+  evidence(pmDir, SOURCE, [newFinding, COUNTER]);
+  route(pmDir);
+  let reader = loadMarkdown(path.join(pmDir, INSIGHT));
+  assert.equal(reader.frontmatter.status, "stale");
+  assert.equal(reader.frontmatter.synthesis_state, "needs-synthesis");
+  assert.match(reader.body, /Historical assessment: linked evidence or claim selection changed/);
+  assert.ok(reader.body.includes(synthesis.summary));
+  const before = fs.readFileSync(path.join(pmDir, INSIGHT), "utf8");
+  const priorLog = fs.readFileSync(path.join(pmDir, "insights/product/log.md"), "utf8");
+  route(pmDir);
+  assert.equal(fs.readFileSync(path.join(pmDir, INSIGHT), "utf8"), before);
+  assert.equal(fs.readFileSync(path.join(pmDir, "insights/product/log.md"), "utf8"), priorLog);
+  const updated = {
+    ...synthesis,
+    summary: "The current observation no longer supports that entry change.",
+    claims: [
+      {
+        text: "The observed group completed the task.",
+        evidence_refs: [{ path: SOURCE, finding: newFinding }],
+      },
+    ],
+  };
+  rewriteInsights(pmDir, { insights: [{ insightPath: INSIGHT, synthesis: updated }] });
+  reader = loadMarkdown(path.join(pmDir, INSIGHT));
+  assert.match(reader.body, /Historical Analyst Assessment/);
+  assert.ok(reader.body.includes(synthesis.summary));
+  assert.ok(reader.body.includes(updated.summary));
+  assert.ok(reader.body.includes(NAVIGATION));
+  assert.ok(reader.body.includes(COUNTER));
+});
+
+test("changed sources surface every dependent beyond the lexical cap", (t) => {
+  const pmDir = fixture(t);
+  evidence(pmDir);
+  const priorSnapshot = sourceFingerprint(loadMarkdown(path.join(pmDir, SOURCE)));
+  const dependents = ["a", "b", "c", "d", "e"].map((slug) => `insights/product/${slug}.md`);
+  for (const insightPath of dependents) {
+    writeMarkdown(
+      path.join(pmDir, insightPath),
+      {
+        type: "insight",
+        domain: "product",
+        topic: `Previously evaluated ${insightPath}`,
+        status: "active",
+        confidence: "high",
+        last_updated: "2026-04-10",
+        sources: [SOURCE],
+        source_snapshots: [{ path: SOURCE, sha256: priorSnapshot }],
+      },
+      "# Previous assessment\n\nThe earlier conclusion concerned a different question.\n"
+    );
+  }
+  for (const slug of ["lexical-a", "lexical-b", "lexical-c", "lexical-d"]) {
+    writeMarkdown(
+      path.join(pmDir, `insights/product/${slug}.md`),
+      {
+        type: "insight",
+        domain: "product",
+        topic: `Team requests ${slug}`,
+        status: "draft",
+        confidence: "low",
+        last_updated: "2026-04-10",
+        sources: [],
+      },
+      "# Team requests\n"
+    );
+  }
+  evidence(pmDir, SOURCE, ["[internal] Supervisors now locate requests successfully."]);
+  const result = generateRouteSuggestions(pmDir, { evidencePath: SOURCE, maxSuggestions: 2 });
+  assert.deepEqual(
+    result.suggestions
+      .filter((item) => item.source_changed)
+      .map((item) => item.insightPath)
+      .sort(),
+    dependents
+  );
+  assert.equal(result.suggestions.filter((item) => !item.source_changed).length, 2);
+  const routed = applyRoutes(
+    pmDir,
+    { routes: result.suggestions.filter((item) => item.source_changed) },
+    { skipHotIndex: true }
+  );
+  assert.equal(routed.rewrites.length, 5);
+  for (const insightPath of dependents) {
+    const reader = loadMarkdown(path.join(pmDir, insightPath));
+    assert.equal(reader.frontmatter.status, "stale");
+    assert.equal(reader.frontmatter.synthesis_state, "needs-synthesis");
+    assert.equal(reader.frontmatter.confidence, "low");
+  }
+});
+
+test("landscape cannot suggest or directly route itself", (t) => {
+  const pmDir = fixture(t);
+  const landscape = "insights/business/landscape.md";
+  writeMarkdown(
+    path.join(pmDir, landscape),
+    {
+      type: "insight",
+      domain: "business",
+      topic: "Landscape",
+      last_updated: "2026-04-10",
+      status: "draft",
+      confidence: "low",
+      sources: [],
+    },
+    "# Landscape\n\n## Summary\n\nLandscape contains market patterns.\n"
+  );
+  const before = fs.readFileSync(path.join(pmDir, landscape), "utf8");
+  const suggestions = generateRouteSuggestions(pmDir, { evidencePath: landscape });
+  assert.equal(
+    suggestions.suggestions.some((item) => item.insightPath === landscape),
+    false
+  );
+  const result = applyRoutes(
+    pmDir,
+    {
+      routes: [
+        {
+          mode: "existing",
+          evidencePath: landscape,
+          insightPath: landscape,
+          description: "Landscape",
+        },
+      ],
+    },
+    { skipHotIndex: true }
+  );
+  assert.equal(result.routes[0].action, "error");
+  assert.match(result.routes[0].reason, /itself/);
+  assert.equal(fs.readFileSync(path.join(pmDir, landscape), "utf8"), before);
+  assert.deepEqual(loadMarkdown(path.join(pmDir, landscape)).frontmatter.sources, []);
+});
+
+test("standalone supplied synthesis projects canonical state into domain and hot indexes", (t) => {
+  const pmDir = fixture(t);
+  evidence(pmDir);
+  insight(pmDir);
+  const doc = loadMarkdown(path.join(pmDir, INSIGHT));
+  writeMarkdown(
+    path.join(pmDir, INSIGHT),
+    { ...doc.frontmatter, status: "draft", confidence: "low" },
+    doc.body
+  );
+  fs.writeFileSync(
+    path.join(pmDir, "insights/product/index.md"),
+    "# Product\n\n| Topic/Source | Description | Updated | Status |\n|---|---|---|---|\n| [request-location.md](request-location.md) | Existing reader description | 2026-04-10 | draft |\n"
+  );
+  execFileSync("node", [
+    path.join(__dirname, "../scripts/hot-index.js"),
+    "--dir",
+    pmDir,
+    "--generate",
+  ]);
+  const synthesis = {
+    summary: "A bounded supervisor finding.",
+    claims: [
+      {
+        text: "Supervisors reported friction.",
+        evidence_refs: [{ path: SOURCE, finding: NAVIGATION }],
+      },
+    ],
+    confidence: {
+      level: "medium",
+      basis: "Analyst reviewed direct observations.",
+      limitations: "Broader prevalence remains unknown.",
+    },
+    open_questions: [],
+  };
+  const result = JSON.parse(
+    execFileSync(
+      "node",
+      [path.join(__dirname, "../scripts/insight-rewrite.js"), "--pm-dir", pmDir],
+      {
+        input: JSON.stringify({ insights: [{ insightPath: INSIGHT, synthesis }] }),
+        encoding: "utf8",
+      }
+    )
+  );
+  assert.equal(result.insights[0].action, "synthesis-updated");
+  assert.match(
+    fs.readFileSync(path.join(pmDir, "insights/product/index.md"), "utf8"),
+    /Existing reader description.*active/
+  );
+  assert.match(
+    fs.readFileSync(path.join(pmDir, "insights/.hot.md"), "utf8"),
+    /Request location \| active \| medium/
+  );
+});
+
+test("writer lazy continuation qualification survives exact selection and routing", (t) => {
+  const pmDir = fixture(t);
+  const finding =
+    "Managers cannot find requests.\nThis only affects occasional managers; administrators find them easily.";
+  writeKnowledgeArtifact(pmDir, {
+    artifactPath: SOURCE,
+    topic: "Team requests",
+    summary: "A bounded navigation observation.",
+    findings: ["CSV import is useful.", finding],
+    sourceOrigin: "internal",
+  });
+  insight(pmDir, []);
+  const result = route(pmDir, { selected_findings: [finding] });
+  assert.equal(result.routes[0].action, "updated");
+  assert.equal(result.rewrites[0].action, "digest-updated");
+  const reader = loadMarkdown(path.join(pmDir, INSIGHT));
+  assert.equal(reader.frontmatter.source_claims[0].finding, finding.replace("\n", " "));
+  assert.match(
+    reader.body,
+    /This only affects occasional managers; administrators find them easily/
+  );
+  const incomplete = route(pmDir, { selected_findings: ["Managers cannot find requests."] });
+  assert.equal(incomplete.routes[0].action, "error");
+});

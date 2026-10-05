@@ -12,11 +12,14 @@ const {
 } = require("../scripts/lib/design-critique-review-result");
 const { PROFILES: GROOM_PROFILES } = require("../scripts/lib/groom-runtime-profile");
 
+// Source assertions below protect dispatch/guidance contracts. They do not prove
+// that model output is useful, that a UI was exercised, or that a reviewer is independent.
+// Executable regressions and capability evaluations supply those separate checks.
 const ROOT = path.resolve(__dirname, "..");
 const read = (relative) => fs.readFileSync(path.join(ROOT, relative), "utf8");
 const fixture = (name) => JSON.parse(read(path.join("tests", "fixtures", "proposals", name)));
 
-test("UI skill runtime executes a concise craft loop and its deepest critique methods", () => {
+test("UI guidance retains craft instructions and critique reference dispatch", () => {
   const design = read("skills/groom/steps/05-design.md");
   for (const expectation of [
     /visual language/i,
@@ -244,7 +247,7 @@ test("Product proposal quality has non-compensatory substantive minimums", () =>
   assert.equal(result.minimums.question_reviews.passed, false);
 });
 
-test("Product research and idea ranking calibrate evidence and customer value", () => {
+test("Product research and idea ranking guidance retains calibration instructions", () => {
   const research = [
     read("skills/research/SKILL.md"),
     read("skills/research/steps/03-landscape.md"),
@@ -270,7 +273,7 @@ test("Product research and idea ranking calibrate evidence and customer value", 
   assert.match(ranker, /weighted_total/);
 });
 
-test("Engineering guidance is consistent, project-neutral, and risk-aware", () => {
+test("Engineering guidance retains project-neutral routing and risk instructions", () => {
   const qaStep = read("skills/dev/steps/07-qa.md");
   const qa = read("skills/dev/references/qa.md");
   assert.match(`${qaStep}\n${qa}`, /qa\/report\.json/);

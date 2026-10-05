@@ -367,6 +367,84 @@ function privacyForSource(source) {
   return { classification: "internal", pii_review: "not-required" };
 }
 
+/**
+ * Return the published signal pool, including unresolved old signals and changed
+ * enrichment. A timestamp watermark cannot prove that a signal was incorporated.
+ * knownDigests maps Evidence-IDs to hashes retained by successful theme writes.
+ * This reads only monthly note artifacts, never private inputs or session logs.
+ */
+function collectNoteDigestCandidates(pmDir, options = {}) {
+  const now = options.now ? new Date(options.now) : new Date();
+  const lookbackDays = options.lookbackDays ?? 30;
+  if (!Number.isFinite(now.getTime()) || !Number.isInteger(lookbackDays) || lookbackDays < 1) {
+    throw new Error("note digest requires a valid clock and positive lookbackDays");
+  }
+  const knownDigests = options.knownDigests || {};
+  const notesDir = path.join(pmDir, "evidence", "notes");
+  if (!fs.existsSync(notesDir)) return [];
+  if (fs.lstatSync(notesDir).isSymbolicLink())
+    throw new Error("note digest directory must not be a symlink");
+  const files = fs
+    .readdirSync(notesDir)
+    .filter((name) => /^\d{4}-\d{2}\.md$/.test(name))
+    .sort();
+  if (files.length > 128)
+    throw new Error(
+      "note digest exceeds 128 monthly artifacts; report the scope limit; this digest is incomplete"
+    );
+  const candidates = new Map();
+  const seenHashes = new Map();
+  let bytes = 0;
+  for (const file of files) {
+    const filePath = path.join(notesDir, file);
+    const stat = fs.lstatSync(filePath);
+    if (!stat.isFile() || stat.isSymbolicLink())
+      throw new Error("note digest requires regular monthly artifacts");
+    bytes += stat.size;
+    if (bytes > 4 * 1024 * 1024)
+      throw new Error(
+        "note digest exceeds 4 MiB; report the scope limit; this digest is incomplete"
+      );
+    const legacyOccurrences = new Map();
+    for (const entry of parseNotesFile(filePath).entries) {
+      const contentSha256 = `sha256:${crypto
+        .createHash("sha256")
+        .update(
+          JSON.stringify({
+            body: entry.body,
+            enrichment: entry.enrichment,
+            source: entry.source,
+            tags: entry.tags,
+          })
+        )
+        .digest("hex")}`;
+      const legacyLocator = `${entry.timestamp}—${entry.source}`;
+      const occurrence = (legacyOccurrences.get(legacyLocator) || 0) + 1;
+      if (!entry.evidence_id) legacyOccurrences.set(legacyLocator, occurrence);
+      const identity =
+        entry.evidence_id || `legacy:${file}#${legacyLocator}#occurrence:${occurrence}`;
+      const prior = seenHashes.get(identity);
+      if (prior && prior !== contentSha256)
+        throw new Error("duplicate note identity has conflicting content");
+      seenHashes.set(identity, contentSha256);
+      const captured = Date.parse(`${entry.timestamp.replace(" ", "T")}:00Z`);
+      const recent =
+        Number.isFinite(captured) && captured >= now.getTime() - lookbackDays * 86400000;
+      if (!recent && knownDigests[identity] === contentSha256) continue;
+      candidates.set(identity, {
+        ...entry,
+        note_path: `evidence/notes/${file}`,
+        identity,
+        content_sha256: contentSha256,
+        needs_migration: !entry.evidence_id,
+        changed_since_digest:
+          knownDigests[identity] !== undefined && knownDigests[identity] !== contentSha256,
+      });
+    }
+  }
+  return [...candidates.values()];
+}
+
 // ---------------------------------------------------------------------------
 // promoteNoteToIdea — create a backlog idea from a note entry
 // ---------------------------------------------------------------------------
@@ -497,6 +575,7 @@ module.exports = {
   writeNote,
   publishReviewedNote,
   parseNotesFile,
+  collectNoteDigestCandidates,
   promoteNoteToIdea,
   nextBacklogId,
 };

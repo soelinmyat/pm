@@ -7,6 +7,8 @@ const os = require("os");
 const path = require("path");
 const { execFileSync } = require("child_process");
 
+const { loadMarkdown } = require("../scripts/kb-utils.js");
+
 const { flattenSuggestions, selectRoutes } = require("../scripts/route-selection.js");
 
 const ROUTE_SELECTION_SCRIPT = path.join(__dirname, "..", "scripts", "route-selection.js");
@@ -151,7 +153,8 @@ test("route-selection piped into insight-routing creates a new insight end-to-en
         "",
         "## Findings",
         "",
-        "1. The pipe contract should be verified end-to-end.",
+        "1. CSV import is useful for weekly uploads.",
+        "2. Supervisors cannot locate Time off from Team. [evidence:ev_0123456789abcdef01234567]",
         "",
       ].join("\n")
     );
@@ -172,6 +175,9 @@ test("route-selection piped into insight-routing creates a new insight end-to-en
               topic: "Pipe Test Topic",
               description: "Seeded from pipe integration test",
               reason: "No existing insight matched",
+              selected_findings: [
+                "Supervisors cannot locate Time off from Team. [evidence:ev_0123456789abcdef01234567]",
+              ],
             },
           },
         ],
@@ -209,6 +215,19 @@ test("route-selection piped into insight-routing creates a new insight end-to-en
     assert.match(insightContent, /topic: "Pipe Test Topic"/);
     assert.match(insightContent, /sources:/);
     assert.match(insightContent, /evidence\/research\/pipe-test\.md/);
+    const insightDoc = loadMarkdown(path.join(pmDir, "insights/product/pipe-test-topic.md"));
+    assert.deepEqual(insightDoc.frontmatter.source_claims, [
+      {
+        path: "evidence/research/pipe-test.md",
+        finding:
+          "Supervisors cannot locate Time off from Team. [evidence:ev_0123456789abcdef01234567]",
+      },
+    ]);
+    const selectedSection = insightDoc.body
+      .split("**Selected findings for this topic")[1]
+      .split("**Complete source context")[0];
+    assert.match(selectedSection, /Supervisors cannot locate/);
+    assert.doesNotMatch(selectedSection, /CSV import/);
 
     const evidenceContent = fs.readFileSync(
       path.join(pmDir, "evidence", "research", "pipe-test.md"),
@@ -218,5 +237,26 @@ test("route-selection piped into insight-routing creates a new insight end-to-en
     assert.match(evidenceContent, /insights\/product\/pipe-test-topic\.md/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("route selection rejects malformed claim selections rather than silently discarding them", () => {
+  for (const selected_findings of [null, "finding", [1], [null], [""], [" "]]) {
+    assert.throws(
+      () =>
+        selectRoutes({
+          selection: "all",
+          suggestions: [
+            {
+              mode: "existing",
+              evidencePath: "evidence/research/one.md",
+              insightPath: "insights/product/alpha.md",
+              description: "Alpha",
+              selected_findings,
+            },
+          ],
+        }),
+      /selected_findings must contain complete finding text/
+    );
   }
 });

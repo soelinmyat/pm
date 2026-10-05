@@ -885,3 +885,141 @@ Some note.
 
   assert.throws(() => promoteNoteToIdea(pmDir, noteFile, "2026-04-14 99:99"), /not found/);
 });
+
+test("digest pool retains a retired singleton for later corroboration and changed enrichment", (t) => {
+  const { pmDir, cleanup } = withTempPmDir();
+  t.after(cleanup);
+  const { collectNoteDigestCandidates } = require("../scripts/note-helpers");
+  const first = writeNote(
+    pmDir,
+    "An occasional manager could not find Time off.",
+    "field observation",
+    "navigation",
+    { now: "2026-04-01T10:00:00Z", locator: "manager-one" }
+  );
+  let content = fs
+    .readFileSync(first.filePath, "utf8")
+    .replace("digested_through: null", "digested_through: 2026-04-01 10:00");
+  fs.writeFileSync(first.filePath, content);
+  const initial = collectNoteDigestCandidates(pmDir, { now: "2026-05-05T00:00:00Z" });
+  assert.equal(
+    initial.length,
+    1,
+    "old unresolved singleton survives the timestamp watermark and lookback"
+  );
+  writeNote(
+    pmDir,
+    "Another manager needed help locating Time off.",
+    "field observation",
+    "navigation",
+    { now: "2026-05-05T10:00:00Z", locator: "manager-two" }
+  );
+  const corroboration = collectNoteDigestCandidates(pmDir, { now: "2026-05-06T00:00:00Z" });
+  assert.equal(corroboration.length, 2);
+  assert.equal(new Set(corroboration.map((entry) => entry.evidence_id)).size, 2);
+  const knownDigests = { [first.evidence_id]: initial[0].content_sha256 };
+  assert.equal(
+    collectNoteDigestCandidates(pmDir, { now: "2026-05-06T00:00:00Z", knownDigests }).length,
+    1
+  );
+  content += "- **Context:** The same manager returns only once per quarter.\n";
+  fs.writeFileSync(first.filePath, content);
+  const enriched = collectNoteDigestCandidates(pmDir, {
+    now: "2026-05-06T00:00:00Z",
+    knownDigests,
+  });
+  const changed = enriched.find((entry) => entry.evidence_id === first.evidence_id);
+  assert.equal(enriched.length, 2);
+  assert.equal(changed.changed_since_digest, true);
+  assert.match(changed.body, /occasional manager/);
+  assert.match(changed.enrichment[0], /once per quarter/);
+  assert.notEqual(changed.content_sha256, initial[0].content_sha256);
+});
+
+test("digest pool includes late reviewed publication but never pending private evidence", (t) => {
+  const { pmDir, pmStateDir, cleanup } = withTempPmDir();
+  t.after(cleanup);
+  const { collectNoteDigestCandidates } = require("../scripts/note-helpers");
+  const captured = writeNote(
+    pmDir,
+    "A customer needs the successful workaround preserved.",
+    "customer interview",
+    "workaround",
+    { now: "2026-04-01T10:00:00Z", locator: "old-interview", pmStateDir }
+  );
+  assert.deepEqual(collectNoteDigestCandidates(pmDir, { now: "2026-06-01T00:00:00Z" }), []);
+  publishReviewedNote(
+    pmDir,
+    pmStateDir,
+    captured.evidence_id,
+    "A customer uses a successful workaround.",
+    { now: "2026-06-01T00:00:00Z", source: "reviewed customer signal", tags: "workaround" }
+  );
+  const pool = collectNoteDigestCandidates(pmDir, { now: "2026-06-01T00:00:00Z" });
+  assert.equal(pool.length, 1);
+  assert.equal(pool[0].evidence_id, captured.evidence_id);
+  assert.equal(pool[0].needs_migration, false);
+});
+
+test("digest pool keeps legacy observations visible and flags citation migration", (t) => {
+  const { pmDir, cleanup } = withTempPmDir();
+  t.after(cleanup);
+  const { collectNoteDigestCandidates } = require("../scripts/note-helpers");
+  const notesDir = path.join(pmDir, "evidence/notes");
+  fs.mkdirSync(notesDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(notesDir, "2026-04.md"),
+    "---\ntype: notes\nmonth: 2026-04\nupdated: 2026-04-01\nnote_count: 1\ndigested_through: 2026-04-01 10:00\n---\n\n### 2026-04-01 10:00 — observation\nA constraint without an explicit pain point.\n"
+  );
+  const pool = collectNoteDigestCandidates(pmDir, { now: "2026-06-01T00:00:00Z" });
+  assert.equal(pool.length, 1);
+  assert.equal(pool[0].needs_migration, true);
+  assert.equal(pool[0].evidence_id, undefined);
+});
+
+test("digest reports conflicting duplicate content even when an old copy has a receipt", (t) => {
+  const { pmDir, cleanup } = withTempPmDir();
+  t.after(cleanup);
+  const { collectNoteDigestCandidates } = require("../scripts/note-helpers.js");
+  const notesDir = path.join(pmDir, "evidence", "notes");
+  fs.mkdirSync(notesDir, { recursive: true });
+  const identity = "ev_0123456789abcdef01234567";
+  const entry = `---\ntype: notes\nmonth: 2026-04\n---\n\n### 2026-04-01 09:00 — observation\nA manager could not find Time off.\nEvidence-ID: ${identity}\nTags: navigation\n`;
+  fs.writeFileSync(path.join(notesDir, "2026-04.md"), entry);
+  const candidate = collectNoteDigestCandidates(pmDir, { now: "2026-06-01T00:00:00Z" })[0];
+  fs.writeFileSync(
+    path.join(notesDir, "2026-05.md"),
+    entry.replace("could not find", "easily found")
+  );
+  assert.throws(
+    () =>
+      collectNoteDigestCandidates(pmDir, {
+        now: "2026-06-01T00:00:00Z",
+        knownDigests: { [identity]: candidate.content_sha256 },
+      }),
+    /conflicting content/
+  );
+});
+
+test("legacy notes sharing a minute and source remain distinct eligible observations", (t) => {
+  const { pmDir, cleanup } = withTempPmDir();
+  t.after(cleanup);
+  const { collectNoteDigestCandidates } = require("../scripts/note-helpers.js");
+  const notesDir = path.join(pmDir, "evidence", "notes");
+  fs.mkdirSync(notesDir, { recursive: true });
+  const file = path.join(notesDir, "2026-04.md");
+  const entry = (body) => `### 2026-04-01 09:00 — observation\n${body}\nTags: navigation\n`;
+  const content = `---\ntype: notes\nmonth: 2026-04\n---\n\n${entry("Manager could not find Time off.")}\n${entry("Administrator found Time off readily.")}`;
+  fs.writeFileSync(file, content);
+  const initial = collectNoteDigestCandidates(pmDir, { now: "2026-06-01T00:00:00Z" });
+  assert.equal(initial.length, 2);
+  assert.notEqual(initial[0].identity, initial[1].identity);
+  assert.ok(initial.every((item) => item.needs_migration));
+  fs.writeFileSync(file, `${content}\n${entry("Mobile observation remains uncertain.")}`);
+  const appended = collectNoteDigestCandidates(pmDir, { now: "2026-06-01T00:00:00Z" });
+  assert.deepEqual(
+    appended.slice(0, 2).map((item) => item.identity),
+    initial.map((item) => item.identity)
+  );
+  assert.equal(appended.length, 3);
+});

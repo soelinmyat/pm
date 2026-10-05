@@ -511,3 +511,205 @@ test("cached bindings still obey the stricter decision JSON byte limit", (t) => 
     JSON.stringify(result.errors)
   );
 });
+
+test("decision evidence diagnostics preserve legacy and absent provenance while checking present v2 bindings", (t) => {
+  const {
+    inspectDecisionEvidenceBindings,
+    verifyDecisionBriefBindings,
+  } = require("../scripts/lib/product-reasoning-bindings");
+  const {
+    createEvidenceRecord,
+    emptyEvidenceLedger,
+    registerEvidence,
+  } = require("../scripts/lib/evidence-schema");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reasoning-evidence-binding-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, "evidence/research"), { recursive: true });
+  fs.mkdirSync(path.join(root, "backlog"), { recursive: true });
+  const brief = JSON.parse(
+    fs.readFileSync(
+      path.join(__dirname, "../evals/product-reasoning-quality/strong/decision.json"),
+      "utf8"
+    )
+  );
+  const reader = Buffer.from(
+    "---\nreasoning_version: 2\ndecision_brief: backlog/guided-evidence-refresh.decision.json\n---\n\n# Guided refresh\n"
+  );
+  fs.writeFileSync(path.join(root, "backlog/guided-evidence-refresh.md"), reader);
+  brief.source_artifacts = [{ path: "backlog/guided-evidence-refresh.md", sha256: sha(reader) }];
+  const legacy = JSON.stringify(brief);
+  const legacyDiagnostics = {};
+  assert.deepEqual(
+    verifyDecisionBriefBindings(root, brief, { evidenceVerification: legacyDiagnostics }),
+    []
+  );
+  assert.equal(legacyDiagnostics.all_declared_ids_artifact_bound, false);
+  assert.equal(legacyDiagnostics.references[0].status, "unverified");
+  assert.match(legacyDiagnostics.references[0].reason, /Legacy ID preserved/);
+  assert.equal(JSON.stringify(brief), legacy);
+
+  const record = createEvidenceRecord(
+    {
+      source_type: "support",
+      source_label: "support-export.csv",
+      source_format: "csv",
+      locator: "row:14",
+      captured_at: "2026-07-10T04:00:00.000Z",
+      content: "Managers cannot find time off requests from their team list.",
+      privacy: { classification: "internal", pii_review: "reviewed" },
+      transformation: { stage: "normalized", parents: [], method: "pm:ingest" },
+      artifact_path: "evidence/research/navigation.md",
+    },
+    { now: "2026-07-14T08:00:00.000Z" }
+  );
+  brief.evidence_refs = [
+    {
+      ref: "evidence/research/navigation.md#finding-1",
+      evidence_id: record.evidence_id,
+      note: "Occasional managers struggled to find the request destination.",
+    },
+  ];
+  const absent = inspectDecisionEvidenceBindings(root, brief);
+  assert.deepEqual(absent.issues, []);
+  assert.equal(absent.references[0].status, "unverified");
+  assert.match(absent.references[0].reason, /ledger unavailable/);
+  const source = `---\nprovenance_version: 2\n---\n\n## Findings\n- Managers struggled to find requests. [evidence:${record.evidence_id}]\n`;
+  fs.writeFileSync(path.join(root, "evidence/research/navigation.md"), source);
+  const ledger = registerEvidence(emptyEvidenceLedger("2026-07-14T08:00:00.000Z"), record, {
+    now: "2026-07-14T08:00:00.000Z",
+  }).ledger;
+  fs.writeFileSync(path.join(root, "evidence/provenance.json"), JSON.stringify(ledger));
+  const bound = inspectDecisionEvidenceBindings(root, brief);
+  assert.deepEqual(bound.issues, []);
+  assert.equal(bound.references[0].status, "artifact-bound");
+  assert.equal(bound.all_declared_ids_artifact_bound, true);
+  assert.equal(bound.claim_entailment_verified, false);
+
+  // A live source that contradicts its declared provenance must not be silently accepted.
+  fs.writeFileSync(
+    path.join(root, "evidence/research/navigation.md"),
+    source.replace(record.evidence_id, `ev_${"a".repeat(24)}`)
+  );
+  assert.ok(
+    verifyDecisionBriefBindings(root, brief).some((issue) =>
+      issue.includes("source does not cite declared")
+    )
+  );
+  for (const version of ["2", '"2"', "'2'"]) {
+    fs.writeFileSync(
+      path.join(root, "evidence/research/navigation.md"),
+      source
+        .replace("provenance_version: 2", `provenance_version: ${version}`)
+        .replace(`[evidence:${record.evidence_id}]`, "")
+    );
+    const diagnostics = {};
+    assert.ok(
+      verifyDecisionBriefBindings(root, brief, { evidenceVerification: diagnostics }).some(
+        (issue) => issue.includes("source does not cite declared")
+      ),
+      `missing marker must fail for provenance_version: ${version}`
+    );
+    assert.equal(diagnostics.references[0].status, "unverified");
+  }
+  fs.writeFileSync(path.join(root, "evidence/research/navigation.md"), source);
+  ledger.records[0].artifact_paths = ["evidence/research/unrelated.md"];
+  fs.writeFileSync(path.join(root, "evidence/provenance.json"), JSON.stringify(ledger));
+  assert.ok(
+    verifyDecisionBriefBindings(root, brief).some((issue) =>
+      issue.includes("not bound to artifact")
+    )
+  );
+  ledger.records = [];
+  fs.writeFileSync(path.join(root, "evidence/provenance.json"), JSON.stringify(ledger));
+  assert.ok(
+    verifyDecisionBriefBindings(root, brief).some((issue) => issue.includes("unknown evidence ID"))
+  );
+});
+
+test("product reasoning CLI exposes unverified evidence without rejecting readable legacy companions", (t) => {
+  const { spawnSync } = require("node:child_process");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reasoning-evidence-cli-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, "backlog"), { recursive: true });
+  const brief = JSON.parse(
+    fs.readFileSync(
+      path.join(__dirname, "../evals/product-reasoning-quality/strong/decision.json"),
+      "utf8"
+    )
+  );
+  const reader = Buffer.from(
+    "---\nreasoning_version: 2\ndecision_brief: backlog/guided-evidence-refresh.decision.json\n---\n\n# Guided refresh\n"
+  );
+  fs.writeFileSync(path.join(root, "backlog/guided-evidence-refresh.md"), reader);
+  brief.source_artifacts = [{ path: "backlog/guided-evidence-refresh.md", sha256: sha(reader) }];
+  const input = path.join(root, "backlog/guided-evidence-refresh.decision.json");
+  fs.writeFileSync(input, JSON.stringify(brief));
+  const result = spawnSync(
+    process.execPath,
+    [
+      path.join(__dirname, "../scripts/product-reasoning.js"),
+      "validate",
+      "--root",
+      root,
+      "--input",
+      input,
+    ],
+    { encoding: "utf8" }
+  );
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.ok, true);
+  assert.equal(output.evidence_verification.all_declared_ids_artifact_bound, false);
+  assert.equal(output.evidence_verification.claim_entailment_verified, false);
+  assert.equal(output.evidence_verification.references[0].status, "unverified");
+  assert.deepEqual(JSON.parse(fs.readFileSync(input, "utf8")), brief);
+});
+
+test("optional evidence inspection keeps indirect insights unverified and bounded", (t) => {
+  const { inspectDecisionEvidenceBindings } = require("../scripts/lib/product-reasoning-bindings");
+  const {
+    createEvidenceRecord,
+    emptyEvidenceLedger,
+    registerEvidence,
+  } = require("../scripts/lib/evidence-schema");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-reasoning-evidence-indirect-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, "evidence"), { recursive: true });
+  fs.mkdirSync(path.join(root, "insights/product"), { recursive: true });
+  const record = createEvidenceRecord(
+    {
+      source_type: "support",
+      source_label: "request.csv",
+      source_format: "csv",
+      locator: "row:8",
+      captured_at: "2026-07-10T04:00:00.000Z",
+      content: "Managers cannot find requests.",
+      privacy: { classification: "internal", pii_review: "reviewed" },
+      transformation: { stage: "normalized", parents: [], method: "pm:ingest" },
+      artifact_path: "evidence/research/navigation.md",
+    },
+    { now: "2026-07-14T08:00:00.000Z" }
+  );
+  const ledger = registerEvidence(emptyEvidenceLedger("2026-07-14T08:00:00.000Z"), record, {
+    now: "2026-07-14T08:00:00.000Z",
+  }).ledger;
+  const ledgerBytes = Buffer.from(JSON.stringify(ledger));
+  fs.writeFileSync(path.join(root, "evidence/provenance.json"), ledgerBytes);
+  fs.writeFileSync(
+    path.join(root, "insights/product/navigation.md"),
+    `# Interpretation\nSome managers struggle. [evidence:${record.evidence_id}]\n`
+  );
+  const brief = {
+    evidence_refs: [
+      { ref: "insights/product/navigation.md#interpretation", evidence_id: record.evidence_id },
+    ],
+  };
+  const result = inspectDecisionEvidenceBindings(root, brief);
+  assert.deepEqual(result.issues, []);
+  assert.equal(result.references[0].status, "unverified");
+  assert.equal(result.claim_entailment_verified, false);
+  const budgetState = { remaining: ledgerBytes.length - 1 };
+  const bounded = inspectDecisionEvidenceBindings(root, brief, { budgetState });
+  assert.ok(bounded.issues.some((issue) => /input exceeds/.test(issue)));
+  assert.equal(bounded.references[0].status, "unverified");
+});

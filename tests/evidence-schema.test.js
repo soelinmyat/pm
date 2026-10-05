@@ -297,3 +297,26 @@ test("legacy ingest records migrate incrementally without publishing local paths
   assert.doesNotMatch(JSON.stringify(portable), /\/Users\/alice/);
   assert.match(JSON.stringify(migrated.private_record), /\/Users\/alice/);
 });
+
+test("quoted v2 metadata cannot bypass finding or note citation validation", () => {
+  const ledger = emptyEvidenceLedger(NOW);
+  for (const marker of ["2", '"2"', "'2'"]) {
+    const research = `---\ntype: "research"\nprovenance_version: ${marker}\n---\n\n## Findings\n- Uncited claim.\n`;
+    assert.match(
+      validateCitationBindings({ markdown: research, ledger }).join("\n"),
+      /finding is missing an evidence citation/
+    );
+    const notes = `---\ntype: "notes"\nprovenance_version: ${marker}\n---\n\n### 2026-10-05 12:00 — observation\nUnbound observation.\n`;
+    assert.match(
+      validateCitationBindings({ markdown: notes, ledger }).join("\n"),
+      /note entry is missing an Evidence-ID/
+    );
+  }
+  assert.deepEqual(
+    validateCitationBindings({
+      markdown: "## Body\nprovenance_version: 2\n## Findings\n- Legacy unbound claim.\n",
+      ledger,
+    }),
+    []
+  );
+});

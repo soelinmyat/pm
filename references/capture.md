@@ -76,7 +76,7 @@ Bugs carry a body with three sections in order — `## Observed`, `## Expected`,
 ## Enrichment (optional)
 
 Capture succeeds first, then offer refinement — the saved item is never lost.
-- **Notes:** ask 2–4 follow-up questions (who / severity / context / compare) and append them under the same `### timestamp` entry; do not create a new entry or modify `note_count`/`digested_through`.
+- **Notes:** ask 2–4 follow-up questions (who / severity / context / compare) and append them under the same `### timestamp` entry; do not create a new entry or modify `note_count`/`digested_through`. Enrichment is additional context for the same Evidence-ID, not another independent customer. Note Digest compares original-plus-enrichment content hashes and includes changed enrichment even when the entry timestamp predates a legacy digest watermark.
 - **Tasks/bugs:** keep the create receipt and use its observed hash:
 
   Write a new private request and invoke the same command. The request contains `action: "enrich"`, `kind`, `slug`, `expectedSha256`, and only the requested `outcome`, `priority`, `labels`, or `body` changes.

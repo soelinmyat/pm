@@ -8,6 +8,12 @@ Hashes bind the package's internal consistency and make post-production drift vi
 
 The default assurance level is `local-observation`. An optional future externally attested mode may bind the same package to a protected CI or other trusted service identity, but no external attestation is attempted by this contract.
 
+## Browser compatibility and method context
+
+Read `${CLAUDE_PLUGIN_ROOT}/references/browser-evidence-preflight.md` at target creation when HTML may be required and recheck it before collection. Current tool documentation and executor policy determine permitted methods; this evidence contract does not authorize a separate browser or CDP. Retain bounded session-local method context through supported evidence/dispatch inputs, reuse it for unchanged retries within existing authority, and refresh it when capabilities, policy, target or action scope change. Context is not approval and cannot override platform cross-thread authorization.
+
+CUA observations may supplement a narrative but do not replace the renderer's browser-computed metrics, marker observations and compact/full manifest. There is no trusted CUA producer for product-UI route schema v2; do not confuse that Design Critique capture contract with Review presentation or QA receipts. An unavailable collector blocks required presentation while retaining the source findings. Only the existing checker may select eligible structured publication or compact evidence; missing browser access never authorizes downgrade, hand-authored observations or producer impersonation.
+
 ## Files
 
 Reviewer findings may optionally carry `remediation_agreement` with unique `finding_ids` (including the current finding) and a bounded nonempty `remedy`. All signals for every named ID must confirm exactly the same group and remedy, with at least two distinct planned reviewers. Result target/source/run/round bindings remain mandatory. This additive clarification resolves only fix-prose disagreement, not other material conflicts or decision gates. Canonical findings retain original signals and add `agreed_fix`; human reports show both. Original result files must be preserved and clarified results supplied separately before round finalization. Legacy results without this field keep conservative disagreement handling. Like reviewer results generally, these are local observations, not cryptographic identity attestations.

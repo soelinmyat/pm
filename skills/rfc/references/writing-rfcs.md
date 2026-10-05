@@ -4,15 +4,15 @@
 
 Write engineering RFCs that turn a product proposal into an actionable implementation plan. The RFC contains a Decision Brief for humans, an Execution Contract for agents, and an Appendix for rationale. It also contains the technical approach, issue breakdown, test strategy (see the [Test Strategy](#test-strategy-section) chapter below), and risks — everything an engineer needs to implement from zero context.
 
-Assume the implementer is a skilled developer but knows almost nothing about the codebase or problem domain. Document everything: which files to touch, implementation approach per issue, verification commands, and the testing contract. DRY. YAGNI. TDD. Frequent commits.
+Assume the implementer is a skilled developer but knows almost nothing about the codebase or problem domain. Document the relevant interfaces, domain invariants, file responsibilities, implementation approach, verification commands and testing contract. Keep routine implementation adaptable to repository findings; precise constraints do not require prewriting every line of code. DRY. YAGNI. TDD.
 
-**Context:** This should be run in a dedicated worktree. Read the proposal (`{pm_dir}/backlog/{slug}.md`) for product context. The backlog entry contains full PRD content — user flows, wireframes, competitive context.
+**Context:** This should be run in a dedicated worktree. Read the intake-bound approved canonical proposal JSON for product context. Its generated Markdown/HTML readers are supporting projections; use the named legacy path only when intake established that compatibility route. Do not reconstruct missing approved decisions from reader prose.
 
 **Save RFCs to:** `{pm_dir}/backlog/rfcs/{slug}.html` — RFCs are written directly as self-contained HTML.
 
 **Output formatting:** Follow `${CLAUDE_PLUGIN_ROOT}/references/writing.md` for prose quality. RFCs are dense by nature but should still use short sentences, clear structure, and no jargon.
 
-**HTML reference:** Read `${CLAUDE_PLUGIN_ROOT}/references/templates/rfc-reference.html` — match its structure, styling, and quality level. This is a complete example; replicate it with the actual RFC content.
+**HTML reference:** Read `${CLAUDE_PLUGIN_ROOT}/references/templates/rfc-reference.html` — match its structure, styling, and quality level. This is an explicitly fictional, coherent example. Copy its semantic structure and decision quality, not its domain policy, commands, measurements or approval claims. Verify actual repository facts before substituting them.
 
 **Shared artifact contract:** Read `${CLAUDE_PLUGIN_ROOT}/references/artifacts/html-artifact-contract.md`. RFC HTML is self-contained, inert, accessible, responsive, printable, and bounded. Use system fonts and inline SVG or accessible text diagrams; never add CDN scripts or network assets. Keep `#pm-artifact.lifecycle` aligned with `#rfc-lifecycle.status`.
 
@@ -24,7 +24,7 @@ If the proposal covers multiple independent subsystems, split into separate issu
 
 ## File Structure
 
-Before defining tasks, map out which files will be created or modified and what each one is responsible for. This is where decomposition decisions get locked in.
+Before defining tasks, map out which files will be created or modified and what each one is responsible for. Use repository evidence to propose ownership and interfaces. Treat details not yet verified as assumptions rather than lock in invented paths or code.
 
 - Design units with clear boundaries and well-defined interfaces. Each file should have one clear responsibility.
 - You reason best about code you can hold in context at once, and your edits are more reliable when files are focused. Prefer smaller, focused files over large ones that do too much.
@@ -37,7 +37,7 @@ This structure informs the task decomposition. Each task should produce self-con
 
 This is the execution layer beneath the Test Strategy — per-task TDD within what the strategy has already scoped.
 
-**Each step is one action (2-5 minutes):**
+Use behavior-sized implementation steps that fit the problem; a fixed 2-5 minute estimate is not a quality criterion. Within an applicable TDD step, demonstrate a real behavioral failure, implement it, and verify it:
 - "Write the failing test" - step
 - "Run it to make sure it fails" - step
 - "Implement the minimal code to make the test pass" - step
@@ -69,7 +69,7 @@ Follow the section structure from `${CLAUDE_PLUGIN_ROOT}/references/templates/rf
 - **Humans read first:** Decision Brief, then Risks and Resolved Questions if they need confidence.
 - **Agents read first:** Execution Contract, then Issue cards, then Test Strategy.
 - **Auditors read later:** Appendix sections with findings, architecture, decisions, advisory notes, and change log.
-- **Contract wins:** if the Execution Contract conflicts with appendix prose, fix the appendix before approval.
+- **Resolve conflicts:** if the Execution Contract conflicts with appendix prose, resolve the underlying decision using product intent and repository evidence, then synchronize both; the contract does not make a mistaken choice correct.
 - **Budget enforcement:** word budgets are warning-first. Required layer presence and parser class preservation are blocking.
 
 ## Test Strategy Section
@@ -86,51 +86,33 @@ Every M/L/XL RFC must include a **Test Strategy** section between Risks and Issu
 
 Read the proposal for product context before writing the RFC:
 
-1. Read `{pm_dir}/backlog/{slug}.md` — outcome, scope, competitive context, research refs, plus full PRD content (user flows, wireframes, design details are inline)
-2. If `research_refs` exist, read the referenced research files for key findings
+1. Read the intake-bound canonical proposal JSON — outcome, scope, requirements, acceptance criteria, evidence, assumptions and approved design context. Preserve the exact approved experience contract; a generated reader is not a second source of truth.
+2. Read relevant retained research/evidence sources referenced by that proposal. Distinguish observed behavior, vendor documentation and assumptions; preserve material contradictory findings.
 3. Incorporate the product context into the RFC's Codebase Findings and Architecture sections
 
 ## Task Structure
 
 ````markdown
-### Task N: [Component Name]
+### Task N: Preserve report name on invalid rename
 
-**Files:**
-- Create: `exact/path/to/file.py`
-- Modify: `exact/path/to/existing.py:123-145`
-- Test: `tests/exact/path/to/test.py`
+**Files:** Name the actual domain/API/UI/test files discovered in this repository.
+**Invariant:** Invalid input never mutates the stored report or its revision.
+**Approach:** Use the established validation boundary; count Unicode code points
+and normalize outer whitespace according to the confirmed product policy.
 
-- [ ] **Step 1: Write the failing test**
-
-```python
-def test_specific_behavior():
-    result = function(input)
-    assert result == expected
+**Behavioral oracle (illustrative JavaScript; adapt imports/harness):**
+```javascript
+const report = { name: "Weekly hours", revision: 4 };
+const renamed = renameReport(report, "  Team hours  ");
+assert.deepEqual(renamed, { name: "Team hours", revision: 5 });
+assert.throws(() => renameReport(report, "   "), /name required/i);
+assert.deepEqual(report, { name: "Weekly hours", revision: 4 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `pytest tests/path/test.py::test_name -v`
-Expected: FAIL with "function not defined"
-
-- [ ] **Step 3: Write minimal implementation**
-
-```python
-def function(input):
-    return expected
-```
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `pytest tests/path/test.py::test_name -v`
-Expected: PASS
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add tests/path/test.py src/path/file.py
-git commit -m "feat: add specific feature"
-```
+Run the repository's existing scoped test command. Confirm a failure is caused
+by the missing behavior, not a bad import or missing setup. Add boundary cases
+at the domain layer and permission/concurrency checks through the actual API.
+Keep exact commands and ownership in their dedicated issue fields.
 ````
 
 **Task ordering for cross-layer changes:** Sequence tasks so dependencies flow downstream:
@@ -144,10 +126,10 @@ Each task must produce working, testable code. Never leave cross-boundary sync a
 
 ## Remember
 - Exact file paths always
-- Complete code in plan (not "add validation")
+- Exact interfaces, invariants, consequential algorithms and verification; include code only when it clarifies a difficult decision, not as a substitute for reasoning
 - Exact commands with expected output
 - Reference relevant skills with @ syntax
-- DRY, YAGNI, TDD, frequent commits
+- DRY, YAGNI and behavior-grounded TDD; keep routine implementation choices adaptable
 
 ## JSON Sidecar Contract
 
