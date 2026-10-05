@@ -4,7 +4,12 @@
 const fs = require("fs");
 const path = require("path");
 const {
-  ensureRelativePath,
+  ensureSourcePath,
+  loadSourceDocument,
+  sourceFingerprint,
+  extractFindings,
+} = require("./insight-rewrite.js");
+const {
   firstSentence,
   getSection,
   loadMarkdown,
@@ -58,7 +63,7 @@ function parseArgs(argv) {
 }
 
 function ensureEvidencePath(rawPath) {
-  return ensureRelativePath(rawPath, "evidence/");
+  return ensureSourcePath(rawPath);
 }
 
 function listMarkdownFilesRecursive(dirPath) {
@@ -78,37 +83,6 @@ function listMarkdownFilesRecursive(dirPath) {
     }
   }
   return results;
-}
-
-function extractFindings(body) {
-  const section = getSection(body, "Findings");
-  if (!section) {
-    return [];
-  }
-
-  const lines = section.split(/\r?\n/);
-  const findings = [];
-  let active = "";
-
-  for (const line of lines) {
-    const orderedMatch = line.match(/^\s*\d+\.\s+(.*)$/);
-    const bulletMatch = line.match(/^\s*[-*]\s+(.*)$/);
-    if (orderedMatch || bulletMatch) {
-      if (active) {
-        findings.push(active);
-      }
-      active = orderedMatch ? orderedMatch[1] : bulletMatch[1];
-      continue;
-    }
-    if (active && /^\s{2,}\S/.test(line)) {
-      active += ` ${line.trim()}`;
-    }
-  }
-  if (active) {
-    findings.push(active);
-  }
-
-  return findings.map((item) => normalizeWhitespace(item)).filter(Boolean);
 }
 
 function tokenize(text) {
@@ -171,10 +145,7 @@ function loadEvidenceDoc(pmDir, evidencePath) {
     throw new Error(`missing evidence file "${evidencePath}"`);
   }
 
-  const doc = loadMarkdown(absolutePath);
-  if (doc.frontmatter.type !== "evidence") {
-    throw new Error(`expected evidence file at "${evidencePath}"`);
-  }
+  const doc = loadSourceDocument(pmDir, evidencePath);
 
   const summary = getSection(doc.body, "Summary");
   const findings = extractFindings(doc.body);
@@ -221,8 +192,25 @@ function loadInsightDocs(pmDir) {
 }
 
 function scoreInsightCandidate(evidenceDoc, insightDoc, artifactMode) {
+  if (evidenceDoc.evidencePath === insightDoc.relativePath) return null;
   if (insightDoc.sources.includes(evidenceDoc.evidencePath)) {
-    return null;
+    const snapshot = (insightDoc.frontmatter.source_snapshots || []).find(
+      (item) => item.path === evidenceDoc.evidencePath
+    );
+    if (snapshot && snapshot.sha256 === sourceFingerprint(evidenceDoc)) return null;
+    return {
+      mode: "existing",
+      evidencePath: evidenceDoc.evidencePath,
+      insightPath: insightDoc.relativePath,
+      domain: insightDoc.domain,
+      topic: insightDoc.topic,
+      description: buildDescription(evidenceDoc),
+      reason:
+        "Linked source changed or has no recorded snapshot; reconsider the prior conclusion and claim selection.",
+      source_changed: true,
+      selection_required: true,
+      score: Number.MAX_SAFE_INTEGER,
+    };
   }
 
   const evidenceTokenSet = new Set(evidenceDoc.tokens);
@@ -272,6 +260,7 @@ function scoreInsightCandidate(evidenceDoc, insightDoc, artifactMode) {
     topic: insightDoc.topic,
     description: buildDescription(evidenceDoc),
     reason,
+    selection_required: true,
     score,
   };
 }
@@ -305,7 +294,7 @@ function generateRouteSuggestions(pmDir, rawPayload) {
 
   const items = payload.evidencePaths.map((evidencePath) => {
     const evidenceDoc = loadEvidenceDoc(pmDir, evidencePath);
-    const suggestions = insightDocs
+    const candidates = insightDocs
       .map((insightDoc) => scoreInsightCandidate(evidenceDoc, insightDoc, payload.artifactMode))
       .filter(Boolean)
       .sort((left, right) => {
@@ -313,8 +302,16 @@ function generateRouteSuggestions(pmDir, rawPayload) {
           return right.score - left.score;
         }
         return left.topic.localeCompare(right.topic);
-      })
-      .slice(0, payload.maxSuggestions);
+      });
+    // Every changed dependency needs reconsideration, even when its earlier
+    // question no longer overlaps the source's current terms. Top-N limits
+    // apply only to discovery of new lexical candidates.
+    const suggestions = [
+      ...candidates.filter((candidate) => candidate.source_changed),
+      ...candidates
+        .filter((candidate) => !candidate.source_changed)
+        .slice(0, payload.maxSuggestions),
+    ];
 
     const existingCitations = Array.isArray(evidenceDoc.frontmatter.cited_by)
       ? evidenceDoc.frontmatter.cited_by.length

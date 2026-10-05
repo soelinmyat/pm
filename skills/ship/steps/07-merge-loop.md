@@ -111,7 +111,9 @@ The canonical session and ship transaction must retain equivalent gate-monitorin
 ## Ship
 - Stage: gate-monitoring
 - PR: #N (URL)
-- CI: passed / running / failed
+- CI: passed / not-required / pending / failed / missing / ambiguous / unavailable
+- CI head: [exact observed PR head SHA]
+- Required checks: [names and outcomes, or verified no-required-checks policy]
 - Review: approved / pending / changes_requested
 - Threads: 0 unresolved / N unresolved
 - Conflicts: clean / conflicted
@@ -131,12 +133,20 @@ The canonical session and ship transaction must retain equivalent gate-monitorin
 **PR:** #N — [title] ([URL])
 **Branch:** [branch name]
 **Review:** [N issues found and fixed by review agents]
-**CI:** [passed after N rounds]
+**CI:** [exact-head required-check summary: passed with check names, or not-required with independently observed policy; include fix rounds only when observed]
 **Merged to:** {DEFAULT_BRANCH} ([short sha])
 **Remote branch:** [branch] — deleted
 **Local branch:** [branch] — deleted
 **Worktree:** [removed at path / n/a]
 ```
+
+Preserve Step 06's `summarizeRequiredChecks` outcome through every merge-loop
+iteration and the final report. Re-observe the current PR head and complete
+required set before merging; old passing evidence cannot satisfy a changed
+head. `not-required` permits the existing delivery policy to continue, but means
+`No required CI checks configured`, never `CI passed`. Pending, failed, missing,
+ambiguous, and unavailable outcomes block readiness and remain explicit in
+session state and handoffs; a watch process cannot replace this summary.
 
 ## Product Memory
 

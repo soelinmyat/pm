@@ -739,3 +739,47 @@ test("feature reconciliation rejects identities from another source project", ()
     /same source_project for reconciliation/
   );
 });
+
+test("idea ranking compares weighted customer value before categorical strategic fit", () => {
+  const important = brief("idea", "restore-critical-job");
+  Object.assign(important.alignment, {
+    strength: "weak",
+    competitor_gap: "parity",
+    scope_signal: "large",
+    customer_impact: "high",
+    reach: "broad",
+    urgency: "now",
+    expected_outcome: "step-change",
+    learning_value: "high",
+    value_basis: {
+      customer_impact: "Managers cannot complete the observed approval task.",
+      reach: "The affected role serves every team in the target segment.",
+      urgency: "Current failed approvals prevent payroll from closing.",
+      expected_outcome: "Successful approvals restore the critical monthly job.",
+      learning_value: "The first release tests the consequential failure mechanism.",
+    },
+  });
+  const aligned = brief("idea", "polish-nonblocking-display");
+  Object.assign(aligned.alignment, {
+    strength: "strong",
+    competitor_gap: "unique",
+    scope_signal: "small",
+    customer_impact: "low",
+    reach: "narrow",
+    urgency: "later",
+    expected_outcome: "incremental",
+    learning_value: "low",
+    value_basis: {
+      customer_impact: "The observed issue adds one avoidable display click.",
+      reach: "Only a small administrator subgroup uses this optional panel.",
+      urgency: "Users retain a reliable workaround without current deadlines.",
+      expected_outcome: "The change slightly reduces effort in an optional task.",
+      learning_value: "This polish does not resolve a major product uncertainty.",
+    },
+  });
+  const ranked = rankIdeaBriefs([aligned, important]);
+  assert.equal(ranked[0].decision_id, important.decision_id);
+  assert.equal(ranked[0].components.strategic_alignment, 0);
+  assert.ok(ranked[0].components.weighted_total > ranked[1].components.weighted_total);
+  assert.deepEqual(ranked, rankIdeaBriefs([important, aligned]));
+});

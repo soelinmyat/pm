@@ -19,7 +19,7 @@ result_schema: phase-result-v1
 
 ## Goal
 
-Extract durable learnings from the completed dev session, write them to the right PM artifacts, and only then remove the dev session state.
+Extract evidence-supported durable learnings from the completed dev session, write them to the right PM artifacts, and preserve the canonical session and report evidence.
 
 ## How
 
@@ -27,7 +27,7 @@ Runs after EVERY task regardless of size. Applies to both single-issue and multi
 
 If extraction fails at any point, preserve canonical state and record a structured failed retro result with the error evidence. Then say:
 > "Retro extraction failed; session state preserved for retry."
-Then stop — do not proceed to deletion.
+Then stop and retain the session for retry.
 
 ---
 
@@ -36,54 +36,36 @@ Then stop — do not proceed to deletion.
 The `learning` field in each memory entry must be **generalizable to future sessions**, not a description of what happened in this session. A reader encountering this learning in a different context should be able to apply it without knowing anything about the source session.
 
 - **Bad:** "from RFC review: 3 review iterations required" (session-specific fact — tells future sessions nothing actionable)
-- **Good:** "Check edge-case handling and error states before review — most re-reviews stem from missing unhappy paths" (actionable pattern any session can apply)
+- **Good:** "For leave approval, test denied permissions and workspace-timezone date boundaries alongside the happy path; successful approval alone does not validate these rules" (bounded to the observed failure class, actionable without inventing a population-wide frequency)
 
 Session-specific context (counts, slugs, specific failures) belongs in the `detail` field, not in `learning`.
 
 ---
 
-### Step 1: Scan for extractable events
+### Step 1: Scan canonical evidence for extractable events
 
-Read the dev session state file (`{source_dir}/.pm/dev-sessions/{slug}/session.json`) and check for these events:
+Read `{source_dir}/.pm/dev-sessions/{slug}/session.json` and follow the recorded attempts, phase results and evidence paths to the actual immutable review reports, QA reports, implementation results, and observed delivery/CI receipts. Consult `state-schema.md` and the current runner contract; Markdown `Review`, `QA`, `Merge-Watch`, or `Per-Task Events` headings are legacy resume aids, not current canonical reports. Do not infer their absence means no review occurred.
 
-**Single-task events** (check `Review`, `QA`, `Merge-Watch` sections directly):
+| Observed event | Evidence needed | Supported lesson |
+|----------------|-----------------|------------------|
+| QA defect/fix | Finding, fixture/journey, observed result, expectation source, fix and recheck | The domain/UI failure mode and a relevant way to expose it |
+| Review defect/fix | Actual bound reviewer finding and changed code/test evidence | The assumption or boundary missed; distinguish confirmed bug from preference |
+| CI failure | A failed check conclusion and diagnostic log, then the relevant repair/recheck | The concrete failure class and applicable local/integration check |
+| Integration conflict | Actual conflicting paths/contract and resolution evidence | The boundary or incompatible assumptions, if reusable for this task class |
+| Blocked/failed work unit | Worker result plus missing dependency/context/runtime evidence | A supported prerequisite or scope assumption; distinguish environment from product defect |
+| Validated or contradicted product assumption | Relevant domain/source/runtime evidence | A bounded product fact or open question for future grooming/research |
 
-| Event | Condition | Category | Learning guidance |
-|-------|-----------|----------|-------------------|
-| RFC review iterations > 1 | `Review` section shows multiple review passes (e.g., re-reviews, "Re-runs" > 0, multiple review gate entries) | `review` | Read the review feedback to identify the root cause. Write a generalizable lesson: what practice or check would prevent this class of review rework in any future session? |
-| QA verdict Fail | `QA` section has `QA verdict: fail` (any case) | `quality` | Read the QA findings to identify the class of issue missed. Write a generalizable lesson: what should be validated earlier (and how) to catch this type of issue before QA? |
-| Review blocking fixes | `Review` section shows blocking issues were fixed (count > 0) | `review` | Read the blocking issues to identify the common pattern. Write a generalizable lesson: what should be checked or structured differently before submitting for review? |
-| Merge conflicts encountered | `Merge-Watch` section has `Gate 5 (Conflicts)` = anything other than `pending` or `passed`, OR state file mentions conflict resolution | `process` | Identify what area/files conflicted and why. Write a generalizable lesson: what coordination or branching practice would reduce conflicts in similar work? |
-| CI failures requiring intervention | `Merge-Watch` section has `Gate 1 (CI)` = `failed` or state mentions CI fix, OR `QA` section has `Re-runs` > 0 due to CI | `process` | Identify the failure class and why it wasn't caught locally. Write a generalizable lesson: what local check or practice would catch this type of CI failure before push? |
+A CI run count, review iteration count, or repeated capture is **not evidence of a failure, cause, or frequency**. Runs may reflect new commits, cancelled jobs or routine confirmation. Inspect actual conclusions and findings. Delegated workers own implementation evidence; the root owns integrated QA, Review and delivery. Do not resurrect legacy per-unit QA/review/ship authority or query guessed task PRs. If an existing authorized remote receipt is needed, perform a read-only lookup and cite it; unavailable evidence stays unknown.
 
-**Multi-task events** (check `## Per-Task Events` section, written by Step 05 checkpoint):
+### Step 2: No defect events — still inspect product learning
 
-For multi-task sessions, per-task agents handle QA/review/ship internally and the main `Review`/`QA`/`Merge-Watch` sections remain at `pending`. Instead, scan the `## Per-Task Events` section for aggregated per-task data:
-
-| Event | Condition | Category | Learning guidance |
-|-------|-----------|----------|-------------------|
-| Multiple review iterations | Any task has `reviews > 1` | `review` | Query the PR for review comments to understand what needed revision. Write a generalizable lesson. |
-| CI failures | Any task has `CI runs > 1` (multiple runs = failures fixed) | `process` | Query the PR for CI logs to identify failure class. Write a generalizable lesson. |
-| Merge conflicts | Any task has `conflict commits > 0` | `process` | Identify which tasks conflicted. Write a generalizable lesson about task ordering or scope. |
-| Tasks blocked/failed | Any task has `verdict=Blocked` or `verdict=Failed` | `process` | Identify what blocked the task. Write a generalizable lesson about scoping or prerequisites. |
-
-If no `## Per-Task Events` section exists in a multi-task session (legacy or checkpoint failure), fall back to checking PR history directly:
-```bash
-# For each task PR in the ## Tasks table:
-gh pr view {PR_NUMBER} --json reviews,statusCheckRollup,commits
-```
-
----
-
-### Step 2: No events — skip silently
-
-If none of the conditions above match (clean session: XS task, shipped clean, no friction), log internally "no learnings detected" and skip to **Step 7** (record completion). Do NOT prompt the user.
+A clean session can validate a product assumption or expose a domain constraint. Inspect the product-learning candidates in **Step 5d** even with no defects/rework. If there are neither supported memory lessons nor durable product findings, record no learnings and proceed to **Step 7** silently. Do not fabricate a lesson to fill an artifact.
 
 ---
 
 ### Step 3: Events found — present auto-extracted learnings
 
-For each matched event, follow the learning guidance in the table above: read the relevant session state section, identify the root cause or pattern, and write a **generalizable, actionable** one-liner that any future session could benefit from. Put session-specific details (counts, file names, specific error messages) into the `detail` field, not the `learning` field. Present the list to the user:
+For each observed event, inspect the cited report/attempt and distinguish symptoms, supported cause, and hypotheses. Write a **bounded, actionable** one-liner for the task/domain where evidence applies. A single session cannot establish what usually causes failures across the product. Include the supporting artifact and applicable conditions in the detail; omit unsupported causal claims. Put session-specific details (counts, file names, specific error messages) into the `detail` field, not the `learning` field. Present the list to the user:
 
 **Autonomous default:** If `retro.auto_accept: true` in `{pm_state_dir}/config.json` (or the key is absent — auto-accept is the default), write the auto-extracted learnings directly without prompting. Log `retro: auto-accepted {N} learnings` and proceed. No user turn.
 
@@ -134,14 +116,9 @@ Write the updated `{pm_dir}/memory.md` preserving the existing frontmatter struc
 
 ### Step 5d: durable product-learning writeback
 
-After the `memory.md` write succeeds, decide whether this dev session produced reusable product knowledge that should survive beyond process memory.
+After writing any supported memory entries (or finding none), decide whether this dev session produced reusable product knowledge that should survive beyond process memory. Clean execution does not bypass this inspection.
 
-Read the dev session state again and look for **product-relevant** findings in:
-- `Decisions`
-- `QA`
-- `Review`
-- `Resume Instructions`
-- any implementation summary or notes about constraints, edge cases, handoff gaps, runtime differences, or user-visible behavior changes
+Read the recorded intake/context, implementation, QA and Review evidence artifacts and delivery results for **product-relevant** findings. Trace each candidate to an observed rule/constraint or source-backed decision; preserve the fixture, platform and scope needed to interpret it. Do not treat an implementer's summary or an old Markdown heading as corroboration of its own claim.
 
 Good writeback candidates:
 - implementation exposed a missing product rule or acceptance-criteria gap
@@ -193,7 +170,7 @@ Pass into that flow:
 - state source: `{source_dir}/.pm/dev-sessions/{slug}/session.json`
 - the key findings you extracted from the session
 
-If a specific finding is ambiguous and you cannot write it without guessing: skip that finding and log `retro: skipped ambiguous finding "{short label}"` in the state file. Do NOT ask the user mid-retro. Unambiguous findings still get written automatically. Retro never halts the flow — skipping one finding is better than pausing.
+If a specific finding is ambiguous and you cannot write it without guessing: retain the uncertainty as a clearly bounded open question when useful, omit the asserted finding, and log `retro: skipped ambiguous finding "{short label}"` in retro evidence recorded through the runner. Do not hand-edit unsupported state fields. Do NOT ask the user mid-retro. Unambiguous findings still get written automatically. Retro never halts the flow — skipping one finding is better than pausing.
 
 If this writeback fails after you decided it should happen, preserve the session, record a structured failed retro result, and stop.
 

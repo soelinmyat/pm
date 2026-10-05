@@ -87,11 +87,9 @@ State coverage is checked by the `@designer` reviewer in Step 7. Missing states 
 
 ## 5. App chrome rule
 
-> Wireframes show only the page or component content. Do NOT include app-level navigation, sidebars, or page headers — UNLESS the feature *is* the chrome (nav restructure, sidebar redesign, header redesign).
+Wireframes normally focus on page or component content. Include the existing navigation, page header, tabs or breadcrumb context when it is needed to judge how the feature is discovered, where the user is, or how they return. A normal feature can need this context even when it does not redesign the app chrome. Show the relevant surrounding frame faithfully; do not invent a new shell or reproduce unrelated navigation.
 
-When chrome IS the content, mark the wireframe `"includes_chrome": true` in metadata so reviewers don't flag it.
-
-This refines the previous "no chrome" rule, which had an unstated exception when the change concerns navigation itself.
+Mark `"includes_chrome": true` in the existing metadata whenever chrome is shown, whether it is the feature or necessary journey context. Explain that purpose in the proposal's design rationale. Content-only views remain useful for states and controls, but cannot by themselves establish discovery, orientation or return quality.
 
 ---
 

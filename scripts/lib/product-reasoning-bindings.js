@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { parseFrontmatter } = require("../kb-frontmatter");
 const { readProjectInput } = require("./safe-project-output");
+const { validateEvidenceLedger } = require("./evidence-schema");
 const { promotionTargetSlug } = require("./product-reasoning-schema");
 const { readApprovedProposal } = require("./proposal-schema");
 
@@ -89,6 +90,11 @@ function verifyDecisionBriefBindings(root, brief, options = {}) {
     : brief.source_artifacts;
   const issues = verifyArtifactBindings(root, exactBindings, { cache, budgetState });
   if (!issues.length) issues.push(...verifyCanonicalReaderMarker(brief, cache));
+  if (!issues.length) {
+    const evidence = inspectDecisionEvidenceBindings(root, brief, { cache, budgetState });
+    issues.push(...evidence.issues);
+    if (options.evidenceVerification) Object.assign(options.evidenceVerification, evidence);
+  }
   if (issues.length || !promoted) return issues;
   try {
     let verifiedProposal = cache.get(targetRef)?.bytes;
@@ -154,6 +160,93 @@ function verifyDecisionBriefBindings(root, brief, options = {}) {
   return issues;
 }
 
+// Optional provenance inspection. Missing historical provenance remains readable;
+// present inconsistent metadata is an error. None of these checks establishes entailment.
+function inspectDecisionEvidenceBindings(root, brief, options = {}) {
+  const cache = options.cache || new Map();
+  const budgetState = options.budgetState || { remaining: MAX_BINDING_TOTAL_BYTES };
+  const issues = [];
+  const references = [];
+  let ledger;
+  const readOptional = (relative) => {
+    if (cache.has(relative)) return cache.get(relative).bytes;
+    if (!fs.existsSync(path.resolve(root, relative))) return null;
+    if (budgetState.remaining <= 0) throw new Error("aggregate binding bytes exceed 64 MiB");
+    const input = readProjectInput(
+      root,
+      relative,
+      Math.min(MAX_BINDING_FILE_BYTES, budgetState.remaining)
+    );
+    budgetState.remaining -= input.bytes.length;
+    cache.set(relative, input);
+    return input.bytes;
+  };
+  for (const entry of brief.evidence_refs || []) {
+    const row = { ref: entry.ref, evidence_id: entry.evidence_id || null, status: "unverified" };
+    references.push(row);
+    if (!entry.evidence_id) {
+      row.reason = "No declared evidence ID";
+      continue;
+    }
+    if (/^ev-/.test(entry.evidence_id)) {
+      row.reason = "Legacy ID preserved; no Evidence v2 binding inferred";
+      continue;
+    }
+    try {
+      if (ledger === undefined) {
+        const bytes = readOptional("evidence/provenance.json");
+        ledger = bytes ? JSON.parse(bytes.toString("utf8")) : null;
+        if (ledger) {
+          const ledgerIssues = validateEvidenceLedger(ledger);
+          if (ledgerIssues.length)
+            throw new Error(`invalid evidence ledger: ${ledgerIssues.join("; ")}`);
+        }
+      }
+      const artifactPath = /^https?:\/\//i.test(entry.ref) ? null : entry.ref.split("#")[0];
+      const source = artifactPath ? readOptional(artifactPath)?.toString("utf8") : null;
+      const record = ledger?.records.find((item) => item.evidence_id === entry.evidence_id);
+      if (ledger && !record) issues.push(`${entry.ref}: unknown evidence ID ${entry.evidence_id}`);
+      if (
+        record &&
+        artifactPath?.startsWith("evidence/") &&
+        !record.artifact_paths.includes(artifactPath)
+      )
+        issues.push(
+          `${entry.ref}: evidence ID ${entry.evidence_id} is not bound to artifact ${artifactPath}`
+        );
+      const markerPresent =
+        source?.includes(`[evidence:${entry.evidence_id}]`) ||
+        source?.split(/\r?\n/).some((line) => line.trim() === `Evidence-ID: ${entry.evidence_id}`);
+      if (
+        source &&
+        Number(parseFrontmatter(source).data.provenance_version) === 2 &&
+        !markerPresent
+      )
+        issues.push(`${entry.ref}: source does not cite declared evidence ID ${entry.evidence_id}`);
+      if (record && artifactPath && record.artifact_paths.includes(artifactPath) && markerPresent) {
+        row.status = "artifact-bound";
+        row.reason = "Ledger record and source marker agree; claim interpretation is unverified";
+      } else {
+        row.reason = !ledger
+          ? "Evidence ledger unavailable"
+          : !source
+            ? "Cited source unavailable or external"
+            : "Source citation not verifiable";
+      }
+    } catch (error) {
+      issues.push(`${entry.ref}: ${error.message}`);
+      row.reason = "Provenance inspection failed";
+    }
+  }
+  return {
+    issues,
+    references,
+    all_declared_ids_artifact_bound:
+      references.length > 0 && references.every((row) => row.status === "artifact-bound"),
+    claim_entailment_verified: false,
+  };
+}
+
 function canonicalReaderPaths(brief) {
   if (brief.kind === "think")
     return {
@@ -212,6 +305,7 @@ module.exports = {
   MAX_BINDING_TOTAL_BYTES,
   canonicalReaderPaths,
   lineagePathMatches,
+  inspectDecisionEvidenceBindings,
   proposalProjectRoot,
   verifyArtifactBindings,
   verifyCanonicalReaderMarker,

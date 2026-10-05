@@ -196,7 +196,7 @@ Known limits, header names, upgrade path.
 Official SDKs (languages), native integrations, marketplace connectors.
 
 ## Architectural Signals
-What the API surface reveals about their product architecture and data model maturity.
+What the documented external contract supports for named integration jobs, with bounded hypotheses rather than claims about internal architecture, maturity or product-market fit.
 ```
 
 ---
@@ -307,7 +307,7 @@ sources:
 
 ## Overall Sentiment
 Rating: {X.X}/5 on G2 ({N} reviews) | {X.X}/5 on Capterra ({N} reviews)
-Trend: improving / stable / declining (based on recency-weighted sample)
+Trend: improving / stable / declining / unknown (requires comparable sampling and product context)
 
 ## Top Praise Themes
 1. {Theme}: summary, representative quote.
@@ -318,7 +318,7 @@ Trend: improving / stable / declining (based on recency-weighted sample)
 2. ...
 
 ## High-Severity Signals
-Complaints involving data integrity, security, billing, or support failure. Even if low-frequency, these reveal risk posture.
+Complaints involving data integrity, security, billing, or support failure. Even if low-frequency, state potential harm, verification status, affected context and counter-evidence.
 
 ## Support Quality Signals
 What reviewers say about support responsiveness, quality, onboarding.
@@ -330,7 +330,7 @@ Reasons reviewers cite for switching away or considering alternatives.
 Features users consistently ask for that are absent.
 
 ## Reddit / Community Signals
-Themes from r/[industry] or relevant forums. More candid than review sites.
+Themes from r/[industry] or relevant forums. State selection, moderation and verification limits rather than assuming greater candor.
 
 ## Analyst Notes
 Inferences drawn from the data beyond what is directly stated. Label as "Inference:" to distinguish from sourced findings.
@@ -343,10 +343,10 @@ Inferences drawn from the data beyond what is directly stated. Label as "Inferen
 Before marking a competitor complete, verify all five files exist and contain:
 
 - [ ] `profile.md` — pricing table complete, strengths/weaknesses present
-- [ ] `features.md` — at least 3 domains covered, changelog section present
-- [ ] `api.md` — auth model documented, entity model present (or "No public API" noted)
+- [ ] `features.md` — relevant observed domains covered, changelog findings or an honest search limitation present
+- [ ] `api.md` — auth model documented, entity model present (or public documentation search bounds and access uncertainty noted)
 - [ ] `seo.md` — top keywords table present (or "SEO data unavailable" noted with reason)
-- [ ] `sentiment.md` — at least 2 praise themes and 2 complaint themes present
+- [ ] `sentiment.md` — only supported praise/complaint themes reported; zero themes is valid when the sample does not support them
 - [ ] Every file calibrates decision-relevant claim confidence by authority, independence, recency, and claim fit
 - [ ] Every materially touched file passes Evidence v2 citation binding and standard PM validation
 

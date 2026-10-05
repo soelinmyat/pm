@@ -39,6 +39,12 @@ Run `scripts/start-status.js --format list-rows` against the current project dir
 
 3. **Cache the payload in memory** for the remainder of the conversation. When the user asks a follow-up ("expand proposals", "just the RFCs", "show me PM-45"), re-use the cached payload — do **not** re-invoke the script unless the user explicitly says "refresh" or "re-scan."
 
+   Preserve `meta.generatedAt` with the snapshot. Every human-readable overview or
+   follow-up names when it was taken and its elapsed age; calculate elapsed age
+   from that timestamp, not from a row's last update. Do not describe cached
+   phases, relative row ages, or staleness as a fresh observation. For example:
+   `Snapshot: 14:20 UTC (18 minutes ago). No stale items in that snapshot.`
+
 4. **Session-file locations reference** (copied from `skills/start/steps/03-resume.md` for cross-reference; the emitter already applies these rules — do not duplicate the scan):
 
    All session state lives source-side in `{source_dir}/.pm/`:

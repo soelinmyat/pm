@@ -31,7 +31,7 @@ test("strong reasoning artifact is traceable, comparative, and action-ready", ()
   const result = scoreDecisionBrief(fixture("strong"));
   assert.equal(result.valid, true);
   assert.equal(result.passed, true);
-  assert.equal(result.score, 10);
+  assert.equal(result.score, 9); // Legacy fixture has no declared independent chain IDs.
 });
 
 test("schema-valid superficial reasoning scores materially lower", () => {
@@ -123,7 +123,7 @@ test("decision rationale must name a token specific to the chosen alternative", 
     "Refresh keeps source selection and conflict decisions under careful human control.";
   const result = scoreDecisionBrief(decision);
   assert.equal(result.valid, true);
-  assert.equal(result.checks.confirmed_decision, false);
+  assert.equal(result.checks.decision_rationale, false);
 });
 
 test("quality CLI returns structured schema diagnostics for every malformed JSON root", (t) => {

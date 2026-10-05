@@ -1,8 +1,7 @@
 # Strategy Interview Guide
 
 Reference for pm:strategy. Ask questions one at a time. Start with Essentials.
-Move to Depth based on user energy — expansive answers invite follow-ups,
-terse answers mean move on.
+Reuse answers already confirmed in source material. Cover the decisions below with the minimum forcing questions; terse answers do not justify inventing priorities, alternatives or success measures. Depth follows relevance and user interest rather than answer length.
 
 If `{pm_dir}/insights/business/landscape.md` exists, substitute named competitors and segments into
 questions marked [use landscape data].
@@ -11,7 +10,7 @@ questions marked [use landscape data].
 
 ## Essentials (always ask these)
 
-These five questions are the minimum viable strategy interview. Cover all of them.
+Cover these decision areas using existing confirmed answers or concise questions. Do not ask a question whose answer is already available.
 
 **1. What do you build?**
 > "Describe the product in one or two sentences — what it does, not what it aspires to."
@@ -58,7 +57,7 @@ Strong answer: "Facilities management software has historically been desktop-onl
 ---
 
 **5. What are you NOT doing?**
-> "Name at least three things this product explicitly won't do, and briefly why."
+> "Which adjacent outcomes are you choosing not to pursue, and why?"
 
 This is the hardest question for most founders. Push for specificity.
 Vague non-goals are noise. Sharp non-goals are strategy.
@@ -72,10 +71,21 @@ Strong answer:
 
 ---
 
+## Minimum decision questions
+
+After framing the audience/problem, check whether the supplied context supports these choices. Ask only the smallest unanswered forcing question; the purpose is a defensible choice, not a longer interview.
+
+- **Priority and opportunity cost:** "Which outcome matters first this phase, and what are we postponing to pursue it?" Ground the ranking in observed pain, strategy constraints, or a clearly labeled assumption. A short answer can support one priority; do not manufacture three.
+- **Selectable alternative:** "What credible alternative could we choose instead, including staying with the current approach, and why does this direction win?" Name its sacrifice and the condition that would make it preferable.
+- **Success and reversal:** "What observable result would tell us this choice is working, and what would make us change course?" Use a baseline/target/time horizon where known; otherwise record the unknown and a concrete way to calibrate it. Do not invent impact numbers.
+
+Example: "Prioritize supervisor proof-of-work capture before payroll integration because two current customers report invoice disputes. Compare adding timestamped evidence to their existing WhatsApp workflow with replacing the work-order system. Measure completed jobs with usable evidence and dispute-resolution time; broader demand and current baselines remain unverified. Reconsider if supervisors cannot capture evidence during their normal job."
+
+---
+
 ## Depth Questions (follow user energy)
 
-Ask these if the user's Essentials answers were detailed, or if they explicitly
-want to go deeper. Do not ask all of them — pick the most relevant 2-3.
+Use a Depth question when its answer could change the choice or the user wants further exploration. Do not ask all of them or infer strategic depth from answer length.
 
 **Competitive positioning** [use landscape data if available]
 > "How do you stack up against [Competitor A] and [Competitor B]?
@@ -113,11 +123,10 @@ GTM is a strategic decision that shapes what you build first. For 0-to-1 product
 
 **Success metrics**
 > "How will you know this strategy is working 12 months from now?
-> Pick 2-3 leading indicators, not just revenue."
+> Which early behavior and eventual outcome should improve? Include retention or revenue when relevant, and distinguish those lagging outcomes from leading indicators."
 
-Weak answer: "Revenue growth."
-Strong answer: "Time-to-first-completed-work-order under 10 minutes. 60-day
-  retention above 80%. Net Revenue Retention above 110%."
+Weak answer: "Revenue growth, somehow."
+Strong answer: "Leading: supervisors capture usable proof on their first work order. Outcomes: fewer invoice disputes and higher 60-day retention. Baselines and targets are not yet known; establish them with the two pilot customers before claiming improvement."
 
 ---
 
@@ -147,6 +156,4 @@ This makes the interview faster and the answers more precise.
 
 After Essentials (and any Depth questions), say:
 
-> "That's enough to write a solid strategy doc. Anything you want to add before I draft it?"
-
-Then write `{pm_dir}/strategy.md` without further questions.
+Summarize the actual choice, rejected alternative, priority, success signal and largest uncertainty. When these are already confirmed, write `{pm_dir}/strategy.md`; when a consequential choice remains unsupported, ask the one question that resolves it or retain it as an explicit provisional decision. Do not turn optional depth into required ceremony.

@@ -56,7 +56,8 @@ sources: []
 ```
 
 Notes:
-- `sources: []` is valid for purely internal writebacks
+- `sources: []` remains valid for legacy internal writebacks. A decision record documents what was chosen and why; it is not an independent customer observation or proof the choice improves outcomes. Label observed behavior, hypotheses, decisions, and domain constraints separately. Cite the exact source artifact and relevant claim when available; retain meaningful uncertainty.
+- Existing v2 artifacts retain their marker and every claim citation. Register reviewed Evidence-ID bindings before calling the helper; invalid or unbound new findings fail before any artifact/index/log write. Do not downgrade v2 to legacy to avoid a citation failure.
 - If the file already exists, preserve `created`, preserve existing `cited_by`, and update `updated`
 - If you are extending an existing internal file with external research later, switch `source_origin` to `mixed`
 
@@ -84,7 +85,7 @@ Rules:
 - `artifactMode` lets the helper bias route suggestions toward the right domains
 - `findings` must contain at least one durable point
 - `description` becomes the row description in `evidence/research/index.md`
-- the script preserves existing `created`, `sources`, and `cited_by` on updates
+- the script preserves all existing metadata (including confidence, segments, provenance markers, `created`, `sources`, and `cited_by`) on updates; incoming `sources` append without removing another origin’s references
 
 ## Naming
 
@@ -92,7 +93,11 @@ Preferred filenames:
 - Dev: `{slug}-implementation-learnings.md`
 - Groom: `{topic-slug}-decisions.md`
 
-Reuse the existing file if it already exists for that slug.
+Reuse the existing file if it already exists for that slug. Updates are additive: preserve prior findings, counterevidence, open questions and unsupported custom sections. The payload is new material, not a replacement snapshot. Exact duplicate findings are not appended twice. When internal and external origins become mixed, the helper labels their findings with `[internal]` and `[external]`; preserve these prefixes in exact route selection and supersession text. Existing mixed findings with unknown ownership remain ambiguous, so they cannot be superseded.
+
+To correct an owned prior claim, pass `supersedes: [{"finding":"exact previous finding text", "replacement":"corrected finding with its evidence", "reason":"why the old interpretation no longer applies"}]`. A new correction must match an exact current finding from the incoming `sourceOrigin`. If the artifact already recorded that exact finding, replacement, reason, and ownership, and still contains the replacement, a retry may finish the index/log projections without repeating the history. A conflicting correction or missing current replacement is rejected. An ambiguous or other-origin finding is retained. The helper moves the old interpretation and reason into `Superseded Findings`; it does not silently erase it. Adding another viewpoint is counterevidence, not supersession.
+
+For example, retain “Managers reported a hidden destination” when adding an administrator’s positive experience. If a dated external capability claim became obsolete, an external-origin update may explicitly supersede it with the supported new behavior and date. A chosen Groom tradeoff remains a decision, not customer validation.
 
 ## Body Template
 
@@ -179,7 +184,7 @@ Rules:
    }
    ```
 
-6. Present those suggestions to the user and confirm which routes to keep. After that, apply the accepted routes with:
+6. Evaluate suggestions against the actual relevant claims and counterevidence, then present those suggestions to the user and confirm which routes to keep. Supply exact `selected_findings` text and its Evidence-ID markers where applicable; keyword overlap and matching file names are not substantive support. After that, apply the accepted routes with:
 
    ```bash
    cat <<'JSON' | node ${CLAUDE_PLUGIN_ROOT}/scripts/route-selection.js | node ${CLAUDE_PLUGIN_ROOT}/scripts/insight-routing.js --pm-dir "{pm_dir}"
@@ -197,7 +202,7 @@ Rules:
    - an array like `[1, 3]`
 
    `route-selection.js` converts the numbered choices into the exact `routes` payload expected by `insight-routing.js`.
-   The routing helper also rewrites affected existing insights into the compiled synthesis template, so do not patch the body manually afterward.
+   The routing helper retains the existing analyst judgment and compiles source context. Complete its explicit synthesis contract before describing the changed insight as active or supported; a mechanically assembled digest is not an analyst conclusion.
 7. Do not hand-edit `{pm_dir}/evidence/research/index.md`, `{pm_dir}/evidence/research/log.md`, or the routed insight indexes/logs after the helper scripts run unless you are fixing a script failure.
 
 ## Index / Log Rules
@@ -205,7 +210,7 @@ Rules:
 For `{pm_dir}/evidence/research/index.md`:
 - add or update one row for the file
 - description should reflect the durable takeaway, not the workflow event
-- status column should be `internal` for these writebacks
+- status should describe the actual source origin (`internal`, `external`, or `mixed`) unless an explicit status was supplied
 
 For `{pm_dir}/evidence/research/log.md`:
 - append `create evidence/research/{file}.md` when new

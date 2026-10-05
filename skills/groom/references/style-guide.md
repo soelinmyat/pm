@@ -26,7 +26,7 @@ Collapse parallel reviewer results into a summary table:
 | Competitive | Strengthens | Good differentiation vs. Cursor |
 | EM | Feasible | Build on existing parser |
 
-Then list only blocking items as bullets. Advisory items after user acknowledges blockers.
+Then show blocking items and any material advisory limitation before the decision. Low-confidence conclusions, accepted domain risks and uncertainties that could reverse scope or value remain visible; harmless polish suggestions can stay in the detailed artifact. Do not hide consequential uncertainty behind an optional reveal.
 
 ---
 
@@ -51,7 +51,7 @@ Then list only blocking items as bullets. Advisory items after user acknowledges
 > | Competitive | Strengthens | Fills gap no competitor covers |
 > | EM | Feasible | Build on `scripts/parser.js` |
 >
-> No blocking issues. 2 advisory notes — want to see them?
+> No blocking issues. Material limitation: demand beyond the two pilot teams is unverified; the first release is scoped to their workflow. Two polish notes are in the detailed review.
 
 ### Team review (Step 8 — parallel agents)
 

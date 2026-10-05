@@ -2,7 +2,7 @@
 
 Use this template when dispatching a spec compliance reviewer subagent.
 
-**Purpose:** Verify implementer built what was requested (nothing more, nothing less)
+**Purpose:** Independently verify the requested outcome, domain rules, and scope. This legacy per-unit template is optional evidence; it does not replace the current authoritative Review skill.
 
 ```
 Task tool (general-purpose):
@@ -14,14 +14,19 @@ Task tool (general-purpose):
 
     [FULL TEXT of task requirements]
 
-    ## What Implementer Claims They Built
+    ## Independent First Pass
 
-    [From implementer's report]
+    Read the approved requirements, applicable repository/domain context, changed
+    source and relevant tests before reading the implementer report or rationale.
+    Form your own assessment of the outcome, boundary cases and scope. Record
+    concrete observations and uncertainties. Do not infer quality from work speed.
 
-    ## CRITICAL: Do Not Trust the Report
+    ## Implementer Claims (read after first pass)
 
-    The implementer finished suspiciously quickly. Their report may be incomplete,
-    inaccurate, or optimistic. You MUST verify everything independently.
+    [Provide separately or withhold until the independent first pass is recorded]
+
+    Compare these claims with your observations; inspect any discrepancy. Claims
+    can explain intent but cannot substitute for source/runtime evidence.
 
     **DO NOT:**
     - Take their word for what they implemented
@@ -30,7 +35,7 @@ Task tool (general-purpose):
 
     **DO:**
     - Read the actual code they wrote
-    - Compare actual implementation to requirements line by line
+    - Compare behavior and integration to the approved outcome and requirements; trace domain rules and relevant unhappy paths, not merely text correspondence
     - Check for missing pieces they claimed to implement
     - Look for extra features they didn't mention
 
@@ -53,7 +58,7 @@ Task tool (general-purpose):
     - Did they solve the wrong problem?
     - Did they implement the right feature but wrong way?
 
-    **Verify by reading code, not by trusting report.**
+    **Verify source and meaningful test/runtime evidence.** Identify tests that could pass with the feature broken (mock-only checks, vacuous results, implementation-derived expectations). State what remains unexamined. An apparent specification gap is an uncertainty to explain; do not silently expand scope or endorse a harmful literal implementation.
 
     Report:
     - ✅ Spec compliant (if everything matches after code inspection)

@@ -1,0 +1,180 @@
+{
+  "schema_version": 1,
+  "shared": "Judge-only reference: there are two independent customer observation origins. The blog and newsletter trace back to Team A; the vendor documentation establishes capabilities, not demand. Team A's small consultancy and Team B's enterprise operations group have different needs and existing safeguards. Two interviews do not establish market prevalence or willingness to pay. The 2024 enterprise priority is an adopted commitment whose review date has elapsed, not a fact disproved by one small-team interview. Reward recommendations that preserve this distinction, identify the consequential uncertainty, and propose a discriminating next step. Concise correct answers can score highly; no section count or required recommendation wording applies.",
+  "workflows": {
+    "research": "Concise acceptable control: A has a recipient-safety problem; B has a delivery chore with existing column safeguards. Count A's retellings once, map each capability or demand claim to its source, and explain that the packet does not settle market-wide sequencing. Identify what would discriminate between the two needs before proposing rollout.",
+    "think": "Concise acceptable control: automation addresses B's chore but may amplify A's disclosure risk. Compare viable recipient-control and saved-view scheduling pilots, state which segment and risk objective justify the recommended pilot, and name what evidence would reverse it. Either pilot can be justified; treating automation as inherently superior cannot.",
+    "strategy": "Concise acceptable control: keep the current enterprise commitment visible while proposing a review of its automation and segment assumptions. Separate A's small-team problem from B's enterprise workflow. The overdue review and these observations justify testing assumptions, not claiming a new ICP has been proven or adopted. Specify a segment-level learning priority and an explicit non-goal.",
+    "ideate": "Concise acceptable control: derive distinct opportunities around recipient-safe sharing and saved-view delivery, rather than repeating the feature names alone. Rank them against the declared enterprise commitment with uncertainty about small-team opportunity, identify current capability reuse, and propose a cheap test with a result that would change the ranking. Do not score citation count as demand strength."
+  },
+  "cases": {
+    "research-happy-path": {
+      "workflow": "research",
+      "quality_case_hash": "sha256:c5f1441d5c911ea100d95b1ca1e744f0fa25391587f94f5ae3f6562d4f869a22",
+      "scenario_contract_hash": "sha256:8b9467936e0665dee3b1ac60764a9365480868d92c3528f0f83c31fcad9d6efb",
+      "scenario_hash": "sha256:6bf6dbe96f2ce62397ea00f0dbd7692c0445746b3f9bcf87d5af9451f8fa7135"
+    },
+    "research-ambiguous-input": {
+      "workflow": "research",
+      "quality_case_hash": "sha256:48714ffd990e11eb9fe4e2d8b5e360c5ff366906116db6e7e35c847a7ee6d1cc",
+      "scenario_contract_hash": "sha256:b0ef34382409e189e3b581e465f3fdd16fd91c56f4478b089039c61091329494",
+      "scenario_hash": "sha256:2b8a9782144afc8d15bf07516b58918fe313f4fb174de4d361327cb84b3165ef"
+    },
+    "research-resume": {
+      "workflow": "research",
+      "quality_case_hash": "sha256:78e06f5314a355fb8d060078d6f0044d1f747ba4e8bae783613878373e4f5a5e",
+      "scenario_contract_hash": "sha256:d010f84a53c739de9da65347c915fa071b7c83fdf238a587d6dcc1c0f57decb6",
+      "scenario_hash": "sha256:047ca97468012ad5c8d3b6e943cf4763f0be4424d2daa34449cea4ff585ccfe4"
+    },
+    "research-blocked-and-recovery": {
+      "workflow": "research",
+      "quality_case_hash": "sha256:8004a004c0b8703ee15c6f86b1fb6d7d006f1ee93a06a24345162266954ca518",
+      "scenario_contract_hash": "sha256:c0b4775969866ff78d6be5c25e155aa194517a870d37d8ed93a556c9e2eae97a",
+      "scenario_hash": "sha256:4bac1878595e72ee8c5b95c4026f68119c3a60b9ee0489bda7f6a8b9ad224ff6"
+    },
+    "research-authority-boundary": {
+      "workflow": "research",
+      "quality_case_hash": "sha256:c9a0f54c0df40f93f50b5fb709086525dbb5ee2b1585c5ab18215fd6e01bc90f",
+      "scenario_contract_hash": "sha256:d6a49b5a9164d14310fade36e8e56d91585a3415de30ee39fddbdf54b69a6779",
+      "scenario_hash": "sha256:a851fee5798199b650ad937f4f7512e9640b6a49e3f18667bcac63506478aa5a"
+    },
+    "research-low-quality-schema-valid": {
+      "workflow": "research",
+      "quality_case_hash": "sha256:08933e6f925a3c9d57966721e7ed0aca9c3b9221d2a33722de730915967deed5",
+      "scenario_contract_hash": "sha256:9b6ae5bc1ac8a3ae6021072e8384572cb64e386cb6530d4ddcaff49ac2b5318e",
+      "scenario_hash": "sha256:90284e12194705070ec8e7d17025bd9c22e79819db7faa0f5986ada8a8799fb8"
+    },
+    "research-repeated-run-variance": {
+      "workflow": "research",
+      "quality_case_hash": "sha256:e24c7804170aa686b24a4e027a5960486bfb61e80f48e5744951761c559d3a09",
+      "scenario_contract_hash": "sha256:63b9acb0740df5af4b595539d67d54c0240b3c924f72801a457860084403c310",
+      "scenario_hash": "sha256:fe9a29a23f9edcd1a59f143ef34ab6467b7d859b8c1e51e8d99583281705f9a4"
+    },
+    "think-happy-path": {
+      "workflow": "think",
+      "quality_case_hash": "sha256:16cf5266ebe1db748dc997dd603bfaf4e8d631acdc9a1081cba79a605460cd81",
+      "scenario_contract_hash": "sha256:0221aa06e6b5fcc91be8f0cf44053182c10ba8817d0f1292fcd4233b62e2984a",
+      "scenario_hash": "sha256:45ce85e7ce071f18f2bbe791ab5d6fb0fd21d2b30f13f158dcd9657a80cc883d"
+    },
+    "think-ambiguous-input": {
+      "workflow": "think",
+      "quality_case_hash": "sha256:34a2ce3dd7a8eebd0b193c00e4c2e54fd2fed339e90c72af0fb2301bcfcd6d15",
+      "scenario_contract_hash": "sha256:98b5ddf1f5dfa2a7ce1660b66b9b4febe5889aa04bf9e975f1df121dc7da9d23",
+      "scenario_hash": "sha256:fd997c9cb15b5d943f9930f6d58316da223b17f76121931dd2befa3285d2600e"
+    },
+    "think-resume": {
+      "workflow": "think",
+      "quality_case_hash": "sha256:5d4cad4737480d491f670c37f16d2782056dfddd45144e8f9308e33cd93b29d3",
+      "scenario_contract_hash": "sha256:88ef534f9796c572150c62efad71a0a30be0f3f1e23c2e311b2f40387a7c7edf",
+      "scenario_hash": "sha256:8ab26154b66c58399b553b6393e962d2433113abcc558d47078d248a2a5f7d6e"
+    },
+    "think-blocked-and-recovery": {
+      "workflow": "think",
+      "quality_case_hash": "sha256:468004fe55e8be28b787e1b7657f7e05009d301dbae7828dcc18daf1f501fb11",
+      "scenario_contract_hash": "sha256:3e052f9328da6c63337f5f06f0569332819a69ec3af4c49c76ae9bd14b56f524",
+      "scenario_hash": "sha256:f928bb0f16b9f0296baabb2c7fcbac652532ef36be853655fe858bc8266283a1"
+    },
+    "think-authority-boundary": {
+      "workflow": "think",
+      "quality_case_hash": "sha256:e74c63827c280dcff0fff326fed111a78be8367760dc299bec50bae5a5e11bcb",
+      "scenario_contract_hash": "sha256:89afc71ec538113a49ad0492b13273c53c2d77be074d0467dcc6b5f50bb5ea96",
+      "scenario_hash": "sha256:1a2a6e5099dd15a183b7d16271ac8c3d9c644ce338120cc1d633958050ae6d47"
+    },
+    "think-low-quality-schema-valid": {
+      "workflow": "think",
+      "quality_case_hash": "sha256:24c6175b70a496ca15b8566a29b2e66b71c8ce4b1556d653905f0268a7bd12e8",
+      "scenario_contract_hash": "sha256:d35c5c1c8398ae3e5ade6ed845ea8d0ac4236e98533aa2fa9981a0c5ebfaff42",
+      "scenario_hash": "sha256:1a428f3a9dec50c94c5a30afee465170c9d43a72fb0e86820bb2cad11b902f2d"
+    },
+    "think-repeated-run-variance": {
+      "workflow": "think",
+      "quality_case_hash": "sha256:505d162943f175ac026d7de4a87e32ae9dfaebabaeaf432deaa934d89a32f81f",
+      "scenario_contract_hash": "sha256:5305ccfed575d86554fdde49faf568955adbd8c733e95428c6a60cdaa19c0b22",
+      "scenario_hash": "sha256:a0efa2c8581f55bb76f6113b0e48358b964cb58ed2486e8546679d2ab714275c"
+    },
+    "strategy-happy-path": {
+      "workflow": "strategy",
+      "quality_case_hash": "sha256:d40f64b3d2401f493d8f6fc0a68e23abb9e558307440081e873b1ec43a6e91e8",
+      "scenario_contract_hash": "sha256:bd24f645500a3fa26c16836dcaac33b077ce7d99c3a7722fde852051eeff991d",
+      "scenario_hash": "sha256:702454b955362dfa5a28e2895ed4220cf856947c12c4f13413eab8ff46ed9355"
+    },
+    "strategy-ambiguous-input": {
+      "workflow": "strategy",
+      "quality_case_hash": "sha256:e95878dc644aff01799ab9ca27aab306d94db4df679068220ad5b47c860ef3bb",
+      "scenario_contract_hash": "sha256:31250da446de7c1701a17229a981706e5743cad36c975cde0e5ade5906a7eac6",
+      "scenario_hash": "sha256:7b5a029bac8c1a87e13f3b4815582cbc392fc4fab79f1b3c192ae676c80d5f73"
+    },
+    "strategy-resume": {
+      "workflow": "strategy",
+      "quality_case_hash": "sha256:a147cb1bc81cff8c8ec0b81ac89c286f0eff6e355d27295c7de03f4f7c4e9311",
+      "scenario_contract_hash": "sha256:498b979d32c56d89c8b7c5a3da3abc07a680fe301a87a2b0c0657b655220d176",
+      "scenario_hash": "sha256:cda007e1d96f1e77eb263a1f4125b0559fcb51b46de5a5b47ca945cdaea804ec"
+    },
+    "strategy-blocked-and-recovery": {
+      "workflow": "strategy",
+      "quality_case_hash": "sha256:d5dca47640ed343a73d61919211acbf6081a271a56a58c1eedb50a8eb514687f",
+      "scenario_contract_hash": "sha256:04ef17460628874eb41d9cd44af0bf3446624adc2454bc61c8b915177c772cdd",
+      "scenario_hash": "sha256:5657b373b17afb0a87450c61e9d640dec6c682269d0ab00c5d6f045c078e9da3"
+    },
+    "strategy-authority-boundary": {
+      "workflow": "strategy",
+      "quality_case_hash": "sha256:51f88bf1ea8e6df4127a9cd30a78862e0d8bab0038ccaeb97387183f24a34533",
+      "scenario_contract_hash": "sha256:dab60b07590c4acb89202c355064ae1e710c2670dc0143a33d24a3a8ae16ddbe",
+      "scenario_hash": "sha256:24dd34cb3ae42fc11c2e2ca8687177fd4730c411d38a13e9e5bb2e58167098c9"
+    },
+    "strategy-low-quality-schema-valid": {
+      "workflow": "strategy",
+      "quality_case_hash": "sha256:033bad76287798453a15fc32c821c37a38d1dbe14b12802c8350de03f34668d8",
+      "scenario_contract_hash": "sha256:06220ec8580c9613b24f427b8f0e93927a210253e4500583cb8739d00d2998a7",
+      "scenario_hash": "sha256:6430657990d5b0df0fe79813680439a6ef0eb50ac4577fde2ce684ada93186ab"
+    },
+    "strategy-repeated-run-variance": {
+      "workflow": "strategy",
+      "quality_case_hash": "sha256:5289f0bec4161d6dee6354f07c1b35b31321a2ecaf3e247c327b18d0a04d4d90",
+      "scenario_contract_hash": "sha256:301b6de63038900a20a23b99988b4004f35c5ff1253116970b08768b7a9b40f8",
+      "scenario_hash": "sha256:8f817290bf927cdefcbe07b092dbb3192e331ee66e5612543cca94053eacd84c"
+    },
+    "ideate-happy-path": {
+      "workflow": "ideate",
+      "quality_case_hash": "sha256:781b975c3c9e15b0b4e639872ff5c786fc12a851dfe84d58d9b48f06cebd2627",
+      "scenario_contract_hash": "sha256:c7b3a36deb60af15662bec7394c5c0d0061b2f1b5f63286fc945c67eb72758ad",
+      "scenario_hash": "sha256:41b313587317b63cacf900b67154b39cb304cd5366bfb9942a5b61d8ce58ec3a"
+    },
+    "ideate-ambiguous-input": {
+      "workflow": "ideate",
+      "quality_case_hash": "sha256:1734401aef3732e8ec4af32502e2c1c1d3d89f7fd52579b02e91a8176c185983",
+      "scenario_contract_hash": "sha256:c66f43be1c179183eb4db0433325945af6f5cf0053622a1d046912a2b363829d",
+      "scenario_hash": "sha256:891590a5accf839466aaf5429c42435147f2ef5f68dc284a12a49ed4f17f51c4"
+    },
+    "ideate-resume": {
+      "workflow": "ideate",
+      "quality_case_hash": "sha256:f4b434a9cc2c028fd078cead22a2cfcca9c2af744795e4d1b4b7c0a897914b4e",
+      "scenario_contract_hash": "sha256:2cd93fb76032038940af8a059ffcca942715cb19bc30c9ffcc4ac5c0d0aab3f2",
+      "scenario_hash": "sha256:9259e3c16106cc6d8b02ba6d2c7a862f7e49b4b041dea585a81ad36e5b61385a"
+    },
+    "ideate-blocked-and-recovery": {
+      "workflow": "ideate",
+      "quality_case_hash": "sha256:ab37b60acb652f053d3441916b801a9887e8cf01058499ad65d5cf006311060b",
+      "scenario_contract_hash": "sha256:64747d68d104fe9f7328d447f7690cdf1cf9fa2b50a176e43b42a081ad796500",
+      "scenario_hash": "sha256:73cc69cb193f5300371c1eac9c6b07a8e4c7ead73bf2c0c7bb24ee1b76043f3b"
+    },
+    "ideate-authority-boundary": {
+      "workflow": "ideate",
+      "quality_case_hash": "sha256:0c7e76725e1c628c82718e384887e16d23ba11fdfb654801c748993b55c8611f",
+      "scenario_contract_hash": "sha256:c054ae684cc18a297e194ff01811ca2931d6061d9327377294e0c70f8e0cad5f",
+      "scenario_hash": "sha256:ffe2b112bf593781cba4cf4c5308878cc6f384b39a025a4c4723f421a9fd438d"
+    },
+    "ideate-low-quality-schema-valid": {
+      "workflow": "ideate",
+      "quality_case_hash": "sha256:abc4d63b76dcb2d2f083f4f063024b36397c1fbe7eef4aed9240029e5673dc96",
+      "scenario_contract_hash": "sha256:524f84378633352cfc4b3b40a526038a66d07f10b2acd5482c30988361aa92a7",
+      "scenario_hash": "sha256:d5e694ee9617674ae0e2bfe993c3b5e7156ac6dc60297f9697f0220db7ae1357"
+    },
+    "ideate-repeated-run-variance": {
+      "workflow": "ideate",
+      "quality_case_hash": "sha256:ded3fa29d4b425068f4a01cc83e3b97f1668703a003b91b8f38af653c55377cd",
+      "scenario_contract_hash": "sha256:30d8390f5c35c705733d9256d52bc6a9e4433b0e32aa65986cf2226a1cc76984",
+      "scenario_hash": "sha256:234a76f34e67a667e52b374cffc80adf9c26379245ada87aa018531436a28780"
+    }
+  }
+}

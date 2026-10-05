@@ -355,7 +355,7 @@ function main(argv = process.argv.slice(2)) {
     if (json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     else
       process.stdout.write(
-        `Proposal quality: ${result.score}/${result.maximum} (${result.quality_passed ? "pass" : "fail"})\n`
+        `Proposal structural readiness: ${result.score}/${result.maximum} (${result.structural_passed ? "pass" : "fail"}); semantic quality unverified\n`
       );
     return result.quality_passed ? 0 : 1;
   } catch (error) {

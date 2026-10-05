@@ -50,7 +50,7 @@ ${summary}
 `;
 }
 
-test("rewriteInsights compiles a linked draft insight into canonical synthesis", () => {
+test("rewriteInsights preserves a linked draft and adds a source digest without inventing synthesis", () => {
   const { pmDir, cleanup } = createPmDir();
   try {
     writeFile(
@@ -98,24 +98,22 @@ Seeded from strategy.md. No evidence routed yet.
       { now: "2026-04-13" }
     );
 
-    assert.equal(result.insights[0].action, "rewritten");
-    assert.equal(result.insights[0].status, "active");
-    assert.equal(result.insights[0].confidence, "medium");
+    assert.equal(result.insights[0].action, "digest-updated");
+    assert.equal(result.insights[0].status, "draft");
+    assert.equal(result.insights[0].confidence, "low");
 
     const content = fs.readFileSync(path.join(pmDir, "insights/product/loop.md"), "utf8");
     assert.equal((content.match(/last_updated:/g) || []).length, 1);
-    assert.match(content, /status: "active"/);
-    assert.match(content, /confidence: "medium"/);
-    assert.match(content, /## Synthesis/);
-    assert.match(
-      content,
-      /Telemetry Coverage says Telemetry coverage currently stops at coarse skill invocation events\./
-    );
-    assert.match(content, /## Key Findings/);
+    assert.match(content, /status: "draft"/);
+    assert.match(content, /confidence: "low"/);
+    assert.match(content, /## Source Digest/);
+    assert.match(content, /Telemetry coverage currently stops at coarse skill invocation events\./);
+    assert.match(content, /## Findings/);
     assert.match(content, /1\. The existing logs do not capture per-step spans or retries\./);
-    assert.match(content, /2\. A fresh KB can still have uncited evidence and hungry insights\./);
+    assert.match(content, /1\. A fresh KB can still have uncited evidence and hungry insights\./);
     assert.match(content, /## Confidence Rationale/);
-    assert.doesNotMatch(content, /No evidence routed yet/);
+    assert.match(content, /No evidence routed yet/);
+    assert.match(content, /synthesis_state: "needs-synthesis"/);
   } finally {
     cleanup();
   }
@@ -177,14 +175,14 @@ Seeded from routed evidence. Synthesis refresh pending.
     assert.equal(result.insights.length, 2);
     assert.equal(result.insights[0].action, "error");
     assert.match(result.insights[0].reason, /missing evidence file/);
-    assert.equal(result.insights[1].action, "rewritten");
-    assert.equal(result.insights[1].status, "active");
+    assert.equal(result.insights[1].action, "digest-updated");
+    assert.equal(result.insights[1].status, "draft");
   } finally {
     cleanup();
   }
 });
 
-test("rewriteInsights omits confidence rationale for low-confidence single-source insights", () => {
+test("rewriteInsights explains low confidence for a single-source digest", () => {
   const { pmDir, cleanup } = createPmDir();
   try {
     writeFile(
@@ -224,8 +222,9 @@ Seeded from routed evidence. Synthesis refresh pending.
     assert.equal(result.insights[0].confidence, "low");
 
     const content = fs.readFileSync(path.join(pmDir, "insights/product/single.md"), "utf8");
-    assert.doesNotMatch(content, /## Confidence Rationale/);
-    assert.match(content, /status: "active"/);
+    assert.match(content, /Confidence Rationale/);
+    assert.match(content, /No confidence upgrade is inferred/);
+    assert.match(content, /status: "draft"/);
   } finally {
     cleanup();
   }

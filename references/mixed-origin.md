@@ -18,6 +18,8 @@ Two roles reference this contract:
 - `Findings`: append your own numbered findings, prefixed with your origin — `[internal]` for `pm:ingest`, `[external]` for `pm:research`/`pm:refresh`. Never relabel or remove the other origin's findings.
 - `Summary`, `Strategic Relevance`, `Implications`: shared sections — rewrite to incorporate both internal and external evidence.
 - `Open Questions`, `Source References`: additive.
+- Preserve provenance markers, claim citations, source hashes and unresolved uncertainty. An unchanged source path can contain a changed conclusion; propagate that change rather than deduplicating by filename.
+- Correct your own obsolete finding only through explicit supersession: record the exact prior text, supported replacement and reason, retaining the old interpretation as historical. Never use additive updates as permission to silently replace another origin’s findings. A new conflicting observation is counterevidence, not an overwrite.
 
 ## Write Protocol
 

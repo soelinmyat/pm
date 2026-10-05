@@ -53,6 +53,9 @@ const MAX_EVIDENCE_REFS = 128;
 const MAX_ALTERNATIVES = 16;
 const MAX_CONFIDENCE_BASIS = 32;
 const MAX_NON_GOALS = 32;
+// Resource bounds, not targets for the shape of a product.
+const MAX_FEATURE_AREAS = 128;
+const MAX_FEATURES = 1024;
 const MAX_SOURCE_FILE_BYTES = 4 * 1024 * 1024;
 const MAX_SOURCE_SNAPSHOT_BYTES = 64 * 1024 * 1024;
 
@@ -118,7 +121,7 @@ function validateDecisionBrief(value) {
       if (
         entry.evidence_id !== null &&
         entry.evidence_id !== undefined &&
-        !/^ev-[a-f0-9]{20}$/.test(entry.evidence_id)
+        !/^(?:ev_[a-f0-9]{24}|ev-[a-f0-9]{20})$/.test(entry.evidence_id)
       )
         issues.push(`${at}.evidence_id is invalid`);
       if (entry.chain_id !== null && entry.chain_id !== undefined)
@@ -719,9 +722,9 @@ function validateFeatureInventory(value) {
     },
     { nonEmpty: true }
   );
-  if (value.areas?.length < 3 || value.areas?.length > 6)
-    issues.push("inventory must contain 3 through 6 areas");
-  if (count < 8 || count > 20) issues.push("inventory must contain 8 through 20 features");
+  if (value.areas?.length > MAX_FEATURE_AREAS)
+    issues.push(`inventory.areas cannot exceed ${MAX_FEATURE_AREAS} entries`);
+  if (count > MAX_FEATURES) issues.push(`inventory cannot exceed ${MAX_FEATURES} features`);
   if (!record(value.markdown_binding)) issues.push("inventory.markdown_binding must be an object");
   else {
     closed(value.markdown_binding, ["path", "sha256"], "inventory.markdown_binding", issues);

@@ -101,6 +101,14 @@ function validateQualitySuite(suite) {
         if (!SAFE_REF_PATTERN.test(String((item && item.prompt_ref) || ""))) {
           issues.push(`${caseWhere} prompt_ref must be a safe evals/quality path`);
         }
+        if (
+          item &&
+          Object.prototype.hasOwnProperty.call(item, "judge_guidance_ref") &&
+          (!SAFE_REF_PATTERN.test(String(item.judge_guidance_ref || "")) ||
+            item.judge_guidance_ref.split("/").includes(".."))
+        ) {
+          issues.push(`${caseWhere} judge_guidance_ref must be a safe evals/quality path`);
+        }
         if (!slug(item && item.scenario_ref)) {
           issues.push(`${caseWhere} scenario_ref is required`);
         } else if (scenarioRefs.has(item.scenario_ref)) {
@@ -453,6 +461,26 @@ function loadQualityProfile(rootDir, profileId) {
   return { ...matches[0] };
 }
 
+function qualityCaseStory(story, prompt, scenarioId = "quality case") {
+  const marker = /User message:[\s\S]*?\n\nStop condition:/;
+  if (!marker.test(story)) {
+    throw new Error(
+      `scenario ${scenarioId} cannot accept a quality case: story has no user-message boundary`
+    );
+  }
+  return story.replace(marker, () => `User message: ${prompt}\n\nStop condition:`);
+}
+
+function qualityCaseScenarioHash(scenarioDir, prompt) {
+  return hashTree(scenarioDir, {
+    "story.md": qualityCaseStory(
+      fs.readFileSync(path.join(scenarioDir, "story.md"), "utf8"),
+      prompt,
+      path.basename(scenarioDir)
+    ),
+  }).hash;
+}
+
 function extractCasePrompt(markdown, type) {
   const lines = String(markdown).split(/\r?\n/);
   const heading = `## ${type}`;
@@ -466,7 +494,14 @@ function extractCasePrompt(markdown, type) {
   return output.join("\n").trim();
 }
 
-function buildBlindPacket({ candidates, rubric, scenario, salt, comparisonDesign = null }) {
+function buildBlindPacket({
+  candidates,
+  rubric,
+  scenario,
+  salt,
+  comparisonDesign = null,
+  judgeGuidance = null,
+}) {
   assertValid(validateRubric(rubric), "rubric");
   if (!nonempty(salt)) throw new Error("blind packet salt is required");
   if (!plainObject(scenario) || !nonempty(scenario.workflow) || !nonempty(scenario.case_id)) {
@@ -582,6 +617,11 @@ function buildBlindPacket({ candidates, rubric, scenario, salt, comparisonDesign
       "Score every rubric dimension from 1 to 5, or use not_applicable with artifact-grounded evidence.",
       "Check whether cited evidence supports consequential claims, including contradictions and stale assumptions; reward concise correct work and penalize false blockers, not brevity.",
       "Complete every pair in pairwise_plan and return strict JSON only, using exactly the response_contract keys and nesting.",
+      ...boundJudgeInstructions(
+        judgeGuidance,
+        scenario,
+        eligible.map(({ item }) => item)
+      ),
     ],
     response_contract: {
       format: "strict-json",
@@ -670,6 +710,37 @@ function buildBlindPacket({ candidates, rubric, scenario, salt, comparisonDesign
     },
     excluded,
   };
+}
+
+// The selected suite supplies this judge-only resource explicitly. A workflow
+// name alone never selects a corpus or its expected answer.
+function boundJudgeInstructions(guidance, scenario, candidates) {
+  if (guidance === null) return [];
+  const binding =
+    plainObject(guidance) && plainObject(guidance.cases) && guidance.cases[scenario.case_id];
+  const promptHash = `sha256:${digest(String(scenario.prompt || ""))}`;
+  if (
+    !binding ||
+    binding.workflow !== scenario.workflow ||
+    binding.quality_case_hash !== promptHash ||
+    !HASH_PATTERN.test(String(binding.scenario_contract_hash || "")) ||
+    binding.scenario_contract_hash !== scenario.scenario_contract_hash ||
+    !HASH_PATTERN.test(String(binding.scenario_hash || "")) ||
+    candidates.some((candidate) => candidate.behavioral.scenario_hash !== binding.scenario_hash)
+  ) {
+    throw new Error(
+      `judge guidance does not match exact case/corpus identity for ${scenario.case_id}`
+    );
+  }
+  if (
+    guidance.schema_version !== 1 ||
+    !nonempty(guidance.shared) ||
+    !plainObject(guidance.workflows) ||
+    !nonempty(guidance.workflows[scenario.workflow])
+  ) {
+    throw new Error(`missing bound judge guidance for ${scenario.case_id}`);
+  }
+  return [guidance.shared, guidance.workflows[scenario.workflow]];
 }
 
 function validateBlindPacket(packet) {
@@ -1486,6 +1557,8 @@ module.exports = {
   extractCasePrompt,
   loadQualityCase,
   loadQualityProfile,
+  qualityCaseStory,
+  qualityCaseScenarioHash,
   validateCandidate,
   validateBlindPacket,
   validateJudgment,

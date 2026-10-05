@@ -1,12 +1,12 @@
 # Review Mining Methodology
 
-Reviews are the most direct signal of what a product actually delivers versus what it claims. This guide covers where to look, what to extract, and how to synthesize findings into `sentiment.md`.
+Reviews report selected users' experiences in a particular context. They can reveal problems and outcomes, but are not a representative survey or independent proof of a product capability. This guide covers where to look, what to extract, and how to synthesize findings into `sentiment.md`.
 
 ---
 
 ## Where to Search
 
-Work through sources in this order. Stop when you have 15-20 substantive reviews or have exhausted all sources.
+Start with these sources, then sample for the decision: include relevant roles, company sizes, rating ranges, dates and product versions where available. A bounded sample of 15-20 reviews may be a useful starting point, not a representativeness threshold. Stop when further sampling is unlikely to change the decision or sources are exhausted; disclose the search bounds, selection method, excluded/inaccessible sources, and remaining uncertainty.
 
 ### Tier 1: Structured Review Platforms
 
@@ -17,7 +17,7 @@ Work through sources in this order. Stop when you have 15-20 substantive reviews
 
 **Capterra** (`capterra.com/reviews/...`)
 - Often overlaps with G2, but attracts different buyer personas (more SMB).
-- Check the "Cons" field — it is a required field and tends to be candid.
+- Read the "Cons" field where present; required fields and incentives can produce weak or formulaic comments, so assess specificity rather than assume candor.
 - The "Reasons for Switching" field is a churn signal goldmine.
 
 **Trustpilot** — primarily B2C skew, but relevant for prosumer tools.
@@ -32,7 +32,7 @@ Search `site:reddit.com "{Company Name}"` and browse:
 - `r/[category]` — e.g., `r/workforcemgmt`
 - Direct product subreddit if it exists
 
-Reddit is less filtered than review sites. Complaints surface faster, praise is more authentic.
+Reddit can surface experiences absent from review sites. Account anonymity, moderation, promotion and self-selection still affect credibility; do not presume complaints are faster or praise more authentic.
 
 **App Stores** (if mobile app exists)
 - Apple App Store: search by app name, filter by 1-star and 5-star separately.
@@ -40,11 +40,11 @@ Reddit is less filtered than review sites. Complaints surface faster, praise is 
 - Mobile reviews often surface UX and reliability issues that desktop reviews miss.
 
 **ProductHunt** (`producthunt.com/products/{slug}`)
-- Read the comments on launch day — unfiltered first impressions from early adopters.
-- Upvote count and comment quality signal early traction.
+- Read launch-day comments as first impressions; promotion and launch incentives can shape participation.
+- Record upvotes/comments as platform engagement, not customer adoption or retention.
 
 **Industry forums and Slack communities**
-Search for the competitor name in relevant Slack community archives or forum threads. These are highly candid and often reveal internal-use cases not covered by formal reviews.
+Search for the competitor name in relevant Slack community archives or forum threads. These may reveal use cases absent from formal reviews; access, moderation and participant selection still limit inference.
 
 ---
 
@@ -64,15 +64,15 @@ Do not paraphrase away specificity. Preserve numbers and concrete details.
 
 ## Theme Clustering
 
-After collecting 15-20 data points:
+After collecting a decision-relevant sample:
 
 1. **Group by topic.** Cluster reviews that mention the same capability, pain, or scenario. Give each cluster a short label ("Onboarding friction," "Reporting depth," "Mobile reliability").
 
-2. **Count and weight.** Track how many reviews mention each theme. Apply recency weighting: a theme appearing in 3 reviews from the last 6 months outweighs one in 5 reviews from 2 years ago.
+2. **Count distinct observations.** Deduplicate cross-posts, syndicated reviews and summaries from the same upstream reviewer. Report theme mentions as n/N in the sampled relevant reviews, with date and segment breakdowns. Recent observations may better describe the current version; they do not automatically outweigh older reports of an unresolved severe failure.
 
 3. **Separate praise from complaints.** Do not conflate: "fast search" (praise) and "slow bulk actions" (complaint) may both reference performance but are different signals.
 
-4. **Flag high-severity complaints.** Any complaint referencing data loss, security, billing disputes, or support non-response should be called out explicitly regardless of count — they reveal risk posture.
+4. **Flag high-severity complaints.** Any complaint referencing data loss, security, billing disputes, or support non-response should be called out explicitly regardless of count — they warrant investigation of potential harm, not a conclusion about the vendor's overall risk posture.
 
 5. **Identify feature requests.** Recurring asks for absent features ("I wish it had X") signal market gaps. These are distinct from complaints about existing features.
 
@@ -80,15 +80,15 @@ After collecting 15-20 data points:
 
 ## Sentiment Weighting
 
-Apply these adjustments when assigning overall sentiment:
+Do not assign universal numeric weights or correct a positive percentage using an assumed unhappy-customer bias. Selection and incentives can favor positive or negative reviews, and their direction is not known without evidence.
 
-- **Recency:** Reviews from the last 6 months carry 2x weight versus 12-24 months ago.
-- **Specificity:** Specific reviews carry more weight than vague ones.
-- **Role match:** Reviews from your target ICP carry more weight than off-profile buyers.
-- **Verified purchase:** On platforms that distinguish verified purchases, weight those higher.
-- **Volume asymmetry:** Unhappy customers review more readily. Adjust for this: a 70% positive rate often reflects genuine satisfaction.
+- **Recency/version:** Separate current-version observations from older behavior; investigate whether a reported fix applies.
+- **Specificity:** Preserve concrete context and outcomes without treating detail alone as proof.
+- **Role match:** Explain relevance to the ICP; preserve severe off-profile incidents when they expose a shared failure.
+- **Verification/incentives:** Record platform verification and any visible incentive. Neither establishes independent, representative evidence.
+- **Sample limits:** Keep platform-wide ratings separate from the selected sample's theme frequencies. Do not extrapolate population prevalence, satisfaction, or trend from a convenience sample.
 
-State the weighting method used when reporting overall sentiment in `sentiment.md`.
+If weighting is useful for a particular decision, explain the rationale and show whether the conclusion changes under reasonable alternative weights. Otherwise report the unweighted observations and uncertainty. A trend requires comparable segments, versions and sampling over time; use "trend unknown" when those conditions are absent.
 
 ---
 
@@ -117,19 +117,19 @@ sources:
 
 ## Overall Sentiment
 Rating: {X.X}/5 on G2 ({N} reviews) | {X.X}/5 on Capterra ({N} reviews)
-Sample: {N} reviews read, last 12 months weighted.
-Trend: improving / stable / declining — based on {rationale}.
+Sample: {N} distinct reviews read; {selection method, date/version/segment range, duplication treatment and source gaps}.
+Trend: improving / stable / declining / unknown — based on {comparable evidence and limits}.
 
-## Top Praise Themes
+## Supported Praise Themes
 
 ### 1. {Theme Name}
 Summary of what users praise and why it matters.
-> "{Representative quote, verbatim or lightly edited for length.}" — {Role}, {Company Size}, G2
+> "{Representative quote, verbatim excerpt with omissions marked; never silently edit quoted wording.}" — {Role}, {Company Size}, G2
 
 ### 2. {Theme Name}
 ...
 
-## Top Complaint Themes
+## Supported Complaint Themes
 
 ### 1. {Theme Name}
 Summary of the complaint and its frequency.
@@ -139,7 +139,7 @@ Summary of the complaint and its frequency.
 ...
 
 ## High-Severity Signals
-Complaints involving data integrity, security, billing, or support failure. Even if low-frequency, these reveal risk posture.
+Complaints involving data integrity, security, billing, or support failure. Even if low-frequency, describe potential harm, verification status, affected context and any counter-evidence.
 
 ## Support Quality Signals
 What reviewers say about responsiveness, onboarding quality, knowledge base.
@@ -155,7 +155,7 @@ These are potential market gaps.
 
 ## Reddit / Community Signals
 Themes from community discussions. Note the platform and approximate date range.
-Community sentiment is often more candid and less filtered than review sites.
+State the community sample's moderation, selection and verification limits; do not presume greater candor.
 
 ## Analyst Notes
 Any inferences drawn from the data beyond what is directly stated. Label as "Inference:" to distinguish from sourced findings.
@@ -170,3 +170,5 @@ Any inferences drawn from the data beyond what is directly stated. Label as "Inf
 - **Treating praise as capability confirmation.** "Great reporting" in a review tells you the user is satisfied — it does not tell you what the reporting actually does. Cross-reference with `features.md`.
 - **Missing comparison mentions.** When a reviewer names a competitor they switched from, that is a competitive positioning signal. Capture it explicitly.
 - **Paraphrasing away specificity.** Preserve numbers, timelines, and proper nouns from quotes. "Takes too long" loses all signal; "bulk import takes 4+ hours for 200 locations" is actionable.
+
+Report only supported themes. One or zero praise or complaint themes is valid; never manufacture balance to fill a template. Treat a missing theme as not observed in this sample, not absent in the product.

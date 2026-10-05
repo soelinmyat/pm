@@ -22,7 +22,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/skill-runtime.md` for path resolution and
 - **Never write strategy from thin air.** Strategy must be grounded in explicit answers, existing evidence, or both. If key inputs are missing, surface the gap instead of inventing certainty.
 - **Make assumptions explicit and confirmed.** Don't draft positioning from what you assume you already know — even "obvious" strategies hide unexamined assumptions the interview catches.
 - **Surface missing market context, don't ignore it.** Optional landscape context is not irrelevant context.
-- **Existing docs drift.** Reuse prior strategy selectively, but verify what changed before carrying it forward — a doc unreviewed in 30 days is a historical document, not a strategy.
+- **Existing docs drift.** Reuse prior strategy selectively, but verify what changed before carrying it forward — age is a reason to check decision-relevant changes, not proof that a strategy is invalid. Preserve still-supported choices and label unresolved changes.
 - **Accept short answers.** They're still inputs. Write clearly from them instead of interrogating the user into verbosity.
 - **Preserve strategic identity.** Wording may change without minting new priority/non-goal tokens; genuine decision changes stay legible in the companion.
 
@@ -52,7 +52,7 @@ Stop.
 
 3. **Interview.** Collect the minimum inputs for a grounded doc without interrogating. Follow the interview guide in `${CLAUDE_PLUGIN_ROOT}/skills/strategy/references/interview-guide.md`.
    - One question at a time — don't front-load. Prefer multiple-choice when there's a natural set of options.
-   - Start with Essentials; move to Depth only if answers are expansive. Accept short answers and move on.
+   - Reuse confirmed source answers. Cover Essentials with the minimum forcing questions needed for the actual decision; concise answers are sufficient. Missing priorities, real alternatives or a success signal need a focused question even when other answers are terse. Optional Depth follows decision relevance and user interest, not verbosity.
    - If `landscape.md` exists, read it first and name real competitors/segments to sharpen questions ("How do you differ from [Competitor A] and [Competitor B]?" beats "Who are your competitors?").
    - If `{pm_dir}/evidence/research/` holds internal or mixed findings from `pm:ingest`, use them to sharpen ICP, segmentation, priorities, and non-goals.
    - After Essentials, ask: "Want to go deeper on any area, or is this enough to write the strategy doc?"
@@ -92,15 +92,15 @@ Stop.
 
    ## 6. Current Phase and Priorities
    Stage of the product (0-to-1, growth, optimization, etc.).
-   Top 3 priorities for this phase and the reasoning behind each.
+   A ranked, bounded set of priorities for this phase. For each, state the user/business outcome, supporting evidence or confirmed assumption, opportunity cost, and what would reverse it. Do not invent three priorities to fill a template.
 
    ## 7. Explicit Non-Goals
    What this product is NOT doing, and why.
-   At least 3 items. These are decisions, not omissions.
+   Only consequential exclusions with reasons. These are decisions, not omissions; do not invent three items to fill a template.
 
    ## 8. Success Metrics
    How we know the strategy is working.
-   Leading indicators preferred over lagging.
+   For each priority, name an observable success signal, current baseline or honest unknown, target/horizon or a calibration plan, and the interpretation that would change the decision. Pair leading indicators with relevant outcome/retention measures; do not present retention or revenue as leading indicators.
    ```
 
 ## Resume

@@ -47,11 +47,13 @@ function main(argv = process.argv.slice(2)) {
         readProjectInput(root, inputRelative, 4 * 1024 * 1024).bytes.toString("utf8")
       );
       let issues;
+      const evidenceVerification = {};
       if (value === null || typeof value !== "object" || Array.isArray(value)) {
         issues = validateDecisionBrief(value);
       } else if (value.document_type === "decision-brief") {
         issues = validateDecisionBrief(value);
-        if (issues.length === 0) issues.push(...verifyDecisionBriefBindings(root, value));
+        if (issues.length === 0)
+          issues.push(...verifyDecisionBriefBindings(root, value, { evidenceVerification }));
       } else if (value.document_type === "feature-inventory") {
         issues = validateFeatureInventory(value);
         if (issues.length === 0) {
@@ -61,7 +63,13 @@ function main(argv = process.argv.slice(2)) {
           );
         }
       } else throw new Error("input document_type must be decision-brief or feature-inventory");
-      result = { ok: issues.length === 0, issues };
+      result = {
+        ok: issues.length === 0,
+        issues,
+        ...(Object.keys(evidenceVerification).length
+          ? { evidence_verification: evidenceVerification }
+          : {}),
+      };
       if (issues.length) process.exitCode = 2;
     } else if (command === "validate-idea-save") {
       const root = path.resolve(required(args, "root"));
@@ -71,8 +79,16 @@ function main(argv = process.argv.slice(2)) {
         readProjectInput(root, inputRelative, 4 * 1024 * 1024).bytes.toString("utf8")
       );
       const issues = validateIdeaForSave(value);
-      if (issues.length === 0) issues.push(...verifyDecisionBriefBindings(root, value));
-      result = { ok: issues.length === 0, issues };
+      const evidenceVerification = {};
+      if (issues.length === 0)
+        issues.push(...verifyDecisionBriefBindings(root, value, { evidenceVerification }));
+      result = {
+        ok: issues.length === 0,
+        issues,
+        ...(Object.keys(evidenceVerification).length
+          ? { evidence_verification: evidenceVerification }
+          : {}),
+      };
       if (issues.length) process.exitCode = 2;
     } else if (command === "rank-ideas") {
       const request = readBoundedJsonFile(required(args, "request"));

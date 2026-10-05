@@ -18,7 +18,7 @@ Use only the lenses assigned in `target.json`. The shared result schema and evid
 | Lens | Check | Evidence bar |
 |---|---|---|
 | `bug` | Incorrect logic, errors, races, broken invariants, resource leaks, API/schema drift, stale caches | Source plus test/trace/contract locator |
-| `design` | Source-level tokens, component reuse, semantics, accessibility implementation, theme/state completeness | Source or design-token locator; rendered taste goes to Design Critique |
+| `design` | Source-level tokens, component reuse, composition rules (including equivalent wrapper chrome), semantics, accessibility implementation, theme/state completeness | Source or design-token locator; rendered taste goes to Design Critique |
 | `edge` | Empty/null/max/unicode/coercion/injection, partial failure, retry, idempotency, concurrency, missing AC boundary | Test/contract/source/trace locator |
 | `reuse` | A specific existing helper/component/pattern that replaces new duplicated code | Both changed source and named reusable source locators |
 | `quality` | Dead/redundant state, misleading boundaries, copy-paste, parameter sprawl, avoidable complexity | Source/contract locator and concrete maintenance consequence |

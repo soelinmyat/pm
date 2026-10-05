@@ -286,7 +286,15 @@ function createPacket(options) {
   const result = buildBlindPacket({
     candidates: selected,
     rubric,
-    scenario: { workflow: found.workflow.id, case_id: found.item.id, prompt },
+    scenario: {
+      workflow: found.workflow.id,
+      case_id: found.item.id,
+      prompt,
+      scenario_contract_hash: found.item.scenario_contract_hash,
+    },
+    judgeGuidance: found.item.judge_guidance_ref
+      ? readJson(path.resolve(options.rootDir, found.item.judge_guidance_ref))
+      : null,
     salt,
     comparisonDesign: options.comparisonDesignPath
       ? readJson(path.resolve(options.rootDir, options.comparisonDesignPath))
@@ -379,6 +387,7 @@ function createScorecard(options) {
         profiles: suite.profiles,
         case: found.item,
         rubric,
+        judge_instructions: packet.instructions,
       })
     )}`,
   };

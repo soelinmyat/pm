@@ -53,7 +53,9 @@ test("RFC template puts brief and contract before appendix detail", () => {
     "## Test Strategy",
     "## Issues",
   ]);
-  assert.match(content, /Contract wins/i);
+  assert.match(content, /Resolve conflicts/i);
+  assert.match(content, /approved product intent and repository evidence/);
+  assert.match(content, /synchronize both before approval/);
   assert.match(content, /Target <= 1,500 words/);
 });
 

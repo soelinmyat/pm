@@ -34,7 +34,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/evidence-system.md` and use its request-f
 
 Private normalized records are written to `{pm_state_dir}/evidence/records/` with mode `0600`; the CLI creates this path. For each reliable evidence item:
 
-1. Preserve the extracted fields privately: `topic`, `pain_point`, `summary`, a short quote when useful, local source path, and raw row/section/timestamp locator.
+1. Preserve the extracted fields privately: `topic`, `summary`, optional `pain_point`, observation kind (job, success, workaround, constraint, unmet need, or counterevidence), a short quote when useful, local source path, and raw row/section/timestamp locator.
 2. Choose portable source labels via `source_label`, such as a basename or host/path; never put an absolute path, account name, or raw quote in the ledger.
 3. Build one JSON request under `{pm_state_dir}/evidence/requests/` with:
    - `source_type`: `interview|support|sales|feedback|unknown` (`notes` from legacy ingest maps to `feedback`);
@@ -43,7 +43,7 @@ Private normalized records are written to `{pm_state_dir}/evidence/records/` wit
    - ISO `captured_at` and the exact normalized `content` used for synthesis;
    - `privacy.classification: customer-sensitive` and `privacy.pii_review: pending` by default for customer evidence;
    - `transformation: {"stage":"normalized","parents":[],"method":"pm:ingest"}`;
-   - `artifact_path` for the research topic this item will support, when already known;
+   - `artifact_path` only after explicit review of the sanitized rendering; pending customer-sensitive records must omit all artifact bindings even when the destination topic is known;
    - optional private-only `local_source_path` and `raw_locator` (these are written only to `{pm_state_dir}/`).
 4. Register it through deterministic code:
 
@@ -69,7 +69,7 @@ The migration keeps the original record and manifest readable, writes a private 
 
 ### Quality and ambiguity
 
-Do not invent optional structure. Leave unclear optional values absent. If `topic`, `pain_point`, or `summary` cannot be extracted reliably, skip the item and report a parse warning. Confirm ambiguous CSV mappings before registration because a deterministic ID cannot make a semantically wrong mapping correct.
+Do not invent optional structure. Leave unclear optional values absent. A reliable observation does not require a pain point. Retain positive value, successful workarounds, domain constraints, jobs, and counterevidence; leave `pain_point` absent when none was expressed. If neither the observation nor its context can be extracted reliably, retain the ambiguity privately and report a parse warning instead of inventing a complaint. A quote such as “we renew because managers can audit decisions” is useful success evidence without a pain point. Confirm ambiguous CSV mappings before registration because a deterministic ID cannot make a semantically wrong mapping correct.
 
 For audio evidence, read and follow `${CLAUDE_PLUGIN_ROOT}/skills/ingest/references/audio-pipeline.md`; use timestamp locators and prefer customer speech over interviewer prompts.
 
@@ -86,7 +86,7 @@ Do not promise perfect redaction. Redact obvious names/account identifiers when 
 
 > Review these findings before committing. Automatic PII detection is not reliable enough to guarantee safe redaction.
 
-A `pending` record may be normalized privately, but reader artifacts containing customer material still require that explicit warning before commit.
+A `pending` record remains private and unbound. A warning is not permission to publish. Obtain explicit review of the sanitized content before setting `pii_review: reviewed` and binding any reader artifact; preserve the original hash as a revision under the Evidence v2 contract.
 
 ## Done-when
 

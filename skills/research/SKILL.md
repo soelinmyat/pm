@@ -50,6 +50,10 @@ Stop. For quick one-off questions that don't need saved artifacts, answer direct
 
 Factual questions that don't need a research file ("what's React Server Components?"), quick lookups, or questions the user can answer from memory. Research creates persistent artifacts — if the answer doesn't need to be saved, just answer directly.
 
+### Pending synthesis context
+
+An insight marked `needs-synthesis`, `stale`, or low-confidence after routing is historical evidence and a source digest, not verified current demand. Read the retained analyst body and all-findings digest to understand what changed; do not treat the newest timestamp, source count or routing success as confirmation. Preserve contrary findings and let claim-level interpretation determine confidence. Routing alone never promotes an insight to verified demand.
+
 ## Red Flags — Self-Check
 
 - **"I found three links, so the claim is corroborated."** Check their upstream origin first; repeated derivative coverage is one chain, while a source with direct authority can be stronger for the fact it controls.

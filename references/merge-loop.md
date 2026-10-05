@@ -53,7 +53,7 @@ Apply it to the network calls throughout this loop, for example:
 ```bash
 gh_retry gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json number,url,state,mergeStateStatus,statusCheckRollup,reviewDecision
 gh_retry gh api graphql -F owner="$GH_OWNER" -F repo="$GH_REPOSITORY" -f query='...'
-gh_retry gh pr checks "$PR_NUMBER" --repo "$GH_REPO" --json name,state,conclusion
+gh_retry gh pr checks "$PR_NUMBER" --repo "$GH_REPO" --required --json name,state,bucket,workflow,link
 ```
 
 This bash helper is an independently-maintained copy of the same *idea* the hooks use in code (`scripts/pr-state.js`) — not the same implementation. Both retry only transient 5xx / gateway / timeout failures and let auth / 404 / 422 fail fast, but their exact transient patterns and backoff differ; keep the intent aligned, don't assume byte-identical behavior.
@@ -87,7 +87,8 @@ query($owner: String!, $repo: String!, $pr: Int!) {
 
 ```
 Merge Status — PR #{N}: {title}
-  CI:          {passing / failing / pending}
+  CI:          {passed / not-required / pending / failed / missing / ambiguous / unavailable}
+  CI head:     {exact observed head; required check outcomes or missing evidence}
   Reviews:     {approved / changes_requested / pending}
   Conflicts:   {clean / conflicted}
   Threads:     {N unresolved} (blocks merge if repo requires conversation resolution)
@@ -256,9 +257,23 @@ If `REVIEW_REQUIRED` and no reviewers assigned, fall back in this order before a
 
 **5. CI status (last gate — only block here when 1–4 are clean)**
 
+Use the complete observation and `summarizeRequiredChecks` contract from
+`${CLAUDE_PLUGIN_ROOT}/skills/ship/steps/06-ci-monitor.md`. Re-observe the exact
+current PR head, independently discover the current required-check policy, and
+collect every required check run/status context for that head. Save the normalized
+snapshot and summary in the canonical ship sidecars. The projection below helps
+locate results; its empty output, or a successful watch, cannot establish readiness.
+
 ```bash
-gh_retry gh pr checks "$PR_NUMBER" --repo "$GH_REPO" --json name,state,conclusion
+gh_retry gh pr checks "$PR_NUMBER" --repo "$GH_REPO" --required --json name,state,bucket,workflow,link
 ```
+
+Continue only for `passed` or independently verified `not-required`, preserving
+the latter as `No required CI checks configured` without claiming a pass. Keep
+`pending`, `failed`, `missing`, `ambiguous`, and `unavailable` visible and block
+merge readiness. Bind the summary to the exact head and check identities; after
+any rerun, fix, watch completion, or head change, re-observe the entire required
+set rather than carrying forward a passing subset.
 
 If any check failed:
 
@@ -268,7 +283,7 @@ If any check failed:
 gh_retry gh run rerun "$RUN_ID" --repo "$GH_REPO" --failed
 ```
 
-This costs one CI cycle but catches flakes cheaply. Record the rerun in the retry table as Attempts=1 with Last action `flake-guard rerun`. If the rerun passes, clear the row and proceed. If it fails again, treat as a real failure and move to diagnosis.
+This costs one CI cycle but catches flakes cheaply. Record the rerun in the retry table as Attempts=1 with Last action `flake-guard rerun`. If the rerun passes, clear that failure row and re-observe the complete exact-head required set before proceeding. If it fails again, treat as a real failure and move to diagnosis.
 
 *On real failure:*
 - Get failure logs: `gh_retry gh run view "$RUN_ID" --repo "$GH_REPO" --log-failed`
@@ -278,6 +293,8 @@ This costs one CI cycle but catches flakes cheaply. Record the rerun in the retr
 
 If checks are pending **and** gates 1–4 are clean:
 - Use `gh_retry gh pr checks "$PR_NUMBER" --repo "$GH_REPO" --watch --fail-fast` with `run_in_background: true` to wait for completion. This blocks until all checks finish or one fails — no manual polling needed.
+- After the watch completes, re-observe the current head and complete required
+  set. A zero exit status alone cannot satisfy missing or unavailable evidence.
 
 If checks are pending **and** any of gates 1–4 is not clean:
 - Do NOT drop into `--watch`. Return to whichever earlier gate is actionable — CI will keep running on its own, and the next iteration picks it up.
@@ -298,9 +315,13 @@ Gate Check #{N}
   Comments:    ✓ 0 unresolved (3 resolved this cycle)
   Conversations: ✓ all resolved
   Review:      ✓ approved (or: not required by branch protection)
-  CI:          ⋯ pending (backgrounded --watch) | ✓ passing | ✗ failing (attempt 2 — fixing lint error)
-  Auto-merge:  armed (will merge when CI passes)
+  CI:          passed | not-required | pending | failed | missing | ambiguous | unavailable
+  CI head:     [exact current PR head SHA; check names/outcomes or missing evidence]
+  Auto-merge:  armed (will merge when repository requirements are satisfied)
 ```
+
+Report `not-required` as `No required CI checks configured`; preserve that
+outcome through the final Ship report instead of changing it to `passed`.
 
 ### Stop conditions
 
@@ -493,6 +514,8 @@ Merged
   PR: #{N} — {title} ({url})
   Merged to: {DEFAULT_BRANCH} ({short sha})
   Fixes applied: {N} (CI: {n}, review comments: {n}, conflicts: {n})
+  CI: {exact-head required-check outcome; passed with check names or not-required with observed policy}
+  CI head: {exact observed PR head SHA}
   Remote branch: {branch} — deleted
   Local branch: {branch} — deleted
   Issue tracker: {issue} → Done / no issue linked

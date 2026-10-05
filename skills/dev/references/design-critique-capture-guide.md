@@ -57,6 +57,21 @@ adb devices | grep -q "device$" || echo "No Android device connected"
 
 The certifying helper launches a clean, disposable Chromium profile for every capture. Prepare a real, privacy-safe seeded application route that establishes the review principal without request mocks, browser-profile reuse, or credentials in the URL. A local-only single-use review-session endpoint is acceptable when it exercises the real application and stores no secret in retained evidence. If the product cannot expose the routed state to a clean profile safely, record a blocked capture; a screenshot from a separately authenticated browser is useful for diagnosis but is not certifying evidence.
 
+## Tool policy and supplemental browser evidence
+
+Follow the executor's browser/tool policy before choosing a producer. This guide does not authorize CDP, a separate browser, or a capture script when the executor requires CUA or user authorization. If the permitted tool cannot produce the existing certifying bundle, retain that limitation and the blocked coverage row; never hand-author native observations, downgrade the route, or convert a screenshot into a schema-v2 pass.
+
+CUA can still support independent product judgment. Retain available unmodified screenshots and accessibility/DOM observations outside the certifying capture directory, identify the producer and actual route/principal, record actions, state, viewport and observation order, and separate directly observed behavior from assumptions. Use those observations in the review narrative with an explicit `supplemental / non-certifying` label. Record unavailable capabilities as unknown rather than claiming an atomic PNG/AX/DOM association, native hit tests, all-target network isolation, or commit/build identity. A successful CUA journey may establish discoverability or back behavior without establishing the capture helper's assurance contract.
+
+| Question | Permitted CUA observations can support | Remains unproven without additional evidence |
+|---|---|---|
+| Can the user discover the destination and return with context? | The retained entry/navigation/return journey actually exercised | Other roles, unvisited entry points, other viewports |
+| Is the observed composition understandable? | Rendered hierarchy, grouping, labels and comparison with a relevant sibling | Uncaptured states, inaccessible controls outside retained observations |
+| Does the UI use the real backend correctly? | Only backend interactions actually exercised and identifiable | Request mocks, unavailable backend, authorization and persistence paths not exercised |
+| Does evidence satisfy route schema v2? | No certification from supplemental CUA observations alone | Atomic native observations, bounded network ledger and current-source bindings required by the existing checker |
+
+There is currently no trusted CUA producer for route schema v2. Supporting one would require a capability-defined adapter, retained provenance, checker changes and adverse tests against its real outputs; renaming CUA artifacts or accepting reviewer prose as native capture data is not equivalent. This limitation is a capture capability gap, not a reason to discard useful product observations or to certify missing backend coverage.
+
 ## Trusted Web Capture
 
 Route-schema-v2 web product UI uses `scripts/design-critique-capture.js`. It acquires the PNG, Chromium accessibility tree, DOM snapshot, page identity, native hit-test observations, and a cross-target network ledger from browser- and page-level CDP sessions. It evaluates a closed declarative state assertion against the native browser observations, pauses and isolates child targets before their code runs, takes two internal screenshot samples, and publishes only after the observations, decoded pixels, URL, source, browser, and network state remain stable.
@@ -178,7 +193,7 @@ Route schema v2 binds each web viewport label to the PNG's decoded dimensions an
 
 - Max 20 screenshots per capture round; route coverage, not convenience, determines the exact count
 - Preserve every cited round so before/after evidence remains verifiable
-- The manifest's assurance level is `workflow-attested-non-cryptographic`. Its hashes make local evidence internally checkable; they are not signatures and do not prove who created the files. The checker independently re-hashes the evidence and revalidates the current browser executable plus committed Git HEAD/tree before accepting a local run.
+- The manifest's assurance level is `workflow-attested-non-cryptographic`. Its hashes make local evidence internally checkable; they are not signatures and do not prove who created the files. The checker independently re-hashes every capture and revalidates committed Git HEAD/tree before accepting a local run. Active captures must match the current browser executable throughout gate validation. Inactive historical before captures retain their valid, unchanged capture-time executable identity after an installed-browser update; every source, producer, native observation, network, timestamp, file/pixel hash, and before/after proof check still applies. Recapture all active coverage with the updated browser, preserve historical bundles unchanged, and never relabel an active capture as historical to replace required current coverage. Historical acceptance verifies the frozen observation, not current-browser behavior or the cause of a visual change. Qualify engine-sensitive before/after claims and recapture the relevant comparison when a browser change could explain the difference; source identity remains strict for every capture.
 - The helper proves capture-time consistency, not that a generic development server served the current Git commit or build. When that provenance matters, expose an application/build identifier and verify it with an additional declarative guard. This build/server identity is the remaining provenance limitation.
 - Iframe documents are not certifiable in this version.
 

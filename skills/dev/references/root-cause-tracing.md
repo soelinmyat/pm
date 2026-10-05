@@ -98,10 +98,10 @@ npm test 2>&1 | grep 'DEBUG git init'
 
 If something appears during tests but you don't know which test:
 
-Use the bisection script `find-polluter.sh` in this directory:
+Use the sequential isolation script `find-polluter.sh` in this directory. Supply a repository-supported single-file test runner; do not assume `npm test` forwards a file filter:
 
 ```bash
-./find-polluter.sh '.git' 'src/**/*.test.ts'
+./find-polluter.sh 'unwanted' 'tests/*.test.js' -- node --test
 ```
 
 Runs tests one-by-one, stops at first polluter. See script for usage.
@@ -167,3 +167,5 @@ From debugging session (2025-10-03):
 - Fixed at source (getter validation)
 - Added 4 layers of defense
 - 1847 tests passed, zero pollution
+
+The helper returns 0 only after successful execution with no observed pollution, 1 when pollution appears, and 2 for no matching tests, pre-existing pollution, or runner errors. It preserves the observed pollution. A clean isolated run does not exclude order-dependent failures; reproduce with the original preceding tests when relevant.

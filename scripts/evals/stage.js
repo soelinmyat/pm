@@ -38,13 +38,17 @@ function copyTree(src, dest) {
   fs.chmodSync(dest, stat.mode & 0o777);
 }
 
-function hashTree(root) {
+function hashTree(root, fileOverrides = {}) {
   const files = listFiles(root);
   const hash = crypto.createHash("sha256");
   for (const file of files) {
     hash.update(file.path);
     hash.update("\0");
-    hash.update(fs.readFileSync(path.join(root, file.path)));
+    hash.update(
+      Object.prototype.hasOwnProperty.call(fileOverrides, file.path)
+        ? fileOverrides[file.path]
+        : fs.readFileSync(path.join(root, file.path))
+    );
     hash.update("\0");
   }
   return { hash: `sha256:${hash.digest("hex")}`, files };

@@ -15,6 +15,12 @@ Task tool (general-purpose):
     **RFC to review:** [RFC_FILE_PATH]
     **Spec for reference:** [SPEC_FILE_PATH]
 
+    Read the approved user outcome and applicable domain/repository rules first.
+    Assess the RFC independently before author rationale or prior approval claims.
+    Trace how the proposed behavior solves the problem and how tests could reject
+    a plausible defect. Flag a harmful or contradictory product assumption with
+    evidence; do not silently expand scope. State material unexamined assumptions.
+
     ## What to Check
 
     | Category | What to Look For |

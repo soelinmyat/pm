@@ -8,7 +8,7 @@ Tests must verify real behavior, not mock behavior. Mocks are a means to isolate
 
 **Core principle:** Test what the code does, not what the mocks do.
 
-**Following strict TDD prevents these anti-patterns.**
+**TDD can expose regressions, but these anti-patterns can occur even with a RED/GREEN cycle.** A failing test establishes sensitivity to its assertions; its expected result and mocked boundary still need independent support.
 
 ## The Iron Laws
 
@@ -174,56 +174,34 @@ BEFORE mocking any method:
     - Mocking without understanding the dependency chain
 ```
 
-## Anti-Pattern 4: Incomplete Mocks
+## Anti-Pattern 4: Unrealistic Boundary Fixtures
 
-**The violation:**
+**The violation:** always using a fully populated happy-path response and treating it as proof that real-world variants are handled. A fixture missing required metadata is invalid, but filling every optional field also hides assumptions about legitimately absent data.
+
+**The rule:** use the smallest **schema-valid** fixture for the scenario. Identify required versus optional/nullable fields from the producer contract, then add deliberate variants relevant to the behavior: absent optional fields, empty collections, partial permissions, null values, errors, and stale or conflicting data. Do not fabricate invalid missing-required fields as normal responses; test them separately as malformed-boundary handling if the consumer must defend against them.
+
 ```typescript
-// ❌ BAD: Partial mock - only fields you think you need
-const mockResponse = {
+// Contract: requestId is required; timestamp and displayName are optional.
+const minimalValid = {
   status: 'success',
-  data: { userId: '123', name: 'Alice' }
-  // Missing: metadata that downstream code uses
+  data: { userId: '123' },
+  metadata: { requestId: 'req-789' }
 };
-
-// Later: breaks when code accesses response.metadata.requestId
-```
-
-**Why this is wrong:**
-- **Partial mocks hide structural assumptions** - You only mocked fields you know about
-- **Downstream code may depend on fields you didn't include** - Silent failures
-- **Tests pass but integration fails** - Mock incomplete, real API complete
-- **False confidence** - Test proves nothing about real behavior
-
-**The Iron Rule:** Mock the COMPLETE data structure as it exists in reality, not just fields your immediate test uses.
-
-**The fix:**
-```typescript
-// ✅ GOOD: Mirror real API completeness
-const mockResponse = {
-  status: 'success',
-  data: { userId: '123', name: 'Alice' },
+const populated = {
+  ...minimalValid,
+  data: { userId: '123', displayName: 'Alice' },
   metadata: { requestId: 'req-789', timestamp: 1234567890 }
-  // All fields real API returns
 };
+// Render both and assert the user's identity/fallback outcome, not mock presence.
+// Also exercise denied access or producer error according to the real contract.
 ```
 
-### Gate Function
+Before relying on a mock:
 
-```
-BEFORE creating mock responses:
-  Check: "What fields does the real API response contain?"
-
-  Actions:
-    1. Examine actual API response from docs/examples
-    2. Include ALL fields system might consume downstream
-    3. Verify mock matches real response schema completely
-
-  Critical:
-    If you're creating a mock, you must understand the ENTIRE structure
-    Partial mocks fail silently when code depends on omitted fields
-
-  If uncertain: Include all documented fields
-```
+1. Cite the producer schema/observed representative response and explain the boundary being isolated.
+2. Verify fixture validity and intentionally vary relevant optional/error states.
+3. Test the consumer's user/domain outcome with independent expected values.
+4. Exercise at least the changed integration boundary with real producer/consumer code when feasible. If unavailable, report that limitation; two agreeing mocks do not prove integration compatibility.
 
 ## Anti-Pattern 5: Integration Tests as Afterthought
 
@@ -236,7 +214,7 @@ BEFORE creating mock responses:
 
 **Why this is wrong:**
 - Testing is part of implementation, not optional follow-up
-- TDD would have caught this
+- A unit RED/GREEN cycle alone would not validate the integration boundary
 - Can't claim complete without tests
 
 **The fix:**
@@ -260,15 +238,15 @@ TDD cycle:
 
 **Consider:** Integration tests with real components often simpler than complex mocks
 
-## TDD Prevents These Anti-Patterns
+## TDD Helps, but Does Not Certify Test Quality
 
-**Why TDD helps:**
+**Use RED/GREEN together with independent expectations and realistic boundaries:**
 1. **Write test first** → Forces you to think about what you're actually testing
-2. **Watch it fail** → Confirms test tests real behavior, not mocks
-3. **Minimal implementation** → No test-only methods creep in
-4. **Real dependencies** → You see what the test actually needs before mocking
+2. **Watch it fail** → Confirms sensitivity to the exercised assertion; separately verify the oracle and mock contract
+3. **Minimal implementation** → Limits scope; still inspect for test-only methods and missing domain cases
+4. **Real boundaries** → Verify changed integration separately; a unit RED/GREEN cycle does not establish compatibility
 
-**If you're testing mock behavior, you violated TDD** - you added mocks without watching test fail against real code first.
+**A test can fail first and still test only a mock.** Explain which plausible defect it detects and whether the real system could remain broken while it passes.
 
 ## Quick Reference
 
@@ -277,8 +255,8 @@ TDD cycle:
 | Assert on mock elements | Test real component or unmock it |
 | Test-only methods in production | Move to test utilities |
 | Mock without understanding | Understand dependencies first, mock minimally |
-| Incomplete mocks | Mirror real API completely |
-| Tests as afterthought | TDD - tests first |
+| Unrealistic fixtures | Minimal schema-valid fixtures plus relevant optional, empty, denied, and error variants |
+| Tests as afterthought | Risk-aware verification with meaningful observed failure and boundary checks |
 | Over-complex mocks | Consider integration tests |
 
 ## Red Flags

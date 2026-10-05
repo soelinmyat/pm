@@ -15,8 +15,8 @@ Write a single bug report to `{pm_dir}/backlog/{slug}.md` with `kind: bug` and a
    - Wait for the response before continuing.
 
 2. **Resolve outcome.**
-   - If the user hints at what the fix looks like (e.g., "expected it to X"), use that. Otherwise, derive a one-sentence outcome like `"{Subject} behaves correctly again"`.
-   - You may ask once: "One-sentence outcome (what 'fixed' looks like)?" — accept a short answer or fall back to the derived outcome.
+   - If the user hints at what the fix looks like (e.g., "expected it to X"), use that. Otherwise, record `"Expected behavior pending — clarify the observable result before implementation."` Do not invent a fix or imply known correct behavior.
+   - You may ask once: "One-sentence outcome (what 'fixed' looks like)?" — accept a concrete answer or keep the explicit pending outcome.
 
 3. **Prompt for body sections** (all optional — use stubs when missing):
    - "What did you observe?" → `## Observed`

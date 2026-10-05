@@ -9,13 +9,18 @@ const {
 
 function scoreDecisionBrief(brief) {
   const schemaIssues = validateDecisionBrief(brief);
-  if (schemaIssues.length)
-    return { valid: false, passed: false, score: 0, max_score: 10, issues: schemaIssues };
+  if (schemaIssues.length) return assessment([], schemaIssues);
   const checks = [
     ["specific_problem", substantive(brief.problem, 60, 8, 6)],
     [
-      "multiple_evidence_refs",
-      brief.evidence_refs.length >= 2 &&
+      "declared_independent_chains",
+      brief.evidence_refs.length > 0 &&
+        brief.evidence_refs.every((item) => item.chain_id) &&
+        new Set(brief.evidence_refs.map((item) => item.chain_id)).size >= 2,
+    ],
+    [
+      "evidence_notes",
+      brief.evidence_refs.length > 0 &&
         allDistinctSubstantive(
           brief.evidence_refs.map((item) => item.note),
           20,
@@ -23,7 +28,6 @@ function scoreDecisionBrief(brief) {
           3
         ),
     ],
-    ["ledger_bound_evidence", brief.evidence_refs.some((item) => item.evidence_id)],
     [
       "distinct_alternatives",
       brief.alternatives.length >= 2 &&
@@ -35,10 +39,9 @@ function scoreDecisionBrief(brief) {
         ),
     ],
     [
-      "confirmed_decision",
-      brief.decision.status === "confirmed" &&
-        substantive(brief.decision.rationale, 40, 7, 5) &&
-        rationaleNamesChoice(brief),
+      "decision_rationale",
+      substantive(brief.decision.rationale, 40, 7, 5) &&
+        (!brief.decision.choice || rationaleNamesChoice(brief)),
     ],
     [
       "confidence_basis",
@@ -61,23 +64,15 @@ function scoreDecisionBrief(brief) {
           brief.alignment.priority_ids.length > 0),
     ],
   ];
-  return {
-    valid: true,
-    passed: checks.filter(([, passed]) => passed).length >= 7,
-    score: checks.filter(([, passed]) => passed).length,
-    max_score: checks.length,
-    checks: Object.fromEntries(checks),
-  };
+  return assessment(checks);
 }
 
 function scoreFeatureInventory(inventory) {
   const schemaIssues = validateFeatureInventory(inventory);
-  if (schemaIssues.length)
-    return { valid: false, passed: false, score: 0, max_score: 10, issues: schemaIssues };
+  if (schemaIssues.length) return assessment([], schemaIssues);
   const features = inventory.areas.flatMap((area) => area.features);
   const sourceRefs = features.flatMap((feature) => feature.source_refs);
   const bannedAreas = new Set(["backend", "core", "frontend", "misc", "other"]);
-  const confidenceLevels = new Set(features.map((feature) => feature.confidence));
   const checks = [
     ["scan_coverage", inventory.scan.files_scanned / inventory.scan.files_total >= 0.6],
     [
@@ -100,7 +95,8 @@ function scoreFeatureInventory(inventory) {
         Math.ceil(features.length / 2),
     ],
     ["source_diversity", new Set(sourceRefs).size >= Math.ceil(features.length * 1.5)],
-    ["calibrated_confidence", confidenceLevels.size >= 2 && !confidenceLevels.has("low")],
+    // A label is metadata. Neither variety nor a higher label establishes calibration.
+    ["confidence_labels_present", features.every((feature) => feature.confidence)],
     [
       "journey_grouping",
       inventory.areas.every((area) => !bannedAreas.has(area.name.trim().toLowerCase())),
@@ -124,12 +120,31 @@ function scoreFeatureInventory(inventory) {
       ),
     ],
   ];
+  return assessment(checks);
+}
+
+function assessment(checks, issues = []) {
+  const score = checks.filter(([, passed]) => passed).length;
+  const valid = issues.length === 0;
   return {
-    valid: true,
-    passed: checks.filter(([, passed]) => passed).length >= 7,
-    score: checks.filter(([, passed]) => passed).length,
-    max_score: checks.length,
-    checks: Object.fromEntries(checks),
+    assessment_version: 2,
+    assessment_kind: "structural-readiness",
+    semantic_quality_verified: false,
+    evidence_binding_verified: false,
+    confidence_calibration_verified: false,
+    valid,
+    // Keep the existing 7/10 exit-code contract; scores from v1 and v2 are not comparable.
+    passed: valid && score >= 7,
+    structural_passed: valid && score >= 7,
+    score,
+    max_score: 10,
+    threshold: 7,
+    ...(issues.length ? { issues } : { checks: Object.fromEntries(checks) }),
+    limitations: [
+      "Text and metadata checks cannot verify relevance, entailment, independent origins, or useful judgment.",
+      "Declared IDs and source hashes require separate binding validation; they do not prove a claim.",
+      "Confidence calibration and product usefulness require inspection of the evidence and user outcome.",
+    ],
   };
 }
 

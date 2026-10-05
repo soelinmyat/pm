@@ -32,6 +32,9 @@ After execution, show what changed:
 ### Skipped ({N} files)
   All profile, features, API, and sentiment files — fresh.
 
+### Conclusions needing synthesis
+  request-discoverability.md — source changed at the same path; prior conclusion retained as historical, current confidence low pending claim-level assessment.
+
 ### Conflicts ({N} files)
   pricing.md — changed after audit; proposal preserved at .pm/evidence/conflicts/...
 ```
@@ -52,7 +55,8 @@ After execution, show what changed:
 12. **`{pm_state_dir}/config.json` does not exist:** Use hardcoded defaults. Treat SEO provider as `"none"`.
 13. **Topic research with `source_origin: internal`:** Skip entirely. Show in audit as "[Internal — skipped, owned by $pm-ingest]". Never modify internal evidence files.
 14. **Topic research with `source_origin: mixed`:** Refresh only external evidence. Preserve Representative Quotes, internal findings, and `[internal]`-prefixed entries. Rewrite shared sections to reflect both sources.
-15. **Evidence or artifact hash conflict:** Leave current files untouched, preserve the proposed request privately, count it under Conflicts, and require explicit reconciliation rather than silently rebasing.
+15. **Changed linked claim:** Refresh the complete source digest and mark prior advice stale/needs-synthesis. Report any unresolved relevance, contradiction, or confidence limit; do not equate schema validation with semantic synthesis.
+16. **Evidence or artifact hash conflict:** Leave current files untouched, preserve the proposed request privately, count it under Conflicts, and require explicit reconciliation rather than silently rebasing.
 
 Say: "Refresh complete. {N} files updated, {M} unchanged. Run `/pm:groom` or `/pm:ideate` to use the refreshed evidence. What would you like to do next?"
 

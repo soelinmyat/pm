@@ -1,6 +1,6 @@
 # API Analysis Methodology
 
-A competitor's API is the most honest representation of their product architecture. It shows what they actually model, what they consider first-class, and how mature their integration story is. This guide covers how to find it, what to extract, and how to interpret findings.
+A competitor's public API documents an external integration contract. It shows which resources and operations are available to a documented audience and plan; it does not reveal the complete internal architecture, product maturity, or product-market fit. Separate documented capability, observed behavior, and hypotheses throughout this analysis.
 
 ---
 
@@ -16,7 +16,7 @@ Check these locations in order:
 6. **Status page:** `status.{domain}` sometimes reveals infrastructure details (microservices, API gateway providers).
 7. **Postman / Swagger Hub:** Search the company name. Public API collections are sometimes published there even when docs are sparse.
 
-If no public API documentation exists, note "No public API" and document any evidence of partner-only or private API access.
+If the search finds no public documentation, note "Public API documentation not found in the searched locations" and name those locations. Distinguish verified absence from undiscovered, partner-only, plan-gated, or private access.
 
 ---
 
@@ -24,21 +24,21 @@ If no public API documentation exists, note "No public API" and document any evi
 
 ### Auth Model
 
-The auth model reveals how seriously they treat integrations and what trust model they operate under.
+Record the documented authentication mechanism, supported audience, scopes, revocation, and restrictions. Evaluate whether it supports the integration job; the mechanism alone does not establish maturity or security quality.
 
-| Auth Type | What It Signals |
+| Mechanism | What to verify |
 |---|---|
-| API key only | Simple integration story; common in early-stage or SMB tools |
-| OAuth 2.0 | Mature integration story; supports user-delegated access |
-| JWT | Often internal-facing or newer architecture |
-| Session cookie | Not built for integration; web-scraping territory |
-| Multiple supported | Mature platform; wide integration use cases |
+| API key | Scope boundaries, storage guidance, rotation and revocation |
+| OAuth 2.0 | Delegated access, grant types, consent, scopes and token lifecycle |
+| JWT | How tokens are issued and validated; JWT is a token format, not an alternative to OAuth |
+| Session cookie | Whether supported programmatic use is documented and authorized |
+| Multiple mechanisms | Which audience and use case each mechanism supports |
 
 Note: scope granularity matters. "Read-only API key" and "full-access API key" are meaningfully different security postures.
 
 ### Core Entity Model
 
-List the primary objects the API exposes. These are not endpoints — they are the nouns of the product's data model.
+List the primary objects the API exposes. These are not endpoints — they are the nouns of the documented external resource model. Do not equate it with the internal database model.
 
 For each entity, note:
 - Name and what it represents in the product domain
@@ -53,7 +53,7 @@ Example for a workforce management tool:
 - `Timesheet` — time tracking record
 - `Report` — generated output
 
-What is absent is as revealing as what is present. If there is no `Shift` object in a scheduling tool's API, shifts are not first-class.
+If no `Shift` resource is documented, record that scheduling integrations may lack a documented shift operation. Check nested resources, plan restrictions and alternate APIs before concluding it is absent. Do not infer that the product internally lacks a first-class shift model.
 
 ### Endpoint Coverage
 
@@ -63,9 +63,9 @@ For each entity, note which operations are available:
 |---|---|---|---|---|---|---|
 | ...    | Y    | Y   | Y      | N      | N      | N    |
 
-Partial CRUD (read-only API, no write access) signals the API is an afterthought — a data export tool rather than an integration surface.
+Read-only access limits the documented integration jobs; it may be an intentional security, audience, or product boundary. Identify the blocked job rather than claiming the API was an afterthought.
 
-Bulk operations signal operational maturity. Products used at scale need bulk endpoints; their absence is a known pain point in large accounts.
+Assess throughput against a concrete job and workload. Bulk operations may help, but queues, batching, pagination or other documented mechanisms may also suffice. Customer pain and scale require evidence beyond endpoint shape.
 
 ### Webhooks
 
@@ -78,7 +78,7 @@ Extract:
 - Retry behavior: Does it retry on failure? How many times? Exponential backoff?
 - Security: HMAC signature verification, shared secret, or nothing?
 
-Absence of webhooks means integrations are polling-only — a meaningful architectural constraint for real-time use cases.
+When no webhook support is documented, check streaming, subscriptions, event exports and native integrations. State the latency or coverage limitation for the documented integration route; absence of webhooks does not prove the internal architecture is polling-only.
 
 ### Rate Limits
 
@@ -88,7 +88,7 @@ Note:
 - Header names that communicate current limit state (`X-RateLimit-Remaining`, etc.)
 - Upgrade path if limits are tiered by plan
 
-High rate limits signal infrastructure investment. Very low limits (e.g., 100 req/day) signal the API is not meant for serious integrations.
+Calculate whether documented limits support the named workload and recovery/retry needs. Do not infer infrastructure investment or seriousness from a rate-limit number alone.
 
 ### SDK Availability
 
@@ -100,7 +100,7 @@ High rate limits signal infrastructure investment. Very low limits (e.g., 100 re
 | PHP | Y/N | Y/N | |
 | Go | Y/N | Y/N | |
 
-Official SDKs signal committed investment in the integration ecosystem. Community SDKs (no official SDK) signal demand without supply — a potential pain point for integration partners.
+Record maintenance dates, supported API versions and coverage. An official SDK does not prove scale or reliability; a community SDK is evidence of that project, not representative customer demand.
 
 ### Native Integrations and Marketplace
 
@@ -110,42 +110,19 @@ Official SDKs signal committed investment in the integration ecosystem. Communit
 
 ---
 
-## What the API Surface Reveals
+## Interpreting the Documented Surface
 
-### Product Architecture Maturity
+Use the smallest claim the source supports:
 
-| Signal | Interpretation |
-|---|---|
-| Full CRUD on all major entities | Platform-ready; built for integration from early on |
-| Read-only API | Integration was an afterthought; data exits but does not enter |
-| No public API | Integration story is entirely native; ecosystem play is absent |
-| Rich webhook event catalog | Event-driven architecture; real-time integration possible |
-| No webhooks | Polling-dependent integrations; real-time use cases are blocked |
-| GraphQL endpoint | Flexible query model; often signals modern architecture rewrite |
-| REST + versioned URLs | Stable; committed to backward compatibility |
-| Unversioned API | Brittle; integrations break without warning on product changes |
+| Observation | Supported conclusion | Unverified inference |
+|---|---|---|
+| Read/write operations documented | These operations are available under the stated access conditions | Built for integration from inception |
+| Webhook catalog and retry policy documented | Named events and delivery behavior are promised | Internally event-driven architecture or proven reliability |
+| GraphQL or REST endpoint | This query/interface style is exposed | Modern rewrite, maturity or backward compatibility |
+| Versioned URLs | Version selection is explicit | Changes cannot break clients |
+| Marketplace integrations listed | Named connectors are offered | Product-market fit, customer adoption or battle-tested scale |
 
-### Data Model Decisions
-
-The entities exposed reveal product philosophy. Compare their entity model to yours:
-
-- Do they model the same nouns you do?
-- Do they segment entities the same way (e.g., "Site" vs. "Location" vs. "Property")?
-- What is the top-level tenant object? (Organization, Account, Company, Workspace — each reflects a different go-to-market assumption)
-- Are time-related concepts first-class objects, or attributes on other objects?
-
-### Integration Ecosystem Signal
-
-A mature integration ecosystem (Zapier, native CRM/HRIS connectors, public marketplace) signals:
-- They have PMF with customers who have complex tech stacks
-- They are harder to displace (switching costs from integrations)
-- Their API has been battle-tested at scale
-
-An absent ecosystem signals:
-- Early stage or narrow ICP (customers who do not need integrations)
-- Integration as a growth unlock — an area where a competitor could be built around
-
----
+Compare resource vocabulary and documented operations with the user's integration job. Test meaningful limitations such as inability to update an approved shift or consume deletions; avoid judging architecture from naming alone. Switching-cost, ecosystem demand, and customer-outcome claims require independent adoption or customer evidence. Unknowns remain unknown, with a proposed check only when the answer could change the decision.
 
 ## Structuring Findings in api.md
 
@@ -190,7 +167,7 @@ If undocumented: "Rate limits not publicly documented."
 {Official SDKs by language. Native integrations list. Marketplace presence.}
 
 ## Architectural Signals
-{Inferences from the API surface: maturity, data model choices, integration ecosystem health, notable gaps.}
+{Documented external contract, workload-specific constraints, and explicitly bounded hypotheses. Include alternative explanations and what would confirm a consequential hypothesis.}
 Label inferences explicitly: "Inference: ..."
 ```
 
@@ -201,5 +178,5 @@ Label inferences explicitly: "Inference: ..."
 - **Confusing marketing integrations with real API coverage.** "Integrates with Salesforce" on a features page may mean a native sync built by their team, not an API a customer can use. Verify in docs.
 - **Missing sub-resources.** Some entities only appear as nested endpoints (e.g., `/shifts/{id}/breaks`). Browse the full endpoint list, not just the top-level resources.
 - **Treating SDK presence as API completeness.** An SDK wraps whatever the API exposes. Check the underlying API for gaps the SDK may paper over.
-- **Ignoring changelog for API changes.** The API changelog (if public) reveals where they are actively investing and what has been deprecated. A stable API with no changes may signal abandonment.
+- **Ignoring changelog for API changes.** The API changelog (if public) reveals where they are actively investing and what has been deprecated. No recent changelog entries establish only that no changes were found there; stability, unpublished changes and abandonment require different evidence.
 - **Assuming private = none.** Some products have undocumented internal APIs that are in active use by integration partners. Look for third-party integration documentation (e.g., Zapier app pages) that may reference API capabilities not in public docs.
