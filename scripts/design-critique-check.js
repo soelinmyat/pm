@@ -1192,6 +1192,7 @@ function validateTrustedCaptureObservation(
   validateTrustedPage(manifest, capture, route, coverage, at, issues);
   validateTrustedObservationIdentity(
     manifest,
+    capture,
     route,
     routeFile,
     assertion,
@@ -1446,6 +1447,7 @@ function validateTrustedPage(manifest, capture, route, coverage, label, issues) 
 
 function validateTrustedObservationIdentity(
   manifest,
+  capture,
   route,
   routeFile,
   assertion,
@@ -1481,7 +1483,9 @@ function validateTrustedObservationIdentity(
     )
       add(issues, `${label}.browser.${side}`, "has an invalid executable identity");
   }
-  if (shouldVerifyCaptureBrowser(runtime.options))
+  // Historical before evidence retains its capture-time identity after an installed-browser update.
+  // Only explicitly inactive rows skip ambient executable checks; all bundle checks still apply.
+  if (capture.active !== false && shouldVerifyCaptureBrowser(runtime.options))
     validateCurrentBrowserIdentity(browser.before, runtime.options, `${label}.browser`, issues);
   const source = observation.source;
   if (

@@ -2506,6 +2506,194 @@ test("revalidates the current browser executable identity before certifying capt
   assert.match(JSON.stringify(result.issues), /current browser executable identity/);
 });
 
+function setCaptureBrowserIdentity(fixture, captures, identity) {
+  for (const capture of captures) {
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(fixture.root, capture.observation.path), "utf8")
+    );
+    manifest.observation.browser = { engine: "chromium", before: identity, after: identity };
+    capture.observation = write(
+      fixture.root,
+      capture.observation.path,
+      `${JSON.stringify(manifest, null, 2)}\n`
+    );
+  }
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+}
+
+function mixedBrowserHistoryFixture(t) {
+  const fixture = makeFixture();
+  t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+  const { before, after } = configureResolvedPrimaryFinding(fixture);
+  const browserPath = path.join(fixture.root, "fake-chromium");
+  fs.writeFileSync(browserPath, "#!/bin/sh\necho 'Chromium 140.0.7339.95'\n", { mode: 0o755 });
+  const oldIdentity = inspectBrowserIdentity(browserPath).public;
+  setCaptureBrowserIdentity(fixture, fixture.captures.captures, oldIdentity);
+  const options = { verifyBrowser: false, verifyCaptureBrowser: true, browserPath };
+  assert.deepEqual(check(fixture, COMMIT, options), { ok: true, issues: [] });
+  const historicalManifest = fs.readFileSync(path.join(fixture.root, before.observation.path));
+  fs.writeFileSync(browserPath, "#!/bin/sh\necho 'Chromium 140.0.7339.98'\n", { mode: 0o755 });
+  const currentIdentity = inspectBrowserIdentity(browserPath).public;
+  setCaptureBrowserIdentity(
+    fixture,
+    fixture.captures.captures.filter((capture) => capture.active === true),
+    currentIdentity
+  );
+  assert.deepEqual(
+    fs.readFileSync(path.join(fixture.root, before.observation.path)),
+    historicalManifest
+  );
+  return { fixture, before, after, browserPath, oldIdentity, options };
+}
+
+test("preserves inactive before evidence across browser updates with current active captures", (t) => {
+  const { fixture, options } = mixedBrowserHistoryFixture(t);
+  assert.deepEqual(check(fixture, COMMIT, options), { ok: true, issues: [] });
+});
+
+test("browser history does not exempt an active capture from current executable checks", (t) => {
+  const { fixture, after, oldIdentity, options } = mixedBrowserHistoryFixture(t);
+  setCaptureBrowserIdentity(fixture, [after], oldIdentity);
+  const result = check(fixture, COMMIT, options);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /current browser executable identity/);
+});
+
+test("browser history cannot replace required active coverage by relabeling it inactive", (t) => {
+  const { fixture, after, oldIdentity, options } = mixedBrowserHistoryFixture(t);
+  after.active = false;
+  setCaptureBrowserIdentity(fixture, [after], oldIdentity);
+  const result = check(fixture, COMMIT, options);
+  assert.equal(result.ok, false);
+  assert.match(
+    JSON.stringify(result.issues),
+    /required coverage ui-primary must have exactly one active capture/
+  );
+});
+
+test("browser history still rejects executable changes during gate validation", (t) => {
+  const { fixture, browserPath, options } = mixedBrowserHistoryFixture(t);
+  const executablePath = fs.realpathSync(browserPath);
+  const originalOpen = fs.openSync;
+  let browserReads = 0;
+  fs.openSync = function changeBrowserAtFinalRead(file, ...args) {
+    if (String(file) === executablePath && ++browserReads === 2)
+      fs.appendFileSync(browserPath, "# update during validation\n");
+    return Reflect.apply(originalOpen, fs, [file, ...args]);
+  };
+  let result;
+  try {
+    result = check(fixture, COMMIT, options);
+  } finally {
+    fs.openSync = originalOpen;
+  }
+  assert.equal(browserReads, 2);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(result.issues), /browser executable changed while checking/);
+});
+
+for (const [name, mutate, expected] of [
+  [
+    "different capture-time browser identities",
+    (manifest) => {
+      manifest.observation.browser.after.version = "Chromium 140.0.7339.96";
+    },
+    /one unchanged Chromium executable/,
+  ],
+  [
+    "invalid executable path",
+    (manifest) => {
+      manifest.observation.browser.before.path = "relative-chromium";
+      manifest.observation.browser.after.path = "relative-chromium";
+    },
+    /invalid executable identity/,
+  ],
+  [
+    "invalid executable hash",
+    (manifest) => {
+      manifest.observation.browser.before.sha256 = "invalid";
+      manifest.observation.browser.after.sha256 = "invalid";
+    },
+    /invalid executable identity/,
+  ],
+  [
+    "invalid executable version",
+    (manifest) => {
+      manifest.observation.browser.before.version = "Firefox 140";
+      manifest.observation.browser.after.version = "Firefox 140";
+    },
+    /invalid executable identity/,
+  ],
+  [
+    "invalid executable byte count",
+    (manifest) => {
+      manifest.observation.browser.before.bytes = 0;
+      manifest.observation.browser.after.bytes = 0;
+    },
+    /invalid executable identity/,
+  ],
+  [
+    "stale capture source",
+    (manifest) => {
+      manifest.observation.source.before.head = "c".repeat(40);
+      manifest.observation.source.after.head = "c".repeat(40);
+    },
+    /clean routed source identity/,
+  ],
+  [
+    "stale capture producer",
+    (manifest) => {
+      manifest.observation.producer.version = "0.0.0";
+    },
+    /current workflow-attested.*capture producer/,
+  ],
+  [
+    "unbound metadata",
+    (manifest) => {
+      manifest.observation.extra = true;
+    },
+    /unsupported key|unknown|unexpected|not allowed/,
+  ],
+]) {
+  test(`inactive browser history rejects ${name}`, (t) => {
+    const { fixture, before, options } = mixedBrowserHistoryFixture(t);
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(fixture.root, before.observation.path), "utf8")
+    );
+    mutate(manifest);
+    before.observation = write(
+      fixture.root,
+      before.observation.path,
+      `${JSON.stringify(manifest, null, 2)}\n`
+    );
+    rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+    fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+    rewriteReportAndHtml(fixture);
+    const result = check(fixture, COMMIT, options);
+    assert.equal(result.ok, false);
+    assert.match(JSON.stringify(result.issues), expected);
+  });
+}
+
+for (const kind of ["screenshot", "raw-audit"]) {
+  test(`inactive browser history rejects changed ${kind} bytes`, (t) => {
+    const { fixture, before, options } = mixedBrowserHistoryFixture(t);
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(fixture.root, before.observation.path), "utf8")
+    );
+    const file = kind === "screenshot" ? before.path : manifest.raw_evidence.dom_audit.path;
+    fs.appendFileSync(path.join(fixture.root, file), "changed historical evidence\n");
+    const result = check(fixture, COMMIT, options);
+    assert.equal(result.ok, false);
+    assert.match(
+      JSON.stringify(result.issues),
+      kind === "screenshot" ? /does not match file bytes/ : /does not match raw audit bytes/
+    );
+  });
+}
+
 test("does not execute a browser path supplied only by retained capture evidence", () => {
   const fixture = makeFixture();
   const markerPath = path.join(fixture.root, "untrusted-browser-ran");
