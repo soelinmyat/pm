@@ -21,6 +21,7 @@ function makeProject() {
     const filePath = path.join(root, relativePath);
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, contents);
+    fs.utimesSync(filePath, NOW, NOW);
     return filePath;
   };
   fs.mkdirSync(path.join(root, "pm", "backlog"), { recursive: true });
