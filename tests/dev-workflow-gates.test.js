@@ -560,6 +560,11 @@ test("pre-push runs the dev gate checker from the pushed commit, not the dirty w
     );
     fs.writeFileSync(path.join(dir, "skills", "dev", "references", "model-profiles.json"), "{}\n");
     fs.writeFileSync(path.join(dir, "skills", "rfc", "references", "model-profiles.json"), "{}\n");
+    fs.mkdirSync(path.join(dir, "references", "templates"), { recursive: true });
+    fs.copyFileSync(
+      path.join(repoRoot, "references", "templates", "review-report.html"),
+      path.join(dir, "references", "templates", "review-report.html")
+    );
     fs.writeFileSync(
       path.join(dir, "scripts", "dev-gate-check.js"),
       'require("./lib/checker-helper");\n'
@@ -602,17 +607,18 @@ test("pre-push checker clean-room bundle loads its complete dependency closure",
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-pre-push-checker-bundle-"));
   try {
     const archive = path.join(dir, "checker.tar");
+    const hook = read(".githooks/pre-push");
+    const archiveStart = hook.indexOf("git archive --format=tar");
+    const archiveEnd = hook.indexOf("; then", archiveStart);
+    assert.ok(archiveStart >= 0 && archiveEnd > archiveStart);
     const archived = spawnSync(
-      "git",
+      "bash",
       [
-        "archive",
-        "--format=tar",
-        `--output=${archive}`,
+        "-c",
+        `checker_archive="$1"; local_oid="$2"; ${hook.slice(archiveStart, archiveEnd)}`,
+        "pre-push-checker-archive",
+        archive,
         "HEAD",
-        "scripts",
-        "plugin.config.json",
-        "skills/dev/references/model-profiles.json",
-        "skills/rfc/references/model-profiles.json",
       ],
       { cwd: repoRoot, encoding: "utf8" }
     );
@@ -629,6 +635,26 @@ test("pre-push checker clean-room bundle loads its complete dependency closure",
     );
     assert.equal(loaded.status, 0, loaded.stderr);
     assert.match(loaded.stdout, /Usage: node scripts\/dev-gate-check\.js/);
+    const rendered = spawnSync(
+      process.execPath,
+      [
+        "-e",
+        `const { renderReviewHtml } = require("./scripts/review-report");
+         const report = {
+           run_id: "archive-regression", review_round: 1, outcome: "passed",
+           checked_at: "2026-10-07T00:00:00.000Z",
+           generator: { name: "pm:review", version: require("./plugin.config.json").version },
+           source: { commit: "a".repeat(40), base_ref: "origin/main" },
+           top_issue: "No findings", next_action: "Continue delivery",
+           coverage: { required: ["bug"], completed: ["bug"], not_applicable: [] }
+         };
+         process.stdout.write(renderReviewHtml(report, Buffer.from(JSON.stringify(report)), "review/report.json"));`,
+      ],
+      { cwd: dir, encoding: "utf8" }
+    );
+    assert.equal(rendered.status, 0, rendered.stderr);
+    assert.match(rendered.stdout, /data-review-outcome="passed"/);
+    assert.doesNotMatch(rendered.stdout, /{{[A-Z0-9_]+}}/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
