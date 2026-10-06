@@ -23,6 +23,10 @@ Read-only review waves default here regardless of the session's global `delegati
 
 ## Required capabilities
 
+### OpenCode V2 interactive execution
+
+Use `inline-current` for ordered interactive work. Native `subagent` calls may use the installed `pm:*` persona agents and inherit the host model; do not pass Claude-only aliases such as `sonnet`. Fresh Eyes must run in a genuinely separate child context. Retain all ownership, authority, evidence, and review-lens requirements. Installation and explicit capability limits are in `.opencode/INSTALL.md`. Do not dispatch headless OpenCode workers or unattended OpenCode Loop: the current CLI does not provide the schema-output contract required by the adapters below.
+
 Before a CLI launch, call `probeCapabilities` and require:
 
 - structured schema output;

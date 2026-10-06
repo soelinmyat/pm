@@ -405,7 +405,11 @@ test("source repo pre-push hook uses the shared gate checker for PM runtime chan
   assert.match(text, /git worktree remove --force "\$test_tmp"/);
   assert.match(
     text,
-    /env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_PREFIX node --test tests\/\*\.test\.js/
+    /env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_PREFIX node --test --test-concurrency=4 tests\/\*\.test\.js/
+  );
+  assert.match(
+    read(".github/workflows/ci.yml"),
+    /node --test --test-concurrency=4 tests\/\*\.test\.js/
   );
   assert.match(text, /git cat-file -e "\$commit:\$required_path"/);
   assert.match(text, /git show "\$commit:plugin\.config\.json"/);
