@@ -2048,16 +2048,17 @@ function runBrowserCapture(fixture, allowedOrigins = []) {
   });
 }
 
-test(
-  "browser helper completes after browser exit when a descendant retains stderr",
-  { skip: browserSkip || (process.platform === "win32" && "POSIX browser launcher fixture") },
-  () => {
-    const fixture = createBrowserFixture();
-    const holderPidPath = path.join(fixture.root, "stderr-holder.pid");
-    const launcherPath = path.join(fixture.root, "browser-launcher.cjs");
-    fs.writeFileSync(
-      launcherPath,
-      `#!${process.execPath}
+for (const retryFirstLaunch of [false, true]) {
+  test(
+    `browser helper completes after browser exit when a descendant retains stderr${retryFirstLaunch ? " across a launch retry" : ""}`,
+    { skip: browserSkip || (process.platform === "win32" && "POSIX browser launcher fixture") },
+    () => {
+      const fixture = createBrowserFixture();
+      const holderPidPath = path.join(fixture.root, "stderr-holder.pid");
+      const launcherPath = path.join(fixture.root, "browser-launcher.cjs");
+      fs.writeFileSync(
+        launcherPath,
+        `#!${process.execPath}
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 // Model a browser descendant retaining the inherited stderr writer after the
@@ -2066,49 +2067,56 @@ const holder = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], {
   detached: true,
   stdio: ["ignore", "ignore", 2],
 });
-fs.writeFileSync(${JSON.stringify(holderPidPath)}, String(holder.pid));
+fs.appendFileSync(${JSON.stringify(holderPidPath)}, String(holder.pid) + "\\n");
 holder.unref();
+if (${retryFirstLaunch} && fs.readFileSync(${JSON.stringify(holderPidPath)}, "utf8").trim().split("\\n").length === 1)
+  process.exit(1);
 const browser = spawn(${JSON.stringify(installedBrowser)}, process.argv.slice(2), {
   stdio: ["ignore", "ignore", 2],
 });
 browser.once("exit", (code) => process.exit(code ?? 1));
 `,
-      { mode: 0o700 }
-    );
-    try {
-      const result = runCaptureProbe(
-        {
-          browserPath: launcherPath,
-          url: fixture.url,
-          expectedUrl: fixture.url,
-          viewport: { width: 1024, height: 600 },
-          stateAssertion: fixture.stateAssertion,
-          allowedOrigins: [],
-          readinessTimeoutMs: 5_000,
-          settleMs: 200,
-          outputPath: fixture.outputPath,
-          verificationPath: fixture.verificationPath,
-        },
-        { timeoutMs: 15_000 }
+        { mode: 0o700 }
       );
-      assert.equal(result.assertion_passed, true);
-      assert.ok(fs.statSync(fixture.outputPath).size > 0);
-      assert.ok(fs.statSync(fixture.verificationPath).size > 0);
-      // The writer is still alive: completion came from closing the probe's
-      // owned reader, rather than waiting for the descendant's timer to expire.
-      process.kill(Number(fs.readFileSync(holderPidPath, "utf8")), 0);
-    } finally {
-      if (fs.existsSync(holderPidPath)) {
-        try {
-          process.kill(Number(fs.readFileSync(holderPidPath, "utf8")), "SIGKILL");
-        } catch (error) {
-          assert.equal(error.code, "ESRCH");
+      try {
+        const result = runCaptureProbe(
+          {
+            browserPath: launcherPath,
+            url: fixture.url,
+            expectedUrl: fixture.url,
+            viewport: { width: 1024, height: 600 },
+            stateAssertion: fixture.stateAssertion,
+            allowedOrigins: [],
+            readinessTimeoutMs: 5_000,
+            settleMs: 200,
+            outputPath: fixture.outputPath,
+            verificationPath: fixture.verificationPath,
+          },
+          { timeoutMs: 15_000 }
+        );
+        assert.equal(result.assertion_passed, true);
+        assert.ok(fs.statSync(fixture.outputPath).size > 0);
+        assert.ok(fs.statSync(fixture.verificationPath).size > 0);
+        // The writer is still alive: completion came from closing the probe's
+        // owned reader, rather than waiting for the descendant's timer to expire.
+        const holderPids = fs.readFileSync(holderPidPath, "utf8").trim().split("\n");
+        assert.equal(holderPids.length, retryFirstLaunch ? 2 : 1);
+        for (const pid of holderPids) process.kill(Number(pid), 0);
+      } finally {
+        if (fs.existsSync(holderPidPath)) {
+          for (const pid of fs.readFileSync(holderPidPath, "utf8").trim().split("\n")) {
+            try {
+              process.kill(Number(pid), "SIGKILL");
+            } catch (error) {
+              assert.equal(error.code, "ESRCH");
+            }
+          }
         }
+        fs.rmSync(fixture.root, { recursive: true, force: true });
       }
-      fs.rmSync(fixture.root, { recursive: true, force: true });
     }
-  }
-);
+  );
+}
 
 for (const { key, count, reverse } of [
   { key: "Tab", count: 2, reverse: false },
