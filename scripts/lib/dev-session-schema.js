@@ -3070,10 +3070,9 @@ function rebindRfcContract(session, { sidecarPath, expectedSha256, reason, now =
     );
     const protectedContract = { ...unit.contract };
     for (const field of changedContractFields) protectedContract[field] = existing.contract[field];
-    if (
-      canonicalJson(protectedContract) !== canonicalJson(existing.contract) ||
-      (changedContractFields.length && verified.approval.schema_version !== 3)
-    ) {
+    // Exact lineage verification above checks every v2 ownership or v3
+    // maintenance hop back to the bound sidecar; its newest audit need not be v3.
+    if (canonicalJson(protectedContract) !== canonicalJson(existing.contract)) {
       throw new Error(
         `work unit ${unit.id} contract changed without reviewed in-scope maintenance`
       );

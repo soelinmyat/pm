@@ -196,7 +196,7 @@ function readSession(sessionPath) {
   return JSON.parse(fs.readFileSync(sessionPath, "utf8"));
 }
 
-test("reviewed technical maintenance updates real Dev contracts and invalidates only the affected completed unit", () => {
+function assertTechnicalMaintenanceRebind(withLegacyOwnership) {
   const scenario = boundScenario([issue(1, [], ["README.md"]), issue(2, [], ["src/second.js"])]);
   try {
     scenario.enterImplementation();
@@ -215,7 +215,8 @@ test("reviewed technical maintenance updates real Dev contracts and invalidates 
     );
     assert.equal(two.status, 0, two.stderr);
     const before = readSession(scenario.sessionPath);
-    const amendment = completeAmendment(scenario.rfc, scenario.approved.archivePath, {
+    const originalArchive = fs.readFileSync(scenario.approved.archivePath);
+    let amendment = completeAmendment(scenario.rfc, scenario.approved.archivePath, {
       kind: "maintenance",
       issues: "2",
       reason: "Correct verification to exercise the existing second behavior",
@@ -223,6 +224,14 @@ test("reviewed technical maintenance updates real Dev contracts and invalidates 
         s.issues[1].verification_commands = ["node --test tests/second.test.js"];
       },
     });
+    if (withLegacyOwnership) {
+      amendment = completeAmendment(scenario.rfc, amendment.archivePath, {
+        kind: "owns-only",
+        issues: "2",
+        reason: "The same issue owns its existing regression harness",
+        mutate: (sidecar) => sidecar.issues[1].owns.push("tests/second.test.js"),
+      });
+    }
     copyArchives(scenario.rfc, scenario.dev);
     const rebound = scenario.rebind(amendment.sidecarHash);
     assert.equal(rebound.status, 0, rebound.stderr);
@@ -238,10 +247,21 @@ test("reviewed technical maintenance updates real Dev contracts and invalidates 
     assert.deepEqual(history.invalidated_result, before.task.work_units[1].result);
     assert.deepEqual(after.authority, before.authority);
     assert.deepEqual(after.routing, before.routing);
+    assert.deepEqual(fs.readFileSync(scenario.approved.archivePath), originalArchive);
+    assert.deepEqual(history.added_owns, withLegacyOwnership ? ["tests/second.test.js"] : []);
+    const retry = scenario.rebind(amendment.sidecarHash);
+    assert.equal(retry.status, 0, retry.stderr);
+    assert.equal(JSON.parse(retry.stdout).idempotent, true);
   } finally {
     scenario.cleanup();
   }
-});
+}
+
+test("reviewed technical maintenance updates real Dev contracts and invalidates only the affected completed unit", () =>
+  assertTechnicalMaintenanceRebind(false));
+
+test("rebind accepts mixed ownership lineage after reviewed technical maintenance", () =>
+  assertTechnicalMaintenanceRebind(true));
 
 test("rebind-rfc adopts an approved owns-only amendment so a blocked unit can complete", () => {
   const scenario = boundScenario([issue(1, [], ["README.md"]), issue(2, [1], ["src/second.js"])]);
