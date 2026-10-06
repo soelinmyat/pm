@@ -235,3 +235,71 @@ test("the real canonical push gate blocks a consumer session missing current gat
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("unchanged installation is idempotent after recursive object-key reordering", () => {
+  function reordered(value) {
+    if (Array.isArray(value)) return value.map(reordered);
+    if (!value || typeof value !== "object") return value;
+    return Object.fromEntries(
+      Object.entries(value)
+        .reverse()
+        .map(([key, item]) => [key, reordered(item)])
+    );
+  }
+  const original = buildInstallConfig({}, { root });
+  const changedOrder = reordered(original);
+  assert.deepEqual(buildInstallConfig(changedOrder, { root }), original);
+  changedOrder.agents["pm:staff-engineer"].permissions.reverse();
+  assert.throws(() => buildInstallConfig(changedOrder, { root }), /conflict/);
+});
+
+test("installer aborts without overwriting an intervening unrelated config update", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-opencode-freshness-"));
+  try {
+    const file = path.join(dir, "opencode.json");
+    fs.writeFileSync(file, JSON.stringify({ model: "old" }));
+    const updated = JSON.stringify({
+      model: "new",
+      permissions: [{ action: "edit", resource: "*", effect: "ask" }],
+    });
+    assert.throws(
+      () => installConfig(file, { root, beforePublish: () => fs.writeFileSync(file, updated) }),
+      /changed during installation/
+    );
+    assert.equal(fs.readFileSync(file, "utf8"), updated);
+    installConfig(file, { root });
+    assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).model, "new");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("two installer processes cannot publish concurrently and locks are released", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-opencode-concurrent-"));
+  let observed = false;
+  try {
+    const file = path.join(dir, "opencode.json");
+    fs.writeFileSync(file, JSON.stringify({ model: "retained" }));
+    installConfig(file, {
+      root,
+      beforePublish: () => {
+        observed = true;
+        assert.throws(
+          () =>
+            execFileSync(
+              process.execPath,
+              [path.join(root, "scripts/opencode-install.js"), "--config", file],
+              { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
+            ),
+          /installation is already in progress/
+        );
+        assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")), { model: "retained" });
+      },
+    });
+    assert.equal(observed, true);
+    installConfig(file, { root });
+    assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).model, "retained");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

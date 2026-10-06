@@ -4,8 +4,11 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { pathToFileURL } = require("node:url");
+const { isDeepStrictEqual } = require("node:util");
 const { parseFrontmatter } = require("./kb-frontmatter");
 const { writeJsonAtomic } = require("./lib/atomic-file");
+const { acquireOwnedLock } = require("./lib/owned-lock");
+const { readProjectInput } = require("./lib/project-file");
 
 const ROOT = path.resolve(__dirname, "..");
 const MIN_VERSION = "2.0.24";
@@ -157,7 +160,7 @@ function buildInstallConfig(existing, { root = ROOT, nodeExecutable = "node" } =
   const plugin = { package: entry, options: { nodeExecutable } };
   next.plugins ||= [];
   const matching = next.plugins.filter((p) => (typeof p === "string" ? p : p?.package) === entry);
-  if (matching.some((p) => JSON.stringify(p) !== JSON.stringify(plugin)))
+  if (matching.some((p) => !isDeepStrictEqual(p, plugin)))
     throw new Error("PM plugin configuration conflict; merge options explicitly");
   if (!matching.length) next.plugins.push(plugin);
   next.agents ||= {};
@@ -175,7 +178,7 @@ function buildInstallConfig(existing, { root = ROOT, nodeExecutable = "node" } =
               { action: "shell", resource: "*", effect: "ask" },
             ],
     };
-    if (next.agents[id] && JSON.stringify(next.agents[id]) !== JSON.stringify(agent))
+    if (next.agents[id] && !isDeepStrictEqual(next.agents[id], agent))
       throw new Error(
         `PM persona configuration conflict: ${id}; preserve and reconcile the existing definition explicitly`
       );
@@ -189,22 +192,45 @@ function installConfig(file, options = {}) {
   file = path.resolve(file);
   if (file.endsWith(".jsonc"))
     throw new Error("JSONC config must be merged manually; PM never rewrites comments");
-  let existing = {};
-  const stat = fs.lstatSync(file, { throwIfNoEntry: false });
-  if (stat) {
-    if (!stat.isFile() || stat.isSymbolicLink())
-      throw new Error("Refusing non-regular or symlink OpenCode config");
-    if (stat.size > 1024 * 1024) throw new Error("OpenCode config exceeds 1 MiB");
-    existing = JSON.parse(fs.readFileSync(file, "utf8"));
+  // Canonicalize the directory so aliases serialize on the same owned lock.
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  file = path.join(fs.realpathSync(path.dirname(file)), path.basename(file));
+  const release = acquireOwnedLock(`${file}.pm-install.lock`, {
+    attempts: 2,
+    timeoutMessage:
+      "PM installation is already in progress for this config; retry after it finishes",
+  });
+  try {
+    const baseline = readConfigBytes(file);
+    const existing = baseline ? JSON.parse(baseline.toString("utf8")) : {};
+    const config = buildInstallConfig(existing, options);
+    if (!isDeepStrictEqual(existing, config)) {
+      // Test-only interleaving seam; CLI/config data never supplies callbacks.
+      options.beforePublish?.();
+      const current = readConfigBytes(file);
+      if ((baseline === null) !== (current === null) || (baseline && !baseline.equals(current)))
+        throw new Error(
+          "OpenCode config changed during installation; nothing was overwritten, retry from current settings"
+        );
+      writeJsonAtomic(file, config, { directoryMode: 0o700, fileMode: 0o600 });
+    }
+    return {
+      config_path: file,
+      skills: readDefinitions(options.root || ROOT, "skills").length,
+      personas: readDefinitions(options.root || ROOT, "agents").length,
+    };
+  } finally {
+    release();
   }
-  const config = buildInstallConfig(existing, options);
-  if (JSON.stringify(existing) !== JSON.stringify(config))
-    writeJsonAtomic(file, config, { directoryMode: 0o700, fileMode: 0o600 });
-  return {
-    config_path: file,
-    skills: readDefinitions(options.root || ROOT, "skills").length,
-    personas: readDefinitions(options.root || ROOT, "agents").length,
-  };
+}
+
+function readConfigBytes(file) {
+  const stat = fs.lstatSync(file, { throwIfNoEntry: false });
+  if (!stat) return null;
+  if (!stat.isFile() || stat.isSymbolicLink())
+    throw new Error("Refusing non-regular or symlink OpenCode config");
+  if (stat.size > 1024 * 1024) throw new Error("OpenCode config exceeds 1 MiB");
+  return readProjectInput(path.dirname(file), path.basename(file), 1024 * 1024).bytes;
 }
 
 module.exports = { setup, checkPush, buildInstallConfig, installConfig };

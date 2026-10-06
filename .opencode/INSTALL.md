@@ -21,6 +21,8 @@ node ~/.local/share/pm-opencode/scripts/opencode-install.js --config ~/.config/o
 
 Choose the config path explicitly. Use `<project>/.opencode/opencode.json` instead for a project-local installation. Respect `XDG_CONFIG_HOME` if configured. The installer merges only PM's plugin entry and seven `pm:*` persona definitions; it preserves existing providers, MCP servers, models, commands, permissions and unrelated agents. It refuses conflicting PM definitions rather than overwriting customizations. Repeating an unchanged installation is idempotent.
 
+Installer processes serialize with an owned lock; a competing install stops with a retry message. The installer checks the current file bytes again immediately before publication and aborts if an intervening edit is observed. Close other configuration editors while installing: an unrelated writer that does not honor the lock can still race the final check/rename. Object-key ordering is not a customization; actual value changes and permission-array order remain conflicts.
+
 For JSONC, first print the configuration fragment and merge its `plugins` and `agents` entries manually into the existing file. Do not create a competing JSON config beside it:
 
 ```sh
