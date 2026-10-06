@@ -724,8 +724,11 @@ function accessibilityEvidence(axTree, model, compositeBackendNodeIds = new Set(
   const activeModalBackendIds = [];
   const axById = new Map((axTree.nodes || []).map((node) => [node.nodeId, node]));
   const focusedAncestors = new Set();
+  const focusedBackendNodeIds = new Set();
   for (const focused of axTree.nodes || []) {
     if (focused.ignored === true || axProperties(focused).get("focused") !== true) continue;
+    if (Number.isInteger(focused.backendDOMNodeId))
+      focusedBackendNodeIds.add(focused.backendDOMNodeId);
     const visited = new Set();
     for (
       let current = focused;
@@ -829,6 +832,7 @@ function accessibilityEvidence(axTree, model, compositeBackendNodeIds = new Set(
   return {
     observations: { landmarks, controls, dialogs },
     controlBackendNodeIds,
+    focusedBackendNodeIds,
     activeModalBackendNodeId: activeModalBackendIds.length === 1 ? activeModalBackendIds[0] : null,
   };
 }
@@ -1602,7 +1606,7 @@ function normalizedClassTokens(node) {
   ].sort();
 }
 
-function declaredComponentVariantIdentity(node, groupName) {
+function declaredComponentVariantIdentity(node, groupName, focused = false) {
   const component = String(node.attributes["data-component"] || "").trim() || null;
   const variant = String(node.attributes["data-variant"] || "").trim() || null;
   const inputType =
@@ -1658,7 +1662,7 @@ function declaredComponentVariantIdentity(node, groupName) {
   const isButton = role === "button" || (!role && node.nodeName === "button");
   const pressed =
     isButton && ["true", "false", "mixed"].includes(pressedValue) ? pressedValue : null;
-  const nativeState = { input_type: inputType, disabled, selected, checked, pressed };
+  const nativeState = { input_type: inputType, disabled, selected, checked, pressed, focused };
   const declaration = variant
     ? { group: groupName, element: node.nodeName, component, variant, ...nativeState }
     : {
@@ -1685,7 +1689,8 @@ function domObservations(
   computedStyles,
   visibilityEvaluator = null,
   viewport = metrics.cssLayoutViewport,
-  activeModalBackendNodeId = null
+  activeModalBackendNodeId = null,
+  focusedBackendNodeIds = new Set()
 ) {
   const styleIndex = new Map(computedStyles.map((name, index) => [name, index]));
   const style = (node, name) => node.layout?.styles?.[styleIndex.get(name)] || "";
@@ -1997,7 +2002,11 @@ function domObservations(
       const key =
         group.name === "heading"
           ? `${resolveRegion(byIndex.get(node.parentIndex))?.index ?? "document"}:${declaredComponentVariantIdentity(node, group.name)}`
-          : declaredComponentVariantIdentity(node, group.name);
+          : declaredComponentVariantIdentity(
+              node,
+              group.name,
+              focusedBackendNodeIds.has(node.backendNodeId)
+            );
       if (!byIdentity.has(key)) byIdentity.set(key, []);
       byIdentity.get(key).push(node);
     }
@@ -2774,7 +2783,8 @@ async function nativeSample(
       computedStyles,
       visibilityEvaluator,
       viewport,
-      accessibility.activeModalBackendNodeId
+      accessibility.activeModalBackendNodeId,
+      accessibility.focusedBackendNodeIds
     ),
   };
 }
@@ -2850,6 +2860,11 @@ async function main() {
     // leave a short fail-open execution window.
     if (client) client.close();
     if (browserClient) browserClient.close();
+    // Descendants can retain stderr after the main browser exits. Close our
+    // owned reader at that boundary so a completed probe does not await them.
+    const closeBrowserStderr = () => browser.stderr.destroy();
+    if (browser.exitCode !== null || browser.signalCode !== null) closeBrowserStderr();
+    else browser.once("exit", closeBrowserStderr);
     try {
       fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 50 });
     } catch {

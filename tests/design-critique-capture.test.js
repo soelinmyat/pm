@@ -1276,6 +1276,34 @@ test("DOM consistency separates declared and native variants within component gr
     "enabled and disabled controls are intentional native states"
   );
 
+  const focusedPrimary = button(3, "primary button", "rgb(200, 0, 0)");
+  assert.deepEqual(
+    domObservations(
+      [root, primaryOne, primaryTwo, focusedPrimary],
+      metrics,
+      computedStyles,
+      null,
+      metrics.cssLayoutViewport,
+      null,
+      new Set([focusedPrimary.backendNodeId])
+    ).consistency,
+    [],
+    "a native focused control must not be compared against unfocused controls"
+  );
+  assert.equal(
+    domObservations(
+      [root, primaryOne, divergentPrimary, focusedPrimary],
+      metrics,
+      computedStyles,
+      null,
+      metrics.cssLayoutViewport,
+      null,
+      new Set([focusedPrimary.backendNodeId])
+    ).consistency.length,
+    1,
+    "native focus elsewhere must not conceal a same-state visual defect"
+  );
+
   const input = (index, type, background) => ({
     index,
     backendNodeId: index + 1,
@@ -2018,6 +2046,77 @@ function runBrowserCapture(fixture, allowedOrigins = []) {
     outputPath: fixture.outputPath,
     verificationPath: fixture.verificationPath,
   });
+}
+
+for (const retryFirstLaunch of [false, true]) {
+  test(
+    `browser helper completes after browser exit when a descendant retains stderr${retryFirstLaunch ? " across a launch retry" : ""}`,
+    { skip: browserSkip || (process.platform === "win32" && "POSIX browser launcher fixture") },
+    () => {
+      const fixture = createBrowserFixture();
+      const holderPidPath = path.join(fixture.root, "stderr-holder.pid");
+      const launcherPath = path.join(fixture.root, "browser-launcher.cjs");
+      fs.writeFileSync(
+        launcherPath,
+        `#!${process.execPath}
+const { spawn } = require("node:child_process");
+const fs = require("node:fs");
+// Model a browser descendant retaining the inherited stderr writer after the
+// main browser has exited. This process belongs to the fixture, not the probe.
+const holder = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], {
+  detached: true,
+  stdio: ["ignore", "ignore", 2],
+});
+fs.appendFileSync(${JSON.stringify(holderPidPath)}, String(holder.pid) + "\\n");
+holder.unref();
+if (${retryFirstLaunch} && fs.readFileSync(${JSON.stringify(holderPidPath)}, "utf8").trim().split("\\n").length === 1)
+  process.exit(1);
+const browser = spawn(${JSON.stringify(installedBrowser)}, process.argv.slice(2), {
+  stdio: ["ignore", "ignore", 2],
+});
+browser.once("exit", (code) => process.exit(code ?? 1));
+`,
+        { mode: 0o700 }
+      );
+      try {
+        const result = runCaptureProbe(
+          {
+            browserPath: launcherPath,
+            url: fixture.url,
+            expectedUrl: fixture.url,
+            viewport: { width: 1024, height: 600 },
+            stateAssertion: fixture.stateAssertion,
+            allowedOrigins: [],
+            readinessTimeoutMs: 5_000,
+            settleMs: 200,
+            outputPath: fixture.outputPath,
+            verificationPath: fixture.verificationPath,
+          },
+          { timeoutMs: 15_000 }
+        );
+        assert.equal(result.assertion_passed, true);
+        assert.ok(fs.statSync(fixture.outputPath).size > 0);
+        assert.ok(fs.statSync(fixture.verificationPath).size > 0);
+        // The writer is still alive: completion came from closing the probe's
+        // owned reader, rather than waiting for the descendant's timer to expire.
+        const holderPids = fs.readFileSync(holderPidPath, "utf8").trim().split("\n");
+        assert.ok(holderPids.length >= (retryFirstLaunch ? 2 : 1));
+        assert.ok(holderPids.length <= 3);
+        for (const pid of holderPids) process.kill(Number(pid), 0);
+      } finally {
+        if (fs.existsSync(holderPidPath)) {
+          for (const pid of fs.readFileSync(holderPidPath, "utf8").trim().split("\n")) {
+            try {
+              process.kill(Number(pid), "SIGKILL");
+            } catch (error) {
+              assert.equal(error.code, "ESRCH");
+            }
+          }
+        }
+        fs.rmSync(fixture.root, { recursive: true, force: true });
+      }
+    }
+  );
 }
 
 for (const { key, count, reverse } of [
@@ -3501,3 +3600,36 @@ test("active modal scopes typography consistency while retaining foreground and 
   assert.ok(typography(inspect(5)).some((row) => row.detail.startsWith("h2")));
   assert.ok(typography(inspect(999)).some((row) => row.detail.startsWith("h3")));
 });
+
+test(
+  "native focus styling is distinct while unfocused visual defects remain visible",
+  { skip: browserSkip },
+  () => {
+    for (const divergent of [false, true]) {
+      const fixture = createBrowserFixture();
+      let html = decodeURIComponent(fixture.url.split(",").slice(1).join(","));
+      html = html.replace(
+        "</style>",
+        ".action{border:2px solid gray}.action:focus{border-color:green}</style>"
+      );
+      html = html.replace(
+        "<button>Save changes</button>",
+        `<button class="action">Save changes</button><button class="action"${divergent ? ' style="border-color:red"' : ""}>Invite member</button><button class="action" id="focused">Focused control</button>`
+      );
+      fixture.url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+      fixture.stateAssertion.before_capture = [{ kind: "tab", count: 4, reverse: false }];
+      fixture.stateAssertion.all.push(
+        { locator: { by: "id", value: "focused" }, expect: { kind: "visible" } },
+        { locator: { by: "id", value: "focused" }, expect: { kind: "focused" } }
+      );
+      try {
+        const result = runBrowserCapture(fixture);
+        const issues = result.dom_observations.consistency;
+        assert.equal(issues.length, divergent ? 1 : 0, JSON.stringify(issues));
+        if (divergent) assert.match(issues[0].detail, /border-top-color/);
+      } finally {
+        fs.rmSync(fixture.root, { recursive: true, force: true });
+      }
+    }
+  }
+);

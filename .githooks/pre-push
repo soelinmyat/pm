@@ -375,7 +375,8 @@ for push_ref_line in "${push_ref_lines[@]}"; do
       scripts \
       plugin.config.json \
       skills/dev/references/model-profiles.json \
-      skills/rfc/references/model-profiles.json; then
+      skills/rfc/references/model-profiles.json \
+      references/templates/review-report.html; then
       rm -rf "$checker_tmp"
       echo "ERROR: unable to archive the gate runtime from pushed commit $local_oid."
       exit 1
