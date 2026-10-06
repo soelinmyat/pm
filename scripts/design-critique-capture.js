@@ -12,7 +12,11 @@ const { exactObject, exactObjectWithOptional } = require("./lib/closed-object");
 const { coverageReasonIssue } = require("./lib/design-critique-coverage-reason");
 const { validateNativeControls } = require("./lib/design-critique-native-audit");
 const { compareRfc3339DateTimes, isRfc3339DateTime } = require("./lib/iso-time");
-const { PRODUCT_UI_VISUAL_THRESHOLDS, inspectPngVisualBytes } = require("./lib/media-inspect");
+const {
+  PRODUCT_UI_VISUAL_THRESHOLDS,
+  inspectPngVisualBytes,
+  createPngRegionInspector,
+} = require("./lib/media-inspect");
 const { readProjectInput } = require("./lib/project-file");
 const { writeProjectDirectoryAtomic } = require("./lib/project-atomic-write");
 const {
@@ -317,7 +321,8 @@ function loadingContentEvidence(inspected, { state, visibility, bytes } = {}) {
         Math.max(regions[0].y, regions[1].y))
   )
     return null;
-  const full = inspectPngVisualBytes(bytes);
+  const inspectRegion = createPngRegionInspector(bytes);
+  const full = inspectRegion(null);
   if (
     full.pixelSha256 !== inspected.pixelSha256 ||
     full.width !== inspected.width ||
@@ -325,7 +330,7 @@ function loadingContentEvidence(inspected, { state, visibility, bytes } = {}) {
   )
     throw new Error("loading content pixels do not match the full viewport screenshot");
   const content = regions.map((region) => {
-    const regional = inspectPngVisualBytes(bytes, region);
+    const regional = inspectRegion(region);
     // Each required semantic node must have real, varied pixels. A decorated
     // heading cannot compensate for an invisible loading indicator.
     return { region, visual_metrics: validateMeaningfulVisual(regional) };

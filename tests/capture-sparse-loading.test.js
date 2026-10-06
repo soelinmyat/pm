@@ -6,6 +6,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawn, execFileSync } = require("node:child_process");
 const crypto = require("node:crypto");
+const zlib = require("node:zlib");
 const { once } = require("node:events");
 const {
   resolveBrowser,
@@ -79,11 +80,24 @@ test(
       "fixture must reproduce viewport density rejection"
     );
     assert.ok(probe.network.pending_at_capture.length > 0);
+    const expectedContent = probe.assertion_visibility.checks.map((check) => ({
+      region: check.visual_bounds,
+      visual_metrics: validateMeaningfulVisual(inspectPngVisualBytes(bytes, check.visual_bounds)),
+    }));
+    const inflate = zlib.inflateSync;
+    let decodes = 0;
+    t.mock.method(zlib, "inflateSync", (...args) => {
+      decodes++;
+      return inflate(...args);
+    });
     const metrics = validateMeaningfulVisual(decoded, {
       state: config.stateAssertion.state,
       visibility: probe.assertion_visibility,
       bytes,
     });
+    assert.equal(decodes, 1, "reuse one full PNG decode for both native regions");
+    assert.deepEqual(metrics.loading_content.nodes, expectedContent);
+    t.mock.restoreAll();
     assert.equal(
       metrics.meaningful_pixel_ratio,
       decoded.meaningfulPixelRatio,
