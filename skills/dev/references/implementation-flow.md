@@ -98,13 +98,19 @@ Examples:
 
 Use AGENTS.md commands. When schemas change, update generated artifacts and mocks with schema-valid optional/error variants; two agreeing mocks cannot prove a real boundary. Confirm request/response semantics, authorization, nullability, version compatibility and deploy-window behavior. Required boundary verification unavailable → report blocked/limited coverage under the dispatch contract, never call an unexecuted contract check passed.
 
+### Task composition before component selection (visible UI tasks only)
+
+Read `product-ui-judgment.md`, including **Apply during implementation**, before the first visible implementation. Resolve the relevant repository design guidance from root/app instructions and compare a strong incumbent screen with a similar task. Carry those paths and the intended scan order/action grouping into the existing worker brief. Reusing a primitive does not settle where it belongs in the page. Preserve approved behavior, navigation and visual language unless the task authorizes a departure.
+
+Inspect the first hierarchy/interaction-changing slice in the whole rendered page or drawer, with realistic saved/filled content and consequential growth, before accepting it. Compare the relevant before/after context and retain the observation in existing implementation evidence. This is early implementation feedback; it neither adds a gate/review round nor replaces final critique/QA. An incremental established pattern does not need a full alternative prototype. Missing rendering capability remains an explicit gap; continue safe source/test work without claiming visual acceptance.
+
 ### Component Pattern Scan (UI tasks only)
 
 Before creating any new UI component (drawer, modal, dialog, sheet, card, panel, dropdown, popover, form layout, list/table), scan the codebase for existing instances of the same pattern:
 
 ```bash
 # Example: about to build a drawer
-grep -rl "drawer\|Drawer\|Sheet" apps/{app}/src/components/ apps/{app}/src/features/ --include="*.tsx" | head -20
+rg -l "drawer|Drawer|Sheet" apps/{app}/src/components/ apps/{app}/src/features/ -g '*.tsx'
 ```
 
 **If an existing component fits the semantic task and supported behavior:** Reuse it. Verify the actual comparable screen rather than matching the component name alone. If the component is unsuitable, explain the concrete behavior/accessibility/maintenance mismatch and choose the smallest coherent adaptation; existing code is not automatically a quality standard.

@@ -1,6 +1,28 @@
 # Product UI judgment
 
-Use this method for product UI critique and visual QA. Evidence integrity checks establish what was inspected. They do not establish that the experience is good. Keep existing gate ownership, freshness and bounded review rules; this method adds judgment, not another schema or scorecard.
+Use this method during visible UI implementation, product UI critique and visual QA. Evidence integrity checks establish what was inspected. They do not establish that the experience is good. Keep existing gate ownership, freshness and bounded review rules; this method adds judgment, not another schema or scorecard.
+
+## Apply during implementation
+
+Before building visible UI, follow the repository's root/app instructions to the relevant deeper product-design guide and a strong incumbent screen with a similar task. Include those source paths, what makes the screen comparable, and the intended scan order/action grouping in the existing implementation brief. If no suitable guide or incumbent exists, say so and use the task and approved design principles. A source-only comparison establishes convention, not rendered quality. Keep the complete approved design context; concrete composition fills an execution gap, not permission to change the product decision.
+
+Translate requirements into relationships. Task identity, context, status and the next useful action should stay easy to scan. Group related metadata once; disclose detail where it helps a decision. Attribution must remain available to people who need it, including multiple contributors; it need not repeat identical full author rows under every thumbnail. Accessibility labels supplement usable disclosure rather than hiding required information from sighted users. Read-only enforcement does not imply a permanent paragraph describing architecture. Put exceptional limitations in the relevant confirmation or recovery state, while keeping consequential save/offline/failure status truthful and visible.
+
+For the first slice that changes hierarchy or interaction, inspect realistic whole-page before/after pixels inside existing implementation acceptance. Include ordinary entry and return context, not only a cropped new component. Use relevant content growth: longer names/notes, several photos or many rows, plus keyboard/large-text conditions where affected. Choose states from actual risk, not a fixed capture count. Retain the observation and any unexamined state with existing implementation evidence. Correct composition while the addition is small. Missing rendering capability stays an explicit gap; continue safe source/test work without declaring visual acceptance. Later critique/QA remain responsible for current certification.
+
+An established incremental pattern does not need a full alternative prototype. Refine its composition and navigation; do not respond to weak execution with an unsolicited full-screen redesign or replace an approved Save interaction with auto-save. For a genuinely unsettled material product choice, use the existing product-decision path.
+
+### Detail-page example
+
+**Weak:** title → long saved-state paragraph → repeated assignee/author rows → a full-width evidence block above the normal content/sidebar layout → description and status pushed below the first viewport. Tiny photos wrap into separate rows while their identical captions dominate. This preserves attribution and component tokens but makes the actual job harder to inspect.
+
+**Better:** preserve the incumbent job/context/status hierarchy and place saved evidence inside its existing content area. Show one compact save line, a glanceable partial-progress summary when relevant, and the familiar adequately sized, previewable gallery. Keep contributor detail available in preview or grouped metadata; keep assignee controls in their familiar position. Explain takeover restrictions when confirming takeover. Check that description, status and next action remain findable with several photos and long names, not only an empty summary.
+
+### Drawer example
+
+**Weak:** verbose save metadata → long checkpoint form → two full-width actions separated by a permanent read-only rule paragraph. Each element is individually valid; together they compete for space and leave the worker reading rules rather than understanding the next action.
+
+**Better:** preserve the existing drawer, use concise truthful save/progress status, and group evidence and actions coherently. Manual **Save progress** remains a valid primary action with **Complete work order** secondary when that is the approved design. Make their relationship, disabled state and feedback clear without an unrelated paragraph between them. Put useful exceptional restrictions at their point of decision. Inspect add evidence → save → leave → resume → complete, including realistically many checkpoints and access to the actions. A two-row render cannot establish twenty-row reachability; use the relevant task scale rather than requiring twenty rows everywhere.
 
 ## Start with the task
 

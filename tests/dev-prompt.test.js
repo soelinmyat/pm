@@ -28,6 +28,164 @@ function validInput(overrides = {}) {
   };
 }
 
+function designContext(visual = true) {
+  return {
+    ui_impact: visual,
+    design_requirements: ["Preserve manual Save and the existing drawer."],
+    prototype: null,
+    critical_states: ["Saved evidence with a long contributor name and twenty checkpoints"],
+    experience_invariants: ["Save, leave and resume without losing evidence."],
+    visual_invariants: visual ? ["Job description and status remain easy to scan."] : [],
+  };
+}
+
+test("first visual implementation packet carries the exact approved context and early composition method", () => {
+  const context = designContext();
+  const result = buildWorkerPrompt(
+    validInput({
+      phase: "implementation",
+      design_context: context,
+      inputs: [
+        "docs/design-system/product-design-guidance.md",
+        "src/jobs/detail.tsx — comparable job and gallery",
+      ],
+    })
+  );
+  const encoded = result.prompt.match(/Approved design context:\n```json\n([\s\S]*?)\n```/);
+  assert.ok(encoded, "the worker must receive the complete context, not a summary");
+  assert.deepEqual(JSON.parse(encoded[1]), context);
+  assert.deepEqual(context, designContext(), "builder must not mutate approved requirements");
+  assert.match(result.prompt, /product-ui-judgment\.md/);
+  assert.match(result.prompt, /Before accepting the first visible slice/);
+  assert.match(result.prompt, /whole-page before\/after/);
+  assert.match(result.prompt, /docs\/design-system\/product-design-guidance\.md/);
+  assert.match(result.prompt, /src\/jobs\/detail\.tsx/);
+  assert.doesNotMatch(result.prompt, /additional review round|required alternative prototype/);
+  assert.equal((result.prompt.match(/^## /gm) || []).length, 9);
+});
+
+test("UI tasks without an approved design context receive composition guidance without inventing approval", () => {
+  const result = buildWorkerPrompt(validInput({ phase: "implementation", ui_impact: true }));
+  assert.match(result.prompt, /product-ui-judgment\.md/);
+  assert.doesNotMatch(result.prompt, /Approved design context:/);
+});
+
+test("nonvisual and later-phase packets preserve experience context without first-slice visual instructions", () => {
+  for (const overrides of [
+    { phase: "implementation", design_context: designContext(false) },
+    { phase: "review", design_context: designContext() },
+    { phase: "implementation", ui_impact: false },
+  ]) {
+    const result = buildWorkerPrompt(validInput(overrides));
+    assert.doesNotMatch(
+      result.prompt,
+      /Before accepting the first visible slice|product-ui-judgment\.md/
+    );
+    if (overrides.design_context) assert.match(result.prompt, /Save, leave and resume/);
+  }
+});
+
+test("packet metadata cannot erase approved visual impact or silently omit the active phase", () => {
+  assert.throws(
+    () =>
+      buildWorkerPrompt(
+        validInput({ phase: "implementation", ui_impact: false, design_context: designContext() })
+      ),
+    /ui_impact.*conflict/
+  );
+  assert.throws(() => buildWorkerPrompt(validInput({ ui_impact: true })), /phase.*required/);
+  assert.throws(
+    () => buildWorkerPrompt(validInput({ phase: "implemntation", ui_impact: true })),
+    /phase.*invalid/
+  );
+  assert.throws(
+    () => buildWorkerPrompt(validInput({ phase: "implementation", ui_impact: "true" })),
+    /ui_impact.*boolean/
+  );
+  assert.throws(
+    () =>
+      buildWorkerPrompt(
+        validInput({
+          phase: "implementation",
+          design_context: { ...designContext(), prototype: { path: "mock.html" } },
+        })
+      ),
+    /prototype.*sha256/
+  );
+});
+
+test("complete visual context consumes normal packet budget and is never silently truncated", () => {
+  const context = designContext();
+  context.design_requirements = ["é".repeat(9000)];
+  assert.throws(
+    () => buildWorkerPrompt(validInput({ phase: "implementation", design_context: context })),
+    /Inputs and context.*limit/
+  );
+});
+
+test("approved Unicode line separators cannot trigger heading demotion inside JSON values", () => {
+  const context = designContext();
+  context.design_requirements = ["Keep labels:\u2028## Evidence\u2029# Status"];
+  context.visual_invariants = ["Preserve:\u2029## Saved progress\u2028# Description"];
+  const { prompt } = buildWorkerPrompt(
+    validInput({ phase: "implementation", design_context: context })
+  );
+  const encoded = prompt.match(/Approved design context:\n```json\n([\s\S]*?)\n```/);
+  assert.deepEqual(JSON.parse(encoded[1]), context);
+  assert.equal((prompt.match(/^## /gm) || []).length, 9);
+});
+
+test("CLI detail and drawer briefs preserve scoped interaction decisions and bound prototype identity", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pm-ui-implementation-"));
+  try {
+    for (const surface of ["detail", "drawer"]) {
+      const context = designContext();
+      context.prototype = {
+        path: "pm/prototypes/job.html",
+        sha256: `sha256:${"a".repeat(64)}`,
+      };
+      context.design_requirements.push(
+        surface === "detail"
+          ? "Keep saved evidence inside the content/sidebar composition; contributor details remain previewable."
+          : "Save progress is primary; Complete work order is secondary. Preserve the production drawer."
+      );
+      const inputPath = path.join(directory, `${surface}.json`);
+      const outputPath = path.join(directory, `${surface}.md`);
+      fs.writeFileSync(
+        inputPath,
+        JSON.stringify(
+          validInput({
+            phase: "implementation",
+            design_context: context,
+            outcome: `Refine the ${surface} while preserving approved save semantics.`,
+            inputs: ["DESIGN.md", `src/jobs/${surface}.tsx — incumbent composition`],
+          })
+        )
+      );
+      const result = spawnSync(
+        process.execPath,
+        [
+          path.resolve(__dirname, "../scripts/dev-prompt.js"),
+          "--input",
+          inputPath,
+          "--output",
+          outputPath,
+        ],
+        { encoding: "utf8" }
+      );
+      assert.equal(result.status, 0, result.stderr);
+      const prompt = fs.readFileSync(outputPath, "utf8");
+      const encoded = prompt.match(/Approved design context:\n```json\n([\s\S]*?)\n```/);
+      assert.deepEqual(JSON.parse(encoded[1]), context);
+      assert.match(prompt, /whole-page before\/after/);
+      assert.match(prompt, /Preserve approved behavior and navigation/);
+      assert.equal(fs.statSync(outputPath).mode & 0o777, 0o600);
+    }
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 const HEADINGS = [
   "Outcome",
   "Scope and exclusions",

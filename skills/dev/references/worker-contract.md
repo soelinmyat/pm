@@ -16,7 +16,7 @@ Every worker prompt has these sections exactly once:
 
 1. Outcome.
 2. Scope and exclusions.
-3. Inputs and context, including only the active phase contract and its durable `design_context` when present.
+3. Inputs and context, including only the active phase contract and its durable `design_context` when present. Set the builder's `phase` to the current phase and pass the complete approved `design_context` object separately; the builder validates and renders it without summarizing its prototype or invariants. Without a bound context, declare observed `ui_impact` as a boolean. Legacy packets without either field remain readable; new implementation callers supply the classification.
 4. Acceptance criteria.
 5. Applicable repository rules.
 6. Authorized actions, including explicit denials.
@@ -33,6 +33,7 @@ Do not include future phase instructions. The root owns phase transitions and an
 - Keep workflow instruction under 1,200 words, excluding task artifacts.
 - Reject missing outcomes, ACs, rules, evidence, stop conditions, authority, or result schema instead of inserting placeholders.
 - Preserve UI-impact classification, design requirements, complete prototype identity, critical states, and applicable experience/visual invariants byte-for-byte from a supplied `design_context`; workers may not silently reinterpret or selectively copy it.
+- For visible UI implementation, include relevant repository design-guidance paths and a strong comparable screen in Inputs, or explicitly explain their absence. Use `product-ui-judgment.md`'s implementation method to make task hierarchy, disclosure, metadata and action grouping concrete. The first visible slice is inspected as a whole page inside existing implementation acceptance, not certified by this packet or a new review round.
 - Record UTF-8 bytes and whitespace-delimited words for comparison across models.
 
 ## Done-when

@@ -4,6 +4,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { parseCliArgs } = require("./loop-args");
 const { publishPrompt, renderSections } = require("./lib/workflow-runtime/prompt-packet");
+const { PHASES } = require("./lib/dev-session-schema");
+const { validateDesignContext } = require("./lib/dev-work-units");
 
 const SECTION_NAMES = Object.freeze([
   "Outcome",
@@ -42,6 +44,7 @@ function buildWorkerPrompt(input, options = {}) {
   const evidence = requiredItems(input.evidence, "evidence");
   const stopConditions = requiredItems(input.stopConditions, "stopConditions");
   const resultSchema = normalizeResultSchema(input.resultSchema);
+  const designInputs = implementationDesignInputs(input);
 
   const sections = [
     section("Outcome", outcome),
@@ -64,6 +67,7 @@ function buildWorkerPrompt(input, options = {}) {
         "",
         "Active phase contract:",
         phaseContract,
+        ...designInputs,
       ].join("\n")
     ),
     section("Acceptance criteria", bulletList(acceptanceCriteria)),
@@ -95,6 +99,47 @@ function buildWorkerPrompt(input, options = {}) {
       budget,
     },
   };
+}
+
+function implementationDesignInputs(input) {
+  const hasDesign = input.design_context !== undefined;
+  const hasImpact = input.ui_impact !== undefined;
+  if ((hasDesign || hasImpact) && !input.phase) {
+    throw new TypeError("phase is required with design_context or ui_impact");
+  }
+  if (input.phase !== undefined && !PHASES.includes(input.phase)) {
+    throw new TypeError("phase is invalid");
+  }
+  if (hasImpact && typeof input.ui_impact !== "boolean") {
+    throw new TypeError("ui_impact must be boolean");
+  }
+  if (hasDesign) {
+    validateDesignContext(input.design_context, "design_context", {
+      requireExperienceClassification: true,
+    });
+    if (hasImpact && input.ui_impact !== input.design_context.ui_impact) {
+      throw new TypeError("ui_impact conflicts with approved design_context");
+    }
+  }
+  const parts = hasDesign
+    ? [
+        "",
+        "Approved design context:",
+        "```json",
+        JSON.stringify(input.design_context, null, 2)
+          .replace(/\u2028/gu, "\\u2028")
+          .replace(/\u2029/gu, "\\u2029"),
+        "```",
+      ]
+    : [];
+  if (input.phase === "implementation" && (input.ui_impact || input.design_context?.ui_impact)) {
+    parts.push(
+      "",
+      "UI implementation: read skills/dev/references/product-ui-judgment.md at the resolved PM plugin root, including its implementation examples. Apply the relevant repository design guidance and a strong incumbent screen supplied in Inputs; if missing, discover them and explain any absence. Preserve approved behavior and navigation while composing the whole task, rather than merely reusing tokens or components.",
+      "Before accepting the first visible slice that changes interaction or hierarchy, inspect realistic whole-page before/after pixels in ordinary entry/return context and consequential content growth. Retain the observation in existing implementation evidence. This is implementation feedback, not final visual certification; unavailable rendered evidence stays an explicit gap. Established incremental patterns need no full alternative prototype."
+    );
+  }
+  return parts;
 }
 
 function section(name, body) {
