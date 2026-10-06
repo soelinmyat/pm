@@ -37,7 +37,7 @@ const {
 } = require("./workflow-runtime/model-profile");
 const { bindEffectReceipt } = require("./workflow-runtime/effect-receipt");
 const { transactionIssues } = require("./release-transaction-schema");
-const { checkQaReport } = require("./qa-report-schema");
+const { checkQaReport, QA_RECOVERY_THRESHOLD } = require("./qa-report-schema");
 const { readApprovedProposal } = require("./proposal-schema");
 const {
   findContainingGitRoot,
@@ -3234,7 +3234,16 @@ function recordResult(session, result, options = {}) {
     });
     reason = `blocked: ${result.blocker.code}`;
   } else {
-    if (next.phase_attempt >= MAX_PHASE_ATTEMPTS) {
+    if (priorPhase === "qa") {
+      // QA failures are retained observations, not a withdrawal of approved
+      // scope. Continue the same lineage; the report contract owns recovery
+      // diagnosis and keeps non-passing evidence from granting a gate.
+      next.phase_attempt = Math.max(next.phase_attempt, next.evidence.qa.qa_run_count) + 1;
+      reason =
+        next.phase_attempt > QA_RECOVERY_THRESHOLD
+          ? "QA recovery diagnosis required before repeating a failed approach"
+          : "validated QA retry with continuous history";
+    } else if (next.phase_attempt >= MAX_PHASE_ATTEMPTS) {
       next.status = "blocked";
       next.blockers.push({
         code: "retry-exhausted",
@@ -3317,7 +3326,14 @@ function resumeBlocked(session, resolution, options = {}) {
   blocker.resolved_at = timestamp;
   blocker.resolution = resolution.trim();
   next.status = "active";
-  next.phase_attempt = 1;
+  next.phase_attempt =
+    next.phase === "qa"
+      ? Math.max(
+          next.phase_attempt,
+          (next.evidence.qa?.qa_run_count || 0) + 1,
+          next.attempts.filter((attempt) => attempt.phase === "qa").length + 1
+        )
+      : 1;
   next.updated_at = timestamp;
   assertValidSession(next);
   return next;

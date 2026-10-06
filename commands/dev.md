@@ -12,3 +12,5 @@ There are no safety bypass flags. M/L/XL proposal work without a groomed proposa
 PM automatically discovers repository-native delivery capabilities with zero consumer edits. An optimized route requires an explicitly authorized machine-readable candidate-publication policy; otherwise, including for CleanLog's current contract, Dev prepares the comprehensive route. `PM_DELIVERY_COMPREHENSIVE=1` is the single comprehensive kill switch. Guidance is read-only and setup requires separate explicit authority.
 
 For explicitly enrolled ProductMemory work, follow `references/productmemory-native-workflow.md`: fresh structured remote-native sessions and resumed native sessions advance only through an already authorized live host transport. The same canonical quality gates apply; current bundle review grants no external actions.
+
+QA continues authorized scoped recovery beyond three rounds without a counter-triggered approval request. Persistent failures require diagnosis and a changed approach; immutable failure history, acceptance criteria and genuine dependency/product/scope-risk boundaries remain intact.

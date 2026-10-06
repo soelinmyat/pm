@@ -18,6 +18,9 @@ Native iOS design critique can retain Maestro hierarchy observations with a capt
 
 Verified corrections within an already-approved Dev task do not need repeated approval: behavioral fixes require red/green regression evidence and fresh review. New scope, consequential decisions, disputes and external actions retain their approval boundaries.
 
+QA does not stop or request permission merely after three rounds. It diagnoses persistent product, harness or evidence failures, changes the scoped recovery approach and continues with immutable round history. Genuine unresolved dependencies, product decisions and material scope/risk changes remain explicit boundaries.
+
+
 When reviewers recommend the same fix in different words, they can explicitly confirm a common remedy without replacing their original findings. Every affected reviewer must agree; incomplete or conflicting clarification remains blocked, and no finding is dismissed by that agreement.
 
 Release and Review can use the original Dev session across registered Git worktrees. The source worktree keeps its own evidence and release transaction; the session is not copied. Repository, namespace, branch and assigned-worktree checks prevent an unrelated session from authorizing delivery.
