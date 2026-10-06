@@ -8,6 +8,8 @@ Shared runtime contract for all PM skills. Each skill references the sections it
 
 PM skill files may still mention `${CLAUDE_PLUGIN_ROOT}` because Claude Code's plugin command contract historically used that name. Treat it as a legacy alias for the PM plugin root. For runtime-neutral shell commands, prefer `${PM_PLUGIN_ROOT}` and keep `${CLAUDE_PLUGIN_ROOT}` only as a fallback alias.
 
+OpenCode V2's native PM plugin binds both root aliases in its shell hook and supplies namespaced skills and commands. Install personas explicitly using `.opencode/INSTALL.md`. Interactive OpenCode execution uses `inline-current` and native `subagent` contexts; do not pretend that `opencode run --format json` satisfies PM's schema-output worker contract. Headless OpenCode workers and unattended OpenCode Loop remain unsupported. Claude lifecycle hooks and automatic KB sync are not ported; use explicit workflows.
+
 Before running any shell snippet that executes a PM plugin script, ensure the plugin root is set:
 
 ```bash

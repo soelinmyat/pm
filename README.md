@@ -29,7 +29,7 @@ Release and Review can use the original Dev session across registered Git worktr
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/soelinmyat/pm)](https://github.com/soelinmyat/pm/releases)
 
-PM is a free, open-source plugin for Claude Code and Codex. It keeps market research, strategy, competitor context, groomed work, and delivery state in one place inside the repo — context that compounds over time, not another doc that decays after the meeting.
+PM is a free, open-source plugin for Claude Code, Codex, and OpenCode V2 (interactive workflows). It keeps market research, strategy, competitor context, groomed work, and delivery state in one place inside the repo — context that compounds over time, not another doc that decays after the meeting.
 
 ## Why PM?
 
@@ -205,7 +205,7 @@ quality or speed advantage is claimed without comparable live runs.
 
 ### Other platforms
 
-PM officially supports Claude Code and Codex. Community contributions for other platforms are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
+PM supports Claude Code, Codex, and OpenCode V2 interactive workflows. OpenCode installation, supported capabilities, and headless limitations are documented in [`.opencode/INSTALL.md`](.opencode/INSTALL.md). Community contributions for other platforms are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Core Workflows
 
