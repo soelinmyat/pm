@@ -63,6 +63,7 @@ Use `worker-contract.md` for the nine-section prompt. Include:
 - Work-unit ID, full outcome, ACs, and Test hooks.
 - Explicit CWD, branch, worktree, owned paths, and dependency results.
 - App-specific test command and repository rules.
+- For visible UI, the complete approved design context, relevant repository design-guide paths and a strong incumbent screen. Follow `product-ui-judgment.md` during the first visible slice; assess task composition with realistic whole-page before/after evidence, not just matching components.
 - Narrowed authority and structured result schema.
 - Stop conditions from `implementer.md`.
 

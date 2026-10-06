@@ -9,6 +9,8 @@ Explicitly assessed low-risk XS/S web UI work combines desktop, narrow, and keyb
 
 There are no safety bypass flags. M/L/XL proposal work without a groomed proposal halts with a direct `/pm:groom` instruction; routed proposal work without an approved RFC halts with a direct `/pm:rfc` instruction. Task and bug intake may skip that ceremony when scope is sufficient, but observed risk still controls review, QA, and verification.
 
+Visible UI implementation applies the relevant repository design guide and a strong comparable screen in its initial brief. Inspect realistic whole-page before/after composition before accepting the first hierarchy/interaction-changing slice, within existing implementation work. Preserve approved interactions, including manual Save; this adds no review round or universal alternative prototype. Later routed critique/QA still own certification.
+
 PM automatically discovers repository-native delivery capabilities with zero consumer edits. An optimized route requires an explicitly authorized machine-readable candidate-publication policy; otherwise, including for CleanLog's current contract, Dev prepares the comprehensive route. `PM_DELIVERY_COMPREHENSIVE=1` is the single comprehensive kill switch. Guidance is read-only and setup requires separate explicit authority.
 
 For explicitly enrolled ProductMemory work, follow `references/productmemory-native-workflow.md`: fresh structured remote-native sessions and resumed native sessions advance only through an already authorized live host transport. The same canonical quality gates apply; current bundle review grants no external actions.
