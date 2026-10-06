@@ -54,4 +54,4 @@ Return one object per required lens:
 
 Merge and deduplicate findings by violated contract and evidence. Apply blocking fixes, regenerate mirrored sidecar content and binding, commit the pair, then rerun affected lenses against the new hash. Two fix rounds maximum. Advisory findings remain attributed in the RFC.
 
-Review completion means all three required lens objects pass against the same current artifact hash. It means **reviewed and awaiting approval**, never approved.
+Technical review never creates new human approval. Review completion means all three required lens objects pass against the same current artifact hash. Initial/material design is **reviewed and awaiting approval**, never newly human-approved. For in-scope maintenance, read `maintenance.md`: each lens adds `maintenance_scope: { preserved: true, rationale: "specific constraint/source and why the change preserves behavior, scope and significant risk" }`. A material change, weakened test obligation or unresolved boundary blocks maintenance. Passing review retains the original decision and proceeds to a distinct maintained handoff; it grants no external authority.

@@ -42,6 +42,7 @@ test("RFC review verdict is strict JSON-shaped and cannot imply approval", () =>
     assert.match(contract, new RegExp(`"${field}"`));
   }
   assert.match(contract, /Praise, narrative summaries, and silence are not verdicts/);
-  assert.match(contract, /awaiting approval.*never approved/i);
+  assert.match(contract, /awaiting approval/i);
+  assert.match(contract, /technical review never creates new human approval/i);
   assert.doesNotMatch(step, /status: approved/);
 });

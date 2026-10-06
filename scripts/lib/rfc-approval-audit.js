@@ -5,10 +5,15 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { isRfc3339DateTime } = require("./iso-time.js");
 const { stableStringify } = require("./workflow-runtime/records.js");
-const { MAX_LINEAGE_HOPS, assertOwnsOnlyAmendment } = require("./rfc-amendment.js");
+const {
+  MAX_LINEAGE_HOPS,
+  assertOwnsOnlyAmendment,
+  assertMaintenanceAmendment,
+} = require("./rfc-amendment.js");
 const {
   approvalAuditRecord,
   assertOwnsOnlyHtml,
+  assertMaintenanceHtml,
   readCommittedApprovalAudit,
   readCommittedHtml,
   readCommittedSidecar,
@@ -28,10 +33,9 @@ const V1_FIELDS = [
 ];
 const V2_FIELDS = [...V1_FIELDS, "amends", "amended_issue_nums", "reason"];
 
-// Proves that the sidecar beside its approval audit is exactly what a human
-// approved in a completed RFC run archived under archiveRepoRoot. For an
-// amendment (v2), also walks the owns-only lineage; with lineageTo it must
-// reach that earlier sidecar hash.
+// Proves exact original human approval or a scope-preserving reviewed
+// maintenance lineage, backed by immutable completed runs and committed bytes.
+// A v3 audit explicitly does not claim fresh human approval of amended bytes.
 function verifyRfcApproval({ sidecarPath, slug, archiveRepoRoot, lineageTo = null }) {
   const resolvedSidecar = path.resolve(sidecarPath);
   const htmlPath = resolvedSidecar.replace(/\.json$/i, ".html");
@@ -53,7 +57,9 @@ function verifyRfcApproval({ sidecarPath, slug, archiveRepoRoot, lineageTo = nul
     approval.html_sha256 !== sha256(htmlBytes) ||
     approval.sidecar_sha256 !== sha256(sidecarBytes)
   ) {
-    throw new Error("RFC approval audit is not a valid human approval of the exact artifacts");
+    throw new Error(
+      "RFC approval audit is not valid approval or reviewed maintenance of the exact artifacts"
+    );
   }
   const artifactRepoRoot = findContainingGitRoot(resolvedSidecar);
   if (!artifactRepoRoot) throw new Error("RFC artifact is not inside a Git repository");
@@ -103,7 +109,7 @@ function walkLineage({ archived, approval, archiveRepoRoot, slug, lineageTo, cur
   // Each hop's prior artifact is the next hop's current one; read it once.
   let currentSidecar = JSON.parse(currentBytes.sidecar.toString("utf8"));
   let currentHtml = currentBytes.html.toString("utf8");
-  while (audit.schema_version === 2) {
+  while ([2, 3].includes(audit.schema_version)) {
     if (lineage.length > MAX_LINEAGE_HOPS) {
       throw new Error(`RFC approval lineage exceeds ${MAX_LINEAGE_HOPS} amendments`);
     }
@@ -138,15 +144,22 @@ function walkLineage({ archived, approval, archiveRepoRoot, slug, lineageTo, cur
     try {
       priorSidecar = readCommittedSidecar(prior.artifact);
       priorHtml = readCommittedHtml(prior.artifact);
-      const changes = assertOwnsOnlyAmendment(
+      const maintenance = audit.schema_version === 3;
+      if (
+        maintenance &&
+        (audit.approved_by !== priorAudit.audit.approved_by ||
+          audit.approved_at !== priorAudit.audit.approved_at)
+      )
+        throw new Error("maintenance altered the original human approval identity");
+      const changes = (maintenance ? assertMaintenanceAmendment : assertOwnsOnlyAmendment)(
         priorSidecar,
         currentSidecar,
         audit.amended_issue_nums
       );
-      assertOwnsOnlyHtml(priorHtml, currentHtml, changes);
+      (maintenance ? assertMaintenanceHtml : assertOwnsOnlyHtml)(priorHtml, currentHtml, changes);
     } catch (error) {
       throw new Error(
-        `RFC approval lineage step ${priorRunId} -> ${current.run_id} is not owns-only: ${error.message}`
+        `RFC approval lineage step ${priorRunId} -> ${current.run_id} is outside its permitted amendment contract: ${error.message}`
       );
     }
     lineage.push({ run_id: prior.run_id, sidecar_sha256: prior.artifact.sidecar_hash });
@@ -166,15 +179,15 @@ function walkLineage({ archived, approval, archiveRepoRoot, slug, lineageTo, cur
 
 function hasApprovalShape(approval, slug) {
   if (!isObject(approval)) return false;
-  const fields = approval.schema_version === 2 ? V2_FIELDS : V1_FIELDS;
-  if (![1, 2].includes(approval.schema_version)) return false;
+  const fields = [2, 3].includes(approval.schema_version) ? V2_FIELDS : V1_FIELDS;
+  if (![1, 2, 3].includes(approval.schema_version)) return false;
   if (Object.keys(approval).some((field) => !fields.includes(field))) return false;
   if (fields.some((field) => !Object.hasOwn(approval, field))) return false;
   return (
     typeof approval.run_id === "string" &&
     /^rfc_[A-Za-z0-9_-]+$/.test(approval.run_id) &&
     approval.slug === slug &&
-    approval.status === "approved" &&
+    approval.status === (approval.schema_version === 3 ? "maintained" : "approved") &&
     typeof approval.approved_by === "string" &&
     approval.approved_by.trim() !== "" &&
     isRfc3339DateTime(approval.approved_at)

@@ -70,12 +70,12 @@ For a direct approved XS/S proposal route, `task.design_context` is the exact cl
 
 ### RFC amendment rebind
 
-`task.rfc_sidecar` pins the sidecar hash at intake, and every `next` re-verifies it. An in-place sidecar edit therefore blocks the session with an identity drift. After intake, the only sanctioned change is adopting an approved owns-only RFC amendment with `rebind-rfc`:
+`task.rfc_sidecar` pins the sidecar hash at intake, and every `next` re-verifies it. An in-place sidecar edit therefore blocks the session with an identity drift. After intake, the only sanctioned change is adopting a reviewed in-scope RFC maintenance amendment with `rebind-rfc`:
 
 - It is a compare-and-swap. The on-disk bound sidecar must hash to `--expected-sidecar-sha256`, and the path must be the bound path. Rebinding to the already-bound hash is an idempotent no-op.
-- The approval beside the sidecar must be backed by its completed RFC run and committed audit, and its v2 `amends` lineage must reach the bound hash. Every lineage archive must exist under this session's `source.repo_root`.
-- Rebuilt work units keep the same ids, titles, `depends_on`, and contracts. Ownership is append-only. Completed units may gain ownership too: their commits were verified against a subset of the amended owns, so the change only widens coverage and is recorded with `status: completed`. Running units may not end up sharing ownership.
-- Each rebind appends one `task.rfc_contract_history` entry: `from_sidecar_sha256`, `to_sidecar_sha256`, `approval_run_id`, `approval_sha256`, `amends_run_id`, `reason`, `changed_units[{id, status, added_owns}]`, and `recorded_at`. Entries chain from the previous `to_sidecar_sha256`.
+- The approval beside the sidecar must be backed by its completed RFC run and committed audit, and its v2/v3 `amends` lineage must reach the bound hash. Every lineage archive must exist under this session's `source.repo_root`.
+- Rebuilt work units keep the same ids, titles, `depends_on`, and approved AC/design contracts. Reviewed maintenance may correct the approach, verification commands or hooks; those affected completed units reopen for relevant verification, with their earlier result preserved in history. Ownership is append-only. Completed units may gain ownership too: their commits were verified against a subset of the amended owns, so the change only widens coverage and is recorded with `status: completed`. Running units may not end up sharing ownership.
+- Each rebind appends one `task.rfc_contract_history` entry: `from_sidecar_sha256`, `to_sidecar_sha256`, `approval_run_id`, `approval_sha256`, `amends_run_id`, `reason`, `changed_units[{id, status, added_owns, changed_contract_fields?, invalidated_result?}]`, and `recorded_at`. Entries chain from the previous `to_sidecar_sha256`.
 - It runs in workspace, readiness, or implementation while the session is active or blocked. During intake, rerun `route --rfc-sidecar` instead.
 
 ### Candidate lifecycle

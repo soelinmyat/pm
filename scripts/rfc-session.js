@@ -9,6 +9,7 @@ const {
   assertValidSession,
   buildApprovalAudit,
   createAmendmentSession,
+  renderMaintenanceArtifact,
   createSession,
   grantAuthority,
   hashResult,
@@ -37,6 +38,7 @@ function main(argv = process.argv.slice(2)) {
     const { command, options } = parseArgs(argv);
     if (command === "init") return initCommand(options);
     if (command === "amend") return amendCommand(options);
+    if (command === "render-maintenance") return renderMaintenanceCommand(options);
     if (command === "withdraw") return withdrawCommand(options);
     if (command === "status") return statusCommand(options);
     if (command === "next") return nextCommand(options);
@@ -90,13 +92,16 @@ function initCommand(options) {
   });
 }
 
-// Opens an owns-only amendment run against a completed, approved RFC run. The
-// prior archive stays byte-identical; the new run re-enters review and needs a
-// fresh approval of the amended sidecar hash before its own handoff.
+// Current amendments retain prior product approval through a distinct reviewed
+// maintenance handoff. Historical owns-only runs still require their human decision.
 function amendCommand(options) {
   requireOptions(options, ["completed", "sourceDir", "issues", "reason"]);
-  if (process.env.PM_LOOP_WORKER === "1") {
-    throw cliError("loop workers cannot amend RFCs", EXIT.PRECONDITION);
+  const kind = options.kind || "maintenance";
+  if (process.env.PM_LOOP_WORKER === "1" && kind !== "maintenance") {
+    throw cliError(
+      "loop workers cannot amend RFCs outside reviewed maintenance",
+      EXIT.PRECONDITION
+    );
   }
   const completedPath = path.resolve(options.completed);
   const archived = readSession(completedPath);
@@ -122,6 +127,7 @@ function amendCommand(options) {
         return createAmendmentSession(archived, {
           sourceDir: path.resolve(options.sourceDir),
           issueNums,
+          kind,
           reason: options.reason,
           ...execution,
         });
@@ -163,10 +169,10 @@ function amendCommand(options) {
 // if this run's approval-audit had already replaced it.
 function withdrawCommand(options) {
   requireOptions(options, ["session", "reason"]);
-  if (process.env.PM_LOOP_WORKER === "1") {
-    throw cliError("loop workers cannot withdraw RFC amendments", EXIT.PRECONDITION);
-  }
   const { session, sessionPath } = loadRequiredSession(options);
+  if (process.env.PM_LOOP_WORKER === "1" && session.amendment?.kind !== "maintenance") {
+    throw cliError("loop workers cannot withdraw historical RFC amendments", EXIT.PRECONDITION);
+  }
   withdrawalRestores(session);
   const archiveDir = path.join(
     path.dirname(path.dirname(completedSessionPath(session))),
@@ -227,7 +233,7 @@ function withdrawalRestores(session) {
       EXIT.PRECONDITION
     );
   }
-  if (session.approval?.status === "approved") {
+  if (["approved", "maintained"].includes(session.approval?.status)) {
     throw cliError(
       "an approved amendment cannot be withdrawn; finish its handoff",
       EXIT.PRECONDITION
@@ -420,6 +426,23 @@ function approveCommand(options) {
       approvedSidecarSha256: options.approvedSidecarSha256,
     })
   );
+}
+
+function renderMaintenanceCommand(options) {
+  requireOptions(options, ["session"]);
+  const sessionPath = path.resolve(options.session);
+  return withLock(sessionPath, () => {
+    const session = readSession(sessionPath);
+    assertCanonicalSessionPath(sessionPath, session);
+    const result = renderMaintenanceArtifact(session);
+    writeFileAtomic(result.html_path, result.html, { fileMode: 0o600 });
+    emit(options, {
+      html_path: result.html_path,
+      changes: result.changes,
+      sidecar_sha256: result.sidecar_sha256,
+    });
+    return EXIT.OK;
+  });
 }
 
 function approvalAuditCommand(options) {

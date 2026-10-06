@@ -2,8 +2,8 @@
 
 const { stableStringify } = require("./workflow-runtime/records.js");
 
-// Owns-only amendments chain through `amends`; a longer chain means the RFC
-// needs a new design, not another ownership patch.
+// All amendments chain through exact prior audits. Bound lineage traversal
+// without treating elapsed maintenance depth as a new product decision.
 const MAX_LINEAGE_HOPS = 16;
 
 // A post-handoff amendment may only append owned paths to explicitly declared
@@ -133,4 +133,44 @@ module.exports = {
   assertAmendmentDepth,
   assertOwnsOnlyAmendment,
   parseAmendedIssueNums,
+  assertMaintenanceAmendment,
 };
+
+// These are execution details, not product requirements. The technical lenses
+// must still establish that a changed approach preserves behavior and risk.
+const MAINTENANCE_FIELDS = ["approach", "verification_commands", "test_hooks"];
+
+function assertMaintenanceAmendment(prior, next, issueNums) {
+  const protectedNext = structuredClone(next);
+  const changes = [];
+  for (const [index, before] of (prior.issues || []).entries()) {
+    const after = next.issues?.[index];
+    if (!after) continue; // The owns-only check below diagnoses list changes.
+    const updated = {};
+    for (const field of MAINTENANCE_FIELDS) {
+      if (!fieldChanged(before, after, field)) continue;
+      if (!issueNums.includes(before.num)) {
+        throw new Error(`issue ${before.num} was not declared in --issues`);
+      }
+      updated[field] = after[field];
+      if (Object.hasOwn(before, field)) protectedNext.issues[index][field] = before[field];
+      else delete protectedNext.issues[index][field];
+    }
+    if (Object.keys(updated).length) changes.push({ num: before.num, updated });
+  }
+  // Reuse the strict protected-field and append-only ownership comparison. A
+  // technical-only update legitimately has no added owned paths.
+  let owned;
+  try {
+    owned = assertOwnsOnlyAmendment(prior, protectedNext, issueNums);
+  } catch (error) {
+    if (changes.length && error.message.startsWith("amendment adds no owned paths;")) owned = [];
+    else throw error;
+  }
+  const byNum = new Map(changes.map((item) => [item.num, { ...item, added_owns: [] }]));
+  for (const item of owned) {
+    const change = byNum.get(item.num) || { num: item.num, updated: {} };
+    byNum.set(item.num, { ...change, added_owns: item.added_owns });
+  }
+  return [...byNum.values()].sort((a, b) => a.num - b.num);
+}

@@ -16,6 +16,8 @@ Record the user's explicit decision for the exact reviewed artifact without load
 
 ## How
 
+In-scope maintenance never enters this phase. Its reviewed handoff retains the original human decision; read `../references/maintenance.md`. This phase remains mandatory for an initial/material design and historical explicit-approval amendments.
+
 1. Show the Decision Brief, biggest risk, unresolved product decisions, RFC path, and reviewed artifact fingerprint. State that technical review passed but approval has not been recorded.
 2. Ask one direct question: "Approve this RFC for implementation?" Silence, prior proposal approval, reviewer verdicts, loop configuration, and tracker consent are not RFC approval.
 3. If the user declines, keep `awaiting_approval`. If the user requests changes, record the audited transition before editing:

@@ -193,6 +193,8 @@ test("amend refuses a run that a newer run of the same RFC superseded", () => {
     const second = completeApprovedRun(repo, slug, { issues: twoIssues() });
     const amendArgs = (completed) => [
       "amend",
+      "--kind",
+      "owns-only",
       "--completed",
       completed,
       "--source-dir",
@@ -232,6 +234,8 @@ function openAmendment(repo, completedPath, env = {}) {
   return repo.run(
     [
       "amend",
+      "--kind",
+      "owns-only",
       "--completed",
       completedPath,
       "--source-dir",

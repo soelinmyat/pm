@@ -547,6 +547,8 @@ test("post-handoff amendment re-reviews owns-only changes and archives a v2 appr
     const archiveSnapshot = snapshotDir(path.dirname(firstArchive));
     const amendArgs = [
       "amend",
+      "--kind",
+      "owns-only",
       "--completed",
       firstArchive,
       "--source-dir",
@@ -558,7 +560,9 @@ test("post-handoff amendment re-reviews owns-only changes and archives a v2 appr
       "--json",
     ];
 
-    const missingIssues = repo.run(amendArgs.filter((arg, index) => ![5, 6].includes(index)));
+    const missingIssues = repo.run(
+      amendArgs.filter((arg, index) => arg !== "--issues" && amendArgs[index - 1] !== "--issues")
+    );
     assert.equal(missingIssues.status, 2);
     assert.match(missingIssues.stderr, /--issues is required/);
     const loopWorker = repo.run(amendArgs, { PM_LOOP_WORKER: "1" });
@@ -703,6 +707,8 @@ test("post-handoff amendment re-reviews owns-only changes and archives a v2 appr
     assert.match(stale.stderr, new RegExp(`already amended by ${session.run_id}`));
     const next = repo.run([
       "amend",
+      "--kind",
+      "owns-only",
       "--completed",
       secondArchive,
       "--source-dir",
@@ -739,6 +745,8 @@ test("amend refuses archives whose committed approval audit no longer matches", 
     fs.writeFileSync(archivePath, JSON.stringify(archived));
     const amended = repo.run([
       "amend",
+      "--kind",
+      "owns-only",
       "--completed",
       archivePath,
       "--source-dir",
@@ -752,6 +760,8 @@ test("amend refuses archives whose committed approval audit no longer matches", 
     assert.match(amended.stderr, /approval audit/);
     const unknownIssue = repo.run([
       "amend",
+      "--kind",
+      "owns-only",
       "--completed",
       archivePath,
       "--source-dir",

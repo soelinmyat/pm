@@ -227,7 +227,7 @@ and rendered-evidence contract behind PM's flagship reports.
 |---|---|
 | `/pm:task <title>` | Capture a lightweight chore (version bump, small cleanup) — skips groom/RFC, feeds straight into `/pm:dev` |
 | `/pm:bug <title>` | File a bug report with observed/expected/reproduction stubs — skips groom/RFC, feeds straight into `/pm:dev` |
-| `/pm:rfc <feature-slug>` | Generate a technical RFC from the trusted execution contract of an approved groomed proposal |
+| `/pm:rfc <feature-slug>` | Generate or maintain a technical RFC; reviewed in-scope execution corrections retain the original approval |
 | `/pm:dev [ticket]` | Routes by canonical proposal scope and observed risk, resumes phase-local state, implements with TDD, and verifies delivery evidence |
 | `/pm:design-critique` | Review product UI or PM HTML artifacts with trusted state/viewport captures (including bounded native keyboard navigation and below-fold scrolling), decoded-pixel and accessibility evidence, separately recorded Primary and Fresh Eyes perspectives with workflow-attested isolation, explicit reconciliation, and an accessible commit-bound report |
 | `/pm:review` | Run evidence-bound source review with six baseline lenses plus risk-triggered security, disagreement handling, bounded fix rounds, and canonical JSON; routine clean source reviews need no browser, while complex/risky reviews retain checked HTML |

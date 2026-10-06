@@ -196,6 +196,53 @@ function readSession(sessionPath) {
   return JSON.parse(fs.readFileSync(sessionPath, "utf8"));
 }
 
+test("reviewed technical maintenance updates real Dev contracts and invalidates only the affected completed unit", () => {
+  const scenario = boundScenario([issue(1, [], ["README.md"]), issue(2, [], ["src/second.js"])]);
+  try {
+    scenario.enterImplementation();
+    const base1 = scenario.start("rfc-1");
+    const one = scenario.complete(
+      "rfc-1",
+      base1,
+      scenario.dev.commit({ "README.md": "one\n" }, "one")
+    );
+    assert.equal(one.status, 0, one.stderr);
+    const base2 = scenario.start("rfc-2");
+    const two = scenario.complete(
+      "rfc-2",
+      base2,
+      scenario.dev.commit({ "src/second.js": "two\n" }, "two")
+    );
+    assert.equal(two.status, 0, two.stderr);
+    const before = readSession(scenario.sessionPath);
+    const amendment = completeAmendment(scenario.rfc, scenario.approved.archivePath, {
+      kind: "maintenance",
+      issues: "2",
+      reason: "Correct verification to exercise the existing second behavior",
+      mutate: (s) => {
+        s.issues[1].verification_commands = ["node --test tests/second.test.js"];
+      },
+    });
+    copyArchives(scenario.rfc, scenario.dev);
+    const rebound = scenario.rebind(amendment.sidecarHash);
+    assert.equal(rebound.status, 0, rebound.stderr);
+    const after = readSession(scenario.sessionPath);
+    assert.deepEqual(after.task.work_units[0], before.task.work_units[0]);
+    assert.equal(after.task.work_units[1].status, "pending");
+    assert.equal(after.task.work_units[1].result, null);
+    assert.deepEqual(after.task.work_units[1].contract.verification_commands, [
+      "node --test tests/second.test.js",
+    ]);
+    const history = after.task.rfc_contract_history.at(-1).changed_units[0];
+    assert.deepEqual(history.changed_contract_fields, ["verification_commands"]);
+    assert.deepEqual(history.invalidated_result, before.task.work_units[1].result);
+    assert.deepEqual(after.authority, before.authority);
+    assert.deepEqual(after.routing, before.routing);
+  } finally {
+    scenario.cleanup();
+  }
+});
+
 test("rebind-rfc adopts an approved owns-only amendment so a blocked unit can complete", () => {
   const scenario = boundScenario([issue(1, [], ["README.md"]), issue(2, [1], ["src/second.js"])]);
   const { dev, sessionPath } = scenario;

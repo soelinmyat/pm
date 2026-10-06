@@ -31,7 +31,7 @@
     "run_id": { "type": "string", "pattern": "^rfc_[A-Za-z0-9_-]+$" },
     "slug": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
     "status": {
-      "enum": ["active", "awaiting_approval", "approved", "blocked", "complete"]
+      "enum": ["active", "awaiting_approval", "approved", "blocked", "complete", "maintained"]
     },
     "phase": { "enum": ["intake", "generation", "review", "approval", "handoff"] },
     "phase_attempt": { "type": "integer", "minimum": 1 },
@@ -167,14 +167,14 @@
       "additionalProperties": false,
       "required": ["status", "approved_by", "approved_at", "artifact_hash"],
       "properties": {
-        "status": { "enum": ["pending", "approved"] },
+        "status": { "enum": ["pending", "approved", "maintained"] },
         "approved_by": { "type": ["string", "null"] },
         "approved_at": { "type": ["string", "null"], "format": "date-time" },
         "artifact_hash": { "type": ["string", "null"] }
       },
       "allOf": [
         {
-          "if": { "properties": { "status": { "const": "approved" } } },
+          "if": { "properties": { "status": {"enum": ["approved", "maintained"]} } },
           "then": {
             "properties": {
               "approved_by": { "type": "string", "minLength": 1 },
@@ -204,8 +204,8 @@
       "then": { "properties": { "review": { "type": "object", "properties": { "status": { "const": "passed" } } } } }
     },
     {
-      "if": { "properties": { "status": { "enum": ["approved", "complete"] } } },
-      "then": { "properties": { "approval": { "type": "object", "properties": { "status": { "const": "approved" } } } } }
+      "if": { "properties": { "status": { "enum": ["approved", "maintained", "complete"] } } },
+      "then": { "properties": { "approval": { "type": "object", "properties": { "status": {"enum": ["approved", "maintained"]} } } } }
     },
     {
       "if": { "properties": { "status": { "const": "complete" } } },
@@ -220,6 +220,63 @@
         "required": ["phase", "approval"]
       },
       "then": false
+    },
+    {
+      "if": {
+        "properties": {
+          "approval": {
+            "properties": {
+              "status": {
+                "const": "maintained"
+              }
+            },
+            "type": "object"
+          }
+        }
+      },
+      "then": {
+        "required": ["amendment"],
+        "properties": {
+          "amendment": {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "maintenance"
+              }
+            }
+          },
+          "review": {
+            "properties": {
+              "status": {
+                "const": "passed"
+              },
+              "verdicts": {
+                "items": {
+                  "required": [
+                    "maintenance_scope"
+                  ],
+                  "properties": {
+                    "maintenance_scope": {
+                      "properties": {
+                        "preserved": {
+                          "const": true
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          }
+        }
+      }
     }
   ],
   "$defs": {
@@ -236,6 +293,12 @@
         "created_at"
       ],
       "properties": {
+        "kind": {
+          "enum": [
+            "owns-only",
+            "maintenance"
+          ]
+        },
         "of_run_id": { "type": "string", "pattern": "^rfc_[A-Za-z0-9_-]+$" },
         "prior_artifact": { "$ref": "#/$defs/artifact" },
         "prior_approval_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
@@ -506,6 +569,23 @@
       "additionalProperties": false,
       "required": ["lens", "artifact_hash", "verdict", "blocking", "advisory"],
       "properties": {
+        "maintenance_scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "preserved",
+            "rationale"
+          ],
+          "properties": {
+            "preserved": {
+              "type": "boolean"
+            },
+            "rationale": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
         "lens": { "enum": ["architecture-risk", "test-strategy", "maintainability"] },
         "artifact_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
         "verdict": { "enum": ["pass", "block"] },
