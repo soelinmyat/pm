@@ -322,3 +322,22 @@ test("an install that would exceed the config read budget leaves the input uncha
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("prompt admission restores canonical skills after late fallback discovery only once", async () => {
+  const ctx = context();
+  const registry = new Map();
+  let registrations = 0;
+  ctx.skill.transform = async (fn) => {
+    registrations++;
+    fn({ add: (entry) => registry.set(entry.id, entry) });
+  };
+  await setup(ctx);
+  registry.set("pm-dev", { id: "pm-dev", path: "/old/codex/pm-dev/SKILL.md", content: "stale" });
+  assert.equal(typeof ctx.hooks.prompt, "function");
+  await Promise.all([ctx.hooks.prompt({}), ctx.hooks.prompt({})]);
+  assert.equal(registry.get("pm-dev").path, path.join(root, "skills/dev/SKILL.md"));
+  assert.match(registry.get("pm-dev").content, /NEVER SHIP WITHOUT CURRENT GATE EVIDENCE/);
+  await ctx.hooks.prompt({});
+  assert.equal(registrations, 2);
+  assert.equal(registry.size, 24);
+});

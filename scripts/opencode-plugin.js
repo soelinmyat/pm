@@ -106,9 +106,18 @@ async function setup(ctx) {
   ) {
     throw new Error("PM command/skill inventory is inconsistent");
   }
-  await ctx.skill.transform((editor) => {
-    for (const skill of skills)
-      editor.add({ ...skill, id: `pm-${skill.id}`, name: `pm:${skill.id}`, autoinvoke: true });
+  const registerSkills = () =>
+    ctx.skill.transform((editor) => {
+      for (const skill of skills)
+        editor.add({ ...skill, id: `pm-${skill.id}`, name: `pm:${skill.id}`, autoinvoke: true });
+    });
+  await registerSkills();
+  // Built-in filesystem discovery can register fallback aliases after setup.
+  // Prompt hooks run after all plugins are ready, before skill resolution.
+  let admittedSkills;
+  await ctx.session.hook("prompt", async () => {
+    admittedSkills ||= registerSkills();
+    await admittedSkills;
   });
   await ctx.command.transform((editor) => {
     for (const command of commands)
