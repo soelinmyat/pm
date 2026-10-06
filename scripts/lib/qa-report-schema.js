@@ -18,6 +18,7 @@ const QA_EVIDENCE_TOTAL_LIMIT_CODE = "ERR_QA_EVIDENCE_TOTAL_BYTES";
 const MAX_ASSERTION_RESULTS = 2_000;
 const MAX_FINDINGS = 1_000;
 const MAX_RUNS = 50;
+const QA_RECOVERY_THRESHOLD = 3;
 const MAX_RECEIPTS = 100;
 const MAX_SCREENSHOTS = 15;
 const MAX_SCREENSHOTS_TOTAL = MAX_RUNS * MAX_SCREENSHOTS;
@@ -693,7 +694,7 @@ function validateRuns(runs, report, findingIds, receipts, issues) {
     }
     const isReverify = run.kind === "reverify";
     const fields = isReverify ? REVERIFY_FIELDS : RUN_FIELDS;
-    closed(run, fields, runAt, issues);
+    closed(run, [...fields, "recovery"], runAt, issues);
     required(run, fields, runAt, issues);
     if (run.run !== index + 1) add(issues, `${runAt}.run`, `must equal ${index + 1}`);
     if (index === 0 && run.kind !== "initial") {
@@ -770,6 +771,9 @@ function validateRuns(runs, report, findingIds, receipts, issues) {
         add(issues, `${runAt}.receipt_ids`, "passing runs require every receipt assertion to pass");
     }
     validateScoreVerdict(run.verdict, run.health_score, runAt, issues);
+    if (Object.hasOwn(run, "recovery")) {
+      validateRecoveryDiagnosis(run, previous, report, runAt, issues);
+    }
     if (isReverify) {
       validateReverifyRun(run, previous, runAt, findingIds, report, issues);
       if (!object(run.previous_report)) {
@@ -825,6 +829,119 @@ function validateRuns(runs, report, findingIds, receipts, issues) {
   for (const receiptId of receipts.ids) {
     if (!usedReceiptIds.has(receiptId))
       add(issues, "report.receipts", `receipt ${receiptId} is unused`);
+  }
+}
+
+function validateRecoveryDiagnosis(run, previous, report, at, issues) {
+  const recovery = run.recovery;
+  const recoveryAt = `${at}.recovery`;
+  if (!object(recovery)) {
+    add(issues, recoveryAt, "recovery diagnosis must be an object");
+    return;
+  }
+  const fields = [
+    "classification",
+    "observed",
+    "cause",
+    "change",
+    "next_check",
+    "evidence_receipt_ids",
+    "scope_assessment",
+  ];
+  closed(recovery, fields, recoveryAt, issues);
+  required(recovery, fields, recoveryAt, issues);
+  const classifications = new Set([
+    "product-defect",
+    "harness-environment",
+    "stale-evidence",
+    "external-dependency",
+    "product-decision",
+    "scope-risk-change",
+  ]);
+  if (!classifications.has(recovery.classification)) {
+    add(
+      issues,
+      `${recoveryAt}.classification`,
+      "must distinguish product, harness, evidence or genuine decision/dependency failure"
+    );
+  }
+  for (const field of ["observed", "cause", "change", "next_check"]) {
+    boundedText(recovery[field], `${recoveryAt}.${field}`, issues, 4_096);
+  }
+  const priorReceiptIds = new Set(
+    boundedArray(report.receipts, MAX_RECEIPTS)
+      .filter((receipt) => receipt?.run < run.run)
+      .map((receipt) => receipt.id)
+  );
+  validateIdArray(
+    recovery.evidence_receipt_ids,
+    `${recoveryAt}.evidence_receipt_ids`,
+    priorReceiptIds,
+    issues,
+    MAX_RECEIPTS
+  );
+  // A harness may block before execution. In that case the already-required,
+  // hash-checked predecessor report is the retained observation; inventing a
+  // historical receipt would break the immutable chain.
+  const receiptlessBlockedHistory =
+    priorReceiptIds.size === 0 &&
+    previous?.verdict === "blocked" &&
+    run.kind === "reverify" &&
+    object(run.previous_report);
+  if (
+    !Array.isArray(recovery.evidence_receipt_ids) ||
+    (!recovery.evidence_receipt_ids.length && !receiptlessBlockedHistory)
+  ) {
+    add(
+      issues,
+      `${recoveryAt}.evidence_receipt_ids`,
+      "must ground the recovery diagnosis in retained prior-run evidence"
+    );
+  }
+  if (!["within-approved-scope", "decision-required"].includes(recovery.scope_assessment)) {
+    add(issues, `${recoveryAt}.scope_assessment`, "must assess the approved scope boundary");
+  }
+  const requiresDecision = new Set([
+    "external-dependency",
+    "product-decision",
+    "scope-risk-change",
+  ]).has(recovery.classification);
+  if (requiresDecision && recovery.scope_assessment !== "decision-required") {
+    add(
+      issues,
+      `${recoveryAt}.scope_assessment`,
+      "a genuine dependency/product/scope-risk decision remains blocked"
+    );
+  }
+  if (
+    (requiresDecision || recovery.scope_assessment === "decision-required") &&
+    run.verdict !== "blocked"
+  ) {
+    add(
+      issues,
+      recoveryAt,
+      "a genuine dependency/product/scope-risk decision requires a blocked verdict"
+    );
+  }
+  if (
+    previous?.recovery &&
+    ["fail", "blocked"].includes(previous.verdict) &&
+    previous.commit === run.commit
+  ) {
+    const approach = (entry) =>
+      ["change", "next_check"].map((field) =>
+        String(entry[field] || "")
+          .trim()
+          .replace(/\s+/g, " ")
+          .toLowerCase()
+      );
+    if (sameValue(approach(previous.recovery), approach(recovery))) {
+      add(
+        issues,
+        recoveryAt,
+        "unchanged failing source requires a changed recovery approach; fresh receipt IDs alone are not diagnosis"
+      );
+    }
   }
 }
 
@@ -1353,6 +1470,18 @@ function validateSessionQaHistory(report, session, issues, options = {}) {
       : attempts.length;
   const recordedRuns = Math.max(attempts.length, anchoredRuns);
   const qaCandidate = options.qaCandidate;
+  if (
+    qaCandidate === "required" &&
+    recordedRuns >= QA_RECOVERY_THRESHOLD &&
+    ["fail", "blocked"].includes(report.runs[recordedRuns - 1]?.verdict) &&
+    !object(report.runs[recordedRuns]?.recovery)
+  ) {
+    add(
+      issues,
+      `report.runs[${recordedRuns}].recovery`,
+      "recovery diagnosis is required before continuing unresolved QA beyond three rounds; no new human approval is required for authorized scoped recovery"
+    );
+  }
   if (options.qaHistoryAnchor === true && !Number.isInteger(qaEvidence?.qa_run_count)) {
     const minimumRuns = Math.max(attempts.length, qaEvidence?.commit ? 1 : 0);
     if (report.runs.length < minimumRuns) {
@@ -2197,6 +2326,7 @@ module.exports = {
   MAX_QA_REPORT_BYTES,
   MAX_QA_SCREENSHOT_DECODED_BYTES_TOTAL,
   MAX_QA_VALIDATION_ISSUES,
+  QA_RECOVERY_THRESHOLD,
   SEVERITY_DEDUCTIONS,
   checkQaReport,
   expectedQaReportPath,

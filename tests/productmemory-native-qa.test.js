@@ -222,7 +222,7 @@ async function qaFixture(t) {
 
 // The observation payload is a fixture; the retained-file, report, run-ledger,
 // commit, coverage and native phase validators are the real implementations.
-function appendQaReport(f, verdict = "pass") {
+function appendQaReport(f, verdict = "pass", recovery = null) {
   const session = readSession(f);
   const reportPath = expectedQaReportPath(session);
   const previousBytes = fs.existsSync(reportPath) ? fs.readFileSync(reportPath) : null;
@@ -259,7 +259,7 @@ function appendQaReport(f, verdict = "pass") {
   fs.writeFileSync(outputPath, output);
   const assertions = { passed: failing ? 10 : 12, total: 12 };
   const findings = structuredClone(previous?.findings || []);
-  if (failing)
+  if (failing && !findings.some((row) => row.id === findingId))
     findings.push({
       id: findingId,
       severity: "high",
@@ -322,8 +322,13 @@ function appendQaReport(f, verdict = "pass") {
       previous_verdict: previous.verdict,
       previous_health_score: previous.health_score,
       fixed_finding_ids: fixing ? [findingId] : [],
-      still_open_finding_ids: [],
-      new_finding_ids: failing ? [findingId] : [],
+      still_open_finding_ids:
+        failing &&
+        previous.findings.some((row) => row.id === findingId && row.disposition === "open")
+          ? [findingId]
+          : [],
+      new_finding_ids:
+        failing && !previous.findings.some((row) => row.id === findingId) ? [findingId] : [],
       fixed_finding_evidence: fixing
         ? [{ finding_id: findingId, assertion_ids: [firstAssertion] }]
         : [],
@@ -334,6 +339,7 @@ function appendQaReport(f, verdict = "pass") {
       },
     });
   }
+  if (recovery) runRecord.recovery = recovery;
   const report = {
     schema_version: 2,
     commit,
@@ -410,6 +416,45 @@ async function passedQaFixture(t) {
   assert.equal(f.session.phase, "review");
   return f;
 }
+
+test("native QA continues a fourth scoped recovery without new approval or remote quality publication", async (t) => {
+  const f = await qaFixture(t);
+  const initial = structuredClone(readSession(f));
+  for (let run = 1; run <= 3; run += 1) {
+    const reportPath = appendQaReport(f, "fail");
+    await recordQa(f, reportPath, "failed");
+  }
+  let current = readSession(f);
+  assert.equal(current.status, "active");
+  assert.equal(current.phase_attempt, 4);
+  assert.equal(current.evidence.qa.qa_run_count, 3);
+  const anchors = structuredClone(current.evidence.qa.qa_run_anchors);
+  const writesBefore = f.calls.filter((call) => call.method !== "GET").length;
+  const reportPath = appendQaReport(f, "pass", {
+    classification: "harness-environment",
+    observed:
+      "The retained third-run native fixture assertions still fail with absent seeded context",
+    cause: "The owned fixture seed was incomplete; the approved app contract remains unchanged",
+    change:
+      "Repair and preflight fixture seed before re-running original acceptance and critical states",
+    next_check:
+      "Verify seed readiness, then the same approved acceptance and critical-state checks",
+    evidence_receipt_ids: ["qa-run-3-browser"],
+    scope_assessment: "within-approved-scope",
+  });
+  current = await recordQa(f, reportPath);
+  assert.equal(current.phase, "review");
+  assert.equal(current.evidence.qa.qa_run_count, 4);
+  assert.deepEqual(current.evidence.qa.qa_run_anchors.slice(0, 3), anchors);
+  assert.deepEqual(current.authority, initial.authority);
+  assert.deepEqual(current.authority_log, initial.authority_log);
+  assert.deepEqual(current.task, initial.task);
+  assert.equal(
+    f.calls.filter((call) => call.method !== "GET").length,
+    writesBefore,
+    "a local QA round cannot fabricate another approval or publish remote quality"
+  );
+});
 
 test("native QA passes to review and recertifies fresh HEAD with immutable history", async (t) => {
   const f = await passedQaFixture(t);

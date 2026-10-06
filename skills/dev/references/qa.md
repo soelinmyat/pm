@@ -927,6 +927,34 @@ commit to a passing run in the complete retained chain, and preserves an
 existing run count exactly before writing the missing anchors. It does not
 refresh the stale gate commit or verification fields.
 
+### Autonomous recovery after three rounds
+
+Three rounds are a diagnosis checkpoint, not a permission boundary. The Dev root continues already authorized fixes and verification without asking for approval merely because of the count. The QA worker stays read-only for source; the root owns product, fixture, harness and environment repairs within its existing authority.
+
+Before another attempt with unresolved QA beyond three rounds, inspect the retained failures and their owning source, input and environment. Distinguish a product defect from a harness/environment fault or stale/invalid evidence. Explain the observed cause, what will change, and which acceptance assertion or adjacent behavior will test that hypothesis. Repeating the same failing source and unchanged recovery approach with new receipt names is not recovery. If a cause is uncertain, name the hypothesis and the check that will discriminate it; do not present speculation as established fact.
+
+Append the diagnosis as optional `recovery` on the new run in the existing canonical report. The checker requires it only for a new candidate after at least three recorded runs whose latest verdict is `fail` or `blocked`; existing accepted artifacts remain readable. It applies to ordinary QA, post-QA failed candidates and recertification. For example, an owned fixture repair can retain the same source commit:
+
+```json
+"recovery": {
+  "classification": "harness-environment",
+  "observed": "The third-run assertion cannot find the approved seeded staff member",
+  "cause": "The fixture seed omitted that member; the application behavior is not yet disproved",
+  "change": "Repair the owned seed and inspect its data before repeating the assertion",
+  "next_check": "Verify seed readiness, then rerun the original acceptance assertion and adjacent-route smoke",
+  "evidence_receipt_ids": ["qa-run-3-browser"],
+  "scope_assessment": "within-approved-scope"
+}
+```
+
+`classification` is `product-defect`, `harness-environment`, `stale-evidence`, `external-dependency`, `product-decision`, or `scope-risk-change`. Bind `evidence_receipt_ids` to retained prior-run receipts. When no prior execution receipts exist and the latest retained run is blocked, use an empty list: the existing immutable `previous_report` binding grounds that pre-execution failure. Preserve its original bytes and anchors; a passing recovery still requires fresh executed assertions. `observed`, `cause`, `change` and `next_check` are specific evidence-supported explanations, not generic retry promises. A stale report or capture repair does not invent a product regression or fresh acceptance passage; rejected evidence remains preserved and the owning current-source/report checks still apply. A source fix requires affected acceptance re-verification; a harness repair needs its setup check and affected acceptance assertions, without pretending source changed. If impact is uncertain, use conservative full QA.
+
+Use `scope_assessment: "decision-required"` and a `blocked` verdict for a genuinely unresolved external dependency, product decision or material scope/risk change. A scoped environment recovery may itself remain blocked until its prerequisite is restored. The diagnosis field describes the assessed boundary; it grants neither new scope nor platform, source-write, delivery or other authority. Resolve an actual missing decision through its owner; never request approval simply to continue an already authorized QA round.
+
+The runner records every failed/blocked run before recovery, preserves immutable run anchors and advances QA attempts continuously. `dev-session unblock --reason <actual resolution>` resumes the next QA attempt rather than resetting to one, including a legacy counter-blocked session. Do not start another session, change the Dev decision version or edit prior report rows to hide failures. Resource/size guards and Review's separate lineage policy remain intact; changing QA continuation does not disable them. A new worker after context saturation receives the same report, anchors and next attempt number.
+
+A passing result still needs all required current assertions, score/finding criteria and exact evidence bindings. A diagnosis, source commit, repaired screenshot, successful harness command or exhausted counter cannot substitute for that passage. Assess whether the changed approach actually tests the suspected cause; these workflow-attested fields are not cryptographic proof of meaningful judgment.
+
 ### What the orchestrator sends
 
 Use the runtime adapter from `agent-runtime.md` to resume the same QA worker with a message like:
@@ -941,6 +969,8 @@ Do NOT re-run Phase 0 (environment is still ready). Jump to Phase 3 re-verify.
 ```
 
 ### Re-verify flow (persistent worker)
+
+Continue from the recorded run and recovery diagnosis. Repeat setup only where the changed harness/environment requires it.
 
 1. Parse the fix list from the message
 2. Match each fix to a previous finding (already in worker context — no state file re-parse needed)
@@ -1091,7 +1121,7 @@ to the standalone JSON report.
 | Routes per Focused run | 8 | Prioritize by diff coverage |
 | Routes per Full run | 15 | Cover all charter routes |
 | Re-verify scope | Previous Critical + High only | Skip Medium/Low unless asked |
-| Re-verify iterations (persistent) | 3 | After 3 Fail cycles, return Blocked |
+| Recovery diagnosis (persistent) | After 3 rounds with unresolved QA | Diagnose and change the scoped approach; continue autonomously without resetting history |
 | Context saturation | ~3 iterations of verbose DOM results | Orchestrator respawns fresh QA worker with state file context and previous findings |
 | Agent death (API overload, 529, timeout) | No response from worker | Orchestrator respawns fresh QA worker with state file context. Include previous findings so the new worker skips already-verified assertions |
 
@@ -1104,7 +1134,7 @@ to the standalone JSON report.
 3. <NEVER>Report findings without evidence. Assertion result, ARIA tree finding, console output, or screenshot required.</NEVER>
 4. <NEVER>Leave servers running after QA is fully done. In persistent mode, kill on final verdict. In standalone, kill on completion.</NEVER>
 5. <NEVER>Report a visual finding from a screenshot when it can be measured via DOM. Use `browser_evaluate` first.</NEVER>
-6. <NEVER>Re-run Phase 0 on re-verify in persistent mode. The environment is already ready.</NEVER>
+6. <NEVER>Re-run Phase 0 on re-verify in persistent mode. Reuse only unchanged setup; revalidate affected fixtures, auth, build or services after drift.</NEVER>
 7. <NEVER>Run Layers 2+5 unless `--visual` is explicitly passed. QA is functional by default.</NEVER>
 8. <MUST>For every passing Dev report: bind each exact session acceptance criterion and design critical state to at least one passed latest-run assertion.</MUST>
 9. <MUST>For Full tier: test at minimum 3 viewports (1440px, 768px, 375px).</MUST>

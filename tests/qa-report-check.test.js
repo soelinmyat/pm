@@ -23,6 +23,7 @@ const {
   recertifyEvidence,
   recordNonPassingQaCandidate,
   recordResult,
+  resumeBlocked,
   validateResult,
   writeSession,
 } = require("../scripts/lib/dev-session-schema");
@@ -598,6 +599,460 @@ test("a fixed finding requires a passed assertion from its own re-verification r
   assert.equal(rejected.ok, false);
   assert.match(JSON.stringify(rejected.issues), /requires passed assertion current-1/);
 });
+
+test("third QA failure keeps authorized recovery active for the fourth round", (t) => {
+  const repo = makeRepo();
+  t.after(repo.cleanup);
+  let session = createSession({ slug: "qa-autonomous-fourth", sourceDir: repo.root });
+  session.phase = "qa";
+  session.routing.required_phases = ["qa", "review", "retro"];
+  session.routing.required_gates = ["qa"];
+  const originalAuthority = structuredClone(session.authority);
+  for (let run = 1; run <= 3; run += 1) {
+    const { reportPath } =
+      run === 1
+        ? writeFailingReport(session, repo.head())
+        : appendStillFailingQaRun(session, repo.head());
+    const result = {
+      ...phaseResult(session, repo.head(), reportPath),
+      status: "failed",
+      summary: "The same core-flow assertion remains failing; retained for diagnosis",
+    };
+    result.evidence[0].command = "node scripts/qa-report-check.js --allow-nonpassing";
+    assert.deepEqual(validateResult(session, result), []);
+    session = recordResult(session, result);
+  }
+  assert.equal(session.status, "active", "a QA counter cannot require permission to continue");
+  assert.equal(session.phase_attempt, 4);
+  assert.equal(session.evidence.qa.qa_run_count, 3);
+  assert.equal(session.evidence.qa.qa_run_anchors.length, 3);
+  assert.equal(session.attempts.filter((attempt) => attempt.phase === "qa").length, 3);
+  assert.equal(session.evidence.qa.commit, null, "failed recovery grants no passing gate");
+  assert.deepEqual(session.authority, originalAuthority);
+});
+
+test("legacy blocked QA recovery resumes continuous history without resetting attempts", (t) => {
+  const repo = makeRepo();
+  t.after(repo.cleanup);
+  let session = createSession({ slug: "qa-legacy-counter", sourceDir: repo.root });
+  session.phase = "qa";
+  session.routing.required_phases = ["qa", "review", "retro"];
+  session.routing.required_gates = ["qa"];
+  for (let run = 1; run <= 3; run += 1) {
+    const { reportPath } =
+      run === 1
+        ? writeFailingReport(session, repo.head())
+        : appendStillFailingQaRun(session, repo.head());
+    const result = { ...phaseResult(session, repo.head(), reportPath), status: "failed" };
+    result.evidence[0].command = "node scripts/qa-report-check.js --allow-nonpassing";
+    session = recordResult(session, result);
+  }
+  // Model a real pre-update counter blocker even after the new policy is installed.
+  session.status = "blocked";
+  if (!session.blockers.length)
+    session.blockers.push({
+      code: "retry-exhausted",
+      reason: "qa failed 3 times",
+      remediation: "Reconcile root cause",
+      phase: "qa",
+      recorded_at: new Date().toISOString(),
+    });
+  const history = structuredClone(session.evidence.qa.qa_run_anchors);
+  const recovered = resumeBlocked(
+    session,
+    "Within approved scope: diagnose the core assertion before changing recovery approach"
+  );
+  assert.equal(recovered.phase_attempt, 4);
+  assert.equal(recovered.status, "active");
+  assert.deepEqual(recovered.evidence.qa.qa_run_anchors, history);
+  assert.deepEqual(recovered.attempts, session.attempts);
+  assert.deepEqual(recovered.authority, session.authority);
+});
+
+test("persistent QA failure requires grounded changed recovery without human reapproval", (t) => {
+  const { repo, session, reportPath } = threeFailedQaRuns(t, "qa-diagnosis");
+  appendStillFailingQaRun(session, repo.head());
+  const verify = () =>
+    checkQaReport({
+      session,
+      reportPath,
+      expectedCommit: repo.head(),
+      requirePassing: false,
+      qaCandidate: "required",
+    });
+  let checked = verify();
+  assert.equal(checked.ok, false, "fourth attempt must diagnose the persistent failure");
+  assert.match(JSON.stringify(checked.issues), /recovery diagnosis/);
+  const report = JSON.parse(fs.readFileSync(reportPath));
+  report.runs.at(-1).recovery = recoveryDiagnosis();
+  fs.writeFileSync(reportPath, JSON.stringify(report));
+  checked = verify();
+  assert.equal(checked.ok, true, JSON.stringify(checked.issues));
+  const result = { ...phaseResult(session, repo.head(), reportPath), status: "failed" };
+  result.evidence[0].command = "node scripts/qa-report-check.js --allow-nonpassing";
+  const continued = recordResult(session, result);
+  assert.equal(continued.status, "active");
+  assert.equal(continued.phase_attempt, 5);
+  assert.equal(continued.evidence.qa.qa_run_count, 4);
+  appendStillFailingQaRun(continued, repo.head());
+  const fifth = JSON.parse(fs.readFileSync(reportPath));
+  fifth.runs.at(-1).recovery = recoveryDiagnosis({ evidence_receipt_ids: ["qa-run-4-tests"] });
+  fs.writeFileSync(reportPath, JSON.stringify(fifth));
+  checked = checkQaReport({
+    session: continued,
+    reportPath,
+    expectedCommit: repo.head(),
+    requirePassing: false,
+    qaCandidate: "required",
+  });
+  assert.equal(
+    checked.ok,
+    false,
+    "unchanged failing source and recovery approach cannot be repeated blindly"
+  );
+  assert.match(JSON.stringify(checked.issues), /changed recovery approach/);
+});
+
+test("fourth-round harness recovery can pass unchanged source through the actual CLI", (t) => {
+  const { repo, session, reportPath } = threeFailedQaRuns(t, "qa-harness-recovery");
+  writeReverifiedReport(session, repo.head());
+  const report = JSON.parse(fs.readFileSync(reportPath));
+  const run = report.runs.at(-1);
+  const receipt = report.receipts.at(-1);
+  const output = qaOutput(repo.head(), receipt.id, 12, 0, {
+    idPrefix: "repaired",
+    findingIds: ["qa-core-flow"],
+  });
+  fs.writeFileSync(receipt.output.path, output);
+  Object.assign(receipt.output, { sha256: digest(output), bytes: output.length });
+  report.findings[0].disposition = "fixed";
+  report.finding_counts.high = 0;
+  report.category_breakdown = categoryRows();
+  run.fixed_finding_ids = ["qa-core-flow"];
+  run.still_open_finding_ids = [];
+  run.fixed_finding_evidence = [{ finding_id: "qa-core-flow", assertion_ids: ["repaired-1"] }];
+  run.recovery = recoveryDiagnosis({
+    classification: "harness-environment",
+    cause: "The controlled fixture omitted the approved seeded data; app source did not change",
+    change:
+      "Repair the owned fixture seed and verify its data before repeating the acceptance assertions",
+    next_check:
+      "Check seed readiness, then the original acceptance assertions and adjacent-route smoke",
+  });
+  fs.writeFileSync(reportPath, JSON.stringify(report));
+  const sessionPath = path.join(repo.root, ".pm", "dev-sessions", session.slug, "session.json");
+  writeSession(sessionPath, session);
+  const result = phaseResult(session, repo.head(), reportPath);
+  const resultPath = path.join(path.dirname(sessionPath), "fourth-result.json");
+  fs.writeFileSync(resultPath, JSON.stringify(result));
+  const recorded = spawnSync(
+    process.execPath,
+    [
+      path.join(__dirname, "..", "scripts", "dev-session.js"),
+      "record",
+      "--session",
+      sessionPath,
+      "--result",
+      resultPath,
+      "--json",
+    ],
+    { encoding: "utf8" }
+  );
+  assert.equal(recorded.status, 0, recorded.stderr || recorded.stdout);
+  const completed = JSON.parse(fs.readFileSync(sessionPath));
+  assert.equal(completed.phase, "review");
+  assert.equal(completed.evidence.qa.qa_run_count, 4);
+  assert.deepEqual(
+    completed.evidence.qa.qa_run_anchors.slice(0, 3),
+    session.evidence.qa.qa_run_anchors
+  );
+  assert.equal(completed.evidence.qa.commit, repo.head());
+  assert.deepEqual(
+    completed.authority_log,
+    session.authority_log,
+    "no counter-triggered approval grant"
+  );
+  assert.deepEqual(completed.task, session.task);
+});
+
+test("a genuine scope or product decision remains blocked during QA recovery", (t) => {
+  const { repo, session, reportPath } = threeFailedQaRuns(t, "qa-real-decision");
+  appendStillFailingQaRun(session, repo.head());
+  const report = JSON.parse(fs.readFileSync(reportPath));
+  report.runs.at(-1).recovery = recoveryDiagnosis({
+    classification: "scope-risk-change",
+    scope_assessment: "within-approved-scope",
+    cause: "Fixing this result would change the approved user-visible policy",
+    change: "Preserve the failing evidence and request the missing policy decision",
+    next_check: "Resume the acceptance test only after that material decision is resolved",
+  });
+  fs.writeFileSync(reportPath, JSON.stringify(report));
+  const check = () =>
+    checkQaReport({
+      session,
+      reportPath,
+      expectedCommit: repo.head(),
+      requirePassing: false,
+      qaCandidate: "required",
+    });
+  assert.equal(check().ok, false, "a scope claim cannot waive a material decision");
+  report.verdict = "blocked";
+  report.runs.at(-1).verdict = "blocked";
+  report.runs.at(-1).recovery.scope_assessment = "decision-required";
+  fs.writeFileSync(reportPath, JSON.stringify(report));
+  assert.equal(check().ok, true, JSON.stringify(check().issues));
+  const blocked = {
+    ...phaseResult(session, repo.head(), reportPath),
+    status: "blocked",
+    blocker: {
+      code: "product-decision",
+      reason: "Policy change is outside approved scope",
+      remediation: "Resolve the actual policy decision",
+    },
+  };
+  blocked.evidence[0].command = "node scripts/qa-report-check.js --allow-nonpassing";
+  const stopped = recordResult(session, blocked);
+  assert.equal(stopped.status, "blocked");
+  assert.equal(stopped.blockers.at(-1).code, "product-decision");
+  assert.equal(stopped.evidence.qa.commit, null);
+  assert.equal(stopped.evidence.qa.qa_run_count, 4);
+  assert.deepEqual(stopped.authority, session.authority);
+});
+
+test("stale-evidence recovery cannot waive current source, retained bytes or grounded cause", (t) => {
+  const { repo, session, reportPath } = threeFailedQaRuns(t, "qa-stale-recovery");
+  appendStillFailingQaRun(session, repo.head());
+  const report = JSON.parse(fs.readFileSync(reportPath));
+  report.runs.at(-1).recovery = recoveryDiagnosis({
+    classification: "stale-evidence",
+    cause: "The attempted capture referred to stale fixture context, not a verified product change",
+    change:
+      "Preserve rejected capture and collect current evidence for the unchanged approved assertions",
+    next_check: "Bind fresh current-source evidence, then rerun the affected assertions",
+  });
+  const save = () => fs.writeFileSync(reportPath, JSON.stringify(report));
+  const check = () =>
+    checkQaReport({
+      session,
+      reportPath,
+      expectedCommit: repo.head(),
+      requirePassing: false,
+      qaCandidate: "required",
+    });
+  save();
+  assert.equal(check().ok, true, JSON.stringify(check().issues));
+  const receipt = report.receipts.at(-1);
+  const hash = receipt.output.sha256;
+  receipt.output.sha256 = "f".repeat(64);
+  save();
+  assert.equal(check().ok, false, "diagnosis cannot manufacture valid execution bytes");
+  receipt.output.sha256 = hash;
+  report.runs.at(-1).recovery.evidence_receipt_ids = [receipt.id];
+  save();
+  assert.equal(check().ok, false, "cause must refer to retained prior-run evidence");
+  report.runs.at(-1).recovery.evidence_receipt_ids = ["qa-run-3-tests"];
+  report.commit = SHA_A;
+  save();
+  assert.equal(check().ok, false, "recovery cannot waive source-current binding");
+  report.commit = repo.head();
+  save();
+  const previous = report.runs.at(-1).previous_report;
+  const bytes = fs.readFileSync(previous.path);
+  fs.appendFileSync(previous.path, " ");
+  assert.equal(check().ok, false, "counter continuation cannot rewrite accepted history");
+  fs.writeFileSync(previous.path, bytes);
+  assert.equal(check().ok, true, JSON.stringify(check().issues));
+});
+
+test("post-QA fourth failed candidate and fifth recertification preserve review budget and history", (t) => {
+  const repo = makeRepo();
+  t.after(repo.cleanup);
+  let session = createSession({ slug: "qa-post-round-four", sourceDir: repo.root });
+  session.phase = "qa";
+  session.routing.required_phases = ["qa", "review", "retro"];
+  session.routing.required_gates = ["qa"];
+  const { reportPath } = writePassingReport(session, repo.head());
+  session = recordResult(session, phaseResult(session, repo.head(), reportPath));
+  writeFailingReverifiedReport(session, repo.head());
+  session = recordNonPassingQaCandidate(session, "failed", repo.head(), [
+    nonPassingCandidateRecord(reportPath),
+  ]);
+  appendStillFailingQaRun(session, repo.head(), "qa-post-phase-regression");
+  session = recordNonPassingQaCandidate(session, "failed", repo.head(), [
+    nonPassingCandidateRecord(reportPath),
+  ]);
+  const originalEvidence = structuredClone(session.evidence.qa);
+  appendStillFailingQaRun(session, repo.head(), "qa-post-phase-regression");
+  assert.throws(
+    () =>
+      recordNonPassingQaCandidate(session, "failed", repo.head(), [
+        nonPassingCandidateRecord(reportPath),
+      ]),
+    /recovery diagnosis/
+  );
+  let report = JSON.parse(fs.readFileSync(reportPath));
+  report.runs.at(-1).recovery = recoveryDiagnosis();
+  fs.writeFileSync(reportPath, JSON.stringify(report));
+  session = recordNonPassingQaCandidate(session, "failed", repo.head(), [
+    nonPassingCandidateRecord(reportPath),
+  ]);
+  assert.equal(session.phase, "review");
+  assert.equal(
+    session.phase_attempt,
+    1,
+    "QA recovery must not reset or consume the separate Review budget"
+  );
+  assert.equal(session.evidence.qa.qa_run_count, 4);
+  assert.equal(session.evidence.qa.commit, originalEvidence.commit);
+  assert.deepEqual(session.evidence.qa.records, originalEvidence.records);
+  const anchors = structuredClone(session.evidence.qa.qa_run_anchors);
+  fs.appendFileSync(
+    path.join(repo.root, "README.md"),
+    "source fix for the approved acceptance case\n"
+  );
+  execFileSync("git", ["add", "README.md"], { cwd: repo.root });
+  execFileSync("git", ["commit", "-m", "fix retained QA regression"], { cwd: repo.root });
+  writeFixedCandidateReport(session, repo.head());
+  report = JSON.parse(fs.readFileSync(reportPath));
+  report.runs.at(-1).recovery = recoveryDiagnosis({ evidence_receipt_ids: ["qa-run-4-tests"] });
+  fs.writeFileSync(reportPath, JSON.stringify(report));
+  const recertified = recertifyEvidence(session, ["qa"], repo.head(), {
+    qa: [recertificationRecord(reportPath)],
+  });
+  assert.equal(recertified.evidence.qa.qa_run_count, 5);
+  assert.deepEqual(recertified.evidence.qa.qa_run_anchors.slice(0, 4), anchors);
+  assert.equal(recertified.evidence.qa.verified_commit, repo.head());
+  assert.equal(recertified.phase, "review");
+  assert.equal(recertified.phase_attempt, 1);
+  assert.deepEqual(recertified.authority_log, session.authority_log);
+});
+
+test("receiptless blocked QA history can recover on round four without rewriting evidence", (t) => {
+  const repo = makeRepo();
+  t.after(repo.cleanup);
+  let session = createSession({ slug: "qa-receiptless-recovery", sourceDir: repo.root });
+  session.phase = "qa";
+  session.routing.required_phases = ["qa", "review", "retro"];
+  session.routing.required_gates = ["qa"];
+  let reportPath;
+  for (let run = 1; run <= 3; run += 1) {
+    ({ reportPath } =
+      run === 1
+        ? writePassingReport(session, repo.head())
+        : writeReverifiedReport(session, repo.head()));
+    const report = JSON.parse(fs.readFileSync(reportPath));
+    report.receipts = [];
+    for (const entry of [report, report.runs.at(-1)]) {
+      entry.verdict = "blocked";
+      entry.assertions = { passed: 0, total: 0 };
+    }
+    report.runs.at(-1).receipt_ids = [];
+    fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+    const result = {
+      ...phaseResult(session, repo.head(), reportPath),
+      status: "blocked",
+      summary: "Owned QA harness is unavailable before execution",
+      blocker: {
+        code: "qa-harness-unavailable",
+        reason: "The local acceptance runner cannot start",
+        remediation: "Repair the owned harness and resume the same assertions",
+      },
+    };
+    result.evidence[0].command = "node scripts/qa-report-check.js --allow-nonpassing";
+    assert.deepEqual(validateResult(session, result), []);
+    session = resumeBlocked(recordResult(session, result), "Owned harness repaired for recheck");
+  }
+  const anchors = structuredClone(session.evidence.qa.qa_run_anchors);
+  const priorBytes = fs.readFileSync(reportPath);
+  const recovered = writeReverifiedReport(session, repo.head());
+  const report = JSON.parse(fs.readFileSync(reportPath));
+  report.runs.at(-1).recovery = recoveryDiagnosis({
+    classification: "harness-environment",
+    observed: "The retained blocked reports show no assertion runner could start",
+    cause: "The owned local harness lacked its required startup fixture",
+    change: "Restore that fixture and inspect readiness before acceptance execution",
+    next_check: "Execute the original acceptance assertions after readiness succeeds",
+    evidence_receipt_ids: [],
+  });
+  fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+  const result = phaseResult(session, repo.head(), reportPath);
+  assert.deepEqual(validateResult(session, result), []);
+  const passed = recordResult(session, result);
+  assert.equal(passed.phase, "review");
+  assert.equal(passed.evidence.qa.qa_run_count, 4);
+  assert.deepEqual(passed.evidence.qa.qa_run_anchors.slice(0, 3), anchors);
+  assert.deepEqual(fs.readFileSync(recovered.snapshotPath), priorBytes);
+  assert.equal(report.receipts.length, 1);
+  assert.deepEqual(report.runs.at(-1).assertions, { passed: 12, total: 12 });
+  report.runs.at(-1).recovery.evidence_receipt_ids = [report.receipts[0].id];
+  fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+  assert.match(JSON.stringify(validateResult(session, result)), /references unknown finding/);
+  report.runs.at(-1).recovery.evidence_receipt_ids = [];
+  fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+  fs.appendFileSync(recovered.snapshotPath, " ");
+  assert.match(JSON.stringify(validateResult(session, result)), /sha256|bytes/);
+});
+
+function recoveryDiagnosis(overrides = {}) {
+  return {
+    classification: "product-defect",
+    observed: "The bound third-run core-flow assertion still returns the error state",
+    cause:
+      "The corrective branch misses the empty-domain-input case shown by the retained assertion",
+    change:
+      "Correct that branch and isolate its empty-input regression before the adjacent-route smoke",
+    next_check:
+      "Re-run the bound core-flow assertions with empty input, then adjacent-route acceptance smoke",
+    evidence_receipt_ids: ["qa-run-3-tests"],
+    scope_assessment: "within-approved-scope",
+    ...overrides,
+  };
+}
+
+function threeFailedQaRuns(t, slug) {
+  const repo = makeRepo();
+  t.after(repo.cleanup);
+  let session = createSession({ slug, sourceDir: repo.root });
+  session.phase = "qa";
+  session.routing.required_phases = ["qa", "review", "retro"];
+  session.routing.required_gates = ["qa"];
+  let reportPath;
+  for (let run = 1; run <= 3; run += 1) {
+    ({ reportPath } =
+      run === 1
+        ? writeFailingReport(session, repo.head())
+        : appendStillFailingQaRun(session, repo.head()));
+    const result = { ...phaseResult(session, repo.head(), reportPath), status: "failed" };
+    result.evidence[0].command = "node scripts/qa-report-check.js --allow-nonpassing";
+    session = recordResult(session, result);
+  }
+  return { repo, session, reportPath };
+}
+
+function appendStillFailingQaRun(session, commit, findingId = "qa-core-flow") {
+  const written = writeReverifiedReport(session, commit);
+  const report = JSON.parse(fs.readFileSync(written.reportPath));
+  const run = report.runs.at(-1);
+  const receipt = report.receipts.at(-1);
+  const output = qaOutput(commit, receipt.id, 12, 1, {
+    idPrefix: "persistent",
+    findingIds: [findingId],
+  });
+  fs.writeFileSync(written.outputPath, output);
+  Object.assign(receipt, {
+    exit_code: 1,
+    assertions: { passed: 10, total: 12 },
+    output: { path: written.outputPath, sha256: digest(output), bytes: output.length },
+  });
+  for (const target of [report, run])
+    Object.assign(target, {
+      verdict: "fail",
+      health_score: 96,
+      assertions: { passed: 10, total: 12 },
+    });
+  fs.writeFileSync(written.reportPath, `${JSON.stringify(report, null, 2)}\n`);
+  return written;
+}
 
 test("every QA verdict is runner-recorded before re-verification and prevents history reset", (t) => {
   const repo = makeRepo();
