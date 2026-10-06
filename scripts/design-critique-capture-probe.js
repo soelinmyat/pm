@@ -2860,6 +2860,11 @@ async function main() {
     // leave a short fail-open execution window.
     if (client) client.close();
     if (browserClient) browserClient.close();
+    // Descendants can retain stderr after the main browser exits. Close our
+    // owned reader at that boundary so a completed probe does not await them.
+    const closeBrowserStderr = () => browser.stderr.destroy();
+    if (browser.exitCode !== null || browser.signalCode !== null) closeBrowserStderr();
+    else browser.once("exit", closeBrowserStderr);
     try {
       fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 50 });
     } catch {

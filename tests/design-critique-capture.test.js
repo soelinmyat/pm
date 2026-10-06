@@ -2048,6 +2048,68 @@ function runBrowserCapture(fixture, allowedOrigins = []) {
   });
 }
 
+test(
+  "browser helper completes after browser exit when a descendant retains stderr",
+  { skip: browserSkip || (process.platform === "win32" && "POSIX browser launcher fixture") },
+  () => {
+    const fixture = createBrowserFixture();
+    const holderPidPath = path.join(fixture.root, "stderr-holder.pid");
+    const launcherPath = path.join(fixture.root, "browser-launcher.cjs");
+    fs.writeFileSync(
+      launcherPath,
+      `#!${process.execPath}
+const { spawn } = require("node:child_process");
+const fs = require("node:fs");
+// Model a browser descendant retaining the inherited stderr writer after the
+// main browser has exited. This process belongs to the fixture, not the probe.
+const holder = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], {
+  detached: true,
+  stdio: ["ignore", "ignore", 2],
+});
+fs.writeFileSync(${JSON.stringify(holderPidPath)}, String(holder.pid));
+holder.unref();
+const browser = spawn(${JSON.stringify(installedBrowser)}, process.argv.slice(2), {
+  stdio: ["ignore", "ignore", 2],
+});
+browser.once("exit", (code) => process.exit(code ?? 1));
+`,
+      { mode: 0o700 }
+    );
+    try {
+      const result = runCaptureProbe(
+        {
+          browserPath: launcherPath,
+          url: fixture.url,
+          expectedUrl: fixture.url,
+          viewport: { width: 1024, height: 600 },
+          stateAssertion: fixture.stateAssertion,
+          allowedOrigins: [],
+          readinessTimeoutMs: 5_000,
+          settleMs: 200,
+          outputPath: fixture.outputPath,
+          verificationPath: fixture.verificationPath,
+        },
+        { timeoutMs: 15_000 }
+      );
+      assert.equal(result.assertion_passed, true);
+      assert.ok(fs.statSync(fixture.outputPath).size > 0);
+      assert.ok(fs.statSync(fixture.verificationPath).size > 0);
+      // The writer is still alive: completion came from closing the probe's
+      // owned reader, rather than waiting for the descendant's timer to expire.
+      process.kill(Number(fs.readFileSync(holderPidPath, "utf8")), 0);
+    } finally {
+      if (fs.existsSync(holderPidPath)) {
+        try {
+          process.kill(Number(fs.readFileSync(holderPidPath, "utf8")), "SIGKILL");
+        } catch (error) {
+          assert.equal(error.code, "ESRCH");
+        }
+      }
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+);
+
 for (const { key, count, reverse } of [
   { key: "Tab", count: 2, reverse: false },
   { key: "Shift+Tab", count: 1, reverse: true },
