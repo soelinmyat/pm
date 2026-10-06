@@ -1276,6 +1276,34 @@ test("DOM consistency separates declared and native variants within component gr
     "enabled and disabled controls are intentional native states"
   );
 
+  const focusedPrimary = button(3, "primary button", "rgb(200, 0, 0)");
+  assert.deepEqual(
+    domObservations(
+      [root, primaryOne, primaryTwo, focusedPrimary],
+      metrics,
+      computedStyles,
+      null,
+      metrics.cssLayoutViewport,
+      null,
+      new Set([focusedPrimary.backendNodeId])
+    ).consistency,
+    [],
+    "a native focused control must not be compared against unfocused controls"
+  );
+  assert.equal(
+    domObservations(
+      [root, primaryOne, divergentPrimary, focusedPrimary],
+      metrics,
+      computedStyles,
+      null,
+      metrics.cssLayoutViewport,
+      null,
+      new Set([focusedPrimary.backendNodeId])
+    ).consistency.length,
+    1,
+    "native focus elsewhere must not conceal a same-state visual defect"
+  );
+
   const input = (index, type, background) => ({
     index,
     backendNodeId: index + 1,
@@ -3501,3 +3529,36 @@ test("active modal scopes typography consistency while retaining foreground and 
   assert.ok(typography(inspect(5)).some((row) => row.detail.startsWith("h2")));
   assert.ok(typography(inspect(999)).some((row) => row.detail.startsWith("h3")));
 });
+
+test(
+  "native focus styling is distinct while unfocused visual defects remain visible",
+  { skip: browserSkip },
+  () => {
+    for (const divergent of [false, true]) {
+      const fixture = createBrowserFixture();
+      let html = decodeURIComponent(fixture.url.split(",").slice(1).join(","));
+      html = html.replace(
+        "</style>",
+        ".action{border:2px solid gray}.action:focus{border-color:green}</style>"
+      );
+      html = html.replace(
+        "<button>Save changes</button>",
+        `<button class="action">Save changes</button><button class="action"${divergent ? ' style="border-color:red"' : ""}>Invite member</button><button class="action" id="focused">Focused control</button>`
+      );
+      fixture.url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+      fixture.stateAssertion.before_capture = [{ kind: "tab", count: 4, reverse: false }];
+      fixture.stateAssertion.all.push(
+        { locator: { by: "id", value: "focused" }, expect: { kind: "visible" } },
+        { locator: { by: "id", value: "focused" }, expect: { kind: "focused" } }
+      );
+      try {
+        const result = runBrowserCapture(fixture);
+        const issues = result.dom_observations.consistency;
+        assert.equal(issues.length, divergent ? 1 : 0, JSON.stringify(issues));
+        if (divergent) assert.match(issues[0].detail, /border-top-color/);
+      } finally {
+        fs.rmSync(fixture.root, { recursive: true, force: true });
+      }
+    }
+  }
+);
