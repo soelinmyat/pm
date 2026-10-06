@@ -12,7 +12,11 @@ const { exactObject, exactObjectWithOptional } = require("./lib/closed-object");
 const { coverageReasonIssue } = require("./lib/design-critique-coverage-reason");
 const { validateNativeControls } = require("./lib/design-critique-native-audit");
 const { compareRfc3339DateTimes, isRfc3339DateTime } = require("./lib/iso-time");
-const { PRODUCT_UI_VISUAL_THRESHOLDS, inspectPngVisualBytes } = require("./lib/media-inspect");
+const {
+  PRODUCT_UI_VISUAL_THRESHOLDS,
+  inspectPngVisualBytes,
+  createPngRegionInspector,
+} = require("./lib/media-inspect");
 const { readProjectInput } = require("./lib/project-file");
 const { writeProjectDirectoryAtomic } = require("./lib/project-atomic-write");
 const {
@@ -278,10 +282,72 @@ function captureVisualMetrics(inspected) {
   };
 }
 
-function validateMeaningfulVisual(inspected) {
+function loadingContentEvidence(inspected, { state, visibility, bytes } = {}) {
+  if (state !== "loading" || !bytes || !visibility) return null;
+  validateAssertionVisibility(visibility, "loading content visibility");
+  const heading = visibility.checks.find(
+    (check) =>
+      check.label === "state marker" && check.native_role === "heading" && check.native_name_present
+  );
+  const indicator = visibility.checks.find(
+    (check) =>
+      check.label !== "state marker" &&
+      ["status", "progressbar"].includes(check.native_role) &&
+      check.native_name_present
+  );
+  if (
+    !heading ||
+    !indicator ||
+    heading.asserted_backend_node_id === indicator.asserted_backend_node_id
+  )
+    return null;
+  const regions = [heading.visual_bounds, indicator.visual_bounds];
+  if (
+    regions.some(
+      (region) =>
+        !region ||
+        region.width < 16 ||
+        region.height < 12 ||
+        region.x + region.width > inspected.width ||
+        region.y + region.height > inspected.height
+    )
+  )
+    return null;
+  if (
+    indicator.visual_bounds.height < 16 ||
+    (Math.min(regions[0].x + regions[0].width, regions[1].x + regions[1].width) >
+      Math.max(regions[0].x, regions[1].x) &&
+      Math.min(regions[0].y + regions[0].height, regions[1].y + regions[1].height) >
+        Math.max(regions[0].y, regions[1].y))
+  )
+    return null;
+  const inspectRegion = createPngRegionInspector(bytes);
+  const full = inspectRegion(null);
+  if (
+    full.pixelSha256 !== inspected.pixelSha256 ||
+    full.width !== inspected.width ||
+    full.height !== inspected.height
+  )
+    throw new Error("loading content pixels do not match the full viewport screenshot");
+  const content = regions.map((region) => {
+    const regional = inspectRegion(region);
+    // Each required semantic node must have real, varied pixels. A decorated
+    // heading cannot compensate for an invisible loading indicator.
+    return { region, visual_metrics: validateMeaningfulVisual(regional) };
+  });
+  return { policy: "native-heading-and-loading-content-v1", nodes: content };
+}
+
+function validateMeaningfulVisual(inspected, loading = null) {
+  let loadingContent = null;
+  if (
+    inspected.meaningfulPixelRatio !== null &&
+    inspected.meaningfulPixelRatio < MIN_MEANINGFUL_PIXEL_RATIO
+  )
+    loadingContent = loadingContentEvidence(inspected, loading || {});
   if (
     inspected.meaningfulPixelRatio === null ||
-    inspected.meaningfulPixelRatio < MIN_MEANINGFUL_PIXEL_RATIO
+    (inspected.meaningfulPixelRatio < MIN_MEANINGFUL_PIXEL_RATIO && !loadingContent)
   )
     throw new Error(
       `product UI screenshot meaningful pixels must cover at least ${MIN_MEANINGFUL_PIXEL_RATIO * 100}%`
@@ -304,7 +370,10 @@ function validateMeaningfulVisual(inspected) {
     );
   if (typeof inspected.perceptualGrid !== "string" || inspected.perceptualGrid.length !== 256)
     throw new Error("product UI screenshot lacks a canonical perceptual grid");
-  return captureVisualMetrics(inspected);
+  return {
+    ...captureVisualMetrics(inspected),
+    ...(loadingContent ? { loading_content: loadingContent } : {}),
+  };
 }
 
 function validateStateAssertion(assertion, expected = null) {
@@ -863,12 +932,20 @@ function validateAssertionVisibility(value, label, expectedLabels = null) {
         "hit_backend_node_id",
         "x",
         "y",
+        ...(Object.hasOwn(check, "native_role") ? ["native_role", "native_name_present"] : []),
         ...(Object.hasOwn(check, "visual_bounds") ? ["visual_bounds"] : []),
         ...(Object.hasOwn(check, "focus_indicator_regions") ? ["focus_indicator_regions"] : []),
       ],
       `${label}.checks[${index}]`
     );
     boundedText(check.label, 100, `${label}.checks[${index}].label`);
+    if (
+      Object.hasOwn(check, "native_role") &&
+      (typeof check.native_role !== "string" ||
+        check.native_role.length > 100 ||
+        typeof check.native_name_present !== "boolean")
+    )
+      throw new Error(`${label}.checks[${index}] has invalid native semantics`);
     if (Object.hasOwn(check, "focus_indicator_regions")) {
       if (!Array.isArray(check.focus_indicator_regions) || check.focus_indicator_regions.length > 4)
         throw new Error(`${label}.checks[${index}].focus_indicator_regions is invalid`);
@@ -1111,9 +1188,43 @@ function manifestShape(manifest) {
       "color_bucket_count",
       "luminance_range",
       "perceptual_grid",
+      ...(Object.hasOwn(manifest.capture.visual_metrics || {}, "loading_content")
+        ? ["loading_content"]
+        : []),
     ],
     "capture manifest.capture.visual_metrics"
   );
+  if (Object.hasOwn(manifest.capture.visual_metrics, "loading_content")) {
+    const content = manifest.capture.visual_metrics.loading_content;
+    exactObject(content, ["policy", "nodes"], "loading content");
+    if (
+      content.policy !== "native-heading-and-loading-content-v1" ||
+      !Array.isArray(content.nodes) ||
+      content.nodes.length !== 2
+    )
+      throw new Error("loading content requires one native heading and one indicator region");
+    for (const node of content.nodes) {
+      exactObject(node, ["region", "visual_metrics"], "loading content node");
+      exactObject(node.region, ["x", "y", "width", "height"], "loading content region");
+      for (const field of ["x", "y", "width", "height"])
+        if (
+          !Number.isSafeInteger(node.region[field]) ||
+          node.region[field] < (["width", "height"].includes(field) ? 1 : 0)
+        )
+          throw new Error("invalid loading content region");
+      exactObject(
+        node.visual_metrics,
+        [
+          "meaningful_pixel_ratio",
+          "meaningful_tile_ratio",
+          "color_bucket_count",
+          "luminance_range",
+          "perceptual_grid",
+        ],
+        "loading content visual metrics"
+      );
+    }
+  }
   exactObject(
     manifest.raw_evidence,
     ["accessibility_tree", "dom_audit", "network_ledger"],
@@ -1309,7 +1420,11 @@ function captureProductUi(options, runtime = {}) {
       throw new Error("product UI screenshot has less than 1% effective visible coverage");
     if (screenshot.hasVisualVariation !== true)
       throw new Error("product UI screenshot has no visible pixel variation");
-    const visualMetrics = validateMeaningfulVisual(screenshot);
+    const visualMetrics = validateMeaningfulVisual(screenshot, {
+      state: plan.coverage.state,
+      visibility: probe.assertion_visibility,
+      bytes: screenshotBytes,
+    });
 
     const base = `${plan.outputDir}/`;
     const screenshotRelative = `${base}capture.png`;
