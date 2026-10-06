@@ -14,7 +14,8 @@ test("RFC skill uses phase-local JSON state and keeps review distinct from appro
   assert.match(skill, /session\.json/);
   assert.match(skill, /awaiting_approval/);
   assert.doesNotMatch(skill, /Read all .*steps/);
-  assert.match(skill, /NEVER MARK AN RFC APPROVED WITHOUT EXPLICIT HUMAN APPROVAL/);
+  assert.match(skill, /NEVER CLAIM NEW HUMAN APPROVAL WITHOUT A HUMAN DECISION/);
+  assert.match(skill, /IN-SCOPE MAINTENANCE RETAINS THE ORIGINAL APPROVAL/);
 });
 
 test("review step cannot write approved lifecycle state", () => {

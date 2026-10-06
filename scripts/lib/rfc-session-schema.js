@@ -15,7 +15,7 @@ const { escapeHtml } = require("../review-report.js");
 const { extractSidecarHash, validateRfcSidecar } = require("../rfc-sidecar-check.js");
 const { loadPhaseStep } = require("../step-loader.js");
 const { findGitRoot, gitRelativePath, readGitFile, runGit } = require("../loop-git.js");
-const { assertOwnsOnlyAmendment } = require("./rfc-amendment.js");
+const { assertOwnsOnlyAmendment, assertMaintenanceAmendment } = require("./rfc-amendment.js");
 const { isRfc3339DateTime: isIsoDate } = require("./iso-time.js");
 const { markdownTableValue } = require("./session-scan.js");
 const { readApprovedProposal } = require("./proposal-schema.js");
@@ -38,7 +38,14 @@ const {
 const RFC_MODEL_PROFILES = require("../../skills/rfc/references/model-profiles.json");
 
 const PHASES = ["intake", "generation", "review", "approval", "handoff"];
-const STATUSES = new Set(["active", "awaiting_approval", "approved", "blocked", "complete"]);
+const STATUSES = new Set([
+  "active",
+  "awaiting_approval",
+  "approved",
+  "maintained",
+  "blocked",
+  "complete",
+]);
 const RESULT_STATUSES = new Set(["passed", "failed", "blocked"]);
 const REQUIRED_REVIEW_LENSES = ["architecture-risk", "test-strategy", "maintainability"];
 const AUTHORITY_ACTIONS = [
@@ -128,12 +135,12 @@ function createSession(options) {
 
 // Starts a new RFC run that amends a completed, approved run. The prior archive
 // is never touched: the new run re-enters review with the approved artifact and
-// can only append owned paths to the declared issues before re-approval.
+// changes only the declared execution details; product intent remains approved.
 function createAmendmentSession(archived, options) {
   assertValidSession(archived);
   if (
     archived.status !== "complete" ||
-    archived.approval.status !== "approved" ||
+    !["approved", "maintained"].includes(archived.approval.status) ||
     !isObject(archived.artifact)
   ) {
     throw new Error("only a completed, approved RFC run can be amended");
@@ -143,6 +150,8 @@ function createAmendmentSession(archived, options) {
   if (!Array.isArray(issueNums) || issueNums.length === 0) {
     throw new Error("RFC amendment requires at least one declared issue number");
   }
+  const kind = options.kind || "owns-only";
+  if (!["owns-only", "maintenance"].includes(kind)) throw new Error("unknown RFC amendment kind");
   const approval = readCommittedApprovalAudit(archived);
   const priorSidecar = readCommittedSidecar(archived.artifact);
   const knownNums = (priorSidecar.issues || []).map((item) => item?.num);
@@ -176,6 +185,7 @@ function createAmendmentSession(archived, options) {
     context: structuredClone(archived.context),
     artifact: structuredClone(prior),
     amendment: {
+      kind,
       of_run_id: archived.run_id,
       prior_artifact: {
         html_path: prior.html_path,
@@ -195,7 +205,7 @@ function createAmendmentSession(archived, options) {
     createTransition({
       priorPhase: "handoff",
       nextPhase: "review",
-      reason: `owns-only amendment of approved run ${archived.run_id}: ${options.reason}`,
+      reason: `${kind} amendment of approved run ${archived.run_id}: ${options.reason}`,
       timestamp: now,
     }),
   ];
@@ -279,8 +289,13 @@ function assertAmendmentArtifact(session, artifact) {
   }
   const priorSidecar = readCommittedSidecar(prior);
   const nextSidecar = JSON.parse(fs.readFileSync(artifact.json_path, "utf8"));
-  const changes = assertOwnsOnlyAmendment(priorSidecar, nextSidecar, amendment.amended_issue_nums);
-  assertOwnsOnlyHtml(
+  const maintenance = amendment.kind === "maintenance";
+  const changes = (maintenance ? assertMaintenanceAmendment : assertOwnsOnlyAmendment)(
+    priorSidecar,
+    nextSidecar,
+    amendment.amended_issue_nums
+  );
+  (maintenance ? assertMaintenanceHtml : assertOwnsOnlyHtml)(
     readCommittedHtml(prior),
     fs.readFileSync(artifact.html_path, "utf8"),
     changes
@@ -288,7 +303,7 @@ function assertAmendmentArtifact(session, artifact) {
   return changes;
 }
 
-// The approver confirms an amendment by its sidecar hash but reads the HTML, so
+// Historical human re-approval confirms its sidecar hash and reads the HTML, so
 // the HTML must tell the same story and nothing more. Apart from the lifecycle
 // and the sidecar hash it cites, the only allowed change is one new last line in
 // the card of each issue that gains paths, listing exactly those paths. A fixed
@@ -318,6 +333,145 @@ function assertOwnsOnlyHtml(priorHtml, nextHtml, changes) {
 
 // Paths are HTML-escaped, so a listed path always renders as text and can never
 // add markup that hides part of the RFC from the approver.
+
+function readMaintenancePrior(session) {
+  const file = path.join(
+    session.source.repo_root,
+    ".pm",
+    "rfc-sessions",
+    "completed",
+    session.slug,
+    session.amendment.of_run_id,
+    "session.json"
+  );
+  const prior = JSON.parse(fs.readFileSync(file, "utf8"));
+  assertValidSession(prior);
+  const audit = readCommittedApprovalAudit(prior);
+  if (prior.status !== "complete" || audit.sha256 !== session.amendment.prior_approval_sha256) {
+    throw new Error("maintenance prior approval is not the exact completed approved run");
+  }
+  return prior;
+}
+
+function renderMaintenanceArtifact(session) {
+  assertValidSession(session);
+  verifySourceIdentity(session);
+  verifyProposalIdentity(session);
+  if (
+    session.phase !== "review" ||
+    session.status !== "active" ||
+    session.amendment?.kind !== "maintenance"
+  )
+    throw new Error("render-maintenance requires an active maintenance review");
+  const prior = session.amendment.prior_artifact;
+  for (const file of [prior.html_path, prior.json_path]) {
+    if (!fs.lstatSync(file).isFile())
+      throw new Error("maintenance artifacts must be regular files");
+    gitRelativePath(fs.realpathSync(prior.repo_root), fs.realpathSync(file));
+  }
+  const bytes = fs.readFileSync(prior.json_path);
+  const next = JSON.parse(bytes.toString("utf8"));
+  const valid = validateRfcSidecar(next, prior.json_path, {
+    expectedSlug: session.slug,
+    expectedDesignContext: session.context.design_context,
+    repoRoot: prior.repo_root,
+    requireCurrentDesignContext: true,
+  });
+  if (!valid.ok) throw new Error(valid.issues.map((i) => i.message).join("; "));
+  const changes = assertMaintenanceAmendment(
+    readCommittedSidecar(prior),
+    next,
+    session.amendment.amended_issue_nums
+  );
+  const original = readCommittedHtml(prior);
+  let html = original;
+  for (const change of changes) {
+    const [, end] = issueSection(html, change.num);
+    if (end < 0) throw new Error(`maintenance cannot find issue ${change.num}'s card`);
+    html = html.slice(0, end) + maintenanceLines(change) + html.slice(end);
+  }
+  const markers = [
+    lifecycleMarker(html),
+    artifactLifecycleMarker(html),
+    visibleLifecycleMarker(html),
+  ]
+    .filter(Boolean)
+    .sort((a, b) => b.valueStart - a.valueStart);
+  for (const marker of markers)
+    html = html.slice(0, marker.valueStart) + "draft" + html.slice(marker.valueEnd);
+  html = html.replace(
+    /(\bdata-sidecar-hash=["'])sha256:[0-9a-f]{64}(["'])/g,
+    `$1${sha256(bytes)}$2`
+  );
+  assertMaintenanceHtml(original, html, changes);
+  const current = fs.readFileSync(prior.html_path, "utf8");
+  if (current !== original && current !== html) {
+    // A fix/review round may start from the previous committed maintenance
+    // render. Accept only that proven pair, never unexplained local HTML edits.
+    try {
+      const committedBytes = readGitFile(
+        "HEAD",
+        gitRelativePath(prior.repo_root, prior.json_path),
+        prior.repo_root
+      );
+      const committedHtml = readGitFile(
+        "HEAD",
+        gitRelativePath(prior.repo_root, prior.html_path),
+        prior.repo_root
+      ).toString("utf8");
+      if (current !== committedHtml || extractSidecarHash(current) !== sha256(committedBytes))
+        throw new Error("current HTML is not the previous committed maintenance pair");
+      assertMaintenanceHtml(
+        original,
+        current,
+        assertMaintenanceAmendment(
+          readCommittedSidecar(prior),
+          JSON.parse(committedBytes.toString("utf8")),
+          session.amendment.amended_issue_nums
+        )
+      );
+    } catch (error) {
+      throw new Error(
+        `maintenance HTML has unrelated edits; preserve and reconcile them before rendering: ${error.message}`
+      );
+    }
+  }
+  return { html_path: prior.html_path, html, changes, sidecar_sha256: sha256(bytes) };
+}
+
+function maintenanceLines(change) {
+  const labels = {
+    approach: "Updated implementation approach (supersedes prior technical approach)",
+    verification_commands: "Updated verification commands (supersedes prior commands)",
+    test_hooks: "Updated test hooks (supersedes prior hooks)",
+  };
+  const technical = Object.entries(change.updated || {})
+    .map(
+      ([field, value]) =>
+        `<p><strong>${labels[field]}:</strong> ${escapeHtml(Array.isArray(value) ? value.join("\n") : value)}</p>`
+    )
+    .join("");
+  return technical + (change.added_owns.length ? addedOwnsLine(change.added_owns) : "");
+}
+
+function assertMaintenanceHtml(priorHtml, nextHtml, changes) {
+  const prior = ownsOnlyCanonical(priorHtml);
+  let next = ownsOnlyCanonical(nextHtml);
+  for (const change of changes) {
+    const line = collapseWhitespace(maintenanceLines(change));
+    const [, end] = issueSection(next, change.num);
+    if (end < 0 || !next.startsWith(line, end - line.length))
+      throw new Error(
+        `maintenance HTML must mirror issue ${change.num}'s current technical changes`
+      );
+    next = next.slice(0, end - line.length) + next.slice(end);
+  }
+  if (prior !== next)
+    throw new Error(
+      "maintenance changed RFC HTML beyond its reviewed technical updates; product changes require a user decision"
+    );
+}
+
 function addedOwnsLine(paths) {
   const listed = paths.map((owned) => `<code>${escapeHtml(owned)}</code>`).join(", ");
   return `<p><strong>Added owned files:</strong> ${listed}</p>`;
@@ -563,6 +717,7 @@ function nextDecision(session, sessionPath) {
     ...(session.amendment
       ? {
           amendment: {
+            kind: session.amendment.kind || "owns-only",
             of_run_id: session.amendment.of_run_id,
             amended_issue_nums: session.amendment.amended_issue_nums,
             reason: session.amendment.reason,
@@ -703,6 +858,18 @@ function recordResult(session, result, options = {}) {
       next.phase_attempt = 1;
       reason = "validated passed result";
       if (next.phase === "approval") next.status = "awaiting_approval";
+      if (session.phase === "review" && session.amendment?.kind === "maintenance") {
+        const prior = readCommittedApprovalAudit(readMaintenancePrior(session));
+        next.approval = {
+          status: "maintained",
+          approved_by: prior.audit.approved_by,
+          approved_at: prior.audit.approved_at,
+          artifact_hash: next.review.artifact_hash,
+        };
+        next.status = "maintained";
+        next.phase = "handoff";
+        reason = "reviewed in-scope maintenance; original human approval retained";
+      }
     }
   } else if (result.status === "blocked") {
     next.status = "blocked";
@@ -774,7 +941,11 @@ function validatePassedResult(session, result, options) {
       requireHead: true,
     });
     assertAmendmentArtifact(session, result.artifact);
-    validateReviewerVerdicts(result.reviewer_verdicts, artifactFingerprint(result.artifact));
+    validateReviewerVerdicts(
+      result.reviewer_verdicts,
+      artifactFingerprint(result.artifact),
+      session.amendment?.kind === "maintenance"
+    );
     session.artifact = structuredClone(result.artifact);
     session.review = {
       status: "passed",
@@ -788,7 +959,7 @@ function validatePassedResult(session, result, options) {
   if (session.phase === "handoff") {
     requireEvidence(result, "handoff");
     requireEvidence(result, "lifecycle");
-    if (session.approval.status !== "approved") {
+    if (!["approved", "maintained"].includes(session.approval.status)) {
       throw new Error("handoff requires explicit human approval");
     }
     verifyArtifact(result.artifact, {
@@ -1069,7 +1240,11 @@ function validateResultIdentity(session, result) {
   if (result.run_id !== session.run_id) throw new Error("phase result run_id mismatch");
   if (result.phase !== session.phase) throw new Error("phase result phase mismatch");
   if (result.attempt !== session.phase_attempt) throw new Error("phase result attempt mismatch");
-  if (session.status !== "active" && session.status !== "approved") {
+  if (
+    session.status !== "active" &&
+    session.status !== "approved" &&
+    session.status !== "maintained"
+  ) {
     throw new Error(`session is ${session.status}, not recordable`);
   }
   if (result.status === "noop") throw new Error(`${session.phase} cannot be recorded as noop`);
@@ -1163,7 +1338,7 @@ function validateResultIdentity(session, result) {
   }
 }
 
-function validateReviewerVerdicts(verdicts, expectedArtifactHash) {
+function validateReviewerVerdicts(verdicts, expectedArtifactHash, maintenance = false) {
   if (!Array.isArray(verdicts)) throw new Error("reviewer verdicts must be an array");
   const byLens = new Map();
   for (const item of verdicts) {
@@ -1171,7 +1346,14 @@ function validateReviewerVerdicts(verdicts, expectedArtifactHash) {
       throw new Error(`unknown review lens: ${String(item?.lens)}`);
     }
     if (byLens.has(item.lens)) throw new Error(`duplicate review lens: ${item.lens}`);
-    const fields = ["lens", "artifact_hash", "verdict", "blocking", "advisory"];
+    const fields = [
+      "lens",
+      "artifact_hash",
+      "verdict",
+      "blocking",
+      "advisory",
+      "maintenance_scope",
+    ];
     if (Object.keys(item).some((field) => !fields.includes(field))) {
       throw new Error(`review lens ${item.lens} has unknown fields`);
     }
@@ -1183,6 +1365,19 @@ function validateReviewerVerdicts(verdicts, expectedArtifactHash) {
     }
     if (item.artifact_hash !== expectedArtifactHash) {
       throw new Error(`review lens ${item.lens} is stale or bound to a different artifact`);
+    }
+    if (
+      maintenance &&
+      (!isObject(item.maintenance_scope) ||
+        Object.keys(item.maintenance_scope).some(
+          (key) => !["preserved", "rationale"].includes(key)
+        ) ||
+        item.maintenance_scope.preserved !== true ||
+        !nonEmpty(item.maintenance_scope.rationale))
+    ) {
+      throw new Error(
+        `review lens ${item.lens} must establish preserved product behavior, scope and significant risk for maintenance`
+      );
     }
     byLens.set(item.lens, item);
   }
@@ -1488,7 +1683,10 @@ function buildApprovalAudit(session, artifact, options = {}) {
   assertValidSession(session);
   verifySourceIdentity(session);
   verifyProposalIdentity(session);
-  if (session.phase !== "handoff" || session.approval.status !== "approved") {
+  if (
+    session.phase !== "handoff" ||
+    !["approved", "maintained"].includes(session.approval.status)
+  ) {
     throw new Error("approval audit requires an explicitly approved handoff session");
   }
   verifyArtifact(artifact, {
@@ -1508,13 +1706,13 @@ function buildApprovalAudit(session, artifact, options = {}) {
 }
 
 // The exact approval audit a session produces for an artifact: schema v1 for an
-// original approval, v2 with amends lineage for an owns-only amendment.
+// original approval, historical v2 re-approval, or v3 reviewed maintenance.
 function approvalAuditRecord(session, artifact) {
   const record = {
-    schema_version: session.amendment ? 2 : 1,
+    schema_version: session.amendment?.kind === "maintenance" ? 3 : session.amendment ? 2 : 1,
     run_id: session.run_id,
     slug: session.slug,
-    status: "approved",
+    status: session.approval.status,
     approved_by: session.approval.approved_by,
     approved_at: session.approval.approved_at,
     html_sha256: artifact.html_hash,
@@ -1723,19 +1921,35 @@ function validateSession(session) {
       errors.push(issue("$.amendment.of_run_id", "must name a different, earlier run"));
     }
   }
+  if (session.approval?.status === "maintained") {
+    if (
+      session.amendment?.kind !== "maintenance" ||
+      session.review?.status !== "passed" ||
+      session.approval.artifact_hash !== session.review.artifact_hash
+    )
+      errors.push(issue("$.approval", "maintenance requires its current passed review"));
+    try {
+      validateReviewerVerdicts(session.review?.verdicts, session.review?.artifact_hash, true);
+    } catch (error) {
+      errors.push(issue("$.review", error.message));
+    }
+  }
   validateExecutionShape(session.execution, errors);
   if (session.status === "awaiting_approval" && session.phase !== "approval") {
     errors.push(issue("$.status", "awaiting_approval requires approval phase"));
   }
-  if (session.approval.status === "approved" && session.phase === "approval") {
+  if (
+    ["approved", "maintained"].includes(session.approval.status) &&
+    session.phase === "approval"
+  ) {
     errors.push(issue("$.approval", "approved session must advance to handoff"));
   }
   if (session.phase === "approval" && session.review?.status !== "passed") {
     errors.push(issue("$.review", "approval phase requires passed review"));
   }
   if (
-    ["approved", "complete"].includes(session.status) &&
-    session.approval?.status !== "approved"
+    ["approved", "maintained", "complete"].includes(session.status) &&
+    !["approved", "maintained"].includes(session.approval?.status)
   ) {
     errors.push(issue("$.approval", `${session.status} session requires explicit approval`));
   }
@@ -1937,6 +2151,7 @@ function validateAmendmentShape(value, errors) {
   validateRecordObject(
     value,
     [
+      ...(Object.hasOwn(value || {}, "kind") ? ["kind"] : []),
       "of_run_id",
       "prior_artifact",
       "prior_approval_sha256",
@@ -1955,6 +2170,8 @@ function validateAmendmentShape(value, errors) {
   if (!/^sha256:[0-9a-f]{64}$/.test(value.prior_approval_sha256 || "")) {
     errors.push(issue(`${objectPath}.prior_approval_sha256`, "must be sha256"));
   }
+  if (value.kind !== undefined && !["maintenance", "owns-only"].includes(value.kind))
+    errors.push(issue(`${objectPath}.kind`, "invalid"));
   const nums = value.amended_issue_nums;
   if (
     !Array.isArray(nums) ||
@@ -2029,9 +2246,9 @@ function validateApprovalShape(value, errors) {
     "$.approval",
     errors,
     (approval) => {
-      if (!["pending", "approved"].includes(approval.status))
+      if (!["pending", "approved", "maintained"].includes(approval.status))
         errors.push(issue("$.approval.status", "invalid"));
-      if (approval.status === "approved") {
+      if (["approved", "maintained"].includes(approval.status)) {
         if (!nonEmpty(approval.approved_by))
           errors.push(issue("$.approval.approved_by", "required"));
         if (!isIsoDate(approval.approved_at))
@@ -2200,6 +2417,9 @@ function nonEmpty(value) {
 }
 
 module.exports = {
+  renderMaintenanceArtifact,
+  assertMaintenanceHtml,
+  maintenanceLines,
   AUTHORITY_ACTIONS,
   PHASES,
   REQUIRED_REVIEW_LENSES,

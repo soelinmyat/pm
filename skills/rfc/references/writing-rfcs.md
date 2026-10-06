@@ -22,6 +22,10 @@ Assume the implementer is a skilled developer but knows almost nothing about the
 
 If the proposal covers multiple independent subsystems, split into separate issues within the RFC. Each issue should produce working, testable software on its own.
 
+## In-scope updates during implementation
+
+Read `maintenance.md`. Keep the approved product intent and behavioral contracts stable while updating current ownership, implementation approach and verification from repository findings. Routine reviewed corrections do not require another human approval; material behavior, scope or significant-risk changes do.
+
 ## File Structure
 
 Before defining tasks, map out which files will be created or modified and what each one is responsible for. Use repository evidence to propose ownership and interfaces. Treat details not yet verified as assumptions rather than lock in invented paths or code.

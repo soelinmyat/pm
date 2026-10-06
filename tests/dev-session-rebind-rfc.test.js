@@ -196,6 +196,73 @@ function readSession(sessionPath) {
   return JSON.parse(fs.readFileSync(sessionPath, "utf8"));
 }
 
+function assertTechnicalMaintenanceRebind(withLegacyOwnership) {
+  const scenario = boundScenario([issue(1, [], ["README.md"]), issue(2, [], ["src/second.js"])]);
+  try {
+    scenario.enterImplementation();
+    const base1 = scenario.start("rfc-1");
+    const one = scenario.complete(
+      "rfc-1",
+      base1,
+      scenario.dev.commit({ "README.md": "one\n" }, "one")
+    );
+    assert.equal(one.status, 0, one.stderr);
+    const base2 = scenario.start("rfc-2");
+    const two = scenario.complete(
+      "rfc-2",
+      base2,
+      scenario.dev.commit({ "src/second.js": "two\n" }, "two")
+    );
+    assert.equal(two.status, 0, two.stderr);
+    const before = readSession(scenario.sessionPath);
+    const originalArchive = fs.readFileSync(scenario.approved.archivePath);
+    let amendment = completeAmendment(scenario.rfc, scenario.approved.archivePath, {
+      kind: "maintenance",
+      issues: "2",
+      reason: "Correct verification to exercise the existing second behavior",
+      mutate: (s) => {
+        s.issues[1].verification_commands = ["node --test tests/second.test.js"];
+      },
+    });
+    if (withLegacyOwnership) {
+      amendment = completeAmendment(scenario.rfc, amendment.archivePath, {
+        kind: "owns-only",
+        issues: "2",
+        reason: "The same issue owns its existing regression harness",
+        mutate: (sidecar) => sidecar.issues[1].owns.push("tests/second.test.js"),
+      });
+    }
+    copyArchives(scenario.rfc, scenario.dev);
+    const rebound = scenario.rebind(amendment.sidecarHash);
+    assert.equal(rebound.status, 0, rebound.stderr);
+    const after = readSession(scenario.sessionPath);
+    assert.deepEqual(after.task.work_units[0], before.task.work_units[0]);
+    assert.equal(after.task.work_units[1].status, "pending");
+    assert.equal(after.task.work_units[1].result, null);
+    assert.deepEqual(after.task.work_units[1].contract.verification_commands, [
+      "node --test tests/second.test.js",
+    ]);
+    const history = after.task.rfc_contract_history.at(-1).changed_units[0];
+    assert.deepEqual(history.changed_contract_fields, ["verification_commands"]);
+    assert.deepEqual(history.invalidated_result, before.task.work_units[1].result);
+    assert.deepEqual(after.authority, before.authority);
+    assert.deepEqual(after.routing, before.routing);
+    assert.deepEqual(fs.readFileSync(scenario.approved.archivePath), originalArchive);
+    assert.deepEqual(history.added_owns, withLegacyOwnership ? ["tests/second.test.js"] : []);
+    const retry = scenario.rebind(amendment.sidecarHash);
+    assert.equal(retry.status, 0, retry.stderr);
+    assert.equal(JSON.parse(retry.stdout).idempotent, true);
+  } finally {
+    scenario.cleanup();
+  }
+}
+
+test("reviewed technical maintenance updates real Dev contracts and invalidates only the affected completed unit", () =>
+  assertTechnicalMaintenanceRebind(false));
+
+test("rebind accepts mixed ownership lineage after reviewed technical maintenance", () =>
+  assertTechnicalMaintenanceRebind(true));
+
 test("rebind-rfc adopts an approved owns-only amendment so a blocked unit can complete", () => {
   const scenario = boundScenario([issue(1, [], ["README.md"]), issue(2, [1], ["src/second.js"])]);
   const { dev, sessionPath } = scenario;
@@ -615,3 +682,107 @@ test("task.rfc_contract_history is a closed, append-only audit shape", () => {
     dev.cleanup();
   }
 });
+
+for (const status of ["blocked", "failed"]) {
+  test(`running units can release as ${status} after exact reviewed maintenance without adopting stale completion`, () => {
+    const scenario = boundScenario([issue(1, [], ["README.md"]), issue(2, [], ["src/second.js"])]);
+    try {
+      scenario.enterImplementation();
+      const base = scenario.start("rfc-1");
+      scenario.start("rfc-2");
+      const commit = scenario.dev.commit({ "README.md": "one\n" }, "one");
+      const before = readSession(scenario.sessionPath);
+      const amendment = completeAmendment(scenario.rfc, scenario.approved.archivePath, {
+        kind: "maintenance",
+        issues: "1,2",
+        reason: "Correct existing verification commands",
+        mutate: (sidecar) => {
+          sidecar.issues.forEach((entry) => {
+            entry.verification_commands = [`node --test tests/issue-${entry.num}.test.js`];
+          });
+        },
+      });
+      copyArchives(scenario.rfc, scenario.dev);
+      assert.match(scenario.rebind(amendment.sidecarHash).stderr, /is running/);
+      assert.match(scenario.complete("rfc-1", base, commit).stderr, /hash drifted/);
+      const release = (id) => {
+        const resultPath = path.join(scenario.dev.scratch, `${id}-release.json`);
+        fs.writeFileSync(
+          resultPath,
+          JSON.stringify({
+            schema_version: 1,
+            work_unit_id: id,
+            status,
+            summary: "Stop work for reviewed contract maintenance",
+            reason: "Contract maintenance",
+            commit: null,
+            files_changed: 0,
+            evidence: [],
+            blocker: { reason: "Contract maintenance" },
+            runtime: { provider: "inline", model: "test" },
+          })
+        );
+        return scenario.dev.run([
+          "work-unit",
+          "--session",
+          scenario.sessionPath,
+          "--id",
+          id,
+          "--status",
+          status,
+          "--result",
+          resultPath,
+          "--json",
+        ]);
+      };
+      const maintainedBytes = fs.readFileSync(scenario.sidecarPath);
+      const unreviewed = JSON.parse(maintainedBytes);
+      unreviewed.issues[0].approach = "Unreviewed implementation change";
+      fs.writeFileSync(scenario.sidecarPath, JSON.stringify(unreviewed));
+      assert.notEqual(release("rfc-1").status, 0);
+      assert.deepEqual(readSession(scenario.sessionPath), before);
+      fs.writeFileSync(scenario.sidecarPath, maintainedBytes);
+      const first = release("rfc-1");
+      assert.equal(first.status, 0, first.stderr);
+      const released = readSession(scenario.sessionPath);
+      assert.equal(released.task.rfc_sidecar.sha256, scenario.boundHash);
+      assert.deepEqual(released.task.work_units[0].contract, before.task.work_units[0].contract);
+      assert.equal(released.task.work_units[0].result.status, status);
+      assert.deepEqual(released.task.work_units[1], before.task.work_units[1]);
+      const retryBeforeRebind = scenario.dev.run([
+        "work-unit",
+        "--session",
+        scenario.sessionPath,
+        "--id",
+        "rfc-1",
+        "--status",
+        "pending",
+        "--reason",
+        "Retry",
+        "--json",
+      ]);
+      assert.match(retryBeforeRebind.stderr, /hash drifted/);
+      const second = release("rfc-2");
+      assert.equal(second.status, 0, second.stderr);
+      const rebound = scenario.rebind(amendment.sidecarHash);
+      assert.equal(rebound.status, 0, rebound.stderr);
+      const retry = scenario.dev.run([
+        "work-unit",
+        "--session",
+        scenario.sessionPath,
+        "--id",
+        "rfc-1",
+        "--status",
+        "pending",
+        "--reason",
+        "Adopted reviewed maintenance",
+        "--json",
+      ]);
+      assert.equal(retry.status, 0, retry.stderr);
+      scenario.start("rfc-1");
+      assert.deepEqual(readSession(scenario.sessionPath).authority, before.authority);
+    } finally {
+      scenario.cleanup();
+    }
+  });
+}

@@ -473,7 +473,12 @@ function validateRfcContractHistory(history, errors) {
           errors.push(issue(unitPath, "must be an object"));
           return;
         }
-        validateExactFields(unit, new Set(["id", "status", "added_owns"]), unitPath, errors);
+        validateExactFields(
+          unit,
+          new Set(["id", "status", "added_owns", "changed_contract_fields", "invalidated_result"]),
+          unitPath,
+          errors
+        );
         if (typeof unit.id !== "string" || !unit.id)
           errors.push(issue(`${unitPath}.id`, "required"));
         if (!["pending", "running", "blocked", "failed", "completed"].includes(unit.status)) {
@@ -481,10 +486,29 @@ function validateRfcContractHistory(history, errors) {
         }
         if (
           !Array.isArray(unit.added_owns) ||
-          unit.added_owns.length === 0 ||
+          (unit.added_owns.length === 0 && !unit.changed_contract_fields?.length) ||
           unit.added_owns.some((owned) => typeof owned !== "string" || !owned)
         ) {
-          errors.push(issue(`${unitPath}.added_owns`, "must be a non-empty array of paths"));
+          errors.push(
+            issue(`${unitPath}.added_owns`, "must name added paths or changed technical fields")
+          );
+        }
+        if (
+          unit.changed_contract_fields !== undefined &&
+          (!Array.isArray(unit.changed_contract_fields) ||
+            !unit.changed_contract_fields.length ||
+            new Set(unit.changed_contract_fields).size !== unit.changed_contract_fields.length ||
+            unit.changed_contract_fields.some(
+              (field) => !["approach", "verification_commands", "test_hooks"].includes(field)
+            ))
+        )
+          errors.push(issue(`${unitPath}.changed_contract_fields`, "invalid"));
+        if (unit.invalidated_result !== undefined) {
+          try {
+            validateWorkUnitResult(unit.invalidated_result, { expectedWorkUnitId: unit.id });
+          } catch (error) {
+            errors.push(issue(`${unitPath}.invalidated_result`, error.message));
+          }
         }
       });
     }
@@ -2952,10 +2976,9 @@ function verifyRfcSidecarIdentity(identity, expectedDesignContext, workUnits = [
 
 const REBIND_RFC_PHASES = new Set(["workspace", "readiness", "implementation"]);
 
-// Adopts an approved owns-only RFC amendment into a Dev session that is past
-// intake. The on-disk sidecar must hash to expectedSha256 (compare-and-swap),
-// its approval must descend from the bound sidecar, and the only permitted Dev
-// change is appended ownership on work units, completed ones included.
+// Adopts exact reviewed maintenance or a historical re-approved ownership
+// amendment. Protected product contracts remain identical. Corrected execution
+// details reopen only the affected completed units while preserving prior proof.
 function rebindRfcContract(session, { sidecarPath, expectedSha256, reason, now = new Date() }) {
   assertValidSession(session);
   const bound = session.task.rfc_sidecar;
@@ -3036,26 +3059,62 @@ function rebindRfcContract(session, { sidecarPath, expectedSha256, reason, now =
   const changedUnits = [];
   rebuilt.forEach((unit, index) => {
     const existing = current[index];
-    for (const field of ["title", "depends_on", "contract"]) {
-      if (canonicalJson(unit[field]) !== canonicalJson(existing[field])) {
+    for (const field of ["title", "depends_on"]) {
+      if (canonicalJson(unit[field]) !== canonicalJson(existing[field]))
         throw new Error(
-          `work unit ${unit.id} ${field} changed; an RFC amendment may only extend ownership`
+          `work unit ${unit.id} ${field} changed; product scope requires a user decision`
         );
-      }
     }
+    const changedContractFields = ["approach", "verification_commands", "test_hooks"].filter(
+      (field) => canonicalJson(unit.contract[field]) !== canonicalJson(existing.contract[field])
+    );
+    const protectedContract = { ...unit.contract };
+    for (const field of changedContractFields) protectedContract[field] = existing.contract[field];
+    // Exact lineage verification above checks every v2 ownership or v3
+    // maintenance hop back to the bound sidecar; its newest audit need not be v3.
+    if (canonicalJson(protectedContract) !== canonicalJson(existing.contract)) {
+      throw new Error(
+        `work unit ${unit.id} contract changed without reviewed in-scope maintenance`
+      );
+    }
+    if (changedContractFields.length && existing.status === "running")
+      throw new Error(
+        `work unit ${unit.id} is running; finish or release it before changing its contract`
+      );
     const removed = existing.owns.filter((owned) => !unit.owns.includes(owned));
     if (removed.length > 0) {
       throw new Error(`work unit ${unit.id} ownership is append-only; ${removed[0]} was removed`);
     }
     const added = unit.owns.filter((owned) => !existing.owns.includes(owned));
-    if (added.length === 0) return;
-    // A completed unit may gain ownership too: its commit was verified against
-    // a subset of the new owns, so the approved amendment only widens coverage.
-    next.task.work_units[index].owns = [...unit.owns];
-    changedUnits.push({ id: unit.id, status: existing.status, added_owns: added });
+    if (added.length === 0 && changedContractFields.length === 0) return;
+    const target = next.task.work_units[index];
+    target.owns = [...unit.owns];
+    target.contract = structuredClone(unit.contract);
+    const changed = { id: unit.id, status: existing.status, added_owns: added };
+    if (changedContractFields.length) changed.changed_contract_fields = changedContractFields;
+    if (changedContractFields.length && existing.status === "completed") {
+      changed.invalidated_result = structuredClone(existing.result);
+      target.transitions = [
+        ...(target.transitions || []),
+        {
+          from: "completed",
+          to: "pending",
+          reason: `RFC maintenance requires re-verification of ${changedContractFields.join(", ")}`,
+          commit: existing.result?.commit || null,
+          recorded_at: now.toISOString(),
+        },
+      ];
+      target.status = "pending";
+      target.result = null;
+      target.updated_at = now.toISOString();
+      delete target.assigned_worktree;
+      delete target.assigned_branch;
+      delete target.base_commit;
+    }
+    changedUnits.push(changed);
   });
   if (changedUnits.length === 0) {
-    throw new Error("amended RFC adds no ownership to any Dev work unit");
+    throw new Error("amended RFC changes no ownership or execution detail of any Dev work unit");
   }
   const running = next.task.work_units.filter((unit) => unit.status === "running");
   running.forEach((left, index) => {

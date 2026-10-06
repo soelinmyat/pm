@@ -18,26 +18,26 @@ result_schema: rfc-phase-result-v1
 
 ## Goal
 
-Produce a technically reviewed RFC with all blocking findings resolved and enter the human awaiting approval (`awaiting_approval`) boundary without writing approval state.
+Produce a technically reviewed RFC with all blocking findings resolved. Initial or material design enters the human awaiting approval (`awaiting_approval`) boundary; in-scope maintenance retains the original approval and advances to handoff.
 
 ## How
 
 1. Read the canonical artifact identity and verify the sidecar/HTML binding before dispatch. Reviewers read the current RFC, proposal, relevant repository instructions, and their single lens contract—not the entire workflow.
-2. For an amendment run (`session.amendment` is set), `rfc-session amend` writes no artifact files. Before dispatch, the agent appends the `owns` entries on the declared issues, adds the matching line to each issue card that gains paths, sets the RFC lifecycle to `draft`, and commits the HTML/sidecar pair; review then covers that commit. The HTML may differ from the prior approved HTML only in lifecycle, sidecar hash, and one new last line inside the card of each issue that gains paths, just before the card's closing tag: `<p><strong>Added owned files:</strong> <code>path</code>, <code>path</code></p>`, listing exactly that issue's added paths in sidecar order, HTML-escaped. A declared issue that gains no path gets no line. A later amendment adds its own line after any earlier one. Nothing may be removed. Amendment review covers only the added paths: each belongs to its declared issue and does not widen that issue's scope. A path another issue already owns is allowed, since a shared file is often why the amendment exists: Dev runs units that share a path one at a time, and rebind refuses while two running units would share one. The Decision Brief, Execution Contract (including its Files row), and appendix carry over from the prior approval and are outside the layered artifact gate for an amendment. A finding that needs any other change is a new RFC design: withdraw the amendment and start a new RFC run rather than fixing it inside the amendment.
+2. For an amendment, read `../references/maintenance.md`. `rfc-session amend` writes no artifact files. For legacy owns-only runs, the agent appends the `owns` entries, adds the matching line to the issue cards, sets the RFC lifecycle to `draft`, and commits the pair before review; its exact-hash human approval contract is unchanged. New maintenance runs also support corrected issue approaches, verification commands and test hooks. Generate their current mirrored details with `render-maintenance`, commit the pair, and assess the actual changed source against the prior intent. Each existing lens returns a bounded `maintenance_scope` assessment. Do not infer preserved product behavior or significant risk merely from the field name or implementer's explanation.
 3. Cover the three mandatory lenses from `review-contract.md`: `architecture-risk`, `test-strategy`, and `maintainability`. One capable reviewer may cover all lenses for a cohesive RFC; use independent parallel reviewers when lens isolation reduces correlated misses. For multi-issue RFCs, add only the cross-cutting integration/scope lenses justified by real dependencies.
 4. Require the strict verdict object from every lens. Deduplicate findings by evidence and affected contract. Do not infer `pass` from praise or silence.
 5. Run the **layered artifact gate**: Decision Brief quality and decision-readiness, Execution Contract completeness, appendix separation, and Contract/prose consistency.
 6. Fix blocking findings. Preserve advisory notes with role/lens attribution. Regenerate the sidecar whenever mirrored HTML data changes, recompute the hash, and commit the artifact pair together.
 7. Re-run every affected lens against the new artifact. Maximum two fix/review rounds; unresolved blocking findings produce a structured blocker.
 8. Run the sidecar validator once more. Record the final artifact identity, passing `review` evidence, and all three structured lens verdicts.
-9. The runner advances to approval as `status: awaiting_approval`. Do not update RFC frontmatter to approved, proposal status to planned, Linear, loop cards, or implementation state.
-10. When `PM_LOOP_WORKER=1`, skip proposal/backlog/approval writes, atomically return `needs-approval` with the reviewed document through `PM_LOOP_RESULT_FILE`, and stop. Never self-approve.
+9. For initial/material design, the runner advances to approval as `status: awaiting_approval`. For reviewed maintenance it retains the original human identity and advances directly to handoff as `maintained`; no new human approval is recorded. Do not update RFC frontmatter to approved, proposal status to planned, Linear, loop cards, or implementation state.
+10. When `PM_LOOP_WORKER=1`, skip proposal/backlog writes and never claim new human approval. Initial/material design returns `needs-approval` with the reviewed document through `PM_LOOP_RESULT_FILE`. In-scope maintenance follows the runner into its maintained handoff and returns `artifact-ready`; it grants no new external authority.
 
 ## Done-when
 
 - All required review lenses return `pass` with no blocking findings against the same current artifact hash.
 - The final HTML/sidecar pair validates and any review fixes are committed together.
-- The review result is recorded and the session is `awaiting_approval`.
+- The review result is recorded: initial design awaits approval; in-scope maintenance reaches its reviewed handoff.
 - No human-approval or downstream external state has been written.
 
-**Advance:** proceed to Step 04 (RFC Approval) and wait for the explicit human decision.
+**Advance:** use the runner: if this is initial/material design, proceed to Step 04 for the human decision; if this is reviewed maintenance, proceed directly to Step 05.

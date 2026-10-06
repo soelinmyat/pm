@@ -531,16 +531,62 @@
                 "items": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["id", "status", "added_owns"],
+                  "required": [
+                    "id",
+                    "status",
+                    "added_owns"
+                  ],
                   "properties": {
-                    "id": { "type": "string", "minLength": 1 },
-                    "status": { "enum": ["pending", "running", "blocked", "failed", "completed"] },
+                    "id": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "status": {
+                      "enum": [
+                        "pending",
+                        "running",
+                        "blocked",
+                        "failed",
+                        "completed"
+                      ]
+                    },
                     "added_owns": {
                       "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "changed_contract_fields": {
+                      "type": "array",
                       "minItems": 1,
-                      "items": { "type": "string", "minLength": 1 }
+                      "uniqueItems": true,
+                      "items": {
+                        "enum": [
+                          "approach",
+                          "verification_commands",
+                          "test_hooks"
+                        ]
+                      }
+                    },
+                    "invalidated_result": {
+                      "$ref": "#/$defs/work_unit_result"
                     }
-                  }
+                  },
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "added_owns": {
+                          "minItems": 1
+                        }
+                      }
+                    },
+                    {
+                      "required": [
+                        "changed_contract_fields"
+                      ]
+                    }
+                  ]
                 }
               },
               "recorded_at": { "type": "string", "format": "date-time" }

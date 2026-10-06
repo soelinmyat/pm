@@ -33,7 +33,7 @@ function currentDesignContext() {
 // edit the approved HTML in place (lifecycle, sidecar hash, and one "Added owned
 // files" line at the end of each amended issue card). It always starts from the
 // prior artifact's commit, so repeated attempts do not stack.
-function amendArtifact(repo, slug, prior, mutate) {
+function amendArtifact(repo, slug, prior, mutate, { maintenance = false } = {}) {
   const committed = (file) =>
     execFileSync("git", ["show", `${prior.commit}:${path.relative(repo.root, file)}`], {
       cwd: repo.root,
@@ -47,11 +47,23 @@ function amendArtifact(repo, slug, prior, mutate) {
   for (const issue of sidecar.issues) {
     const old = before.issues.find((item) => item.num === issue.num);
     const added = old ? issue.owns.filter((owned) => !old.owns.includes(owned)) : [];
-    if (added.length === 0) continue;
+    const updated = {};
+    if (maintenance)
+      for (const field of ["approach", "verification_commands", "test_hooks"]) {
+        if (JSON.stringify(old?.[field]) !== JSON.stringify(issue[field]))
+          updated[field] = issue[field];
+      }
+    if (added.length === 0 && Object.keys(updated).length === 0) continue;
     const card = html.indexOf(`<span class="issue-detail-num">${issue.num}</span>`);
     const close = html.indexOf("</article>", card);
     const listed = added.map((owned) => `<code>${owned}</code>`).join(", ");
-    html = `${html.slice(0, close)}<p><strong>Added owned files:</strong> ${listed}</p>${html.slice(close)}`;
+    const line = maintenance
+      ? require("../../scripts/lib/rfc-session-schema").maintenanceLines({
+          updated,
+          added_owns: added,
+        })
+      : `<p><strong>Added owned files:</strong> ${listed}</p>`;
+    html = `${html.slice(0, close)}${line}${html.slice(close)}`;
   }
   fs.writeFileSync(prior.html_path, html);
   return relabelArtifact(repo, slug, prior, "draft");
@@ -92,13 +104,22 @@ function relabelArtifact(repo, slug, artifact, status) {
   };
 }
 
-function passingVerdicts(artifact) {
+function passingVerdicts(artifact, maintenance = false) {
   return ["architecture-risk", "test-strategy", "maintainability"].map((lens) => ({
     lens,
     artifact_hash: artifactFingerprint(artifact),
     verdict: "pass",
     blocking: [],
     advisory: [],
+    ...(maintenance
+      ? {
+          maintenance_scope: {
+            preserved: true,
+            rationale:
+              "Compared changed execution details with original ACs and behavior; no product, scope or significant-risk change.",
+          },
+        }
+      : {}),
   }));
 }
 
@@ -324,10 +345,12 @@ function completeApprovedRun(repo, slug, options = {}) {
 
 // Amends a completed run end to end: amend, owns-only edit, review, hash-confirmed
 // approval, v2 audit, commit, and handoff. Returns the new archive path.
-function completeAmendment(repo, completedPath, { issues, reason, mutate }) {
+function completeAmendment(repo, completedPath, { issues, reason, mutate, kind = "owns-only" }) {
   const archived = JSON.parse(fs.readFileSync(completedPath, "utf8"));
   const amended = repo.run([
     "amend",
+    "--kind",
+    kind,
     "--completed",
     completedPath,
     "--source-dir",
@@ -340,27 +363,32 @@ function completeAmendment(repo, completedPath, { issues, reason, mutate }) {
   ]);
   assert.equal(amended.status, 0, amended.stderr);
   const { session_path: sessionPath, session } = JSON.parse(amended.stdout);
-  const artifact = amendArtifact(repo, archived.slug, archived.artifact, mutate);
+  const artifact = amendArtifact(repo, archived.slug, archived.artifact, mutate, {
+    maintenance: kind === "maintenance",
+  });
   const reviewed = recordFile(
     repo,
     session,
     phaseResult(session, {
       artifact,
       evidence: [resultEvidence("review")],
-      reviewer_verdicts: passingVerdicts(artifact),
+      reviewer_verdicts: passingVerdicts(artifact, kind === "maintenance"),
     })
   );
   assert.equal(reviewed.status, 0, reviewed.stderr);
-  const approved = repo.run([
-    "approve",
-    "--session",
-    sessionPath,
-    "--approved-by",
-    "Test Owner",
-    "--approved-sidecar-sha256",
-    artifact.sidecar_hash,
-    "--json",
-  ]);
+  const approved =
+    kind === "maintenance"
+      ? reviewed
+      : repo.run([
+          "approve",
+          "--session",
+          sessionPath,
+          "--approved-by",
+          "Test Owner",
+          "--approved-sidecar-sha256",
+          artifact.sidecar_hash,
+          "--json",
+        ]);
   assert.equal(approved.status, 0, approved.stderr);
   const handoffSession = JSON.parse(approved.stdout).session;
   let approvedArtifact = relabelArtifact(repo, archived.slug, artifact, "approved");

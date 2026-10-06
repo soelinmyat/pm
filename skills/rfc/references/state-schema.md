@@ -21,7 +21,7 @@ Canonical state lives at `{source_dir}/.pm/rfc-sessions/{slug}/session.json` and
 | `approval` | Reviewed artifact awaits human decision | Explicit `approve` command only |
 | `handoff` | Approved lifecycle and separately authorized effects | Verified handoff result |
 
-Session status is `active`, `awaiting_approval`, `approved`, `blocked`, or `complete`. Review completion sets `awaiting_approval`; only `approve` sets approval status and advances to handoff.
+Session status is `active`, `awaiting_approval`, `approved`, `blocked`, `maintained`, or `complete`. Initial-design review completion sets `awaiting_approval`; `approve` records its human decision. Reviewed maintenance instead advances directly from review to a `maintained` handoff and retains the original human identity/time.
 
 Use `revise --reason <reason>` to invalidate review/approval and return an awaiting or approved session to review. Use `unblock --resolution <resolution>` to resolve the current blocker and resume the same phase. Both transitions are audited in session history.
 
@@ -38,16 +38,11 @@ Approval verifies both current HTML and sidecar bytes equal the reviewed fingerp
 
 ## Amendments
 
-An amendment run corrects work-unit ownership after handoff without rewriting an approved run. `rfc-session amend` reads a completed archive and opens a new run at review with `session.amendment`:
+Read `maintenance.md` for current maintenance and Dev caller behavior. `session.amendment` retains prior artifact/audit identity, declared issues, reason and time; optional `kind` is `maintenance` or historical `owns-only` (an absent kind means historical owns-only). Current CLI amendments default to maintenance. Only permitted execution fields change; every required lens assesses preserved scope/behavior/risk. Review, lifecycle handoff and each Dev lineage hop verify the current pair and exact prior committed bytes.
 
-- `of_run_id`, `prior_artifact` (the full prior identity), `prior_approval_sha256` (the committed prior audit), `amended_issue_nums`, `reason`, and `created_at`.
-- The amended sidecar may differ from the prior one only by appended `owns` entries on the declared issues. Removal, reordering, other fields, and undeclared issues are rejected at review, approval, and handoff.
-- Approval requires `--approved-sidecar-sha256` equal to the reviewed sidecar hash. The amendment block is part of the approval digest; runs without it keep their original digest.
-- Handoff writes a schema-v2 approval audit: the v1 fields plus `amends` (`run_id`, `approval_sha256`, `sidecar_sha256`, `html_sha256`), `amended_issue_nums`, and `reason`. See `rfc-approval.schema.json`.
-- The amended HTML may differ from the prior approved HTML only in lifecycle, the sidecar hash, and one new last line inside the card of each issue that gains paths, just before the card's closing tag: `<p><strong>Added owned files:</strong> <code>path</code>, <code>path</code></p>`, listing exactly that issue's added paths in sidecar order, HTML-escaped. A declared issue that gains no path gets no line. A later amendment adds its own line after any earlier one. Nothing may be removed. Review, approval, handoff, and every Dev lineage hop check this.
-- `rfc-session withdraw --session <path> --reason <why>` closes an open amendment whose approval is not yet recorded; an approved amendment must finish handoff or be revised first. If `approval-audit` already rewrote the slug's approval audit to name the run (approve, approval-audit, then revise), withdraw restores the prior run's committed audit bytes, checked against `amendment.prior_approval_sha256`. An unreadable audit fails closed, and every check reruns under the session lock. It moves the session bytes to `completed/{slug}/withdrawn/{run_id}/session.json` beside a `withdrawal.json` record (`run_id`, `slug`, `amends_run_id`, `reason`, `withdrawn_at`) and frees the slug for another amendment. Its output carries `restore: { commit, paths }`: the prior run's artifact commit and the RFC HTML, sidecar and approval audit paths. Checking those paths out from that commit, then committing only those paths, and only if that staged a change, returns the artifact repository to the approved bytes, including an audit that handoff had already committed. Loop workers cannot withdraw.
-- Only the latest run may be amended (not one a later run superseded or an amendment already replaced), one amendment at a time. An amendment must add at least one path; a declared issue may end up adding none. Amendments grant no external authority. Chains are limited to 16 hops.
-- Original runs carry `amendment: null`; legacy archives that omit the field still validate.
+A schema-v2 approval audit records historical owns-only explicit human re-approval. The v3 audit has the same lineage fields as v2 but `status: maintained`; its `approved_by`/`approved_at` describe the original human decision, not a new approval. Current hashes and the transition digest bind the maintenance review. Historical v1/v2 audit meaning and omitted amendment fields remain unchanged. Original archives are never rewritten.
+
+Only the latest completed run may be amended, one at a time, at most 16 lineage hops. Maintenance changes at least one allowed execution detail or owned path and grants no new authority. `withdraw --session <path> --reason <why>` closes an unaccepted amendment; approved/maintained runs finish handoff or revise first. Withdraw emits the prior commit/paths for restoration, committing only those paths, and only if that staged a change. It preserves unrelated staged work and restores the prior audit. Loop workers cannot withdraw historical human-approval amendments.
 
 ## Design context
 
