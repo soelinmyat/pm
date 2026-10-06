@@ -23,6 +23,8 @@ Choose the config path explicitly. Use `<project>/.opencode/opencode.json` inste
 
 Installer processes serialize with an owned lock; a competing install stops with a retry message. The installer checks the current file bytes again immediately before publication and aborts if an intervening edit is observed. Close other configuration editors while installing: an unrelated writer that does not honor the lock can still race the final check/rename. Object-key ordering is not a customization; actual value changes and permission-array order remain conflicts.
 
+Input and rendered merged configurations are capped at 1 MiB. An oversized merged result is rejected before writing, leaving existing settings unchanged and readable on retry.
+
 For JSONC, first print the configuration fragment and merge its `plugins` and `agents` entries manually into the existing file. Do not create a competing JSON config beside it:
 
 ```sh

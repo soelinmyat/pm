@@ -303,3 +303,22 @@ test("two installer processes cannot publish concurrently and locks are released
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("an install that would exceed the config read budget leaves the input unchanged", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pm-opencode-output-budget-"));
+  try {
+    const file = path.join(dir, "opencode.json");
+    const original = JSON.stringify({
+      model: "retained",
+      instructions: ["x".repeat(1024 * 1024 - 4096)],
+    });
+    assert.ok(Buffer.byteLength(original) < 1024 * 1024);
+    fs.writeFileSync(file, original);
+    assert.throws(() => installConfig(file, { root }), /merged config would exceed 1 MiB/);
+    assert.equal(fs.readFileSync(file, "utf8"), original);
+    assert.throws(() => installConfig(file, { root }), /merged config would exceed 1 MiB/);
+    assert.equal(fs.readFileSync(file, "utf8"), original);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

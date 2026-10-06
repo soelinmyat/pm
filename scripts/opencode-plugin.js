@@ -205,6 +205,10 @@ function installConfig(file, options = {}) {
     const existing = baseline ? JSON.parse(baseline.toString("utf8")) : {};
     const config = buildInstallConfig(existing, options);
     if (!isDeepStrictEqual(existing, config)) {
+      if (Buffer.byteLength(`${JSON.stringify(config, null, 2)}\n`, "utf8") > 1024 * 1024)
+        throw new Error(
+          "OpenCode merged config would exceed 1 MiB; existing settings were not changed"
+        );
       // Test-only interleaving seam; CLI/config data never supplies callbacks.
       options.beforePublish?.();
       const current = readConfigBytes(file);
