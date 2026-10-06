@@ -927,6 +927,72 @@ test("post-QA fourth failed candidate and fifth recertification preserve review 
   assert.deepEqual(recertified.authority_log, session.authority_log);
 });
 
+test("receiptless blocked QA history can recover on round four without rewriting evidence", (t) => {
+  const repo = makeRepo();
+  t.after(repo.cleanup);
+  let session = createSession({ slug: "qa-receiptless-recovery", sourceDir: repo.root });
+  session.phase = "qa";
+  session.routing.required_phases = ["qa", "review", "retro"];
+  session.routing.required_gates = ["qa"];
+  let reportPath;
+  for (let run = 1; run <= 3; run += 1) {
+    ({ reportPath } =
+      run === 1
+        ? writePassingReport(session, repo.head())
+        : writeReverifiedReport(session, repo.head()));
+    const report = JSON.parse(fs.readFileSync(reportPath));
+    report.receipts = [];
+    for (const entry of [report, report.runs.at(-1)]) {
+      entry.verdict = "blocked";
+      entry.assertions = { passed: 0, total: 0 };
+    }
+    report.runs.at(-1).receipt_ids = [];
+    fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+    const result = {
+      ...phaseResult(session, repo.head(), reportPath),
+      status: "blocked",
+      summary: "Owned QA harness is unavailable before execution",
+      blocker: {
+        code: "qa-harness-unavailable",
+        reason: "The local acceptance runner cannot start",
+        remediation: "Repair the owned harness and resume the same assertions",
+      },
+    };
+    result.evidence[0].command = "node scripts/qa-report-check.js --allow-nonpassing";
+    assert.deepEqual(validateResult(session, result), []);
+    session = resumeBlocked(recordResult(session, result), "Owned harness repaired for recheck");
+  }
+  const anchors = structuredClone(session.evidence.qa.qa_run_anchors);
+  const priorBytes = fs.readFileSync(reportPath);
+  const recovered = writeReverifiedReport(session, repo.head());
+  const report = JSON.parse(fs.readFileSync(reportPath));
+  report.runs.at(-1).recovery = recoveryDiagnosis({
+    classification: "harness-environment",
+    observed: "The retained blocked reports show no assertion runner could start",
+    cause: "The owned local harness lacked its required startup fixture",
+    change: "Restore that fixture and inspect readiness before acceptance execution",
+    next_check: "Execute the original acceptance assertions after readiness succeeds",
+    evidence_receipt_ids: [],
+  });
+  fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+  const result = phaseResult(session, repo.head(), reportPath);
+  assert.deepEqual(validateResult(session, result), []);
+  const passed = recordResult(session, result);
+  assert.equal(passed.phase, "review");
+  assert.equal(passed.evidence.qa.qa_run_count, 4);
+  assert.deepEqual(passed.evidence.qa.qa_run_anchors.slice(0, 3), anchors);
+  assert.deepEqual(fs.readFileSync(recovered.snapshotPath), priorBytes);
+  assert.equal(report.receipts.length, 1);
+  assert.deepEqual(report.runs.at(-1).assertions, { passed: 12, total: 12 });
+  report.runs.at(-1).recovery.evidence_receipt_ids = [report.receipts[0].id];
+  fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+  assert.match(JSON.stringify(validateResult(session, result)), /references unknown finding/);
+  report.runs.at(-1).recovery.evidence_receipt_ids = [];
+  fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+  fs.appendFileSync(recovered.snapshotPath, " ");
+  assert.match(JSON.stringify(validateResult(session, result)), /sha256|bytes/);
+});
+
 function recoveryDiagnosis(overrides = {}) {
   return {
     classification: "product-defect",

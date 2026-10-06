@@ -880,7 +880,18 @@ function validateRecoveryDiagnosis(run, previous, report, at, issues) {
     issues,
     MAX_RECEIPTS
   );
-  if (!Array.isArray(recovery.evidence_receipt_ids) || !recovery.evidence_receipt_ids.length) {
+  // A harness may block before execution. In that case the already-required,
+  // hash-checked predecessor report is the retained observation; inventing a
+  // historical receipt would break the immutable chain.
+  const receiptlessBlockedHistory =
+    priorReceiptIds.size === 0 &&
+    previous?.verdict === "blocked" &&
+    run.kind === "reverify" &&
+    object(run.previous_report);
+  if (
+    !Array.isArray(recovery.evidence_receipt_ids) ||
+    (!recovery.evidence_receipt_ids.length && !receiptlessBlockedHistory)
+  ) {
     add(
       issues,
       `${recoveryAt}.evidence_receipt_ids`,
