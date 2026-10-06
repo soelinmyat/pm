@@ -10,6 +10,7 @@ const { parseCliArgs } = require("./loop-args");
 const { recordSessionTelemetry } = require("./lib/telemetry");
 const { validateRfcSidecar } = require("./rfc-sidecar-check");
 const { rfcIssuesToDevWorkUnits } = require("./lib/rfc-work-units");
+const { verifyRfcApproval } = require("./lib/rfc-approval-audit");
 const { findGitRoot } = require("./loop-git");
 const { resolveProfile } = require("./dev-runtime");
 
@@ -704,7 +705,28 @@ function mutateSession(sessionPath, mutation, options = {}) {
   const releaseLock = acquireSessionLock(sessionPath);
   try {
     const session = readSession(sessionPath);
-    if (!options.allowSidecarRebind) {
+    if (options.allowRfcRelease && session.task.rfc_sidecar) {
+      const bound = session.task.rfc_sidecar;
+      const observed = `sha256:${crypto
+        .createHash("sha256")
+        .update(fs.readFileSync(bound.path))
+        .digest("hex")}`;
+      verifyRfcSidecarIdentity(
+        { ...bound, sha256: observed },
+        session.task.design_context,
+        session.task.work_units
+      );
+      if (observed !== bound.sha256) {
+        const verified = verifyRfcApproval({
+          sidecarPath: bound.path,
+          slug: session.slug,
+          archiveRepoRoot: session.source.repo_root,
+          lineageTo: bound.sha256,
+        });
+        if (verified.sidecar_sha256 !== observed)
+          throw new Error("RFC changed during release validation; retry with stable artifacts");
+      }
+    } else if (!options.allowSidecarRebind) {
       verifyRfcSidecarIdentity(
         session.task.rfc_sidecar,
         session.task.design_context,
@@ -966,14 +988,19 @@ function workUnitCommand(options) {
   }
   let updated;
   try {
-    updated = mutateSession(sessionPath, (session) =>
-      transitionWorkUnit(session, {
-        id: options.id,
-        status: options.status,
-        result,
-        reason: options.reason,
-        worktree: options.worktree,
-      })
+    updated = mutateSession(
+      sessionPath,
+      (session) =>
+        transitionWorkUnit(session, {
+          id: options.id,
+          status: options.status,
+          result,
+          reason: options.reason,
+          worktree: options.worktree,
+        }),
+      // A non-passing stop retains the old contract and proves the current
+      // amendment lineage. Completion and retries still require exact binding.
+      { allowRfcRelease: ["blocked", "failed"].includes(options.status) }
     );
   } catch (error) {
     throw cliError(error.message, EXIT.PRECONDITION);
