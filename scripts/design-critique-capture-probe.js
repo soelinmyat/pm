@@ -2770,6 +2770,18 @@ async function nativeSample(
     baselineStyles
   );
   const accessibility = accessibilityEvidence(axTree, model);
+  if (stateAssertion.state === "loading") {
+    // Preserve native semantics for the already visible, hit-tested nodes. The
+    // producer derives these from AX, never from caller-supplied image regions.
+    const axByBackend = new Map(
+      axTree.nodes.filter((node) => !node.ignored).map((node) => [node.backendDOMNodeId, node])
+    );
+    for (const check of assertionVisibility.checks) {
+      const native = axByBackend.get(check.asserted_backend_node_id);
+      check.native_role = String(native?.role?.value || "");
+      check.native_name_present = Boolean(String(native?.name?.value || "").trim());
+    }
+  }
   return {
     identity,
     assertionVisibility,

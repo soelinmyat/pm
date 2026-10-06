@@ -17,6 +17,7 @@ const {
   CAPTURE_ASSURANCE,
   browserIdentity: inspectBrowserIdentity,
   captureVisualMetrics,
+  validateMeaningfulVisual,
   redactedUrlIdentity,
 } = require("../scripts/design-critique-capture");
 const {
@@ -487,7 +488,10 @@ function makeReviews(root, route, captures, scores, rounds) {
               coverage_id: coverage.id,
               state: coverage.state,
               viewport: coverage.viewport,
-              observation: `The ${coverage.state} state at the ${coverage.viewport} viewport places the ${subject.title} heading above ${layout}, with the blue Save account button below the cards.`,
+              observation:
+                coverage.state === "loading"
+                  ? `The loading state at the ${coverage.viewport} viewport shows a short dark heading at the upper left of a white page, with a separate small loading indicator centered below and no cards or action controls.`
+                  : `The ${coverage.state} state at the ${coverage.viewport} viewport places the ${subject.title} heading above ${layout}, with the blue Save account button below the cards.`,
             };
           }),
           findings: [],
@@ -961,6 +965,8 @@ function attachTrustedCaptureObservation(
             : "alert:Could not load records",
     };
   }
+  if (nativeStateProof === "sparse-loading" && coverage.state === "loading")
+    assertion.all[0].locator = { by: "role-name", value: "status:Loading..." };
   const assertionBinding = write(
     root,
     `${path.posix.dirname(routeBinding.path)}/state-assertions/${coverage.id}.json`,
@@ -1059,6 +1065,23 @@ function attachTrustedCaptureObservation(
       check.visual_bounds = { x: 390, y: 324, width: 2, height: 1 };
     } else check.visual_bounds = { x: 300, y: 300, width: 400, height: 200 };
   }
+  if (nativeStateProof === "sparse-loading" && coverage.state === "loading") {
+    Object.assign(assertionVisibility.checks[0], {
+      x: 80,
+      y: 48,
+      visual_bounds: { x: 48, y: 24, width: 240, height: 40 },
+      native_role: "heading",
+      native_name_present: true,
+    });
+    Object.assign(assertionVisibility.checks[1], {
+      x: 516,
+      y: 212,
+      visual_bounds: { x: 500, y: 196, width: 32, height: 32 },
+      native_role: "status",
+      native_name_present: true,
+    });
+    delete assertionVisibility.checks[1].focus_indicator_regions;
+  }
   let sourceTree = "d".repeat(40);
   try {
     sourceTree = execFileSync("git", ["rev-parse", "HEAD^{tree}"], {
@@ -1088,7 +1111,14 @@ function attachTrustedCaptureObservation(
     acquisition: ACQUISITION_METHOD,
   };
   const captureBytes = fs.readFileSync(path.join(root, capture.path));
-  const visualMetrics = captureVisualMetrics(inspectPngVisualBytes(captureBytes));
+  const visualMetrics =
+    nativeStateProof === "sparse-loading" && coverage.state === "loading"
+      ? validateMeaningfulVisual(inspectPngVisualBytes(captureBytes), {
+          state: coverage.state,
+          visibility: assertionVisibility,
+          bytes: captureBytes,
+        })
+      : captureVisualMetrics(inspectPngVisualBytes(captureBytes));
   const captureManifest = {
     id: capture.id,
     path: capture.path,
@@ -5404,5 +5434,79 @@ test("state beacon fixtures contain genuinely different decoded pixels", () => {
   for (const mode of ["state-beacon", "two-pixel-beacon"]) {
     const beacon = inspectPngVisualBytes(validPng(1440, 1000, 20, 0, null, 1, mode));
     assert.notEqual(beacon.pixelSha256, base.pixelSha256);
+  }
+});
+
+function sparseLoadingPixels() {
+  const width = 1024,
+    height = 600;
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 6;
+  const rows = Buffer.alloc((width * 4 + 1) * height);
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      const offset = y * (width * 4 + 1) + 1 + x * 4;
+      const heading = x >= 50 && x < 280 && y >= 30 && y < 58 && (x - 50) % 16 < 8;
+      const indicator =
+        x >= 500 && x < 532 && y >= 196 && y < 228 && (x < 503 || x >= 529 || y < 199 || y >= 225);
+      const color = heading || indicator ? 32 : 255;
+      rows[offset] = rows[offset + 1] = rows[offset + 2] = color;
+      rows[offset + 3] = 255;
+    }
+  return Buffer.concat([
+    Buffer.from("89504e470d0a1a0a", "hex"),
+    pngChunk("IHDR", header),
+    pngChunk("tEXt", Buffer.alloc(1024, 65)),
+    pngChunk("IDAT", zlib.deflateSync(rows)),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+test("offline verifier recomputes sparse native loading pixels and rejects changed regional evidence", (t) => {
+  const fixture = makeFixture();
+  t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+  fixture.nativeStateProof = "sparse-loading";
+  const bytes = sparseLoadingPixels();
+  assert.ok(inspectPngVisualBytes(bytes).meaningfulPixelRatio < 0.01);
+  addRequiredStateCapture(fixture, "loading", bytes);
+  assert.deepEqual(check(fixture), { ok: true, issues: [] });
+  const capture = fixture.captures.captures.find((item) => item.coverage_id === "ui-loading");
+  const original = JSON.parse(
+    fs.readFileSync(path.join(fixture.root, capture.observation.path), "utf8")
+  );
+  for (const mutate of [
+    (m) => {
+      m.capture.visual_metrics.loading_content.nodes[1].region.width++;
+    },
+    (m) => {
+      m.capture.visual_metrics.loading_content.nodes[1].visual_metrics.meaningful_pixel_ratio = 1;
+    },
+    (m) => {
+      m.page.state_assertion.visibility.checks[1].native_name_present = false;
+    },
+    (m) => {
+      delete m.capture.visual_metrics.loading_content;
+    },
+    (m) => {
+      m.capture.visual_metrics.loading_content.policy = "caller-region";
+    },
+  ]) {
+    const changed = structuredClone(original);
+    mutate(changed);
+    capture.observation = write(fixture.root, capture.observation.path, JSON.stringify(changed));
+    rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+    fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+    rewriteReportAndHtml(fixture);
+    const result = check(fixture);
+    assert.equal(result.ok, false, "changed native regional evidence must be rejected");
+    assert.ok(
+      result.issues.some((issue) =>
+        /loading|meaningful|visual_metrics/.test(issue.message + issue.path)
+      ),
+      JSON.stringify(result.issues)
+    );
   }
 });

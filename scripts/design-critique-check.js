@@ -44,6 +44,7 @@ const {
   CAPTURE_ASSURANCE: TRUSTED_CAPTURE_ASSURANCE,
   browserIdentity,
   captureVisualMetrics,
+  validateMeaningfulVisual,
   manifestShape: validateCaptureManifestShape,
   validateAssertionVisibility,
   validateStateAssertion,
@@ -751,16 +752,7 @@ function validateCaptures(root, captures, route, routeFile, runtime, issues) {
         : null;
     const decoded = validateCaptureBytes(root, item, at, issues, { webViewport });
     if (decoded) decodedByCapture.set(item.id, decoded);
-    validateProductUiViewport(
-      item,
-      coverage.get(item.coverage_id),
-      subjects,
-      route.mode,
-      route.schema_version,
-      decoded,
-      at,
-      issues
-    );
+    let loadingContentVerified = false;
     if (
       route.schema_version === 2 &&
       route.mode === "product-ui" &&
@@ -777,8 +769,22 @@ function validateCaptures(root, captures, route, routeFile, runtime, issues) {
         at,
         issues
       );
-      if (observation) observationByCapture.set(item.id, observation);
+      if (observation) {
+        observationByCapture.set(item.id, observation);
+        loadingContentVerified = observation.loadingContentVerified;
+      }
     }
+    validateProductUiViewport(
+      item,
+      coverage.get(item.coverage_id),
+      subjects,
+      route.mode,
+      route.schema_version,
+      decoded,
+      at,
+      issues,
+      loadingContentVerified
+    );
     if (!isRfc3339DateTime(item.captured_at)) add(issues, `${at}.captured_at`, "must be RFC 3339");
     if (item.kind === "screenshot" && (!positiveInt(item.width) || !positiveInt(item.height)))
       add(issues, at, "screenshots require positive width and height");
@@ -1114,6 +1120,7 @@ function validateTrustedCaptureObservation(
   issues
 ) {
   const at = `${label}.observation`;
+  const initialIssues = issues.length;
   if (!object(capture.observation)) {
     add(issues, at, "schema-v2 product UI captures require a trusted capture manifest");
     return null;
@@ -1156,12 +1163,34 @@ function validateTrustedCaptureObservation(
     })
   )
     add(issues, `${at}.coverage`, "must match the routed subject, state, and viewport");
+  let expectedVisualMetrics = decoded
+    ? captureVisualMetrics(decoded)
+    : manifest.capture.visual_metrics;
+  const hasLoadingContent = Object.hasOwn(manifest.capture.visual_metrics, "loading_content");
+  if (hasLoadingContent) {
+    try {
+      const screenshotFile = readBoundFile(root, capture.path, `${at}.capture.path`, issues);
+      if (!decoded || !screenshotFile)
+        throw new Error("loading content requires decoded bound full PNG bytes");
+      expectedVisualMetrics = validateMeaningfulVisual(decoded, {
+        state: coverage?.state,
+        visibility: manifest.page.state_assertion.visibility,
+        bytes: screenshotFile.bytes,
+      });
+      if (!expectedVisualMetrics.loading_content)
+        throw new Error(
+          "loading content requires native visible heading and loading indicator on a sparse loading page"
+        );
+    } catch (error) {
+      add(issues, `${at}.capture.visual_metrics.loading_content`, error.message);
+    }
+  }
   const expectedCapture = {
     id: capture.id,
     path: capture.path,
     sha256: capture.sha256,
     pixel_sha256: capture.pixel_sha256,
-    visual_metrics: decoded ? captureVisualMetrics(decoded) : manifest.capture.visual_metrics,
+    visual_metrics: expectedVisualMetrics,
     width: capture.width,
     height: capture.height,
     full_page: capture.full_page,
@@ -1218,7 +1247,12 @@ function validateTrustedCaptureObservation(
   } catch {
     // The assertion validator already reports malformed JSON.
   }
-  return { manifest, manifestFile: file, assertion: focusAssertion };
+  return {
+    manifest,
+    manifestFile: file,
+    assertion: focusAssertion,
+    loadingContentVerified: hasLoadingContent && issues.length === initialIssues,
+  };
 }
 
 function validateTrustedStateAssertion(root, manifest, routeFile, coverage, label, issues) {
@@ -4005,7 +4039,8 @@ function validateProductUiViewport(
   routeSchemaVersion,
   decoded,
   label,
-  issues
+  issues,
+  loadingContentVerified = false
 ) {
   if (mode !== "product-ui" || routeSchemaVersion !== 2 || !coverage) return;
   if (item.kind !== "screenshot") {
@@ -4033,7 +4068,7 @@ function validateProductUiViewport(
       add(issues, label, "product UI screenshot must contain non-uniform visible content");
     if (
       decoded.meaningfulPixelRatio === null ||
-      decoded.meaningfulPixelRatio < MIN_MEANINGFUL_PIXEL_RATIO
+      (decoded.meaningfulPixelRatio < MIN_MEANINGFUL_PIXEL_RATIO && !loadingContentVerified)
     )
       add(
         issues,
