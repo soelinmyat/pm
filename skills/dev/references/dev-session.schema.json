@@ -628,6 +628,11 @@
             }
           ]
         },
+        "preview_source_root": {
+          "description": "Explicit local Git worktree for the pinned runnable preview; runtime also verifies its source and fixtures.",
+          "type": "string",
+          "pattern": "^/"
+        },
         "design_context": {
           "oneOf": [
             { "type": "null" },
@@ -644,13 +649,6 @@
         "work_units": { "type": "array", "items": { "$ref": "#/$defs/work_unit" } }
       },
       "allOf": [
-        {
-          "if": { "required": ["app_preview"] },
-          "then": {
-            "required": ["ui_impact"],
-            "properties": { "ui_impact": { "const": true }, "prototype": { "type": "null" } }
-          }
-        },
         {
           "if": {
             "required": ["design_context"],
@@ -775,6 +773,63 @@
             }
           ]
         },
+        "app_preview": {
+          "description": "Exact runnable preview identity; scripts/lib/app-preview.js validates all nested fields, hashes, journeys and current source/fixture evidence.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "mode",
+            "source",
+            "reviewed_starting_code",
+            "fixtures",
+            "launch",
+            "journeys",
+            "capture",
+            "observations",
+            "evidence",
+            "sha256"
+          ],
+          "properties": {
+            "schema_version": {
+              "const": 1
+            },
+            "mode": {
+              "const": "in-app"
+            },
+            "source": {
+              "type": "object"
+            },
+            "reviewed_starting_code": {
+              "type": "array",
+              "minItems": 1
+            },
+            "fixtures": {
+              "type": "object"
+            },
+            "launch": {
+              "type": "object"
+            },
+            "journeys": {
+              "type": "array",
+              "minItems": 1
+            },
+            "capture": {
+              "type": "object"
+            },
+            "observations": {
+              "type": "object"
+            },
+            "evidence": {
+              "type": "array",
+              "minItems": 1
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          }
+        },
         "critical_states": {
           "type": "array",
           "minItems": 1,
@@ -793,6 +848,13 @@
         }
       },
       "allOf": [
+        {
+          "if": { "required": ["app_preview"] },
+          "then": {
+            "required": ["ui_impact"],
+            "properties": { "ui_impact": { "const": true }, "prototype": { "type": "null" } }
+          }
+        },
         {
           "if": {
             "not": {
