@@ -109,15 +109,10 @@ health_score   = sum(category_score * category_weight)
 
 Final health score is the weighted average of all 7 category scores. The persisted score is a tested-scope finding index, not certainty, coverage, or proof that unexamined dimensions pass. Report tested scope and unknowns explicitly. Unavailable required coverage is Blocked even if no findings were observed.
 
-Severity follows the task consequence, including cumulative navigation/recovery failures. A primary journey made unusable by several individually small defects is a High or Critical task failure; do not hide it behind category weights or label every contributing defect cosmetic. Existing verdict thresholds remain unchanged.
+Severity follows the task consequence, including cumulative navigation/recovery failures. A primary journey made unusable by several individually small defects is a High or Critical task failure; do not hide it behind category weights or label every contributing defect cosmetic.
 
 ---
 
-## Verdict Thresholds
+## Verdicts
 
-| Verdict              | Conditions                                    |
-|----------------------|-----------------------------------------------|
-| **Pass**             | health >= 80, no unresolved critical or high  |
-| **Pass with concerns** | health >= 60 and < 80, no unresolved critical or high |
-| **Fail**             | health < 60, or any unresolved critical or high |
-| **Blocked**          | Unable to test (environment issue)            |
+Use the single verdict policy in `qa.md`, Phase 5. The health score is diagnostic; failed required assertions and unresolved Critical/High findings prevent passage. Assess cumulative task impact before treating findings as minor concerns.
