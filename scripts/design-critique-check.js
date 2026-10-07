@@ -35,6 +35,12 @@ const {
 const { createProjectInputVerificationContext, readProjectInput } = require("./lib/project-file");
 const { MAX_RAW_AUDIT_BYTES, normalizeAuditBytes } = require("./design-critique-audit-normalize");
 const {
+  MAX_RECOVERY_ROUNDS,
+  RECOVERY_POLICY,
+  recoveryRequiresDecision,
+  validateScopedRecovery,
+} = require("./lib/scoped-recovery");
+const {
   nativeRequiredChecks,
   validateNativeControls,
 } = require("./lib/design-critique-native-audit");
@@ -170,10 +176,11 @@ function checkDesignCritiqueUncached(options) {
       : resolveGitIdentity(root, options, issues);
   const currentSource =
     options.verifyGit === false ? null : currentGitTreeIdentity(root, "before", issues);
+  const history = readDesignHistory(root, reviewsFile?.value, report, route, options, issues);
   validateRoute(route, gitIdentity.commit, gitIdentity.baseRef, gitIdentity.baseCommit, issues);
   if (options.verifyGit !== false)
     validateDiffIdentity(root, route, gitIdentity.baseCommit, issues);
-  validateCaptures(root, captures, route, routeFile, { options, currentSource }, issues);
+  validateCaptures(root, captures, route, routeFile, { options, currentSource, history }, issues);
   validateReport(
     root,
     report,
@@ -183,7 +190,7 @@ function checkDesignCritiqueUncached(options) {
     capturesFile,
     reviewsFile,
     reportFile,
-    options,
+    { ...options, designHistory: history },
     issues
   );
   if (shouldVerifyCaptureBrowser(options)) finalizeBrowserIdentities(issues);
@@ -231,6 +238,103 @@ function checkDesignCritiqueUncached(options) {
   return { ok: issues.length === 0, issues };
 }
 
+function readDesignHistory(root, reviews, report, route, options, issues) {
+  const history = { rounds: new Map(), captures: new Map() };
+  if (reviews?.recovery_policy !== RECOVERY_POLICY || !Array.isArray(reviews.rounds))
+    return history;
+  for (const [index, row] of reviews.rounds.slice(0, MAX_RECOVERY_ROUNDS).entries()) {
+    if (row?.round === 1) continue;
+    if (!object(row?.previous_report)) {
+      // Legacy prefixes remain readable; a source change still cannot use a
+      // historical row without a checkpoint binding its original route.
+      if (row?.round === report.rounds && row.round > 2)
+        add(
+          issues,
+          `reviews.rounds[${index}].previous_report`,
+          "continuation requires immutable predecessor evidence"
+        );
+      continue;
+    }
+    const label = `reviews.rounds[${index}].previous_report`;
+    const prior = readJsonFile(root, row.previous_report.path, label, issues);
+    if (!prior) continue;
+    validateBinding(row.previous_report, prior, label, issues);
+    if (
+      prior.value.run_id !== report.run_id ||
+      prior.value.rounds !== row.round - 1 ||
+      prior.value.outcome === "passed"
+    ) {
+      add(
+        issues,
+        label,
+        "must retain the immediately preceding non-passing report in the same run"
+      );
+      continue;
+    }
+    const oldRoute = readJsonFile(root, prior.value.route?.path, `${label}.route`, issues);
+    const oldCaptures = readJsonFile(root, prior.value.captures?.path, `${label}.captures`, issues);
+    const oldReviews = readJsonFile(root, prior.value.reviews?.path, `${label}.reviews`, issues);
+    if (!oldRoute || !oldCaptures || !oldReviews) continue;
+    for (const [kind, file] of [
+      ["route", oldRoute],
+      ["captures", oldCaptures],
+      ["reviews", oldReviews],
+    ])
+      validateBinding(prior.value[kind], file, `${label}.${kind}`, issues);
+    const scope = (value) => {
+      const retained = { ...(value || {}) };
+      delete retained.source;
+      delete retained.created_at;
+      return retained;
+    };
+    if (!isDeepStrictEqual(scope(oldRoute.value), scope(route)))
+      add(
+        issues,
+        `${label}.route`,
+        "historical source may advance only inside the same frozen route scope"
+      );
+    let source = null;
+    if (options.verifyGit !== false) {
+      try {
+        if (prior.value.commit !== report.commit)
+          execFileSync("git", ["merge-base", "--is-ancestor", prior.value.commit, report.commit], {
+            cwd: root,
+            stdio: "pipe",
+          });
+        source = {
+          head: prior.value.commit,
+          tree: execFileSync("git", ["rev-parse", `${prior.value.commit}^{tree}`], {
+            cwd: root,
+            encoding: "utf8",
+          }).trim(),
+          tracked_status_sha256: EMPTY_SHA256,
+          clean: true,
+        };
+      } catch {
+        add(
+          issues,
+          `${label}.route`,
+          "historical source must be an ancestor of the current source"
+        );
+      }
+    }
+    const context = {
+      route: oldRoute.value,
+      routeFile: oldRoute,
+      captures: oldCaptures.value,
+      reviews: oldReviews.value,
+      source,
+    };
+    for (const previousRow of oldReviews.value.rounds || [])
+      if (!history.rounds.has(previousRow.round) || previousRow.round === prior.value.rounds)
+        history.rounds.set(previousRow.round, context);
+    for (const capture of oldCaptures.value.captures || [])
+      if (!history.captures.has(capture.id) || capture.round === prior.value.rounds)
+        history.captures.set(capture.id, { ...context, capture });
+  }
+  return history;
+}
+
 function validateRawCollectionCardinality(route, captures, issues) {
   if (!object(route)) add(issues, "route", "must be an object");
   if (
@@ -252,7 +356,7 @@ function validateRawCollectionCardinality(route, captures, issues) {
     add(
       issues,
       "captures.captures",
-      `must contain at most ${MAX_CAPTURE_ROWS} rows for ${MAX_ROUTE_COVERAGE_ROWS} coverage decisions and two rounds`
+      `must contain at most ${MAX_CAPTURE_ROWS} rows across the retained review lineage`
     );
   else validateCollectionRowObjects(captures.captures, "captures.captures", issues);
   if (!object(captures)) add(issues, "captures", "must be an object");
@@ -738,8 +842,22 @@ function validateCaptures(root, captures, route, routeFile, runtime, issues) {
     if (item.active === true)
       activeCoverage.set(item.coverage_id, (activeCoverage.get(item.coverage_id) || 0) + 1);
     if (typeof item.active !== "boolean") add(issues, `${at}.active`, "must be boolean");
-    if (!Number.isInteger(item.round) || item.round < 1 || item.round > 2)
-      add(issues, `${at}.round`, "must be 1 or 2");
+    const historical = item.active === false ? runtime.history?.captures.get(item.id) : null;
+    if (historical) {
+      const withoutActive = (value) => {
+        const retained = { ...value };
+        delete retained.active;
+        return retained;
+      };
+      if (!isDeepStrictEqual(withoutActive(item), withoutActive(historical.capture)))
+        add(
+          issues,
+          at,
+          "historical captures must retain their original source, bytes, identity, and timestamps"
+        );
+    }
+    if (!Number.isInteger(item.round) || item.round < 1 || item.round > MAX_RECOVERY_ROUNDS)
+      add(issues, `${at}.round`, `must be 1 through ${MAX_RECOVERY_ROUNDS}`);
     if (!["screenshot", "pdf"].includes(item.kind))
       add(issues, `${at}.kind`, "must be screenshot or pdf");
     validateFileBinding(root, item, at, issues);
@@ -761,11 +879,11 @@ function validateCaptures(root, captures, route, routeFile, runtime, issues) {
       const observation = validateTrustedCaptureObservation(
         root,
         item,
-        route,
-        routeFile,
+        historical?.route || route,
+        historical?.routeFile || routeFile,
         coverage.get(item.coverage_id),
         decoded,
-        runtime,
+        historical ? { ...runtime, currentSource: historical.source } : runtime,
         at,
         issues
       );
@@ -831,7 +949,8 @@ function validateCaptures(root, captures, route, routeFile, runtime, issues) {
     route,
     acceptedCaptureRows,
     observationByCapture,
-    issues
+    issues,
+    runtime.history
   );
 }
 
@@ -1658,10 +1777,17 @@ function validateAuditEvidence(
   captureRows,
   observationByCapture,
   label,
-  issues
+  issues,
+  history
 ) {
   const audit = readEvidenceJson(root, entry, label, issues);
   if (!audit) return null;
+  if (Array.isArray(audit.capture_ids) && audit.capture_ids.length === 1) {
+    const id = audit.capture_ids[0];
+    const capture = captureRows.find((item) => item.id === id);
+    if (capture?.active === false && history?.captures.has(id))
+      route = history.captures.get(id).route;
+  }
   const normalizedAuditRequired = route.schema_version === 2;
   const nativeAudit = audit.platform === "maestro-ios";
   closed(
@@ -1840,7 +1966,15 @@ function validateNormalizedAudit(root, audit, entry, label, issues) {
   }
 }
 
-function validateEvidence(root, evidence, route, captureRows, observationByCapture, issues) {
+function validateEvidence(
+  root,
+  evidence,
+  route,
+  captureRows,
+  observationByCapture,
+  issues,
+  history
+) {
   if (!Array.isArray(evidence)) return add(issues, "captures.evidence", "must be an array");
   const ids = new Set();
   const audits = [];
@@ -1867,7 +2001,8 @@ function validateEvidence(root, evidence, route, captureRows, observationByCaptu
         captureRows,
         observationByCapture,
         at,
-        issues
+        issues,
+        history
       );
       if (audit) audits.push({ entry: item, audit });
     }
@@ -2199,7 +2334,8 @@ function validateReport(
         routeFile,
         capturesFile,
         report,
-        issues
+        issues,
+        options.designHistory
       );
     }
   }
@@ -2208,8 +2344,12 @@ function validateReport(
   const expectedTopIssue = deriveTopIssue(report);
   if (report.top_issue !== expectedTopIssue)
     add(issues, "report.top_issue", `must equal ${expectedTopIssue}`);
-  if (!Number.isInteger(report.rounds) || report.rounds < 1 || report.rounds > 2)
-    add(issues, "report.rounds", "must be 1 or 2");
+  if (!Number.isInteger(report.rounds) || report.rounds < 1 || report.rounds > MAX_RECOVERY_ROUNDS)
+    add(
+      issues,
+      "report.rounds",
+      `must be 1 through ${MAX_RECOVERY_ROUNDS} within the retained lineage resource budget`
+    );
   if ((captures.captures || []).some((item) => item.round > report.rounds))
     add(issues, "report.rounds", "must include every recorded capture round");
   validateScores(root, report.scores, route, captures, report.outcome, issues);
@@ -2270,7 +2410,125 @@ function validateReport(
   );
 }
 
-function validateReviews(root, reviews, route, captures, routeFile, capturesFile, report, issues) {
+function validateDesignRecovery(root, row, at, reviews, report, issues) {
+  if (reviews.recovery_policy !== RECOVERY_POLICY || row.round === 1)
+    add(
+      issues,
+      `${at}.recovery`,
+      "requires scoped recovery policy and a retained predecessor round"
+    );
+  const binding = row.previous_report;
+  if (!object(binding) || !sha256(binding.sha256) || !text(binding.path)) {
+    add(
+      issues,
+      `${at}.previous_report`,
+      "requires the immutable immediately preceding non-passing report binding"
+    );
+    return;
+  }
+  closed(binding, ["path", "sha256"], `${at}.previous_report`, issues);
+  const prior = readJsonFile(root, binding.path, `${at}.previous_report`, issues);
+  if (!prior) return;
+  validateBinding(binding, prior, `${at}.previous_report`, issues);
+  if (
+    prior.value.run_id !== report.run_id ||
+    prior.value.rounds !== row.round - 1 ||
+    prior.value.outcome === "passed"
+  ) {
+    add(
+      issues,
+      `${at}.previous_report`,
+      "must retain the immediately preceding non-passing report in the same run"
+    );
+    return;
+  }
+  const priorReviews = readJsonFile(
+    root,
+    prior.value.reviews?.path,
+    `${at}.previous_report.reviews`,
+    issues
+  );
+  const priorCaptures = readJsonFile(
+    root,
+    prior.value.captures?.path,
+    `${at}.previous_report.captures`,
+    issues
+  );
+  if (!priorReviews || !priorCaptures) return;
+  validateBinding(prior.value.reviews, priorReviews, `${at}.previous_report.reviews`, issues);
+  validateBinding(prior.value.captures, priorCaptures, `${at}.previous_report.captures`, issues);
+  const prefix = reviews.rounds.slice(0, row.round - 1);
+  if (!isDeepStrictEqual(prefix, priorReviews.value.rounds))
+    add(
+      issues,
+      `${at}.previous_report.reviews`,
+      "must preserve every predecessor reviewer row exactly; no reset or rewritten failure history"
+    );
+  const previous = priorReviews.value.rounds?.at(-1);
+  if (Object.hasOwn(row, "recovery"))
+    issues.push(
+      ...validateScopedRecovery(row.recovery, {
+        path: `${at}.recovery`,
+        evidenceIds: [
+          ...(priorCaptures.value.captures || []).map((capture) => capture.id),
+          ...(prior.value.findings || []).map((finding) => finding.id),
+          ...(previous?.reviews || []).map((review) => review.review_id),
+        ],
+        previousRecovery: previous?.recovery,
+        previousDecisionRequired: prior.value.outcome === "deferred",
+      })
+    );
+  if (recoveryRequiresDecision(row.recovery) && report.outcome !== "blocked")
+    add(
+      issues,
+      `${at}.recovery`,
+      "a genuine dependency/product/scope-risk decision requires a blocked outcome"
+    );
+  // Recursing only from the latest row proves the complete immutable chain
+  // without rechecking every embedded prefix exponentially.
+  if (row.round === report.rounds) {
+    const priorRoute = readJsonFile(
+      root,
+      prior.value.route?.path,
+      `${at}.previous_report.route`,
+      issues
+    );
+    if (!priorRoute) return;
+    validateBinding(prior.value.route, priorRoute, `${at}.previous_report.route`, issues);
+    const checked = checkDesignCritiqueUncached({
+      root,
+      routePath: prior.value.route.path,
+      capturesPath: prior.value.captures.path,
+      reportPath: binding.path,
+      verifyGit: false,
+      verifyBrowser: false,
+      commit: prior.value.commit,
+      baseRef: priorRoute.value.source?.base_ref,
+      baseCommit: priorRoute.value.source?.base_commit,
+    });
+    if (!checked.ok)
+      add(
+        issues,
+        `${at}.previous_report`,
+        `must be a checked frozen report: ${checked.issues
+          .slice(0, 10)
+          .map((issue) => `${issue.path} ${issue.message}`)
+          .join("; ")}`
+      );
+  }
+}
+
+function validateReviews(
+  root,
+  reviews,
+  route,
+  captures,
+  routeFile,
+  capturesFile,
+  report,
+  issues,
+  history
+) {
   const state = {
     reviews: new Map(),
     findings: new Map(),
@@ -2294,11 +2552,20 @@ function validateReviews(root, reviews, route, captures, routeFile, capturesFile
       "assurance",
       "rounds",
       "checked_at",
+      "recovery_policy",
     ],
     "reviews",
     issues
   );
   if (reviews.schema_version !== 1) add(issues, "reviews.schema_version", "must equal 1");
+  if (reviews.recovery_policy !== undefined && reviews.recovery_policy !== RECOVERY_POLICY)
+    add(issues, "reviews.recovery_policy", `must equal ${RECOVERY_POLICY}`);
+  if (report.rounds > 2 && reviews.recovery_policy !== RECOVERY_POLICY)
+    add(
+      issues,
+      "reviews.recovery_policy",
+      "continuation beyond two rounds requires scoped recovery policy"
+    );
   if (reviews.assurance !== REVIEW_ASSURANCE)
     add(
       issues,
@@ -2331,13 +2598,24 @@ function validateReviews(root, reviews, route, captures, routeFile, capturesFile
   }
   if (reviews.rounds.length !== report.rounds)
     add(issues, "reviews.rounds", "must contain exactly one entry per report round");
+  if (reviews.rounds.length > MAX_RECOVERY_ROUNDS)
+    add(
+      issues,
+      "reviews.rounds",
+      `retained lineage exceeds the ${MAX_RECOVERY_ROUNDS}-round resource budget`
+    );
 
   const captureById = new Map((captures.captures || []).map((item) => [item.id, item]));
   const evidenceById = new Map((captures.evidence || []).map((item) => [item.id, item]));
   const coverageById = new Map((route.coverage || []).map((item) => [item.id, item]));
   const expectedRounds = new Set(
     Array.from(
-      { length: Number.isInteger(report.rounds) ? report.rounds : 0 },
+      {
+        length:
+          Number.isInteger(report.rounds) && report.rounds <= MAX_RECOVERY_ROUNDS
+            ? report.rounds
+            : 0,
+      },
       (_, index) => index + 1
     )
   );
@@ -2346,13 +2624,21 @@ function validateReviews(root, reviews, route, captures, routeFile, capturesFile
   const seenContextIds = new Set();
   const seenInvocationIds = new Set();
 
-  for (const [roundIndex, roundRow] of reviews.rounds.entries()) {
+  for (const [roundIndex, roundRow] of reviews.rounds.slice(0, MAX_RECOVERY_ROUNDS).entries()) {
     const roundAt = `reviews.rounds[${roundIndex}]`;
     if (!object(roundRow)) {
       add(issues, roundAt, "must be an object");
       continue;
     }
-    closed(roundRow, ["round", "reviews"], roundAt, issues);
+    closed(roundRow, ["round", "reviews", "recovery", "previous_report"], roundAt, issues);
+    if (roundRow.round > 2 && !object(roundRow.recovery))
+      add(
+        issues,
+        `${roundAt}.recovery`,
+        "diagnosis is required before continuing unresolved Design Critique beyond two rounds"
+      );
+    if (Object.hasOwn(roundRow, "recovery") || Object.hasOwn(roundRow, "previous_report"))
+      validateDesignRecovery(root, roundRow, roundAt, reviews, report, issues);
     if (!expectedRounds.has(roundRow.round) || seenRounds.has(roundRow.round))
       add(issues, `${roundAt}.round`, "must be a unique consecutive report round");
     seenRounds.add(roundRow.round);
@@ -2361,6 +2647,10 @@ function validateReviews(root, reviews, route, captures, routeFile, capturesFile
       continue;
     }
     const pair = [];
+    const historical = roundRow.round < report.rounds ? history?.rounds.get(roundRow.round) : null;
+    const roundRoute = historical?.route || route;
+    const roundRouteFile = historical?.routeFile || routeFile;
+    const roundCaptures = historical?.captures || captures;
     for (const [reviewIndex, review] of roundRow.reviews.entries()) {
       const at = `${roundAt}.reviews[${reviewIndex}]`;
       if (!object(review)) {
@@ -2378,9 +2668,9 @@ function validateReviews(root, reviews, route, captures, routeFile, capturesFile
         review.input,
         review.perspective,
         roundRow.round,
-        route,
-        routeFile,
-        captures,
+        roundRoute,
+        roundRouteFile,
+        roundCaptures,
         captureById,
         evidenceById,
         at,
@@ -2400,7 +2690,7 @@ function validateReviews(root, reviews, route, captures, routeFile, capturesFile
       const resultState = validateReviewResult(
         review,
         inputState,
-        route,
+        roundRoute,
         captureById,
         evidenceById,
         at,

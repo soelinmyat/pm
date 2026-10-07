@@ -1181,6 +1181,12 @@
           "minItems": 1,
           "items": { "$ref": "#/$defs/evidence_record" }
         },
+        "recovery_history": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "items": { "$ref": "#/$defs/scoped_recovery_anchor" }
+        },
         "qa_run_count": { "type": "integer", "minimum": 1 },
         "qa_run_anchors": {
           "type": "array",
@@ -1193,6 +1199,63 @@
         "verified_at": ["verified_commit", "verification_records"],
         "verification_records": ["verified_commit", "verified_at"],
         "qa_run_anchors": ["qa_run_count"]
+      }
+    },
+    "scoped_recovery_anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attempt",
+        "round",
+        "run_id",
+        "commit",
+        "outcome",
+        "report"
+      ],
+      "properties": {
+        "attempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "round": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        },
+        "run_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40,64}$"
+        },
+        "outcome": {
+          "enum": [
+            "passed",
+            "failed",
+            "blocked",
+            "deferred"
+          ]
+        },
+        "report": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "sha256"
+          ],
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          }
+        }
       }
     },
     "runtime_result": {

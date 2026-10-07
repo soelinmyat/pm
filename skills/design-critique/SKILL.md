@@ -46,7 +46,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/skills/design-critique/references/evidence-contract.
 
 ## Resume
 
-If `.pm/dev-sessions/{slug}/design-critique/` exists, validate the source commit and every upstream hash before resuming. Resume at the first missing or invalid artifact. A new commit invalidates the route; changed route bytes invalidate captures, reviews, and report; changed capture bytes invalidate reviews and report; changed reviewer instructions, context, round manifests, results, or receipts invalidate `reviews.json` and the report; changed `reviews.json` bytes invalidate the report. Preserve earlier rounds as evidence rather than overwriting them.
+If `.pm/dev-sessions/{slug}/design-critique/` exists, validate the source commit and every upstream hash before resuming. Resume at the first missing or invalid artifact. A new commit invalidates the route; changed route bytes invalidate captures, reviews, and report; changed capture bytes invalidate reviews and report; changed reviewer instructions, context, round manifests, results, or receipts invalidate `reviews.json` and the report; changed `reviews.json` bytes invalidate the report. Preserve earlier rounds as immutable evidence rather than overwriting them. Scoped recovery binds each predecessor report and original source; historical inactive captures and earlier reviewer inputs validate against that source, while all active capture observations and the final report stay current. After two unresolved rounds, diagnosis plus a changed authorized approach continues autonomously; counts alone never require new product approval.
 
 ## Red Flags — Self-Check
 

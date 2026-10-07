@@ -32,7 +32,8 @@ runs/{run-id}/
     report.json           # retained when the round does not pass
     report.html
   round-2/                 # created only after source mutation
-  round-3/                 # hard cap
+  round-3/                 # diagnosis threshold
+  round-4/                 # grounded scoped recovery; same run, fresh source
 report.json              # canonical passing projection only
 report.html              # required only for HTML presentation
 renders/
@@ -43,7 +44,7 @@ supplements/
   rejected-*.json        # audit records of failed delta reviews
 ```
 
-Each fresh Review invocation gets a new kebab-case run directory only when no unfinished lineage exists for the same Dev run and decision version. An unfinished Dev lineage owns its run ID through rounds 1–3; changing the run ID cannot reset the cap. A new lineage is allowed after the latest one passes, or after explicit direction advances the Dev decision version. Synthesis first attempts structured draft publication without `--human-report`. Eligible drafts retain `human_report: null` and are rechecked without a browser; only `HTML presentation required` selects a bound and validated draft HTML fallback. Synthesis may overwrite only `runs/{run-id}/round-N/draft-report.json` and, when required, `draft-report.html` while decisions are pending. Finalize the round report exactly once after decisions. Never overwrite a finalized prior run or round: later rounds bind the exact preceding report path. A passing round is projected to the canonical root `report.json` and, when required, `report.html` for Dev/Ship gate discovery; its target and result bindings still point into the run directory.
+Each fresh Review invocation gets a new kebab-case run directory only when no unfinished lineage exists for the same Dev run and decision version. An unfinished Dev lineage owns its run ID through every consecutive round; changing the run ID cannot reset retained failure history. A new lineage is allowed after the latest one passes, or after explicit direction advances the Dev decision version. Synthesis first attempts structured draft publication without `--human-report`. Eligible drafts retain `human_report: null` and are rechecked without a browser; only `HTML presentation required` selects a bound and validated draft HTML fallback. Synthesis may overwrite only `runs/{run-id}/round-N/draft-report.json` and, when required, `draft-report.html` while decisions are pending. Finalize the round report exactly once after decisions. Never overwrite a finalized prior run or round: later rounds bind the exact preceding report path. A passing round is projected to the canonical root `report.json` and, when required, `report.html` for Dev/Ship gate discovery; its target and result bindings still point into the run directory.
 
 For structured publication the canonical gate row binds `report.json` with its raw `report_sha256` and no render manifest. For HTML publication the canonical gate row binds `renders/manifest.json` with `render_manifest` and raw `render_manifest_sha256`. The manifest's source hash equals the canonical `report.html` bytes. Full presentation (schema 1) retains desktop, tablet, and narrow viewport plus full-page PNGs and print PDF with project-relative paths, byte counts, dimensions/pages, and `sha256:` hashes. Automatic compact presentation (schema 2) retains current DOM metrics at all three viewports, a desktop viewport PNG, current rendered marker proof, and `print: null`. Its `presentation` binds the exact report, target, current renderer and template hashes under `bounded-review-content-v1`. Compact eligibility is derived again at gate time: a current schema-v2 passing target/report, at most two bounded low/medium findings, no disputes/decisions or design/security review risk, and no presentation-source changes. Variable text budgets and markup/control-character detection send complex content to full evidence. Compact HTML must exactly equal the current canonical generator output and pass the normal structural, accessibility, offline and sanitization checks. Unknown policy/schema, incomplete evidence, custom HTML, or changed bound inputs cannot claim compact evidence; the full route remains required. Presentation routing never changes logical source-review coverage or outcome. The renderer descriptor-reads a bounded canonical HTML baseline, observes the exact canonical file URL, and rechecks its path identity and digest after every viewport, full-page, print, metrics, and marker observation. A separate filesystem-event watcher makes even transient change-and-restore activity fail. Metrics and marker probes evaluate through Chromium's debugging channel in the already loaded canonical page, so they preserve the same URL and resource base as screenshots. This preserves relative resources and URL semantics without writing beside the source. It also retains locally observed browser-computed `data-review-*` marker visibility and an `observation` record: assurance level, producer/plugin version, canonical executable path, executable SHA-256 before and after capture, Chromium-family version, and canonical invocation-configuration digest. Executable drift during capture fails. These fields detect accidental drift or substitution; a malicious local root can forge the complete record. Gate-time validation rechecks the frozen package without launching a browser or contacting the network. Compact evidence additionally rechecks the current canonical renderer/template identity; upgrading either requires fresh presentation evidence.
 
@@ -57,7 +58,7 @@ Generate `target.json` with `scripts/review-target.js`. It freezes:
 
 - `schema_version: 2`. The checker can finish an already frozen schema-v1 target with its original six-lens plan, but every newly generated target uses v2 and cannot omit the security applicability decision: use the bound Dev risk route when present, otherwise conservatively infer exposure from standalone changed paths and dependency manifests. Resume never rewrites immutable evidence in place.
 
-- run ID, round 1–3, iteration cap 3, mode, timestamp;
+- run ID, consecutive round, `iteration_cap: 3` (legacy cap / current diagnosis threshold), `recovery_policy: scoped-diagnosis-v1` on new targets, mode, timestamp;
 - the exact `pm:review` generator version that created the frozen target;
 - additive relevance policy `changed-hunk-anchor-v1` for newly generated targets; legacy targets without it remain readable only for inspection and cannot publish an authoritative final pass;
 - current commit, authoritative remote base ref/object, and binary diff SHA-256;
@@ -178,3 +179,43 @@ During synthesis, use `--stage draft` with the current run's `round-{N}/draft-re
 New target publication snapshots Design Critique JSON under the round's `upstream/design-critique.json` and binds those exact bytes. Snapshot publication refuses changed existing content. Current source freshness still requires the design commit to equal the target commit.
 
 For pre-snapshot targets, `review-upstream.js recover --root <root> --target <target.json> --archive <original.json>` verifies the original digest, commit and outcome, preserves the exact bytes, and writes an exclusive `upstream/design-critique-recovery.json`. Its schema-v1 record contains the original target path/digest, original design binding, archive path/digest and fixed snapshot path/digest. Historical lineage validation rechecks the target, archive and snapshot; normal current validation never applies this relocation. The original target and canonical design report are unchanged. Recovery authenticates preserved upstream bytes only: every other historical report, source and lineage check still applies.
+
+## Scoped recovery after the diagnosis threshold
+
+New targets preserve `iteration_cap: 3` for compatibility and add
+`recovery_policy: "scoped-diagnosis-v1"`. A scoped blocker remains `failed`, not
+`blocked` merely because of the count; its independently eligible remedies keep
+existing scope and dispute checks. Before round 4 and every later round, supply
+`--recovery <project-relative JSON>`. The target embeds these exact fields:
+
+```json
+{
+  "classification": "product-defect",
+  "observed": "The retained finding still demonstrates the accepted contract failure.",
+  "cause": "Earlier changes corrected a different branch; this is the next testable hypothesis.",
+  "change": "Correct the cited branch using the incumbent behavior.",
+  "next_check": "Run the focused regression and the complete current review lenses.",
+  "evidence_ids": ["<finding ID in immediately prior report>"],
+  "scope_assessment": "within-approved-scope"
+}
+```
+
+Classifications are `product-defect`, `harness-environment`, `stale-evidence`,
+`external-dependency`, `product-decision`, and `scope-risk-change`. The last three
+require `scope_assessment: decision-required` and a blocked outcome. An unresolved
+predecessor dispute/decision cannot be waived with an in-scope claim. An unchanged
+normalized `change` plus `next_check` is rejected even with new IDs or commits.
+Unknown fields and ungrounded current/unknown evidence IDs fail. This verifies
+structure and retained observations; it does not establish the truth of a
+model-authored cause or independently grant authority.
+
+The immediately prior non-passing report is hash-bound, recursively checked
+against frozen Git and original upstream evidence, and belongs to the same run
+at round N−1. Current source must be a different descendant commit. Every new
+wave independently covers all applicable lenses. Frozen legacy reports keep
+original count semantics; they can be predecessors of a new current-policy
+target without rewriting old bytes. Report/HTML, file, finding, aggregate evidence
+budgets remain enforced, with at most 50 retained rounds. Resource exhaustion is
+an actual capability blocker, never fabricated product disapproval. Dev records
+checked non-passing report anchors in optional `recovery_history`; these anchors
+cannot supply passing gate evidence or permit report replay/reset.
