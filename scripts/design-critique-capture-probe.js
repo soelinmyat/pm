@@ -1454,8 +1454,10 @@ function visibilityEvaluatorFor(model, style, metrics, candidate) {
   return createVisibilityEvaluator(model, style, metrics);
 }
 
-function isNodeOrDescendant(hitBackendNodeId, assertedNode, model) {
-  const hit = model.find((node) => node.backendNodeId === hitBackendNodeId);
+function isNodeOrDescendant(hitBackendNodeId, assertedNode, model, byBackendId = null) {
+  const hit = byBackendId
+    ? byBackendId.get(hitBackendNodeId)
+    : model.find((node) => node.backendNodeId === hitBackendNodeId);
   if (!hit) return false;
   let current = hit;
   const seen = new Set();
@@ -1709,6 +1711,36 @@ async function verifyAssertionHitTargets(
   };
 }
 
+// Live-region message content is not its author-supplied accessible name.
+// Bind one literal native text descendant to its physical DOM region. A paired
+// visible text guard separately enforces text visibility and native hit testing.
+function nativeLiveRegionTextMatches(root, text, axById, byBackendId, model) {
+  const region = byBackendId.get(root.backendDOMNodeId);
+  if (!region || !["status", "alert"].includes(String(valueOf(root.role) || "").toLowerCase()))
+    return false;
+  const pending = (root.childIds || []).map((id) => ({ id, parent: root.nodeId }));
+  const seen = new Set([root.nodeId]);
+  let matched = false;
+  while (pending.length) {
+    const { id, parent } = pending.pop();
+    if (seen.has(id)) return false;
+    seen.add(id);
+    const node = axById.get(id);
+    if (!node || node.parentId !== parent) return false;
+    if (
+      node.ignored !== true &&
+      String(valueOf(node.role) || "").toLowerCase() === "statictext" &&
+      String(valueOf(node.name) || "")
+        .trim()
+        .replace(/\s+/g, " ") === text &&
+      isNodeOrDescendant(node.backendDOMNodeId, region, model, byBackendId)
+    )
+      matched = true;
+    for (const child of node.childIds || []) pending.push({ id: child, parent: id });
+  }
+  return matched;
+}
+
 function evaluateStateAssertion(
   assertion,
   model,
@@ -1731,6 +1763,7 @@ function evaluateStateAssertion(
       .filter((node) => node.ignored !== true && Number.isInteger(node.backendDOMNodeId))
       .map((node) => [node.backendDOMNodeId, node])
   );
+  const axById = new Map((axTree.nodes || []).map((node) => [node.nodeId, node]));
   const locate = (locator) => {
     let matches;
     if (locator.by === "id") matches = model.filter((node) => node.attributes.id === locator.value);
@@ -1749,9 +1782,11 @@ function evaluateStateAssertion(
             node.ignored !== true &&
             Number.isInteger(node.backendDOMNodeId) &&
             String(valueOf(node.role) || "").toLowerCase() === role &&
-            String(valueOf(node.name) || "")
-              .trim()
-              .replace(/\s+/g, " ") === name
+            (locator.by === "role-text"
+              ? nativeLiveRegionTextMatches(node, name, axById, byBackendId, model)
+              : String(valueOf(node.name) || "")
+                  .trim()
+                  .replace(/\s+/g, " ") === name)
         )
         .map((node) => byBackendId.get(node.backendDOMNodeId))
         .filter(Boolean);
@@ -3891,6 +3926,7 @@ module.exports = {
   createVisibilityEvaluator,
   domObservations,
   evaluateStateAssertion,
+  nativeLiveRegionTextMatches,
   nodeVisibleInViewport,
   originForPolicy,
   redactedUrlIdentity,

@@ -1108,6 +1108,7 @@ function hasNativeStateContentChange(root, left, right, observations) {
   for (const [index, clause] of assertion.all.entries()) {
     if (
       clause.expect.kind !== "visible" ||
+      clause.locator.by !== "role-name" ||
       !isAlertLocator(clause.locator) ||
       !clause.locator.value.slice(clause.locator.value.indexOf(":") + 1).trim()
     )
@@ -1151,7 +1152,7 @@ function hasNativeStateContentChange(root, left, right, observations) {
 }
 
 function isAlertLocator(locator) {
-  if (locator.by !== "role-name") return false;
+  if (!["role-name", "role-text"].includes(locator.by)) return false;
   const separator = locator.value.indexOf(":");
   return separator >= 0 && locator.value.slice(0, separator).trim().toLowerCase() === "alert";
 }

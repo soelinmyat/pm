@@ -955,7 +955,8 @@ function attachTrustedCaptureObservation(
     nativeStateProof &&
     (coverage.state === "error" ||
       nativeStateProof === "empty-alert" ||
-      nativeStateProof === "empty-alert-alias")
+      nativeStateProof === "empty-alert-alias" ||
+      nativeStateProof === "empty-alert-text")
   ) {
     assertion.all[0].locator = {
       by: "role-name",
@@ -966,6 +967,16 @@ function attachTrustedCaptureObservation(
             ? "ALERT :Could not load records"
             : "alert:Could not load records",
     };
+  }
+  if (
+    (nativeStateProof === "empty-alert-text" && coverage.state === "empty") ||
+    (nativeStateProof === "error-alert-text" && coverage.state === "error")
+  ) {
+    assertion.all[0].locator.by = "role-text";
+    assertion.all.push({
+      locator: { by: "role-name", value: "statictext:Could not load records" },
+      expect: { kind: "visible" },
+    });
   }
   if (nativeStateProof === "sparse-loading" && coverage.state === "loading")
     assertion.all[0].locator = { by: "role-name", value: "status:Loading..." };
@@ -1055,6 +1066,19 @@ function attachTrustedCaptureObservation(
       },
     ],
   };
+  if (
+    (nativeStateProof === "empty-alert-text" && coverage.state === "empty") ||
+    (nativeStateProof === "error-alert-text" && coverage.state === "error")
+  ) {
+    assertionVisibility.verified_nodes = 3;
+    assertionVisibility.checks.push({
+      label: "state assertion clause 2",
+      asserted_backend_node_id: 3,
+      hit_backend_node_id: 3,
+      x: 25,
+      y: 20,
+    });
+  }
   if (nativeStateProof && coverage.state === "error") {
     const check = assertionVisibility.checks[1];
     check.x = 350;
@@ -5411,6 +5435,8 @@ for (const [name, proof, pixels] of [
   ["missing native bounds", "no-geometry", "state-content"],
   ["alert also asserted on empty", "empty-alert", "state-content"],
   ["equivalent alert role on empty", "empty-alert-alias", "state-content"],
+  ["role-text alert also asserted on empty", "empty-alert-text", "state-content"],
+  ["role-text-only error region", "error-alert-text", "state-content"],
   ["tiny two-pixel alert", "tiny-region", "two-pixel-beacon"],
   ["unnamed alert", "unnamed", "state-content"],
   ["different viewport geometry", "viewport-mismatch", "state-content"],

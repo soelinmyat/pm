@@ -31,6 +31,7 @@ const {
   focusIndicatorRegions,
   installWebSocketPolicy,
   nodeVisibleInViewport,
+  nativeLiveRegionTextMatches,
   normalizeAllowedOrigins,
   verifyAssertionHitTargets,
   webSocketBlockPatterns,
@@ -3971,5 +3972,144 @@ for (const variant of ["unowned-wrapper-cycle", "modal-ancestor-cycle", "nested-
     } finally {
       fs.rmSync(fixture.root, { recursive: true, force: true });
     }
+  });
+}
+
+for (const role of ["status", "alert"]) {
+  test(`live-region content locator contract: ${role}`, () => {
+    const a = assertion(role === "status" ? "loading" : "error");
+    a.all = [
+      {
+        locator: { by: "role-text", value: `${role}:Loading locations...` },
+        expect: { kind: "visible" },
+      },
+      {
+        locator: { by: "role-name", value: "statictext:Loading locations..." },
+        expect: { kind: "visible" },
+      },
+    ];
+    assert.equal(validateStateAssertion(a), a);
+  });
+}
+for (const invalid of [
+  "wrong-role",
+  "missing-text-pair",
+  "different-text-pair",
+  "nonvisible-text-pair",
+  "empty-content",
+]) {
+  test(`live-region content locator rejects invalid contract: ${invalid}`, () => {
+    const a = assertion("loading");
+    a.all = [
+      {
+        locator: {
+          by: "role-text",
+          value:
+            invalid === "wrong-role"
+              ? "button:Loading locations..."
+              : invalid === "empty-content"
+                ? "status:"
+                : "status:Loading locations...",
+        },
+        expect: { kind: "visible" },
+      },
+    ];
+    if (invalid !== "missing-text-pair")
+      a.all.push({
+        locator: {
+          by: "role-name",
+          value: `statictext:${invalid === "different-text-pair" ? "Other message" : "Loading locations..."}`,
+        },
+        expect: { kind: invalid === "nonvisible-text-pair" ? "exists" : "visible" },
+      });
+    assert.throws(() => validateStateAssertion(a));
+  });
+}
+for (const variant of [
+  "status",
+  "named-status",
+  "alert",
+  "wrong-role",
+  "hidden",
+  "hidden-text",
+  "covered-text",
+  "unrelated-text",
+  "owned-foreign-text",
+  "ambiguous",
+]) {
+  test(`browser native live-region content guard: ${variant}`, { skip: browserSkip }, () => {
+    const fixture = createBrowserFixture();
+    let html = decodeURIComponent(fixture.url.split(",").slice(1).join(","));
+    const role = variant === "alert" ? "alert" : "status";
+    const message = "Loading locations...";
+    const region = (suffix = "") =>
+      `<div role="${variant === "wrong-role" ? "note" : role}"${variant === "named-status" ? ' aria-label="Progress update"' : ""}${variant === "owned-foreign-text" ? ' aria-owns="foreign-loading"' : ""}${variant === "hidden" ? ' style="display:none"' : ' style="position:relative;padding:20px"'} id="loading-region${suffix}">${variant === "unrelated-text" ? "Other progress" : variant === "owned-foreign-text" ? "" : `<span style="position:relative;${variant === "hidden-text" ? "visibility:hidden" : ""}">${message}${variant === "covered-text" ? '<span style="position:absolute;inset:0;background:black;z-index:2">Actual cover</span>' : ""}</span>`}</div>`;
+    html = html.replace(
+      "<p>Stable product evidence.</p>",
+      region() +
+        (variant === "ambiguous" ? region("-other") : "") +
+        (["unrelated-text", "owned-foreign-text"].includes(variant)
+          ? `<p id="foreign-loading">${message}</p>`
+          : "")
+    );
+    fixture.url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+    const a = assertion(role === "status" ? "loading" : "error");
+    html = html.replace('data-pm-state="primary"', `data-pm-state="${a.state}"`);
+    fixture.url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+    a.all = [
+      { locator: { by: "role-text", value: `${role}:${message}` }, expect: { kind: "visible" } },
+      { locator: { by: "role-name", value: `statictext:${message}` }, expect: { kind: "visible" } },
+    ];
+    fixture.stateAssertion = a;
+    try {
+      const working = ["status", "named-status", "alert"].includes(variant);
+      if (working) assert.equal(runBrowserCapture(fixture).assertion_passed, true);
+      else
+        assert.throws(
+          () => runBrowserCapture(fixture),
+          /expected exactly one match|expected a visible|fully occluded/
+        );
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const variant of ["valid", "cyclic", "missing", "foreign"]) {
+  test(`native live-region content ancestry preserves raw names: ${variant}`, () => {
+    const model = [
+      { index: 0, backendNodeId: 10, parentIndex: -1 },
+      { index: 1, backendNodeId: 11, parentIndex: 0 },
+      { index: 2, backendNodeId: 12, parentIndex: 1 },
+      { index: 3, backendNodeId: 13, parentIndex: 0 },
+    ];
+    const root = {
+      nodeId: "region",
+      backendDOMNodeId: 11,
+      role: { value: "status" },
+      name: { value: "Author supplied name" },
+      childIds: ["text"],
+    };
+    const text = {
+      nodeId: "text",
+      parentId: "region",
+      backendDOMNodeId: variant === "foreign" ? 13 : 12,
+      role: { value: "StaticText" },
+      name: { value: "Loading locations..." },
+      childIds: variant === "cyclic" ? ["region"] : [],
+    };
+    const nodes = variant === "missing" ? [root] : [root, text];
+    const before = JSON.stringify(nodes);
+    assert.equal(
+      nativeLiveRegionTextMatches(
+        root,
+        "Loading locations...",
+        new Map(nodes.map((n) => [n.nodeId, n])),
+        new Map(model.map((n) => [n.backendNodeId, n])),
+        model
+      ),
+      variant === "valid"
+    );
+    assert.equal(JSON.stringify(nodes), before);
   });
 }
