@@ -8,7 +8,13 @@ const { GIT_DIFF_TRUST_CONFIG, gitExec } = require("./git-env");
 const { isGitObjectId } = require("./git-object-id");
 const { isRfc3339DateTime } = require("./iso-time");
 const { inspectStableProjectInput, readProjectInput } = require("./safe-project-output");
-const { validateAppPreviewIdentity, verifyAppPreviewIdentity } = require("./app-preview");
+const {
+  appPreviewVerificationKey,
+  validateAppPreviewIdentity,
+  verifyAppPreviewIdentity,
+} = require("./app-preview");
+
+const APP_PREVIEW_VERIFICATION_CACHE = Symbol("app preview verification within one validation");
 
 const VALID_STATUSES = new Set(["pending", "running", "completed", "blocked", "failed"]);
 const WORK_UNIT_FIELDS = new Set([
@@ -196,6 +202,7 @@ function validateWorkUnits(units, options = {}) {
   const validationOptions = {
     ...options,
     prototypeVerificationCache: options.prototypeVerificationCache || new Map(),
+    [APP_PREVIEW_VERIFICATION_CACHE]: new Set(),
   };
 
   for (const item of units) {
@@ -423,7 +430,14 @@ function validateDesignContext(context, label = "design_context", options = {}) 
     for (const state of context.critical_states)
       if (!observedStates.has(state))
         throw new Error(`${label}.app_preview lacks the declared critical state ${state}`);
-    if (options.repoRoot) verifyAppPreviewIdentity(context.app_preview, options);
+    if (options.repoRoot) {
+      const cache = options[APP_PREVIEW_VERIFICATION_CACHE];
+      const key = cache ? appPreviewVerificationKey(context.app_preview, options) : null;
+      if (!cache?.has(key)) {
+        verifyAppPreviewIdentity(context.app_preview, options);
+        cache?.add(key);
+      }
+    }
   }
   if (prototype === null) return context;
   if (!isObject(prototype)) throw new TypeError(`${label}.prototype must be null or an object`);

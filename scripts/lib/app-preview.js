@@ -7,6 +7,7 @@ const { gitExec, trustedDiffArgs } = require("./git-env");
 const { isGitObjectId } = require("./git-object-id");
 const { isRfc3339DateTime } = require("./iso-time");
 const { readProjectInput } = require("./safe-project-output");
+const { writeProjectFileAtomic } = require("./project-atomic-write");
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_TREE_BYTES = 32 * 1024 * 1024;
@@ -164,6 +165,45 @@ function verifyAppPreviewIdentity(identity, options = {}) {
   const actual = JSON.parse(read(repoRoot, receipt, "observation receipt").toString("utf8"));
   if (canonical(actual) !== canonical(attestation))
     throw new Error("app_preview observation receipt drift");
+  return true;
+}
+
+function appPreviewVerificationKey(identity, options) {
+  const artifactRoot = root(options.repoRoot, "artifact repository root");
+  const sourceRoot = resolveSourceRoot(identity, options);
+  return canonical({ identity, artifactRoot, sourceRoot });
+}
+
+// Artifact handoff preserves only the attested observations. Consumer source and
+// mock fixtures remain in their explicitly supplied source worktree.
+function transferAppPreviewEvidence(identity, options = {}) {
+  verifyAppPreviewIdentity(identity, options);
+  const artifactRoot = root(options.repoRoot, "artifact repository root");
+  const targetRoot = root(options.targetRoot, "artifact evidence target root");
+  if (artifactRoot === targetRoot) throw new Error("preview evidence target must be separate");
+  let total = 0;
+  const files = identity.evidence.map((entry) => {
+    if (
+      within(entry.path, identity.fixtures.directory) ||
+      identity.reviewed_starting_code.some((source) => source.path === entry.path)
+    )
+      throw new Error("preview evidence transfer cannot include consumer source or fixtures");
+    const bytes = read(artifactRoot, entry.path, "observation evidence");
+    total += bytes.length;
+    if (total > MAX_TREE_BYTES) throw new Error("observation evidence exceeds bounded byte count");
+    if (hash(bytes) !== entry.sha256) throw new Error("app_preview observation evidence drift");
+    return { ...entry, bytes };
+  });
+  for (const file of files) {
+    writeProjectFileAtomic(targetRoot, file.path, file.bytes, {
+      maxBytes: MAX_FILE_BYTES,
+      replace: false,
+      acceptIdentical: true,
+      fileMode: 0o600,
+      directoryMode: 0o700,
+    });
+  }
+  verifyAppPreviewIdentity(identity, { ...options, repoRoot: targetRoot });
   return true;
 }
 
@@ -640,8 +680,10 @@ function object(value) {
 
 module.exports = {
   adoptAppPreview,
+  appPreviewVerificationKey,
   completeAppPreview,
   prepareAppPreview,
+  transferAppPreviewEvidence,
   validateAppPreviewIdentity,
   verifyAppPreviewIdentity,
 };

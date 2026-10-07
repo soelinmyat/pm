@@ -9,6 +9,7 @@ const groom = require("../scripts/lib/groom-session-schema");
 const rfc = require("../scripts/lib/rfc-session-schema");
 const dev = require("../scripts/lib/dev-session-schema");
 const preview = require("../scripts/lib/app-preview");
+const { prepareArtifactWorktree } = require("../scripts/artifact-worktree");
 const { renderProposal } = require("../scripts/proposal-render");
 const { verifyRfcApproval } = require("../scripts/lib/rfc-approval-audit");
 const { rfcIssuesToDevWorkUnits } = require("../scripts/lib/rfc-work-units");
@@ -81,7 +82,7 @@ function valueDecision() {
     },
   };
 }
-function appIdentity(repo) {
+function appIdentity(repo, prepareArtifactRoot = () => repo.root) {
   fs.cpSync(path.join(fixtureRoot, "app"), repo.root, { recursive: true });
   fs.writeFileSync(path.join(repo.root, ".gitignore"), ".pm/\n");
   git(
@@ -111,6 +112,7 @@ function appIdentity(repo) {
     path.join(sourceRoot, "preview-data/jobs.json"),
     path.join(sourceRoot, ".pm/fixtures/jobs.json")
   );
+  const artifactRoot = prepareArtifactRoot();
   const candidate = preview.prepareAppPreview(
     {
       repository: "isolated-pilot",
@@ -132,11 +134,11 @@ function appIdentity(repo) {
         },
       ],
     },
-    { sourceRoot, repoRoot: repo.root }
+    { sourceRoot, repoRoot: artifactRoot }
   );
-  fs.mkdirSync(path.join(repo.root, "evidence"), { recursive: true });
+  fs.mkdirSync(path.join(artifactRoot, ".pm/preview-evidence"), { recursive: true });
   fs.writeFileSync(
-    path.join(repo.root, "evidence/state.json"),
+    path.join(artifactRoot, ".pm/preview-evidence/state.json"),
     JSON.stringify({ fixture_only: true, note_restored: true, checkpoints: 20, photos: 20 })
   );
   const observation = {
@@ -156,18 +158,22 @@ function appIdentity(repo) {
         ],
         states: candidate.journeys[0].required_states.map((id) => ({
           id,
-          evidence: "evidence/state.json",
+          evidence: ".pm/preview-evidence/state.json",
         })),
       },
     ],
   };
-  fs.writeFileSync(path.join(repo.root, "evidence/receipt.json"), JSON.stringify(observation));
+  fs.writeFileSync(
+    path.join(artifactRoot, ".pm/preview-evidence/receipt.json"),
+    JSON.stringify(observation)
+  );
   return {
     sourceRoot,
+    artifactRoot,
     identity: preview.completeAppPreview(
       candidate,
-      { receipt: "evidence/receipt.json", ...observation },
-      { sourceRoot, repoRoot: repo.root }
+      { receipt: ".pm/preview-evidence/receipt.json", ...observation },
+      { sourceRoot, repoRoot: artifactRoot }
     ),
   };
 }
@@ -256,10 +262,20 @@ test("new Groom rejects absent value while historical omission remains readable 
 });
 
 test("actual app preview, value and exact product delegation reach RFC handoff and executable Dev readiness", () => {
-  const repo = makeRfcRepo();
+  const mainRepo = makeRfcRepo();
+  let repo = mainRepo,
+    rfcWorktree = null;
   try {
-    const app = appIdentity(repo),
+    const app = appIdentity(repo, () => ownedGroomRoot(repo.root, "structured-groom")),
       value = valueDecision();
+    repo = {
+      ...mainRepo,
+      root: app.artifactRoot,
+      own() {},
+      head() {
+        return git(this.root, "rev-parse", "HEAD");
+      },
+    };
     const product = approvedProduct(repo, true, {
       current: true,
       preview: app.identity,
@@ -287,6 +303,36 @@ test("actual app preview, value and exact product delegation reach RFC handoff a
     assert.match(rendered.html, /Runnable in-app preview/);
     assert.match(rendered.html, /Buyer \(unknown\)/);
     assert.match(rendered.markdown, /Change the decision when/);
+    git(repo.root, "add", ".");
+    git(repo.root, "commit", "-qm", "Approved Groom product handoff");
+    assert.equal(git(repo.root, "ls-files", "--", ".pm/preview-evidence"), "");
+    const handedOff = prepareArtifactWorktree({
+      pmDir: path.join(repo.root, "pm"),
+      slug: product.proposal.slug,
+      kind: "rfc",
+      previewSourceRoot: app.sourceRoot,
+    });
+    rfcWorktree = handedOff.worktree;
+    assert.notEqual(rfcWorktree, app.artifactRoot);
+    assert.equal(handedOff.inherited_from, "codex/structured-groom-groom");
+    for (const entry of app.identity.evidence)
+      assert.deepEqual(
+        fs.readFileSync(path.join(rfcWorktree, entry.path)),
+        fs.readFileSync(path.join(app.artifactRoot, entry.path))
+      );
+    assert.equal(fs.existsSync(path.join(rfcWorktree, ".pm/fixtures")), false);
+    assert.equal(git(rfcWorktree, "diff", "--", "app.mjs", "ui/components.mjs"), "");
+    assert.equal(
+      prepareArtifactWorktree({
+        pmDir: handedOff.pm_dir,
+        slug: product.proposal.slug,
+        kind: "rfc",
+        previewSourceRoot: app.sourceRoot,
+      }).reused,
+      true
+    );
+    repo = { ...repo, root: rfcWorktree };
+    product.path = path.join(rfcWorktree, "pm/backlog/proposals", `${product.proposal.slug}.json`);
     let session = configuredRfc(repo, product, app.sourceRoot);
     session = rfc.recordResult(session, phaseResult(session));
     let artifact = writeProductArtifact(repo, session, product);
@@ -348,7 +394,9 @@ test("actual app preview, value and exact product delegation reach RFC handoff a
     assert.equal(verified.delegation.grant_sha256, product.audit.delivery_delegation.grant_sha256);
     const sidecar = JSON.parse(fs.readFileSync(artifact.json_path));
     let delivery = dev.applyRouting(
-      dev.createSession({ slug: session.slug, sourceDir: repo.root }),
+      // The contract fixture runs readiness beside the RFC archive; its owned
+      // artifact branch intentionally carries the -rfc suffix.
+      dev.createSession({ slug: session.slug, sourceDir: repo.root, allowSlugMismatch: true }),
       {
         kind: "proposal",
         size: sidecar.size,
@@ -430,6 +478,10 @@ test("actual app preview, value and exact product delegation reach RFC handoff a
       /proposal|decision|hash|review/
     );
   } finally {
-    repo.cleanup();
+    if (rfcWorktree) {
+      git(mainRepo.root, "worktree", "remove", "--force", rfcWorktree);
+      fs.rmSync(path.dirname(path.dirname(rfcWorktree)), { recursive: true, force: true });
+    }
+    mainRepo.cleanup();
   }
 });

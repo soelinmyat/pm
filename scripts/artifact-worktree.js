@@ -7,6 +7,7 @@ const path = require("node:path");
 const { runGit } = require("./loop-git.js");
 const { acquireOwnedLock } = require("./lib/owned-lock.js");
 const { readApprovedProposal } = require("./lib/proposal-schema.js");
+const { transferAppPreviewEvidence } = require("./lib/app-preview.js");
 const {
   defaultBranchNameFromUrl,
   deliveryUrl,
@@ -78,8 +79,9 @@ function groomHandoffBase(observedRoot, worktrees, slug, contentRelative, option
     `${slug}.json`
   );
   if (!fs.existsSync(proposalPath)) return null;
+  let approved;
   try {
-    const approved = readApprovedProposal(proposalPath, {
+    approved = readApprovedProposal(proposalPath, {
       projectRoot: ownership.worktree,
       previewSourceRoot: options.previewSourceRoot,
     });
@@ -110,7 +112,19 @@ function groomHandoffBase(observedRoot, worktrees, slug, contentRelative, option
     commit: git(ownership.worktree, ["rev-parse", "HEAD"]),
     remote: ownership.remote,
     default_branch: ownership.default_branch,
+    worktree: ownership.worktree,
+    app_preview: approved.contract.design_context?.app_preview || null,
   };
+}
+
+function preserveHandoffEvidence(handoff, worktree, slug, options) {
+  if (!handoff?.app_preview) return;
+  const owned = verifyArtifactWorktreeOwnership({ worktree, slug, kind: "rfc" });
+  transferAppPreviewEvidence(handoff.app_preview, {
+    repoRoot: handoff.worktree,
+    targetRoot: owned.worktree,
+    previewSourceRoot: options.previewSourceRoot,
+  });
 }
 
 function refreshRfcHandoff(options) {
@@ -304,6 +318,7 @@ function prepareArtifactWorktree(options) {
         inheritedFrom: ownedInherited.ok ? ownedInherited.output : null,
         handoff,
       });
+      preserveHandoffEvidence(handoff, worktree, slug, options);
       return {
         ok: true,
         reused: true,
@@ -372,6 +387,7 @@ function prepareArtifactWorktree(options) {
       throw error;
     }
     const worktree = fs.realpathSync(target);
+    preserveHandoffEvidence(handoff, worktree, slug, options);
     return {
       ok: true,
       reused: false,
