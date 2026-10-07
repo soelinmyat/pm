@@ -38,6 +38,8 @@ const {
 const { bindEffectReceipt } = require("./workflow-runtime/effect-receipt");
 const { transactionIssues } = require("./release-transaction-schema");
 const { checkQaReport, QA_RECOVERY_THRESHOLD } = require("./qa-report-schema");
+const { MAX_RECOVERY_ROUNDS, RECOVERY_POLICY, RECOVERY_THRESHOLDS } = require("./scoped-recovery");
+const { readProjectInput } = require("./project-file");
 const { readApprovedProposal } = require("./proposal-schema");
 const {
   findContainingGitRoot,
@@ -217,6 +219,13 @@ function validateSession(session) {
   validateCandidate(session.candidate, errors);
   validateStateEvidence(session.evidence, errors);
   validateAttempts(session.attempts, errors);
+  const currentRecovery = session.evidence?.[session.phase]?.recovery_history?.at?.(-1);
+  if (
+    currentRecovery &&
+    currentRecovery.outcome !== "passed" &&
+    session.phase_attempt <= currentRecovery.attempt
+  )
+    errors.push(issue("$.phase_attempt", "cannot reset an unresolved anchored recovery attempt"));
   const recordedQaAttempts = Array.isArray(session.attempts)
     ? session.attempts.filter((attempt) => attempt?.phase === "qa").length
     : 0;
@@ -973,6 +982,7 @@ function validateStateEvidence(evidence, errors) {
       "verification_records",
       "qa_run_count",
       "qa_run_anchors",
+      "recovery_history",
     ]);
     validateExactFields(evidenceSet, fields, evidencePath, errors);
     for (const field of ["commit", "records", "recorded_at"]) {
@@ -1007,6 +1017,69 @@ function validateStateEvidence(evidence, errors) {
       } else {
         validateQaRunAnchors(evidenceSet, evidencePath, errors);
       }
+    }
+    if (Object.hasOwn(evidenceSet, "recovery_history")) {
+      if (!Object.hasOwn(RECOVERY_THRESHOLDS, phase))
+        errors.push(
+          issue(
+            `${evidencePath}.recovery_history`,
+            "is only valid for Design Critique and Review evidence"
+          )
+        );
+      const history = evidenceSet.recovery_history;
+      if (!Array.isArray(history) || !history.length || history.length > MAX_RECOVERY_ROUNDS)
+        errors.push(
+          issue(
+            `${evidencePath}.recovery_history`,
+            `requires 1 through ${MAX_RECOVERY_ROUNDS} retained report anchors`
+          )
+        );
+      else
+        history.forEach((anchor, index) => {
+          const at = `${evidencePath}.recovery_history[${index}]`;
+          const fields = new Set(["attempt", "round", "run_id", "commit", "outcome", "report"]);
+          if (!isObject(anchor)) {
+            errors.push(issue(at, "must be an object"));
+            return;
+          }
+          validateExactFields(anchor, fields, at, errors);
+          for (const field of fields) requireField(anchor, field, at, errors);
+          for (const field of ["attempt", "round"])
+            if (
+              !Number.isInteger(anchor[field]) ||
+              anchor[field] < 1 ||
+              (field === "round" && anchor.round > MAX_RECOVERY_ROUNDS)
+            )
+              errors.push(issue(`${at}.${field}`, "must be a bounded positive integer"));
+          if (
+            index > 0 &&
+            !(
+              history[index - 1].outcome === "passed" &&
+              anchor.run_id !== history[index - 1].run_id &&
+              anchor.round === 1
+            ) &&
+            (anchor.attempt <= history[index - 1].attempt ||
+              anchor.round <= history[index - 1].round ||
+              anchor.run_id !== history[index - 1].run_id)
+          )
+            errors.push(issue(at, "must preserve increasing attempts/rounds in the same run"));
+          if (!new Set(["passed", "failed", "blocked", "deferred"]).has(anchor.outcome))
+            errors.push(issue(`${at}.outcome`, "invalid outcome"));
+          if (
+            typeof anchor.run_id !== "string" ||
+            !anchor.run_id ||
+            !/^[a-f0-9]{40,64}$/.test(anchor.commit || "")
+          )
+            errors.push(issue(at, "requires run and source identity"));
+          if (
+            !isObject(anchor.report) ||
+            typeof anchor.report.path !== "string" ||
+            !anchor.report.path ||
+            !/^[a-f0-9]{64}$/.test(anchor.report.sha256 || "") ||
+            Object.keys(anchor.report).some((key) => !["path", "sha256"].includes(key))
+          )
+            errors.push(issue(`${at}.report`, "requires exact report path and SHA-256"));
+        });
     }
     const hasVerifiedCommit = Object.prototype.hasOwnProperty.call(evidenceSet, "verified_commit");
     const hasVerifiedAt = Object.prototype.hasOwnProperty.call(evidenceSet, "verified_at");
@@ -1243,9 +1316,124 @@ function validateResult(session, result, options = {}) {
   } else if (session.phase === "qa" && new Set(["failed", "blocked"]).has(result.status)) {
     validateQaEvidence(session, result, errors, "$.evidence", { qaCandidate: "required" });
   }
+  if (
+    Object.hasOwn(RECOVERY_THRESHOLDS, session.phase) &&
+    new Set(["passed", "failed", "blocked"]).has(result.status)
+  )
+    validateScopedGateEvidence(session, result, errors);
 
   if (result.commit) validateCommit(session, result.commit, options, errors);
   return errors;
+}
+
+function validateScopedGateEvidence(session, result, errors) {
+  const phase = session.phase;
+  const history = session.evidence[phase]?.recovery_history || [];
+  const records = (result.evidence || []).filter(
+    (record) =>
+      record.kind === "review" && record.exit_code === 0 && typeof record.artifact === "string"
+  );
+  const required =
+    history.length > 0 ||
+    (result.status !== "blocked" && session.phase_attempt >= RECOVERY_THRESHOLDS[phase]);
+  if (!required && records.length === 0) return null; // Legacy reports/sessions remain readable.
+  if (result.status === "blocked" && records.length === 0) return null; // A real unavailable dependency may block before capture.
+  if (records.length !== 1 || !path.isAbsolute(records[0].artifact)) {
+    errors.push(
+      issue("$.evidence", `${phase} scoped recovery requires one checked absolute report artifact`)
+    );
+    return null;
+  }
+  const root = fs.realpathSync(session.source.worktree);
+  try {
+    const relative = path
+      .relative(root, fs.realpathSync(records[0].artifact))
+      .split(path.sep)
+      .join("/");
+    const input = readProjectInput(root, relative, 4 * 1024 * 1024);
+    const report = JSON.parse(input.bytes.toString("utf8"));
+    let checked;
+    let policy;
+    let round;
+    let previous;
+    if (phase === "review") {
+      const { checkReview, expandFromReport } = require("../review-check");
+      checked = checkReview(
+        expandFromReport({ root, reportPath: relative, fromReport: true, verifyBrowser: false })
+      );
+      const targetInput = readProjectInput(root, report.target?.path, 4 * 1024 * 1024);
+      const target = JSON.parse(targetInput.bytes.toString("utf8"));
+      policy = target.recovery_policy;
+      round = report.review_round;
+      previous = report.prior_report;
+    } else {
+      const { checkDesignCritique } = require("../design-critique-check");
+      checked = checkDesignCritique({
+        root,
+        routePath: report.route?.path,
+        capturesPath: report.captures?.path,
+        reportPath: relative,
+        commit: result.commit,
+        verifyBrowser: false,
+      });
+      const reviewsInput = readProjectInput(root, report.reviews?.path, 4 * 1024 * 1024);
+      const reviews = JSON.parse(reviewsInput.bytes.toString("utf8"));
+      policy = reviews.recovery_policy;
+      round = report.rounds;
+      previous = reviews.rounds?.at(-1)?.previous_report;
+    }
+    if (!checked.ok)
+      throw new Error(
+        checked.issues
+          .slice(0, 10)
+          .map((item) => `${item.path}: ${item.message}`)
+          .join("; ")
+      );
+    const commit = phase === "review" ? report.source?.commit : report.commit;
+    if (commit !== result.commit) throw new Error("report source must equal result commit");
+    if (report.outcome !== result.status)
+      throw new Error(`report outcome ${report.outcome} contradicts ${result.status}`);
+    if (required && policy !== RECOVERY_POLICY)
+      throw new Error(
+        "continued recovery requires scoped diagnosis policy; legacy evidence cannot reset a lineage"
+      );
+    const last = history.at(-1);
+    const startsAfterPass =
+      last?.outcome === "passed" && report.run_id !== last.run_id && round === 1;
+    if (
+      last &&
+      !startsAfterPass &&
+      (report.run_id !== last.run_id ||
+        round !== last.round + 1 ||
+        previous?.path !== last.report.path ||
+        previous?.sha256 !== last.report.sha256)
+    )
+      throw new Error(
+        "must continue the retained immediately prior report in the same run without replay or reset"
+      );
+    const recorded = session.attempts.filter(
+      (attempt) => attempt.phase === phase && attempt.status !== "passed"
+    );
+    const minimum = recorded.length
+      ? Math.max(...recorded.map((attempt) => attempt.attempt)) + 1
+      : 1;
+    if (!last && round < minimum)
+      throw new Error("report rounds cannot reset recorded failed phase attempts");
+    return {
+      attempt: result.attempt,
+      round,
+      run_id: report.run_id,
+      commit,
+      outcome: report.outcome,
+      report: {
+        path: relative,
+        sha256: crypto.createHash("sha256").update(input.bytes).digest("hex"),
+      },
+    };
+  } catch (error) {
+    errors.push(issue("$.evidence", `${phase} report: ${error.message}`));
+    return null;
+  }
 }
 
 function validateAstraRuntimeBinding(execution, runtime, errors, runtimePath) {
@@ -3191,7 +3379,34 @@ function recordResult(session, result, options = {}) {
       commit: result.commit,
       records: structuredClone(result.evidence),
       recorded_at: timestamp,
+      ...(session.evidence[priorPhase]?.recovery_history
+        ? { recovery_history: structuredClone(session.evidence[priorPhase].recovery_history) }
+        : {}),
     };
+  }
+  if (Object.hasOwn(RECOVERY_THRESHOLDS, priorPhase)) {
+    if (["failed", "blocked"].includes(result.status) && next.evidence[priorPhase]) {
+      next.evidence[priorPhase] = {
+        commit: null,
+        records: [],
+        recorded_at: timestamp,
+        ...(session.evidence[priorPhase]?.recovery_history
+          ? { recovery_history: structuredClone(session.evidence[priorPhase].recovery_history) }
+          : {}),
+      };
+    }
+    const recoveryErrors = [];
+    const anchor = validateScopedGateEvidence(session, result, recoveryErrors);
+    if (recoveryErrors.length)
+      throw validationError(
+        "scoped gate evidence changed before it could be recorded",
+        recoveryErrors
+      );
+    if (anchor) {
+      next.evidence[priorPhase] ||= { commit: null, records: [], recorded_at: timestamp };
+      next.evidence[priorPhase].recovery_history ||= [];
+      next.evidence[priorPhase].recovery_history.push(anchor);
+    }
   }
   if (priorPhase === "qa" && ["passed", "failed", "blocked"].includes(result.status)) {
     const qaErrors = [];
@@ -3243,6 +3458,12 @@ function recordResult(session, result, options = {}) {
         next.phase_attempt > QA_RECOVERY_THRESHOLD
           ? "QA recovery diagnosis required before repeating a failed approach"
           : "validated QA retry with continuous history";
+    } else if (Object.hasOwn(RECOVERY_THRESHOLDS, priorPhase)) {
+      next.phase_attempt += 1;
+      reason =
+        next.phase_attempt > RECOVERY_THRESHOLDS[priorPhase]
+          ? `${priorPhase} recovery diagnosis required with retained history and a changed scoped approach`
+          : `validated ${priorPhase} retry with continuous history`;
     } else if (next.phase_attempt >= MAX_PHASE_ATTEMPTS) {
       next.status = "blocked";
       next.blockers.push({
@@ -3333,7 +3554,14 @@ function resumeBlocked(session, resolution, options = {}) {
           (next.evidence.qa?.qa_run_count || 0) + 1,
           next.attempts.filter((attempt) => attempt.phase === "qa").length + 1
         )
-      : 1;
+      : Object.hasOwn(RECOVERY_THRESHOLDS, next.phase)
+        ? Math.max(
+            next.phase_attempt,
+            ...next.attempts
+              .filter((attempt) => attempt.phase === next.phase)
+              .map((attempt) => attempt.attempt + 1)
+          )
+        : 1;
   next.updated_at = timestamp;
   assertValidSession(next);
   return next;

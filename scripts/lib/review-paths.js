@@ -1,11 +1,13 @@
 "use strict";
 
+const { MAX_RECOVERY_ROUNDS } = require("./scoped-recovery");
+
 const TARGET_RE =
-  /^(\.pm\/dev-sessions\/[^/]+\/review)\/runs\/([a-z0-9]+(?:-[a-z0-9]+)*)\/round-([1-3])\/target\.json$/;
+  /^(\.pm\/dev-sessions\/[^/]+\/review)\/runs\/([a-z0-9]+(?:-[a-z0-9]+)*)\/round-([1-9][0-9]*)\/target\.json$/;
 
 function reviewPathContext(targetPath, round, runId) {
   const match = String(targetPath || "").match(TARGET_RE);
-  if (!match || Number(match[3]) !== round)
+  if (!match || Number(match[3]) !== round || round > MAX_RECOVERY_ROUNDS)
     throw new Error(
       `target path must equal .pm/dev-sessions/{slug}/review/runs/{run-id}/round-${round}/target.json`
     );
@@ -43,8 +45,8 @@ function expectedReviewPath(reviewRoot, round, kind, options = {}) {
 }
 
 function expectedPriorReportPath(reviewRoot, round) {
-  if (!Number.isInteger(round) || round < 2 || round > 3)
-    throw new Error("prior report path requires review round 2 or 3");
+  if (!Number.isInteger(round) || round < 2 || round > MAX_RECOVERY_ROUNDS)
+    throw new Error(`prior report path requires review round 2 through ${MAX_RECOVERY_ROUNDS}`);
   return `${reviewRoot}/round-${round - 1}/report.json`;
 }
 

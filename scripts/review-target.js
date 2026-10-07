@@ -18,6 +18,11 @@ const projectFile = require("./lib/project-file");
 const { readProjectInput } = projectFile;
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
 const { loadDevSession } = require("./lib/dev-session-location");
+const {
+  MAX_RECOVERY_ROUNDS,
+  RECOVERY_POLICY,
+  validateScopedRecovery,
+} = require("./lib/scoped-recovery");
 // Shared with the freshness evaluator so environment hardening cannot drift
 // between the side that freezes a hash and the side that re-derives it.
 const { gitExec: git, trustedDiffArgs } = require("./lib/git-env");
@@ -61,11 +66,39 @@ function buildReviewTarget(options) {
     throw new Error(`design critique report must attest current HEAD ${commit}`);
   const maxWorkers = positiveInt(options.maxWorkers || 3, "max workers");
   const round = positiveInt(options.round || 1, "round");
-  if (round > 3) throw new Error("review round cannot exceed 3");
+  if (round > MAX_RECOVERY_ROUNDS)
+    throw new Error(
+      `review lineage exceeds the ${MAX_RECOVERY_ROUNDS}-round resource budget; preserve evidence and report the actual resource limit`
+    );
   const priorLoaded = optionalJsonFileBinding(root, options.priorReportPath, "prior report");
   const priorReport = priorLoaded?.binding || null;
   if (round > 1 && !priorReport) throw new Error("rounds after 1 require a prior report binding");
   if (round === 1 && priorReport) throw new Error("round 1 cannot bind a prior report");
+  const recoveryLoaded = options.recoveryPath
+    ? readProjectInput(root, options.recoveryPath, MAX_JSON_BYTES)
+    : null;
+  const recovery = recoveryLoaded ? JSON.parse(recoveryLoaded.bytes.toString("utf8")) : undefined;
+  if (round > 3 && !recovery)
+    throw new Error("recovery diagnosis is required beyond three Review rounds");
+  if (recovery !== undefined) {
+    if (!priorLoaded) throw new Error("recovery diagnosis requires a retained predecessor report");
+    const priorTarget = priorLoaded.value?.target
+      ? optionalJsonFileBinding(root, priorLoaded.value.target.path, "prior target")
+      : null;
+    if (priorTarget && priorTarget.binding.sha256 !== priorLoaded.value.target.sha256)
+      throw new Error("prior target bytes changed");
+    const issues = validateScopedRecovery(recovery, {
+      evidenceIds: (priorLoaded.value?.findings || []).map((finding) => finding.id),
+      previousRecovery: priorTarget?.value?.recovery,
+      previousDecisionRequired:
+        (priorLoaded.value?.unresolved_disagreements || []).length > 0 ||
+        (priorLoaded.value?.findings || []).some(
+          (finding) => finding.decision_required || finding.disputed
+        ),
+    });
+    if (issues.length)
+      throw new Error(issues.map((issue) => `${issue.path}: ${issue.message}`).join("; "));
+  }
   if (priorLoaded) {
     const priorCommit = priorLoaded.value?.source?.commit;
     if (!/^[a-f0-9]{40,64}$/.test(priorCommit || ""))
@@ -115,6 +148,8 @@ function buildReviewTarget(options) {
     run_id: options.runId || `review-${crypto.randomUUID()}`,
     review_round: round,
     iteration_cap: 3,
+    recovery_policy: RECOVERY_POLICY,
+    ...(recovery !== undefined ? { recovery } : {}),
     created_at: new Date().toISOString(),
     mode,
     generator: { name: "pm:review", version: PLUGIN_VERSION },
@@ -162,7 +197,7 @@ function assertDevReviewLineage(root, outPath, target, options = {}) {
   for (const runEntry of runEntries) {
     if (runEntry.isSymbolicLink()) throw new Error("review lineage contains unsafe evidence");
     if (!runEntry.isDirectory()) continue;
-    for (let round = 1; round <= 3; round += 1) {
+    for (let round = 1; round <= MAX_RECOVERY_ROUNDS; round += 1) {
       const targetPath = path.posix.join(
         runsRelative,
         runEntry.name,
@@ -643,6 +678,7 @@ function parseArgs(argv) {
     "--dev-session": "devSessionPath",
     "--design-critique": "designCritiquePath",
     "--prior-report": "priorReportPath",
+    "--recovery": "recoveryPath",
   };
   for (let index = 0; index < argv.length; index += 1) {
     const key = map[argv[index]];

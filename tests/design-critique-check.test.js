@@ -370,8 +370,9 @@ function withPayloadHash(input) {
   return { ...input, payload_sha256: digest(Buffer.from(canonicalJson(input))) };
 }
 
-function makeReviews(root, route, captures, scores, rounds) {
-  const routeBinding = binding(root, "evidence/route.json");
+function makeReviews(root, route, captures, scores, rounds, routePath = "evidence/route.json") {
+  const routeBinding = binding(root, routePath);
+  const evidenceDir = path.posix.dirname(routePath);
   const contextSource = {
     schema_version: 1,
     run_id: route.run_id,
@@ -387,7 +388,7 @@ function makeReviews(root, route, captures, scores, rounds) {
   };
   const contextBinding = write(
     root,
-    "evidence/review-context.json",
+    `${evidenceDir}/review-context.json`,
     `${JSON.stringify(contextSource, null, 2)}\n`
   );
   const requiredCoverage = route.coverage.filter((item) => item.required);
@@ -400,8 +401,8 @@ function makeReviews(root, route, captures, scores, rounds) {
             .map(
               (coverage) =>
                 captures.captures
-                  .filter((item) => item.coverage_id === coverage.id)
-                  .sort((left, right) => left.round - right.round)[0]
+                  .filter((item) => item.coverage_id === coverage.id && item.round <= round)
+                  .sort((left, right) => right.round - left.round)[0]
             )
             .filter(Boolean);
     const activeCaptureIds = selected.map((item) => item.id);
@@ -418,7 +419,7 @@ function makeReviews(root, route, captures, scores, rounds) {
     };
     const captureManifestBinding = write(
       root,
-      `evidence/review-round-${round}-captures.json`,
+      `${evidenceDir}/review-round-${round}-captures.json`,
       `${JSON.stringify(captureManifest, null, 2)}\n`
     );
     const primaryInput = withPayloadHash({
@@ -805,7 +806,8 @@ function auditEvidenceFile(
   kind,
   captures,
   routeSchemaVersion,
-  subjectId = "account-detail"
+  subjectId = "account-detail",
+  sourceCommit = COMMIT
 ) {
   const checks =
     kind === "accessibility-tree"
@@ -825,7 +827,7 @@ function auditEvidenceFile(
     audit = {
       schema_version: 1,
       subject_id: subjectId,
-      commit: COMMIT,
+      commit: sourceCommit,
       capture_ids: captureIds,
       checks,
       findings: [],
@@ -837,7 +839,7 @@ function auditEvidenceFile(
             schema_version: 1,
             kind,
             subject_id: subjectId,
-            commit: COMMIT,
+            commit: sourceCommit,
             capture_ids: captureIds,
             observations: {
               landmarks: [{ role: "main", name: "", locator: "main#content" }],
@@ -857,7 +859,7 @@ function auditEvidenceFile(
             schema_version: 1,
             kind,
             subject_id: subjectId,
-            commit: COMMIT,
+            commit: sourceCommit,
             capture_ids: captureIds,
             observations: {
               viewport: {
@@ -5509,4 +5511,325 @@ test("offline verifier recomputes sparse native loading pixels and rejects chang
       JSON.stringify(result.issues)
     );
   }
+});
+
+test("third Design Critique round requires immutable failure history and grounded scoped recovery", (t) => {
+  const fixture = makeFixture();
+  t.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+  configureResolvedPrimaryFinding(fixture);
+  fixture.report.outcome = "failed";
+  fixture.report.reason = "The desktop density still fails the accepted readable layout.";
+  fixture.report.top_issue = fixture.report.reason;
+  const git = (args) => execFileSync("git", args, { cwd: fixture.root, encoding: "utf8" }).trim();
+  git(["init", "-q", "-b", "main"]);
+  git(["config", "user.name", "Recovery fixture"]);
+  git(["config", "user.email", "fixture@example.com"]);
+  fs.writeFileSync(path.join(fixture.root, ".gitignore"), "/evidence/\n/history/\n");
+  fs.writeFileSync(path.join(fixture.root, "source.txt"), "base\n");
+  git(["add", ".gitignore", "source.txt"]);
+  git(["commit", "-qm", "fixture base"]);
+  const base = git(["rev-parse", "HEAD"]);
+  fs.writeFileSync(path.join(fixture.root, "source.txt"), "initial implementation\n");
+  git(["add", "source.txt"]);
+  git(["commit", "-qm", "initial implementation"]);
+  const oldCommit = git(["rev-parse", "HEAD"]);
+  const origin = `${fixture.root}-origin.git`;
+  execFileSync("git", ["init", "-q", "--bare", origin]);
+  execFileSync("git", ["--git-dir", origin, "symbolic-ref", "HEAD", "refs/heads/main"]);
+  git(["remote", "add", "origin", origin]);
+  git(["push", "-q", "origin", `${base}:refs/heads/main`]);
+  t.after(() => fs.rmSync(origin, { recursive: true, force: true }));
+  fixture.route.source = {
+    commit: oldCommit,
+    base_ref: "origin/main",
+    base_commit: base,
+    diff_sha256: digest(
+      execFileSync("git", ["diff", "--binary", `${base}...${oldCommit}`], { cwd: fixture.root })
+    ),
+  };
+  rewrite(fixture.root, fixture.routePath, fixture.route);
+  fixture.captures.commit = oldCommit;
+  fixture.captures.route = binding(fixture.root, fixture.routePath);
+  for (const entry of fixture.captures.evidence)
+    rewriteNormalizedAudit(fixture, entry, (audit) => {
+      audit.commit = oldCommit;
+    });
+  refreshTrustedCaptureObservations(fixture);
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.commit = oldCommit;
+  fixture.report.route = fixture.captures.route;
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  rewriteReportAndHtml(fixture);
+  assert.equal(
+    check(fixture, oldCommit, { verifyGit: true, baseRef: "origin/main", baseCommit: base }).ok,
+    true
+  );
+  // Freeze every predecessor binding; its result and human artifact remain untouched.
+  const priorCaptures = write(
+    fixture.root,
+    "history/round-2/captures.json",
+    JSON.stringify(fixture.captures)
+  );
+  const priorReviewsValue = { ...fixture.reviews, captures: priorCaptures };
+  const priorReviews = write(
+    fixture.root,
+    "history/round-2/reviews.json",
+    JSON.stringify(priorReviewsValue)
+  );
+  const priorReportValue = {
+    ...fixture.report,
+    captures: priorCaptures,
+    reviews: priorReviews,
+    human_report: { path: "history/round-2/report.html" },
+  };
+  const priorReport = write(
+    fixture.root,
+    "history/round-2/report.json",
+    JSON.stringify(priorReportValue)
+  );
+  write(
+    fixture.root,
+    priorReportValue.human_report.path,
+    htmlReport(priorReport, priorCaptures, priorReviews, priorReviewsValue, priorReportValue)
+  );
+  assert.equal(
+    checkDesignCritique({
+      root: fixture.root,
+      routePath: fixture.routePath,
+      capturesPath: priorCaptures.path,
+      reportPath: priorReport.path,
+      commit: oldCommit,
+      verifyGit: false,
+      verifyBrowser: false,
+    }).ok,
+    true
+  );
+
+  const before = fixture.captures.captures.find(
+    (capture) => capture.id === "capture-ui-primary-after"
+  );
+  before.active = false;
+  // Advance source identity without relabeling any frozen historical bytes.
+  fs.writeFileSync(path.join(fixture.root, "source.txt"), "scoped repair\n");
+  git(["add", "source.txt"]);
+  git(["commit", "-qm", "scoped repair"]);
+  const newCommit = git(["rev-parse", "HEAD"]);
+  fixture.route.source.commit = newCommit;
+  fixture.route.source.diff_sha256 = digest(
+    execFileSync("git", ["diff", "--binary", `${base}...${newCommit}`], { cwd: fixture.root })
+  );
+  fixture.routePath = "evidence/current/route.json";
+  rewrite(fixture.root, fixture.routePath, fixture.route);
+  fixture.captures.commit = newCommit;
+  fixture.captures.route = binding(fixture.root, fixture.routePath);
+  fixture.report.commit = newCommit;
+  fixture.report.route = fixture.captures.route;
+  const bytes = validPng(1440, 1000, 29);
+  const after = {
+    ...before,
+    ...write(fixture.root, "evidence/files/ui-primary-r3.png", bytes),
+    id: "capture-ui-primary-r3",
+    round: 3,
+    active: true,
+    pixel_sha256: inspectPngVisualBytes(bytes).pixelSha256,
+    captured_at: "2026-07-12T01:35:00Z",
+  };
+  fixture.captures.captures.push(after);
+  fixture.captures.evidence.push(
+    auditEvidenceFile(
+      fixture.root,
+      "a11y-r3",
+      "accessibility-tree",
+      [after],
+      2,
+      "account-detail",
+      newCommit
+    ),
+    auditEvidenceFile(fixture.root, "dom-r3", "dom-audit", [after], 2, "account-detail", newCommit)
+  );
+  let marker = 40;
+  for (const capture of [...fixture.captures.captures].filter(
+    (item) => item.active && item.round < 3
+  )) {
+    capture.active = false;
+    const freshBytes = validPng(capture.width, capture.height, marker++);
+    const fresh = {
+      ...capture,
+      ...write(fixture.root, `evidence/files/${capture.id}-r3.png`, freshBytes),
+      id: `${capture.id}-r3`,
+      round: 3,
+      active: true,
+      pixel_sha256: inspectPngVisualBytes(freshBytes).pixelSha256,
+      captured_at: "2026-07-12T01:35:00Z",
+    };
+    fixture.captures.captures.push(fresh);
+    fixture.captures.evidence.push(
+      auditEvidenceFile(
+        fixture.root,
+        `a11y-${fresh.id}`,
+        "accessibility-tree",
+        [fresh],
+        2,
+        "account-detail",
+        newCommit
+      ),
+      auditEvidenceFile(
+        fixture.root,
+        `dom-${fresh.id}`,
+        "dom-audit",
+        [fresh],
+        2,
+        "account-detail",
+        newCommit
+      )
+    );
+  }
+  for (const capture of fixture.captures.captures.filter((item) => item.active))
+    attachTrustedCaptureObservation(
+      fixture.root,
+      fixture.route,
+      fixture.captures.route,
+      capture,
+      fixture.captures.evidence
+    );
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.report.rounds = 3;
+  fixture.report.captures = binding(fixture.root, fixture.capturesPath);
+  fixture.report.outcome = "failed";
+  fixture.report.reason =
+    "An unresolved layout issue remains after the changed density correction.";
+  fixture.report.top_issue = fixture.report.reason;
+  // Keep original findings and final scores separate from the fresh third-round reviews.
+  for (const [key, score] of Object.entries(fixture.report.scores))
+    score.evidence_ids = scoreEvidenceIds(
+      fixture.root,
+      key,
+      fixture.route.mode,
+      fixture.route.coverage,
+      fixture.captures.captures,
+      fixture.captures.evidence
+    );
+  const retainedFiles = new Map();
+  for (const round of priorReviewsValue.rounds)
+    for (const review of round.reviews)
+      for (const item of [
+        review.execution.receipt,
+        review.input.context_source,
+        review.input.capture_manifest,
+        review.input.prior_findings_source,
+      ].filter(Boolean))
+        retainedFiles.set(item.path, fs.readFileSync(path.join(fixture.root, item.path)));
+  const rebuilt = makeReviews(
+    fixture.root,
+    fixture.route,
+    fixture.captures,
+    fixture.report.scores,
+    3,
+    fixture.routePath
+  );
+  for (const [file, bytes] of retainedFiles) write(fixture.root, file, bytes);
+  rebuilt.route = binding(fixture.root, fixture.routePath);
+  rebuilt.captures = fixture.report.captures;
+  rebuilt.recovery_policy = "scoped-diagnosis-v1";
+  rebuilt.rounds.splice(0, 2, ...structuredClone(priorReviewsValue.rounds));
+  rebuilt.rounds[2].previous_report = priorReport;
+  rebuilt.rounds[2].recovery = {
+    classification: "product-defect",
+    observed: "Desktop cards still obscure the primary action.",
+    cause: "Repeated spacing adjustments did not repair grouping.",
+    change: "Group card sections using the existing layout primitive.",
+    next_check: "Fresh desktop and narrow captures plus two independent reviews.",
+    evidence_ids: [before.id],
+    scope_assessment: "within-approved-scope",
+  };
+  fixture.reviews = rebuilt;
+  const finalFinding = {
+    ...priorReportValue.findings[0],
+    after_capture_id: after.id,
+    evidence_ids: [priorReportValue.findings[0].before_capture_id, after.id],
+  };
+  finalFinding.id = findingId(finalFinding);
+  fixture.report.findings = [finalFinding];
+  fixture.report.reconciliation = priorReportValue.reconciliation.map((row) => {
+    const changed = {
+      ...row,
+      final_finding_id: finalFinding.id,
+      decision_evidence_ids: [after.id],
+    };
+    changed.id = reconciliationId(changed);
+    return changed;
+  });
+  const primary = rebuilt.rounds[2].reviews[0];
+  const sourceRef = priorReportValue.reconciliation[0].source_finding_refs[0];
+  const sourceFinding = priorReviewsValue.rounds[0].reviews[0].result.findings[0];
+  primary.input.prior_finding_refs = [sourceRef];
+  primary.input.prior_findings_source = write(
+    fixture.root,
+    "evidence/review-round-3-prior-findings.json",
+    JSON.stringify({
+      schema_version: 1,
+      run_id: fixture.route.run_id,
+      commit: newCommit,
+      for_round: 3,
+      findings: [{ review_id: sourceRef.review_id, finding: sourceFinding }],
+      created_at: "2026-07-12T01:39:00Z",
+    })
+  );
+  const payload = { ...primary.input };
+  delete payload.payload_sha256;
+  primary.input.payload_sha256 = digest(Buffer.from(canonicalJson(payload)));
+  attachReviewReceipt(fixture.root, primary, 3);
+  rewriteReviewsAndReport(fixture);
+  const successfulRecovery = check(fixture, newCommit, {
+    verifyGit: true,
+    baseRef: "origin/main",
+    baseCommit: base,
+  });
+  assert.equal(successfulRecovery.ok, true, JSON.stringify(successfulRecovery.issues));
+  for (const variant of [
+    "missing",
+    "unknown-evidence",
+    "material",
+    "rewritten-history",
+    "replayed-capture",
+    "forged-binding",
+  ]) {
+    const original = structuredClone(fixture.reviews);
+    const originalCaptures = structuredClone(fixture.captures);
+    if (variant === "missing") delete fixture.reviews.rounds[2].recovery;
+    if (variant === "unknown-evidence")
+      fixture.reviews.rounds[2].recovery.evidence_ids = [after.id];
+    if (variant === "material")
+      fixture.reviews.rounds[2].recovery.classification = "scope-risk-change";
+    if (variant === "rewritten-history")
+      fixture.reviews.rounds[1].reviews[0].result.summary = "Rewritten earlier failure";
+    if (variant === "replayed-capture")
+      fixture.captures.captures.at(-1).captured_at = "2026-07-12T01:25:00Z";
+    if (variant === "forged-binding")
+      fixture.reviews.rounds[2].previous_report.sha256 = "f".repeat(64);
+    rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+    fixture.reviews.captures = binding(fixture.root, fixture.capturesPath);
+    fixture.report.captures = fixture.reviews.captures;
+    rewriteReviewsAndReport(fixture);
+    assert.equal(check(fixture, newCommit).ok, false, variant);
+    fixture.reviews = original;
+    fixture.captures = originalCaptures;
+  }
+  rewrite(fixture.root, fixture.capturesPath, fixture.captures);
+  fixture.reviews.captures = binding(fixture.root, fixture.capturesPath);
+  fixture.report.captures = fixture.reviews.captures;
+  fixture.report.outcome = "passed";
+  fixture.report.reason = null;
+  fixture.report.top_issue = "No unresolved design issue.";
+  rewriteReviewsAndReport(fixture);
+  assert.equal(
+    check(fixture, newCommit).ok,
+    true,
+    JSON.stringify(check(fixture, newCommit).issues)
+  );
+  assert.equal(
+    check(fixture, COMMIT).ok,
+    false,
+    "a fresh pass cannot attest the predecessor source commit"
+  );
 });

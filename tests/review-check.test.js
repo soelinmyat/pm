@@ -37,7 +37,7 @@ const {
   MAX_FINDINGS_PER_ROUND,
   MAX_JSON_BYTES,
 } = require("../scripts/lib/review-limits");
-const { createSession } = require("../scripts/lib/dev-session-schema");
+const { createSession, recordResult, resumeBlocked } = require("../scripts/lib/dev-session-schema");
 const {
   expectedPriorReportPath,
   expectedReviewPath,
@@ -3687,4 +3687,243 @@ function binding(root, relative) {
 
 function git(root, args) {
   return execFileSync("git", args, { cwd: root, encoding: "utf8" });
+}
+
+test("fourth Review wave and Dev runner retain failures and reject replay or material scope forgery", (t) => {
+  const fixture = makeFixture({ maxWorkers: 3 });
+  t.after(() => {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+    fs.rmSync(`${fixture.root}-origin.git`, { recursive: true, force: true });
+  });
+  fixture.reportPath = fixture.roundReportPath;
+  fixture.htmlPath = fixture.roundHtmlPath;
+  const sourceFinding = { ...validFinding("bug"), fix_kind: "mechanical" };
+  setFindingForLens(fixture, "bug", sourceFinding);
+  for (let round = 1; round <= 3; round++) {
+    if (round === 2) {
+      const originalTarget = structuredClone(fixture.target);
+      write(fixture.root, fixture.targetPath, { ...fixture.target, recovery: null });
+      const invalid = checkReview({
+        root: fixture.root,
+        targetPath: fixture.targetPath,
+        resultPaths: [],
+        verifyBrowser: false,
+      });
+      assert.ok(
+        invalid.issues.some((issue) => issue.path === "target.recovery"),
+        "a present null diagnosis must fail even before the mandatory threshold"
+      );
+      write(fixture.root, fixture.targetPath, originalTarget);
+    }
+    const checked = generate(fixture);
+    assert.equal(checked.ok, true, JSON.stringify(checked.issues));
+    assert.equal(
+      checked.report.outcome,
+      "failed",
+      `round ${round} must not invent a product decision`
+    );
+    renderReviewReport({
+      root: fixture.root,
+      reportPath: fixture.reportPath,
+      outputPath: fixture.htmlPath,
+    });
+    if (round === 3) break;
+    advanceRecoveryReviewFixture(fixture, round + 1);
+    setFindingForLens(fixture, "bug", sourceFinding);
+  }
+  const retainedThirdBytes = fs.readFileSync(path.join(fixture.root, fixture.reportPath));
+  let session = createSession({ slug: "example", sourceDir: fixture.root });
+  session.phase = "review";
+  session.phase_attempt = 3;
+  const runtime = { provider: "codex", model: "test-model", reasoning: "high" };
+  const failure = {
+    schema_version: 1,
+    run_id: session.run_id,
+    phase: "review",
+    attempt: 3,
+    status: "failed",
+    summary: "An independent scoped Review still sees the contract defect.",
+    commit: fixture.target.source.commit,
+    files_changed: [],
+    evidence: [
+      {
+        kind: "review",
+        command: "node scripts/review-check.js --from-report --verify-browser false",
+        exit_code: 0,
+        artifact: path.join(fixture.root, fixture.reportPath),
+      },
+    ],
+    blocker: null,
+    runtime,
+  };
+  session = recordResult(session, failure);
+  assert.equal(session.status, "active");
+  assert.equal(session.phase_attempt, 4);
+  assert.equal(
+    session.evidence.review.commit,
+    null,
+    "non-passing anchors cannot supply a gate pass"
+  );
+  assert.equal(session.evidence.review.recovery_history[0].round, 3);
+  const blocked = recordResult(session, {
+    ...failure,
+    attempt: 4,
+    status: "blocked",
+    evidence: [],
+    summary: "Required fixture collector is unavailable.",
+    blocker: {
+      code: "environment-unavailable",
+      reason: "Fixture collector unavailable",
+      remediation: "Restore collector",
+    },
+  });
+  const resumed = resumeBlocked(blocked, "Fixture collector restored");
+  assert.equal(resumed.phase_attempt, 5, "resuming a real blocker cannot reset recovery attempts");
+  assert.throws(
+    () =>
+      recordResult(session, {
+        ...failure,
+        attempt: 4,
+        status: "passed",
+        evidence: [
+          ...failure.evidence,
+          { kind: "test", command: "node --test", exit_code: 0, artifact: null },
+        ],
+      }),
+    /outcome failed contradicts passed/,
+    "a failed report cannot be narrated into a gate pass"
+  );
+  assert.throws(
+    () => recordResult(session, { ...failure, attempt: 4 }),
+    /immediately prior|replay|reset/
+  );
+
+  const recoveryPath = ".pm/recovery-diagnosis.json";
+  const recovery = {
+    classification: "product-defect",
+    observed: "The retained contract finding persists.",
+    cause: "Earlier fixes changed the wrong branch.",
+    change: "Restore the documented changed export branch.",
+    next_check: "Run current focused regression and a complete independent Review wave.",
+    evidence_ids: [sourceFinding.id],
+    scope_assessment: "within-approved-scope",
+  };
+  write(fixture.root, recoveryPath, recovery);
+  advanceRecoveryReviewFixture(fixture, 4, recoveryPath);
+  // A local scope claim cannot turn a material risk change into ordinary repair.
+  write(fixture.root, recoveryPath, { ...recovery, classification: "scope-risk-change" });
+  assert.throws(
+    () =>
+      buildReviewTarget({
+        root: fixture.root,
+        maxWorkers: 3,
+        profile: "codex-workhorse",
+        runId: "review-test",
+        round: 4,
+        priorReportPath: `${path.dirname(path.dirname(fixture.targetPath))}/round-3/report.json`,
+        recoveryPath,
+      }),
+    /genuine.*decision|scope/
+  );
+  write(fixture.root, recoveryPath, recovery);
+  fixture.reportPath = ".pm/dev-sessions/example/review/report.json";
+  fixture.htmlPath = ".pm/dev-sessions/example/review/report.html";
+  const passing = generate(fixture);
+  assert.equal(passing.ok, true, JSON.stringify(passing.issues));
+  assert.equal(passing.report.outcome, "passed");
+  renderReviewReport({
+    root: fixture.root,
+    reportPath: fixture.reportPath,
+    outputPath: fixture.htmlPath,
+  });
+  const accepted = recordResult(session, {
+    ...failure,
+    attempt: 4,
+    status: "passed",
+    commit: fixture.target.source.commit,
+    summary: "Current independent reviewers find the correction clean.",
+    evidence: [
+      { ...failure.evidence[0], artifact: path.join(fixture.root, fixture.reportPath) },
+      { kind: "test", command: "node --test tests/example.test.js", exit_code: 0, artifact: null },
+    ],
+  });
+  assert.equal(accepted.evidence.review.recovery_history.length, 2);
+  assert.equal(accepted.evidence.review.recovery_history[1].round, 4);
+  assert.equal(accepted.evidence.review.commit, fixture.target.source.commit);
+  const laterBlocked = recordResult(
+    { ...accepted, phase: "review", phase_attempt: 5 },
+    {
+      ...failure,
+      attempt: 5,
+      status: "blocked",
+      commit: fixture.target.source.commit,
+      evidence: [],
+      summary: "A required independent checker is unavailable during revalidation.",
+      blocker: {
+        code: "environment-unavailable",
+        reason: "Independent checker unavailable",
+        remediation: "Restore the independent checker",
+      },
+    }
+  );
+  assert.equal(laterBlocked.evidence.review.commit, null);
+  assert.deepEqual(laterBlocked.evidence.review.records, []);
+  assert.deepEqual(
+    laterBlocked.evidence.review.recovery_history,
+    accepted.evidence.review.recovery_history,
+    "withholding a later gate must retain every historical observation"
+  );
+  assert.deepEqual(
+    fs.readFileSync(
+      path.join(
+        fixture.root,
+        ".pm/dev-sessions/example/review/runs/review-test/round-3/report.json"
+      )
+    ),
+    retainedThirdBytes
+  );
+});
+
+function advanceRecoveryReviewFixture(fixture, round, recoveryPath) {
+  const priorReportPath = fixture.reportPath;
+  fs.writeFileSync(
+    path.join(fixture.root, "src/example.js"),
+    `module.exports = { value: ${round + 1} };\n`
+  );
+  git(fixture.root, ["add", "src/example.js"]);
+  git(fixture.root, ["commit", "-qm", `scoped repair ${round}`]);
+  const originals = fixture.resultPaths.map((file) =>
+    JSON.parse(fs.readFileSync(path.join(fixture.root, file), "utf8"))
+  );
+  fixture.target = buildReviewTarget({
+    root: fixture.root,
+    maxWorkers: 3,
+    profile: "codex-workhorse",
+    runId: "review-test",
+    round,
+    priorReportPath,
+    recoveryPath,
+  });
+  const evidenceRoot = ".pm/dev-sessions/example/review/runs/review-test";
+  fixture.targetPath = `${evidenceRoot}/round-${round}/target.json`;
+  fixture.reportPath = `${evidenceRoot}/round-${round}/report.json`;
+  fixture.htmlPath = `${evidenceRoot}/round-${round}/report.html`;
+  write(fixture.root, fixture.targetPath, fixture.target);
+  fixture.resultPaths = fixture.target.allocation.map((worker) => {
+    const previous = originals.find((row) => row.worker_id === worker.worker_id);
+    const relative = `${evidenceRoot}/round-${round}/results/${worker.worker_id}.json`;
+    write(fixture.root, relative, {
+      ...previous,
+      review_round: round,
+      target: binding(fixture.root, fixture.targetPath),
+      source: fixture.target.source,
+      findings: [],
+      verdicts: worker.lenses.map((lens) => ({
+        lens,
+        outcome: "clean",
+        summary: "No current scoped finding.",
+      })),
+    });
+    return relative;
+  });
 }

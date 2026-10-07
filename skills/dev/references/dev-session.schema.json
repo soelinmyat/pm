@@ -27,109 +27,50 @@
     "migration"
   ],
   "properties": {
-    "schema_version": {
-      "const": 3
-    },
-    "run_id": {
-      "type": "string",
-      "pattern": "^dev_"
-    },
-    "slug": {
-      "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9._-]*$"
-    },
-    "status": {
-      "enum": [
-        "active",
-        "blocked",
-        "handoff",
-        "complete"
-      ]
-    },
-    "phase": {
-      "$ref": "#/$defs/phase"
-    },
-    "phase_attempt": {
-      "type": "integer",
-      "minimum": 1
-    },
-    "created_at": {
-      "type": "string",
-      "format": "date-time"
-    },
-    "updated_at": {
-      "type": "string",
-      "format": "date-time"
-    },
-    "source": {
-      "$ref": "#/$defs/source"
-    },
-    "task": {
-      "$ref": "#/$defs/task"
-    },
-    "execution": {
-      "$ref": "#/$defs/execution"
-    },
-    "authority": {
-      "$ref": "#/$defs/authority"
-    },
+    "schema_version": { "const": 3 },
+    "run_id": { "type": "string", "pattern": "^dev_" },
+    "slug": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+    "status": { "enum": ["active", "blocked", "handoff", "complete"] },
+    "phase": { "$ref": "#/$defs/phase" },
+    "phase_attempt": { "type": "integer", "minimum": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "source": { "$ref": "#/$defs/source" },
+    "task": { "$ref": "#/$defs/task" },
+    "execution": { "$ref": "#/$defs/execution" },
+    "authority": { "$ref": "#/$defs/authority" },
     "authority_log": {
       "type": "array",
-      "items": {
-        "$ref": "#/$defs/authority_grant"
-      }
+      "items": { "$ref": "#/$defs/authority_grant" }
     },
-    "routing": {
-      "$ref": "#/$defs/routing"
-    },
-    "candidate": {
-      "$ref": "#/$defs/candidate"
-    },
+    "routing": { "$ref": "#/$defs/routing" },
+    "candidate": { "$ref": "#/$defs/candidate" },
     "evidence": {
       "type": "object",
-      "additionalProperties": {
-        "$ref": "#/$defs/evidence_set"
-      }
+      "additionalProperties": { "$ref": "#/$defs/evidence_set" }
     },
     "attempts": {
       "type": "array",
-      "items": {
-        "$ref": "#/$defs/attempt_record"
-      }
+      "items": { "$ref": "#/$defs/attempt_record" }
     },
     "blockers": {
       "type": "array",
-      "items": {
-        "$ref": "#/$defs/blocker_record"
-      }
+      "items": { "$ref": "#/$defs/blocker_record" }
     },
     "history": {
       "type": "array",
-      "items": {
-        "$ref": "#/$defs/history_record"
-      }
+      "items": { "$ref": "#/$defs/history_record" }
     },
     "migration": {
       "oneOf": [
-        {
-          "type": "null"
-        },
+        { "type": "null" },
         {
           "type": "object",
           "additionalProperties": false,
-          "required": [
-            "legacy_path",
-            "migrated_at"
-          ],
+          "required": ["legacy_path", "migrated_at"],
           "properties": {
-            "legacy_path": {
-              "type": "string",
-              "pattern": "^/"
-            },
-            "migrated_at": {
-              "type": "string",
-              "format": "date-time"
-            }
+            "legacy_path": { "type": "string", "pattern": "^/" },
+            "migrated_at": { "type": "string", "format": "date-time" }
           }
         }
       ]
@@ -149,10 +90,7 @@
       ]
     },
     "candidate_identity": {
-      "type": [
-        "string",
-        "null"
-      ],
+      "type": ["string", "null"],
       "pattern": "^sha256:[0-9a-f]{64}$"
     },
     "candidate_authority": {
@@ -167,50 +105,23 @@
         "merge"
       ],
       "properties": {
-        "push_feature_branch": {
-          "type": "boolean"
-        },
-        "create_draft_pr": {
-          "type": "boolean"
-        },
-        "certify": {
-          "const": false
-        },
-        "ready_for_review": {
-          "const": false
-        },
-        "auto_merge": {
-          "const": false
-        },
-        "merge": {
-          "const": false
-        }
+        "push_feature_branch": { "type": "boolean" },
+        "create_draft_pr": { "type": "boolean" },
+        "certify": { "const": false },
+        "ready_for_review": { "const": false },
+        "auto_merge": { "const": false },
+        "merge": { "const": false }
       }
     },
     "candidate_transition": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "from",
-        "to",
-        "reason",
-        "recorded_at"
-      ],
+      "required": ["from", "to", "reason", "recorded_at"],
       "properties": {
-        "from": {
-          "$ref": "#/$defs/candidate_state"
-        },
-        "to": {
-          "$ref": "#/$defs/candidate_state"
-        },
-        "reason": {
-          "type": "string",
-          "minLength": 1
-        },
-        "recorded_at": {
-          "type": "string",
-          "format": "date-time"
-        }
+        "from": { "$ref": "#/$defs/candidate_state" },
+        "to": { "$ref": "#/$defs/candidate_state" },
+        "reason": { "type": "string", "minLength": 1 },
+        "recorded_at": { "type": "string", "format": "date-time" }
       }
     },
     "candidate": {
@@ -230,100 +141,50 @@
         "authority"
       ],
       "properties": {
-        "state": {
-          "$ref": "#/$defs/candidate_state"
-        },
-        "route": {
-          "enum": [
-            "comprehensive",
-            "review-candidate"
-          ]
-        },
+        "state": { "$ref": "#/$defs/candidate_state" },
+        "route": { "enum": ["comprehensive", "review-candidate"] },
         "route_reasons": {
           "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
+          "items": { "type": "string", "minLength": 1 }
         },
-        "affected_identity": {
-          "$ref": "#/$defs/candidate_identity"
-        },
+        "affected_identity": { "$ref": "#/$defs/candidate_identity" },
         "review_requirements": {
           "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
+          "items": { "type": "string", "minLength": 1 }
         },
-        "repository_capability_identity": {
-          "$ref": "#/$defs/candidate_identity"
-        },
-        "gate_plan_identity": {
-          "$ref": "#/$defs/candidate_identity"
-        },
+        "repository_capability_identity": { "$ref": "#/$defs/candidate_identity" },
+        "gate_plan_identity": { "$ref": "#/$defs/candidate_identity" },
         "invalidation": {
           "oneOf": [
-            {
-              "type": "null"
-            },
+            { "type": "null" },
             {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "reason",
-                "recorded_at"
-              ],
+              "required": ["reason", "recorded_at"],
               "properties": {
-                "reason": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "recorded_at": {
-                  "type": "string",
-                  "format": "date-time"
-                }
+                "reason": { "type": "string", "minLength": 1 },
+                "recorded_at": { "type": "string", "format": "date-time" }
               }
             }
           ]
         },
         "transition_history": {
           "type": "array",
-          "items": {
-            "$ref": "#/$defs/candidate_transition"
-          }
+          "items": { "$ref": "#/$defs/candidate_transition" }
         },
-        "external_effect_started_at": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "format": "date-time"
-        },
-        "authority": {
-          "$ref": "#/$defs/candidate_authority"
-        }
+        "external_effect_started_at": { "type": ["string", "null"], "format": "date-time" },
+        "authority": { "$ref": "#/$defs/candidate_authority" }
       },
       "allOf": [
         {
-          "if": {
-            "properties": {
-              "state": {
-                "const": "review-candidate"
-              }
-            }
-          },
+          "if": { "properties": { "state": { "const": "review-candidate" } } },
           "then": {
             "properties": {
               "authority": {
                 "type": "object",
                 "properties": {
-                  "push_feature_branch": {
-                    "const": true
-                  },
-                  "create_draft_pr": {
-                    "const": true
-                  }
+                  "push_feature_branch": { "const": true },
+                  "create_draft_pr": { "const": true }
                 }
               }
             }
@@ -333,12 +194,8 @@
               "authority": {
                 "type": "object",
                 "properties": {
-                  "push_feature_branch": {
-                    "const": false
-                  },
-                  "create_draft_pr": {
-                    "const": false
-                  }
+                  "push_feature_branch": { "const": false },
+                  "create_draft_pr": { "const": false }
                 }
               }
             }
@@ -362,38 +219,14 @@
     "source": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "repo_root",
-        "worktree",
-        "branch",
-        "default_branch",
-        "base_commit"
-      ],
+      "required": ["repo_root", "worktree", "branch", "default_branch", "base_commit"],
       "properties": {
-        "repo_root": {
-          "type": "string",
-          "pattern": "^/"
-        },
-        "worktree": {
-          "type": "string",
-          "pattern": "^/"
-        },
-        "branch": {
-          "type": "string",
-          "minLength": 1
-        },
-        "default_branch": {
-          "type": "string",
-          "minLength": 1
-        },
-        "base_commit": {
-          "type": "string",
-          "minLength": 1
-        },
-        "delivery_remote": {
-          "type": "string",
-          "minLength": 1
-        }
+        "repo_root": { "type": "string", "pattern": "^/" },
+        "worktree": { "type": "string", "pattern": "^/" },
+        "branch": { "type": "string", "minLength": 1 },
+        "default_branch": { "type": "string", "minLength": 1 },
+        "base_commit": { "type": "string", "minLength": 1 },
+        "delivery_remote": { "type": "string", "minLength": 1 }
       }
     },
     "risk": {
@@ -412,54 +245,16 @@
         "cross_module"
       ],
       "properties": {
-        "behavioral": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 3
-        },
-        "security": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 3
-        },
-        "auth": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 3
-        },
-        "data": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 3
-        },
-        "destructive_data": {
-          "type": "boolean"
-        },
-        "external_contract": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 3
-        },
-        "operational": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 3
-        },
-        "ui": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 3
-        },
-        "reversibility": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 3
-        },
-        "cross_module": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 3
-        }
+        "behavioral": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "security": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "auth": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "data": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "destructive_data": { "type": "boolean" },
+        "external_contract": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "operational": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "ui": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "reversibility": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "cross_module": { "type": "integer", "minimum": 0, "maximum": 3 }
       }
     },
     "design_context_provenance": {
@@ -467,35 +262,17 @@
       "anyOf": [
         {
           "type": "object",
-          "required": [
-            "proposal"
-          ],
-          "properties": {
-            "proposal": {
-              "type": "object"
-            }
-          }
+          "required": ["proposal"],
+          "properties": { "proposal": { "type": "object" } }
         },
         {
           "type": "object",
-          "required": [
-            "rfc_sidecar"
-          ],
-          "properties": {
-            "rfc_sidecar": {
-              "type": "object"
-            }
-          }
+          "required": ["rfc_sidecar"],
+          "properties": { "rfc_sidecar": { "type": "object" } }
         },
         {
-          "required": [
-            "native"
-          ],
-          "properties": {
-            "native": {
-              "$ref": "#/$defs/native_provenance"
-            }
-          }
+          "required": ["native"],
+          "properties": { "native": { "$ref": "#/$defs/native_provenance" } }
         }
       ]
     },
@@ -706,45 +483,20 @@
         "work_units"
       ],
       "properties": {
-        "reference": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "native": {
-          "$ref": "#/$defs/native_provenance"
-        },
+        "reference": { "type": ["string", "null"] },
+        "native": { "$ref": "#/$defs/native_provenance" },
         "rfc_sidecar": {
           "oneOf": [
-            {
-              "type": "null"
-            },
+            { "type": "null" },
             {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "path",
-                "sha256",
-                "schema_version",
-                "slug"
-              ],
+              "required": ["path", "sha256", "schema_version", "slug"],
               "properties": {
-                "path": {
-                  "type": "string",
-                  "pattern": "^/"
-                },
-                "sha256": {
-                  "type": "string",
-                  "pattern": "^sha256:[0-9a-f]{64}$"
-                },
-                "schema_version": {
-                  "const": 3
-                },
-                "slug": {
-                  "type": "string",
-                  "minLength": 1
-                }
+                "path": { "type": "string", "pattern": "^/" },
+                "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+                "schema_version": { "const": 3 },
+                "slug": { "type": "string", "minLength": 1 }
               }
             }
           ]
@@ -767,31 +519,12 @@
               "recorded_at"
             ],
             "properties": {
-              "from_sidecar_sha256": {
-                "type": "string",
-                "pattern": "^sha256:[0-9a-f]{64}$"
-              },
-              "to_sidecar_sha256": {
-                "type": "string",
-                "pattern": "^sha256:[0-9a-f]{64}$"
-              },
-              "approval_run_id": {
-                "type": "string",
-                "pattern": "^rfc_[A-Za-z0-9_-]+$"
-              },
-              "approval_sha256": {
-                "type": "string",
-                "pattern": "^sha256:[0-9a-f]{64}$"
-              },
-              "amends_run_id": {
-                "type": "string",
-                "pattern": "^rfc_[A-Za-z0-9_-]+$"
-              },
-              "reason": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 2000
-              },
+              "from_sidecar_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+              "to_sidecar_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+              "approval_run_id": { "type": "string", "pattern": "^rfc_[A-Za-z0-9_-]+$" },
+              "approval_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+              "amends_run_id": { "type": "string", "pattern": "^rfc_[A-Za-z0-9_-]+$" },
+              "reason": { "type": "string", "minLength": 1, "maxLength": 2000 },
               "changed_units": {
                 "type": "array",
                 "minItems": 1,
@@ -856,18 +589,13 @@
                   ]
                 }
               },
-              "recorded_at": {
-                "type": "string",
-                "format": "date-time"
-              }
+              "recorded_at": { "type": "string", "format": "date-time" }
             }
           }
         },
         "proposal": {
           "oneOf": [
-            {
-              "type": "null"
-            },
+            { "type": "null" },
             {
               "type": "object",
               "additionalProperties": false,
@@ -885,186 +613,79 @@
                 "decision_sha256"
               ],
               "properties": {
-                "path": {
-                  "type": "string",
-                  "pattern": "^/"
-                },
-                "kind": {
-                  "const": "approved-canonical-json"
-                },
-                "trusted_approval": {
-                  "const": true
-                },
-                "proposal_id": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "slug": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "revision": {
-                  "type": "integer",
-                  "minimum": 1
-                },
-                "lifecycle": {
-                  "enum": [
-                    "approved",
-                    "planned",
-                    "in-progress",
-                    "done"
-                  ]
-                },
-                "content_sha256": {
-                  "type": "string",
-                  "pattern": "^sha256:[0-9a-f]{64}$"
-                },
-                "approved_proposal_sha256": {
-                  "type": "string",
-                  "pattern": "^sha256:[0-9a-f]{64}$"
-                },
-                "decision_id": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "decision_sha256": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
-                  "pattern": "^sha256:[0-9a-f]{64}$"
-                }
+                "path": { "type": "string", "pattern": "^/" },
+                "kind": { "const": "approved-canonical-json" },
+                "trusted_approval": { "const": true },
+                "proposal_id": { "type": "string", "minLength": 1 },
+                "slug": { "type": "string", "minLength": 1 },
+                "revision": { "type": "integer", "minimum": 1 },
+                "lifecycle": { "enum": ["approved", "planned", "in-progress", "done"] },
+                "content_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+                "approved_proposal_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+                "decision_id": { "type": ["string", "null"] },
+                "decision_sha256": { "type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$" }
               }
             }
           ]
         },
         "design_context": {
           "oneOf": [
-            {
-              "type": "null"
-            },
-            {
-              "$ref": "#/$defs/design_context"
-            }
+            { "type": "null" },
+            { "$ref": "#/$defs/design_context" }
           ]
         },
-        "kind": {
-          "type": "string",
-          "minLength": 1
-        },
-        "size": {
-          "enum": [
-            "XS",
-            "S",
-            "M",
-            "L",
-            "XL",
-            "unknown"
-          ]
-        },
-        "risk": {
-          "$ref": "#/$defs/risk"
-        },
-        "risk_tier": {
-          "type": "string",
-          "minLength": 1
-        },
-        "non_behavioral_reason": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 2000,
-          "pattern": "\\S"
-        },
-        "ui_platform": {
-          "enum": [
-            "web",
-            "mobile",
-            "mixed",
-            "unknown"
-          ]
-        },
-        "acceptance_criteria": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "work_units": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/work_unit"
-          }
-        },
-        "preview_source_root": {
-          "description": "Explicit local Git worktree for the pinned runnable preview; library validation also verifies the root and preview identity.",
-          "type": "string",
-          "pattern": "^/"
-        }
+        "kind": { "type": "string", "minLength": 1 },
+        "size": { "enum": ["XS", "S", "M", "L", "XL", "unknown"] },
+        "risk": { "$ref": "#/$defs/risk" },
+        "risk_tier": { "type": "string", "minLength": 1 },
+        "non_behavioral_reason": { "type": "string", "minLength": 1, "maxLength": 2000, "pattern": "\\S" },
+        "ui_platform": { "enum": ["web", "mobile", "mixed", "unknown"] },
+        "acceptance_criteria": { "type": "array", "items": { "type": "string" } },
+        "work_units": { "type": "array", "items": { "$ref": "#/$defs/work_unit" } }
       },
       "allOf": [
         {
-          "if": {
-            "required": [
-              "design_context"
-            ],
-            "properties": {
-              "design_context": {
-                "type": "object"
-              }
-            }
-          },
+          "if": { "required": ["app_preview"] },
           "then": {
-            "$ref": "#/$defs/design_context_provenance"
+            "required": ["ui_impact"],
+            "properties": { "ui_impact": { "const": true }, "prototype": { "type": "null" } }
           }
         },
         {
           "if": {
-            "required": [
-              "work_units"
-            ],
+            "required": ["design_context"],
+            "properties": { "design_context": { "type": "object" } }
+          },
+          "then": { "$ref": "#/$defs/design_context_provenance" }
+        },
+        {
+          "if": {
+            "required": ["work_units"],
             "properties": {
               "work_units": {
                 "type": "array",
                 "contains": {
                   "type": "object",
-                  "required": [
-                    "contract"
-                  ],
+                  "required": ["contract"],
                   "properties": {
                     "contract": {
                       "type": "object",
-                      "required": [
-                        "design_context"
-                      ]
+                      "required": ["design_context"]
                     }
                   }
                 }
               }
             }
           },
-          "then": {
-            "$ref": "#/$defs/design_context_provenance"
-          }
+          "then": { "$ref": "#/$defs/design_context_provenance" }
         },
         {
-          "if": {
-            "required": [
-              "native"
-            ]
-          },
+          "if": { "required": ["native"] },
           "then": {
             "properties": {
-              "proposal": {
-                "type": "null"
-              },
-              "rfc_sidecar": {
-                "type": "null"
-              },
-              "rfc_contract_history": {
-                "maxItems": 0
-              }
+              "proposal": { "type": "null" },
+              "rfc_sidecar": { "type": "null" },
+              "rfc_contract_history": { "maxItems": 0 }
             }
           }
         }
@@ -1073,46 +694,13 @@
     "work_unit_transition": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "from",
-        "to",
-        "reason",
-        "commit",
-        "recorded_at"
-      ],
+      "required": ["from", "to", "reason", "commit", "recorded_at"],
       "properties": {
-        "from": {
-          "enum": [
-            "pending",
-            "running",
-            "completed",
-            "blocked",
-            "failed"
-          ]
-        },
-        "to": {
-          "enum": [
-            "pending",
-            "running",
-            "completed",
-            "blocked",
-            "failed"
-          ]
-        },
-        "reason": {
-          "type": "string",
-          "minLength": 1
-        },
-        "commit": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "recorded_at": {
-          "type": "string",
-          "format": "date-time"
-        }
+        "from": { "enum": ["pending", "running", "completed", "blocked", "failed"] },
+        "to": { "enum": ["pending", "running", "completed", "blocked", "failed"] },
+        "reason": { "type": "string", "minLength": 1 },
+        "commit": { "type": ["string", "null"] },
+        "recorded_at": { "type": "string", "format": "date-time" }
       }
     },
     "design_context": {
@@ -1125,38 +713,24 @@
         "visual_invariants"
       ],
       "dependentRequired": {
-        "ui_impact": [
-          "experience_invariants"
-        ],
-        "experience_invariants": [
-          "ui_impact"
-        ]
+        "ui_impact": ["experience_invariants"],
+        "experience_invariants": ["ui_impact"]
       },
       "properties": {
         "design_requirements": {
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
+          "items": { "type": "string", "minLength": 1 }
         },
-        "ui_impact": {
-          "type": "boolean"
-        },
+        "ui_impact": { "type": "boolean" },
         "prototype": {
           "oneOf": [
-            {
-              "type": "null"
-            },
+            { "type": "null" },
             {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "path",
-                "sha256"
-              ],
+              "required": ["path", "sha256"],
               "properties": {
                 "path": {
                   "type": "string",
@@ -1170,15 +744,9 @@
                 "manifest": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema_version",
-                    "files",
-                    "tree_sha256"
-                  ],
+                  "required": ["schema_version", "files", "tree_sha256"],
                   "properties": {
-                    "schema_version": {
-                      "const": 1
-                    },
+                    "schema_version": { "const": 1 },
                     "files": {
                       "type": "array",
                       "minItems": 3,
@@ -1187,15 +755,9 @@
                       "items": {
                         "type": "object",
                         "additionalProperties": false,
-                        "required": [
-                          "path",
-                          "sha256"
-                        ],
+                        "required": ["path", "sha256"],
                         "properties": {
-                          "path": {
-                            "type": "string",
-                            "minLength": 1
-                          },
+                          "path": { "type": "string", "minLength": 1 },
                           "sha256": {
                             "type": "string",
                             "pattern": "^sha256:[a-f0-9]{64}$"
@@ -1217,83 +779,17 @@
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
+          "items": { "type": "string", "minLength": 1 }
         },
         "experience_invariants": {
           "type": "array",
           "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
+          "items": { "type": "string", "minLength": 1 }
         },
         "visual_invariants": {
           "type": "array",
           "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
-        "app_preview": {
-          "description": "Exact runnable preview identity; scripts/lib/app-preview.js validates all nested fields, hashes, journeys and current source/fixture evidence.",
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "schema_version",
-            "mode",
-            "source",
-            "reviewed_starting_code",
-            "fixtures",
-            "launch",
-            "journeys",
-            "capture",
-            "observations",
-            "evidence",
-            "sha256"
-          ],
-          "properties": {
-            "schema_version": {
-              "const": 1
-            },
-            "mode": {
-              "const": "in-app"
-            },
-            "source": {
-              "type": "object"
-            },
-            "reviewed_starting_code": {
-              "type": "array",
-              "minItems": 1
-            },
-            "fixtures": {
-              "type": "object"
-            },
-            "launch": {
-              "type": "object"
-            },
-            "journeys": {
-              "type": "array",
-              "minItems": 1
-            },
-            "capture": {
-              "type": "object"
-            },
-            "observations": {
-              "type": "object"
-            },
-            "evidence": {
-              "type": "array",
-              "minItems": 1
-            },
-            "sha256": {
-              "type": "string",
-              "pattern": "^sha256:[a-f0-9]{64}$"
-            }
-          }
+          "items": { "type": "string", "minLength": 1 }
         }
       },
       "allOf": [
@@ -1301,91 +797,36 @@
           "if": {
             "not": {
               "type": "object",
-              "properties": {
-                "ui_impact": {}
-              },
-              "required": [
-                "ui_impact"
-              ]
+              "properties": { "ui_impact": {} },
+              "required": ["ui_impact"]
             }
           },
           "then": {
+            "properties": { "visual_invariants": { "type": "array", "minItems": 1 } }
+          }
+        },
+        {
+          "if": {
+            "required": ["ui_impact"],
+            "properties": { "ui_impact": { "const": true } }
+          },
+          "then": {
             "properties": {
-              "visual_invariants": {
-                "type": "array",
-                "minItems": 1
-              }
+              "experience_invariants": { "type": "array", "minItems": 1 },
+              "visual_invariants": { "type": "array", "minItems": 1 }
             }
           }
         },
         {
           "if": {
-            "required": [
-              "ui_impact"
-            ],
-            "properties": {
-              "ui_impact": {
-                "const": true
-              }
-            }
+            "required": ["ui_impact"],
+            "properties": { "ui_impact": { "const": false } }
           },
           "then": {
             "properties": {
-              "experience_invariants": {
-                "type": "array",
-                "minItems": 1
-              },
-              "visual_invariants": {
-                "type": "array",
-                "minItems": 1
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "required": [
-              "ui_impact"
-            ],
-            "properties": {
-              "ui_impact": {
-                "const": false
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "prototype": {
-                "type": "null"
-              },
-              "experience_invariants": {
-                "type": "array",
-                "minItems": 1
-              },
-              "visual_invariants": {
-                "type": "array",
-                "maxItems": 0
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "required": [
-              "app_preview"
-            ]
-          },
-          "then": {
-            "required": [
-              "ui_impact"
-            ],
-            "properties": {
-              "ui_impact": {
-                "const": true
-              },
-              "prototype": {
-                "type": "null"
-              }
+              "prototype": { "type": "null" },
+              "experience_invariants": { "type": "array", "minItems": 1 },
+              "visual_invariants": { "type": "array", "maxItems": 0 }
             }
           }
         }
@@ -1394,168 +835,66 @@
     "work_unit": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "id",
-        "title",
-        "depends_on",
-        "owns",
-        "status"
-      ],
+      "required": ["id", "title", "depends_on", "owns", "status"],
       "properties": {
-        "id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "title": {
-          "type": "string",
-          "minLength": 1
-        },
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
         "depends_on": {
           "type": "array",
           "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
+          "items": { "type": "string", "minLength": 1 }
         },
         "owns": {
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
+          "items": { "type": "string", "minLength": 1 }
         },
-        "contract": {
-          "$ref": "#/$defs/work_unit_contract"
-        },
-        "status": {
-          "enum": [
-            "pending",
-            "running",
-            "completed",
-            "blocked",
-            "failed"
-          ]
-        },
-        "base_commit": {
-          "type": "string",
-          "minLength": 1
-        },
-        "assigned_worktree": {
-          "type": "string",
-          "pattern": "^/"
-        },
-        "assigned_branch": {
-          "type": "string",
-          "minLength": 1
-        },
+        "contract": { "$ref": "#/$defs/work_unit_contract" },
+        "status": { "enum": ["pending", "running", "completed", "blocked", "failed"] },
+        "base_commit": { "type": "string", "minLength": 1 },
+        "assigned_worktree": { "type": "string", "pattern": "^/" },
+        "assigned_branch": { "type": "string", "minLength": 1 },
         "result": {
-          "oneOf": [
-            {
-              "type": "null"
-            },
-            {
-              "$ref": "#/$defs/work_unit_result"
-            }
-          ]
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/work_unit_result" }]
         },
         "transitions": {
           "type": "array",
-          "items": {
-            "$ref": "#/$defs/work_unit_transition"
-          }
+          "items": { "$ref": "#/$defs/work_unit_transition" }
         },
-        "updated_at": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "format": "date-time"
-        }
+        "updated_at": { "type": ["string", "null"], "format": "date-time" }
       },
       "allOf": [
         {
           "if": {
             "properties": {
-              "status": {
-                "enum": [
-                  "running",
-                  "completed",
-                  "blocked",
-                  "failed"
-                ]
-              }
+              "status": { "enum": ["running", "completed", "blocked", "failed"] }
             }
           },
           "then": {
-            "required": [
-              "base_commit",
-              "assigned_worktree",
-              "assigned_branch"
-            ]
+            "required": ["base_commit", "assigned_worktree", "assigned_branch"]
           }
         },
         {
           "if": {
-            "properties": {
-              "status": {
-                "enum": [
-                  "completed",
-                  "blocked",
-                  "failed"
-                ]
-              }
-            }
+            "properties": { "status": { "enum": ["completed", "blocked", "failed"] } }
           },
-          "then": {
-            "required": [
-              "result"
-            ]
-          }
+          "then": { "required": ["result"] }
         },
         {
-          "if": {
-            "properties": {
-              "status": {
-                "enum": [
-                  "pending",
-                  "running"
-                ]
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "result": {
-                "type": "null"
-              }
-            }
-          }
+          "if": { "properties": { "status": { "enum": ["pending", "running"] } } },
+          "then": { "properties": { "result": { "type": "null" } } }
         },
         {
-          "if": {
-            "properties": {
-              "status": {
-                "const": "completed"
-              }
-            }
-          },
+          "if": { "properties": { "status": { "const": "completed" } } },
           "then": {
             "properties": {
               "result": {
                 "allOf": [
-                  {
-                    "$ref": "#/$defs/work_unit_result"
-                  },
+                  { "$ref": "#/$defs/work_unit_result" },
                   {
                     "type": "object",
-                    "properties": {
-                      "status": {
-                        "const": "completed"
-                      }
-                    }
+                    "properties": { "status": { "const": "completed" } }
                   }
                 ]
               }
@@ -1563,27 +902,15 @@
           }
         },
         {
-          "if": {
-            "properties": {
-              "status": {
-                "const": "blocked"
-              }
-            }
-          },
+          "if": { "properties": { "status": { "const": "blocked" } } },
           "then": {
             "properties": {
               "result": {
                 "allOf": [
-                  {
-                    "$ref": "#/$defs/work_unit_result"
-                  },
+                  { "$ref": "#/$defs/work_unit_result" },
                   {
                     "type": "object",
-                    "properties": {
-                      "status": {
-                        "const": "blocked"
-                      }
-                    }
+                    "properties": { "status": { "const": "blocked" } }
                   }
                 ]
               }
@@ -1591,27 +918,15 @@
           }
         },
         {
-          "if": {
-            "properties": {
-              "status": {
-                "const": "failed"
-              }
-            }
-          },
+          "if": { "properties": { "status": { "const": "failed" } } },
           "then": {
             "properties": {
               "result": {
                 "allOf": [
-                  {
-                    "$ref": "#/$defs/work_unit_result"
-                  },
+                  { "$ref": "#/$defs/work_unit_result" },
                   {
                     "type": "object",
-                    "properties": {
-                      "status": {
-                        "const": "failed"
-                      }
-                    }
+                    "properties": { "status": { "const": "failed" } }
                   }
                 ]
               }
@@ -1633,33 +948,19 @@
         "acceptance_criteria": {
           "type": "array",
           "minItems": 1,
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
+          "items": { "type": "string", "minLength": 1 }
         },
-        "approach": {
-          "type": "string",
-          "minLength": 1
-        },
+        "approach": { "type": "string", "minLength": 1 },
         "verification_commands": {
           "type": "array",
           "minItems": 1,
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
+          "items": { "type": "string", "minLength": 1 }
         },
         "test_hooks": {
           "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
+          "items": { "type": "string", "minLength": 1 }
         },
-        "design_context": {
-          "$ref": "#/$defs/design_context"
-        }
+        "design_context": { "$ref": "#/$defs/design_context" }
       }
     },
     "work_unit_result": {
@@ -1677,149 +978,67 @@
         "runtime"
       ],
       "properties": {
-        "schema_version": {
-          "const": 1
-        },
-        "work_unit_id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "status": {
-          "enum": [
-            "completed",
-            "blocked",
-            "failed"
-          ]
-        },
-        "summary": {
-          "type": "string",
-          "minLength": 1
-        },
-        "reason": {
-          "type": "string",
-          "minLength": 1
-        },
-        "commit": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "minLength": 1
-        },
-        "files_changed": {
-          "type": "integer",
-          "minimum": 0
-        },
+        "schema_version": { "const": 1 },
+        "work_unit_id": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["completed", "blocked", "failed"] },
+        "summary": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 },
+        "commit": { "type": ["string", "null"], "minLength": 1 },
+        "files_changed": { "type": "integer", "minimum": 0 },
         "evidence": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": [
-              "kind",
-              "exit_code"
-            ],
+            "required": ["kind", "exit_code"],
             "properties": {
-              "kind": {
-                "type": "string",
-                "minLength": 1
-              },
-              "exit_code": {
-                "type": "integer"
-              }
+              "kind": { "type": "string", "minLength": 1 },
+              "exit_code": { "type": "integer" }
             },
             "additionalProperties": true
           }
         },
         "blocker": {
           "anyOf": [
-            {
-              "type": "null"
-            },
+            { "type": "null" },
             {
               "type": "object",
-              "required": [
-                "reason"
-              ],
-              "properties": {
-                "reason": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              },
+              "required": ["reason"],
+              "properties": { "reason": { "type": "string", "minLength": 1 } },
               "additionalProperties": true
             }
           ]
         },
         "runtime": {
           "type": "object",
-          "required": [
-            "provider"
-          ],
-          "properties": {
-            "provider": {
-              "type": "string",
-              "minLength": 1
-            }
-          },
+          "required": ["provider"],
+          "properties": { "provider": { "type": "string", "minLength": 1 } },
           "additionalProperties": true
         }
       },
       "allOf": [
         {
-          "if": {
-            "properties": {
-              "status": {
-                "const": "completed"
-              }
-            }
-          },
+          "if": { "properties": { "status": { "const": "completed" } } },
           "then": {
             "properties": {
-              "commit": {
-                "type": "string",
-                "minLength": 1
-              },
+              "commit": { "type": "string", "minLength": 1 },
               "evidence": {
                 "type": "array",
                 "minItems": 1,
                 "contains": {
                   "type": "object",
-                  "required": [
-                    "exit_code"
-                  ],
-                  "properties": {
-                    "exit_code": {
-                      "const": 0
-                    }
-                  }
+                  "required": ["exit_code"],
+                  "properties": { "exit_code": { "const": 0 } }
                 }
               },
-              "blocker": {
-                "type": "null"
-              }
+              "blocker": { "type": "null" }
             }
           }
         },
         {
-          "if": {
-            "properties": {
-              "status": {
-                "enum": [
-                  "blocked",
-                  "failed"
-                ]
-              }
-            }
-          },
+          "if": { "properties": { "status": { "enum": ["blocked", "failed"] } } },
           "then": {
-            "required": [
-              "reason"
-            ],
-            "properties": {
-              "blocker": {
-                "type": "object"
-              }
-            }
+            "required": ["reason"],
+            "properties": { "blocker": { "type": "object" } }
           }
         }
       ]
@@ -1836,35 +1055,12 @@
         "runtime_session_id"
       ],
       "properties": {
-        "profile": {
-          "type": "string",
-          "minLength": 1
-        },
-        "runtime": {
-          "type": "string",
-          "minLength": 1
-        },
-        "model": {
-          "type": "string",
-          "minLength": 1
-        },
-        "reasoning": {
-          "type": "string",
-          "minLength": 1
-        },
-        "mode": {
-          "enum": [
-            "inline",
-            "delegated",
-            "headless"
-          ]
-        },
-        "runtime_session_id": {
-          "type": [
-            "string",
-            "null"
-          ]
-        }
+        "profile": { "type": "string", "minLength": 1 },
+        "runtime": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 },
+        "reasoning": { "type": "string", "minLength": 1 },
+        "mode": { "enum": ["inline", "delegated", "headless"] },
+        "runtime_session_id": { "type": ["string", "null"] }
       }
     },
     "authority": {
@@ -1879,56 +1075,29 @@
         "tracker_updates"
       ],
       "properties": {
-        "local_writes": {
-          "type": "boolean"
-        },
-        "commit": {
-          "type": "boolean"
-        },
-        "push_feature_branch": {
-          "type": "boolean"
-        },
-        "create_pr": {
-          "type": "boolean"
-        },
-        "merge": {
-          "type": "boolean"
-        },
-        "tracker_updates": {
-          "type": "boolean"
-        }
+        "local_writes": { "type": "boolean" },
+        "commit": { "type": "boolean" },
+        "push_feature_branch": { "type": "boolean" },
+        "create_pr": { "type": "boolean" },
+        "merge": { "type": "boolean" },
+        "tracker_updates": { "type": "boolean" }
       }
     },
     "authority_grant": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "actions",
-        "reason",
-        "granted_at"
-      ],
+      "required": ["actions", "reason", "granted_at"],
       "properties": {
         "actions": {
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
           "items": {
-            "enum": [
-              "push_feature_branch",
-              "create_pr",
-              "merge",
-              "tracker_updates"
-            ]
+            "enum": ["push_feature_branch", "create_pr", "merge", "tracker_updates"]
           }
         },
-        "reason": {
-          "type": "string",
-          "minLength": 1
-        },
-        "granted_at": {
-          "type": "string",
-          "format": "date-time"
-        }
+        "reason": { "type": "string", "minLength": 1 },
+        "granted_at": { "type": "string", "format": "date-time" }
       }
     },
     "routing": {
@@ -1946,81 +1115,38 @@
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/phase"
-          }
+          "items": { "$ref": "#/$defs/phase" }
         },
         "required_gates": {
           "type": "array",
           "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
+          "items": { "type": "string", "minLength": 1 }
         },
-        "review_mode": {
-          "enum": [
-            "code-scan",
-            "full"
-          ]
-        },
-        "decision_version": {
-          "type": "integer",
-          "minimum": 1
-        },
+        "review_mode": { "enum": ["code-scan", "full"] },
+        "decision_version": { "type": "integer", "minimum": 1 },
         "decision_log": {
           "type": "array",
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": [
-              "version",
-              "reason",
-              "recorded_at"
-            ],
+            "required": ["version", "reason", "recorded_at"],
             "properties": {
-              "version": {
-                "type": "integer",
-                "minimum": 2
-              },
-              "reason": {
-                "type": "string",
-                "minLength": 1
-              },
-              "recorded_at": {
-                "type": "string",
-                "format": "date-time"
-              }
+              "version": { "type": "integer", "minimum": 2 },
+              "reason": { "type": "string", "minLength": 1 },
+              "recorded_at": { "type": "string", "format": "date-time" }
             }
           }
         },
-        "reasons": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
+        "reasons": { "type": "array", "items": { "type": "string" } }
       },
       "allOf": [
         {
           "if": {
-            "properties": {
-              "decision_version": {
-                "type": "integer",
-                "minimum": 2
-              }
-            }
+            "properties": { "decision_version": { "type": "integer", "minimum": 2 } }
           },
           "then": {
-            "required": [
-              "decision_log"
-            ],
-            "properties": {
-              "decision_log": {
-                "type": "array",
-                "minItems": 1
-              }
-            }
+            "required": ["decision_log"],
+            "properties": { "decision_log": { "type": "array", "minItems": 1 } }
           }
         }
       ]
@@ -2028,254 +1154,156 @@
     "evidence_record": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "kind",
-        "command",
-        "exit_code",
-        "artifact"
-      ],
+      "required": ["kind", "command", "exit_code", "artifact"],
       "properties": {
-        "kind": {
-          "type": "string",
-          "minLength": 1
-        },
-        "command": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "exit_code": {
-          "type": "integer"
-        },
-        "artifact": {
-          "type": [
-            "string",
-            "null"
-          ]
-        }
+        "kind": { "type": "string", "minLength": 1 },
+        "command": { "type": ["string", "null"] },
+        "exit_code": { "type": "integer" },
+        "artifact": { "type": ["string", "null"] }
       }
     },
     "qa_run_anchor": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "run",
-        "commit",
-        "verdict",
-        "report_sha256"
-      ],
+      "required": ["run", "commit", "verdict", "report_sha256"],
       "properties": {
-        "run": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "commit": {
-          "type": "string",
-          "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
-        },
-        "verdict": {
-          "enum": [
-            "pass",
-            "pass-with-concerns",
-            "fail",
-            "blocked"
-          ]
-        },
-        "report_sha256": {
-          "type": "string",
-          "pattern": "^[a-f0-9]{64}$"
-        }
+        "run": { "type": "integer", "minimum": 1 },
+        "commit": { "type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" },
+        "verdict": { "enum": ["pass", "pass-with-concerns", "fail", "blocked"] },
+        "report_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
       }
     },
     "evidence_set": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "commit",
-        "records",
-        "recorded_at"
-      ],
+      "required": ["commit", "records", "recorded_at"],
       "properties": {
-        "commit": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "records": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/evidence_record"
-          }
-        },
-        "recorded_at": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "verified_commit": {
-          "type": "string",
-          "minLength": 1
-        },
-        "verified_at": {
-          "type": "string",
-          "format": "date-time"
-        },
+        "commit": { "type": ["string", "null"] },
+        "records": { "type": "array", "items": { "$ref": "#/$defs/evidence_record" } },
+        "recorded_at": { "type": "string", "format": "date-time" },
+        "verified_commit": { "type": "string", "minLength": 1 },
+        "verified_at": { "type": "string", "format": "date-time" },
         "verification_records": {
           "type": "array",
           "minItems": 1,
-          "items": {
-            "$ref": "#/$defs/evidence_record"
-          }
+          "items": { "$ref": "#/$defs/evidence_record" }
         },
-        "qa_run_count": {
-          "type": "integer",
-          "minimum": 1
+        "recovery_history": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "items": { "$ref": "#/$defs/scoped_recovery_anchor" }
         },
+        "qa_run_count": { "type": "integer", "minimum": 1 },
         "qa_run_anchors": {
           "type": "array",
           "minItems": 1,
-          "items": {
-            "$ref": "#/$defs/qa_run_anchor"
-          }
+          "items": { "$ref": "#/$defs/qa_run_anchor" }
         }
       },
       "dependentRequired": {
-        "verified_commit": [
-          "verified_at",
-          "verification_records"
-        ],
-        "verified_at": [
-          "verified_commit",
-          "verification_records"
-        ],
-        "verification_records": [
-          "verified_commit",
-          "verified_at"
-        ],
-        "qa_run_anchors": [
-          "qa_run_count"
-        ]
+        "verified_commit": ["verified_at", "verification_records"],
+        "verified_at": ["verified_commit", "verification_records"],
+        "verification_records": ["verified_commit", "verified_at"],
+        "qa_run_anchors": ["qa_run_count"]
+      }
+    },
+    "scoped_recovery_anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attempt",
+        "round",
+        "run_id",
+        "commit",
+        "outcome",
+        "report"
+      ],
+      "properties": {
+        "attempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "round": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        },
+        "run_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40,64}$"
+        },
+        "outcome": {
+          "enum": [
+            "passed",
+            "failed",
+            "blocked",
+            "deferred"
+          ]
+        },
+        "report": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "sha256"
+          ],
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          }
+        }
       }
     },
     "runtime_result": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "provider",
-        "model",
-        "reasoning"
-      ],
+      "required": ["provider", "model", "reasoning"],
       "properties": {
-        "provider": {
-          "type": "string",
-          "minLength": 1
-        },
-        "model": {
-          "type": "string",
-          "minLength": 1
-        },
-        "reasoning": {
-          "type": "string",
-          "minLength": 1
-        },
-        "session_id": {
-          "type": [
-            "string",
-            "null"
-          ]
-        }
+        "provider": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 },
+        "reasoning": { "type": "string", "minLength": 1 },
+        "session_id": { "type": ["string", "null"] }
       }
     },
     "attempt_record": {
       "type": "object",
-      "required": [
-        "phase",
-        "attempt",
-        "status",
-        "summary",
-        "commit",
-        "recorded_at",
-        "runtime"
-      ],
+      "required": ["phase", "attempt", "status", "summary", "commit", "recorded_at", "runtime"],
       "properties": {
-        "phase": {
-          "$ref": "#/$defs/phase"
-        },
-        "attempt": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "status": {
-          "enum": [
-            "passed",
-            "failed",
-            "blocked",
-            "noop"
-          ]
-        },
-        "summary": {
-          "type": "string",
-          "minLength": 1
-        },
-        "commit": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "recorded_at": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "runtime": {
-          "$ref": "#/$defs/runtime_result"
-        }
+        "phase": { "$ref": "#/$defs/phase" },
+        "attempt": { "type": "integer", "minimum": 1 },
+        "status": { "enum": ["passed", "failed", "blocked", "noop"] },
+        "summary": { "type": "string", "minLength": 1 },
+        "commit": { "type": ["string", "null"] },
+        "recorded_at": { "type": "string", "format": "date-time" },
+        "runtime": { "$ref": "#/$defs/runtime_result" }
       }
     },
     "blocker_record": {
       "type": "object",
-      "required": [
-        "code",
-        "reason",
-        "phase",
-        "recorded_at"
-      ],
+      "required": ["code", "reason", "phase", "recorded_at"],
       "properties": {
-        "code": {
-          "type": "string",
-          "minLength": 1
-        },
-        "reason": {
-          "type": "string",
-          "minLength": 1
-        },
-        "remediation": {
-          "type": "string"
-        },
-        "phase": {
-          "$ref": "#/$defs/phase"
-        },
-        "recorded_at": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "resolved_at": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "resolution": {
-          "type": "string",
-          "minLength": 1
-        }
+        "code": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 },
+        "remediation": { "type": "string" },
+        "phase": { "$ref": "#/$defs/phase" },
+        "recorded_at": { "type": "string", "format": "date-time" },
+        "resolved_at": { "type": "string", "format": "date-time" },
+        "resolution": { "type": "string", "minLength": 1 }
       },
       "dependentRequired": {
-        "resolved_at": [
-          "resolution"
-        ],
-        "resolution": [
-          "resolved_at"
-        ]
+        "resolved_at": ["resolution"],
+        "resolution": ["resolved_at"]
       }
     },
     "history_record": {
@@ -2290,28 +1318,12 @@
         "runner_version"
       ],
       "properties": {
-        "prior_phase": {
-          "$ref": "#/$defs/phase"
-        },
-        "next_phase": {
-          "$ref": "#/$defs/phase"
-        },
-        "reason": {
-          "type": "string",
-          "minLength": 1
-        },
-        "result_hash": {
-          "type": "string",
-          "pattern": "^sha256:[a-f0-9]{64}$"
-        },
-        "timestamp": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "runner_version": {
-          "type": "string",
-          "minLength": 1
-        }
+        "prior_phase": { "$ref": "#/$defs/phase" },
+        "next_phase": { "$ref": "#/$defs/phase" },
+        "reason": { "type": "string", "minLength": 1 },
+        "result_hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "runner_version": { "type": "string", "minLength": 1 }
       }
     },
     "phase_result": {
@@ -2331,80 +1343,30 @@
         "runtime"
       ],
       "properties": {
-        "schema_version": {
-          "const": 1
-        },
-        "run_id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "phase": {
-          "$ref": "#/$defs/phase"
-        },
-        "attempt": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "status": {
-          "enum": [
-            "passed",
-            "failed",
-            "blocked",
-            "noop"
-          ]
-        },
-        "summary": {
-          "type": "string",
-          "minLength": 1
-        },
-        "commit": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "files_changed": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "evidence": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/evidence_record"
-          }
-        },
+        "schema_version": { "const": 1 },
+        "run_id": { "type": "string", "minLength": 1 },
+        "phase": { "$ref": "#/$defs/phase" },
+        "attempt": { "type": "integer", "minimum": 1 },
+        "status": { "enum": ["passed", "failed", "blocked", "noop"] },
+        "summary": { "type": "string", "minLength": 1 },
+        "commit": { "type": ["string", "null"] },
+        "files_changed": { "type": "array", "items": { "type": "string" } },
+        "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence_record" } },
         "blocker": {
           "oneOf": [
-            {
-              "type": "null"
-            },
+            { "type": "null" },
             {
               "type": "object",
-              "required": [
-                "code",
-                "reason"
-              ],
+              "required": ["code", "reason"],
               "properties": {
-                "code": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "reason": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "remediation": {
-                  "type": "string"
-                }
+                "code": { "type": "string", "minLength": 1 },
+                "reason": { "type": "string", "minLength": 1 },
+                "remediation": { "type": "string" }
               }
             }
           ]
         },
-        "runtime": {
-          "$ref": "#/$defs/runtime_result"
-        }
+        "runtime": { "$ref": "#/$defs/runtime_result" }
       }
     }
   }
