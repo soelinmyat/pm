@@ -431,13 +431,37 @@ function validateStateAssertion(assertion, expected = null) {
   for (const [index, clause] of assertion.all.entries()) {
     exactObject(clause, ["locator", "expect"], `state assertion.all[${index}]`);
     exactObject(clause.locator, ["by", "value"], `state assertion.all[${index}].locator`);
-    if (!new Set(["id", "test-id", "role-name"]).has(clause.locator.by))
+    if (!new Set(["id", "test-id", "role-name", "role-text"]).has(clause.locator.by))
       throw new Error(`state assertion.all[${index}].locator.by is invalid`);
     boundedText(clause.locator.value, 500, `state assertion.all[${index}].locator.value`);
-    if (clause.locator.by === "role-name") {
+    if (["role-name", "role-text"].includes(clause.locator.by)) {
       const separator = clause.locator.value.indexOf(":");
       if (separator < 1 || separator === clause.locator.value.length - 1)
         throw new Error(`state assertion.all[${index}].locator.value must be role:accessible-name`);
+    }
+    if (clause.locator.by === "role-text") {
+      const separator = clause.locator.value.indexOf(":");
+      const role = clause.locator.value.slice(0, separator).trim().toLowerCase();
+      const text = clause.locator.value
+        .slice(separator + 1)
+        .trim()
+        .replace(/\s+/g, " ");
+      if (!["status", "alert"].includes(role) || !text || clause.expect?.kind !== "visible")
+        throw new Error("role-text requires a visible status or alert with nonempty literal text");
+      const paired = assertion.all.some((guard) => {
+        if (guard?.locator?.by !== "role-name" || guard?.expect?.kind !== "visible") return false;
+        const value = guard.locator.value;
+        if (typeof value !== "string") return false;
+        const at = value.indexOf(":");
+        return (
+          value.slice(0, at).trim().toLowerCase() === "statictext" &&
+          value
+            .slice(at + 1)
+            .trim()
+            .replace(/\s+/g, " ") === text
+        );
+      });
+      if (!paired) throw new Error("role-text requires a separate exact visible StaticText guard");
     }
     const kind = clause.expect?.kind;
     const expectedFields =
@@ -518,7 +542,7 @@ function validViewportScroll(viewport) {
 
 function validateSemanticStateGuard(assertion) {
   const roleFor = (clause) =>
-    clause.locator.by === "role-name"
+    ["role-name", "role-text"].includes(clause.locator.by)
       ? clause.locator.value.slice(0, clause.locator.value.indexOf(":")).trim().toLowerCase()
       : "";
   const visibleRole = (clause, roles) =>
