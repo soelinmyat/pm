@@ -3711,6 +3711,31 @@ for (const occluded of [false, true]) {
   );
 }
 
+for (const cover of ["none", "sibling", "nested"]) {
+  test(`browser native StaticText guard: ${cover}`, { skip: browserSkip }, () => {
+    const fixture = createBrowserFixture();
+    let html = decodeURIComponent(fixture.url.split(",").slice(1).join(","));
+    const overlay =
+      '<span style="position:absolute;inset:0;background:black;z-index:2">Actual cover</span>';
+    const text = `<p style="position:relative">No unassigned assets${cover === "nested" ? overlay : ""}</p>`;
+    html = html.replace(
+      "<p>Stable product evidence.</p>",
+      cover === "sibling" ? `<div style="position:relative">${text}${overlay}</div>` : text
+    );
+    fixture.url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+    fixture.stateAssertion.all.push({
+      locator: { by: "role-name", value: "statictext:No unassigned assets" },
+      expect: { kind: "visible" },
+    });
+    try {
+      if (cover === "none") assert.equal(runBrowserCapture(fixture).assertion_passed, true);
+      else assert.throws(() => runBrowserCapture(fixture), /fully occluded/);
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+}
+
 for (const variant of [
   "single",
   "multiple",

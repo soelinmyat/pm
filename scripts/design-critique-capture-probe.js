@@ -1460,7 +1460,11 @@ async function verifyAssertionHitTargets(
             `${error.message} (${requirement.label}, x=${point.x}, y=${point.y}, scroll=${pageX},${pageY})`
           );
         });
-      if (isNodeOrDescendant(hit.backendNodeId, requirement.node, model))
+      // Native hit-testing returns a text node's author element host. Accept
+      // that exact host, but never an overlay descended from the same element.
+      const textHost = requirement.node.nodeType === 3 ? model[requirement.node.parentIndex] : null;
+      const textHostHit = textHost?.nodeType === 1 && hit.backendNodeId === textHost.backendNodeId;
+      if (textHostHit || isNodeOrDescendant(hit.backendNodeId, requirement.node, model))
         accepted.push({ ...point, backend_node_id: hit.backendNodeId });
     }
     if (accepted.length === 0) throw new Error(`${requirement.label} is fully occluded`);
