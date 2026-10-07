@@ -26,6 +26,8 @@ When intake recorded a Think or Ideate decision companion, read `references/prod
 
 For Linear or another tracker, require explicit `tracker_updates` authority and use an idempotent effect receipt bound to the exact target before create/update. Resume by verifying ambiguous outcomes before replay. Never create RFC child work or approve technical design here.
 
+Persist any explicitly selected `context.preview_source_root` separately from the KB artifact root. It is a source-only resolver for the exact accepted in-app preview, not production integration evidence. Retain any `delivery_delegation` in the sibling approval audit and its canonical Groom session. RFC intake verifies both. Hand off the exact approved product decision, reviewed preview identity and constraints, not a claim that future generated RFC bytes have human approval. An implementation grant permits technical continuation within those constraints; external writes still use their separate authority contract.
+
 ## Done-when
 
 The approved execution contract, including UI-impact classification, experience requirements, complete source-bound prototype identity, critical states, and applicable invariants, is independently readable and committed on the clean

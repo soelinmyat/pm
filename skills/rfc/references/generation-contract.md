@@ -62,3 +62,5 @@ Return one strict phase-result envelope. A passed generation result includes:
 ```
 
 The root verifies and records the result. Workers do not claim approval or perform downstream effects.
+
+A verified intake `delivery_delegation` binds technical derivation to the approved product decision and accepted UI starting code. Include its grant/product decision hashes and exact constraints in the review packet. It permits routine technical choices, never new product scope, commercial commitments, weakened ACs or unassessed security/privacy/operational risk. The generator cannot review its own delegation preservation.

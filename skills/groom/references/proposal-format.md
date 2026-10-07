@@ -181,3 +181,7 @@ Canonical schema-v1 proposals created before `design_context` remain readable, b
 Earlier design contexts without `ui_impact`/`experience_invariants` remain inspection-readable. An earlier multi-file prototype binding without a tree manifest is incomplete evidence and must be substantively revised and re-approved before current RFC/Dev intake.
 
 Canonical schema-v1 proposals created before `review_contract` also remain inspection-readable and are reported as `legacy-unbound-review-contract`. They cannot satisfy the current Groom quality or approval gate, or enter a new RFC/Dev session as trusted product approval, until a current Groom session binds evidence, tier, exact required question IDs, and a fresh review.
+
+## Bounded delivery approval
+
+The proposal remains the product contract; its sibling `.approval.json` may optionally carry the runner-produced `delivery_delegation`. It is recorded only by the explicit product approval command with `--delegate-content-sha256` matching the reviewed canonical content hash. The grant binds the Groom run/source base, proposal ID/revision/content/snapshot, original approver/time, fixed material boundaries and `technical_derivation: true`, `implementation: true`. Its `grant_sha256` participates in the original decision digest. RFC and Dev consume the verified audit and canonical session, never an editable boolean in proposal facts. Absence preserves the ordinary human RFC decision. The grant does not authorize tracker writes, shipping, deployment or platform permission.

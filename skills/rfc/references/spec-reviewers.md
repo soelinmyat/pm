@@ -112,3 +112,5 @@ Agent({
 `
 })
 ```
+
+For an initial exact-product delegation, dispatch these existing lenses to distinct reviewer identities independent of the writer, and include the exact grant/product decision plus approved behavior/risk constraints. Each must return the `delegation_scope` assessment in `review-contract.md`; material or uncertain boundaries block.
