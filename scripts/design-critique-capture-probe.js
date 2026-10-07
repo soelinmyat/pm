@@ -465,7 +465,25 @@ function hasDomAncestor(node, model, predicate) {
   return false;
 }
 
-function compositeOwnerForNode(axNode, role, byAxId) {
+function controlledListboxOwners(axTree) {
+  const owners = new Map();
+  for (const node of axTree.nodes || []) {
+    if (node.ignored === true || String(valueOf(node.role) || "").toLowerCase() !== "combobox")
+      continue;
+    const controls = (node.properties || []).find((property) => property.name === "controls");
+    for (const target of controls?.value?.relatedNodes || []) {
+      const id = target.backendDOMNodeId;
+      if (!Number.isInteger(id)) continue;
+      // An ambiguous relationship cannot supply a keyboard owner. A listbox
+      // may still prove its own native keyboard navigation independently.
+      if (!owners.has(id)) owners.set(id, node);
+      else if (owners.get(id)?.nodeId !== node.nodeId) owners.set(id, null);
+    }
+  }
+  return owners;
+}
+
+function compositeOwnerForNode(axNode, role, byAxId, listboxOwners) {
   const ownerRoles = COMPOSITE_OWNER_ROLES[role];
   if (!ownerRoles) return null;
   const visited = new Set();
@@ -474,7 +492,15 @@ function compositeOwnerForNode(axNode, role, byAxId) {
     visited.add(parentId);
     const parent = byAxId.get(parentId);
     if (!parent) return null;
-    if (ownerRoles.has(String(valueOf(parent.role) || "").toLowerCase())) return parent;
+    const parentRole = String(valueOf(parent.role) || "").toLowerCase();
+    if (ownerRoles.has(parentRole)) {
+      // Editable comboboxes retain DOM focus on the input while their options
+      // live in a separate popup. AX controls identifies that owner; actual
+      // Tab and arrow events below must still prove every reachable option.
+      if (role === "option" && parentRole === "listbox")
+        return listboxOwners.get(parent.backendDOMNodeId) || parent;
+      return parent;
+    }
     parentId = parent.parentId;
   }
   return null;
@@ -629,9 +655,10 @@ function compositeKeyboardCandidates(axTree, model) {
       .map((node) => [node.nodeId, node])
   );
   const groups = new Map();
+  const listboxOwners = controlledListboxOwners(axTree);
   for (const axNode of axTree.nodes || []) {
     const role = String(valueOf(axNode.role) || "").toLowerCase();
-    const owner = compositeOwnerForNode(axNode, role, byAxId);
+    const owner = compositeOwnerForNode(axNode, role, byAxId, listboxOwners);
     if (!owner) continue;
     const node = byBackendId.get(axNode.backendDOMNodeId);
     if (
@@ -682,7 +709,7 @@ function compositeKeyboardCandidates(axTree, model) {
       if (probe) group.entry_probes[backendNodeId] = probe;
     }
     if (
-      group.member_backend_node_ids.length > 1 &&
+      group.member_backend_node_ids.length > 0 &&
       group.entry_backend_node_ids.length > 0 &&
       COMPOSITE_ARROW_KEYS[group.owner_role]
     )
@@ -1423,7 +1450,9 @@ async function verifyAssertionHitTargets(
           // CDP takes document coordinates; evidence retains viewport coordinates.
           x: Math.floor(point.x + pageX),
           y: Math.floor(point.y + pageY),
-          includeUserAgentShadowDOM: true,
+          // DOMSnapshot does not retain native control implementation nodes.
+          // Hit-test their author-visible host in the same snapshot model.
+          includeUserAgentShadowDOM: false,
           ignorePointerEventsNone: true,
         })
         .catch((error) => {
@@ -2338,16 +2367,15 @@ async function entryHasDocumentKeyboardReach(
   ) {
     await client.send("DOM.focus", { backendNodeId: entryProbe.from_backend_node_id });
     const focusedFrom = await focusedBackendNodeId(client, executionContextId);
-    if (
-      focusedFrom !== entryProbe.from_backend_node_id ||
-      !(await dispatchKeyboardKey(client, "Tab", budget, entryProbe.modifiers))
-    )
-      return false;
-    const focusedAfterTab = await focusedBackendNodeId(client, executionContextId);
-    if (focusedAfterTab === entryBackendNodeId || groupBackendNodeIds.has(focusedAfterTab))
-      return true;
+    if (focusedFrom === entryProbe.from_backend_node_id) {
+      if (!(await dispatchKeyboardKey(client, "Tab", budget, entryProbe.modifiers))) return false;
+      const focusedAfterTab = await focusedBackendNodeId(client, executionContextId);
+      if (focusedAfterTab === entryBackendNodeId || groupBackendNodeIds.has(focusedAfterTab))
+        return true;
+    }
     // Native controls can consume a Tab in their internal focus surface.
-    // Fall back to proving an actual exit from and return to the whole group.
+    // A dialog may also redirect attempted predecessor focus. In either case,
+    // prove an actual exit from and return to the whole group below.
   }
   for (const [leaveModifiers, returnModifiers] of [
     [0, 8],
@@ -2450,9 +2478,10 @@ function candidateNodeIds(candidate) {
 // place with the same accessible role and name. Observed members still
 // certify the frozen control rows through frozen_by_live.
 async function remapCompositeCandidate(client, candidate, frozenNode, resolve) {
+  const originalId = (id) => candidate.frozen_by_live?.get(id) ?? id;
   const live = new Map();
   for (const id of candidateNodeIds(candidate)) {
-    const path = frozenNode(id)?.path;
+    const path = frozenNode(originalId(id))?.path;
     const replacement = path ? resolve(path) : null;
     if (replacement !== null) live.set(id, replacement);
   }
@@ -2465,7 +2494,7 @@ async function remapCompositeCandidate(client, candidate, frozenNode, resolve) {
     return null;
   const identities = await Promise.all(
     [candidate.owner_backend_node_id, ...candidate.member_backend_node_ids].map(async (id) => {
-      const identity = frozenNode(id).identity;
+      const identity = frozenNode(originalId(id)).identity;
       return Boolean(identity) && axIdentity(await liveAxNode(client, live.get(id))) === identity;
     })
   );
@@ -2485,7 +2514,7 @@ async function remapCompositeCandidate(client, candidate, frozenNode, resolve) {
     selected_backend_node_ids: map(candidate.selected_backend_node_ids ?? []),
     entry_backend_node_ids: map(candidate.entry_backend_node_ids),
     entry_probes: entryProbes,
-    frozen_by_live: new Map([...live].map(([frozen, current]) => [current, frozen])),
+    frozen_by_live: new Map([...live].map(([prior, current]) => [current, originalId(prior)])),
   };
 }
 
@@ -2498,9 +2527,17 @@ async function candidateDetached(client, executionContextId, candidate) {
   return connected.includes(false);
 }
 
-async function probeCompositeCandidate(client, executionContextId, candidate, budget, observed) {
-  const members = new Set(candidate.member_backend_node_ids);
+async function probeCompositeCandidate(
+  client,
+  executionContextId,
+  candidate,
+  budget,
+  observed,
+  frozenNode
+) {
   for (const entryBackendNodeId of candidate.entry_backend_node_ids) {
+    let liveCandidate = candidate;
+    let members = new Set(candidate.member_backend_node_ids);
     let documentReachable = false;
     try {
       documentReachable = await entryHasDocumentKeyboardReach(
@@ -2516,11 +2553,26 @@ async function probeCompositeCandidate(client, executionContextId, candidate, bu
       continue;
     }
     if (!documentReachable) continue;
+    // Leaving a combobox closes its popup; keyboard re-entry can remount the
+    // same options. Keep the proven input/entry node, and rebind only through
+    // the existing frozen path plus exact accessible role/name checks.
+    if (await candidateDetached(client, executionContextId, candidate)) {
+      const resolve = await liveElementResolver(client);
+      const replacement = await remapCompositeCandidate(client, candidate, frozenNode, resolve);
+      if (
+        !replacement ||
+        replacement.owner_backend_node_id !== candidate.owner_backend_node_id ||
+        !replacement.entry_backend_node_ids.includes(entryBackendNodeId)
+      )
+        continue;
+      liveCandidate = replacement;
+      members = new Set(replacement.member_backend_node_ids);
+    }
     for (const key of COMPOSITE_ARROW_KEYS[candidate.owner_role]) {
       try {
         await client.send("DOM.focus", { backendNodeId: entryBackendNodeId });
-        let state = await compositeFocusState(client, executionContextId, candidate);
-        let previous = focusedCompositeMember(state, candidate, members);
+        let state = await compositeFocusState(client, executionContextId, liveCandidate);
+        let previous = focusedCompositeMember(state, liveCandidate, members);
         for (let step = 0; step < members.size; step += 1) {
           if (!(await dispatchKeyboardKey(client, key, budget))) return false;
           // Roving focus libraries commonly defer arrow focus to a timer.
@@ -2529,20 +2581,25 @@ async function probeCompositeCandidate(client, executionContextId, candidate, bu
           const deadline = Date.now() + 250;
           let current;
           do {
-            state = await compositeFocusState(client, executionContextId, candidate);
-            current = focusedCompositeMember(state, candidate, members);
+            state = await compositeFocusState(client, executionContextId, liveCandidate);
+            current = focusedCompositeMember(state, liveCandidate, members);
             if (current !== null && current !== previous) break;
             if (Date.now() >= deadline) break;
             await sleep(10);
           } while (true);
           if (current === null || current === previous) break;
-          observed.add(current);
+          observed.add(liveCandidate.frozen_by_live?.get(current) ?? current);
           previous = current;
         }
       } catch {
         // A detached or replaced widget cannot certify the frozen control rows.
       }
-      if ([...members].every((member) => observed.has(member))) break;
+      if (
+        [...members].every((member) =>
+          observed.has(liveCandidate.frozen_by_live?.get(member) ?? member)
+        )
+      )
+        break;
     }
   }
   return true;
@@ -2663,7 +2720,8 @@ async function probeCompositeKeyboardAccess(client, candidates, frozenNode) {
           executionContextId,
           candidate,
           budget,
-          observed
+          observed,
+          frozenNode
         );
         for (const member of observed)
           observedMembers.add(candidate.frozen_by_live?.get(member) ?? member);

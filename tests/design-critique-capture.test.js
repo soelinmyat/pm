@@ -1958,6 +1958,53 @@ function focusExamplesControls(working) {
   );
 }
 
+// A text input owns a separate listbox, as an editable combobox popup does.
+function controlledComboboxControls(variant) {
+  const count = variant === "single" || variant === "static-single" ? 1 : 3;
+  const controls = variant === "missing-controls" ? "" : 'aria-controls="unit-options"';
+  const disabled = variant === "disabled" ? "disabled" : "";
+  const tabIndex = variant === "untabbable" ? 'tabindex="-1"' : "";
+  const active = variant === "static-single" ? 'aria-activedescendant="unit-0"' : "";
+  const ambiguous =
+    variant === "ambiguous-controls"
+      ? '<label for="other-unit">Other unit</label><input id="other-unit" role="combobox" aria-expanded="true" aria-controls="unit-options">'
+      : "";
+  const options = Array.from(
+    { length: count },
+    (_, index) =>
+      `<button id="unit-${index}" type="button" role="option" tabindex="-1">Unit ${index}</button>`
+  ).join("");
+  const broken = ["broken", "static-single"].includes(variant);
+  const handler = broken
+    ? ""
+    : `<script>{const input=document.querySelector("#unit-input");const options=[...document.querySelectorAll("#unit-options>[role=option]")];input.addEventListener("keydown",event=>{const direction=event.key==="ArrowDown"?1:event.key==="ArrowUp"?-1:0;if(!direction)return;event.preventDefault();const current=options.findIndex(option=>option.id===input.getAttribute("aria-activedescendant"));const next=(current+direction+options.length)%options.length;input.setAttribute("aria-activedescendant",options[next].id)})}</script>`;
+  return `<section aria-label="Unit selector"><label for="unit-input">Unit</label><input id="unit-input" role="combobox" aria-expanded="true" ${controls} ${disabled} ${tabIndex} ${active}><div id="unit-options" role="listbox" aria-label="Unit">${options}</div>${ambiguous}</section>${handler}`;
+}
+
+function nativeInputControls(occluded) {
+  return `<section><label for="unit-input">Unit</label><div style="position:relative;width:200px"><input id="unit-input" style="width:200px">${occluded ? '<div style="position:absolute;inset:0;background:white">Cover</div>' : ""}</div></section>`;
+}
+
+// A dialog redirects attempted predecessor focus, and blur closes/remounts
+// the popup. This pins the native entry/re-entry behavior of real popovers.
+function remountingComboboxControls(variant) {
+  const markup = (changed) =>
+    `<div id="unit-options" role="listbox" aria-label="Unit">${[0, 1, 2].map((index) => `<button id="unit-${index}" type="button" role="option" tabindex="-1">${changed ? "Changed" : "Unit"} ${index}</button>`).join("")}</div>`;
+  return `<section id="combobox-shell" role="dialog" aria-label="Unit editor" tabindex="-1"><label for="prior-input">Name</label><input id="prior-input"><label for="unit-input">Unit</label><input id="unit-input" role="combobox" aria-expanded="true" aria-controls="unit-options"><div id="popup-host">${markup(false)}</div><button type="button">Done</button></section><script>{const input=document.querySelector("#unit-input");const host=document.querySelector("#popup-host");document.querySelector("#prior-input").addEventListener("focus",()=>document.querySelector("#combobox-shell").focus());input.addEventListener("blur",()=>{host.innerHTML="";input.removeAttribute("aria-activedescendant");input.setAttribute("aria-expanded","false")});input.addEventListener("focus",()=>{if(!host.firstChild)host.innerHTML=${JSON.stringify(markup(variant === "changed"))};input.setAttribute("aria-expanded","true")});${variant === "broken" ? "" : `input.addEventListener("keydown",event=>{const direction=event.key==="ArrowDown"?1:event.key==="ArrowUp"?-1:0;if(!direction)return;event.preventDefault();const options=[...host.querySelectorAll("[role=option]")];const current=options.findIndex(option=>option.id===input.getAttribute("aria-activedescendant"));const next=(current+direction+options.length)%options.length;input.setAttribute("aria-activedescendant",options[next].id)})`};input.focus();}</script>`;
+}
+
+// A deeper, later tablist remounts the combobox before its retry probe.
+// Re-entering the input then remounts only its popup a second time.
+function replacedRemountingComboboxControls(variant) {
+  const fixture = remountingComboboxControls(variant);
+  const at = fixture.indexOf("<script>{");
+  const markup = fixture.slice(0, at);
+  const handlers = fixture
+    .slice(at + "<script>{".length, -"}</script>".length)
+    .replace("input.focus();", "");
+  return `<section aria-label="Replacement example"><div id="unit-panel">${markup}</div><div><div><div><div id="replacement-tabs" role="tablist" aria-label="Views"><button id="replace-a" type="button" role="tab" aria-selected="true" tabindex="0">View A</button><button id="replace-b" type="button" role="tab" aria-selected="false" tabindex="-1">View B</button></div></div></div></div></section><script>{const panel=document.querySelector("#unit-panel");const mount=()=>{panel.innerHTML=${JSON.stringify(markup)};{${handlers}}};const tabs=[...document.querySelectorAll("#replacement-tabs>[role=tab]")];const select=tab=>{tabs.forEach(item=>{item.tabIndex=item===tab?0:-1;item.setAttribute("aria-selected",String(item===tab))});tab.focus();mount()};mount();document.querySelector("#unit-input").focus();tabs.forEach(tab=>tab.addEventListener("click",()=>select(tab)));document.querySelector("#replacement-tabs").addEventListener("keydown",event=>{const direction=event.key==="ArrowRight"?1:event.key==="ArrowLeft"?-1:0;if(!direction)return;event.preventDefault();const next=tabs[tabs.indexOf(document.activeElement)+direction];if(next)select(next)})}</script>`;
+}
+
 // Named focusability fixtures other than the disclosure variants.
 const FOCUSABILITY_VARIANTS = {
   "remounted-tab-stop": remountedTabStopControls,
@@ -1976,6 +2023,14 @@ const FOCUSABILITY_VARIANTS = {
 // generic focus examples.
 function focusabilityControlsMarkup(name) {
   if (!name) return "";
+  if (name.startsWith("replaced-combobox-"))
+    return replacedRemountingComboboxControls(name.slice("replaced-combobox-".length));
+  if (name.startsWith("remounting-combobox-"))
+    return remountingComboboxControls(name.slice("remounting-combobox-".length));
+  if (name.startsWith("controlled-combobox-"))
+    return controlledComboboxControls(name.slice("controlled-combobox-".length));
+  if (name === "native-input" || name === "native-input-occluded")
+    return nativeInputControls(name === "native-input-occluded");
   if (DISCLOSURE_VARIANTS[name]) return disclosureControls(DISCLOSURE_VARIANTS[name]);
   if (FOCUSABILITY_VARIANTS[name]) return FOCUSABILITY_VARIANTS[name]();
   return focusExamplesControls(name === "working");
@@ -3633,3 +3688,104 @@ test(
     }
   }
 );
+
+for (const occluded of [false, true]) {
+  test(
+    `browser native input guard ${occluded ? "rejects an actual cover" : "accepts a visible text field"}`,
+    { skip: browserSkip },
+    () => {
+      const fixture = createBrowserFixture({
+        focusabilityControls: occluded ? "native-input-occluded" : "native-input",
+      });
+      fixture.stateAssertion.all.push({
+        locator: { by: "role-name", value: "textbox:Unit" },
+        expect: { kind: "visible" },
+      });
+      try {
+        if (occluded) assert.throws(() => runBrowserCapture(fixture), /fully occluded/);
+        else assert.equal(runBrowserCapture(fixture).assertion_passed, true);
+      } finally {
+        fs.rmSync(fixture.root, { recursive: true, force: true });
+      }
+    }
+  );
+}
+
+for (const variant of [
+  "single",
+  "multiple",
+  "broken",
+  "static-single",
+  "missing-controls",
+  "ambiguous-controls",
+  "disabled",
+  "untabbable",
+]) {
+  test(`browser controlled combobox keyboard evidence: ${variant}`, { skip: browserSkip }, () => {
+    const fixture = createBrowserFixture({
+      focusabilityControls: `controlled-combobox-${variant}`,
+    });
+    try {
+      const result = runBrowserCapture(fixture);
+      const options = result.accessibility_observations.controls.filter(
+        (item) => item.role === "option"
+      );
+      assert.equal(options.length, variant === "single" || variant === "static-single" ? 1 : 3);
+      const working = variant === "single" || variant === "multiple";
+      for (const option of options) {
+        assert.equal(option.tab_index, -1);
+        assert.equal(option.focus_context, working ? "composite" : "document");
+      }
+      const audit = normalizeRawAudit(
+        {
+          schema_version: 1,
+          kind: "accessibility-tree",
+          subject_id: "account-detail",
+          commit: "a".repeat(40),
+          capture_ids: ["capture-account-primary-desktop-r1"],
+          observations: result.accessibility_observations,
+        },
+        { path: ".pm/test/raw-a11y.json", sha256: "b".repeat(64) }
+      );
+      assert.equal(audit.checks.focus_order, working);
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const variant of ["working", "broken", "changed"]) {
+  test(`browser remounting combobox evidence: ${variant}`, { skip: browserSkip }, () => {
+    const fixture = createBrowserFixture({
+      focusabilityControls: `remounting-combobox-${variant}`,
+    });
+    try {
+      const result = runBrowserCapture(fixture);
+      const options = result.accessibility_observations.controls.filter(
+        (item) => item.role === "option"
+      );
+      assert.equal(options.length, 3);
+      for (const option of options)
+        assert.equal(option.focus_context, variant === "working" ? "composite" : "document");
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const variant of ["working", "broken", "changed"]) {
+  test(`browser twice remounted combobox evidence: ${variant}`, { skip: browserSkip }, () => {
+    const fixture = createBrowserFixture({ focusabilityControls: `replaced-combobox-${variant}` });
+    try {
+      const result = runBrowserCapture(fixture);
+      const options = result.accessibility_observations.controls.filter(
+        (item) => item.role === "option"
+      );
+      assert.equal(options.length, 3);
+      for (const option of options)
+        assert.equal(option.focus_context, variant === "working" ? "composite" : "document");
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+}
