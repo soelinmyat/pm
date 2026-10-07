@@ -87,6 +87,7 @@ Stop.
    - **Expected outcome** — `incremental` / `meaningful` / `step-change`, judged on the user or business result if the idea works, not implementation volume
    - **Learning value** — `low` / `medium` / `high`, based on how much the smallest release resolves a consequential uncertainty
    - **Value basis** — one short, cited rationale for each of the five value inputs above. Use the signal paths already attached to the idea; do not invent market sizes, user counts, or outcome probabilities.
+   - **Value recommendation** — name the beneficiary, observable user outcome, buyer/decision-maker (`unknown` when unverified, or a grounded `not-applicable`), and commercial hypothesis. Preserve contrary evidence or the checked search basis and its limits, the consequential uncertainty, and a **build**, **test-first**, or **defer** recommendation with a cited rationale. Name the smallest discriminating test and the observation that would reverse it. Keep this in the existing Markdown Value Hypothesis/Open Questions sections and pass its source/assumption lineage to Groom; do not add unsupported keys to the closed idea companion or change ranker weights. A `build` recommendation still needs Groom's product scope/approval; an ordinal rank does not establish purchasing, retention, or adoption value.
 
 5. **Rank.** Run the shared `rank-ideas` command over the exact candidate briefs. When Strategy exists, pass `{pm_dir}` as the root and its canonical `strategy.decision.json`; the command authenticates that companion against current Strategy Markdown before ranking. Without one, state that token-level strategy verification is unavailable. Use the runtime ordering and show its score components. Unknown priority or non-goal tokens require correction; confirmed non-goal conflicts block saving until the user drops/reshapes the idea or explicitly updates Strategy.
 
@@ -106,7 +107,7 @@ Stop.
 
    The first five inputs form `customer_value` (maximum 66). Evidence strength adjusts that subtotal to `confidence_adjusted_value` using a bounded factor (`hypothesis` 0.75, `moderate` 0.9, `strong` 1.0); strategy and delivery inputs then complete `weighted_total`. The weights are comparison policy, not forecast precision. The ranker sorts by `weighted_total` first; it does not apply a categorical strategy-first order. Explain material assumptions, the weakest consequential outcome and tradeoffs that the total compresses. If evidence or a domain obligation contradicts the ranking, challenge the inputs or route to Think; do not silently alter the computed order or treat it as an instruction to build. No direct ordinal contributes more than 20 points, so strategic alignment or any other single judgment cannot dominate every other dimension. Existing v1 briefs without the five customer-value fields remain valid and receive neutral defaults; flag `value_inputs_legacy_defaulted` and collect explicit inputs before a new save.
 
-6. **Present.** Show a ranked table (# / Idea / One-liner / Weighted total / Customer value / Confidence / Supports / Deps / Scope), a count of how many were filtered out with brief reasons, and quick-wins vs big-bets callouts. Keep the ordinal inputs and their cited value basis visible on request; a total never replaces judgment. Then ask how to proceed: (a) groom one now, (b) add their own ideas, (c) go deeper on one, (d) save all to backlog.
+6. **Present.** Show a ranked table (# / Idea / One-liner / Weighted total / Customer value / Confidence / Supports / Deps / Scope), a count of how many were filtered out with brief reasons, and quick-wins vs big-bets callouts. State each surviving idea's build/test-first/defer recommendation and the deciding uncertainty or counterevidence. Keep the ordinal inputs and their cited value basis visible on request; a total never replaces judgment. Then ask how to proceed: (a) groom one now, (b) add their own ideas, (c) go deeper on one, (d) save all to backlog.
 
 7. **Write.** Only when the user confirms they want ideas saved. Immediately before writing, rebuild the exact final candidate briefs after every user addition or reshape, assign each evidence reference its original-source `chain_id`, require the current Strategy companion to be authenticated, and rerun `rank-ideas`. Do not save while any unknown token or confirmed non-goal conflict remains unresolved. Then write each approved idea to `{pm_dir}/backlog/{idea-slug}.md`, hash it, and write `{pm_dir}/backlog/{idea-slug}.decision.json`. Before treating that new companion as saved, run `scripts/product-reasoning.js validate-idea-save --root "{pm_dir}" --input "{pm_dir}/backlog/{idea-slug}.decision.json"`; a normal legacy-readable `validate` is not the new-save gate. Fix every missing chain ID, customer-value field, basis, or binding before continuing. **ID rule:** use the Linear identifier as `id` if an issue was created; otherwise fall back to the local `PM-{NNN}` sequence. Preserve the decision ID across ranking and wording changes. Then tell the user the count, paths, and that `/pm:groom {slug}` consumes this lineage and atomically marks it promoted only after approved Groom artifacts exist.
 
@@ -142,17 +143,24 @@ Stop.
    {Who has this, who doesn't, how ours would differ.}
 
    ## Value Hypothesis
+   Beneficiary: {specific persona and workflow, with source}
+   Buyer/decision-maker: {cited identity, explicitly unknown, or grounded not-applicable}
+   User outcome: {observable improvement, with source or assumption}
+   Commercial hypothesis: {proposed mechanism and uncertainty; do not present inference as established demand}
    Customer impact: {category} — {cited basis}
    Reach: {category} — {cited basis}
    Urgency: {category} — {cited basis}
    Expected outcome: {category} — {cited basis}
    Learning value: {category} — {cited basis}
+   Recommendation: {build|test-first|defer} — {cited rationale}
+   Counterevidence: {contrary signal, or checked sources and search limits}
 
    ## Dependencies
    {What needs to exist first, or "None."}
 
    ## Open Questions
    {What to validate before building.}
+   Discriminating test: {smallest action, observable result, and reversal condition}
    ```
 
 ## When NOT to use

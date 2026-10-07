@@ -83,6 +83,9 @@ If inferred, label it clearly.
 ## Implications
 What this means for the product. Link to strategy sections if relevant.
 
+## Value Recommendation
+When the topic informs a product or commercial decision: name the beneficiary, observable user outcome, and buyer/decision-maker (explicitly unknown when unverified, or grounded not-applicable). State the commercial mechanism as a hypothesis with its cited basis, not a claim that workflow friction proves purchase, adoption, or retention value. Recommend build, test-first, or defer with a cited rationale. Preserve the strongest counterevidence or the sources checked and search limits when none was found. Name the consequential uncertainty and the smallest discriminating test: action, observable result, and condition that would reverse the recommendation. Do not invent ROI, counts, willingness to pay, or durations. A non-product topic can state that this recommendation is not applicable and explain why.
+
 ## Open Questions
 What this research did NOT answer.
 
@@ -120,4 +123,4 @@ What this research did NOT answer.
 
 ## Done-when
 
-The evidence file exists at `{pm_dir}/evidence/research/{topic-slug}.md` with claim-level Evidence-ID citations and confidence calibrated by source quality, hypotheses and contradictions are explicit, both validators pass, routing has run or been explicitly skipped, and evidence indexes/logs are updated. Then offer `/pm:groom {topic-slug}` or `/pm:ideate` as the concrete next action.
+The evidence file exists at `{pm_dir}/evidence/research/{topic-slug}.md` with claim-level Evidence-ID citations and confidence calibrated by source quality, hypotheses and contradictions are explicit, and a product/commercial topic includes its calibrated value recommendation and discriminating test. Both validators pass, routing has run or been explicitly skipped, and evidence indexes/logs are updated. Then offer `/pm:groom {topic-slug}` or `/pm:ideate` as the concrete next action.
