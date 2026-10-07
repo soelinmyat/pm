@@ -46,6 +46,14 @@ const {
   resolveTrustedBase,
 } = require("./review-target");
 const { version: PLUGIN_VERSION } = require("../plugin.config.json");
+const {
+  MAX_RECOVERY_ROUNDS,
+  RECOVERY_POLICY,
+  recoveryRequiresAuthority,
+  recoveryRequiresDecision,
+  reviewRecoveryEvidenceIds,
+  validateScopedRecovery,
+} = require("./lib/scoped-recovery");
 
 const EVIDENCE_KINDS = new Set([
   "source",
@@ -87,11 +95,47 @@ const LINE_COUNT_CACHE = new WeakMap();
 const MAX_ANCHOR_PATHS = 500;
 const MAX_ANCHOR_RELATION_CHARS = 500;
 const TARGET_SCHEMA_VERSION = 2;
+const REVIEW_HISTORY_LEDGER = Symbol("review-history-ledger");
+const MAX_REVIEW_HISTORY_BYTES = 64 * 1024 * 1024;
 
 function checkReview(options) {
+  options = {
+    ...options,
+    [REVIEW_HISTORY_LEDGER]: options[REVIEW_HISTORY_LEDGER] || { paths: new Set(), bytes: 0 },
+  };
   const root = fs.realpathSync(path.resolve(options.root || process.cwd()));
   const issues = [];
   const warnings = [];
+  // Later rounds recursively validate their frozen predecessors. Bound the
+  // entire retained JSON/HTML package, not 50 independent per-round budgets.
+  for (const relative of [
+    options.targetPath,
+    options.reportPath,
+    options.humanReportPath,
+    options.decisionsPath,
+    ...(options.resultPaths || []),
+  ].filter(Boolean)) {
+    const ledger = options[REVIEW_HISTORY_LEDGER];
+    if (ledger.paths.has(relative)) continue;
+    try {
+      const input = readProjectInput(root, relative, MAX_JSON_BYTES);
+      ledger.paths.add(relative);
+      ledger.bytes += input.bytes.length;
+      if (ledger.bytes > MAX_REVIEW_HISTORY_BYTES) {
+        add(
+          issues,
+          "history",
+          `retained Review package exceeds the ${MAX_REVIEW_HISTORY_BYTES}-byte aggregate resource budget`
+        );
+        return { ok: false, issues, report: null };
+      }
+    } catch (error) {
+      if (error.code !== "ENOENT") {
+        add(issues, "history", error.message);
+        return { ok: false, issues, report: null };
+      }
+    }
+  }
   const targetFile = readJson(root, options.targetPath, "target", issues);
   if (!targetFile) return { ok: false, issues, report: null };
   const target = targetFile.value;
@@ -317,6 +361,8 @@ function validateTarget(target, issues) {
       "lenses",
       "allocation",
       "prior_report",
+      "recovery_policy",
+      "recovery",
     ],
     "target",
     issues
@@ -334,8 +380,32 @@ function validateTarget(target, issues) {
     add(issues, "target.relevance_policy", `must equal ${CHANGE_HUNK_ANCHOR_POLICY} when present`);
   if (!slug(target.run_id)) add(issues, "target.run_id", "must be kebab-case");
   if (!isRfc3339DateTime(target.created_at)) add(issues, "target.created_at", "must be RFC 3339");
-  if (!Number.isInteger(target.review_round) || target.review_round < 1 || target.review_round > 3)
-    add(issues, "target.review_round", "must be 1 through 3");
+  const maxRound = target.recovery_policy === RECOVERY_POLICY ? MAX_RECOVERY_ROUNDS : 3;
+  if (
+    !Number.isInteger(target.review_round) ||
+    target.review_round < 1 ||
+    target.review_round > maxRound
+  )
+    add(issues, "target.review_round", `must be 1 through ${maxRound}`);
+  if (target.recovery_policy !== undefined && target.recovery_policy !== RECOVERY_POLICY)
+    add(issues, "target.recovery_policy", `must equal ${RECOVERY_POLICY}`);
+  if (target.recovery !== undefined && !object(target.recovery))
+    add(issues, "target.recovery", "a present recovery diagnosis must be an object");
+  if (target.review_round > 3 && !object(target.recovery))
+    add(
+      issues,
+      "target.recovery",
+      "diagnosis is required before continuing unresolved Review beyond three rounds"
+    );
+  if (
+    target.recovery !== undefined &&
+    (target.recovery_policy !== RECOVERY_POLICY || target.review_round === 1)
+  )
+    add(
+      issues,
+      "target.recovery",
+      "requires scoped recovery policy and a retained predecessor round"
+    );
   if (target.iteration_cap !== 3) add(issues, "target.iteration_cap", "must equal 3");
   if (!new Set(["full", "code-scan"]).has(target.mode)) add(issues, "target.mode", "is invalid");
   if (
@@ -514,6 +584,41 @@ function validateTargetBindings(root, target, reviewRoot, options, issues) {
       "target.prior_report",
       issues
     );
+    if (value) {
+      let previousRecovery = null;
+      if (object(value.target)) {
+        const previousTarget = validateExactJsonBinding(
+          root,
+          value.target,
+          "target.prior_report.target",
+          issues
+        );
+        previousRecovery = previousTarget?.recovery;
+      }
+      const previousDecisionRequired =
+        recoveryRequiresAuthority(previousRecovery) ||
+        (value.unresolved_disagreements || []).length > 0 ||
+        (value.findings || []).some((finding) => finding.decision_required || finding.disputed);
+      if (
+        target.recovery === undefined &&
+        (recoveryRequiresAuthority(previousRecovery) ||
+          (target.recovery_policy === RECOVERY_POLICY && previousDecisionRequired))
+      )
+        add(
+          issues,
+          "target.recovery",
+          "unresolved predecessor decision authority requires retained diagnosis; omission cannot clear the trusted product-decision boundary"
+        );
+      if (object(target.recovery))
+        issues.push(
+          ...validateScopedRecovery(target.recovery, {
+            path: "target.recovery",
+            evidenceIds: reviewRecoveryEvidenceIds(value, target.prior_report, previousRecovery),
+            previousRecovery,
+            previousDecisionRequired,
+          })
+        );
+    }
     if (
       value &&
       (value.run_id !== target.run_id ||
@@ -551,6 +656,7 @@ function validateTargetBindings(root, target, reviewRoot, options, issues) {
             verifyFrozenGit: true,
             verifyBrowser: false,
             allowHistoricalUpstreamRecovery: true,
+            [REVIEW_HISTORY_LEDGER]: options[REVIEW_HISTORY_LEDGER],
           })
         );
         if (!prior.ok)
@@ -1564,9 +1670,12 @@ function buildCanonicalReport(
       finding.disposition === "deferred" &&
       ["critical", "high"].includes(finding.severity)
   );
-  const capReached = target.review_round >= target.iteration_cap;
+  const scopedRecovery = target.recovery_policy === RECOVERY_POLICY;
+  const capReached = !scopedRecovery && target.review_round >= target.iteration_cap;
   const outcome =
-    merged.unresolved_disagreements.length > 0 || deferredBlockers.length > 0
+    merged.unresolved_disagreements.length > 0 ||
+    deferredBlockers.length > 0 ||
+    recoveryRequiresDecision(target.recovery)
       ? "blocked"
       : blockers.length > 0
         ? capReached
@@ -1589,30 +1698,35 @@ function buildCanonicalReport(
     outcome === "passed"
       ? "Proceed to full verification."
       : outcome === "failed"
-        ? "Fix Review-owned blockers and create the next review round."
-        : capReached && blockers.length > 0
-          ? "Review reached its three-round cap. Preserve this report and ask the user for direction."
-          : "Resolve reviewer disagreement or deferred blockers before continuing.";
+        ? scopedRecovery && target.review_round >= target.iteration_cap
+          ? "Diagnose the retained failure, change the authorized scoped approach, and create the next review round with fresh checks."
+          : "Fix Review-owned blockers and create the next review round."
+        : recoveryRequiresDecision(target.recovery)
+          ? "Resolve the genuine dependency, product/commercial decision or material scope/risk change before continuing."
+          : capReached && blockers.length > 0
+            ? "Review reached its three-round cap. Preserve this report and ask the user for direction."
+            : "Resolve reviewer disagreement or deferred blockers before continuing.";
   const applicable = target.lenses.filter((item) => item.applicable).map((item) => item.name);
   const notApplicable = target.lenses.filter((item) => !item.applicable).map((item) => item.name);
-  const autoFixEligible = capReached
-    ? []
-    : merged.findings
-        .filter(
-          (finding) =>
-            finding.owner === "review" &&
-            finding.disposition === "open" &&
-            finding.confidence >= 80 &&
-            (finding.fix_kind === "mechanical" ||
-              (finding.fix_kind === "behavioral" &&
-                /^1\.13\.(?:5[6-9]|[6-9]\d|[1-9]\d{2,})$/.test(target.generator?.version || "") &&
-                Boolean(target.dev_context?.acceptance_sha256) &&
-                target.dev_context.acceptance_sha256 !==
-                  crypto.createHash("sha256").update("[]").digest("hex"))) &&
-            finding.disputed === false &&
-            finding.decision_required === false
-        )
-        .map((finding) => finding.id);
+  const autoFixEligible =
+    capReached || recoveryRequiresDecision(target.recovery)
+      ? []
+      : merged.findings
+          .filter(
+            (finding) =>
+              finding.owner === "review" &&
+              finding.disposition === "open" &&
+              finding.confidence >= 80 &&
+              (finding.fix_kind === "mechanical" ||
+                (finding.fix_kind === "behavioral" &&
+                  boundTargetGeneratorVersion(target.generator?.version, "1.13.56") &&
+                  Boolean(target.dev_context?.acceptance_sha256) &&
+                  target.dev_context.acceptance_sha256 !==
+                    crypto.createHash("sha256").update("[]").digest("hex"))) &&
+              finding.disputed === false &&
+              finding.decision_required === false
+          )
+          .map((finding) => finding.id);
   return {
     schema_version: 1,
     run_id: target.run_id,
@@ -2034,22 +2148,26 @@ function sha(value) {
 function sha256(value) {
   return typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 }
-function boundTargetGeneratorVersion(value) {
+function boundTargetGeneratorVersion(value, minimum = "1.13.22") {
   const canonical = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
-  const candidate = String(value || "").match(canonical);
-  const current = PLUGIN_VERSION.match(canonical);
-  if (!candidate || !current) return false;
-  const [major, minor, patchVersion] = candidate.slice(1).map(Number);
-  const [currentMajor, currentMinor, currentPatch] = current.slice(1).map(Number);
-  return (
-    major === 1 &&
-    minor === 13 &&
-    currentMajor === 1 &&
-    currentMinor === 13 &&
-    patchVersion >= 22 &&
-    patchVersion <= currentPatch
-  );
+  const parse = (version) => {
+    const match = typeof version === "string" && version.match(canonical);
+    if (!match) return null;
+    const parts = match.slice(1).map(Number);
+    return parts.every(Number.isSafeInteger) ? parts : null;
+  };
+  const candidate = parse(value),
+    current = parse(PLUGIN_VERSION),
+    floor = parse(minimum);
+  if (!candidate || !current || !floor) return false;
+  const compare = (left, right) => {
+    for (let index = 0; index < 3; index += 1)
+      if (left[index] !== right[index]) return left[index] < right[index] ? -1 : 1;
+    return 0;
+  };
+  return compare(candidate, floor) >= 0 && compare(candidate, current) <= 0;
 }
+
 function slug(value) {
   return typeof value === "string" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);
 }

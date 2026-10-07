@@ -18,7 +18,16 @@ function parseArgs(argv) {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--json") options.json = true;
-    else if (["--proposal", "--project-root", "--pm-dir", "--html", "--markdown"].includes(arg)) {
+    else if (
+      [
+        "--proposal",
+        "--project-root",
+        "--pm-dir",
+        "--html",
+        "--markdown",
+        "--preview-source-root",
+      ].includes(arg)
+    ) {
       const value = argv[++index];
       if (!value || value.startsWith("--")) throw new Error(`${arg} requires a value`);
       options[
@@ -28,6 +37,7 @@ function parseArgs(argv) {
           "--pm-dir": "pmDir",
           "--html": "html",
           "--markdown": "markdown",
+          "--preview-source-root": "previewSourceRoot",
         }[arg]
       ] = value;
     } else throw new Error(`unknown argument ${arg}`);
@@ -129,6 +139,15 @@ function proposalReaderGroups(proposal, identity) {
           title: "Recommendation",
           body: body(proposal.decision_brief.recommendation),
         },
+        ...(proposal.decision_brief.value_decision
+          ? [
+              {
+                id: "value-decision",
+                title: "Customer and commercial value",
+                body: valueDecisionHtml(proposal.decision_brief.value_decision),
+              },
+            ]
+          : []),
         {
           id: "problem",
           title: "Problem and timing",
@@ -153,8 +172,11 @@ function proposalReaderGroups(proposal, identity) {
       children: [
         {
           id: "prototype",
-          title: "Interaction prototype",
+          title: proposal.design_context?.app_preview
+            ? "Runnable app preview"
+            : "Interaction prototype",
           body:
+            appPreviewHeroHtml(proposal) ||
             prototypeHeroHtml(proposal, identity) ||
             "<p>No prototype is linked. Do not infer an approved design from this proposal.</p>",
         },
@@ -293,6 +315,7 @@ ${proposal.outcome}
 **Recommendation.** ${proposal.decision_brief.recommendation}
 
 **Why now.** ${proposal.decision_brief.why_now}
+${valueDecisionMarkdown(proposal.decision_brief.value_decision)}
 
 ## Execution Contract
 
@@ -346,10 +369,31 @@ function designContextHtml(proposal) {
   if (!context) return requirements;
   return `${requirements}
 <h3>UI impact</h3><p>${h(uiImpactText(context))}</p>
-<h3>Prototype</h3>${prototypeIdentityHtml(context.prototype)}
+<h3>Preview identity</h3>${context.app_preview ? appPreviewIdentityHtml(context.app_preview) : prototypeIdentityHtml(context.prototype)}
 <h3>Critical states</h3>${listOrEmptyHtml(context.critical_states)}
 <h3>Experience invariants</h3>${listOrEmptyHtml(context.experience_invariants)}
 <h3>Visual invariants</h3>${listOrEmptyHtml(context.visual_invariants)}`;
+}
+
+function valueDecisionHtml(value) {
+  const refs = (claim) =>
+    [...claim.evidence_ids, ...(claim.assumption_ids || [])].join(" · ") || "Unknown";
+  const claim = (label, row) =>
+    `<p><strong>${h(label)}.</strong> ${h(row.statement)} <small>${h(refs(row))}</small></p>`;
+  return `${claim("Beneficiary", value.beneficiary)}${claim(`Buyer (${value.buyer.status})`, value.buyer)}${claim("User outcome", value.user_outcome)}${claim("Commercial hypothesis", value.commercial_hypothesis)}${claim(`Counterevidence (${value.counterevidence.status})`, value.counterevidence)}
+<p><strong>Uncertainty.</strong></p>${listHtml(value.uncertainties.map((row) => `${row.statement} — ${refs(row)}`))}
+<p><strong>${h(value.recommendation.decision)}.</strong> ${h(value.recommendation.rationale)} <small>${h(refs(value.recommendation))}</small></p>
+<p><strong>Discriminating test.</strong> ${h(value.discriminating_test.action)}</p>
+<p><strong>Observable result.</strong> ${h(value.discriminating_test.observable_result)}</p>
+<p><strong>Change the decision when.</strong> ${h(value.discriminating_test.reversal_condition)} <small>${h(refs(value.discriminating_test))}</small></p>`;
+}
+
+function valueDecisionMarkdown(value) {
+  if (!value) return "";
+  const refs = (row) =>
+    [...row.evidence_ids, ...(row.assumption_ids || [])].join(" · ") || "Unknown";
+  const claim = (label, row) => `**${label}.** ${row.statement} (${refs(row)})`;
+  return `\n### Customer and commercial value\n\n${claim("Beneficiary", value.beneficiary)}\n\n${claim(`Buyer (${value.buyer.status})`, value.buyer)}\n\n${claim("User outcome", value.user_outcome)}\n\n${claim("Commercial hypothesis", value.commercial_hypothesis)}\n\n${claim(`Counterevidence (${value.counterevidence.status})`, value.counterevidence)}\n\n**Uncertainty.**\n${value.uncertainties.map((row) => `- ${row.statement} (${refs(row)})`).join("\n")}\n\n**${value.recommendation.decision}.** ${value.recommendation.rationale} (${refs(value.recommendation)})\n\n**Discriminating test.** ${value.discriminating_test.action}\n\n**Observable result.** ${value.discriminating_test.observable_result}\n\n**Change the decision when.** ${value.discriminating_test.reversal_condition} (${refs(value.discriminating_test)})\n`;
 }
 
 function designContextMarkdown(proposal) {
@@ -360,8 +404,8 @@ function designContextMarkdown(proposal) {
 ### UI impact
 ${uiImpactText(context)}
 
-### Prototype
-${prototypeIdentityMarkdown(context.prototype)}
+### Preview identity
+${context.app_preview ? appPreviewIdentityMarkdown(context.app_preview) : prototypeIdentityMarkdown(context.prototype)}
 
 ### Critical states
 ${markdownListOrEmpty(context.critical_states)}
@@ -426,7 +470,10 @@ function main(argv = process.argv.slice(2)) {
   }
   try {
     const projectRoot = path.resolve(options.projectRoot);
-    const source = readProposal(path.resolve(options.proposal), { projectRoot });
+    const source = readProposal(path.resolve(options.proposal), {
+      projectRoot,
+      previewSourceRoot: options.previewSourceRoot,
+    });
     if (source.kind !== "canonical-json")
       throw new Error(
         "legacy Markdown is inspection-only and cannot be rendered as canonical proposal output"
@@ -440,7 +487,10 @@ function main(argv = process.argv.slice(2)) {
       ["approved", "planned", "in-progress", "done"].includes(source.proposal.lifecycle)
     ) {
       try {
-        actuallyVerifiedApproval = readApprovedProposal(source.path, { projectRoot });
+        actuallyVerifiedApproval = readApprovedProposal(source.path, {
+          projectRoot,
+          previewSourceRoot: options.previewSourceRoot,
+        });
       } catch {
         actuallyVerifiedApproval = null;
       }
@@ -525,6 +575,31 @@ function tableHtml(headers, rows, options = {}) {
   const className = options.className ? ` class="${h(options.className)}"` : "";
   return `<table${className} data-responsive="true" aria-label="${h(headers.join(" and "))}"><thead><tr>${headers.map((item) => `<th>${h(item)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((item, index) => `<td data-label="${h(headers[index] || "Value")}">${h(item)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
 }
+function appPreviewHeroHtml(proposal) {
+  const preview = proposal.design_context?.app_preview;
+  if (!preview) return "";
+  const url = new URL(preview.launch.url);
+  if (
+    url.protocol !== "http:" ||
+    !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) ||
+    url.username ||
+    url.password
+  )
+    throw new Error("app preview link must be a loopback HTTP URL");
+  return `<figure class="hero-prototype"><div class="hero-prototype-header"><span class="hero-prototype-label">Runnable in-app preview</span><span class="hero-prototype-fig">Observed journey</span></div><div class="hero-prototype-frame-wrap"><div class="hero-prototype-preview" role="group" aria-label="App preview for ${h(proposal.title)}"><strong class="hero-prototype-title">Try the complete task in the app</strong><span class="hero-prototype-summary">${h(preview.journeys.map((row) => row.purpose).join(" · "))}</span></div></div><figcaption class="hero-prototype-footer"><span><span class="hero-prototype-screens-label">Observed states</span>${h(preview.journeys.flatMap((row) => row.required_states).join(" · "))}</span><a class="hero-prototype-link" href="${h(url.href)}" target="_blank" rel="noopener">Open app preview →</a></figcaption><p class="hero-prototype-note">Uses realistic simulated data. These observations do not certify backend behavior. Launch the pinned worktree using the recorded recipe before opening.</p></figure>`;
+}
+
+function appPreviewIdentityHtml(preview) {
+  return `<p><strong>Identity.</strong> <code>${h(preview.sha256)}</code><br><strong>Source.</strong> ${h(preview.source.repository)} · <code>${h(preview.source.head_commit)}</code><br><strong>Base.</strong> <code>${h(preview.source.base_commit)}</code><br><strong>Fixtures.</strong> <code>${h(preview.fixtures.sha256)}</code></p><p><strong>Launch recipe.</strong> <code>${h(JSON.stringify(preview.launch))}</code></p>${tableHtml(
+    ["Reviewed starting code", "SHA-256"],
+    preview.reviewed_starting_code.map((row) => [row.path, row.sha256 || "deleted"])
+  )}`;
+}
+
+function appPreviewIdentityMarkdown(preview) {
+  return `- App preview: \`${preview.sha256}\`\n- Source: \`${preview.source.repository}\` · \`${preview.source.head_commit}\`\n- Base: \`${preview.source.base_commit}\`\n- Fixtures: \`${preview.fixtures.sha256}\`\n- Launch recipe: \`${JSON.stringify(preview.launch)}\`\n- Reviewed starting code: ${preview.reviewed_starting_code.map((row) => `\`${row.path}\``).join(", ")}\n- Observed states: ${preview.journeys.flatMap((row) => row.required_states).join(", ")}\n- Simulated-data observations do not certify backend behavior.`;
+}
+
 function prototypeHeroHtml(proposal, identity) {
   const prototype = proposal.design_context?.prototype;
   if (!prototype) return "";

@@ -75,6 +75,33 @@ Retain this as structured Scope phase output and bind its artifact in the existi
 
 ## 4. Impact/Effort Evaluation
 
+### Value decision brief
+
+Give a concise recommendation of **build**, **test-first**, or **defer** using the evidence already collected. Name the beneficiary and their observable outcome, the buyer or decision-maker (explicitly `unknown` when unverified), and the commercial hypothesis connecting that outcome to adoption, purchase, retention, cost, or another relevant business result. An internal or noncommercial outcome may have no buyer; explain `not-applicable` from the checked context. Do not turn usability evidence, competitor presence, a ranking score, or a customer request into proof of purchasing or retention value.
+
+Preserve the strongest counterevidence and explain how it affects the recommendation. When none was found, cite the sources actually checked and state the limits of that search. Name consequential uncertainty rather than copying the proposal's general confidence label. Choose the smallest discriminating test: the action to take, the observable result, and the condition that would reverse the recommendation. Do not invent ROI, willingness to pay, adoption counts, test durations, or quantified targets.
+
+- **Build:** available evidence supports this bounded outcome and the remaining uncertainty can be handled within the existing approved direction. The recommendation does not claim commercial certainty.
+- **Test-first:** a consequential uncertainty could change the product or commercial decision; propose the smallest observation or experiment that separates the alternatives before committing to the broader outcome.
+- **Defer:** contrary evidence, unresolved dependency, strategic mismatch, or limited value does not justify the outcome now. Name the condition or observation that would make reconsideration useful.
+
+Retain `value_decision` in the structured Scope artifact and copy it into the canonical proposal's existing `decision_brief.value_decision`. Keep proposal evidence and assumptions in their existing collections; references use their stable `evidence:` and `assumption:` IDs, not raw paths or invented citations. The closed v1 value object contains:
+
+| Field | Required content |
+|---|---|
+| `schema_version` | `1` |
+| `beneficiary`, `user_outcome` | Claim objects: `statement`, `evidence_ids`, `assumption_ids`; at least one existing source ID |
+| `buyer` | Claim fields plus `status`: `identified`, `unknown`, or `not-applicable`; only `unknown` may omit source IDs |
+| `commercial_hypothesis` | Claim fields; at least one existing assumption ID so an inference remains a hypothesis |
+| `counterevidence` | `status`: `found` or `not-found`, `statement`, and nonempty `evidence_ids` for the contrary signal or checked search basis |
+| `uncertainties` | Nonempty array of claim objects; state a remaining limit even when none is known to be decision-blocking |
+| `recommendation` | `decision`: `build`, `test-first`, or `defer`, `rationale`, `evidence_ids`, `assumption_ids`; cited basis required |
+| `discriminating_test` | `action`, `observable_result`, `reversal_condition`, `evidence_ids`, `assumption_ids`; cited basis required |
+
+Use `scripts/lib/value-decision.js` to validate against the proposal's actual evidence/assumption IDs. Text is bounded to 4096 characters, reference arrays and uncertainties to 32 entries, and stable IDs to 128 characters. Validation proves structure and reference integrity; a reviewer still assesses whether cited evidence supports the claims and whether the test could change the decision. Historical proposals without the object remain readable; current producers include it. Never add new keys to the closed Groom session.
+
+This brief informs the existing scope and product decision. It creates no extra approval stage, changes no ranker weights, and grants no implementation authority. Existing user intent resolves routine choices; escalate a conflicting recommendation only when it requires a genuine product or commercial choice.
+
 For each in-scope item, assign a rough quadrant:
 
 | Quadrant | Impact | Effort | Decision |

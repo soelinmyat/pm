@@ -2,6 +2,12 @@
 
 This reference is the shared machine contract for `pm:think`, `pm:ideate`, `pm:strategy`, and `pm:features`. Markdown remains the canonical human reader. JSON companions expose identity, decisions, ranking inputs, transitions, and feature provenance without asking downstream skills to parse prose.
 
+## Value recommendations
+
+Research and Ideate explain the beneficiary, buyer or unknown buyer, user outcome, commercial hypothesis, contrary evidence and uncertainty. Retain the current ranking algorithm and use its existing expected-outcome/learning-value inputs. Recommend `build`, `test-first` or `defer`, with an observable discriminating test and the condition that reverses the recommendation. Usability observations do not establish willingness to pay, retention, revenue or ROI.
+
+Groom retains the scoped brief in `decision_brief.value_decision`; see `skills/groom/references/scope-validation.md` for its closed cited shape. New CLI producers mark `context.product_contract_version: 1` and require it. Historical omission remains readable, while present malformed claims or orphan citations reject. The execution projection retains the value brief but resolves citations through the exact full proposal and authenticated source evidence; it is not self-contained market evidence.
+
 ## Paths
 
 | Human artifact | Machine companion |

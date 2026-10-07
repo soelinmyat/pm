@@ -89,6 +89,8 @@ function validateRfcSidecar(sidecar, sidecarPath = DEFAULT_SIDECAR_PATH, opts = 
       try {
         validateDesignContext(sidecar.design_context, "design_context", {
           repoRoot: opts.repoRoot,
+          previewSourceRoot: opts.previewSourceRoot,
+          previewSourceRoots: opts.previewSourceRoots,
           requireCurrentPrototypeIdentity: opts.requireCurrentDesignContext,
           requireExperienceClassification: opts.requireCurrentDesignContext,
         });
@@ -334,6 +336,8 @@ function parseArgs(argv) {
       opts.expectedSlug = requireValue(argv, ++index, arg);
     } else if (arg === "--repo-root") {
       opts.repoRoot = requireValue(argv, ++index, arg);
+    } else if (arg === "--preview-source-root") {
+      opts.previewSourceRoot = requireValue(argv, ++index, arg);
     } else if (arg === "--current-handoff") {
       opts.requireCurrentDesignContext = true;
     } else if (arg === "--json") {
@@ -349,7 +353,7 @@ function parseArgs(argv) {
 
 function usage() {
   return [
-    "Usage: node scripts/rfc-sidecar-check.js --sidecar PATH [--html PATH] [--slug NAME] [--repo-root PATH] [--current-handoff] [--json]",
+    "Usage: node scripts/rfc-sidecar-check.js --sidecar PATH [--html PATH] [--slug NAME] [--repo-root PATH] [--preview-source-root PATH] [--current-handoff] [--json]",
     "",
     "Validates the RFC JSON sidecar at {pm_dir}/backlog/rfcs/{slug}.json.",
     "--html verifies the HTML's data-sidecar-hash matches the sidecar bytes.",
@@ -408,6 +412,7 @@ function main(argv = process.argv.slice(2)) {
     ? path.resolve(opts.repoRoot)
     : findGitRoot(path.dirname(sidecarPath));
   if (repoRoot) validateOpts.repoRoot = repoRoot;
+  if (opts.previewSourceRoot) validateOpts.previewSourceRoot = path.resolve(opts.previewSourceRoot);
   if (opts.requireCurrentDesignContext) validateOpts.requireCurrentDesignContext = true;
   if (opts.expectedSlug !== undefined && opts.expectedSlug !== null) {
     validateOpts.expectedSlug = opts.expectedSlug;

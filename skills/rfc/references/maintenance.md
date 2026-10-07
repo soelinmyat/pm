@@ -5,7 +5,7 @@ updated: 2026-10-06
 
 # In-scope RFC maintenance
 
-The initial RFC approves product intent and behavioral contracts. Routine file ownership, implementation approach, test-command and test-hook corrections within that intent do not need another human approval. Preserve the original human decision; record the maintenance reason, actual changes and current technical verification.
+The initial RFC is explicitly approved or derives technical details under the verified original product approval/grant. Product intent and behavioral contracts remain fixed. Routine file ownership, implementation approach, test-command and test-hook corrections within that intent do not need another human approval. Preserve the original human decision; record the maintenance reason, actual changes and current technical verification.
 
 ## Boundary
 
@@ -28,3 +28,5 @@ Examples:
 5. Adopt the completed lineage through `dev-session rebind-rfc`, including the expected current sidecar hash and reason. Ownership-only additions retain existing completion evidence. Changed technical contracts invalidate only the affected completed units: preserve their earlier result in the rebind history, reopen those units for relevant implementation/verification, and leave other units alone. If maintenance already completed while an affected unit was running, record its real non-passing worker result with `dev-session work-unit --status blocked` or `--status failed`. This bounded release verifies the completed amendment lineage, preserves the old bound contract and certifies no completion. Release every affected worker, then rebind and retry; completion and new execution still reject sidecar drift. Normal current-source delivery gates still apply.
 
 Do not edit approval audits, alter historical archives, or bypass artifact ownership, platform access controls, freshness, review or testing requirements. A fresh product design or a material change still reaches the explicit human decision boundary. Remote-native ProductMemory execution retains its own bound contract and authorized transport; local maintenance lineage cannot substitute for its live identity checks or authorize KB writes.
+
+Maintenance can also descend from a completed `delegated` initial RFC. Keep its original product decision/grant, independently assess preserved scope as before, and publish a v5 maintained audit with exact prior lineage. The HTML remains `reviewed`, not human-approved. Rebinding verifies the live canonical product grant as well as each immutable RFC hop. Routine technical corrections still need current review; a material or uncertain change returns for the concrete product/risk decision.

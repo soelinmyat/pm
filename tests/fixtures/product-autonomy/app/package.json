@@ -1,0 +1,7 @@
+{
+  "name": "pm-product-autonomy-pilot",
+  "private": true,
+  "scripts": {
+    "preview": "node server.cjs"
+  }
+}

@@ -335,6 +335,7 @@ function scoreProposal(proposal) {
 function main(argv = process.argv.slice(2)) {
   const proposalIndex = argv.indexOf("--proposal");
   const rootIndex = argv.indexOf("--project-root");
+  const previewIndex = argv.indexOf("--preview-source-root");
   const json = argv.includes("--json");
   if (proposalIndex < 0 || !argv[proposalIndex + 1]) {
     process.stderr.write("proposal-quality-check: --proposal is required\n");
@@ -350,7 +351,10 @@ function main(argv = process.argv.slice(2)) {
     const projectRoot = fs.existsSync(requestedProjectRoot)
       ? fs.realpathSync(requestedProjectRoot)
       : requestedProjectRoot;
-    const source = readProposal(proposalPath, { projectRoot });
+    const source = readProposal(proposalPath, {
+      projectRoot,
+      previewSourceRoot: previewIndex >= 0 ? argv[previewIndex + 1] : undefined,
+    });
     const result = scoreProposal(source.proposal);
     if (json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     else

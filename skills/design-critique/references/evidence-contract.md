@@ -117,7 +117,7 @@ The helper keeps network interception active through the screenshot/observation 
 
 The manifest's assurance level is `workflow-attested-non-cryptographic`. These local hashes are workflow attestations, not signatures: a caller able to author every local file can fabricate a self-consistent bundle, while the checker rejects inconsistent or independently mixed evidence. The manifest proves capture-time consistency, not that a generic development server served the routed Git commit or build. Use the project's documented server command and a clean build; when stronger provenance is required, expose an app/build identifier and verify it with an additional declarative guard. Build/server identity remains the explicit provenance limitation. The helper rejects iframe documents and starts a clean browser profile, so authenticated review must use a privacy-safe seeded or single-use application route without credentials in the URL.
 
-Each capture records `round` (1 or 2) and `active`. Every active required coverage row must resolve to its own canonical file path, file-byte hash, and decoded-pixel hash; copying, re-encoding, relabeling one image, or changing only a beacon pixel cannot impersonate a second state or viewport. Keep before and after entries when a blocking finding is fixed: the historical capture becomes inactive and exactly one latest-round capture stays active for each required coverage ID. Resolved product-UI P0/P1 proof uses the same subject and coverage ID, cites both IDs in the finding, and orders an inactive earlier `before` before the active later `after`; before and after must have distinct decoded-pixel hashes and material decoded-pixel-grid distance. IDs include the round; coverage IDs stay stable. Inactive historical captures retain their recorded capture-time browser identity after an installed-browser update; they must still attest an unchanged Chromium executable before/after capture, with a valid absolute path, byte count, SHA-256, and Chromium-family version. They retain every manifest, source, producer, raw-audit, network, timestamp, screenshot, decoded-pixel, and before/after proof check. Active captures must match the configured current browser executable, including revalidation through the end of the gate check; recapture all active coverage after a browser update without rewriting historical observations. Historical acceptance verifies the frozen observation, not present-browser behavior. A mixed-version before/after comparison alone cannot attribute a visual difference to the product fix; reviewers must qualify engine-sensitive claims and recapture the relevant comparison when the browser change could explain the difference. Source freshness remains strict for every capture; historical browser handling does not relax Git identity.
+Each capture records a positive consecutive `round` (up to the 50-round retained-lineage resource bound) and `active`. Every active required coverage row must resolve to its own canonical file path, file-byte hash, and decoded-pixel hash; copying, re-encoding, relabeling one image, or changing only a beacon pixel cannot impersonate a second state or viewport. Keep before and after entries when a blocking finding is fixed: the historical capture becomes inactive and exactly one latest-round capture stays active for each required coverage ID. Resolved product-UI P0/P1 proof uses the same subject and coverage ID, cites both IDs in the finding, and orders an inactive earlier `before` before the active later `after`; before and after must have distinct decoded-pixel hashes and material decoded-pixel-grid distance. IDs include the round; coverage IDs stay stable. Inactive historical captures retain their recorded capture-time browser identity after an installed-browser update; they must still attest an unchanged Chromium executable before/after capture, with a valid absolute path, byte count, SHA-256, and Chromium-family version. They retain every manifest, source, producer, raw-audit, network, timestamp, screenshot, decoded-pixel, and before/after proof check. Active captures must match the configured current browser executable, including revalidation through the end of the gate check; recapture all active coverage after a browser update without rewriting historical observations. Historical acceptance verifies the frozen observation, not present-browser behavior. A mixed-version before/after comparison alone cannot attribute a visual difference to the product fix; reviewers must qualify engine-sensitive claims and recapture the relevant comparison when the browser change could explain the difference. Source freshness remains strict for every active capture. Under `scoped-diagnosis-v1`, an inactive historical capture may retain its original route/source only when the immutable predecessor report binds that exact capture row (apart from `active`), its original route, audits and reviewer bytes. The historical commit must be an ancestor of current HEAD; route subjects/coverage/ownership stay identical. Current source cannot be relabeled onto old bytes. Without a checked predecessor snapshot, all existing strict source checks remain.
 
 For route schema v2, accessibility and DOM audit evidence use schema v2 and are generated only by `scripts/design-critique-audit-normalize.js`. Each normalized web object contains exactly `schema_version`, `subject_id`, `commit`, `capture_ids`, `raw: {path, sha256}`, `checks`, and `findings`. Native objects add the fields specified below. Product-UI audits cite exactly one active capture: every active capture needs one accessibility audit, and every active web capture also needs one DOM audit. The raw DOM `inner_width` must equal the decoded cited screenshot width, binding responsive measurements to the rendered evidence instead of allowing one desktop probe to cover other viewports or states. The checker bounded-reads the raw path, verifies its SHA-256, reruns normalization, and requires the complete normalized object to match. Hand-authored booleans or findings cannot pass.
 
@@ -192,7 +192,7 @@ Each round capture manifest also freezes the exact reviewed capture set:
 }
 ```
 
-The context source and capture manifest must exist before `execution.started_at`. Every named capture must already exist when its round manifest is created, have `capture.round <= manifest.round`, and have `captured_at <= manifest.created_at`. Round 1 covers every required route row. The final round covers every active required capture. For round 2, both the round manifest and every reviewer execution start after both round-1 receipts were recorded. Round 2 must contain at least one new round-2 capture, and each new capture must postdate both round-1 receipts. A numbered round cannot be used to rewrite the chronology of an earlier review.
+The context source and capture manifest must exist before `execution.started_at`. Every named capture must already exist when its round manifest is created, have `capture.round <= manifest.round`, and have `captured_at <= manifest.created_at`. Round 1 covers every required route row. The final round covers every active required capture. For every round after 1, both the round manifest and every reviewer execution start after both preceding-round receipts were recorded. Each later round contains at least one new capture which postdates those receipts; a source change requires recapturing every active state/viewport at current HEAD. A numbered round cannot be used to rewrite the chronology of an earlier review.
 
 ## Reviews
 
@@ -411,3 +411,47 @@ DOM/accessibility samples, identical screenshots, and protocol barriers remain
 mandatory. Requests completing or starting during atomic capture invalidate the
 capture. Use a genuine delayed test endpoint; do not replace the response or
 manufacture loading markup to satisfy the gate.
+
+## Scoped recovery after two unresolved rounds
+
+New `reviews.json` documents add `recovery_policy: "scoped-diagnosis-v1"`. Preserve
+all earlier round rows and their prompt/input/result/receipt bytes exactly. Each
+later row may bind `previous_report: {path, sha256}` to the immutable immediately
+prior non-passing report; this checkpoint is required for source advancement
+and after round two. Freeze the predecessor's route/captures/reviews/report/HTML
+at their original paths before source changes. The checker validates its complete
+frozen chain and exact reviewer prefix. Historical inactive captures and audits
+use the source in that checkpoint; active captures, current route/report and the
+final reviewer pair still bind current HEAD. Changed source requires new captures
+for every active coverage row, not a new label on old observations.
+
+After round two, the next row also requires a closed `recovery` object with
+`classification`, `observed`, `cause` (or testable hypothesis), `change`,
+`next_check`, `evidence_ids`, and `scope_assessment`. Evidence IDs cite captures,
+findings or reviewer IDs retained in the immediately prior report. Text fields
+contain 1–4096 UTF-8 bytes. Classifications are `product-defect`,
+`harness-environment`, `stale-evidence`, `external-dependency`, `product-decision`,
+and `scope-risk-change`. Scope is `within-approved-scope` or `decision-required`;
+the last three classifications and a postponed predecessor choice require the
+latter and a blocked outcome. Any present diagnosis is checked, even before the
+threshold. A repeated normalized `change` and `next_check` is rejected. This
+structure supports grounded model judgment; it does not certify that a stated
+cause is true or create new permission.
+
+Validate each historical diagnosis against its immutable historical report,
+including that report's outcome. A dependency-blocked round does not force a
+later report to remain blocked after actual restoration and fresh current
+captures/reviews. Product decisions, scope/risk changes, and other explicit
+`decision-required` scope assessments remain unresolved within that lineage;
+omission, an in-scope claim, or relabeling them as a restorable dependency cannot
+substitute for trusted product direction. Preserve the original report and rows
+through restoration or a separately approved product decision.
+
+Continue authorized scoped repair with a fresh Primary/Fresh Eyes pair and
+strict capture/manifest/receipt chronology. Preserve the aggregate 2,000-capture,
+JSON/file/cache budgets and 50-round resource ceiling; report an actual resource
+or platform limitation as blocked, never request product reapproval because a
+counter alone advanced. A non-passing report is still non-passing. Current
+source/coverage, before/after pixels, independently bound reviews and every
+existing reconciliation check determine passing eligibility. Legacy reports
+without recovery metadata remain readable and retain their original checks.

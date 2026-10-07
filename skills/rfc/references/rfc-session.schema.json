@@ -27,25 +27,27 @@
     "migration"
   ],
   "properties": {
-    "schema_version": { "const": 2 },
-    "run_id": { "type": "string", "pattern": "^rfc_[A-Za-z0-9_-]+$" },
-    "slug": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "schema_version": {"const": 2},
+    "run_id": {"type": "string", "pattern": "^rfc_[A-Za-z0-9_-]+$"},
+    "slug": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
     "status": {
-      "enum": ["active", "awaiting_approval", "approved", "blocked", "complete", "maintained"]
+      "enum": ["active", "awaiting_approval", "approved", "blocked", "complete", "maintained", "delegated"]
     },
-    "phase": { "enum": ["intake", "generation", "review", "approval", "handoff"] },
-    "phase_attempt": { "type": "integer", "minimum": 1 },
-    "created_at": { "type": "string", "format": "date-time" },
-    "updated_at": { "type": "string", "format": "date-time" },
+    "phase": {
+      "enum": ["intake", "generation", "review", "approval", "handoff"]
+    },
+    "phase_attempt": {"type": "integer", "minimum": 1},
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"},
     "source": {
       "type": "object",
       "additionalProperties": false,
       "required": ["repo_root", "worktree", "branch", "base_commit"],
       "properties": {
-        "repo_root": { "type": "string", "minLength": 1 },
-        "worktree": { "type": "string", "minLength": 1 },
-        "branch": { "type": "string", "minLength": 1 },
-        "base_commit": { "type": "string", "minLength": 1 }
+        "repo_root": {"type": "string", "minLength": 1},
+        "worktree": {"type": "string", "minLength": 1},
+        "branch": {"type": "string", "minLength": 1},
+        "base_commit": {"type": "string", "minLength": 1}
       }
     },
     "context": {
@@ -64,12 +66,17 @@
         "artifact_ownership"
       ],
       "properties": {
-        "configured": { "type": "boolean" },
-        "source_kind": { "type": ["string", "null"], "enum": ["proposal", "linear-issue", null] },
-        "proposal_path": { "type": ["string", "null"] },
+        "configured": {"type": "boolean"},
+        "source_kind": {
+          "type": ["string", "null"],
+          "enum": ["proposal", "linear-issue", null]
+        },
+        "proposal_path": {
+          "type": ["string", "null"]
+        },
         "proposal_identity": {
           "oneOf": [
-            { "type": "null" },
+            {"type": "null"},
             {
               "type": "object",
               "additionalProperties": false,
@@ -88,75 +95,159 @@
                 "exact_approved_bytes_current"
               ],
               "properties": {
-                "kind": { "const": "approved-canonical-json" },
-                "trusted_approval": { "const": true },
-                "proposal_id": { "type": "string", "minLength": 1 },
-                "slug": { "type": "string", "minLength": 1 },
-                "revision": { "type": "integer", "minimum": 1 },
-                "lifecycle": { "enum": ["approved", "planned", "in-progress", "done"] },
-                "content_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
-                "approved_proposal_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
-                "current_proposal_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
-                "decision_id": { "type": ["string", "null"] },
-                "decision_sha256": { "type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$" },
-                "exact_approved_bytes_current": { "type": "boolean" }
+                "kind": {"const": "approved-canonical-json"},
+                "trusted_approval": {"const": true},
+                "proposal_id": {"type": "string", "minLength": 1},
+                "slug": {"type": "string", "minLength": 1},
+                "revision": {"type": "integer", "minimum": 1},
+                "lifecycle": {
+                  "enum": ["approved", "planned", "in-progress", "done"]
+                },
+                "content_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                "approved_proposal_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                "current_proposal_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                "decision_id": {
+                  "type": ["string", "null"]
+                },
+                "decision_sha256": {
+                  "type": ["string", "null"],
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "exact_approved_bytes_current": {"type": "boolean"}
               }
             }
           ]
         },
         "design_context": {
-          "oneOf": [{ "$ref": "#/$defs/design_context" }, { "type": "null" }]
+          "oneOf": [
+            {"$ref": "#/$defs/design_context"},
+            {"type": "null"}
+          ]
         },
-        "linear_id": { "type": ["string", "null"] },
-        "size": { "type": ["string", "null"], "enum": ["M", "L", "XL", null] },
-        "acceptance_criteria": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "linear_id": {
+          "type": ["string", "null"]
+        },
+        "size": {
+          "type": ["string", "null"],
+          "enum": ["M", "L", "XL", null]
+        },
+        "acceptance_criteria": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
         "artifact_repo_root": {
-          "oneOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }]
+          "oneOf": [
+            {"type": "string", "minLength": 1},
+            {"type": "null"}
+          ]
         },
-        "artifact_ownership": { "enum": ["helper-v1", null] }
+        "artifact_ownership": {
+          "enum": ["helper-v1", null]
+        },
+        "delivery_delegation": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/deliveryDelegation"}
+          ]
+        },
+        "preview_source_root": {
+          "type": ["string", "null"],
+          "minLength": 1
+        }
       }
     },
-    "artifact": { "anyOf": [{ "$ref": "#/$defs/artifact" }, { "type": "null" }] },
+    "artifact": {
+      "anyOf": [
+        {"$ref": "#/$defs/artifact"},
+        {"type": "null"}
+      ]
+    },
     "review": {
       "type": "object",
       "additionalProperties": false,
       "required": ["status", "artifact_hash", "rounds", "verdicts", "reviewed_at"],
       "properties": {
-        "status": { "enum": ["not_started", "passed"] },
-        "artifact_hash": { "type": ["string", "null"] },
-        "rounds": { "type": "integer", "minimum": 0 },
-        "verdicts": { "type": "array", "items": { "$ref": "#/$defs/verdict" } },
-        "reviewed_at": { "type": ["string", "null"], "format": "date-time" }
+        "status": {
+          "enum": ["not_started", "passed"]
+        },
+        "artifact_hash": {
+          "type": ["string", "null"]
+        },
+        "rounds": {"type": "integer", "minimum": 0},
+        "verdicts": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/verdict"}
+        },
+        "reviewed_at": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        }
       },
       "allOf": [
         {
-          "if": { "properties": { "status": { "const": "passed" } } },
+          "if": {
+            "properties": {
+              "status": {"const": "passed"}
+            }
+          },
           "then": {
             "properties": {
-              "artifact_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
-              "rounds": { "type": "integer", "minimum": 1 },
-              "reviewed_at": { "type": "string", "format": "date-time" },
+              "artifact_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+              "rounds": {"type": "integer", "minimum": 1},
+              "reviewed_at": {"type": "string", "format": "date-time"},
               "verdicts": {
                 "type": "array",
                 "minItems": 3,
-                "contains": { "type": "object", "properties": { "lens": { "const": "architecture-risk" } }, "required": ["lens"] }
+                "contains": {
+                  "type": "object",
+                  "properties": {
+                    "lens": {"const": "architecture-risk"}
+                  },
+                  "required": ["lens"]
+                }
               }
             }
           }
         },
         {
-          "if": { "properties": { "status": { "const": "passed" } } },
+          "if": {
+            "properties": {
+              "status": {"const": "passed"}
+            }
+          },
           "then": {
             "properties": {
-              "verdicts": { "type": "array", "contains": { "type": "object", "properties": { "lens": { "const": "test-strategy" } }, "required": ["lens"] } }
+              "verdicts": {
+                "type": "array",
+                "contains": {
+                  "type": "object",
+                  "properties": {
+                    "lens": {"const": "test-strategy"}
+                  },
+                  "required": ["lens"]
+                }
+              }
             }
           }
         },
         {
-          "if": { "properties": { "status": { "const": "passed" } } },
+          "if": {
+            "properties": {
+              "status": {"const": "passed"}
+            }
+          },
           "then": {
             "properties": {
-              "verdicts": { "type": "array", "contains": { "type": "object", "properties": { "lens": { "const": "maintainability" } }, "required": ["lens"] } }
+              "verdicts": {
+                "type": "array",
+                "contains": {
+                  "type": "object",
+                  "properties": {
+                    "lens": {"const": "maintainability"}
+                  },
+                  "required": ["lens"]
+                }
+              }
             }
           }
         }
@@ -167,55 +258,143 @@
       "additionalProperties": false,
       "required": ["status", "approved_by", "approved_at", "artifact_hash"],
       "properties": {
-        "status": { "enum": ["pending", "approved", "maintained"] },
-        "approved_by": { "type": ["string", "null"] },
-        "approved_at": { "type": ["string", "null"], "format": "date-time" },
-        "artifact_hash": { "type": ["string", "null"] }
+        "status": {
+          "enum": ["pending", "approved", "maintained", "delegated"]
+        },
+        "approved_by": {
+          "type": ["string", "null"]
+        },
+        "approved_at": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
+        "artifact_hash": {
+          "type": ["string", "null"]
+        }
       },
       "allOf": [
         {
-          "if": { "properties": { "status": {"enum": ["approved", "maintained"]} } },
+          "if": {
+            "properties": {
+              "status": {
+                "enum": ["approved", "maintained", "delegated"]
+              }
+            }
+          },
           "then": {
             "properties": {
-              "approved_by": { "type": "string", "minLength": 1 },
-              "approved_at": { "type": "string", "format": "date-time" },
-              "artifact_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+              "approved_by": {"type": "string", "minLength": 1},
+              "approved_at": {"type": "string", "format": "date-time"},
+              "artifact_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
             }
           }
         }
       ]
     },
-    "authority": { "$ref": "#/$defs/authority" },
-    "authority_log": { "type": "array", "items": { "$ref": "#/$defs/authority_record" } },
-    "execution": { "$ref": "#/$defs/execution" },
-    "attempts": { "type": "array", "items": { "$ref": "#/$defs/attempt" } },
-    "blockers": { "type": "array", "items": { "$ref": "#/$defs/blocker" } },
-    "history": { "type": "array", "items": { "$ref": "#/$defs/history" } },
-    "migration": { "anyOf": [{ "$ref": "#/$defs/migration" }, { "type": "null" }] },
-    "amendment": { "anyOf": [{ "$ref": "#/$defs/amendment" }, { "type": "null" }] }
+    "authority": {"$ref": "#/$defs/authority"},
+    "authority_log": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/authority_record"}
+    },
+    "execution": {"$ref": "#/$defs/execution"},
+    "attempts": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/attempt"}
+    },
+    "blockers": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/blocker"}
+    },
+    "history": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/history"}
+    },
+    "migration": {
+      "anyOf": [
+        {"$ref": "#/$defs/migration"},
+        {"type": "null"}
+      ]
+    },
+    "amendment": {
+      "anyOf": [
+        {"$ref": "#/$defs/amendment"},
+        {"type": "null"}
+      ]
+    }
   },
   "allOf": [
     {
-      "if": { "properties": { "status": { "const": "awaiting_approval" } } },
-      "then": { "properties": { "phase": { "const": "approval" } } }
-    },
-    {
-      "if": { "properties": { "phase": { "const": "approval" } } },
-      "then": { "properties": { "review": { "type": "object", "properties": { "status": { "const": "passed" } } } } }
-    },
-    {
-      "if": { "properties": { "status": { "enum": ["approved", "maintained", "complete"] } } },
-      "then": { "properties": { "approval": { "type": "object", "properties": { "status": {"enum": ["approved", "maintained"]} } } } }
-    },
-    {
-      "if": { "properties": { "status": { "const": "complete" } } },
-      "then": { "properties": { "phase": { "const": "handoff" } } }
+      "if": {
+        "properties": {
+          "status": {"const": "awaiting_approval"}
+        }
+      },
+      "then": {
+        "properties": {
+          "phase": {"const": "approval"}
+        }
+      }
     },
     {
       "if": {
         "properties": {
-          "phase": { "const": "approval" },
-          "approval": { "type": "object", "properties": { "status": { "const": "approved" } } }
+          "phase": {"const": "approval"}
+        }
+      },
+      "then": {
+        "properties": {
+          "review": {
+            "type": "object",
+            "properties": {
+              "status": {"const": "passed"}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "enum": ["approved", "maintained", "complete", "delegated"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "approval": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "enum": ["approved", "maintained", "delegated"]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {"const": "complete"}
+        }
+      },
+      "then": {
+        "properties": {
+          "phase": {"const": "handoff"}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "phase": {"const": "approval"},
+          "approval": {
+            "type": "object",
+            "properties": {
+              "status": {"const": "approved"}
+            }
+          }
         },
         "required": ["phase", "approval"]
       },
@@ -226,9 +405,7 @@
         "properties": {
           "approval": {
             "properties": {
-              "status": {
-                "const": "maintained"
-              }
+              "status": {"const": "maintained"}
             },
             "type": "object"
           }
@@ -239,31 +416,21 @@
         "properties": {
           "amendment": {
             "type": "object",
-            "required": [
-              "kind"
-            ],
+            "required": ["kind"],
             "properties": {
-              "kind": {
-                "const": "maintenance"
-              }
+              "kind": {"const": "maintenance"}
             }
           },
           "review": {
             "properties": {
-              "status": {
-                "const": "passed"
-              },
+              "status": {"const": "passed"},
               "verdicts": {
                 "items": {
-                  "required": [
-                    "maintenance_scope"
-                  ],
+                  "required": ["maintenance_scope"],
                   "properties": {
                     "maintenance_scope": {
                       "properties": {
-                        "preserved": {
-                          "const": true
-                        }
+                        "preserved": {"const": true}
                       },
                       "type": "object"
                     }
@@ -277,6 +444,76 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "approval": {
+            "properties": {
+              "status": {"const": "delegated"}
+            },
+            "required": ["status"],
+            "type": "object"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "context": {
+            "properties": {
+              "delivery_delegation": {"$ref": "#/$defs/deliveryDelegation"},
+              "proposal_identity": {"type": "object"}
+            },
+            "required": ["delivery_delegation"],
+            "type": "object"
+          },
+          "amendment": {"type": "null"},
+          "review": {
+            "properties": {
+              "status": {"const": "passed"},
+              "verdicts": {
+                "items": {
+                  "required": ["delegation_scope"],
+                  "type": "object",
+                  "properties": {
+                    "delegation_scope": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["grant_sha256", "product_decision_sha256", "reviewer_id", "boundaries", "rationale", "evidence"],
+                      "properties": {
+                        "grant_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                        "product_decision_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                        "reviewer_id": {"type": "string", "minLength": 1},
+                        "boundaries": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": ["product", "commercial", "security", "privacy", "operational"],
+                          "properties": {
+                            "product": {"const": "preserved"},
+                            "commercial": {"const": "preserved"},
+                            "security": {"const": "preserved"},
+                            "privacy": {"const": "preserved"},
+                            "operational": {"const": "preserved"}
+                          }
+                        },
+                        "rationale": {"type": "string", "minLength": 1},
+                        "evidence": {
+                          "type": "array",
+                          "minItems": 1,
+                          "items": {"type": "string", "minLength": 1}
+                        }
+                      }
+                    }
+                  }
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "phase": {"const": "handoff"}
+        }
+      }
     }
   ],
   "$defs": {
@@ -284,43 +521,28 @@
       "description": "Owns-only amendment of a completed, approved run. Original runs carry null; legacy archives omit the field.",
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "of_run_id",
-        "prior_artifact",
-        "prior_approval_sha256",
-        "amended_issue_nums",
-        "reason",
-        "created_at"
-      ],
+      "required": ["of_run_id", "prior_artifact", "prior_approval_sha256", "amended_issue_nums", "reason", "created_at"],
       "properties": {
         "kind": {
-          "enum": [
-            "owns-only",
-            "maintenance"
-          ]
+          "enum": ["owns-only", "maintenance"]
         },
-        "of_run_id": { "type": "string", "pattern": "^rfc_[A-Za-z0-9_-]+$" },
-        "prior_artifact": { "$ref": "#/$defs/artifact" },
-        "prior_approval_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "of_run_id": {"type": "string", "pattern": "^rfc_[A-Za-z0-9_-]+$"},
+        "prior_artifact": {"$ref": "#/$defs/artifact"},
+        "prior_approval_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
         "amended_issue_nums": {
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": { "type": "integer", "minimum": 1 }
+          "items": {"type": "integer", "minimum": 1}
         },
-        "reason": { "type": "string", "minLength": 1 },
-        "created_at": { "type": "string", "format": "date-time" }
+        "reason": {"type": "string", "minLength": 1},
+        "created_at": {"type": "string", "format": "date-time"}
       }
     },
     "design_context": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "design_requirements",
-        "prototype",
-        "critical_states",
-        "visual_invariants"
-      ],
+      "required": ["design_requirements", "prototype", "critical_states", "visual_invariants"],
       "dependentRequired": {
         "ui_impact": ["experience_invariants"],
         "experience_invariants": ["ui_impact"]
@@ -330,12 +552,12 @@
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": { "type": "string", "minLength": 1 }
+          "items": {"type": "string", "minLength": 1}
         },
-        "ui_impact": { "type": "boolean" },
+        "ui_impact": {"type": "boolean"},
         "prototype": {
           "oneOf": [
-            { "type": "null" },
+            {"type": "null"},
             {
               "type": "object",
               "additionalProperties": false,
@@ -346,16 +568,13 @@
                   "minLength": 1,
                   "pattern": "^(?!/)(?![A-Za-z]:/)(?!.*(?:^|/)\\.\\.(?:/|$))[^*?{}\\[\\]]+$"
                 },
-                "sha256": {
-                  "type": "string",
-                  "pattern": "^sha256:[a-f0-9]{64}$"
-                },
+                "sha256": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
                 "manifest": {
                   "type": "object",
                   "additionalProperties": false,
                   "required": ["schema_version", "files", "tree_sha256"],
                   "properties": {
-                    "schema_version": { "const": 1 },
+                    "schema_version": {"const": 1},
                     "files": {
                       "type": "array",
                       "minItems": 3,
@@ -366,18 +585,12 @@
                         "additionalProperties": false,
                         "required": ["path", "sha256"],
                         "properties": {
-                          "path": { "type": "string", "minLength": 1 },
-                          "sha256": {
-                            "type": "string",
-                            "pattern": "^sha256:[a-f0-9]{64}$"
-                          }
+                          "path": {"type": "string", "minLength": 1},
+                          "sha256": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
                         }
                       }
                     },
-                    "tree_sha256": {
-                      "type": "string",
-                      "pattern": "^sha256:[a-f0-9]{64}$"
-                    }
+                    "tree_sha256": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
                   }
                 }
               }
@@ -388,17 +601,17 @@
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": { "type": "string", "minLength": 1 }
+          "items": {"type": "string", "minLength": 1}
         },
         "experience_invariants": {
           "type": "array",
           "uniqueItems": true,
-          "items": { "type": "string", "minLength": 1 }
+          "items": {"type": "string", "minLength": 1}
         },
         "visual_invariants": {
           "type": "array",
           "uniqueItems": true,
-          "items": { "type": "string", "minLength": 1 }
+          "items": {"type": "string", "minLength": 1}
         }
       },
       "allOf": [
@@ -406,36 +619,44 @@
           "if": {
             "not": {
               "type": "object",
-              "properties": { "ui_impact": {} },
+              "properties": {
+                "ui_impact": {}
+              },
               "required": ["ui_impact"]
             }
           },
           "then": {
-            "properties": { "visual_invariants": { "type": "array", "minItems": 1 } }
-          }
-        },
-        {
-          "if": {
-            "required": ["ui_impact"],
-            "properties": { "ui_impact": { "const": true } }
-          },
-          "then": {
             "properties": {
-              "experience_invariants": { "type": "array", "minItems": 1 },
-              "visual_invariants": { "type": "array", "minItems": 1 }
+              "visual_invariants": {"type": "array", "minItems": 1}
             }
           }
         },
         {
           "if": {
             "required": ["ui_impact"],
-            "properties": { "ui_impact": { "const": false } }
+            "properties": {
+              "ui_impact": {"const": true}
+            }
           },
           "then": {
             "properties": {
-              "prototype": { "type": "null" },
-              "experience_invariants": { "type": "array", "minItems": 1 },
-              "visual_invariants": { "type": "array", "maxItems": 0 }
+              "experience_invariants": {"type": "array", "minItems": 1},
+              "visual_invariants": {"type": "array", "minItems": 1}
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["ui_impact"],
+            "properties": {
+              "ui_impact": {"const": false}
+            }
+          },
+          "then": {
+            "properties": {
+              "prototype": {"type": "null"},
+              "experience_invariants": {"type": "array", "minItems": 1},
+              "visual_invariants": {"type": "array", "maxItems": 0}
             }
           }
         }
@@ -446,10 +667,10 @@
       "additionalProperties": false,
       "required": ["linear_create", "loop_approval", "open_browser", "start_implementation"],
       "properties": {
-        "linear_create": { "type": "boolean" },
-        "loop_approval": { "type": "boolean" },
-        "open_browser": { "type": "boolean" },
-        "start_implementation": { "type": "boolean" }
+        "linear_create": {"type": "boolean"},
+        "loop_approval": {"type": "boolean"},
+        "open_browser": {"type": "boolean"},
+        "start_implementation": {"type": "boolean"}
       }
     },
     "authority_record": {
@@ -457,10 +678,12 @@
       "additionalProperties": false,
       "required": ["action", "granted", "reason", "recorded_at"],
       "properties": {
-        "action": { "enum": ["linear_create", "loop_approval", "open_browser", "start_implementation"] },
-        "granted": { "type": "boolean" },
-        "reason": { "type": "string", "minLength": 1 },
-        "recorded_at": { "type": "string", "format": "date-time" }
+        "action": {
+          "enum": ["linear_create", "loop_approval", "open_browser", "start_implementation"]
+        },
+        "granted": {"type": "boolean"},
+        "reason": {"type": "string", "minLength": 1},
+        "recorded_at": {"type": "string", "format": "date-time"}
       }
     },
     "execution": {
@@ -468,13 +691,15 @@
       "additionalProperties": false,
       "required": ["profile", "runtime", "model", "reasoning", "mode", "runtime_session_id", "headless"],
       "properties": {
-        "profile": { "type": "string", "minLength": 1 },
-        "runtime": { "type": "string", "minLength": 1 },
-        "model": { "type": "string", "minLength": 1 },
-        "reasoning": { "type": "string", "minLength": 1 },
-        "mode": { "type": "string", "minLength": 1 },
-        "runtime_session_id": { "type": ["string", "null"] },
-        "headless": { "type": "boolean" }
+        "profile": {"type": "string", "minLength": 1},
+        "runtime": {"type": "string", "minLength": 1},
+        "model": {"type": "string", "minLength": 1},
+        "reasoning": {"type": "string", "minLength": 1},
+        "mode": {"type": "string", "minLength": 1},
+        "runtime_session_id": {
+          "type": ["string", "null"]
+        },
+        "headless": {"type": "boolean"}
       }
     },
     "runtime": {
@@ -482,10 +707,12 @@
       "additionalProperties": false,
       "required": ["provider", "model", "reasoning", "session_id"],
       "properties": {
-        "provider": { "type": "string", "minLength": 1 },
-        "model": { "type": "string", "minLength": 1 },
-        "reasoning": { "type": "string", "minLength": 1 },
-        "session_id": { "type": ["string", "null"] }
+        "provider": {"type": "string", "minLength": 1},
+        "model": {"type": "string", "minLength": 1},
+        "reasoning": {"type": "string", "minLength": 1},
+        "session_id": {
+          "type": ["string", "null"]
+        }
       }
     },
     "attempt": {
@@ -493,14 +720,20 @@
       "additionalProperties": false,
       "required": ["phase", "attempt", "status", "summary", "artifact_hash", "recorded_at", "runtime", "result_hash"],
       "properties": {
-        "phase": { "enum": ["intake", "generation", "review", "handoff"] },
-        "attempt": { "type": "integer", "minimum": 1 },
-        "status": { "enum": ["passed", "failed", "blocked"] },
-        "summary": { "type": "string", "minLength": 1 },
-        "artifact_hash": { "type": ["string", "null"] },
-        "recorded_at": { "type": "string", "format": "date-time" },
-        "runtime": { "$ref": "#/$defs/runtime" },
-        "result_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+        "phase": {
+          "enum": ["intake", "generation", "review", "handoff"]
+        },
+        "attempt": {"type": "integer", "minimum": 1},
+        "status": {
+          "enum": ["passed", "failed", "blocked"]
+        },
+        "summary": {"type": "string", "minLength": 1},
+        "artifact_hash": {
+          "type": ["string", "null"]
+        },
+        "recorded_at": {"type": "string", "format": "date-time"},
+        "runtime": {"$ref": "#/$defs/runtime"},
+        "result_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
       }
     },
     "blocker": {
@@ -508,13 +741,15 @@
       "additionalProperties": false,
       "required": ["code", "reason", "remediation"],
       "properties": {
-        "code": { "type": "string", "minLength": 1 },
-        "reason": { "type": "string", "minLength": 1 },
-        "remediation": { "type": "string", "minLength": 1 },
-        "phase": { "enum": ["intake", "generation", "review", "approval", "handoff"] },
-        "recorded_at": { "type": "string", "format": "date-time" },
-        "resolved_at": { "type": "string", "format": "date-time" },
-        "resolution": { "type": "string", "minLength": 1 }
+        "code": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1},
+        "remediation": {"type": "string", "minLength": 1},
+        "phase": {
+          "enum": ["intake", "generation", "review", "approval", "handoff"]
+        },
+        "recorded_at": {"type": "string", "format": "date-time"},
+        "resolved_at": {"type": "string", "format": "date-time"},
+        "resolution": {"type": "string", "minLength": 1}
       }
     },
     "history": {
@@ -522,10 +757,10 @@
       "additionalProperties": false,
       "required": ["prior_phase", "next_phase", "reason", "timestamp"],
       "properties": {
-        "prior_phase": { "type": "string", "minLength": 1 },
-        "next_phase": { "type": "string", "minLength": 1 },
-        "reason": { "type": "string", "minLength": 1 },
-        "timestamp": { "type": "string", "format": "date-time" }
+        "prior_phase": {"type": "string", "minLength": 1},
+        "next_phase": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1},
+        "timestamp": {"type": "string", "format": "date-time"}
       }
     },
     "migration": {
@@ -533,11 +768,11 @@
       "additionalProperties": false,
       "required": ["legacy_path", "legacy_stage", "migrated_at", "approval_trusted", "reason"],
       "properties": {
-        "legacy_path": { "type": "string", "minLength": 1 },
-        "legacy_stage": { "type": "string", "minLength": 1 },
-        "migrated_at": { "type": "string", "format": "date-time" },
-        "approval_trusted": { "const": false },
-        "reason": { "type": "string", "minLength": 1 }
+        "legacy_path": {"type": "string", "minLength": 1},
+        "legacy_stage": {"type": "string", "minLength": 1},
+        "migrated_at": {"type": "string", "format": "date-time"},
+        "approval_trusted": {"const": false},
+        "reason": {"type": "string", "minLength": 1}
       }
     },
     "artifact": {
@@ -545,12 +780,12 @@
       "additionalProperties": false,
       "required": ["html_path", "json_path", "html_hash", "sidecar_hash", "repo_root", "commit"],
       "properties": {
-        "html_path": { "type": "string", "minLength": 1 },
-        "json_path": { "type": "string", "minLength": 1 },
-        "html_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
-        "sidecar_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
-        "repo_root": { "type": "string", "minLength": 1 },
-        "commit": { "type": "string", "minLength": 1 }
+        "html_path": {"type": "string", "minLength": 1},
+        "json_path": {"type": "string", "minLength": 1},
+        "html_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "sidecar_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "repo_root": {"type": "string", "minLength": 1},
+        "commit": {"type": "string", "minLength": 1}
       }
     },
     "evidence": {
@@ -558,10 +793,14 @@
       "additionalProperties": false,
       "required": ["kind", "command", "exit_code", "artifact"],
       "properties": {
-        "kind": { "type": "string", "minLength": 1 },
-        "command": { "type": ["string", "null"] },
-        "exit_code": { "type": "integer" },
-        "artifact": { "type": ["string", "null"] }
+        "kind": {"type": "string", "minLength": 1},
+        "command": {
+          "type": ["string", "null"]
+        },
+        "exit_code": {"type": "integer"},
+        "artifact": {
+          "type": ["string", "null"]
+        }
       }
     },
     "verdict": {
@@ -572,25 +811,49 @@
         "maintenance_scope": {
           "type": "object",
           "additionalProperties": false,
-          "required": [
-            "preserved",
-            "rationale"
-          ],
+          "required": ["preserved", "rationale"],
           "properties": {
-            "preserved": {
-              "type": "boolean"
-            },
-            "rationale": {
-              "type": "string",
-              "minLength": 1
-            }
+            "preserved": {"type": "boolean"},
+            "rationale": {"type": "string", "minLength": 1}
           }
         },
-        "lens": { "enum": ["architecture-risk", "test-strategy", "maintainability"] },
-        "artifact_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
-        "verdict": { "enum": ["pass", "block"] },
-        "blocking": { "type": "array" },
-        "advisory": { "type": "array" }
+        "lens": {
+          "enum": ["architecture-risk", "test-strategy", "maintainability"]
+        },
+        "artifact_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "verdict": {
+          "enum": ["pass", "block"]
+        },
+        "blocking": {"type": "array"},
+        "advisory": {"type": "array"},
+        "delegation_scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["grant_sha256", "product_decision_sha256", "reviewer_id", "boundaries", "rationale", "evidence"],
+          "properties": {
+            "grant_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+            "product_decision_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+            "reviewer_id": {"type": "string", "minLength": 1},
+            "boundaries": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["product", "commercial", "security", "privacy", "operational"],
+              "properties": {
+                "product": {"const": "preserved"},
+                "commercial": {"const": "preserved"},
+                "security": {"const": "preserved"},
+                "privacy": {"const": "preserved"},
+                "operational": {"const": "preserved"}
+              }
+            },
+            "rationale": {"type": "string", "minLength": 1},
+            "evidence": {
+              "type": "array",
+              "minItems": 1,
+              "items": {"type": "string", "minLength": 1}
+            }
+          }
+        }
       }
     },
     "phase_result": {
@@ -610,17 +873,77 @@
         "runtime"
       ],
       "properties": {
-        "schema_version": { "const": 1 },
-        "run_id": { "type": "string", "pattern": "^rfc_[A-Za-z0-9_-]+$" },
-        "phase": { "enum": ["intake", "generation", "review", "handoff"] },
-        "attempt": { "type": "integer", "minimum": 1 },
-        "status": { "enum": ["passed", "failed", "blocked"] },
-        "summary": { "type": "string", "minLength": 1 },
-        "artifact": { "anyOf": [{ "$ref": "#/$defs/artifact" }, { "type": "null" }] },
-        "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence" } },
-        "reviewer_verdicts": { "type": "array", "items": { "$ref": "#/$defs/verdict" } },
-        "blocker": { "anyOf": [{ "$ref": "#/$defs/blocker" }, { "type": "null" }] },
-        "runtime": { "$ref": "#/$defs/runtime" }
+        "schema_version": {"const": 1},
+        "run_id": {"type": "string", "pattern": "^rfc_[A-Za-z0-9_-]+$"},
+        "phase": {
+          "enum": ["intake", "generation", "review", "handoff"]
+        },
+        "attempt": {"type": "integer", "minimum": 1},
+        "status": {
+          "enum": ["passed", "failed", "blocked"]
+        },
+        "summary": {"type": "string", "minLength": 1},
+        "artifact": {
+          "anyOf": [
+            {"$ref": "#/$defs/artifact"},
+            {"type": "null"}
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/evidence"}
+        },
+        "reviewer_verdicts": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/verdict"}
+        },
+        "blocker": {
+          "anyOf": [
+            {"$ref": "#/$defs/blocker"},
+            {"type": "null"}
+          ]
+        },
+        "runtime": {"$ref": "#/$defs/runtime"}
+      }
+    },
+    "deliveryDelegation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "kind",
+        "groom_run_id",
+        "groom_repo_root",
+        "source_base_commit",
+        "proposal_id",
+        "revision",
+        "content_sha256",
+        "proposal_snapshot_sha256",
+        "approved_by",
+        "approved_at",
+        "technical_derivation",
+        "implementation",
+        "boundaries",
+        "grant_sha256"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "kind": {"const": "bounded-product-delivery"},
+        "groom_run_id": {"type": "string", "pattern": "^groom_[A-Za-z0-9_-]+$"},
+        "groom_repo_root": {"type": "string", "minLength": 1},
+        "source_base_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "proposal_id": {"type": "string", "minLength": 1},
+        "revision": {"type": "integer", "minimum": 1},
+        "content_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "proposal_snapshot_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "approved_by": {"type": "string", "minLength": 1},
+        "approved_at": {"type": "string", "format": "date-time"},
+        "technical_derivation": {"const": true},
+        "implementation": {"const": true},
+        "boundaries": {
+          "const": ["product", "commercial", "security", "privacy", "operational"]
+        },
+        "grant_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
       }
     }
   }

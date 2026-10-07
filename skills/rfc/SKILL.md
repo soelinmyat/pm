@@ -7,7 +7,7 @@ description: "Write or revise the technical implementation design for a groomed 
 
 ## Purpose
 
-Turn an approved product proposal or genuinely dev-ready Linear issue into a technically reviewed RFC, then obtain an explicit initial design decision. Maintain reviewed execution details within that approved intent without asking for fresh human approval.
+Turn an approved product proposal or genuinely dev-ready Linear issue into a technically reviewed RFC, then obtain an explicit initial design decision or independently verify an existing bounded product delegation. Maintain reviewed execution details within that approved intent without asking for fresh human approval.
 
 ## Iron Law
 
@@ -44,14 +44,14 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/writing.md` before generating any output.
 4. **Build bounded execution packets.** Use `scripts/rfc-prompt.js` for generation or delegated review. Include only the active objective, ACs, relevant repository findings, exact input/artifact paths, constraints, authority, evidence, and result contract.
 5. **Keep runtime policy in data.** Model and effort defaults live in `references/model-profiles.json`. A provider switch changes the profile, not workflow semantics or reviewer criteria.
 6. **Advance through the runner.** Every non-approval phase returns the strict phase-result envelope in `references/rfc-session.schema.json` and records it with `scripts/rfc-session.js record`. Only the runner advances phases, validates artifact identity, enforces retries, and recognizes completion.
-7. **Separate review from approval.** Passing initial-design review records three lens verdicts against the current sidecar hash and enters `status: awaiting_approval`. In-scope maintenance uses the reviewed `maintained` handoff instead. It does not change RFC/proposal lifecycle status. After the user explicitly approves, record `scripts/rfc-session.js approve --approved-by <identity>`; edits after review force another review.
-8. **Gate external effects independently.** RFC approval approves the design, not Linear creation, unattended loop pickup, opening applications, or starting implementation. Execute those actions only when the corresponding authority boolean is true or after a separate explicit confirmation recorded with `authorize`.
+7. **Separate review from approval.** Ordinary initial-design review records three lens verdicts against the current sidecar hash and enters `status: awaiting_approval`. A verified exact-product grant instead requires three distinct independent preservation assessments and enters the reviewed `delegated` handoff. In-scope maintenance uses the reviewed `maintained` handoff instead. It does not change RFC/proposal lifecycle status. After the user explicitly approves, record `scripts/rfc-session.js approve --approved-by <identity>`; edits after review force another review.
+8. **Gate external effects independently.** RFC approval approves the design, not Linear creation, unattended loop pickup, opening applications, or starting implementation. Execute external effects only when the corresponding authority boolean is true or after a separate explicit confirmation recorded with `authorize`. In-scope implementation may continue under the separately verified exact-product implementation grant; it does not authorize external shipping or platform access.
 9. **Maintain the approved intent autonomously.** Read `references/maintenance.md` for the boundary and current caller path. Ordinary ownership, approach and verification corrections use reviewed maintenance without fresh human approval. `amend` writes no artifact files; the agent appends the `owns` entries or corrects execution details, sets the RFC lifecycle to `draft`, and commits the mirrored pair before review. Material product behavior, scope or significant-risk changes require a user decision. Historical owns-only amendments retain their original explicit-approval contract. If an open amendment should not continue, use `rfc-session.js withdraw --session <path> --reason <why> --json`. Once approved, an amendment cannot be withdrawn; finish its handoff or revise it first. Reviewed maintenance likewise finishes handoff or returns to review. Withdraw prints `restore.commit` and `restore.paths`; run `git checkout <restore.commit> -- <restore.paths>`, then `git diff --cached --quiet -- <restore.paths> || git commit -m "Withdraw RFC amendment" -- <restore.paths>`. Commit only those paths and only when changed.
 10. **Recover explicitly.** If reviewed content changes or the user requests a redesign, run `revise --reason <reason>` and review the new hash. If a recorded blocker is resolved, run `unblock --resolution <resolution>` to resume the same phase with an auditable resolution. If an upgraded in-flight session has a null or legacy-partial design context, run `recertify --session <path> --facts <facts.json>` to invalidate its prior artifact/review/approval/authority and return it through intake; never mutate a completed archive.
 
 ## Loop Worker Mode (headless)
 
-When `PM_LOOP_WORKER=1` with `PM_LOOP_STAGE=rfc`, preserve proposal, generation, artifact validation, technical review, and human approval gates; never self-approve or invent human approval. Reviewed maintenance may retain the prior approved intent as described in `references/maintenance.md`; it grants no external authority. The loop worker is the only canonical durable card-state writer, so do not write or update backlog/card state. Never invoke `approve`, infer approval, update proposal/card lifecycle, or perform external effects. For initial/material design, return `needs-approval` with the verified document after review. Reviewed maintenance completes its local handoff and returns `artifact-ready` with its exact maintained lineage; it does not change an implementation/card grant. Exact statuses: artifact-ready, needs-approval, blocked, failed, noop. Write the document beneath `PM_LOOP_RESULT_DIR` with mode `0600` and the result atomically to `PM_LOOP_RESULT_FILE` with mode `0600`.
+When `PM_LOOP_WORKER=1` with `PM_LOOP_STAGE=rfc`, preserve proposal, generation, artifact validation, technical review, and human approval gates; never self-approve or invent human approval. Reviewed maintenance may retain the prior approved intent as described in `references/maintenance.md`; it grants no external authority. The loop worker is the only canonical durable card-state writer, so do not write or update backlog/card state. Never invoke `approve`, infer approval, update proposal/card lifecycle, or perform external effects. For ordinary initial/material design, return `needs-approval` with the verified document after review. A verified initial product delegation completes its reviewed local handoff and returns `artifact-ready` with original product identity; it creates no new human approval. Reviewed maintenance completes its local handoff and returns `artifact-ready` with its exact maintained lineage; it does not change an implementation/card grant. Exact statuses: artifact-ready, needs-approval, blocked, failed, noop. Write the document beneath `PM_LOOP_RESULT_DIR` with mode `0600` and the result atomically to `PM_LOOP_RESULT_FILE` with mode `0600`.
 
 ## Steps directive
 
@@ -59,10 +59,10 @@ Steps live in `${CLAUDE_PLUGIN_ROOT}/skills/rfc/steps/`. Resolve the one path re
 
 ## Red Flags — Self-Check
 
-- **"The reviewers passed, so the product decision is approved."** Check the decision boundary: initial/material design still needs the human decision; maintenance retains it only after its scope-preserving review.
+- **"The reviewers passed, so the product decision is approved."** Check the decision boundary: ordinary initial/material design still needs the human decision; product-delegated initial design retains it only after independent preservation review; maintenance retains it only after its scope-preserving review.
 - **"The old session says approved."** Use review and approval recertification because legacy state lacks trustworthy provenance.
 - **"A stronger model can keep the whole workflow straight."** Stop and load one phase; future instructions create authority confusion.
-- **"Three reviewers means three agents."** Lenses are mandatory, process count is not; use the smallest independent review shape that preserves judgment quality.
+- **"Three reviewers means three agents."** For product-delegated initial design, three distinct independent reviewers are required. Otherwise lenses are mandatory, process count is not; use the smallest independent review shape that preserves judgment quality.
 - **"The HTML looks unchanged."** Check the sidecar hash and binding; prose confidence is not artifact identity.
 - **"Approval probably includes Linear and loop pickup."** Stop and require separate authority for each external effect.
 
@@ -72,7 +72,7 @@ Steps live in `${CLAUDE_PLUGIN_ROOT}/skills/rfc/steps/`. Resolve the one path re
 - XS/S scope: "This is `{size}` work, so an RFC adds ceremony without safety. Continue with `pm:dev`."
 - Artifact validation fails twice: "RFC generation is blocked by `{validator output}`. The draft and session are preserved at `{paths}`."
 - Reviewer disagreement remains after two fix rounds: "Technical review still has blocking findings. Preserved the exact verdicts and artifact hash; resolve `{decision}` before continuing."
-- Initial/material design approval absent: "Technical review passed. The RFC is awaiting your approval; no downstream state has been changed."
+- Ordinary initial/material design approval absent: "Technical review passed. The RFC is awaiting your approval; no downstream state has been changed."
 
 ## Common Rationalizations
 
@@ -82,13 +82,17 @@ Steps live in `${CLAUDE_PLUGIN_ROOT}/skills/rfc/steps/`. Resolve the one path re
 | "The status is just metadata." | Downstream dev and loop automation treat it as authority. |
 | "More agents are always safer." | Duplicate context and inconsistent schemas increase synthesis errors; dispatch by lens and independence need. |
 | "We can repair the sidecar later." | A present-but-invalid sidecar is a hard downstream halt. |
-| "Starting implementation saves a turn." | RFC approval does not authorize implementation or external delivery actions. |
+| "Starting implementation saves a turn." | Continue only under explicit start authority or the verified bounded product implementation grant; external delivery requires its separate authorization. |
 
 ## Before Marking Done
 
 - [ ] RFC HTML and JSON sidecar are saved, hash-bound, validator-clean, and committed together.
 - [ ] All required review lenses passed against the current artifact hash.
-- [ ] Initial/material design has explicit approval or remains `awaiting_approval`; maintenance has current scope-preserving review and the original approved lineage.
+- [ ] Ordinary initial/material design has explicit approval or remains `awaiting_approval`; delegated initial design has current independent preservation review and its original product grant; maintenance has current scope-preserving review and the original approved lineage.
 - [ ] Proposal, Linear, loop, and implementation effects respected their separate authority grants.
 - [ ] Canonical `session.json` is saved and valid; completed approval audit was not deleted.
 - [ ] The user received the artifact path and the single correct next action.
+
+## Product approval continuity
+
+A verified exact-product delivery grant from Groom permits independently reviewed initial technical derivation and in-scope implementation. Read `references/review-contract.md` for the preservation assessments. The resulting RFC is `delegated` and its artifact lifecycle remains `reviewed`; it is never described as newly human-approved. Without the grant, the explicit initial RFC decision remains required. Material product/commercial changes, uncertain security/privacy/operational boundaries and platform permissions remain escalation points.

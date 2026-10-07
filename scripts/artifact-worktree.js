@@ -7,6 +7,7 @@ const path = require("node:path");
 const { runGit } = require("./loop-git.js");
 const { acquireOwnedLock } = require("./lib/owned-lock.js");
 const { readApprovedProposal } = require("./lib/proposal-schema.js");
+const { transferAppPreviewEvidence } = require("./lib/app-preview.js");
 const {
   defaultBranchNameFromUrl,
   deliveryUrl,
@@ -61,7 +62,7 @@ function artifactBranch(slug, kind) {
   return `codex/${normalized}-${kind}`;
 }
 
-function groomHandoffBase(observedRoot, worktrees, slug, contentRelative) {
+function groomHandoffBase(observedRoot, worktrees, slug, contentRelative, options = {}) {
   const branch = artifactBranch(slug, "groom");
   const registered = worktrees.find((item) => item.branch === branch);
   if (!registered) return null;
@@ -78,10 +79,27 @@ function groomHandoffBase(observedRoot, worktrees, slug, contentRelative) {
     `${slug}.json`
   );
   if (!fs.existsSync(proposalPath)) return null;
+  let approved;
   try {
-    const approved = readApprovedProposal(proposalPath, { projectRoot: ownership.worktree });
+    approved = readApprovedProposal(proposalPath, {
+      projectRoot: ownership.worktree,
+      previewSourceRoot: options.previewSourceRoot,
+    });
     if (approved.contract.slug !== slug) return null;
-  } catch {
+  } catch (error) {
+    // An explicit executable handoff must never silently fall back to main.
+    // Legacy incomplete/unapproved drafts retain their existing fallback.
+    let executableHandoff = false;
+    try {
+      executableHandoff = Boolean(
+        JSON.parse(fs.readFileSync(proposalPath, "utf8")).design_context?.app_preview
+      );
+    } catch {
+      // An unreadable legacy draft is not an approved handoff.
+    }
+    if (executableHandoff) {
+      throw new Error(`Groom app preview handoff cannot be verified: ${error.message}`);
+    }
     return null;
   }
   if (git(ownership.worktree, ["status", "--porcelain=v1"])) {
@@ -94,7 +112,19 @@ function groomHandoffBase(observedRoot, worktrees, slug, contentRelative) {
     commit: git(ownership.worktree, ["rev-parse", "HEAD"]),
     remote: ownership.remote,
     default_branch: ownership.default_branch,
+    worktree: ownership.worktree,
+    app_preview: approved.contract.design_context?.app_preview || null,
   };
+}
+
+function preserveHandoffEvidence(handoff, worktree, slug, options) {
+  if (!handoff?.app_preview) return;
+  const owned = verifyArtifactWorktreeOwnership({ worktree, slug, kind: "rfc" });
+  transferAppPreviewEvidence(handoff.app_preview, {
+    repoRoot: handoff.worktree,
+    targetRoot: owned.worktree,
+    previewSourceRoot: options.previewSourceRoot,
+  });
 }
 
 function refreshRfcHandoff(options) {
@@ -249,7 +279,7 @@ function prepareArtifactWorktree(options) {
     const ownedInherited = gitMaybe(observedRoot, ["config", "--get", inheritedKey]);
     const handoff =
       options.kind === "rfc"
-        ? groomHandoffBase(observedRoot, worktrees, slug, contentRelative)
+        ? groomHandoffBase(observedRoot, worktrees, slug, contentRelative, options)
         : null;
     if (
       branchExists &&
@@ -288,6 +318,7 @@ function prepareArtifactWorktree(options) {
         inheritedFrom: ownedInherited.ok ? ownedInherited.output : null,
         handoff,
       });
+      preserveHandoffEvidence(handoff, worktree, slug, options);
       return {
         ok: true,
         reused: true,
@@ -356,6 +387,7 @@ function prepareArtifactWorktree(options) {
       throw error;
     }
     const worktree = fs.realpathSync(target);
+    preserveHandoffEvidence(handoff, worktree, slug, options);
     return {
       ok: true,
       reused: false,
@@ -385,7 +417,7 @@ function parseArgs(argv) {
   for (let index = 1; index < argv.length; index += 1) {
     const token = argv[index];
     if (token === "--json") options.json = true;
-    else if (["--pm-dir", "--slug", "--kind"].includes(token)) {
+    else if (["--pm-dir", "--slug", "--kind", "--preview-source-root"].includes(token)) {
       const value = argv[index + 1];
       if (!value) throw new Error(`${token} requires a value`);
       options[token.slice(2).replaceAll("-", "_")] = value;
@@ -402,6 +434,7 @@ if (require.main === module) {
       pmDir: options.pm_dir,
       slug: options.slug,
       kind: options.kind,
+      previewSourceRoot: options.preview_source_root,
     });
     process.stdout.write(
       options.json ? `${JSON.stringify(result, null, 2)}\n` : `${result.worktree}\n`

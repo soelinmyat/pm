@@ -28,6 +28,7 @@ function parseArgs(argv) {
         "--proposal",
         "--approval",
         "--project-root",
+        "--preview-source-root",
         "--slug",
         "--decision-id",
         "--decision-sha256",
@@ -38,6 +39,7 @@ function parseArgs(argv) {
           "--proposal": "proposal",
           "--approval": "approval",
           "--project-root": "projectRoot",
+          "--preview-source-root": "previewSourceRoot",
           "--slug": "slug",
           "--decision-id": "decisionId",
           "--decision-sha256": "decisionSha256",
@@ -59,6 +61,7 @@ function check(options) {
     const trusted = options.approved
       ? readApprovedProposal(options.proposal, {
           projectRoot: options.projectRoot,
+          previewSourceRoot: options.previewSourceRoot,
           expectedSlug: options.slug,
           approvalPath: options.approval,
           expectedDecision,
@@ -70,6 +73,7 @@ function check(options) {
       trusted?.source ||
       readProposal(options.proposal, {
         projectRoot: options.projectRoot,
+        previewSourceRoot: options.previewSourceRoot,
         expectedSlug: options.slug,
         allowLegacy: options.allowLegacy,
       });
@@ -110,6 +114,7 @@ function check(options) {
       const approvalSource = readApproval(approvalPath, { projectRoot: options.projectRoot });
       const proposalSource = readProposal(options.proposal, {
         projectRoot: options.projectRoot,
+        previewSourceRoot: options.previewSourceRoot,
         expectedSlug: options.slug,
       });
       const expectedApprovalPath = proposalSource.path.replace(/\.json$/, ".approval.json");

@@ -18,7 +18,7 @@ Read `references/review-questions.md`. Freeze proposal identity, select tier-req
 
 For `quick`, run the two routed questions (`assumption-risk` and `experience`) as a bounded adversarial pass. Sparse knowledge increases scrutiny of assumptions; it does not justify skipping design or independent review. Standard/full/agent keep their broader question sets.
 
-If the frozen proposal has prototype evidence, also read the `@designer` — Visual Quality brief in `references/team-reviewers.md` and execute that prototype designer review against the bound prototype bytes. Run it as an independent worker when available or as an isolated second pass inline. Fold its spec, flow, state, accessibility, existing-pattern, and label-consistency findings into the Experience completeness question without replacing the other routed questions. Treat evidence-backed missing/broken states and unusable or inaccessible behavior as blocking; keep unsupported aesthetic preference advisory. If no prototype exists, do not invent a visual review.
+If the frozen proposal has inert prototype or runnable `app_preview` evidence, also read the `@designer` — Visual Quality brief in `references/team-reviewers.md` and execute that designer review against the exact bound source, fixtures, launch recipe and observed critical states (or inert prototype bytes). Run it as an independent worker when available or as an isolated second pass inline. Fold its spec, flow, state, accessibility, existing-pattern, and label-consistency findings into the Experience completeness question without replacing the other routed questions. Treat evidence-backed missing/broken states and unusable or inaccessible behavior as blocking; keep unsupported aesthetic preference advisory. If no rendered preview exists, keep that absence explicit in Experience completeness; do not invent a visual pass.
 
 Blocking revisions increment the proposal revision, invalidate prior review/approval, regenerate projections, rerun `proposal-quality-check.js`, and rerun every affected question. A run lineage has at most three remediation rounds. Advisory debt remains visible without inventing another round.
 
@@ -26,6 +26,6 @@ When all routed questions pass, persist exactly one answer per `review_contract.
 
 ## Done-when
 
-Every required question has a current answer, any bound prototype has a current designer review, no blocking finding or unresolved dispute remains, and both canonical proposal review metadata and session review evidence bind the exact current proposal hash/revision.
+Every required question has a current answer, any bound inert or runnable preview has a current designer review, no blocking finding or unresolved dispute remains, and both canonical proposal review metadata and session review evidence bind the exact current proposal hash/revision.
 
 **Advance:** if tier is `full` or `agent`, proceed to Step 8 (Presentation); otherwise proceed to Step 9 (Approval).

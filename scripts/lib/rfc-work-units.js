@@ -30,6 +30,8 @@ function rfcIssuesToDevWorkUnits(sidecar, options = {}) {
   }));
   return validateWorkUnits(units, {
     repoRoot: options.repoRoot,
+    previewSourceRoot: options.previewSourceRoot,
+    previewSourceRoots: options.previewSourceRoots,
     requireCurrentPrototypeIdentity: true,
     requireExperienceClassification: true,
   });

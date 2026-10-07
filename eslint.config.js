@@ -41,6 +41,13 @@ module.exports = [
     },
   },
   {
+    files: ["tests/fixtures/product-autonomy/**/*.mjs"],
+    languageOptions: {
+      sourceType: "module",
+      globals: { ...globals.browser },
+    },
+  },
+  {
     ignores: ["node_modules/", ".worktrees/", ".pm/", "1.0.*/", "templates/"],
   },
 ];

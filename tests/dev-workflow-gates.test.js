@@ -126,7 +126,9 @@ test("design critique uses the bound two-mode evidence contract", () => {
   assert.match(evaluate, /Fresh Eyes/);
   assert.match(evaluate, /`design-critique`, `qa`, or `review`/);
   assert.match(resolve, /distinct `before_capture_id` and `after_capture_id`/);
-  assert.match(resolve, /two total review rounds/);
+  assert.match(resolve, /After two unresolved rounds/);
+  assert.match(resolve, /concrete changed approach/);
+  assert.doesNotMatch(resolve, /two total review rounds/);
   assert.match(publish, /scripts\/design-critique-check\.js/);
   assert.match(publish, /map `deferred` to `blocked`/);
   assert.match(
@@ -196,7 +198,8 @@ test("review preserves immutable fix rounds and publishes only the passing proje
   assert.match(target, /--dev-session/);
   assert.match(synthesize, /review-report\.js.*draft-report\.json.*draft-report\.html/);
   assert.match(resolve, /round-\{N-1\}\/report\.json/);
-  assert.match(resolve, /Check `review_round` against `iteration_cap` before any edit/);
+  assert.match(resolve, /diagnos.*observed failure/i);
+  assert.match(resolve, /same run ID/);
   assert.ok(
     resolve.indexOf("finalize, render, and validate") < resolve.indexOf("Apply one coherent")
   );

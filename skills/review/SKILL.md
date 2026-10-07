@@ -41,7 +41,7 @@ Review may create Design Critique or QA handoffs. Those handoffs stay visible bu
 
 - `passed` — every applicable logical lens is current; no unresolved Review-owned high/critical finding, no unresolved disagreement.
 - `failed` — current evidence contains Review-owned high/critical blockers that require a source fix and another round.
-- `blocked` — disagreement, decision-required work, deferred blocker, missing capability, or round cap prevents a safe verdict.
+- `blocked` — disagreement, decision-required work, deferred blocker, material scope/risk change, or missing capability prevents a safe verdict.
 
 ## Workflow
 
@@ -70,7 +70,7 @@ Resolve session paths with `deriveSessionSlug` from `scripts/lib/session-slug.js
 
 - Product or architecture decision: "Review found a decision outside source-quality authority: {issue}. Return to {pm:groom|pm:rfc} or decide explicitly before continuing."
 - Reviewer disagreement: "Reviewers disagree on {finding}. Record an approver, action, and rationale in `decisions.json`; I will not choose silently."
-- Three rounds without convergence: "Review reached its three-round cap. The current report preserves remaining blockers at {report_path}; human direction is required."
+- Three rounds without convergence: preserve the failed report, diagnose the observed cause, change the authorized scoped approach, and continue the same lineage with fresh checks. A counter alone cannot require human reapproval. Disputed remedies, product/commercial decisions, material security/privacy/operational risk, unavailable dependencies, and evidence resource limits retain their actual blockers.
 - Missing safe reviewer runtime: "The configured profile cannot provide structured read-only review safely. Switch/fix the profile or run the planned lenses inline-sequentially."
 
 ## Common rationalizations
@@ -82,7 +82,7 @@ Resolve session paths with `deriveSessionSlug` from `scripts/lib/session-slug.js
 | "Reusing old results saves time." | Result bindings intentionally fail after any commit or diff change; the hash-bound freshness paths in `references/delta-supplement.md` are the only sanctioned exception. |
 | "A handoff to QA means Review failed." | Handoffs are non-overlapping ownership, not Review blockers. |
 | "One aggregate verdict is enough." | Each assigned lens needs its own clean/findings verdict and summary. |
-| "A new run ID gives the reviewers a clean slate." | It also evades the three-round cap. Continue the active lineage or obtain explicit direction that advances the Dev decision version. |
+| "A new run ID gives the reviewers a clean slate." | It erases unresolved failure history. Continue the active lineage with grounded recovery; advance the Dev decision version only for a genuine externally supplied decision. |
 
 ## Before marking done
 

@@ -153,6 +153,27 @@ test("RFC preparation inherits the committed proposal from its owned Groom workt
   assert.equal(fs.existsSync(path.join(rfc.pm_dir, "backlog/proposals/handoff.json")), true);
 });
 
+test("RFC preparation refuses an unverifiable executable Groom handoff instead of falling back", (t) => {
+  const seeded = fixture();
+  t.after(seeded.cleanup);
+  const groom = prepareArtifactWorktree({
+    pmDir: seeded.shared,
+    slug: "app-handoff",
+    kind: "groom",
+  });
+  writeApprovedProposal(groom.pm_dir, "app-handoff");
+  const proposalPath = path.join(groom.pm_dir, "backlog/proposals/app-handoff.json");
+  const proposal = JSON.parse(fs.readFileSync(proposalPath, "utf8"));
+  proposal.design_context.app_preview = { sha256: `sha256:${"f".repeat(64)}` };
+  fs.writeFileSync(proposalPath, JSON.stringify(proposal));
+  git(groom.worktree, "add", "--all");
+  git(groom.worktree, "commit", "-m", "retain invalid executable handoff");
+  assert.throws(
+    () => prepareArtifactWorktree({ pmDir: seeded.shared, slug: "app-handoff", kind: "rfc" }),
+    /app preview handoff cannot be verified/
+  );
+});
+
 test("RFC handoff refuses uncommitted Groom artifact bytes", (t) => {
   const seeded = fixture();
   t.after(seeded.cleanup);

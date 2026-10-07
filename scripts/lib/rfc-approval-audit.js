@@ -18,6 +18,7 @@ const {
   readCommittedHtml,
   readCommittedSidecar,
   validateSession: validateRfcSession,
+  verifyProposalIdentity,
 } = require("./rfc-session-schema.js");
 
 const V1_FIELDS = [
@@ -32,6 +33,7 @@ const V1_FIELDS = [
   "approval_transition_sha256",
 ];
 const V2_FIELDS = [...V1_FIELDS, "amends", "amended_issue_nums", "reason"];
+const DELEGATED_FIELDS = ["product_decision", "delivery_delegation"];
 
 // Proves exact original human approval or a scope-preserving reviewed
 // maintenance lineage, backed by immutable completed runs and committed bytes.
@@ -80,6 +82,7 @@ function verifyRfcApproval({ sidecarPath, slug, archiveRepoRoot, lineageTo = nul
   if (committed.sha256 !== sha256(approvalBytes)) {
     throw new Error("RFC approval audit on disk differs from the committed approval audit");
   }
+  if (archived.context.delivery_delegation) verifyProposalIdentity(archived);
   const lineage = walkLineage({
     archived,
     approval,
@@ -95,6 +98,7 @@ function verifyRfcApproval({ sidecarPath, slug, archiveRepoRoot, lineageTo = nul
     artifact_repo_root: artifactRepoRoot,
     sidecar_sha256: approval.sidecar_sha256,
     lineage,
+    delegation: archived.context.delivery_delegation || null,
   };
 }
 
@@ -109,7 +113,7 @@ function walkLineage({ archived, approval, archiveRepoRoot, slug, lineageTo, cur
   // Each hop's prior artifact is the next hop's current one; read it once.
   let currentSidecar = JSON.parse(currentBytes.sidecar.toString("utf8"));
   let currentHtml = currentBytes.html.toString("utf8");
-  while ([2, 3].includes(audit.schema_version)) {
+  while ([2, 3, 5].includes(audit.schema_version)) {
     if (lineage.length > MAX_LINEAGE_HOPS) {
       throw new Error(`RFC approval lineage exceeds ${MAX_LINEAGE_HOPS} amendments`);
     }
@@ -144,7 +148,15 @@ function walkLineage({ archived, approval, archiveRepoRoot, slug, lineageTo, cur
     try {
       priorSidecar = readCommittedSidecar(prior.artifact);
       priorHtml = readCommittedHtml(prior.artifact);
-      const maintenance = audit.schema_version === 3;
+      const maintenance = [3, 5].includes(audit.schema_version);
+      if (
+        audit.schema_version === 5 &&
+        (stableStringify(current.context.delivery_delegation) !==
+          stableStringify(prior.context.delivery_delegation) ||
+          current.context.proposal_identity?.decision_sha256 !==
+            prior.context.proposal_identity?.decision_sha256)
+      )
+        throw new Error("maintenance altered the original delegated product decision/grant");
       if (
         maintenance &&
         (audit.approved_by !== priorAudit.audit.approved_by ||
@@ -179,15 +191,22 @@ function walkLineage({ archived, approval, archiveRepoRoot, slug, lineageTo, cur
 
 function hasApprovalShape(approval, slug) {
   if (!isObject(approval)) return false;
-  const fields = [2, 3].includes(approval.schema_version) ? V2_FIELDS : V1_FIELDS;
-  if (![1, 2, 3].includes(approval.schema_version)) return false;
+  const fields = [2, 3, 5].includes(approval.schema_version)
+    ? [...V2_FIELDS, ...(approval.schema_version === 5 ? DELEGATED_FIELDS : [])]
+    : [...V1_FIELDS, ...(approval.schema_version === 4 ? DELEGATED_FIELDS : [])];
+  if (![1, 2, 3, 4, 5].includes(approval.schema_version)) return false;
   if (Object.keys(approval).some((field) => !fields.includes(field))) return false;
   if (fields.some((field) => !Object.hasOwn(approval, field))) return false;
   return (
     typeof approval.run_id === "string" &&
     /^rfc_[A-Za-z0-9_-]+$/.test(approval.run_id) &&
     approval.slug === slug &&
-    approval.status === (approval.schema_version === 3 ? "maintained" : "approved") &&
+    approval.status ===
+      ([3, 5].includes(approval.schema_version)
+        ? "maintained"
+        : approval.schema_version === 4
+          ? "delegated"
+          : "approved") &&
     typeof approval.approved_by === "string" &&
     approval.approved_by.trim() !== "" &&
     isRfc3339DateTime(approval.approved_at)
