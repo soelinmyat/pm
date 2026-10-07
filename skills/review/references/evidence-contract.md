@@ -218,6 +218,14 @@ Use the existing explicit Dev product-decision version boundary and a new review
 lineage when trusted direction changes the approved decision; a diagnosis never
 authenticates that direction.
 
+When the immediately prior canonical report is blocked with no source findings
+and its bound diagnosis is `external-dependency`, `evidence_ids` may cite
+`recovery-report:<prior-report-relative-path>#sha256:<prior-report-sha256>`.
+Both producer and checker derive this identity from the exact predecessor
+bindings; old finding IDs, foreign paths and stale/wrong digests cannot replace
+it. This retains the dependency observation without inventing source findings
+or clearing product/risk authority. Restoration still requires fresh checks.
+
 The immediately prior non-passing report is hash-bound, recursively checked
 against frozen Git and original upstream evidence, and belongs to the same run
 at round N−1. Current source must be a different descendant commit. Every new

@@ -51,6 +51,7 @@ const {
   RECOVERY_POLICY,
   recoveryRequiresAuthority,
   recoveryRequiresDecision,
+  reviewRecoveryEvidenceIds,
   validateScopedRecovery,
 } = require("./lib/scoped-recovery");
 
@@ -612,7 +613,7 @@ function validateTargetBindings(root, target, reviewRoot, options, issues) {
         issues.push(
           ...validateScopedRecovery(target.recovery, {
             path: "target.recovery",
-            evidenceIds: (value.findings || []).map((finding) => finding.id),
+            evidenceIds: reviewRecoveryEvidenceIds(value, target.prior_report, previousRecovery),
             previousRecovery,
             previousDecisionRequired,
           })

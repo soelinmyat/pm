@@ -22,6 +22,7 @@ const {
   MAX_RECOVERY_ROUNDS,
   RECOVERY_POLICY,
   recoveryRequiresAuthority,
+  reviewRecoveryEvidenceIds,
   validateScopedRecovery,
 } = require("./lib/scoped-recovery");
 // Shared with the freshness evaluator so environment hardening cannot drift
@@ -99,7 +100,11 @@ function buildReviewTarget(options) {
   if (recovery !== undefined) {
     if (!priorLoaded) throw new Error("recovery diagnosis requires a retained predecessor report");
     const issues = validateScopedRecovery(recovery, {
-      evidenceIds: (priorLoaded.value?.findings || []).map((finding) => finding.id),
+      evidenceIds: reviewRecoveryEvidenceIds(
+        priorLoaded.value,
+        priorLoaded.binding,
+        priorTarget?.value?.recovery
+      ),
       previousRecovery: priorTarget?.value?.recovery,
       previousDecisionRequired,
     });

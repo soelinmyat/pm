@@ -46,7 +46,10 @@ test("Review evidence paths permit consecutive recovery rounds while retaining e
   assert.throws(() => reviewPathContext(`${root}/round-51/target.json`, 51));
 });
 
-const { validateScopedRecovery } = require("../scripts/lib/scoped-recovery");
+const {
+  validateScopedRecovery,
+  reviewRecoveryEvidenceIds,
+} = require("../scripts/lib/scoped-recovery");
 const diagnosis = () => ({
   classification: "product-defect",
   observed: "Repeated desktop overflow remains.",
@@ -73,6 +76,51 @@ test("recovery diagnosis cannot substitute new IDs or a scope claim for changed 
     if (variant === "dispute") context.previousDecisionRequired = true;
     assert.ok(validateScopedRecovery(candidate, context).length > 0, variant);
   }
+});
+
+test("dependency-only recovery evidence binds the actual predecessor without inventing finding IDs", () => {
+  const report = { outcome: "blocked", findings: [] };
+  const binding = {
+    path: ".pm/dev-sessions/example/review/runs/retained/round-4/report.json",
+    sha256: "a".repeat(64),
+  };
+  const recovery = { classification: "external-dependency", scope_assessment: "decision-required" };
+  const expected = `recovery-report:${binding.path}#sha256:${binding.sha256}`;
+  assert.deepEqual(reviewRecoveryEvidenceIds(report, binding, recovery), [expected]);
+  assert.deepEqual(
+    reviewRecoveryEvidenceIds(
+      { ...report, findings: [{ id: "rv-original-source" }] },
+      binding,
+      recovery
+    ),
+    ["rv-original-source"]
+  );
+  for (const classified of ["product-decision", "scope-risk-change", "product-defect"])
+    assert.deepEqual(
+      reviewRecoveryEvidenceIds(report, binding, { ...recovery, classification: classified }),
+      []
+    );
+  assert.deepEqual(
+    reviewRecoveryEvidenceIds({ ...report, outcome: "passed" }, binding, recovery),
+    []
+  );
+  assert.deepEqual(
+    reviewRecoveryEvidenceIds(report, { ...binding, sha256: "invented" }, recovery),
+    []
+  );
+  assert.deepEqual(reviewRecoveryEvidenceIds(report, undefined, recovery), []);
+  const ids = reviewRecoveryEvidenceIds(report, binding, recovery);
+  assert.deepEqual(
+    validateScopedRecovery({ ...diagnosis(), evidence_ids: ids }, { evidenceIds: ids }),
+    []
+  );
+  assert.ok(
+    validateScopedRecovery(
+      { ...diagnosis(), evidence_ids: ids },
+      { evidenceIds: ids, previousDecisionRequired: true }
+    ).length > 0,
+    "a report identity cannot grant product/risk authority"
+  );
 });
 
 const fs = require("node:fs");

@@ -27,6 +27,24 @@ function recoveryRequiresAuthority(recovery) {
   return recoveryRequiresDecision(recovery) && recovery?.classification !== "external-dependency";
 }
 
+// Callers verify these predecessor report/target bindings. A dependency-only
+// blocker supplies a report identity, never a fabricated source finding.
+function reviewRecoveryEvidenceIds(report, binding, recovery) {
+  const ids = (report?.findings || []).map((finding) => finding.id);
+  if (
+    report?.outcome === "blocked" &&
+    Array.isArray(report.findings) &&
+    ids.length === 0 &&
+    recovery?.classification === "external-dependency" &&
+    recovery.scope_assessment === "decision-required" &&
+    typeof binding?.path === "string" &&
+    binding.path &&
+    /^[a-f0-9]{64}$/.test(binding.sha256 || "")
+  )
+    ids.push(`recovery-report:${binding.path}#sha256:${binding.sha256}`);
+  return ids;
+}
+
 function validateScopedRecovery(recovery, context = {}) {
   const issues = [];
   const at = context.path || "recovery";
@@ -109,5 +127,6 @@ module.exports = {
   RECOVERY_THRESHOLDS,
   recoveryRequiresAuthority,
   recoveryRequiresDecision,
+  reviewRecoveryEvidenceIds,
   validateScopedRecovery,
 };
